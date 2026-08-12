@@ -19,7 +19,8 @@ typecheck_oracle() {
 		--moduleResolution NodeNext \
 		--types node \
 		--typeRoots "$source_worktree/node_modules/@types" \
-		oracle/protocol-oracle.ts
+		oracle/protocol-oracle.ts \
+		oracle/rpc-jsonl-oracle.ts
 }
 
 case "${1:-all}" in
@@ -30,7 +31,8 @@ case "${1:-all}" in
 		;;
 	differential)
 		shift
-		exec cargo test -p pi-protocol --test differential_protocol "$@"
+		cargo test -p pi-protocol --test differential_protocol "$@"
+		exec cargo test -p pi-coding-agent --test differential_rpc_jsonl "$@"
 		;;
 	oracle)
 		typecheck_oracle

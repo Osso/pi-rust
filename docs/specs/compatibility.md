@@ -47,11 +47,12 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-protocol/tests/differential_protocol/schema_leaves.rs`
 - `crates/pi-protocol/tests/differential_protocol/session_metadata.rs`
 - `crates/pi-protocol/tests/differential_protocol/usage.rs`
+- `crates/pi-coding-agent/tests/rpc_jsonl.rs`
+- `crates/pi-coding-agent/tests/differential_rpc_jsonl.rs`
 
 ## Known gaps (current cycle)
 
 - [ ] Classify and resolve the payload-above-4-GiB proof gap.
-- [ ] Complete pinned differential proof for RPC JSONL framing and its approved serializer discrepancies.
 
 ## Out of scope
 
@@ -63,5 +64,5 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - Generic public CBOR or JavaScript-number value models; typed schema fields use their actual Rust numeric types.
 - Refactoring behavior while translating it.
 - Treating TypeScript as the intended-behavior authority when a specification or invariant contradicts it.
-- Byte-identical `JSON.stringify` number spelling in RPC JSONL. Stock `serde_json` semantic output was approved August 12, 2026; exact known discrepancies remain documented and tested.
+- Byte-identical `JSON.stringify` output in RPC JSONL. Stock `serde_json` semantic output was approved August 12, 2026; exact number-spelling discrepancies are pinned against the source, and Rust map order follows the selected serializer.
 - Claiming full Pi compatibility before all package contracts are ported and integrated.

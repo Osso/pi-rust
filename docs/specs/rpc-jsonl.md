@@ -32,20 +32,25 @@ RPC JSONL framing ports `packages/coding-agent/src/modes/rpc/jsonl.ts` from the 
 - `crates/pi-coding-agent/src/modes/rpc/jsonl.rs` — compact JSON serialization and incremental line decoder.
 - `crates/pi-coding-agent/src/modes/rpc/mod.rs` — public RPC-mode exports.
 - `crates/pi-coding-agent/tests/rpc_jsonl.rs` — focused serialization and decoder behavior.
+- `oracle/rpc-jsonl-oracle.ts` — persistent adapter over the pinned TypeScript JSONL functions.
+- `crates/pi-coding-agent/tests/differential_rpc_jsonl/` — shared-output comparison and approved-discrepancy proof.
 
 ## Tests asserting this spec
 
 - `crates/pi-coding-agent/tests/rpc_jsonl.rs`
+- `crates/pi-coding-agent/tests/differential_rpc_jsonl.rs`
+- `crates/pi-coding-agent/tests/differential_rpc_jsonl/decoder.rs`
+- `crates/pi-coding-agent/tests/differential_rpc_jsonl/serialization.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Compare shared serialization and decoder sequences directly with the pinned TypeScript source.
-- [ ] Record the approved number-spelling discrepancies through pinned source probes.
+None.
 
 ## Out of scope
 
 - JSON parsing, RPC command or response schemas, dispatch, and error responses.
 - stdin/stdout ownership, Node stream listener attachment or detachment, backpressure, stream errors, and callback ordering with unrelated listeners.
 - JavaScript-only serialization inputs such as `undefined`, functions, symbols, `BigInt`, cyclic objects, and throwing `toJSON` methods.
-- Byte-identical `JSON.stringify` number spelling. Alessio approved stock `serde_json` semantic JSON on August 12, 2026; known differences include integral floats, negative zero, exponent thresholds, and Rust integers without exact JavaScript Number equivalents.
+- Byte-identical `JSON.stringify` output. Alessio approved stock `serde_json` semantic JSON on August 12, 2026; proven differences include integral floats, negative zero, exponent thresholds, and Rust integers without exact JavaScript Number equivalents. Object-key order follows the Rust serializer rather than a JavaScript object model.
+- JavaScript string chunks containing lone UTF-16 surrogates, which Rust `str` cannot represent.
 - Line-length limits or malformed-JSON validation.
