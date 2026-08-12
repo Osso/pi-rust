@@ -644,7 +644,23 @@ function executeFrameAssertion(
 	return { id: request.id, ok: true, output: null };
 }
 
+function executeStringSchemaRequest(request: Request, schema: SchemaApi, typebox: TypeboxApi): Response | undefined {
+	switch (request.operation) {
+		case "validate_thinking_level":
+			return executeSchemaString(request.id, request.value, schema.ThinkingLevelSchema, typebox);
+		case "validate_session_phase":
+			return executeSchemaString(request.id, request.value, schema.SessionPhaseSchema, typebox);
+		case "validate_protocol_error_code":
+			return executeSchemaString(request.id, request.value, schema.ProtocolErrorCodeSchema, typebox);
+		default:
+			return undefined;
+	}
+}
+
 function executeRequest(request: Request, framing: FramingApi, schema: SchemaApi, typebox: TypeboxApi): Response {
+	const stringSchemaResponse = executeStringSchemaRequest(request, schema, typebox);
+	if (stringSchemaResponse !== undefined) return stringSchemaResponse;
+
 	switch (request.operation) {
 		case "encode_frame":
 			return executeFrameEncoding(request, framing);
@@ -654,10 +670,6 @@ function executeRequest(request: Request, framing: FramingApi, schema: SchemaApi
 			return executeDecoderSequence(request, framing);
 		case "validate_model_cost":
 			return executeModelCost(request, schema, typebox);
-		case "validate_thinking_level":
-			return executeSchemaString(request.id, request.value, schema.ThinkingLevelSchema, typebox);
-		case "validate_session_phase":
-			return executeSchemaString(request.id, request.value, schema.SessionPhaseSchema, typebox);
 		case "validate_model_ref":
 			return executeModelRef(request, schema, typebox);
 		case "validate_model_metadata":
@@ -672,9 +684,8 @@ function executeRequest(request: Request, framing: FramingApi, schema: SchemaApi
 			return executeImageContent(request, schema, typebox);
 		case "validate_session_metadata":
 			return executeSessionMetadata(request, schema, typebox);
-		case "validate_protocol_error_code":
-			return executeSchemaString(request.id, request.value, schema.ProtocolErrorCodeSchema, typebox);
 	}
+	throw new Error("Unsupported protocol oracle operation");
 }
 
 function execute(request: Request, framing: FramingApi, schema: SchemaApi, typebox: TypeboxApi): Response {

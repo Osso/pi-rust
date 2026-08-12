@@ -75,7 +75,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/src/lib.rs` — exports schema types and validation errors.
 - `crates/pi-protocol/src/schemas.rs` — schema APIs and public re-exports.
 - `crates/pi-protocol/src/schemas/session_metadata.rs` — `SessionMetadataInput`, `SessionMetadata::new`, six getters, and `SessionMetadataError::{EmptyId, EmptyParentSessionId, EmptyCwd}`.
-- `crates/pi-protocol/src/schemas/protocol_error_code.rs` — `ProtocolErrorCode`, exact string mappings, and `ParseProtocolErrorCodeError`.
+- `crates/pi-protocol/src/schemas/protocol_error_code.rs` — `ProtocolErrorCode`, `as_str`, `FromStr`, and `ParseProtocolErrorCodeError`.
 
 ## Tests asserting this spec
 
