@@ -9,31 +9,61 @@ fn options(max_lines: usize, max_bytes: usize) -> TruncationOptions {
     TruncationOptions { max_lines, max_bytes }
 }
 
-fn result(
-    content: &str,
-    truncated: bool,
-    truncated_by: Option<TruncatedBy>,
+#[derive(Clone, Copy)]
+struct Counts {
     total_lines: usize,
     total_bytes: usize,
     output_lines: usize,
     output_bytes: usize,
-    last_line_partial: bool,
-    first_line_exceeds_limit: bool,
-    max_lines: usize,
-    max_bytes: usize,
-) -> TruncationResult {
-    TruncationResult {
-        content: content.to_owned(),
-        truncated,
-        truncated_by,
+}
+
+const fn counts(total_lines: usize, total_bytes: usize, output_lines: usize, output_bytes: usize) -> Counts {
+    Counts {
         total_lines,
         total_bytes,
         output_lines,
         output_bytes,
-        last_line_partial,
-        first_line_exceeds_limit,
-        max_lines,
-        max_bytes,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Flags {
+    last_line_partial: bool,
+    first_line_exceeds_limit: bool,
+}
+
+const NO_FLAGS: Flags = Flags {
+    last_line_partial: false,
+    first_line_exceeds_limit: false,
+};
+const LAST_LINE_PARTIAL: Flags = Flags {
+    last_line_partial: true,
+    first_line_exceeds_limit: false,
+};
+const FIRST_LINE_EXCEEDS_LIMIT: Flags = Flags {
+    last_line_partial: false,
+    first_line_exceeds_limit: true,
+};
+
+fn result(
+    content: &str,
+    truncated_by: Option<TruncatedBy>,
+    counts: Counts,
+    flags: Flags,
+    limits: TruncationOptions,
+) -> TruncationResult {
+    TruncationResult {
+        content: content.to_owned(),
+        truncated: truncated_by.is_some(),
+        truncated_by,
+        total_lines: counts.total_lines,
+        total_bytes: counts.total_bytes,
+        output_lines: counts.output_lines,
+        output_bytes: counts.output_bytes,
+        last_line_partial: flags.last_line_partial,
+        first_line_exceeds_limit: flags.first_line_exceeds_limit,
+        max_lines: limits.max_lines,
+        max_bytes: limits.max_bytes,
     }
 }
 
@@ -65,11 +95,11 @@ fn no_truncation_preserves_crlf_unicode_trailing_lf_and_full_metadata() {
 
     assert_eq!(
         truncate_head(content, options(2, 9)),
-        result(content, false, None, 2, 9, 2, 9, false, false, 2, 9)
+        result(content, None, counts(2, 9, 2, 9), NO_FLAGS, options(2, 9))
     );
     assert_eq!(
         truncate_tail(content, options(2, 9)),
-        result(content, false, None, 2, 9, 2, 9, false, false, 2, 9)
+        result(content, None, counts(2, 9, 2, 9), NO_FLAGS, options(2, 9))
     );
 }
 
@@ -77,11 +107,11 @@ fn no_truncation_preserves_crlf_unicode_trailing_lf_and_full_metadata() {
 fn empty_input_with_zero_limits_is_not_truncated() {
     assert_eq!(
         truncate_head("", options(0, 0)),
-        result("", false, None, 0, 0, 0, 0, false, false, 0, 0)
+        result("", None, counts(0, 0, 0, 0), NO_FLAGS, options(0, 0))
     );
     assert_eq!(
         truncate_tail("", options(0, 0)),
-        result("", false, None, 0, 0, 0, 0, false, false, 0, 0)
+        result("", None, counts(0, 0, 0, 0), NO_FLAGS, options(0, 0))
     );
 }
 
@@ -91,16 +121,10 @@ fn head_byte_limit_keeps_complete_lines() {
         truncate_head("aa\nbbb\nc", options(10, 6)),
         result(
             "aa\nbbb",
-            true,
             Some(TruncatedBy::Bytes),
-            3,
-            8,
-            2,
-            6,
-            false,
-            false,
-            10,
-            6
+            counts(3, 8, 2, 6),
+            NO_FLAGS,
+            options(10, 6)
         )
     );
 }
@@ -109,7 +133,13 @@ fn head_byte_limit_keeps_complete_lines() {
 fn head_reports_an_oversized_first_line() {
     assert_eq!(
         truncate_head("éé\nabc", options(10, 3)),
-        result("", true, Some(TruncatedBy::Bytes), 2, 8, 0, 0, false, true, 10, 3)
+        result(
+            "",
+            Some(TruncatedBy::Bytes),
+            counts(2, 8, 0, 0),
+            FIRST_LINE_EXCEEDS_LIMIT,
+            options(10, 3)
+        )
     );
 }
 
@@ -117,7 +147,13 @@ fn head_reports_an_oversized_first_line() {
 fn head_line_limit_keeps_complete_lines() {
     assert_eq!(
         truncate_head("a\nb\nc", options(2, 100)),
-        result("a\nb", true, Some(TruncatedBy::Lines), 3, 5, 2, 3, false, false, 2, 100)
+        result(
+            "a\nb",
+            Some(TruncatedBy::Lines),
+            counts(3, 5, 2, 3),
+            NO_FLAGS,
+            options(2, 100)
+        )
     );
 }
 
@@ -125,7 +161,13 @@ fn head_line_limit_keeps_complete_lines() {
 fn head_reports_lines_when_line_and_byte_limits_are_reached_exactly() {
     assert_eq!(
         truncate_head("a\nb\nc", options(2, 3)),
-        result("a\nb", true, Some(TruncatedBy::Lines), 3, 5, 2, 3, false, false, 2, 3)
+        result(
+            "a\nb",
+            Some(TruncatedBy::Lines),
+            counts(3, 5, 2, 3),
+            NO_FLAGS,
+            options(2, 3)
+        )
     );
 }
 
@@ -133,7 +175,13 @@ fn head_reports_lines_when_line_and_byte_limits_are_reached_exactly() {
 fn head_zero_line_limit_returns_empty_output() {
     assert_eq!(
         truncate_head("a\nb", options(0, 100)),
-        result("", true, Some(TruncatedBy::Lines), 2, 3, 0, 0, false, false, 0, 100)
+        result(
+            "",
+            Some(TruncatedBy::Lines),
+            counts(2, 3, 0, 0),
+            NO_FLAGS,
+            options(0, 100)
+        )
     );
 }
 
@@ -141,7 +189,13 @@ fn head_zero_line_limit_returns_empty_output() {
 fn tail_line_limit_keeps_complete_suffix_lines() {
     assert_eq!(
         truncate_tail("a\nb\nc", options(2, 100)),
-        result("b\nc", true, Some(TruncatedBy::Lines), 3, 5, 2, 3, false, false, 2, 100)
+        result(
+            "b\nc",
+            Some(TruncatedBy::Lines),
+            counts(3, 5, 2, 3),
+            NO_FLAGS,
+            options(2, 100)
+        )
     );
 }
 
@@ -151,16 +205,10 @@ fn tail_byte_limit_keeps_multiple_complete_suffix_lines() {
         truncate_tail("a\nbb\nccc", options(10, 6)),
         result(
             "bb\nccc",
-            true,
             Some(TruncatedBy::Bytes),
-            3,
-            8,
-            2,
-            6,
-            false,
-            false,
-            10,
-            6
+            counts(3, 8, 2, 6),
+            NO_FLAGS,
+            options(10, 6)
         )
     );
 }
@@ -169,7 +217,13 @@ fn tail_byte_limit_keeps_multiple_complete_suffix_lines() {
 fn tail_byte_limit_keeps_a_partial_unicode_suffix() {
     assert_eq!(
         truncate_tail("aé🙂b", options(10, 5)),
-        result("🙂b", true, Some(TruncatedBy::Bytes), 1, 8, 1, 5, true, false, 10, 5)
+        result(
+            "🙂b",
+            Some(TruncatedBy::Bytes),
+            counts(1, 8, 1, 5),
+            LAST_LINE_PARTIAL,
+            options(10, 5)
+        )
     );
 }
 
@@ -177,7 +231,13 @@ fn tail_byte_limit_keeps_a_partial_unicode_suffix() {
 fn tail_drops_an_oversized_scalar_without_splitting_it() {
     assert_eq!(
         truncate_tail("abc🙂", options(10, 3)),
-        result("", true, Some(TruncatedBy::Bytes), 1, 7, 1, 0, true, false, 10, 3)
+        result(
+            "",
+            Some(TruncatedBy::Bytes),
+            counts(1, 7, 1, 0),
+            LAST_LINE_PARTIAL,
+            options(10, 3)
+        )
     );
 }
 
@@ -185,7 +245,13 @@ fn tail_drops_an_oversized_scalar_without_splitting_it() {
 fn tail_reclassifies_empty_partial_output_as_lines_at_zero_bytes() {
     assert_eq!(
         truncate_tail("abc🙂", options(1, 0)),
-        result("", true, Some(TruncatedBy::Lines), 1, 7, 1, 0, true, false, 1, 0)
+        result(
+            "",
+            Some(TruncatedBy::Lines),
+            counts(1, 7, 1, 0),
+            LAST_LINE_PARTIAL,
+            options(1, 0)
+        )
     );
 }
 
@@ -245,10 +311,16 @@ fn combining_marks_nul_and_supplementary_scalars_remain_byte_safe() {
 
     assert_eq!(
         truncate_head(content, options(10, 100)),
-        result(content, false, None, 1, 7, 1, 7, false, false, 10, 100)
+        result(content, None, counts(1, 7, 1, 7), NO_FLAGS, options(10, 100))
     );
     assert_eq!(
         truncate_tail(content, options(10, 4)),
-        result("🙂", true, Some(TruncatedBy::Bytes), 1, 7, 1, 4, true, false, 10, 4)
+        result(
+            "🙂",
+            Some(TruncatedBy::Bytes),
+            counts(1, 7, 1, 4),
+            LAST_LINE_PARTIAL,
+            options(10, 4)
+        )
     );
 }
