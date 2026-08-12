@@ -6,18 +6,18 @@ Protocol framing ports `packages/protocol/src/framing.ts` from the pinned TypeSc
 
 ### Construction
 
-- [ ] Prefix every payload with its unsigned 32-bit big-endian byte length.
-- [ ] Return newly owned bytes so later input mutation cannot change the frame.
-- [ ] Encode an empty payload as four zero bytes.
+- [x] Prefix every payload with its unsigned 32-bit big-endian byte length.
+- [x] Return newly owned bytes so later input mutation cannot change the frame.
+- [x] Encode an empty payload as four zero bytes.
 - [ ] Reject payload lengths above the unsigned 32-bit limit.
 
 ### Validation
 
-- [ ] Accept exactly one complete frame at or below the configured maximum.
-- [ ] Use 16 MiB as the default maximum payload length.
-- [ ] Reject incomplete length prefixes.
-- [ ] Reject declared lengths above the configured maximum.
-- [ ] Reject partial payloads and trailing bytes with the source error messages.
+- [x] Accept exactly one complete frame at or below the configured maximum.
+- [x] Use 16 MiB as the default maximum payload length.
+- [x] Reject incomplete length prefixes.
+- [x] Reject declared lengths above the configured maximum.
+- [x] Reject partial payloads and trailing bytes with the source error messages.
 
 ## How it works
 
@@ -36,8 +36,8 @@ Protocol framing ports `packages/protocol/src/framing.ts` from the pinned TypeSc
 
 ## Known gaps (current cycle)
 
-- [ ] Implement and prove frame construction.
-- [ ] Implement and prove complete-frame validation.
+- [ ] Add differential TypeScript proof for construction and validation.
+- [ ] Resolve proof for the impractical payload-above-4-GiB guard.
 
 ## Out of scope
 
