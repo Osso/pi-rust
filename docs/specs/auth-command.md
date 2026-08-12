@@ -41,6 +41,7 @@ Auth command behavior ports `packages/coding-agent/src/cli/auth-command.ts` from
 - `oracle/auth-command-oracle.ts` — persistent adapter invoking the real pinned module.
 - `crates/pi-coding-agent/tests/differential_auth_command.rs` — direct TypeScript comparison entry point.
 - `crates/pi-coding-agent/tests/differential_auth_command/fixtures.rs` — exact metadata and help fixtures.
+- `crates/pi-coding-agent/tests/differential_auth_command/parser.rs` — exact parser, error, duration, source-bug, and number-boundary fixtures.
 - `crates/pi-coding-agent/tests/support/oracle.rs` — shared source-lock verification and persistent oracle process client.
 
 ## Tests asserting this spec
@@ -48,10 +49,11 @@ Auth command behavior ports `packages/coding-agent/src/cli/auth-command.ts` from
 - `crates/pi-coding-agent/tests/auth_command.rs`
 - `crates/pi-coding-agent/tests/differential_auth_command.rs`
 - `crates/pi-coding-agent/tests/differential_auth_command/fixtures.rs`
+- `crates/pi-coding-agent/tests/differential_auth_command/parser.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Add direct parser differential proof against the pinned TypeScript module.
+None for the bounded metadata, help, and parser slices.
 
 ## Out of scope
 

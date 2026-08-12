@@ -1,6 +1,7 @@
 mod fixtures;
 #[path = "../support/oracle.rs"]
 mod oracle;
+mod parser;
 
 pub(crate) fn run() {
     let mut oracle = oracle::TsOracle::spawn(
@@ -8,7 +9,7 @@ pub(crate) fn run() {
         "packages/coding-agent/src/cli/auth-command.ts",
     );
 
-    for fixture in fixtures::all() {
+    for fixture in fixtures::all().into_iter().chain(parser::all()) {
         let expected = oracle.request(&fixture.request);
         assert_eq!(expected, fixture.expected, "auth command mismatch: {}", fixture.name);
     }

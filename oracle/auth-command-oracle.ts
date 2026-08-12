@@ -4,10 +4,20 @@ import { pathToFileURL } from "node:url";
 type RequestId = string | number | null;
 type AuthCommandKind = "check" | "api_key" | "bearer_token";
 
+type AuthCommand = {
+	kind: AuthCommandKind;
+	args: string[];
+	json: boolean;
+	credentials: boolean;
+	noRefresh: boolean;
+	minExpiryMs?: number;
+};
+
 type AuthCommandApi = {
 	getAuthCommandName(kind: AuthCommandKind): string;
 	getAuthCommandUsage(kind: AuthCommandKind): string;
 	isAuthCommandHelp(args: string[]): boolean;
+	parseAuthCommand(args: string[]): AuthCommand | undefined;
 };
 
 type Request =
@@ -19,6 +29,11 @@ type Request =
 	| {
 			id: RequestId;
 			operation: "is_help";
+			args: string[];
+		}
+	| {
+			id: RequestId;
+			operation: "parse_auth_command";
 			args: string[];
 		};
 
@@ -41,6 +56,28 @@ function normalizeError(error: unknown): { name: string; message: string } {
 	return { name: "UnknownError", message: String(error) };
 }
 
+function float64Bits(value: number): string {
+	const bytes = new Uint8Array(8);
+	new DataView(bytes.buffer).setFloat64(0, value, false);
+	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function normalizeAuthCommand(command: AuthCommand | undefined): unknown {
+	if (command === undefined) return null;
+
+	const output: Record<string, unknown> = {
+		kind: command.kind,
+		args: command.args,
+		json: command.json,
+		credentials: command.credentials,
+		noRefresh: command.noRefresh,
+	};
+	if (command.minExpiryMs !== undefined) {
+		output.minExpiryMsBits = float64Bits(command.minExpiryMs);
+	}
+	return output;
+}
+
 function execute(request: Request, api: AuthCommandApi): Response {
 	try {
 		switch (request.operation) {
@@ -56,6 +93,8 @@ function execute(request: Request, api: AuthCommandApi): Response {
 				};
 			case "is_help":
 				return { id: request.id, ok: true, output: api.isAuthCommandHelp(request.args) };
+			case "parse_auth_command":
+				return { id: request.id, ok: true, output: normalizeAuthCommand(api.parseAuthCommand(request.args)) };
 		}
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };
