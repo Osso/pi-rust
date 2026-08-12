@@ -13,6 +13,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [ ] Classify discrepancies as a Rust bug, TypeScript bug, approved deviation, or underspecified behavior before changing semantics.
 - [x] Stop and ask Alessio when Rust cannot reproduce TypeScript behavior within the approved typed-core boundary.
 - [x] Classify the RPC JSON serializer as semantic JSON rather than byte-identical `JSON.stringify`, approved August 12, 2026.
+- [x] Classify truncation limits as typed non-negative integers and single-line truncation as Unicode-scalar-safe, approved August 12, 2026.
 
 ## How it works
 
@@ -53,6 +54,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 ## Known gaps (current cycle)
 
 - [ ] Classify and resolve the payload-above-4-GiB proof gap.
+- [ ] Complete pinned differential proof for agent-core truncation and its approved UTF-16 discrepancy.
 
 ## Out of scope
 
@@ -65,4 +67,6 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - Refactoring behavior while translating it.
 - Treating TypeScript as the intended-behavior authority when a specification or invariant contradicts it.
 - Byte-identical `JSON.stringify` output in RPC JSONL. Stock `serde_json` semantic output was approved August 12, 2026; exact number-spelling discrepancies are pinned against the source, Rust map order follows the selected serializer, and NaN/infinities are proven to match as `null`.
+- Negative, fractional, NaN, and infinite JavaScript truncation limits; Rust uses non-negative integer counts.
+- UTF-16 code-unit splitting and lone-surrogate output from JavaScript `truncateLine`; Rust truncates at Unicode scalar boundaries.
 - Claiming full Pi compatibility before all package contracts are ported and integrated.
