@@ -2,12 +2,12 @@
 
 Pinned source: `packages/coding-agent/src/modes/rpc/jsonl.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Direct differential proof invokes the real pinned functions through one persistent `tsx` process. It compares six shared serialization fixtures (`9000..=9005`), pins four approved serializer discrepancies (`9006..=9009`), and compares eleven ordered decoder sequences (`9010..=9020`).
+Direct differential proof invokes the real pinned functions through one persistent `tsx` process. It compares six shared serialization fixtures (`9000..=9005`), pins four approved serializer discrepancies (`9006..=9009`), compares eleven ordered decoder sequences (`9010..=9020`), and proves three matching non-finite cases (`9021..=9023`).
 
 | TypeScript source | Observable behavior | Rust proof |
 |---|---|---|
 | `jsonl.ts:1-2` | Uses Node streams plus stateful UTF-8 `StringDecoder` | Transport-neutral Rust decoder retains only the observable text-decoding state; stream attachment remains out of scope |
-| `jsonl.ts:5-12` | `JSON.stringify(value)` followed by exactly one LF | Focused compact JSON, primitive, escaped-LF, U+2028, U+2029, error-propagation, and approved Rust-number-spelling tests; six exact-output differential fixtures plus four pinned discrepancy fixtures |
+| `jsonl.ts:5-12` | `JSON.stringify(value)` followed by exactly one LF | Focused compact JSON, primitive, escaped-LF, U+2028, U+2029, error-propagation, non-finite, and approved Rust-number-spelling tests; six exact-output fixtures, four pinned discrepancies, and three matching NaN/infinity fixtures |
 | `jsonl.ts:21-22` | One UTF-8 decoder and one text buffer persist across data chunks | Focused arbitrary chunking and split two-byte/four-byte scalar tests plus eleven persistent-state differential sequences |
 | `jsonl.ts:24-27` | Strip exactly one trailing CR immediately before emitting each line | Focused CRLF, repeated-CR, bare/internal-CR, and final trailing-CR tests plus direct CR/empty-record comparison |
 | `jsonl.ts:29-30` | String chunks append directly; byte chunks pass through `StringDecoder.write` | Focused and direct mixed pending-byte/string-chunk ordering fixture |

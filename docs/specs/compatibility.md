@@ -64,5 +64,5 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - Generic public CBOR or JavaScript-number value models; typed schema fields use their actual Rust numeric types.
 - Refactoring behavior while translating it.
 - Treating TypeScript as the intended-behavior authority when a specification or invariant contradicts it.
-- Byte-identical `JSON.stringify` output in RPC JSONL. Stock `serde_json` semantic output was approved August 12, 2026; exact number-spelling discrepancies are pinned against the source, and Rust map order follows the selected serializer.
+- Byte-identical `JSON.stringify` output in RPC JSONL. Stock `serde_json` semantic output was approved August 12, 2026; exact number-spelling discrepancies are pinned against the source, Rust map order follows the selected serializer, and NaN/infinities are proven to match as `null`.
 - Claiming full Pi compatibility before all package contracts are ported and integrated.

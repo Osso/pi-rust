@@ -10,6 +10,7 @@ RPC JSONL framing ports `packages/coding-agent/src/modes/rpc/jsonl.ts` from the 
 - [x] Preserve U+2028 and U+2029 as payload characters rather than record separators.
 - [x] Escape LF characters inside JSON strings so they do not create records.
 - [x] Propagate `serde_json` serialization errors.
+- [x] Serialize NaN and positive or negative infinity as `null`, matching `JSON.stringify`.
 - [x] Use the approved semantic-JSON policy rather than claiming byte-identical `JSON.stringify` number spelling.
 
 ### Incremental decoding
@@ -44,12 +45,12 @@ RPC JSONL framing ports `packages/coding-agent/src/modes/rpc/jsonl.ts` from the 
 
 ## Known gaps (current cycle)
 
-None.
+None for this bounded framing slice.
 
 ## Out of scope
 
-- JSON parsing, RPC command or response schemas, dispatch, and error responses.
-- stdin/stdout ownership, Node stream listener attachment or detachment, backpressure, stream errors, and callback ordering with unrelated listeners.
+- Broader parent-goal RPC integration remains future work: JSON parsing, command or response schemas, dispatch, and error responses.
+- Process integration remains future work: stdin/stdout ownership, Node stream listener attachment or detachment, backpressure, stream errors, and callback ordering with unrelated listeners.
 - JavaScript-only serialization inputs such as `undefined`, functions, symbols, `BigInt`, cyclic objects, and throwing `toJSON` methods.
 - Byte-identical `JSON.stringify` output. Alessio approved stock `serde_json` semantic JSON on August 12, 2026; proven differences include integral floats, negative zero, exponent thresholds, and Rust integers without exact JavaScript Number equivalents. Object-key order follows the Rust serializer rather than a JavaScript object model.
 - JavaScript string chunks containing lone UTF-16 surrogates, which Rust `str` cannot represent.

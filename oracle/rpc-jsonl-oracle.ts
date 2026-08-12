@@ -26,6 +26,11 @@ type Request =
 		}
 	| {
 			id: RequestId;
+			operation: "serialize_special_number";
+			number: "nan" | "positive_infinity" | "negative_infinity";
+		}
+	| {
+			id: RequestId;
 			operation: "read_jsonl_sequence";
 			chunks: Chunk[];
 		};
@@ -62,6 +67,17 @@ function executeReadSequence(request: Extract<Request, { operation: "read_jsonl_
 	return { id: request.id, ok: true, output: { lines } };
 }
 
+function decodeSpecialNumber(number: Extract<Request, { operation: "serialize_special_number" }>["number"]): number {
+	switch (number) {
+		case "nan":
+			return Number.NaN;
+		case "positive_infinity":
+			return Number.POSITIVE_INFINITY;
+		case "negative_infinity":
+			return Number.NEGATIVE_INFINITY;
+	}
+}
+
 function execute(request: Request, jsonl: JsonlApi): Response {
 	try {
 		switch (request.operation) {
@@ -70,6 +86,12 @@ function execute(request: Request, jsonl: JsonlApi): Response {
 					id: request.id,
 					ok: true,
 					output: { serialized: jsonl.serializeJsonLine(request.value) },
+				};
+			case "serialize_special_number":
+				return {
+					id: request.id,
+					ok: true,
+					output: { serialized: jsonl.serializeJsonLine(decodeSpecialNumber(request.number)) },
 				};
 			case "read_jsonl_sequence":
 				return executeReadSequence(request, jsonl);

@@ -8,6 +8,7 @@ const FIRST_REQUEST_ID: u64 = 9000;
 pub(crate) fn compare_all_fixtures(oracle: &mut TsOracle) {
     compare_shared_outputs(oracle);
     compare_approved_discrepancies(oracle);
+    compare_non_finite_numbers(oracle);
 }
 
 fn compare_shared_outputs(oracle: &mut TsOracle) {
@@ -61,6 +62,27 @@ fn compare_approved_discrepancies(oracle: &mut TsOracle) {
             rust_serialized, source_output,
             "approved discrepancy unexpectedly disappeared: {name}"
         );
+    }
+}
+
+fn compare_non_finite_numbers(oracle: &mut TsOracle) {
+    let fixtures = [
+        ("NaN", "nan", f64::NAN),
+        ("positive infinity", "positive_infinity", f64::INFINITY),
+        ("negative infinity", "negative_infinity", f64::NEG_INFINITY),
+    ];
+
+    for (offset, (name, number, value)) in fixtures.into_iter().enumerate() {
+        let id = FIRST_REQUEST_ID + 21 + u64::try_from(offset).expect("fixture offset must fit u64");
+        let expected = oracle.request(&json!({
+            "id": id,
+            "operation": "serialize_special_number",
+            "number": number,
+        }));
+        let serialized = serialize_json_line(&value).expect("non-finite float must serialize");
+        let actual = serialize_response(id, &serialized);
+
+        assert_eq!(actual, expected, "non-finite serialization mismatch: {name}");
     }
 }
 

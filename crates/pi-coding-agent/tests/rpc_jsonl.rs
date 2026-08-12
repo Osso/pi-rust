@@ -132,6 +132,16 @@ fn serializer_propagates_json_errors() {
 }
 
 #[test]
+fn serializer_matches_javascript_for_non_finite_numbers() {
+    for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert_eq!(
+            serialize_json_line(&value).expect("non-finite float must serialize"),
+            "null\n"
+        );
+    }
+}
+
+#[test]
 fn serializer_uses_the_approved_serde_number_spelling() {
     assert_eq!(
         serialize_json_line(&1.0f64).expect("finite float must serialize"),
