@@ -16,7 +16,7 @@ Agent-core exposes the typed filesystem and process-execution errors required by
 - [x] Preserve source constructor ordering and exact initialized names.
 - [x] Reflect current public message and cause fields through `Display` and `Error::source()`.
 - [x] Preserve empty, Unicode, supplementary, and NUL-containing Rust strings.
-- [ ] Compare normalized values directly with the pinned TypeScript constructors.
+- [x] Compare 14 normalized constructor values directly with the pinned TypeScript classes through `harness_error` requests `13000..=13013` in `oracle/truncate-oracle.ts`.
 
 ## How it works
 
@@ -27,17 +27,17 @@ Agent-core exposes the typed filesystem and process-execution errors required by
 - `crates/pi-agent-core/src/harness/types.rs` — typed error codes and error values.
 - `crates/pi-agent-core/src/harness/mod.rs` — public harness exports.
 - `crates/pi-agent-core/tests/harness_errors.rs` — focused constructor, field, code, cause, chain, and trait proof.
-- `oracle/truncate-oracle.ts` — planned differential adapter extension; not changed in this slice.
-- `crates/pi-agent-core/tests/differential_truncate/` — planned differential fixtures; not changed in this slice.
+- `oracle/truncate-oracle.ts` — loads pinned `types.ts` and handles recursive `harness_error` normalization.
+- `crates/pi-agent-core/tests/differential_truncate/errors.rs` — 14 direct constructor fixtures (`13000..=13013`).
 
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/harness_errors.rs`
-- `crates/pi-agent-core/tests/differential_truncate.rs` — planned direct TypeScript proof, not yet changed.
+- `crates/pi-agent-core/tests/differential_truncate/errors.rs`
+- `crates/pi-agent-core/tests/differential_truncate.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Add direct pinned TypeScript differential proof for all representable constructors and causes.
 - [ ] Prove later filesystem and process adapters produce these errors from source-compatible backend branches.
 
 ## Out of scope

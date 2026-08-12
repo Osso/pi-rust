@@ -11,7 +11,7 @@ Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-o
 - [x] Represent exact `ExecutionErrorCode` literals from `types.ts:163-169`.
 - [x] Preserve `ExecutionError` constructor order, name, message, code, and typed cause from `types.ts:172-181`.
 - [x] Preserve typed causes through Rust error chaining with `std::error::Error::source`.
-- [ ] Compare typed errors directly with the pinned TypeScript constructors.
+- [x] Compare typed errors directly with the pinned TypeScript constructors using 14 `harness_error` fixtures (`13000..=13013`) in the persistent utility oracle.
 
 ### Binary-output sanitization
 
@@ -31,10 +31,11 @@ Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-o
 - `crates/pi-agent-core/src/harness/types.rs` — typed filesystem and execution errors.
 - `crates/pi-agent-core/src/harness/mod.rs` — public harness exports.
 - `crates/pi-agent-core/tests/harness_errors.rs` — focused typed-error behavior.
+- `crates/pi-agent-core/tests/differential_truncate/errors.rs` — direct pinned constructor proof (`13000..=13013`).
 - `crates/pi-agent-core/src/harness/utils/shell_output.rs` — pure binary-output sanitization.
 - `crates/pi-agent-core/src/harness/utils/mod.rs` — public utility export.
 - `crates/pi-agent-core/tests/sanitize_binary_output.rs` — focused shared-domain behavior.
-- `oracle/truncate-oracle.ts` — persistent adapter loading the pinned agent-core sanitizer alongside truncation.
+- `oracle/truncate-oracle.ts` — persistent adapter loading pinned truncation, sanitizer, and harness-error modules.
 - `crates/pi-agent-core/tests/differential_truncate/sanitize.rs` — exact shared-domain and source-only surrogate proof.
 
 ## Tests asserting this spec
