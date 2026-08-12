@@ -7,6 +7,8 @@ import {
 	encodeHex,
 	float64Bits,
 	normalizeError,
+	type ClientHelloRequest,
+	type CommandRequest,
 	type TaggedNumber,
 } from "./protocol-oracle-values.js";
 
@@ -40,6 +42,7 @@ type SchemaApi = {
 	SessionMetadataSchema: unknown;
 	ProtocolErrorCodeSchema: unknown;
 	CommandSchema: unknown;
+	ClientHelloSchema: unknown;
 };
 
 type TypeboxApi = {
@@ -117,19 +120,6 @@ type SessionMetadataRequest = {
 	parentSessionId?: string;
 	sessionName?: string;
 	cwd?: string;
-};
-
-type CommandRequest = {
-	command: string;
-	cwd?: string;
-	name?: string;
-	model?: {
-		provider: string;
-		id: string;
-	};
-	thinkingLevel?: string;
-	sessionId?: string;
-	text?: string;
 };
 
 type Request =
@@ -212,6 +202,11 @@ type Request =
 			id: RequestId;
 			operation: "validate_command";
 			value: CommandRequest;
+		}
+	| {
+			id: RequestId;
+			operation: "validate_client_hello";
+			value: ClientHelloRequest;
 		};
 
 type DecoderStepResponse =
@@ -295,6 +290,10 @@ type SchemaValidationResponse =
 	| {
 			valid: true;
 			value: CommandResponseValue;
+		}
+	| {
+			valid: true;
+			value: ClientHelloRequest;
 		};
 
 type ModelMetadataResponseValue = {
@@ -592,6 +591,17 @@ function executeCommand(
 	return { id: request.id, ok: true, output: { valid: true, value: request.value } };
 }
 
+function executeClientHello(
+	request: Extract<Request, { operation: "validate_client_hello" }>,
+	schema: SchemaApi,
+	typebox: TypeboxApi,
+): Response {
+	if (!typebox.Check(schema.ClientHelloSchema, request.value)) {
+		return { id: request.id, ok: true, output: { valid: false } };
+	}
+	return { id: request.id, ok: true, output: { valid: true, value: request.value } };
+}
+
 function executeModelCost(
 	request: Extract<Request, { operation: "validate_model_cost" }>,
 	schema: SchemaApi,
@@ -680,6 +690,8 @@ function executeRequest(request: Request, framing: FramingApi, schema: SchemaApi
 			return executeSessionMetadata(request, schema, typebox);
 		case "validate_command":
 			return executeCommand(request, schema, typebox);
+		case "validate_client_hello":
+			return executeClientHello(request, schema, typebox);
 	}
 	throw new Error("Unsupported protocol oracle operation");
 }

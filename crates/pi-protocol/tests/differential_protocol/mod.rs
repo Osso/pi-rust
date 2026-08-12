@@ -1,3 +1,4 @@
+pub(crate) mod client_hello;
 pub(crate) mod commands;
 pub(crate) mod content_leaves;
 pub(crate) mod framing;
@@ -16,6 +17,7 @@ pub(crate) fn run() {
         "node_modules/typebox/build/value/index.mjs",
     ]);
     commands::compare_all_fixtures(&mut oracle);
+    client_hello::compare_all_fixtures(&mut oracle);
     content_leaves::compare_all_fixtures(&mut oracle);
     framing::compare_all_fixtures(&mut oracle);
     model_cost::compare_all_fixtures(&mut oracle, 1000);
