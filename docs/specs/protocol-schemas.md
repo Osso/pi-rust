@@ -89,13 +89,14 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/tests/differential_protocol/content_leaves.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_metadata.rs`
+- `crates/pi-protocol/tests/differential_protocol/protocol_error_code.rs`
 - `crates/pi-protocol/tests/differential_protocol/schema_leaves.rs`
 - `crates/pi-protocol/tests/differential_protocol/session_metadata.rs`
 - `crates/pi-protocol/tests/differential_protocol/usage.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Compare `ProtocolErrorCodeSchema` directly with the pinned TypeBox schema.
+None for the currently ported schema types.
 
 ## Out of scope
 

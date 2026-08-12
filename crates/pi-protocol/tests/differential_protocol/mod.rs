@@ -3,6 +3,7 @@ pub(crate) mod framing;
 pub(crate) mod model_cost;
 pub(crate) mod model_metadata;
 pub(crate) mod oracle;
+pub(crate) mod protocol_error_code;
 pub(crate) mod schema_leaves;
 pub(crate) mod session_metadata;
 pub(crate) mod usage;
@@ -19,5 +20,6 @@ pub(crate) fn run() {
     schema_leaves::compare_all_fixtures(&mut oracle);
     session_metadata::compare_all_fixtures(&mut oracle);
     model_metadata::compare_all_fixtures(&mut oracle);
+    protocol_error_code::compare_all_fixtures(&mut oracle);
     usage::compare_all_fixtures(&mut oracle);
 }

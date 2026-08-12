@@ -29,6 +29,7 @@ type SchemaApi = {
 	ThinkingContentSchema: unknown;
 	ImageContentSchema: unknown;
 	SessionMetadataSchema: unknown;
+	ProtocolErrorCodeSchema: unknown;
 };
 
 type TypeboxApi = {
@@ -187,6 +188,11 @@ type Request =
 			id: RequestId;
 			operation: "validate_session_metadata";
 			value: SessionMetadataRequest;
+		}
+	| {
+			id: RequestId;
+			operation: "validate_protocol_error_code";
+			value: string;
 		};
 
 type DecoderStepResponse =
@@ -666,6 +672,8 @@ function executeRequest(request: Request, framing: FramingApi, schema: SchemaApi
 			return executeImageContent(request, schema, typebox);
 		case "validate_session_metadata":
 			return executeSessionMetadata(request, schema, typebox);
+		case "validate_protocol_error_code":
+			return executeSchemaString(request.id, request.value, schema.ProtocolErrorCodeSchema, typebox);
 	}
 }
 
