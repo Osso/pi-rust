@@ -32,7 +32,7 @@ case "${1:-all}" in
 		shift
 		cargo test -p pi-protocol --lib --test framing --test frame_decoder --test model_cost --test schema_leaves --test model_metadata --test usage --test content_leaves --test session_metadata --test protocol_error_code --test commands --test client_hello --test message_envelopes "$@"
 		cargo test -p pi-coding-agent --test rpc_jsonl --test auth_command --test config_value_references --test config_value_status "$@"
-		exec cargo test -p pi-agent-core --test truncate --test sanitize_binary_output --test harness_errors --test compaction_errors --test file_info --test resources "$@"
+		exec cargo test -p pi-agent-core --test truncate --test sanitize_binary_output --test harness_errors --test compaction_errors --test file_info --test resources --test prompt_templates "$@"
 		;;
 	differential)
 		shift
