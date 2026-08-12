@@ -2,8 +2,10 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
+mod protocol_error_code;
 mod session_metadata;
 
+pub use protocol_error_code::{ParseProtocolErrorCodeError, ProtocolErrorCode};
 pub use session_metadata::{SessionMetadata, SessionMetadataError, SessionMetadataInput};
 
 /// Thinking levels exposed by the protocol schema.

@@ -60,6 +60,11 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - [x] Require optional parent IDs and working directories to be non-empty when present.
 - [x] Represent timestamps as `u64`; focused proof reaches `u64::MAX`, while direct TypeBox proof reaches `Number.MAX_SAFE_INTEGER`.
 
+### Protocol error codes
+
+- [x] Represent exactly `version`, `busy`, `session_locked`, `not_found`, `invalid_request`, `not_implemented`, and `internal_error`.
+- [x] Expose exact `ProtocolErrorCode::as_str` and `FromStr` mappings without aliases or normalization.
+
 ## How it works
 
 - [Schema traceability](../porting/traceability/protocol-schemas.md)
@@ -70,6 +75,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/src/lib.rs` — exports schema types and validation errors.
 - `crates/pi-protocol/src/schemas.rs` — schema APIs and public re-exports.
 - `crates/pi-protocol/src/schemas/session_metadata.rs` — `SessionMetadataInput`, `SessionMetadata::new`, six getters, and `SessionMetadataError::{EmptyId, EmptyParentSessionId, EmptyCwd}`.
+- `crates/pi-protocol/src/schemas/protocol_error_code.rs` — `ProtocolErrorCode`, exact string mappings, and `ParseProtocolErrorCodeError`.
 
 ## Tests asserting this spec
 
@@ -79,6 +85,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/tests/usage.rs`
 - `crates/pi-protocol/tests/content_leaves.rs`
 - `crates/pi-protocol/tests/session_metadata.rs`
+- `crates/pi-protocol/tests/protocol_error_code.rs`
 - `crates/pi-protocol/tests/differential_protocol/content_leaves.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_metadata.rs`
@@ -88,13 +95,14 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 
 ## Known gaps (current cycle)
 
-None for the currently ported schema types.
+- [ ] Compare `ProtocolErrorCodeSchema` directly with the pinned TypeBox schema.
 
 ## Out of scope
 
 - Parsing the source `type` property plus missing, wrong-typed, and additional object fields; future JSONL or private wire decoders enforce those constraints.
 - JavaScript strings containing lone UTF-16 surrogates, which Rust `String` cannot represent.
 - Direct integer differential proof above JavaScript `Number.MAX_SAFE_INTEGER`; larger `u64` values have Rust-side focused proof, while positive TypeBox integers above `u64::MAX` are excluded. Alessio approved `u64` typed fields on August 12, 2026.
+- Full `ProtocolErrorSchema` while optional `details` depends on the excluded generic `JsonValue` contract.
 - `SessionSnapshotSchema` and snapshot result schemas until transcript dependencies are available.
 - `ToolCallContentSchema`, content unions, and transcript schemas because the generic `JsonValue` contract remains excluded.
 - Remaining protocol schemas and integer fields.
