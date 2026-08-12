@@ -23,10 +23,10 @@ pub(crate) struct TsOracle {
 }
 
 impl TsOracle {
-    pub(crate) fn spawn(source_module: &str) -> Self {
+    pub(crate) fn spawn(source_modules: &[&str]) -> Self {
         let source_lock = read_source_lock();
         verify_source_head(&source_lock);
-        let mut child = spawn_oracle_process(&source_lock, source_module);
+        let mut child = spawn_oracle_process(&source_lock, source_modules);
         let stdin = BufWriter::new(child.stdin.take().expect("oracle stdin must be piped"));
         let stdout = BufReader::new(child.stdout.take().expect("oracle stdout must be piped"));
 
@@ -62,17 +62,18 @@ fn read_source_lock() -> SourceLock {
     serde_json::from_str(SOURCE_LOCK).expect("source lock must be valid JSON")
 }
 
-fn spawn_oracle_process(source_lock: &SourceLock, source_module: &str) -> Child {
+fn spawn_oracle_process(source_lock: &SourceLock, source_modules: &[&str]) -> Child {
     let tsx = source_lock.worktree.join("node_modules/.bin/tsx");
     let tsconfig = source_lock.worktree.join("tsconfig.json");
-    let source_module = source_lock.worktree.join(source_module);
     let oracle = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../oracle/protocol-oracle.ts");
 
-    Command::new(&tsx)
-        .arg("--tsconfig")
-        .arg(tsconfig)
-        .arg(oracle)
-        .arg(source_module)
+    let mut command = Command::new(&tsx);
+    command.arg("--tsconfig").arg(tsconfig).arg(oracle);
+    for source_module in source_modules {
+        command.arg(source_lock.worktree.join(source_module));
+    }
+
+    command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())

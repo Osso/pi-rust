@@ -24,11 +24,11 @@ Protocol schemas port the typed contracts from pinned `packages/protocol/src/sch
 ## Tests asserting this spec
 
 - `crates/pi-protocol/tests/model_cost.rs`
-- `crates/pi-protocol/tests/differential_model_cost.rs`
+- `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Add direct TypeBox differential proof for `ModelCostSchema`.
+None for `ModelCostSchema`.
 
 ## Out of scope
 

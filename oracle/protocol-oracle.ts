@@ -18,6 +18,14 @@ type FramingApi = {
 	FrameDecoder: new (options?: FrameDecoderOptions) => FrameDecoderInstance;
 };
 
+type SchemaApi = {
+	ModelCostSchema: unknown;
+};
+
+type TypeboxApi = {
+	Check(schema: unknown, value: unknown): boolean;
+};
+
 type DecoderStep =
 	| {
 			op: "push";
@@ -27,6 +35,22 @@ type DecoderStep =
 	| {
 			op: "end";
 		};
+
+type TaggedNumber =
+	| {
+			number: "finite";
+			value: number;
+		}
+	| {
+			number: "negative_zero" | "nan" | "positive_infinity" | "negative_infinity";
+		};
+
+type ModelCostRequest = {
+		input: TaggedNumber;
+		output: TaggedNumber;
+		cacheRead: TaggedNumber;
+		cacheWrite: TaggedNumber;
+};
 
 type Request =
 	| {
@@ -45,6 +69,11 @@ type Request =
 			operation: "decoder_sequence";
 			max_frame_length?: number;
 			steps: DecoderStep[];
+		}
+	| {
+			id: RequestId;
+			operation: "validate_model_cost";
+			value: ModelCostRequest;
 		};
 
 type DecoderStepResponse =
@@ -67,7 +96,7 @@ type Response =
 	| {
 			id: RequestId;
 			ok: true;
-			output: { frame_hex: string } | null | { results: DecoderStepResponse[] };
+			output: { frame_hex: string } | null | { results: DecoderStepResponse[] } | ModelCostResponse;
 		}
 	| {
 			id: RequestId;
@@ -75,6 +104,20 @@ type Response =
 			error: {
 				name: string;
 				message: string;
+			};
+		};
+
+type ModelCostResponse =
+	| {
+			valid: false;
+		}
+	| {
+			valid: true;
+			bits: {
+				input: string;
+				output: string;
+				cacheRead: string;
+				cacheWrite: string;
 			};
 		};
 
@@ -125,7 +168,58 @@ function executeDecoderSequence(
 	return { id: request.id, ok: true, output: { results } };
 }
 
-function execute(request: Request, framing: FramingApi): Response {
+function decodeTaggedNumber(number: TaggedNumber): number {
+	switch (number.number) {
+		case "finite":
+			return number.value;
+		case "negative_zero":
+			return -0;
+		case "nan":
+			return Number.NaN;
+		case "positive_infinity":
+			return Number.POSITIVE_INFINITY;
+		case "negative_infinity":
+			return Number.NEGATIVE_INFINITY;
+	}
+}
+
+function float64Bits(value: number): string {
+	const buffer = new ArrayBuffer(8);
+	const view = new DataView(buffer);
+	view.setFloat64(0, value, false);
+	return view.getBigUint64(0, false).toString(16).padStart(16, "0");
+}
+
+function executeModelCost(
+	request: Extract<Request, { operation: "validate_model_cost" }>,
+	schema: SchemaApi,
+	typebox: TypeboxApi,
+): Response {
+	const value = {
+		input: decodeTaggedNumber(request.value.input),
+		output: decodeTaggedNumber(request.value.output),
+		cacheRead: decodeTaggedNumber(request.value.cacheRead),
+		cacheWrite: decodeTaggedNumber(request.value.cacheWrite),
+	};
+	if (!typebox.Check(schema.ModelCostSchema, value)) {
+		return { id: request.id, ok: true, output: { valid: false } };
+	}
+	return {
+		id: request.id,
+		ok: true,
+		output: {
+			valid: true,
+			bits: {
+				input: float64Bits(value.input),
+				output: float64Bits(value.output),
+				cacheRead: float64Bits(value.cacheRead),
+				cacheWrite: float64Bits(value.cacheWrite),
+			},
+		},
+	};
+}
+
+function execute(request: Request, framing: FramingApi, schema: SchemaApi, typebox: TypeboxApi): Response {
 	try {
 		switch (request.operation) {
 			case "encode_frame":
@@ -142,33 +236,40 @@ function execute(request: Request, framing: FramingApi): Response {
 				return { id: request.id, ok: true, output: null };
 			case "decoder_sequence":
 				return executeDecoderSequence(request, framing);
+			case "validate_model_cost":
+				return executeModelCost(request, schema, typebox);
 		}
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };
 	}
 }
 
-function readFramingModulePath(): string {
+function readModulePaths(): [string, string, string] {
 	const framingModulePath = process.argv[2];
-	if (framingModulePath === undefined) {
-		throw new Error("framing oracle requires the pinned TypeScript module path");
+	const schemaModulePath = process.argv[3];
+	const typeboxModulePath = process.argv[4];
+	if (framingModulePath === undefined || schemaModulePath === undefined || typeboxModulePath === undefined) {
+		throw new Error("protocol oracle requires framing, schema, and typebox module paths");
 	}
-	return framingModulePath;
+	return [framingModulePath, schemaModulePath, typeboxModulePath];
 }
 
-async function loadFramingApi(): Promise<FramingApi> {
-	const framingModuleUrl = pathToFileURL(readFramingModulePath()).href;
-	return (await import(framingModuleUrl)) as FramingApi;
+async function loadApis(): Promise<{ framing: FramingApi; schema: SchemaApi; typebox: TypeboxApi }> {
+	const [framingModulePath, schemaModulePath, typeboxModulePath] = readModulePaths();
+	const framing = (await import(pathToFileURL(framingModulePath).href)) as FramingApi;
+	const schema = (await import(pathToFileURL(schemaModulePath).href)) as SchemaApi;
+	const typebox = (await import(pathToFileURL(typeboxModulePath).href)) as TypeboxApi;
+	return { framing, schema, typebox };
 }
 
-function serveRequests(framing: FramingApi): void {
+function serveRequests(apis: { framing: FramingApi; schema: SchemaApi; typebox: TypeboxApi }): void {
 	const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 	input.on("line", (line) => {
 		let id: RequestId = null;
 		try {
 			const request = JSON.parse(line) as Request;
 			id = request.id;
-			process.stdout.write(`${JSON.stringify(execute(request, framing))}\n`);
+			process.stdout.write(`${JSON.stringify(execute(request, apis.framing, apis.schema, apis.typebox))}\n`);
 		} catch (error) {
 			const response: Response = { id, ok: false, error: normalizeError(error) };
 			process.stdout.write(`${JSON.stringify(response)}\n`);
@@ -177,11 +278,11 @@ function serveRequests(framing: FramingApi): void {
 }
 
 async function main(): Promise<void> {
-	const framing = await loadFramingApi();
-	serveRequests(framing);
+	const apis = await loadApis();
+	serveRequests(apis);
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`framing oracle startup failed: ${normalizeError(error).message}\n`);
+	process.stderr.write(`protocol oracle startup failed: ${normalizeError(error).message}\n`);
 	process.exitCode = 1;
 });
