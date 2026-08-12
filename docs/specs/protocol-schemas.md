@@ -35,7 +35,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - [x] Own and preserve non-empty `provider`, `id`, `name`, and `api` strings without trimming or normalization.
 - [x] Preserve `reasoning`, `authenticated`, validated `ModelCost`, and a non-empty ordered list of `ThinkingLevel` values.
 - [x] Represent positive `contextWindow` and `maxTokens` values as `u64`, including `u64::MAX`.
-- [x] Report constructor validation errors in representable source field order.
+- [x] Use Rust-specific constructor diagnostics ordered by the source field declarations.
 
 ## How it works
 
@@ -45,7 +45,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 ## Implementation inventory
 
 - `crates/pi-protocol/src/lib.rs` — exports schema types and validation errors.
-- `crates/pi-protocol/src/schemas.rs` — schema-specific enums, models, parsing, and constructor validation.
+- `crates/pi-protocol/src/schemas.rs` — includes `ModelInput`, `ParseModelInputError`, `ModelMetadataInput`, `ModelMetadata`, `ModelMetadataError`, `ModelMetadata::new`, and getters for every metadata field.
 
 ## Tests asserting this spec
 
@@ -53,17 +53,18 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/tests/model_cost.rs`
 - `crates/pi-protocol/tests/model_metadata.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
+- `crates/pi-protocol/tests/differential_protocol/model_metadata.rs`
 - `crates/pi-protocol/tests/differential_protocol/schema_leaves.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Compare `ModelMetadataSchema` directly with the pinned TypeBox schema.
+None for the currently ported schema types.
 
 ## Out of scope
 
 - Missing, wrong-typed, and additional object fields at typed constructor boundaries; future JSONL or private wire decoders enforce those constraints.
 - JavaScript strings containing lone UTF-16 surrogates, which Rust `String` cannot represent.
-- Positive integer-valued JavaScript numbers above `u64::MAX`; Alessio approved `u64` typed fields on August 12, 2026.
+- Direct integer differential proof above JavaScript `Number.MAX_SAFE_INTEGER`; larger `u64` values have Rust-side focused proof, while positive TypeBox integers above `u64::MAX` are excluded. Alessio approved `u64` typed fields on August 12, 2026.
 - Remaining protocol schemas and integer fields.
 - Generic `JsonValue` representation.
 - CBOR encoding, decoding, and options.
