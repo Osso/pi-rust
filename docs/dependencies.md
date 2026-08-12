@@ -12,7 +12,7 @@ All direct dependencies are exact-pinned.
 
 ### `pi-agent-core`
 
-No runtime dependencies. Typed filesystem/execution errors, `FileKind`/`FileInfo` metadata values, output truncation, and binary-output sanitization use only the Rust standard library.
+No runtime dependencies. Typed filesystem/execution errors, `Skill`/`PromptTemplate`/`AgentHarnessResources` values, `FileKind`/`FileInfo` metadata values, output truncation, and binary-output sanitization use only the Rust standard library.
 
 ### `pi-protocol`
 

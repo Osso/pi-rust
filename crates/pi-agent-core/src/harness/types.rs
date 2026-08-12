@@ -1,6 +1,31 @@
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
+/// Skill loaded from a `SKILL.md` file or provided by an application.
+#[derive(Debug)]
+pub struct Skill {
+    pub name: String,
+    pub description: String,
+    pub content: String,
+    pub file_path: String,
+    pub disable_model_invocation: Option<bool>,
+}
+
+/// Prompt template that can be formatted into a prompt for explicit invocation.
+#[derive(Debug)]
+pub struct PromptTemplate {
+    pub name: String,
+    pub description: Option<String>,
+    pub content: String,
+}
+
+/// Resources made available to explicit invocation methods and system-prompt callbacks.
+#[derive(Debug)]
+pub struct AgentHarnessResources {
+    pub prompt_templates: Option<Vec<PromptTemplate>>,
+    pub skills: Option<Vec<Skill>>,
+}
+
 /// Kind of filesystem object addressed by a `FileInfo` value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileKind {
