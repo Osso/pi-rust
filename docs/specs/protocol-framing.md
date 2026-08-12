@@ -50,7 +50,6 @@ Protocol framing ports `packages/protocol/src/framing.ts` from the pinned TypeSc
 
 ## Known gaps (current cycle)
 
-- [ ] Add ordered TypeScript differential proof for `FrameDecoder`.
 - [ ] Resolve proof for the impractical payload-above-4-GiB construction guard.
 
 ## Out of scope

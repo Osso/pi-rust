@@ -7,10 +7,26 @@ type FrameDecoderOptions = {
 	maxFrameLength?: number;
 };
 
+type FrameDecoderInstance = {
+	push(chunk: Uint8Array): Uint8Array[];
+	end(): void;
+};
+
 type FramingApi = {
 	encodeFrame(payload: Uint8Array): Uint8Array;
 	assertCompleteFrame(frame: Uint8Array, options?: FrameDecoderOptions): void;
+	FrameDecoder: new (options?: FrameDecoderOptions) => FrameDecoderInstance;
 };
+
+type DecoderStep =
+	| {
+			op: "push";
+			chunk_hex: string;
+			mutate_fill?: number;
+		}
+	| {
+			op: "end";
+		};
 
 type Request =
 	| {
@@ -23,13 +39,35 @@ type Request =
 			operation: "assert_complete_frame";
 			frame_hex: string;
 			max_frame_length?: number;
+		}
+	| {
+			id: RequestId;
+			operation: "decoder_sequence";
+			max_frame_length?: number;
+			steps: DecoderStep[];
+		};
+
+type DecoderStepResponse =
+	| {
+			ok: true;
+			frames_hex: string[];
+		}
+	| {
+			ok: true;
+		}
+	| {
+			ok: false;
+			error: {
+				name: string;
+				message: string;
+			};
 		};
 
 type Response =
 	| {
 			id: RequestId;
 			ok: true;
-			output: { frame_hex: string } | null;
+			output: { frame_hex: string } | null | { results: DecoderStepResponse[] };
 		}
 	| {
 			id: RequestId;
@@ -59,6 +97,34 @@ function normalizeError(error: unknown): { name: string; message: string } {
 	return { name: "UnknownError", message: String(error) };
 }
 
+function executeDecoderStep(decoder: FrameDecoderInstance, step: DecoderStep): DecoderStepResponse {
+	try {
+		switch (step.op) {
+			case "push": {
+				const chunk = decodeHex(step.chunk_hex);
+				const frames = decoder.push(chunk);
+				if (step.mutate_fill !== undefined) chunk.fill(step.mutate_fill);
+				return { ok: true, frames_hex: frames.map(encodeHex) };
+			}
+			case "end":
+				decoder.end();
+				return { ok: true };
+		}
+	} catch (error) {
+		return { ok: false, error: normalizeError(error) };
+	}
+}
+
+function executeDecoderSequence(
+	request: Extract<Request, { operation: "decoder_sequence" }>,
+	framing: FramingApi,
+): Response {
+	const options = request.max_frame_length === undefined ? undefined : { maxFrameLength: request.max_frame_length };
+	const decoder = new framing.FrameDecoder(options);
+	const results = request.steps.map((step) => executeDecoderStep(decoder, step));
+	return { id: request.id, ok: true, output: { results } };
+}
+
 function execute(request: Request, framing: FramingApi): Response {
 	try {
 		switch (request.operation) {
@@ -74,6 +140,8 @@ function execute(request: Request, framing: FramingApi): Response {
 					request.max_frame_length === undefined ? undefined : { maxFrameLength: request.max_frame_length },
 				);
 				return { id: request.id, ok: true, output: null };
+			case "decoder_sequence":
+				return executeDecoderSequence(request, framing);
 		}
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };

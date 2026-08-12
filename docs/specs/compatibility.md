@@ -7,6 +7,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Refuse differential proof when the source worktree is not at the pinned commit.
 - [x] Execute the real pinned TypeScript functions through the worktree-local `tsx` runtime.
 - [x] Send identical fixtures to TypeScript and Rust and compare normalized values and errors.
+- [x] Execute ordered `push` and `end` steps against one TypeScript and Rust decoder, comparing every success and error without replacing the instance.
 - [x] Map each ported TypeScript statement and branch to behavioral proof or an explicit gap.
 - [ ] Classify discrepancies as a Rust bug, TypeScript bug, approved deviation, or underspecified behavior before changing semantics.
 - [x] Stop and ask Alessio when Rust cannot reproduce TypeScript behavior within the approved typed-core boundary.
@@ -28,7 +29,6 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 
 ## Known gaps (current cycle)
 
-- [ ] Add ordered differential proof for the incremental frame decoder.
 - [ ] Classify and resolve the payload-above-4-GiB proof gap.
 
 ## Out of scope

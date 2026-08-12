@@ -9,6 +9,8 @@ Each Rust slice is compared with the real function from the pinned TypeScript wo
 5. Tests compare normalized success values or error kinds and messages.
 6. `docs/porting/traceability/` records proof for every translated statement and branch.
 
+Stateful requests construct one pinned TypeScript instance and one Rust instance, then execute ordered operations against each. Decoder sequences capture each `push` or `end` result and continue after errors on the same terminal instance, so failed and ended behavior remains observable.
+
 The JSON-lines adapter is internal to typed Rust fixtures. Manually forged operations and invalid hexadecimal payloads are outside its contract.
 
 Differences are not resolved inside the translation. They are first classified as Rust bugs, TypeScript bugs, approved deviations, or underspecified behavior.

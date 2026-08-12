@@ -25,7 +25,7 @@ typecheck_oracle() {
 case "${1:-all}" in
 	focused)
 		shift
-		exec cargo test -p pi-protocol --test framing "$@"
+		exec cargo test -p pi-protocol --lib --test framing --test frame_decoder "$@"
 		;;
 	differential)
 		shift
