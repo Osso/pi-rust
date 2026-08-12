@@ -34,14 +34,19 @@ Config-value reference classification ports the pure parsing helpers from pinned
 - `crates/pi-coding-agent/src/core/config_value.rs` — private template/reference parser and public query helpers.
 - `crates/pi-coding-agent/src/core/mod.rs` — public core exports.
 - `crates/pi-coding-agent/tests/config_value_references.rs` — focused parser/classification behavior.
+- `oracle/config-value-reference-oracle.ts` — persistent adapter invoking the real pinned helpers.
+- `crates/pi-coding-agent/tests/differential_config_value_references.rs` — direct comparison entry point.
+- `crates/pi-coding-agent/tests/differential_config_value_references/fixtures.rs` — exact branch and boundary fixtures.
 
 ## Tests asserting this spec
 
 - `crates/pi-coding-agent/tests/config_value_references.rs`
+- `crates/pi-coding-agent/tests/differential_config_value_references.rs`
+- `crates/pi-coding-agent/tests/differential_config_value_references/fixtures.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Add direct differential proof against the pinned TypeScript helpers.
+None for this bounded reference-classification slice.
 
 ## Out of scope
 

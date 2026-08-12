@@ -21,4 +21,4 @@ No runtime dependencies.
 ## Development
 
 - `serde = 1.0.229` — derives typed JSON-lines request and response structures for differential tests.
-- `serde_json = 1.0.151` — serializes and parses the protocol, RPC JSONL, truncation, and auth-command differential-oracle messages.
+- `serde_json = 1.0.151` — serializes and parses the protocol, RPC JSONL, truncation, auth-command, and config-reference differential-oracle messages.
