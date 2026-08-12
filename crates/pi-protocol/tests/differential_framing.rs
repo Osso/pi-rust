@@ -413,7 +413,7 @@ fn decoder_boundary_fixtures() -> Vec<Fixture> {
 }
 
 fn decoder_split_fixtures() -> Vec<Fixture> {
-    let wire = vec![0, 0, 0, 4, 10, 20, 30, 40];
+    let wire = [0, 0, 0, 4, 10, 20, 30, 40];
     (0..=wire.len())
         .map(|split| {
             decoder_fixture(

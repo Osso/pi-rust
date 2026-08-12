@@ -56,7 +56,11 @@ fn handles_every_split_point_across_a_frame() {
         let mut frames = decoder.push(&wire[..split]).expect("prefix must decode");
         frames.extend(decoder.push(&wire[split..]).expect("suffix must decode"));
         decoder.end().expect("complete stream must end");
-        assert_eq!(frames, [expected_payload.clone()], "split {split}");
+        assert_eq!(
+            frames.as_slice(),
+            std::slice::from_ref(&expected_payload),
+            "split {split}"
+        );
     }
 }
 
