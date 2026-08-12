@@ -188,7 +188,19 @@ type Request =
 		}
 	| {
 			id: RequestId;
-			operation: "truncate_head" | "truncate_tail" | "truncate_head_without_buffer";
+			operation: "truncate_head";
+			content: string;
+			options?: TruncationOptions;
+		}
+	| {
+			id: RequestId;
+			operation: "truncate_tail";
+			content: string;
+			options?: TruncationOptions;
+		}
+	| {
+			id: RequestId;
+			operation: "truncate_head_without_buffer";
 			content: string;
 			options?: TruncationOptions;
 		}
@@ -218,6 +230,12 @@ type Request =
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<Request, HarnessErrorRequest>;
+type FormatSizeRequest = Extract<UtilityRequest, { operation: "format_size" }>;
+type TruncationRequest = Extract<
+	UtilityRequest,
+	{ operation: "truncate_head" | "truncate_tail" | "truncate_head_without_buffer" | "truncate_line" | "truncate_tail_batch" }
+>;
+type SanitizationRequest = Extract<UtilityRequest, { operation: "sanitize_binary_output" | "sanitize_utf16_units" }>;
 
 type Response =
 	| {
@@ -399,7 +417,10 @@ function normalizeTruncatedTailBatch(api: TruncateApi, cases: TruncationCase[]):
 	return { results: cases.map(({ content, options }) => api.truncateTail(content, options)) };
 }
 
-function normalizeSanitizedUtf16Units(api: ShellOutputApi, units: number[]): { utf16Units: number[]; codePoints: number[] } {
+function normalizeSanitizedUtf16Units(
+	api: ShellOutputApi,
+	units: number[],
+): { utf16Units: number[]; codePoints: number[] } {
 	const value = String.fromCharCode(...units);
 	return normalizeSanitizedUnits(api.sanitizeBinaryOutput(value));
 }
@@ -477,6 +498,33 @@ function executeHarnessError(request: HarnessErrorRequest, api: HarnessTypesApi)
 	return successfulResponse(request.id, normalizeHarnessError(error, api));
 }
 
+function executeFormatSizeRequest(request: FormatSizeRequest, api: TruncateApi): Response {
+	return successfulResponse(request.id, { value: api.formatSize(request.bytes) });
+}
+
+function executeTruncationRequest(request: TruncationRequest, normal: TruncateApi, fallback: TruncateApi): Response {
+	if (request.operation === "truncate_head") {
+		return successfulResponse(request.id, normal.truncateHead(request.content, request.options));
+	}
+	if (request.operation === "truncate_tail") {
+		return successfulResponse(request.id, normal.truncateTail(request.content, request.options));
+	}
+	if (request.operation === "truncate_head_without_buffer") {
+		return successfulResponse(request.id, fallback.truncateHead(request.content, request.options));
+	}
+	if (request.operation === "truncate_line") {
+		return successfulResponse(request.id, normalizeTruncatedLine(normal, request.line, request.maxChars));
+	}
+	return successfulResponse(request.id, normalizeTruncatedTailBatch(normal, request.cases));
+}
+
+function executeSanitizationRequest(request: SanitizationRequest, api: ShellOutputApi): Response {
+	if (request.operation === "sanitize_binary_output") {
+		return successfulResponse(request.id, normalizeSanitizedText(api.sanitizeBinaryOutput(request.text)));
+	}
+	return successfulResponse(request.id, normalizeSanitizedUtf16Units(api, request.units));
+}
+
 function executeUtilityRequest(
 	request: UtilityRequest,
 	normal: TruncateApi,
@@ -485,24 +533,16 @@ function executeUtilityRequest(
 ): Response {
 	switch (request.operation) {
 		case "format_size":
-			return successfulResponse(request.id, { value: normal.formatSize(request.bytes) });
+			return executeFormatSizeRequest(request, normal);
 		case "truncate_head":
-			return successfulResponse(request.id, normal.truncateHead(request.content, request.options));
 		case "truncate_tail":
-			return successfulResponse(request.id, normal.truncateTail(request.content, request.options));
 		case "truncate_head_without_buffer":
-			return successfulResponse(request.id, fallback.truncateHead(request.content, request.options));
 		case "truncate_line":
-			return successfulResponse(request.id, normalizeTruncatedLine(normal, request.line, request.maxChars));
 		case "truncate_tail_batch":
-			return successfulResponse(request.id, normalizeTruncatedTailBatch(normal, request.cases));
+			return executeTruncationRequest(request, normal, fallback);
 		case "sanitize_binary_output":
-			return successfulResponse(
-				request.id,
-				normalizeSanitizedText(shellOutput.sanitizeBinaryOutput(request.text)),
-			);
 		case "sanitize_utf16_units":
-			return successfulResponse(request.id, normalizeSanitizedUtf16Units(shellOutput, request.units));
+			return executeSanitizationRequest(request, shellOutput);
 		case "file_info":
 			return successfulResponse(request.id, normalizeFileInfo(request));
 		case "resource_values":
