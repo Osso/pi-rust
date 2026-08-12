@@ -9,6 +9,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Send identical fixtures to TypeScript and Rust and compare normalized values and errors.
 - [x] Execute ordered `push` and `end` steps against one TypeScript and Rust decoder, comparing every success and error without replacing the instance.
 - [x] Map each ported TypeScript statement and branch to behavioral proof or an explicit gap.
+- [x] Represent protocol numbers with schema-specific Rust types instead of preserving JavaScript or CBOR numeric categories.
 - [ ] Classify discrepancies as a Rust bug, TypeScript bug, approved deviation, or underspecified behavior before changing semantics.
 - [x] Stop and ask Alessio when Rust cannot reproduce TypeScript behavior within the approved typed-core boundary.
 
@@ -36,6 +37,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - Invalid JavaScript runtime input types at typed Rust API boundaries, approved August 12, 2026.
 - Malformed or manually forged oracle requests; the Rust harness emits only typed operations and valid hexadecimal bytes.
 - Exact JavaScript allocation exception identity. Approved Rust behavior returns `FrameDecodeError::Allocation` and terminally fails the decoder.
+- Generic public CBOR or JavaScript-number value models; typed schema fields use their actual Rust numeric types.
 - Refactoring behavior while translating it.
 - Treating TypeScript as the intended-behavior authority when a specification or invariant contradicts it.
 - Claiming full Pi compatibility before all package contracts are ported and integrated.
