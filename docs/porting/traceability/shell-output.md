@@ -2,7 +2,7 @@
 
 Pinned source: `packages/agent/src/harness/utils/shell-output.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-The current slice maps only exported `sanitizeBinaryOutput`. Direct differential proof invokes the real pinned agent-core module through the persistent agent-utility oracle. Eighteen valid-UTF-8 fixtures (`11000..=11017`) compare exact text, UTF-16 units, and code points; four source-only UTF-16 fixtures (`11018..=11021`) pin retained lone-surrogate behavior without constructing invalid Rust strings.
+The current slice maps only exported `sanitizeBinaryOutput`. Direct differential proof invokes the real pinned agent-core module through the persistent agent-utility oracle. Eighteen valid-UTF-8 fixtures (`11000..=11017`) compare exact text, UTF-16 units, and code points; four source-only UTF-16 fixtures (`11018..=11021`) pin retained lone-surrogate behavior without constructing invalid Rust strings. Oracle framing uses a UTF-8 `StringDecoder` and LF-only boundaries at `oracle/truncate-oracle.ts:214-222`; the whitespace fixture at `sanitize.rs:86` proves U+2028 and U+2029 remain payload data.
 
 | TypeScript source | Observable behavior | Rust proof |
 |---|---|---|
@@ -15,4 +15,4 @@ The current slice maps only exported `sanitizeBinaryOutput`. Direct differential
 | `shell-output.ts:38-40` | Preserve every other code point and join without normalization | Focused and direct DEL/C1, whitespace/separator, format, BOM, bidi, private-use, unassigned, noncharacter, combining, variation, supplementary, ordering, duplicate, and all-removed fixtures |
 | `shell-output.ts:121` | Captured stdout/stderr is sanitized, then CR is removed before accounting | Consumer mapping only; capture state and CR removal remain a later slice |
 
-Source discrepancy: the source comment says lone surrogates are filtered by `Array.from`, but the implementation retains them. Rust `str` cannot represent lone surrogates, so this behavior remains an explicit typed-string exclusion rather than silently adopting the comment.
+Typed-string exclusion: `Array.from` retains lone surrogates in the source implementation. Rust `str` cannot represent them, so the four source-only UTF-16 fixtures pin that behavior without constructing invalid Rust strings.
