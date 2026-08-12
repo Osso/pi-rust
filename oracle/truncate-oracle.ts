@@ -26,6 +26,15 @@ type ShellOutputApi = {
 	sanitizeBinaryOutput(value: string): string;
 };
 
+type PromptTemplateApi = {
+	parseCommandArgs(argsString: string): string[];
+	substituteArgs(content: string, args: string[]): string;
+	formatPromptTemplateInvocation(
+		template: { name: string; description?: string; content: string },
+		args?: string[],
+	): string;
+};
+
 type FileKind = "file" | "directory" | "symlink";
 
 type FileInfoRequest = {
@@ -87,6 +96,18 @@ type ResourceValuesRequest = {
 	operation: "resource_values";
 	skills: SkillArrayInput;
 	promptTemplates: PromptTemplateArrayInput;
+};
+
+type PromptTemplateRequest = {
+	id: RequestId;
+	operation: "prompt_template_helpers";
+	argsString: string;
+	args: string[];
+	content: string;
+	templateName: string;
+	templateDescription?: string;
+	templateContent?: string;
+	omitFormatArgs: boolean;
 };
 
 type MutableSkillRecord = {
@@ -260,6 +281,7 @@ type Request =
 		}
 	| FileInfoRequest
 	| ResourceValuesRequest
+	| PromptTemplateRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<Request, HarnessErrorRequest>;
@@ -431,6 +453,22 @@ function normalizePromptTemplate(template: MutablePromptTemplateRecord): unknown
 
 function executeResourceValues(request: ResourceValuesRequest): Response {
 	return successfulResponse(request.id, normalizeResourceValues(buildResourceValues(request)));
+}
+
+function executePromptTemplateRequest(request: PromptTemplateRequest, api: PromptTemplateApi): Response {
+	const template: { name: string; description?: string; content: string } = {
+		name: request.templateName,
+		content: request.templateContent ?? request.content,
+	};
+	if (request.templateDescription !== undefined) template.description = request.templateDescription;
+	const formatted = request.omitFormatArgs
+		? api.formatPromptTemplateInvocation(template)
+		: api.formatPromptTemplateInvocation(template, request.args);
+	return successfulResponse(request.id, {
+		parsedArgs: api.parseCommandArgs(request.argsString),
+		substituted: api.substituteArgs(request.content, request.args),
+		formatted,
+	});
 }
 
 function successfulResponse(id: RequestId, output: unknown): Response {
@@ -605,6 +643,7 @@ function executeUtilityRequest(
 	normal: TruncateApi,
 	fallback: TruncateApi,
 	shellOutput: ShellOutputApi,
+	promptTemplates: PromptTemplateApi,
 ): Response {
 	switch (request.operation) {
 		case "format_size":
@@ -622,6 +661,8 @@ function executeUtilityRequest(
 			return successfulResponse(request.id, normalizeFileInfo(request));
 		case "resource_values":
 			return executeResourceValues(request);
+		case "prompt_template_helpers":
+			return executePromptTemplateRequest(request, promptTemplates);
 	}
 }
 
@@ -630,7 +671,7 @@ function execute(request: Request, apis: OracleApis): Response {
 		if (request.operation === "harness_error") {
 			return executeHarnessError(request, apis.harnessTypes);
 		}
-		return executeUtilityRequest(request, apis.normal, apis.fallback, apis.shellOutput);
+		return executeUtilityRequest(request, apis.normal, apis.fallback, apis.shellOutput, apis.promptTemplates);
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };
 	}
@@ -652,20 +693,24 @@ type CommonJsModule = {
 	exports: Record<string, unknown>;
 };
 
-function readModulePaths(): [string, string, string, string] {
+function readModulePaths(): [string, string, string, string, string] {
 	const truncateModulePath = process.argv[2];
 	const shellOutputModulePath = process.argv[3];
 	const agentModulePath = process.argv[4];
-	const esbuildModulePath = process.argv[5];
+	const promptTemplateModulePath = process.argv[5];
+	const esbuildModulePath = process.argv[6];
 	if (
 		truncateModulePath === undefined ||
 		shellOutputModulePath === undefined ||
 		agentModulePath === undefined ||
+		promptTemplateModulePath === undefined ||
 		esbuildModulePath === undefined
 	) {
-		throw new Error("agent utility oracle requires truncate, shell-output, agent-package, and esbuild module paths");
+		throw new Error(
+			"agent utility oracle requires truncate, shell-output, agent-package, prompt-template, and esbuild module paths",
+		);
 	}
-	return [truncateModulePath, shellOutputModulePath, agentModulePath, esbuildModulePath];
+	return [truncateModulePath, shellOutputModulePath, agentModulePath, promptTemplateModulePath, esbuildModulePath];
 }
 
 async function loadFallbackApi(sourceModulePath: string, esbuildModulePath: string): Promise<TruncateApi> {
@@ -687,15 +732,18 @@ type OracleApis = {
 	fallback: TruncateApi;
 	shellOutput: ShellOutputApi;
 	harnessTypes: HarnessTypesApi;
+	promptTemplates: PromptTemplateApi;
 };
 
 async function loadApis(): Promise<OracleApis> {
-	const [truncateModulePath, shellOutputModulePath, agentModulePath, esbuildModulePath] = readModulePaths();
+	const [truncateModulePath, shellOutputModulePath, agentModulePath, promptTemplateModulePath, esbuildModulePath] =
+		readModulePaths();
 	const normal = (await import(pathToFileURL(truncateModulePath).href)) as TruncateApi;
 	const fallback = await loadFallbackApi(truncateModulePath, esbuildModulePath);
 	const shellOutput = (await import(pathToFileURL(shellOutputModulePath).href)) as ShellOutputApi;
 	const harnessTypes = (await import(pathToFileURL(agentModulePath).href)) as HarnessTypesApi;
-	return { normal, fallback, shellOutput, harnessTypes };
+	const promptTemplates = (await import(pathToFileURL(promptTemplateModulePath).href)) as PromptTemplateApi;
+	return { normal, fallback, shellOutput, harnessTypes, promptTemplates };
 }
 
 function executeRequestLine(line: string, apis: OracleApis): void {

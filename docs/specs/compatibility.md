@@ -23,6 +23,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Compare erased `FileInfo`/`FileKind` TypeScript types through a strict generated public-index fixture and compare plain-record binary64 values through 10 pinned differential fixtures (`13014..=13023`), without claiming a source runtime constructor.
 - [x] Preserve focused `Skill`, `PromptTemplate`, and concrete `AgentHarnessResources` fields, optional states, public mutation, order, duplicates, and `Debug` behavior.
 - [x] Compare resource erased types through the pinned public index and compare plain records through 12 direct differential fixtures (`13024..=13035`), while documenting the approved omission of Rust generic subtype parameters.
+- [x] Compare prompt-template argument parsing, substitution, and content formatting through 15 direct pinned differential fixtures (`13046..=13060`) using the persistent utility oracle and direct `prompt-templates.ts` module import.
 - [x] Preserve exact coding-agent auth command names, usage strings, and help selection over Rust-representable strings.
 - [x] Preserve exact coding-agent auth parser errors, argument ordering, flags, and field-specific expiry-number behavior against the pinned source.
 - [x] Preserve pure config-value command classification and environment-reference parsing against the pinned source.
@@ -79,6 +80,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-agent-core/tests/differential_truncate/sanitize.rs`
 - `crates/pi-agent-core/tests/differential_truncate/file_info.rs`
 - `crates/pi-agent-core/tests/differential_truncate/resources.rs`
+- `crates/pi-agent-core/tests/differential_truncate/prompt_templates.rs`
 - `oracle/public-index-typecheck.mjs`
 
 ## Known gaps (current cycle)

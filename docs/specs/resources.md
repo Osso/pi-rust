@@ -1,6 +1,6 @@
 # Agent-core skill and prompt resources
 
-Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `AgentHarnessResources` value contracts from `packages/agent/src/harness/types.ts`, plus pure prompt-template argument helpers; pinned public-index type proof and plain-record differential proof are complete, while loading, skill/system-prompt formatting, and harness integration remain later slices. See the [resource traceability](../porting/traceability/resources.md) for source mappings.
+Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `AgentHarnessResources` value contracts from `packages/agent/src/harness/types.ts`, plus pure prompt-template argument helpers; pinned public-index and direct differential proofs are complete for these bounded values/helpers, while loading, skill/system-prompt formatting, and harness integration remain later slices. See the [resource traceability](../porting/traceability/resources.md) for source mappings.
 
 ## What it must do
 
@@ -19,9 +19,10 @@ Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `
 ### Prompt-template argument helpers
 
 - [x] Parse arguments using only ASCII space/tab delimiters; remove matching single/double quotes; preserve unmatched quotes, literal backslashes, adjacent fragments, non-delimiter whitespace, Unicode scalars, combining characters, NUL, and punctuation; omit empty quoted arguments.
-- [x] Substitute positional `$N`, slice `${@:N}`/`${@:N:L}`, `$ARGUMENTS`, and `$@` passes in exact source order with one-based indices, leading-zero handling, bounded out-of-range behavior, and later-pass rescanning.
+- [x] Substitute positional `$N`, slice `${@:N}`/`${@:N:L}`, `$ARGUMENTS`, and `$@` passes in exact source order with one-based indices, leading-zero handling, and later-pass rescanning. Bounded decimal scanning maps huge positions/starts to missing or empty results and huge lengths to the argument-array end, matching JavaScript for representable array lengths.
 - [x] Preserve JavaScript replacement-string semantics for aggregate passes, including `$$`, `$&`, `$```, `$'`, nonexistent captures, and original-input prefix/suffix behavior across multiple matches.
 - [x] Format only `PromptTemplate.content`; callers pass `&[]` for the TypeScript default empty argument list.
+- [x] Compare all three prompt-template helpers directly with the pinned source through 15 persistent differential fixtures (`13046..=13060`).
 
 ### Resource collection
 
@@ -42,7 +43,8 @@ Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `
 - `crates/pi-agent-core/src/harness/mod.rs` — public harness modules and value re-exports.
 - `crates/pi-agent-core/tests/resources.rs` — focused field, option, mutation, ordering, duplicate, and `Debug` proof.
 - `crates/pi-agent-core/tests/differential_truncate/resources.rs` — 12 plain-record differential fixtures (`13024..=13035`).
-- `oracle/truncate-oracle.ts` — plain mutable resource-record operation in the persistent utility oracle.
+- `crates/pi-agent-core/tests/differential_truncate/prompt_templates.rs` — 15 prompt-helper differential fixtures (`13046..=13060`).
+- `oracle/truncate-oracle.ts` — persistent resource-record and prompt-template-helper operations.
 - `oracle/public-index-typecheck.mjs` — strict public-index type proof and pinned HEAD check.
 - `run-tests.sh` — focused, differential, and oracle test-runner registration.
 
@@ -52,11 +54,11 @@ Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `
 - `crates/pi-agent-core/tests/prompt_templates.rs`
 - `crates/pi-agent-core/tests/differential_truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate/resources.rs`
+- `crates/pi-agent-core/tests/differential_truncate/prompt_templates.rs`
 - `oracle/public-index-typecheck.mjs`
 
 ## Known gaps (current cycle)
 
-- Direct pinned differential proof for prompt-template argument helpers remains pending; reserved requests begin at `13046`.
 - Filesystem loading, skill/system-prompt formatting, XML escaping, lookup, invocation, and harness integration remain deferred.
 
 ## Out of scope
