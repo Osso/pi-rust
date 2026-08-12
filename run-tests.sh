@@ -19,7 +19,7 @@ typecheck_oracle() {
 		--moduleResolution NodeNext \
 		--types node \
 		--typeRoots "$source_worktree/node_modules/@types" \
-		oracle/framing-oracle.ts
+		oracle/protocol-oracle.ts
 }
 
 case "${1:-all}" in
@@ -29,7 +29,7 @@ case "${1:-all}" in
 		;;
 	differential)
 		shift
-		exec cargo test -p pi-protocol --test differential_framing "$@"
+		exec cargo test -p pi-protocol --test differential_protocol "$@"
 		;;
 	oracle)
 		typecheck_oracle

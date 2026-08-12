@@ -1,27 +1,6 @@
-use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::path::PathBuf;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-
+use super::oracle::TsOracle;
 use pi_protocol::{FrameDecodeError, FrameDecoder};
-use serde::Deserialize;
 use serde_json::{Value, json};
-
-const SOURCE_LOCK: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../docs/porting/source-lock.json"
-));
-
-#[derive(Debug, Deserialize)]
-struct SourceLock {
-    worktree: PathBuf,
-    commit: String,
-}
-
-struct TsOracle {
-    child: Child,
-    stdin: BufWriter<ChildStdin>,
-    stdout: BufReader<ChildStdout>,
-}
 
 enum Operation {
     Encode(Vec<u8>),
@@ -43,42 +22,6 @@ enum DecoderStep {
 struct Fixture {
     name: String,
     operation: Operation,
-}
-
-impl TsOracle {
-    fn spawn() -> Self {
-        let source_lock = read_source_lock();
-        verify_source_head(&source_lock);
-        let mut child = spawn_oracle_process(&source_lock);
-        let stdin = BufWriter::new(child.stdin.take().expect("oracle stdin must be piped"));
-        let stdout = BufReader::new(child.stdout.take().expect("oracle stdout must be piped"));
-
-        Self { child, stdin, stdout }
-    }
-
-    fn request(&mut self, request: &Value) -> Value {
-        serde_json::to_writer(&mut self.stdin, request).expect("oracle request must serialize");
-        self.stdin
-            .write_all(b"\n")
-            .expect("oracle request must be newline-delimited");
-        self.stdin.flush().expect("oracle stdin must flush");
-
-        let mut line = String::new();
-        let bytes_read = self
-            .stdout
-            .read_line(&mut line)
-            .expect("oracle response must be readable");
-        assert_ne!(bytes_read, 0, "oracle must return one response per request");
-        serde_json::from_str(&line).expect("oracle response must be valid JSON")
-    }
-}
-
-impl Drop for TsOracle {
-    fn drop(&mut self) {
-        let _ = self.stdin.flush();
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
 }
 
 impl Fixture {
@@ -113,50 +56,6 @@ impl Fixture {
             } => decoder_response(id, *max_frame_length, steps),
         }
     }
-}
-
-fn read_source_lock() -> SourceLock {
-    serde_json::from_str(SOURCE_LOCK).expect("source lock must be valid JSON")
-}
-
-fn spawn_oracle_process(source_lock: &SourceLock) -> Child {
-    let tsx = source_lock.worktree.join("node_modules/.bin/tsx");
-    let tsconfig = source_lock.worktree.join("tsconfig.json");
-    let framing_module = source_lock.worktree.join("packages/protocol/src/framing.ts");
-    let oracle = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../oracle/framing-oracle.ts");
-
-    Command::new(&tsx)
-        .arg("--tsconfig")
-        .arg(tsconfig)
-        .arg(oracle)
-        .arg(framing_module)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .expect("worktree-local tsx must start the TypeScript framing oracle")
-}
-
-fn verify_source_head(source_lock: &SourceLock) {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(&source_lock.worktree)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .expect("git must verify the pinned TypeScript source HEAD");
-    assert!(
-        output.status.success(),
-        "git rev-parse failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let actual_commit = String::from_utf8(output.stdout)
-        .expect("git HEAD must be UTF-8")
-        .trim()
-        .to_owned();
-    assert_eq!(
-        actual_commit, source_lock.commit,
-        "TypeScript source HEAD must equal docs/porting/source-lock.json"
-    );
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
@@ -484,10 +383,7 @@ fn fixtures() -> Vec<Fixture> {
     fixtures
 }
 
-#[test]
-fn framing_matches_the_pinned_typescript_oracle() {
-    let mut oracle = TsOracle::spawn();
-
+pub(crate) fn compare_all_fixtures(oracle: &mut TsOracle) {
     for (index, fixture) in fixtures().iter().enumerate() {
         let id = u64::try_from(index + 1).expect("fixture index must fit in request id");
         let expected = oracle.request(&fixture.request(id));
