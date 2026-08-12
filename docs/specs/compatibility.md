@@ -18,7 +18,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve exact filesystem/execution error-code literals, names, messages, constructor ordering, optional path, and typed causes over the Rust-representable boundary.
 - [x] Map typed-error constructors, public fields, mutation, and error-chain behavior to focused Rust tests; compare normalized constructor and cause values through 14 pinned TypeScript differential fixtures (`13000..=13013`) using the public agent package exports.
 - [x] Preserve distinct compaction and branch-summary code literals, names, messages, constructor ordering, public mutation, and typed causes in focused Rust tests.
-- [ ] Compare normalized compaction and branch-summary constructor and cause values through direct pinned TypeScript differential fixtures.
+- [x] Compare 10 normalized compaction and branch-summary constructor and cause values through direct pinned TypeScript differential fixtures (`13036..=13045`) using the public agent package exports; the persistent harness-error proof contains 24 typed-error fixtures total.
 - [x] Preserve exact `FileKind` literals and the mutable `FileInfo` field contract with direct `f64` storage and focused bit-preservation proof.
 - [x] Compare erased `FileInfo`/`FileKind` TypeScript types through a strict generated public-index fixture and compare plain-record binary64 values through 10 pinned differential fixtures (`13014..=13023`), without claiming a source runtime constructor.
 - [x] Preserve focused `Skill`, `PromptTemplate`, and concrete `AgentHarnessResources` fields, optional states, public mutation, order, duplicates, and `Debug` behavior.

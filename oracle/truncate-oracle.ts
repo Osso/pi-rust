@@ -126,6 +126,9 @@ type ExecutionErrorCode =
 	| "callback_error"
 	| "unknown";
 
+type CompactionErrorCode = "aborted" | "summarization_failed";
+type BranchSummaryErrorCode = "aborted" | "summarization_failed";
+
 type HarnessErrorCauseRequest =
 	| { kind: "error"; message: string }
 	| {
@@ -138,6 +141,18 @@ type HarnessErrorCauseRequest =
 	| {
 			kind: "execution";
 			code: ExecutionErrorCode;
+			message: string;
+			cause?: HarnessErrorCauseRequest;
+		}
+	| {
+			kind: "compaction";
+			code: CompactionErrorCode;
+			message: string;
+			cause?: HarnessErrorCauseRequest;
+		}
+	| {
+			kind: "branch_summary";
+			code: BranchSummaryErrorCode;
 			message: string;
 			cause?: HarnessErrorCauseRequest;
 		};
@@ -159,23 +174,41 @@ type HarnessErrorRequest =
 			code: ExecutionErrorCode;
 			message: string;
 			cause?: HarnessErrorCauseRequest;
+		}
+	| {
+			id: RequestId;
+			operation: "harness_error";
+			kind: "compaction";
+			code: CompactionErrorCode;
+			message: string;
+			cause?: HarnessErrorCauseRequest;
+		}
+	| {
+			id: RequestId;
+			operation: "harness_error";
+			kind: "branch_summary";
+			code: BranchSummaryErrorCode;
+			message: string;
+			cause?: HarnessErrorCauseRequest;
 		};
 
 type HarnessErrorInstance = Error & {
-	code: FileErrorCode | ExecutionErrorCode;
+	code: FileErrorCode | ExecutionErrorCode | CompactionErrorCode | BranchSummaryErrorCode;
 	path?: string;
 };
 
 type HarnessTypesApi = {
 	FileError: new (code: FileErrorCode, message: string, path?: string, cause?: Error) => HarnessErrorInstance;
 	ExecutionError: new (code: ExecutionErrorCode, message: string, cause?: Error) => HarnessErrorInstance;
+	CompactionError: new (code: CompactionErrorCode, message: string, cause?: Error) => HarnessErrorInstance;
+	BranchSummaryError: new (code: BranchSummaryErrorCode, message: string, cause?: Error) => HarnessErrorInstance;
 };
 
 type NormalizedHarnessError = {
-	kind: "FileError" | "ExecutionError" | "Error";
+	kind: "FileError" | "ExecutionError" | "CompactionError" | "BranchSummaryError" | "Error";
 	name: string;
 	message: string;
-	code: FileErrorCode | ExecutionErrorCode | null;
+	code: FileErrorCode | ExecutionErrorCode | CompactionErrorCode | BranchSummaryErrorCode | null;
 	path: string | null;
 	cause: NormalizedHarnessError | null;
 };
@@ -434,6 +467,12 @@ function normalizeHarnessError(error: Error, api: HarnessTypesApi): NormalizedHa
 	if (error instanceof api.ExecutionError) {
 		return normalizeExecutionHarnessError(error, harnessError, cause);
 	}
+	if (error instanceof api.CompactionError) {
+		return normalizeCompactionHarnessError(error, harnessError, cause);
+	}
+	if (error instanceof api.BranchSummaryError) {
+		return normalizeBranchSummaryHarnessError(error, harnessError, cause);
+	}
 	return normalizeUnknownHarnessError(error, cause);
 }
 
@@ -471,6 +510,36 @@ function normalizeExecutionHarnessError(
 	};
 }
 
+function normalizeCompactionHarnessError(
+	error: Error,
+	harnessError: HarnessErrorInstance,
+	cause: NormalizedHarnessError | null,
+): NormalizedHarnessError {
+	return {
+		kind: "CompactionError",
+		name: error.name,
+		message: error.message,
+		code: harnessError.code,
+		path: null,
+		cause,
+	};
+}
+
+function normalizeBranchSummaryHarnessError(
+	error: Error,
+	harnessError: HarnessErrorInstance,
+	cause: NormalizedHarnessError | null,
+): NormalizedHarnessError {
+	return {
+		kind: "BranchSummaryError",
+		name: error.name,
+		message: error.message,
+		code: harnessError.code,
+		path: null,
+		cause,
+	};
+}
+
 function normalizeUnknownHarnessError(error: Error, cause: NormalizedHarnessError | null): NormalizedHarnessError {
 	return {
 		kind: "Error",
@@ -486,16 +555,22 @@ function buildHarnessCause(request: HarnessErrorCauseRequest, api: HarnessTypesA
 	if (request.kind === "error") return new Error(request.message);
 	const cause = request.cause === undefined ? undefined : buildHarnessCause(request.cause, api);
 	if (request.kind === "file") return new api.FileError(request.code, request.message, request.path, cause);
-	return new api.ExecutionError(request.code, request.message, cause);
+	if (request.kind === "execution") return new api.ExecutionError(request.code, request.message, cause);
+	if (request.kind === "compaction") return new api.CompactionError(request.code, request.message, cause);
+	return new api.BranchSummaryError(request.code, request.message, cause);
 }
 
 function executeHarnessError(request: HarnessErrorRequest, api: HarnessTypesApi): Response {
 	const cause = request.cause === undefined ? undefined : buildHarnessCause(request.cause, api);
-	const error =
-		request.kind === "file"
-			? new api.FileError(request.code, request.message, request.path, cause)
-			: new api.ExecutionError(request.code, request.message, cause);
+	const error = buildHarnessError(request, api, cause);
 	return successfulResponse(request.id, normalizeHarnessError(error, api));
+}
+
+function buildHarnessError(request: HarnessErrorRequest, api: HarnessTypesApi, cause: Error | undefined): Error {
+	if (request.kind === "file") return new api.FileError(request.code, request.message, request.path, cause);
+	if (request.kind === "execution") return new api.ExecutionError(request.code, request.message, cause);
+	if (request.kind === "compaction") return new api.CompactionError(request.code, request.message, cause);
+	return new api.BranchSummaryError(request.code, request.message, cause);
 }
 
 function executeFormatSizeRequest(request: FormatSizeRequest, api: TruncateApi): Response {

@@ -21,7 +21,8 @@ pub(crate) fn run() {
     truncate_line::compare_all_fixtures(&mut oracle);
     targeted::compare_utf8_fallback(&mut oracle);
     tail_corpus::compare_corpus(&mut oracle);
-    errors::compare_all_fixtures(&mut oracle);
+    errors::compare_existing_fixtures(&mut oracle);
     file_info::compare_all_fixtures(&mut oracle);
     resources::compare_all_fixtures(&mut oracle);
+    errors::compare_compaction_fixtures(&mut oracle);
 }

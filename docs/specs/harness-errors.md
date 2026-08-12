@@ -9,7 +9,7 @@ Agent-core exposes the typed filesystem, process-execution, compaction, and bran
 - [x] Expose every `FileErrorCode` literal through a closed Rust enum and exact `as_str()` mapping.
 - [x] Expose every `ExecutionErrorCode` literal through a closed Rust enum and exact `as_str()` mapping.
 - [x] Export the filesystem and process-execution Rust types through `pi_agent_core::harness` and invoke their TypeScript classes through the public agent package index.
-- [x] Export the compaction and branch-summary Rust types through `pi_agent_core::harness`; direct public-index differential proof remains pending.
+- [x] Export the compaction and branch-summary Rust types through `pi_agent_core::harness` and invoke their TypeScript classes through the public agent package index.
 
 ### Error values
 
@@ -18,7 +18,7 @@ Agent-core exposes the typed filesystem, process-execution, compaction, and bran
 - [x] Preserve source constructor ordering and exact initialized names.
 - [x] Reflect current public message and cause fields through `Display` and `Error::source()`.
 - [x] Preserve empty, Unicode, supplementary, and NUL-containing Rust strings.
-- [x] Compare 14 normalized constructor values directly with the pinned TypeScript classes through `harness_error` requests `13000..=13013` in `oracle/truncate-oracle.ts`.
+- [x] Compare all 24 normalized harness-error values directly with the pinned TypeScript classes through `harness_error`: filesystem/execution requests `13000..=13013` and compaction/branch-summary requests `13036..=13045`; persistent metadata/resource requests `13014..=13035` remain separate operations in `oracle/truncate-oracle.ts`.
 
 ### Compaction and branch-summary errors
 
@@ -26,7 +26,7 @@ Agent-core exposes the typed filesystem, process-execution, compaction, and bran
 - [x] Preserve `CompactionError` and `BranchSummaryError` constructor order, exact names, public message/code fields, and optional typed causes from `types.ts:183-211`.
 - [x] Preserve `Display` and `Error::source()` behavior after public field mutation.
 - [x] Prove both ordinary and cross-class nested cause chains with focused tests.
-- [ ] Compare normalized constructor values directly with the pinned TypeScript classes in a later differential slice.
+- [x] Compare 10 normalized compaction/branch-summary constructor values directly with the pinned public-package TypeScript classes through `harness_error` requests `13036..=13045`, including ordinary and cross-class nested causes.
 
 ## How it works
 
@@ -38,8 +38,8 @@ Agent-core exposes the typed filesystem, process-execution, compaction, and bran
 - `crates/pi-agent-core/src/harness/mod.rs` — public harness exports.
 - `crates/pi-agent-core/tests/harness_errors.rs` — focused filesystem/execution constructor, field, code, cause, chain, and trait proof.
 - `crates/pi-agent-core/tests/compaction_errors.rs` — focused compaction/branch-summary constructor, field, code, cause, chain, mutation, and trait proof.
-- `oracle/truncate-oracle.ts` — existing pinned utility oracle; compaction/branch-summary differential support is deferred.
-- `crates/pi-agent-core/tests/differential_truncate/errors.rs` — 14 direct filesystem/execution constructor fixtures (`13000..=13013`); compaction/branch-summary fixtures are deferred.
+- `oracle/truncate-oracle.ts` — existing pinned utility oracle and closed recursive `harness_error` adapter for all four typed error classes.
+- `crates/pi-agent-core/tests/differential_truncate/errors.rs` — 24 direct harness-error fixtures: filesystem/execution (`13000..=13013`) and compaction/branch-summary (`13036..=13045`); metadata/resource requests occupy `13014..=13035` in the persistent sequence.
 
 ## Tests asserting this spec
 
@@ -50,8 +50,8 @@ Agent-core exposes the typed filesystem, process-execution, compaction, and bran
 
 ## Known gaps (current cycle)
 
-- [ ] Add direct pinned differential proof for compaction and branch-summary constructors.
-- [ ] Prove later filesystem, process, compaction, and branch-summary adapters produce these errors from source-compatible backend branches.
+- [ ] Prove later filesystem and process adapters produce these errors from source-compatible backend branches and messages.
+- [ ] Prove later compaction and branch-summary producers preserve source-compatible aborted/failure messages and native `Result` propagation; orchestration, model calls, retries, token budgets, and provider integration remain out of scope.
 
 ## Out of scope
 
