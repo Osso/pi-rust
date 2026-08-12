@@ -28,6 +28,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 
 - `crates/pi-protocol/tests/differential_protocol.rs`
 - `crates/pi-protocol/tests/model_cost.rs`
+- `crates/pi-protocol/tests/schema_leaves.rs`
 
 ## Known gaps (current cycle)
 
@@ -36,6 +37,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 ## Out of scope
 
 - Invalid JavaScript runtime input types at typed Rust API boundaries, approved August 12, 2026.
+- JavaScript lone-surrogate strings that Rust `String` cannot represent.
 - Malformed or manually forged oracle requests; the Rust harness emits only typed operations and valid hexadecimal bytes.
 - Exact JavaScript allocation exception identity. Approved Rust behavior returns `FrameDecodeError::Allocation` and terminally fails the decoder.
 - Generic public CBOR or JavaScript-number value models; typed schema fields use their actual Rust numeric types.

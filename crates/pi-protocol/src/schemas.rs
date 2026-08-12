@@ -1,5 +1,161 @@
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
+use std::str::FromStr;
+
+/// Thinking levels exposed by the protocol schema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThinkingLevel {
+    Off,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    XHigh,
+    Max,
+}
+
+impl ThinkingLevel {
+    /// Returns the exact protocol literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::XHigh => "xhigh",
+            Self::Max => "max",
+        }
+    }
+}
+
+/// Returned when a string is not a protocol thinking-level literal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseThinkingLevelError;
+
+impl Display for ParseThinkingLevelError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str("unknown protocol thinking level")
+    }
+}
+
+impl Error for ParseThinkingLevelError {}
+
+impl FromStr for ThinkingLevel {
+    type Err = ParseThinkingLevelError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "off" => Ok(Self::Off),
+            "minimal" => Ok(Self::Minimal),
+            "low" => Ok(Self::Low),
+            "medium" => Ok(Self::Medium),
+            "high" => Ok(Self::High),
+            "xhigh" => Ok(Self::XHigh),
+            "max" => Ok(Self::Max),
+            _ => Err(ParseThinkingLevelError),
+        }
+    }
+}
+
+/// Session phases exposed by the protocol schema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionPhase {
+    Idle,
+    Turn,
+    Compaction,
+    BranchSummary,
+    Retry,
+}
+
+impl SessionPhase {
+    /// Returns the exact protocol literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Turn => "turn",
+            Self::Compaction => "compaction",
+            Self::BranchSummary => "branch_summary",
+            Self::Retry => "retry",
+        }
+    }
+}
+
+/// Returned when a string is not a protocol session-phase literal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseSessionPhaseError;
+
+impl Display for ParseSessionPhaseError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str("unknown protocol session phase")
+    }
+}
+
+impl Error for ParseSessionPhaseError {}
+
+impl FromStr for SessionPhase {
+    type Err = ParseSessionPhaseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "idle" => Ok(Self::Idle),
+            "turn" => Ok(Self::Turn),
+            "compaction" => Ok(Self::Compaction),
+            "branch_summary" => Ok(Self::BranchSummary),
+            "retry" => Ok(Self::Retry),
+            _ => Err(ParseSessionPhaseError),
+        }
+    }
+}
+
+/// Provider and model identifiers used by protocol messages.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelRef {
+    provider: String,
+    id: String,
+}
+
+impl ModelRef {
+    /// Creates a model reference whose fields satisfy the source `minLength: 1` constraints.
+    pub fn new(provider: String, id: String) -> Result<Self, ModelRefError> {
+        if provider.is_empty() {
+            return Err(ModelRefError::EmptyProvider);
+        }
+        if id.is_empty() {
+            return Err(ModelRefError::EmptyId);
+        }
+        Ok(Self { provider, id })
+    }
+
+    /// Provider identifier.
+    pub fn provider(&self) -> &str {
+        &self.provider
+    }
+
+    /// Provider-specific model identifier.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+/// Identifies the first empty model-reference field in source schema order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelRefError {
+    EmptyProvider,
+    EmptyId,
+}
+
+impl Display for ModelRefError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        let field = match self {
+            Self::EmptyProvider => "provider",
+            Self::EmptyId => "id",
+        };
+        write!(formatter, "Model reference field {field} must not be empty")
+    }
+}
+
+impl Error for ModelRefError {}
 
 /// Per-million-token model prices.
 #[derive(Debug, Clone, Copy, PartialEq)]

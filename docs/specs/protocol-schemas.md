@@ -1,8 +1,25 @@
 # Protocol schemas
 
-Protocol schemas port the typed contracts from pinned `packages/protocol/src/schemas.ts`. Rust models each field with its schema-specific type rather than exposing a generic CBOR or JavaScript-number representation.
+Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas.ts`. Rust models each field with its schema-specific type instead of exposing generic CBOR or JavaScript value categories.
 
 ## What it must do
+
+### Thinking levels
+
+- [x] Represent exactly `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`.
+- [x] Convert each enum value back to its exact source literal.
+- [x] Reject every other spelling, including the broader `pi-ai` value `ultra`.
+
+### Session phases
+
+- [x] Represent exactly `idle`, `turn`, `compaction`, `branch_summary`, and `retry`.
+- [x] Convert each enum value back to its exact source literal and reject every other spelling.
+
+### Model references
+
+- [x] Own and preserve the exact `provider` and `id` strings.
+- [x] Accept every Rust-representable non-empty string, including Unicode, whitespace-only, combining, and embedded-NUL values.
+- [x] Reject an empty `provider` before checking `id`, then reject an empty `id`.
 
 ### Model costs
 
@@ -23,17 +40,19 @@ Protocol schemas port the typed contracts from pinned `packages/protocol/src/sch
 
 ## Tests asserting this spec
 
+- `crates/pi-protocol/tests/schema_leaves.rs`
 - `crates/pi-protocol/tests/model_cost.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
 
 ## Known gaps (current cycle)
 
-None for `ModelCostSchema`.
+- [ ] Compare thinking-level, session-phase, and model-reference fixtures directly with the pinned TypeBox schemas.
 
 ## Out of scope
 
-- Object-shape and unknown-field validation at typed constructor boundaries; future JSONL or private wire decoders enforce those constraints.
-- Other protocol schemas and integer fields.
+- Missing, wrong-typed, and additional object fields at typed constructor boundaries; future JSONL or private wire decoders enforce those constraints.
+- JavaScript strings containing lone UTF-16 surrogates, which Rust `String` cannot represent.
+- Remaining protocol schemas and integer fields.
 - Generic `JsonValue` representation.
 - CBOR encoding, decoding, and options.
 - Decimal or exact-money arithmetic; source `number` fields use IEEE-754 binary64 semantics.

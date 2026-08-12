@@ -7,4 +7,7 @@ pub use framing::{
     DEFAULT_MAX_FRAME_LENGTH, FrameDecodeError, FrameDecoder, FrameEncodeError, FrameError, assert_complete_frame,
     encode_frame,
 };
-pub use schemas::{ModelCost, ModelCostError};
+pub use schemas::{
+    ModelCost, ModelCostError, ModelRef, ModelRefError, ParseSessionPhaseError, ParseThinkingLevelError, SessionPhase,
+    ThinkingLevel,
+};
