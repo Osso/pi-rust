@@ -20,4 +20,4 @@ No runtime dependencies.
 ## Development
 
 - `serde = 1.0.229` — derives typed JSON-lines request and response structures for differential tests.
-- `serde_json = 1.0.151` — serializes and parses the TypeScript oracle protocol.
+- `serde_json = 1.0.151` — serializes and parses the protocol, RPC JSONL, and truncation differential-oracle messages.

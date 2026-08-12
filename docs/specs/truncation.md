@@ -47,15 +47,21 @@ Agent-core truncation ports `packages/agent/src/harness/utils/truncate.ts` from 
 - `crates/pi-agent-core/src/harness/utils/truncate.rs` — constants, public result types, formatting, and truncation algorithms.
 - `crates/pi-agent-core/src/harness/utils/mod.rs` — public utility exports.
 - `crates/pi-agent-core/tests/truncate.rs` — focused shared-domain behavior and approved Unicode policy.
+- `oracle/truncate-oracle.ts` — persistent adapter over normal and Buffer-disabled pinned TypeScript execution.
+- `crates/pi-agent-core/tests/differential_truncate/` — targeted full-metadata, fallback, discrepancy, and deterministic-corpus proof.
 
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/truncate.rs`
+- `crates/pi-agent-core/tests/differential_truncate.rs`
+- `crates/pi-agent-core/tests/differential_truncate/format_size.rs`
+- `crates/pi-agent-core/tests/differential_truncate/targeted.rs`
+- `crates/pi-agent-core/tests/differential_truncate/truncate_line.rs`
+- `crates/pi-agent-core/tests/differential_truncate/tail_corpus.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Compare shared-domain outputs and full metadata directly with the pinned TypeScript source.
-- [ ] Pin the approved `truncate_line` supplementary-character discrepancy against the source.
+None for this bounded truncation slice.
 
 ## Out of scope
 
