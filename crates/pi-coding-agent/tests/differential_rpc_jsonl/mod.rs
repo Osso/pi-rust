@@ -1,5 +1,5 @@
 mod decoder;
-#[path = "../oracle.rs"]
+#[path = "../support/oracle.rs"]
 mod oracle;
 mod serialization;
 

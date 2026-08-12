@@ -1,5 +1,5 @@
 mod fixtures;
-#[path = "../oracle.rs"]
+#[path = "../support/oracle.rs"]
 mod oracle;
 
 pub(crate) fn run() {

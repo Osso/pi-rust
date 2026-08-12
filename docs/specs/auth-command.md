@@ -29,6 +29,7 @@ Auth command metadata and help selection port `packages/coding-agent/src/cli/aut
 - `oracle/auth-command-oracle.ts` — persistent adapter invoking the real pinned module.
 - `crates/pi-coding-agent/tests/differential_auth_command.rs` — direct TypeScript comparison entry point.
 - `crates/pi-coding-agent/tests/differential_auth_command/fixtures.rs` — exact metadata and help fixtures.
+- `crates/pi-coding-agent/tests/support/oracle.rs` — shared source-lock verification and persistent oracle process client.
 
 ## Tests asserting this spec
 
