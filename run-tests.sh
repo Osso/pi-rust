@@ -29,7 +29,7 @@ case "${1:-all}" in
 		shift
 		cargo test -p pi-protocol --lib --test framing --test frame_decoder --test model_cost --test schema_leaves --test model_metadata --test usage --test content_leaves --test session_metadata --test protocol_error_code --test commands --test client_hello --test message_envelopes "$@"
 		cargo test -p pi-coding-agent --test rpc_jsonl "$@"
-		exec cargo test -p pi-agent-core --test truncate "$@"
+		exec cargo test -p pi-agent-core --test truncate --test sanitize_binary_output "$@"
 		;;
 	differential)
 		shift

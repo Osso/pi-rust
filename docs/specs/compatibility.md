@@ -14,6 +14,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Stop and ask Alessio when Rust cannot reproduce TypeScript behavior within the approved typed-core boundary.
 - [x] Classify the RPC JSON serializer as semantic JSON rather than byte-identical `JSON.stringify`, approved August 12, 2026.
 - [x] Classify truncation limits as typed non-negative integers and single-line truncation as Unicode-scalar-safe, approved August 12, 2026.
+- [x] Preserve the shell sanitizer's explicit code-point ranges rather than applying broad Unicode control categories.
 
 ## How it works
 
@@ -56,6 +57,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 ## Known gaps (current cycle)
 
 - [ ] Classify and resolve the payload-above-4-GiB proof gap.
+- [ ] Complete pinned differential proof for agent-core binary-output sanitization.
 
 ## Out of scope
 

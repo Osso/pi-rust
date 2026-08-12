@@ -11,7 +11,7 @@ All direct dependencies are exact-pinned.
 
 ### `pi-agent-core`
 
-No runtime dependencies for the output-truncation slice.
+No runtime dependencies for output truncation or binary-output sanitization.
 
 ### `pi-protocol`
 
