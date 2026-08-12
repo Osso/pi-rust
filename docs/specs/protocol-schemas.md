@@ -44,6 +44,14 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - [x] Represent all five usage-cost fields as finite non-negative `f64` values and preserve accepted IEEE-754 bits.
 - [x] Use Rust-specific usage-cost diagnostics ordered by the source field declarations.
 
+### Content leaves
+
+- [x] Preserve every text and thinking string, including empty, Unicode, and embedded-NUL values.
+- [x] Preserve omitted, false, and true thinking-redaction states through `Option<bool>`.
+- [x] Preserve image data as an opaque string without base64 validation or normalization.
+- [x] Require only a non-empty image MIME type; whitespace-only values remain valid.
+- [x] Represent exact content tags through distinct Rust types without redundant stored tag fields.
+
 ## How it works
 
 - [Schema traceability](../porting/traceability/protocol-schemas.md)
@@ -52,7 +60,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 ## Implementation inventory
 
 - `crates/pi-protocol/src/lib.rs` — exports schema types and validation errors.
-- `crates/pi-protocol/src/schemas.rs` — schema models and APIs, including `UsageCost::new`, `UsageCostError`, `UsageInput`, infallible `Usage::new`, and getters for every usage field.
+- `crates/pi-protocol/src/schemas.rs` — schema models and APIs, including Usage types plus `TextContent`, `ThinkingContent`, `ImageContent`, their constructors/getters, and `ImageContentError`.
 
 ## Tests asserting this spec
 
@@ -60,6 +68,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/tests/model_cost.rs`
 - `crates/pi-protocol/tests/model_metadata.rs`
 - `crates/pi-protocol/tests/usage.rs`
+- `crates/pi-protocol/tests/content_leaves.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_metadata.rs`
 - `crates/pi-protocol/tests/differential_protocol/schema_leaves.rs`
@@ -67,14 +76,14 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 
 ## Known gaps (current cycle)
 
-None for the currently ported schema types.
+- [ ] Compare text, thinking, and image content leaves directly with the pinned TypeBox schemas.
 
 ## Out of scope
 
 - Missing, wrong-typed, and additional object fields at typed constructor boundaries; future JSONL or private wire decoders enforce those constraints.
 - JavaScript strings containing lone UTF-16 surrogates, which Rust `String` cannot represent.
 - Direct integer differential proof above JavaScript `Number.MAX_SAFE_INTEGER`; larger `u64` values have Rust-side focused proof, while positive TypeBox integers above `u64::MAX` are excluded. Alessio approved `u64` typed fields on August 12, 2026.
+- `ToolCallContentSchema`, content unions, and transcript schemas because the generic `JsonValue` contract remains excluded.
 - Remaining protocol schemas and integer fields.
-- Generic `JsonValue` representation.
 - CBOR encoding, decoding, and options.
 - Decimal or exact-money arithmetic; source `number` fields use IEEE-754 binary64 semantics.

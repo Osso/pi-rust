@@ -582,3 +582,88 @@ impl Usage {
         self.cost
     }
 }
+
+/// Text content carried by protocol messages.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextContent {
+    text: String,
+}
+
+impl TextContent {
+    /// Creates text content. Empty strings are valid.
+    pub const fn new(text: String) -> Self {
+        Self { text }
+    }
+
+    /// Text payload.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+}
+
+/// Thinking content carried by protocol messages.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThinkingContent {
+    thinking: String,
+    redacted: Option<bool>,
+}
+
+impl ThinkingContent {
+    /// Creates thinking content while preserving omission of the optional redacted field.
+    pub const fn new(thinking: String, redacted: Option<bool>) -> Self {
+        Self { thinking, redacted }
+    }
+
+    /// Thinking payload.
+    pub fn thinking(&self) -> &str {
+        &self.thinking
+    }
+
+    /// Redaction state when the source field is present.
+    pub const fn redacted(&self) -> Option<bool> {
+        self.redacted
+    }
+}
+
+/// Image content carried as an opaque string payload and MIME type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageContent {
+    data: String,
+    mime_type: String,
+}
+
+impl ImageContent {
+    /// Creates image content after applying the source MIME-type length constraint.
+    pub fn new(data: String, mime_type: String) -> Result<Self, ImageContentError> {
+        if mime_type.is_empty() {
+            return Err(ImageContentError::EmptyMimeType);
+        }
+        Ok(Self { data, mime_type })
+    }
+
+    /// Opaque image data string.
+    pub fn data(&self) -> &str {
+        &self.data
+    }
+
+    /// MIME type.
+    pub fn mime_type(&self) -> &str {
+        &self.mime_type
+    }
+}
+
+/// Returned when image content violates its typed schema constraint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageContentError {
+    EmptyMimeType,
+}
+
+impl Display for ImageContentError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyMimeType => formatter.write_str("Image content MIME type must not be empty"),
+        }
+    }
+}
+
+impl Error for ImageContentError {}
