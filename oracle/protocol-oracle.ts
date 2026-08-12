@@ -1,6 +1,15 @@
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 
+import {
+	decodeHex,
+	decodeTaggedNumber,
+	encodeHex,
+	float64Bits,
+	normalizeError,
+	type TaggedNumber,
+} from "./protocol-oracle-values.js";
+
 type RequestId = string | number | null;
 
 type FrameDecoderOptions = {
@@ -30,6 +39,7 @@ type SchemaApi = {
 	ImageContentSchema: unknown;
 	SessionMetadataSchema: unknown;
 	ProtocolErrorCodeSchema: unknown;
+	CommandSchema: unknown;
 };
 
 type TypeboxApi = {
@@ -44,15 +54,6 @@ type DecoderStep =
 		}
 	| {
 			op: "end";
-		};
-
-type TaggedNumber =
-	| {
-			number: "finite";
-			value: number;
-		}
-	| {
-			number: "negative_zero" | "nan" | "positive_infinity" | "negative_infinity";
 		};
 
 type ModelCostRequest = {
@@ -116,6 +117,19 @@ type SessionMetadataRequest = {
 	parentSessionId?: string;
 	sessionName?: string;
 	cwd?: string;
+};
+
+type CommandRequest = {
+	command: string;
+	cwd?: string;
+	name?: string;
+	model?: {
+		provider: string;
+		id: string;
+	};
+	thinkingLevel?: string;
+	sessionId?: string;
+	text?: string;
 };
 
 type Request =
@@ -193,6 +207,11 @@ type Request =
 			id: RequestId;
 			operation: "validate_protocol_error_code";
 			value: string;
+		}
+	| {
+			id: RequestId;
+			operation: "validate_command";
+			value: CommandRequest;
 		};
 
 type DecoderStepResponse =
@@ -272,6 +291,10 @@ type SchemaValidationResponse =
 	| {
 			valid: true;
 			value: SessionMetadataResponseValue;
+		}
+	| {
+			valid: true;
+			value: CommandResponseValue;
 		};
 
 type ModelMetadataResponseValue = {
@@ -310,6 +333,7 @@ type UsageResponseValue = {
 };
 
 type SessionMetadataResponseValue = SessionMetadataRequest;
+type CommandResponseValue = CommandRequest;
 
 type ContentValidationResponse =
 	| {
@@ -333,25 +357,6 @@ type ContentValidationResponse =
 						mimeType: string;
 					};
 		};
-
-function decodeHex(hex: string): Uint8Array {
-	const bytes = new Uint8Array(hex.length / 2);
-	for (let index = 0; index < bytes.length; index += 1) {
-		bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
-	}
-	return bytes;
-}
-
-function encodeHex(bytes: Uint8Array): string {
-	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function normalizeError(error: unknown): { name: string; message: string } {
-	if (error instanceof Error) {
-		return { name: error.name, message: error.message };
-	}
-	return { name: "UnknownError", message: String(error) };
-}
 
 function executeDecoderStep(decoder: FrameDecoderInstance, step: DecoderStep): DecoderStepResponse {
 	try {
@@ -379,28 +384,6 @@ function executeDecoderSequence(
 	const decoder = new framing.FrameDecoder(options);
 	const results = request.steps.map((step) => executeDecoderStep(decoder, step));
 	return { id: request.id, ok: true, output: { results } };
-}
-
-function decodeTaggedNumber(number: TaggedNumber): number {
-	switch (number.number) {
-		case "finite":
-			return number.value;
-		case "negative_zero":
-			return -0;
-		case "nan":
-			return Number.NaN;
-		case "positive_infinity":
-			return Number.POSITIVE_INFINITY;
-		case "negative_infinity":
-			return Number.NEGATIVE_INFINITY;
-	}
-}
-
-function float64Bits(value: number): string {
-	const buffer = new ArrayBuffer(8);
-	const view = new DataView(buffer);
-	view.setFloat64(0, value, false);
-	return view.getBigUint64(0, false).toString(16).padStart(16, "0");
 }
 
 function executeSchemaString(
@@ -598,6 +581,17 @@ function executeSessionMetadata(
 	return { id: request.id, ok: true, output: { valid: true, value: request.value } };
 }
 
+function executeCommand(
+	request: Extract<Request, { operation: "validate_command" }>,
+	schema: SchemaApi,
+	typebox: TypeboxApi,
+): Response {
+	if (!typebox.Check(schema.CommandSchema, request.value)) {
+		return { id: request.id, ok: true, output: { valid: false } };
+	}
+	return { id: request.id, ok: true, output: { valid: true, value: request.value } };
+}
+
 function executeModelCost(
 	request: Extract<Request, { operation: "validate_model_cost" }>,
 	schema: SchemaApi,
@@ -684,6 +678,8 @@ function executeRequest(request: Request, framing: FramingApi, schema: SchemaApi
 			return executeImageContent(request, schema, typebox);
 		case "validate_session_metadata":
 			return executeSessionMetadata(request, schema, typebox);
+		case "validate_command":
+			return executeCommand(request, schema, typebox);
 	}
 	throw new Error("Unsupported protocol oracle operation");
 }

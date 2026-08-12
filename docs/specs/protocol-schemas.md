@@ -95,6 +95,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/tests/session_metadata.rs`
 - `crates/pi-protocol/tests/protocol_error_code.rs`
 - `crates/pi-protocol/tests/commands.rs`
+- `crates/pi-protocol/tests/differential_protocol/commands.rs`
 - `crates/pi-protocol/tests/differential_protocol/content_leaves.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_metadata.rs`
@@ -105,7 +106,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 
 ## Known gaps (current cycle)
 
-- [ ] Compare command leaves and `CommandSchema` directly with the pinned TypeBox schemas.
+None.
 
 ## Out of scope
 
@@ -115,6 +116,5 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - Full `ProtocolErrorSchema` while optional `details` depends on the excluded generic `JsonValue` contract.
 - `SessionSnapshotSchema` and snapshot result schemas until transcript dependencies are available.
 - `ToolCallContentSchema`, content unions, and transcript schemas because the generic `JsonValue` contract remains excluded.
-- Remaining protocol schemas and integer fields.
 - CBOR encoding, decoding, and options.
 - Decimal or exact-money arithmetic; source `number` fields use IEEE-754 binary64 semantics.
