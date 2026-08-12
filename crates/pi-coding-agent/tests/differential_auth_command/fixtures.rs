@@ -91,6 +91,18 @@ impl MetadataKind {
 }
 
 pub(crate) fn all() -> Vec<Fixture> {
+    [
+        metadata_fixtures(),
+        help_entry_fixtures(),
+        help_flag_fixtures(),
+        help_non_match_fixtures(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+fn metadata_fixtures() -> Vec<Fixture> {
     vec![
         Request::Metadata {
             id: 12000,
@@ -107,6 +119,11 @@ pub(crate) fn all() -> Vec<Fixture> {
             kind: MetadataKind::BearerToken,
         }
         .into_fixture("metadata bearer token"),
+    ]
+}
+
+fn help_entry_fixtures() -> Vec<Fixture> {
+    vec![
         Request::IsHelp { id: 12003, args: &[] }.into_fixture("empty args"),
         Request::IsHelp {
             id: 12004,
@@ -123,6 +140,11 @@ pub(crate) fn all() -> Vec<Fixture> {
             args: &["auth", "help", "extra"],
         }
         .into_fixture("auth help extra"),
+    ]
+}
+
+fn help_flag_fixtures() -> Vec<Fixture> {
+    vec![
         Request::IsHelp {
             id: 12007,
             args: &["auth", "--help"],
@@ -143,6 +165,11 @@ pub(crate) fn all() -> Vec<Fixture> {
             args: &["auth", "unknown", "duplicate", "-h", "duplicate"],
         }
         .into_fixture("later short help flag with duplicates"),
+    ]
+}
+
+fn help_non_match_fixtures() -> Vec<Fixture> {
+    vec![
         Request::IsHelp {
             id: 12011,
             args: &["auth", "unknown", "extra"],
