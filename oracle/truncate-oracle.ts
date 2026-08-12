@@ -196,27 +196,51 @@ function normalizeSanitizedUtf16Units(api: ShellOutputApi, units: number[]): { u
 
 function normalizeHarnessError(error: Error, api: HarnessTypesApi): NormalizedHarnessError {
 	const harnessError = error as HarnessErrorInstance;
-	const cause = error.cause instanceof Error ? normalizeHarnessError(error.cause, api) : null;
+	const cause = normalizeHarnessCause(error, api);
 	if (error instanceof api.FileError) {
-		return {
-			kind: "FileError",
-			name: error.name,
-			message: error.message,
-			code: harnessError.code,
-			path: harnessError.path ?? null,
-			cause,
-		};
+		return normalizeFileHarnessError(error, harnessError, cause);
 	}
 	if (error instanceof api.ExecutionError) {
-		return {
-			kind: "ExecutionError",
-			name: error.name,
-			message: error.message,
-			code: harnessError.code,
-			path: null,
-			cause,
-		};
+		return normalizeExecutionHarnessError(error, harnessError, cause);
 	}
+	return normalizeUnknownHarnessError(error, cause);
+}
+
+function normalizeHarnessCause(error: Error, api: HarnessTypesApi): NormalizedHarnessError | null {
+	return error.cause instanceof Error ? normalizeHarnessError(error.cause, api) : null;
+}
+
+function normalizeFileHarnessError(
+	error: Error,
+	harnessError: HarnessErrorInstance,
+	cause: NormalizedHarnessError | null,
+): NormalizedHarnessError {
+	return {
+		kind: "FileError",
+		name: error.name,
+		message: error.message,
+		code: harnessError.code,
+		path: harnessError.path ?? null,
+		cause,
+	};
+}
+
+function normalizeExecutionHarnessError(
+	error: Error,
+	harnessError: HarnessErrorInstance,
+	cause: NormalizedHarnessError | null,
+): NormalizedHarnessError {
+	return {
+		kind: "ExecutionError",
+		name: error.name,
+		message: error.message,
+		code: harnessError.code,
+		path: null,
+		cause,
+	};
+}
+
+function normalizeUnknownHarnessError(error: Error, cause: NormalizedHarnessError | null): NormalizedHarnessError {
 	return {
 		kind: "Error",
 		name: error.name,

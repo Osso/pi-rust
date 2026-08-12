@@ -68,7 +68,6 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-agent-core/tests/differential_truncate/errors.rs`
 - `crates/pi-agent-core/tests/sanitize_binary_output.rs`
 - `crates/pi-agent-core/tests/differential_truncate/sanitize.rs`
-- `docs/porting/traceability/harness-errors.md`
 
 ## Known gaps (current cycle)
 

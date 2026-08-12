@@ -115,26 +115,37 @@ fn build_cause(cause: &CauseFixture) -> Box<dyn StdError + 'static> {
 
 fn normalize_error(error: &(dyn StdError + 'static)) -> Value {
     if let Some(error) = error.downcast_ref::<FileError>() {
-        return json!({
-            "kind": "FileError",
-            "name": error.name,
-            "message": error.message,
-            "code": error.code.as_str(),
-            "path": error.path,
-            "cause": normalize_source(error.source()),
-        });
+        return normalize_file_error(error);
     }
     if let Some(error) = error.downcast_ref::<ExecutionError>() {
-        return json!({
-            "kind": "ExecutionError",
-            "name": error.name,
-            "message": error.message,
-            "code": error.code.as_str(),
-            "path": Value::Null,
-            "cause": normalize_source(error.source()),
-        });
+        return normalize_execution_error(error);
     }
+    normalize_unknown_error(error)
+}
 
+fn normalize_file_error(error: &FileError) -> Value {
+    json!({
+        "kind": "FileError",
+        "name": error.name,
+        "message": error.message,
+        "code": error.code.as_str(),
+        "path": error.path,
+        "cause": normalize_source(error.source()),
+    })
+}
+
+fn normalize_execution_error(error: &ExecutionError) -> Value {
+    json!({
+        "kind": "ExecutionError",
+        "name": error.name,
+        "message": error.message,
+        "code": error.code.as_str(),
+        "path": Value::Null,
+        "cause": normalize_source(error.source()),
+    })
+}
+
+fn normalize_unknown_error(error: &(dyn StdError + 'static)) -> Value {
     json!({
         "kind": "Error",
         "name": "Error",
