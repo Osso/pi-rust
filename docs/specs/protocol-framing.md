@@ -36,7 +36,6 @@ Protocol framing ports `packages/protocol/src/framing.ts` from the pinned TypeSc
 
 ## Known gaps (current cycle)
 
-- [ ] Add differential TypeScript proof for construction and validation.
 - [ ] Resolve proof for the impractical payload-above-4-GiB guard.
 
 ## Out of scope

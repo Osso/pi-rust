@@ -11,6 +11,7 @@ Current milestone: `@earendil-works/pi-protocol` binary frame construction and v
 ```text
 ./run-tests.sh focused
 ./run-tests.sh differential
+./run-tests.sh oracle
 ./run-tests.sh all
 cargo fmt --check
 cargo check --workspace --all-targets
