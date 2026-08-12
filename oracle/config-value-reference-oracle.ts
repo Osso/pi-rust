@@ -6,19 +6,38 @@ type RequestId = string | number | null;
 type ConfigValueReferenceApi = {
 	getConfigValueEnvVarName(config: string): string | undefined;
 	getConfigValueEnvVarNames(config: string): string[];
+	getMissingConfigValueEnvVarNames(config: string, env?: Record<string, string>): string[];
 	isCommandConfigValue(config: string): boolean;
+	isConfigValueConfigured(config: string, env?: Record<string, string>): boolean;
 };
 
-type Request = {
+type ReferenceRequest = {
 	id: RequestId;
 	config: string;
 };
 
-type Output = {
+type StatusRequest = {
+	id: RequestId;
+	operation: "status";
+	config: string;
+	env: Record<string, string> | null;
+	processEnv?: Record<string, string | null>;
+};
+
+type Request = ReferenceRequest | StatusRequest;
+
+type ReferenceOutput = {
 	envVarName: string | null;
 	envVarNames: string[];
 	isCommand: boolean;
 };
+
+type StatusOutput = {
+	missing: string[];
+	configured: boolean;
+};
+
+type Output = ReferenceOutput | StatusOutput;
 
 type Response =
 	| {
@@ -39,17 +58,46 @@ function normalizeError(error: unknown): { name: string; message: string } {
 	return { name: "UnknownError", message: String(error) };
 }
 
+function withProcessEnvironment<T>(values: Record<string, string | null> | undefined, action: () => T): T {
+	if (values === undefined) return action();
+
+	const previous = new Map<string, string | undefined>();
+	for (const [name, value] of Object.entries(values)) {
+		previous.set(name, process.env[name]);
+		if (value === null) delete process.env[name];
+		else process.env[name] = value;
+	}
+
+	try {
+		return action();
+	} finally {
+		for (const [name, value] of previous) {
+			if (value === undefined) delete process.env[name];
+			else process.env[name] = value;
+		}
+	}
+}
+
+function referenceOutput(config: string, api: ConfigValueReferenceApi): ReferenceOutput {
+	return {
+		envVarName: api.getConfigValueEnvVarName(config) ?? null,
+		envVarNames: api.getConfigValueEnvVarNames(config),
+		isCommand: api.isCommandConfigValue(config),
+	};
+}
+
+function statusOutput(request: StatusRequest, api: ConfigValueReferenceApi): StatusOutput {
+	const env = request.env ?? undefined;
+	return withProcessEnvironment(request.processEnv, () => ({
+		missing: api.getMissingConfigValueEnvVarNames(request.config, env),
+		configured: api.isConfigValueConfigured(request.config, env),
+	}));
+}
+
 function execute(request: Request, api: ConfigValueReferenceApi): Response {
 	try {
-		return {
-			id: request.id,
-			ok: true,
-			output: {
-				envVarName: api.getConfigValueEnvVarName(request.config) ?? null,
-				envVarNames: api.getConfigValueEnvVarNames(request.config),
-				isCommand: api.isCommandConfigValue(request.config),
-			},
-		};
+		const output = "operation" in request ? statusOutput(request, api) : referenceOutput(request.config, api);
+		return { id: request.id, ok: true, output };
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };
 	}

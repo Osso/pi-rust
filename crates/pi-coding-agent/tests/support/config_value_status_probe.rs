@@ -81,6 +81,15 @@ pub(crate) fn run_child_probe() {
             let env = map_from([(ENV_A, "")]);
             normalized_status("$PI_RUST_CONFIG_STATUS_A_7D9F", Some(&env))
         }
+        "explicit_empty_missing" => {
+            let env = map_from([(ENV_A, "")]);
+            normalized_status("$PI_RUST_CONFIG_STATUS_A_7D9F", Some(&env))
+        }
+        "duplicate_missing" => normalized_status(
+            "$PI_RUST_CONFIG_STATUS_B_7D9F-$PI_RUST_CONFIG_STATUS_A_7D9F-$PI_RUST_CONFIG_STATUS_B_7D9F-${PI_RUST_CONFIG_STATUS_A_7D9F}",
+            None,
+        ),
+        "leading_space_command" => normalized_status(" !echo $A", None),
         "mixed" => {
             let env = map_from([(ENV_B, "explicit-b")]);
             normalized_status(

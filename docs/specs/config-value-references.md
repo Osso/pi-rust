@@ -47,7 +47,8 @@ Config-value behavior ports selected helpers from pinned `packages/coding-agent/
 - `crates/pi-coding-agent/tests/support/config_value_status_probe.rs` — shared self-spawned child-process probe.
 - `oracle/config-value-reference-oracle.ts` — persistent adapter invoking the real pinned helpers.
 - `crates/pi-coding-agent/tests/differential_config_value_references.rs` — direct comparison entry point.
-- `crates/pi-coding-agent/tests/differential_config_value_references/fixtures.rs` — exact branch and boundary fixtures.
+- `crates/pi-coding-agent/tests/differential_config_value_references/fixtures.rs` — exact reference parser/classification fixtures.
+- `crates/pi-coding-agent/tests/differential_config_value_references/status.rs` — explicit/process environment status fixtures, including Unix non-Unicode bytes.
 
 ## Tests asserting this spec
 
@@ -55,10 +56,11 @@ Config-value behavior ports selected helpers from pinned `packages/coding-agent/
 - `crates/pi-coding-agent/tests/config_value_status.rs`
 - `crates/pi-coding-agent/tests/differential_config_value_references.rs`
 - `crates/pi-coding-agent/tests/differential_config_value_references/fixtures.rs`
+- `crates/pi-coding-agent/tests/differential_config_value_references/status.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Add direct TypeScript differential proof for environment-backed missing/configured status.
+None for the bounded reference-classification and environment-status slices.
 
 ## Out of scope
 

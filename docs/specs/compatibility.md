@@ -18,7 +18,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve exact coding-agent auth command names, usage strings, and help selection over Rust-representable strings.
 - [x] Preserve exact coding-agent auth parser errors, argument ordering, flags, and field-specific expiry-number behavior against the pinned source.
 - [x] Preserve pure config-value command classification and environment-reference parsing against the pinned source.
-- [ ] Prove config-value missing/configured status and environment truthiness against the pinned source.
+- [x] Preserve config-value missing/configured status and environment truthiness against the pinned source.
 
 ## How it works
 

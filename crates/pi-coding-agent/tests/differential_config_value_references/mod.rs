@@ -1,6 +1,7 @@
 mod fixtures;
 #[path = "../support/oracle.rs"]
 mod oracle;
+mod status;
 
 pub(crate) fn run() {
     let mut oracle = oracle::TsOracle::spawn(
@@ -16,4 +17,9 @@ pub(crate) fn run() {
             fixture.name
         );
     }
+
+    status::run(&mut oracle);
+
+    #[cfg(unix)]
+    status::run_non_unicode_status();
 }
