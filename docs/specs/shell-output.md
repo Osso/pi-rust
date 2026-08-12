@@ -37,7 +37,7 @@ None for this bounded sanitizer slice.
 
 ## Out of scope
 
-- JavaScript lone UTF-16 surrogates. The source implementation retains them despite an inaccurate source comment; Rust `str` cannot represent them.
+- JavaScript lone UTF-16 surrogates. The source implementation retains them; Rust `str` cannot represent them.
 - `executeShellWithCapture`, immediate post-sanitization CR removal, byte and line progress accounting, tail buffering, truncation, temporary-file spill, errors, cancellation, and late-callback suppression.
 - `ExecutionEnv`, platform shell discovery, process-tree termination, and Bash tool integration.
 - The separate sanitizer in `packages/coding-agent/src/utils/shell.ts`; it requires separate source mapping and proof.
