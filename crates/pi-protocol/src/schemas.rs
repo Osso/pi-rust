@@ -2,10 +2,12 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
+mod client_hello;
 mod commands;
 mod protocol_error_code;
 mod session_metadata;
 
+pub use client_hello::{ClientHello, PROTOCOL_VERSION};
 pub use commands::{
     AbortCommand, AttachCommand, Command, CommandError, CreateCommand, CreateCommandInput, DetachCommand, ListCommand,
     PromptCommand, SetModelCommand, SetThinkingCommand, SteerCommand,

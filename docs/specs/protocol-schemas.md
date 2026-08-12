@@ -72,6 +72,13 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - [x] Preserve omitted create options, unrestricted optional names, unrestricted prompt/steer text, and validated nested model/thinking values.
 - [x] Require create working directories and all required session IDs to be non-empty.
 
+### Client hello
+
+- [x] Expose protocol version `1` through `PROTOCOL_VERSION`.
+- [x] Represent the exact `hello` message kind through `ClientHello` without storing a redundant tag field.
+- [x] Preserve every non-negative Rust version through `u64`, including zero and `u64::MAX`.
+- [x] Keep schema acceptance separate from supported-version negotiation.
+
 ## How it works
 
 - [Schema traceability](../porting/traceability/protocol-schemas.md)
@@ -84,6 +91,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/src/schemas/session_metadata.rs` — `SessionMetadataInput`, `SessionMetadata::new`, six getters, and `SessionMetadataError::{EmptyId, EmptyParentSessionId, EmptyCwd}`.
 - `crates/pi-protocol/src/schemas/protocol_error_code.rs` — `ProtocolErrorCode`, `as_str`, `FromStr`, and `ParseProtocolErrorCodeError`.
 - `crates/pi-protocol/src/schemas/commands.rs` — command leaves, constructors/getters, `Command`, and `CommandError`.
+- `crates/pi-protocol/src/schemas/client_hello.rs` — protocol version and typed client handshake.
 
 ## Tests asserting this spec
 
@@ -95,6 +103,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/tests/session_metadata.rs`
 - `crates/pi-protocol/tests/protocol_error_code.rs`
 - `crates/pi-protocol/tests/commands.rs`
+- `crates/pi-protocol/tests/client_hello.rs`
 - `crates/pi-protocol/tests/differential_protocol/commands.rs`
 - `crates/pi-protocol/tests/differential_protocol/content_leaves.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
@@ -106,11 +115,12 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 
 ## Known gaps (current cycle)
 
-None.
+- [ ] Compare `ClientHelloSchema` directly with the pinned TypeBox schema.
+- [ ] Port `RequestEnvelopeSchema` and compose `ClientMessageSchema`.
 
 ## Out of scope
 
-- Parsing the source `type` property plus missing, wrong-typed, and additional object fields; future JSONL or private wire decoders enforce those constraints.
+- Parsing source tag properties plus missing, wrong-typed, and additional object fields; future JSONL or private wire decoders enforce those constraints.
 - JavaScript strings containing lone UTF-16 surrogates, which Rust `String` cannot represent.
 - Direct integer differential proof above JavaScript `Number.MAX_SAFE_INTEGER`; larger `u64` values have Rust-side focused proof, while positive TypeBox integers above `u64::MAX` are excluded. Alessio approved `u64` typed fields on August 12, 2026.
 - Full `ProtocolErrorSchema` while optional `details` depends on the excluded generic `JsonValue` contract.
