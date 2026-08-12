@@ -17,6 +17,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve the shell sanitizer's explicit code-point ranges rather than applying broad Unicode control categories.
 - [x] Preserve exact coding-agent auth command names, usage strings, and help selection over Rust-representable strings.
 - [x] Preserve exact coding-agent auth parser errors, argument ordering, flags, and field-specific expiry-number behavior against the pinned source.
+- [ ] Prove pure config-value command classification and environment-reference parsing against the pinned source.
 
 ## How it works
 
@@ -55,6 +56,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-coding-agent/tests/differential_rpc_jsonl.rs`
 - `crates/pi-coding-agent/tests/auth_command.rs`
 - `crates/pi-coding-agent/tests/differential_auth_command.rs`
+- `crates/pi-coding-agent/tests/config_value_references.rs`
 - `crates/pi-agent-core/tests/truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate.rs`
 - `crates/pi-agent-core/tests/sanitize_binary_output.rs`
