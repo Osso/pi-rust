@@ -41,7 +41,7 @@ fn validates_exactly_one_complete_bounded_frame() {
 
 #[test]
 fn uses_the_default_maximum_frame_length() {
-    let declared_above_default = u32::try_from(DEFAULT_MAX_FRAME_LENGTH + 1).expect("default maximum must fit u32");
+    let declared_above_default = DEFAULT_MAX_FRAME_LENGTH + 1;
     let frame = declared_above_default.to_be_bytes();
 
     assert_eq!(
