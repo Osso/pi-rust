@@ -1,3 +1,4 @@
+pub(crate) mod content_leaves;
 pub(crate) mod framing;
 pub(crate) mod model_cost;
 pub(crate) mod model_metadata;
@@ -11,6 +12,7 @@ pub(crate) fn run() {
         "packages/protocol/src/schemas.ts",
         "node_modules/typebox/build/value/index.mjs",
     ]);
+    content_leaves::compare_all_fixtures(&mut oracle);
     framing::compare_all_fixtures(&mut oracle);
     model_cost::compare_all_fixtures(&mut oracle, 1000);
     schema_leaves::compare_all_fixtures(&mut oracle);

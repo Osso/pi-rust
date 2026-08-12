@@ -60,7 +60,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 ## Implementation inventory
 
 - `crates/pi-protocol/src/lib.rs` — exports schema types and validation errors.
-- `crates/pi-protocol/src/schemas.rs` — schema models and APIs, including Usage types plus `TextContent`, `ThinkingContent`, `ImageContent`, their constructors/getters, and `ImageContentError`.
+- `crates/pi-protocol/src/schemas.rs` — includes `TextContent::new`/`text`, `ThinkingContent::new`/`thinking`/`redacted`, `ImageContent::new`/`data`/`mime_type`, and `ImageContentError::EmptyMimeType`.
 
 ## Tests asserting this spec
 
@@ -69,6 +69,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/tests/model_metadata.rs`
 - `crates/pi-protocol/tests/usage.rs`
 - `crates/pi-protocol/tests/content_leaves.rs`
+- `crates/pi-protocol/tests/differential_protocol/content_leaves.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_metadata.rs`
 - `crates/pi-protocol/tests/differential_protocol/schema_leaves.rs`
@@ -76,11 +77,11 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 
 ## Known gaps (current cycle)
 
-- [ ] Compare text, thinking, and image content leaves directly with the pinned TypeBox schemas.
+None for the currently ported schema types.
 
 ## Out of scope
 
-- Missing, wrong-typed, and additional object fields at typed constructor boundaries; future JSONL or private wire decoders enforce those constraints.
+- Parsing the source `type` property plus missing, wrong-typed, and additional object fields; future JSONL or private wire decoders enforce those constraints.
 - JavaScript strings containing lone UTF-16 surrogates, which Rust `String` cannot represent.
 - Direct integer differential proof above JavaScript `Number.MAX_SAFE_INTEGER`; larger `u64` values have Rust-side focused proof, while positive TypeBox integers above `u64::MAX` are excluded. Alessio approved `u64` typed fields on August 12, 2026.
 - `ToolCallContentSchema`, content unions, and transcript schemas because the generic `JsonValue` contract remains excluded.

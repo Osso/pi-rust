@@ -25,6 +25,9 @@ type SchemaApi = {
 	ModelCostSchema: unknown;
 	ModelMetadataSchema: unknown;
 	UsageSchema: unknown;
+	TextContentSchema: unknown;
+	ThinkingContentSchema: unknown;
+	ImageContentSchema: unknown;
 };
 
 type TypeboxApi = {
@@ -87,6 +90,23 @@ type UsageRequest = {
 	};
 };
 
+type TextContentRequest = {
+	type: string;
+	text: string;
+};
+
+type ThinkingContentRequest = {
+	type: string;
+	thinking: string;
+	redacted?: boolean;
+};
+
+type ImageContentRequest = {
+	type: string;
+	data: string;
+	mimeType: string;
+};
+
 type Request =
 	| {
 			id: RequestId;
@@ -137,6 +157,21 @@ type Request =
 			id: RequestId;
 			operation: "validate_usage";
 			value: UsageRequest;
+		}
+	| {
+			id: RequestId;
+			operation: "validate_text_content";
+			value: TextContentRequest;
+		}
+	| {
+			id: RequestId;
+			operation: "validate_thinking_content";
+			value: ThinkingContentRequest;
+		}
+	| {
+			id: RequestId;
+			operation: "validate_image_content";
+			value: ImageContentRequest;
 		};
 
 type DecoderStepResponse =
@@ -164,7 +199,8 @@ type Response =
 			| null
 			| { results: DecoderStepResponse[] }
 			| ModelCostResponse
-			| SchemaValidationResponse;
+			| SchemaValidationResponse
+			| ContentValidationResponse;
 		}
 	| {
 			id: RequestId;
@@ -247,6 +283,29 @@ type UsageResponseValue = {
 		total: string;
 	};
 };
+
+type ContentValidationResponse =
+	| {
+			valid: false;
+		}
+	| {
+			valid: true;
+			value:
+				| {
+						type: "text";
+						text: string;
+					}
+				| {
+						type: "thinking";
+						thinking: string;
+						redacted?: boolean;
+					}
+				| {
+						type: "image";
+						data: string;
+						mimeType: string;
+					};
+		};
 
 function decodeHex(hex: string): Uint8Array {
 	const bytes = new Uint8Array(hex.length / 2);
@@ -443,6 +502,64 @@ function executeUsage(
 	return { id: request.id, ok: true, output: { valid: true, value: normalizeUsage(value) } };
 }
 
+function executeTextContent(
+	request: Extract<Request, { operation: "validate_text_content" }>,
+	schema: SchemaApi,
+	typebox: TypeboxApi,
+): Response {
+	if (!typebox.Check(schema.TextContentSchema, request.value)) {
+		return { id: request.id, ok: true, output: { valid: false } };
+	}
+	return {
+		id: request.id,
+		ok: true,
+		output: {
+			valid: true,
+			value: { type: "text", text: request.value.text },
+		},
+	};
+}
+
+function executeThinkingContent(
+	request: Extract<Request, { operation: "validate_thinking_content" }>,
+	schema: SchemaApi,
+	typebox: TypeboxApi,
+): Response {
+	if (!typebox.Check(schema.ThinkingContentSchema, request.value)) {
+		return { id: request.id, ok: true, output: { valid: false } };
+	}
+	const value: Extract<ContentValidationResponse, { valid: true }>["value"] = {
+		type: "thinking",
+		thinking: request.value.thinking,
+	};
+	if (request.value.redacted !== undefined) {
+		value.redacted = request.value.redacted;
+	}
+	return { id: request.id, ok: true, output: { valid: true, value } };
+}
+
+function executeImageContent(
+	request: Extract<Request, { operation: "validate_image_content" }>,
+	schema: SchemaApi,
+	typebox: TypeboxApi,
+): Response {
+	if (!typebox.Check(schema.ImageContentSchema, request.value)) {
+		return { id: request.id, ok: true, output: { valid: false } };
+	}
+	return {
+		id: request.id,
+		ok: true,
+		output: {
+			valid: true,
+			value: {
+				type: "image",
+				data: request.value.data,
+				mimeType: request.value.mimeType,
+			},
+		},
+	};
+}
+
 function executeModelCost(
 	request: Extract<Request, { operation: "validate_model_cost" }>,
 	schema: SchemaApi,
@@ -509,6 +626,12 @@ function executeRequest(request: Request, framing: FramingApi, schema: SchemaApi
 			return executeModelMetadata(request, schema, typebox);
 		case "validate_usage":
 			return executeUsage(request, schema, typebox);
+		case "validate_text_content":
+			return executeTextContent(request, schema, typebox);
+		case "validate_thinking_content":
+			return executeThinkingContent(request, schema, typebox);
+		case "validate_image_content":
+			return executeImageContent(request, schema, typebox);
 	}
 }
 
