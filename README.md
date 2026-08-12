@@ -4,7 +4,7 @@ Systematic Rust port of the Pi Agent Harness.
 
 The TypeScript source oracle is pinned in [`docs/porting/source-lock.json`](docs/porting/source-lock.json). Each slice preserves representable observable behavior through source traceability, characterization tests, and differential execution against the real TypeScript implementation.
 
-Current milestone: `@earendil-works/pi-protocol` binary frame construction and validation.
+Current milestone: `@earendil-works/pi-protocol` binary framing and incremental decoding.
 
 ## Commands
 

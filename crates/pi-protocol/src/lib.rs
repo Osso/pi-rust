@@ -2,4 +2,7 @@
 
 mod framing;
 
-pub use framing::{DEFAULT_MAX_FRAME_LENGTH, FrameEncodeError, FrameError, assert_complete_frame, encode_frame};
+pub use framing::{
+    DEFAULT_MAX_FRAME_LENGTH, FrameDecodeError, FrameDecoder, FrameEncodeError, FrameError, assert_complete_frame,
+    encode_frame,
+};
