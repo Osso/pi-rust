@@ -12,6 +12,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Represent protocol numbers with schema-specific Rust types instead of preserving JavaScript or CBOR numeric categories.
 - [ ] Classify discrepancies as a Rust bug, TypeScript bug, approved deviation, or underspecified behavior before changing semantics.
 - [x] Stop and ask Alessio when Rust cannot reproduce TypeScript behavior within the approved typed-core boundary.
+- [x] Classify the RPC JSON serializer as semantic JSON rather than byte-identical `JSON.stringify`, approved August 12, 2026.
 
 ## How it works
 
@@ -50,6 +51,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 ## Known gaps (current cycle)
 
 - [ ] Classify and resolve the payload-above-4-GiB proof gap.
+- [ ] Complete pinned differential proof for RPC JSONL framing and its approved serializer discrepancies.
 
 ## Out of scope
 
@@ -61,4 +63,5 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - Generic public CBOR or JavaScript-number value models; typed schema fields use their actual Rust numeric types.
 - Refactoring behavior while translating it.
 - Treating TypeScript as the intended-behavior authority when a specification or invariant contradicts it.
+- Byte-identical `JSON.stringify` number spelling in RPC JSONL. Stock `serde_json` semantic output was approved August 12, 2026; exact known discrepancies remain documented and tested.
 - Claiming full Pi compatibility before all package contracts are ported and integrated.

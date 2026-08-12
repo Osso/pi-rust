@@ -1,0 +1,15 @@
+[package]
+name = "pi-coding-agent"
+version = "0.0.0"
+description = "Rust port of Pi's coding-agent runtime"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+serde = "=1.0.229"
+serde_json = "=1.0.151"
+
+[lints]
+workspace = true
