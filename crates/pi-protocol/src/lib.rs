@@ -8,6 +8,6 @@ pub use framing::{
     encode_frame,
 };
 pub use schemas::{
-    ModelCost, ModelCostError, ModelRef, ModelRefError, ParseSessionPhaseError, ParseThinkingLevelError, SessionPhase,
-    ThinkingLevel,
+    ModelCost, ModelCostError, ModelInput, ModelMetadata, ModelMetadataError, ModelMetadataInput, ModelRef,
+    ModelRefError, ParseModelInputError, ParseSessionPhaseError, ParseThinkingLevelError, SessionPhase, ThinkingLevel,
 };

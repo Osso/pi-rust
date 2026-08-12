@@ -39,6 +39,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 
 - Invalid JavaScript runtime input types at typed Rust API boundaries, approved August 12, 2026.
 - JavaScript lone-surrogate strings that Rust `String` cannot represent.
+- Positive integer-valued JavaScript schema values above `u64::MAX` for typed token-count fields, approved August 12, 2026.
 - Malformed or manually forged oracle requests; the Rust harness emits only typed operations and valid hexadecimal bytes.
 - Exact JavaScript allocation exception identity. Approved Rust behavior returns `FrameDecodeError::Allocation` and terminally fails the decoder.
 - Generic public CBOR or JavaScript-number value models; typed schema fields use their actual Rust numeric types.

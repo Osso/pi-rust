@@ -29,6 +29,14 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - [x] Reject negative, NaN, and infinite values.
 - [x] Report the first invalid field in source schema order.
 
+### Model metadata
+
+- [x] Represent `input` through exact `text` and `image` literals, preserving array order and duplicates and allowing an empty array.
+- [x] Own and preserve non-empty `provider`, `id`, `name`, and `api` strings without trimming or normalization.
+- [x] Preserve `reasoning`, `authenticated`, validated `ModelCost`, and a non-empty ordered list of `ThinkingLevel` values.
+- [x] Represent positive `contextWindow` and `maxTokens` values as `u64`, including `u64::MAX`.
+- [x] Report constructor validation errors in representable source field order.
+
 ## How it works
 
 - [Schema traceability](../porting/traceability/protocol-schemas.md)
@@ -37,23 +45,25 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 ## Implementation inventory
 
 - `crates/pi-protocol/src/lib.rs` — exports schema types and validation errors.
-- `crates/pi-protocol/src/schemas.rs` — `ThinkingLevel`, `SessionPhase`, `ModelRef`, `ModelCost`, parsing, and constructor validation.
+- `crates/pi-protocol/src/schemas.rs` — schema-specific enums, models, parsing, and constructor validation.
 
 ## Tests asserting this spec
 
 - `crates/pi-protocol/tests/schema_leaves.rs`
 - `crates/pi-protocol/tests/model_cost.rs`
+- `crates/pi-protocol/tests/model_metadata.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
 - `crates/pi-protocol/tests/differential_protocol/schema_leaves.rs`
 
 ## Known gaps (current cycle)
 
-None for the currently ported schema types.
+- [ ] Compare `ModelMetadataSchema` directly with the pinned TypeBox schema.
 
 ## Out of scope
 
 - Missing, wrong-typed, and additional object fields at typed constructor boundaries; future JSONL or private wire decoders enforce those constraints.
 - JavaScript strings containing lone UTF-16 surrogates, which Rust `String` cannot represent.
+- Positive integer-valued JavaScript numbers above `u64::MAX`; Alessio approved `u64` typed fields on August 12, 2026.
 - Remaining protocol schemas and integer fields.
 - Generic `JsonValue` representation.
 - CBOR encoding, decoding, and options.
