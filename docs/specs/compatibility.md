@@ -33,6 +33,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 ## Out of scope
 
 - Invalid JavaScript runtime input types at typed Rust API boundaries, approved August 12, 2026.
+- Malformed or manually forged oracle requests; the Rust harness emits only typed operations and valid hexadecimal bytes.
 - Refactoring behavior while translating it.
 - Treating TypeScript as the intended-behavior authority when a specification or invariant contradicts it.
 - Claiming full Pi compatibility before all package contracts are ported and integrated.

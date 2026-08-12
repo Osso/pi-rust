@@ -9,4 +9,6 @@ Each Rust slice is compared with the real function from the pinned TypeScript wo
 5. Tests compare normalized success values or error kinds and messages.
 6. `docs/porting/traceability/` records proof for every translated statement and branch.
 
+The JSON-lines adapter is internal to typed Rust fixtures. Manually forged operations and invalid hexadecimal payloads are outside its contract.
+
 Differences are not resolved inside the translation. They are first classified as Rust bugs, TypeScript bugs, approved deviations, or underspecified behavior.
