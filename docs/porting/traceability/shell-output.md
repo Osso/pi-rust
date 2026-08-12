@@ -2,7 +2,7 @@
 
 Pinned source: `packages/agent/src/harness/utils/shell-output.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-The current slices map typed filesystem/execution error prerequisites and exported `sanitizeBinaryOutput`. The typed-error slice has focused and direct differential proof: 14 controlled `harness_error` fixtures (`13000..=13013`) invoke the real pinned classes from `types.ts` through the persistent utility oracle. Sanitizer differential proof invokes the real pinned agent-core module through the same oracle. Eighteen valid-UTF-8 fixtures (`11000..=11017`) compare exact text, UTF-16 units, and code points; four source-only UTF-16 fixtures (`11018..=11021`) pin retained lone-surrogate behavior without constructing invalid Rust strings. Oracle framing uses a UTF-8 `StringDecoder` and LF-only boundaries at `oracle/truncate-oracle.ts:214-222`; the whitespace fixture at `sanitize.rs:86` proves U+2028 and U+2029 remain payload data.
+The current slices map typed filesystem/execution error prerequisites and exported `sanitizeBinaryOutput`. The typed-error slice has focused and direct differential proof: 14 controlled `harness_error` fixtures (`13000..=13013`) invoke the real pinned classes through the public `packages/agent/src/index.ts` exports and persistent utility oracle. Sanitizer differential proof invokes the real pinned agent-core module through the same oracle. Eighteen valid-UTF-8 fixtures (`11000..=11017`) compare exact text, UTF-16 units, and code points; four source-only UTF-16 fixtures (`11018..=11021`) pin retained lone-surrogate behavior without constructing invalid Rust strings. Oracle framing uses a UTF-8 `StringDecoder` and LF-only boundaries at `oracle/truncate-oracle.ts:361-369`; the whitespace fixture at `sanitize.rs:86` proves U+2028 and U+2029 remain payload data.
 
 ## Typed filesystem and execution errors
 
@@ -17,7 +17,7 @@ The current slices map typed filesystem/execution error prerequisites and export
 | `session/jsonl/errors.ts:1-21` | File-error code conversion and cause wrapping | Consumer mapping only; session integration remains later work |
 | `shell-output.ts:21-27,55-197` | Execution-error detection and propagation | Consumer mapping only; shell capture remains later work |
 
-Rust uses the approved `Option<Box<dyn Error + 'static>>` cause representation. The persistent oracle adds `types.ts` as its third source module and maps `harness_error` requests to recursive controlled `Error` causes; JavaScript descriptors, enumeration, serialization, stack text, prototype identity, arbitrary runtime values, and lone surrogates remain outside this typed boundary.
+Rust uses the approved `Option<Box<dyn Error + 'static>>` cause representation. The persistent oracle adds the public agent package index as its third source module and maps `harness_error` requests to recursive controlled `Error` causes; JavaScript descriptors, enumeration, serialization, stack text, prototype identity, arbitrary runtime values, and lone surrogates remain outside this typed boundary.
 
 ## Binary-output sanitization
 

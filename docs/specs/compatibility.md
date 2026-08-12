@@ -16,7 +16,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Classify truncation limits as typed non-negative integers and single-line truncation as Unicode-scalar-safe, approved August 12, 2026.
 - [x] Preserve the shell sanitizer's explicit code-point ranges rather than applying broad Unicode control categories.
 - [x] Preserve exact filesystem/execution error-code literals, names, messages, constructor ordering, optional path, and typed causes over the Rust-representable boundary.
-- [x] Map focused typed-error constructors, public fields, mutation, and error-chain behavior to direct tests and 14 pinned TypeScript differential fixtures (`13000..=13013`) through `oracle/truncate-oracle.ts`.
+- [x] Map typed-error constructors, public fields, mutation, and error-chain behavior to focused Rust tests; compare normalized constructor and cause values through 14 pinned TypeScript differential fixtures (`13000..=13013`) using the public agent package exports.
 - [x] Preserve exact coding-agent auth command names, usage strings, and help selection over Rust-representable strings.
 - [x] Preserve exact coding-agent auth parser errors, argument ordering, flags, and field-specific expiry-number behavior against the pinned source.
 - [x] Preserve pure config-value command classification and environment-reference parsing against the pinned source.

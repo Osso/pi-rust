@@ -302,17 +302,17 @@ type CommonJsModule = {
 function readModulePaths(): [string, string, string, string] {
 	const truncateModulePath = process.argv[2];
 	const shellOutputModulePath = process.argv[3];
-	const harnessTypesModulePath = process.argv[4];
+	const agentModulePath = process.argv[4];
 	const esbuildModulePath = process.argv[5];
 	if (
 		truncateModulePath === undefined ||
 		shellOutputModulePath === undefined ||
-		harnessTypesModulePath === undefined ||
+		agentModulePath === undefined ||
 		esbuildModulePath === undefined
 	) {
-		throw new Error("agent utility oracle requires truncate, shell-output, harness-types, and esbuild module paths");
+		throw new Error("agent utility oracle requires truncate, shell-output, agent-package, and esbuild module paths");
 	}
-	return [truncateModulePath, shellOutputModulePath, harnessTypesModulePath, esbuildModulePath];
+	return [truncateModulePath, shellOutputModulePath, agentModulePath, esbuildModulePath];
 }
 
 async function loadFallbackApi(sourceModulePath: string, esbuildModulePath: string): Promise<TruncateApi> {
@@ -337,11 +337,11 @@ type OracleApis = {
 };
 
 async function loadApis(): Promise<OracleApis> {
-	const [truncateModulePath, shellOutputModulePath, harnessTypesModulePath, esbuildModulePath] = readModulePaths();
+	const [truncateModulePath, shellOutputModulePath, agentModulePath, esbuildModulePath] = readModulePaths();
 	const normal = (await import(pathToFileURL(truncateModulePath).href)) as TruncateApi;
 	const fallback = await loadFallbackApi(truncateModulePath, esbuildModulePath);
 	const shellOutput = (await import(pathToFileURL(shellOutputModulePath).href)) as ShellOutputApi;
-	const harnessTypes = (await import(pathToFileURL(harnessTypesModulePath).href)) as HarnessTypesApi;
+	const harnessTypes = (await import(pathToFileURL(agentModulePath).href)) as HarnessTypesApi;
 	return { normal, fallback, shellOutput, harnessTypes };
 }
 

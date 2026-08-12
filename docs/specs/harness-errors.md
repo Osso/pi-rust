@@ -4,10 +4,11 @@ Agent-core exposes the typed filesystem and process-execution errors required by
 
 ## What it must do
 
-### Error codes
+### Error codes and exports
 
 - [x] Expose every `FileErrorCode` literal through a closed Rust enum and exact `as_str()` mapping.
 - [x] Expose every `ExecutionErrorCode` literal through a closed Rust enum and exact `as_str()` mapping.
+- [x] Export all four Rust types through `pi_agent_core::harness` and invoke both TypeScript classes through the public agent package index.
 
 ### Error values
 
@@ -27,7 +28,7 @@ Agent-core exposes the typed filesystem and process-execution errors required by
 - `crates/pi-agent-core/src/harness/types.rs` — typed error codes and error values.
 - `crates/pi-agent-core/src/harness/mod.rs` — public harness exports.
 - `crates/pi-agent-core/tests/harness_errors.rs` — focused constructor, field, code, cause, chain, and trait proof.
-- `oracle/truncate-oracle.ts` — loads pinned `types.ts` and handles recursive `harness_error` normalization.
+- `oracle/truncate-oracle.ts` — loads the public pinned agent package module and handles recursive `harness_error` normalization.
 - `crates/pi-agent-core/tests/differential_truncate/errors.rs` — 14 direct constructor fixtures (`13000..=13013`).
 
 ## Tests asserting this spec

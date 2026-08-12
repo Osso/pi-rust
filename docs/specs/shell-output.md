@@ -43,6 +43,7 @@ Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-o
 - `crates/pi-agent-core/tests/harness_errors.rs`
 - `crates/pi-agent-core/tests/sanitize_binary_output.rs`
 - `crates/pi-agent-core/tests/differential_truncate.rs`
+- `crates/pi-agent-core/tests/differential_truncate/errors.rs`
 - `crates/pi-agent-core/tests/differential_truncate/sanitize.rs`
 
 ## Known gaps (current cycle)

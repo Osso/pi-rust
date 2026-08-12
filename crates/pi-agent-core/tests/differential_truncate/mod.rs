@@ -11,7 +11,7 @@ pub(crate) fn run() {
     let mut oracle = oracle::TsOracle::spawn(&[
         "packages/agent/src/harness/utils/truncate.ts",
         "packages/agent/src/harness/utils/shell-output.ts",
-        "packages/agent/src/harness/types.ts",
+        "packages/agent/src/index.ts",
     ]);
     format_size::compare_all_fixtures(&mut oracle);
     sanitize::compare_all_fixtures(&mut oracle);
