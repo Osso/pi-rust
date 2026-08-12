@@ -1,6 +1,35 @@
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
+/// Kind of filesystem object addressed by a `FileInfo` value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileKind {
+    File,
+    Directory,
+    Symlink,
+}
+
+impl FileKind {
+    /// Returns the exact TypeScript source literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Directory => "directory",
+            Self::Symlink => "symlink",
+        }
+    }
+}
+
+/// Metadata for one filesystem object.
+#[derive(Debug)]
+pub struct FileInfo {
+    pub name: String,
+    pub path: String,
+    pub kind: FileKind,
+    pub size: f64,
+    pub mtime_ms: f64,
+}
+
 /// Stable, backend-independent filesystem failure codes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileErrorCode {

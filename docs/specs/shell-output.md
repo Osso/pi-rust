@@ -1,6 +1,6 @@
 # Agent-core shell output
 
-Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-output.ts` from the pinned TypeScript source. The bounded slices also expose typed filesystem/execution error prerequisites from `packages/agent/src/harness/types.ts`; shell execution, capture, and production of those errors remain later work.
+Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-output.ts` from the pinned TypeScript source. The bounded slices also expose typed filesystem/execution error prerequisites and focused `FileKind`/`FileInfo` metadata values from `packages/agent/src/harness/types.ts`; shell execution, capture, filesystem adapters, and production of those errors remain later work.
 
 ## What it must do
 
@@ -12,6 +12,12 @@ Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-o
 - [x] Preserve `ExecutionError` constructor order, name, message, code, and typed cause from `types.ts:172-181`.
 - [x] Preserve typed causes through Rust error chaining with `std::error::Error::source`.
 - [x] Compare typed errors directly with the pinned TypeScript constructors using 14 `harness_error` fixtures (`13000..=13013`) in the persistent utility oracle.
+
+### Filesystem metadata values
+
+- [x] Preserve exact `FileKind` literals and public `FileInfo` fields with focused construction and mutation proof.
+- [x] Preserve selected JavaScript `number` bit patterns in `size` and `mtime_ms` through direct `f64` fields.
+- [ ] Compare the erased TypeScript metadata types and binary64 values through a pinned differential fixture.
 
 ### Binary-output sanitization
 
@@ -32,6 +38,9 @@ Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-o
 - `crates/pi-agent-core/src/harness/mod.rs` — public harness exports.
 - `crates/pi-agent-core/tests/harness_errors.rs` — focused typed-error behavior.
 - `crates/pi-agent-core/tests/differential_truncate/errors.rs` — direct pinned constructor proof (`13000..=13013`).
+- `crates/pi-agent-core/tests/file_info.rs` — focused metadata value behavior.
+- `docs/specs/file-metadata.md` — metadata value contract.
+- `docs/porting/traceability/file-metadata.md` — metadata source mapping and deferred consumers.
 - `crates/pi-agent-core/src/harness/utils/shell_output.rs` — pure binary-output sanitization.
 - `crates/pi-agent-core/src/harness/utils/mod.rs` — public utility export.
 - `crates/pi-agent-core/tests/sanitize_binary_output.rs` — focused shared-domain behavior.
@@ -41,6 +50,7 @@ Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-o
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/harness_errors.rs`
+- `crates/pi-agent-core/tests/file_info.rs`
 - `crates/pi-agent-core/tests/sanitize_binary_output.rs`
 - `crates/pi-agent-core/tests/differential_truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate/errors.rs`
@@ -48,7 +58,7 @@ Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-o
 
 ## Known gaps (current cycle)
 
-None for this bounded sanitizer slice.
+- [ ] Add pinned `FileKind`/`FileInfo` type and binary64 differential proof.
 
 ## Out of scope
 

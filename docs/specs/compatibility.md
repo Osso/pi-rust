@@ -17,6 +17,8 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve the shell sanitizer's explicit code-point ranges rather than applying broad Unicode control categories.
 - [x] Preserve exact filesystem/execution error-code literals, names, messages, constructor ordering, optional path, and typed causes over the Rust-representable boundary.
 - [x] Map typed-error constructors, public fields, mutation, and error-chain behavior to focused Rust tests; compare normalized constructor and cause values through 14 pinned TypeScript differential fixtures (`13000..=13013`) using the public agent package exports.
+- [x] Preserve exact `FileKind` literals and the mutable `FileInfo` field contract with direct `f64` storage and focused bit-preservation proof.
+- [ ] Compare erased `FileInfo`/`FileKind` TypeScript types and binary64 values through a pinned differential fixture.
 - [x] Preserve exact coding-agent auth command names, usage strings, and help selection over Rust-representable strings.
 - [x] Preserve exact coding-agent auth parser errors, argument ordering, flags, and field-specific expiry-number behavior against the pinned source.
 - [x] Preserve pure config-value command classification and environment-reference parsing against the pinned source.
@@ -66,12 +68,16 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-agent-core/tests/differential_truncate.rs`
 - `crates/pi-agent-core/tests/harness_errors.rs`
 - `crates/pi-agent-core/tests/differential_truncate/errors.rs`
+- `crates/pi-agent-core/tests/file_info.rs`
+- `docs/specs/file-metadata.md`
+- `docs/porting/traceability/file-metadata.md`
 - `crates/pi-agent-core/tests/sanitize_binary_output.rs`
 - `crates/pi-agent-core/tests/differential_truncate/sanitize.rs`
 
 ## Known gaps (current cycle)
 
 - [ ] Classify and resolve the payload-above-4-GiB proof gap.
+- [ ] Add pinned `FileKind`/`FileInfo` type and binary64 differential proof.
 
 ## Out of scope
 
