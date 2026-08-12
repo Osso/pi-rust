@@ -42,7 +42,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - [x] Represent non-negative token counts as `u64`, preserving provider values without recomputing `totalTokens`.
 - [x] Preserve omitted reasoning separately from explicit zero through `Option<u64>`.
 - [x] Represent all five usage-cost fields as finite non-negative `f64` values and preserve accepted IEEE-754 bits.
-- [x] Report the first invalid usage-cost field in source declaration order.
+- [x] Use Rust-specific usage-cost diagnostics ordered by the source field declarations.
 
 ## How it works
 
@@ -52,7 +52,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 ## Implementation inventory
 
 - `crates/pi-protocol/src/lib.rs` — exports schema types and validation errors.
-- `crates/pi-protocol/src/schemas.rs` — schema-specific enums, models, input records, parsers, getters, and validation errors, including `ModelMetadata`, `UsageCost`, and `Usage`.
+- `crates/pi-protocol/src/schemas.rs` — schema models and APIs, including `UsageCost::new`, `UsageCostError`, `UsageInput`, infallible `Usage::new`, and getters for every usage field.
 
 ## Tests asserting this spec
 
@@ -63,10 +63,11 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_metadata.rs`
 - `crates/pi-protocol/tests/differential_protocol/schema_leaves.rs`
+- `crates/pi-protocol/tests/differential_protocol/usage.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Compare `UsageSchema` directly with the pinned TypeBox schema.
+None for the currently ported schema types.
 
 ## Out of scope
 

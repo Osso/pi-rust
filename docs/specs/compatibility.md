@@ -33,11 +33,11 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-protocol/tests/usage.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_metadata.rs`
 - `crates/pi-protocol/tests/differential_protocol/schema_leaves.rs`
+- `crates/pi-protocol/tests/differential_protocol/usage.rs`
 
 ## Known gaps (current cycle)
 
 - [ ] Classify and resolve the payload-above-4-GiB proof gap.
-- [ ] Complete direct `UsageSchema` comparison with the pinned TypeBox schema.
 
 ## Out of scope
 

@@ -24,6 +24,7 @@ type SchemaApi = {
 	ModelRefSchema: unknown;
 	ModelCostSchema: unknown;
 	ModelMetadataSchema: unknown;
+	UsageSchema: unknown;
 };
 
 type TypeboxApi = {
@@ -68,6 +69,22 @@ type ModelMetadataRequest = {
 	cost: ModelCostRequest;
 	supportedThinkingLevels: string[];
 	authenticated: boolean;
+};
+
+type UsageRequest = {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	reasoning?: number;
+	totalTokens: number;
+	cost: {
+		input: TaggedNumber;
+		output: TaggedNumber;
+		cacheRead: TaggedNumber;
+		cacheWrite: TaggedNumber;
+		total: TaggedNumber;
+	};
 };
 
 type Request =
@@ -115,6 +132,11 @@ type Request =
 			id: RequestId;
 			operation: "validate_model_metadata";
 			value: ModelMetadataRequest;
+		}
+	| {
+			id: RequestId;
+			operation: "validate_usage";
+			value: UsageRequest;
 		};
 
 type DecoderStepResponse =
@@ -185,6 +207,10 @@ type SchemaValidationResponse =
 	| {
 			valid: true;
 			value: ModelMetadataResponseValue;
+		}
+	| {
+			valid: true;
+			value: UsageResponseValue;
 		};
 
 type ModelMetadataResponseValue = {
@@ -204,6 +230,22 @@ type ModelMetadataResponseValue = {
 	};
 	supportedThinkingLevels: string[];
 	authenticated: boolean;
+};
+
+type UsageResponseValue = {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	reasoning?: number;
+	totalTokens: number;
+	cost: {
+		input: string;
+		output: string;
+		cacheRead: string;
+		cacheWrite: string;
+		total: string;
+	};
 };
 
 function decodeHex(hex: string): Uint8Array {
@@ -351,6 +393,53 @@ function executeModelMetadata(
 	};
 }
 
+function executeUsage(
+	request: Extract<Request, { operation: "validate_usage" }>,
+	schema: SchemaApi,
+	typebox: TypeboxApi,
+): Response {
+	const value = {
+		input: request.value.input,
+		output: request.value.output,
+		cacheRead: request.value.cacheRead,
+		cacheWrite: request.value.cacheWrite,
+		...(request.value.reasoning === undefined ? {} : { reasoning: request.value.reasoning }),
+		totalTokens: request.value.totalTokens,
+		cost: {
+			input: decodeTaggedNumber(request.value.cost.input),
+			output: decodeTaggedNumber(request.value.cost.output),
+			cacheRead: decodeTaggedNumber(request.value.cost.cacheRead),
+			cacheWrite: decodeTaggedNumber(request.value.cost.cacheWrite),
+			total: decodeTaggedNumber(request.value.cost.total),
+		},
+	};
+	if (!typebox.Check(schema.UsageSchema, value)) {
+		return { id: request.id, ok: true, output: { valid: false } };
+	}
+	const normalized: UsageResponseValue = {
+		input: value.input,
+		output: value.output,
+		cacheRead: value.cacheRead,
+		cacheWrite: value.cacheWrite,
+		totalTokens: value.totalTokens,
+		cost: {
+			input: float64Bits(value.cost.input),
+			output: float64Bits(value.cost.output),
+			cacheRead: float64Bits(value.cost.cacheRead),
+			cacheWrite: float64Bits(value.cost.cacheWrite),
+			total: float64Bits(value.cost.total),
+		},
+	};
+	if (value.reasoning !== undefined) {
+		normalized.reasoning = value.reasoning;
+	}
+	return {
+		id: request.id,
+		ok: true,
+		output: { valid: true, value: normalized },
+	};
+}
+
 function executeModelCost(
 	request: Extract<Request, { operation: "validate_model_cost" }>,
 	schema: SchemaApi,
@@ -407,6 +496,8 @@ function execute(request: Request, framing: FramingApi, schema: SchemaApi, typeb
 				return executeModelRef(request, schema, typebox);
 			case "validate_model_metadata":
 				return executeModelMetadata(request, schema, typebox);
+			case "validate_usage":
+				return executeUsage(request, schema, typebox);
 		}
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };
