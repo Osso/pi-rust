@@ -15,6 +15,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Classify the RPC JSON serializer as semantic JSON rather than byte-identical `JSON.stringify`, approved August 12, 2026.
 - [x] Classify truncation limits as typed non-negative integers and single-line truncation as Unicode-scalar-safe, approved August 12, 2026.
 - [x] Preserve the shell sanitizer's explicit code-point ranges rather than applying broad Unicode control categories.
+- [x] Preserve exact coding-agent auth command names, usage strings, and help selection over Rust-representable strings.
 
 ## How it works
 
@@ -51,6 +52,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-protocol/tests/differential_protocol/usage.rs`
 - `crates/pi-coding-agent/tests/rpc_jsonl.rs`
 - `crates/pi-coding-agent/tests/differential_rpc_jsonl.rs`
+- `crates/pi-coding-agent/tests/auth_command.rs`
 - `crates/pi-agent-core/tests/truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate.rs`
 - `crates/pi-agent-core/tests/sanitize_binary_output.rs`

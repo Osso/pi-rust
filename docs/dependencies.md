@@ -6,6 +6,7 @@ All direct dependencies are exact-pinned.
 
 ### `pi-coding-agent`
 
+- Auth command metadata and help selection use only the Rust standard library.
 - `serde = 1.0.229` — exposes the typed serialization contract used by RPC JSONL records.
 - `serde_json = 1.0.151` — produces compact semantic JSON before the LF record delimiter.
 
