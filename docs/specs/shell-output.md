@@ -22,15 +22,18 @@ Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-o
 - `crates/pi-agent-core/src/harness/utils/shell_output.rs` — pure binary-output sanitization.
 - `crates/pi-agent-core/src/harness/utils/mod.rs` — public utility export.
 - `crates/pi-agent-core/tests/sanitize_binary_output.rs` — focused shared-domain behavior.
+- `oracle/truncate-oracle.ts` — persistent adapter loading the pinned agent-core sanitizer alongside truncation.
+- `crates/pi-agent-core/tests/differential_truncate/sanitize.rs` — exact shared-domain and source-only surrogate proof.
 
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/sanitize_binary_output.rs`
+- `crates/pi-agent-core/tests/differential_truncate.rs`
+- `crates/pi-agent-core/tests/differential_truncate/sanitize.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Compare every retained and removed code-point class directly with the pinned TypeScript source.
-- [ ] Record the source-only lone-surrogate behavior at the typed Rust boundary.
+None for this bounded sanitizer slice.
 
 ## Out of scope
 

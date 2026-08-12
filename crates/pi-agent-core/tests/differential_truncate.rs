@@ -2,6 +2,6 @@
 mod truncate_oracle;
 
 #[test]
-fn truncation_matches_the_pinned_typescript_source() {
+fn agent_utilities_match_the_pinned_typescript_source() {
     truncate_oracle::run();
 }

@@ -53,11 +53,12 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-coding-agent/tests/differential_rpc_jsonl.rs`
 - `crates/pi-agent-core/tests/truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate.rs`
+- `crates/pi-agent-core/tests/sanitize_binary_output.rs`
+- `crates/pi-agent-core/tests/differential_truncate/sanitize.rs`
 
 ## Known gaps (current cycle)
 
 - [ ] Classify and resolve the payload-above-4-GiB proof gap.
-- [ ] Complete pinned differential proof for agent-core binary-output sanitization.
 
 ## Out of scope
 
