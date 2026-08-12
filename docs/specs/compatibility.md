@@ -26,7 +26,8 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 
 ## Tests asserting this spec
 
-- `crates/pi-protocol/tests/differential_framing.rs`
+- `crates/pi-protocol/tests/differential_protocol.rs`
+- `crates/pi-protocol/tests/model_cost.rs`
 
 ## Known gaps (current cycle)
 
