@@ -3,11 +3,13 @@ use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
 mod client_hello;
+mod client_message;
 mod commands;
 mod protocol_error_code;
 mod session_metadata;
 
 pub use client_hello::{ClientHello, PROTOCOL_VERSION};
+pub use client_message::{ClientMessage, RequestEnvelope, RequestEnvelopeError};
 pub use commands::{
     AbortCommand, AttachCommand, Command, CommandError, CreateCommand, CreateCommandInput, DetachCommand, ListCommand,
     PromptCommand, SetModelCommand, SetThinkingCommand, SteerCommand,

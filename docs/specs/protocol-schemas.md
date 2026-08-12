@@ -79,6 +79,13 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - [x] Preserve every non-negative Rust version, including zero and `u64::MAX`.
 - [x] Keep schema acceptance separate from supported-version negotiation by accepting versions other than `PROTOCOL_VERSION`.
 
+### Client message envelopes
+
+- [x] Construct request envelopes with a non-empty owned identifier and validated `Command`.
+- [x] Preserve every Rust-representable non-empty identifier and nested command without normalization.
+- [x] Reject an empty request identifier with `RequestEnvelopeError::EmptyId`.
+- [x] Represent client messages as `Hello` or `Request` variants with exact `hello` and `request` tags.
+
 ## How it works
 
 - [Schema traceability](../porting/traceability/protocol-schemas.md)
@@ -92,6 +99,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/src/schemas/protocol_error_code.rs` — `ProtocolErrorCode`, `as_str`, `FromStr`, and `ParseProtocolErrorCodeError`.
 - `crates/pi-protocol/src/schemas/commands.rs` — command leaves, constructors/getters, `Command`, and `CommandError`.
 - `crates/pi-protocol/src/schemas/client_hello.rs` — protocol version and typed client handshake.
+- `crates/pi-protocol/src/schemas/client_message.rs` — request envelope and client-message union.
 
 ## Tests asserting this spec
 
@@ -104,6 +112,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/tests/protocol_error_code.rs`
 - `crates/pi-protocol/tests/commands.rs`
 - `crates/pi-protocol/tests/client_hello.rs`
+- `crates/pi-protocol/tests/message_envelopes.rs`
 - `crates/pi-protocol/tests/differential_protocol/commands.rs`
 - `crates/pi-protocol/tests/differential_protocol/client_hello.rs`
 - `crates/pi-protocol/tests/differential_protocol/content_leaves.rs`
@@ -116,7 +125,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 
 ## Known gaps (current cycle)
 
-- [ ] Port `RequestEnvelopeSchema` and compose `ClientMessageSchema`, including exact wire-tag validation.
+- [ ] Compare `RequestEnvelopeSchema` and `ClientMessageSchema` directly with the pinned TypeBox schemas.
 
 ## Out of scope
 
