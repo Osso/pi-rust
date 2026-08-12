@@ -170,10 +170,10 @@ impl ModelCost {
     /// Creates model costs after applying the source schema's finite and non-negative constraints.
     pub fn new(input: f64, output: f64, cache_read: f64, cache_write: f64) -> Result<Self, ModelCostError> {
         Ok(Self {
-            input: validate_cost(input, ModelCostError::InvalidInput)?,
-            output: validate_cost(output, ModelCostError::InvalidOutput)?,
-            cache_read: validate_cost(cache_read, ModelCostError::InvalidCacheRead)?,
-            cache_write: validate_cost(cache_write, ModelCostError::InvalidCacheWrite)?,
+            input: validate_non_negative_number(input, ModelCostError::InvalidInput)?,
+            output: validate_non_negative_number(output, ModelCostError::InvalidOutput)?,
+            cache_read: validate_non_negative_number(cache_read, ModelCostError::InvalidCacheRead)?,
+            cache_write: validate_non_negative_number(cache_write, ModelCostError::InvalidCacheWrite)?,
         })
     }
 
@@ -224,7 +224,7 @@ impl Display for ModelCostError {
 
 impl Error for ModelCostError {}
 
-fn validate_cost(value: f64, error: ModelCostError) -> Result<f64, ModelCostError> {
+fn validate_non_negative_number<E>(value: f64, error: E) -> Result<f64, E> {
     if value.is_finite() && value >= 0.0 {
         Ok(value)
     } else {
@@ -431,4 +431,154 @@ fn validate_metadata_count(value: u64, error: ModelMetadataError) -> Result<(), 
         return Err(error);
     }
     Ok(())
+}
+
+/// Per-request costs reported with token usage.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UsageCost {
+    input: f64,
+    output: f64,
+    cache_read: f64,
+    cache_write: f64,
+    total: f64,
+}
+
+impl UsageCost {
+    /// Creates usage costs after applying the source schema's finite and non-negative constraints.
+    pub fn new(input: f64, output: f64, cache_read: f64, cache_write: f64, total: f64) -> Result<Self, UsageCostError> {
+        Ok(Self {
+            input: validate_non_negative_number(input, UsageCostError::InvalidInput)?,
+            output: validate_non_negative_number(output, UsageCostError::InvalidOutput)?,
+            cache_read: validate_non_negative_number(cache_read, UsageCostError::InvalidCacheRead)?,
+            cache_write: validate_non_negative_number(cache_write, UsageCostError::InvalidCacheWrite)?,
+            total: validate_non_negative_number(total, UsageCostError::InvalidTotal)?,
+        })
+    }
+
+    /// Input-token cost.
+    pub const fn input(self) -> f64 {
+        self.input
+    }
+
+    /// Output-token cost.
+    pub const fn output(self) -> f64 {
+        self.output
+    }
+
+    /// Cached-input read cost.
+    pub const fn cache_read(self) -> f64 {
+        self.cache_read
+    }
+
+    /// Cached-input write cost.
+    pub const fn cache_write(self) -> f64 {
+        self.cache_write
+    }
+
+    /// Total request cost.
+    pub const fn total(self) -> f64 {
+        self.total
+    }
+}
+
+/// Identifies the first usage-cost field that violates its source schema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UsageCostError {
+    InvalidInput,
+    InvalidOutput,
+    InvalidCacheRead,
+    InvalidCacheWrite,
+    InvalidTotal,
+}
+
+impl Display for UsageCostError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        let field = match self {
+            Self::InvalidInput => "input",
+            Self::InvalidOutput => "output",
+            Self::InvalidCacheRead => "cacheRead",
+            Self::InvalidCacheWrite => "cacheWrite",
+            Self::InvalidTotal => "total",
+        };
+        write!(
+            formatter,
+            "Usage cost field {field} must be a finite number greater than or equal to 0"
+        )
+    }
+}
+
+impl Error for UsageCostError {}
+
+/// Values used to construct typed token usage.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UsageInput {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+    pub reasoning: Option<u64>,
+    pub total_tokens: u64,
+    pub cost: UsageCost,
+}
+
+/// Token counts and costs reported for a model request.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Usage {
+    input: u64,
+    output: u64,
+    cache_read: u64,
+    cache_write: u64,
+    reasoning: Option<u64>,
+    total_tokens: u64,
+    cost: UsageCost,
+}
+
+impl Usage {
+    /// Creates usage from schema-specific Rust values.
+    pub const fn new(input: UsageInput) -> Self {
+        Self {
+            input: input.input,
+            output: input.output,
+            cache_read: input.cache_read,
+            cache_write: input.cache_write,
+            reasoning: input.reasoning,
+            total_tokens: input.total_tokens,
+            cost: input.cost,
+        }
+    }
+
+    /// Input-token count.
+    pub const fn input(self) -> u64 {
+        self.input
+    }
+
+    /// Output-token count.
+    pub const fn output(self) -> u64 {
+        self.output
+    }
+
+    /// Cached-input read-token count.
+    pub const fn cache_read(self) -> u64 {
+        self.cache_read
+    }
+
+    /// Cached-input write-token count.
+    pub const fn cache_write(self) -> u64 {
+        self.cache_write
+    }
+
+    /// Reasoning-token count when the provider reports one.
+    pub const fn reasoning(self) -> Option<u64> {
+        self.reasoning
+    }
+
+    /// Provider-reported total-token count.
+    pub const fn total_tokens(self) -> u64 {
+        self.total_tokens
+    }
+
+    /// Provider-reported request costs.
+    pub const fn cost(self) -> UsageCost {
+        self.cost
+    }
 }

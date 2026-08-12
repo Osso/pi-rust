@@ -37,6 +37,13 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - [x] Represent positive `contextWindow` and `maxTokens` values as `u64`, including `u64::MAX`.
 - [x] Use Rust-specific constructor diagnostics ordered by the source field declarations.
 
+### Usage
+
+- [x] Represent non-negative token counts as `u64`, preserving provider values without recomputing `totalTokens`.
+- [x] Preserve omitted reasoning separately from explicit zero through `Option<u64>`.
+- [x] Represent all five usage-cost fields as finite non-negative `f64` values and preserve accepted IEEE-754 bits.
+- [x] Report the first invalid usage-cost field in source declaration order.
+
 ## How it works
 
 - [Schema traceability](../porting/traceability/protocol-schemas.md)
@@ -45,20 +52,21 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 ## Implementation inventory
 
 - `crates/pi-protocol/src/lib.rs` — exports schema types and validation errors.
-- `crates/pi-protocol/src/schemas.rs` — includes `ModelInput`, `ParseModelInputError`, `ModelMetadataInput`, `ModelMetadata`, `ModelMetadataError`, `ModelMetadata::new`, and getters for every metadata field.
+- `crates/pi-protocol/src/schemas.rs` — schema-specific enums, models, input records, parsers, getters, and validation errors, including `ModelMetadata`, `UsageCost`, and `Usage`.
 
 ## Tests asserting this spec
 
 - `crates/pi-protocol/tests/schema_leaves.rs`
 - `crates/pi-protocol/tests/model_cost.rs`
 - `crates/pi-protocol/tests/model_metadata.rs`
+- `crates/pi-protocol/tests/usage.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_metadata.rs`
 - `crates/pi-protocol/tests/differential_protocol/schema_leaves.rs`
 
 ## Known gaps (current cycle)
 
-None for the currently ported schema types.
+- [ ] Compare `UsageSchema` directly with the pinned TypeBox schema.
 
 ## Out of scope
 
