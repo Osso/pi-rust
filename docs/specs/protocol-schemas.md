@@ -75,9 +75,9 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 ### Client hello
 
 - [x] Expose protocol version `1` through `PROTOCOL_VERSION`.
-- [x] Represent the exact `hello` message kind through `ClientHello` without storing a redundant tag field.
-- [x] Preserve every non-negative Rust version through `u64`, including zero and `u64::MAX`.
-- [x] Keep schema acceptance separate from supported-version negotiation.
+- [x] Construct typed `ClientHello` values from any Rust `u64` without a caller-supplied tag.
+- [x] Preserve every non-negative Rust version, including zero and `u64::MAX`.
+- [x] Keep schema acceptance separate from supported-version negotiation by accepting versions other than `PROTOCOL_VERSION`.
 
 ## How it works
 
@@ -116,7 +116,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 
 ## Known gaps (current cycle)
 
-- [ ] Port `RequestEnvelopeSchema` and compose `ClientMessageSchema`.
+- [ ] Port `RequestEnvelopeSchema` and compose `ClientMessageSchema`, including exact wire-tag validation.
 
 ## Out of scope
 
