@@ -1,4 +1,5 @@
 mod errors;
+mod file_info;
 mod format_size;
 mod oracle;
 mod sanitize;
@@ -20,4 +21,5 @@ pub(crate) fn run() {
     targeted::compare_utf8_fallback(&mut oracle);
     tail_corpus::compare_corpus(&mut oracle);
     errors::compare_all_fixtures(&mut oracle);
+    file_info::compare_all_fixtures(&mut oracle);
 }

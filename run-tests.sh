@@ -24,6 +24,7 @@ typecheck_oracle() {
 		oracle/truncate-oracle.ts \
 		oracle/auth-command-oracle.ts \
 		oracle/config-value-reference-oracle.ts
+	node oracle/file-metadata-typecheck.mjs
 }
 
 case "${1:-all}" in

@@ -2,7 +2,7 @@
 
 Pinned source: `packages/agent/src/harness/utils/shell-output.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-The current slices map typed filesystem/execution error prerequisites, focused `FileKind`/`FileInfo` metadata values, and exported `sanitizeBinaryOutput`. The metadata declaration and consumer mapping are maintained in [file-metadata traceability](file-metadata.md); `file_info.rs` provides focused value and binary64 proof, while pinned type/differential proof remains pending. The typed-error slice has focused and direct differential proof: 14 controlled `harness_error` fixtures (`13000..=13013`) invoke the real pinned classes through the public `packages/agent/src/index.ts` exports and persistent utility oracle. Sanitizer differential proof invokes the real pinned agent-core module through the same oracle. Eighteen valid-UTF-8 fixtures (`11000..=11017`) compare exact text, UTF-16 units, and code points; four source-only UTF-16 fixtures (`11018..=11021`) pin retained lone-surrogate behavior without constructing invalid Rust strings. Oracle framing uses a UTF-8 `StringDecoder` and LF-only boundaries at `oracle/truncate-oracle.ts:384-396`; the whitespace fixture at `sanitize.rs:86` proves U+2028 and U+2029 remain payload data.
+The current slices map typed filesystem/execution error prerequisites, focused and pinned `FileKind`/`FileInfo` metadata proof, and exported `sanitizeBinaryOutput`. The metadata declaration and consumer mapping are maintained in [file-metadata traceability](file-metadata.md); `file_info.rs` provides focused value proof, `oracle/file-metadata-typecheck.mjs` proves the erased public types, and 10 runtime record/binary64 fixtures (`13014..=13023`) compare plain records through the persistent utility oracle. No runtime `FileInfo` constructor is claimed. The typed-error slice has focused and direct differential proof: 14 controlled `harness_error` fixtures (`13000..=13013`) invoke the real pinned classes through the public `packages/agent/src/index.ts` exports and persistent utility oracle. Sanitizer differential proof invokes the real pinned agent-core module through the same oracle. Eighteen valid-UTF-8 fixtures (`11000..=11017`) compare exact text, UTF-16 units, and code points; four source-only UTF-16 fixtures (`11018..=11021`) pin retained lone-surrogate behavior without constructing invalid Rust strings. Oracle framing uses a UTF-8 `StringDecoder` and LF-only boundaries; the whitespace fixture at `sanitize.rs:86` proves U+2028 and U+2029 remain payload data.
 
 ## Typed filesystem and execution errors
 
@@ -18,6 +18,17 @@ The current slices map typed filesystem/execution error prerequisites, focused `
 | `shell-output.ts:21-27,55-197` | Execution-error detection and propagation | Consumer mapping only; shell capture remains later work |
 
 Rust uses the approved `Option<Box<dyn Error + 'static>>` cause representation. The persistent oracle adds the public agent package index as its third source module and maps `harness_error` requests to recursive controlled `Error` causes; JavaScript descriptors, enumeration, serialization, stack text, prototype identity, arbitrary runtime values, and lone surrogates remain outside this typed boundary.
+
+## Filesystem metadata values
+
+| TypeScript source | Observable behavior | Rust proof or gap |
+|---|---|---|
+| `types.ts:133-134` | `FileKind` is the erased public union `"file" | "directory" | "symlink"` | `oracle/file-metadata-typecheck.mjs` proves exact union equality from the public `index.ts`; focused Rust tests assert all literals |
+| `types.ts:213-224` | `FileInfo` is a mutable required-field record with `name`, `path`, `kind`, `size`, and `mtimeMs` | The generated strict fixture proves exact structure and assignments; `file_info.rs` proves the Rust public representation |
+| `index.ts:125-126` | Both metadata types are type-only public exports | The generated fixture imports both from the absolute pinned public index; no runtime constructor is claimed |
+| `types.ts:213-224` | `number` fields accept unrestricted binary64 values | `file_info.rs` and differential fixtures `13014..=13023` compare lowercase 16-digit `f64` bits for signed zero, subnormals, fractions, unsafe-integer boundaries, finite extremes, infinities, and NaN payload/sign patterns |
+
+The differential `file_info` operation constructs a plain mutable JavaScript record because `FileInfo` and `FileKind` are erased types. It reconstructs each input with `DataView`/`BigUint64` and normalizes the record back to exact lowercase 16-digit binary64 strings; it does not execute a source constructor.
 
 ## Binary-output sanitization
 

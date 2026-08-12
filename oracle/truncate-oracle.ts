@@ -26,6 +26,34 @@ type ShellOutputApi = {
 	sanitizeBinaryOutput(value: string): string;
 };
 
+type FileKind = "file" | "directory" | "symlink";
+
+type FileInfoRequest = {
+	id: RequestId;
+	operation: "file_info";
+	name: string;
+	path: string;
+	kind: FileKind;
+	sizeBits: string;
+	mtimeMsBits: string;
+};
+
+type FileInfoRecord = {
+	name: string;
+	path: string;
+	kind: FileKind;
+	size: number;
+	mtimeMs: number;
+};
+
+type NormalizedFileInfo = {
+	name: string;
+	path: string;
+	kind: FileKind;
+	sizeBits: string;
+	mtimeMsBits: string;
+};
+
 type FileErrorCode =
 	| "aborted"
 	| "not_found"
@@ -131,6 +159,7 @@ type Request =
 			operation: "sanitize_utf16_units";
 			units: number[];
 		}
+	| FileInfoRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<Request, HarnessErrorRequest>;
@@ -170,6 +199,37 @@ function normalizeSanitizedText(value: string): { text: string; utf16Units: numb
 
 function normalizeSanitizedUnits(value: string): { utf16Units: number[]; codePoints: number[] } {
 	return { utf16Units: toUtf16Units(value), codePoints: toCodePoints(value) };
+}
+
+function binary64FromBits(bits: string): number {
+	const buffer = new ArrayBuffer(8);
+	const view = new DataView(buffer);
+	view.setBigUint64(0, BigInt(`0x${bits}`), false);
+	return view.getFloat64(0, false);
+}
+
+function binary64Bits(value: number): string {
+	const buffer = new ArrayBuffer(8);
+	const view = new DataView(buffer);
+	view.setFloat64(0, value, false);
+	return view.getBigUint64(0, false).toString(16).padStart(16, "0");
+}
+
+function normalizeFileInfo(request: FileInfoRequest): NormalizedFileInfo {
+	const info: FileInfoRecord = {
+		name: request.name,
+		path: request.path,
+		kind: request.kind,
+		size: binary64FromBits(request.sizeBits),
+		mtimeMs: binary64FromBits(request.mtimeMsBits),
+	};
+	return {
+		name: info.name,
+		path: info.path,
+		kind: info.kind,
+		sizeBits: binary64Bits(info.size),
+		mtimeMsBits: binary64Bits(info.mtimeMs),
+	};
 }
 
 function successfulResponse(id: RequestId, output: unknown): Response {
@@ -293,6 +353,8 @@ function executeUtilityRequest(
 			);
 		case "sanitize_utf16_units":
 			return successfulResponse(request.id, normalizeSanitizedUtf16Units(shellOutput, request.units));
+		case "file_info":
+			return successfulResponse(request.id, normalizeFileInfo(request));
 	}
 }
 

@@ -15,7 +15,7 @@ The agent-core port exposes the dependency-free `FileKind` and `FileInfo` value 
 - [x] Preserve empty, Unicode, supplementary, embedded-NUL, and punctuation strings.
 - [x] Preserve all selected JavaScript `number` bit patterns in `f64` `size` and `mtime_ms` fields.
 - [x] Expose `FileInfo` from `pi_agent_core::harness` with `Debug` support.
-- [ ] Compare the public TypeScript type contract and binary64 values against the pinned source.
+- [x] Compare the public TypeScript type contract and binary64 values against the pinned source: strict generated type proof plus 10 runtime record fixtures (`13014..=13023`).
 
 ## How it works
 
@@ -26,15 +26,21 @@ The agent-core port exposes the dependency-free `FileKind` and `FileInfo` value 
 - `crates/pi-agent-core/src/harness/types.rs` — `FileKind` and `FileInfo` definitions.
 - `crates/pi-agent-core/src/harness/mod.rs` — public harness re-exports.
 - `crates/pi-agent-core/tests/file_info.rs` — focused value and bit-preservation proof.
-- `run-tests.sh` — focused test-runner registration.
+- `crates/pi-agent-core/tests/differential_truncate/file_info.rs` — 10 runtime record/binary64 differential fixtures (`13014..=13023`).
+- `oracle/truncate-oracle.ts` — plain-record binary64 oracle operation; no `FileInfo` runtime constructor exists.
+- `oracle/file-metadata-typecheck.mjs` — strict public-index type-only proof and pinned HEAD check.
+- `run-tests.sh` — focused and oracle test-runner registration.
 
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/file_info.rs`
+- `crates/pi-agent-core/tests/differential_truncate.rs`
+- `crates/pi-agent-core/tests/differential_truncate/file_info.rs`
+- `oracle/file-metadata-typecheck.mjs`
 
 ## Known gaps (current cycle)
 
-- [ ] Add strict pinned TypeScript type and binary64 differential proof.
+None for this bounded value-contract slice.
 
 ## Out of scope
 

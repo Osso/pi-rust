@@ -17,7 +17,7 @@ Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-o
 
 - [x] Preserve exact `FileKind` literals and public `FileInfo` fields with focused construction and mutation proof.
 - [x] Preserve selected JavaScript `number` bit patterns in `size` and `mtime_ms` through direct `f64` fields.
-- [ ] Compare the erased TypeScript metadata types and binary64 values through a pinned differential fixture.
+- [x] Compare erased TypeScript metadata types through a strict generated public-index fixture and plain-record binary64 values through 10 pinned differential fixtures (`13014..=13023`); no source runtime constructor is claimed.
 
 ### Binary-output sanitization
 
@@ -39,12 +39,14 @@ Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-o
 - `crates/pi-agent-core/tests/harness_errors.rs` — focused typed-error behavior.
 - `crates/pi-agent-core/tests/differential_truncate/errors.rs` — direct pinned constructor proof (`13000..=13013`).
 - `crates/pi-agent-core/tests/file_info.rs` — focused metadata value behavior.
+- `crates/pi-agent-core/tests/differential_truncate/file_info.rs` — 10 pinned runtime record/binary64 fixtures (`13014..=13023`).
+- `oracle/file-metadata-typecheck.mjs` — strict public-index type-only proof.
 - `docs/specs/file-metadata.md` — metadata value contract.
 - `docs/porting/traceability/file-metadata.md` — metadata source mapping and deferred consumers.
 - `crates/pi-agent-core/src/harness/utils/shell_output.rs` — pure binary-output sanitization.
 - `crates/pi-agent-core/src/harness/utils/mod.rs` — public utility export.
 - `crates/pi-agent-core/tests/sanitize_binary_output.rs` — focused shared-domain behavior.
-- `oracle/truncate-oracle.ts` — persistent adapter loading pinned truncation, sanitizer, and harness-error modules.
+- `oracle/truncate-oracle.ts` — persistent adapter loading pinned truncation, sanitizer, harness-error, and metadata record operations.
 - `crates/pi-agent-core/tests/differential_truncate/sanitize.rs` — exact shared-domain and source-only surrogate proof.
 
 ## Tests asserting this spec
@@ -55,10 +57,12 @@ Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-o
 - `crates/pi-agent-core/tests/differential_truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate/errors.rs`
 - `crates/pi-agent-core/tests/differential_truncate/sanitize.rs`
+- `crates/pi-agent-core/tests/differential_truncate/file_info.rs`
+- `oracle/file-metadata-typecheck.mjs`
 
 ## Known gaps (current cycle)
 
-- [ ] Add pinned `FileKind`/`FileInfo` type and binary64 differential proof.
+None for the completed typed prerequisite slices.
 
 ## Out of scope
 
