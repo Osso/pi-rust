@@ -1,6 +1,6 @@
 # Agent-core skill and prompt resources
 
-Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `AgentHarnessResources` value contracts from `packages/agent/src/harness/types.ts`; loading, formatting, and harness integration remain later slices. See the [resource traceability](../porting/traceability/resources.md) for source mappings.
+Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `AgentHarnessResources` value contracts from `packages/agent/src/harness/types.ts`; pinned public-index type proof and plain-record differential proof are complete, while loading, formatting, and harness integration remain later slices. See the [resource traceability](../porting/traceability/resources.md) for source mappings.
 
 ## What it must do
 
@@ -21,6 +21,8 @@ Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `
 - [x] Expose mutable public optional `prompt_templates` and `skills` arrays containing the concrete value types.
 - [x] Preserve `None` versus `Some(vec![])`, array order, duplicate elements, nested mutation, and array replacement.
 - [x] Export all three values from `pi_agent_core::harness` with `Debug` support and no additional traits or constructors.
+- [x] Prove exact erased source structures, mutable fields, explicit `undefined` acceptance, and generic subtype capability through the pinned public index.
+- [x] Compare plain mutable records for absent/undefined options, booleans, strings, arrays, order, and duplicates in 12 pinned differential fixtures (`13024..=13035`).
 
 ## How it works
 
@@ -31,20 +33,25 @@ Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `
 - `crates/pi-agent-core/src/harness/types.rs` — resource value definitions.
 - `crates/pi-agent-core/src/harness/mod.rs` — public harness re-exports.
 - `crates/pi-agent-core/tests/resources.rs` — focused field, option, mutation, ordering, duplicate, and `Debug` proof.
-- `run-tests.sh` — focused test registration.
+- `crates/pi-agent-core/tests/differential_truncate/resources.rs` — 12 plain-record differential fixtures (`13024..=13035`).
+- `oracle/truncate-oracle.ts` — plain mutable resource-record operation in the persistent utility oracle.
+- `oracle/public-index-typecheck.mjs` — strict public-index type proof and pinned HEAD check.
+- `run-tests.sh` — focused, differential, and oracle test-runner registration.
 
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/resources.rs`
+- `crates/pi-agent-core/tests/differential_truncate.rs`
+- `crates/pi-agent-core/tests/differential_truncate/resources.rs`
+- `oracle/public-index-typecheck.mjs`
 
 ## Known gaps (current cycle)
 
-- [ ] Add pinned public-index type proof and plain-record differential proof; no oracle changes are part of this focused production slice.
-- [ ] Run final workspace gates, documentation audit, and independent verification.
+None for this bounded value-contract slice.
 
 ## Out of scope
 
-- Generic `TSkill`/`TPromptTemplate` subtype parameters; the approved Rust boundary uses concrete `Skill` and `PromptTemplate` values.
+- Rust generic `TSkill`/`TPromptTemplate` subtype parameters; the source generic capability is type-proven, while the approved Rust boundary uses concrete `Skill` and `PromptTemplate` values.
 - Explicit JavaScript `undefined` versus absent-property identity; both map to Rust `None` because no pinned consumer observes own-property presence.
 - Skill or prompt-template filesystem loading, YAML/frontmatter parsing, validation, diagnostics, ignore/traversal rules, formatting, XML escaping, lookup, invocation, and model visibility.
 - Harness shallow copies, element aliasing, providers, tools, streams, serde, parsing, constructors, builders, validation, normalization, deduplication, fallbacks, and new dependencies.

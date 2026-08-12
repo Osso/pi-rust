@@ -54,6 +54,60 @@ type NormalizedFileInfo = {
 	mtimeMsBits: string;
 };
 
+type ResourceBooleanState = "absent" | "undefined" | "false" | "true";
+type ResourceDescriptionState = "absent" | "undefined" | "empty" | "value";
+
+type SkillInput = {
+	name: string;
+	description: string;
+	content: string;
+	filePath: string;
+	disableModelInvocationState: ResourceBooleanState;
+};
+
+type PromptTemplateInput = {
+	name: string;
+	descriptionState: ResourceDescriptionState;
+	descriptionValue: string;
+	content: string;
+};
+
+type SkillArrayInput =
+	| { state: "absent" }
+	| { state: "empty" }
+	| { state: "values"; values: SkillInput[] };
+
+type PromptTemplateArrayInput =
+	| { state: "absent" }
+	| { state: "empty" }
+	| { state: "values"; values: PromptTemplateInput[] };
+
+type ResourceValuesRequest = {
+	id: RequestId;
+	operation: "resource_values";
+	skills: SkillArrayInput;
+	promptTemplates: PromptTemplateArrayInput;
+};
+
+type MutableSkillRecord = {
+	name: string;
+	description: string;
+	content: string;
+	filePath: string;
+	disableModelInvocation?: boolean;
+};
+
+type MutablePromptTemplateRecord = {
+	name: string;
+	description?: string;
+	content: string;
+};
+
+type MutableResourcesRecord = {
+	promptTemplates?: MutablePromptTemplateRecord[];
+	skills?: MutableSkillRecord[];
+};
+
 type FileErrorCode =
 	| "aborted"
 	| "not_found"
@@ -160,6 +214,7 @@ type Request =
 			units: number[];
 		}
 	| FileInfoRequest
+	| ResourceValuesRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<Request, HarnessErrorRequest>;
@@ -230,6 +285,101 @@ function normalizeFileInfo(request: FileInfoRequest): NormalizedFileInfo {
 		sizeBits: binary64Bits(info.size),
 		mtimeMsBits: binary64Bits(info.mtimeMs),
 	};
+}
+
+function buildSkillRecord(input: SkillInput): MutableSkillRecord {
+	const skill: MutableSkillRecord = {
+		name: input.name,
+		description: input.description,
+		content: input.content,
+		filePath: input.filePath,
+	};
+	switch (input.disableModelInvocationState) {
+		case "undefined":
+			skill.disableModelInvocation = undefined;
+			break;
+		case "false":
+			skill.disableModelInvocation = false;
+			break;
+		case "true":
+			skill.disableModelInvocation = true;
+			break;
+	}
+	return skill;
+}
+
+function buildPromptTemplateRecord(input: PromptTemplateInput): MutablePromptTemplateRecord {
+	const template: MutablePromptTemplateRecord = { name: input.name, content: input.content };
+	switch (input.descriptionState) {
+		case "undefined":
+			template.description = undefined;
+			break;
+		case "empty":
+			template.description = "";
+			break;
+		case "value":
+			template.description = input.descriptionValue;
+			break;
+	}
+	return template;
+}
+
+function buildSkillArray(input: SkillArrayInput): MutableSkillRecord[] | undefined {
+	if (input.state === "absent") return undefined;
+	if (input.state === "empty") return [];
+	return input.values.map(buildSkillRecord);
+}
+
+function buildPromptTemplateArray(input: PromptTemplateArrayInput): MutablePromptTemplateRecord[] | undefined {
+	if (input.state === "absent") return undefined;
+	if (input.state === "empty") return [];
+	return input.values.map(buildPromptTemplateRecord);
+}
+
+function buildResourceValues(request: ResourceValuesRequest): MutableResourcesRecord {
+	const resources: MutableResourcesRecord = {};
+	const skills = buildSkillArray(request.skills);
+	const promptTemplates = buildPromptTemplateArray(request.promptTemplates);
+	if (skills !== undefined) resources.skills = skills;
+	if (promptTemplates !== undefined) resources.promptTemplates = promptTemplates;
+	return resources;
+}
+
+function normalizeResourceValues(resources: MutableResourcesRecord): unknown {
+	return {
+		prompt_templates: normalizePromptTemplates(resources.promptTemplates),
+		skills: normalizeSkills(resources.skills),
+	};
+}
+
+function normalizeSkills(skills: MutableSkillRecord[] | undefined): unknown {
+	return skills === undefined ? null : skills.map(normalizeSkill);
+}
+
+function normalizeSkill(skill: MutableSkillRecord): unknown {
+	return {
+		name: skill.name,
+		description: skill.description,
+		content: skill.content,
+		file_path: skill.filePath,
+		disable_model_invocation: skill.disableModelInvocation ?? null,
+	};
+}
+
+function normalizePromptTemplates(templates: MutablePromptTemplateRecord[] | undefined): unknown {
+	return templates === undefined ? null : templates.map(normalizePromptTemplate);
+}
+
+function normalizePromptTemplate(template: MutablePromptTemplateRecord): unknown {
+	return {
+		name: template.name,
+		description: template.description ?? null,
+		content: template.content,
+	};
+}
+
+function executeResourceValues(request: ResourceValuesRequest): Response {
+	return successfulResponse(request.id, normalizeResourceValues(buildResourceValues(request)));
 }
 
 function successfulResponse(id: RequestId, output: unknown): Response {
@@ -355,6 +505,8 @@ function executeUtilityRequest(
 			return successfulResponse(request.id, normalizeSanitizedUtf16Units(shellOutput, request.units));
 		case "file_info":
 			return successfulResponse(request.id, normalizeFileInfo(request));
+		case "resource_values":
+			return executeResourceValues(request);
 	}
 }
 

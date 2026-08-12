@@ -2,6 +2,7 @@ mod errors;
 mod file_info;
 mod format_size;
 mod oracle;
+mod resources;
 mod sanitize;
 mod support;
 mod tail_corpus;
@@ -22,4 +23,5 @@ pub(crate) fn run() {
     tail_corpus::compare_corpus(&mut oracle);
     errors::compare_all_fixtures(&mut oracle);
     file_info::compare_all_fixtures(&mut oracle);
+    resources::compare_all_fixtures(&mut oracle);
 }

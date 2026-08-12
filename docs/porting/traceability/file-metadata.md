@@ -8,7 +8,7 @@ This bounded slice ports only the dependency-free `FileKind` and `FileInfo` valu
 |---|---|---|
 | `types.ts:133-134` | `FileKind` is the closed union `"file" | "directory" | "symlink"` | `FileKind::{File, Directory, Symlink}`, exact `as_str()` assertions, and public re-export test in `file_info.rs` |
 | `types.ts:213-224` | Mutable required fields occur in source order: `name`, `path`, `kind`, `size`, `mtimeMs` | `FileInfo` exposes public `String`, `FileKind`, `f64`, and `mtime_ms: f64` fields in the corresponding Rust representation order; focused construction and mutation assertions |
-| `index.ts:125-126` | `FileInfo` and `FileKind` are public type-only package exports | `oracle/file-metadata-typecheck.mjs` imports both from the absolute pinned public index in a generated strict fixture; Rust imports compile in the focused test |
+| `index.ts:125-126` | `FileInfo` and `FileKind` are public type-only package exports | `oracle/public-index-typecheck.mjs` imports both from the absolute pinned public index in a generated strict fixture; Rust imports compile in the focused test |
 | `types.ts:260-262` | `FileSystem.fileInfo` and `listDir` consume the metadata values | Consumer mapping only; filesystem traits and implementations remain deferred |
 | `skills.ts:68-95,128-174,328-347` | Skill discovery reads `FileInfo.path`, `name`, and `kind`, and resolves symlinks through the environment | Consumer mapping only; skills and filesystem integration remain deferred |
 | `prompt-templates.ts:40-58,168-187` | Prompt-template discovery reads `FileInfo.path`, `name`, and `kind` | Consumer mapping only; prompt-template and filesystem integration remain deferred |
@@ -22,7 +22,7 @@ Source `size` and `mtimeMs` are JavaScript `number` fields with no validation. R
 
 ## Pinned proof
 
-- `oracle/file-metadata-typecheck.mjs` verifies the pinned source HEAD, exact `FileKind` union, exact required `FileInfo` structure, public mutability, and unrestricted `number` assignments including signed zero, NaN, and infinities.
+- `oracle/public-index-typecheck.mjs` verifies the pinned source HEAD, exact `FileKind` union, exact required `FileInfo` structure, public mutability, and unrestricted `number` assignments including signed zero, NaN, and infinities.
 - `crates/pi-agent-core/tests/differential_truncate/file_info.rs` sends exactly 10 `file_info` requests (`13014..=13023`) through the persistent utility oracle. Each request transports `name`, `path`, `kind`, `sizeBits`, and `mtimeMsBits`; both sides normalize the plain record and lowercase 16-digit binary64 bits.
 - The runtime proof constructs a plain JavaScript record, not a `FileInfo` constructor, because the pinned declarations are erased types.
 

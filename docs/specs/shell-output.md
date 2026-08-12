@@ -40,7 +40,7 @@ Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-o
 - `crates/pi-agent-core/tests/differential_truncate/errors.rs` — direct pinned constructor proof (`13000..=13013`).
 - `crates/pi-agent-core/tests/file_info.rs` — focused metadata value behavior.
 - `crates/pi-agent-core/tests/differential_truncate/file_info.rs` — 10 pinned runtime record/binary64 fixtures (`13014..=13023`).
-- `oracle/file-metadata-typecheck.mjs` — strict public-index type-only proof.
+- `oracle/public-index-typecheck.mjs` — strict public-index type-only proof for metadata and resources.
 - `docs/specs/file-metadata.md` — metadata value contract.
 - `docs/porting/traceability/file-metadata.md` — metadata source mapping and deferred consumers.
 - `crates/pi-agent-core/src/harness/utils/shell_output.rs` — pure binary-output sanitization.
@@ -58,7 +58,7 @@ Agent-core shell-output behavior ports `packages/agent/src/harness/utils/shell-o
 - `crates/pi-agent-core/tests/differential_truncate/errors.rs`
 - `crates/pi-agent-core/tests/differential_truncate/sanitize.rs`
 - `crates/pi-agent-core/tests/differential_truncate/file_info.rs`
-- `oracle/file-metadata-typecheck.mjs`
+- `oracle/public-index-typecheck.mjs`
 
 ## Known gaps (current cycle)
 

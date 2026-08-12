@@ -21,4 +21,4 @@ No runtime dependencies.
 ## Development
 
 - `serde = 1.0.229` — derives typed JSON-lines request and response structures for differential tests.
-- `serde_json = 1.0.151` — serializes and parses the protocol, RPC JSONL, truncation, harness-error, auth-command, and config-value differential-oracle messages.
+- `serde_json = 1.0.151` — serializes and parses the protocol, RPC JSONL, truncation, harness-error, metadata, resource-value, auth-command, and config-value differential-oracle messages. Public-index type proofs use the pinned TypeScript toolchain without adding a Rust dependency.

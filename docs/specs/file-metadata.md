@@ -28,7 +28,7 @@ The agent-core port exposes the dependency-free `FileKind` and `FileInfo` value 
 - `crates/pi-agent-core/tests/file_info.rs` — focused value and bit-preservation proof.
 - `crates/pi-agent-core/tests/differential_truncate/file_info.rs` — 10 runtime record/binary64 differential fixtures (`13014..=13023`).
 - `oracle/truncate-oracle.ts` — plain-record binary64 oracle operation; no `FileInfo` runtime constructor exists.
-- `oracle/file-metadata-typecheck.mjs` — strict public-index type-only proof and pinned HEAD check.
+- `oracle/public-index-typecheck.mjs` — strict public-index type-only proof for metadata/resources and pinned HEAD check.
 - `run-tests.sh` — focused and oracle test-runner registration.
 
 ## Tests asserting this spec
@@ -36,7 +36,7 @@ The agent-core port exposes the dependency-free `FileKind` and `FileInfo` value 
 - `crates/pi-agent-core/tests/file_info.rs`
 - `crates/pi-agent-core/tests/differential_truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate/file_info.rs`
-- `oracle/file-metadata-typecheck.mjs`
+- `oracle/public-index-typecheck.mjs`
 
 ## Known gaps (current cycle)
 
