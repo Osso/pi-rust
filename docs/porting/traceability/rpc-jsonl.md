@@ -8,7 +8,7 @@ Direct differential proof invokes the real pinned functions through one persiste
 |---|---|---|
 | `jsonl.ts:1-2` | Uses Node streams plus stateful UTF-8 `StringDecoder` | Transport-neutral Rust decoder retains only the observable text-decoding state; stream attachment remains out of scope |
 | `jsonl.ts:5-12` | `JSON.stringify(value)` followed by exactly one LF | Focused compact JSON, primitive, escaped-LF, U+2028, U+2029, error-propagation, non-finite, and approved Rust-number-spelling tests; six exact-output fixtures, four pinned discrepancies, and three matching NaN/infinity fixtures |
-| `jsonl.ts:21-22` | One UTF-8 decoder and one text buffer persist across data chunks | Focused arbitrary chunking and split two-byte/four-byte scalar tests plus eleven persistent-state differential sequences |
+| `jsonl.ts:21-23` | One UTF-8 decoder and one text buffer persist across data chunks | Focused arbitrary chunking and split two-byte/four-byte scalar tests plus eleven persistent-state differential sequences |
 | `jsonl.ts:24-27` | Strip exactly one trailing CR immediately before emitting each line | Focused CRLF, repeated-CR, bare/internal-CR, and final trailing-CR tests plus direct CR/empty-record comparison |
 | `jsonl.ts:29-30` | String chunks append directly; byte chunks pass through `StringDecoder.write` | Focused and direct mixed pending-byte/string-chunk ordering fixture |
 | `jsonl.ts:32-41` | Repeatedly split only on LF and preserve record order | Focused and direct LF-only, multiple-record, empty-record, Unicode-separator, terminal-LF, and arbitrary-chunk fixtures |
