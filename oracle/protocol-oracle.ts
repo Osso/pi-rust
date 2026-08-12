@@ -2,13 +2,17 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 
 import {
+	executeMessageValidation,
+	type MessageSchemaApi,
+	type MessageValidationRequest,
+	type MessageValidationResponse,
+} from "./protocol-oracle-messages.js";
+import {
 	decodeHex,
 	decodeTaggedNumber,
 	encodeHex,
 	float64Bits,
 	normalizeError,
-	type ClientHelloRequest,
-	type CommandRequest,
 	type TaggedNumber,
 } from "./protocol-oracle-values.js";
 
@@ -29,7 +33,7 @@ type FramingApi = {
 	FrameDecoder: new (options?: FrameDecoderOptions) => FrameDecoderInstance;
 };
 
-type SchemaApi = {
+type SchemaApi = MessageSchemaApi & {
 	ThinkingLevelSchema: unknown;
 	SessionPhaseSchema: unknown;
 	ModelRefSchema: unknown;
@@ -41,8 +45,6 @@ type SchemaApi = {
 	ImageContentSchema: unknown;
 	SessionMetadataSchema: unknown;
 	ProtocolErrorCodeSchema: unknown;
-	CommandSchema: unknown;
-	ClientHelloSchema: unknown;
 };
 
 type TypeboxApi = {
@@ -198,16 +200,7 @@ type Request =
 			operation: "validate_protocol_error_code";
 			value: string;
 		}
-	| {
-			id: RequestId;
-			operation: "validate_command";
-			value: CommandRequest;
-		}
-	| {
-			id: RequestId;
-			operation: "validate_client_hello";
-			value: ClientHelloRequest;
-		};
+	| MessageValidationRequest;
 
 type DecoderStepResponse =
 	| {
@@ -226,6 +219,7 @@ type DecoderStepResponse =
 		};
 
 type Response =
+	| MessageValidationResponse
 	| {
 			id: RequestId;
 			ok: true;
@@ -286,14 +280,6 @@ type SchemaValidationResponse =
 	| {
 			valid: true;
 			value: SessionMetadataResponseValue;
-		}
-	| {
-			valid: true;
-			value: CommandResponseValue;
-		}
-	| {
-			valid: true;
-			value: ClientHelloRequest;
 		};
 
 type ModelMetadataResponseValue = {
@@ -332,7 +318,6 @@ type UsageResponseValue = {
 };
 
 type SessionMetadataResponseValue = SessionMetadataRequest;
-type CommandResponseValue = CommandRequest;
 
 type ContentValidationResponse =
 	| {
@@ -580,28 +565,6 @@ function executeSessionMetadata(
 	return { id: request.id, ok: true, output: { valid: true, value: request.value } };
 }
 
-function executeCommand(
-	request: Extract<Request, { operation: "validate_command" }>,
-	schema: SchemaApi,
-	typebox: TypeboxApi,
-): Response {
-	if (!typebox.Check(schema.CommandSchema, request.value)) {
-		return { id: request.id, ok: true, output: { valid: false } };
-	}
-	return { id: request.id, ok: true, output: { valid: true, value: request.value } };
-}
-
-function executeClientHello(
-	request: Extract<Request, { operation: "validate_client_hello" }>,
-	schema: SchemaApi,
-	typebox: TypeboxApi,
-): Response {
-	if (!typebox.Check(schema.ClientHelloSchema, request.value)) {
-		return { id: request.id, ok: true, output: { valid: false } };
-	}
-	return { id: request.id, ok: true, output: { valid: true, value: request.value } };
-}
-
 function executeModelCost(
 	request: Extract<Request, { operation: "validate_model_cost" }>,
 	schema: SchemaApi,
@@ -689,9 +652,10 @@ function executeRequest(request: Request, framing: FramingApi, schema: SchemaApi
 		case "validate_session_metadata":
 			return executeSessionMetadata(request, schema, typebox);
 		case "validate_command":
-			return executeCommand(request, schema, typebox);
 		case "validate_client_hello":
-			return executeClientHello(request, schema, typebox);
+		case "validate_request_envelope":
+		case "validate_client_message":
+			return executeMessageValidation(request, schema, typebox);
 	}
 	throw new Error("Unsupported protocol oracle operation");
 }

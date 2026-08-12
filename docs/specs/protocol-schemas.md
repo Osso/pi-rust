@@ -115,6 +115,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/tests/message_envelopes.rs`
 - `crates/pi-protocol/tests/differential_protocol/commands.rs`
 - `crates/pi-protocol/tests/differential_protocol/client_hello.rs`
+- `crates/pi-protocol/tests/differential_protocol/message_envelopes.rs`
 - `crates/pi-protocol/tests/differential_protocol/content_leaves.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_metadata.rs`
@@ -125,7 +126,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 
 ## Known gaps (current cycle)
 
-- [ ] Compare `RequestEnvelopeSchema` and `ClientMessageSchema` directly with the pinned TypeBox schemas.
+None.
 
 ## Out of scope
 

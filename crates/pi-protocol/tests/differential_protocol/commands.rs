@@ -149,7 +149,7 @@ fn insert_optional_model(value: &mut Value, model: Option<RawModel>) {
     }
 }
 
-fn normalize_command(command: &Command) -> Value {
+pub(crate) fn normalize_command(command: &Command) -> Value {
     let command_name = command.as_str();
     match command {
         Command::List(_) => json!({"command": command_name}),

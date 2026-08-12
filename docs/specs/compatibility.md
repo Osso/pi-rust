@@ -39,6 +39,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-protocol/tests/message_envelopes.rs`
 - `crates/pi-protocol/tests/differential_protocol/commands.rs`
 - `crates/pi-protocol/tests/differential_protocol/client_hello.rs`
+- `crates/pi-protocol/tests/differential_protocol/message_envelopes.rs`
 - `crates/pi-protocol/tests/differential_protocol/content_leaves.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_metadata.rs`
 - `crates/pi-protocol/tests/differential_protocol/protocol_error_code.rs`
@@ -49,7 +50,6 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 ## Known gaps (current cycle)
 
 - [ ] Classify and resolve the payload-above-4-GiB proof gap.
-- [ ] Complete direct TypeBox comparison for `RequestEnvelopeSchema` and `ClientMessageSchema`.
 
 ## Out of scope
 

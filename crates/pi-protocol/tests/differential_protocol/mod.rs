@@ -2,6 +2,7 @@ pub(crate) mod client_hello;
 pub(crate) mod commands;
 pub(crate) mod content_leaves;
 pub(crate) mod framing;
+pub(crate) mod message_envelopes;
 pub(crate) mod model_cost;
 pub(crate) mod model_metadata;
 pub(crate) mod oracle;
@@ -21,6 +22,7 @@ pub(crate) fn run() {
     content_leaves::compare_all_fixtures(&mut oracle);
     framing::compare_all_fixtures(&mut oracle);
     model_cost::compare_all_fixtures(&mut oracle, 1000);
+    message_envelopes::compare_all_fixtures(&mut oracle);
     schema_leaves::compare_all_fixtures(&mut oracle);
     session_metadata::compare_all_fixtures(&mut oracle);
     model_metadata::compare_all_fixtures(&mut oracle);

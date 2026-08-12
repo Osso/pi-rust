@@ -1,21 +1,3 @@
-export type ClientHelloRequest = {
-	type: "hello";
-	version: number;
-};
-
-export type CommandRequest = {
-	command: string;
-	cwd?: string;
-	name?: string;
-	model?: {
-		provider: string;
-		id: string;
-	};
-	thinkingLevel?: string;
-	sessionId?: string;
-	text?: string;
-};
-
 export type TaggedNumber =
 	| {
 			number: "finite";
