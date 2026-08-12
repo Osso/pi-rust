@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 enum TemplatePart<'a> {
     Literal(String),
     Environment(&'a str),
@@ -29,9 +31,33 @@ pub fn get_config_value_env_var_names(config: &str) -> Vec<String> {
     get_template_env_var_names(&parts)
 }
 
+/// Reports environment references missing from both the explicit and process environments.
+pub fn get_missing_config_value_env_var_names(config: &str, env: Option<&HashMap<String, String>>) -> Vec<String> {
+    get_config_value_env_var_names(config)
+        .into_iter()
+        .filter(|name| !has_config_environment_value(name, env))
+        .collect()
+}
+
+/// Reports whether every environment reference is currently configured.
+pub fn is_config_value_configured(config: &str, env: Option<&HashMap<String, String>>) -> bool {
+    get_missing_config_value_env_var_names(config, env).is_empty()
+}
+
 /// Reports whether the value is a command-backed configuration reference.
 pub fn is_command_config_value(config: &str) -> bool {
     matches!(parse_config_value_reference(config), ConfigValueReference::Command)
+}
+
+fn has_config_environment_value(name: &str, env: Option<&HashMap<String, String>>) -> bool {
+    let explicit_value_exists = env
+        .and_then(|values| values.get(name))
+        .is_some_and(|value| !value.is_empty());
+    explicit_value_exists || process_environment_value_exists(name)
+}
+
+fn process_environment_value_exists(name: &str) -> bool {
+    std::env::var_os(name).is_some_and(|value| !value.is_empty())
 }
 
 fn parse_config_value_reference(config: &str) -> ConfigValueReference<'_> {

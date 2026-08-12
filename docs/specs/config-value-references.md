@@ -1,6 +1,6 @@
 # Coding-agent config-value references
 
-Config-value reference classification ports the pure parsing helpers from pinned `packages/coding-agent/src/core/resolve-config-value.ts`. This bounded slice discovers environment references and command-backed values without reading the environment or executing commands.
+Config-value behavior ports selected helpers from pinned `packages/coding-agent/src/core/resolve-config-value.ts`. Current coverage discovers references, classifies command-backed values, and reports environment-backed configured status without resolving templates or executing commands.
 
 ## What it must do
 
@@ -25,15 +25,26 @@ Config-value reference classification ports the pure parsing helpers from pinned
 - [x] Give command classification precedence over environment-reference parsing.
 - [x] Keep escaped or non-leading exclamation marks as template literals.
 
+### Environment status
+
+- [x] Prefer nonempty explicit string-map values over the process environment.
+- [x] Let empty explicit values fall through to process-environment lookup.
+- [x] Treat empty or absent process values as missing and every nonempty process value as configured.
+- [x] Preserve unique missing-name order inherited from reference parsing.
+- [x] Treat literals and commands as configured because they require no environment names; do not execute commands.
+- [x] Handle Unicode and non-Unicode process values through deterministic child-process proof without mutating global test environment state.
+
 ## How it works
 
 - [Config-value reference traceability](../porting/traceability/config-value-references.md)
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/core/config_value.rs` — private template/reference parser and public query helpers.
+- `crates/pi-coding-agent/src/core/config_value.rs` — private template parser plus public reference and environment-status helpers.
 - `crates/pi-coding-agent/src/core/mod.rs` — public core exports.
 - `crates/pi-coding-agent/tests/config_value_references.rs` — focused parser/classification behavior.
+- `crates/pi-coding-agent/tests/config_value_status.rs` — focused explicit-map and deterministic process-environment behavior.
+- `crates/pi-coding-agent/tests/support/config_value_status_probe.rs` — shared self-spawned child-process probe.
 - `oracle/config-value-reference-oracle.ts` — persistent adapter invoking the real pinned helpers.
 - `crates/pi-coding-agent/tests/differential_config_value_references.rs` — direct comparison entry point.
 - `crates/pi-coding-agent/tests/differential_config_value_references/fixtures.rs` — exact branch and boundary fixtures.
@@ -41,17 +52,17 @@ Config-value reference classification ports the pure parsing helpers from pinned
 ## Tests asserting this spec
 
 - `crates/pi-coding-agent/tests/config_value_references.rs`
+- `crates/pi-coding-agent/tests/config_value_status.rs`
 - `crates/pi-coding-agent/tests/differential_config_value_references.rs`
 - `crates/pi-coding-agent/tests/differential_config_value_references/fixtures.rs`
 
 ## Known gaps (current cycle)
 
-None for this bounded reference-classification slice.
+- [ ] Add direct TypeScript differential proof for environment-backed missing/configured status.
 
 ## Out of scope
 
-- Environment and process lookup, including empty-string truthiness behavior.
-- Missing-variable and configured-status checks.
+- Returning or interpolating environment values; selected status helpers observe only nonempty presence.
 - Template interpolation and resolved values.
 - Shell execution, shell selection, timeouts, and command-result caching.
 - Header resolution, provider composition, authentication execution, and consumer integration.

@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/resolve-config-value.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-The private parser is observed only through the three selected public helpers. Nineteen direct requests (`12050..=12068`) compare all three outputs against the real pinned module through one persistent oracle process.
+The private parser is observed through selected public helpers. Nineteen direct requests (`12050..=12068`) compare reference/classification outputs against the pinned module. Focused tests additionally cover environment-backed missing/configured status; direct status differential proof remains the current-cycle gap.
 
 | TypeScript source | Observable behavior | Rust proof |
 |---|---|---|
@@ -17,7 +17,10 @@ The private parser is observed only through the three selected public helpers. N
 | `resolve-config-value.ts:92-99` | Deduplicate environment names while preserving first occurrence | Focused proof and direct request `12054` |
 | `resolve-config-value.ts:115-119` | Return a name only for exactly one environment part | Focused proof and all direct response `envVarName` fields |
 | `resolve-config-value.ts:121-124` | Return template names or an empty list for commands | Focused proof and all direct response `envVarNames` fields |
+| `resolve-config-value.ts:88-90` | Prefer truthy explicit values, then truthy process values; empty strings fall through or become missing | Focused explicit-map and safe child-process missing/empty/ASCII/Unicode/non-Unicode/fallback fixtures |
+| `resolve-config-value.ts:126-128` | Filter unique names in first-seen order to those without a configured value | Focused explicit/mixed/missing-order fixtures |
 | `resolve-config-value.ts:130-132` | Report command classification | Focused proof and all direct response `isCommand` fields |
-| `auth-storage.ts`, `provider-composer.ts` | Consume command classification and environment-name discovery | Consumer mapping only; Rust integration remains out of scope |
+| `resolve-config-value.ts:134-135` | Report configured when the missing-name list is empty | Focused literal, command, complete, partial, empty, and process-backed fixtures |
+| `auth-storage.ts`, `provider-composer.ts` | Consume command classification, environment-name discovery, and configured status | Consumer mapping only; Rust integration remains out of scope |
 
-Rust parses valid UTF-8 byte offsets while recognizing only ASCII names. This matches every Rust-representable source string. JavaScript lone UTF-16 surrogates and indexing behavior inside such invalid strings remain an explicit typed-string exclusion.
+Rust parses valid UTF-8 byte offsets while recognizing only ASCII names. This matches every Rust-representable source string. Explicit environments are typed own-key `HashMap<String,String>` values; JavaScript inherited/non-string properties remain within the malformed runtime-object exclusion. Process status uses `var_os` because only nonempty presence is observable; direct Node probing confirms a non-Unicode byte value remains nonempty and configured. JavaScript lone UTF-16 surrogates and indexing behavior inside such invalid strings remain an explicit typed-string exclusion.
