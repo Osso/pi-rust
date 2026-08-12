@@ -17,6 +17,8 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve the shell sanitizer's explicit code-point ranges rather than applying broad Unicode control categories.
 - [x] Preserve exact filesystem/execution error-code literals, names, messages, constructor ordering, optional path, and typed causes over the Rust-representable boundary.
 - [x] Map typed-error constructors, public fields, mutation, and error-chain behavior to focused Rust tests; compare normalized constructor and cause values through 14 pinned TypeScript differential fixtures (`13000..=13013`) using the public agent package exports.
+- [x] Preserve distinct compaction and branch-summary code literals, names, messages, constructor ordering, public mutation, and typed causes in focused Rust tests.
+- [ ] Compare normalized compaction and branch-summary constructor and cause values through direct pinned TypeScript differential fixtures.
 - [x] Preserve exact `FileKind` literals and the mutable `FileInfo` field contract with direct `f64` storage and focused bit-preservation proof.
 - [x] Compare erased `FileInfo`/`FileKind` TypeScript types through a strict generated public-index fixture and compare plain-record binary64 values through 10 pinned differential fixtures (`13014..=13023`), without claiming a source runtime constructor.
 - [x] Preserve focused `Skill`, `PromptTemplate`, and concrete `AgentHarnessResources` fields, optional states, public mutation, order, duplicates, and `Debug` behavior.
@@ -69,6 +71,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-agent-core/tests/truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate.rs`
 - `crates/pi-agent-core/tests/harness_errors.rs`
+- `crates/pi-agent-core/tests/compaction_errors.rs`
 - `crates/pi-agent-core/tests/differential_truncate/errors.rs`
 - `crates/pi-agent-core/tests/file_info.rs`
 - `crates/pi-agent-core/tests/resources.rs`
@@ -89,6 +92,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - Arbitrary JavaScript runtime values passed to generic error normalization or causes.
 - JavaScript error property descriptors, own-property ordering, JSON serialization, stack contents, and prototype/`instanceof` identity.
 - Any cause representation beyond the approved `Option<Box<dyn std::error::Error + 'static>>` typed Rust boundary.
+- Compaction and branch-summary orchestration, model calls, retries, token budgets, abort execution, provider integration, and session mutation.
 - Skill and prompt-template filesystem loading, parsing, validation, formatting, lookup, invocation, and harness resource-copy behavior.
 - Rust generic resource subtype parameters; the pinned public-index proof demonstrates the TypeScript capability, while the approved Rust boundary uses concrete `Skill`, `PromptTemplate`, and `AgentHarnessResources` values.
 - Positive integer-valued JavaScript schema values above `u64::MAX` for typed integer fields, approved August 12, 2026.

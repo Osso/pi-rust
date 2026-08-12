@@ -179,3 +179,105 @@ impl Error for ExecutionError {
         self.cause.as_deref()
     }
 }
+
+/// Stable compaction failure codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompactionErrorCode {
+    Aborted,
+    SummarizationFailed,
+}
+
+impl CompactionErrorCode {
+    /// Returns the exact TypeScript source literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Aborted => "aborted",
+            Self::SummarizationFailed => "summarization_failed",
+        }
+    }
+}
+
+/// Error returned by compaction helpers.
+#[derive(Debug)]
+pub struct CompactionError {
+    pub name: String,
+    pub message: String,
+    pub code: CompactionErrorCode,
+    pub cause: Option<Box<dyn Error + 'static>>,
+}
+
+impl CompactionError {
+    pub fn new(code: CompactionErrorCode, message: impl Into<String>, cause: Option<Box<dyn Error + 'static>>) -> Self {
+        Self {
+            name: "CompactionError".to_owned(),
+            message: message.into(),
+            code,
+            cause,
+        }
+    }
+}
+
+impl Display for CompactionError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl Error for CompactionError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.cause.as_deref()
+    }
+}
+
+/// Stable branch-summary failure codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BranchSummaryErrorCode {
+    Aborted,
+    SummarizationFailed,
+}
+
+impl BranchSummaryErrorCode {
+    /// Returns the exact TypeScript source literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Aborted => "aborted",
+            Self::SummarizationFailed => "summarization_failed",
+        }
+    }
+}
+
+/// Error returned by branch-summary helpers.
+#[derive(Debug)]
+pub struct BranchSummaryError {
+    pub name: String,
+    pub message: String,
+    pub code: BranchSummaryErrorCode,
+    pub cause: Option<Box<dyn Error + 'static>>,
+}
+
+impl BranchSummaryError {
+    pub fn new(
+        code: BranchSummaryErrorCode,
+        message: impl Into<String>,
+        cause: Option<Box<dyn Error + 'static>>,
+    ) -> Self {
+        Self {
+            name: "BranchSummaryError".to_owned(),
+            message: message.into(),
+            code,
+            cause,
+        }
+    }
+}
+
+impl Display for BranchSummaryError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl Error for BranchSummaryError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.cause.as_deref()
+    }
+}

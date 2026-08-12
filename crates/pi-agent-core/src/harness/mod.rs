@@ -2,6 +2,6 @@ pub mod types;
 pub mod utils;
 
 pub use types::{
-    AgentHarnessResources, ExecutionError, ExecutionErrorCode, FileError, FileErrorCode, FileInfo, FileKind,
-    PromptTemplate, Skill,
+    AgentHarnessResources, BranchSummaryError, BranchSummaryErrorCode, CompactionError, CompactionErrorCode,
+    ExecutionError, ExecutionErrorCode, FileError, FileErrorCode, FileInfo, FileKind, PromptTemplate, Skill,
 };
