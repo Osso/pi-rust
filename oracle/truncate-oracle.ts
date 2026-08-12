@@ -97,47 +97,50 @@ function normalizeSanitizedUnits(value: string): { utf16Units: number[]; codePoi
 	return { utf16Units: toUtf16Units(value), codePoints: toCodePoints(value) };
 }
 
+function successfulResponse(id: RequestId, output: unknown): Response {
+	return { id, ok: true, output };
+}
+
+function normalizeTruncatedLine(
+	api: TruncateApi,
+	line: string,
+	maxChars?: number,
+): { textUtf16: number[]; wasTruncated: boolean } {
+	const result = api.truncateLine(line, maxChars);
+	return { textUtf16: toUtf16Units(result.text), wasTruncated: result.wasTruncated };
+}
+
+function normalizeTruncatedTailBatch(api: TruncateApi, cases: TruncationCase[]): { results: unknown[] } {
+	return { results: cases.map(({ content, options }) => api.truncateTail(content, options)) };
+}
+
+function normalizeSanitizedUtf16Units(api: ShellOutputApi, units: number[]): { utf16Units: number[]; codePoints: number[] } {
+	const value = String.fromCharCode(...units);
+	return normalizeSanitizedUnits(api.sanitizeBinaryOutput(value));
+}
+
 function execute(request: Request, normal: TruncateApi, fallback: TruncateApi, shellOutput: ShellOutputApi): Response {
 	try {
 		switch (request.operation) {
 			case "format_size":
-				return { id: request.id, ok: true, output: { value: normal.formatSize(request.bytes) } };
+				return successfulResponse(request.id, { value: normal.formatSize(request.bytes) });
 			case "truncate_head":
-				return { id: request.id, ok: true, output: normal.truncateHead(request.content, request.options) };
+				return successfulResponse(request.id, normal.truncateHead(request.content, request.options));
 			case "truncate_tail":
-				return { id: request.id, ok: true, output: normal.truncateTail(request.content, request.options) };
+				return successfulResponse(request.id, normal.truncateTail(request.content, request.options));
 			case "truncate_head_without_buffer":
-				return { id: request.id, ok: true, output: fallback.truncateHead(request.content, request.options) };
-			case "truncate_line": {
-				const result = normal.truncateLine(request.line, request.maxChars);
-				return {
-					id: request.id,
-					ok: true,
-					output: { textUtf16: toUtf16Units(result.text), wasTruncated: result.wasTruncated },
-				};
-			}
+				return successfulResponse(request.id, fallback.truncateHead(request.content, request.options));
+			case "truncate_line":
+				return successfulResponse(request.id, normalizeTruncatedLine(normal, request.line, request.maxChars));
 			case "truncate_tail_batch":
-				return {
-					id: request.id,
-					ok: true,
-					output: {
-						results: request.cases.map(({ content, options }) => normal.truncateTail(content, options)),
-					},
-				};
+				return successfulResponse(request.id, normalizeTruncatedTailBatch(normal, request.cases));
 			case "sanitize_binary_output":
-				return {
-					id: request.id,
-					ok: true,
-					output: normalizeSanitizedText(shellOutput.sanitizeBinaryOutput(request.text)),
-				};
-			case "sanitize_utf16_units": {
-				const value = String.fromCharCode(...request.units);
-				return {
-					id: request.id,
-					ok: true,
-					output: normalizeSanitizedUnits(shellOutput.sanitizeBinaryOutput(value)),
-				};
-			}
+				return successfulResponse(
+					request.id,
+					normalizeSanitizedText(shellOutput.sanitizeBinaryOutput(request.text)),
+				);
+			case "sanitize_utf16_units":
+				return successfulResponse(request.id, normalizeSanitizedUtf16Units(shellOutput, request.units));
 		}
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };
