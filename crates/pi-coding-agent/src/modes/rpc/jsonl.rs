@@ -19,6 +19,12 @@ pub struct JsonlLineDecoder {
     pending_utf8: Vec<u8>,
 }
 
+impl Default for JsonlLineDecoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JsonlLineDecoder {
     /// Creates an empty line decoder.
     pub const fn new() -> Self {
