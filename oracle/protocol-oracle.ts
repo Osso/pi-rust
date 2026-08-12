@@ -340,82 +340,79 @@ function executeModelRef(
 	return { id: request.id, ok: true, output: { valid: true, value: request.value } };
 }
 
+function decodeModelMetadata(value: ModelMetadataRequest) {
+	return {
+		provider: value.provider,
+		id: value.id,
+		name: value.name,
+		api: value.api,
+		reasoning: value.reasoning,
+		input: value.input,
+		contextWindow: value.contextWindow,
+		maxTokens: value.maxTokens,
+		cost: {
+			input: decodeTaggedNumber(value.cost.input),
+			output: decodeTaggedNumber(value.cost.output),
+			cacheRead: decodeTaggedNumber(value.cost.cacheRead),
+			cacheWrite: decodeTaggedNumber(value.cost.cacheWrite),
+		},
+		supportedThinkingLevels: value.supportedThinkingLevels,
+		authenticated: value.authenticated,
+	};
+}
+
+function normalizeModelMetadata(value: ReturnType<typeof decodeModelMetadata>): ModelMetadataResponseValue {
+	return {
+		provider: value.provider,
+		id: value.id,
+		name: value.name,
+		api: value.api,
+		reasoning: value.reasoning,
+		input: value.input,
+		contextWindow: value.contextWindow,
+		maxTokens: value.maxTokens,
+		cost: {
+			input: float64Bits(value.cost.input),
+			output: float64Bits(value.cost.output),
+			cacheRead: float64Bits(value.cost.cacheRead),
+			cacheWrite: float64Bits(value.cost.cacheWrite),
+		},
+		supportedThinkingLevels: value.supportedThinkingLevels,
+		authenticated: value.authenticated,
+	};
+}
+
 function executeModelMetadata(
 	request: Extract<Request, { operation: "validate_model_metadata" }>,
 	schema: SchemaApi,
 	typebox: TypeboxApi,
 ): Response {
-	const value = {
-		provider: request.value.provider,
-		id: request.value.id,
-		name: request.value.name,
-		api: request.value.api,
-		reasoning: request.value.reasoning,
-		input: request.value.input,
-		contextWindow: request.value.contextWindow,
-		maxTokens: request.value.maxTokens,
-		cost: {
-			input: decodeTaggedNumber(request.value.cost.input),
-			output: decodeTaggedNumber(request.value.cost.output),
-			cacheRead: decodeTaggedNumber(request.value.cost.cacheRead),
-			cacheWrite: decodeTaggedNumber(request.value.cost.cacheWrite),
-		},
-		supportedThinkingLevels: request.value.supportedThinkingLevels,
-		authenticated: request.value.authenticated,
-	};
+	const value = decodeModelMetadata(request.value);
 	if (!typebox.Check(schema.ModelMetadataSchema, value)) {
 		return { id: request.id, ok: true, output: { valid: false } };
 	}
+	return { id: request.id, ok: true, output: { valid: true, value: normalizeModelMetadata(value) } };
+}
+
+function decodeUsage(value: UsageRequest) {
 	return {
-		id: request.id,
-		ok: true,
-		output: {
-			valid: true,
-			value: {
-				provider: value.provider,
-				id: value.id,
-				name: value.name,
-				api: value.api,
-				reasoning: value.reasoning,
-				input: value.input,
-				contextWindow: value.contextWindow,
-				maxTokens: value.maxTokens,
-				cost: {
-					input: float64Bits(value.cost.input),
-					output: float64Bits(value.cost.output),
-					cacheRead: float64Bits(value.cost.cacheRead),
-					cacheWrite: float64Bits(value.cost.cacheWrite),
-				},
-				supportedThinkingLevels: value.supportedThinkingLevels,
-				authenticated: value.authenticated,
-			},
+		input: value.input,
+		output: value.output,
+		cacheRead: value.cacheRead,
+		cacheWrite: value.cacheWrite,
+		...(value.reasoning === undefined ? {} : { reasoning: value.reasoning }),
+		totalTokens: value.totalTokens,
+		cost: {
+			input: decodeTaggedNumber(value.cost.input),
+			output: decodeTaggedNumber(value.cost.output),
+			cacheRead: decodeTaggedNumber(value.cost.cacheRead),
+			cacheWrite: decodeTaggedNumber(value.cost.cacheWrite),
+			total: decodeTaggedNumber(value.cost.total),
 		},
 	};
 }
 
-function executeUsage(
-	request: Extract<Request, { operation: "validate_usage" }>,
-	schema: SchemaApi,
-	typebox: TypeboxApi,
-): Response {
-	const value = {
-		input: request.value.input,
-		output: request.value.output,
-		cacheRead: request.value.cacheRead,
-		cacheWrite: request.value.cacheWrite,
-		...(request.value.reasoning === undefined ? {} : { reasoning: request.value.reasoning }),
-		totalTokens: request.value.totalTokens,
-		cost: {
-			input: decodeTaggedNumber(request.value.cost.input),
-			output: decodeTaggedNumber(request.value.cost.output),
-			cacheRead: decodeTaggedNumber(request.value.cost.cacheRead),
-			cacheWrite: decodeTaggedNumber(request.value.cost.cacheWrite),
-			total: decodeTaggedNumber(request.value.cost.total),
-		},
-	};
-	if (!typebox.Check(schema.UsageSchema, value)) {
-		return { id: request.id, ok: true, output: { valid: false } };
-	}
+function normalizeUsage(value: ReturnType<typeof decodeUsage>): UsageResponseValue {
 	const normalized: UsageResponseValue = {
 		input: value.input,
 		output: value.output,
@@ -430,14 +427,20 @@ function executeUsage(
 			total: float64Bits(value.cost.total),
 		},
 	};
-	if (value.reasoning !== undefined) {
-		normalized.reasoning = value.reasoning;
+	if (value.reasoning !== undefined) normalized.reasoning = value.reasoning;
+	return normalized;
+}
+
+function executeUsage(
+	request: Extract<Request, { operation: "validate_usage" }>,
+	schema: SchemaApi,
+	typebox: TypeboxApi,
+): Response {
+	const value = decodeUsage(request.value);
+	if (!typebox.Check(schema.UsageSchema, value)) {
+		return { id: request.id, ok: true, output: { valid: false } };
 	}
-	return {
-		id: request.id,
-		ok: true,
-		output: { valid: true, value: normalized },
-	};
+	return { id: request.id, ok: true, output: { valid: true, value: normalizeUsage(value) } };
 }
 
 function executeModelCost(
@@ -469,36 +472,49 @@ function executeModelCost(
 	};
 }
 
+function executeFrameEncoding(
+	request: Extract<Request, { operation: "encode_frame" }>,
+	framing: FramingApi,
+): Response {
+	const frame = framing.encodeFrame(decodeHex(request.payload_hex));
+	return { id: request.id, ok: true, output: { frame_hex: encodeHex(frame) } };
+}
+
+function executeFrameAssertion(
+	request: Extract<Request, { operation: "assert_complete_frame" }>,
+	framing: FramingApi,
+): Response {
+	const options = request.max_frame_length === undefined ? undefined : { maxFrameLength: request.max_frame_length };
+	framing.assertCompleteFrame(decodeHex(request.frame_hex), options);
+	return { id: request.id, ok: true, output: null };
+}
+
+function executeRequest(request: Request, framing: FramingApi, schema: SchemaApi, typebox: TypeboxApi): Response {
+	switch (request.operation) {
+		case "encode_frame":
+			return executeFrameEncoding(request, framing);
+		case "assert_complete_frame":
+			return executeFrameAssertion(request, framing);
+		case "decoder_sequence":
+			return executeDecoderSequence(request, framing);
+		case "validate_model_cost":
+			return executeModelCost(request, schema, typebox);
+		case "validate_thinking_level":
+			return executeSchemaString(request.id, request.value, schema.ThinkingLevelSchema, typebox);
+		case "validate_session_phase":
+			return executeSchemaString(request.id, request.value, schema.SessionPhaseSchema, typebox);
+		case "validate_model_ref":
+			return executeModelRef(request, schema, typebox);
+		case "validate_model_metadata":
+			return executeModelMetadata(request, schema, typebox);
+		case "validate_usage":
+			return executeUsage(request, schema, typebox);
+	}
+}
+
 function execute(request: Request, framing: FramingApi, schema: SchemaApi, typebox: TypeboxApi): Response {
 	try {
-		switch (request.operation) {
-			case "encode_frame":
-				return {
-					id: request.id,
-					ok: true,
-					output: { frame_hex: encodeHex(framing.encodeFrame(decodeHex(request.payload_hex))) },
-				};
-			case "assert_complete_frame":
-				framing.assertCompleteFrame(
-					decodeHex(request.frame_hex),
-					request.max_frame_length === undefined ? undefined : { maxFrameLength: request.max_frame_length },
-				);
-				return { id: request.id, ok: true, output: null };
-			case "decoder_sequence":
-				return executeDecoderSequence(request, framing);
-			case "validate_model_cost":
-				return executeModelCost(request, schema, typebox);
-			case "validate_thinking_level":
-				return executeSchemaString(request.id, request.value, schema.ThinkingLevelSchema, typebox);
-			case "validate_session_phase":
-				return executeSchemaString(request.id, request.value, schema.SessionPhaseSchema, typebox);
-			case "validate_model_ref":
-				return executeModelRef(request, schema, typebox);
-			case "validate_model_metadata":
-				return executeModelMetadata(request, schema, typebox);
-			case "validate_usage":
-				return executeUsage(request, schema, typebox);
-		}
+		return executeRequest(request, framing, schema, typebox);
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };
 	}
