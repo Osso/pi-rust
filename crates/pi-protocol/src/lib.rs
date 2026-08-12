@@ -10,5 +10,6 @@ pub use framing::{
 pub use schemas::{
     ImageContent, ImageContentError, ModelCost, ModelCostError, ModelInput, ModelMetadata, ModelMetadataError,
     ModelMetadataInput, ModelRef, ModelRefError, ParseModelInputError, ParseSessionPhaseError, ParseThinkingLevelError,
-    SessionPhase, TextContent, ThinkingContent, ThinkingLevel, Usage, UsageCost, UsageCostError, UsageInput,
+    SessionMetadata, SessionMetadataError, SessionMetadataInput, SessionPhase, TextContent, ThinkingContent,
+    ThinkingLevel, Usage, UsageCost, UsageCostError, UsageInput,
 };
