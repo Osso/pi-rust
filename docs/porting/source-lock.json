@@ -1,0 +1,7 @@
+{
+  "worktree": "/home/osso/.worktrees/pi-merge-upstream-v0.81.1-integration",
+  "commit": "532f7d12cd19235081bd4d6e425bde185652d86f",
+  "sourcePackage": "@earendil-works/pi-protocol",
+  "sourceVersion": "0.84.1",
+  "lockedOn": "2026-08-12"
+}

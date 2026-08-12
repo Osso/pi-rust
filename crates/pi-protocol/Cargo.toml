@@ -1,0 +1,11 @@
+[package]
+name = "pi-protocol"
+version = "0.0.0"
+description = "Rust port of Pi's transport-neutral protocol primitives"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
