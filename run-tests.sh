@@ -21,7 +21,8 @@ typecheck_oracle() {
 		--typeRoots "$source_worktree/node_modules/@types" \
 		oracle/protocol-oracle.ts \
 		oracle/rpc-jsonl-oracle.ts \
-		oracle/truncate-oracle.ts
+		oracle/truncate-oracle.ts \
+		oracle/auth-command-oracle.ts
 }
 
 case "${1:-all}" in
@@ -34,7 +35,7 @@ case "${1:-all}" in
 	differential)
 		shift
 		cargo test -p pi-protocol --test differential_protocol "$@"
-		cargo test -p pi-coding-agent --test differential_rpc_jsonl "$@"
+		cargo test -p pi-coding-agent --test differential_rpc_jsonl --test differential_auth_command "$@"
 		exec cargo test -p pi-agent-core --test differential_truncate "$@"
 		;;
 	oracle)

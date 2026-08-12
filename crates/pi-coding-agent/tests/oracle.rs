@@ -22,10 +22,10 @@ pub(crate) struct TsOracle {
 }
 
 impl TsOracle {
-    pub(crate) fn spawn(source_module: &str) -> Self {
+    pub(crate) fn spawn(oracle_filename: &str, source_module: &str) -> Self {
         let source_lock = read_source_lock();
         verify_source_head(&source_lock);
-        let mut child = spawn_oracle_process(&source_lock, source_module);
+        let mut child = spawn_oracle_process(&source_lock, oracle_filename, source_module);
         let stdin = BufWriter::new(child.stdin.take().expect("oracle stdin must be piped"));
         let stdout = BufReader::new(child.stdout.take().expect("oracle stdout must be piped"));
 
@@ -70,10 +70,12 @@ fn read_source_lock() -> SourceLock {
     SourceLock { worktree, commit }
 }
 
-fn spawn_oracle_process(source_lock: &SourceLock, source_module: &str) -> Child {
+fn spawn_oracle_process(source_lock: &SourceLock, oracle_filename: &str, source_module: &str) -> Child {
     let tsx = source_lock.worktree.join("node_modules/.bin/tsx");
     let tsconfig = source_lock.worktree.join("tsconfig.json");
-    let oracle = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../oracle/rpc-jsonl-oracle.ts");
+    let oracle = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../oracle")
+        .join(oracle_filename);
 
     Command::new(&tsx)
         .arg("--tsconfig")
@@ -84,7 +86,7 @@ fn spawn_oracle_process(source_lock: &SourceLock, source_module: &str) -> Child 
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
-        .expect("worktree-local tsx must start the TypeScript RPC JSONL oracle")
+        .expect("worktree-local tsx must start the TypeScript oracle")
 }
 
 fn verify_source_head(source_lock: &SourceLock) {

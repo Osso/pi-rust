@@ -26,14 +26,19 @@ Auth command metadata and help selection port `packages/coding-agent/src/cli/aut
 - `crates/pi-coding-agent/src/cli/auth_command.rs` — typed command metadata and pure help selection.
 - `crates/pi-coding-agent/src/cli/mod.rs` — public CLI exports.
 - `crates/pi-coding-agent/tests/auth_command.rs` — focused metadata and help behavior.
+- `oracle/auth-command-oracle.ts` — persistent adapter invoking the real pinned module.
+- `crates/pi-coding-agent/tests/differential_auth_command.rs` — direct TypeScript comparison entry point.
+- `crates/pi-coding-agent/tests/differential_auth_command/fixtures.rs` — exact metadata and help fixtures.
 
 ## Tests asserting this spec
 
 - `crates/pi-coding-agent/tests/auth_command.rs`
+- `crates/pi-coding-agent/tests/differential_auth_command.rs`
+- `crates/pi-coding-agent/tests/differential_auth_command/fixtures.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Add direct differential proof against the pinned TypeScript module.
+None for this bounded metadata/help slice.
 
 ## Out of scope
 
