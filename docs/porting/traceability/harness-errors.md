@@ -1,12 +1,12 @@
 # Agent-core harness-error traceability
 
-Pinned source: `packages/agent/src/harness/types.ts:137-211` at `532f7d12cd19235081bd4d6e425bde185652d86f`; public source-package exports are `packages/agent/src/index.ts:114-124`.
+Pinned source: `packages/agent/src/harness/types.ts:137-211` at `532f7d12cd19235081bd4d6e425bde185652d86f`; public source-package exports are `packages/agent/src/index.ts:115-124`.
 
 The focused Rust slice ports typed error prerequisites only. Filesystem/execution and compaction/branch-summary errors now have direct pinned proof; effectful producers remain later slices.
 
 | TypeScript source | Observable behavior | Rust proof or gap |
 |---|---|---|
-| `index.ts:120-124` | Publicly re-export both error classes and code types | Focused Rust imports all four public harness symbols; the oracle loads `index.ts` and constructs both runtime classes through those exports; TypeScript code types are compile-time-only |
+| `index.ts:115-118` | Publicly re-export compaction and branch-summary error classes and code types; `index.ts:119-124` re-exports execution and filesystem errors | Focused Rust imports all four public harness symbols; the oracle loads `index.ts` and constructs both runtime classes through those exports; TypeScript code types are compile-time-only |
 | `types.ts:137-145` | Define the eight exact `FileErrorCode` literals | `FileErrorCode`, exhaustive focused literal assertions, explicit `as_str()` mapping, and direct fixtures `13000..=13007` |
 | `types.ts:148-153` | Declare the `FileError` subclass with public `code` and optional `path` | Public Rust type and fields plus focused public-import, code, path, and mutation assertions |
 | `types.ts:154-160` | Preserve constructor order `(code, message, path?, cause?)`, inherited message, explicit name, code, path, and conditional cause | `FileError::new(code, message, path, cause)`, focused absent/present cause/path tests, and direct normalized fixtures `13000..=13007`; `None` represents source `path: undefined` |
