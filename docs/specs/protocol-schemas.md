@@ -55,10 +55,10 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 ### Session metadata
 
 - [x] Preserve non-empty session IDs and non-negative creation timestamps.
-- [x] Preserve optional update timestamps, parent IDs, names, and working directories without defaults.
-- [x] Distinguish omitted session names from explicit empty names.
+- [x] Map omitted update timestamps, parent IDs, names, and working directories to `None` without defaults.
+- [x] Distinguish omitted session names from explicit empty names; `null` remains outside the typed constructor.
 - [x] Require optional parent IDs and working directories to be non-empty when present.
-- [x] Represent timestamps as `u64`, with shared-domain differential proof capped at `Number.MAX_SAFE_INTEGER`.
+- [x] Represent timestamps as `u64`; focused proof reaches `u64::MAX`, while direct TypeBox proof reaches `Number.MAX_SAFE_INTEGER`.
 
 ## How it works
 
@@ -69,7 +69,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 
 - `crates/pi-protocol/src/lib.rs` — exports schema types and validation errors.
 - `crates/pi-protocol/src/schemas.rs` — schema APIs and public re-exports.
-- `crates/pi-protocol/src/schemas/session_metadata.rs` — `SessionMetadataInput`, validated `SessionMetadata`, getters, and `SessionMetadataError`.
+- `crates/pi-protocol/src/schemas/session_metadata.rs` — `SessionMetadataInput`, `SessionMetadata::new`, six getters, and `SessionMetadataError::{EmptyId, EmptyParentSessionId, EmptyCwd}`.
 
 ## Tests asserting this spec
 
@@ -83,11 +83,12 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_metadata.rs`
 - `crates/pi-protocol/tests/differential_protocol/schema_leaves.rs`
+- `crates/pi-protocol/tests/differential_protocol/session_metadata.rs`
 - `crates/pi-protocol/tests/differential_protocol/usage.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Compare `SessionMetadataSchema` directly with the pinned TypeBox schema.
+None for the currently ported schema types.
 
 ## Out of scope
 

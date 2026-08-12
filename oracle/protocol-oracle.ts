@@ -28,6 +28,7 @@ type SchemaApi = {
 	TextContentSchema: unknown;
 	ThinkingContentSchema: unknown;
 	ImageContentSchema: unknown;
+	SessionMetadataSchema: unknown;
 };
 
 type TypeboxApi = {
@@ -107,6 +108,15 @@ type ImageContentRequest = {
 	mimeType: string;
 };
 
+type SessionMetadataRequest = {
+	id: string;
+	createdAt: number;
+	updatedAt?: number;
+	parentSessionId?: string;
+	sessionName?: string;
+	cwd?: string;
+};
+
 type Request =
 	| {
 			id: RequestId;
@@ -172,6 +182,11 @@ type Request =
 			id: RequestId;
 			operation: "validate_image_content";
 			value: ImageContentRequest;
+		}
+	| {
+			id: RequestId;
+			operation: "validate_session_metadata";
+			value: SessionMetadataRequest;
 		};
 
 type DecoderStepResponse =
@@ -247,6 +262,10 @@ type SchemaValidationResponse =
 	| {
 			valid: true;
 			value: UsageResponseValue;
+		}
+	| {
+			valid: true;
+			value: SessionMetadataResponseValue;
 		};
 
 type ModelMetadataResponseValue = {
@@ -283,6 +302,8 @@ type UsageResponseValue = {
 		total: string;
 	};
 };
+
+type SessionMetadataResponseValue = SessionMetadataRequest;
 
 type ContentValidationResponse =
 	| {
@@ -560,6 +581,17 @@ function executeImageContent(
 	};
 }
 
+function executeSessionMetadata(
+	request: Extract<Request, { operation: "validate_session_metadata" }>,
+	schema: SchemaApi,
+	typebox: TypeboxApi,
+): Response {
+	if (!typebox.Check(schema.SessionMetadataSchema, request.value)) {
+		return { id: request.id, ok: true, output: { valid: false } };
+	}
+	return { id: request.id, ok: true, output: { valid: true, value: request.value } };
+}
+
 function executeModelCost(
 	request: Extract<Request, { operation: "validate_model_cost" }>,
 	schema: SchemaApi,
@@ -632,6 +664,8 @@ function executeRequest(request: Request, framing: FramingApi, schema: SchemaApi
 			return executeThinkingContent(request, schema, typebox);
 		case "validate_image_content":
 			return executeImageContent(request, schema, typebox);
+		case "validate_session_metadata":
+			return executeSessionMetadata(request, schema, typebox);
 	}
 }
 
