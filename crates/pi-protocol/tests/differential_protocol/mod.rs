@@ -1,6 +1,7 @@
 pub(crate) mod framing;
 pub(crate) mod model_cost;
 pub(crate) mod oracle;
+pub(crate) mod schema_leaves;
 
 pub(crate) fn run() {
     let mut oracle = oracle::TsOracle::spawn(&[
@@ -10,4 +11,5 @@ pub(crate) fn run() {
     ]);
     framing::compare_all_fixtures(&mut oracle);
     model_cost::compare_all_fixtures(&mut oracle, 1000);
+    schema_leaves::compare_all_fixtures(&mut oracle);
 }

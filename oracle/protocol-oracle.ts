@@ -19,6 +19,9 @@ type FramingApi = {
 };
 
 type SchemaApi = {
+	ThinkingLevelSchema: unknown;
+	SessionPhaseSchema: unknown;
+	ModelRefSchema: unknown;
 	ModelCostSchema: unknown;
 };
 
@@ -74,6 +77,24 @@ type Request =
 			id: RequestId;
 			operation: "validate_model_cost";
 			value: ModelCostRequest;
+		}
+	| {
+			id: RequestId;
+			operation: "validate_thinking_level";
+			value: string;
+		}
+	| {
+			id: RequestId;
+			operation: "validate_session_phase";
+			value: string;
+		}
+	| {
+			id: RequestId;
+			operation: "validate_model_ref";
+			value: {
+				provider: string;
+				id: string;
+			};
 		};
 
 type DecoderStepResponse =
@@ -96,7 +117,12 @@ type Response =
 	| {
 			id: RequestId;
 			ok: true;
-			output: { frame_hex: string } | null | { results: DecoderStepResponse[] } | ModelCostResponse;
+			output:
+			| { frame_hex: string }
+			| null
+			| { results: DecoderStepResponse[] }
+			| ModelCostResponse
+			| SchemaValidationResponse;
 		}
 	| {
 			id: RequestId;
@@ -118,6 +144,22 @@ type ModelCostResponse =
 				output: string;
 				cacheRead: string;
 				cacheWrite: string;
+			};
+		};
+
+type SchemaValidationResponse =
+	| {
+			valid: false;
+		}
+	| {
+			valid: true;
+			value: string;
+		}
+	| {
+			valid: true;
+			value: {
+				provider: string;
+				id: string;
 			};
 		};
 
@@ -190,6 +232,29 @@ function float64Bits(value: number): string {
 	return view.getBigUint64(0, false).toString(16).padStart(16, "0");
 }
 
+function executeSchemaString(
+	id: RequestId,
+	value: string,
+	schema: unknown,
+	typebox: TypeboxApi,
+): Response {
+	if (!typebox.Check(schema, value)) {
+		return { id, ok: true, output: { valid: false } };
+	}
+	return { id, ok: true, output: { valid: true, value } };
+}
+
+function executeModelRef(
+	request: Extract<Request, { operation: "validate_model_ref" }>,
+	schema: SchemaApi,
+	typebox: TypeboxApi,
+): Response {
+	if (!typebox.Check(schema.ModelRefSchema, request.value)) {
+		return { id: request.id, ok: true, output: { valid: false } };
+	}
+	return { id: request.id, ok: true, output: { valid: true, value: request.value } };
+}
+
 function executeModelCost(
 	request: Extract<Request, { operation: "validate_model_cost" }>,
 	schema: SchemaApi,
@@ -238,6 +303,12 @@ function execute(request: Request, framing: FramingApi, schema: SchemaApi, typeb
 				return executeDecoderSequence(request, framing);
 			case "validate_model_cost":
 				return executeModelCost(request, schema, typebox);
+			case "validate_thinking_level":
+				return executeSchemaString(request.id, request.value, schema.ThinkingLevelSchema, typebox);
+			case "validate_session_phase":
+				return executeSchemaString(request.id, request.value, schema.SessionPhaseSchema, typebox);
+			case "validate_model_ref":
+				return executeModelRef(request, schema, typebox);
 		}
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };

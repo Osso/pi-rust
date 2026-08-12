@@ -7,19 +7,19 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 ### Thinking levels
 
 - [x] Represent exactly `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`.
-- [x] Convert each enum value back to its exact source literal.
+- [x] Expose `ThinkingLevel::as_str` and `FromStr` with exact source spellings.
 - [x] Reject every other spelling, including the broader `pi-ai` value `ultra`.
 
 ### Session phases
 
 - [x] Represent exactly `idle`, `turn`, `compaction`, `branch_summary`, and `retry`.
-- [x] Convert each enum value back to its exact source literal and reject every other spelling.
+- [x] Expose `SessionPhase::as_str` and `FromStr` with exact source spellings and reject every other spelling.
 
 ### Model references
 
-- [x] Own and preserve the exact `provider` and `id` strings.
+- [x] Construct owned values through `ModelRef::new` and preserve exact strings through `provider` and `id` getters.
 - [x] Accept every Rust-representable non-empty string, including Unicode, whitespace-only, combining, and embedded-NUL values.
-- [x] Reject an empty `provider` before checking `id`, then reject an empty `id`.
+- [x] Return `ModelRefError::EmptyProvider` first when both fields are empty, then `EmptyId` for an empty identifier.
 
 ### Model costs
 
@@ -36,17 +36,19 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 
 ## Implementation inventory
 
-- `crates/pi-protocol/src/schemas.rs` — typed schema models and constructor validation.
+- `crates/pi-protocol/src/lib.rs` — exports schema types and validation errors.
+- `crates/pi-protocol/src/schemas.rs` — `ThinkingLevel`, `SessionPhase`, `ModelRef`, `ModelCost`, parsing, and constructor validation.
 
 ## Tests asserting this spec
 
 - `crates/pi-protocol/tests/schema_leaves.rs`
 - `crates/pi-protocol/tests/model_cost.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
+- `crates/pi-protocol/tests/differential_protocol/schema_leaves.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Compare thinking-level, session-phase, and model-reference fixtures directly with the pinned TypeBox schemas.
+None for the currently ported schema types.
 
 ## Out of scope
 
