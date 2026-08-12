@@ -65,6 +65,13 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - [x] Represent exactly `version`, `busy`, `session_locked`, `not_found`, `invalid_request`, `not_implemented`, and `internal_error`.
 - [x] Expose exact `ProtocolErrorCode::as_str` and `FromStr` mappings without aliases or normalization.
 
+### Commands
+
+- [x] Represent all nine command leaves as validated private-field Rust types and compose them through `Command`.
+- [x] Preserve exact command literals through `Command::as_str`.
+- [x] Preserve omitted create options, unrestricted optional names, unrestricted prompt/steer text, and validated nested model/thinking values.
+- [x] Require create working directories and all required session IDs to be non-empty.
+
 ## How it works
 
 - [Schema traceability](../porting/traceability/protocol-schemas.md)
@@ -76,6 +83,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/src/schemas.rs` — schema APIs and public re-exports.
 - `crates/pi-protocol/src/schemas/session_metadata.rs` — `SessionMetadataInput`, `SessionMetadata::new`, six getters, and `SessionMetadataError::{EmptyId, EmptyParentSessionId, EmptyCwd}`.
 - `crates/pi-protocol/src/schemas/protocol_error_code.rs` — `ProtocolErrorCode`, `as_str`, `FromStr`, and `ParseProtocolErrorCodeError`.
+- `crates/pi-protocol/src/schemas/commands.rs` — command leaves, constructors/getters, `Command`, and `CommandError`.
 
 ## Tests asserting this spec
 
@@ -86,6 +94,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 - `crates/pi-protocol/tests/content_leaves.rs`
 - `crates/pi-protocol/tests/session_metadata.rs`
 - `crates/pi-protocol/tests/protocol_error_code.rs`
+- `crates/pi-protocol/tests/commands.rs`
 - `crates/pi-protocol/tests/differential_protocol/content_leaves.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_cost.rs`
 - `crates/pi-protocol/tests/differential_protocol/model_metadata.rs`
@@ -96,7 +105,7 @@ Protocol schemas port typed contracts from pinned `packages/protocol/src/schemas
 
 ## Known gaps (current cycle)
 
-None for the currently ported schema types.
+- [ ] Compare command leaves and `CommandSchema` directly with the pinned TypeBox schemas.
 
 ## Out of scope
 

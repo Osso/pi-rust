@@ -2,9 +2,14 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
+mod commands;
 mod protocol_error_code;
 mod session_metadata;
 
+pub use commands::{
+    AbortCommand, AttachCommand, Command, CommandError, CreateCommand, CreateCommandInput, DetachCommand, ListCommand,
+    PromptCommand, SetModelCommand, SetThinkingCommand, SteerCommand,
+};
 pub use protocol_error_code::{ParseProtocolErrorCodeError, ProtocolErrorCode};
 pub use session_metadata::{SessionMetadata, SessionMetadataError, SessionMetadataInput};
 
