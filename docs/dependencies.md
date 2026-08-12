@@ -12,7 +12,7 @@ All direct dependencies are exact-pinned.
 
 ### `pi-agent-core`
 
-No runtime dependencies for output truncation or binary-output sanitization.
+No runtime dependencies. Typed filesystem/execution errors, output truncation, and binary-output sanitization use only the Rust standard library.
 
 ### `pi-protocol`
 

@@ -15,6 +15,8 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Classify the RPC JSON serializer as semantic JSON rather than byte-identical `JSON.stringify`, approved August 12, 2026.
 - [x] Classify truncation limits as typed non-negative integers and single-line truncation as Unicode-scalar-safe, approved August 12, 2026.
 - [x] Preserve the shell sanitizer's explicit code-point ranges rather than applying broad Unicode control categories.
+- [x] Preserve exact filesystem/execution error-code literals, names, messages, constructor ordering, optional path, and typed causes over the Rust-representable boundary.
+- [x] Map focused typed-error constructors, public fields, mutation, and error-chain behavior to direct tests; direct TypeScript differential proof remains pending.
 - [x] Preserve exact coding-agent auth command names, usage strings, and help selection over Rust-representable strings.
 - [x] Preserve exact coding-agent auth parser errors, argument ordering, flags, and field-specific expiry-number behavior against the pinned source.
 - [x] Preserve pure config-value command classification and environment-reference parsing against the pinned source.
@@ -62,8 +64,10 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-coding-agent/tests/differential_config_value_references.rs`
 - `crates/pi-agent-core/tests/truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate.rs`
+- `crates/pi-agent-core/tests/harness_errors.rs`
 - `crates/pi-agent-core/tests/sanitize_binary_output.rs`
 - `crates/pi-agent-core/tests/differential_truncate/sanitize.rs`
+- `docs/porting/traceability/harness-errors.md`
 
 ## Known gaps (current cycle)
 
@@ -73,6 +77,9 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 
 - Invalid JavaScript runtime input types at typed Rust API boundaries, approved August 12, 2026.
 - JavaScript lone-surrogate strings that Rust `String` cannot represent.
+- Arbitrary JavaScript runtime values passed to generic error normalization or causes.
+- JavaScript error property descriptors, own-property ordering, JSON serialization, stack contents, and prototype/`instanceof` identity.
+- Any cause representation beyond the approved `Option<Box<dyn std::error::Error + 'static>>` typed Rust boundary.
 - Positive integer-valued JavaScript schema values above `u64::MAX` for typed integer fields, approved August 12, 2026.
 - Malformed or manually forged oracle requests; the Rust harness emits only typed operations and valid hexadecimal bytes.
 - Exact JavaScript allocation exception identity. Approved Rust behavior returns `FrameDecodeError::Allocation` and terminally fails the decoder.
