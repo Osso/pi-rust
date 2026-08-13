@@ -33,7 +33,7 @@ This specification covers the module-local TypeScript `CutPointResult` interface
 ## Known gaps (current cycle)
 
 - [x] Complete final workspace/static/readability/documentation/clean-pin gates: workspace `cargo test --workspace --all-targets` captured 241 passed, 0 failed, 2 ignored in `/tmp/pi-rust-cut-point-result-final-workspace-tests.out`; all-target check, all-feature Clippy with `-D warnings`, fmt, `git diff --check`, and Node syntax all exited 0 in the corresponding final artifacts; readability and documentation audits passed; exact source/Rust pins passed.
-- [ ] Complete inherited independent verification; final artifact verification remains pending after the expected uncommitted documentation closure at code HEAD `b3f33f9`.
+- [x] Complete inherited independent verification at clean Rust HEAD `b8783cb`: fresh focused 3 passed/0 failed, differential 1 passed/0 failed, oracle/fmt/diff/check/Clippy/Node exit 0, saved workspace 241 passed/0 failed/2 ignored, readability runner 25 lines and oracle functions 4 and 13 lines, documentation consistency; `OVERALL: PASS`.
 
 ## Out of scope
 

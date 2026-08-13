@@ -26,8 +26,8 @@ Pinned source: `packages/agent/src/harness/compaction/compaction.ts` at commit `
 - Readability: `/tmp/pi-rust-cut-point-result-readability-final` reports runner body 25 lines and new oracle functions at 4 and 13 lines; the existing baseline violation remains unchanged.
 - Final workspace: `/tmp/pi-rust-cut-point-result-final-workspace-tests.out` captures `cargo test --workspace --all-targets` with 241 passed, 0 failed, and 2 ignored; the proof ledger records exit 0.
 - Final static gates: `/tmp/pi-rust-cut-point-result-final-check.out` captures `cargo check --workspace --all-targets` exit 0; `/tmp/pi-rust-cut-point-result-final-clippy.out` captures all-feature Clippy with `-D warnings` exit 0; `/tmp/pi-rust-cut-point-result-final-fmt.out` captures fmt exit 0; `/tmp/pi-rust-cut-point-result-final-diff.out` captures `git diff --check` exit 0; `/tmp/pi-rust-cut-point-result-final-node.out` captures Node syntax exit 0.
-- Documentation and clean pins: the dedicated spec, traceability, and concise compatibility edits are complete; exact source/Rust heads match the pinned revisions, the source worktree is clean, and Rust is dirty only for these expected uncommitted documentation edits.
-- Inherited independent verification remains pending after the expected uncommitted documentation closure at code HEAD `b3f33f9`.
+- Documentation and clean pins: the dedicated spec, traceability, and concise compatibility edits are complete; Rust HEAD is `b8783cb`, the code parent is `b3f33f9`, the pinned source HEAD is `532f7d12cd19235081bd4d6e425bde185652d86f`, and both worktrees are clean.
+- Inherited independent verification: at clean Rust HEAD `b8783cb`, the verifier confirmed fresh focused results of 3 passed and 0 failed; fresh differential results of 1 passed and 0 failed; oracle, formatting, and diff checks exit 0; saved workspace results of 241 passed, 0 failed, and 2 ignored; workspace check, all-feature Clippy with `-D warnings`, and Node syntax exit 0; readability results of runner 25 lines and new oracle functions 4 and 13 lines; and documentation consistency. `OVERALL: PASS`.
 
 ## Exclusions
 
