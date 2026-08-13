@@ -78,6 +78,7 @@ fn preserves_ieee754_predicate_boundaries() {
 
     let overflow = settings(true, f64::MAX, 0.0);
     assert!(should_compact(f64::MAX, -f64::MAX, &overflow));
+    assert!(!should_compact(0.0, f64::MAX, &settings(true, f64::MAX, 0.0)));
 
     let infinities = settings(true, f64::INFINITY, 0.0);
     assert!(should_compact(f64::MAX, 0.0, &infinities));
