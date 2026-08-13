@@ -49,9 +49,9 @@ This specification covers the committed agent-harness `ThinkingLevel` union from
 - [x] Run oracle/typeproof, formatting, both Node syntax checks, and diff checks with self-describing artifacts: all exit 0.
 - [x] Complete Rust/TypeScript/JavaScript readability, documentation, dependency, and clean-pin audits.
 
-## Known gaps
+## Verification closure
 
-- [ ] Inherited independent verification remains pending after documentation closure.
+- [x] Inherited verification at clean HEAD `b9b9bda`: focused 4 passed/0 failed, differential 1 passed/0 failed, oracle/fmt/diff exit 0; saved workspace 264 passed/0 failed/2 ignored plus workspace check and all-feature Clippy with `-D warnings` pass. Agent/protocol separation, readability, scope, and docs are verified. `OVERALL: PASS`.
 
 ## Out of scope
 

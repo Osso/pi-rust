@@ -34,6 +34,7 @@ Pinned source: `packages/agent/src/types.ts:293-298` and package export `package
 - Final static gates: `/tmp/pi-rust-agent-thinking-level-final-check.out` captures `cargo check --workspace --all-targets`; `/tmp/pi-rust-agent-thinking-level-final-clippy.out` captures all-target/all-feature Clippy with `-D warnings`; both exit 0.
 - Self-describing final oracle, formatting, syntax, and diff artifacts record command, revision `716f1dd`, and exit 0: `/tmp/pi-rust-agent-thinking-level-final-oracle-proof.out`, `/tmp/pi-rust-agent-thinking-level-final-fmt-proof.out`, both `/tmp/pi-rust-agent-thinking-level-final-node-*-proof.out` files, and `/tmp/pi-rust-agent-thinking-level-final-diff-proof.out`.
 - Documentation and pins: README, dependency inventory, compatibility, dedicated spec, and traceability are consistent; the pinned source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+- Inherited verification: at clean HEAD `b9b9bda`, focused results were 4 passed and 0 failed, differential results were 1 passed and 0 failed, and oracle, formatting, and diff checks exited 0. Saved workspace results of 264 passed, 0 failed, and 2 ignored plus workspace check and all-feature Clippy with `-D warnings` pass. The agent/protocol type distinction, readability correction, scope, and documentation audits pass. `OVERALL: PASS`.
 
 ## Exclusions
 
