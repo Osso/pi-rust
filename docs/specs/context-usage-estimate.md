@@ -8,6 +8,8 @@ This specification covers the module-local `ContextUsageEstimate` interface from
 - [x] Preserve required fields in source order: `tokens: f64`, `usage_tokens: f64`, `trailing_tokens: f64`, and `last_usage_index: Option<f64>`.
 - [x] Derive `Debug` only without constructors, serialization, validation, normalization, or integer narrowing.
 - [x] Preserve ordinary values, `None`/`Some` index states, public mutation, signed zero, subnormals, finite extremes, infinities, and distinct NaN payloads in every numeric field.
+- [x] Compare final source-shaped plain records through exactly eight pinned differential request groups `13148..=13155`, with binary64 bit normalization and null-preserving optional state.
+- [x] Prove the pinned direct-module interface's exact required shape, `number | null` index, public mutation, and unrestricted number assignments without public-index proof or runtime-construction claims.
 
 ## How it works
 
@@ -18,17 +20,21 @@ This specification covers the module-local `ContextUsageEstimate` interface from
 
 - `crates/pi-agent-core/src/harness/compaction/mod.rs` — module-local value record.
 - `crates/pi-agent-core/tests/context_usage_estimate.rs` — focused field, mutation, Debug, optional-state, and binary64 proof.
-- `run-tests.sh` — focused test registration.
+- `crates/pi-agent-core/tests/differential_truncate/context_usage_estimate.rs` — eight source-shaped differential request groups.
+- `oracle/truncate-oracle.ts` — plain-record request adapter and binary64 normalization only.
+- `oracle/context-usage-estimate-typecheck.mjs` — standalone pinned direct-module exact-shape and mutability proof.
+- `run-tests.sh` — focused, differential, and direct-module oracle registration.
 
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/context_usage_estimate.rs`
+- `crates/pi-agent-core/tests/differential_truncate/context_usage_estimate.rs`
+- `oracle/context-usage-estimate-typecheck.mjs`
 
 ## Known gaps (current cycle)
 
-- [ ] Add pinned TypeScript differential proof and any required direct-module type proof in a later phase.
-- [ ] Complete final workspace, static, readability, documentation, and clean-pin gates after later phases.
+- [ ] Complete final workspace/static, documentation, clean-pin, and inherited verification gates in a later phase.
 
 ## Out of scope
 
-`estimateContextTokens`, `calculateContextTokens`, `getLastAssistantUsageInfo`, message and usage models, token estimation, compaction preparation/orchestration, constructors, serialization, validation, normalization, integer narrowing, package or harness-root exports, `DEFAULT_COMPACTION_SETTINGS`, dependencies, and unrelated compaction APIs remain deferred. Invalid JavaScript runtime values and lone UTF-16 surrogate strings remain outside the typed Rust boundary.
+`estimateContextTokens`, `calculateContextTokens`, `getLastAssistantUsageInfo`, message and usage models, token estimation, compaction preparation/orchestration, constructors, serialization, production validation/normalization, integer narrowing, package or harness-root exports, `DEFAULT_COMPACTION_SETTINGS`, dependencies, and unrelated compaction APIs remain deferred. The differential adapter uses final source-shaped records only; it does not call or reimplement the producer. Invalid JavaScript runtime values and lone UTF-16 surrogate strings remain outside the typed Rust boundary.

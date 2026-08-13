@@ -256,6 +256,20 @@ type CutPointResultRequest = {
 	cases: CutPointResultCaseRequest[];
 };
 
+type ContextUsageEstimateCaseRequest = {
+	name: string;
+	tokensBits: string;
+	usageTokensBits: string;
+	trailingTokensBits: string;
+	lastUsageIndexBits: string | null;
+};
+
+type ContextUsageEstimateRequest = {
+	id: RequestId;
+	operation: "context_usage_estimate";
+	cases: ContextUsageEstimateCaseRequest[];
+};
+
 type MutableBashExecutionMessageRecord = {
 	role: "bashExecution";
 	command: string;
@@ -279,6 +293,13 @@ type MutableCutPointResultRecord = {
 	firstKeptEntryIndex: number;
 	turnStartIndex: number;
 	isSplitTurn: boolean;
+};
+
+type MutableContextUsageEstimateRecord = {
+	tokens: number;
+	usageTokens: number;
+	trailingTokens: number;
+	lastUsageIndex: number | null;
 };
 
 type MutablePromptTemplateDiagnosticRecord = {
@@ -495,6 +516,7 @@ type Request =
 	| PromptTemplateDiagnosticRequest
 	| SummarizationSystemPromptRequest
 	| CutPointResultRequest
+	| ContextUsageEstimateRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<
@@ -504,7 +526,8 @@ type UtilityRequest = Exclude<
 		ShouldCompactRequest |
 		PromptTemplateDiagnosticRequest |
 		SummarizationSystemPromptRequest |
-		CutPointResultRequest
+		CutPointResultRequest |
+		ContextUsageEstimateRequest
 >;
 type FormatSizeRequest = Extract<UtilityRequest, { operation: "format_size" }>;
 type TruncationRequest = Extract<
@@ -1005,6 +1028,27 @@ function normalizeCutPointResultInput(input: CutPointResultCaseRequest): unknown
 	};
 }
 
+function executeContextUsageEstimateRequest(request: ContextUsageEstimateRequest): Response {
+	const results = request.cases.map(normalizeContextUsageEstimateInput);
+	return successfulResponse(request.id, { results });
+}
+
+function normalizeContextUsageEstimateInput(input: ContextUsageEstimateCaseRequest): unknown {
+	const estimate: MutableContextUsageEstimateRecord = {
+		tokens: binary64FromBits(input.tokensBits),
+		usageTokens: binary64FromBits(input.usageTokensBits),
+		trailingTokens: binary64FromBits(input.trailingTokensBits),
+		lastUsageIndex: input.lastUsageIndexBits === null ? null : binary64FromBits(input.lastUsageIndexBits),
+	};
+	return {
+		name: input.name,
+		tokensBits: binary64Bits(estimate.tokens),
+		usageTokensBits: binary64Bits(estimate.usageTokens),
+		trailingTokensBits: binary64Bits(estimate.trailingTokens),
+		lastUsageIndexBits: estimate.lastUsageIndex === null ? null : binary64Bits(estimate.lastUsageIndex),
+	};
+}
+
 function executeShouldCompactRequest(request: ShouldCompactRequest, api: HarnessTypesApi): Response {
 	const results = request.cases.map((input) => ({
 		name: input.name,
@@ -1124,6 +1168,7 @@ function executeSpecialRequest(request: Request, apis: OracleApis): Response | u
 		return executeSummarizationSystemPromptRequest(request, apis.compaction);
 	}
 	if (request.operation === "cut_point_result") return executeCutPointResultRequest(request);
+	if (request.operation === "context_usage_estimate") return executeContextUsageEstimateRequest(request);
 	if (request.operation === "harness_error") return executeHarnessError(request, apis.harnessTypes);
 	return undefined;
 }

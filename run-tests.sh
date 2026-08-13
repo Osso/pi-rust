@@ -29,6 +29,7 @@ typecheck_oracle() {
 	node oracle/skill-block-typecheck.mjs
 	node oracle/summarization-system-prompt-typecheck.mjs
 	node oracle/cut-point-result-typecheck.mjs
+	node oracle/context-usage-estimate-typecheck.mjs
 }
 
 case "${1:-all}" in
