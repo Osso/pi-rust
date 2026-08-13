@@ -38,7 +38,7 @@ This specification covers `packages/coding-agent/src/core/defaults.ts:1-3` at th
 - [x] Focused and differential RED/GREEN, direct-module type/value proof, formatting, diff, Node syntax, and changed-file readability pass.
 - [x] Final integration at code/proof HEAD `9216184`: workspace `266 passed, 0 failed, 2 ignored`; workspace check and all-feature Clippy with `-D warnings` pass.
 - [x] The pinned source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`; no deployment applies.
-- [ ] Inherited independent verification remains pending.
+- [x] Inherited independent verification at Rust HEAD `fe552e1` passes focused behavior, request `13167`, direct-module oracle/typeproof, formatting, diff, saved final artifacts, documentation, dependency scope, and clean pins (`OVERALL: PASS`).
 
 ## Out of scope
 

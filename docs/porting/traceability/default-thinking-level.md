@@ -23,7 +23,8 @@ The direct module constant uses the existing agent-harness `ThinkingLevel` enum.
 - Oracle/type/value proof: `/tmp/pi-rust-default-thinking-level-oracle.out` records `node oracle/default-thinking-level-typecheck.mjs` exit 0. The script is registered in `run-tests.sh oracle`; its fixture imports only the direct source modules and makes no package-index claim.
 - Bounded gates: `/tmp/pi-rust-default-thinking-level-oracle-source-typecheck.out`, `/tmp/pi-rust-default-thinking-level-fmt.out`, `/tmp/pi-rust-default-thinking-level-diff.out`, `/tmp/pi-rust-default-thinking-level-node-check.out`, `/tmp/pi-rust-default-thinking-level-readability.out`, `/tmp/pi-rust-default-thinking-level-readability-ts-oracle.out`, and `/tmp/pi-rust-default-thinking-level-readability-js-typeproof.out` are nonempty and exit 0.
 - Final integration at code/proof HEAD `9216184`: `/tmp/pi-rust-default-thinking-level-final-workspace-tests.out` records `266 passed, 0 failed, 2 ignored`; final workspace check, all-feature Clippy with `-D warnings`, oracle, formatting, Node syntax, and diff artifacts exit 0.
-- The pinned source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`. No deployment applies. Inherited independent verification remains pending.
+- The pinned source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`. No deployment applies.
+- Inherited independent verification at Rust HEAD `fe552e1` freshly passes focused behavior, request `13167`, direct-module oracle/typeproof, formatting, and diff; it confirms the saved workspace/static/readability artifacts, documentation, dependency scope, exclusions, and clean pins (`OVERALL: PASS`).
 
 ## Exclusions
 
