@@ -17,8 +17,8 @@ Pinned source: `packages/agent/src/harness/prompt-templates.ts` at commit `532f7
 
 ## Proof status
 
-- Focused RED: `/tmp/pi-rust-prompt-template-diagnostic-red.out` records exit 101 with unresolved imports only for the missing module/root diagnostic API.
-- Focused GREEN: `/tmp/pi-rust-prompt-template-diagnostic-green.out` records exit 0 with 4 passed and 0 failed; production commit `25fe426` adds the value API, focused proof, and specification paths.
+- Focused RED: `/tmp/pi-rust-prompt-template-diagnostic-red.out` captures unresolved imports only for the missing module/root diagnostic API; the proof ledger records exit 101.
+- Focused GREEN: `/tmp/pi-rust-prompt-template-diagnostic-green.out` captures 4 passed and 0 failed; the proof ledger records exit 0, and production commit `25fe426` adds the value API, focused proof, and specification paths.
 - Rust readability, formatting, and diff checks pass for the production-phase changes; the existing `parse_slice_match` length finding predates this slice and remains outside scope.
 - Direct differential proof, final workspace/static gates, and inherited verification remain pending.
 
