@@ -40,9 +40,9 @@ This specification covers the typed `QueueMode` union from `packages/agent/src/t
 - [x] Run oracle/typeproof, formatting, Node syntax, and diff checks: all exit 0.
 - [x] Complete Rust/TypeScript/JavaScript readability, documentation, dependency, and clean-pin audits.
 
-## Known gaps
+## Verification closure
 
-- [ ] Inherited independent verification remains pending after documentation closure.
+- [x] Inherited verification at clean HEAD `740520d`: focused 3 passed/0 failed, differential 1 passed/0 failed, oracle/Node/fmt/diff exit 0; saved workspace 257 passed/0 failed/2 ignored plus workspace check and all-feature Clippy with `-D warnings` pass. `OVERALL: PASS`.
 
 ## Out of scope
 

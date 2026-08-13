@@ -29,6 +29,7 @@ Pinned source: `packages/agent/src/types.ts:44-50` and package export `packages/
 - Final static gates: `/tmp/pi-rust-queue-mode-final-check.out` captures `cargo check --workspace --all-targets`; `/tmp/pi-rust-queue-mode-final-clippy.out` captures all-target/all-feature Clippy with `-D warnings`; both exit 0.
 - Final oracle, formatting, syntax, and diff gates: `/tmp/pi-rust-queue-mode-final-oracle.out`, `/tmp/pi-rust-queue-mode-final-fmt.out`, both final Node artifacts, and `/tmp/pi-rust-queue-mode-final-diff.out` record exit 0. Later documentation-only changes do not invalidate executable proof.
 - Documentation and pins: README, dependency inventory, compatibility, dedicated spec, and traceability are consistent; the pinned source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+- Inherited verification: at clean HEAD `740520d`, focused results were 3 passed and 0 failed, differential results were 1 passed and 0 failed, and oracle, Node syntax, formatting, and diff checks exited 0. Saved workspace results of 257 passed, 0 failed, and 2 ignored plus workspace check and all-feature Clippy with `-D warnings` pass. `OVERALL: PASS`.
 
 ## Exclusions
 
