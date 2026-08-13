@@ -1,6 +1,6 @@
 # Agent-core skill and prompt resources
 
-Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `AgentHarnessResources` value contracts from `packages/agent/src/harness/types.ts`, plus pure prompt-template and Skill formatting helpers; pinned public-index and direct differential proofs are complete for the values and both formatter slices, while loading and harness integration remain later slices. See the [resource traceability](../porting/traceability/resources.md) for source mappings.
+Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `AgentHarnessResources` value contracts from `packages/agent/src/harness/types.ts`, plus pure prompt-template and Skill formatting helpers; pinned public-index and direct differential proofs are complete for the values and both formatter slices, while loading and harness integration remain later slices. Prompt-template diagnostic values have a dedicated [specification](prompt-template-diagnostics.md) and [traceability](../porting/traceability/prompt-template-diagnostics.md). See the [resource traceability](../porting/traceability/resources.md) for source mappings.
 
 ## What it must do
 
@@ -70,11 +70,11 @@ Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `
 
 ## Known gaps (current cycle)
 
-- Filesystem loading, YAML/frontmatter parsing, diagnostics, validation, lookup, invocation integration, model visibility, and harness integration remain deferred.
+- Filesystem loading, YAML/frontmatter parsing, diagnostic production during loading, validation, lookup, invocation integration, model visibility, and harness integration remain deferred.
 
 ## Out of scope
 
 - Rust generic `TSkill`/`TPromptTemplate` subtype parameters; the source generic capability is type-proven, while the approved Rust boundary uses concrete `Skill` and `PromptTemplate` values.
 - Explicit JavaScript `undefined` versus absent-property identity; both map to Rust `None` because no pinned consumer observes own-property presence.
-- Skill or prompt-template filesystem loading, YAML/frontmatter parsing, validation, diagnostics, ignore/traversal rules, lookup, invocation integration, model visibility, and harness integration.
+- Skill or prompt-template filesystem loading, YAML/frontmatter parsing, diagnostic collection/order during loading, validation, ignore/traversal rules, lookup, invocation integration, model visibility, and harness integration.
 - Harness shallow copies, element aliasing, providers, tools, streams, serde, parsing, constructors, builders, validation, normalization, deduplication, fallbacks, and new dependencies.

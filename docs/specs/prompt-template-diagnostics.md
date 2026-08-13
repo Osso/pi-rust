@@ -1,6 +1,6 @@
 # Prompt-template diagnostics
 
-This specification covers the prompt-template diagnostic value contract from `packages/agent/src/harness/prompt-templates.ts:4-16`. It defines the Rust value API; loading behavior remains deferred.
+This specification covers the prompt-template diagnostic value contract from `packages/agent/src/harness/prompt-templates.ts:4-16`. It defines the Rust value API; loading behavior remains deferred. The broader resource contract is documented in [resources](resources.md).
 
 ## What it must do
 
@@ -22,16 +22,22 @@ This specification covers the prompt-template diagnostic value contract from `pa
 - `crates/pi-agent-core/src/harness/prompt_templates.rs` — diagnostic code/type enums and value record.
 - `crates/pi-agent-core/src/harness/mod.rs` — harness-root diagnostic re-exports.
 - `crates/pi-agent-core/tests/prompt_template_diagnostic.rs` — focused literal, export, mutation, and string-boundary proof.
+- `crates/pi-agent-core/tests/differential_truncate/prompt_template_diagnostic.rs` — eight pinned plain-record differential groups (`13121..=13128`).
+- `oracle/truncate-oracle.ts` — direct pinned prompt-template diagnostic value adapter.
+- `oracle/public-index-typecheck.mjs` — strict public-index interface and mutability proof.
 - `run-tests.sh` — focused test registration.
 
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/prompt_template_diagnostic.rs`
+- `crates/pi-agent-core/tests/differential_truncate/prompt_template_diagnostic.rs`
+- `oracle/public-index-typecheck.mjs`
 
 ## Known gaps (current cycle)
 
 - [x] Add direct pinned TypeScript differential proof for the diagnostic values through request groups `13121..=13128` and strict public-index type proof.
 - [ ] Run final workspace, static, readability, documentation, and clean-pin gates after the complete slice.
+- [ ] Complete inherited independent verification after the final proof.
 
 ## Out of scope
 
