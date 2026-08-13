@@ -1,6 +1,6 @@
 # Agent-core skill and prompt resources
 
-Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `AgentHarnessResources` value contracts from `packages/agent/src/harness/types.ts`, plus pure prompt-template and Skill formatting helpers; pinned public-index and direct differential proofs are complete for the values and prompt helpers, while Skill differential proof, loading, and harness integration remain later slices. See the [resource traceability](../porting/traceability/resources.md) for source mappings.
+Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `AgentHarnessResources` value contracts from `packages/agent/src/harness/types.ts`, plus pure prompt-template and Skill formatting helpers; pinned public-index and direct differential proofs are complete for the values and both formatter slices, while loading and harness integration remain later slices. See the [resource traceability](../porting/traceability/resources.md) for source mappings.
 
 ## What it must do
 
@@ -53,7 +53,8 @@ Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `
 - `crates/pi-agent-core/tests/resources.rs` — focused field, option, mutation, ordering, duplicate, and `Debug` proof.
 - `crates/pi-agent-core/tests/differential_truncate/resources.rs` — 12 plain-record differential fixtures (`13024..=13035`).
 - `crates/pi-agent-core/tests/differential_truncate/prompt_templates.rs` — 15 prompt-helper differential fixtures (`13046..=13060`).
-- `oracle/truncate-oracle.ts` — persistent resource-record and prompt-template-helper operations.
+- `crates/pi-agent-core/tests/differential_truncate/skill_formatting.rs` — 8 Skill-formatting differential fixtures (`13061..=13068`).
+- `oracle/truncate-oracle.ts` — persistent resource-record, prompt-template-helper, and Skill-formatting operations.
 - `oracle/public-index-typecheck.mjs` — strict public-index type proof and pinned HEAD check.
 - `run-tests.sh` — focused, differential, and oracle test-runner registration.
 
@@ -69,7 +70,6 @@ Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `
 
 ## Known gaps (current cycle)
 
-- Direct pinned differential proof for Skill formatting remains pending; reserved requests begin at `13061`.
 - Filesystem loading, YAML/frontmatter parsing, diagnostics, validation, lookup, invocation integration, model visibility, and harness integration remain deferred.
 
 ## Out of scope

@@ -35,6 +35,14 @@ type PromptTemplateApi = {
 	): string;
 };
 
+type SkillFormattingApi = {
+	formatSkillInvocation(skill: MutableSkillRecord, additionalInstructions?: string): string;
+};
+
+type SystemPromptApi = {
+	formatSkillsForSystemPrompt(skills: MutableSkillRecord[]): string;
+};
+
 type FileKind = "file" | "directory" | "symlink";
 
 type FileInfoRequest = {
@@ -108,6 +116,19 @@ type PromptTemplateRequest = {
 	templateDescription?: string;
 	templateContent?: string;
 	omitFormatArgs: boolean;
+};
+
+type SkillInvocationRequest = {
+	skill: SkillInput;
+	additionalInstructionsState: "absent" | "empty" | "value";
+	additionalInstructions: string;
+};
+
+type SkillFormattingRequest = {
+	id: RequestId;
+	operation: "skill_formatting";
+	systemPromptCases: SkillInput[][];
+	invocationCases: SkillInvocationRequest[];
 };
 
 type MutableSkillRecord = {
@@ -282,6 +303,7 @@ type Request =
 	| FileInfoRequest
 	| ResourceValuesRequest
 	| PromptTemplateRequest
+	| SkillFormattingRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<Request, HarnessErrorRequest>;
@@ -471,6 +493,28 @@ function executePromptTemplateRequest(request: PromptTemplateRequest, api: Promp
 	});
 }
 
+function executeSkillFormattingRequest(
+	request: SkillFormattingRequest,
+	skillFormatting: SkillFormattingApi,
+	systemPrompt: SystemPromptApi,
+): Response {
+	const systemPrompts = request.systemPromptCases.map((skills) =>
+		systemPrompt.formatSkillsForSystemPrompt(skills.map(buildSkillRecord)),
+	);
+	const invocations = request.invocationCases.map((invocation) => {
+		const skill = buildSkillRecord(invocation.skill);
+		switch (invocation.additionalInstructionsState) {
+			case "absent":
+				return skillFormatting.formatSkillInvocation(skill);
+			case "empty":
+				return skillFormatting.formatSkillInvocation(skill, "");
+			case "value":
+				return skillFormatting.formatSkillInvocation(skill, invocation.additionalInstructions);
+		}
+	});
+	return successfulResponse(request.id, { systemPrompts, invocations });
+}
+
 function successfulResponse(id: RequestId, output: unknown): Response {
 	return { id, ok: true, output };
 }
@@ -644,6 +688,8 @@ function executeUtilityRequest(
 	fallback: TruncateApi,
 	shellOutput: ShellOutputApi,
 	promptTemplates: PromptTemplateApi,
+	skillFormatting: SkillFormattingApi,
+	systemPrompt: SystemPromptApi,
 ): Response {
 	switch (request.operation) {
 		case "format_size":
@@ -663,6 +709,8 @@ function executeUtilityRequest(
 			return executeResourceValues(request);
 		case "prompt_template_helpers":
 			return executePromptTemplateRequest(request, promptTemplates);
+		case "skill_formatting":
+			return executeSkillFormattingRequest(request, skillFormatting, systemPrompt);
 	}
 }
 
@@ -671,7 +719,15 @@ function execute(request: Request, apis: OracleApis): Response {
 		if (request.operation === "harness_error") {
 			return executeHarnessError(request, apis.harnessTypes);
 		}
-		return executeUtilityRequest(request, apis.normal, apis.fallback, apis.shellOutput, apis.promptTemplates);
+		return executeUtilityRequest(
+			request,
+			apis.normal,
+			apis.fallback,
+			apis.shellOutput,
+			apis.promptTemplates,
+			apis.skillFormatting,
+			apis.systemPrompt,
+		);
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };
 	}
@@ -693,24 +749,36 @@ type CommonJsModule = {
 	exports: Record<string, unknown>;
 };
 
-function readModulePaths(): [string, string, string, string, string] {
+function readModulePaths(): [string, string, string, string, string, string, string] {
 	const truncateModulePath = process.argv[2];
 	const shellOutputModulePath = process.argv[3];
 	const agentModulePath = process.argv[4];
 	const promptTemplateModulePath = process.argv[5];
-	const esbuildModulePath = process.argv[6];
+	const skillsModulePath = process.argv[6];
+	const systemPromptModulePath = process.argv[7];
+	const esbuildModulePath = process.argv[8];
 	if (
 		truncateModulePath === undefined ||
 		shellOutputModulePath === undefined ||
 		agentModulePath === undefined ||
 		promptTemplateModulePath === undefined ||
+		skillsModulePath === undefined ||
+		systemPromptModulePath === undefined ||
 		esbuildModulePath === undefined
 	) {
 		throw new Error(
-			"agent utility oracle requires truncate, shell-output, agent-package, prompt-template, and esbuild module paths",
+			"agent utility oracle requires truncate, shell-output, agent-package, prompt-template, skills, system-prompt, and esbuild module paths",
 		);
 	}
-	return [truncateModulePath, shellOutputModulePath, agentModulePath, promptTemplateModulePath, esbuildModulePath];
+	return [
+		truncateModulePath,
+		shellOutputModulePath,
+		agentModulePath,
+		promptTemplateModulePath,
+		skillsModulePath,
+		systemPromptModulePath,
+		esbuildModulePath,
+	];
 }
 
 async function loadFallbackApi(sourceModulePath: string, esbuildModulePath: string): Promise<TruncateApi> {
@@ -733,17 +801,28 @@ type OracleApis = {
 	shellOutput: ShellOutputApi;
 	harnessTypes: HarnessTypesApi;
 	promptTemplates: PromptTemplateApi;
+	skillFormatting: SkillFormattingApi;
+	systemPrompt: SystemPromptApi;
 };
 
 async function loadApis(): Promise<OracleApis> {
-	const [truncateModulePath, shellOutputModulePath, agentModulePath, promptTemplateModulePath, esbuildModulePath] =
-		readModulePaths();
+	const [
+		truncateModulePath,
+		shellOutputModulePath,
+		agentModulePath,
+		promptTemplateModulePath,
+		skillsModulePath,
+		systemPromptModulePath,
+		esbuildModulePath,
+	] = readModulePaths();
 	const normal = (await import(pathToFileURL(truncateModulePath).href)) as TruncateApi;
 	const fallback = await loadFallbackApi(truncateModulePath, esbuildModulePath);
 	const shellOutput = (await import(pathToFileURL(shellOutputModulePath).href)) as ShellOutputApi;
 	const harnessTypes = (await import(pathToFileURL(agentModulePath).href)) as HarnessTypesApi;
 	const promptTemplates = (await import(pathToFileURL(promptTemplateModulePath).href)) as PromptTemplateApi;
-	return { normal, fallback, shellOutput, harnessTypes, promptTemplates };
+	const skillFormatting = (await import(pathToFileURL(skillsModulePath).href)) as SkillFormattingApi;
+	const systemPrompt = (await import(pathToFileURL(systemPromptModulePath).href)) as SystemPromptApi;
+	return { normal, fallback, shellOutput, harnessTypes, promptTemplates, skillFormatting, systemPrompt };
 }
 
 function executeRequestLine(line: string, apis: OracleApis): void {
