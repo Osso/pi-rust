@@ -18,4 +18,6 @@ cargo check --workspace --all-targets
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
+The agent-harness [ThinkingLevel](docs/specs/thinking-level.md) is distinct from the protocol schema; the protocol value remains capped at `max`.
+
 Status: pre-alpha. No complete Pi-compatible executable exists yet.

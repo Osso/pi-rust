@@ -1,6 +1,6 @@
 # ThinkingLevel traceability
 
-Pinned source: `packages/agent/src/types.ts:293-298` and package export `packages/agent/src/index.ts:145` at commit `532f7d12cd19235081bd4d6e425bde185652d86f`. The separate protocol schema is `packages/protocol/src/schemas.ts:26-35` and omits `"ultra"`.
+Pinned source: `packages/agent/src/types.ts:293-298` and package export `packages/agent/src/index.ts:145` at commit `532f7d12cd19235081bd4d6e425bde185652d86f`. Rust production is `624040f`; differential and public-index proof is `716f1dd`. The separate protocol schema is `packages/protocol/src/schemas.ts:26-35` and omits `"ultra"`.
 
 | TypeScript source | Observable contract | Rust mapping and focused proof |
 |---|---|---|
@@ -25,12 +25,15 @@ Pinned source: `packages/agent/src/types.ts:293-298` and package export `package
 - `/tmp/pi-rust-agent-thinking-level-clippy.out` — targeted Clippy with denied warnings, exit 0.
 - `/tmp/pi-rust-agent-thinking-level-readability.out` — production focused changed-Rust files, 0 issues.
 - `/tmp/pi-rust-agent-thinking-level-differential-red.out` — valid unsupported-operation RED at request `13166`, exit 101 after prior requests pass.
-- `/tmp/pi-rust-agent-thinking-level-differential-green.out` — initial persistent differential GREEN, 1 passed and 0 failed.
-- `/tmp/pi-rust-agent-thinking-level-oracle.out` — pinned oracle/typeproof command, exit 0.
-- `/tmp/pi-rust-agent-thinking-level-node-check.out` — public-index typeproof JavaScript syntax check, exit 0.
+- `/tmp/pi-rust-agent-thinking-level-differential-green.out` — persistent differential GREEN, 1 passed and 0 failed.
 - `/tmp/pi-rust-agent-thinking-level-readability-current.out` — readability RED: the initial `cases` fixture builder was 34 body lines.
-- The fixture corpus is now the named immutable `CASES` table; `/tmp/pi-rust-agent-thinking-level-differential-green-readability.out`, `/tmp/pi-rust-agent-thinking-level-differential-clippy.out`, `/tmp/pi-rust-agent-thinking-level-fmt-current.out`, `/tmp/pi-rust-agent-thinking-level-diff-current.out`, and `/tmp/pi-rust-agent-thinking-level-readability-current-green.out` record differential, denied-warning Clippy, formatting, diff, and readability exit 0 with request content/order unchanged.
+- The fixture corpus is now the named immutable `CASES` table; `/tmp/pi-rust-agent-thinking-level-differential-green-readability.out`, `/tmp/pi-rust-agent-thinking-level-differential-clippy.out`, `/tmp/pi-rust-agent-thinking-level-fmt-current.out`, `/tmp/pi-rust-agent-thinking-level-diff-current.out`, and `/tmp/pi-rust-agent-thinking-level-readability-current-green.out` record the corrected differential, denied-warning Clippy, formatting, diff, and readability checks with request content/order unchanged.
+- The strict agent public-index proof is implemented in `oracle/public-index-typecheck.mjs` and registered by `./run-tests.sh oracle`; the empty initial oracle/Node captures are not execution evidence.
 - `/tmp/pi-rust-agent-thinking-level-ts-oracle-readability.out` and `/tmp/pi-rust-agent-thinking-level-js-typeproof-readability.out` record changed TypeScript/JavaScript readability commands exiting 0 without threshold violations.
+- Final workspace: `/tmp/pi-rust-agent-thinking-level-final-workspace-tests.out` captures `cargo test --workspace --all-targets` at code/proof HEAD `716f1dd` with 264 passed, 0 failed, and 2 ignored; exit 0.
+- Final static gates: `/tmp/pi-rust-agent-thinking-level-final-check.out` captures `cargo check --workspace --all-targets`; `/tmp/pi-rust-agent-thinking-level-final-clippy.out` captures all-target/all-feature Clippy with `-D warnings`; both exit 0.
+- Self-describing final oracle, formatting, syntax, and diff artifacts record command, revision `716f1dd`, and exit 0: `/tmp/pi-rust-agent-thinking-level-final-oracle-proof.out`, `/tmp/pi-rust-agent-thinking-level-final-fmt-proof.out`, both `/tmp/pi-rust-agent-thinking-level-final-node-*-proof.out` files, and `/tmp/pi-rust-agent-thinking-level-final-diff-proof.out`.
+- Documentation and pins: README, dependency inventory, compatibility, dedicated spec, and traceability are consistent; the pinned source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 ## Exclusions
 
