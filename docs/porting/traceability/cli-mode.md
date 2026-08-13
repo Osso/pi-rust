@@ -5,8 +5,8 @@ Pinned source: `packages/coding-agent/src/cli/args.ts:13` at commit `532f7d12cd1
 | TypeScript source | Observable contract | Rust mapping and focused proof |
 |---|---|---|
 | `args.ts:13` | Closed union with exact distinct values `"text"`, `"json"`, and `"rpc"`. | `pi_coding_agent::cli::args::Mode::{Text, Json, Rpc}` with exact `as_str`; the Rust value representation derives `Debug`, `Clone`, `Copy`, `PartialEq`, and `Eq`, and `cli_mode.rs` proves its literals, trait bounds, copying, equality, and distinctness. |
-| `index.ts:4` | The package index exports `Args` and `parseArgs`, but omits named `Mode`. | `cli::args` is public; `cli` and crate root add no `Mode` re-export. No package-index export claim is made. |
-| `args.ts:13` | Differential proof must compare only final source-shaped literals. | Request `13176` contains `text`, `json`, and `rpc` in source order; the Rust response is a plain `{ id, ok, output: { values } }` record. |
+| `index.ts:3` | The package index exports `Args` and `parseArgs`, but omits named `Mode`. | `cli::args` is public; `cli` and crate root add no `Mode` re-export. No package-index export claim is made. |
+| `args.ts:13` | The type alias is erased at runtime; differential proof can compare only final source-shaped literals. | Request `13176` contains `text`, `json`, and `rpc` in source order. The oracle loads the direct module and returns a plain `{ id, ok, output: { values } }` record; it does not claim a runtime `Mode` export. |
 | `args.ts:13` | Type proof must check the exact direct-module union without parser behavior. | `oracle/cli-mode-typecheck.mjs` imports `Mode` only from the pinned direct `cli/args.ts`, proves the exact union and rejects `""`, `"tui"`, and `"RPC"`; it does not import the package index. |
 
 ## Rust boundary
@@ -34,9 +34,16 @@ Pinned source: `packages/coding-agent/src/cli/args.ts:13` at commit `532f7d12cd1
 - Node syntax: `/tmp/pi-rust-cli-mode-node-oracle-check-final.out` and `/tmp/pi-rust-cli-mode-node-typeproof-check-final.out` exit 0.
 - Targeted Clippy, formatting, diff, and readability: `/tmp/pi-rust-cli-mode-clippy-final-2.out`, `/tmp/pi-rust-cli-mode-fmt-final.out`, `/tmp/pi-rust-cli-mode-diff-final.out`, `/tmp/pi-rust-cli-mode-readability-final.out`, and `/tmp/pi-rust-cli-mode-readability-typeproof-final.out` exit 0 with no suppression or threshold finding.
 
-## Pending proof
+## Final integration proof
 
-- Broad workspace/static, final integration, documentation closeout, clean-pin, and inherited verification remain pending.
+- Code/proof HEAD: `95fbc1f`; focused production commit: `f9a20d1`.
+- `/tmp/pi-rust-cli-mode-final-workspace-tests.out` records `cargo test --workspace --all-targets` exiting 0 with `273 passed, 0 failed, 2 ignored`.
+- `/tmp/pi-rust-cli-mode-final-check.out` and `/tmp/pi-rust-cli-mode-final-clippy.out` record workspace check and all-target/all-feature Clippy with `-D warnings` exiting 0.
+- `/tmp/pi-rust-cli-mode-final-oracle.out`, both `/tmp/pi-rust-cli-mode-final-node-*.out` artifacts, `/tmp/pi-rust-cli-mode-final-fmt.out`, and `/tmp/pi-rust-cli-mode-final-diff.out` exit 0 at `95fbc1f`.
+- `/tmp/pi-rust-cli-mode-final-readability.out` records the final changed Rust/TypeScript/JavaScript readability audit passing without suppressions or new violations.
+- Documentation and dependency/lock audits pass; `2ba1d17..95fbc1f` changes no Cargo manifest or lockfile. No deployment applies.
+- The Rust worktree is clean at `95fbc1f`; the pinned source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+- Inherited independent verification remains pending.
 
 ## Exclusions
 

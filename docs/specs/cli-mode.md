@@ -1,6 +1,6 @@
 # CLI Mode
 
-This specification covers the direct-module `Mode` union from `packages/coding-agent/src/cli/args.ts:13` at pinned TypeScript commit `532f7d12cd19235081bd4d6e425bde185652d86f`. The coding-agent package index exports only `Args` and `parseArgs` from this module at `index.ts:4`; it omits named `Mode`. Rust therefore exposes only `pi_coding_agent::cli::args::Mode`.
+This specification covers the direct-module `Mode` union from `packages/coding-agent/src/cli/args.ts:13` at pinned TypeScript commit `532f7d12cd19235081bd4d6e425bde185652d86f`. The coding-agent package index exports only `Args` and `parseArgs` from this module at `index.ts:3`; it omits named `Mode`. Rust therefore exposes only `pi_coding_agent::cli::args::Mode`. Focused production is committed as `f9a20d1`; differential/typeproof proof is committed as `95fbc1f`.
 
 ## What it must do
 
@@ -34,7 +34,12 @@ This specification covers the direct-module `Mode` union from `packages/coding-a
 - [x] Differential GREEN `/tmp/pi-rust-cli-mode-differential-green.out` records exactly 1 passed and 0 failed for request `13176`.
 - [x] Targeted direct oracle source typecheck, standalone direct-module typeproof, aggregate `./run-tests.sh oracle`, Node syntax, denied-warning Clippy, formatting, diff, and changed Rust/TypeScript/JavaScript readability artifacts pass.
 - [x] The standalone proof uses the pinned source's own `utils/highlight-js-lib-index.d.ts` declaration for the transitive module graph; it adds no declaration copy, suppression, dependency, or package-index claim.
-- [ ] Broad workspace/static, final, documentation closeout, clean-pin, and inherited verification remain pending.
+- [x] Because the TypeScript alias is erased at runtime, the oracle proves direct-module loadability and compares only source-shaped typed literals; the standalone typeproof proves the exact union.
+- [x] Final integration at code/proof HEAD `95fbc1f`: workspace `273 passed, 0 failed, 2 ignored`; workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle/typeproof, Node syntax, formatting, slice-range diff, changed-file readability, documentation, dependency/lock, and clean-pin gates pass.
+- [x] The Rust worktree is clean at `95fbc1f`; the source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+- [ ] Inherited independent verification remains pending.
+
+No dependency change or deployment applies to this slice.
 
 ## Out of scope
 
