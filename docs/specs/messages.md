@@ -1,6 +1,6 @@
-# Agent-core message markers
+# Agent-core messages
 
-This bounded slice ports the four public summary framing constants from `packages/agent/src/harness/messages.ts:4-17`. Message structs, constructors, conversion, and serialization remain deferred. See [message marker traceability](../porting/traceability/messages.md).
+This document covers the completed summary framing constants and the value-only `BashExecutionMessage` slice from `packages/agent/src/harness/messages.ts:19-29`. Constructors, conversion, unions, and serialization remain deferred. See [message traceability](../porting/traceability/messages.md).
 
 ## What it must do
 
@@ -15,6 +15,9 @@ This bounded slice ports the four public summary framing constants from `package
 - [x] Map TypeScript's inferred string-literal constants to Rust compile-time `&str` constants without a wrapper type.
 - [x] Cover exact values, lengths, framing, module/root imports, and const usability in four focused tests in `crates/pi-agent-core/tests/summary_markers.rs`.
 - [x] Compare request `13096` directly with the pinned TypeScript package-index runtime exports and strict exact literal-type proof.
+- [x] Add the value-only `BashExecutionMessage` with closed `BashExecutionRole::BashExecution`, public mutable fields, `Debug` only, and module/root exports.
+- [x] Cover role, field mutation, optional states, string boundaries, and binary64 bit preservation in five focused tests.
+- [ ] Compare direct differential requests `13097..=13104` and the strict public-index interface proof.
 
 ## How it works
 
@@ -22,9 +25,10 @@ This bounded slice ports the four public summary framing constants from `package
 
 ## Implementation inventory
 
-- `crates/pi-agent-core/src/harness/messages.rs` — four exact constants.
+- `crates/pi-agent-core/src/harness/messages.rs` — four exact constants and Bash-execution value types.
 - `crates/pi-agent-core/src/harness/mod.rs` — module and harness-root exports.
-- `crates/pi-agent-core/tests/summary_markers.rs` — focused behavioral/API proof.
+- `crates/pi-agent-core/tests/summary_markers.rs` — focused marker behavioral/API proof.
+- `crates/pi-agent-core/tests/bash_execution_message.rs` — focused value/API proof.
 - `crates/pi-agent-core/tests/differential_truncate/summary_markers.rs` — pinned request `13096`.
 - `oracle/truncate-oracle.ts` — persistent package-index marker operation.
 - `oracle/public-index-typecheck.mjs` — exact literal-type and package-export proof.
@@ -33,13 +37,23 @@ This bounded slice ports the four public summary framing constants from `package
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/summary_markers.rs`
+- `crates/pi-agent-core/tests/bash_execution_message.rs`
 - `crates/pi-agent-core/tests/differential_truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate/summary_markers.rs`
 
 ## Known gaps (current cycle)
 
-None for this bounded marker slice.
+Direct differential and strict public-index proof for `BashExecutionMessage` remain pending across reserved requests `13097..=13104`.
+
+## BashExecutionMessage value contract
+
+- Closed role enum: `BashExecutionRole::BashExecution`, with exact `as_str()` value `"bashExecution"`.
+- Public mutable `BashExecutionMessage` derives `Debug` only.
+- Fields, in source order: `role: BashExecutionRole`, `command: String`, `output: String`, `exit_code: Option<f64>`, `cancelled: bool`, `truncated: bool`, `full_output_path: Option<String>`, `timestamp: f64`, and `exclude_from_context: Option<bool>`.
+- Required source `exitCode: undefined` maps to `None`; absent or explicitly undefined optional values map to `None`.
+- `f64` fields preserve unrestricted binary64 bit patterns; no validation or normalization is added.
+- Export through `pi_agent_core::harness::messages` and `pi_agent_core::harness` is required.
 
 ## Out of scope
 
-Message structs, summary constructors, LLM conversion, serialization, compaction or session orchestration, escaping, trimming, newline normalization, dynamic formatting, fallbacks, and new dependencies.
+`bashExecutionToText`, conversion, message unions, session/events, compaction/UI/RPC behavior, invalid runtime shapes, constructors, serde, validation, normalization, fallbacks, dependencies, summary constructors, LLM conversion, serialization, compaction or session orchestration, escaping, trimming, newline normalization, and dynamic formatting.

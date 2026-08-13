@@ -8,7 +8,8 @@ pub mod types;
 pub mod utils;
 
 pub use messages::{
-    BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX, COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX,
+    BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX, BashExecutionMessage, BashExecutionRole, COMPACTION_SUMMARY_PREFIX,
+    COMPACTION_SUMMARY_SUFFIX,
 };
 pub use types::{
     AgentHarnessResources, BranchSummaryError, BranchSummaryErrorCode, CompactionError, CompactionErrorCode,
