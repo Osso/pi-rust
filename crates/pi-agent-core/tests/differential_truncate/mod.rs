@@ -18,8 +18,8 @@ mod tail_corpus;
 mod targeted;
 mod truncate_line;
 
-pub(crate) fn run() {
-    let mut oracle = oracle::TsOracle::spawn(&[
+fn spawn_oracle() -> oracle::TsOracle {
+    oracle::TsOracle::spawn(&[
         "packages/agent/src/harness/utils/truncate.ts",
         "packages/agent/src/harness/utils/shell-output.ts",
         "packages/agent/src/index.ts",
@@ -29,7 +29,11 @@ pub(crate) fn run() {
         "packages/agent/src/harness/tools/image.ts",
         "packages/agent/src/harness/tools/edit-diff.ts",
         "packages/agent/src/harness/compaction/utils.ts",
-    ]);
+    ])
+}
+
+pub(crate) fn run() {
+    let mut oracle = spawn_oracle();
     format_size::compare_all_fixtures(&mut oracle);
     sanitize::compare_all_fixtures(&mut oracle);
     targeted::compare_all_fixtures(&mut oracle);
