@@ -13,8 +13,8 @@ This bounded slice ports the four public summary framing constants from `package
 ## Boundary and proof
 
 - [x] Map TypeScript's inferred string-literal constants to Rust compile-time `&str` constants without a wrapper type.
-- [x] Cover exact values, lengths, framing, module/root imports, and const usability in `crates/pi-agent-core/tests/summary_markers.rs`.
-- [x] Compare request `13096` directly with the pinned TypeScript package exports.
+- [x] Cover exact values, lengths, framing, module/root imports, and const usability in four focused tests in `crates/pi-agent-core/tests/summary_markers.rs`.
+- [x] Compare request `13096` directly with the pinned TypeScript package-index runtime exports and strict exact literal-type proof.
 
 ## How it works
 

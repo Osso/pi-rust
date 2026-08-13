@@ -19,10 +19,10 @@ Pinned source: `packages/agent/src/harness/messages.ts:4-17` and package export 
 ## Proof status
 
 - Focused RED: `/tmp/pi-rust-summary-markers-red.out` records exit 101 with only the missing `harness::messages` module and harness-root constants.
-- Focused GREEN: `/tmp/pi-rust-summary-markers-green.out` records exit 0 with 4 passed and 0 failed.
+- Focused GREEN: `/tmp/pi-rust-summary-markers-green.out` records exit 0 with 4 passed and 0 failed; production commit `6f3a6cc` adds the exact module/root constants and focused proof.
 - Differential RED: `/tmp/pi-rust-summary-markers-differential-red.out` records all prior requests through `13095` passing before request `13096` reaches the unchanged oracle's unsupported operation and returns non-JSON.
-- Differential GREEN: `/tmp/pi-rust-summary-markers-differential-green.out` records exit 0 with the persistent differential test passing request `13096`.
-- Oracle/public-index typecheck: `/tmp/pi-rust-summary-markers-oracle.out` records `./run-tests.sh oracle` exit 0 with exact literal-type and package-export proof.
+- Differential GREEN: `/tmp/pi-rust-summary-markers-differential-green.out` records exit 0 with the persistent differential test passing request `13096`; differential commit `edd44b6` adds the Rust fixture and oracle operation.
+- Oracle/public-index typecheck: `/tmp/pi-rust-summary-markers-oracle.out` records `./run-tests.sh oracle` exit 0 with runtime package-index export and exact literal-type proof.
 
 ## Exclusions
 
