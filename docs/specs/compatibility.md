@@ -24,6 +24,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve focused `Skill`, `PromptTemplate`, and concrete `AgentHarnessResources` fields, optional states, public mutation, order, duplicates, and `Debug` behavior.
 - [x] Compare resource erased types through the pinned public index and compare plain records through 12 direct differential fixtures (`13024..=13035`), while documenting the approved omission of Rust generic subtype parameters.
 - [x] Compare prompt-template argument parsing, substitution, and content formatting through 15 direct pinned differential fixtures (`13046..=13060`) using the persistent utility oracle and direct `prompt-templates.ts` module import.
+- [x] Preserve focused image MIME detection and standard Base64 behavior through `crates/pi-agent-core/tests/image.rs`; direct pinned differential proof remains a known gap reserved for `13069..=13080`.
 - [x] Preserve exact coding-agent auth command names, usage strings, and help selection over Rust-representable strings.
 - [x] Preserve exact coding-agent auth parser errors, argument ordering, flags, and field-specific expiry-number behavior against the pinned source.
 - [x] Preserve pure config-value command classification and environment-reference parsing against the pinned source.
@@ -81,6 +82,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-agent-core/tests/differential_truncate/file_info.rs`
 - `crates/pi-agent-core/tests/differential_truncate/resources.rs`
 - `crates/pi-agent-core/tests/differential_truncate/prompt_templates.rs`
+- `crates/pi-agent-core/tests/image.rs`
 - `oracle/public-index-typecheck.mjs`
 
 ## Known gaps (current cycle)
@@ -95,7 +97,8 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - JavaScript error property descriptors, own-property ordering, JSON serialization, stack contents, and prototype/`instanceof` identity.
 - Any cause representation beyond the approved `Option<Box<dyn std::error::Error + 'static>>` typed Rust boundary.
 - Compaction and branch-summary orchestration, model calls, retries, token budgets, abort execution, provider integration, and session mutation.
-- Skill filesystem loading, prompt-template filesystem loading/YAML parsing, validation, lookup, invocation integration, model visibility, and harness resource-copy behavior; pure Skill formatting/XML escaping and prompt-template argument parsing, substitution, and content formatting are covered separately.
+- Skill filesystem loading, prompt-template filesystem loading/YAML parsing, validation, lookup, invocation integration, model visibility, and harness resource-copy behavior; pure Skill formatting/XML escaping, prompt-template argument parsing/substitution/content formatting, and image-helper differential proof remain separate bounded slices.
+- Image decoding, file I/O, data URLs, compression, provider integration, and protocol `ImageContent` behavior outside the typed schema contract.
 - Rust generic resource subtype parameters; the pinned public-index proof demonstrates the TypeScript capability, while the approved Rust boundary uses concrete `Skill`, `PromptTemplate`, and `AgentHarnessResources` values.
 - Positive integer-valued JavaScript schema values above `u64::MAX` for typed integer fields, approved August 12, 2026.
 - Malformed or manually forged oracle requests; the Rust harness emits only typed operations and valid hexadecimal bytes.
