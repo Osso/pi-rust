@@ -1,6 +1,6 @@
 # Context usage estimate
 
-This specification covers the module-local `ContextUsageEstimate` interface from `packages/agent/src/harness/compaction/compaction.ts:200-207` and its Rust value boundary. Context-token estimation and compaction orchestration remain deferred. Current committed revisions: production `6d51639`; differential and direct-module proof `a4d33ae`.
+This specification covers the module-local `ContextUsageEstimate` interface from `packages/agent/src/harness/compaction/compaction.ts:200-208` and its Rust value boundary. Context-token estimation and compaction orchestration remain deferred. Current committed revisions: production `6d51639`; differential and direct-module proof `a4d33ae`.
 
 ## What it must do
 

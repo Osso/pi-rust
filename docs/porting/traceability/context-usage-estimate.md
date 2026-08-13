@@ -6,7 +6,7 @@ Committed revisions: production `6d51639`; differential and direct-module proof 
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
-| `compaction.ts:200-207` | Public mutable interface with required `tokens: number`, `usageTokens: number`, `trailingTokens: number`, and `lastUsageIndex: number \| null` fields | Module-local `harness::compaction::ContextUsageEstimate` with public `f64`, `f64`, `f64`, and `Option<f64>` fields in source order; focused proof plus eight source-shaped differential groups `13148..=13155` |
+| `compaction.ts:200-208` | Public mutable interface with required `tokens: number`, `usageTokens: number`, `trailingTokens: number`, and `lastUsageIndex: number \| null` fields | Module-local `harness::compaction::ContextUsageEstimate` with public `f64`, `f64`, `f64`, and `Option<f64>` fields in source order; focused proof plus eight source-shaped differential groups `13148..=13155` |
 | `index.ts:58-75` | Package index exports `estimateContextTokens` but omits `type ContextUsageEstimate` | No `harness`-root or package stand-in; Rust remains module-only; direct-module typeproof is separate |
 
 ## Rust boundary
