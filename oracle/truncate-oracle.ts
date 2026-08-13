@@ -317,6 +317,19 @@ type ThinkingLevelRequest = {
 	cases: ThinkingLevelCaseRequest[];
 };
 
+type AgentToolExecutionContextCaseRequest = {
+	name: string;
+	startedAtBits: string;
+	agentIdState: "absent" | "present";
+	agentId: string;
+};
+
+type AgentToolExecutionContextRequest = {
+	id: RequestId;
+	operation: "agent_tool_execution_context";
+	cases: AgentToolExecutionContextCaseRequest[];
+};
+
 type MutableBashExecutionMessageRecord = {
 	role: "bashExecution";
 	command: string;
@@ -334,6 +347,11 @@ type MutableBranchSummaryMessageRecord = {
 	summary: string;
 	fromId: string;
 	timestamp: number;
+};
+
+type MutableAgentToolExecutionContextRecord = {
+	startedAt: number;
+	agentId?: string;
 };
 
 type MutableCutPointResultRecord = {
@@ -568,6 +586,7 @@ type Request =
 	| QueueModeRequest
 	| ToolExecutionModeRequest
 	| ThinkingLevelRequest
+	| AgentToolExecutionContextRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<
@@ -582,7 +601,8 @@ type UtilityRequest = Exclude<
 		CompactionDetailsRequest |
 		QueueModeRequest |
 		ToolExecutionModeRequest |
-		ThinkingLevelRequest
+		ThinkingLevelRequest |
+		AgentToolExecutionContextRequest
 >;
 type FormatSizeRequest = Extract<UtilityRequest, { operation: "format_size" }>;
 type TruncationRequest = Extract<
@@ -1137,6 +1157,23 @@ function executeThinkingLevelRequest(request: ThinkingLevelRequest): Response {
 	return successfulResponse(request.id, { results });
 }
 
+function executeAgentToolExecutionContextRequest(request: AgentToolExecutionContextRequest): Response {
+	const results = request.cases.map(normalizeAgentToolExecutionContextInput);
+	return successfulResponse(request.id, { results });
+}
+
+function normalizeAgentToolExecutionContextInput(input: AgentToolExecutionContextCaseRequest): unknown {
+	const context: MutableAgentToolExecutionContextRecord = {
+		startedAt: binary64FromBits(input.startedAtBits),
+	};
+	if (input.agentIdState === "present") context.agentId = input.agentId;
+	return {
+		name: input.name,
+		startedAtBits: binary64Bits(context.startedAt),
+		agentId: context.agentId ?? null,
+	};
+}
+
 function executeShouldCompactRequest(request: ShouldCompactRequest, api: HarnessTypesApi): Response {
 	const results = request.cases.map((input) => ({
 		name: input.name,
@@ -1261,6 +1298,9 @@ function executeSpecialRequest(request: Request, apis: OracleApis): Response | u
 	if (request.operation === "queue_mode") return executeQueueModeRequest(request);
 	if (request.operation === "tool_execution_mode") return executeToolExecutionModeRequest(request);
 	if (request.operation === "thinking_level") return executeThinkingLevelRequest(request);
+	if (request.operation === "agent_tool_execution_context") {
+		return executeAgentToolExecutionContextRequest(request);
+	}
 	if (request.operation === "harness_error") return executeHarnessError(request, apis.harnessTypes);
 	return undefined;
 }

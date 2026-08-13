@@ -1,3 +1,4 @@
+mod agent_tool_execution_context;
 mod bash_execution_message;
 mod branch_summary_message;
 mod compaction_details;
@@ -70,4 +71,5 @@ pub(crate) fn run() {
     queue_mode::compare(&mut oracle);
     tool_execution_mode::compare(&mut oracle);
     thinking_level::compare(&mut oracle);
+    agent_tool_execution_context::compare_all_fixtures(&mut oracle);
 }

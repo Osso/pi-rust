@@ -34,6 +34,7 @@ import type {
 	QueueMode,
 	ToolExecutionMode,
 	ThinkingLevel as AgentThinkingLevel,
+	AgentToolExecutionContext,
 	Skill,
 } from ${JSON.stringify(publicIndexPath)};
 
@@ -103,6 +104,20 @@ type ExpectedAgentThinkingLevel =
 	| "max"
 	| "ultra";
 type AgentThinkingLevelIsExact = Assert<Exact<AgentThinkingLevel, ExpectedAgentThinkingLevel>>;
+
+type ExpectedAgentToolExecutionContext = {
+	startedAt: number;
+	agentId?: string;
+};
+type AgentToolExecutionContextIsExact = Assert<
+	Exact<AgentToolExecutionContext, ExpectedAgentToolExecutionContext>
+>;
+type AgentToolExecutionContextStartedAtIsNumber = Assert<
+	Exact<AgentToolExecutionContext["startedAt"], number>
+>;
+type AgentToolExecutionContextAgentIdIsOptionalString = Assert<
+	Exact<AgentToolExecutionContext["agentId"], string | undefined>
+>;
 
 type ExpectedPromptTemplateDiagnosticCode = "file_info_failed" | "list_failed" | "read_failed" | "parse_failed";
 type PromptTemplateDiagnosticCodeIsExact = Assert<
@@ -247,6 +262,37 @@ agentThinkingLevel = "ultra";
 agentThinkingLevel = "";
 // @ts-expect-error Agent package ThinkingLevel excludes unsupported literals.
 agentThinkingLevel = "extreme";
+
+let agentToolExecutionContext: AgentToolExecutionContext = {
+	startedAt: 0,
+};
+agentToolExecutionContext.startedAt = -0;
+agentToolExecutionContext.startedAt = Number.NaN;
+agentToolExecutionContext.startedAt = Number.POSITIVE_INFINITY;
+agentToolExecutionContext.startedAt = Number.NEGATIVE_INFINITY;
+agentToolExecutionContext.agentId = "agent-id";
+agentToolExecutionContext.agentId = "";
+agentToolExecutionContext.agentId = undefined;
+const agentToolExecutionContextWithAgentId: AgentToolExecutionContext = {
+	startedAt: 1.5,
+	agentId: "present-agent",
+};
+const agentToolExecutionContextWithOnlyRequiredField: AgentToolExecutionContext = {
+	startedAt: 0,
+};
+// @ts-expect-error AgentToolExecutionContext requires startedAt.
+const agentToolExecutionContextMissingStartedAt: AgentToolExecutionContext = {
+	agentId: "missing-started-at",
+};
+const agentToolExecutionContextWrongAgentId: AgentToolExecutionContext = {
+	startedAt: 0,
+	// @ts-expect-error AgentToolExecutionContext agentId must be a string.
+	agentId: 42,
+};
+void agentToolExecutionContextWithAgentId;
+void agentToolExecutionContextWithOnlyRequiredField;
+void agentToolExecutionContextMissingStartedAt;
+void agentToolExecutionContextWrongAgentId;
 
 let promptDiagnostic: PromptTemplateDiagnostic = {
 	type: "warning",

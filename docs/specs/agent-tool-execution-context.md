@@ -10,22 +10,27 @@ This specification covers `packages/agent/src/types.ts:387-393` and its package 
 - [x] Preserve unrestricted source `number` values through Rust `f64`, including the focused binary64 bit patterns.
 - [x] Preserve absent and present optional `agentId` states and representable strings, including Unicode, NUL, and newline content.
 - [x] Cover the module path, harness-root path, mutation, optional states, binary64 values, and strings in the focused test; GREEN is 5 passed and 0 failed.
-- [ ] Compare source-shaped records through exactly eight persistent differential request groups `13168..=13175`.
-- [ ] Prove the exact public-index interface shape, mutability, optionality, and `number` identity.
+- [x] Compare source-shaped records through exactly eight persistent differential request groups `13168..=13175`.
+- [x] Prove the exact public-index interface shape, mutability, optionality, and `number` identity.
 
 ## Implementation inventory
 
 - `crates/pi-agent-core/src/harness/types.rs` — value record.
 - `crates/pi-agent-core/src/harness/mod.rs` — harness-root re-export.
 - `crates/pi-agent-core/tests/agent_tool_execution_context.rs` — focused behavioral proof.
-- `run-tests.sh` — focused registration; no differential/oracle registration exists yet.
+- `crates/pi-agent-core/tests/differential_truncate/agent_tool_execution_context.rs` — eight source-shaped differential groups.
+- `oracle/truncate-oracle.ts` — minimal plain-record oracle operation.
+- `oracle/public-index-typecheck.mjs` — strict public-index interface proof.
+- `run-tests.sh` — existing differential/oracle commands cover the new fixture and proof; no runner change is required.
 
 ## Focused proof
 
 - RED: `/tmp/pi-rust-agent-tool-execution-context-red.out` records exit 101 in a clean temporary worktree before production changes, with exactly the missing module and harness-root imports.
 - GREEN: `/tmp/pi-rust-agent-tool-execution-context-green.out` records 5 passed and 0 failed.
 - Targeted denied-warning Clippy, formatting, and diff checks pass in `/tmp/pi-rust-agent-tool-execution-context-clippy.out`, `/tmp/pi-rust-agent-tool-execution-context-fmt.out`, and `/tmp/pi-rust-agent-tool-execution-context-diff.out`.
-- Changed-Rust readability artifacts report no threshold violations. Differential, public-index, workspace, final static, documentation-closeout, and inherited verification remain pending.
+- Changed-Rust/TypeScript/JavaScript readability artifacts report no threshold violations or suppressions.
+- Differential RED/GREEN, direct public-index typeproof, Node syntax, bounded formatting/diff, and targeted differential Clippy pass.
+- Broad workspace tests/check/Clippy, final integration, documentation closeout, clean-pin, and inherited verification remain pending.
 
 ## Boundary
 
@@ -35,8 +40,7 @@ The record preserves lifecycle metadata shape only. It does not implement timest
 
 ## Pending proof
 
-- Differential requests `13168..=13175` and their RED/GREEN oracle support.
-- Strict public-index TypeScript typeproof.
-- Workspace tests, workspace check, all-feature Clippy with `-D warnings`, final formatting/diff/oracle/Node gates, documentation/dependency/readability audits, clean pins, and inherited verification.
+- Broad workspace tests, workspace check, and all-feature Clippy with `-D warnings`.
+- Final integration formatting/diff/oracle/Node gates, documentation closeout, clean-pin audit, and inherited verification.
 
 No dependency change is part of this slice.
