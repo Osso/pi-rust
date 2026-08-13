@@ -27,7 +27,8 @@ Pinned source: `packages/agent/src/harness/compaction/compaction.ts` at commit `
 - Correction commit `08e105a` changes only `crates/pi-agent-core/tests/summarization_system_prompt.rs`, replacing behavior-preserving `map_or(true, ...)` with `is_none_or(...)`; no warning suppression or semantic change.
 - Post-fix verification at `08e105a` reports `OVERALL: PASS`: workspace tests 238 passed, 0 failed, and 2 ignored; all-target check and all-feature Clippy with denied warnings exited 0; fmt and diff exited 0; source pin and worktree are exact and clean. Oracle/differential/typeproof results remain valid and the module-only export boundary is preserved.
 - Post-fix artifacts `/tmp/pi-rust-summarization-system-prompt-post-fix-{workspace-tests,check,clippy,fmt,diff}.out` capture command output and explicit exit codes; the proof ledger records the corresponding results where applicable.
-- Final workspace, static, readability, documentation, and clean-pin gates are complete. Inherited independent verification remains pending.
+- Final workspace, static, readability, documentation, and clean-pin gates are complete.
+- Inherited independent verification at clean HEAD `a6470bf` reports `OVERALL: PASS`: Rust and source worktrees are clean and exact; all artifacts, requirements, differential/typeproof, scope, readability, and documentation checks pass; fresh focused 4/0, differential 1/0, oracle/fmt/diff exit 0; saved broad 238/0/2; check/Clippy/fmt/diff exit 0; request `13129` and the module-only boundary remain preserved.
 
 ## Exclusions
 
