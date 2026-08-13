@@ -58,7 +58,9 @@ This document covers the completed summary framing constants and value-only mess
 - BashExecutionMessage differential proof: commit `0fa04e1`; eight request groups (`13097..=13104`) pass against pinned TypeScript plain records.
 - BranchSummaryMessage production implementation: commit `8e32578`; focused proof has 4 passed tests.
 - BranchSummaryMessage differential proof: commit `fa8f6f2`; eight request groups (`13105..=13112`) pass against pinned TypeScript plain records, with strict public-index proof.
-- Readability proof: commit `07b6557` resolves the only TypeScript oracle finding; Rust, TypeScript, and JavaScript audits are clean.
+- BranchSummaryMessage readability proof: commit `0fad1f2` resolves both Rust fixture findings; `a991812` fixes hexadecimal grouping required by Clippy.
+- BranchSummaryMessage final workspace proof at `a991812`: 226 passed, 0 failed, and 2 ignored; oracle/public-index, check, Clippy with denied warnings, formatting, documentation, source-pin, worktree, and diff gates pass.
+- BashExecutionMessage readability proof: commit `07b6557` resolves the only TypeScript oracle finding; Rust, TypeScript, and JavaScript audits are clean.
 - BashExecutionMessage final workspace proof at `07b6557`: 222 passed, 0 failed, and 2 ignored; oracle/public-index, check, Clippy with denied warnings, formatting, documentation, source-pin, worktree, and diff gates pass.
 
 ## Known gaps (current cycle)
