@@ -10,7 +10,7 @@ This specification covers the prompt-template diagnostic value contract from `pa
 - [x] Preserve empty, ordinary, Unicode, supplementary, combining, NUL, CR/LF, punctuation, and XML-sensitive string values without normalization.
 - [x] Expose the diagnostic values through `pi_agent_core::harness::prompt_templates` and `pi_agent_core::harness`.
 - [x] Compare diagnostic value records directly with the pinned TypeScript source through exactly eight persistent differential request groups `13121..=13128` and strict public-index type proof.
-- [ ] Complete final workspace, readability, documentation, and clean-pin gates.
+- [x] Complete final workspace, static, readability, documentation, and clean-pin gates at code HEAD `4ab0686`: 234 workspace tests passed with 0 failures and 2 ignored; all-target check, all-feature Clippy with `-D warnings`, formatting, diff, and Node syntax exited 0; pinned source HEAD `532f7d12cd19235081bd4d6e425bde185652d86f` and clean worktrees were confirmed.
 
 ## How it works
 
@@ -36,8 +36,8 @@ This specification covers the prompt-template diagnostic value contract from `pa
 ## Known gaps (current cycle)
 
 - [x] Add direct pinned TypeScript differential proof for the diagnostic values through request groups `13121..=13128` and strict public-index type proof.
-- [ ] Run final workspace, static, readability, documentation, and clean-pin gates after the complete slice.
-- [ ] Complete inherited independent verification after the final proof.
+- [x] Run final workspace, static, readability, documentation, and clean-pin gates after the complete slice: 234 workspace tests passed with 0 failures and 2 ignored; all-target check, all-feature Clippy with `-D warnings`, formatting, diff, and Node syntax exited 0.
+- [ ] Complete inherited independent verification after the final proof and documentation closure.
 
 ## Out of scope
 

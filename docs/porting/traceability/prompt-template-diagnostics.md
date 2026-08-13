@@ -24,7 +24,10 @@ Pinned source: `packages/agent/src/harness/prompt-templates.ts` at commit `532f7
 - Differential GREEN output `/tmp/pi-rust-prompt-template-diagnostic-differential-green.out` captures the persistent differential test passing exactly eight request groups (`13121..=13128`); the proof ledger records exit 0.
 - Oracle output `/tmp/pi-rust-prompt-template-diagnostic-oracle.out` captures strict typecheck and public-index proof completion; the proof ledger records exit 0.
 - Readability output `/tmp/pi-rust-prompt-template-diagnostic-readability-summary.md` reports no new metric violations in the changed Rust fixture/runner or JavaScript public-index file; pre-existing TypeScript helper findings remain unchanged from the baseline.
-- Final workspace/static gates, documentation closure, clean pins, and inherited verification remain pending.
+- Command verification at code HEAD `4ab0686`: overall PASS; workspace proof recorded 234 passed, 0 failed, and 2 ignored; differential proof recorded 1 passed; all-target check, all-feature Clippy with `-D warnings`, formatting, diff, and Node syntax exited 0; exact source pin and clean worktrees were confirmed. Workspace evidence is `/tmp/pi-rust-prompt-template-diagnostic-final-workspace-tests.out`; check and Clippy evidence were recaptured with command, successful output, and `exit_code=0` in `/tmp/pi-rust-prompt-template-diagnostic-final-check.out` and `/tmp/pi-rust-prompt-template-diagnostic-final-clippy.out`.
+- Documentation closure commit `34db6d1` is docs-only and does not invalidate code proof at `4ab0686`.
+- First final artifact verification at `34db6d1` passed code, artifacts, requirements, differential, oracle, scope, and readability checks; overall failed only because tracked docs still marked final gates pending and the check/Clippy artifacts lacked successful output. Those closure-only findings were remediated by the documented updates and artifact recapture.
+- Final workspace/static/readability/documentation/clean-pin gates are complete; inherited independent verification remains pending and must be rerun after these documentation updates.
 
 ## Exclusions
 
