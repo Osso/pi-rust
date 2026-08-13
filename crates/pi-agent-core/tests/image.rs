@@ -114,7 +114,7 @@ fn png_with_chunks(chunks: &[(&[u8; 4], u32)]) -> Vec<u8> {
     let mut png = PNG_SIGNATURE.to_vec();
     append_png_chunk(&mut png, b"IHDR", 13, 13);
     for (chunk_type, chunk_length) in chunks {
-        append_png_chunk(&mut png, *chunk_type, *chunk_length, 0);
+        append_png_chunk(&mut png, chunk_type, *chunk_length, 0);
     }
     png
 }
