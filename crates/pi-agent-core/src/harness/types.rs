@@ -89,6 +89,13 @@ impl ThinkingLevel {
     }
 }
 
+/// Context supplied while an agent tool call is executing.
+#[derive(Debug)]
+pub struct AgentToolExecutionContext {
+    pub started_at: f64,
+    pub agent_id: Option<String>,
+}
+
 /// Kind of filesystem object addressed by a `FileInfo` value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileKind {
