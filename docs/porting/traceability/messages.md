@@ -9,8 +9,8 @@ Pinned source: `packages/agent/src/harness/messages.ts:4-17,19-29` and package e
 | `messages.ts:12-15` | Branch prefix is the exact 89-byte LF-only literal ending after `<summary>\n` | `BRANCH_SUMMARY_PREFIX`; focused exact-value, length, and framing tests; request `13096` |
 | `messages.ts:17` | Branch suffix is the exact 10-byte literal `</summary>` without a leading LF | `BRANCH_SUMMARY_SUFFIX`; focused no-leading-LF and exact-value proof; request `13096` |
 | `index.ts:76` | `export * from "./harness/messages.ts"` exposes all four runtime constants at package root | Rust re-exports all four from `pi_agent_core::harness`; focused imports prove module and harness-root paths; request `13096` compares runtime exports and `public-index-typecheck.mjs` proves exact literal types |
-| `messages.ts:19-29` | `BashExecutionMessage` is a public mutable value with role literal `"bashExecution"`, two string fields, required `exitCode: number | undefined`, two booleans, optional `fullOutputPath`, required numeric `timestamp`, and optional `excludeFromContext` | `harness::messages::BashExecutionMessage`; exact field types map to `BashExecutionRole`, `String`, `Option<f64>`, `bool`, `Option<String>`, `f64`, and `Option<bool>`; focused role, mutation, optional-state, string-boundary, and binary64-bit proof; differential proof pending |
-| `index.ts:76` | The package-wide message export includes `BashExecutionMessage` | Re-exported from `pi_agent_core::harness::messages` and `pi_agent_core::harness`; focused imports pass; differential requests `13097..=13104` pending |
+| `messages.ts:19-29` | `BashExecutionMessage` is a public mutable value with role literal `"bashExecution"`, two string fields, required `exitCode: number | undefined`, two booleans, optional `fullOutputPath`, required numeric `timestamp`, and optional `excludeFromContext` | `harness::messages::BashExecutionMessage`; exact field types map to `BashExecutionRole`, `String`, `Option<f64>`, `bool`, `Option<String>`, `f64`, and `Option<bool>`; focused role, mutation, optional-state, string-boundary, and binary64-bit proof; direct plain-record groups `13097..=13104` |
+| `index.ts:76` | The package-wide message export includes `BashExecutionMessage` | Re-exported from `pi_agent_core::harness::messages` and `pi_agent_core::harness`; focused imports pass; strict public-index exact-shape/mutability/number proof passes |
 
 ## Rust boundary
 
@@ -29,7 +29,10 @@ Pinned source: `packages/agent/src/harness/messages.ts:4-17,19-29` and package e
 ## Proof status
 
 - BashExecutionMessage focused RED: `/tmp/pi-rust-bash-execution-message-red.out` records exit 101 with only the missing module/root value-type imports.
-- BashExecutionMessage focused GREEN: `/tmp/pi-rust-bash-execution-message-green.out` records exit 0 with 5 passed and 0 failed; differential requests `13097..=13104` remain pending.
+- BashExecutionMessage focused GREEN: `/tmp/pi-rust-bash-execution-message-green.out` records exit 0 with 5 passed and 0 failed; production commit `143c635` adds the value types and focused proof.
+- BashExecutionMessage differential RED: `/tmp/pi-rust-bash-execution-message-differential-red.out` records all prior requests through `13096` passing before request `13097` reaches the unchanged oracle's unsupported operation and returns non-JSON.
+- BashExecutionMessage differential GREEN: `/tmp/pi-rust-bash-execution-message-differential-green.out` records exit 0 with one persistent test passing exactly eight request groups (`13097..=13104`).
+- BashExecutionMessage oracle/public-index typecheck: `/tmp/pi-rust-bash-execution-message-oracle.out` records `./run-tests.sh oracle` exit 0 with exact field-set, role-literal, mutability, required/optional, explicit-undefined, and unrestricted-number proof.
 - Focused RED: `/tmp/pi-rust-summary-markers-red.out` records exit 101 with only the missing `harness::messages` module and harness-root constants.
 - Focused GREEN: `/tmp/pi-rust-summary-markers-green.out` records exit 0 with 4 passed and 0 failed; production commit `6f3a6cc` adds the exact module/root constants and focused proof.
 - Differential RED: `/tmp/pi-rust-summary-markers-differential-red.out` records all prior requests through `13095` passing before request `13096` reaches the unchanged oracle's unsupported operation and returns non-JSON.

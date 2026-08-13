@@ -21,6 +21,7 @@ import {
 } from ${JSON.stringify(publicIndexPath)};
 import type {
 	AgentHarnessResources,
+	BashExecutionMessage,
 	FileInfo,
 	FileKind,
 	PromptTemplate,
@@ -48,6 +49,19 @@ type CompactionSummarySuffixIsExact = Assert<
 >;
 type BranchSummaryPrefixIsExact = Assert<Exact<typeof BRANCH_SUMMARY_PREFIX, ExpectedBranchSummaryPrefix>>;
 type BranchSummarySuffixIsExact = Assert<Exact<typeof BRANCH_SUMMARY_SUFFIX, ExpectedBranchSummarySuffix>>;
+
+type ExpectedBashExecutionMessage = {
+	role: "bashExecution";
+	command: string;
+	output: string;
+	exitCode: number | undefined;
+	cancelled: boolean;
+	truncated: boolean;
+	fullOutputPath?: string;
+	timestamp: number;
+	excludeFromContext?: boolean;
+};
+type BashExecutionMessageIsExact = Assert<Exact<BashExecutionMessage, ExpectedBashExecutionMessage>>;
 
 type ExpectedFileKind = "file" | "directory" | "symlink";
 type ExpectedFileInfo = {
@@ -79,6 +93,47 @@ type FileInfoIsExact = Assert<Exact<FileInfo, ExpectedFileInfo>>;
 type SkillIsExact = Assert<Exact<Skill, ExpectedSkill>>;
 type PromptTemplateIsExact = Assert<Exact<PromptTemplate, ExpectedPromptTemplate>>;
 type ResourcesIsExact = Assert<Exact<AgentHarnessResources, ExpectedResources>>;
+
+let bashMessage: BashExecutionMessage = {
+	role: "bashExecution",
+	command: "printf test",
+	output: "test",
+	exitCode: 0,
+	cancelled: false,
+	truncated: false,
+	timestamp: 0,
+};
+bashMessage.role = "bashExecution";
+bashMessage.command = "updated";
+bashMessage.output = "updated output";
+bashMessage.exitCode = -0;
+bashMessage.exitCode = Number.NaN;
+bashMessage.exitCode = Number.POSITIVE_INFINITY;
+bashMessage.exitCode = Number.NEGATIVE_INFINITY;
+bashMessage.exitCode = undefined;
+bashMessage.cancelled = true;
+bashMessage.truncated = true;
+bashMessage.fullOutputPath = "/tmp/output.log";
+bashMessage.fullOutputPath = undefined;
+bashMessage.timestamp = -0;
+bashMessage.timestamp = Number.NaN;
+bashMessage.timestamp = Number.POSITIVE_INFINITY;
+bashMessage.timestamp = Number.NEGATIVE_INFINITY;
+bashMessage.excludeFromContext = false;
+bashMessage.excludeFromContext = true;
+bashMessage.excludeFromContext = undefined;
+
+const bashMessageWithExplicitUndefined: BashExecutionMessage = {
+	role: "bashExecution",
+	command: "",
+	output: "",
+	exitCode: undefined,
+	cancelled: false,
+	truncated: false,
+	fullOutputPath: undefined,
+	timestamp: -0,
+	excludeFromContext: undefined,
+};
 
 let info: FileInfo = {
 	name: "name",
@@ -165,6 +220,8 @@ customResources.skills = [customSkill];
 customResources.skills[0].applicationId = 2;
 customResources.promptTemplates[0].command = "/updated";
 
+void bashMessage;
+void bashMessageWithExplicitUndefined;
 void info;
 void resources;
 void customResources;

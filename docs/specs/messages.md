@@ -17,7 +17,7 @@ This document covers the completed summary framing constants and the value-only 
 - [x] Compare request `13096` directly with the pinned TypeScript package-index runtime exports and strict exact literal-type proof.
 - [x] Add the value-only `BashExecutionMessage` with closed `BashExecutionRole::BashExecution`, public mutable fields, `Debug` only, and module/root exports.
 - [x] Cover role, field mutation, optional states, string boundaries, and binary64 bit preservation in five focused tests.
-- [ ] Compare direct differential requests `13097..=13104` and the strict public-index interface proof.
+- [x] Compare direct differential requests `13097..=13104` and the strict public-index interface proof.
 
 ## How it works
 
@@ -29,9 +29,10 @@ This document covers the completed summary framing constants and the value-only 
 - `crates/pi-agent-core/src/harness/mod.rs` — module and harness-root exports.
 - `crates/pi-agent-core/tests/summary_markers.rs` — focused marker behavioral/API proof.
 - `crates/pi-agent-core/tests/bash_execution_message.rs` — focused value/API proof.
-- `crates/pi-agent-core/tests/differential_truncate/summary_markers.rs` — pinned request `13096`.
-- `oracle/truncate-oracle.ts` — persistent package-index marker operation.
-- `oracle/public-index-typecheck.mjs` — exact literal-type and package-export proof.
+- `crates/pi-agent-core/tests/differential_truncate/summary_markers.rs` — pinned marker request `13096`.
+- `crates/pi-agent-core/tests/differential_truncate/bash_execution_message.rs` — eight plain-record request groups (`13097..=13104`).
+- `oracle/truncate-oracle.ts` — persistent marker and Bash-execution value operations.
+- `oracle/public-index-typecheck.mjs` — exact marker literal and Bash-execution interface proof.
 - `run-tests.sh` — focused test registration.
 
 ## Tests asserting this spec
@@ -40,10 +41,11 @@ This document covers the completed summary framing constants and the value-only 
 - `crates/pi-agent-core/tests/bash_execution_message.rs`
 - `crates/pi-agent-core/tests/differential_truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate/summary_markers.rs`
+- `crates/pi-agent-core/tests/differential_truncate/bash_execution_message.rs`
 
 ## Known gaps (current cycle)
 
-Direct differential and strict public-index proof for `BashExecutionMessage` remain pending across reserved requests `13097..=13104`.
+None for the bounded value-only `BashExecutionMessage` slice.
 
 ## BashExecutionMessage value contract
 

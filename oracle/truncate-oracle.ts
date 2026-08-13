@@ -185,6 +185,38 @@ type SummaryMarkersRequest = {
 	operation: "summary_markers";
 };
 
+type BashExecutionCaseRequest = {
+	name: string;
+	command: string;
+	output: string;
+	exitCodeState: "undefined" | "value";
+	exitCodeBits: string;
+	cancelled: boolean;
+	truncated: boolean;
+	fullOutputPathState: "absent" | "undefined" | "value";
+	fullOutputPath: string;
+	timestampBits: string;
+	excludeFromContextState: "absent" | "undefined" | "false" | "true";
+};
+
+type BashExecutionMessageRequest = {
+	id: RequestId;
+	operation: "bash_execution_message";
+	cases: BashExecutionCaseRequest[];
+};
+
+type MutableBashExecutionMessageRecord = {
+	role: "bashExecution";
+	command: string;
+	output: string;
+	exitCode: number | undefined;
+	cancelled: boolean;
+	truncated: boolean;
+	fullOutputPath?: string;
+	timestamp: number;
+	excludeFromContext?: boolean;
+};
+
 type MutableSkillRecord = {
 	name: string;
 	description: string;
@@ -366,6 +398,7 @@ type Request =
 	| EditTextHelpersRequest
 	| FileOperationsFormatRequest
 	| SummaryMarkersRequest
+	| BashExecutionMessageRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<Request, HarnessErrorRequest | SummaryMarkersRequest>;
@@ -749,6 +782,52 @@ function executeSummaryMarkers(request: SummaryMarkersRequest, api: HarnessTypes
 	});
 }
 
+function executeBashExecutionMessage(request: BashExecutionMessageRequest): Response {
+	const results = request.cases.map((input) => normalizeBashExecutionMessage(input.name, buildBashExecutionMessage(input)));
+	return successfulResponse(request.id, { results });
+}
+
+function buildBashExecutionMessage(input: BashExecutionCaseRequest): MutableBashExecutionMessageRecord {
+	const message: MutableBashExecutionMessageRecord = {
+		role: "bashExecution",
+		command: input.command,
+		output: input.output,
+		exitCode: input.exitCodeState === "undefined" ? undefined : binary64FromBits(input.exitCodeBits),
+		cancelled: input.cancelled,
+		truncated: input.truncated,
+		timestamp: binary64FromBits(input.timestampBits),
+	};
+	assignFullOutputPath(message, input);
+	assignExcludeFromContext(message, input);
+	return message;
+}
+
+function assignFullOutputPath(message: MutableBashExecutionMessageRecord, input: BashExecutionCaseRequest): void {
+	if (input.fullOutputPathState === "undefined") message.fullOutputPath = undefined;
+	if (input.fullOutputPathState === "value") message.fullOutputPath = input.fullOutputPath;
+}
+
+function assignExcludeFromContext(message: MutableBashExecutionMessageRecord, input: BashExecutionCaseRequest): void {
+	if (input.excludeFromContextState === "undefined") message.excludeFromContext = undefined;
+	if (input.excludeFromContextState === "false") message.excludeFromContext = false;
+	if (input.excludeFromContextState === "true") message.excludeFromContext = true;
+}
+
+function normalizeBashExecutionMessage(name: string, message: MutableBashExecutionMessageRecord): unknown {
+	return {
+		name,
+		role: message.role,
+		command: message.command,
+		output: message.output,
+		exitCodeBits: message.exitCode === undefined ? null : binary64Bits(message.exitCode),
+		cancelled: message.cancelled,
+		truncated: message.truncated,
+		fullOutputPath: message.fullOutputPath ?? null,
+		timestampBits: binary64Bits(message.timestamp),
+		excludeFromContext: message.excludeFromContext ?? null,
+	};
+}
+
 function buildHarnessError(request: HarnessErrorRequest, api: HarnessTypesApi, cause: Error | undefined): Error {
 	if (request.kind === "file") return new api.FileError(request.code, request.message, request.path, cause);
 	if (request.kind === "execution") return new api.ExecutionError(request.code, request.message, cause);
@@ -821,6 +900,8 @@ function executeUtilityRequest(
 			return executeEditTextHelpers(request, editDiff);
 		case "file_operations_format":
 			return executeFileOperationsRequest(request, fileOperations);
+		case "bash_execution_message":
+			return executeBashExecutionMessage(request);
 	}
 }
 

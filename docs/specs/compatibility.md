@@ -33,7 +33,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve exact public summary marker constants through `crates/pi-agent-core/tests/summary_markers.rs`.
 - [x] Compare summary marker constants and package-index exports directly with the pinned TypeScript source through request `13096` and strict public-index type proof.
 - [x] Preserve the focused value-only `BashExecutionMessage` role, mutable fields, optionality, unrestricted binary64 values, and module/root exports from `messages.ts:19-29`.
-- [ ] Compare the value-only `BashExecutionMessage` directly with the pinned TypeScript interface through reserved differential requests `13097..=13104` and strict public-index type proof.
+- [x] Compare the value-only `BashExecutionMessage` directly with the pinned TypeScript interface through eight differential request groups (`13097..=13104`) and strict public-index type proof.
 - [x] Preserve exact coding-agent auth command names, usage strings, and help selection over Rust-representable strings.
 - [x] Preserve exact coding-agent auth parser errors, argument ordering, flags, and field-specific expiry-number behavior against the pinned source.
 - [x] Preserve pure config-value command classification and environment-reference parsing against the pinned source.
