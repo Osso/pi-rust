@@ -270,6 +270,18 @@ type ContextUsageEstimateRequest = {
 	cases: ContextUsageEstimateCaseRequest[];
 };
 
+type CompactionDetailsCaseRequest = {
+	name: string;
+	readFiles: string[];
+	modifiedFiles: string[];
+};
+
+type CompactionDetailsRequest = {
+	id: RequestId;
+	operation: "compaction_details";
+	cases: CompactionDetailsCaseRequest[];
+};
+
 type MutableBashExecutionMessageRecord = {
 	role: "bashExecution";
 	command: string;
@@ -517,6 +529,7 @@ type Request =
 	| SummarizationSystemPromptRequest
 	| CutPointResultRequest
 	| ContextUsageEstimateRequest
+	| CompactionDetailsRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<
@@ -527,7 +540,8 @@ type UtilityRequest = Exclude<
 		PromptTemplateDiagnosticRequest |
 		SummarizationSystemPromptRequest |
 		CutPointResultRequest |
-		ContextUsageEstimateRequest
+		ContextUsageEstimateRequest |
+		CompactionDetailsRequest
 >;
 type FormatSizeRequest = Extract<UtilityRequest, { operation: "format_size" }>;
 type TruncationRequest = Extract<
@@ -1049,6 +1063,15 @@ function normalizeContextUsageEstimateInput(input: ContextUsageEstimateCaseReque
 	};
 }
 
+function executeCompactionDetailsRequest(request: CompactionDetailsRequest): Response {
+	const results = request.cases.map((input) => ({
+		name: input.name,
+		readFiles: [...input.readFiles],
+		modifiedFiles: [...input.modifiedFiles],
+	}));
+	return successfulResponse(request.id, { results });
+}
+
 function executeShouldCompactRequest(request: ShouldCompactRequest, api: HarnessTypesApi): Response {
 	const results = request.cases.map((input) => ({
 		name: input.name,
@@ -1169,6 +1192,7 @@ function executeSpecialRequest(request: Request, apis: OracleApis): Response | u
 	}
 	if (request.operation === "cut_point_result") return executeCutPointResultRequest(request);
 	if (request.operation === "context_usage_estimate") return executeContextUsageEstimateRequest(request);
+	if (request.operation === "compaction_details") return executeCompactionDetailsRequest(request);
 	if (request.operation === "harness_error") return executeHarnessError(request, apis.harnessTypes);
 	return undefined;
 }

@@ -9,6 +9,13 @@ pub struct CutPointResult {
     pub is_split_turn: bool,
 }
 
+/// File-operation details stored on generated compaction entries.
+#[derive(Debug)]
+pub struct CompactionDetails {
+    pub read_files: Vec<String>,
+    pub modified_files: Vec<String>,
+}
+
 /// Mutable compaction thresholds and retention settings.
 #[derive(Debug)]
 pub struct CompactionSettings {
