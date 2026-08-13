@@ -26,6 +26,23 @@ pub struct AgentHarnessResources {
     pub skills: Option<Vec<Skill>>,
 }
 
+/// Controls how queued messages are drained at a queue point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueueMode {
+    All,
+    OneAtATime,
+}
+
+impl QueueMode {
+    /// Returns the exact TypeScript source literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::OneAtATime => "one-at-a-time",
+        }
+    }
+}
+
 /// Kind of filesystem object addressed by a `FileInfo` value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileKind {
