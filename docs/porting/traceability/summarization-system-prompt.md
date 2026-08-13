@@ -17,7 +17,8 @@ Pinned source: `packages/agent/src/harness/compaction/compaction.ts` at commit `
 ## Proof status
 
 - Focused RED: `/tmp/pi-rust-summarization-system-prompt-red.out` records exit 101 with only the missing module-constant import.
-- Focused GREEN, formatting, diff, and Rust readability remain pending until the production/docs working tree is complete.
+- Focused GREEN: `/tmp/pi-rust-summarization-system-prompt-green.out` records exit 0 with 4 passed and 0 failed; production commit `017da73` adds the exact module constant, focused proof, and documentation paths.
+- Formatting: `cargo fmt --all -- --check` exited 0; `git diff --check` exited 0; Rust readability reported no new findings for the changed module and test, with JSON artifacts under `/tmp/pi-rust-summarization-system-prompt-readability/`.
 - Direct-module differential request `13129`, direct-module type proof, final gates, and inherited verification remain pending.
 
 ## Exclusions
