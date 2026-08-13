@@ -9,6 +9,7 @@ mod prompt_templates;
 mod resources;
 mod sanitize;
 mod skill_formatting;
+mod summary_markers;
 mod support;
 mod tail_corpus;
 mod targeted;
@@ -41,4 +42,5 @@ pub(crate) fn run() {
     image::compare_all_fixtures(&mut oracle);
     edit_line_endings::compare_all_fixtures(&mut oracle);
     file_operations::compare_all_fixtures(&mut oracle);
+    summary_markers::compare(&mut oracle);
 }

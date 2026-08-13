@@ -13,6 +13,12 @@ const tsgoPath = join(sourceWorktree, "node_modules/.bin/tsgo");
 const typeRoots = join(sourceWorktree, "node_modules/@types");
 
 const fixtureSource = `
+import {
+	BRANCH_SUMMARY_PREFIX,
+	BRANCH_SUMMARY_SUFFIX,
+	COMPACTION_SUMMARY_PREFIX,
+	COMPACTION_SUMMARY_SUFFIX,
+} from ${JSON.stringify(publicIndexPath)};
 import type {
 	AgentHarnessResources,
 	FileInfo,
@@ -27,6 +33,21 @@ type Exact<Actual, Expected> = [Actual] extends [Expected]
 		: false
 	: false;
 type Assert<Condition extends true> = Condition;
+
+type ExpectedCompactionSummaryPrefix =
+	"The conversation history before this point was compacted into the following summary:\\n\\n<summary>\\n";
+type ExpectedCompactionSummarySuffix = "\\n</summary>";
+type ExpectedBranchSummaryPrefix =
+	"The following is a summary of a branch that this conversation came back from:\\n\\n<summary>\\n";
+type ExpectedBranchSummarySuffix = "</summary>";
+type CompactionSummaryPrefixIsExact = Assert<
+	Exact<typeof COMPACTION_SUMMARY_PREFIX, ExpectedCompactionSummaryPrefix>
+>;
+type CompactionSummarySuffixIsExact = Assert<
+	Exact<typeof COMPACTION_SUMMARY_SUFFIX, ExpectedCompactionSummarySuffix>
+>;
+type BranchSummaryPrefixIsExact = Assert<Exact<typeof BRANCH_SUMMARY_PREFIX, ExpectedBranchSummaryPrefix>>;
+type BranchSummarySuffixIsExact = Assert<Exact<typeof BRANCH_SUMMARY_SUFFIX, ExpectedBranchSummarySuffix>>;
 
 type ExpectedFileKind = "file" | "directory" | "symlink";
 type ExpectedFileInfo = {

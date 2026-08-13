@@ -31,7 +31,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve exact compaction file-operation section formatting through `crates/pi-agent-core/tests/file_operations.rs`.
 - [x] Compare compaction file-operation formatting directly with the pinned TypeScript source through seven persistent request groups (`13089..=13095`) in `crates/pi-agent-core/tests/differential_truncate/file_operations.rs`.
 - [x] Preserve exact public summary marker constants through `crates/pi-agent-core/tests/summary_markers.rs`.
-- [ ] Compare summary marker constants and package-index exports directly with the pinned TypeScript source through request `13096` and strict public-index type proof.
+- [x] Compare summary marker constants and package-index exports directly with the pinned TypeScript source through request `13096` and strict public-index type proof.
 - [x] Preserve exact coding-agent auth command names, usage strings, and help selection over Rust-representable strings.
 - [x] Preserve exact coding-agent auth parser errors, argument ordering, flags, and field-specific expiry-number behavior against the pinned source.
 - [x] Preserve pure config-value command classification and environment-reference parsing against the pinned source.

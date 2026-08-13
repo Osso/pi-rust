@@ -180,6 +180,11 @@ type FileOperationsFormatRequest = {
 	modifiedFiles: string[];
 };
 
+type SummaryMarkersRequest = {
+	id: RequestId;
+	operation: "summary_markers";
+};
+
 type MutableSkillRecord = {
 	name: string;
 	description: string;
@@ -293,6 +298,10 @@ type HarnessTypesApi = {
 	ExecutionError: new (code: ExecutionErrorCode, message: string, cause?: Error) => HarnessErrorInstance;
 	CompactionError: new (code: CompactionErrorCode, message: string, cause?: Error) => HarnessErrorInstance;
 	BranchSummaryError: new (code: BranchSummaryErrorCode, message: string, cause?: Error) => HarnessErrorInstance;
+	COMPACTION_SUMMARY_PREFIX: string;
+	COMPACTION_SUMMARY_SUFFIX: string;
+	BRANCH_SUMMARY_PREFIX: string;
+	BRANCH_SUMMARY_SUFFIX: string;
 };
 
 type NormalizedHarnessError = {
@@ -356,9 +365,10 @@ type Request =
 	| ImageHelpersRequest
 	| EditTextHelpersRequest
 	| FileOperationsFormatRequest
+	| SummaryMarkersRequest
 	| HarnessErrorRequest;
 
-type UtilityRequest = Exclude<Request, HarnessErrorRequest>;
+type UtilityRequest = Exclude<Request, HarnessErrorRequest | SummaryMarkersRequest>;
 type FormatSizeRequest = Extract<UtilityRequest, { operation: "format_size" }>;
 type TruncationRequest = Extract<
 	UtilityRequest,
@@ -730,6 +740,15 @@ function executeHarnessError(request: HarnessErrorRequest, api: HarnessTypesApi)
 	return successfulResponse(request.id, normalizeHarnessError(error, api));
 }
 
+function executeSummaryMarkers(request: SummaryMarkersRequest, api: HarnessTypesApi): Response {
+	return successfulResponse(request.id, {
+		compactionPrefix: api.COMPACTION_SUMMARY_PREFIX,
+		compactionSuffix: api.COMPACTION_SUMMARY_SUFFIX,
+		branchPrefix: api.BRANCH_SUMMARY_PREFIX,
+		branchSuffix: api.BRANCH_SUMMARY_SUFFIX,
+	});
+}
+
 function buildHarnessError(request: HarnessErrorRequest, api: HarnessTypesApi, cause: Error | undefined): Error {
 	if (request.kind === "file") return new api.FileError(request.code, request.message, request.path, cause);
 	if (request.kind === "execution") return new api.ExecutionError(request.code, request.message, cause);
@@ -807,6 +826,9 @@ function executeUtilityRequest(
 
 function execute(request: Request, apis: OracleApis): Response {
 	try {
+		if (request.operation === "summary_markers") {
+			return executeSummaryMarkers(request, apis.harnessTypes);
+		}
 		if (request.operation === "harness_error") {
 			return executeHarnessError(request, apis.harnessTypes);
 		}

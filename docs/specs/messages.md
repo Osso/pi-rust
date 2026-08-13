@@ -14,7 +14,7 @@ This bounded slice ports the four public summary framing constants from `package
 
 - [x] Map TypeScript's inferred string-literal constants to Rust compile-time `&str` constants without a wrapper type.
 - [x] Cover exact values, lengths, framing, module/root imports, and const usability in `crates/pi-agent-core/tests/summary_markers.rs`.
-- [ ] Compare request `13096` directly with the pinned TypeScript package exports.
+- [x] Compare request `13096` directly with the pinned TypeScript package exports.
 
 ## How it works
 
@@ -25,18 +25,20 @@ This bounded slice ports the four public summary framing constants from `package
 - `crates/pi-agent-core/src/harness/messages.rs` — four exact constants.
 - `crates/pi-agent-core/src/harness/mod.rs` — module and harness-root exports.
 - `crates/pi-agent-core/tests/summary_markers.rs` — focused behavioral/API proof.
-- `crates/pi-agent-core/tests/differential_truncate/summary_markers.rs` — planned pinned differential proof.
-- `oracle/truncate-oracle.ts` — planned package-index marker operation.
-- `oracle/public-index-typecheck.mjs` — planned literal-type/export proof.
+- `crates/pi-agent-core/tests/differential_truncate/summary_markers.rs` — pinned request `13096`.
+- `oracle/truncate-oracle.ts` — persistent package-index marker operation.
+- `oracle/public-index-typecheck.mjs` — exact literal-type and package-export proof.
 - `run-tests.sh` — focused test registration.
 
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/summary_markers.rs`
+- `crates/pi-agent-core/tests/differential_truncate.rs`
+- `crates/pi-agent-core/tests/differential_truncate/summary_markers.rs`
 
 ## Known gaps (current cycle)
 
-Direct differential and public-index type proof remain pending.
+None for this bounded marker slice.
 
 ## Out of scope
 
