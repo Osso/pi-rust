@@ -18,7 +18,7 @@ Pinned source: `packages/agent/src/harness/compaction/compaction.ts` at commit `
 ## Proof status
 
 - Focused RED: `/tmp/pi-rust-compaction-settings-red.out` records exit 101 with only unresolved imports for the missing module/root API.
-- Focused GREEN: `/tmp/pi-rust-compaction-settings-green.out` records exit 0 with 4 passed and 0 failed after correcting one fixture assertion; production/specification changes remain uncommitted at this proof point.
+- Focused GREEN: `/tmp/pi-rust-compaction-settings-green.out` records exit 0 with 4 passed and 0 failed after correcting one fixture assertion; production/specification commit is `64fba3d`.
 - Differential RED/GREEN: pending; request range is reserved as `13113..=13120`.
 - Oracle/public-index typecheck: pending.
 - Final workspace, readability, documentation, clean-pin, and inherited verification: pending.
