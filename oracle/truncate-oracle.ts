@@ -237,6 +237,21 @@ type MutableBranchSummaryMessageRecord = {
 	timestamp: number;
 };
 
+type ShouldCompactCaseRequest = {
+	name: string;
+	contextTokensBits: string;
+	contextWindowBits: string;
+	enabled: boolean;
+	reserveTokensBits: string;
+	keepRecentTokensBits: string;
+};
+
+type ShouldCompactRequest = {
+	id: RequestId;
+	operation: "should_compact";
+	cases: ShouldCompactCaseRequest[];
+};
+
 type MutableSkillRecord = {
 	name: string;
 	description: string;
@@ -354,6 +369,11 @@ type HarnessTypesApi = {
 	COMPACTION_SUMMARY_SUFFIX: string;
 	BRANCH_SUMMARY_PREFIX: string;
 	BRANCH_SUMMARY_SUFFIX: string;
+	shouldCompact: (
+		contextTokens: number,
+		contextWindow: number,
+		settings: { enabled: boolean; reserveTokens: number; keepRecentTokens: number },
+	) => boolean;
 };
 
 type NormalizedHarnessError = {
@@ -420,9 +440,10 @@ type Request =
 	| SummaryMarkersRequest
 	| BashExecutionMessageRequest
 	| BranchSummaryMessageRequest
+	| ShouldCompactRequest
 	| HarnessErrorRequest;
 
-type UtilityRequest = Exclude<Request, HarnessErrorRequest | SummaryMarkersRequest>;
+type UtilityRequest = Exclude<Request, HarnessErrorRequest | SummaryMarkersRequest | ShouldCompactRequest>;
 type FormatSizeRequest = Extract<UtilityRequest, { operation: "format_size" }>;
 type TruncationRequest = Extract<
 	UtilityRequest,
@@ -859,6 +880,22 @@ function executeBranchSummaryMessage(request: BranchSummaryMessageRequest): Resp
 	return successfulResponse(request.id, { results });
 }
 
+function executeShouldCompactRequest(request: ShouldCompactRequest, api: HarnessTypesApi): Response {
+	const results = request.cases.map((input) => ({
+		name: input.name,
+		shouldCompact: api.shouldCompact(
+			binary64FromBits(input.contextTokensBits),
+			binary64FromBits(input.contextWindowBits),
+			{
+				enabled: input.enabled,
+				reserveTokens: binary64FromBits(input.reserveTokensBits),
+				keepRecentTokens: binary64FromBits(input.keepRecentTokensBits),
+			},
+		),
+	}));
+	return successfulResponse(request.id, { results });
+}
+
 function normalizeBranchSummaryInput(input: BranchSummaryCaseRequest): unknown {
 	const message: MutableBranchSummaryMessageRecord = {
 		role: "branchSummary",
@@ -958,6 +995,9 @@ function execute(request: Request, apis: OracleApis): Response {
 	try {
 		if (request.operation === "summary_markers") {
 			return executeSummaryMarkers(request, apis.harnessTypes);
+		}
+		if (request.operation === "should_compact") {
+			return executeShouldCompactRequest(request, apis.harnessTypes);
 		}
 		if (request.operation === "harness_error") {
 			return executeHarnessError(request, apis.harnessTypes);

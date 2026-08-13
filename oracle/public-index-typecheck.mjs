@@ -18,11 +18,13 @@ import {
 	BRANCH_SUMMARY_SUFFIX,
 	COMPACTION_SUMMARY_PREFIX,
 	COMPACTION_SUMMARY_SUFFIX,
+	shouldCompact,
 } from ${JSON.stringify(publicIndexPath)};
 import type {
 	AgentHarnessResources,
 	BashExecutionMessage,
 	BranchSummaryMessage,
+	CompactionSettings,
 	FileInfo,
 	FileKind,
 	PromptTemplate,
@@ -71,6 +73,13 @@ type ExpectedBranchSummaryMessage = {
 	timestamp: number;
 };
 type BranchSummaryMessageIsExact = Assert<Exact<BranchSummaryMessage, ExpectedBranchSummaryMessage>>;
+
+type ExpectedCompactionSettings = {
+	enabled: boolean;
+	reserveTokens: number;
+	keepRecentTokens: number;
+};
+type CompactionSettingsIsExact = Assert<Exact<CompactionSettings, ExpectedCompactionSettings>>;
 
 type ExpectedFileKind = "file" | "directory" | "symlink";
 type ExpectedFileInfo = {
@@ -157,6 +166,23 @@ branchSummaryMessage.timestamp = -0;
 branchSummaryMessage.timestamp = Number.NaN;
 branchSummaryMessage.timestamp = Number.POSITIVE_INFINITY;
 branchSummaryMessage.timestamp = Number.NEGATIVE_INFINITY;
+
+let compactionSettings: CompactionSettings = {
+	enabled: true,
+	reserveTokens: 10,
+	keepRecentTokens: 20,
+};
+compactionSettings.enabled = false;
+compactionSettings.enabled = true;
+compactionSettings.reserveTokens = -0;
+compactionSettings.reserveTokens = Number.NaN;
+compactionSettings.reserveTokens = Number.POSITIVE_INFINITY;
+compactionSettings.reserveTokens = Number.NEGATIVE_INFINITY;
+compactionSettings.keepRecentTokens = -0;
+compactionSettings.keepRecentTokens = Number.NaN;
+compactionSettings.keepRecentTokens = Number.POSITIVE_INFINITY;
+compactionSettings.keepRecentTokens = Number.NEGATIVE_INFINITY;
+const compactionDecision = shouldCompact(Number.MAX_VALUE, -Number.MAX_VALUE, compactionSettings);
 
 let info: FileInfo = {
 	name: "name",
@@ -246,6 +272,8 @@ customResources.promptTemplates[0].command = "/updated";
 void bashMessage;
 void bashMessageWithExplicitUndefined;
 void branchSummaryMessage;
+void compactionSettings;
+void compactionDecision;
 void info;
 void resources;
 void customResources;
