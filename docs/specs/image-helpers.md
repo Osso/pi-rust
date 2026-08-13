@@ -47,7 +47,7 @@ Agent-core exposes two pure internal helpers ported from `packages/agent/src/har
 
 ## Known gaps (current cycle)
 
-- [ ] Complete inherited-context independent verification.
+None for this bounded helper slice.
 
 ## Out of scope
 
