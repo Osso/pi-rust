@@ -40,7 +40,7 @@ Pinned source: `packages/agent/src/harness/messages.ts:4-17,19-29,40-45` and pac
 - BranchSummaryMessage focused RED: `/tmp/pi-rust-branch-summary-message-red.out` records exit 101 with only the missing module/root value-type imports.
 - BranchSummaryMessage focused GREEN: `/tmp/pi-rust-branch-summary-message-green.out` records exit 0 with 4 passed and 0 failed; production commit `8e32578` adds the value types and focused proof.
 - BranchSummaryMessage differential RED: `/tmp/pi-rust-branch-summary-message-differential-red.out` records all prior requests through `13104` passing before request `13105` reaches the unchanged oracle's unsupported operation and returns non-JSON.
-- BranchSummaryMessage differential GREEN: `/tmp/pi-rust-branch-summary-message-differential-green.out` records exit 0 with one persistent test passing exactly eight request groups (`13105..=13112`).
+- BranchSummaryMessage differential GREEN: `/tmp/pi-rust-branch-summary-message-differential-green.out` records exit 0 with one persistent test passing exactly eight request groups (`13105..=13112`); differential commit `fa8f6f2` adds the plain-record comparisons and public-index proof wiring.
 - BranchSummaryMessage oracle/public-index typecheck: `/tmp/pi-rust-branch-summary-message-oracle.out` records `./run-tests.sh oracle` exit 0 with exact field-set, role-literal, mutability, and unrestricted-number proof.
 - BashExecutionMessage focused RED: `/tmp/pi-rust-bash-execution-message-red.out` records exit 101 with only the missing module/root value-type imports.
 - BashExecutionMessage focused GREEN: `/tmp/pi-rust-bash-execution-message-green.out` records exit 0 with 5 passed and 0 failed; production commit `143c635` adds the value types and focused proof.

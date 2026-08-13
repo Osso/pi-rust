@@ -73,21 +73,32 @@ fn preserves_empty_unicode_control_and_xml_sensitive_strings() {
 
 #[test]
 fn preserves_timestamp_binary64_bits() {
-    let timestamp_bits = [
-        0x0000_0000_0000_0000,
-        0x8000_0000_0000_0000,
-        0x7ff0_0000_0000_0000,
-        0xfff0_0000_0000_0000,
-        0x0000_0000_0000_0001,
-        0x8000_0000_0000_0001,
-        0x7fefffff_ffff_ffff,
-        0x7ff8_0000_0000_0001,
-        0x7ff8_0000_0000_0042,
-        0xfff8_0000_0000_0001,
-        0xfff8_0000_0000_0042,
+    const POSITIVE_ZERO: u64 = 0x0000_0000_0000_0000;
+    const NEGATIVE_ZERO: u64 = 0x8000_0000_0000_0000;
+    const POSITIVE_INFINITY: u64 = 0x7ff0_0000_0000_0000;
+    const NEGATIVE_INFINITY: u64 = 0xfff0_0000_0000_0000;
+    const POSITIVE_SUBNORMAL: u64 = 0x0000_0000_0000_0001;
+    const NEGATIVE_SUBNORMAL: u64 = 0x8000_0000_0000_0001;
+    const MAX_FINITE: u64 = 0x7fefffff_ffff_ffff;
+    const POSITIVE_NAN_ONE: u64 = 0x7ff8_0000_0000_0001;
+    const POSITIVE_NAN_PAYLOAD: u64 = 0x7ff8_0000_0000_0042;
+    const NEGATIVE_NAN_ONE: u64 = 0xfff8_0000_0000_0001;
+    const NEGATIVE_NAN_PAYLOAD: u64 = 0xfff8_0000_0000_0042;
+    const TIMESTAMP_BITS: [u64; 11] = [
+        POSITIVE_ZERO,
+        NEGATIVE_ZERO,
+        POSITIVE_INFINITY,
+        NEGATIVE_INFINITY,
+        POSITIVE_SUBNORMAL,
+        NEGATIVE_SUBNORMAL,
+        MAX_FINITE,
+        POSITIVE_NAN_ONE,
+        POSITIVE_NAN_PAYLOAD,
+        NEGATIVE_NAN_ONE,
+        NEGATIVE_NAN_PAYLOAD,
     ];
 
-    for bits in timestamp_bits {
+    for bits in TIMESTAMP_BITS {
         let message = ModuleMessage {
             timestamp: f64::from_bits(bits),
             ..empty_message()

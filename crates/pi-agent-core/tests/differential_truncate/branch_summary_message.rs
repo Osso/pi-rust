@@ -244,48 +244,31 @@ fn finite_boundary_fixture() -> Fixture {
 }
 
 fn nan_fixture() -> Fixture {
-    fixture(
-        13_112,
-        "nan payloads and deterministic mixed values",
-        vec![
-            Case {
-                name: "positive-nan-one",
-                summary: "nan one",
-                from_id: "nan-positive-one",
-                timestamp_bits: "7ff8000000000001",
-            },
-            Case {
-                name: "positive-nan-payload",
-                summary: "nan payload",
-                from_id: "nan-positive-payload",
-                timestamp_bits: "7ff8000000000042",
-            },
-            Case {
-                name: "negative-nan-one",
-                summary: "negative nan one",
-                from_id: "nan-negative-one",
-                timestamp_bits: "fff8000000000001",
-            },
-            Case {
-                name: "negative-nan-payload",
-                summary: "negative nan payload",
-                from_id: "nan-negative-payload",
-                timestamp_bits: "fff8000000000042",
-            },
-            Case {
-                name: "mixed-ordinary",
-                summary: "deterministic ordinary",
-                from_id: "mixed-ordinary",
-                timestamp_bits: "4024000000000000",
-            },
-            Case {
-                name: "mixed-negative",
-                summary: "deterministic negative",
-                from_id: "mixed-negative",
-                timestamp_bits: "c024000000000000",
-            },
-        ],
-    )
+    fixture(13_112, "nan payloads and deterministic mixed values", nan_cases())
+}
+
+fn nan_cases() -> Vec<Case> {
+    vec![
+        numeric_case("positive-nan-one", "7ff8000000000001"),
+        numeric_case("positive-nan-payload", "7ff8000000000042"),
+        numeric_case("negative-nan-one", "fff8000000000001"),
+        numeric_case("negative-nan-payload", "fff8000000000042"),
+        numeric_case("mixed-ordinary", "4024000000000000"),
+        numeric_case("mixed-negative", "c024000000000000"),
+    ]
+}
+
+fn numeric_case(name: &'static str, timestamp_bits: &'static str) -> Case {
+    case(name, name, name, timestamp_bits)
+}
+
+fn case(name: &'static str, summary: &'static str, from_id: &'static str, timestamp_bits: &'static str) -> Case {
+    Case {
+        name,
+        summary,
+        from_id,
+        timestamp_bits,
+    }
 }
 
 fn fixture(request_id: u64, name: &'static str, cases: Vec<Case>) -> Fixture {

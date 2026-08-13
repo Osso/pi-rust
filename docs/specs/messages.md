@@ -37,7 +37,7 @@ This document covers the completed summary framing constants and value-only mess
 - `crates/pi-agent-core/tests/differential_truncate/bash_execution_message.rs` — eight Bash-execution plain-record groups (`13097..=13104`).
 - `crates/pi-agent-core/tests/differential_truncate/branch_summary_message.rs` — eight branch-summary plain-record groups (`13105..=13112`).
 - `oracle/truncate-oracle.ts` — persistent marker and value-record operations.
-- `oracle/public-index-typecheck.mjs` — exact marker literal and Bash-execution interface proof.
+- `oracle/public-index-typecheck.mjs` — exact marker literal plus Bash-execution and BranchSummaryMessage interface proofs.
 - `run-tests.sh` — focused test registration.
 
 ## Tests asserting this spec
@@ -48,13 +48,18 @@ This document covers the completed summary framing constants and value-only mess
 - `crates/pi-agent-core/tests/differential_truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate/summary_markers.rs`
 - `crates/pi-agent-core/tests/differential_truncate/bash_execution_message.rs`
+- `crates/pi-agent-core/tests/differential_truncate/branch_summary_message.rs`
+- `oracle/public-index-typecheck.mjs`
 
 ## Proof status
 
-- Production implementation: commit `143c635`; focused proof has 5 passed tests.
-- Differential proof: commit `0fa04e1`; eight request groups (`13097..=13104`) pass against pinned TypeScript plain records.
+- Summary-marker production implementation: commit `6f3a6cc`; focused proof has 4 passed tests.
+- BashExecutionMessage production implementation: commit `143c635`; focused proof has 5 passed tests.
+- BashExecutionMessage differential proof: commit `0fa04e1`; eight request groups (`13097..=13104`) pass against pinned TypeScript plain records.
+- BranchSummaryMessage production implementation: commit `8e32578`; focused proof has 4 passed tests.
+- BranchSummaryMessage differential proof: commit `fa8f6f2`; eight request groups (`13105..=13112`) pass against pinned TypeScript plain records, with strict public-index proof.
 - Readability proof: commit `07b6557` resolves the only TypeScript oracle finding; Rust, TypeScript, and JavaScript audits are clean.
-- Final workspace proof at `07b6557`: 222 passed, 0 failed, and 2 ignored; oracle/public-index, check, Clippy with denied warnings, formatting, documentation, source-pin, worktree, and diff gates pass.
+- BashExecutionMessage final workspace proof at `07b6557`: 222 passed, 0 failed, and 2 ignored; oracle/public-index, check, Clippy with denied warnings, formatting, documentation, source-pin, worktree, and diff gates pass.
 
 ## Known gaps (current cycle)
 
