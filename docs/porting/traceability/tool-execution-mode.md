@@ -38,6 +38,7 @@ Pinned source: `packages/agent/src/types.ts:34-42` and package export `packages/
 - Final static gates: `/tmp/pi-rust-tool-execution-mode-final-check.out` captures `cargo check --workspace --all-targets`; `/tmp/pi-rust-tool-execution-mode-final-clippy.out` captures all-target/all-feature Clippy with `-D warnings`; both exit 0.
 - Final oracle, formatting, syntax, and diff gates: `/tmp/pi-rust-tool-execution-mode-final-oracle.out`, `/tmp/pi-rust-tool-execution-mode-final-fmt.out`, both final Node artifacts, and `/tmp/pi-rust-tool-execution-mode-final-diff.out` record exit 0. Later documentation-only changes do not invalidate executable proof.
 - Documentation and pins: README, dependency inventory, compatibility, dedicated spec, and traceability are consistent; the pinned source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+- Inherited verification: at clean HEAD `e1aa5c0`, the reproduced pre-production RED artifact was nonempty and exited 101 with exactly the two missing imports; focused GREEN was 3 passed and 0 failed, differential GREEN was 1 passed and 0 failed, and formatting and diff checks exited 0. Saved workspace results of 260 passed, 0 failed, and 2 ignored plus workspace check, all-feature Clippy with `-D warnings`, oracle, and Node syntax pass. `OVERALL: PASS`.
 
 ## Exclusions
 

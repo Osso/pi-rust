@@ -37,9 +37,9 @@ This specification covers the committed `ToolExecutionMode` value from `packages
 - [x] Run oracle/typeproof, formatting, Node syntax, and diff checks: all exit 0.
 - [x] Complete Rust/TypeScript/JavaScript readability, documentation, dependency, and clean-pin audits.
 
-## Known gaps
+## Verification closure
 
-- [ ] Inherited independent verification remains pending after documentation closure.
+- [x] Inherited verification at clean HEAD `e1aa5c0`: reproduced pre-production RED exits 101 with only the two missing imports; focused GREEN 3 passed/0 failed, differential 1 passed/0 failed, fmt/diff exit 0; saved workspace 260 passed/0 failed/2 ignored plus workspace check, all-feature Clippy with `-D warnings`, oracle, and Node syntax pass. `OVERALL: PASS`.
 
 ## Proof status
 
