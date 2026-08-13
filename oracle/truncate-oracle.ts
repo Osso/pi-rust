@@ -243,6 +243,19 @@ type SummarizationSystemPromptRequest = {
 	operation: "summarization_system_prompt";
 };
 
+type CutPointResultCaseRequest = {
+	name: string;
+	firstKeptEntryIndexBits: string;
+	turnStartIndexBits: string;
+	isSplitTurn: boolean;
+};
+
+type CutPointResultRequest = {
+	id: RequestId;
+	operation: "cut_point_result";
+	cases: CutPointResultCaseRequest[];
+};
+
 type MutableBashExecutionMessageRecord = {
 	role: "bashExecution";
 	command: string;
@@ -260,6 +273,12 @@ type MutableBranchSummaryMessageRecord = {
 	summary: string;
 	fromId: string;
 	timestamp: number;
+};
+
+type MutableCutPointResultRecord = {
+	firstKeptEntryIndex: number;
+	turnStartIndex: number;
+	isSplitTurn: boolean;
 };
 
 type MutablePromptTemplateDiagnosticRecord = {
@@ -475,6 +494,7 @@ type Request =
 	| ShouldCompactRequest
 	| PromptTemplateDiagnosticRequest
 	| SummarizationSystemPromptRequest
+	| CutPointResultRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<
@@ -483,7 +503,8 @@ type UtilityRequest = Exclude<
 		SummaryMarkersRequest |
 		ShouldCompactRequest |
 		PromptTemplateDiagnosticRequest |
-		SummarizationSystemPromptRequest
+		SummarizationSystemPromptRequest |
+		CutPointResultRequest
 >;
 type FormatSizeRequest = Extract<UtilityRequest, { operation: "format_size" }>;
 type TruncationRequest = Extract<
@@ -930,6 +951,11 @@ function executeSummarizationSystemPromptRequest(request: SummarizationSystemPro
 	return successfulResponse(request.id, normalizeSummarizationSystemPrompt(api.SUMMARIZATION_SYSTEM_PROMPT));
 }
 
+function executeCutPointResultRequest(request: CutPointResultRequest): Response {
+	const results = request.cases.map(normalizeCutPointResultInput);
+	return successfulResponse(request.id, { results });
+}
+
 function normalizeSummarizationSystemPrompt(value: string): {
 	value: string;
 	utf8Bytes: number;
@@ -962,6 +988,20 @@ function normalizePromptTemplateDiagnosticInput(input: PromptTemplateDiagnosticC
 		code: diagnostic.code,
 		message: diagnostic.message,
 		path: diagnostic.path,
+	};
+}
+
+function normalizeCutPointResultInput(input: CutPointResultCaseRequest): unknown {
+	const result: MutableCutPointResultRecord = {
+		firstKeptEntryIndex: binary64FromBits(input.firstKeptEntryIndexBits),
+		turnStartIndex: binary64FromBits(input.turnStartIndexBits),
+		isSplitTurn: input.isSplitTurn,
+	};
+	return {
+		name: input.name,
+		firstKeptEntryIndexBits: binary64Bits(result.firstKeptEntryIndex),
+		turnStartIndexBits: binary64Bits(result.turnStartIndex),
+		isSplitTurn: result.isSplitTurn,
 	};
 }
 
@@ -1083,6 +1123,7 @@ function executeSpecialRequest(request: Request, apis: OracleApis): Response | u
 	if (request.operation === "summarization_system_prompt") {
 		return executeSummarizationSystemPromptRequest(request, apis.compaction);
 	}
+	if (request.operation === "cut_point_result") return executeCutPointResultRequest(request);
 	if (request.operation === "harness_error") return executeHarnessError(request, apis.harnessTypes);
 	return undefined;
 }

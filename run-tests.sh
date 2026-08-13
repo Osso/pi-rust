@@ -26,6 +26,7 @@ typecheck_oracle() {
 		oracle/config-value-reference-oracle.ts
 	node oracle/public-index-typecheck.mjs
 	node oracle/summarization-system-prompt-typecheck.mjs
+	node oracle/cut-point-result-typecheck.mjs
 }
 
 case "${1:-all}" in

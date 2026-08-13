@@ -1,6 +1,7 @@
 mod bash_execution_message;
 mod branch_summary_message;
 mod compaction_settings;
+mod cut_point_result;
 mod edit_line_endings;
 mod errors;
 mod file_info;
@@ -58,4 +59,5 @@ pub(crate) fn run() {
     compaction_settings::compare_all_fixtures(&mut oracle);
     prompt_template_diagnostic::compare_all_fixtures(&mut oracle);
     summarization_system_prompt::compare(&mut oracle);
+    cut_point_result::compare_all_fixtures(&mut oracle);
 }
