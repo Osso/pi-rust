@@ -38,9 +38,9 @@ This specification covers the module-local `ContextUsageEstimate` interface from
 - [x] Run oracle/typeproof, formatting, Node syntax, and diff checks: all exit 0.
 - [x] Complete Rust/TypeScript/JavaScript readability, documentation, dependency, and clean-pin audits.
 
-## Known gaps
+## Verification closure
 
-- [ ] Inherited independent verification remains pending after documentation closure.
+- [x] Inherited verification at clean current HEAD `7729f79`: focused 2 passed/0 failed, differential 1 passed/0 failed, oracle/fmt/diff exit 0; saved workspace 252 passed/0 failed/2 ignored and check/Clippy/Node gates at code/proof HEAD `a4d33ae` remain valid. Later commits append independent slices without changing this contract. `OVERALL: PASS`.
 
 ## Out of scope
 

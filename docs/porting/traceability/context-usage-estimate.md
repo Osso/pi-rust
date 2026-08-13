@@ -43,6 +43,7 @@ Committed revisions: production `6d51639`; differential and direct-module proof 
 - Final static gates: `/tmp/pi-rust-context-usage-estimate-final-check.out` captures `cargo check --workspace --all-targets`; `/tmp/pi-rust-context-usage-estimate-final-clippy.out` captures all-target/all-feature Clippy with `-D warnings`; both exit 0.
 - Final oracle, formatting, syntax, and diff gates: `/tmp/pi-rust-context-usage-estimate-final-oracle.out`, `/tmp/pi-rust-context-usage-estimate-final-fmt.out`, both final Node artifacts, and `/tmp/pi-rust-context-usage-estimate-final-diff.out` record exit 0. Later changes are documentation-only and do not invalidate executable proof.
 - Documentation and pins: README, dependency inventory, compatibility, dedicated spec, and traceability are consistent; the pinned source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+- Inherited verification: at clean current HEAD `7729f79`, fresh focused results were 2 passed and 0 failed, fresh differential results were 1 passed and 0 failed, and oracle, formatting, and diff checks exited 0. Saved workspace results of 252 passed, 0 failed, and 2 ignored plus check, all-feature Clippy with `-D warnings`, and Node syntax at code/proof HEAD `a4d33ae` remain valid; later commits only append independent slices. `OVERALL: PASS`.
 
 ## Exclusions
 
