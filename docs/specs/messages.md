@@ -43,6 +43,13 @@ This document covers the completed summary framing constants and the value-only 
 - `crates/pi-agent-core/tests/differential_truncate/summary_markers.rs`
 - `crates/pi-agent-core/tests/differential_truncate/bash_execution_message.rs`
 
+## Proof status
+
+- Production implementation: commit `143c635`; focused proof has 5 passed tests.
+- Differential proof: commit `0fa04e1`; eight request groups (`13097..=13104`) pass against pinned TypeScript plain records.
+- Readability proof: commit `07b6557` resolves the only TypeScript oracle finding; Rust, TypeScript, and JavaScript audits are clean.
+- Final workspace proof at `07b6557`: 222 passed, 0 failed, and 2 ignored; oracle/public-index, check, Clippy with denied warnings, formatting, documentation, source-pin, worktree, and diff gates pass.
+
 ## Known gaps (current cycle)
 
 None for the bounded value-only `BashExecutionMessage` slice.
