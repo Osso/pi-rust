@@ -1,6 +1,6 @@
 # Cut-point result
 
-This specification covers the module-local `CutPointResult` value interface from `packages/agent/src/harness/compaction/compaction.ts:450-457`. It defines the Rust value boundary; cut-point selection and compaction orchestration remain deferred.
+This specification covers the module-local TypeScript `CutPointResult` interface from `packages/agent/src/harness/compaction/compaction.ts:450-457` and its Rust value boundary. Cut-point selection and compaction orchestration remain deferred.
 
 ## What it must do
 
@@ -8,7 +8,7 @@ This specification covers the module-local `CutPointResult` value interface from
 - [x] Preserve required fields in source order: `first_kept_entry_index: f64`, `turn_start_index: f64`, and `is_split_turn: bool`.
 - [x] Derive `Debug` only without constructors, validation, normalization, serialization, or integer narrowing.
 - [x] Preserve ordinary values, the `-1` sentinel, signed zero, subnormals, finite extremes, infinities, and distinct NaN payloads in both numeric fields.
-- [x] Compare source-shaped final records with the pinned TypeScript interface through exactly eight differential request groups `13130..=13137`; prove mutability separately with direct-module type proof.
+- [x] Compare source-shaped plain records through exactly eight differential request groups `13130..=13137`; prove the pinned module interface's exact shape and mutability separately with standalone direct-module type proof.
 
 ## How it works
 
@@ -20,9 +20,9 @@ This specification covers the module-local `CutPointResult` value interface from
 - `crates/pi-agent-core/src/harness/compaction/mod.rs` — module-local value record.
 - `crates/pi-agent-core/tests/cut_point_result.rs` — focused field, mutation, Debug, and binary64 proof.
 - `crates/pi-agent-core/tests/differential_truncate/cut_point_result.rs` — eight source-shaped differential request groups with binary64 normalization.
-- `oracle/truncate-oracle.ts` — source-shaped CutPointResult request adapter and normalization.
-- `oracle/cut-point-result-typecheck.mjs` — pinned direct-module exact-shape and mutability proof.
-- `run-tests.sh` — focused and direct-module typecheck registration.
+- `oracle/truncate-oracle.ts` — source-shaped plain-record request adapter and normalization.
+- `oracle/cut-point-result-typecheck.mjs` — standalone pinned direct-module `import type` exact-shape and mutability proof.
+- `run-tests.sh` — focused test and standalone direct-module typeproof registration.
 
 ## Tests asserting this spec
 
@@ -32,7 +32,8 @@ This specification covers the module-local `CutPointResult` value interface from
 
 ## Known gaps (current cycle)
 
-- [ ] Complete final workspace, static, readability, documentation, clean-pin, and inherited verification gates.
+- [x] Complete final workspace/static/readability/documentation/clean-pin gates: workspace `cargo test --workspace --all-targets` captured 241 passed, 0 failed, 2 ignored in `/tmp/pi-rust-cut-point-result-final-workspace-tests.out`; all-target check, all-feature Clippy with `-D warnings`, fmt, `git diff --check`, and Node syntax all exited 0 in the corresponding final artifacts; readability and documentation audits passed; exact source/Rust pins passed.
+- [ ] Complete inherited independent verification; final artifact verification remains pending after the expected uncommitted documentation closure at code HEAD `b3f33f9`.
 
 ## Out of scope
 
