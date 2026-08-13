@@ -45,6 +45,8 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve exact coding-agent auth parser errors, argument ordering, flags, and field-specific expiry-number behavior against the pinned source.
 - [x] Preserve pure config-value command classification and environment-reference parsing against the pinned source.
 - [x] Preserve config-value missing/configured status and environment truthiness against the pinned source.
+- [x] Preserve `ParsedSkillBlock` fields and `parse_skill_block` behavior from `packages/coding-agent/src/core/skill-block.ts:1-22`, including anchored LF grammar, candidate-closing-delimiter backtracking, JavaScript trim semantics, and exclusion of lone UTF-16 surrogates at the Rust scalar-string boundary; the pinned package export is near `packages/coding-agent/src/index.ts:281`.
+- [x] Compare the skill-block parser through exactly 10 persistent differential requests (`13138..=13147`), with runtime public-index proof separated from direct-module exact-shape/mutability typeproof; current focused, differential, and oracle evidence is recorded in the [dedicated spec](skill-block.md) and [traceability](../porting/traceability/skill-block.md).
 
 ## How it works
 
@@ -86,6 +88,9 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-coding-agent/tests/config_value_references.rs`
 - `crates/pi-coding-agent/tests/config_value_status.rs`
 - `crates/pi-coding-agent/tests/differential_config_value_references.rs`
+- `crates/pi-coding-agent/tests/skill_block.rs`
+- `crates/pi-coding-agent/tests/differential_skill_block.rs`
+- `oracle/skill-block-typecheck.mjs`
 - `crates/pi-agent-core/tests/truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate.rs`
 - `crates/pi-agent-core/tests/harness_errors.rs`
