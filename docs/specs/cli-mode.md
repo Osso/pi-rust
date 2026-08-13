@@ -37,7 +37,7 @@ This specification covers the direct-module `Mode` union from `packages/coding-a
 - [x] Because the TypeScript alias is erased at runtime, the oracle proves direct-module loadability and compares only source-shaped typed literals; the standalone typeproof proves the exact union.
 - [x] Final integration at code/proof HEAD `95fbc1f`: workspace `273 passed, 0 failed, 2 ignored`; workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle/typeproof, Node syntax, formatting, slice-range diff, changed-file readability, documentation, dependency/lock, and clean-pin gates pass.
 - [x] The Rust worktree is clean at `95fbc1f`; the source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
-- [ ] Inherited independent verification remains pending.
+- [x] Inherited independent verification at Rust HEAD `ef07d41` passes focused 1/0, differential request `13176` 1/0, aggregate oracle/typeproof, formatting, slice-range diff, saved final artifacts, scope, documentation, dependencies, and clean pins (`OVERALL: PASS`).
 
 No dependency change or deployment applies to this slice.
 
