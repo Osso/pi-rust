@@ -9,6 +9,10 @@ This specification covers the module-local `CompactionDetails` interface from `p
 - Do not add a harness-root or package re-export because the pinned package index omits `CompactionDetails`.
 - Differential proof compares final source-shaped plain records through exactly eight request groups `13156..=13163`; the oracle does not implement extraction or compaction behavior.
 
+## Verification closure
+
+- [x] Current-HEAD inherited verification: focused 2 passed/0 failed, differential 1 passed/0 failed, oracle/fmt/diff exit 0; saved workspace 254 passed/0 failed/2 ignored plus check and all-feature Clippy with `-D warnings` pass. `OVERALL: PASS`.
+
 ## Out of scope
 
 File-operation extraction, session entries, compaction orchestration, `CompactResult`, constructors, serialization, validation, package/root exports, and unrelated compaction APIs remain deferred.

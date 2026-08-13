@@ -19,3 +19,4 @@ The differential adapter reconstructs and compares final source-shaped records o
 - Focused final: `/tmp/pi-rust-compaction-details-final-focused.out`
 - Differential final: `/tmp/pi-rust-compaction-details-final-differential.out`
 - Oracle/type proof final: `/tmp/pi-rust-compaction-details-final-oracle.out`
+- Inherited verification: at clean HEAD `859641f`, focused results were 2 passed and 0 failed, differential results were 1 passed and 0 failed, and oracle, formatting, and diff checks exited 0. Saved workspace results of 254 passed, 0 failed, and 2 ignored plus workspace check and all-feature Clippy with `-D warnings` remain valid. `OVERALL: PASS`.

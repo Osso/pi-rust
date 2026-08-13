@@ -16,7 +16,7 @@ No approved safe Rust API representation currently preserves both direct package
 - A function returning `CompactionSettings` changes the export shape and identity semantics.
 - `static mut` could model shared mutation only through unsafe access, which is outside the approved safe Rust boundary.
 
-The pinned runtime probe `/tmp/pi-rust-default-compaction-settings-probe.out` reports mutation output `reserveTokens: 0`, `keepRecentTokens: null`, and `sameObject: true`. `null` is invalid at the approved typed Rust boundary and intentionally excluded. No production Rust code is added until an approved representation exists.
+The pinned runtime probe `/tmp/pi-rust-default-compaction-settings-probe.out` reports mutation output `reserveTokens: 0`, `keepRecentTokens: null`, and `sameObject: true`. `null` is invalid at the approved typed Rust boundary and intentionally excluded. Independent audit at clean HEAD `859641f` confirmed this discrepancy classification. No production Rust code is added until an approved representation exists.
 
 ## Out of scope
 

@@ -13,4 +13,4 @@ Pinned source: `packages/agent/src/harness/compaction/compaction.ts:162-166` and
 
 ## Discrepancy
 
-A Rust `const` value is copied at each use and cannot provide one shared mutable object identity; a factory changes export shape and identity semantics. `static mut` would require unsafe access. The discrepancy remains recorded rather than silently selecting either behavior.
+A Rust `const` value is copied at each use and cannot provide one shared mutable object identity; a factory changes export shape and identity semantics. `static mut` would require unsafe access. Independent audit at clean HEAD `859641f` confirmed the classification. The discrepancy remains recorded rather than silently selecting either behavior.
