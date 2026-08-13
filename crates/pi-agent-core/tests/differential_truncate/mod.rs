@@ -13,6 +13,7 @@ mod image;
 mod oracle;
 mod prompt_template_diagnostic;
 mod prompt_templates;
+mod queue_mode;
 mod resources;
 mod sanitize;
 mod skill_formatting;
@@ -64,4 +65,5 @@ pub(crate) fn run() {
     cut_point_result::compare_all_fixtures(&mut oracle);
     context_usage_estimate::compare_all_fixtures(&mut oracle);
     compaction_details::compare_all_fixtures(&mut oracle);
+    queue_mode::compare(&mut oracle);
 }

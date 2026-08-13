@@ -30,6 +30,7 @@ import type {
 	PromptTemplate,
 	PromptTemplateDiagnostic,
 	PromptTemplateDiagnosticCode,
+	QueueMode,
 	Skill,
 } from ${JSON.stringify(publicIndexPath)};
 
@@ -82,6 +83,9 @@ type ExpectedCompactionSettings = {
 	keepRecentTokens: number;
 };
 type CompactionSettingsIsExact = Assert<Exact<CompactionSettings, ExpectedCompactionSettings>>;
+
+type ExpectedQueueMode = "all" | "one-at-a-time";
+type QueueModeIsExact = Assert<Exact<QueueMode, ExpectedQueueMode>>;
 
 type ExpectedPromptTemplateDiagnosticCode = "file_info_failed" | "list_failed" | "read_failed" | "parse_failed";
 type PromptTemplateDiagnosticCodeIsExact = Assert<
@@ -199,6 +203,13 @@ compactionSettings.keepRecentTokens = Number.NaN;
 compactionSettings.keepRecentTokens = Number.POSITIVE_INFINITY;
 compactionSettings.keepRecentTokens = Number.NEGATIVE_INFINITY;
 const compactionDecision = shouldCompact(Number.MAX_VALUE, -Number.MAX_VALUE, compactionSettings);
+
+let queueMode: QueueMode = "all";
+queueMode = "one-at-a-time";
+// @ts-expect-error QueueMode excludes the empty literal.
+queueMode = "";
+// @ts-expect-error QueueMode excludes the alternate spelling.
+queueMode = "one_at_a_time";
 
 let promptDiagnostic: PromptTemplateDiagnostic = {
 	type: "warning",

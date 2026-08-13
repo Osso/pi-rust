@@ -282,6 +282,17 @@ type CompactionDetailsRequest = {
 	cases: CompactionDetailsCaseRequest[];
 };
 
+type QueueModeCaseRequest = {
+	name: string;
+	mode: "all" | "one-at-a-time";
+};
+
+type QueueModeRequest = {
+	id: RequestId;
+	operation: "queue_mode";
+	cases: QueueModeCaseRequest[];
+};
+
 type MutableBashExecutionMessageRecord = {
 	role: "bashExecution";
 	command: string;
@@ -530,6 +541,7 @@ type Request =
 	| CutPointResultRequest
 	| ContextUsageEstimateRequest
 	| CompactionDetailsRequest
+	| QueueModeRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<
@@ -541,7 +553,8 @@ type UtilityRequest = Exclude<
 		SummarizationSystemPromptRequest |
 		CutPointResultRequest |
 		ContextUsageEstimateRequest |
-		CompactionDetailsRequest
+		CompactionDetailsRequest |
+		QueueModeRequest
 >;
 type FormatSizeRequest = Extract<UtilityRequest, { operation: "format_size" }>;
 type TruncationRequest = Extract<
@@ -1072,6 +1085,14 @@ function executeCompactionDetailsRequest(request: CompactionDetailsRequest): Res
 	return successfulResponse(request.id, { results });
 }
 
+function executeQueueModeRequest(request: QueueModeRequest): Response {
+	const results = request.cases.map((input) => ({
+		name: input.name,
+		mode: input.mode,
+	}));
+	return successfulResponse(request.id, { results });
+}
+
 function executeShouldCompactRequest(request: ShouldCompactRequest, api: HarnessTypesApi): Response {
 	const results = request.cases.map((input) => ({
 		name: input.name,
@@ -1193,6 +1214,7 @@ function executeSpecialRequest(request: Request, apis: OracleApis): Response | u
 	if (request.operation === "cut_point_result") return executeCutPointResultRequest(request);
 	if (request.operation === "context_usage_estimate") return executeContextUsageEstimateRequest(request);
 	if (request.operation === "compaction_details") return executeCompactionDetailsRequest(request);
+	if (request.operation === "queue_mode") return executeQueueModeRequest(request);
 	if (request.operation === "harness_error") return executeHarnessError(request, apis.harnessTypes);
 	return undefined;
 }

@@ -9,6 +9,8 @@ This specification covers the typed `QueueMode` union from `packages/agent/src/t
 - [x] Return the exact source literals `"all"` and `"one-at-a-time"` from `as_str`.
 - [x] Re-export `QueueMode` from `pi_agent_core::harness` without a crate-root direct re-export.
 - [x] Cover both variants, literals, equality, copying, Debug output, and the harness-root import in focused behavioral tests.
+- [x] Compare both source literals through one persistent source-shaped plain-value differential group (`13164`); the Rust side normalizes `QueueMode::as_str`, and the oracle returns final literals only.
+- [x] Prove the package-index `QueueMode` union is exactly `"all" | "one-at-a-time"`, including both valid assignments and rejected empty/alternate literals.
 
 ## How it works
 
@@ -19,16 +21,21 @@ This specification covers the typed `QueueMode` union from `packages/agent/src/t
 - `crates/pi-agent-core/src/harness/types.rs` — closed enum and literal mapping.
 - `crates/pi-agent-core/src/harness/mod.rs` — harness-root re-export.
 - `crates/pi-agent-core/tests/queue_mode.rs` — focused behavioral/API proof.
-- `run-tests.sh` — focused test registration.
+- `crates/pi-agent-core/tests/differential_truncate/queue_mode.rs` — one persistent plain-value differential group.
+- `oracle/truncate-oracle.ts` — plain-value oracle normalization only.
+- `oracle/public-index-typecheck.mjs` — strict package-index type proof.
+- `run-tests.sh` — focused and oracle registrations.
 
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/queue_mode.rs`
+- `crates/pi-agent-core/tests/differential_truncate/queue_mode.rs`
+- `oracle/public-index-typecheck.mjs`
 
 ## Known gaps (current cycle)
 
-None for the focused production/value phase.
+Final workspace/static/inherited verification remains pending for this proof-only change.
 
 ## Out of scope
 
-Queue draining, parsing, `FromStr`, `Display`, serde, validation, `ToolExecutionMode`, dependencies, differential/oracle fixtures, and adjacent queue APIs remain deferred.
+Queue draining, parsing, `FromStr`, `Display`, serde, validation, `ToolExecutionMode`, dependencies, runtime constructors, and adjacent queue APIs remain deferred.
