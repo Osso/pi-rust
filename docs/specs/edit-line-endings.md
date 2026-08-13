@@ -19,7 +19,7 @@ Agent-core ports the pure line-ending and leading-BOM helpers used by the edit t
 ### Boundary and proof
 
 - [x] Keep the helpers pure, standard-library-only, module-only, and independent from file I/O, diff generation, fuzzy matching, and edit orchestration.
-- [ ] Compare the four helpers directly with the pinned TypeScript source through eight differential fixtures (`13081..=13088`) after the focused production slice.
+- [x] Compare the four helpers directly with the pinned TypeScript source through eight differential fixtures (`13081..=13088`) in one persistent oracle operation.
 
 ## How it works
 
@@ -30,8 +30,8 @@ Agent-core ports the pure line-ending and leading-BOM helpers used by the edit t
 - `crates/pi-agent-core/src/harness/tools/edit_diff.rs` — line-ending and BOM helpers.
 - `crates/pi-agent-core/src/harness/tools/mod.rs` — module-only public boundary.
 - `crates/pi-agent-core/tests/edit_line_endings.rs` — focused behavior proof.
-- `crates/pi-agent-core/tests/differential_truncate/edit_line_endings.rs` — pending pinned differential fixtures.
-- `oracle/truncate-oracle.ts` — pending persistent edit-helper oracle operation.
+- `crates/pi-agent-core/tests/differential_truncate/edit_line_endings.rs` — eight pinned differential fixture groups (`13081..=13088`).
+- `oracle/truncate-oracle.ts` — persistent `edit_text_helpers` operation and direct `edit-diff.ts` module import.
 - `run-tests.sh` — focused test registration.
 
 ## Tests asserting this spec
@@ -42,7 +42,7 @@ Agent-core ports the pure line-ending and leading-BOM helpers used by the edit t
 
 ## Known gaps (current cycle)
 
-- [ ] Direct pinned differential proof and oracle operation remain pending at request IDs `13081..=13088`.
+None for this bounded line-ending/BOM differential slice. Edit application, fuzzy matching, diff generation, and orchestration remain out of scope.
 
 ## Out of scope
 

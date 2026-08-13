@@ -27,7 +27,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve focused image MIME detection and standard Base64 behavior through `crates/pi-agent-core/tests/image.rs`.
 - [x] Compare image MIME detection and Base64 output directly with the pinned TypeScript module through 12 persistent differential request groups (`13069..=13080`) in `crates/pi-agent-core/tests/differential_truncate/image.rs`.
 - [x] Preserve the focused edit-diff line-ending and BOM helper contract in `crates/pi-agent-core/tests/edit_line_endings.rs`.
-- [ ] Compare the edit-diff line-ending and BOM helpers directly with the pinned TypeScript source through request IDs `13081..=13088`.
+- [x] Compare the edit-diff line-ending and BOM helpers directly with the pinned TypeScript source through eight persistent request groups (`13081..=13088`) in `crates/pi-agent-core/tests/differential_truncate/edit_line_endings.rs`.
 - [x] Preserve exact coding-agent auth command names, usage strings, and help selection over Rust-representable strings.
 - [x] Preserve exact coding-agent auth parser errors, argument ordering, flags, and field-specific expiry-number behavior against the pinned source.
 - [x] Preserve pure config-value command classification and environment-reference parsing against the pinned source.
@@ -88,6 +88,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-agent-core/tests/image.rs`
 - `crates/pi-agent-core/tests/differential_truncate/image.rs`
 - `crates/pi-agent-core/tests/edit_line_endings.rs`
+- `crates/pi-agent-core/tests/differential_truncate/edit_line_endings.rs`
 - `oracle/public-index-typecheck.mjs`
 
 ## Known gaps (current cycle)

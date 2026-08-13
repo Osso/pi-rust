@@ -48,6 +48,13 @@ type ImageApi = {
 	encodeBase64(bytes: Uint8Array): string;
 };
 
+type EditDiffApi = {
+	detectLineEnding(content: string): "\r\n" | "\n";
+	normalizeToLF(text: string): string;
+	restoreLineEndings(text: string, ending: "\r\n" | "\n"): string;
+	stripBom(content: string): { bom: string; text: string };
+};
+
 type FileKind = "file" | "directory" | "symlink";
 
 type FileInfoRequest = {
@@ -145,6 +152,21 @@ type ImageHelpersRequest = {
 	id: RequestId;
 	operation: "image_helpers";
 	cases: ImageCaseRequest[];
+};
+
+type EditTextCaseRequest = {
+	name: string;
+	detectionInput: string;
+	normalizationInput: string;
+	restorationInput: string;
+	restorationEnding: "\r\n" | "\n";
+	bomInput: string;
+};
+
+type EditTextHelpersRequest = {
+	id: RequestId;
+	operation: "edit_text_helpers";
+	cases: EditTextCaseRequest[];
 };
 
 type MutableSkillRecord = {
@@ -321,6 +343,7 @@ type Request =
 	| PromptTemplateRequest
 	| SkillFormattingRequest
 	| ImageHelpersRequest
+	| EditTextHelpersRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<Request, HarnessErrorRequest>;
@@ -544,6 +567,20 @@ function executeImageHelpers(request: ImageHelpersRequest, api: ImageApi): Respo
 	return successfulResponse(request.id, { results });
 }
 
+function executeEditTextHelpers(request: EditTextHelpersRequest, api: EditDiffApi): Response {
+	const results = request.cases.map((editCase) => {
+		const stripped = api.stripBom(editCase.bomInput);
+		return {
+			name: editCase.name,
+			detectedEnding: api.detectLineEnding(editCase.detectionInput),
+			normalized: api.normalizeToLF(editCase.normalizationInput),
+			restored: api.restoreLineEndings(editCase.restorationInput, editCase.restorationEnding),
+			stripped,
+		};
+	});
+	return successfulResponse(request.id, { results });
+}
+
 function successfulResponse(id: RequestId, output: unknown): Response {
 	return { id, ok: true, output };
 }
@@ -720,6 +757,7 @@ function executeUtilityRequest(
 	skillFormatting: SkillFormattingApi,
 	systemPrompt: SystemPromptApi,
 	image: ImageApi,
+	editDiff: EditDiffApi,
 ): Response {
 	switch (request.operation) {
 		case "format_size":
@@ -743,6 +781,8 @@ function executeUtilityRequest(
 			return executeSkillFormattingRequest(request, skillFormatting, systemPrompt);
 		case "image_helpers":
 			return executeImageHelpers(request, image);
+		case "edit_text_helpers":
+			return executeEditTextHelpers(request, editDiff);
 	}
 }
 
@@ -760,6 +800,7 @@ function execute(request: Request, apis: OracleApis): Response {
 			apis.skillFormatting,
 			apis.systemPrompt,
 			apis.image,
+			apis.editDiff,
 		);
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };
@@ -782,7 +823,7 @@ type CommonJsModule = {
 	exports: Record<string, unknown>;
 };
 
-function readModulePaths(): [string, string, string, string, string, string, string, string] {
+function readModulePaths(): [string, string, string, string, string, string, string, string, string] {
 	const truncateModulePath = process.argv[2];
 	const shellOutputModulePath = process.argv[3];
 	const agentModulePath = process.argv[4];
@@ -790,7 +831,8 @@ function readModulePaths(): [string, string, string, string, string, string, str
 	const skillsModulePath = process.argv[6];
 	const systemPromptModulePath = process.argv[7];
 	const imageModulePath = process.argv[8];
-	const esbuildModulePath = process.argv[9];
+	const editDiffModulePath = process.argv[9];
+	const esbuildModulePath = process.argv[10];
 	if (
 		truncateModulePath === undefined ||
 		shellOutputModulePath === undefined ||
@@ -799,10 +841,11 @@ function readModulePaths(): [string, string, string, string, string, string, str
 		skillsModulePath === undefined ||
 		systemPromptModulePath === undefined ||
 		imageModulePath === undefined ||
+		editDiffModulePath === undefined ||
 		esbuildModulePath === undefined
 	) {
 		throw new Error(
-			"agent utility oracle requires truncate, shell-output, agent-package, prompt-template, skills, system-prompt, image, and esbuild module paths",
+			"agent utility oracle requires truncate, shell-output, agent-package, prompt-template, skills, system-prompt, image, edit-diff, and esbuild module paths",
 		);
 	}
 	return [
@@ -813,6 +856,7 @@ function readModulePaths(): [string, string, string, string, string, string, str
 		skillsModulePath,
 		systemPromptModulePath,
 		imageModulePath,
+		editDiffModulePath,
 		esbuildModulePath,
 	];
 }
@@ -840,6 +884,7 @@ type OracleApis = {
 	skillFormatting: SkillFormattingApi;
 	systemPrompt: SystemPromptApi;
 	image: ImageApi;
+	editDiff: EditDiffApi;
 };
 
 async function loadApis(): Promise<OracleApis> {
@@ -851,6 +896,7 @@ async function loadApis(): Promise<OracleApis> {
 		skillsModulePath,
 		systemPromptModulePath,
 		imageModulePath,
+		editDiffModulePath,
 		esbuildModulePath,
 	] = readModulePaths();
 	const normal = (await import(pathToFileURL(truncateModulePath).href)) as TruncateApi;
@@ -861,7 +907,8 @@ async function loadApis(): Promise<OracleApis> {
 	const skillFormatting = (await import(pathToFileURL(skillsModulePath).href)) as SkillFormattingApi;
 	const systemPrompt = (await import(pathToFileURL(systemPromptModulePath).href)) as SystemPromptApi;
 	const image = (await import(pathToFileURL(imageModulePath).href)) as ImageApi;
-	return { normal, fallback, shellOutput, harnessTypes, promptTemplates, skillFormatting, systemPrompt, image };
+	const editDiff = (await import(pathToFileURL(editDiffModulePath).href)) as EditDiffApi;
+	return { normal, fallback, shellOutput, harnessTypes, promptTemplates, skillFormatting, systemPrompt, image, editDiff };
 }
 
 function executeRequestLine(line: string, apis: OracleApis): void {
