@@ -24,13 +24,15 @@ typecheck_oracle() {
 		oracle/truncate-oracle.ts \
 		oracle/auth-command-oracle.ts \
 		oracle/config-value-reference-oracle.ts \
-		oracle/skill-block-oracle.ts
+		oracle/skill-block-oracle.ts \
+		oracle/default-thinking-level-oracle.ts
 	node oracle/public-index-typecheck.mjs
 	node oracle/skill-block-typecheck.mjs
 	node oracle/summarization-system-prompt-typecheck.mjs
 	node oracle/cut-point-result-typecheck.mjs
 	node oracle/context-usage-estimate-typecheck.mjs
 	node oracle/compaction-details-typecheck.mjs
+	node oracle/default-thinking-level-typecheck.mjs
 }
 
 case "${1:-all}" in
@@ -43,7 +45,7 @@ case "${1:-all}" in
 	differential)
 		shift
 		cargo test -p pi-protocol --test differential_protocol "$@"
-		cargo test -p pi-coding-agent --test differential_rpc_jsonl --test differential_auth_command --test differential_config_value_references --test differential_skill_block "$@"
+		cargo test -p pi-coding-agent --test differential_rpc_jsonl --test differential_auth_command --test differential_config_value_references --test differential_skill_block --test differential_default_thinking_level "$@"
 		exec cargo test -p pi-agent-core --test differential_truncate "$@"
 		;;
 	oracle)

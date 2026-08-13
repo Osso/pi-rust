@@ -52,6 +52,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve pure config-value command classification and environment-reference parsing against the pinned source.
 - [x] Preserve config-value missing/configured status and environment truthiness against the pinned source.
 - [x] Preserve direct-module `DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium"` from `coding-agent/src/core/defaults.ts:1-3` through the exact local agent-core dependency; the pinned coding-agent package index omits this constant, so Rust adds no core/crate-root re-export. Resolver, session, SDK, CLI, provider, and protocol behavior remain excluded.
+- [x] Compare the actual direct-module default through persistent differential request `13167` and a standalone direct-module type/value proof; no coding-agent package-index claim is made.
 - [x] Preserve `ParsedSkillBlock` fields and `parse_skill_block` behavior from `packages/coding-agent/src/core/skill-block.ts:1-22`, including anchored LF grammar, candidate-closing-delimiter backtracking, JavaScript trim semantics, and exclusion of lone UTF-16 surrogates at the Rust scalar-string boundary; the pinned package export is near `packages/coding-agent/src/index.ts:281`.
 - [x] Compare the skill-block parser through exactly 10 persistent differential requests (`13138..=13147`), with runtime public-index proof separated from direct-module exact-shape/mutability typeproof; current focused, differential, and oracle evidence is recorded in the [dedicated spec](skill-block.md) and [traceability](../porting/traceability/skill-block.md).
 
@@ -96,6 +97,9 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-coding-agent/tests/config_value_status.rs`
 - `crates/pi-coding-agent/tests/defaults.rs`
 - `crates/pi-coding-agent/tests/differential_config_value_references.rs`
+- `crates/pi-coding-agent/tests/differential_default_thinking_level.rs`
+- `oracle/default-thinking-level-oracle.ts`
+- `oracle/default-thinking-level-typecheck.mjs`
 - `crates/pi-coding-agent/tests/skill_block.rs`
 - `crates/pi-coding-agent/tests/differential_skill_block.rs`
 - `oracle/skill-block-typecheck.mjs`
