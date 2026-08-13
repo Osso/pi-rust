@@ -1,6 +1,7 @@
 mod edit_line_endings;
 mod errors;
 mod file_info;
+mod file_operations;
 mod format_size;
 mod image;
 mod oracle;
@@ -23,6 +24,7 @@ pub(crate) fn run() {
         "packages/agent/src/harness/system-prompt.ts",
         "packages/agent/src/harness/tools/image.ts",
         "packages/agent/src/harness/tools/edit-diff.ts",
+        "packages/agent/src/harness/compaction/utils.ts",
     ]);
     format_size::compare_all_fixtures(&mut oracle);
     sanitize::compare_all_fixtures(&mut oracle);
@@ -38,4 +40,5 @@ pub(crate) fn run() {
     skill_formatting::compare_all_fixtures(&mut oracle);
     image::compare_all_fixtures(&mut oracle);
     edit_line_endings::compare_all_fixtures(&mut oracle);
+    file_operations::compare_all_fixtures(&mut oracle);
 }

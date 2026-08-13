@@ -16,7 +16,7 @@ This bounded slice ports the pure file-summary formatter from `packages/agent/sr
 
 - [x] Keep the helper pure, standard-library-only, and module-only. Do not add a harness-root re-export, generic parameter forms, or adjacent compaction utilities.
 - [x] Cover the focused contract in `crates/pi-agent-core/tests/file_operations.rs` and register it in `run-tests.sh`.
-- [ ] Compare direct differential request groups `13089..=13095` against the pinned TypeScript source.
+- [x] Compare direct differential request groups `13089..=13095` against the pinned TypeScript source.
 
 ## How it works
 
@@ -27,17 +27,19 @@ This bounded slice ports the pure file-summary formatter from `packages/agent/sr
 - `crates/pi-agent-core/src/harness/compaction/utils.rs` — pure formatter.
 - `crates/pi-agent-core/src/harness/compaction/mod.rs` — module-only boundary.
 - `crates/pi-agent-core/tests/file_operations.rs` — focused behavioral/API proof.
-- `crates/pi-agent-core/tests/differential_truncate/file_operations.rs` — planned pinned differential proof.
-- `oracle/truncate-oracle.ts` — planned direct `formatFileOperations` oracle operation.
+- `crates/pi-agent-core/tests/differential_truncate/file_operations.rs` — seven pinned differential fixture groups (`13089..=13095`).
+- `oracle/truncate-oracle.ts` — persistent direct `formatFileOperations` oracle operation.
 - `run-tests.sh` — focused test registration.
 
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/file_operations.rs`
+- `crates/pi-agent-core/tests/differential_truncate.rs`
+- `crates/pi-agent-core/tests/differential_truncate/file_operations.rs`
 
 ## Known gaps (current cycle)
 
-Direct differential proof remains pending.
+None for this bounded formatter slice.
 
 ## Out of scope
 
