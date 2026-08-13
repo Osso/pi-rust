@@ -41,7 +41,7 @@ Pinned source: `packages/agent/src/types.ts:387-393` and package export `package
 - `/tmp/pi-rust-agent-tool-execution-context-final-readability.out` records the final changed-file readability audit passing without suppressions or new violations.
 - Documentation and dependency/lock audits pass; `9b38206..4e524da` changes no Cargo manifest or lockfile. No deployment applies.
 - The Rust worktree is clean at `4e524da`; the pinned source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
-- Inherited independent verification remains pending.
+- Inherited independent verification at clean Rust HEAD `b84c1c5` freshly passes focused 5/0, differential 1/0 for requests `13168..=13175`, oracle/typeproof, formatting, and slice-range diff; it confirms the saved workspace/static/readability artifacts, exact scope, documentation, dependency/lock audit, and clean pins (`OVERALL: PASS`).
 
 ## Exclusions
 

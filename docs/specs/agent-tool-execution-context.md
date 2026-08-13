@@ -44,6 +44,6 @@ The record preserves lifecycle metadata shape only. It does not implement timest
 - [x] Final oracle/typeproof, both Node syntax checks, formatting, and slice-range diff checks exit 0.
 - [x] Changed Rust/TypeScript/JavaScript readability, documentation, dependency/lock, and clean-pin audits pass.
 - [x] The Rust worktree is clean at `4e524da`; the source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
-- [ ] Inherited independent verification remains pending.
+- [x] Inherited independent verification at Rust HEAD `b84c1c5` passes focused 5/0, differential 1/0 for requests `13168..=13175`, oracle/typeproof, formatting, slice-range diff, saved final artifacts, scope, documentation, dependencies, and clean pins (`OVERALL: PASS`).
 
 No dependency change or deployment applies to this slice.
