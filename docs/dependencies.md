@@ -6,7 +6,7 @@ All direct dependencies are exact-pinned.
 
 ### `pi-coding-agent`
 
-- Auth commands, config-value reference/environment-status helpers, `ParsedSkillBlock`/`parse_skill_block`, and the focused direct-module CLI `Mode` value use only the Rust standard library.
+- Auth commands, config-value reference/environment-status helpers, `ParsedSkillBlock`/`parse_skill_block`, the focused direct-module CLI `Mode` value, and the focused direct-module `isValidThinkingLevel` predicate use only the Rust standard library beyond the existing exact local `pi-agent-core` type dependency.
 - `pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }` — supplies the typed `ThinkingLevel` used by the direct-module default constant. The Cargo.lock change adds this dependency only to `pi-coding-agent`; no registry package or unrelated lock entry changes.
 - `serde = 1.0.229` — exposes the typed serialization contract used by RPC JSONL records.
 - `serde_json = 1.0.151` — produces compact semantic JSON before the LF record delimiter.
