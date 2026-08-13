@@ -46,4 +46,4 @@ This specification covers the typed `QueueMode` union from `packages/agent/src/t
 
 ## Out of scope
 
-Queue draining, parsing, `FromStr`, `Display`, serde, validation, `ToolExecutionMode`, dependencies, runtime constructors, and adjacent queue APIs remain deferred.
+Queue draining, parsing, `FromStr`, `Display`, serde, validation, dependencies, runtime constructors, and adjacent queue APIs remain deferred.

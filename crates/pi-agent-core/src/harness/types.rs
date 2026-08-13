@@ -26,6 +26,23 @@ pub struct AgentHarnessResources {
     pub skills: Option<Vec<Skill>>,
 }
 
+/// Controls how tool calls from one assistant message are executed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolExecutionMode {
+    Sequential,
+    Parallel,
+}
+
+impl ToolExecutionMode {
+    /// Returns the exact TypeScript source literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Sequential => "sequential",
+            Self::Parallel => "parallel",
+        }
+    }
+}
+
 /// Controls how queued messages are drained at a queue point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueueMode {

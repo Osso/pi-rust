@@ -42,6 +42,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve module-local mutable `ContextUsageEstimate` fields and unrestricted binary64 values from `compaction.ts:200-208`; the package index exports `estimateContextTokens` but omits `type ContextUsageEstimate`, so Rust remains without a harness-root/package export; focused, eight-group differential, direct-module shape/mutation, workspace, static, readability, documentation, and clean-pin proof pass, without producer/runtime-construction or public-index claims.
 - [x] Preserve module-local mutable `CompactionDetails` fields from `compaction.ts:30-35`; the package index omits the interface, so Rust remains module-only; compare final source-shaped records through eight direct differential groups (`13156..=13163`) and prove exact direct-module shape/mutation without extraction or orchestration claims.
 - [x] Preserve the closed `QueueMode` value from `types.ts:44-50`, exact `all`/`one-at-a-time` literals, and harness-root export through focused behavioral tests; compare both final source-shaped literals through exactly one persistent differential request group (`13164`) and prove the exact package-index union with strict valid/invalid assignments. Runtime constructors, parsing, validation, and queue behavior remain excluded.
+- [x] Preserve the closed `ToolExecutionMode` value from `types.ts:34-42`, exact `sequential`/`parallel` literals, and harness-root export through focused behavioral tests only; differential/oracle support and tool scheduling remain deferred.
 - [ ] `DEFAULT_COMPACTION_SETTINGS` remains deferred: no approved safe Rust API representation currently preserves both direct package-level object access and shared mutable identity. A Rust `const` value is copied at each use, a factory changes export shape, and `static mut` requires unsafe access. The pinned probe reports `reserveTokens: 0`, `keepRecentTokens: null`, and `sameObject: true`; `null` is invalid at the approved typed Rust boundary and intentionally excluded. Record the discrepancy; do not add a fallback.
 - [x] Preserve focused `PromptTemplateDiagnosticCode`, `PromptTemplateDiagnosticType`, and mutable `PromptTemplateDiagnostic` values and module/root exports from `prompt-templates.ts:4-16`.
 - [x] Compare prompt-template diagnostic values directly with the pinned TypeScript source through exactly eight persistent differential request groups (`13121..=13128`) and strict public-index type proof.
@@ -104,6 +105,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `crates/pi-agent-core/tests/differential_truncate/context_usage_estimate.rs`
 - `crates/pi-agent-core/tests/queue_mode.rs`
 - `crates/pi-agent-core/tests/differential_truncate/queue_mode.rs`
+- `crates/pi-agent-core/tests/tool_execution_mode.rs`
 - `crates/pi-agent-core/tests/file_info.rs`
 - `crates/pi-agent-core/tests/resources.rs`
 - `crates/pi-agent-core/tests/sanitize_binary_output.rs`

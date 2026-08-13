@@ -17,4 +17,5 @@ pub use messages::{
 pub use types::{
     AgentHarnessResources, BranchSummaryError, BranchSummaryErrorCode, CompactionError, CompactionErrorCode,
     ExecutionError, ExecutionErrorCode, FileError, FileErrorCode, FileInfo, FileKind, PromptTemplate, QueueMode, Skill,
+    ToolExecutionMode,
 };

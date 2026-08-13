@@ -33,4 +33,4 @@ Pinned source: `packages/agent/src/types.ts:44-50` and package export `packages/
 
 ## Exclusions
 
-Queue draining, parsing, `FromStr`, `Display`, serde, validation, `ToolExecutionMode`, runtime constructors, dependencies, and adjacent queue APIs remain deferred.
+Queue draining, parsing, `FromStr`, `Display`, serde, validation, runtime constructors, dependencies, and adjacent queue APIs remain deferred.
