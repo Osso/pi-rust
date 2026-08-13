@@ -22,6 +22,7 @@ mod summary_markers;
 mod support;
 mod tail_corpus;
 mod targeted;
+mod thinking_level;
 mod tool_execution_mode;
 mod truncate_line;
 
@@ -68,4 +69,5 @@ pub(crate) fn run() {
     compaction_details::compare_all_fixtures(&mut oracle);
     queue_mode::compare(&mut oracle);
     tool_execution_mode::compare(&mut oracle);
+    thinking_level::compare(&mut oracle);
 }

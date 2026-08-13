@@ -304,6 +304,19 @@ type ToolExecutionModeRequest = {
 	cases: ToolExecutionModeCaseRequest[];
 };
 
+type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
+
+type ThinkingLevelCaseRequest = {
+	name: string;
+	level: ThinkingLevel;
+};
+
+type ThinkingLevelRequest = {
+	id: RequestId;
+	operation: "thinking_level";
+	cases: ThinkingLevelCaseRequest[];
+};
+
 type MutableBashExecutionMessageRecord = {
 	role: "bashExecution";
 	command: string;
@@ -554,6 +567,7 @@ type Request =
 	| CompactionDetailsRequest
 	| QueueModeRequest
 	| ToolExecutionModeRequest
+	| ThinkingLevelRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<
@@ -567,7 +581,8 @@ type UtilityRequest = Exclude<
 		ContextUsageEstimateRequest |
 		CompactionDetailsRequest |
 		QueueModeRequest |
-		ToolExecutionModeRequest
+		ToolExecutionModeRequest |
+		ThinkingLevelRequest
 >;
 type FormatSizeRequest = Extract<UtilityRequest, { operation: "format_size" }>;
 type TruncationRequest = Extract<
@@ -1114,6 +1129,14 @@ function executeToolExecutionModeRequest(request: ToolExecutionModeRequest): Res
 	return successfulResponse(request.id, { results });
 }
 
+function executeThinkingLevelRequest(request: ThinkingLevelRequest): Response {
+	const results = request.cases.map((input) => ({
+		name: input.name,
+		level: input.level,
+	}));
+	return successfulResponse(request.id, { results });
+}
+
 function executeShouldCompactRequest(request: ShouldCompactRequest, api: HarnessTypesApi): Response {
 	const results = request.cases.map((input) => ({
 		name: input.name,
@@ -1237,6 +1260,7 @@ function executeSpecialRequest(request: Request, apis: OracleApis): Response | u
 	if (request.operation === "compaction_details") return executeCompactionDetailsRequest(request);
 	if (request.operation === "queue_mode") return executeQueueModeRequest(request);
 	if (request.operation === "tool_execution_mode") return executeToolExecutionModeRequest(request);
+	if (request.operation === "thinking_level") return executeThinkingLevelRequest(request);
 	if (request.operation === "harness_error") return executeHarnessError(request, apis.harnessTypes);
 	return undefined;
 }

@@ -8,6 +8,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceLockPath = join(repoRoot, "docs/porting/source-lock.json");
 const sourceLock = JSON.parse(readFileSync(sourceLockPath, "utf8"));
 const sourceWorktree = sourceLock.worktree;
+// This fixture imports the pinned agent package index, not the protocol package schema.
 const publicIndexPath = join(sourceWorktree, "packages/agent/src/index.ts");
 const tsgoPath = join(sourceWorktree, "node_modules/.bin/tsgo");
 const typeRoots = join(sourceWorktree, "node_modules/@types");
@@ -32,6 +33,7 @@ import type {
 	PromptTemplateDiagnosticCode,
 	QueueMode,
 	ToolExecutionMode,
+	ThinkingLevel as AgentThinkingLevel,
 	Skill,
 } from ${JSON.stringify(publicIndexPath)};
 
@@ -90,6 +92,17 @@ type QueueModeIsExact = Assert<Exact<QueueMode, ExpectedQueueMode>>;
 
 type ExpectedToolExecutionMode = "sequential" | "parallel";
 type ToolExecutionModeIsExact = Assert<Exact<ToolExecutionMode, ExpectedToolExecutionMode>>;
+
+type ExpectedAgentThinkingLevel =
+	| "off"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh"
+	| "max"
+	| "ultra";
+type AgentThinkingLevelIsExact = Assert<Exact<AgentThinkingLevel, ExpectedAgentThinkingLevel>>;
 
 type ExpectedPromptTemplateDiagnosticCode = "file_info_failed" | "list_failed" | "read_failed" | "parse_failed";
 type PromptTemplateDiagnosticCodeIsExact = Assert<
@@ -222,6 +235,19 @@ toolExecutionMode = "";
 // @ts-expect-error ToolExecutionMode excludes the unsupported mode.
 toolExecutionMode = "concurrent";
 
+let agentThinkingLevel: AgentThinkingLevel = "off";
+agentThinkingLevel = "minimal";
+agentThinkingLevel = "low";
+agentThinkingLevel = "medium";
+agentThinkingLevel = "high";
+agentThinkingLevel = "xhigh";
+agentThinkingLevel = "max";
+agentThinkingLevel = "ultra";
+// @ts-expect-error Agent package ThinkingLevel excludes the empty literal.
+agentThinkingLevel = "";
+// @ts-expect-error Agent package ThinkingLevel excludes unsupported literals.
+agentThinkingLevel = "extreme";
+
 let promptDiagnostic: PromptTemplateDiagnostic = {
 	type: "warning",
 	code: "file_info_failed",
@@ -326,6 +352,7 @@ void branchSummaryMessage;
 void compactionSettings;
 void compactionDecision;
 void toolExecutionMode;
+void agentThinkingLevel;
 void info;
 void resources;
 void customResources;
