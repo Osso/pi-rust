@@ -1,6 +1,6 @@
 # AgentToolExecutionContext
 
-This specification covers `packages/agent/src/types.ts:387-393` and its package export through `packages/agent/src/index.ts:145` at pinned TypeScript commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
+This specification covers `packages/agent/src/types.ts:387-393` and its package export through `packages/agent/src/index.ts:145` at pinned TypeScript commit `532f7d12cd19235081bd4d6e425bde185652d86f`. Focused production is committed as `dd1cb19`; differential/public-index proof is committed as `4e524da`.
 
 ## What it must do
 
@@ -30,7 +30,6 @@ This specification covers `packages/agent/src/types.ts:387-393` and its package 
 - Targeted denied-warning Clippy, formatting, and diff checks pass in `/tmp/pi-rust-agent-tool-execution-context-clippy.out`, `/tmp/pi-rust-agent-tool-execution-context-fmt.out`, and `/tmp/pi-rust-agent-tool-execution-context-diff.out`.
 - Changed-Rust/TypeScript/JavaScript readability artifacts report no threshold violations or suppressions.
 - Differential RED/GREEN, direct public-index typeproof, Node syntax, bounded formatting/diff, and targeted differential Clippy pass.
-- Broad workspace tests/check/Clippy, final integration, documentation closeout, clean-pin, and inherited verification remain pending.
 
 ## Boundary
 
@@ -38,9 +37,13 @@ This specification covers `packages/agent/src/types.ts:387-393` and its package 
 
 The record preserves lifecycle metadata shape only. It does not implement timestamp capture, durable identity preparation, tool callbacks or results, producers, lifecycle validation, execution, scheduling, orchestration, streams, cancellation, sessions, providers, models, constructors, parsing, serde, defaults, fallbacks, protocol behavior, or coding-agent behavior.
 
-## Pending proof
+## Final integration proof
 
-- Broad workspace tests, workspace check, and all-feature Clippy with `-D warnings`.
-- Final integration formatting/diff/oracle/Node gates, documentation closeout, clean-pin audit, and inherited verification.
+- [x] At code/proof HEAD `4e524da`, `cargo test --workspace --all-targets` passes with `271 passed, 0 failed, 2 ignored`.
+- [x] Workspace check and all-target/all-feature Clippy with `-D warnings` pass.
+- [x] Final oracle/typeproof, both Node syntax checks, formatting, and slice-range diff checks exit 0.
+- [x] Changed Rust/TypeScript/JavaScript readability, documentation, dependency/lock, and clean-pin audits pass.
+- [x] The Rust worktree is clean at `4e524da`; the source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+- [ ] Inherited independent verification remains pending.
 
-No dependency change is part of this slice.
+No dependency change or deployment applies to this slice.

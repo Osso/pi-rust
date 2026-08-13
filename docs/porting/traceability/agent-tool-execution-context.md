@@ -32,9 +32,16 @@ Pinned source: `packages/agent/src/types.ts:387-393` and package export `package
 - Oracle/typeproof: `/tmp/pi-rust-agent-tool-execution-context-oracle.out` records `./run-tests.sh oracle` exit `0`; the existing public-index proof imports `AgentToolExecutionContext` from the pinned package index and proves exact fields, mutability, optionality, `number` identity, required-field rejection, and no extra required fields.
 - Bounded gates: `/tmp/pi-rust-agent-tool-execution-context-node-truncate-proof.out`, `/tmp/pi-rust-agent-tool-execution-context-node-public-index-proof.out`, `/tmp/pi-rust-agent-tool-execution-context-fmt.out`, `/tmp/pi-rust-agent-tool-execution-context-diff.out`, and `/tmp/pi-rust-agent-tool-execution-context-clippy.out` are nonempty and exit `0`.
 
-## Pending proof
+## Final integration proof
 
-Broad workspace tests, workspace check, all-feature Clippy with `-D warnings`, final integration gates, documentation closeout, clean-pin audit, and inherited verification remain pending. The bounded differential/oracle/typeproof phase does not claim those gates.
+- Code/proof HEAD: `4e524da`; focused production commit: `dd1cb19`.
+- `/tmp/pi-rust-agent-tool-execution-context-final-workspace-tests.out` records `cargo test --workspace --all-targets` exiting 0 with `271 passed, 0 failed, 2 ignored`.
+- `/tmp/pi-rust-agent-tool-execution-context-final-check.out` and `/tmp/pi-rust-agent-tool-execution-context-final-clippy.out` record workspace check and all-target/all-feature Clippy with `-D warnings` exiting 0.
+- `/tmp/pi-rust-agent-tool-execution-context-final-oracle.out`, both `/tmp/pi-rust-agent-tool-execution-context-final-node-*.out` artifacts, `/tmp/pi-rust-agent-tool-execution-context-final-fmt.out`, and `/tmp/pi-rust-agent-tool-execution-context-final-diff.out` exit 0 at `4e524da`.
+- `/tmp/pi-rust-agent-tool-execution-context-final-readability.out` records the final changed-file readability audit passing without suppressions or new violations.
+- Documentation and dependency/lock audits pass; `9b38206..4e524da` changes no Cargo manifest or lockfile. No deployment applies.
+- The Rust worktree is clean at `4e524da`; the pinned source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+- Inherited independent verification remains pending.
 
 ## Exclusions
 
