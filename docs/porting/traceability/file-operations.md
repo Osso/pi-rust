@@ -24,6 +24,7 @@ Pinned source: `packages/agent/src/harness/compaction/utils.ts:61-73` at commit 
 - Differential proof commit: `84603a4` (`test(agent): compare file operation formatting`).
 - Readability follow-up: `d5c3eb0` (`test(agent): simplify file operation fixtures`) resolves the only Rust length finding; Rust re-audit and the TypeScript oracle audit report no in-scope violations.
 - Final gates at `d5c3eb0`: 213 workspace tests passed with 0 failures and 2 ignored; workspace all-target check, all-target/all-feature Clippy with denied warnings, formatting, documentation audit, exact pinned source HEAD, clean worktrees, and commit-range diff checks passed.
+- Inherited verification completed with `OVERALL: PASS` for the bounded slice at `ff2d0ee`.
 
 ## Exclusions
 
