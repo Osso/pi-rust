@@ -1,6 +1,6 @@
 # Agent-core messages
 
-This document covers the completed summary framing constants and the value-only `BashExecutionMessage` slice from `packages/agent/src/harness/messages.ts:19-29`. Constructors, conversion, unions, and serialization remain deferred. See [message traceability](../porting/traceability/messages.md).
+This document covers the completed summary framing constants and value-only message records from `packages/agent/src/harness/messages.ts:19-29,40-45`. Constructors, conversion, unions, and serialization remain deferred. See [message traceability](../porting/traceability/messages.md).
 
 ## What it must do
 
@@ -18,6 +18,9 @@ This document covers the completed summary framing constants and the value-only 
 - [x] Add the value-only `BashExecutionMessage` with closed `BashExecutionRole::BashExecution`, public mutable fields, `Debug` only, and module/root exports.
 - [x] Cover role, field mutation, optional states, string boundaries, and binary64 bit preservation in five focused tests.
 - [x] Compare direct differential requests `13097..=13104` and the strict public-index interface proof.
+- [x] Add the value-only `BranchSummaryMessage` with closed `BranchSummaryRole::BranchSummary`, public mutable fields, `Debug` only, and module/root exports.
+- [x] Cover role, field mutation, string boundaries, and timestamp binary64 bit preservation in four focused tests.
+- [ ] Compare direct differential requests `13105..=13112` and the strict public-index interface proof.
 
 ## How it works
 
@@ -25,10 +28,11 @@ This document covers the completed summary framing constants and the value-only 
 
 ## Implementation inventory
 
-- `crates/pi-agent-core/src/harness/messages.rs` — four exact constants and Bash-execution value types.
+- `crates/pi-agent-core/src/harness/messages.rs` — four exact constants and Bash-execution/branch-summary value types.
 - `crates/pi-agent-core/src/harness/mod.rs` — module and harness-root exports.
 - `crates/pi-agent-core/tests/summary_markers.rs` — focused marker behavioral/API proof.
-- `crates/pi-agent-core/tests/bash_execution_message.rs` — focused value/API proof.
+- `crates/pi-agent-core/tests/bash_execution_message.rs` — focused Bash-execution value/API proof.
+- `crates/pi-agent-core/tests/branch_summary_message.rs` — focused branch-summary value/API proof.
 - `crates/pi-agent-core/tests/differential_truncate/summary_markers.rs` — pinned marker request `13096`.
 - `crates/pi-agent-core/tests/differential_truncate/bash_execution_message.rs` — eight plain-record request groups (`13097..=13104`).
 - `oracle/truncate-oracle.ts` — persistent marker and Bash-execution value operations.
@@ -39,6 +43,7 @@ This document covers the completed summary framing constants and the value-only 
 
 - `crates/pi-agent-core/tests/summary_markers.rs`
 - `crates/pi-agent-core/tests/bash_execution_message.rs`
+- `crates/pi-agent-core/tests/branch_summary_message.rs`
 - `crates/pi-agent-core/tests/differential_truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate/summary_markers.rs`
 - `crates/pi-agent-core/tests/differential_truncate/bash_execution_message.rs`
@@ -52,7 +57,7 @@ This document covers the completed summary framing constants and the value-only 
 
 ## Known gaps (current cycle)
 
-None for the bounded value-only `BashExecutionMessage` slice.
+Direct differential and strict public-index proof for `BranchSummaryMessage` remain pending across reserved requests `13105..=13112`.
 
 ## BashExecutionMessage value contract
 
@@ -63,6 +68,14 @@ None for the bounded value-only `BashExecutionMessage` slice.
 - `f64` fields preserve unrestricted binary64 bit patterns; no validation or normalization is added.
 - Export through `pi_agent_core::harness::messages` and `pi_agent_core::harness` is required.
 
+## BranchSummaryMessage value contract
+
+- Closed role enum: `BranchSummaryRole::BranchSummary`, with exact `as_str()` value `"branchSummary"`.
+- Public mutable `BranchSummaryMessage` derives `Debug` only.
+- Fields, in source order: `role: BranchSummaryRole`, `summary: String`, `from_id: String`, and `timestamp: f64`.
+- `timestamp` preserves unrestricted binary64 bit patterns; no validation or normalization is added.
+- Export through `pi_agent_core::harness::messages` and `pi_agent_core::harness` is required.
+
 ## Out of scope
 
-`bashExecutionToText`, conversion, message unions, session/events, compaction/UI/RPC behavior, invalid runtime shapes, constructors, serde, validation, normalization, fallbacks, dependencies, summary constructors, LLM conversion, serialization, compaction or session orchestration, escaping, trimming, newline normalization, and dynamic formatting.
+`bashExecutionToText`, `createBranchSummaryMessage`, Date or timestamp-string parsing, conversion, message unions, session/events, compaction/UI/RPC behavior, invalid runtime shapes, constructors, serde, validation, normalization, fallbacks, dependencies, other summary constructors, LLM conversion, serialization, compaction or session orchestration, escaping, trimming, newline normalization, and dynamic formatting.

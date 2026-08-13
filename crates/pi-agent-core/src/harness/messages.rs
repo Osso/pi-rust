@@ -13,6 +13,30 @@ impl BashExecutionRole {
     }
 }
 
+/// Role tag for branch-summary messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BranchSummaryRole {
+    BranchSummary,
+}
+
+impl BranchSummaryRole {
+    /// Returns the exact source role literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::BranchSummary => "branchSummary",
+        }
+    }
+}
+
+/// Value-only record for a summary returned from a conversation branch.
+#[derive(Debug)]
+pub struct BranchSummaryMessage {
+    pub role: BranchSummaryRole,
+    pub summary: String,
+    pub from_id: String,
+    pub timestamp: f64,
+}
+
 /// Value-only record for shell-command execution results.
 #[derive(Debug)]
 pub struct BashExecutionMessage {
