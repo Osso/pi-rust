@@ -24,10 +24,20 @@ This specification covers the closed `ToolExecutionMode` value from `packages/ag
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/tool_execution_mode.rs`
+- `crates/pi-agent-core/tests/differential_truncate/tool_execution_mode.rs`
+- `oracle/public-index-typecheck.mjs`
+
+## Differential/oracle proof
+
+- Request `13165` is the single persistent source-shaped plain-value group after QueueMode request `13164`; it contains both `sequential` and `parallel`.
+- `/tmp/pi-rust-tool-execution-mode-differential-red.out` records the valid unsupported-operation RED before oracle support.
+- `/tmp/pi-rust-tool-execution-mode-differential-green.out` records the differential GREEN; `/tmp/pi-rust-tool-execution-mode-oracle.out` records the pinned oracle and public-index typeproof GREEN.
+- Runtime plain-value comparison and erased public-index typeproof remain separate; no constructor, parser, validation, scheduling, execution, or event-order behavior is claimed.
 
 ## Known gaps (current cycle)
 
-- [ ] Differential/oracle comparison and broader integration verification remain deferred to a later bounded phase.
+- [x] One source-shaped differential/oracle group and strict pinned public-index typeproof cover both valid literals.
+- [ ] Broader integration verification remains deferred to a later bounded phase.
 
 ## Out of scope
 

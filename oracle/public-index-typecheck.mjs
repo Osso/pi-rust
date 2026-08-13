@@ -31,6 +31,7 @@ import type {
 	PromptTemplateDiagnostic,
 	PromptTemplateDiagnosticCode,
 	QueueMode,
+	ToolExecutionMode,
 	Skill,
 } from ${JSON.stringify(publicIndexPath)};
 
@@ -86,6 +87,9 @@ type CompactionSettingsIsExact = Assert<Exact<CompactionSettings, ExpectedCompac
 
 type ExpectedQueueMode = "all" | "one-at-a-time";
 type QueueModeIsExact = Assert<Exact<QueueMode, ExpectedQueueMode>>;
+
+type ExpectedToolExecutionMode = "sequential" | "parallel";
+type ToolExecutionModeIsExact = Assert<Exact<ToolExecutionMode, ExpectedToolExecutionMode>>;
 
 type ExpectedPromptTemplateDiagnosticCode = "file_info_failed" | "list_failed" | "read_failed" | "parse_failed";
 type PromptTemplateDiagnosticCodeIsExact = Assert<
@@ -211,6 +215,13 @@ queueMode = "";
 // @ts-expect-error QueueMode excludes the alternate spelling.
 queueMode = "one_at_a_time";
 
+let toolExecutionMode: ToolExecutionMode = "sequential";
+toolExecutionMode = "parallel";
+// @ts-expect-error ToolExecutionMode excludes the empty literal.
+toolExecutionMode = "";
+// @ts-expect-error ToolExecutionMode excludes the unsupported mode.
+toolExecutionMode = "concurrent";
+
 let promptDiagnostic: PromptTemplateDiagnostic = {
 	type: "warning",
 	code: "file_info_failed",
@@ -314,6 +325,7 @@ void bashMessageWithExplicitUndefined;
 void branchSummaryMessage;
 void compactionSettings;
 void compactionDecision;
+void toolExecutionMode;
 void info;
 void resources;
 void customResources;

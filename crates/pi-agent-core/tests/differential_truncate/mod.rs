@@ -22,6 +22,7 @@ mod summary_markers;
 mod support;
 mod tail_corpus;
 mod targeted;
+mod tool_execution_mode;
 mod truncate_line;
 
 fn spawn_oracle() -> oracle::TsOracle {
@@ -66,4 +67,5 @@ pub(crate) fn run() {
     context_usage_estimate::compare_all_fixtures(&mut oracle);
     compaction_details::compare_all_fixtures(&mut oracle);
     queue_mode::compare(&mut oracle);
+    tool_execution_mode::compare(&mut oracle);
 }
