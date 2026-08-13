@@ -1,3 +1,6 @@
+/// Exact system prompt used for conversation summarization.
+pub const SUMMARIZATION_SYSTEM_PROMPT: &str = "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.";
+
 /// Mutable compaction thresholds and retention settings.
 #[derive(Debug)]
 pub struct CompactionSettings {
