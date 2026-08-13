@@ -783,8 +783,13 @@ function executeSummaryMarkers(request: SummaryMarkersRequest, api: HarnessTypes
 }
 
 function executeBashExecutionMessage(request: BashExecutionMessageRequest): Response {
-	const results = request.cases.map((input) => normalizeBashExecutionMessage(input.name, buildBashExecutionMessage(input)));
+	const results = request.cases.map(normalizeBashExecutionInput);
 	return successfulResponse(request.id, { results });
+}
+
+function normalizeBashExecutionInput(input: BashExecutionCaseRequest): unknown {
+	const message = buildBashExecutionMessage(input);
+	return normalizeBashExecutionMessage(input.name, message);
 }
 
 function buildBashExecutionMessage(input: BashExecutionCaseRequest): MutableBashExecutionMessageRecord {
