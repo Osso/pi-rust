@@ -6,7 +6,7 @@ Pinned source: `packages/agent/src/harness/prompt-templates.ts` at commit `532f7
 |---|---|---|
 | `prompt-templates.ts:4` | `PromptTemplateDiagnosticCode` permits exactly four string literals | `harness::prompt_templates::PromptTemplateDiagnosticCode` has four closed variants and exact `as_str()` values; focused literal and equality proof |
 | `prompt-templates.ts:6-16` | `PromptTemplateDiagnostic` is a mutable required record with `type`, `code`, `message`, and `path` fields in source order | `harness::prompt_templates::PromptTemplateDiagnostic` uses public mutable fields, `Debug` only, and exact Rust value types; focused construction, mutation, export, and string-boundary proof |
-| `index.ts:77` | The package index wildcard-export includes diagnostic runtime/value exports | Rust re-exports the three diagnostic values from `pi_agent_core::harness`; focused module/root imports prove both paths |
+| `index.ts:77` | The package index wildcard-export includes the diagnostic declarations from the prompt-template module | Rust re-exports the three diagnostic types from `pi_agent_core::harness`; focused module/root imports prove both paths |
 
 ## Rust boundary
 
