@@ -20,7 +20,7 @@ This document covers the completed summary framing constants and value-only mess
 - [x] Compare direct differential requests `13097..=13104` and the strict public-index interface proof.
 - [x] Add the value-only `BranchSummaryMessage` with closed `BranchSummaryRole::BranchSummary`, public mutable fields, `Debug` only, and module/root exports.
 - [x] Cover role, field mutation, string boundaries, and timestamp binary64 bit preservation in four focused tests.
-- [ ] Compare direct differential requests `13105..=13112` and the strict public-index interface proof.
+- [x] Compare direct differential requests `13105..=13112` and the strict public-index interface proof.
 
 ## How it works
 
@@ -34,8 +34,9 @@ This document covers the completed summary framing constants and value-only mess
 - `crates/pi-agent-core/tests/bash_execution_message.rs` — focused Bash-execution value/API proof.
 - `crates/pi-agent-core/tests/branch_summary_message.rs` — focused branch-summary value/API proof.
 - `crates/pi-agent-core/tests/differential_truncate/summary_markers.rs` — pinned marker request `13096`.
-- `crates/pi-agent-core/tests/differential_truncate/bash_execution_message.rs` — eight plain-record request groups (`13097..=13104`).
-- `oracle/truncate-oracle.ts` — persistent marker and Bash-execution value operations.
+- `crates/pi-agent-core/tests/differential_truncate/bash_execution_message.rs` — eight Bash-execution plain-record groups (`13097..=13104`).
+- `crates/pi-agent-core/tests/differential_truncate/branch_summary_message.rs` — eight branch-summary plain-record groups (`13105..=13112`).
+- `oracle/truncate-oracle.ts` — persistent marker and value-record operations.
 - `oracle/public-index-typecheck.mjs` — exact marker literal and Bash-execution interface proof.
 - `run-tests.sh` — focused test registration.
 
@@ -57,7 +58,7 @@ This document covers the completed summary framing constants and value-only mess
 
 ## Known gaps (current cycle)
 
-Direct differential and strict public-index proof for `BranchSummaryMessage` remain pending across reserved requests `13105..=13112`.
+None for the bounded value-only `BranchSummaryMessage` slice.
 
 ## BashExecutionMessage value contract
 

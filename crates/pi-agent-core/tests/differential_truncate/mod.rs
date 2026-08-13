@@ -1,4 +1,5 @@
 mod bash_execution_message;
+mod branch_summary_message;
 mod edit_line_endings;
 mod errors;
 mod file_info;
@@ -45,4 +46,5 @@ pub(crate) fn run() {
     file_operations::compare_all_fixtures(&mut oracle);
     summary_markers::compare(&mut oracle);
     bash_execution_message::compare_all_fixtures(&mut oracle);
+    branch_summary_message::compare_all_fixtures(&mut oracle);
 }

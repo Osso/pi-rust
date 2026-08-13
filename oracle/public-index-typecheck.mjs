@@ -22,6 +22,7 @@ import {
 import type {
 	AgentHarnessResources,
 	BashExecutionMessage,
+	BranchSummaryMessage,
 	FileInfo,
 	FileKind,
 	PromptTemplate,
@@ -62,6 +63,14 @@ type ExpectedBashExecutionMessage = {
 	excludeFromContext?: boolean;
 };
 type BashExecutionMessageIsExact = Assert<Exact<BashExecutionMessage, ExpectedBashExecutionMessage>>;
+
+type ExpectedBranchSummaryMessage = {
+	role: "branchSummary";
+	summary: string;
+	fromId: string;
+	timestamp: number;
+};
+type BranchSummaryMessageIsExact = Assert<Exact<BranchSummaryMessage, ExpectedBranchSummaryMessage>>;
 
 type ExpectedFileKind = "file" | "directory" | "symlink";
 type ExpectedFileInfo = {
@@ -134,6 +143,20 @@ const bashMessageWithExplicitUndefined: BashExecutionMessage = {
 	timestamp: -0,
 	excludeFromContext: undefined,
 };
+
+let branchSummaryMessage: BranchSummaryMessage = {
+	role: "branchSummary",
+	summary: "summary",
+	fromId: "branch-id",
+	timestamp: 0,
+};
+branchSummaryMessage.role = "branchSummary";
+branchSummaryMessage.summary = "updated summary";
+branchSummaryMessage.fromId = "updated-branch-id";
+branchSummaryMessage.timestamp = -0;
+branchSummaryMessage.timestamp = Number.NaN;
+branchSummaryMessage.timestamp = Number.POSITIVE_INFINITY;
+branchSummaryMessage.timestamp = Number.NEGATIVE_INFINITY;
 
 let info: FileInfo = {
 	name: "name",
@@ -222,6 +245,7 @@ customResources.promptTemplates[0].command = "/updated";
 
 void bashMessage;
 void bashMessageWithExplicitUndefined;
+void branchSummaryMessage;
 void info;
 void resources;
 void customResources;

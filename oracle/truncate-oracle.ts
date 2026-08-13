@@ -205,6 +205,19 @@ type BashExecutionMessageRequest = {
 	cases: BashExecutionCaseRequest[];
 };
 
+type BranchSummaryCaseRequest = {
+	name: string;
+	summary: string;
+	fromId: string;
+	timestampBits: string;
+};
+
+type BranchSummaryMessageRequest = {
+	id: RequestId;
+	operation: "branch_summary_message";
+	cases: BranchSummaryCaseRequest[];
+};
+
 type MutableBashExecutionMessageRecord = {
 	role: "bashExecution";
 	command: string;
@@ -215,6 +228,13 @@ type MutableBashExecutionMessageRecord = {
 	fullOutputPath?: string;
 	timestamp: number;
 	excludeFromContext?: boolean;
+};
+
+type MutableBranchSummaryMessageRecord = {
+	role: "branchSummary";
+	summary: string;
+	fromId: string;
+	timestamp: number;
 };
 
 type MutableSkillRecord = {
@@ -399,6 +419,7 @@ type Request =
 	| FileOperationsFormatRequest
 	| SummaryMarkersRequest
 	| BashExecutionMessageRequest
+	| BranchSummaryMessageRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<Request, HarnessErrorRequest | SummaryMarkersRequest>;
@@ -833,6 +854,27 @@ function normalizeBashExecutionMessage(name: string, message: MutableBashExecuti
 	};
 }
 
+function executeBranchSummaryMessage(request: BranchSummaryMessageRequest): Response {
+	const results = request.cases.map(normalizeBranchSummaryInput);
+	return successfulResponse(request.id, { results });
+}
+
+function normalizeBranchSummaryInput(input: BranchSummaryCaseRequest): unknown {
+	const message: MutableBranchSummaryMessageRecord = {
+		role: "branchSummary",
+		summary: input.summary,
+		fromId: input.fromId,
+		timestamp: binary64FromBits(input.timestampBits),
+	};
+	return {
+		name: input.name,
+		role: message.role,
+		summary: message.summary,
+		fromId: message.fromId,
+		timestampBits: binary64Bits(message.timestamp),
+	};
+}
+
 function buildHarnessError(request: HarnessErrorRequest, api: HarnessTypesApi, cause: Error | undefined): Error {
 	if (request.kind === "file") return new api.FileError(request.code, request.message, request.path, cause);
 	if (request.kind === "execution") return new api.ExecutionError(request.code, request.message, cause);
@@ -907,6 +949,8 @@ function executeUtilityRequest(
 			return executeFileOperationsRequest(request, fileOperations);
 		case "bash_execution_message":
 			return executeBashExecutionMessage(request);
+		case "branch_summary_message":
+			return executeBranchSummaryMessage(request);
 	}
 }
 
