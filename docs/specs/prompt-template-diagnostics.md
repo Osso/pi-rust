@@ -9,7 +9,7 @@ This specification covers the prompt-template diagnostic value contract from `pa
 - [x] Expose a public mutable `PromptTemplateDiagnostic` with required fields `type`, `code`, `message`, and `path` in source order.
 - [x] Preserve empty, ordinary, Unicode, supplementary, combining, NUL, CR/LF, punctuation, and XML-sensitive string values without normalization.
 - [x] Expose the diagnostic values through `pi_agent_core::harness::prompt_templates` and `pi_agent_core::harness`.
-- [ ] Compare diagnostic value records directly with the pinned TypeScript source through differential requests.
+- [x] Compare diagnostic value records directly with the pinned TypeScript source through exactly eight persistent differential request groups `13121..=13128` and strict public-index type proof.
 - [ ] Complete final workspace, readability, documentation, and clean-pin gates.
 
 ## How it works
@@ -30,7 +30,7 @@ This specification covers the prompt-template diagnostic value contract from `pa
 
 ## Known gaps (current cycle)
 
-- [ ] Add direct pinned TypeScript differential proof for the diagnostic values.
+- [x] Add direct pinned TypeScript differential proof for the diagnostic values through request groups `13121..=13128` and strict public-index type proof.
 - [ ] Run final workspace, static, readability, documentation, and clean-pin gates after the complete slice.
 
 ## Out of scope

@@ -8,6 +8,7 @@ mod file_operations;
 mod format_size;
 mod image;
 mod oracle;
+mod prompt_template_diagnostic;
 mod prompt_templates;
 mod resources;
 mod sanitize;
@@ -53,4 +54,5 @@ pub(crate) fn run() {
     bash_execution_message::compare_all_fixtures(&mut oracle);
     branch_summary_message::compare_all_fixtures(&mut oracle);
     compaction_settings::compare_all_fixtures(&mut oracle);
+    prompt_template_diagnostic::compare_all_fixtures(&mut oracle);
 }

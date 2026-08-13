@@ -105,6 +105,22 @@ type PromptTemplateInput = {
 	content: string;
 };
 
+type PromptTemplateDiagnosticCode = "file_info_failed" | "list_failed" | "read_failed" | "parse_failed";
+
+type PromptTemplateDiagnosticCaseRequest = {
+	name: string;
+	type: "warning";
+	code: PromptTemplateDiagnosticCode;
+	message: string;
+	path: string;
+};
+
+type PromptTemplateDiagnosticRequest = {
+	id: RequestId;
+	operation: "prompt_template_diagnostic";
+	cases: PromptTemplateDiagnosticCaseRequest[];
+};
+
 type SkillArrayInput =
 	| { state: "absent" }
 	| { state: "empty" }
@@ -235,6 +251,13 @@ type MutableBranchSummaryMessageRecord = {
 	summary: string;
 	fromId: string;
 	timestamp: number;
+};
+
+type MutablePromptTemplateDiagnosticRecord = {
+	type: "warning";
+	code: PromptTemplateDiagnosticCode;
+	message: string;
+	path: string;
 };
 
 type ShouldCompactCaseRequest = {
@@ -441,9 +464,13 @@ type Request =
 	| BashExecutionMessageRequest
 	| BranchSummaryMessageRequest
 	| ShouldCompactRequest
+	| PromptTemplateDiagnosticRequest
 	| HarnessErrorRequest;
 
-type UtilityRequest = Exclude<Request, HarnessErrorRequest | SummaryMarkersRequest | ShouldCompactRequest>;
+type UtilityRequest = Exclude<
+	Request,
+	HarnessErrorRequest | SummaryMarkersRequest | ShouldCompactRequest | PromptTemplateDiagnosticRequest
+>;
 type FormatSizeRequest = Extract<UtilityRequest, { operation: "format_size" }>;
 type TruncationRequest = Extract<
 	UtilityRequest,
@@ -880,6 +907,27 @@ function executeBranchSummaryMessage(request: BranchSummaryMessageRequest): Resp
 	return successfulResponse(request.id, { results });
 }
 
+function executePromptTemplateDiagnosticRequest(request: PromptTemplateDiagnosticRequest): Response {
+	const results = request.cases.map(normalizePromptTemplateDiagnosticInput);
+	return successfulResponse(request.id, { results });
+}
+
+function normalizePromptTemplateDiagnosticInput(input: PromptTemplateDiagnosticCaseRequest): unknown {
+	const diagnostic: MutablePromptTemplateDiagnosticRecord = {
+		type: input.type,
+		code: input.code,
+		message: input.message,
+		path: input.path,
+	};
+	return {
+		name: input.name,
+		type: diagnostic.type,
+		code: diagnostic.code,
+		message: diagnostic.message,
+		path: diagnostic.path,
+	};
+}
+
 function executeShouldCompactRequest(request: ShouldCompactRequest, api: HarnessTypesApi): Response {
 	const results = request.cases.map((input) => ({
 		name: input.name,
@@ -998,6 +1046,9 @@ function execute(request: Request, apis: OracleApis): Response {
 		}
 		if (request.operation === "should_compact") {
 			return executeShouldCompactRequest(request, apis.harnessTypes);
+		}
+		if (request.operation === "prompt_template_diagnostic") {
+			return executePromptTemplateDiagnosticRequest(request);
 		}
 		if (request.operation === "harness_error") {
 			return executeHarnessError(request, apis.harnessTypes);

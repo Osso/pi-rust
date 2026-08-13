@@ -28,6 +28,8 @@ import type {
 	FileInfo,
 	FileKind,
 	PromptTemplate,
+	PromptTemplateDiagnostic,
+	PromptTemplateDiagnosticCode,
 	Skill,
 } from ${JSON.stringify(publicIndexPath)};
 
@@ -80,6 +82,20 @@ type ExpectedCompactionSettings = {
 	keepRecentTokens: number;
 };
 type CompactionSettingsIsExact = Assert<Exact<CompactionSettings, ExpectedCompactionSettings>>;
+
+type ExpectedPromptTemplateDiagnosticCode = "file_info_failed" | "list_failed" | "read_failed" | "parse_failed";
+type PromptTemplateDiagnosticCodeIsExact = Assert<
+	Exact<PromptTemplateDiagnosticCode, ExpectedPromptTemplateDiagnosticCode>
+>;
+type ExpectedPromptTemplateDiagnostic = {
+	type: "warning";
+	code: PromptTemplateDiagnosticCode;
+	message: string;
+	path: string;
+};
+type PromptTemplateDiagnosticIsExact = Assert<
+	Exact<PromptTemplateDiagnostic, ExpectedPromptTemplateDiagnostic>
+>;
 
 type ExpectedFileKind = "file" | "directory" | "symlink";
 type ExpectedFileInfo = {
@@ -183,6 +199,19 @@ compactionSettings.keepRecentTokens = Number.NaN;
 compactionSettings.keepRecentTokens = Number.POSITIVE_INFINITY;
 compactionSettings.keepRecentTokens = Number.NEGATIVE_INFINITY;
 const compactionDecision = shouldCompact(Number.MAX_VALUE, -Number.MAX_VALUE, compactionSettings);
+
+let promptDiagnostic: PromptTemplateDiagnostic = {
+	type: "warning",
+	code: "file_info_failed",
+	message: "diagnostic message",
+	path: "/prompt.md",
+};
+promptDiagnostic.type = "warning";
+promptDiagnostic.code = "parse_failed";
+promptDiagnostic.message = "updated diagnostic message";
+promptDiagnostic.path = "updated/path.md";
+const diagnosticCode: PromptTemplateDiagnosticCode = "list_failed";
+void diagnosticCode;
 
 let info: FileInfo = {
 	name: "name",

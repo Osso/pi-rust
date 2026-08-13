@@ -20,7 +20,11 @@ Pinned source: `packages/agent/src/harness/prompt-templates.ts` at commit `532f7
 - Focused RED: `/tmp/pi-rust-prompt-template-diagnostic-red.out` captures unresolved imports only for the missing module/root diagnostic API; the proof ledger records exit 101.
 - Focused GREEN: `/tmp/pi-rust-prompt-template-diagnostic-green.out` captures 4 passed and 0 failed; the proof ledger records exit 0, and production commit `25fe426` adds the value API, focused proof, and specification paths.
 - Rust readability, formatting, and diff checks pass for the production-phase changes; the existing `parse_slice_match` length finding predates this slice and remains outside scope.
-- Direct differential proof, final workspace/static gates, and inherited verification remain pending.
+- Differential RED output `/tmp/pi-rust-prompt-template-diagnostic-differential-red.out` captures the existing non-JSON unsupported-operation failure at request `13121`; the proof ledger records exit 101.
+- Differential GREEN output `/tmp/pi-rust-prompt-template-diagnostic-differential-green.out` captures the persistent differential test passing exactly eight request groups (`13121..=13128`); the proof ledger records exit 0.
+- Oracle output `/tmp/pi-rust-prompt-template-diagnostic-oracle.out` captures strict typecheck and public-index proof completion; the proof ledger records exit 0.
+- Readability output `/tmp/pi-rust-prompt-template-diagnostic-readability-summary.md` reports no new metric violations in the changed Rust fixture/runner or JavaScript public-index file; pre-existing TypeScript helper findings remain unchanged from the baseline.
+- Final workspace/static gates, documentation closure, clean pins, and inherited verification remain pending.
 
 ## Exclusions
 
