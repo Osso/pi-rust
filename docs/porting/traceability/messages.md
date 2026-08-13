@@ -35,6 +35,7 @@ Pinned source: `packages/agent/src/harness/messages.ts:4-17,19-29` and package e
 - BashExecutionMessage oracle/public-index typecheck: `/tmp/pi-rust-bash-execution-message-oracle.out` records `./run-tests.sh oracle` exit 0 with exact field-set, role-literal, mutability, required/optional, explicit-undefined, and unrestricted-number proof.
 - Readability follow-up: `07b6557` (`test(agent): clarify bash message oracle`) resolves the only TypeScript dense-expression finding; Rust, TypeScript, and JavaScript re-audits report no in-scope violations.
 - Final gates at `07b6557`: 222 workspace tests passed with 0 failures and 2 ignored; workspace all-target check, all-target/all-feature Clippy with denied warnings, formatting, documentation audit, exact pinned source HEAD, clean worktrees, and commit-range diff checks passed.
+- Inherited verification completed with `OVERALL: PASS` for the bounded value slice at `60499e0`.
 - Focused RED: `/tmp/pi-rust-summary-markers-red.out` records exit 101 with only the missing `harness::messages` module and harness-root constants.
 - Focused GREEN: `/tmp/pi-rust-summary-markers-green.out` records exit 0 with 4 passed and 0 failed; production commit `6f3a6cc` adds the exact module/root constants and focused proof.
 - Differential RED: `/tmp/pi-rust-summary-markers-differential-red.out` records all prior requests through `13095` passing before request `13096` reaches the unchanged oracle's unsupported operation and returns non-JSON.
