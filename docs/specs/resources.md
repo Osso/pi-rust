@@ -1,6 +1,6 @@
 # Agent-core skill and prompt resources
 
-Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `AgentHarnessResources` value contracts from `packages/agent/src/harness/types.ts`, plus pure prompt-template argument helpers; pinned public-index and direct differential proofs are complete for these bounded values/helpers, while loading, skill/system-prompt formatting, and harness integration remain later slices. See the [resource traceability](../porting/traceability/resources.md) for source mappings.
+Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `AgentHarnessResources` value contracts from `packages/agent/src/harness/types.ts`, plus pure prompt-template and Skill formatting helpers; pinned public-index and direct differential proofs are complete for the values and prompt helpers, while Skill differential proof, loading, and harness integration remain later slices. See the [resource traceability](../porting/traceability/resources.md) for source mappings.
 
 ## What it must do
 
@@ -24,6 +24,13 @@ Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `
 - [x] Format only `PromptTemplate.content`; callers pass `&[]` for the TypeScript default empty argument list.
 - [x] Compare all three prompt-template helpers directly with the pinned source through 15 persistent differential fixtures (`13046..=13060`).
 
+### Skill formatting
+
+- [x] Format visible skills with exact fixed LF output, preserving order and duplicates while hiding only `Some(true)` model-invocation flags.
+- [x] XML-escape only visible skill name, description, and file path fields through the five source-ordered entity replacements; preserve content exclusion and double escaping.
+- [x] Format skill invocations with raw name, path, content, and optional instructions; omit absent/empty instructions and append nonempty instructions with exactly two LF characters.
+- [x] Preserve lexical slash/backslash dirname behavior, including duplicate separators, Windows-like prefixes, and JavaScript UTF-16 drive-prefix indexing.
+
 ### Resource collection
 
 - [x] Expose mutable public optional `prompt_templates` and `skills` arrays containing the concrete value types.
@@ -40,6 +47,8 @@ Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `
 
 - `crates/pi-agent-core/src/harness/types.rs` — resource value definitions.
 - `crates/pi-agent-core/src/harness/prompt_templates.rs` — pure prompt-template argument helpers, exported only through `harness::prompt_templates`.
+- `crates/pi-agent-core/src/harness/system_prompt.rs` — pure visible-Skill system-prompt formatting, exported only through `harness::system_prompt`.
+- `crates/pi-agent-core/src/harness/skills.rs` — pure raw Skill invocation formatting and lexical dirname handling, exported only through `harness::skills`.
 - `crates/pi-agent-core/src/harness/mod.rs` — public harness modules and value re-exports.
 - `crates/pi-agent-core/tests/resources.rs` — focused field, option, mutation, ordering, duplicate, and `Debug` proof.
 - `crates/pi-agent-core/tests/differential_truncate/resources.rs` — 12 plain-record differential fixtures (`13024..=13035`).
@@ -52,6 +61,7 @@ Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `
 
 - `crates/pi-agent-core/tests/resources.rs`
 - `crates/pi-agent-core/tests/prompt_templates.rs`
+- `crates/pi-agent-core/tests/skill_formatting.rs`
 - `crates/pi-agent-core/tests/differential_truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate/resources.rs`
 - `crates/pi-agent-core/tests/differential_truncate/prompt_templates.rs`
@@ -59,11 +69,12 @@ Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `
 
 ## Known gaps (current cycle)
 
-- Filesystem loading, skill/system-prompt formatting, XML escaping, lookup, invocation, and harness integration remain deferred.
+- Direct pinned differential proof for Skill formatting remains pending; reserved requests begin at `13061`.
+- Filesystem loading, YAML/frontmatter parsing, diagnostics, validation, lookup, invocation integration, model visibility, and harness integration remain deferred.
 
 ## Out of scope
 
 - Rust generic `TSkill`/`TPromptTemplate` subtype parameters; the source generic capability is type-proven, while the approved Rust boundary uses concrete `Skill` and `PromptTemplate` values.
 - Explicit JavaScript `undefined` versus absent-property identity; both map to Rust `None` because no pinned consumer observes own-property presence.
-- Skill or prompt-template filesystem loading, YAML/frontmatter parsing, validation, diagnostics, ignore/traversal rules, lookup, invocation, and model visibility; skill/system-prompt formatting and XML escaping remain deferred.
+- Skill or prompt-template filesystem loading, YAML/frontmatter parsing, validation, diagnostics, ignore/traversal rules, lookup, invocation integration, model visibility, and harness integration.
 - Harness shallow copies, element aliasing, providers, tools, streams, serde, parsing, constructors, builders, validation, normalization, deduplication, fallbacks, and new dependencies.
