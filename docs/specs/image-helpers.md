@@ -22,6 +22,10 @@ Agent-core exposes two pure internal helpers ported from `packages/agent/src/har
 - [x] Expose only `pi_agent_core::harness::tools::image::{detect_supported_image_mime_type, encode_base64}` with no harness-root or tools-root re-exports.
 - [x] Keep the helpers pure, standard-library-only, and independent from image decoding, file I/O, and protocol message construction.
 
+### Differential proof
+
+- [x] Compare MIME detection and Base64 output directly with the pinned TypeScript helpers through exactly 12 persistent differential fixtures (`13069..=13080`).
+
 ## How it works
 
 - [Image-helper implementation](../wiki/systems/image-helpers.md)
@@ -32,16 +36,18 @@ Agent-core exposes two pure internal helpers ported from `packages/agent/src/har
 - `crates/pi-agent-core/src/harness/tools/mod.rs` — module-only public boundary.
 - `crates/pi-agent-core/src/harness/mod.rs` — public harness module registration.
 - `crates/pi-agent-core/tests/image.rs` — focused MIME and Base64 behavior proof.
-- `run-tests.sh` — focused test registration.
+- `crates/pi-agent-core/tests/differential_truncate/image.rs` — 12 direct pinned differential fixture groups (`13069..=13080`).
+- `oracle/truncate-oracle.ts` — persistent `image_helpers` operation and direct image-module import.
+- `run-tests.sh` — focused and oracle test registration.
 
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/image.rs`
+- `crates/pi-agent-core/tests/differential_truncate/image.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Compare all image-helper branches directly with the pinned TypeScript source through differential fixtures `13069..=13080`.
-- [ ] Run final workspace, check, Clippy, and inherited verification gates after production code is committed.
+- [ ] Run final workspace, check, Clippy, and inherited verification gates after the differential proof.
 
 ## Out of scope
 

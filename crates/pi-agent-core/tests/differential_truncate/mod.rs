@@ -1,6 +1,7 @@
 mod errors;
 mod file_info;
 mod format_size;
+mod image;
 mod oracle;
 mod prompt_templates;
 mod resources;
@@ -19,6 +20,7 @@ pub(crate) fn run() {
         "packages/agent/src/harness/prompt-templates.ts",
         "packages/agent/src/harness/skills.ts",
         "packages/agent/src/harness/system-prompt.ts",
+        "packages/agent/src/harness/tools/image.ts",
     ]);
     format_size::compare_all_fixtures(&mut oracle);
     sanitize::compare_all_fixtures(&mut oracle);
@@ -32,4 +34,5 @@ pub(crate) fn run() {
     errors::compare_compaction_fixtures(&mut oracle);
     prompt_templates::compare_all_fixtures(&mut oracle);
     skill_formatting::compare_all_fixtures(&mut oracle);
+    image::compare_all_fixtures(&mut oracle);
 }

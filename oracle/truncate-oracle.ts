@@ -43,6 +43,11 @@ type SystemPromptApi = {
 	formatSkillsForSystemPrompt(skills: MutableSkillRecord[]): string;
 };
 
+type ImageApi = {
+	detectSupportedImageMimeType(buffer: Uint8Array): string | undefined;
+	encodeBase64(bytes: Uint8Array): string;
+};
+
 type FileKind = "file" | "directory" | "symlink";
 
 type FileInfoRequest = {
@@ -129,6 +134,17 @@ type SkillFormattingRequest = {
 	operation: "skill_formatting";
 	systemPromptCases: SkillInput[][];
 	invocationCases: SkillInvocationRequest[];
+};
+
+type ImageCaseRequest = {
+	name: string;
+	bytesHex: string;
+};
+
+type ImageHelpersRequest = {
+	id: RequestId;
+	operation: "image_helpers";
+	cases: ImageCaseRequest[];
 };
 
 type MutableSkillRecord = {
@@ -304,6 +320,7 @@ type Request =
 	| ResourceValuesRequest
 	| PromptTemplateRequest
 	| SkillFormattingRequest
+	| ImageHelpersRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<Request, HarnessErrorRequest>;
@@ -515,6 +532,18 @@ function executeSkillFormattingRequest(
 	return successfulResponse(request.id, { systemPrompts, invocations });
 }
 
+function executeImageHelpers(request: ImageHelpersRequest, api: ImageApi): Response {
+	const results = request.cases.map((imageCase) => {
+		const bytes = Buffer.from(imageCase.bytesHex, "hex");
+		return {
+			name: imageCase.name,
+			mimeType: api.detectSupportedImageMimeType(bytes) ?? null,
+			base64: api.encodeBase64(bytes),
+		};
+	});
+	return successfulResponse(request.id, { results });
+}
+
 function successfulResponse(id: RequestId, output: unknown): Response {
 	return { id, ok: true, output };
 }
@@ -690,6 +719,7 @@ function executeUtilityRequest(
 	promptTemplates: PromptTemplateApi,
 	skillFormatting: SkillFormattingApi,
 	systemPrompt: SystemPromptApi,
+	image: ImageApi,
 ): Response {
 	switch (request.operation) {
 		case "format_size":
@@ -711,6 +741,8 @@ function executeUtilityRequest(
 			return executePromptTemplateRequest(request, promptTemplates);
 		case "skill_formatting":
 			return executeSkillFormattingRequest(request, skillFormatting, systemPrompt);
+		case "image_helpers":
+			return executeImageHelpers(request, image);
 	}
 }
 
@@ -727,6 +759,7 @@ function execute(request: Request, apis: OracleApis): Response {
 			apis.promptTemplates,
 			apis.skillFormatting,
 			apis.systemPrompt,
+			apis.image,
 		);
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };
@@ -749,14 +782,15 @@ type CommonJsModule = {
 	exports: Record<string, unknown>;
 };
 
-function readModulePaths(): [string, string, string, string, string, string, string] {
+function readModulePaths(): [string, string, string, string, string, string, string, string] {
 	const truncateModulePath = process.argv[2];
 	const shellOutputModulePath = process.argv[3];
 	const agentModulePath = process.argv[4];
 	const promptTemplateModulePath = process.argv[5];
 	const skillsModulePath = process.argv[6];
 	const systemPromptModulePath = process.argv[7];
-	const esbuildModulePath = process.argv[8];
+	const imageModulePath = process.argv[8];
+	const esbuildModulePath = process.argv[9];
 	if (
 		truncateModulePath === undefined ||
 		shellOutputModulePath === undefined ||
@@ -764,10 +798,11 @@ function readModulePaths(): [string, string, string, string, string, string, str
 		promptTemplateModulePath === undefined ||
 		skillsModulePath === undefined ||
 		systemPromptModulePath === undefined ||
+		imageModulePath === undefined ||
 		esbuildModulePath === undefined
 	) {
 		throw new Error(
-			"agent utility oracle requires truncate, shell-output, agent-package, prompt-template, skills, system-prompt, and esbuild module paths",
+			"agent utility oracle requires truncate, shell-output, agent-package, prompt-template, skills, system-prompt, image, and esbuild module paths",
 		);
 	}
 	return [
@@ -777,6 +812,7 @@ function readModulePaths(): [string, string, string, string, string, string, str
 		promptTemplateModulePath,
 		skillsModulePath,
 		systemPromptModulePath,
+		imageModulePath,
 		esbuildModulePath,
 	];
 }
@@ -803,6 +839,7 @@ type OracleApis = {
 	promptTemplates: PromptTemplateApi;
 	skillFormatting: SkillFormattingApi;
 	systemPrompt: SystemPromptApi;
+	image: ImageApi;
 };
 
 async function loadApis(): Promise<OracleApis> {
@@ -813,6 +850,7 @@ async function loadApis(): Promise<OracleApis> {
 		promptTemplateModulePath,
 		skillsModulePath,
 		systemPromptModulePath,
+		imageModulePath,
 		esbuildModulePath,
 	] = readModulePaths();
 	const normal = (await import(pathToFileURL(truncateModulePath).href)) as TruncateApi;
@@ -822,7 +860,8 @@ async function loadApis(): Promise<OracleApis> {
 	const promptTemplates = (await import(pathToFileURL(promptTemplateModulePath).href)) as PromptTemplateApi;
 	const skillFormatting = (await import(pathToFileURL(skillsModulePath).href)) as SkillFormattingApi;
 	const systemPrompt = (await import(pathToFileURL(systemPromptModulePath).href)) as SystemPromptApi;
-	return { normal, fallback, shellOutput, harnessTypes, promptTemplates, skillFormatting, systemPrompt };
+	const image = (await import(pathToFileURL(imageModulePath).href)) as ImageApi;
+	return { normal, fallback, shellOutput, harnessTypes, promptTemplates, skillFormatting, systemPrompt, image };
 }
 
 function executeRequestLine(line: string, apis: OracleApis): void {
