@@ -18,12 +18,15 @@ Pinned source: `packages/agent/src/harness/compaction/compaction.ts` at commit `
 ## Proof status
 
 - Focused RED: `/tmp/pi-rust-compaction-settings-red.out` records exit 101 with only unresolved imports for the missing module/root API.
-- Focused GREEN: `/tmp/pi-rust-compaction-settings-green.out` records exit 0 with 4 passed and 0 failed after correcting one fixture assertion; production/specification commit is `64fba3d`.
+- Focused GREEN: `/tmp/pi-rust-compaction-settings-green.out` records exit 0 with 4 passed and 0 failed; production commit is `64fba3d`, with finite-cancellation coverage in `2c7cf52`.
 - Differential RED: `/tmp/pi-rust-compaction-settings-differential-red.out` records exit 101 when the unchanged oracle emitted non-JSON for the unsupported operation after prior requests completed.
 - Differential GREEN: `/tmp/pi-rust-compaction-settings-differential-green.out` records exit 0 with the persistent test passing exactly eight request groups (`13113..=13120`).
 - Oracle/public-index typecheck: `/tmp/pi-rust-compaction-settings-oracle.out` records exit 0 with exact mutable-interface and predicate-call proof.
 - Rust/TypeScript/JavaScript readability: targeted audit reports no new violations; remaining reported helper lengths predate this slice.
-- Final workspace, documentation, clean-pin, and inherited verification: pending.
+- Final workspace: `/tmp/pi-rust-compaction-settings-final-workspace-tests.out` records 230 passed, 0 failed, and 2 ignored across 39 test binaries; `/tmp/pi-rust-compaction-settings-final-check.out` and `/tmp/pi-rust-compaction-settings-final-clippy.out` record exit 0.
+- Final oracle/typecheck: `/tmp/pi-rust-compaction-settings-final-oracle.out` records exit 0; Node syntax, fmt, diff, exact source HEAD, and clean worktree checks also pass.
+- Differential/proof commit: `a26bd35` (`test(agent): compare compaction settings predicate`).
+- Inherited independent verification remains pending because the resumed runtime cannot spawn a supervisor verifier.
 
 ## Exclusions
 

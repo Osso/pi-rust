@@ -36,7 +36,8 @@ This specification covers the public compaction threshold value and predicate fr
 
 - [x] Add direct TypeScript differential requests `13113..=13120`.
 - [x] Extend strict public-index proof for the mutable interface and predicate.
-- [ ] Complete final workspace, readability, documentation, clean-pin, and inherited verification gates.
+- [x] Complete final workspace, readability, documentation, and clean-pin gates: 230 workspace tests passed with 0 failures and 2 ignored; check, denied-warning Clippy, fmt, oracle/typecheck, Node syntax, diff, and exact source pins passed.
+- [ ] Complete inherited independent verification; the resumed runtime cannot spawn a supervisor verifier.
 
 ## Out of scope
 
