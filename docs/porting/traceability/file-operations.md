@@ -22,6 +22,8 @@ Pinned source: `packages/agent/src/harness/compaction/utils.ts:61-73` at commit 
 - Differential GREEN: `/tmp/pi-rust-file-operations-differential-green.out` records exit 0 with one persistent test passing; exactly seven request groups (`13089..=13095`) cover empty output; read-only and modified-only sections; both-section separators; order and duplicates; empty, Unicode, NUL, punctuation, XML-sensitive, embedded-newline, trailing-newline, and larger-list values.
 - Oracle typecheck: `/tmp/pi-rust-file-operations-oracle.out` records `./run-tests.sh oracle` exit 0 with silent stdout/stderr.
 - Differential proof commit: `84603a4` (`test(agent): compare file operation formatting`).
+- Readability follow-up: `d5c3eb0` (`test(agent): simplify file operation fixtures`) resolves the only Rust length finding; Rust re-audit and the TypeScript oracle audit report no in-scope violations.
+- Final gates at `d5c3eb0`: 213 workspace tests passed with 0 failures and 2 ignored; workspace all-target check, all-target/all-feature Clippy with denied warnings, formatting, documentation audit, exact pinned source HEAD, clean worktrees, and commit-range diff checks passed.
 
 ## Exclusions
 

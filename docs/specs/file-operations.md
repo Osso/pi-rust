@@ -22,7 +22,9 @@ This bounded slice ports the pure file-summary formatter from `packages/agent/sr
 
 - Production implementation: commit `54c5010`; focused proof has 7 passed tests.
 - Differential proof: commit `84603a4`; requests `13089..=13095` pass against the pinned TypeScript source.
+- Readability proof: commit `d5c3eb0` resolves the only Rust fixture-length finding; Rust and TypeScript re-audits are clean.
 - Oracle typecheck: `/tmp/pi-rust-file-operations-oracle.out` records `./run-tests.sh oracle` exit 0.
+- Final workspace proof at `d5c3eb0`: 213 passed, 0 failed, and 2 ignored; check, Clippy with denied warnings, formatting, documentation, source-pin, worktree, and diff gates pass.
 
 ## How it works
 
