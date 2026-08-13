@@ -37,7 +37,7 @@ This specification covers the prompt-template diagnostic value contract from `pa
 
 - [x] Add direct pinned TypeScript differential proof for the diagnostic values through request groups `13121..=13128` and strict public-index type proof.
 - [x] Run final workspace, static, readability, documentation, and clean-pin gates after the complete slice: 234 workspace tests passed with 0 failures and 2 ignored; all-target check, all-feature Clippy with `-D warnings`, formatting, diff, and Node syntax exited 0.
-- [ ] Complete inherited independent verification after the final proof and documentation closure.
+- [x] Complete inherited independent verification at clean HEAD `21b9272`: `OVERALL: PASS`; Rust/source worktrees clean; pinned source exact; docs-only after code HEAD; 234 workspace tests passed with 0 failures and 2 ignored; check/Clippy, fresh focused+differential, fmt, diff, API/oracle/typeproof, exclusions, readability, and documentation checks passed.
 
 ## Out of scope
 
