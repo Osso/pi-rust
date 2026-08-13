@@ -39,9 +39,9 @@ fn contains_only_ascii_lf_separators_and_no_trailing_whitespace() {
     assert!(!SUMMARIZATION_SYSTEM_PROMPT.contains('\r'));
     assert!(!SUMMARIZATION_SYSTEM_PROMPT.ends_with('\n'));
     assert!(
-        SUMMARIZATION_SYSTEM_PROMPT.lines().all(|line| {
-            line.is_empty() || line.chars().last().map_or(true, |character| !character.is_whitespace())
-        })
+        SUMMARIZATION_SYSTEM_PROMPT
+            .lines()
+            .all(|line| { line.is_empty() || line.chars().last().is_none_or(|character| !character.is_whitespace()) })
     );
 }
 
