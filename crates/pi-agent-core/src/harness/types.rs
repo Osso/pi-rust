@@ -60,6 +60,35 @@ impl QueueMode {
     }
 }
 
+/// Thinking/reasoning level for models that support it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThinkingLevel {
+    Off,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    XHigh,
+    Max,
+    Ultra,
+}
+
+impl ThinkingLevel {
+    /// Returns the exact TypeScript source literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::XHigh => "xhigh",
+            Self::Max => "max",
+            Self::Ultra => "ultra",
+        }
+    }
+}
+
 /// Kind of filesystem object addressed by a `FileInfo` value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileKind {
