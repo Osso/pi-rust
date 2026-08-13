@@ -4,13 +4,13 @@ Pinned source: `packages/agent/src/harness/compaction/compaction.ts:162-166` and
 
 | Source | Observable contract | Rust status |
 |---|---|---|
-| `compaction.ts:162-166` | One exported mutable object with `enabled: true`, `reserveTokens: 16384`, `keepRecentTokens: 20000` | Deferred: safe Rust value boundaries cannot preserve shared mutable singleton identity without an approved representation |
+| `compaction.ts:162-166` | One exported mutable object with `enabled: true`, `reserveTokens: 16384`, `keepRecentTokens: 20000` | Deferred: no approved safe Rust API representation currently preserves both direct package-level object access and shared mutable identity |
 | `index.ts:58-75` | Package export is the object itself, not a factory | No Rust fallback or alternate export added |
 
 ## Evidence
 
-`/tmp/pi-rust-default-compaction-settings-probe.out` imports the pinned package export, records the initial values, mutates `reserveTokens` and `keepRecentTokens`, and records the changed object in the same process. This proves mutation is observable through the shared export.
+`/tmp/pi-rust-default-compaction-settings-probe.out` imports the pinned package export, records the initial values, mutates `reserveTokens` and `keepRecentTokens`, and records `reserveTokens: 0`, `keepRecentTokens: null`, and `sameObject: true` in the same process. This proves mutation is observable through the shared export. `null` is invalid at the approved typed Rust boundary and intentionally excluded.
 
 ## Discrepancy
 
-A Rust `const` or factory would change identity/mutation semantics. `static mut` would require unsafe access. The discrepancy remains recorded rather than silently selecting either behavior.
+A Rust `const` value is copied at each use and cannot provide one shared mutable object identity; a factory changes export shape and identity semantics. `static mut` would require unsafe access. The discrepancy remains recorded rather than silently selecting either behavior.

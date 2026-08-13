@@ -4,7 +4,7 @@ Pinned source: `packages/agent/src/harness/compaction/compaction.ts` at commit `
 
 | Source | Contract | Rust proof |
 |---|---|---|
-| `compaction.ts:30-37` | Mutable `readFiles: string[]` and `modifiedFiles: string[]` fields in source order | `harness::compaction::CompactionDetails` uses public `Vec<String>` fields `read_files` and `modified_files`; focused tests and eight differential groups `13156..=13163` |
+| `compaction.ts:30-35` | Mutable `readFiles: string[]` and `modifiedFiles: string[]` fields in source order | `harness::compaction::CompactionDetails` uses public `Vec<String>` fields `read_files` and `modified_files`; focused tests and eight differential groups `13156..=13163` |
 | `index.ts:58-75` | Package index does not export `CompactionDetails` | No harness-root/package stand-in; direct-module type proof only |
 
 ## Boundary decisions
@@ -16,6 +16,6 @@ The differential adapter reconstructs and compares final source-shaped records o
 ## Proof artifacts
 
 - Focused RED: `/tmp/pi-rust-compaction-details-red.out`
-- Focused GREEN: `/tmp/pi-rust-compaction-details-green.out`
-- Differential GREEN: `/tmp/pi-rust-compaction-details-differential-green.out`
-- Oracle/type proof: `/tmp/pi-rust-compaction-details-oracle.out`
+- Focused final: `/tmp/pi-rust-compaction-details-final-focused.out`
+- Differential final: `/tmp/pi-rust-compaction-details-final-differential.out`
+- Oracle/type proof final: `/tmp/pi-rust-compaction-details-final-oracle.out`

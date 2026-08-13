@@ -1,6 +1,6 @@
 # CompactionDetails
 
-This specification covers the module-local `CompactionDetails` interface from `packages/agent/src/harness/compaction/compaction.ts:30-37`.
+This specification covers the module-local `CompactionDetails` interface from `packages/agent/src/harness/compaction/compaction.ts:30-35`.
 
 ## Required behavior
 

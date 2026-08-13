@@ -10,13 +10,13 @@ This specification records the unresolved boundary for the exported `DEFAULT_COM
 
 ## Current discrepancy
 
-No Rust representation is approved in the typed core:
+No approved safe Rust API representation currently preserves both direct package-level object access and shared mutable identity:
 
-- `const CompactionSettings` produces a fresh value rather than the exported shared object.
+- A Rust `const` value is copied at each use and cannot provide one shared mutable object identity.
 - A function returning `CompactionSettings` changes the export shape and identity semantics.
 - `static mut` could model shared mutation only through unsafe access, which is outside the approved safe Rust boundary.
 
-The pinned runtime probe `/tmp/pi-rust-default-compaction-settings-probe.out` confirms mutation of the exported object persists within the source process. No production Rust code is added until an approved representation exists.
+The pinned runtime probe `/tmp/pi-rust-default-compaction-settings-probe.out` reports mutation output `reserveTokens: 0`, `keepRecentTokens: null`, and `sameObject: true`. `null` is invalid at the approved typed Rust boundary and intentionally excluded. No production Rust code is added until an approved representation exists.
 
 ## Out of scope
 
