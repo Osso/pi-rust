@@ -1,3 +1,4 @@
+pub mod args;
 mod auth_command;
 
 pub use auth_command::{
