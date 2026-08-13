@@ -22,11 +22,12 @@ Pinned source: `packages/agent/src/harness/compaction/compaction.ts` at commit `
 - Differential RED: `/tmp/pi-rust-compaction-settings-differential-red.out` records exit 101 when the unchanged oracle emitted non-JSON for the unsupported operation after prior requests completed.
 - Differential GREEN: `/tmp/pi-rust-compaction-settings-differential-green.out` records exit 0 with the persistent test passing exactly eight request groups (`13113..=13120`).
 - Oracle/public-index typecheck: `/tmp/pi-rust-compaction-settings-oracle.out` records exit 0 with exact mutable-interface and predicate-call proof.
-- Rust/TypeScript/JavaScript readability: targeted audit reports no new violations; remaining reported helper lengths predate this slice.
-- Final workspace: `/tmp/pi-rust-compaction-settings-final-workspace-tests.out` records 230 passed, 0 failed, and 2 ignored across 39 test binaries; `/tmp/pi-rust-compaction-settings-final-check.out` and `/tmp/pi-rust-compaction-settings-final-clippy.out` record exit 0.
-- Final oracle/typecheck: `/tmp/pi-rust-compaction-settings-final-oracle.out` records exit 0; Node syntax, fmt, diff, exact source HEAD, and clean worktree checks also pass.
-- Differential/proof commit: `a26bd35` (`test(agent): compare compaction settings predicate`).
-- Inherited independent verification remains pending because the resumed runtime cannot spawn a supervisor verifier.
+- Initial Rust/TypeScript/JavaScript readability audit reported no new slice violations; inherited artifact verification then found `differential_truncate::run` at 32 body lines after registration, above the 30-line threshold.
+- Readability correction commit `54b68e2` (`test(agent): extract differential oracle setup`) changed only `crates/pi-agent-core/tests/differential_truncate/mod.rs`; `spawn_oracle` is 13 lines and `run` is 22 lines, with source paths and comparison order preserved.
+- Post-fix gates: 230 workspace tests passed with 0 failures and 2 ignored; all-target check exit 0; all-feature Clippy with `-D warnings` exit 0; oracle/typecheck, fmt, and diff exit 0; readability clean.
+- Final oracle/typecheck: `/tmp/pi-rust-compaction-settings-final-oracle.out` records exit 0; exact Rust/source heads and clean worktrees are verified.
+- Differential/proof commit: `a26bd35` (`test(agent): compare compaction settings predicate`); readability correction commit: `54b68e2`.
+- Inherited final verification at `54b68e2`: `OVERALL: PASS`.
 
 ## Exclusions
 
