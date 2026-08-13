@@ -24,6 +24,7 @@ Pinned source: `packages/agent/src/harness/messages.ts:4-17` and package export 
 - Differential GREEN: `/tmp/pi-rust-summary-markers-differential-green.out` records exit 0 with the persistent differential test passing request `13096`; differential commit `edd44b6` adds the Rust fixture and oracle operation.
 - Oracle/public-index typecheck: `/tmp/pi-rust-summary-markers-oracle.out` records `./run-tests.sh oracle` exit 0 with runtime package-index export and exact literal-type proof.
 - Final gates at `e4cde92`: 217 workspace tests passed with 0 failures and 2 ignored; workspace all-target check, all-target/all-feature Clippy with denied warnings, formatting, Rust/TypeScript/JavaScript readability, documentation audit, exact pinned source HEAD, clean worktrees, and commit-range diff checks passed.
+- Inherited verification completed with `OVERALL: PASS` for the bounded slice at `010bce2`.
 
 ## Exclusions
 
