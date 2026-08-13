@@ -43,6 +43,7 @@ This specification covers the committed `ToolExecutionMode` value from `packages
 
 ## Proof status
 
+- Focused RED evidence: the original `/tmp/pi-rust-tool-execution-mode-red.out` capture is zero bytes and is not used as proof. `/tmp/pi-rust-tool-execution-mode-red-reproduced.out` reconstructs the RED at exact pre-production revision `bca24d2` with the committed `db9f5e2` focused test source; it exits 101 with only the missing module and harness-root imports. The original production agent report independently recorded the same exit and failure boundary.
 - Focused GREEN: `/tmp/pi-rust-tool-execution-mode-green-corrected.out` records 3 passed and 0 failed.
 - Targeted Clippy RED/GREEN: `/tmp/pi-rust-tool-execution-mode-clippy-red.out` records the unsuppressed `clone_on_copy` failure; `/tmp/pi-rust-tool-execution-mode-clippy-green.out` records denied-warning Clippy exit 0 after the generic `Clone` proof replaced the invalid direct clone.
 - Request `13165` is the single persistent source-shaped plain-value group after QueueMode request `13164`; it contains both `sequential` and `parallel`.

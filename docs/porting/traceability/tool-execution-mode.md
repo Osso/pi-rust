@@ -26,7 +26,7 @@ Pinned source: `packages/agent/src/types.ts:34-42` and package export `packages/
 
 ## Proof artifacts
 
-- Focused RED: `/tmp/pi-rust-tool-execution-mode-red.out` records exit 101 with only unresolved module and harness-root imports.
+- Focused RED evidence correction: the original `/tmp/pi-rust-tool-execution-mode-red.out` capture is zero bytes and is explicitly invalid as an artifact. `/tmp/pi-rust-tool-execution-mode-red-reproduced.out` checks out exact pre-production revision `bca24d2`, injects the committed `db9f5e2` focused test source, and records exit 101 with only unresolved module and harness-root imports. The original production agent terminal report also recorded exit 101 at that boundary.
 - Corrected focused GREEN: `/tmp/pi-rust-tool-execution-mode-green-corrected.out` records exit 0 with 3 passed and 0 failed.
 - Targeted Clippy RED/GREEN: `/tmp/pi-rust-tool-execution-mode-clippy-red.out` records the unsuppressed `clone_on_copy` failure; `/tmp/pi-rust-tool-execution-mode-clippy-green.out` records denied-warning Clippy exit 0 after the generic `Clone` proof correction.
 - Differential RED: `/tmp/pi-rust-tool-execution-mode-differential-red.out` records exit 101 after prior requests pass; request `13165` reaches the unchanged oracle and receives non-JSON unsupported-operation output.
