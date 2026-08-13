@@ -7,6 +7,7 @@ All direct dependencies are exact-pinned.
 ### `pi-coding-agent`
 
 - Auth commands, config-value reference/environment-status helpers, and `ParsedSkillBlock`/`parse_skill_block` use only the Rust standard library.
+- `pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }` — supplies the typed `ThinkingLevel` used by the direct-module default constant.
 - `serde = 1.0.229` — exposes the typed serialization contract used by RPC JSONL records.
 - `serde_json = 1.0.151` — produces compact semantic JSON before the LF record delimiter.
 

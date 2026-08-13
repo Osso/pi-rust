@@ -25,6 +25,7 @@ dependencies = [
 name = "pi-coding-agent"
 version = "0.0.0"
 dependencies = [
+ "pi-agent-core",
  "serde",
  "serde_json",
 ]

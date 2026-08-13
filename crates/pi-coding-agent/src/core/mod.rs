@@ -1,4 +1,5 @@
 mod config_value;
+pub mod defaults;
 mod skill_block;
 
 pub use config_value::{
