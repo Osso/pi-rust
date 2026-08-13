@@ -79,7 +79,7 @@ fn preserves_timestamp_binary64_bits() {
     const NEGATIVE_INFINITY: u64 = 0xfff0_0000_0000_0000;
     const POSITIVE_SUBNORMAL: u64 = 0x0000_0000_0000_0001;
     const NEGATIVE_SUBNORMAL: u64 = 0x8000_0000_0000_0001;
-    const MAX_FINITE: u64 = 0x7fefffff_ffff_ffff;
+    const MAX_FINITE: u64 = 0x7fef_ffff_ffff_ffff;
     const POSITIVE_NAN_ONE: u64 = 0x7ff8_0000_0000_0001;
     const POSITIVE_NAN_PAYLOAD: u64 = 0x7ff8_0000_0000_0042;
     const NEGATIVE_NAN_ONE: u64 = 0xfff8_0000_0000_0001;
