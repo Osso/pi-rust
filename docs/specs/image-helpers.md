@@ -47,7 +47,7 @@ Agent-core exposes two pure internal helpers ported from `packages/agent/src/har
 
 ## Known gaps (current cycle)
 
-- [ ] Run final workspace, check, Clippy, and inherited verification gates after the differential proof.
+- [ ] Complete inherited-context independent verification.
 
 ## Out of scope
 
