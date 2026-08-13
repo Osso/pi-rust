@@ -17,6 +17,15 @@ pub struct CompactionSettings {
     pub keep_recent_tokens: f64,
 }
 
+/// Estimated context-token usage for a message list.
+#[derive(Debug)]
+pub struct ContextUsageEstimate {
+    pub tokens: f64,
+    pub usage_tokens: f64,
+    pub trailing_tokens: f64,
+    pub last_usage_index: Option<f64>,
+}
+
 /// Return whether context usage exceeds the configured compaction threshold.
 pub fn should_compact(context_tokens: f64, context_window: f64, settings: &CompactionSettings) -> bool {
     if !settings.enabled {
