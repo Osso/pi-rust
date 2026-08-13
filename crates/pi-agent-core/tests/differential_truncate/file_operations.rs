@@ -50,57 +50,69 @@ fn rust_response(fixture: &Fixture) -> Value {
 
 fn fixtures() -> Vec<Fixture> {
     vec![
-        Fixture {
-            request_id: 13_089,
-            name: "empty read and modified lists",
-            read_files: Vec::new(),
-            modified_files: Vec::new(),
-        },
-        Fixture {
-            request_id: 13_090,
-            name: "read-only files",
-            read_files: vec!["src/a.ts".to_owned(), "src/b.ts".to_owned()],
-            modified_files: Vec::new(),
-        },
-        Fixture {
-            request_id: 13_091,
-            name: "modified-only files",
-            read_files: Vec::new(),
-            modified_files: vec!["src/changed.ts".to_owned()],
-        },
-        Fixture {
-            request_id: 13_092,
-            name: "both sections and exact separators",
-            read_files: vec!["src/read.ts".to_owned()],
-            modified_files: vec!["src/changed.ts".to_owned()],
-        },
-        Fixture {
-            request_id: 13_093,
-            name: "multiple entries preserve order and duplicates",
-            read_files: vec!["z.ts".to_owned(), "a.ts".to_owned(), "z.ts".to_owned()],
-            modified_files: vec!["m.ts".to_owned(), "m.ts".to_owned(), "b.ts".to_owned()],
-        },
-        Fixture {
-            request_id: 13_094,
-            name: "empty unicode nul punctuation and raw xml text",
-            read_files: vec!["".to_owned(), "é/技能/😀\0<&>\"'".to_owned()],
-            modified_files: vec!["<raw>&\"'".to_owned(), "punctuation: []{}()".to_owned()],
-        },
-        Fixture {
-            request_id: 13_095,
-            name: "many entries with embedded and trailing newlines",
-            read_files: vec![
-                "before\ninside\n\nafter".to_owned(),
-                "read-1".to_owned(),
-                "read-2\n".to_owned(),
-                "read-3".to_owned(),
-            ],
-            modified_files: vec![
-                "changed\n\n".to_owned(),
-                "write-1".to_owned(),
-                "write-2\ntrailing\n".to_owned(),
-                "write-3".to_owned(),
-            ],
-        },
+        empty_fixture(),
+        read_only_fixture(),
+        modified_only_fixture(),
+        both_sections_fixture(),
+        ordering_fixture(),
+        raw_content_fixture(),
+        newline_fixture(),
     ]
+}
+
+fn empty_fixture() -> Fixture {
+    fixture(13_089, "empty read and modified lists", &[], &[])
+}
+
+fn read_only_fixture() -> Fixture {
+    fixture(13_090, "read-only files", &["src/a.ts", "src/b.ts"], &[])
+}
+
+fn modified_only_fixture() -> Fixture {
+    fixture(13_091, "modified-only files", &[], &["src/changed.ts"])
+}
+
+fn both_sections_fixture() -> Fixture {
+    fixture(
+        13_092,
+        "both sections and exact separators",
+        &["src/read.ts"],
+        &["src/changed.ts"],
+    )
+}
+
+fn ordering_fixture() -> Fixture {
+    fixture(
+        13_093,
+        "multiple entries preserve order and duplicates",
+        &["z.ts", "a.ts", "z.ts"],
+        &["m.ts", "m.ts", "b.ts"],
+    )
+}
+
+fn raw_content_fixture() -> Fixture {
+    fixture(
+        13_094,
+        "empty unicode nul punctuation and raw xml text",
+        &["", "é/技能/😀\0<&>\"'"],
+        &["<raw>&\"'", "punctuation: []{}()"],
+    )
+}
+
+fn newline_fixture() -> Fixture {
+    fixture(
+        13_095,
+        "many entries with embedded and trailing newlines",
+        &["before\ninside\n\nafter", "read-1", "read-2\n", "read-3"],
+        &["changed\n\n", "write-1", "write-2\ntrailing\n", "write-3"],
+    )
+}
+
+fn fixture(request_id: u64, name: &'static str, read_files: &[&str], modified_files: &[&str]) -> Fixture {
+    Fixture {
+        request_id,
+        name,
+        read_files: read_files.iter().map(|entry| (*entry).to_owned()).collect(),
+        modified_files: modified_files.iter().map(|entry| (*entry).to_owned()).collect(),
+    }
 }

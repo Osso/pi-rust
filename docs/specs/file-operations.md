@@ -18,6 +18,12 @@ This bounded slice ports the pure file-summary formatter from `packages/agent/sr
 - [x] Cover the focused contract in `crates/pi-agent-core/tests/file_operations.rs` and register it in `run-tests.sh`.
 - [x] Compare direct differential request groups `13089..=13095` against the pinned TypeScript source.
 
+## Proof status
+
+- Production implementation: commit `54c5010`; focused proof has 7 passed tests.
+- Differential proof: commit `84603a4`; requests `13089..=13095` pass against the pinned TypeScript source.
+- Oracle typecheck: `/tmp/pi-rust-file-operations-oracle.out` records `./run-tests.sh oracle` exit 0.
+
 ## How it works
 
 - [File-operation traceability](../porting/traceability/file-operations.md)

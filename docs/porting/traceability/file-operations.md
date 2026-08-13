@@ -17,10 +17,11 @@ Pinned source: `packages/agent/src/harness/compaction/utils.ts:61-73` at commit 
 ## Proof status
 
 - Focused RED: `/tmp/pi-rust-file-operations-red.out` records exit 101 with only the missing `harness::compaction` module/API.
-- Focused GREEN: `/tmp/pi-rust-file-operations-green.out` records exit 0 with 7 passed and 0 failed.
+- Focused GREEN: `/tmp/pi-rust-file-operations-green.out` records exit 0 with 7 passed and 0 failed; production commit `54c5010` implements the formatter.
 - Differential RED: `/tmp/pi-rust-file-operations-differential-red.out` records all prior requests through `13088` passing before request `13089` reaches the unchanged oracle's unsupported operation and returns non-JSON.
 - Differential GREEN: `/tmp/pi-rust-file-operations-differential-green.out` records exit 0 with one persistent test passing; exactly seven request groups (`13089..=13095`) cover empty output; read-only and modified-only sections; both-section separators; order and duplicates; empty, Unicode, NUL, punctuation, XML-sensitive, embedded-newline, trailing-newline, and larger-list values.
 - Oracle typecheck: `/tmp/pi-rust-file-operations-oracle.out` records `./run-tests.sh oracle` exit 0 with silent stdout/stderr.
+- Differential proof commit: `84603a4` (`test(agent): compare file operation formatting`).
 
 ## Exclusions
 
