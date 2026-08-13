@@ -2,6 +2,8 @@
 
 Pinned source: `packages/agent/src/harness/compaction/compaction.ts` at commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
+Committed revisions: production `6d51639`; differential and direct-module proof `a4d33ae`.
+
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
 | `compaction.ts:200-207` | Public mutable interface with required `tokens: number`, `usageTokens: number`, `trailingTokens: number`, and `lastUsageIndex: number \| null` fields | Module-local `harness::compaction::ContextUsageEstimate` with public `f64`, `f64`, `f64`, and `Option<f64>` fields in source order; focused proof plus eight source-shaped differential groups `13148..=13155` |
@@ -36,7 +38,11 @@ Pinned source: `packages/agent/src/harness/compaction/compaction.ts` at commit `
 - Differential GREEN: `/tmp/pi-rust-context-usage-estimate-differential-green.out` records exit 0 with the persistent differential test passed.
 - Oracle/typeproof: `/tmp/pi-rust-context-usage-estimate-oracle.out` records `./run-tests.sh oracle` exit 0, including the direct-module proof.
 - Node syntax checks for `oracle/truncate-oracle.ts` and `oracle/context-usage-estimate-typecheck.mjs` exit 0.
-- Changed Rust/TypeScript/JavaScript readability audits report no threshold violations; no broad workspace, final static, clean-pin, or inherited-verifier claim is made in this phase.
+- Changed Rust/TypeScript/JavaScript readability audits report no threshold violations.
+- Final workspace: `/tmp/pi-rust-context-usage-estimate-final-workspace-tests.out` captures `cargo test --workspace --all-targets` at code/proof HEAD `a4d33ae` with 252 passed, 0 failed, and 2 ignored; exit 0.
+- Final static gates: `/tmp/pi-rust-context-usage-estimate-final-check.out` captures `cargo check --workspace --all-targets`; `/tmp/pi-rust-context-usage-estimate-final-clippy.out` captures all-target/all-feature Clippy with `-D warnings`; both exit 0.
+- Final oracle, formatting, syntax, and diff gates: `/tmp/pi-rust-context-usage-estimate-final-oracle.out`, `/tmp/pi-rust-context-usage-estimate-final-fmt.out`, both final Node artifacts, and `/tmp/pi-rust-context-usage-estimate-final-diff.out` record exit 0. Later changes are documentation-only and do not invalidate executable proof.
+- Documentation and pins: README, dependency inventory, compatibility, dedicated spec, and traceability are consistent; the pinned source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 ## Exclusions
 

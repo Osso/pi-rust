@@ -1,6 +1,6 @@
 # Context usage estimate
 
-This specification covers the module-local `ContextUsageEstimate` interface from `packages/agent/src/harness/compaction/compaction.ts:200-207` and its Rust value boundary. Context-token estimation and compaction orchestration remain deferred.
+This specification covers the module-local `ContextUsageEstimate` interface from `packages/agent/src/harness/compaction/compaction.ts:200-207` and its Rust value boundary. Context-token estimation and compaction orchestration remain deferred. Current committed revisions: production `6d51639`; differential and direct-module proof `a4d33ae`.
 
 ## What it must do
 
@@ -31,9 +31,16 @@ This specification covers the module-local `ContextUsageEstimate` interface from
 - `crates/pi-agent-core/tests/differential_truncate/context_usage_estimate.rs`
 - `oracle/context-usage-estimate-typecheck.mjs`
 
-## Known gaps (current cycle)
+## Final integration proof
 
-- [ ] Complete final workspace/static, documentation, clean-pin, and inherited verification gates in a later phase.
+- [x] Run `cargo test --workspace --all-targets`: 252 passed, 0 failed, and 2 ignored at code/proof HEAD `a4d33ae`.
+- [x] Run workspace all-target check and all-target/all-feature Clippy with `-D warnings`: both exit 0.
+- [x] Run oracle/typeproof, formatting, Node syntax, and diff checks: all exit 0.
+- [x] Complete Rust/TypeScript/JavaScript readability, documentation, dependency, and clean-pin audits.
+
+## Known gaps
+
+- [ ] Inherited independent verification remains pending after documentation closure.
 
 ## Out of scope
 
