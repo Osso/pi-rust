@@ -8,7 +8,7 @@ This specification covers the module-local `SUMMARIZATION_SYSTEM_PROMPT` constan
 - [x] Preserve the exact 310-byte, 310-character, 310-UTF-16-unit ASCII value.
 - [x] Preserve exactly three lines separated by two adjacent LF characters, including one blank middle line.
 - [x] Preserve zero CR characters, zero trailing whitespace, and no trailing LF.
-- [ ] Compare the module constant directly with the pinned TypeScript source through request `13129` and direct-module type proof.
+- [x] Compare the module constant directly with the pinned TypeScript source through request `13129` and direct-module type proof.
 
 ## How it works
 
@@ -19,16 +19,22 @@ This specification covers the module-local `SUMMARIZATION_SYSTEM_PROMPT` constan
 
 - `crates/pi-agent-core/src/harness/compaction/mod.rs` — module-local exact constant.
 - `crates/pi-agent-core/tests/summarization_system_prompt.rs` — focused value, metric, line-structure, and const-usage proof.
-- `run-tests.sh` — focused test registration.
+- `crates/pi-agent-core/tests/differential_truncate/summarization_system_prompt.rs` — direct request `13129` against the pinned TypeScript value.
+- `oracle/truncate-oracle.ts` — direct compaction-module runtime adapter and metrics normalization.
+- `oracle/summarization-system-prompt-typecheck.mjs` — direct-module exact literal type proof.
+- `crates/pi-agent-core/tests/differential_truncate/mod.rs` — persistent oracle source-module and request registration.
+- `run-tests.sh` — focused and oracle test registration.
 
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/summarization_system_prompt.rs`
+- `crates/pi-agent-core/tests/differential_truncate/summarization_system_prompt.rs`
+- `oracle/summarization-system-prompt-typecheck.mjs`
 
 ## Known gaps (current cycle)
 
-- [ ] Add direct-module differential request `13129` against the pinned TypeScript source.
-- [ ] Add direct-module type proof for the exact static export while preserving package-index omission.
+- [x] Add direct-module differential request `13129` against the pinned TypeScript source.
+- [x] Add direct-module type proof for the exact static export while preserving package-index omission.
 - [ ] Complete final workspace, static, readability, documentation, and clean-pin gates.
 - [ ] Complete inherited independent verification.
 

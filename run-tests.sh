@@ -25,6 +25,7 @@ typecheck_oracle() {
 		oracle/auth-command-oracle.ts \
 		oracle/config-value-reference-oracle.ts
 	node oracle/public-index-typecheck.mjs
+	node oracle/summarization-system-prompt-typecheck.mjs
 }
 
 case "${1:-all}" in

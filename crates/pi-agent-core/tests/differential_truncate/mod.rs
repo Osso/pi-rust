@@ -13,6 +13,7 @@ mod prompt_templates;
 mod resources;
 mod sanitize;
 mod skill_formatting;
+mod summarization_system_prompt;
 mod summary_markers;
 mod support;
 mod tail_corpus;
@@ -30,6 +31,7 @@ fn spawn_oracle() -> oracle::TsOracle {
         "packages/agent/src/harness/tools/image.ts",
         "packages/agent/src/harness/tools/edit-diff.ts",
         "packages/agent/src/harness/compaction/utils.ts",
+        "packages/agent/src/harness/compaction/compaction.ts",
     ])
 }
 
@@ -55,4 +57,5 @@ pub(crate) fn run() {
     branch_summary_message::compare_all_fixtures(&mut oracle);
     compaction_settings::compare_all_fixtures(&mut oracle);
     prompt_template_diagnostic::compare_all_fixtures(&mut oracle);
+    summarization_system_prompt::compare(&mut oracle);
 }

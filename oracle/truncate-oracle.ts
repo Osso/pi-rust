@@ -59,6 +59,10 @@ type FileOperationsApi = {
 	formatFileOperations(readFiles: string[], modifiedFiles: string[]): string;
 };
 
+type CompactionApi = {
+	SUMMARIZATION_SYSTEM_PROMPT: string;
+};
+
 type FileKind = "file" | "directory" | "symlink";
 
 type FileInfoRequest = {
@@ -232,6 +236,11 @@ type BranchSummaryMessageRequest = {
 	id: RequestId;
 	operation: "branch_summary_message";
 	cases: BranchSummaryCaseRequest[];
+};
+
+type SummarizationSystemPromptRequest = {
+	id: RequestId;
+	operation: "summarization_system_prompt";
 };
 
 type MutableBashExecutionMessageRecord = {
@@ -465,11 +474,16 @@ type Request =
 	| BranchSummaryMessageRequest
 	| ShouldCompactRequest
 	| PromptTemplateDiagnosticRequest
+	| SummarizationSystemPromptRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<
 	Request,
-	HarnessErrorRequest | SummaryMarkersRequest | ShouldCompactRequest | PromptTemplateDiagnosticRequest
+	HarnessErrorRequest |
+		SummaryMarkersRequest |
+		ShouldCompactRequest |
+		PromptTemplateDiagnosticRequest |
+		SummarizationSystemPromptRequest
 >;
 type FormatSizeRequest = Extract<UtilityRequest, { operation: "format_size" }>;
 type TruncationRequest = Extract<
@@ -912,6 +926,29 @@ function executePromptTemplateDiagnosticRequest(request: PromptTemplateDiagnosti
 	return successfulResponse(request.id, { results });
 }
 
+function executeSummarizationSystemPromptRequest(request: SummarizationSystemPromptRequest, api: CompactionApi): Response {
+	return successfulResponse(request.id, normalizeSummarizationSystemPrompt(api.SUMMARIZATION_SYSTEM_PROMPT));
+}
+
+function normalizeSummarizationSystemPrompt(value: string): {
+	value: string;
+	utf8Bytes: number;
+	utf16Units: number;
+	lineFeedPositions: number[];
+	hasCarriageReturn: boolean;
+	endsWithLineFeed: boolean;
+} {
+	const lineFeedPositions = Array.from(value).flatMap((character, index) => (character === "\n" ? [index] : []));
+	return {
+		value,
+		utf8Bytes: Buffer.byteLength(value, "utf8"),
+		utf16Units: value.length,
+		lineFeedPositions,
+		hasCarriageReturn: value.includes("\r"),
+		endsWithLineFeed: value.endsWith("\n"),
+	};
+}
+
 function normalizePromptTemplateDiagnosticInput(input: PromptTemplateDiagnosticCaseRequest): unknown {
 	const diagnostic: MutablePromptTemplateDiagnosticRecord = {
 		type: input.type,
@@ -1039,32 +1076,37 @@ function executeUtilityRequest(
 	}
 }
 
+function executeSpecialRequest(request: Request, apis: OracleApis): Response | undefined {
+	if (request.operation === "summary_markers") return executeSummaryMarkers(request, apis.harnessTypes);
+	if (request.operation === "should_compact") return executeShouldCompactRequest(request, apis.harnessTypes);
+	if (request.operation === "prompt_template_diagnostic") return executePromptTemplateDiagnosticRequest(request);
+	if (request.operation === "summarization_system_prompt") {
+		return executeSummarizationSystemPromptRequest(request, apis.compaction);
+	}
+	if (request.operation === "harness_error") return executeHarnessError(request, apis.harnessTypes);
+	return undefined;
+}
+
+function dispatchRequest(request: Request, apis: OracleApis): Response {
+	const specialResponse = executeSpecialRequest(request, apis);
+	if (specialResponse !== undefined) return specialResponse;
+	return executeUtilityRequest(
+		request as UtilityRequest,
+		apis.normal,
+		apis.fallback,
+		apis.shellOutput,
+		apis.promptTemplates,
+		apis.skillFormatting,
+		apis.systemPrompt,
+		apis.image,
+		apis.editDiff,
+		apis.fileOperations,
+	);
+}
+
 function execute(request: Request, apis: OracleApis): Response {
 	try {
-		if (request.operation === "summary_markers") {
-			return executeSummaryMarkers(request, apis.harnessTypes);
-		}
-		if (request.operation === "should_compact") {
-			return executeShouldCompactRequest(request, apis.harnessTypes);
-		}
-		if (request.operation === "prompt_template_diagnostic") {
-			return executePromptTemplateDiagnosticRequest(request);
-		}
-		if (request.operation === "harness_error") {
-			return executeHarnessError(request, apis.harnessTypes);
-		}
-		return executeUtilityRequest(
-			request,
-			apis.normal,
-			apis.fallback,
-			apis.shellOutput,
-			apis.promptTemplates,
-			apis.skillFormatting,
-			apis.systemPrompt,
-			apis.image,
-			apis.editDiff,
-			apis.fileOperations,
-		);
+		return dispatchRequest(request, apis);
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };
 	}
@@ -1086,45 +1128,43 @@ type CommonJsModule = {
 	exports: Record<string, unknown>;
 };
 
-function readModulePaths(): [string, string, string, string, string, string, string, string, string, string] {
-	const truncateModulePath = process.argv[2];
-	const shellOutputModulePath = process.argv[3];
-	const agentModulePath = process.argv[4];
-	const promptTemplateModulePath = process.argv[5];
-	const skillsModulePath = process.argv[6];
-	const systemPromptModulePath = process.argv[7];
-	const imageModulePath = process.argv[8];
-	const editDiffModulePath = process.argv[9];
-	const fileOperationsModulePath = process.argv[10];
-	const esbuildModulePath = process.argv[11];
-	if (
-		truncateModulePath === undefined ||
-		shellOutputModulePath === undefined ||
-		agentModulePath === undefined ||
-		promptTemplateModulePath === undefined ||
-		skillsModulePath === undefined ||
-		systemPromptModulePath === undefined ||
-		imageModulePath === undefined ||
-		editDiffModulePath === undefined ||
-		fileOperationsModulePath === undefined ||
-		esbuildModulePath === undefined
-	) {
-		throw new Error(
-			"agent utility oracle requires truncate, shell-output, agent-package, prompt-template, skills, system-prompt, image, edit-diff, file-operations, and esbuild module paths",
-		);
-	}
-	return [
-		truncateModulePath,
-		shellOutputModulePath,
-		agentModulePath,
-		promptTemplateModulePath,
-		skillsModulePath,
-		systemPromptModulePath,
-		imageModulePath,
-		editDiffModulePath,
-		fileOperationsModulePath,
-		esbuildModulePath,
-	];
+type ModulePaths = {
+	truncate: string;
+	shellOutput: string;
+	agent: string;
+	promptTemplates: string;
+	skills: string;
+	systemPrompt: string;
+	image: string;
+	editDiff: string;
+	fileOperations: string;
+	compaction: string;
+	esbuild: string;
+};
+
+const MODULE_PATH_ERROR =
+	"agent utility oracle requires truncate, shell-output, agent-package, prompt-template, skills, system-prompt, image, edit-diff, file-operations, compaction, and esbuild module paths";
+
+function requireModulePath(index: number): string {
+	const modulePath = process.argv[index];
+	if (modulePath === undefined) throw new Error(MODULE_PATH_ERROR);
+	return modulePath;
+}
+
+function readModulePaths(): ModulePaths {
+	return {
+		truncate: requireModulePath(2),
+		shellOutput: requireModulePath(3),
+		agent: requireModulePath(4),
+		promptTemplates: requireModulePath(5),
+		skills: requireModulePath(6),
+		systemPrompt: requireModulePath(7),
+		image: requireModulePath(8),
+		editDiff: requireModulePath(9),
+		fileOperations: requireModulePath(10),
+		compaction: requireModulePath(11),
+		esbuild: requireModulePath(12),
+	};
 }
 
 async function loadFallbackApi(sourceModulePath: string, esbuildModulePath: string): Promise<TruncateApi> {
@@ -1152,31 +1192,22 @@ type OracleApis = {
 	image: ImageApi;
 	editDiff: EditDiffApi;
 	fileOperations: FileOperationsApi;
+	compaction: CompactionApi;
 };
 
 async function loadApis(): Promise<OracleApis> {
-	const [
-		truncateModulePath,
-		shellOutputModulePath,
-		agentModulePath,
-		promptTemplateModulePath,
-		skillsModulePath,
-		systemPromptModulePath,
-		imageModulePath,
-		editDiffModulePath,
-		fileOperationsModulePath,
-		esbuildModulePath,
-	] = readModulePaths();
-	const normal = (await import(pathToFileURL(truncateModulePath).href)) as TruncateApi;
-	const fallback = await loadFallbackApi(truncateModulePath, esbuildModulePath);
-	const shellOutput = (await import(pathToFileURL(shellOutputModulePath).href)) as ShellOutputApi;
-	const harnessTypes = (await import(pathToFileURL(agentModulePath).href)) as HarnessTypesApi;
-	const promptTemplates = (await import(pathToFileURL(promptTemplateModulePath).href)) as PromptTemplateApi;
-	const skillFormatting = (await import(pathToFileURL(skillsModulePath).href)) as SkillFormattingApi;
-	const systemPrompt = (await import(pathToFileURL(systemPromptModulePath).href)) as SystemPromptApi;
-	const image = (await import(pathToFileURL(imageModulePath).href)) as ImageApi;
-	const editDiff = (await import(pathToFileURL(editDiffModulePath).href)) as EditDiffApi;
-	const fileOperations = (await import(pathToFileURL(fileOperationsModulePath).href)) as FileOperationsApi;
+	const paths = readModulePaths();
+	const normal = (await import(pathToFileURL(paths.truncate).href)) as TruncateApi;
+	const fallback = await loadFallbackApi(paths.truncate, paths.esbuild);
+	const shellOutput = (await import(pathToFileURL(paths.shellOutput).href)) as ShellOutputApi;
+	const harnessTypes = (await import(pathToFileURL(paths.agent).href)) as HarnessTypesApi;
+	const promptTemplates = (await import(pathToFileURL(paths.promptTemplates).href)) as PromptTemplateApi;
+	const skillFormatting = (await import(pathToFileURL(paths.skills).href)) as SkillFormattingApi;
+	const systemPrompt = (await import(pathToFileURL(paths.systemPrompt).href)) as SystemPromptApi;
+	const image = (await import(pathToFileURL(paths.image).href)) as ImageApi;
+	const editDiff = (await import(pathToFileURL(paths.editDiff).href)) as EditDiffApi;
+	const fileOperations = (await import(pathToFileURL(paths.fileOperations).href)) as FileOperationsApi;
+	const compaction = (await import(pathToFileURL(paths.compaction).href)) as CompactionApi;
 	return {
 		normal,
 		fallback,
@@ -1188,6 +1219,7 @@ async function loadApis(): Promise<OracleApis> {
 		image,
 		editDiff,
 		fileOperations,
+		compaction,
 	};
 }
 
