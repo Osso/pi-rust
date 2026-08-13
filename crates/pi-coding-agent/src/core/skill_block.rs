@@ -14,27 +14,35 @@ pub fn parse_skill_block(text: &str) -> Option<ParsedSkillBlock> {
     let (location, remaining) = take_quoted_attribute(remaining)?;
     let remaining = remaining.strip_prefix(">\n")?;
     let close = "\n</skill>";
-    let content_end = remaining.find(close)?;
-    let content = &remaining[..content_end];
-    let trailing = &remaining[content_end + close.len()..];
-    let user_message = match trailing {
-        "" => None,
-        trailing => {
-            let suffix = trailing.strip_prefix("\n\n")?;
-            if suffix.is_empty() {
-                return None;
-            }
-            let message = trim_javascript(suffix);
-            (!message.is_empty()).then(|| message.to_owned())
-        }
-    };
+    for (content_end, _) in remaining.match_indices(close) {
+        let trailing = &remaining[content_end + close.len()..];
+        let Some(user_message) = parse_user_message(trailing) else {
+            continue;
+        };
 
-    Some(ParsedSkillBlock {
-        name: name.to_owned(),
-        location: location.to_owned(),
-        content: content.to_owned(),
-        user_message,
-    })
+        return Some(ParsedSkillBlock {
+            name: name.to_owned(),
+            location: location.to_owned(),
+            content: remaining[..content_end].to_owned(),
+            user_message,
+        });
+    }
+
+    None
+}
+
+fn parse_user_message(trailing: &str) -> Option<Option<String>> {
+    if trailing.is_empty() {
+        return Some(None);
+    }
+
+    let suffix = trailing.strip_prefix("\n\n")?;
+    if suffix.is_empty() {
+        return None;
+    }
+
+    let message = trim_javascript(suffix);
+    Some((!message.is_empty()).then(|| message.to_owned()))
 }
 
 fn take_quoted_attribute(value: &str) -> Option<(&str, &str)> {

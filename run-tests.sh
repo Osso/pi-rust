@@ -23,8 +23,10 @@ typecheck_oracle() {
 		oracle/rpc-jsonl-oracle.ts \
 		oracle/truncate-oracle.ts \
 		oracle/auth-command-oracle.ts \
-		oracle/config-value-reference-oracle.ts
+		oracle/config-value-reference-oracle.ts \
+		oracle/skill-block-oracle.ts
 	node oracle/public-index-typecheck.mjs
+	node oracle/skill-block-typecheck.mjs
 	node oracle/summarization-system-prompt-typecheck.mjs
 	node oracle/cut-point-result-typecheck.mjs
 }
@@ -33,13 +35,13 @@ case "${1:-all}" in
 	focused)
 		shift
 		cargo test -p pi-protocol --lib --test framing --test frame_decoder --test model_cost --test schema_leaves --test model_metadata --test usage --test content_leaves --test session_metadata --test protocol_error_code --test commands --test client_hello --test message_envelopes "$@"
-		cargo test -p pi-coding-agent --test rpc_jsonl --test auth_command --test config_value_references --test config_value_status "$@"
+		cargo test -p pi-coding-agent --test rpc_jsonl --test auth_command --test config_value_references --test config_value_status --test skill_block "$@"
 		exec cargo test -p pi-agent-core --test truncate --test sanitize_binary_output --test harness_errors --test compaction_errors --test file_info --test resources --test prompt_templates --test skill_formatting --test image --test edit_line_endings --test file_operations --test summary_markers --test bash_execution_message --test branch_summary_message --test compaction_settings --test prompt_template_diagnostic --test summarization_system_prompt --test cut_point_result "$@"
 		;;
 	differential)
 		shift
 		cargo test -p pi-protocol --test differential_protocol "$@"
-		cargo test -p pi-coding-agent --test differential_rpc_jsonl --test differential_auth_command --test differential_config_value_references "$@"
+		cargo test -p pi-coding-agent --test differential_rpc_jsonl --test differential_auth_command --test differential_config_value_references --test differential_skill_block "$@"
 		exec cargo test -p pi-agent-core --test differential_truncate "$@"
 		;;
 	oracle)

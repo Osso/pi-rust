@@ -83,6 +83,13 @@ fn rejects_empty_or_quoted_attributes_and_missing_close_delimiter() {
 }
 
 #[test]
+fn backtracks_to_a_later_closing_delimiter_when_the_first_remainder_is_invalid() {
+    let input = "<skill name=\"n\" location=\"l\">\nfirst\n</skill>\nsecond\n</skill>";
+    let block = parse_skill_block(input).expect("later closing delimiter should complete the match");
+    assert_block(block, "n", "l", "first\n</skill>\nsecond", None);
+}
+
+#[test]
 fn accepts_only_a_nonempty_double_lf_message_suffix() {
     let message = parse_skill_block("<skill name=\"n\" location=\"l\">\nx\n</skill>\n\ny")
         .expect("double-LF message suffix should parse");
