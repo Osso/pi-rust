@@ -1,5 +1,50 @@
 use super::types::PromptTemplate;
 
+/// Stable diagnostic codes emitted while loading prompt templates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptTemplateDiagnosticCode {
+    FileInfoFailed,
+    ListFailed,
+    ReadFailed,
+    ParseFailed,
+}
+
+impl PromptTemplateDiagnosticCode {
+    /// Returns the exact source diagnostic code literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::FileInfoFailed => "file_info_failed",
+            Self::ListFailed => "list_failed",
+            Self::ReadFailed => "read_failed",
+            Self::ParseFailed => "parse_failed",
+        }
+    }
+}
+
+/// Diagnostic severity emitted while loading prompt templates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptTemplateDiagnosticType {
+    Warning,
+}
+
+impl PromptTemplateDiagnosticType {
+    /// Returns the exact source diagnostic severity literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Warning => "warning",
+        }
+    }
+}
+
+/// Value-only diagnostic emitted while loading prompt templates.
+#[derive(Debug)]
+pub struct PromptTemplateDiagnostic {
+    pub r#type: PromptTemplateDiagnosticType,
+    pub code: PromptTemplateDiagnosticCode,
+    pub message: String,
+    pub path: String,
+}
+
 /// Parses ASCII-space/tab-delimited arguments with source-compatible quote handling.
 ///
 /// Quotes are removed; backslashes and other whitespace remain literal.

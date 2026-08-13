@@ -37,6 +37,8 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve the focused value-only `BranchSummaryMessage` role, mutable fields, unrestricted timestamp binary64 values, and module/root exports from `messages.ts:40-45`.
 - [x] Compare the value-only `BranchSummaryMessage` directly with the pinned TypeScript interface through eight differential request groups (`13105..=13112`) and strict public-index type proof.
 - [x] Preserve mutable `CompactionSettings`, strict `shouldCompact` threshold behavior, unrestricted binary64 arithmetic, and module/root exports from `compaction.ts:152-159,251-254`; compare directly through eight differential request groups (`13113..=13120`) and strict public-index type proof.
+- [x] Preserve focused `PromptTemplateDiagnosticCode`, `PromptTemplateDiagnosticType`, and mutable `PromptTemplateDiagnostic` values and module/root exports from `prompt-templates.ts:4-16`.
+- [ ] Compare prompt-template diagnostic values directly with the pinned TypeScript source and complete final gates.
 - [x] Preserve exact coding-agent auth command names, usage strings, and help selection over Rust-representable strings.
 - [x] Preserve exact coding-agent auth parser errors, argument ordering, flags, and field-specific expiry-number behavior against the pinned source.
 - [x] Preserve pure config-value command classification and environment-reference parsing against the pinned source.
