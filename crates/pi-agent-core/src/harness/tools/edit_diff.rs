@@ -29,6 +29,13 @@ pub struct Edit {
     pub new_text: String,
 }
 
+/// A direct-module result record from edit application.
+#[derive(Debug)]
+pub struct AppliedEditsResult {
+    pub base_content: String,
+    pub new_content: String,
+}
+
 /// Detects the first line-ending style using the source's first-LF ordering.
 pub fn detect_line_ending(content: &str) -> LineEnding {
     let Some(first_lf) = content.find('\n') else {
