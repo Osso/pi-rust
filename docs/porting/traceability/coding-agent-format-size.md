@@ -21,7 +21,7 @@ Rust uses `usize` for the approved non-negative integer byte-count domain. This 
 - Differential request: `13185`, GREEN 1/0 across 16 independent cases.
 - Type/export proof: real pinned TypeScript direct module, tools index, and package index; exact function signature; 3 valid and 3 wrong-string diagnostics.
 - Targeted Clippy, typecheck, formatting, diff, and readability: pass.
-- Final executable/docs verification at `a8a376e`: workspace `304 passed, 0 failed, 2 ignored` across 68 result lines; workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle/typeproof/Node, fmt/diff, Rust/TS readability, exact wrapper/export/scope/dependency/docs/lock/clean-pin audit pass. Evidence is `/tmp/pi-rust-coding-format-size-final-*.out` plus the final audit. Inherited verification remains pending only for this documentation closure.
+- Final executable/docs verification at `a8a376e`: workspace `304 passed, 0 failed, 2 ignored` across 68 result lines; workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle/typeproof/Node, fmt/diff, Rust/TS readability, exact wrapper/export/scope/dependency/docs/lock/clean-pin audit pass. Evidence is `/tmp/pi-rust-coding-format-size-final-*.out` plus the final audit. Inherited verification passes at docs-only closure HEAD `52ff0b0` (`OVERALL: PASS`); broad evidence remains valid from `a8a376e`.
 
 ## Exclusions
 

@@ -40,7 +40,7 @@ This specification covers `formatSize` from the pinned coding-agent source `pack
 
 ## Known gaps (current cycle)
 
-- [ ] Complete inherited verification for this documentation-only closure.
+- [x] Inherited independent verification at docs-only closure HEAD `52ff0b0` returns `OVERALL: PASS`; broad evidence remains valid from `a8a376e`.
 
 ## Boundary and implementation relationship
 
