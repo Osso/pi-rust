@@ -15,7 +15,7 @@ pub use messages::{
     BranchSummaryRole, COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX,
 };
 pub use types::{
-    AgentHarnessResources, AgentToolExecutionContext, BranchSummaryError, BranchSummaryErrorCode, CompactionError,
-    CompactionErrorCode, ExecutionError, ExecutionErrorCode, FileError, FileErrorCode, FileInfo, FileKind,
-    PromptTemplate, QueueMode, Skill, ThinkingLevel, ToolExecutionMode,
+    AgentHarnessResources, AgentToolExecutionContext, BeforeToolCallResult, BranchSummaryError, BranchSummaryErrorCode,
+    CompactionError, CompactionErrorCode, ExecutionError, ExecutionErrorCode, FileError, FileErrorCode, FileInfo,
+    FileKind, PromptTemplate, QueueMode, Skill, ThinkingLevel, ToolExecutionMode,
 };

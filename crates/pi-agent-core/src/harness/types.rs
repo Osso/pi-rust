@@ -96,6 +96,14 @@ pub struct AgentToolExecutionContext {
     pub agent_id: Option<String>,
 }
 
+/// Result returned by a before-tool-call hook.
+#[derive(Debug)]
+pub struct BeforeToolCallResult {
+    pub block: Option<bool>,
+    pub reason: Option<String>,
+    pub terminate: Option<bool>,
+}
+
 /// Kind of filesystem object addressed by a `FileInfo` value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileKind {
