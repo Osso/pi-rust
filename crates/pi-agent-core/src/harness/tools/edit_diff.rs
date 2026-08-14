@@ -22,6 +22,13 @@ pub struct StripBomResult {
     pub text: String,
 }
 
+/// A direct-module edit record with replacement text.
+#[derive(Debug)]
+pub struct Edit {
+    pub old_text: String,
+    pub new_text: String,
+}
+
 /// Detects the first line-ending style using the source's first-LF ordering.
 pub fn detect_line_ending(content: &str) -> LineEnding {
     let Some(first_lf) = content.find('\n') else {
