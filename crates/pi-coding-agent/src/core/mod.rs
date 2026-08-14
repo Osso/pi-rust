@@ -3,6 +3,7 @@ pub mod defaults;
 pub mod session_manager;
 pub mod session_tool_output;
 mod skill_block;
+pub mod source_info;
 
 pub use config_value::{
     get_config_value_env_var_name, get_config_value_env_var_names, get_missing_config_value_env_var_names,
