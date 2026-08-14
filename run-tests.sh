@@ -28,7 +28,8 @@ typecheck_oracle() {
 		oracle/default-thinking-level-oracle.ts \
 		oracle/cli-mode-oracle.ts \
 		oracle/thinking-level-validator-oracle.ts \
-		oracle/tool-output-persistence-constants-oracle.ts
+		oracle/tool-output-persistence-constants-oracle.ts \
+		oracle/current-session-version-oracle.ts
 	node oracle/public-index-typecheck.mjs
 	node oracle/skill-block-typecheck.mjs
 	node oracle/summarization-system-prompt-typecheck.mjs
@@ -39,6 +40,7 @@ typecheck_oracle() {
 	node oracle/cli-mode-typecheck.mjs
 	node oracle/thinking-level-validator-typecheck.mjs
 	node oracle/tool-output-persistence-constants-typecheck.mjs
+	node oracle/current-session-version-typecheck.mjs
 }
 
 case "${1:-all}" in
@@ -51,7 +53,7 @@ case "${1:-all}" in
 	differential)
 		shift
 		cargo test -p pi-protocol --test differential_protocol "$@"
-		cargo test -p pi-coding-agent --test differential_rpc_jsonl --test differential_auth_command --test differential_config_value_references --test differential_skill_block --test differential_default_thinking_level --test differential_cli_mode --test differential_thinking_level_validator --test differential_tool_output_persistence_constants "$@"
+		cargo test -p pi-coding-agent --test differential_rpc_jsonl --test differential_auth_command --test differential_config_value_references --test differential_skill_block --test differential_default_thinking_level --test differential_cli_mode --test differential_thinking_level_validator --test differential_tool_output_persistence_constants --test differential_current_session_version "$@"
 		exec cargo test -p pi-agent-core --test differential_truncate "$@"
 		;;
 	oracle)
