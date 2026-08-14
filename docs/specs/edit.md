@@ -24,7 +24,8 @@ This specification covers the direct-module edit records in `packages/agent/src/
 - [x] Differential RED at `7085ae5` and GREEN/typeproof commit `4b5fa7b` for request `13181`.
 - [x] Four independent raw source-shaped `Edit` cases compare through request `13181`; the erased interface has no runtime identity claim.
 - [x] `AppliedEditsResult` production/proof commit `39bb794`/`27ac88c` adds request `13183`; four independent raw records and the existing direct-module typeproof pass.
-- [ ] Final workspace/check/all-feature Clippy, documentation/dependency/clean-pin, and inherited verification remain pending.
+- [x] Combined executable integration at `b27569b` passes workspace `296/0/2`, static, oracle/typeproof, Node, formatting/diff, readability, dependency/lock, and clean-pin gates.
+- [ ] Inherited verification is pending only for the AppliedEditsResult documentation closure.
 
 ## Boundary and exclusions
 

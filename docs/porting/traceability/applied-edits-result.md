@@ -21,4 +21,11 @@ Pinned source: `packages/agent/src/harness/tools/edit-diff.ts:192-195` at `532f7
 - Dedicated direct-module typeproof: `/tmp/pi-rust-edit-record-typeproof.out`; it proves both `Edit` and `AppliedEditsResult`, with two valid assignments and four exact invalid diagnostics for each record.
 - Production commit: `39bb794`; proof commit: `27ac88c`.
 
-Final workspace, static, documentation, dependency/lock, clean-pin, and inherited verification remain pending.
+## Final integration proof
+
+- `/tmp/pi-rust-applied-edits-result-final-workspace-tests.out` records `cargo test --workspace --all-targets` exiting 0 at `b27569b`; all 65 result lines sum to `296 passed, 0 failed, 2 ignored`.
+- `/tmp/pi-rust-applied-edits-result-final-focused.out`, `...-differential.out`, `...-workspace-check.out`, and `...-workspace-clippy.out` pass.
+- `/tmp/pi-rust-applied-edits-result-final-oracle.out`, `...-typeproof.out`, `...-node-check.out`, `...-fmt.out`, `...-diff.out`, and `...-readability.out` pass.
+- `/tmp/pi-rust-applied-edits-result-final-audit.out` confirms exact direct-module boundaries, request `13183`, four fixtures, truthful RED artifacts, intact `Edit` proof, no Cargo/dependency/protocol/deployment changes, and clean pins.
+
+Final executable gates pass. Inherited verification is pending only for this documentation closure.
