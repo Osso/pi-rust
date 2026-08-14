@@ -27,7 +27,9 @@ This specification covers `packages/agent/src/types.ts:55-69` at pinned TypeScri
 - [x] Differential RED at `77b0580` records the structured unsupported-operation response for request `13180`; GREEN at `f2badfb` compares eleven state-tag fixtures against the source-shaped oracle.
 - [x] Real-index typeproof at `f2badfb` verifies the wildcard alias, exact fields/order, optional writable properties, `exactOptionalPropertyTypes=false`, explicit `undefined`, and excess-property diagnostic behavior.
 - [x] Targeted Clippy, formatting, diff, readability, and aggregate oracle/typeproof artifacts pass at the bounded proof revision.
-- [ ] Final workspace/check/all-feature Clippy, documentation/dependency/clean-pin, and inherited verification remain pending.
+- [x] Final Rust integration at `631e54f`: workspace `286 passed, 0 failed, 2 ignored`; focused/differential, workspace check, and all-target/all-feature Clippy with `-D warnings` pass.
+- [x] Proof-readability refactor `2bb4d86` changes only `oracle/public-index-typecheck.mjs`; current typeproof, aggregate oracle, Node syntax, formatting, slice-range diff, and changed-file readability pass.
+- [x] Inherited verification at `2bb4d86` confirms truthful RED artifacts, exact scope/export/request behavior, documentation, dependency/lock, clean pins/worktrees, and `OVERALL: PASS`.
 
 ## Boundary
 

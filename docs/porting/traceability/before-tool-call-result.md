@@ -21,7 +21,15 @@ Pinned source: `packages/agent/src/types.ts:55-69` at commit `532f7d12cd19235081
 - Dedicated public-index typeproof: `/tmp/pi-rust-before-tool-call-result-typeproof.out`; compiler 5.9.3, real-index wildcard resolution, exact field/order/optional/mutable proof, explicit `undefined`, and excess-property diagnostic.
 - Targeted readability: `/tmp/pi-rust-before-tool-call-result-readability.out`.
 
-Production commit: `77b0580`. Differential/typeproof commit: `f2badfb`.
+Production commit: `77b0580`. Differential/typeproof commit: `f2badfb`. Proof-readability refactor: `2bb4d86`.
+
+## Final integration proof
+
+- Rust integration evidence at `631e54f`: `/tmp/pi-rust-before-tool-call-result-final-workspace-tests.out` records `cargo test --workspace --all-targets` exiting 0. Summing all 61 result lines yields `286 passed, 0 failed, 2 ignored`.
+- `/tmp/pi-rust-before-tool-call-result-final-focused.out`, `/tmp/pi-rust-before-tool-call-result-final-differential.out`, `/tmp/pi-rust-before-tool-call-result-final-workspace-check.out`, and `/tmp/pi-rust-before-tool-call-result-final-workspace-clippy.out` pass at `631e54f`.
+- Only `oracle/public-index-typecheck.mjs` changes between `631e54f` and `2bb4d86`; current `/tmp/pi-rust-before-tool-call-result-final-typeproof.out`, `...-oracle.out`, `...-fmt.out`, `...-diff.out`, and `...-readability.out` pass at `2bb4d86`.
+- `/tmp/pi-rust-before-tool-call-result-final-audit.out` confirms exact source/export/field/derive boundaries, request `13180`, eleven independent state-tag fixtures, no `null`, truthful RED artifacts, documentation, no Cargo/dependency/protocol/deployment changes, and clean Rust/source pins.
+- Inherited independent verification at clean Rust HEAD `2bb4d86` returns `OVERALL: PASS`.
 
 ## Rust boundary and exclusions
 
@@ -31,4 +39,4 @@ The typed Rust boundary excludes arbitrary JavaScript runtime values, `null`, ex
 
 `beforeToolCall`, `BeforeToolCallContext`, `AfterToolCallResult`, blocking/error behavior, default messages, termination logic, callbacks, agent loops, tools, providers, messages, sessions, serialization, and orchestration remain unported. No dependency, deployment, protocol, or unrelated API change applies.
 
-Final workspace, static, dependency/lock, clean-pin, and inherited verification remain pending.
+Final workspace, static, dependency/lock, clean-pin, readability, and inherited verification pass. No deployment applies.
