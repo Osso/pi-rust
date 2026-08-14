@@ -11,8 +11,9 @@ This specification covers `formatSize` from the pinned coding-agent source `pack
 - [x] Implement the coding-agent function as a wrapper over the identical proven `pi_agent_core::harness::utils::format_size` helper.
 - [x] Cover 16 hard-coded focused byte-count cases across branch thresholds and rounding boundaries.
 - [x] Cover all three Rust export paths with focused tests.
-- [ ] Compare request `13185` against the real pinned TypeScript function.
-- [ ] Complete real TypeScript export proof and final workspace/static/inherited verification.
+- [x] Compare request `13185` against the real pinned TypeScript function with 16 independent hard-coded cases; differential GREEN is 1/0.
+- [x] Complete real direct-module/tools-index/package-index proof: exact `(number) => string` signature, three valid assignments, and three wrong-string diagnostics; targeted Clippy, typecheck, formatting, diff, and readability pass.
+- [ ] Complete final workspace, all-feature Clippy, aggregate oracle, clean-pin, and inherited verification.
 
 ## How it works
 
@@ -22,23 +23,33 @@ This specification covers `formatSize` from the pinned coding-agent source `pack
 
 - `crates/pi-coding-agent/src/core/tools/truncate.rs` — direct-module wrapper over agent-core `format_size`.
 - `crates/pi-coding-agent/src/core/tools/mod.rs` — tools-index-equivalent export.
+- `crates/pi-coding-agent/src/core/mod.rs` — coding-agent tools module boundary.
 - `crates/pi-coding-agent/src/lib.rs` — crate-root export.
 - `crates/pi-coding-agent/tests/format_size.rs` — 16 focused cases and three export-path tests.
+- `crates/pi-coding-agent/tests/differential_format_size/` — request `13185` source comparison.
+- `oracle/coding-agent-format-size-oracle.ts` — real direct-module runtime adapter.
+- `oracle/coding-agent-format-size-typecheck.mjs` — defining/tools/package export proof.
 
 ## Tests asserting this spec
 
 - `crates/pi-coding-agent/tests/format_size.rs`
+- `crates/pi-coding-agent/tests/differential_format_size.rs`
+- `oracle/coding-agent-format-size-typecheck.mjs`
 - `crates/pi-agent-core/tests/truncate.rs`
 - `crates/pi-agent-core/tests/differential_truncate/format_size.rs`
 
 ## Known gaps (current cycle)
 
-- [ ] Complete differential request `13185` and real TypeScript export proof.
-- [ ] Complete workspace, static, and inherited verification.
+- [ ] Final workspace, all-feature Clippy, aggregate oracle, clean-pin, and inherited verification.
+
+## Boundary and implementation relationship
+
+Coding-agent `formatSize` is a separate package boundary from agent-core truncation. Its Rust wrapper delegates to the identical approved `pi_agent_core::harness::utils::format_size` `usize` behavior; this does not claim broader coding-agent truncation coverage.
 
 ## Out of scope
 
-- Truncation constants, truncation types, and other truncation functions.
+- Coding-agent truncation APIs other than `formatSize`.
+- Truncation constants, truncation types, and other agent-core truncation functions.
 - Arbitrary JavaScript negative, fractional, nonfinite, or above-safe-integer values.
 - Runtime validation of unsupported numeric inputs.
 - Tool, filesystem, shell, and output-rendering behavior.

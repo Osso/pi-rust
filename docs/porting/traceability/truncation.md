@@ -22,6 +22,10 @@ Direct differential proof invokes the real pinned module through one persistent 
 | `truncate.ts:301-336` | Tail suffix respects valid UTF-8 character boundaries and can return empty when no character fits | Focused suffix/oversized-scalar cases plus 3,007 direct valid-Unicode byte-limit boundaries; surrogate inputs excluded |
 | `truncate.ts:342-350` | Single-line truncation uses a default limit and exact marker | Focused and direct shared default/exact/over/zero/custom cases; source UTF-16 units are returned separately for the pinned supplementary-character discrepancy |
 
+Separate coding-agent boundary:
+
+- `packages/coding-agent/src/core/tools/truncate.ts:61-69` `formatSize` is covered separately by request `13185`. Its Rust wrapper delegates to the identical approved agent-core `usize` formatter; this does not extend coverage to other coding-agent truncation APIs.
+
 Approved deviations, August 12, 2026:
 
 - Rust limits are `usize`, excluding negative, fractional, NaN, and infinite JavaScript values. The pinned source accepts those values and can return odd results or throw for empty input; those are classified source bugs outside the typed Rust API.

@@ -70,4 +70,4 @@ None for this bounded truncation slice.
 - JavaScript UTF-16 code-unit slicing in `truncateLine`. Alessio approved Unicode-scalar counting on August 12, 2026, so Rust never returns a lone surrogate.
 - Byte counts and limits above the exact JavaScript safe-integer domain.
 - File reads, shell execution, path resolution, truncation notices, and tool-specific output formatting.
-- The distinct Node-specific truncation implementation under `packages/coding-agent`; it requires separate source mapping and proof.
+- The distinct coding-agent truncation implementation under `packages/coding-agent`. Its separate `formatSize` boundary is covered in [coding-agent format size](coding-agent-format-size.md); all other coding-agent truncation APIs remain excluded.

@@ -8,7 +8,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-# Supplies the typed agent-harness ThinkingLevel used by coding-agent defaults.
+# Supplies typed agent-harness values and the shared truncation size formatter.
 pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }
 serde = "=1.0.229"
 serde_json = "=1.0.151"
