@@ -23,7 +23,8 @@ This specification covers the direct-module interface `packages/agent/src/harnes
 - [x] Focused RED/GREEN and production commit `7085ae5`.
 - [x] Differential RED at `7085ae5` and GREEN/typeproof commit `4b5fa7b`.
 - [x] Four independent raw source-shaped cases compare through request `13181`; the erased interface has no runtime identity claim.
-- [ ] Final workspace/check/all-feature Clippy, documentation/dependency/clean-pin, and inherited verification remain pending.
+- [x] Final integration at `3200027`: workspace `289 passed, 0 failed, 2 ignored`; focused/differential, workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle, dedicated typeproof, Node syntax, formatting/diff, and changed-file readability pass.
+- [x] Inherited verification confirms truthful RED artifacts, direct-module-only exports, deferred `AppliedEditsResult`/algorithm scope, documentation, dependency/lock, clean pins/worktrees, and `OVERALL: PASS`.
 
 ## Boundary and deferred exports
 

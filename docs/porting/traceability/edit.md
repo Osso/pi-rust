@@ -21,6 +21,14 @@ Pinned source: `packages/agent/src/harness/tools/edit-diff.ts:187-190` at `532f7
 - Direct-module typeproof: `/tmp/pi-rust-edit-record-typeproof.out`.
 - Production commit: `7085ae5`; proof commit: `4b5fa7b`.
 
+## Final integration proof
+
+- `/tmp/pi-rust-edit-record-final-workspace-tests.out` records `cargo test --workspace --all-targets` exiting 0 at `3200027`; all 62 result lines sum to `289 passed, 0 failed, 2 ignored`.
+- `/tmp/pi-rust-edit-record-final-focused.out`, `...-differential.out`, `...-workspace-check.out`, and `...-workspace-clippy.out` pass.
+- `/tmp/pi-rust-edit-record-final-oracle.out`, `...-typeproof.out`, `...-node-check.out`, `...-fmt.out`, `...-diff.out`, and `...-readability.out` pass at `3200027`.
+- `/tmp/pi-rust-edit-record-final-audit.out` confirms exact source/direct-only export/field/derive boundaries, request `13181`, four independent fixtures, truthful RED artifacts, deferred `AppliedEditsResult`, no Cargo/dependency/protocol/deployment changes, and clean Rust/source pins.
+- Inherited independent verification at clean Rust HEAD `3200027` returns `OVERALL: PASS`.
+
 ## Exclusions
 
-Fuzzy matching, Unicode normalization, matching/validation, offsets, overlap and replacement ordering, edit application, filesystem/tool behavior, `AppliedEditsResult`, extra traits/APIs, package/root exports, dependencies, deployment, protocol behavior, and unrelated APIs remain unported. Final workspace/check/all-feature Clippy, clean-pin, and inherited verification remain pending.
+Fuzzy matching, Unicode normalization, matching/validation, offsets, overlap and replacement ordering, edit application, filesystem/tool behavior, `AppliedEditsResult`, extra traits/APIs, package/root exports, dependencies, deployment, protocol behavior, and unrelated APIs remain unported. Final workspace/static/readability/documentation/dependency/clean-pin and inherited verification pass; no deployment applies.
