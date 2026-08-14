@@ -594,51 +594,73 @@ function proveBeforeToolCallResultExport(options) {
 	return { compilerVersion: ts.version, exactOptionalPropertyTypes: options.exactOptionalPropertyTypes === true };
 }
 
-function proveFreshExcessPropertyDiagnostic(options) {
+function createExcessPropertyFixture() {
 	const temporaryDirectory = mkdtempSync(join(tmpdir(), "pi-before-tool-call-result-excess-"));
 	const fixturePath = join(temporaryDirectory, "excess-property.ts");
 	writeFileSync(fixturePath, excessPropertyFixtureSource, "utf8");
+	return { temporaryDirectory, fixturePath };
+}
+
+function createExcessPropertyProgram(options, fixturePath) {
+	const diagnosticOptions = { ...options, noEmit: true };
+	return ts.createProgram({ rootNames: [fixturePath], options: diagnosticOptions });
+}
+
+function assertNoExcessPropertySyntaxDiagnostics(program, sourceFile) {
+	const diagnostics = program.getSyntacticDiagnostics(sourceFile);
+	if (diagnostics.length !== 0) {
+		throw new Error(`unexpected excess-property syntax diagnostics: ${formatDiagnostics(diagnostics)}`);
+	}
+}
+
+function readSingleExcessPropertyDiagnostic(program, sourceFile) {
+	const diagnostics = program.getSemanticDiagnostics(sourceFile);
+	if (diagnostics.length !== 1) {
+		throw new Error(`unexpected excess-property semantic diagnostic count: ${diagnostics.length}`);
+	}
+	return diagnostics[0];
+}
+
+function assertExcessPropertyDiagnosticKind(diagnostic) {
+	if (diagnostic.code !== 2353) {
+		throw new Error(`unexpected excess-property diagnostic code: ${diagnostic.code}`);
+	}
+	if (diagnostic.category !== ts.DiagnosticCategory.Error) {
+		throw new Error(`excess-property diagnostic is not an error: category=${diagnostic.category}`);
+	}
+}
+
+function assertExcessPropertyDiagnosticSpan(diagnostic, sourceFile) {
+	const expectedText = "extra";
+	const expectedStart = excessPropertyFixtureSource.indexOf(expectedText);
+	const actualText = diagnostic.start === undefined
+		? ""
+		: sourceFile.text.slice(diagnostic.start, diagnostic.start + (diagnostic.length ?? 0));
+	if (
+		diagnostic.file !== sourceFile
+		|| expectedStart < 0
+		|| diagnostic.start !== expectedStart
+		|| diagnostic.length !== expectedText.length
+		|| actualText !== expectedText
+	) {
+		throw new Error(
+			`excess-property diagnostic span does not identify generated extra property: `
+				+ `start=${diagnostic.start}, length=${diagnostic.length}, text=${JSON.stringify(actualText)}`,
+		);
+	}
+}
+
+function proveFreshExcessPropertyDiagnostic(options) {
+	const fixture = createExcessPropertyFixture();
 	try {
-		const diagnosticOptions = {
-			...options,
-			noEmit: true,
-		};
-		const program = ts.createProgram({ rootNames: [fixturePath], options: diagnosticOptions });
-		const sourceFile = sourceFileAt(program, fixturePath, "excess-property fixture");
-		const syntacticDiagnostics = program.getSyntacticDiagnostics(sourceFile);
-		if (syntacticDiagnostics.length !== 0) {
-			throw new Error(`unexpected excess-property syntax diagnostics: ${formatDiagnostics(syntacticDiagnostics)}`);
-		}
-		const diagnostics = program.getSemanticDiagnostics(sourceFile);
-		if (diagnostics.length !== 1) {
-			throw new Error(`unexpected excess-property semantic diagnostic count: ${diagnostics.length}`);
-		}
-		const [diagnostic] = diagnostics;
-		if (diagnostic.code !== 2353) {
-			throw new Error(`unexpected excess-property diagnostic code: ${diagnostic.code}`);
-		}
-		if (diagnostic.category !== ts.DiagnosticCategory.Error) {
-			throw new Error(`excess-property diagnostic is not an error: category=${diagnostic.category}`);
-		}
-		const expectedText = "extra";
-		const expectedStart = excessPropertyFixtureSource.indexOf(expectedText);
-		const actualText = diagnostic.start === undefined
-			? ""
-			: sourceFile.text.slice(diagnostic.start, diagnostic.start + (diagnostic.length ?? 0));
-		if (
-			diagnostic.file !== sourceFile
-			|| expectedStart < 0
-			|| diagnostic.start !== expectedStart
-			|| diagnostic.length !== expectedText.length
-			|| actualText !== expectedText
-		) {
-			throw new Error(
-				`excess-property diagnostic span does not identify generated extra property: `
-					+ `start=${diagnostic.start}, length=${diagnostic.length}, text=${JSON.stringify(actualText)}`,
-			);
-		}
+		const program = createExcessPropertyProgram(options, fixture.fixturePath);
+		const sourceFile = sourceFileAt(program, fixture.fixturePath, "excess-property fixture");
+		assertNoExcessPropertySyntaxDiagnostics(program, sourceFile);
+		const diagnostic = readSingleExcessPropertyDiagnostic(program, sourceFile);
+		assertExcessPropertyDiagnosticKind(diagnostic);
+		assertExcessPropertyDiagnosticSpan(diagnostic, sourceFile);
 	} finally {
-		rmSync(temporaryDirectory, { recursive: true, force: true });
+		rmSync(fixture.temporaryDirectory, { recursive: true, force: true });
 	}
 }
 
