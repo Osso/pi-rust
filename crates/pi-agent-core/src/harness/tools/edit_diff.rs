@@ -22,6 +22,16 @@ pub struct StripBomResult {
     pub text: String,
 }
 
+/// A direct-module result record from exact or fuzzy text matching.
+#[derive(Debug)]
+pub struct FuzzyMatchResult {
+    pub found: bool,
+    pub index: f64,
+    pub match_length: f64,
+    pub used_fuzzy_match: bool,
+    pub content_for_replacement: String,
+}
+
 /// A direct-module edit record with replacement text.
 #[derive(Debug)]
 pub struct Edit {
