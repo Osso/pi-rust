@@ -1,6 +1,6 @@
 # Edit
 
-This specification covers the direct-module interface `packages/agent/src/harness/tools/edit-diff.ts:187-190` at pinned TypeScript commit `532f7d12cd19235081bd4d6e425bde185652d86f`. The source package and `harness/tools` indexes do not re-export `Edit`; Rust preserves only the direct module path. Production is committed as `7085ae5`; proof is committed as `4b5fa7b`.
+This specification covers the direct-module edit records in `packages/agent/src/harness/tools/edit-diff.ts:187-195` at pinned TypeScript commit `532f7d12cd19235081bd4d6e425bde185652d86f`. The source package and `harness/tools` indexes do not re-export either record; Rust preserves only the direct module path. `Edit` production/proof are `7085ae5`/`4b5fa7b`; `AppliedEditsResult` production/proof are `39bb794`/`27ac88c`. See [AppliedEditsResult](applied-edits-result.md) for its separate contract.
 
 ## What it must do
 
@@ -20,14 +20,14 @@ This specification covers the direct-module interface `packages/agent/src/harnes
 
 ## Bounded proof status
 
-- [x] Focused RED/GREEN and production commit `7085ae5`.
-- [x] Differential RED at `7085ae5` and GREEN/typeproof commit `4b5fa7b`.
-- [x] Four independent raw source-shaped cases compare through request `13181`; the erased interface has no runtime identity claim.
-- [x] Final integration at `3200027`: workspace `289 passed, 0 failed, 2 ignored`; focused/differential, workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle, dedicated typeproof, Node syntax, formatting/diff, and changed-file readability pass.
-- [x] Inherited verification confirms truthful RED artifacts, direct-module-only exports, deferred `AppliedEditsResult`/algorithm scope, documentation, dependency/lock, clean pins/worktrees, and `OVERALL: PASS`.
+- [x] Focused RED/GREEN and production commit `7085ae5` for `Edit`.
+- [x] Differential RED at `7085ae5` and GREEN/typeproof commit `4b5fa7b` for request `13181`.
+- [x] Four independent raw source-shaped `Edit` cases compare through request `13181`; the erased interface has no runtime identity claim.
+- [x] `AppliedEditsResult` production/proof commit `39bb794`/`27ac88c` adds request `13183`; four independent raw records and the existing direct-module typeproof pass.
+- [ ] Final workspace/check/all-feature Clippy, documentation/dependency/clean-pin, and inherited verification remain pending.
 
-## Boundary and deferred exports
+## Boundary and exclusions
 
-`AppliedEditsResult` remains an explicit adjacent direct-module gap because it represents output from unported edit-application behavior. Fuzzy matching, Unicode normalization, matching/validation, offsets, overlap and replacement ordering, edit application, filesystem/tool behavior, and package/harness/crate-root exports remain excluded.
+`AppliedEditsResult` is a separate completed direct-module record slice; its algorithmic producer remains excluded. Fuzzy matching, Unicode normalization, matching/validation, offsets, overlap and replacement ordering, edit application, filesystem/tool behavior, and package/harness/crate-root exports remain excluded.
 
 No dependency, deployment, protocol, or unrelated API change applies.
