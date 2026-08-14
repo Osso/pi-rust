@@ -32,4 +32,4 @@ Pinned source: `packages/agent/src/harness/tools/edit-diff.ts:187-195` at `532f7
 
 ## Exclusions
 
-Fuzzy matching, Unicode normalization, matching/validation, offsets, overlap and replacement ordering, edit application, filesystem/tool behavior, extra traits/APIs, package/root exports, dependencies, deployment, protocol behavior, and unrelated APIs remain unported. `AppliedEditsResult` application/producer behavior remains excluded. Combined executable gates pass at `b27569b`; inherited verification is pending only for the AppliedEditsResult documentation closure. No deployment applies.
+Fuzzy matching, Unicode normalization, matching/validation, offsets, overlap and replacement ordering, edit application, filesystem/tool behavior, extra traits/APIs, package/root exports, dependencies, deployment, protocol behavior, and unrelated APIs remain unported. `AppliedEditsResult` application/producer behavior remains excluded. Combined executable gates pass at `b27569b`; inherited verification for the AppliedEditsResult documentation closure passes at `76d759f` (`OVERALL: PASS`). No deployment applies.

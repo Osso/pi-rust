@@ -25,7 +25,7 @@ This specification covers the direct-module edit records in `packages/agent/src/
 - [x] Four independent raw source-shaped `Edit` cases compare through request `13181`; the erased interface has no runtime identity claim.
 - [x] `AppliedEditsResult` production/proof commit `39bb794`/`27ac88c` adds request `13183`; four independent raw records and the existing direct-module typeproof pass.
 - [x] Combined executable integration at `b27569b` passes workspace `296/0/2`, static, oracle/typeproof, Node, formatting/diff, readability, dependency/lock, and clean-pin gates.
-- [ ] Inherited verification is pending only for the AppliedEditsResult documentation closure.
+- [x] Inherited verification for the AppliedEditsResult documentation closure passes at `76d759f` (`OVERALL: PASS`).
 
 ## Boundary and exclusions
 

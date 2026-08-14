@@ -28,4 +28,4 @@ Pinned source: `packages/agent/src/harness/tools/edit-diff.ts:192-195` at `532f7
 - `/tmp/pi-rust-applied-edits-result-final-oracle.out`, `...-typeproof.out`, `...-node-check.out`, `...-fmt.out`, `...-diff.out`, and `...-readability.out` pass.
 - `/tmp/pi-rust-applied-edits-result-final-audit.out` confirms exact direct-module boundaries, request `13183`, four fixtures, truthful RED artifacts, intact `Edit` proof, no Cargo/dependency/protocol/deployment changes, and clean pins.
 
-Final executable gates pass. Inherited verification is pending only for this documentation closure.
+Final executable gates pass. Inherited independent verification at clean Rust HEAD `76d759f` returns `OVERALL: PASS`; broad evidence remains valid from `b27569b` because the intervening delta is documentation-only.

@@ -24,7 +24,7 @@ This specification covers the direct-module interface `packages/agent/src/harnes
 - [x] Differential RED at `39bb794` and GREEN/typeproof at `27ac88c`.
 - [x] Four independent raw source-shaped cases compare through request `13183`; the erased interface has no runtime identity claim.
 - [x] Final executable integration at `b27569b`: workspace `296 passed, 0 failed, 2 ignored`; focused/differential, workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle, shared direct-module typeproof, Node syntax, formatting/diff, and changed-file readability pass.
-- [ ] Inherited verification is pending only for this documentation closure.
+- [x] Inherited independent verification at docs-only closure HEAD `76d759f` returns `OVERALL: PASS`; broad evidence remains valid from `b27569b`.
 
 ## Boundary and exclusions
 
