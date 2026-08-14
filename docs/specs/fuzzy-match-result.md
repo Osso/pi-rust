@@ -7,10 +7,10 @@ This specification covers the direct-module result interface in `packages/agent/
 - [x] Preserve exactly five public mutable fields in source order: `found: bool`, `index: f64`, `match_length: f64`, `used_fuzzy_match: bool`, and `content_for_replacement: String`.
 - [x] Derive `Debug` only; add no constructors, defaults, cloning, equality, serialization, validation, or conversion behavior.
 - [x] Preserve empty, Unicode, NUL, newline, and CRLF replacement content.
-- [x] Preserve independent public mutation of both boolean fields and the replacement-content field.
+- [x] Preserve independent public mutation of all five fields.
 - [x] Preserve unrestricted binary64 bit patterns in `index` and `match_length`, including signed zero, subnormal, finite, infinity, and NaN payload cases.
-- [ ] Compare source-shaped records through exactly one differential request, `13184`.
-- [ ] Prove the real direct-module declaration, exact mutable field types, invalid cases, and omission from the real `harness/tools` and package indexes.
+- [x] Compare eight independent binary64/source-shaped records through exactly one differential request, `13184`; no runtime interface identity or result-invariant claim.
+- [x] Prove the real direct-module declaration, exact mutable field types, two valid assignments, nine exact structural invalid diagnostics, and omission from the real `harness/tools` and package indexes.
 
 ## How it works
 
@@ -20,18 +20,24 @@ This specification covers the direct-module result interface in `packages/agent/
 
 - `crates/pi-agent-core/src/harness/tools/edit_diff.rs` — direct-module result record.
 - `crates/pi-agent-core/tests/fuzzy_match_result.rs` — focused shape, mutation, string-boundary, `Debug`, and binary64 coverage.
+- `crates/pi-agent-core/tests/differential_truncate/fuzzy_match_result.rs` — request `13184` source-shaped comparison.
+- `oracle/truncate-oracle.ts` — independent ordinary-record normalization.
+- `oracle/edit-record-typecheck.mjs` — real direct-module declaration and export proof.
 - `packages/agent/src/harness/tools/edit-diff.ts` — pinned source contract.
 
 ## Tests asserting this spec
 
 - `crates/pi-agent-core/tests/fuzzy_match_result.rs`
+- `crates/pi-agent-core/tests/differential_truncate/fuzzy_match_result.rs`
+- `oracle/edit-record-typecheck.mjs`
 
-## Known gaps (current cycle)
+## Proof status
 
-- [ ] Add differential request `13184` against the pinned TypeScript source.
-- [ ] Add strict direct-module type/export proof.
-- [ ] Complete final workspace, static, documentation, clean-pin, and inherited verification.
+- [x] Focused RED at `2cc5386` and GREEN with four tests; targeted Clippy, typecheck, fmt, diff, and readability pass.
+- [x] Production commit `1a8ba0c`; differential RED at `1a8ba0c` and GREEN at `62e5770` for request `13184` with eight independent cases.
+- [x] Real direct-module type/export proof completes two valid assignments and nine exact invalid diagnostics; targeted Clippy/typecheck/fmt/diff/readability pass.
+- [ ] Final workspace/all-target check, all-feature Clippy, aggregate oracle, clean-pin, and inherited verification remain pending.
 
 ## Out of scope
 
-`fuzzyFindText`, normalization, matching/index semantics and invariants, edit application, filesystem/tool behavior, extra traits, dependencies, deployment, protocol behavior, and package/harness/crate-root exports remain unported. This slice proves only the erased direct-module record shape; it does not implement fuzzy matching or validate its result fields.
+`fuzzyFindText`, normalization, matching/index semantics and invariants, edit application, filesystem/tool behavior, extra traits, dependencies, deployment, protocol behavior, and package/harness/crate-root exports remain unported. This slice proves only the erased direct-module record shape; it does not implement fuzzy matching, validate result fields, or claim producer behavior.
