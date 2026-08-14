@@ -37,7 +37,8 @@ This specification covers `packages/coding-agent/src/core/session-manager.ts:52`
 - [x] Production commit `1b78900`; focused missing-API RED and exact committed GREEN pass.
 - [x] Differential/public-index proof commit `c039d67` adds exactly request `13179`; structured unsupported-operation RED and `1 passed, 0 failed` GREEN pass.
 - [x] The real pinned package index exposes an alias resolving to `session-manager.ts`, with exact literal type `3` and runtime value `3`; direct oracle typecheck and changed-file readability pass.
-- [ ] Final workspace/check/all-feature Clippy, formatting/diff, documentation/dependency/clean-pin, and inherited verification.
+- [x] Final integration at code/proof/docs HEAD `ca1c4ca`: workspace `280 passed, 0 failed, 2 ignored`; workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle/typeproof, dedicated typeproof, formatting, slice-range diff, readability, documentation, dependency/lock, scope, and clean-pin gates pass.
+- [x] Inherited independent verification at `ca1c4ca` confirms focused `1/0`, differential request `13179` `1/0`, exact literal/runtime value `3`, truthful RED artifacts, clean Rust/source worktrees, and `OVERALL: PASS`.
 
 ## Out of scope
 

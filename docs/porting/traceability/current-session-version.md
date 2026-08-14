@@ -24,7 +24,16 @@ Production commit: `1b78900`. Differential/public-index proof commit: `c039d67`.
 - Public-index proof: `/tmp/pi-rust-current-session-version-typeproof-c039d67.out` records compiler `5.9.3`, zero scoped diagnostics, exact literal type `3`, and runtime package-index value `3`.
 - Direct oracle source typecheck: `/tmp/pi-rust-current-session-version-oracle-typecheck-c039d67.out` exits 0.
 - Changed Rust/TypeScript/JavaScript readability passes without suppressions or unrelated behavior.
-- Final workspace/static/documentation/dependency/clean-pin and inherited verification remain pending.
+
+## Final integration proof
+
+- Code/proof/docs HEAD: `ca1c4ca`; focused production commit: `1b78900`; differential/public-index commit: `c039d67`.
+- `/tmp/pi-rust-current-session-version-final-workspace-tests.out` records `cargo test --workspace --all-targets` exiting 0 with `280 passed, 0 failed, 2 ignored`.
+- `/tmp/pi-rust-current-session-version-final-workspace-check.out` and `/tmp/pi-rust-current-session-version-final-workspace-clippy.out` record workspace check and all-target/all-feature Clippy with `-D warnings` exiting 0.
+- `/tmp/pi-rust-current-session-version-final-oracle.out`, `/tmp/pi-rust-current-session-version-final-typecheck.out`, `/tmp/pi-rust-current-session-version-final-fmt.out`, and `/tmp/pi-rust-current-session-version-final-diff.out` exit 0 at `ca1c4ca`.
+- `/tmp/pi-rust-current-session-version-final-readability.out` records the final changed Rust/TypeScript/JavaScript readability audit passing without suppressions or new violations.
+- `/tmp/pi-rust-current-session-version-final-audit.out` confirms exact scope/export boundaries, request `13179`, truthful nonzero RED artifacts, documentation paths, no Cargo manifest/lock or deployment change, and clean Rust/source pins.
+- Inherited independent verification at clean Rust HEAD `ca1c4ca` returns `OVERALL: PASS`.
 
 No dependency change or deployment applies to this slice.
 
