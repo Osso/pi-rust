@@ -1,0 +1,22 @@
+# Coding-agent truncation constants traceability
+
+Pinned source: `packages/coding-agent/src/core/tools/truncate.ts:11-13` at commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
+
+| TypeScript source | Observable contract | Rust mapping and focused proof |
+|---|---|---|
+| `truncate.ts:11` | Export numeric literal `2000` as `DEFAULT_MAX_LINES`. | `pi_coding_agent::core::tools::truncate::DEFAULT_MAX_LINES: usize`; value `2_000`. The coding-agent constant aliases `pi_agent_core::harness::utils::DEFAULT_MAX_LINES`. |
+| `truncate.ts:12` | Export runtime value `10240` from `10 * 1024` as `DEFAULT_MAX_BYTES`; the emitted declaration type is broad `number`. | `pi_coding_agent::core::tools::truncate::DEFAULT_MAX_BYTES: usize`; value `10 * 1024`. The coding-agent constant aliases `pi_agent_core::harness::utils::DEFAULT_MAX_BYTES` under the approved typed truncation-limit boundary. |
+| `truncate.ts:13` | Export numeric literal `500` as `GREP_MAX_LINE_LENGTH`. | `pi_coding_agent::core::tools::truncate::GREP_MAX_LINE_LENGTH: usize`; value `500`. The coding-agent constant aliases `pi_agent_core::harness::utils::GREP_MAX_LINE_LENGTH`. |
+| `tools/index.ts:120-121` | Re-export only the two default constants from the tools index. | `pi_coding_agent::core::tools` re-exports `DEFAULT_MAX_LINES` and `DEFAULT_MAX_BYTES`; `GREP_MAX_LINE_LENGTH` remains direct-module-only. |
+| `coding-agent/src/index.ts:323-324` | Re-export only the two default constants from the package root. | The crate root re-exports `DEFAULT_MAX_LINES` and `DEFAULT_MAX_BYTES`; `GREP_MAX_LINE_LENGTH` remains direct-module-only. |
+| Approved typed boundary | These constants are non-negative truncation limits. | Rust uses `usize` for all three as an approved narrow boundary. This does not generalize JavaScript `number` mappings. |
+
+## Focused proof status
+
+- Focused RED: `/tmp/pi-rust-coding-truncation-constants-focused-red.out` records the clean base `f1208b63d37b2ccd2094968ffabac40431d81e2e`, exit `101`, and only unresolved imports for the requested constants at the direct module, tools index, and crate root.
+- Focused GREEN: `/tmp/pi-rust-coding-truncation-constants-focused-green.out` records `1 passed, 0 failed, 0 ignored`.
+- Targeted Clippy, formatting, diff, and all four changed-Rust readability audits pass.
+
+## Exclusions
+
+No truncation functions or algorithms, formatting behavior, tool behavior, filesystem/session behavior, differential/oracle/typeproof work, dependencies, Cargo.lock, protocol behavior, or unrelated exports are ported by this slice.
