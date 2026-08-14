@@ -24,27 +24,41 @@ const require = createRequire(import.meta.url);
 const ts = require(typescriptPath);
 
 const validFixtureSource = `
-import type { Edit } from ${JSON.stringify(editDiffImportPath)};
+import type { AppliedEditsResult, Edit } from ${JSON.stringify(editDiffImportPath)};
 
 const empty: Edit = { oldText: "", newText: "" };
 const populated: Edit = { oldText: "before", newText: "after" };
 populated.oldText = "updated\\n旧\\0";
 populated.newText = "🙂\\r\\n";
+const appliedEmpty: AppliedEditsResult = { baseContent: "", newContent: "" };
+const appliedPopulated: AppliedEditsResult = { baseContent: "before", newContent: "after" };
+appliedPopulated.baseContent = "updated\\n旧\\0";
+appliedPopulated.newContent = "🙂\\r\\n";
 void empty;
 void populated;
+void appliedEmpty;
+void appliedPopulated;
 `;
 
 const invalidFixtureSource = `
-import type { Edit } from ${JSON.stringify(editDiffImportPath)};
+import type { AppliedEditsResult, Edit } from ${JSON.stringify(editDiffImportPath)};
 
 const missingOld: Edit = { newText: "new" };
 const missingNew: Edit = { oldText: "old" };
 const wrongOldType: Edit = { oldText: 42, newText: "new" };
 const excessProperty: Edit = { oldText: "old", newText: "new", extra: true };
+const missingBaseContent: AppliedEditsResult = { newContent: "new" };
+const missingNewContent: AppliedEditsResult = { baseContent: "old" };
+const wrongBaseContentType: AppliedEditsResult = { baseContent: 42, newContent: "new" };
+const appliedExcessProperty: AppliedEditsResult = { baseContent: "old", newContent: "new", extra: true };
 void missingOld;
 void missingNew;
 void wrongOldType;
 void excessProperty;
+void missingBaseContent;
+void missingNewContent;
+void wrongBaseContentType;
+void appliedExcessProperty;
 `;
 
 function formatDiagnostics(diagnostics) {
@@ -131,6 +145,20 @@ function resolveEditTarget(checker, editModuleFile) {
 	return editSymbol;
 }
 
+function resolveAppliedEditsResultTarget(checker, editModuleFile) {
+	const exports = moduleExports(checker, editModuleFile, "edit-diff module");
+	const appliedSymbol = exports.find((symbol) => symbol.name === "AppliedEditsResult");
+	if (appliedSymbol === undefined) throw new Error("edit-diff.ts does not export AppliedEditsResult");
+	const declarations = appliedSymbol.declarations ?? [];
+	if (declarations.length !== 1 || declarations[0].getSourceFile() !== editModuleFile) {
+		throw new Error("AppliedEditsResult declaration does not belong to the real edit-diff module");
+	}
+	if (declarations[0].kind !== ts.SyntaxKind.InterfaceDeclaration) {
+		throw new Error("AppliedEditsResult is not the real interface declaration");
+	}
+	return appliedSymbol;
+}
+
 function assertRequiredWritableString(checker, property, sourceFile, label) {
 	if ((property.flags & ts.SymbolFlags.Optional) !== 0) throw new Error(`${label} must be required`);
 	const declaration = property.valueDeclaration ?? property.declarations?.[0];
@@ -142,22 +170,31 @@ function assertRequiredWritableString(checker, property, sourceFile, label) {
 	if ((type.flags & ts.TypeFlags.String) === 0) throw new Error(`${label} must be string`);
 }
 
+function assertRecordFields(checker, symbol, sourceFile, expected, label) {
+	const properties = checker.getDeclaredTypeOfSymbol(symbol).getProperties();
+	const names = properties.map((property) => property.name);
+	if (names.join("\\0") !== expected.join("\\0")) {
+		throw new Error(`${label} properties differ: ${names.join(",")}`);
+	}
+	for (const [index, name] of expected.entries()) {
+		assertRequiredWritableString(checker, properties[index], sourceFile, `${label}.${name}`);
+	}
+}
+
 function proveExports(checker, editModuleFile, toolsIndexFile, packageIndexFile) {
 	const editSymbol = resolveEditTarget(checker, editModuleFile);
-	const properties = checker.getDeclaredTypeOfSymbol(editSymbol).getProperties();
-	const names = properties.map((property) => property.name);
-	if (names.join("\\0") !== "oldText\\0newText") {
-		throw new Error(`Edit properties differ: ${names.join(",")}`);
-	}
-	assertRequiredWritableString(checker, properties[0], editModuleFile, "Edit.oldText");
-	assertRequiredWritableString(checker, properties[1], editModuleFile, "Edit.newText");
+	const appliedSymbol = resolveAppliedEditsResultTarget(checker, editModuleFile);
+	assertRecordFields(checker, editSymbol, editModuleFile, ["oldText", "newText"], "Edit");
+	assertRecordFields(checker, appliedSymbol, editModuleFile, ["baseContent", "newContent"], "AppliedEditsResult");
 	const toolsExports = moduleExports(checker, toolsIndexFile, "harness/tools index");
 	const packageExports = moduleExports(checker, packageIndexFile, "agent package index");
-	if (toolsExports.some((symbol) => symbol.name === "Edit")) {
-		throw new Error("harness/tools index must not export Edit");
-	}
-	if (packageExports.some((symbol) => symbol.name === "Edit")) {
-		throw new Error("agent package index must not export Edit");
+	for (const name of ["Edit", "AppliedEditsResult"]) {
+		if (toolsExports.some((symbol) => symbol.name === name)) {
+			throw new Error(`harness/tools index must not export ${name}`);
+		}
+		if (packageExports.some((symbol) => symbol.name === name)) {
+			throw new Error(`agent package index must not export ${name}`);
+		}
 	}
 }
 
@@ -190,7 +227,7 @@ function runValidFixture(fixturePath) {
 	if (result.stdout !== "") process.stdout.write(result.stdout);
 	if (result.stderr !== "") process.stderr.write(result.stderr);
 	if (result.error !== undefined) throw new Error(`tsgo failed to start: ${result.error.message}`);
-	if (result.status !== 0) throw new Error(`valid Edit fixture failed with status ${result.status}`);
+	if (result.status !== 0) throw new Error(`valid record fixture failed with status ${result.status}`);
 }
 
 function createProgramForFixture(source, options, prefix) {
@@ -219,6 +256,10 @@ function assertInvalidDiagnostics(program, sourceFile) {
 		{ code: 2741, text: "missingNew" },
 		{ code: 2322, text: "oldText" },
 		{ code: 2353, text: "extra" },
+		{ code: 2741, text: "missingBaseContent" },
+		{ code: 2741, text: "missingNewContent" },
+		{ code: 2322, text: "baseContent" },
+		{ code: 2353, text: "extra" },
 	];
 	if (diagnostics.length !== expected.length) {
 		throw new Error(`expected ${expected.length} invalid-fixture diagnostics, got ${diagnostics.length}`);
@@ -239,7 +280,7 @@ function assertInvalidDiagnostics(program, sourceFile) {
 function proveInvalidFixture(options) {
 	const fixture = createProgramForFixture(invalidFixtureSource, options, "pi-edit-record-invalid-");
 	try {
-		const sourceFile = sourceFileAt(fixture.program, fixture.fixturePath, "invalid Edit fixture");
+		const sourceFile = sourceFileAt(fixture.program, fixture.fixturePath, "invalid record fixture");
 		assertInvalidDiagnostics(fixture.program, sourceFile);
 	} finally {
 		rmSync(fixture.directory, { recursive: true, force: true });
@@ -249,8 +290,8 @@ function proveInvalidFixture(options) {
 function proveValidFixture(options) {
 	const fixture = createProgramForFixture(validFixtureSource, options, "pi-edit-record-valid-");
 	try {
-		const sourceFile = sourceFileAt(fixture.program, fixture.fixturePath, "valid Edit fixture");
-		assertSourceDiagnosticsAbsent(fixture.program, sourceFile, "valid Edit fixture");
+		const sourceFile = sourceFileAt(fixture.program, fixture.fixturePath, "valid record fixture");
+		assertSourceDiagnosticsAbsent(fixture.program, sourceFile, "valid record fixture");
 		runValidFixture(fixture.fixturePath);
 	} finally {
 		rmSync(fixture.directory, { recursive: true, force: true });
@@ -273,10 +314,12 @@ try {
 	proveValidFixture(options);
 	proveInvalidFixture(options);
 	console.log("Edit fixtures: 2 valid direct-module assignments, 4 invalid diagnostics");
+	console.log("AppliedEditsResult fixtures: 2 valid direct-module assignments, 4 invalid diagnostics");
 	console.log("Edit export: direct edit-diff module only");
 	console.log("Edit properties: oldText, newText; required, writable strings");
-	console.log("Edit package boundaries: harness/tools index and agent package index omit Edit");
-	console.log("Edit runtime interface identity: not claimed; source-shaped records only");
+	console.log("AppliedEditsResult properties: baseContent, newContent; required, writable strings");
+	console.log("Edit package boundaries: harness/tools index and agent package index omit Edit and AppliedEditsResult");
+	console.log("Record runtime interface identity: not claimed; source-shaped records only");
 } catch (error) {
 	const message = error instanceof Error ? error.message : String(error);
 	process.stderr.write(`edit record typeproof failed: ${message}\n`);

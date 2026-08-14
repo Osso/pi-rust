@@ -360,6 +360,18 @@ type EditRecordRequest = {
 	cases: EditRecordCaseRequest[];
 };
 
+type AppliedEditsResultCaseRequest = {
+	name: string;
+	baseContent: string;
+	newContent: string;
+};
+
+type AppliedEditsResultRequest = {
+	id: RequestId;
+	operation: "applied_edits_result";
+	cases: AppliedEditsResultCaseRequest[];
+};
+
 type MutableBashExecutionMessageRecord = {
 	role: "bashExecution";
 	command: string;
@@ -626,6 +638,7 @@ type Request =
 	| AgentToolExecutionContextRequest
 	| BeforeToolCallResultRequest
 	| EditRecordRequest
+	| AppliedEditsResultRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<
@@ -643,7 +656,8 @@ type UtilityRequest = Exclude<
 		ThinkingLevelRequest |
 		AgentToolExecutionContextRequest |
 		BeforeToolCallResultRequest |
-		EditRecordRequest
+		EditRecordRequest |
+		AppliedEditsResultRequest
 >;
 type FormatSizeRequest = Extract<UtilityRequest, { operation: "format_size" }>;
 type TruncationRequest = Extract<
@@ -1237,6 +1251,15 @@ function executeEditRecordRequest(request: EditRecordRequest): Response {
 	return successfulResponse(request.id, { results });
 }
 
+function executeAppliedEditsResultRequest(request: AppliedEditsResultRequest): Response {
+	const results = request.cases.map((input) => ({
+		name: input.name,
+		baseContent: input.baseContent,
+		newContent: input.newContent,
+	}));
+	return successfulResponse(request.id, { results });
+}
+
 function executeShouldCompactRequest(request: ShouldCompactRequest, api: HarnessTypesApi): Response {
 	const results = request.cases.map((input) => ({
 		name: input.name,
@@ -1362,6 +1385,7 @@ function executeSpecialRequest(request: Request, apis: OracleApis): Response | u
 	if (request.operation === "tool_execution_mode") return executeToolExecutionModeRequest(request);
 	if (request.operation === "thinking_level") return executeThinkingLevelRequest(request);
 	if (request.operation === "edit_record") return executeEditRecordRequest(request);
+	if (request.operation === "applied_edits_result") return executeAppliedEditsResultRequest(request);
 	if (request.operation === "before_tool_call_result") {
 		return executeBeforeToolCallResultRequest(request);
 	}
