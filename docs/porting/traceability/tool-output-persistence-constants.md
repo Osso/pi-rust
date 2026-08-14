@@ -8,15 +8,19 @@ Pinned source: `packages/coding-agent/src/core/session-tool-output.ts:19-20` at 
 | `session-tool-output.ts:20` | Export exact string literal `"\\n[tool output truncated at 1 MiB]"`. | `pi_coding_agent::core::session_tool_output::TOOL_RESULT_TRUNCATION_MARKER: &str`; the crate root re-exports the same exact value and the focused test checks bytes, ASCII form, leading LF, and no trailing LF. |
 | `index.ts:262-269` | Package index re-exports both constants. | Rust exposes the module and crate-root paths. `core` intentionally does not aggregate-re-export them. |
 | Focused production boundary | Preserve constants without porting their consumers. | Rust adds no migration, truncation, UTF-8, serialization, filesystem, session, message, or content behavior and adds no dependency. |
-| Differential request `13178` | Compare source-shaped values against the actual pinned TypeScript export. | Pending: one differential request will compare both exact constants. |
-| Strict public-index proof | Preserve exact emitted declaration types and runtime values. | Pending: prove literal type `1048576` and literal string type/value through the pinned coding-agent package index; no broader API claim. |
+| Differential request `13178` | Compare source-shaped values against the actual pinned TypeScript export. | The dedicated test sends exactly one request with operation `tool_output_persistence_constants`; the Rust module/root values match the direct-module oracle. |
+| Strict public-index proof | Preserve exact emitted declaration types and runtime values. | The pinned TypeScript compiler API loads the real `tsconfig.json`, roots the real coding-agent index plus pinned highlight declaration, checks only the real index and defining-module diagnostics, verifies both public aliases resolve to the defining module, and proves exact number/string literal types. A separate pinned `tsx` runtime probe imports the real package index and passes with `1048576` and `"\\n[tool output truncated at 1 MiB]"`; no broader API claim. |
 
 ## Focused proof status
 
 - Focused RED: `/tmp/pi-rust-tool-output-constants-red.out` records the exact clean base `3e079e8`, exit `101`, with only missing module/root exports.
 - Focused GREEN: the focused test records `1 passed, 0 failed` for both module and crate-root constants.
-- Targeted Clippy, formatting, diff, and changed-file readability pass according to the current focused-production evidence.
-- No differential/oracle/typeproof, broad workspace/static, final, or inherited verification is claimed yet.
+- Targeted Clippy, formatting, diff, direct oracle source typecheck, Node syntax, and changed Rust/TypeScript/JavaScript readability artifacts pass.
+- Differential RED: `/tmp/pi-rust-tool-output-constants-differential-red.out` records exit `101` after the oracle returns exact structured `{name: "Error", message: "unsupported operation: tool_output_persistence_constants"}`.
+- Differential GREEN: `/tmp/pi-rust-tool-output-constants-differential-green.out` records request `13178`, `1 passed, 0 failed`.
+- Runtime package-index proof: `/tmp/pi-rust-tool-output-constants-typeproof-current.out` passes with compiler version `5.9.3`, zero scoped diagnostics, and both exact values; `/tmp/pi-rust-tool-output-constants-oracle-current.out` passes through `./run-tests.sh oracle`.
+- Symbol-scoped declaration proof uses the real pinned index and defining module, compiler flags/literal values, real-index alias declarations, inherited strict/`skipLibCheck` options, and no synthetic/fake index, copied declaration, untracked dist, or suppression.
+- No broad workspace/static, final, dependency, clean-pin, or inherited verification is claimed.
 
 ## Rust boundary
 
