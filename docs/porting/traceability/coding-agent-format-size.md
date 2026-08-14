@@ -25,4 +25,4 @@ Rust uses `usize` for the approved non-negative integer byte-count domain. This 
 
 ## Exclusions
 
-Other coding-agent truncation APIs, truncation constants, truncation types, other agent-core truncation functions, arbitrary JavaScript numeric values outside the approved integer domain, runtime validation, tool/filesystem/shell/output behavior, extra APIs, dependencies, deployment, and protocol changes remain excluded.
+Other coding-agent truncation APIs, truncation types (`TruncationOptions` and `TruncationResult`), other coding-agent truncation functions, arbitrary JavaScript numeric values outside the approved integer domain, runtime validation, tool/filesystem/shell/output behavior, extra APIs, dependencies, deployment, and protocol changes remain excluded. The truncation constants are covered separately.

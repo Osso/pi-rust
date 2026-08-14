@@ -48,8 +48,8 @@ Coding-agent `formatSize` is a separate package boundary from agent-core truncat
 
 ## Out of scope
 
-- Coding-agent truncation APIs other than `formatSize`.
-- Truncation constants, truncation types, and other agent-core truncation functions.
+- Coding-agent truncation APIs other than the separately completed constants and `formatSize`.
+- Truncation types (`TruncationOptions` and `TruncationResult`) and other coding-agent truncation functions.
 - Arbitrary JavaScript negative, fractional, nonfinite, or above-safe-integer values.
 - Runtime validation of unsupported numeric inputs.
 - Tool, filesystem, shell, and output-rendering behavior.
