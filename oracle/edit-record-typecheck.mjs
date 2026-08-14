@@ -24,7 +24,7 @@ const require = createRequire(import.meta.url);
 const ts = require(typescriptPath);
 
 const validFixtureSource = `
-import type { AppliedEditsResult, Edit } from ${JSON.stringify(editDiffImportPath)};
+import type { AppliedEditsResult, Edit, FuzzyMatchResult } from ${JSON.stringify(editDiffImportPath)};
 
 const empty: Edit = { oldText: "", newText: "" };
 const populated: Edit = { oldText: "before", newText: "after" };
@@ -34,6 +34,25 @@ const appliedEmpty: AppliedEditsResult = { baseContent: "", newContent: "" };
 const appliedPopulated: AppliedEditsResult = { baseContent: "before", newContent: "after" };
 appliedPopulated.baseContent = "updated\\n旧\\0";
 appliedPopulated.newContent = "🙂\\r\\n";
+const fuzzyEmpty: FuzzyMatchResult = {
+	found: false,
+	index: 0,
+	matchLength: 0,
+	usedFuzzyMatch: false,
+	contentForReplacement: "",
+};
+const fuzzyPopulated: FuzzyMatchResult = {
+	found: true,
+	index: 1,
+	matchLength: 6,
+	usedFuzzyMatch: true,
+	contentForReplacement: "before",
+};
+fuzzyPopulated.found = false;
+fuzzyPopulated.index = 2;
+fuzzyPopulated.matchLength = 7;
+fuzzyPopulated.usedFuzzyMatch = false;
+fuzzyPopulated.contentForReplacement = "updated";
 void empty;
 void populated;
 void appliedEmpty;
@@ -41,7 +60,7 @@ void appliedPopulated;
 `;
 
 const invalidFixtureSource = `
-import type { AppliedEditsResult, Edit } from ${JSON.stringify(editDiffImportPath)};
+import type { AppliedEditsResult, Edit, FuzzyMatchResult } from ${JSON.stringify(editDiffImportPath)};
 
 const missingOld: Edit = { newText: "new" };
 const missingNew: Edit = { oldText: "old" };
@@ -51,6 +70,65 @@ const missingBaseContent: AppliedEditsResult = { newContent: "new" };
 const missingNewContent: AppliedEditsResult = { baseContent: "old" };
 const wrongBaseContentType: AppliedEditsResult = { baseContent: 42, newContent: "new" };
 const appliedExcessProperty: AppliedEditsResult = { baseContent: "old", newContent: "new", extra: true };
+const missingFound: FuzzyMatchResult = {
+	index: 0,
+	matchLength: 0,
+	usedFuzzyMatch: false,
+	contentForReplacement: "",
+};
+const missingIndex: FuzzyMatchResult = {
+	found: false,
+	matchLength: 0,
+	usedFuzzyMatch: false,
+	contentForReplacement: "",
+};
+const missingMatchLength: FuzzyMatchResult = {
+	found: false,
+	index: 0,
+	usedFuzzyMatch: false,
+	contentForReplacement: "",
+};
+const missingUsedFuzzyMatch: FuzzyMatchResult = {
+	found: false,
+	index: 0,
+	matchLength: 0,
+	contentForReplacement: "",
+};
+const missingContentForReplacement: FuzzyMatchResult = {
+	found: false,
+	index: 0,
+	matchLength: 0,
+	usedFuzzyMatch: false,
+};
+const wrongFoundType: FuzzyMatchResult = {
+	found: "yes",
+	index: 0,
+	matchLength: 0,
+	usedFuzzyMatch: false,
+	contentForReplacement: "",
+};
+const wrongIndexType: FuzzyMatchResult = {
+	found: false,
+	index: "zero",
+	matchLength: 0,
+	usedFuzzyMatch: false,
+	contentForReplacement: "",
+};
+const wrongContentForReplacementType: FuzzyMatchResult = {
+	found: false,
+	index: 0,
+	matchLength: 0,
+	usedFuzzyMatch: false,
+	contentForReplacement: 42,
+};
+const fuzzyExcessProperty: FuzzyMatchResult = {
+	found: false,
+	index: 0,
+	matchLength: 0,
+	usedFuzzyMatch: false,
+	contentForReplacement: "",
+	extra: true,
+};
 void missingOld;
 void missingNew;
 void wrongOldType;
@@ -59,6 +137,15 @@ void missingBaseContent;
 void missingNewContent;
 void wrongBaseContentType;
 void appliedExcessProperty;
+void missingFound;
+void missingIndex;
+void missingMatchLength;
+void missingUsedFuzzyMatch;
+void missingContentForReplacement;
+void wrongFoundType;
+void wrongIndexType;
+void wrongContentForReplacementType;
+void fuzzyExcessProperty;
 `;
 
 function formatDiagnostics(diagnostics) {
@@ -170,6 +257,33 @@ function assertRequiredWritableString(checker, property, sourceFile, label) {
 	if ((type.flags & ts.TypeFlags.String) === 0) throw new Error(`${label} must be string`);
 }
 
+function resolveFuzzyMatchResultTarget(checker, editModuleFile) {
+	const exports = moduleExports(checker, editModuleFile, "edit-diff module");
+	const fuzzySymbol = exports.find((symbol) => symbol.name === "FuzzyMatchResult");
+	if (fuzzySymbol === undefined) throw new Error("edit-diff.ts does not export FuzzyMatchResult");
+	const declarations = fuzzySymbol.declarations ?? [];
+	if (declarations.length !== 1 || declarations[0].getSourceFile() !== editModuleFile) {
+		throw new Error("FuzzyMatchResult declaration does not belong to the real edit-diff module");
+	}
+	if (declarations[0].kind !== ts.SyntaxKind.InterfaceDeclaration) {
+		throw new Error("FuzzyMatchResult is not the real interface declaration");
+	}
+	return fuzzySymbol;
+}
+
+function assertRequiredWritableType(checker, property, sourceFile, expectedTypeFlag, expectedTypeText, label) {
+	if ((property.flags & ts.SymbolFlags.Optional) !== 0) throw new Error(`${label} must be required`);
+	const declaration = property.valueDeclaration ?? property.declarations?.[0];
+	const modifiers = declaration?.modifiers ?? [];
+	if (modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.ReadonlyKeyword)) {
+		throw new Error(`${label} must be writable`);
+	}
+	const type = checker.getTypeOfSymbolAtLocation(property, sourceFile);
+	if ((type.flags & expectedTypeFlag) === 0 || checker.typeToString(type) !== expectedTypeText) {
+		throw new Error(`${label} has the wrong type`);
+	}
+}
+
 function assertRecordFields(checker, symbol, sourceFile, expected, label) {
 	const properties = checker.getDeclaredTypeOfSymbol(symbol).getProperties();
 	const names = properties.map((property) => property.name);
@@ -181,14 +295,42 @@ function assertRecordFields(checker, symbol, sourceFile, expected, label) {
 	}
 }
 
+function assertFuzzyMatchResultFields(checker, symbol, sourceFile) {
+	const properties = checker.getDeclaredTypeOfSymbol(symbol).getProperties();
+	const expectedNames = ["found", "index", "matchLength", "usedFuzzyMatch", "contentForReplacement"];
+	const names = properties.map((property) => property.name);
+	if (names.join("\\0") !== expectedNames.join("\\0")) {
+		throw new Error(`FuzzyMatchResult properties differ: ${names.join(",")}`);
+	}
+	const expectedTypes = [
+		{ flag: ts.TypeFlags.BooleanLike, text: "boolean" },
+		{ flag: ts.TypeFlags.NumberLike, text: "number" },
+		{ flag: ts.TypeFlags.NumberLike, text: "number" },
+		{ flag: ts.TypeFlags.BooleanLike, text: "boolean" },
+		{ flag: ts.TypeFlags.StringLike, text: "string" },
+	];
+	for (const [index, expectedType] of expectedTypes.entries()) {
+		assertRequiredWritableType(
+			checker,
+			properties[index],
+			sourceFile,
+			expectedType.flag,
+			expectedType.text,
+			`FuzzyMatchResult.${expectedNames[index]}`,
+		);
+	}
+}
+
 function proveExports(checker, editModuleFile, toolsIndexFile, packageIndexFile) {
 	const editSymbol = resolveEditTarget(checker, editModuleFile);
 	const appliedSymbol = resolveAppliedEditsResultTarget(checker, editModuleFile);
+	const fuzzySymbol = resolveFuzzyMatchResultTarget(checker, editModuleFile);
 	assertRecordFields(checker, editSymbol, editModuleFile, ["oldText", "newText"], "Edit");
 	assertRecordFields(checker, appliedSymbol, editModuleFile, ["baseContent", "newContent"], "AppliedEditsResult");
+	assertFuzzyMatchResultFields(checker, fuzzySymbol, editModuleFile);
 	const toolsExports = moduleExports(checker, toolsIndexFile, "harness/tools index");
 	const packageExports = moduleExports(checker, packageIndexFile, "agent package index");
-	for (const name of ["Edit", "AppliedEditsResult"]) {
+	for (const name of ["Edit", "AppliedEditsResult", "FuzzyMatchResult"]) {
 		if (toolsExports.some((symbol) => symbol.name === name)) {
 			throw new Error(`harness/tools index must not export ${name}`);
 		}
@@ -246,12 +388,8 @@ function diagnosticSpan(sourceFile, diagnostic) {
 	return sourceFile.text.slice(diagnostic.start, diagnostic.start + diagnostic.length);
 }
 
-function assertInvalidDiagnostics(program, sourceFile) {
-	const diagnostics = [
-		...program.getSyntacticDiagnostics(sourceFile),
-		...program.getSemanticDiagnostics(sourceFile),
-	];
-	const expected = [
+function invalidDiagnosticExpectations() {
+	return [
 		{ code: 2741, text: "missingOld" },
 		{ code: 2741, text: "missingNew" },
 		{ code: 2322, text: "oldText" },
@@ -260,7 +398,24 @@ function assertInvalidDiagnostics(program, sourceFile) {
 		{ code: 2741, text: "missingNewContent" },
 		{ code: 2322, text: "baseContent" },
 		{ code: 2353, text: "extra" },
+		{ code: 2741, text: "missingFound" },
+		{ code: 2741, text: "missingIndex" },
+		{ code: 2741, text: "missingMatchLength" },
+		{ code: 2741, text: "missingUsedFuzzyMatch" },
+		{ code: 2741, text: "missingContentForReplacement" },
+		{ code: 2322, text: "found" },
+		{ code: 2322, text: "index" },
+		{ code: 2322, text: "contentForReplacement" },
+		{ code: 2353, text: "extra" },
 	];
+}
+
+function assertInvalidDiagnostics(program, sourceFile) {
+	const diagnostics = [
+		...program.getSyntacticDiagnostics(sourceFile),
+		...program.getSemanticDiagnostics(sourceFile),
+	];
+	const expected = invalidDiagnosticExpectations();
 	if (diagnostics.length !== expected.length) {
 		throw new Error(`expected ${expected.length} invalid-fixture diagnostics, got ${diagnostics.length}`);
 	}
@@ -315,10 +470,13 @@ try {
 	proveInvalidFixture(options);
 	console.log("Edit fixtures: 2 valid direct-module assignments, 4 invalid diagnostics");
 	console.log("AppliedEditsResult fixtures: 2 valid direct-module assignments, 4 invalid diagnostics");
+	console.log("FuzzyMatchResult fixtures: 2 valid direct-module assignments, 9 invalid diagnostics");
 	console.log("Edit export: direct edit-diff module only");
 	console.log("Edit properties: oldText, newText; required, writable strings");
 	console.log("AppliedEditsResult properties: baseContent, newContent; required, writable strings");
+	console.log("FuzzyMatchResult properties: found, index, matchLength, usedFuzzyMatch, contentForReplacement; required, writable boolean/number/number/boolean/string");
 	console.log("Edit package boundaries: harness/tools index and agent package index omit Edit and AppliedEditsResult");
+	console.log("FuzzyMatchResult package boundaries: harness/tools index and agent package index omit FuzzyMatchResult");
 	console.log("Record runtime interface identity: not claimed; source-shaped records only");
 } catch (error) {
 	const message = error instanceof Error ? error.message : String(error);

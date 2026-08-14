@@ -13,6 +13,7 @@ mod errors;
 mod file_info;
 mod file_operations;
 mod format_size;
+mod fuzzy_match_result;
 mod image;
 mod oracle;
 mod prompt_template_diagnostic;
@@ -74,8 +75,13 @@ pub(crate) fn run() {
     queue_mode::compare(&mut oracle);
     tool_execution_mode::compare(&mut oracle);
     thinking_level::compare(&mut oracle);
-    agent_tool_execution_context::compare_all_fixtures(&mut oracle);
-    applied_edits_result::compare_all_fixtures(&mut oracle);
-    before_tool_call_result::compare_all_fixtures(&mut oracle);
-    edit_record::compare_all_fixtures(&mut oracle);
+    compare_record_fixtures(&mut oracle);
+}
+
+fn compare_record_fixtures(oracle: &mut oracle::TsOracle) {
+    agent_tool_execution_context::compare_all_fixtures(oracle);
+    applied_edits_result::compare_all_fixtures(oracle);
+    before_tool_call_result::compare_all_fixtures(oracle);
+    edit_record::compare_all_fixtures(oracle);
+    fuzzy_match_result::compare_all_fixtures(oracle);
 }

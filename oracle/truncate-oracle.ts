@@ -348,6 +348,21 @@ type BeforeToolCallResultRequest = {
 	cases: BeforeToolCallResultCaseRequest[];
 };
 
+type FuzzyMatchResultCaseRequest = {
+	name: string;
+	found: boolean;
+	indexBits: string;
+	matchLengthBits: string;
+	usedFuzzyMatch: boolean;
+	contentForReplacement: string;
+};
+
+type FuzzyMatchResultRequest = {
+	id: RequestId;
+	operation: "fuzzy_match_result";
+	cases: FuzzyMatchResultCaseRequest[];
+};
+
 type EditRecordCaseRequest = {
 	name: string;
 	oldText: string;
@@ -401,6 +416,14 @@ type MutableBeforeToolCallResultRecord = {
 	block?: boolean;
 	reason?: string;
 	terminate?: boolean;
+};
+
+type MutableFuzzyMatchResultRecord = {
+	found: boolean;
+	index: number;
+	matchLength: number;
+	usedFuzzyMatch: boolean;
+	contentForReplacement: string;
 };
 
 type MutableCutPointResultRecord = {
@@ -637,6 +660,7 @@ type Request =
 	| ThinkingLevelRequest
 	| AgentToolExecutionContextRequest
 	| BeforeToolCallResultRequest
+	| FuzzyMatchResultRequest
 	| EditRecordRequest
 	| AppliedEditsResultRequest
 	| HarnessErrorRequest;
@@ -656,6 +680,7 @@ type UtilityRequest = Exclude<
 		ThinkingLevelRequest |
 		AgentToolExecutionContextRequest |
 		BeforeToolCallResultRequest |
+		FuzzyMatchResultRequest |
 		EditRecordRequest |
 		AppliedEditsResultRequest
 >;
@@ -1260,6 +1285,27 @@ function executeAppliedEditsResultRequest(request: AppliedEditsResultRequest): R
 	return successfulResponse(request.id, { results });
 }
 
+function executeFuzzyMatchResultRequest(request: FuzzyMatchResultRequest): Response {
+	const results = request.cases.map((input) => {
+		const result: MutableFuzzyMatchResultRecord = {
+			found: input.found,
+			index: binary64FromBits(input.indexBits),
+			matchLength: binary64FromBits(input.matchLengthBits),
+			usedFuzzyMatch: input.usedFuzzyMatch,
+			contentForReplacement: input.contentForReplacement,
+		};
+		return {
+			name: input.name,
+			found: result.found,
+			indexBits: binary64Bits(result.index),
+			matchLengthBits: binary64Bits(result.matchLength),
+			usedFuzzyMatch: result.usedFuzzyMatch,
+			contentForReplacement: result.contentForReplacement,
+		};
+	});
+	return successfulResponse(request.id, { results });
+}
+
 function executeShouldCompactRequest(request: ShouldCompactRequest, api: HarnessTypesApi): Response {
 	const results = request.cases.map((input) => ({
 		name: input.name,
@@ -1386,6 +1432,7 @@ function executeSpecialRequest(request: Request, apis: OracleApis): Response | u
 	if (request.operation === "thinking_level") return executeThinkingLevelRequest(request);
 	if (request.operation === "edit_record") return executeEditRecordRequest(request);
 	if (request.operation === "applied_edits_result") return executeAppliedEditsResultRequest(request);
+	if (request.operation === "fuzzy_match_result") return executeFuzzyMatchResultRequest(request);
 	if (request.operation === "before_tool_call_result") {
 		return executeBeforeToolCallResultRequest(request);
 	}
