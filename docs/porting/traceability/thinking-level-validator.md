@@ -23,7 +23,16 @@ Pinned source: `packages/coding-agent/src/cli/args.ts:67-70` at commit `532f7d12
 - `/tmp/pi-rust-thinking-level-validator-oracle.out` and `/tmp/pi-rust-thinking-level-validator-aggregate-oracle.out` exit `0`. The standalone proof verifies source-lock/pinned HEAD, exact `(level: string) => level is ThinkingLevel`, caller narrowing, runtime valid/invalid cases, private `VALID_THINKING_LEVELS` non-export, and the pinned `highlight-js-lib-index.d.ts` root. `--skipLibCheck` matches pinned `tsconfig.base.json`; strict checking remains enabled for the generated fixture and imported source files.
 - Node syntax, targeted denied-warning Clippy, formatting, diff, and Rust/TypeScript/JavaScript readability artifacts pass: `/tmp/pi-rust-thinking-level-validator-node-oracle.out`, `/tmp/pi-rust-thinking-level-validator-node-typeproof.out`, `/tmp/pi-rust-thinking-level-validator-clippy.out`, `/tmp/pi-rust-thinking-level-validator-fmt.out`, `/tmp/pi-rust-thinking-level-validator-diff.out`, and `/tmp/pi-rust-thinking-level-validator-readability.out`.
 
-Broad workspace/check/Clippy, final integration, documentation closure, clean-pin, and inherited verification remain pending.
+## Final integration proof
+
+- Code/proof HEAD: `deca0cb`; focused production commit: `83ea1a8`.
+- `/tmp/pi-rust-thinking-level-validator-final-workspace-tests.out` records `cargo test --workspace --all-targets` exiting 0 with `276 passed, 0 failed, 2 ignored`.
+- `/tmp/pi-rust-thinking-level-validator-final-check.out` and `/tmp/pi-rust-thinking-level-validator-final-clippy.out` record workspace check and all-target/all-feature Clippy with `-D warnings` exiting 0.
+- `/tmp/pi-rust-thinking-level-validator-final-oracle.out`, both `/tmp/pi-rust-thinking-level-validator-final-node-*.out` artifacts, `/tmp/pi-rust-thinking-level-validator-final-fmt.out`, and `/tmp/pi-rust-thinking-level-validator-final-diff.out` exit 0 at `deca0cb`.
+- `/tmp/pi-rust-thinking-level-validator-final-readability.out` records the final changed Rust/TypeScript/JavaScript readability audit passing without suppressions or new violations.
+- Documentation and dependency/lock audits pass; `ebbea48..deca0cb` changes no Cargo manifest or lockfile. No deployment applies.
+- The Rust worktree is clean at `deca0cb`; the pinned source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+- Inherited independent verification remains pending.
 
 ## Rust boundary
 

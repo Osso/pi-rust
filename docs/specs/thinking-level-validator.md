@@ -32,9 +32,16 @@ TypeScript declares a caller-side narrowing predicate, `level is ThinkingLevel`.
 - [x] `/tmp/pi-rust-thinking-level-validator-oracle.out` and `/tmp/pi-rust-thinking-level-validator-aggregate-oracle.out` exit `0`; the standalone proof checks the exact type predicate, caller narrowing, valid/invalid runtime cases, private-table non-export, source lock, pinned HEAD, and the pinned highlight declaration root. Its `--skipLibCheck` matches the pinned `tsconfig.base.json`; strict source-file checking remains enabled.
 - [x] Node syntax, targeted denied-warning Clippy, formatting, diff, and Rust/TypeScript/JavaScript readability artifacts pass: `/tmp/pi-rust-thinking-level-validator-node-oracle.out`, `/tmp/pi-rust-thinking-level-validator-node-typeproof.out`, `/tmp/pi-rust-thinking-level-validator-clippy.out`, `/tmp/pi-rust-thinking-level-validator-fmt.out`, `/tmp/pi-rust-thinking-level-validator-diff.out`, and `/tmp/pi-rust-thinking-level-validator-readability.out`.
 
-## Remaining verification
+## Final integration proof
 
-Broad workspace/check/Clippy, final integration, documentation closure, clean-pin, and inherited verification remain pending.
+- [x] At code/proof HEAD `deca0cb`, `cargo test --workspace --all-targets` passes with `276 passed, 0 failed, 2 ignored`.
+- [x] Workspace check and all-target/all-feature Clippy with `-D warnings` pass.
+- [x] Aggregate oracle/typeproof, both Node syntax checks, formatting, and slice-range diff checks exit 0.
+- [x] Changed Rust/TypeScript/JavaScript readability, documentation, dependency/lock, and clean-pin audits pass.
+- [x] The Rust worktree is clean at `deca0cb`; the source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+- [ ] Inherited independent verification remains pending.
+
+No dependency change or deployment applies to this slice.
 
 ## Out of scope
 
