@@ -29,3 +29,4 @@ This specification covers `packages/coding-agent/src/core/source-info.ts` at pin
 - [x] Differential RED/GREEN and real package runtime/typeproof commit `d3a4b08`.
 - [x] Final integration at `e966d3d`: workspace `293 passed, 0 failed, 2 ignored`; focused/differential, workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle, dedicated typeproof, Node syntax, formatting/diff, and readability pass.
 - [x] Final scope/pin audit confirms clean Rust/source worktrees, no Cargo/dependency/deployment changes, and explicit PathMetadata/createSourceInfo gaps.
+- [x] Inherited independent verification at docs-only HEAD `e48a6c0` revalidates current focused/differential/oracle/typeproof/Node/fmt/diff/readability evidence, reuses the unchanged `e966d3d` broad gates, and returns `OVERALL: PASS`.
