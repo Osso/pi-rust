@@ -20,7 +20,15 @@ Pinned source: `packages/agent/src/harness/tools/edit-diff.ts:171-184` at `532f7
 - Production commit: `1a8ba0c`; differential RED at `1a8ba0c` and GREEN/proof at `62e5770`.
 - Differential request `13184`: complete with eight independent binary64/source-shaped cases.
 - Real direct-module type/export proof: complete with two valid assignments and nine exact invalid diagnostics; direct-only index boundary passes.
-- Final workspace/all-target check, all-feature Clippy, aggregate oracle, clean-pin, and inherited verification: pending.
+- Final executable integration at `f802bf1`: workspace `300 passed, 0 failed, 2 ignored` across 66 result lines; workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle/typeproof/Node, fmt/diff, Rust/TS readability, docs/scope/dependency/lock, and clean-pin audit pass.
+- Inherited verification remains pending only for this documentation closure.
+
+## Final integration artifacts
+
+- `/tmp/pi-rust-fuzzy-match-result-final-workspace-tests.out` records `cargo test --workspace --all-targets` with 66 result lines summing to `300 passed, 0 failed, 2 ignored`.
+- `/tmp/pi-rust-fuzzy-match-result-final-workspace-check.out` and `/tmp/pi-rust-fuzzy-match-result-final-workspace-clippy.out` record successful workspace check and all-target/all-feature Clippy with `-D warnings`.
+- `/tmp/pi-rust-fuzzy-match-result-final-oracle.out`, `/tmp/pi-rust-fuzzy-match-result-final-fmt.out`, and `/tmp/pi-rust-fuzzy-match-result-final-diff.out` record aggregate oracle/typeproof/Node, formatting, and diff checks.
+- `/tmp/pi-rust-fuzzy-match-result-final-audit.out` records focused/differential/typeproof/readability/scope checks, exact request `13184`, clean Rust/source pins, and no Cargo/dependency/protocol/deployment changes.
 
 ## Exclusions
 

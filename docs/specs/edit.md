@@ -29,6 +29,6 @@ This specification covers the direct-module edit records in `packages/agent/src/
 
 ## Boundary and exclusions
 
-`AppliedEditsResult` is a separate completed direct-module record slice; its algorithmic producer remains excluded. `FuzzyMatchResult` is a separate direct-module record slice with final integration pending; fuzzyFindText, Unicode normalization, matching/validation, offsets, overlap and replacement ordering, edit application, filesystem/tool behavior, and package/harness/crate-root exports remain excluded.
+`AppliedEditsResult` is a separate completed direct-module record slice; its algorithmic producer remains excluded. `FuzzyMatchResult` is a separate direct-module record slice with executable final integration passing at `f802bf1`; inherited verification remains pending only for its documentation closure. FuzzyFindText, Unicode normalization, matching/validation, offsets, overlap and replacement ordering, edit application, filesystem/tool behavior, and package/harness/crate-root exports remain excluded.
 
 No dependency, deployment, protocol, or unrelated API change applies.
