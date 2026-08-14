@@ -13,7 +13,7 @@ This specification covers `formatSize` from the pinned coding-agent source `pack
 - [x] Cover all three Rust export paths with focused tests.
 - [x] Compare request `13185` against the real pinned TypeScript function with 16 independent hard-coded cases; differential GREEN is 1/0.
 - [x] Complete real direct-module/tools-index/package-index proof: exact `(number) => string` signature, three valid assignments, and three wrong-string diagnostics; targeted Clippy, typecheck, formatting, diff, and readability pass.
-- [ ] Complete final workspace, all-feature Clippy, aggregate oracle, clean-pin, and inherited verification.
+- [x] Complete executable/docs verification at `a8a376e`: workspace `304 passed, 0 failed, 2 ignored` across 68 result lines; workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle/typeproof/Node, fmt/diff, Rust/TS readability, exact wrapper/export/scope/dependency/docs/lock/clean-pin audit pass. Evidence: `/tmp/pi-rust-coding-format-size-final-*.out` and final audit.
 
 ## How it works
 
@@ -40,7 +40,7 @@ This specification covers `formatSize` from the pinned coding-agent source `pack
 
 ## Known gaps (current cycle)
 
-- [ ] Final workspace, all-feature Clippy, aggregate oracle, clean-pin, and inherited verification.
+- [ ] Complete inherited verification for this documentation-only closure.
 
 ## Boundary and implementation relationship
 
