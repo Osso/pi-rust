@@ -42,7 +42,7 @@ This specification covers `packages/coding-agent/src/core/session-tool-output.ts
 - [x] Symbol-scoped declaration proof passes through the real pinned index and defining module: compiler version `5.9.3`, zero scoped diagnostics, real-index aliases, exact number literal `1048576`, and exact string literal. Unrelated transitive files are not required to be globally clean; no source suppression or copied declaration was used.
 - [x] Final integration at code/proof HEAD `66e30fa`: workspace `278 passed, 0 failed, 2 ignored`; workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle/typeproof, dedicated typeproof, Node syntax, formatting, slice-range diff, changed-file readability, documentation, dependency/lock, and clean-pin gates pass.
 - [x] The Rust worktree is clean at `66e30fa`; the source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
-- [ ] Inherited independent verification remains pending.
+- [x] Inherited independent verification at Rust HEAD `b0b6c14` passes focused 1/0, differential request `13178` 1/0, aggregate oracle, symbol-scoped public-index typeproof, runtime index values, formatting, slice-range diff, saved final artifacts, scope, documentation, dependencies, and clean pins (`OVERALL: PASS`).
 
 No dependency change or deployment applies to this slice.
 
