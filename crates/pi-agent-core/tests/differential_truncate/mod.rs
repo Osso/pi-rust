@@ -7,6 +7,7 @@ mod compaction_settings;
 mod context_usage_estimate;
 mod cut_point_result;
 mod edit_line_endings;
+mod edit_record;
 mod errors;
 mod file_info;
 mod file_operations;
@@ -74,4 +75,5 @@ pub(crate) fn run() {
     thinking_level::compare(&mut oracle);
     agent_tool_execution_context::compare_all_fixtures(&mut oracle);
     before_tool_call_result::compare_all_fixtures(&mut oracle);
+    edit_record::compare_all_fixtures(&mut oracle);
 }

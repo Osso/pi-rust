@@ -348,6 +348,18 @@ type BeforeToolCallResultRequest = {
 	cases: BeforeToolCallResultCaseRequest[];
 };
 
+type EditRecordCaseRequest = {
+	name: string;
+	oldText: string;
+	newText: string;
+};
+
+type EditRecordRequest = {
+	id: RequestId;
+	operation: "edit_record";
+	cases: EditRecordCaseRequest[];
+};
+
 type MutableBashExecutionMessageRecord = {
 	role: "bashExecution";
 	command: string;
@@ -613,6 +625,7 @@ type Request =
 	| ThinkingLevelRequest
 	| AgentToolExecutionContextRequest
 	| BeforeToolCallResultRequest
+	| EditRecordRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<
@@ -629,7 +642,8 @@ type UtilityRequest = Exclude<
 		ToolExecutionModeRequest |
 		ThinkingLevelRequest |
 		AgentToolExecutionContextRequest |
-		BeforeToolCallResultRequest
+		BeforeToolCallResultRequest |
+		EditRecordRequest
 >;
 type FormatSizeRequest = Extract<UtilityRequest, { operation: "format_size" }>;
 type TruncationRequest = Extract<
@@ -1214,6 +1228,15 @@ function normalizeBeforeToolCallResultInput(input: BeforeToolCallResultCaseReque
 	return { name: input.name, record };
 }
 
+function executeEditRecordRequest(request: EditRecordRequest): Response {
+	const results = request.cases.map((input) => ({
+		name: input.name,
+		oldText: input.oldText,
+		newText: input.newText,
+	}));
+	return successfulResponse(request.id, { results });
+}
+
 function executeShouldCompactRequest(request: ShouldCompactRequest, api: HarnessTypesApi): Response {
 	const results = request.cases.map((input) => ({
 		name: input.name,
@@ -1338,6 +1361,7 @@ function executeSpecialRequest(request: Request, apis: OracleApis): Response | u
 	if (request.operation === "queue_mode") return executeQueueModeRequest(request);
 	if (request.operation === "tool_execution_mode") return executeToolExecutionModeRequest(request);
 	if (request.operation === "thinking_level") return executeThinkingLevelRequest(request);
+	if (request.operation === "edit_record") return executeEditRecordRequest(request);
 	if (request.operation === "before_tool_call_result") {
 		return executeBeforeToolCallResultRequest(request);
 	}

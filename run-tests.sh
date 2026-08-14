@@ -41,6 +41,7 @@ typecheck_oracle() {
 	node oracle/thinking-level-validator-typecheck.mjs
 	node oracle/tool-output-persistence-constants-typecheck.mjs
 	node oracle/current-session-version-typecheck.mjs
+	node oracle/edit-record-typecheck.mjs
 }
 
 case "${1:-all}" in
