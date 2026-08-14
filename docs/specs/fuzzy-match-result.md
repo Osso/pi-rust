@@ -37,7 +37,7 @@ This specification covers the direct-module result interface in `packages/agent/
 - [x] Production commit `1a8ba0c`; differential RED at `1a8ba0c` and GREEN at `62e5770` for request `13184` with eight independent cases.
 - [x] Real direct-module type/export proof completes two valid assignments and nine exact invalid diagnostics; targeted Clippy/typecheck/fmt/diff/readability pass.
 - [x] Final executable integration at `f802bf1`: workspace `300 passed, 0 failed, 2 ignored` across 66 result lines; workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle/typeproof/Node, fmt/diff, Rust/TS readability, docs/scope/dependency/lock, and clean-pin audit pass.
-- [ ] Inherited verification remains pending only for this documentation closure.
+- [x] Inherited independent verification at docs-only closure HEAD `0fdd0ed` returns `OVERALL: PASS`; broad evidence remains valid from `f802bf1`.
 
 ## Out of scope
 

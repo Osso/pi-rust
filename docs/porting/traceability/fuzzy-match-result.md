@@ -21,7 +21,7 @@ Pinned source: `packages/agent/src/harness/tools/edit-diff.ts:171-184` at `532f7
 - Differential request `13184`: complete with eight independent binary64/source-shaped cases.
 - Real direct-module type/export proof: complete with two valid assignments and nine exact invalid diagnostics; direct-only index boundary passes.
 - Final executable integration at `f802bf1`: workspace `300 passed, 0 failed, 2 ignored` across 66 result lines; workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle/typeproof/Node, fmt/diff, Rust/TS readability, docs/scope/dependency/lock, and clean-pin audit pass.
-- Inherited verification remains pending only for this documentation closure.
+- Inherited independent verification at docs-only closure HEAD `0fdd0ed` returns `OVERALL: PASS`; broad evidence remains valid from `f802bf1`.
 
 ## Final integration artifacts
 
