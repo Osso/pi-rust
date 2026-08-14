@@ -27,4 +27,5 @@ This specification covers `packages/coding-agent/src/core/source-info.ts` at pin
 
 - [x] Focused RED/GREEN and production commit `37a8cc2`.
 - [x] Differential RED/GREEN and real package runtime/typeproof commit `d3a4b08`.
-- [ ] Final workspace/static/clean-pin/inherited verification.
+- [x] Final integration at `e966d3d`: workspace `293 passed, 0 failed, 2 ignored`; focused/differential, workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle, dedicated typeproof, Node syntax, formatting/diff, and readability pass.
+- [x] Final scope/pin audit confirms clean Rust/source worktrees, no Cargo/dependency/deployment changes, and explicit PathMetadata/createSourceInfo gaps.

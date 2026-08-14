@@ -26,4 +26,11 @@ The slice is metadata construction only. Package resolution, filesystem/resource
 
 Production commit: `37a8cc2`. Differential/typeproof commit: `d3a4b08`.
 
-Final workspace, static, dependency/lock, clean-pin, and inherited verification remain pending.
+## Final integration proof
+
+- `/tmp/pi-rust-source-info-final-workspace-tests.out` records `cargo test --workspace --all-targets` exiting 0 at `e966d3d`; all 64 result lines sum to `293 passed, 0 failed, 2 ignored`.
+- `/tmp/pi-rust-source-info-final-focused.out`, `...-differential.out`, `...-workspace-check.out`, and `...-workspace-clippy.out` pass.
+- `/tmp/pi-rust-source-info-final-oracle.out`, `...-typeproof.out`, `...-node-check.out`, `...-fmt.out`, `...-diff.out`, and `...-readability.out` pass at `e966d3d`.
+- `/tmp/pi-rust-source-info-final-audit.out` confirms the approved carrier deviation, exact request `13182`, ten cases, explicit gaps, no Cargo/dependency/deployment changes, and clean Rust/source pins.
+
+Final workspace/static/dependency/clean-pin verification passes. No deployment applies.
