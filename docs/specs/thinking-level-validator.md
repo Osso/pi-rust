@@ -9,7 +9,7 @@ This specification covers `packages/coding-agent/src/cli/args.ts:67-70` at pinne
 - [x] Expose only `is_valid_thinking_level(&str) -> bool` from the direct `cli::args` module; do not expose the valid table or add `cli`/crate-root re-exports.
 - [x] Reuse the existing exact local `pi-agent-core` dependency for the typed agent-harness values; add no dependency.
 - [x] Focused RED/GREEN and targeted Clippy, formatting, diff, and readability gates pass.
-- [ ] Compare the direct TypeScript runtime through request `13177` and a standalone exact type-predicate proof.
+- [x] Compare the direct TypeScript runtime through request `13177` and a standalone exact type-predicate proof.
 
 ## Language-boundary discrepancy
 
@@ -19,14 +19,22 @@ TypeScript declares a caller-side narrowing predicate, `level is ThinkingLevel`.
 
 - `crates/pi-coding-agent/src/cli/args.rs` — private eight-value table and direct-module predicate.
 - `crates/pi-coding-agent/tests/thinking_level_validator.rs` — focused behavioral proof.
-- `run-tests.sh` — focused registration.
-- `docs/porting/traceability/thinking-level-validator.md` — source mapping and pending differential/typeproof proof.
+- `crates/pi-coding-agent/tests/differential_thinking_level_validator.rs` and `crates/pi-coding-agent/tests/differential_thinking_level_validator/mod.rs` — request `13177` proof.
+- `oracle/thinking-level-validator-oracle.ts` — direct-module runtime oracle.
+- `oracle/thinking-level-validator-typecheck.mjs` — source-lock, type-predicate, narrowing, runtime, and private-export proof.
+- `run-tests.sh` — focused, differential, aggregate oracle, and standalone-proof registration.
+- `docs/porting/traceability/thinking-level-validator.md` — source mapping and bounded proof record.
 
-## Pending proof
+## Bounded differential/typeproof proof
 
-- Direct-module runtime oracle request `13177`.
-- Standalone TypeScript proof of the exact `level is ThinkingLevel` predicate signature and eight-literal behavior.
-- Broad workspace, final static, documentation closure, clean-pin, and inherited verification.
+- [x] RED `/tmp/pi-rust-thinking-level-validator-differential-red.out` exits `101` because request `13177` receives structured `unsupported operation: thinking_level_validator` instead of a success response.
+- [x] GREEN `/tmp/pi-rust-thinking-level-validator-differential-green.out` exits `0` with `1 passed, 0 failed`; the request compares valid literals in source order plus `""`, case variants, leading/trailing whitespace, `x-high`, `extreme`, `unsupported`, `é😀`, U+0000, and U+000A.
+- [x] `/tmp/pi-rust-thinking-level-validator-oracle.out` and `/tmp/pi-rust-thinking-level-validator-aggregate-oracle.out` exit `0`; the standalone proof checks the exact type predicate, caller narrowing, valid/invalid runtime cases, private-table non-export, source lock, pinned HEAD, and the pinned highlight declaration root. Its `--skipLibCheck` matches the pinned `tsconfig.base.json`; strict source-file checking remains enabled.
+- [x] Node syntax, targeted denied-warning Clippy, formatting, diff, and Rust/TypeScript/JavaScript readability artifacts pass: `/tmp/pi-rust-thinking-level-validator-node-oracle.out`, `/tmp/pi-rust-thinking-level-validator-node-typeproof.out`, `/tmp/pi-rust-thinking-level-validator-clippy.out`, `/tmp/pi-rust-thinking-level-validator-fmt.out`, `/tmp/pi-rust-thinking-level-validator-diff.out`, and `/tmp/pi-rust-thinking-level-validator-readability.out`.
+
+## Remaining verification
+
+Broad workspace/check/Clippy, final integration, documentation closure, clean-pin, and inherited verification remain pending.
 
 ## Out of scope
 
