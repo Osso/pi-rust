@@ -1,0 +1,45 @@
+# Coding-agent format size
+
+This specification covers `formatSize` from the pinned coding-agent source `packages/coding-agent/src/core/tools/truncate.ts:61-69` at TypeScript commit `532f7d12cd19235081bd4d6e425bde185652d86f`. The function is exported through the coding-agent tools index (`packages/coding-agent/src/core/tools/index.ts:119-127`) and package root export block (`packages/coding-agent/src/index.ts:333`).
+
+## What it must do
+
+- [x] Expose the direct Rust path `pi_coding_agent::core::tools::truncate::format_size`.
+- [x] Expose the tools-index-equivalent Rust path `pi_coding_agent::core::tools::format_size`.
+- [x] Expose the crate-root Rust path `pi_coding_agent::format_size`.
+- [x] Preserve source B, KB, and MB thresholds and one-decimal formatting for the approved non-negative integer byte-count boundary.
+- [x] Implement the coding-agent function as a wrapper over the identical proven `pi_agent_core::harness::utils::format_size` helper.
+- [x] Cover 16 hard-coded focused byte-count cases across branch thresholds and rounding boundaries.
+- [x] Cover all three Rust export paths with focused tests.
+- [ ] Compare request `13185` against the real pinned TypeScript function.
+- [ ] Complete real TypeScript export proof and final workspace/static/inherited verification.
+
+## How it works
+
+- [Coding-agent format-size traceability](../porting/traceability/coding-agent-format-size.md)
+
+## Implementation inventory
+
+- `crates/pi-coding-agent/src/core/tools/truncate.rs` — direct-module wrapper over agent-core `format_size`.
+- `crates/pi-coding-agent/src/core/tools/mod.rs` — tools-index-equivalent export.
+- `crates/pi-coding-agent/src/lib.rs` — crate-root export.
+- `crates/pi-coding-agent/tests/format_size.rs` — 16 focused cases and three export-path tests.
+
+## Tests asserting this spec
+
+- `crates/pi-coding-agent/tests/format_size.rs`
+- `crates/pi-agent-core/tests/truncate.rs`
+- `crates/pi-agent-core/tests/differential_truncate/format_size.rs`
+
+## Known gaps (current cycle)
+
+- [ ] Complete differential request `13185` and real TypeScript export proof.
+- [ ] Complete workspace, static, and inherited verification.
+
+## Out of scope
+
+- Truncation constants, truncation types, and other truncation functions.
+- Arbitrary JavaScript negative, fractional, nonfinite, or above-safe-integer values.
+- Runtime validation of unsupported numeric inputs.
+- Tool, filesystem, shell, and output-rendering behavior.
+- Extra APIs, dependencies, deployment, and protocol changes.
