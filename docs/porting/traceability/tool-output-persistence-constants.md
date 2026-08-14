@@ -20,7 +20,16 @@ Pinned source: `packages/coding-agent/src/core/session-tool-output.ts:19-20` at 
 - Differential GREEN: `/tmp/pi-rust-tool-output-constants-differential-green.out` records request `13178`, `1 passed, 0 failed`.
 - Runtime package-index proof: `/tmp/pi-rust-tool-output-constants-typeproof-current.out` passes with compiler version `5.9.3`, zero scoped diagnostics, and both exact values; `/tmp/pi-rust-tool-output-constants-oracle-current.out` passes through `./run-tests.sh oracle`.
 - Symbol-scoped declaration proof uses the real pinned index and defining module, compiler flags/literal values, real-index alias declarations, inherited strict/`skipLibCheck` options, and no synthetic/fake index, copied declaration, untracked dist, or suppression.
-- No broad workspace/static, final, dependency, clean-pin, or inherited verification is claimed.
+## Final integration proof
+
+- Code/proof HEAD: `66e30fa`; focused production commit: `1a8077a`.
+- `/tmp/pi-rust-tool-output-constants-final-workspace-tests.out` records `cargo test --workspace --all-targets` exiting 0 with `278 passed, 0 failed, 2 ignored`.
+- `/tmp/pi-rust-tool-output-constants-final-check.out` and `/tmp/pi-rust-tool-output-constants-final-clippy.out` record workspace check and all-target/all-feature Clippy with `-D warnings` exiting 0.
+- `/tmp/pi-rust-tool-output-constants-final-oracle.out`, `/tmp/pi-rust-tool-output-constants-final-typeproof.out`, both `/tmp/pi-rust-tool-output-constants-final-node-*.out` artifacts, `/tmp/pi-rust-tool-output-constants-final-fmt.out`, and `/tmp/pi-rust-tool-output-constants-final-diff.out` exit 0 at `66e30fa`.
+- `/tmp/pi-rust-tool-output-constants-final-readability.out` records the final changed Rust/TypeScript/JavaScript readability audit passing without suppressions or new violations.
+- Documentation and dependency/lock audits pass; `3e079e8..66e30fa` changes no Cargo manifest or lockfile. No deployment applies.
+- The Rust worktree is clean at `66e30fa`; the pinned source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+- Inherited independent verification remains pending.
 
 ## Rust boundary
 

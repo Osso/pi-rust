@@ -1,6 +1,6 @@
 # Tool-output persistence constants
 
-This specification covers `packages/coding-agent/src/core/session-tool-output.ts:19-20` at pinned TypeScript commit `532f7d12cd19235081bd4d6e425bde185652d86f`. The coding-agent package re-exports both constants from `packages/coding-agent/src/index.ts:262-269`; Rust exposes the module and crate-root paths while `core` does not aggregate-re-export them. Differential request `13178`, runtime package-index proof, and bounded gates are recorded at Rust HEAD `1a8077a`; symbol-scoped real-index compiler proof and runtime package-index proof pass, and broad/final/inherited verification remains pending.
+This specification covers `packages/coding-agent/src/core/session-tool-output.ts:19-20` at pinned TypeScript commit `532f7d12cd19235081bd4d6e425bde185652d86f`. The coding-agent package re-exports both constants from `packages/coding-agent/src/index.ts:262-269`; Rust exposes the module and crate-root paths while `core` does not aggregate-re-export them. Focused production is committed as `1a8077a`; differential/public-index proof is committed as `66e30fa`.
 
 ## What it must do
 
@@ -40,7 +40,11 @@ This specification covers `packages/coding-agent/src/core/session-tool-output.ts
 - [x] Direct oracle source typecheck, Node syntax, targeted denied-warning Clippy, formatting, diff, and changed Rust/TypeScript/JavaScript readability pass.
 - [x] Runtime package-index probe returns both exact values.
 - [x] Symbol-scoped declaration proof passes through the real pinned index and defining module: compiler version `5.9.3`, zero scoped diagnostics, real-index aliases, exact number literal `1048576`, and exact string literal. Unrelated transitive files are not required to be globally clean; no source suppression or copied declaration was used.
-- [ ] Run final workspace/static/documentation/dependency/pin gates and inherited verification.
+- [x] Final integration at code/proof HEAD `66e30fa`: workspace `278 passed, 0 failed, 2 ignored`; workspace check, all-target/all-feature Clippy with `-D warnings`, aggregate oracle/typeproof, dedicated typeproof, Node syntax, formatting, slice-range diff, changed-file readability, documentation, dependency/lock, and clean-pin gates pass.
+- [x] The Rust worktree is clean at `66e30fa`; the source worktree is clean at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+- [ ] Inherited independent verification remains pending.
+
+No dependency change or deployment applies to this slice.
 
 ## Out of scope
 
