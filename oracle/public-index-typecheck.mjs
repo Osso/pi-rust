@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -10,8 +11,14 @@ const sourceLock = JSON.parse(readFileSync(sourceLockPath, "utf8"));
 const sourceWorktree = sourceLock.worktree;
 // This fixture imports the pinned agent package index, not the protocol package schema.
 const publicIndexPath = join(sourceWorktree, "packages/agent/src/index.ts");
+const publicIndexImportPath = publicIndexPath.endsWith(".ts") ? publicIndexPath.slice(0, -3) : publicIndexPath;
+const definingTypesPath = join(sourceWorktree, "packages/agent/src/types.ts");
+const tsconfigPath = join(sourceWorktree, "tsconfig.json");
 const tsgoPath = join(sourceWorktree, "node_modules/.bin/tsgo");
+const typescriptPath = join(sourceWorktree, "node_modules/typescript/lib/typescript.js");
 const typeRoots = join(sourceWorktree, "node_modules/@types");
+const require = createRequire(import.meta.url);
+const ts = require(typescriptPath);
 
 const fixtureSource = `
 import {
@@ -35,6 +42,7 @@ import type {
 	ToolExecutionMode,
 	ThinkingLevel as AgentThinkingLevel,
 	AgentToolExecutionContext,
+	BeforeToolCallResult,
 	Skill,
 } from ${JSON.stringify(publicIndexPath)};
 
@@ -117,6 +125,24 @@ type AgentToolExecutionContextStartedAtIsNumber = Assert<
 >;
 type AgentToolExecutionContextAgentIdIsOptionalString = Assert<
 	Exact<AgentToolExecutionContext["agentId"], string | undefined>
+>;
+
+type ExpectedBeforeToolCallResult = {
+	block?: boolean;
+	reason?: string;
+	terminate?: boolean;
+};
+type BeforeToolCallResultIsExact = Assert<
+	Exact<BeforeToolCallResult, ExpectedBeforeToolCallResult>
+>;
+type BeforeToolCallResultBlockIsOptionalBoolean = Assert<
+	Exact<BeforeToolCallResult["block"], boolean | undefined>
+>;
+type BeforeToolCallResultReasonIsOptionalString = Assert<
+	Exact<BeforeToolCallResult["reason"], string | undefined>
+>;
+type BeforeToolCallResultTerminateIsOptionalBoolean = Assert<
+	Exact<BeforeToolCallResult["terminate"], boolean | undefined>
 >;
 
 type ExpectedPromptTemplateDiagnosticCode = "file_info_failed" | "list_failed" | "read_failed" | "parse_failed";
@@ -294,6 +320,32 @@ void agentToolExecutionContextWithOnlyRequiredField;
 void agentToolExecutionContextMissingStartedAt;
 void agentToolExecutionContextWrongAgentId;
 
+let beforeToolCallResult: BeforeToolCallResult = {};
+beforeToolCallResult.block = false;
+beforeToolCallResult.block = true;
+beforeToolCallResult.block = undefined;
+beforeToolCallResult.reason = "";
+beforeToolCallResult.reason = "blocked\\n理由\\0";
+beforeToolCallResult.reason = undefined;
+beforeToolCallResult.terminate = false;
+beforeToolCallResult.terminate = true;
+beforeToolCallResult.terminate = undefined;
+const beforeToolCallResultPartial: BeforeToolCallResult = { block: true };
+const beforeToolCallResultFull: BeforeToolCallResult = {
+	block: false,
+	reason: "blocked",
+	terminate: true,
+};
+const beforeToolCallResultWithExplicitUndefined: BeforeToolCallResult = {
+	block: undefined,
+	reason: undefined,
+	terminate: undefined,
+};
+void beforeToolCallResult;
+void beforeToolCallResultPartial;
+void beforeToolCallResultFull;
+void beforeToolCallResultWithExplicitUndefined;
+
 let promptDiagnostic: PromptTemplateDiagnostic = {
 	type: "warning",
 	code: "file_info_failed",
@@ -404,6 +456,192 @@ void resources;
 void customResources;
 `;
 
+const excessPropertyFixtureSource = `
+import type { BeforeToolCallResult } from ${JSON.stringify(publicIndexImportPath)};
+const invalid: BeforeToolCallResult = { extra: true };
+void invalid;
+`;
+
+function formatDiagnostics(diagnostics) {
+	return ts.formatDiagnosticsWithColorAndContext(diagnostics, {
+		getCanonicalFileName: (fileName) => fileName,
+		getCurrentDirectory: () => sourceWorktree,
+		getNewLine: () => "\\n",
+	});
+}
+
+function readPinnedCompilerOptions() {
+	const configFile = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
+	if (configFile.error !== undefined) {
+		throw new Error(`pinned tsconfig read failed: ${formatDiagnostics([configFile.error])}`);
+	}
+	const parsed = ts.parseJsonConfigFileContent(
+		configFile.config,
+		ts.sys,
+		sourceWorktree,
+		undefined,
+		tsconfigPath,
+	);
+	if (parsed.errors.length > 0) {
+		throw new Error(`pinned tsconfig parse failed: ${formatDiagnostics(parsed.errors)}`);
+	}
+	if (parsed.options.strict !== true || parsed.options.skipLibCheck !== true) {
+		throw new Error("pinned tsconfig must retain strict and skipLibCheck=true");
+	}
+	if (parsed.options.exactOptionalPropertyTypes === true) {
+		throw new Error("pinned tsconfig unexpectedly enables exactOptionalPropertyTypes");
+	}
+	return parsed.options;
+}
+
+function sourceFileAt(program, path, label) {
+	const sourceFile = program.getSourceFile(path);
+	if (sourceFile === undefined) throw new Error(`could not load real ${label}: ${path}`);
+	return sourceFile;
+}
+
+function assertNoSourceDiagnostics(program, sourceFile, label) {
+	const diagnostics = [
+		...program.getSyntacticDiagnostics(sourceFile),
+		...program.getSemanticDiagnostics(sourceFile),
+	];
+	if (diagnostics.length > 0) {
+		throw new Error(`${label} diagnostics failed:\\n${formatDiagnostics(diagnostics)}`);
+	}
+}
+
+function moduleExports(checker, sourceFile, label) {
+	const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
+	if (moduleSymbol === undefined) throw new Error(`could not obtain ${label} module symbol`);
+	return checker.getExportsOfModule(moduleSymbol);
+}
+
+function assertWritable(property, sourceFile, label) {
+	const declarations = property.declarations ?? [];
+	if (declarations.length === 0) throw new Error(`${label} has no declarations`);
+	for (const declaration of declarations) {
+		const modifiers = ts.getCombinedModifierFlags(declaration);
+		if ((modifiers & ts.ModifierFlags.Readonly) !== 0) {
+			throw new Error(`${label} is readonly`);
+		}
+		if (declaration.getSourceFile() !== sourceFile) {
+			throw new Error(`${label} declaration escaped defining types.ts`);
+		}
+	}
+}
+
+function assertOptionalPropertyType(checker, property, sourceFile, expectedFlag, label) {
+	if ((property.flags & ts.SymbolFlags.Optional) === 0) {
+		throw new Error(`${label} is not optional`);
+	}
+	assertWritable(property, sourceFile, label);
+	const type = checker.getTypeOfSymbolAtLocation(property, sourceFile);
+	const members = type.isUnion() ? type.types : [type];
+	const hasUndefined = members.some((member) => (member.flags & ts.TypeFlags.Undefined) !== 0);
+	const valueMembers = members.filter((member) => (member.flags & ts.TypeFlags.Undefined) === 0);
+	const hasExpectedValueType = expectedFlag === ts.TypeFlags.Boolean
+		? valueMembers.length === 2 && valueMembers.every((member) => (member.flags & ts.TypeFlags.BooleanLiteral) !== 0)
+		: valueMembers.length === 1 && (valueMembers[0].flags & expectedFlag) !== 0;
+	if (!hasUndefined || !hasExpectedValueType) {
+		throw new Error(`${label} does not have the expected optional value type`);
+	}
+}
+
+function resolveBeforeToolCallResultTarget(checker, indexFile, definingFile) {
+	const indexExports = moduleExports(checker, indexFile, "real agent package index");
+	const publicSymbol = indexExports.find((symbol) => symbol.name === "BeforeToolCallResult");
+	if (publicSymbol === undefined) throw new Error("real agent package index does not export BeforeToolCallResult");
+
+	const isAlias = (publicSymbol.flags & ts.SymbolFlags.Alias) !== 0;
+	const publicDeclarations = publicSymbol.declarations ?? [];
+	const target = isAlias ? checker.getAliasedSymbol(publicSymbol) : publicSymbol;
+	const targetDeclarations = target.declarations ?? [];
+	if (targetDeclarations.length !== 1 || targetDeclarations[0].getSourceFile() !== definingFile) {
+		throw new Error("BeforeToolCallResult does not resolve to the real agent types module");
+	}
+	if (targetDeclarations[0].kind !== ts.SyntaxKind.InterfaceDeclaration) {
+		throw new Error("BeforeToolCallResult target is not the real interface declaration");
+	}
+	if (isAlias && (publicDeclarations.length === 0 || publicDeclarations.some((declaration) => declaration.getSourceFile() !== indexFile))) {
+		throw new Error("BeforeToolCallResult alias declaration escaped the real package index");
+	}
+	if (!isAlias && (publicDeclarations.length === 0 || publicDeclarations.some((declaration) => declaration.getSourceFile() !== definingFile))) {
+		throw new Error("BeforeToolCallResult wildcard export does not resolve to the defining module");
+	}
+	return target;
+}
+
+function assertBeforeToolCallResultProperties(checker, target, definingFile) {
+	const properties = checker.getDeclaredTypeOfSymbol(target).getProperties();
+	const names = properties.map((property) => property.name);
+	if (names.join("\\0") !== "block\\0reason\\0terminate") {
+		throw new Error(`BeforeToolCallResult properties differ: ${names.join(",")}`);
+	}
+	assertOptionalPropertyType(checker, properties[0], definingFile, ts.TypeFlags.Boolean, "BeforeToolCallResult.block");
+	assertOptionalPropertyType(checker, properties[1], definingFile, ts.TypeFlags.String, "BeforeToolCallResult.reason");
+	assertOptionalPropertyType(checker, properties[2], definingFile, ts.TypeFlags.Boolean, "BeforeToolCallResult.terminate");
+}
+
+function proveBeforeToolCallResultExport(options) {
+	const program = ts.createProgram({ rootNames: [publicIndexPath, definingTypesPath], options });
+	const indexFile = sourceFileAt(program, publicIndexPath, "real agent package index");
+	const definingFile = sourceFileAt(program, definingTypesPath, "real agent types module");
+	assertNoSourceDiagnostics(program, indexFile, "real agent package index");
+	assertNoSourceDiagnostics(program, definingFile, "real agent types module");
+
+	const target = resolveBeforeToolCallResultTarget(program.getTypeChecker(), indexFile, definingFile);
+	assertBeforeToolCallResultProperties(program.getTypeChecker(), target, definingFile);
+	return { compilerVersion: ts.version, exactOptionalPropertyTypes: options.exactOptionalPropertyTypes === true };
+}
+
+function proveFreshExcessPropertyDiagnostic(options) {
+	const temporaryDirectory = mkdtempSync(join(tmpdir(), "pi-before-tool-call-result-excess-"));
+	const fixturePath = join(temporaryDirectory, "excess-property.ts");
+	writeFileSync(fixturePath, excessPropertyFixtureSource, "utf8");
+	try {
+		const diagnosticOptions = {
+			...options,
+			noEmit: true,
+		};
+		const program = ts.createProgram({ rootNames: [fixturePath], options: diagnosticOptions });
+		const sourceFile = sourceFileAt(program, fixturePath, "excess-property fixture");
+		const syntacticDiagnostics = program.getSyntacticDiagnostics(sourceFile);
+		if (syntacticDiagnostics.length !== 0) {
+			throw new Error(`unexpected excess-property syntax diagnostics: ${formatDiagnostics(syntacticDiagnostics)}`);
+		}
+		const diagnostics = program.getSemanticDiagnostics(sourceFile);
+		if (diagnostics.length !== 1) {
+			throw new Error(`unexpected excess-property semantic diagnostic count: ${diagnostics.length}`);
+		}
+		const [diagnostic] = diagnostics;
+		if (diagnostic.code !== 2353) {
+			throw new Error(`unexpected excess-property diagnostic code: ${diagnostic.code}`);
+		}
+		if (diagnostic.category !== ts.DiagnosticCategory.Error) {
+			throw new Error(`excess-property diagnostic is not an error: category=${diagnostic.category}`);
+		}
+		const expectedText = "extra";
+		const expectedStart = excessPropertyFixtureSource.indexOf(expectedText);
+		const actualText = diagnostic.start === undefined
+			? ""
+			: sourceFile.text.slice(diagnostic.start, diagnostic.start + (diagnostic.length ?? 0));
+		if (
+			diagnostic.file !== sourceFile
+			|| expectedStart < 0
+			|| diagnostic.start !== expectedStart
+			|| diagnostic.length !== expectedText.length
+			|| actualText !== expectedText
+		) {
+			throw new Error(
+				`excess-property diagnostic span does not identify generated extra property: `
+					+ `start=${diagnostic.start}, length=${diagnostic.length}, text=${JSON.stringify(actualText)}`,
+			);
+		}
+	} finally {
+		rmSync(temporaryDirectory, { recursive: true, force: true });
+	}
+}
+
 function validateSourceLock() {
 	if (typeof sourceLock.worktree !== "string" || sourceLock.worktree.length === 0) {
 		throw new Error("source lock worktree must be a non-empty string");
@@ -488,7 +726,20 @@ function typecheckFixture() {
 try {
 	validateSourceLock();
 	verifySourceHead();
-	process.exitCode = typecheckFixture();
+	const options = readPinnedCompilerOptions();
+	const exportProof = proveBeforeToolCallResultExport(options);
+	const typecheckStatus = typecheckFixture();
+	if (typecheckStatus !== 0) {
+		process.exitCode = typecheckStatus;
+	} else {
+		proveFreshExcessPropertyDiagnostic(options);
+		console.log(`compiler=${exportProof.compilerVersion}`);
+		console.log("BeforeToolCallResult export: real-index wildcard -> packages/agent/src/types.ts");
+		console.log("BeforeToolCallResult properties: block, reason, terminate; optional, writable");
+		console.log(`exactOptionalPropertyTypes=${exportProof.exactOptionalPropertyTypes}`);
+		console.log("BeforeToolCallResult runtime interface identity: not claimed; source-shaped records only");
+		process.exitCode = 0;
+	}
 } catch (error) {
 	const message = error instanceof Error ? error.message : String(error);
 	process.stderr.write(`public index typecheck failed: ${message}\n`);

@@ -330,6 +330,24 @@ type AgentToolExecutionContextRequest = {
 	cases: AgentToolExecutionContextCaseRequest[];
 };
 
+type BeforeToolCallResultFieldState = "absent" | "present";
+
+type BeforeToolCallResultCaseRequest = {
+	name: string;
+	blockState: BeforeToolCallResultFieldState;
+	block: boolean;
+	reasonState: BeforeToolCallResultFieldState;
+	reason: string;
+	terminateState: BeforeToolCallResultFieldState;
+	terminate: boolean;
+};
+
+type BeforeToolCallResultRequest = {
+	id: RequestId;
+	operation: "before_tool_call_result";
+	cases: BeforeToolCallResultCaseRequest[];
+};
+
 type MutableBashExecutionMessageRecord = {
 	role: "bashExecution";
 	command: string;
@@ -352,6 +370,13 @@ type MutableBranchSummaryMessageRecord = {
 type MutableAgentToolExecutionContextRecord = {
 	startedAt: number;
 	agentId?: string;
+};
+
+// BeforeToolCallResult is type-only in the pinned source; this oracle uses ordinary records.
+type MutableBeforeToolCallResultRecord = {
+	block?: boolean;
+	reason?: string;
+	terminate?: boolean;
 };
 
 type MutableCutPointResultRecord = {
@@ -587,6 +612,7 @@ type Request =
 	| ToolExecutionModeRequest
 	| ThinkingLevelRequest
 	| AgentToolExecutionContextRequest
+	| BeforeToolCallResultRequest
 	| HarnessErrorRequest;
 
 type UtilityRequest = Exclude<
@@ -602,7 +628,8 @@ type UtilityRequest = Exclude<
 		QueueModeRequest |
 		ToolExecutionModeRequest |
 		ThinkingLevelRequest |
-		AgentToolExecutionContextRequest
+		AgentToolExecutionContextRequest |
+		BeforeToolCallResultRequest
 >;
 type FormatSizeRequest = Extract<UtilityRequest, { operation: "format_size" }>;
 type TruncationRequest = Extract<
@@ -1174,6 +1201,19 @@ function normalizeAgentToolExecutionContextInput(input: AgentToolExecutionContex
 	};
 }
 
+function executeBeforeToolCallResultRequest(request: BeforeToolCallResultRequest): Response {
+	const results = request.cases.map(normalizeBeforeToolCallResultInput);
+	return successfulResponse(request.id, { results });
+}
+
+function normalizeBeforeToolCallResultInput(input: BeforeToolCallResultCaseRequest): unknown {
+	const record: MutableBeforeToolCallResultRecord = {};
+	if (input.blockState === "present") record.block = input.block;
+	if (input.reasonState === "present") record.reason = input.reason;
+	if (input.terminateState === "present") record.terminate = input.terminate;
+	return { name: input.name, record };
+}
+
 function executeShouldCompactRequest(request: ShouldCompactRequest, api: HarnessTypesApi): Response {
 	const results = request.cases.map((input) => ({
 		name: input.name,
@@ -1298,6 +1338,9 @@ function executeSpecialRequest(request: Request, apis: OracleApis): Response | u
 	if (request.operation === "queue_mode") return executeQueueModeRequest(request);
 	if (request.operation === "tool_execution_mode") return executeToolExecutionModeRequest(request);
 	if (request.operation === "thinking_level") return executeThinkingLevelRequest(request);
+	if (request.operation === "before_tool_call_result") {
+		return executeBeforeToolCallResultRequest(request);
+	}
 	if (request.operation === "agent_tool_execution_context") {
 		return executeAgentToolExecutionContextRequest(request);
 	}
