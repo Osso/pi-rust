@@ -1,6 +1,6 @@
 # Development Rules
 
-- Treat `/home/osso/.worktrees/pi-merge-upstream-v0.81.1-integration` as read-only. Its pinned revision lives in `docs/porting/source-lock.json`.
+- Treat `/home/osso/.worktrees/pi-rust-source-532f7d12` as read-only. Its pinned revision lives in `docs/porting/source-lock.json`.
 - Preserve observable TypeScript behavior one bounded slice at a time. Ask Alessio before any unapproved semantic deviation.
 - Typed Rust core APIs intentionally exclude invalid JavaScript runtime input types, per the August 12, 2026 decision. Keep exclusions explicit in specs and traceability.
 - Write and run a failing behavioral or differential test before production code.
