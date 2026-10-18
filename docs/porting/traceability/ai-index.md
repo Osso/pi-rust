@@ -59,6 +59,13 @@ crate root mirrors it with `pub use` globs. `base.ts` re-exports `compat`, so
 `providers/images/register-builtins` (images slice), and `utils/retry`; those
 are re-exported from `pi_ai::compat` alongside the registry/dispatch API.
 
+Structural deviation: `compat.ts` additionally re-exports `index.ts`, so the
+TypeScript `compat` entrypoint exposes the whole index surface. In Rust that
+surface lives at the crate root (and therefore in `base`, which mirrors the
+union); `pi_ai::compat` exposes the compat-specific API plus its direct module
+re-exports. Porting a `@earendil-works/pi-ai/compat` import of an index symbol
+means using the crate-root path.
+
 ## Typed exclusions and gaps
 
 - TypeBox `Type`/`Static`/`TSchema`: TypeScript's schema builder is a compile-time

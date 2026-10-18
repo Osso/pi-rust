@@ -381,16 +381,17 @@ fn has_resolved_cloudflare_auth(options: &StreamOptions) -> bool {
             .is_some_and(|value| value.is_some())
 }
 
+fn builtin_api_instance(api: &str) -> Option<Arc<ApiProvider>> {
+    lock()
+        .builtins
+        .iter()
+        .find(|(builtin_api, _)| builtin_api == api)
+        .and_then(|(_, instance)| instance.clone())
+}
+
 fn get_builtin_provider_for_model(model: &Model) -> Option<Arc<dyn Provider>> {
     let registered = get_api_provider(&model.api)?;
-    let builtin = {
-        let registry = lock();
-        registry
-            .builtins
-            .iter()
-            .find(|(api, _)| *api == model.api)
-            .and_then(|(_, builtin)| builtin.clone())
-    }?;
+    let builtin = builtin_api_instance(&model.api)?;
     if !Arc::ptr_eq(&registered, &builtin) {
         return None;
     }

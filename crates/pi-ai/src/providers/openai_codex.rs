@@ -7,6 +7,7 @@ use crate::auth::oauth::load::load_openai_codex_oauth;
 use crate::auth::{LazyOAuthInput, ProviderAuth, lazy_oauth};
 use crate::models::{CreateProviderOptions, Provider, ProviderApi, create_provider};
 use crate::providers::{models_data, oauth_loader};
+use crate::types::Model;
 
 const DEFAULT_ID: &str = "openai-codex";
 const DEFAULT_NAME: &str = "OpenAI Codex";
@@ -24,31 +25,38 @@ pub fn openai_codex_provider() -> Arc<dyn Provider> {
 /// GlobalComix alias therefore uses the `openai-codex` catalog, not the
 /// generated `openai-codex-gc` catalog (see traceability).
 pub fn openai_codex_provider_with_id(id: &str, name: &str) -> Arc<dyn Provider> {
-    let models = models_data::provider_models(DEFAULT_ID)
-        .unwrap_or_else(|| panic!("missing generated catalog for {DEFAULT_ID}"))
-        .into_iter()
-        .map(|mut model| {
-            model.provider = id.to_owned();
-            model
-        })
-        .collect();
     create_provider(CreateProviderOptions {
         id: id.to_owned(),
         name: Some(name.to_owned()),
         base_url: Some(BASE_URL.to_owned()),
         headers: None,
-        auth: ProviderAuth {
-            api_key: None,
-            oauth: Some(Arc::new(lazy_oauth(LazyOAuthInput {
-                name: OAUTH_NAME.to_owned(),
-                is_subscription: Some(true),
-                login_label: None,
-                load: oauth_loader(load_openai_codex_oauth),
-            }))),
-        },
-        models,
+        auth: codex_auth(),
+        models: codex_models(id),
         fetch_models: None,
         filter_models: None,
         api: ProviderApi::Single(Arc::new(openai_codex_responses_api())),
     })
+}
+
+fn codex_models(provider_id: &str) -> Vec<Model> {
+    models_data::provider_models(DEFAULT_ID)
+        .unwrap_or_else(|| panic!("missing generated catalog for {DEFAULT_ID}"))
+        .into_iter()
+        .map(|mut model| {
+            model.provider = provider_id.to_owned();
+            model
+        })
+        .collect()
+}
+
+fn codex_auth() -> ProviderAuth {
+    ProviderAuth {
+        api_key: None,
+        oauth: Some(Arc::new(lazy_oauth(LazyOAuthInput {
+            name: OAUTH_NAME.to_owned(),
+            is_subscription: Some(true),
+            login_label: None,
+            load: oauth_loader(load_openai_codex_oauth),
+        }))),
+    }
 }
