@@ -5,7 +5,9 @@ type Case =
 	| { kind: "str"; value: unknown }
 	| { kind: "tabs"; text: string }
 	| { kind: "display"; text: string }
-	| { kind: "textOutput"; content: Array<Record<string, unknown>>; showImages: boolean };
+	| { kind: "textOutput"; content: Array<Record<string, unknown>>; showImages: boolean }
+	| { kind: "invalidArg" }
+	| { kind: "toolPath"; path: string | null; cwd: string; emptyFallback?: string };
 
 type Api = {
 	shortenPath(path: unknown): string;
@@ -13,6 +15,12 @@ type Api = {
 	replaceTabs(text: string): string;
 	normalizeDisplayText(text: string): string;
 	getTextOutput(result: unknown, showImages: boolean): string;
+	invalidArgText(theme: unknown): string;
+	renderToolPath(rawPath: string | null, theme: unknown, cwd: string, options?: { emptyFallback?: string }): string;
+};
+
+const fakeTheme = {
+	fg: (color: string, text: string) => `[fg:${color}]${text}[/]`,
 };
 
 void runOracle(async (module, request) => {
@@ -30,7 +38,11 @@ void runOracle(async (module, request) => {
 							? api.replaceTabs(input.text)
 							: input.kind === "display"
 								? api.normalizeDisplayText(input.text)
-								: api.getTextOutput({ content: input.content }, input.showImages);
+								: input.kind === "textOutput"
+									? api.getTextOutput({ content: input.content }, input.showImages)
+									: input.kind === "invalidArg"
+										? api.invalidArgText(fakeTheme)
+										: api.renderToolPath(input.path, fakeTheme, input.cwd, { emptyFallback: input.emptyFallback });
 			results.push({ ok: true, value: output });
 		} catch (error) {
 			results.push({ ok: false, error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) });

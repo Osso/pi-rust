@@ -13,8 +13,10 @@ Rust: `pi_coding_agent::core::tools::render_utils`.
 | `render-utils.ts:37-39` | `normalizeDisplayText` removes every `\r` | `normalize_display_text`; focused and differential cases. |
 | `render-utils.ts:41-66` | `getTextOutput` returns `""` for an undefined result, joins text blocks after `sanitizeBinaryOutput(stripAnsi(text))` + CR removal, and appends image fallbacks when images are unsupported or hidden | `get_text_output`; focused join/ANSI/control-character, undefined, and capability cases; differential text-block cases. Image fallback text comes from `pi_tui::image_fallback`, covered by the capability test. |
 | `render-utils.ts:68-72` | `ToolRenderResultLike` generic alias | Not representable; Rust tools return `AgentToolResult`. |
-| `render-utils.ts:74-76` | `invalidArgText` needs `Theme` | **Gap: renderers pending theme.ts** (`invalid_arg_text`). |
-| `render-utils.ts:78-85` | `renderToolPath` needs `Theme` | **Gap: renderers pending theme.ts** (`render_tool_path`). |
+| `render-utils.ts:74-76` | `invalidArgText` | `invalid_arg_text`; renderer differential `invalidArg`. |
+| `render-utils.ts:78-85` | `renderToolPath` | `render_tool_path`; renderer differential `toolPath` cases (null, empty fallback, shortened, linked). |
+
+Key-hint helpers used by the renderers (`formatKeyText`, `keyText`, `keyDisplayText`, `keyHint`, `rawKeyHint`) live in `render_utils` and read the coding-agent keybinding registry plus `current_theme()`, matching the source's module-global `theme`.
 
 Differential: `oracle/coding-agent-render-utils-oracle.ts` calls the real pinned module (request `27100`, 23 cases) and compares results byte-for-byte.
 

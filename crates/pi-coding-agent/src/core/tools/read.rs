@@ -3,22 +3,31 @@
 //! Text offsets/limits, oversized head-range reads, and image attachment
 //! normalization. Renderers are pending `theme.ts`.
 
+use std::cell::RefCell;
 use std::io;
+use std::path::Path;
+use std::rc::Rc;
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{ImageContent, TextContent, TextOrImageContent};
+use pi_tui::Text;
+use pi_tui::tui::ComponentRef;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::sync::CancellationToken;
 
 use super::node_fs::node_fs_error;
 use super::path_utils::resolve_read_path_async;
+use super::render_utils::{get_text_output, key_hint, key_text, render_tool_path, replace_tabs, str_value};
 use super::truncate::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, TruncationOptions, TruncationResult, format_size, truncate_head,
 };
+use crate::core::extensions::types::{ExtensionTheme, ToolRenderContext, ToolRenderResultOptions};
+use crate::modes::interactive::theme::{get_language_from_path, highlight_code};
 use crate::utils::image_process::{ProcessImageOptions, ProcessImageResult, process_image};
 use crate::utils::mime::detect_supported_image_mime_type_from_file;
+use crate::utils::paths::format_path_relative_to_cwd_or_absolute;
 
 const DESCRIPTION: &str = "Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 10KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.";
 
@@ -482,4 +491,300 @@ fn truncation_details(truncation: &TruncationResult, force_bytes: bool, total_by
         }
     }
     json!({"truncation": value})
+}
+
+// ============================================================================
+// Renderers
+// ============================================================================
+
+fn render_args_path(args: &Value) -> Option<String> {
+    let value = args.get("file_path").filter(|value| !value.is_null());
+    let value = value.or_else(|| args.get("path"));
+    str_value(value)
+}
+
+fn format_read_line_range(args: &Value, theme: &dyn ExtensionTheme) -> String {
+    let offset = args.get("offset").and_then(Value::as_f64);
+    let limit = args.get("limit").and_then(Value::as_f64);
+    if offset.is_none() && limit.is_none() {
+        return String::new();
+    }
+    let start_line = offset.unwrap_or(1.0);
+    let end_line = limit.map(|limit| start_line + limit - 1.0);
+    let start = format_js_number(start_line);
+    match end_line {
+        Some(end_line) => theme.fg("warning", &format!(":{start}-{}", format_js_number(end_line))),
+        None => theme.fg("warning", &format!(":{start}")),
+    }
+}
+
+fn format_js_number(value: f64) -> String {
+    if value.fract() == 0.0 {
+        format!("{value:.0}")
+    } else {
+        value.to_string()
+    }
+}
+
+fn format_read_call(args: &Value, theme: &dyn ExtensionTheme, cwd: &str) -> String {
+    let path_display = render_tool_path(render_args_path(args).as_deref(), theme, cwd, None);
+    format!(
+        "{} {path_display}{}",
+        theme.fg("toolTitle", &theme.bold("read")),
+        format_read_line_range(args, theme)
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CompactReadKind {
+    Docs,
+    Resource,
+    Skill,
+}
+
+struct CompactReadClassification {
+    kind: CompactReadKind,
+    label: String,
+}
+
+const COMPACT_RESOURCE_FILE_NAMES: [&str; 9] = [
+    "AGENTS.override.md",
+    "AGENTS.md",
+    "AGENTS.local.md",
+    "AGENTS.MD",
+    "AGENTS.local.MD",
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    "CLAUDE.MD",
+    "CLAUDE.local.MD",
+];
+
+fn get_pi_docs_classification(absolute_path: &str) -> Option<CompactReadClassification> {
+    let package_root = crate::config::get_readme_path().parent()?.to_path_buf();
+    let package_root = package_root.to_string_lossy().into_owned();
+    let relative_path = crate::utils::paths::relative_path(&package_root, absolute_path);
+    if relative_path.is_empty()
+        || relative_path == ".."
+        || relative_path.starts_with("../")
+        || Path::new(&relative_path).is_absolute()
+    {
+        return None;
+    }
+    let label = relative_path.replace('\\', "/");
+    if label == "README.md" || label.starts_with("docs/") || label.starts_with("examples/") {
+        return Some(CompactReadClassification {
+            kind: CompactReadKind::Docs,
+            label,
+        });
+    }
+    None
+}
+
+fn get_compact_read_classification(args: &Value, cwd: &str) -> Option<CompactReadClassification> {
+    let raw_path = render_args_path(args)?;
+    if raw_path.is_empty() {
+        return None;
+    }
+    let absolute_path = super::path_utils::resolve_to_cwd(&raw_path, cwd).ok()?;
+    let file_name = Path::new(&absolute_path)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if file_name == "SKILL.md" {
+        let label = Path::new(&absolute_path)
+            .parent()
+            .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| file_name.clone());
+        return Some(CompactReadClassification {
+            kind: CompactReadKind::Skill,
+            label,
+        });
+    }
+    if let Some(classification) = get_pi_docs_classification(&absolute_path) {
+        return Some(classification);
+    }
+    if COMPACT_RESOURCE_FILE_NAMES.contains(&file_name.as_str()) {
+        return Some(CompactReadClassification {
+            kind: CompactReadKind::Resource,
+            label: format_path_relative_to_cwd_or_absolute(&absolute_path, cwd).unwrap_or(absolute_path),
+        });
+    }
+    None
+}
+
+fn format_compact_read_call(
+    classification: &CompactReadClassification,
+    args: &Value,
+    theme: &dyn ExtensionTheme,
+) -> String {
+    let expand_hint = theme.fg("dim", &format!(" ({} to expand)", key_text("app.tools.expand")));
+    if classification.kind == CompactReadKind::Skill {
+        return format!(
+            "{}{}{}{}",
+            theme.fg("customMessageLabel", "\u{1b}[1m[skill]\u{1b}[22m "),
+            theme.fg("customMessageText", &classification.label),
+            format_read_line_range(args, theme),
+            expand_hint
+        );
+    }
+    let kind = match classification.kind {
+        CompactReadKind::Docs => "docs",
+        CompactReadKind::Resource => "resource",
+        CompactReadKind::Skill => "skill",
+    };
+    format!(
+        "{} {}{}{}",
+        theme.fg("toolTitle", &theme.bold(&format!("read {kind}"))),
+        theme.fg("accent", &classification.label),
+        format_read_line_range(args, theme),
+        expand_hint
+    )
+}
+
+fn trim_trailing_empty_lines(mut lines: Vec<String>) -> Vec<String> {
+    let mut end = lines.len();
+    while end > 0 && lines[end - 1].is_empty() {
+        end -= 1;
+    }
+    lines.truncate(end);
+    lines
+}
+
+fn format_read_result(
+    args: &Value,
+    result: &AgentToolResult,
+    options: &ToolRenderResultOptions,
+    theme: &dyn ExtensionTheme,
+    show_images: bool,
+    is_error: bool,
+) -> String {
+    if !options.expanded && !is_error {
+        return String::new();
+    }
+    let raw_path = render_args_path(args);
+    let output = get_text_output(Some(result), show_images);
+    let lang = if !is_error {
+        raw_path.as_deref().and_then(get_language_from_path)
+    } else {
+        None
+    };
+    let rendered_lines = match lang {
+        Some(lang) => highlight_code(&replace_tabs(&output), Some(lang)),
+        None => output.split('\n').map(str::to_owned).collect(),
+    };
+    let lines = trim_trailing_empty_lines(rendered_lines);
+    let max_lines = if options.expanded { lines.len() } else { 10 };
+    let display_lines = lines.iter().take(max_lines).collect::<Vec<_>>();
+    let remaining = lines.len().saturating_sub(max_lines);
+    let mut text = format!(
+        "\n{}",
+        display_lines
+            .iter()
+            .map(|line| match lang {
+                Some(_) => replace_tabs(line),
+                None => theme.fg("toolOutput", &replace_tabs(line)),
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    if remaining > 0 {
+        text.push_str(&format!(
+            "{}{}{}",
+            theme.fg("muted", &format!("\n... ({remaining} more lines,")),
+            key_hint("app.tools.expand", "to expand"),
+            theme.fg("muted", ")")
+        ));
+    }
+    if let Some(truncation) = result
+        .details
+        .as_ref()
+        .and_then(|details| details.get("truncation"))
+        .and_then(|value| serde_json::from_value::<TruncationResult>(value.clone()).ok())
+        && truncation.truncated
+    {
+        if truncation.first_line_exceeds_limit {
+            text.push_str(&format!(
+                "\n{}",
+                theme.fg(
+                    "warning",
+                    &format!("[First line exceeds {} limit]", format_size(truncation.max_bytes))
+                )
+            ));
+        } else if truncation.truncated_by == Some(TruncatedBy::Lines) {
+            text.push_str(&format!(
+                "\n{}",
+                theme.fg(
+                    "warning",
+                    &format!(
+                        "[Truncated: showing {} of {} lines ({} line limit)]",
+                        truncation.output_lines, truncation.total_lines, truncation.max_lines
+                    )
+                )
+            ));
+        } else {
+            text.push_str(&format!(
+                "\n{}",
+                theme.fg(
+                    "warning",
+                    &format!(
+                        "[Truncated: {} lines shown ({} limit)]",
+                        truncation.output_lines,
+                        format_size(truncation.max_bytes)
+                    )
+                )
+            ));
+        }
+    }
+    text
+}
+
+/// `renderCall` for the read tool.
+pub fn render_call(args: &Value, theme: &dyn ExtensionTheme, context: &ToolRenderContext) -> ComponentRef {
+    let classification = if context.expanded {
+        None
+    } else {
+        get_compact_read_classification(args, &context.cwd)
+    };
+    let text = match classification {
+        Some(classification) => format_compact_read_call(&classification, args, theme),
+        None => format_read_call(args, theme, &context.cwd),
+    };
+    Rc::new(RefCell::new(Text::new(text, 0, 0)))
+}
+
+/// `renderResult` for the read tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    options: &ToolRenderResultOptions,
+    theme: &dyn ExtensionTheme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    let text = format_read_result(
+        &context.args,
+        result,
+        options,
+        theme,
+        context.show_images,
+        context.is_error,
+    );
+    Rc::new(RefCell::new(Text::new(text, 0, 0)))
+}
+
+/// `createReadToolDefinition`: the read tool plus its renderers.
+pub fn create_read_tool_definition(
+    cwd: &str,
+    options: ReadToolOptions,
+) -> crate::core::extensions::types::ToolDefinition {
+    let tool: std::sync::Arc<dyn AgentTool> = std::sync::Arc::new(ReadTool::with_options(cwd, options));
+    let mut definition = crate::core::extensions::wrapper::create_tool_definition_from_agent_tool(tool);
+    definition.render_call = Some(std::sync::Arc::new(render_call));
+    definition.render_result = Some(std::sync::Arc::new(render_result));
+    definition
+}
+
+/// `createReadTool`: the read tool wrapped with the shared result cap.
+pub fn create_read_tool(cwd: &str, options: ReadToolOptions) -> std::sync::Arc<dyn AgentTool> {
+    super::tool_definition_wrapper::wrap_agent_tool(std::sync::Arc::new(ReadTool::with_options(cwd, options)))
 }

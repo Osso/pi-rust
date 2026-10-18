@@ -3,18 +3,28 @@
 //! Thin wrappers over the external `code-index` CLI. Renderers are pending
 //! `theme.ts`.
 
+use std::cell::RefCell;
 use std::io;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_tui::Text;
+use pi_tui::tui::ComponentRef;
 use serde_json::{Map, Value, json};
 use tokio::io::AsyncReadExt;
 use tokio_util::sync::CancellationToken;
 
 use super::node_fs::node_error_code;
-use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, format_size, truncate_head};
+use super::render_utils::{get_text_output, invalid_arg_text, key_hint, shorten_path, str_value};
+use super::tool_definition_wrapper::wrap_agent_tool;
+use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, format_size, truncate_head};
+use crate::core::extensions::types::{
+    ExtensionTheme, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, ToolRenderer,
+};
+use crate::core::extensions::wrapper::create_tool_definition_from_agent_tool;
 
 const MAX_SAFE_INTEGER: usize = 9_007_199_254_740_991;
 const SYMBOL_KINDS: [&str; 9] = [
@@ -415,4 +425,190 @@ fn string_argument(params: &Value, name: &str) -> Option<String> {
 
 fn bool_argument(params: &Value, name: &str) -> bool {
     params.get(name).and_then(Value::as_bool).unwrap_or(false)
+}
+
+// ============================================================================
+// Renderers
+// ============================================================================
+
+fn format_code_index_call(
+    tool_name: &str,
+    target: Option<String>,
+    theme: &dyn ExtensionTheme,
+    suffix: Option<String>,
+) -> String {
+    let invalid_arg = invalid_arg_text(theme);
+    let mut text = format!(
+        "{} {}",
+        theme.fg("toolTitle", &theme.bold(tool_name)),
+        match target {
+            None => invalid_arg,
+            Some(target) => theme.fg("accent", &shorten_path(&target)),
+        }
+    );
+    if let Some(suffix) = suffix.filter(|suffix| !suffix.is_empty()) {
+        text.push_str(&theme.fg("toolOutput", &format!(" {suffix}")));
+    }
+    text
+}
+
+fn format_code_index_result(
+    result: &AgentToolResult,
+    options: &ToolRenderResultOptions,
+    theme: &dyn ExtensionTheme,
+    show_images: bool,
+) -> String {
+    let output = get_text_output(Some(result), show_images).trim().to_owned();
+    let mut text = String::new();
+    if !output.is_empty() {
+        let lines = output.split('\n').collect::<Vec<_>>();
+        let max_lines = if options.expanded { lines.len() } else { 20 };
+        let display_lines = lines.iter().take(max_lines).collect::<Vec<_>>();
+        let remaining = lines.len().saturating_sub(max_lines);
+        text.push_str(&format!(
+            "\n{}",
+            display_lines
+                .iter()
+                .map(|line| theme.fg("toolOutput", line))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ));
+        if remaining > 0 {
+            text.push_str(&format!(
+                "{}{}{}",
+                theme.fg("muted", &format!("\n... ({remaining} more lines,")),
+                key_hint("app.tools.expand", "to expand"),
+                theme.fg("muted", ")")
+            ));
+        }
+    }
+    if let Some(truncation) = result
+        .details
+        .as_ref()
+        .and_then(|details| details.get("truncation"))
+        .and_then(|value| serde_json::from_value::<TruncationResult>(value.clone()).ok())
+        .filter(|truncation| truncation.truncated)
+    {
+        text.push_str(&format!(
+            "\n{}",
+            theme.fg(
+                "warning",
+                &format!("[Truncated: {} limit]", format_size(truncation.max_bytes))
+            )
+        ));
+    }
+    text
+}
+
+/// `renderCall` for the outline tool.
+pub fn outline_render_call(args: &Value, theme: &dyn ExtensionTheme, _context: &ToolRenderContext) -> ComponentRef {
+    let suffix = {
+        let mut parts = Vec::new();
+        if args.get("digest").and_then(Value::as_bool).unwrap_or(false) {
+            parts.push("digest".to_owned());
+        }
+        if let Some(glob) = str_value(args.get("glob")).filter(|glob| !glob.is_empty()) {
+            parts.push(glob);
+        }
+        if let Some(show) = str_value(args.get("show")).filter(|show| !show.is_empty()) {
+            parts.push(format!("show {show}"));
+        }
+        (!parts.is_empty()).then(|| format!("({})", parts.join(", ")))
+    };
+    Rc::new(RefCell::new(Text::new(
+        format_code_index_call("outline", str_value(args.get("path")), theme, suffix),
+        0,
+        0,
+    )))
+}
+
+/// `renderCall` for the symbol tool.
+pub fn symbol_render_call(args: &Value, theme: &dyn ExtensionTheme, _context: &ToolRenderContext) -> ComponentRef {
+    let suffix = {
+        let mut parts = Vec::new();
+        if let Some(kind) = str_value(args.get("kind")).filter(|kind| !kind.is_empty()) {
+            parts.push(kind);
+        }
+        if let Some(file) = str_value(args.get("file")).filter(|file| !file.is_empty()) {
+            parts.push(format!("in {}", shorten_path(&file)));
+        }
+        (!parts.is_empty()).then(|| format!("({})", parts.join(", ")))
+    };
+    Rc::new(RefCell::new(Text::new(
+        format_code_index_call("symbol", str_value(args.get("name")), theme, suffix),
+        0,
+        0,
+    )))
+}
+
+/// `renderCall` for the references tool.
+pub fn references_render_call(args: &Value, theme: &dyn ExtensionTheme, _context: &ToolRenderContext) -> ComponentRef {
+    let suffix = str_value(args.get("kind"))
+        .filter(|kind| !kind.is_empty())
+        .map(|kind| format!("({kind})"));
+    Rc::new(RefCell::new(Text::new(
+        format_code_index_call("references", str_value(args.get("name")), theme, suffix),
+        0,
+        0,
+    )))
+}
+
+/// `renderResult` shared by the code-index tools.
+pub fn code_index_render_result(
+    result: &AgentToolResult,
+    options: &ToolRenderResultOptions,
+    theme: &dyn ExtensionTheme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    Rc::new(RefCell::new(Text::new(
+        format_code_index_result(result, options, theme, context.show_images),
+        0,
+        0,
+    )))
+}
+
+fn with_renderers(tool: Arc<dyn AgentTool>, render_call: ToolRenderer) -> ToolDefinition {
+    let mut definition = create_tool_definition_from_agent_tool(tool);
+    definition.render_call = Some(render_call);
+    definition.render_result = Some(Arc::new(code_index_render_result));
+    definition
+}
+
+/// `createOutlineToolDefinition`: outline plus renderers.
+pub fn create_outline_tool_definition(cwd: &str, options: CodeIndexToolOptions) -> ToolDefinition {
+    with_renderers(
+        Arc::new(OutlineTool::with_options(cwd, options)),
+        Arc::new(outline_render_call),
+    )
+}
+
+/// `createSymbolToolDefinition`: symbol plus renderers.
+pub fn create_symbol_tool_definition(cwd: &str, options: CodeIndexToolOptions) -> ToolDefinition {
+    with_renderers(
+        Arc::new(SymbolTool::with_options(cwd, options)),
+        Arc::new(symbol_render_call),
+    )
+}
+
+/// `createReferencesToolDefinition`: references plus renderers.
+pub fn create_references_tool_definition(cwd: &str, options: CodeIndexToolOptions) -> ToolDefinition {
+    with_renderers(
+        Arc::new(ReferencesTool::with_options(cwd, options)),
+        Arc::new(references_render_call),
+    )
+}
+
+/// `createOutlineTool`: outline wrapped with the shared result cap.
+pub fn create_outline_tool(cwd: &str, options: CodeIndexToolOptions) -> Arc<dyn AgentTool> {
+    wrap_agent_tool(Arc::new(OutlineTool::with_options(cwd, options)))
+}
+
+/// `createSymbolTool`: symbol wrapped with the shared result cap.
+pub fn create_symbol_tool(cwd: &str, options: CodeIndexToolOptions) -> Arc<dyn AgentTool> {
+    wrap_agent_tool(Arc::new(SymbolTool::with_options(cwd, options)))
+}
+
+/// `createReferencesTool`: references wrapped with the shared result cap.
+pub fn create_references_tool(cwd: &str, options: CodeIndexToolOptions) -> Arc<dyn AgentTool> {
+    wrap_agent_tool(Arc::new(ReferencesTool::with_options(cwd, options)))
 }

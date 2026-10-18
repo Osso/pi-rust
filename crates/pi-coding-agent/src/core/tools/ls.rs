@@ -10,12 +10,20 @@ use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_js_compat::collator::locale_compare;
+use pi_tui::Text;
+use pi_tui::tui::ComponentRef;
 use serde_json::{Map, Value, json};
 use tokio::io::AsyncReadExt;
 use tokio_util::sync::CancellationToken;
 
 use super::path_utils::{path_exists, resolve_to_cwd};
-use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, format_size, truncate_head};
+use super::render_utils::{get_text_output, key_hint, render_tool_path, str_value};
+use super::tool_definition_wrapper::wrap_agent_tool;
+use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, format_size, truncate_head};
+use crate::core::extensions::types::{ExtensionTheme, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::core::extensions::wrapper::create_tool_definition_from_agent_tool;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 const DESCRIPTION_PREFIX: &str =
     "List directory contents. Returns token-optimized entries, includes dotfiles, and truncates output to";
@@ -425,4 +433,114 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
         return Err(ToolError::new("Operation aborted"));
     }
     Ok(())
+}
+
+// ============================================================================
+// Renderers
+// ============================================================================
+
+fn format_ls_call(args: &Value, theme: &dyn ExtensionTheme, cwd: &str) -> String {
+    let path_display = render_tool_path(str_value(args.get("path")).as_deref(), theme, cwd, Some("."));
+    let mut text = format!("{} {path_display}", theme.fg("toolTitle", &theme.bold("ls")));
+    if let Some(limit) = args.get("limit").and_then(Value::as_f64) {
+        text.push_str(&theme.fg("toolOutput", &format!(" (limit {})", format_js_number(limit))));
+    }
+    text
+}
+
+fn format_js_number(value: f64) -> String {
+    if value.fract() == 0.0 {
+        format!("{value:.0}")
+    } else {
+        value.to_string()
+    }
+}
+
+fn format_ls_result(
+    result: &AgentToolResult,
+    options: &ToolRenderResultOptions,
+    theme: &dyn ExtensionTheme,
+    show_images: bool,
+) -> String {
+    let output = get_text_output(Some(result), show_images).trim().to_owned();
+    let mut text = String::new();
+    if !output.is_empty() {
+        let lines = output.split('\n').collect::<Vec<_>>();
+        let max_lines = if options.expanded { lines.len() } else { 20 };
+        let display_lines = lines.iter().take(max_lines).collect::<Vec<_>>();
+        let remaining = lines.len().saturating_sub(max_lines);
+        text.push_str(&format!(
+            "\n{}",
+            display_lines
+                .iter()
+                .map(|line| theme.fg("toolOutput", line))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ));
+        if remaining > 0 {
+            text.push_str(&format!(
+                "{}{}{}",
+                theme.fg("muted", &format!("\n... ({remaining} more lines,")),
+                key_hint("app.tools.expand", "to expand"),
+                theme.fg("muted", ")")
+            ));
+        }
+    }
+    let entry_limit = result
+        .details
+        .as_ref()
+        .and_then(|details| details.get("entryLimitReached"))
+        .and_then(Value::as_u64);
+    let truncation = result
+        .details
+        .as_ref()
+        .and_then(|details| details.get("truncation"))
+        .and_then(|value| serde_json::from_value::<TruncationResult>(value.clone()).ok());
+    if entry_limit.is_some() || truncation.as_ref().is_some_and(|truncation| truncation.truncated) {
+        let mut warnings = Vec::new();
+        if let Some(entry_limit) = entry_limit {
+            warnings.push(format!("{entry_limit} entries limit"));
+        }
+        if let Some(truncation) = truncation.filter(|truncation| truncation.truncated) {
+            warnings.push(format!("{} limit", format_size(truncation.max_bytes)));
+        }
+        text.push_str(&format!(
+            "\n{}",
+            theme.fg("warning", &format!("[Truncated: {}]", warnings.join(", ")))
+        ));
+    }
+    text
+}
+
+/// `renderCall` for the ls tool.
+pub fn render_call(args: &Value, theme: &dyn ExtensionTheme, context: &ToolRenderContext) -> ComponentRef {
+    Rc::new(RefCell::new(Text::new(format_ls_call(args, theme, &context.cwd), 0, 0)))
+}
+
+/// `renderResult` for the ls tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    options: &ToolRenderResultOptions,
+    theme: &dyn ExtensionTheme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    Rc::new(RefCell::new(Text::new(
+        format_ls_result(result, options, theme, context.show_images),
+        0,
+        0,
+    )))
+}
+
+/// `createLsToolDefinition`: the ls tool plus its renderers.
+pub fn create_ls_tool_definition(cwd: &str, options: LsToolOptions) -> ToolDefinition {
+    let tool: Arc<dyn AgentTool> = Arc::new(LsTool::with_options(cwd, options));
+    let mut definition = create_tool_definition_from_agent_tool(tool);
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
+    definition
+}
+
+/// `createLsTool`: the ls tool wrapped with the shared result cap.
+pub fn create_ls_tool(cwd: &str, options: LsToolOptions) -> Arc<dyn AgentTool> {
+    wrap_agent_tool(Arc::new(LsTool::with_options(cwd, options)))
 }

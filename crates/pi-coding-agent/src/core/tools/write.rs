@@ -3,20 +3,29 @@
 //! Queued whole-file writes with parent-directory creation. Renderers are
 //! pending `theme.ts`.
 
+use std::cell::RefCell;
 use std::io;
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_js_compat::string::utf16_len;
+use pi_tui::Text;
+use pi_tui::tui::ComponentRef;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::file_mutation_queue::with_file_mutation_queue;
 use super::node_fs::node_fs_error;
 use super::path_utils::resolve_to_cwd;
+use super::render_utils::{key_hint, normalize_display_text, render_tool_path, replace_tabs, str_value};
+use super::tool_definition_wrapper::wrap_agent_tool;
+use crate::core::extensions::types::{ExtensionTheme, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::core::extensions::wrapper::create_tool_definition_from_agent_tool;
+use crate::modes::interactive::theme::{get_language_from_path, highlight_code};
 
 const DESCRIPTION: &str = "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.";
 
@@ -165,4 +174,133 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
         return Err(ToolError::new("Operation aborted"));
     }
     Ok(())
+}
+
+// ============================================================================
+// Renderers
+// ============================================================================
+
+fn render_args_path(args: &Value) -> Option<String> {
+    let value = args.get("file_path").filter(|value| !value.is_null());
+    str_value(value.or_else(|| args.get("path")))
+}
+
+fn render_content(args: &Value) -> Option<String> {
+    str_value(args.get("content"))
+}
+
+fn trim_trailing_empty_lines(mut lines: Vec<String>) -> Vec<String> {
+    while lines.last().is_some_and(String::is_empty) {
+        lines.pop();
+    }
+    lines
+}
+
+fn format_write_call(args: &Value, options: &ToolRenderResultOptions, theme: &dyn ExtensionTheme, cwd: &str) -> String {
+    let raw_path = render_args_path(args);
+    let file_content = render_content(args);
+    let path_display = render_tool_path(raw_path.as_deref(), theme, cwd, None);
+    let mut text = format!("{} {path_display}", theme.fg("toolTitle", &theme.bold("write")));
+    let Some(file_content) = file_content else {
+        text.push_str(&format!(
+            "\n\n{}",
+            theme.fg("error", "[invalid content arg - expected string]")
+        ));
+        return text;
+    };
+    if file_content.is_empty() {
+        return text;
+    }
+    let lang = raw_path.as_deref().and_then(get_language_from_path);
+    let rendered_lines = match lang {
+        Some(lang) => highlight_code(&replace_tabs(&normalize_display_text(&file_content)), Some(lang)),
+        None => normalize_display_text(&file_content)
+            .split('\n')
+            .map(str::to_owned)
+            .collect(),
+    };
+    let lines = trim_trailing_empty_lines(rendered_lines);
+    let total_lines = lines.len();
+    let max_lines = if options.expanded { total_lines } else { 10 };
+    let display_lines = lines.iter().take(max_lines).collect::<Vec<_>>();
+    let remaining = total_lines.saturating_sub(max_lines);
+    text.push_str(&format!(
+        "\n\n{}",
+        display_lines
+            .iter()
+            .map(|line| match lang {
+                Some(_) => (*line).clone(),
+                None => theme.fg("toolOutput", &replace_tabs(line)),
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    ));
+    if remaining > 0 {
+        text.push_str(&format!(
+            "{}{}{}",
+            theme.fg("muted", &format!("\n... ({remaining} more lines, {total_lines} total,")),
+            key_hint("app.tools.expand", "to expand"),
+            theme.fg("muted", ")")
+        ));
+    }
+    text
+}
+
+fn format_write_result(result: &AgentToolResult, theme: &dyn ExtensionTheme, is_error: bool) -> Option<String> {
+    if !is_error {
+        return None;
+    }
+    let output = result
+        .content
+        .iter()
+        .filter_map(|entry| match entry {
+            TextOrImageContent::Text(text) => Some(text.text.as_str()),
+            TextOrImageContent::Image(_) => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if output.is_empty() {
+        return None;
+    }
+    Some(format!("\n{}", theme.fg("error", &output)))
+}
+
+/// `renderCall` for the write tool.
+pub fn render_call(args: &Value, theme: &dyn ExtensionTheme, context: &ToolRenderContext) -> ComponentRef {
+    let options = ToolRenderResultOptions {
+        expanded: context.expanded,
+        is_partial: context.is_partial,
+    };
+    Rc::new(RefCell::new(Text::new(
+        format_write_call(args, &options, theme, &context.cwd),
+        0,
+        0,
+    )))
+}
+
+/// `renderResult` for the write tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    _options: &ToolRenderResultOptions,
+    theme: &dyn ExtensionTheme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    match format_write_result(result, theme, context.is_error) {
+        Some(text) => Rc::new(RefCell::new(Text::new(text, 0, 0))),
+        None => Rc::new(RefCell::new(pi_tui::Container::new())),
+    }
+}
+
+/// `createWriteToolDefinition`: the write tool plus its renderers.
+pub fn create_write_tool_definition(cwd: &str, options: WriteToolOptions) -> ToolDefinition {
+    let tool: Arc<dyn AgentTool> = Arc::new(WriteTool::with_options(cwd, options));
+    let mut definition = create_tool_definition_from_agent_tool(tool);
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
+    definition
+}
+
+/// `createWriteTool`: the write tool wrapped with the shared result cap.
+pub fn create_write_tool(cwd: &str, options: WriteToolOptions) -> Arc<dyn AgentTool> {
+    wrap_agent_tool(Arc::new(WriteTool::with_options(cwd, options)))
 }

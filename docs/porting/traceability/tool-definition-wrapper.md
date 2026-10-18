@@ -15,7 +15,7 @@ The TypeScript module converts a `ToolDefinition` (extensions API) into an `Agen
 | `tool-definition-wrapper.ts:73-99` | `createToolContext` / `createToolExecutionContext` add `toolExecutionAgentId` and `toolExecutionStartedAt` | Not ported: the extension context type is owned by `ca-extensions-api`; the Rust `AgentToolExecutionContext` is forwarded unchanged by `CappedTool`. |
 | `tool-definition-wrapper.ts:101-137` | `wrapToolDefinition` forwards name/label/description/parameters/constrainedSampling/prepareArguments/executionMode and caps partial updates plus the final result with one shared spill | `CappedTool`; `wrapped_tools_cap_partial_updates_and_reuse_one_spill_file`. `prepare_execution` is forwarded by the trait default only. |
 | `tool-definition-wrapper.ts:139-144` | `wrapToolDefinitions` maps definitions | Not applicable: Rust callers wrap each `AgentTool` with `wrap_agent_tool`. |
-| `tool-definition-wrapper.ts:146-160` | `createToolDefinitionFromAgentTool` synthesizes a `ToolDefinition` | **Gap:** requires the `ToolDefinition` type from `ca-extensions-api`. |
+| `tool-definition-wrapper.ts:146-160` | `createToolDefinitionFromAgentTool` synthesizes a `ToolDefinition` | `create_tool_definition_from_agent_tool` in `core::extensions::wrapper`; used by every tool's `create_*_tool_definition`. |
 
 Differential: not applicable. The module's only nontrivial output is a random temp-file path plus `truncateTail`, whose behavior is already proven by `differential_coding_agent_truncate`; the Rust tests assert the same observable result shape and file contents.
 

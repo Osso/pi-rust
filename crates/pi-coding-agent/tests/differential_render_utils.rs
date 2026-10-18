@@ -3,10 +3,19 @@ mod oracle;
 
 use pi_agent_core::agent::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_coding_agent::core::extensions::types::ExtensionTheme;
 use pi_coding_agent::core::tools::render_utils::{
-    get_text_output, normalize_display_text, replace_tabs, shorten_path, str_value,
+    get_text_output, invalid_arg_text, normalize_display_text, render_tool_path, replace_tabs, shorten_path, str_value,
 };
 use serde_json::{Value, json};
+
+struct FakeTheme;
+
+impl ExtensionTheme for FakeTheme {
+    fn fg(&self, color: &str, text: &str) -> String {
+        format!("[fg:{color}]{text}[/]")
+    }
+}
 
 #[test]
 fn coding_agent_render_utils_matches_the_pinned_typescript_source() {
@@ -71,6 +80,26 @@ fn coding_agent_render_utils_matches_the_pinned_typescript_source() {
         cases.push((
             json!({"kind": "textOutput", "content": content, "showImages": true}),
             json!({"ok": true, "value": get_text_output(Some(&result), true)}),
+        ));
+    }
+    cases.push((
+        json!({"kind": "invalidArg"}),
+        json!({"ok": true, "value": invalid_arg_text(&FakeTheme)}),
+    ));
+    for (path, empty_fallback) in [
+        (None, None),
+        (Some(""), Some(".")),
+        (Some(""), None),
+        (Some("src/file.txt"), None),
+        (Some("/tmp/file.txt"), None),
+    ] {
+        let mut request = json!({"kind": "toolPath", "path": path, "cwd": "/tmp"});
+        if let Some(empty_fallback) = empty_fallback {
+            request["emptyFallback"] = json!(empty_fallback);
+        }
+        cases.push((
+            request,
+            json!({"ok": true, "value": render_tool_path(path, &FakeTheme, "/tmp", empty_fallback)}),
         ));
     }
 

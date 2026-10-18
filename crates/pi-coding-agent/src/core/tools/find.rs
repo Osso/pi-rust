@@ -3,18 +3,26 @@
 //! Runs the real `fd` binary with the source argv, relativizes results, and
 //! applies the source limits. Renderers are pending `theme.ts`.
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_tui::Text;
+use pi_tui::tui::ComponentRef;
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio_util::sync::CancellationToken;
 
 use super::node_fs::node_error_code;
 use super::path_utils::{path_exists, resolve_to_cwd};
-use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, format_size, truncate_head};
+use super::render_utils::{get_text_output, invalid_arg_text, key_hint, shorten_path, str_value};
+use super::tool_definition_wrapper::wrap_agent_tool;
+use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, format_size, truncate_head};
+use crate::core::extensions::types::{ExtensionTheme, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::core::extensions::wrapper::create_tool_definition_from_agent_tool;
 use crate::utils::tools_manager::ToolsManager;
 
 const DESCRIPTION_PREFIX: &str = "Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to";
@@ -404,4 +412,129 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
         return Err(ToolError::new("Operation aborted"));
     }
     Ok(())
+}
+
+// ============================================================================
+// Renderers
+// ============================================================================
+
+fn format_js_number(value: f64) -> String {
+    if value.fract() == 0.0 {
+        format!("{value:.0}")
+    } else {
+        value.to_string()
+    }
+}
+
+fn format_find_call(args: &Value, theme: &dyn ExtensionTheme) -> String {
+    let pattern = str_value(args.get("pattern"));
+    let raw_path = str_value(args.get("path"));
+    let path = raw_path.map(|path| {
+        if path.is_empty() {
+            shorten_path(".")
+        } else {
+            shorten_path(&path)
+        }
+    });
+    let limit = args.get("limit").and_then(Value::as_f64);
+    let invalid_arg = invalid_arg_text(theme);
+    let mut text = format!(
+        "{} {}{}",
+        theme.fg("toolTitle", &theme.bold("find")),
+        match pattern {
+            None => invalid_arg.clone(),
+            Some(pattern) => theme.fg("accent", &pattern),
+        },
+        theme.fg("toolOutput", &format!(" in {}", path.unwrap_or(invalid_arg)))
+    );
+    if let Some(limit) = limit {
+        text.push_str(&theme.fg("toolOutput", &format!(" (limit {})", format_js_number(limit))));
+    }
+    text
+}
+
+fn format_find_result(
+    result: &AgentToolResult,
+    options: &ToolRenderResultOptions,
+    theme: &dyn ExtensionTheme,
+    show_images: bool,
+) -> String {
+    let output = get_text_output(Some(result), show_images).trim().to_owned();
+    let mut text = String::new();
+    if !output.is_empty() {
+        let lines = output.split('\n').collect::<Vec<_>>();
+        let max_lines = if options.expanded { lines.len() } else { 20 };
+        let display_lines = lines.iter().take(max_lines).collect::<Vec<_>>();
+        let remaining = lines.len().saturating_sub(max_lines);
+        text.push_str(&format!(
+            "\n{}",
+            display_lines
+                .iter()
+                .map(|line| theme.fg("toolOutput", line))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ));
+        if remaining > 0 {
+            text.push_str(&format!(
+                "{}{}{}",
+                theme.fg("muted", &format!("\n... ({remaining} more lines,")),
+                key_hint("app.tools.expand", "to expand"),
+                theme.fg("muted", ")")
+            ));
+        }
+    }
+    let details = result.details.as_ref();
+    let result_limit = details
+        .and_then(|details| details.get("resultLimitReached"))
+        .and_then(Value::as_u64);
+    let truncation = details
+        .and_then(|details| details.get("truncation"))
+        .and_then(|value| serde_json::from_value::<TruncationResult>(value.clone()).ok());
+    if result_limit.is_some() || truncation.as_ref().is_some_and(|value| value.truncated) {
+        let mut warnings = Vec::new();
+        if let Some(result_limit) = result_limit {
+            warnings.push(format!("{result_limit} results limit"));
+        }
+        if let Some(truncation) = truncation.filter(|value| value.truncated) {
+            warnings.push(format!("{} limit", format_size(truncation.max_bytes)));
+        }
+        text.push_str(&format!(
+            "\n{}",
+            theme.fg("warning", &format!("[Truncated: {}]", warnings.join(", ")))
+        ));
+    }
+    text
+}
+
+/// `renderCall` for the find tool.
+pub fn render_call(args: &Value, theme: &dyn ExtensionTheme, _context: &ToolRenderContext) -> ComponentRef {
+    Rc::new(RefCell::new(Text::new(format_find_call(args, theme), 0, 0)))
+}
+
+/// `renderResult` for the find tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    options: &ToolRenderResultOptions,
+    theme: &dyn ExtensionTheme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    Rc::new(RefCell::new(Text::new(
+        format_find_result(result, options, theme, context.show_images),
+        0,
+        0,
+    )))
+}
+
+/// `createFindToolDefinition`: the find tool plus its renderers.
+pub fn create_find_tool_definition(cwd: &str, options: FindToolOptions) -> ToolDefinition {
+    let tool: Arc<dyn AgentTool> = Arc::new(FindTool::with_options(cwd, options));
+    let mut definition = create_tool_definition_from_agent_tool(tool);
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
+    definition
+}
+
+/// `createFindTool`: the find tool wrapped with the shared result cap.
+pub fn create_find_tool(cwd: &str, options: FindToolOptions) -> Arc<dyn AgentTool> {
+    wrap_agent_tool(Arc::new(FindTool::with_options(cwd, options)))
 }

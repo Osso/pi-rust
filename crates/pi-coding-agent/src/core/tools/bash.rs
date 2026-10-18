@@ -5,9 +5,11 @@
 //! are pending `theme.ts`. The runner-owned detach path needs the unported
 //! `detached-job-runner` lifecycle controller.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Stdio;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -15,13 +17,19 @@ use std::time::{Duration, Instant};
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_tui::Text;
+use pi_tui::tui::ComponentRef;
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 
 use super::node_fs::node_error_code;
 use super::output_accumulator::{OutputAccumulator, OutputAccumulatorOptions, SnapshotOptions};
+use super::render_utils::{invalid_arg_text, str_value};
+use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, format_size};
+use crate::core::extensions::types::{ExtensionTheme, ToolDefinition, ToolRenderContext};
+use crate::core::extensions::wrapper::create_tool_definition_from_agent_tool;
 use crate::utils::shell::{
     CommandTransport, get_shell_config, get_shell_env, kill_process_tree, track_detached_child_pid,
     untrack_detached_child_pid,
@@ -746,4 +754,55 @@ impl UpdateThrottle {
             terminate: None,
         });
     }
+}
+
+// ============================================================================
+// Renderers
+// ============================================================================
+
+fn format_js_number(value: f64) -> String {
+    if value.fract() == 0.0 {
+        format!("{value:.0}")
+    } else {
+        value.to_string()
+    }
+}
+
+fn format_bash_call(args: &Value, theme: &dyn ExtensionTheme) -> String {
+    let command = str_value(args.get("command"));
+    let timeout = args.get("timeout").and_then(Value::as_f64);
+    let timeout_suffix = match timeout {
+        Some(timeout) if timeout != 0.0 => theme.fg("muted", &format!(" (timeout {}s)", format_js_number(timeout))),
+        _ => String::new(),
+    };
+    let command_display = match command {
+        None => invalid_arg_text(theme),
+        Some(command) if command.is_empty() => theme.fg("toolOutput", "..."),
+        Some(command) => command,
+    };
+    format!(
+        "{}{timeout_suffix}",
+        theme.fg("toolTitle", &theme.bold(&format!("$ {command_display}")))
+    )
+}
+
+/// `renderCall` for the bash tool.
+pub fn render_call(args: &Value, theme: &dyn ExtensionTheme, _context: &ToolRenderContext) -> ComponentRef {
+    Rc::new(RefCell::new(Text::new(format_bash_call(args, theme), 0, 0)))
+}
+
+/// `createBashToolDefinition`: the bash tool plus its call renderer.
+///
+/// `renderResult` remains a gap: the collapsed preview needs
+/// `components/visual-truncate.ts`.
+pub fn create_bash_tool_definition(cwd: &str, options: BashToolOptions) -> ToolDefinition {
+    let tool: Arc<dyn AgentTool> = Arc::new(BashTool::with_options(cwd, options));
+    let mut definition = create_tool_definition_from_agent_tool(tool);
+    definition.render_call = Some(Arc::new(render_call));
+    definition
+}
+
+/// `createBashTool`: the bash tool wrapped with the shared result cap.
+pub fn create_bash_tool(cwd: &str, options: BashToolOptions) -> Arc<dyn AgentTool> {
+    wrap_agent_tool(Arc::new(BashTool::with_options(cwd, options)))
 }
