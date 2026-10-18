@@ -874,7 +874,7 @@ function agentState(agent: any): any {
 		isStreaming: agent.state.isStreaming,
 		isModelRequestActive: agent.state.isModelRequestActive,
 		streamingMessage: normalize(snapshot(agent.state.streamingMessage ?? null)),
-		pendingToolCalls: [...agent.state.pendingToolCalls].sort(),
+		pendingToolCalls: [...agent.state.pendingToolCalls],
 		errorMessage: agent.state.errorMessage ?? null,
 	};
 }
