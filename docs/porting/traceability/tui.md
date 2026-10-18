@@ -11,7 +11,8 @@ Tests: `tests/tui_render.rs`, `tests/tui_shrink.rs`, `tests/tui_focus.rs`,
 `tests/overlay_options.rs`, `tests/overlay_short_content.rs`,
 `tests/overlay_non_capturing.rs`, `tests/regression_overlay_cjk_boundary.rs`,
 `tests/fixed_cell.rs`, `tests/render_region.rs`,
-`tests/render_region_safety.rs`, and `tests/differential_tui.rs`.
+`tests/render_region_safety.rs`, `tests/differential_tui.rs`, and
+`tests/differential_tui_alt_screen.rs`.
 
 ## Exported symbols
 
@@ -37,8 +38,9 @@ Tests: `tests/tui_render.rs`, `tests/tui_shrink.rs`, `tests/tui_focus.rs`,
 | `TuiMode` | `TuiMode` | focus reporting / differential |
 | `TuiStopOptions` | `TuiStopOptions` | stop paths |
 | `TUI` interface | `TuiExt` trait (default methods) | all TUI tests |
-| `VIEWPORT_TUI`, `ViewportTUI`, `isViewportTUI` | not implemented | gap: fullscreen viewport slice |
+| `VIEWPORT_TUI`, `ViewportTUI`, `isViewportTUI` | `ViewportTui`, `TuiExt::as_viewport_tui`, `is_viewport_tui` | differential alt-screen scenarios |
 | `TuiBase` | `TuiBase` | all TUI tests |
+| `beforeTerminalStart` / `afterTerminalStop` hooks | `RendererApi::before_terminal_start` / `after_terminal_stop` | alt-screen start/stop tests, differential |
 | `TUIRenderer` / `TUI` alias | `TuiRenderer` | fixed cell/render region/differential |
 | `TuiMainScreen` | `TuiMainScreen` | main-screen tests |
 | `TuiMainScreenRenderState` / `captureRenderState` / `restoreRenderState` | `MainScreenRenderState`, methods | gap: no listed test; implemented |
@@ -100,15 +102,15 @@ start/stop.
 
 ## Gaps
 
-- `VIEWPORT_TUI` / `ViewportTUI` / `isViewportTUI` and fullscreen mode belong to
-  the `tui-alt-screen.ts` slice; `TuiMode::Fullscreen` exists but no renderer
-  implements it yet.
 - `viewport-overwrite-repro.ts` is a manual, assertion-free repro script driven by
   `ProcessTerminal` and sleeps; it is not ported as a test. Its streaming/append
   behavior is covered by `tui_render` append/shrink tests and the differential
   scenarios.
 - `captureRenderState` / `restoreRenderState` are implemented but not exercised by
   the listed tests.
+- `ViewportTui`/`is_viewport_tui` are implemented and exercised by the
+  `tui-alt-screen.ts` slice; the marker trait is a Rust trait object rather than
+  a `Symbol.for` property.
 - `TuiBase` background/color-scheme query handles have no listed test; parsing is
   covered by the `terminal-colors` slice.
 - Debug `/tmp/tui` render dumps and `PI_DEBUG_REDRAW` timestamp text format differ

@@ -328,13 +328,14 @@ impl Emulator {
 
 fn consume_string_terminator(data: &str, start: usize) -> usize {
     let rest = &data[start..];
-    if let Some(position) = rest.find('\u{7}') {
-        return start + position + 1;
+    let bel = rest.find('\u{7}').map(|position| start + position + 1);
+    let st = rest.find("\x1b\\").map(|position| start + position + 2);
+    match (bel, st) {
+        (Some(bel), Some(st)) => bel.min(st),
+        (Some(bel), None) => bel,
+        (None, Some(st)) => st,
+        (None, None) => data.len(),
     }
-    if let Some(position) = rest.find("\x1b\\") {
-        return start + position + 2;
-    }
-    data.len()
 }
 
 fn translate_row(row: &[Cell]) -> String {
