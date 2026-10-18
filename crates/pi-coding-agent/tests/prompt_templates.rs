@@ -1,0 +1,59 @@
+use pi_coding_agent::core::prompt_templates::{
+    PromptTemplate, expand_prompt_template, parse_command_args, substitute_args,
+};
+
+fn template(name: &str, content: &str) -> PromptTemplate {
+    PromptTemplate {
+        name: name.to_owned(),
+        description: "test".to_owned(),
+        argument_hint: None,
+        content: content.to_owned(),
+        source_info: pi_coding_agent::core::source_info::create_synthetic_source_info(
+            &format!("/tmp/{name}.md"),
+            &pi_coding_agent::core::source_info::SyntheticSourceInfoOptions {
+                source: "local".to_owned(),
+                scope: None,
+                origin: None,
+                base_dir: None,
+            },
+        ),
+        file_path: format!("/tmp/{name}.md"),
+    }
+}
+
+#[test]
+fn parses_quoted_arguments_and_drops_empty_quotes() {
+    assert_eq!(parse_command_args("a b c"), vec!["a", "b", "c"]);
+    assert_eq!(parse_command_args("\"first arg\" second"), vec!["first arg", "second"]);
+    assert_eq!(parse_command_args("'first arg' second"), vec!["first arg", "second"]);
+    assert_eq!(parse_command_args("\"\" \" \""), vec![" "]);
+    assert_eq!(parse_command_args("a\n\n\tb  c"), vec!["a", "b", "c"]);
+    assert_eq!(parse_command_args(""), Vec::<String>::new());
+}
+
+#[test]
+fn substitutes_positional_wildcards_and_slices() {
+    let args = ["cmd", "arg1", "arg2", "arg3"].map(str::to_owned);
+    assert_eq!(substitute_args("$1: ${@:2}", &args), "cmd: arg1 arg2 arg3");
+    assert_eq!(substitute_args("${@:2:2}", &args), "arg1 arg2");
+    assert_eq!(substitute_args("${@:0}", &args), "cmd arg1 arg2 arg3");
+    assert_eq!(substitute_args("${3:-fallback}", &args), "arg2");
+    assert_eq!(substitute_args("${9:-fallback}", &args), "fallback");
+    assert_eq!(substitute_args("$1.5", &["a".to_owned()]), "a.5");
+}
+
+#[test]
+fn expands_matching_templates_and_leaves_others_untouched() {
+    let templates = vec![template("arg-test", "- arg1: $1\n- rest: ${@:2}")];
+
+    assert_eq!(
+        expand_prompt_template("/arg-test label-2\n\nHere is some description #2.", &templates),
+        "- arg1: label-2\n- rest: Here is some description #2."
+    );
+    assert_eq!(
+        expand_prompt_template("/arg-test\nlabel-2", &templates),
+        "- arg1: label-2\n- rest: "
+    );
+    assert_eq!(expand_prompt_template("/missing arg", &templates), "/missing arg");
+    assert_eq!(expand_prompt_template("plain text", &templates), "plain text");
+}

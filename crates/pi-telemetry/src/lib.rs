@@ -1,7 +1,7 @@
 //! Rust port of Pi's telemetry primitives.
 
+use indexmap::IndexMap;
 use std::any::{Any, type_name};
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
@@ -28,7 +28,10 @@ pub enum AttributeValue {
 }
 
 /// Span attributes keyed by attribute name. JavaScript `undefined` entries are not representable.
-pub type SpanAttributes = BTreeMap<String, AttributeValue>;
+/// String-keyed map that keeps insertion order, like a TypeScript object literal.
+pub type TelemetryMap<V> = IndexMap<String, V>;
+
+pub type SpanAttributes = TelemetryMap<AttributeValue>;
 
 /// Options admitted by one span.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -384,7 +387,7 @@ pub type TelemetryEventAttributeDefinition = TelemetryRequiredAttributeDefinitio
 #[serde(rename_all = "camelCase")]
 pub struct TelemetryEventDefinition {
     pub description: String,
-    pub attributes: BTreeMap<String, TelemetryEventAttributeDefinition>,
+    pub attributes: TelemetryMap<TelemetryEventAttributeDefinition>,
 }
 
 /// Parent relationship allowed for a span.
@@ -416,10 +419,10 @@ pub enum TelemetryDefaultStatus {
 pub struct TelemetrySpanDefinition {
     pub description: String,
     pub parents: TelemetryParentDefinition,
-    pub start_attributes: BTreeMap<String, TelemetryStartAttributeDefinition>,
-    pub end_attributes: BTreeMap<String, TelemetryAttributeDefinition>,
+    pub start_attributes: TelemetryMap<TelemetryStartAttributeDefinition>,
+    pub end_attributes: TelemetryMap<TelemetryAttributeDefinition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub events: Option<BTreeMap<String, TelemetryEventDefinition>>,
+    pub events: Option<TelemetryMap<TelemetryEventDefinition>>,
     pub status: TelemetrySpanStatusDefinition,
 }
 
@@ -427,7 +430,7 @@ pub struct TelemetrySpanDefinition {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TelemetrySchemaDefinition {
     pub version: u32,
-    pub spans: BTreeMap<String, TelemetrySpanDefinition>,
+    pub spans: TelemetryMap<TelemetrySpanDefinition>,
 }
 
 /// Typed identity helper for serializable telemetry schema data.

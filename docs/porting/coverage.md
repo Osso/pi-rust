@@ -70,13 +70,13 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/auth/types.ts` | 240 | 1 | done | `crates/pi-ai/src/auth/types.rs` | credentials, traits, prompts/events; OAuth extra keys preserved |
 | `ai/src/models-store.ts` | 45 | 1 | done | `crates/pi-ai/src/models_store.rs` | clone semantics, cancellation, timestamp wire shape |
 | `ai/src/models.ts` | 953 | 1 | done | `crates/pi-ai/src/models.rs` | providers/models, refresh generations+publication chains, auth application, login/logout, deferred, cost/thinking helpers; differential cost/thinking/refresh/apply-auth |
-| `ai/src/types.ts` | 846 | 1 | partial | `pi-ai/src/types.rs` | data contracts done; option/callback interfaces → provider runtime slice |
+| `ai/src/types.ts` | 846 | 1 | done | `pi-ai/src/types.rs` + `pi-ai/src/request.rs` | Data contracts and request/callback interfaces; conditional option-map types are typed exclusions ([traceability](traceability/ai-types.md)). |
 | `ai/src/utils/deferred-tools.ts` | 39 | 1 | done | `crates/pi-ai/src/utils/deferred_tools.rs` | Immediate/deferred split with insertion order; differential 6 requests. |
 | `ai/src/utils/estimate.ts` | 143 | 1 | done | `crates/pi-ai/src/utils/estimate.rs` | Context/message/tool estimation, UTF-16 lengths, added-tool accounting; differential 10 requests. |
 | `ai/src/utils/event-stream.ts` | 110 | 1 | done | `pi-ai/src/utils/event_stream.rs` | differential |
 | `ai/src/utils/headers.ts` | 18 | 1 | done | `crates/pi-ai/src/utils/headers.rs` | `Headers.entries()` normalization and provider header filtering; differential 7 requests. |
 | `ai/src/utils/node-http-proxy.ts` | 112 | 1 | done | `crates/pi-ai/src/utils/node_http_proxy.rs` | Proxy selection plus `Fetch` wrapper; differential over target/env matrix (see traceability). |
-| `ai/src/utils/provider-env.ts` | 52 | 1 | partial | `crates/pi-ai/src/utils/provider_env.rs` | Scoped → process env precedence; Bun `/proc/self/environ` fallback not applicable to native Rust (see traceability). |
+| `ai/src/utils/provider-env.ts` | 52 | 1 | done | `crates/pi-ai/src/utils/provider_env.rs` | Scoped → process env precedence; Bun `/proc/self/environ` fallback is a documented typed exclusion ([traceability](traceability/provider-env.md)). |
 | `ai/src/api/anthropic-messages.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/anthropic_messages_lazy.rs` | Lazy loader with no deferred capabilities; behavioral test. |
 | `ai/src/api/azure-openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/azure_openai_responses.rs` | `azure_open_ai_responses_api()` lazy adapter. |
 | `ai/src/api/bedrock-converse-stream.lazy.ts` | 30 | 2 | done | `crates/pi-ai/src/bedrock_provider.rs` | `bedrock_converse_stream_api` + override seam; lazy test |
@@ -116,8 +116,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/auth/oauth/radius.ts` | 403 | 3 | done | `crates/pi-ai/src/auth/oauth/radius.rs` | discovery, localhost:1456 browser callback, device grant, gateway token/refresh; differential device + browser callback + refresh. |
 | `ai/src/image-models.ts` | 42 | 3 | done | `crates/pi-ai/src/image_models.rs` | Lookup/list APIs; `undefined` modeled as `Option`/empty slice (see traceability). |
 | `ai/src/images.ts` | 21 | 3 | done | `crates/pi-ai/src/images.rs` | Builtin registration on first use, registry dispatch, unknown-api error. |
-| `ai/src/index.ts` | 47 | 3 | todo |  |  |
-| `ai/src/legacy-api-aliases.ts` | 108 | 3 | todo |  |  |
+| `ai/src/index.ts` | 47 | 3 | done | `crates/pi-ai/src/lib.rs` | Crate-root re-exports mirroring every export; TypeBox runtime types are typed exclusions ([traceability](traceability/ai-index.md)). |
+| `ai/src/legacy-api-aliases.ts` | 108 | 3 | done | `crates/pi-ai/src/legacy_api_aliases.rs` | 16 deprecated stream aliases delegating to the lazy api wrappers; 16-case differential ([traceability](traceability/legacy-api-aliases.md)). |
 | `ai/src/oauth.ts` | 10 | 3 | done | `crates/pi-ai/src/oauth.rs` | Type-only compatibility re-exports. |
 | `ai/src/providers/amazon-bedrock.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
 | `ai/src/providers/ant-ling.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
@@ -185,7 +185,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/providers/moonshotai-cn.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/moonshotai_cn.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
 | `ai/src/providers/moonshotai.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/moonshotai.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
 | `ai/src/providers/nvidia.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/nvidia.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
-| `ai/src/providers/openai-codex.ts` | 25 | 4 | todo |  | Excluded from this slice: depends on the in-flight api-codex adapter. |
+| `ai/src/providers/openai-codex.ts` | 25 | 4 | done | `crates/pi-ai/src/providers/openai_codex.rs` | Default + custom-id factories, lazy codex OAuth, codex catalog rewritten to the requested provider id; 3 behavioral + provider differential ([traceability](traceability/providers-openai-codex.md)). |
 | `ai/src/providers/openai.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/openai.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
 | `ai/src/providers/opencode-go.ts` | 20 | 4 | done | `crates/pi-ai/src/providers/opencode_go.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
 | `ai/src/providers/opencode.ts` | 24 | 4 | done | `crates/pi-ai/src/providers/opencode.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
@@ -204,10 +204,10 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/providers/zai-coding-cn.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/zai_coding_cn.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
 | `ai/src/providers/zai.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/zai.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
 | `ai/src/bun-oauth.ts` | 21 | 5 | done | `crates/pi-ai/src/bun_oauth.rs` | Registers all ported flows, including GitHub Copilot. |
-| `ai/src/providers/all.ts` | 159 | 5 | partial | `crates/pi-ai/src/providers/all.rs` | All factories except the two `openai-codex` providers (api-codex slice); catalog/order/generatedAt/images differential. |
-| `ai/src/cli.ts` | 119 | 6 | todo |  |  |
-| `ai/src/compat.ts` | 299 | 6 | todo |  |  |
-| `ai/src/base.ts` | 6 | 7 | todo |  |  |
+| `ai/src/providers/all.ts` | 159 | 5 | done | `crates/pi-ai/src/providers/all.rs` | All 40 factories including both `openai-codex` entries; catalog/order/generatedAt/images differential ([traceability](traceability/providers-all.md)). |
+| `ai/src/cli.ts` | 119 | 6 | done | `crates/pi-ai/src/bin/pi-ai.rs` | `pi-ai` binary: help/list/login, OAuth interaction, auth.json I/O; 15-case byte-level CLI differential + 5 unit tests ([traceability](traceability/cli.md)). |
+| `ai/src/compat.ts` | 299 | 6 | done | `crates/pi-ai/src/compat/mod.rs` | Api registry, builtin registration/override identity, env-key injection, faux registration, legacy dispatch; 10 behavioral + 4 differential requests ([traceability](traceability/compat.md)). |
+| `ai/src/base.ts` | 6 | 7 | done | `crates/pi-ai/src/base.rs` | Re-exports the compat surface plus the index surface ([traceability](traceability/ai-index.md)). |
 
 ## agent (47 files, 12044 lines)
 
@@ -218,7 +218,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/tools/edit-diff.ts` | 500 | 0 | done | `crates/pi-agent-core/src/harness/tools/edit_diff.rs` | Fuzzy matching, replacements, jsdiff line diff/unified patch; 8 behavioral + edit differential fixtures; see `edit-diff.md`. |
 | `agent/src/harness/tools/image.ts` | 104 | 0 | done | `crates/pi-agent-core/src/harness/tools/image.rs` | MIME detection + Base64; focused and differential proof; see `image-helpers.md`. |
 | `agent/src/harness/utils/truncate.ts` | 350 | 0 | done | `crates/pi-agent-core/src/harness/utils/truncate.rs` | Head/tail/line truncation and size formatting; focused and 34-request differential proof; see `truncation.md`. |
-| `agent/src/harness/telemetry.ts` | 615 | 1 | todo |  |  |
+| `agent/src/harness/telemetry.ts` | 615 | 1 | done | `crates/pi-agent-core/src/harness/telemetry.rs` | Both schemas and both starters; focused tests + full serialized-schema and recorded-span differential; conditional type helpers are an explicit gap; see `harness-telemetry.md`. |
 | `agent/src/proxy.ts` | 370 | 4 | done | `crates/pi-agent-core/src/agent/proxy.rs` | Proxy SSE reconstruction, error/abort paths, injectable `Fetch`; see `agent-proxy.md`. |
 | `agent/src/types.ts` | 470 | 4 | done | `crates/pi-agent-core/src/agent/types.rs` | Full export set; `AgentMessage` custom variant is a raw JSON object; see `agent-types.md`. |
 | `agent/src/harness/compaction/utils.ts` | 163 | 5 | done | `crates/pi-agent-core/src/harness/compaction/utils.rs` | File-op accumulation, sorted lists, conversation serialization with UTF-16 truncation and full-output markers; see `compaction-utils.md`. |
@@ -256,10 +256,10 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/session/jsonl/repo.ts` | 247 | 9 | done | `crates/pi-agent-core/src/harness/session/jsonl/repo.rs` | Directory/file naming, id validation, listing, create/fork claims; see `session-jsonl-repo.md`. |
 | `agent/src/harness/session/jsonl.ts` | 9 | 10 | done | `crates/pi-agent-core/src/harness/session/jsonl/mod.rs` | Barrel re-exports; see `session-index.md`. |
 | `agent/src/harness/session/index.ts` | 13 | 11 | done | `crates/pi-agent-core/src/harness/session/mod.rs` | Session package exports; see `session-index.md`. |
-| `agent/src/harness/agent-harness.ts` | 508 | 12 | todo |  |  |
+| `agent/src/harness/agent-harness.ts` | 508 | 12 | done | `crates/pi-agent-core/src/harness/agent_harness.rs` | Scaffold contract: create/restore rejection, defaults, defensive-copy config, all 22 unavailable/closed operations, hooks/events rejection; 8 focused + differential; see `agent-harness.md`. |
 | `agent/src/harness/compaction/branch-summarization.ts` | 282 | 12 | done | `crates/pi-agent-core/src/harness/compaction/branch_summarization.rs` | Branch collection, token-budgeted preparation, summary generation and errors; 13 behavioral tests + differential cases; see `branch-summarization.md`. |
-| `agent/src/index.ts` | 145 | 13 | partial |  |  |
-| `agent/src/node.ts` | 2 | 14 | todo |  |  |
+| `agent/src/index.ts` | 145 | 13 | partial | `crates/pi-agent-core/src/lib.rs` | Every runtime export re-exported at the crate root; JS `Result` idioms and telemetry conditional-type helpers are explicit typed-boundary gaps; see `agent-index.md`. |
+| `agent/src/node.ts` | 2 | 14 | done | `crates/pi-agent-core/src/node.rs` | Re-exports `NodeExecutionEnv` and the crate root; see `agent-node.md`. |
 
 ## tui (41 files, 18529 lines)
 
@@ -485,7 +485,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/defaults.ts` | 3 | 14 | done | `crates/pi-coding-agent/src/core/defaults.rs` | `DEFAULT_THINKING_LEVEL = medium` reuses `pi-agent-core` `ThinkingLevel`. |
 | `coding-agent/src/core/messages.ts` | 212 | 14 | todo |  |  |
 | `coding-agent/src/core/runtime-message-markers.ts` | 36 | 14 | todo |  |  |
-| `coding-agent/src/core/settings-manager.ts` | 1442 | 14 | todo |  |  |
+| `coding-agent/src/core/settings-manager.ts` | 1442 | 14 | done | `crates/pi-coding-agent/src/core/settings_manager.rs` | Global/project storage with the shared lock protocol, migrations, typed accessors, field-scoped persistence; differential `coding-agent-settings-manager-oracle.ts` (10 scenarios, file bytes). Synchronous writes documented. |
 | `coding-agent/src/core/detached-job-runner.ts` | 167 | 15 | todo |  |  |
 | `coding-agent/src/core/multi-agent-store.ts` | 1387 | 15 | todo |  |  |
 | `coding-agent/src/core/package-manager.ts` | 2699 | 15 | done | `crates/pi-coding-agent/src/core/package_manager.rs` | npm/git/local installs, resource resolution/filters/auto-discovery, updates; differential resolve/parse/install plus real-git boundary tests. Settings behind `PackageSettingsStore`; glob/semver deviations documented. |
@@ -518,8 +518,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/compaction/branch-summarization.ts` | 378 | 17 | todo |  |  |
 | `coding-agent/src/core/detached-bash-runner.ts` | 294 | 17 | todo |  |  |
 | `coding-agent/src/core/lifecycle-coordinator.ts` | 448 | 17 | todo |  |  |
-| `coding-agent/src/core/prompt-templates.ts` | 285 | 17 | todo |  |  |
-| `coding-agent/src/core/skills.ts` | 487 | 17 | todo |  |  |
+| `coding-agent/src/core/prompt-templates.ts` | 285 | 17 | done | `crates/pi-coding-agent/src/core/prompt_templates.rs` | Argument parsing/substitution, discovery, expansion, source metadata; differential `coding-agent-prompt-templates-oracle.ts`. |
+| `coding-agent/src/core/skills.ts` | 487 | 17 | done | `crates/pi-coding-agent/src/core/skills.rs` | Discovery, ignore rules, validation, collisions, prompt formatting; differential `coding-agent-skills-oracle.ts`. YAML error wording normalized (see traceability). |
 | `coding-agent/src/core/slash-commands.ts` | 48 | 17 | done | `crates/pi-coding-agent/src/core/slash_commands.rs` | Built-in command list and source enum; differential `coding-agent-slash-commands-oracle.ts`. |
 | `coding-agent/src/core/terminal-outbox-delivery.ts` | 84 | 17 | todo |  |  |
 | `coding-agent/src/modes/interactive/theme/theme.ts` | 1337 | 17 | todo |  |  |
@@ -652,11 +652,11 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/model-resolver.ts` | 780 | 22 | todo |  |  |
 | `coding-agent/src/core/permissions/mcp-permission-prompt.ts` | 250 | 22 | todo |  |  |
 | `coding-agent/src/core/permissions/orchestrator.ts` | 39 | 22 | todo |  |  |
-| `coding-agent/src/core/project-trust.ts` | 96 | 22 | todo |  |  |
+| `coding-agent/src/core/project-trust.ts` | 96 | 22 | partial | — | Blocked on `extensions/types.ts` (`LoadExtensionsResult`, `ProjectTrustContext`) and `extensions/runner.ts` (`emitProjectTrustEvent`). `formatProjectTrustPrompt`, option selection, and `resolveProjectTrusted` are not ported; no stand-in types added. |
 | `coding-agent/src/core/resource-loader.ts` | 1270 | 22 | partial | `crates/pi-coding-agent/src/core/resource_loader.rs` | Rule-file loading and inline/first-party path naming done; `DefaultResourceLoader`, context-file discovery, and `findShadowedContextFile` are blocked on extensions/loader, package-manager, footer-data-provider, and theme loader. |
 | `coding-agent/src/core/sdk.ts` | 462 | 22 | todo |  |  |
 | `coding-agent/src/core/self-restart.ts` | 251 | 22 | todo |  |  |
-| `coding-agent/src/core/system-prompt.ts` | 218 | 22 | todo |  |  |
+| `coding-agent/src/core/system-prompt.ts` | 218 | 22 | done | `crates/pi-coding-agent/src/core/system_prompt.rs` | Default/custom prompt assembly, tool snippets, guidelines, rules, skills; differential `coding-agent-system-prompt-oracle.ts`. |
 | `coding-agent/src/core/tools/ask-architect.ts` | 95 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/ask-questions.ts` | 309 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/ask-supervisor.ts` | 89 | 22 | todo |  |  |
@@ -669,7 +669,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/tools/end-turn.ts` | 37 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/find.ts` | 381 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/grep.ts` | 400 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/index.ts` | 420 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/index.ts` | 420 | 22 | partial | `crates/pi-coding-agent/src/core/tools/mod.rs` | Only `DEFAULT_ACTIVE_TOOL_NAMES` (needed by system-prompt); tool definitions/factories remain for ca-tools-text. |
 | `coding-agent/src/core/tools/list-sessions.ts` | 81 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/ls.ts` | 326 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/read.ts` | 468 | 22 | todo |  |  |

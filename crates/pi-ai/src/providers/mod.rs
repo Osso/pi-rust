@@ -34,6 +34,7 @@ pub mod moonshotai;
 pub mod moonshotai_cn;
 pub mod nvidia;
 pub mod openai;
+pub mod openai_codex;
 pub mod opencode;
 pub mod opencode_go;
 pub mod openrouter;

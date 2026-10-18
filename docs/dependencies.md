@@ -14,7 +14,7 @@ All direct dependencies are exact-pinned.
 - Auth commands, config-value reference/environment-status helpers, `ParsedSkillBlock`/`parse_skill_block`, the focused direct-module CLI `Mode` value, the focused direct-module `isValidThinkingLevel` predicate, and the tool-output persistence constants use only the Rust standard library beyond the existing exact local `pi-agent-core` type dependency. `MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES` uses `usize` only as a narrow exception for the exact TypeScript numeric literal used as a byte limit; this does not generalize JavaScript `number` mappings.
 - `pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }` — supplies the typed `ThinkingLevel` used by the direct-module default constant and the shared `format_size` implementation used by coding-agent's package-visible wrapper. Request `13185` changes no dependency version or lock entry.
 - `serde = 1.0.229` — exposes the typed serialization contract used by RPC JSONL records and `GitSource` wire values (`derive` feature).
-- `serde_json = 1.0.151` — produces compact semantic JSON before the LF record delimiter and represents parsed frontmatter values.
+- `serde_json = 1.0.151` (`preserve_order`) — produces compact semantic JSON before the LF record delimiter, represents parsed frontmatter values, and preserves insertion order for byte-identical `settings.json` output (`js_json::stringify_pretty`).
 - `regex = 1.13.1` — compiles the pinned ANSI compatibility pattern in `utils::ansi` and the three pinned `supports-color` patterns in `utils::chalk`.
 - `utils::chalk` needs no dependency: `std::io::IsTerminal` supplies TTY detection, replacing `node:tty`.
 - `gethostname = 1.1.0` — supplies the local hostname for OSC 7 terminal current-directory sequences.
@@ -69,6 +69,7 @@ All direct dependencies are exact-pinned.
 - `unicode-normalization = 0.1.26` (exact) — NFKC/NFD normalization for fuzzy edit matching and read-path variants.
 - `ignore = 0.4.23` (exact) — gitignore pattern matching (`matched`, last-match-wins, negation) behind the skill loader's `.gitignore`/`.ignore`/`.fdignore` handling, replacing the npm `ignore` package.
 - `serde_yaml_ng = 0.10.0` (exact) — parses skill and prompt-template YAML frontmatter in `harness::frontmatter`.
+- `pi-telemetry = { path = "../pi-telemetry", version = "=0.0.0" }` — supplies the `TelemetryContext`/`TelemetrySpan` runtime contract and the schema-definition types used by `harness::telemetry` and `AgentHarnessOptions.context`.
 - `tempfile = 3.27.0` (dev, exact) — creates isolated fixture trees for the node-env, tool, shell-capture, loader, and differential tests, and isolated JSONL session roots.
 - Session storage/search adds no runtime dependency: `serde`/`serde_json` (`preserve_order`) carry the durable JSONL records and search projections, `tokio` (`sync`) supplies the state/write mutexes, `tokio-util` supplies search cancellation, and `pi-ai` supplies `BoxFuture`, `js_number`, and UUIDv7. JSONL file naming formats ISO timestamps with std only.
 
@@ -118,6 +119,7 @@ No runtime dependencies. CBOR encoding and decoding are hand-written against the
 
 ### `pi-telemetry`
 
+- `indexmap = 2.14.2` (`serde`) — `TelemetryMap`, the insertion-ordered map behind schema span/attribute/event maps and `SpanAttributes`, matching TypeScript object key order (already in the lock via `serde_json` `preserve_order`).
 - `serde = 1.0.229` — derives the camelCase wire shape for schema definitions and recorded spans/events, including the internally tagged status and parent definitions.
 
 ### `pi-client`

@@ -7,6 +7,10 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+[[bin]]
+name = "pi-ai"
+path = "src/bin/pi-ai.rs"
+
 [dependencies]
 futures-util = { version = "=0.3.34", features = ["sink"] }
 getrandom = "=0.4.3"

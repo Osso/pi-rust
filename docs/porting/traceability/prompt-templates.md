@@ -1,32 +1,40 @@
-# Harness prompt-template loading traceability
+# prompt-templates.ts traceability
 
-Pinned source: `packages/agent/src/harness/prompt-templates.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-agent-core/src/harness/prompt_templates.rs`. Behavioral port of
-`packages/agent/test/harness/prompt-templates.test.ts`.
+Source: `packages/coding-agent/src/core/prompt-templates.ts` (285 lines, pinned revision in
+`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent/src/core/prompt_templates.rs`.
 
-Argument helpers and the invocation formatter are documented in [resources](resources.md); diagnostic values in
-[prompt-template diagnostics](prompt-template-diagnostics.md).
+## Exported symbols
 
-| TypeScript source | Observable contract | Rust mapping and proof |
-|---|---|---|
-| `prompt-templates.ts:30-62` | `loadPromptTemplates(env, paths)`: missing roots skipped, non-`not_found` root errors produce `file_info_failed`, directories load non-recursively, explicit `.md` files load, other kinds skipped | `load_prompt_templates`; focused missing/non-markdown test and differential fixtures `14410..=14414` |
-| `prompt-templates.ts:64-97` | `loadSourcedPromptTemplates` attaches an uninterpreted source, optional `mapPromptTemplate` | `load_sourced_prompt_templates` with `PromptTemplateMapper`; focused sourced tests and differential `14414` |
-| `prompt-templates.ts:99-127` | Directory entries sort by `localeCompare`, only resolved files ending in lowercase `.md` load, `list_failed` on listing errors | `load_templates_from_dir`; focused uppercase-extension test and differential `14412` |
-| `prompt-templates.ts:129-175` | File load: read/parse diagnostics; name strips a case-insensitive `.md` suffix; description comes from string frontmatter or the first non-blank body line truncated to 60 UTF-16 units plus `...` | `load_template_from_file` + `strip_markdown_extension` + `utf16_prefix`; focused first-line/empty/numeric cases and differential `14412` |
-| `prompt-templates.ts:177-203` | Symlink resolution through `canonicalPath` + `fileInfo`, `not_found` silent | `resolve_kind`; focused symlinked-file test and differential `14411` |
-| `prompt-templates.ts:205-215` | Frontmatter normalization, `---` framing, YAML parse, trimmed body, parse errors | Shared private `harness::frontmatter`; focused parse test and differential `14413` |
+| TS symbol | Rust item | Tests |
+| --- | --- | --- |
+| `PromptTemplate` | `PromptTemplate` (`camelCase` serde, optional `argumentHint`) | differential `load` compares every field |
+| `parseCommandArgs` | `parse_command_args` | differential `parse_args` (16 cases incl. quotes, tabs, newlines, unicode, literal backslashes) |
+| `substituteArgs` | `substitute_args` | differential `substitute` (62 cases: `$N`, `$@`, `$ARGUMENTS`, defaults, slices, no recursion) |
+| `LoadPromptTemplatesOptions` | `LoadPromptTemplatesOptions` | differential `load` |
+| `loadPromptTemplates` | `load_prompt_templates` (returns `Result` for `resolvePath` failures) | differential `load` (global, project, explicit dir, explicit file, missing path, non-markdown) |
+| `expandPromptTemplate` | `expand_prompt_template` | differential `expand` (matching, missing, newline separator, non-command) |
+| private `loadTemplateFromFile` | `load_template_from_file` | differential `load` (frontmatter description, first-line fallback, 60-unit truncation, argument-hint) |
+| private `loadTemplatesFromDir` | `load_templates_from_dir` | differential `load` |
 
-## Discrepancies
+## Branches
 
-- `localeCompare` ordering uses the same ASCII approximation as the TUI autocomplete slice; mixed-case ordering is
-  covered by differential fixtures.
-- YAML tags resolve differently from the `yaml` package (documented in [skills](skills.md)); differential fixtures avoid
-  tagged values.
-- YAML parser error text differs; differential fixtures compare `parse_failed` occurrence, code and path only.
-- `read_failed` requires an OS-level read failure and is not exercised differentially.
+- Empty `argument-hint` and missing `argument-hint` both produce `None`.
+- Description falls back to the first non-empty body line, truncated to 60 UTF-16 units plus `...`.
+- `isUnderPath` chooses user/project source metadata; explicit paths are `temporary` with `baseDir`
+  equal to the file's parent (or the directory itself for directory inputs).
+- Missing explicit paths and non-`.md` files are skipped; read/parse failures drop the template.
+- Substitution never re-scans replacement text, matching the single-pass `String.replace` callback.
+- `[0-9]` replaces JavaScript `\d`; `is_js_whitespace` matches the ECMAScript whitespace set.
+
+## Gaps
+
+- Non-string frontmatter `description`/`argument-hint` values are excluded by the typed boundary; the
+  TypeScript runtime would pass them through or throw on `.trim()`.
+- `$` end-of-input semantics match non-multiline JavaScript.
 
 ## Proof
 
-- Focused: `tests/prompt_template_loading.rs` (7 tests).
-- Differential: operations `prompt_templates_load`/`prompt_templates_load_sourced`, fixtures `14410..=14414`, comparing
-  templates, names, descriptions, bodies, sources and diagnostics byte-for-byte.
+- Focused: `cargo test -p pi-coding-agent --test prompt_templates` (3 passed).
+- Differential: `cargo test -p pi-coding-agent --test differential_prompt_templates` (1 passed) via
+  `oracle/coding-agent-prompt-templates-oracle.ts`, comparing templates in source order. Directory entries
+  are locale-collated in Rust to match libuv `scandir` order used by Node `readdirSync`.

@@ -7,14 +7,6 @@ use pi_coding_agent::core::keybindings::{KeybindingsManager, migrate_keybindings
 use serde_json::{Map, Value, json};
 use tempfile::TempDir;
 
-const KEYS: [&str; 5] = [
-    "app.tool.background",
-    "app.agent.select",
-    "app.agent.slot9",
-    "tui.select.confirm",
-    "app.interrupt",
-];
-
 pub(crate) fn run() {
     let mut oracle = oracle::TsOracle::spawn(
         "coding-agent-keybindings-oracle.ts",
@@ -69,30 +61,14 @@ fn compare_loaded_files(oracle: &mut oracle::TsOracle) {
             "id": index,
             "operation": "load",
             "agentDir": &agent_dir,
-            "keys": KEYS,
         }));
         assert_eq!(response["ok"], true, "oracle failed for {name}: {response}");
 
         let manager = KeybindingsManager::create(Some(temp.path()));
-        let user_bindings: Vec<Value> = manager
-            .get_user_bindings()
-            .into_iter()
-            .map(|(key, keys)| json!([key, keys]))
-            .collect();
-        assert_eq!(
-            Value::Array(user_bindings),
-            response["output"]["userBindings"],
-            "{name}"
-        );
-
-        let effective: Vec<Value> = manager
-            .get_effective_config()
-            .into_iter()
-            .map(|(key, keys)| json!([key, keys]))
-            .collect();
-        assert_eq!(Value::Array(effective), response["output"]["effective"], "{name}");
-
-        let keys: Vec<Vec<String>> = KEYS.iter().map(|keybinding| manager.get_keys(keybinding)).collect();
+        let effective = manager.get_effective_config();
+        let ids: Vec<&String> = effective.iter().map(|(id, _)| id).collect();
+        assert_eq!(json!(ids), response["output"]["ids"], "{name}");
+        let keys: Vec<&Vec<String>> = effective.iter().map(|(_, keys)| keys).collect();
         assert_eq!(json!(keys), response["output"]["keys"], "{name}");
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use pi_telemetry::TelemetryMap;
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
@@ -60,16 +60,16 @@ fn string_attribute(description: &str, values: &[&str], required: bool) -> Telem
 fn sample_schema() -> TelemetrySchemaDefinition {
     TelemetrySchemaDefinition {
         version: 1,
-        spans: BTreeMap::from([(
+        spans: TelemetryMap::from([(
             "operation".to_owned(),
             TelemetrySpanDefinition {
                 description: "Test operation".to_owned(),
                 parents: TelemetryParentDefinition::Any,
-                start_attributes: BTreeMap::from([(
+                start_attributes: TelemetryMap::from([(
                     "kind".to_owned(),
                     string_attribute("Kind", &["read", "write"], true),
                 )]),
-                end_attributes: BTreeMap::new(),
+                end_attributes: TelemetryMap::new(),
                 events: None,
                 status: TelemetrySpanStatusDefinition {
                     default: pi_telemetry::TelemetryDefaultStatus::Ok,
@@ -442,15 +442,18 @@ fn memory_returns_detached_snapshots() {
 fn typed_span_starter_binds_child_starters_to_their_parent_spans() {
     let request_schema = define_telemetry_schema(TelemetrySchemaDefinition {
         version: 3,
-        spans: BTreeMap::from([(
+        spans: TelemetryMap::from([(
             "request".to_owned(),
             TelemetrySpanDefinition {
                 description: "Request".to_owned(),
                 parents: TelemetryParentDefinition::Spans {
                     spans: vec!["operation".to_owned()],
                 },
-                start_attributes: BTreeMap::from([("provider".to_owned(), string_attribute("Provider", &[], true))]),
-                end_attributes: BTreeMap::new(),
+                start_attributes: TelemetryMap::from([(
+                    "provider".to_owned(),
+                    string_attribute("Provider", &[], true),
+                )]),
+                end_attributes: TelemetryMap::new(),
                 events: None,
                 status: TelemetrySpanStatusDefinition {
                     default: pi_telemetry::TelemetryDefaultStatus::Ok,

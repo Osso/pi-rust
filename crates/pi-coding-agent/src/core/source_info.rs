@@ -22,9 +22,10 @@ impl SourceScope {
 
 /// Origin of a source path in the coding-agent metadata model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum SourceOrigin {
+    #[serde(rename = "package")]
     Package,
+    #[serde(rename = "top-level")]
     TopLevel,
 }
 

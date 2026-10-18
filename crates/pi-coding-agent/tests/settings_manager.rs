@@ -1,0 +1,512 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use pi_coding_agent::core::permissions::presets::{ApprovalPresetName, SandboxProfileName};
+use pi_coding_agent::core::settings_manager::{
+    DefaultProjectTrust, DoubleEscapeAction, FullscreenExitOutput, MermaidRenderingMode, Settings, SettingsManager,
+    SettingsManagerCreateOptions, SettingsScope, TreeFilterMode,
+};
+use serde_json::{Value, json};
+use tempfile::TempDir;
+
+struct Workspace {
+    _temp: TempDir,
+    agent_dir: PathBuf,
+    project_dir: PathBuf,
+}
+
+impl Workspace {
+    fn new() -> Self {
+        let temp = TempDir::new().unwrap();
+        let agent_dir = temp.path().join("agent");
+        let project_dir = temp.path().join("project");
+        fs::create_dir_all(&agent_dir).unwrap();
+        fs::create_dir_all(project_dir.join(".pi")).unwrap();
+        Self {
+            _temp: temp,
+            agent_dir,
+            project_dir,
+        }
+    }
+
+    fn manager(&self) -> SettingsManager {
+        SettingsManager::create(
+            &self.project_dir.to_string_lossy(),
+            Some(&self.agent_dir),
+            SettingsManagerCreateOptions::default(),
+        )
+        .unwrap()
+    }
+
+    fn untrusted(&self) -> SettingsManager {
+        SettingsManager::create(
+            &self.project_dir.to_string_lossy(),
+            Some(&self.agent_dir),
+            SettingsManagerCreateOptions {
+                project_trusted: Some(false),
+            },
+        )
+        .unwrap()
+    }
+
+    fn write_global(&self, content: &str) {
+        fs::write(self.agent_dir.join("settings.json"), content).unwrap();
+    }
+
+    fn write_project(&self, content: &str) {
+        fs::write(self.project_dir.join(".pi").join("settings.json"), content).unwrap();
+    }
+
+    fn global(&self) -> Value {
+        read_json(&self.agent_dir.join("settings.json"))
+    }
+
+    fn project(&self) -> Value {
+        read_json(&self.project_dir.join(".pi").join("settings.json"))
+    }
+}
+
+fn read_json(path: &Path) -> Value {
+    serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn settings(value: Value) -> Settings {
+    value.as_object().unwrap().clone()
+}
+
+#[test]
+fn preserves_external_settings_added_after_startup() {
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"theme":"dark","defaultModel":"claude-sonnet"}"#);
+    let mut manager = workspace.manager();
+
+    workspace.write_global(r#"{"theme":"dark","defaultModel":"claude-sonnet","enabledModels":["claude-opus-4-5"]}"#);
+    manager.set_default_thinking_level(pi_agent_core::harness::ThinkingLevel::High);
+    manager.flush();
+
+    let saved = workspace.global();
+    assert_eq!(saved["enabledModels"], json!(["claude-opus-4-5"]));
+    assert_eq!(saved["defaultThinkingLevel"], "high");
+    assert_eq!(saved["theme"], "dark");
+    assert_eq!(saved["defaultModel"], "claude-sonnet");
+}
+
+#[test]
+fn in_memory_changes_override_file_changes_for_the_same_key() {
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"theme":"dark"}"#);
+    let mut manager = workspace.manager();
+
+    workspace.write_global(r#"{"theme":"dark","defaultThinkingLevel":"low"}"#);
+    manager.set_default_thinking_level(pi_agent_core::harness::ThinkingLevel::High);
+    manager.flush();
+
+    assert_eq!(workspace.global()["defaultThinkingLevel"], "high");
+}
+
+#[test]
+fn retry_defaults_match_the_source() {
+    let manager = SettingsManager::in_memory(Settings::new(), SettingsManagerCreateOptions::default());
+    let retry = manager.get_retry_settings();
+    assert!(retry.enabled);
+    assert_eq!(retry.max_retries, 30.0);
+    assert_eq!(retry.base_delay_ms, 10_000.0);
+    assert_eq!(manager.get_provider_retry_settings().max_retry_delay_ms, 60_000.0);
+}
+
+#[test]
+fn project_enabled_models_override_global() {
+    let mut storage = pi_coding_agent::core::settings_manager::InMemorySettingsStorage::new();
+    storage.set(
+        SettingsScope::Global,
+        Some(r#"{"enabledModels":["global/model"]}"#.to_owned()),
+    );
+    storage.set(SettingsScope::Project, Some(r#"{"enabledModels":[]}"#.to_owned()));
+    let mut manager = SettingsManager::from_storage(Box::new(storage), SettingsManagerCreateOptions::default());
+
+    assert_eq!(manager.get_enabled_models(), Some(Vec::new()));
+    manager
+        .set_enabled_models(Some(&["faux/faux-1".to_owned()]), SettingsScope::Project)
+        .unwrap();
+    assert_eq!(manager.get_enabled_models(), Some(vec!["faux/faux-1".to_owned()]));
+}
+
+#[test]
+fn agent_profiles_use_builtin_defaults_and_overrides() {
+    let manager = SettingsManager::in_memory(Settings::new(), SettingsManagerCreateOptions::default());
+    let explore = manager.get_agent_profile("explore").unwrap();
+    assert_eq!(explore.model.as_deref(), Some("openai/gpt-5-mini"));
+    assert_eq!(
+        explore.thinking_level,
+        Some(pi_coding_agent::core::settings_manager::AgentProfileThinkingLevel::Low)
+    );
+    let browser = manager.get_agent_profile("browser").unwrap();
+    assert_eq!(browser.tools, Some(vec!["browser-cli".to_owned()]));
+    assert!(manager.get_agent_profile("unknown").is_none());
+    assert!(manager.get_agent_profile("   ").is_none());
+
+    let manager = SettingsManager::in_memory(
+        settings(json!({"agents": {"explore": {"model": "faux/explore-model", "thinkingLevel": "minimal"}}})),
+        SettingsManagerCreateOptions::default(),
+    );
+    let explore = manager.get_agent_profile("explore").unwrap();
+    assert_eq!(explore.model.as_deref(), Some("faux/explore-model"));
+}
+
+#[test]
+fn approval_policy_defaults_and_persists_presets() {
+    let workspace = Workspace::new();
+    let mut manager = workspace.manager();
+    assert_eq!(
+        manager.get_approval_policy(),
+        pi_coding_agent::core::permissions::policy::ApprovalPolicy::OnRequest
+    );
+
+    manager.set_approval_policy(pi_coding_agent::core::permissions::policy::ApprovalPolicy::Never);
+    manager.flush();
+    assert_eq!(workspace.global()["approvalPolicy"], "never");
+
+    manager
+        .set_approval_preset(ApprovalPresetName::LlmApprovedAsk, SettingsScope::Global)
+        .unwrap();
+    manager.flush();
+    let saved = workspace.global();
+    assert_eq!(saved["approvalPreset"], "llm-approved-ask");
+    assert_eq!(saved["approvalPolicy"], "on-request");
+    assert_eq!(manager.get_approval_preset(), ApprovalPresetName::LlmApprovedAsk);
+}
+
+#[test]
+fn legacy_llm_approved_preset_migrates_to_deny() {
+    let manager = SettingsManager::in_memory(
+        settings(json!({"approvalPreset": "llm-approved"})),
+        SettingsManagerCreateOptions::default(),
+    );
+    assert_eq!(manager.get_approval_preset(), ApprovalPresetName::LlmApprovedDeny);
+}
+
+#[test]
+fn project_approval_preset_writes_project_settings_only() {
+    let workspace = Workspace::new();
+    let mut manager = workspace.manager();
+
+    manager
+        .set_approval_preset(ApprovalPresetName::NeverAskDeny, SettingsScope::Project)
+        .unwrap();
+    manager.flush();
+
+    assert!(!workspace.agent_dir.join("settings.json").exists());
+    let project = workspace.project();
+    assert_eq!(project["approvalPreset"], "never-ask-deny");
+    assert_eq!(project["approvalPolicy"], "never");
+    assert_eq!(
+        manager.get_approval_policy(),
+        pi_coding_agent::core::permissions::policy::ApprovalPolicy::Never
+    );
+}
+
+#[test]
+fn sandbox_profile_precedence_and_persistence() {
+    let manager = SettingsManager::in_memory(Settings::new(), SettingsManagerCreateOptions::default());
+    assert_eq!(manager.get_sandbox_profile(), SandboxProfileName::WorkspaceWrite);
+    assert_eq!(manager.get_explicit_sandbox_profile(), None);
+
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"sandboxProfile":"read-only"}"#);
+    workspace.write_project(r#"{"sandboxProfile":"full-access"}"#);
+    let mut manager = workspace.manager();
+    assert_eq!(manager.get_sandbox_profile(), SandboxProfileName::FullAccess);
+    manager.set_session_sandbox_profile(Some(SandboxProfileName::WorkspaceWrite));
+    assert_eq!(
+        manager.get_session_sandbox_profile(),
+        Some(SandboxProfileName::WorkspaceWrite)
+    );
+    assert_eq!(manager.get_configured_sandbox_profile(), SandboxProfileName::FullAccess);
+    assert_eq!(
+        manager.get_explicit_sandbox_profile(),
+        Some(SandboxProfileName::WorkspaceWrite)
+    );
+    assert_eq!(manager.get_merged_settings()["sandboxProfile"], "workspace-write");
+
+    manager.set_session_sandbox_profile(None);
+    assert_eq!(
+        manager.get_explicit_sandbox_profile(),
+        Some(SandboxProfileName::FullAccess)
+    );
+
+    manager
+        .set_sandbox_profile(SandboxProfileName::ReadOnly, SettingsScope::Project)
+        .unwrap();
+    manager.flush();
+    assert_eq!(workspace.project()["sandboxProfile"], "read-only");
+}
+
+#[test]
+fn packages_migration_keeps_local_extensions_and_filter_objects() {
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"extensions":["/local/ext.ts","./relative/ext.ts"]}"#);
+    let manager = workspace.manager();
+    assert_eq!(manager.get_packages().unwrap(), Vec::new());
+    assert_eq!(
+        manager.get_extension_paths(),
+        vec!["/local/ext.ts", "./relative/ext.ts"]
+    );
+
+    workspace.write_global(
+        r#"{"packages":["npm:simple-pkg",{"source":"npm:shitty-extensions","extensions":["extensions/oracle.ts"],"skills":[]}]}"#,
+    );
+    let manager = workspace.manager();
+    let packages = manager.get_packages().unwrap();
+    assert_eq!(packages.len(), 2);
+    assert_eq!(
+        packages[0],
+        pi_coding_agent::core::settings_manager::PackageSource::Name("npm:simple-pkg".to_owned())
+    );
+    let pi_coding_agent::core::settings_manager::PackageSource::Filter(filter) = &packages[1] else {
+        panic!("expected filter package");
+    };
+    assert_eq!(filter.source, "npm:shitty-extensions");
+    assert_eq!(filter.extensions, Some(vec!["extensions/oracle.ts".to_owned()]));
+    assert_eq!(filter.skills, Some(Vec::new()));
+}
+
+#[test]
+fn reload_reads_disk_and_keeps_previous_settings_on_invalid_json() {
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"theme":"dark","extensions":["/before.ts"]}"#);
+    let mut manager = workspace.manager();
+
+    workspace.write_global(r#"{"theme":"light","extensions":["/after.ts"],"defaultModel":"claude-sonnet"}"#);
+    manager.reload();
+    assert_eq!(manager.get_theme(), Some("light"));
+    assert_eq!(manager.get_extension_paths(), vec!["/after.ts"]);
+    assert_eq!(manager.get_default_model(), Some("claude-sonnet"));
+
+    workspace.write_global("{ invalid json");
+    manager.reload();
+    assert_eq!(manager.get_theme(), Some("light"));
+}
+
+#[test]
+fn slash_separated_themes_are_settings_not_fixed_themes() {
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"theme":"light/dark"}"#);
+    let manager = workspace.manager();
+    assert_eq!(manager.get_theme(), None);
+    assert_eq!(manager.get_theme_setting(), Some("light/dark"));
+}
+
+#[test]
+fn drains_load_errors_once() {
+    let workspace = Workspace::new();
+    workspace.write_global("{ invalid global json");
+    workspace.write_project("{ invalid project json");
+    let mut manager = workspace.manager();
+
+    let mut scopes: Vec<&str> = manager
+        .drain_errors()
+        .into_iter()
+        .map(|error| error.scope.as_str())
+        .collect();
+    scopes.sort_unstable();
+    assert_eq!(scopes, vec!["global", "project"]);
+    assert!(manager.drain_errors().is_empty());
+}
+
+#[test]
+fn untrusted_projects_skip_reads_and_reject_writes() {
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"theme":"global","defaultProjectTrust":"always"}"#);
+    workspace.write_project(r#"{"theme":"project","defaultProjectTrust":"never","packages":["npm:existing"]}"#);
+    let mut manager = workspace.untrusted();
+
+    assert!(!manager.is_project_trusted());
+    assert_eq!(manager.get_theme(), Some("global"));
+    assert_eq!(manager.get_project_settings(), Settings::new());
+    assert_eq!(manager.get_default_project_trust(), DefaultProjectTrust::Always);
+
+    let error = manager
+        .set_project_packages(vec![pi_coding_agent::core::settings_manager::PackageSource::Name(
+            "npm:new".to_owned(),
+        )])
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Project is not trusted; refusing to write project settings"
+    );
+    assert_eq!(manager.get_project_settings(), Settings::new());
+    assert_eq!(workspace.project()["packages"], json!(["npm:existing"]));
+
+    manager.set_project_trusted(true);
+    assert!(manager.is_project_trusted());
+    assert_eq!(manager.get_theme(), Some("project"));
+}
+
+#[test]
+fn invalid_project_trust_defaults_to_ask() {
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"defaultProjectTrust":"sometimes"}"#);
+    let manager = workspace.manager();
+    assert_eq!(manager.get_default_project_trust(), DefaultProjectTrust::Ask);
+}
+
+#[test]
+fn reading_project_settings_does_not_create_the_config_directory() {
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"theme":"dark"}"#);
+    fs::remove_dir_all(workspace.project_dir.join(".pi")).unwrap();
+
+    let mut manager = workspace.manager();
+    assert!(!workspace.project_dir.join(".pi").exists());
+    assert_eq!(manager.get_theme(), Some("dark"));
+
+    manager
+        .set_project_packages(vec![pi_coding_agent::core::settings_manager::PackageSource::Name(
+            "npm:test-pkg".to_owned(),
+        )])
+        .unwrap();
+    manager.flush();
+    assert!(workspace.project_dir.join(".pi").join("settings.json").exists());
+}
+
+#[test]
+fn http_idle_timeout_defaults_merges_and_rejects_invalid_values() {
+    let workspace = Workspace::new();
+    let manager = workspace.manager();
+    assert_eq!(
+        manager.get_http_idle_timeout_ms().unwrap(),
+        pi_coding_agent::core::http_dispatcher::DEFAULT_HTTP_IDLE_TIMEOUT_MS
+    );
+
+    workspace.write_global(r#"{"httpIdleTimeoutMs":300000}"#);
+    workspace.write_project(r#"{"httpIdleTimeoutMs":0}"#);
+    let manager = workspace.manager();
+    assert_eq!(manager.get_http_idle_timeout_ms().unwrap(), 0);
+
+    workspace.write_global(r#"{"httpIdleTimeoutMs":-1}"#);
+    workspace.write_project("{}");
+    let manager = workspace.manager();
+    assert!(manager.get_http_idle_timeout_ms().is_err());
+}
+
+#[test]
+fn tui_mode_and_fullscreen_settings_validate_stored_values() {
+    let workspace = Workspace::new();
+    let mut manager = workspace.manager();
+    assert_eq!(manager.get_tui_mode(), pi_tui::tui::TuiMode::Regular);
+    assert_eq!(manager.get_fullscreen_exit_output(), FullscreenExitOutput::Transcript);
+    assert_eq!(manager.get_fullscreen_scrollbar(), pi_tui::ScrollViewScrollbar::Auto);
+
+    manager.set_tui_mode(pi_tui::tui::TuiMode::Fullscreen);
+    manager.set_fullscreen_exit_output(FullscreenExitOutput::ResumeHint);
+    manager.set_fullscreen_scrollbar(pi_tui::ScrollViewScrollbar::Hidden);
+    manager.flush();
+    let saved = workspace.global();
+    assert_eq!(saved["tuiMode"], "fullscreen");
+    assert_eq!(saved["fullscreenExitOutput"], "resume-hint");
+    assert_eq!(saved["fullscreenScrollbar"], "hidden");
+
+    workspace.write_global(
+        r#"{"tuiMode":"other","uiMode":"fullscreen","fullscreenExitOutput":"nothing","fullscreenScrollbar":"sometimes"}"#,
+    );
+    let manager = workspace.manager();
+    assert_eq!(manager.get_tui_mode(), pi_tui::tui::TuiMode::Regular);
+    assert_eq!(manager.get_fullscreen_exit_output(), FullscreenExitOutput::Transcript);
+    assert_eq!(manager.get_fullscreen_scrollbar(), pi_tui::ScrollViewScrollbar::Auto);
+}
+
+#[test]
+fn output_pad_and_mermaid_modes_fall_back_for_unsupported_values() {
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"outputPad":2,"markdown":{"mermaid":"sometimes"}}"#);
+    let manager = workspace.manager();
+    assert_eq!(manager.get_output_pad(), 1);
+    assert_eq!(manager.get_mermaid_rendering_mode(), MermaidRenderingMode::Streaming);
+
+    let mut manager = workspace.manager();
+    manager.set_output_pad(0);
+    manager.set_mermaid_rendering_mode(MermaidRenderingMode::Final);
+    manager.flush();
+    let saved = workspace.global();
+    assert_eq!(saved["outputPad"], 0);
+    assert_eq!(saved["markdown"]["mermaid"], "final");
+}
+
+#[test]
+fn shell_command_prefix_loads_and_is_preserved_on_unrelated_saves() {
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"shellCommandPrefix":"shopt -s expand_aliases"}"#);
+    let mut manager = workspace.manager();
+    assert_eq!(manager.get_shell_command_prefix(), Some("shopt -s expand_aliases"));
+
+    manager.set_theme("light");
+    manager.flush();
+    let saved = workspace.global();
+    assert_eq!(saved["shellCommandPrefix"], "shopt -s expand_aliases");
+    assert_eq!(saved["theme"], "light");
+
+    let manager = SettingsManager::in_memory(Settings::new(), SettingsManagerCreateOptions::default());
+    assert_eq!(manager.get_shell_command_prefix(), None);
+}
+
+#[test]
+fn session_dir_and_shell_path_expand_tilde() {
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"sessionDir":"~/sessions","shellPath":"~"}"#);
+    let manager = workspace.manager();
+    let home = std::env::var("HOME").unwrap();
+    assert_eq!(manager.get_session_dir(), Some(format!("{home}/sessions")));
+    assert_eq!(manager.get_shell_path(), Some(home.clone()));
+
+    workspace.write_global(r#"{"sessionDir":"/tmp/sessions","shellPath":"/bin/zsh"}"#);
+    let manager = workspace.manager();
+    assert_eq!(manager.get_session_dir(), Some("/tmp/sessions".to_owned()));
+    assert_eq!(manager.get_shell_path(), Some("/bin/zsh".to_owned()));
+
+    let manager = SettingsManager::in_memory(Settings::new(), SettingsManagerCreateOptions::default());
+    assert_eq!(manager.get_session_dir(), None);
+    assert_eq!(manager.get_shell_path(), None);
+}
+
+#[test]
+fn miscellaneous_toggles_round_trip() {
+    let workspace = Workspace::new();
+    let mut manager = workspace.manager();
+    manager.set_double_escape_action(DoubleEscapeAction::Fork);
+    manager.set_tree_filter_mode(TreeFilterMode::LabeledOnly);
+    manager.set_show_hardware_cursor(true);
+    manager.set_editor_padding_x(9.0);
+    manager.set_autocomplete_max_visible(1.0);
+    manager.set_image_width_cells(3.9);
+    manager.set_show_terminal_progress(true);
+    manager.set_image_auto_resize(false);
+    manager.set_block_images(true);
+    manager.flush();
+
+    let saved = workspace.global();
+    assert_eq!(saved["doubleEscapeAction"], "fork");
+    assert_eq!(saved["treeFilterMode"], "labeled-only");
+    assert_eq!(saved["showHardwareCursor"], true);
+    assert_eq!(saved["editorPaddingX"], 3);
+    assert_eq!(saved["autocompleteMaxVisible"], 3);
+    assert_eq!(saved["terminal"]["imageWidthCells"], 3);
+    assert_eq!(saved["terminal"]["showTerminalProgress"], true);
+    assert_eq!(saved["images"]["autoResize"], false);
+    assert_eq!(saved["images"]["blockImages"], true);
+}
+
+#[test]
+fn analytics_generates_a_tracking_id_on_first_opt_in() {
+    let workspace = Workspace::new();
+    let mut manager = workspace.manager();
+    assert!(!manager.get_enable_analytics());
+    manager.set_enable_analytics(true);
+    manager.flush();
+    assert!(manager.get_enable_analytics());
+    let tracking_id = manager.get_tracking_id().unwrap().to_owned();
+    assert_eq!(tracking_id.len(), 36);
+
+    manager.set_enable_analytics(true);
+    manager.flush();
+    assert_eq!(manager.get_tracking_id(), Some(tracking_id.as_str()));
+}
