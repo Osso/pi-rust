@@ -519,7 +519,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/detached-bash-runner.ts` | 294 | 17 | todo |  |  |
 | `coding-agent/src/core/lifecycle-coordinator.ts` | 448 | 17 | todo |  |  |
 | `coding-agent/src/core/prompt-templates.ts` | 285 | 17 | todo |  |  |
-| `coding-agent/src/core/skills.ts` | 487 | 17 | todo |  |  |
+| `coding-agent/src/core/skills.ts` | 487 | 17 | done | `crates/pi-coding-agent/src/core/skills.rs` | Discovery, ignore rules, validation, collisions, prompt formatting; differential `coding-agent-skills-oracle.ts`. YAML error wording normalized (see traceability). |
 | `coding-agent/src/core/slash-commands.ts` | 48 | 17 | done | `crates/pi-coding-agent/src/core/slash_commands.rs` | Built-in command list and source enum; differential `coding-agent-slash-commands-oracle.ts`. |
 | `coding-agent/src/core/terminal-outbox-delivery.ts` | 84 | 17 | todo |  |  |
 | `coding-agent/src/modes/interactive/theme/theme.ts` | 1337 | 17 | todo |  |  |
