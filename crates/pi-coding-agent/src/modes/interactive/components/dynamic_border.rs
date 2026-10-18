@@ -1,19 +1,16 @@
-//! Ported from `coding-agent/src/modes/interactive/components/dynamic-border.ts`.
+//! Ported from `packages/coding-agent/src/modes/interactive/components/dynamic-border.ts`.
 
 use std::rc::Rc;
-use std::sync::Arc;
 
-use pi_tui::DynamicBorder;
+use pi_tui::components::dynamic_border::{BorderFormatter, DynamicBorder};
 
-use crate::modes::interactive::theme::{Theme, ThemeColor};
+use super::super::theme::{ThemeColor, with_theme};
 
-/// `DynamicBorder` preconfigured with the theme's `border` color.
-pub fn dynamic_border(theme: &Arc<Theme>) -> DynamicBorder {
-    let theme = theme.clone();
-    DynamicBorder::new(Rc::new(move |line: &str| theme.fg(ThemeColor::Border, line)))
+/// Border colored with the theme's `border` token (the TypeScript subclass default).
+pub fn dynamic_border() -> DynamicBorder {
+    DynamicBorder::new(themed_border())
 }
 
-/// `new DynamicBorder(color)` with a caller-supplied formatter.
-pub fn dynamic_border_with(color: Rc<dyn Fn(&str) -> String>) -> DynamicBorder {
-    DynamicBorder::new(color)
+fn themed_border() -> BorderFormatter {
+    Rc::new(|line: &str| with_theme(|theme| theme.fg(ThemeColor::Border, line)))
 }

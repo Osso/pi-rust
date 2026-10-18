@@ -119,9 +119,9 @@ impl ModelSelectorComponent {
             refresh_abort: CancellationToken::new(),
             closed: false,
             focused: false,
-            top_border: dynamic_border(&theme),
+            top_border: dynamic_border(),
             hint_text: None,
-            bottom_border: dynamic_border(&theme),
+            bottom_border: dynamic_border(),
             theme,
         };
 
@@ -300,7 +300,7 @@ impl ModelSelectorComponent {
     }
 
     fn get_scope_hint_text(&self) -> String {
-        key_hint(&self.theme, "tui.input.tab", "scope") + &self.theme.fg(ThemeColor::Muted, " (all/scoped)")
+        key_hint("tui.input.tab", "scope") + &self.theme.fg(ThemeColor::Muted, " (all/scoped)")
     }
 
     fn set_scope(&mut self, scope: ModelScope) {

@@ -106,6 +106,17 @@ fn format_section(tag: &str, entries: &[String]) -> String {
 
 /// Serialize LLM messages to plain text for summarization prompts.
 pub fn serialize_conversation(messages: &[Message]) -> String {
+    serialize_conversation_with_arguments(messages, &safe_json_stringify)
+}
+
+/// [`serialize_conversation`] with a caller-supplied tool-argument serializer.
+///
+/// The coding-agent copy of this module truncates tool arguments; the agent copy
+/// serializes them in full. Both share this body.
+pub fn serialize_conversation_with_arguments(
+    messages: &[Message],
+    serialize_argument: &dyn Fn(&Value) -> String,
+) -> String {
     let mut parts = Vec::new();
 
     for message in messages {
@@ -120,7 +131,7 @@ pub fn serialize_conversation(messages: &[Message]) -> String {
                 }
             }
             Message::Assistant(assistant) => {
-                serialize_assistant_message(&assistant.content, &mut parts);
+                serialize_assistant_message(&assistant.content, serialize_argument, &mut parts);
             }
             Message::ToolResult(result) => {
                 let content = text_blocks(&result.content);
@@ -148,7 +159,11 @@ fn text_blocks(blocks: &[TextOrImageContent]) -> String {
         .join("")
 }
 
-fn serialize_assistant_message(content: &[AssistantContent], parts: &mut Vec<String>) {
+fn serialize_assistant_message(
+    content: &[AssistantContent],
+    serialize_argument: &dyn Fn(&Value) -> String,
+    parts: &mut Vec<String>,
+) {
     let mut text_parts = Vec::new();
     let mut tool_calls = Vec::new();
 
@@ -156,7 +171,11 @@ fn serialize_assistant_message(content: &[AssistantContent], parts: &mut Vec<Str
         match block {
             AssistantContent::Text(text) => text_parts.push(text.text.clone()),
             AssistantContent::ToolCall(call) => {
-                tool_calls.push(format!("{}({})", call.name, serialize_tool_arguments(&call.arguments)));
+                tool_calls.push(format!(
+                    "{}({})",
+                    call.name,
+                    serialize_tool_arguments(&call.arguments, serialize_argument)
+                ));
             }
             AssistantContent::Thinking(_) => {}
         }
@@ -170,10 +189,13 @@ fn serialize_assistant_message(content: &[AssistantContent], parts: &mut Vec<Str
     }
 }
 
-fn serialize_tool_arguments(arguments: &serde_json::Map<String, Value>) -> String {
+fn serialize_tool_arguments(
+    arguments: &serde_json::Map<String, Value>,
+    serialize_argument: &dyn Fn(&Value) -> String,
+) -> String {
     arguments
         .iter()
-        .map(|(key, value)| format!("{key}={}", safe_json_stringify(value)))
+        .map(|(key, value)| format!("{key}={}", serialize_argument(value)))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -196,7 +218,8 @@ fn serialize_tool_result_for_summary(content: &str, details: Option<&Value>) -> 
     format!("{serialized}\n\n[Output truncated. Full output: {full_output_path}]")
 }
 
-fn truncate_for_summary(text: &str, max_chars: usize) -> String {
+/// Truncate text to a maximum UTF-16 length for summarization.
+pub fn truncate_for_summary(text: &str, max_chars: usize) -> String {
     let units: Vec<u16> = text.encode_utf16().collect();
     if units.len() <= max_chars {
         return text.to_owned();

@@ -7,10 +7,9 @@ use std::sync::OnceLock;
 use pi_js_compat::base64::buffer_to_base64;
 use pi_tui::components::image::{ImageOptions, ImageTheme};
 use pi_tui::tui::component;
-use pi_tui::{Component, Container, Image, Spacer, Text};
+use pi_tui::{Component, Container, DynamicBorder, Image, Spacer, Text};
 
 use crate::config::get_bundled_interactive_asset_path;
-use crate::modes::interactive::components::dynamic_border::dynamic_border_with;
 
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 
@@ -41,7 +40,7 @@ impl EarendilAnnouncementComponent {
             let theme = theme.clone();
             Rc::new(move |text: &str| theme.fg(ThemeColor::Accent, text))
         };
-        container.add_child(component(dynamic_border_with(accent_border.clone())));
+        container.add_child(component(DynamicBorder::new(accent_border.clone())));
         container.add_child(component(Text::new(
             theme.bold(&theme.fg(ThemeColor::Accent, "pi has joined Earendil")),
             1,
@@ -75,7 +74,7 @@ impl EarendilAnnouncementComponent {
             container.add_child(component(Spacer::new(1)));
         }
 
-        container.add_child(component(dynamic_border_with(accent_border)));
+        container.add_child(component(DynamicBorder::new(accent_border)));
         Self { container }
     }
 }

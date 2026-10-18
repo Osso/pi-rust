@@ -1,42 +1,39 @@
-//! Ported from `coding-agent/src/modes/interactive/components/extension-selector.ts`.
+//! Ported from `packages/coding-agent/src/modes/interactive/components/extension-selector.ts`.
 
 use std::rc::Rc;
-use std::sync::Arc;
-use std::time::Instant;
 
-use pi_tui::tui::component;
-use pi_tui::{Component, Container, Spacer, Text};
+use pi_tui::components::spacer::Spacer;
+use pi_tui::components::text::Text;
+use pi_tui::keybindings::get_keybindings;
+use pi_tui::tui::{Component, ComponentRef, Container, component};
 
-use crate::modes::interactive::components::countdown_timer::CountdownTimer;
-use crate::modes::interactive::components::dynamic_border::dynamic_border;
-use crate::modes::interactive::components::keybinding_hints::{key_hint, raw_key_hint};
+use super::super::theme::{ThemeColor, with_theme};
+use super::countdown_timer::CountdownTimer;
+use super::dynamic_border::dynamic_border;
+use super::keybinding_hints::{key_hint, raw_key_hint};
 
-use crate::modes::interactive::theme::{Theme, ThemeColor};
-
-/// Constructor options.
+/// `ExtensionSelectorOptions`.
 #[derive(Default)]
 pub struct ExtensionSelectorOptions {
-    /// `tui.requestRender` for the countdown redraw.
+    /// Request-render callback for the optional countdown (`opts.tui`).
     pub request_render: Option<Rc<dyn Fn()>>,
-    pub timeout: Option<f64>,
+    pub timeout: Option<u64>,
     pub on_toggle_tools_expanded: Option<Rc<dyn Fn()>>,
 }
 
-/// Generic string-option selector for extensions.
+/// Generic extension option list with keyboard navigation.
 pub struct ExtensionSelectorComponent {
     options: Vec<String>,
     selected_index: usize,
     list_container: Container,
     on_select: Rc<dyn Fn(String)>,
     on_cancel: Rc<dyn Fn()>,
-    title_text: Text,
+    title_text: ComponentRef,
     base_title: String,
     countdown: Option<CountdownTimer>,
     on_toggle_tools_expanded: Option<Rc<dyn Fn()>>,
-    top: Container,
-    after_title: Container,
-    bottom: Container,
-    theme: Arc<Theme>,
+    prefix_children: Vec<ComponentRef>,
+    suffix_children: Vec<ComponentRef>,
 }
 
 impl ExtensionSelectorComponent {
@@ -45,38 +42,56 @@ impl ExtensionSelectorComponent {
         options: Vec<String>,
         on_select: Rc<dyn Fn(String)>,
         on_cancel: Rc<dyn Fn()>,
-        opts: ExtensionSelectorOptions,
-        theme: Arc<Theme>,
+        options_config: ExtensionSelectorOptions,
     ) -> Self {
-        let mut top = Container::new();
-        top.add_child(component(dynamic_border(&theme)));
-        top.add_child(component(Spacer::new(1)));
+        let base_title = title.to_owned();
+        let title_text = component(Text::new(
+            with_theme(|theme| theme.fg(ThemeColor::Accent, &theme.bold(title))),
+            1,
+            0,
+        ));
 
-        let title_text = Text::new(theme.fg(ThemeColor::Accent, &theme.bold(title)), 1, 0);
+        let mut countdown = None;
+        if let Some(timeout) = options_config.timeout.filter(|timeout| *timeout > 0)
+            && let Some(request_render) = options_config.request_render.clone()
+        {
+            let tick_title = Rc::clone(&title_text);
+            let tick_base_title = base_title.clone();
+            let tick = Rc::new(move |seconds: i64| {
+                set_text(
+                    &tick_title,
+                    with_theme(|theme| {
+                        theme.fg(
+                            ThemeColor::Accent,
+                            &theme.bold(&format!("{tick_base_title} ({seconds}s)")),
+                        )
+                    }),
+                );
+            });
+            let expire = Rc::clone(&on_cancel);
+            countdown = Some(CountdownTimer::new(timeout, Some(request_render), tick, expire));
+        }
 
-        let mut after_title = Container::new();
-        after_title.add_child(component(Spacer::new(1)));
-
-        let mut bottom = Container::new();
-        bottom.add_child(component(Spacer::new(1)));
-        let controls = raw_key_hint(&theme, "↑↓", "navigate")
-            + "  "
-            + &key_hint(&theme, "tui.select.confirm", "select")
-            + "  "
-            + &key_hint(&theme, "tui.select.cancel", "cancel");
-        bottom.add_child(component(Text::new(controls, 1, 0)));
-        bottom.add_child(component(Spacer::new(1)));
-        bottom.add_child(component(dynamic_border(&theme)));
-
-        let countdown = match (opts.timeout, opts.request_render) {
-            (Some(timeout), Some(request_render)) if timeout > 0.0 => Some(CountdownTimer::new(
-                timeout,
-                Some(request_render),
-                Rc::new(|_seconds: i64| {}),
-                on_cancel.clone(),
+        let prefix_children = vec![
+            component(dynamic_border()),
+            component(Spacer::new(1)),
+            Rc::clone(&title_text),
+            component(Spacer::new(1)),
+        ];
+        let suffix_children = vec![
+            component(Spacer::new(1)),
+            component(Text::new(
+                raw_key_hint("↑↓", "navigate")
+                    + "  "
+                    + &key_hint("tui.select.confirm", "select")
+                    + "  "
+                    + &key_hint("tui.select.cancel", "cancel"),
+                1,
+                0,
             )),
-            _ => None,
-        };
+            component(Spacer::new(1)),
+            component(dynamic_border()),
+        ];
 
         let mut selector = Self {
             options,
@@ -85,18 +100,13 @@ impl ExtensionSelectorComponent {
             on_select,
             on_cancel,
             title_text,
-            base_title: title.to_string(),
+            base_title,
             countdown,
-            on_toggle_tools_expanded: opts.on_toggle_tools_expanded,
-            top,
-            after_title,
-            bottom,
-            theme,
+            on_toggle_tools_expanded: options_config.on_toggle_tools_expanded,
+            prefix_children,
+            suffix_children,
         };
         selector.update_list();
-        if selector.countdown.is_some() {
-            selector.title_text.set_text(selector.countdown_title());
-        }
         selector
     }
 
@@ -105,41 +115,13 @@ impl ExtensionSelectorComponent {
         for (index, option) in self.options.iter().enumerate() {
             let is_selected = index == self.selected_index;
             let text = if is_selected {
-                self.theme.fg(ThemeColor::Accent, "→ ") + &self.theme.fg(ThemeColor::Accent, option)
+                with_theme(|theme| theme.fg(ThemeColor::Accent, "→ "))
+                    + &with_theme(|theme| theme.fg(ThemeColor::Accent, option))
             } else {
-                format!("  {}", self.theme.fg(ThemeColor::Text, option))
+                format!("  {}", with_theme(|theme| theme.fg(ThemeColor::Text, option)))
             };
             self.list_container.add_child(component(Text::new(text, 1, 0)));
         }
-    }
-
-    /// Drive the countdown timer; returns whether a tick fired.
-    pub fn poll(&mut self, now: Instant) -> bool {
-        match &mut self.countdown {
-            Some(countdown) => {
-                let ticked = countdown.poll(now);
-                if ticked {
-                    self.title_text.set_text(self.countdown_title());
-                }
-                ticked
-            }
-            None => false,
-        }
-    }
-
-    fn countdown_title(&self) -> String {
-        let seconds = self
-            .countdown
-            .as_ref()
-            .map_or(0, |countdown| countdown.remaining_seconds());
-        self.theme.fg(
-            ThemeColor::Accent,
-            &self.theme.bold(&format!("{} ({seconds}s)", self.base_title)),
-        )
-    }
-
-    pub fn selected_index(&self) -> usize {
-        self.selected_index
     }
 
     pub fn dispose(&mut self) {
@@ -147,44 +129,75 @@ impl ExtensionSelectorComponent {
             countdown.dispose();
         }
     }
+
+    pub fn poll_countdown(&mut self, now: std::time::Instant) -> bool {
+        self.countdown.as_mut().is_some_and(|countdown| countdown.poll(now))
+    }
+
+    pub fn next_countdown_deadline(&self) -> Option<std::time::Instant> {
+        self.countdown.as_ref().and_then(CountdownTimer::next_deadline)
+    }
+
+    pub fn title_text(&self) -> ComponentRef {
+        Rc::clone(&self.title_text)
+    }
+
+    pub fn base_title(&self) -> &str {
+        &self.base_title
+    }
+}
+
+fn set_text(target: &ComponentRef, text: String) {
+    if let Some(text_component) = target
+        .borrow_mut()
+        .as_any_mut()
+        .and_then(|any| any.downcast_mut::<Text>())
+    {
+        text_component.set_text(text);
+    }
 }
 
 impl Component for ExtensionSelectorComponent {
     fn render(&mut self, width: usize) -> Vec<String> {
-        let mut lines = self.top.render_children(width);
-        lines.extend(self.title_text.render(width));
-        lines.extend(self.after_title.render_children(width));
-        lines.extend(self.list_container.render_children(width));
-        lines.extend(self.bottom.render_children(width));
+        let mut lines = Vec::new();
+        for child in &self.prefix_children {
+            lines.extend(child.borrow_mut().render(width));
+        }
+        lines.extend(self.list_container.render(width));
+        for child in &self.suffix_children {
+            lines.extend(child.borrow_mut().render(width));
+        }
         lines
     }
 
-    fn handle_input(&mut self, data: &str) {
-        let keybindings = pi_tui::get_keybindings();
-        if keybindings.matches(data, "app.tools.expand") {
-            if let Some(on_toggle) = &self.on_toggle_tools_expanded {
-                on_toggle();
+    fn handle_input(&mut self, key_data: &str) {
+        let keybindings = get_keybindings();
+        if keybindings.matches(key_data, "app.tools.expand") {
+            if let Some(toggle) = &self.on_toggle_tools_expanded {
+                toggle();
             }
-        } else if keybindings.matches(data, "tui.select.up") || data == "k" {
+        } else if keybindings.matches(key_data, "tui.select.up") || key_data == "k" {
             self.selected_index = self.selected_index.saturating_sub(1);
             self.update_list();
-        } else if keybindings.matches(data, "tui.select.down") || data == "j" {
-            self.selected_index = (self.selected_index + 1).min(self.options.len().saturating_sub(1));
+        } else if keybindings.matches(key_data, "tui.select.down") || key_data == "j" {
+            self.selected_index = (self.selected_index + 1).min(self.options.len() - 1);
             self.update_list();
-        } else if keybindings.matches(data, "tui.select.confirm") || data == "\n" {
+        } else if keybindings.matches(key_data, "tui.select.confirm") || key_data == "\n" {
             if let Some(selected) = self.options.get(self.selected_index) {
                 (self.on_select)(selected.clone());
             }
-        } else if keybindings.matches(data, "tui.select.cancel") {
+        } else if keybindings.matches(key_data, "tui.select.cancel") {
             (self.on_cancel)();
         }
     }
 
     fn invalidate(&mut self) {
-        self.top.invalidate_children();
-        self.title_text.invalidate();
-        self.after_title.invalidate_children();
-        self.list_container.invalidate_children();
-        self.bottom.invalidate_children();
+        for child in &self.prefix_children {
+            child.borrow_mut().invalidate();
+        }
+        self.list_container.invalidate();
+        for child in &self.suffix_children {
+            child.borrow_mut().invalidate();
+        }
     }
 }

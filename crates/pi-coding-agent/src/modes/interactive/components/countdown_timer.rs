@@ -1,73 +1,72 @@
-//! Ported from `coding-agent/src/modes/interactive/components/countdown-timer.ts`.
+//! Ported from `packages/coding-agent/src/modes/interactive/components/countdown-timer.ts`.
 //!
-//! The TypeScript class owns a `setInterval`; the Rust port keeps the same
-//! one-second schedule but exposes it as [`CountdownTimer::poll`], matching the
-//! poll-driven animation used by the ported TUI loader/editor.
+//! TypeScript drives ticks with `setInterval`; the Rust port exposes the same
+//! one-second schedule as [`CountdownTimer::poll`] plus `next_deadline`, which
+//! the TUI loop drives (the pattern used by the ported `Loader`).
 
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-const TICK: Duration = Duration::from_millis(1000);
-
-/// One-second countdown used by dialog components.
 pub struct CountdownTimer {
     remaining_seconds: i64,
-    next_tick_at: Instant,
-    disposed: bool,
-    request_render: Option<Rc<dyn Fn()>>,
+    deadline: Option<Instant>,
     on_tick: Rc<dyn Fn(i64)>,
     on_expire: Rc<dyn Fn()>,
+    request_render: Option<Rc<dyn Fn()>>,
 }
 
 impl CountdownTimer {
-    /// `new CountdownTimer`: reports `ceil(timeoutMs / 1000)` immediately.
     pub fn new(
-        timeout_ms: f64,
+        timeout_ms: u64,
         request_render: Option<Rc<dyn Fn()>>,
         on_tick: Rc<dyn Fn(i64)>,
         on_expire: Rc<dyn Fn()>,
     ) -> Self {
-        let remaining_seconds = (timeout_ms / 1000.0).ceil();
-        let remaining_seconds = remaining_seconds as i64;
+        let remaining_seconds = timeout_ms.div_ceil(1000) as i64;
         on_tick(remaining_seconds);
         Self {
             remaining_seconds,
-            next_tick_at: Instant::now() + TICK,
-            disposed: false,
-            request_render,
+            deadline: Some(Instant::now() + Duration::from_secs(1)),
             on_tick,
             on_expire,
+            request_render,
         }
+    }
+
+    /// Advance every tick that is due. Returns `true` once the timer expired.
+    pub fn poll(&mut self, now: Instant) -> bool {
+        while let Some(deadline) = self.deadline {
+            if now < deadline {
+                return false;
+            }
+            self.remaining_seconds -= 1;
+            (self.on_tick)(self.remaining_seconds);
+            if let Some(request_render) = &self.request_render {
+                request_render();
+            }
+            if self.remaining_seconds <= 0 {
+                self.dispose();
+                (self.on_expire)();
+                return true;
+            }
+            self.deadline = Some(deadline + Duration::from_secs(1));
+        }
+        false
+    }
+
+    pub fn next_deadline(&self) -> Option<Instant> {
+        self.deadline
     }
 
     pub fn remaining_seconds(&self) -> i64 {
         self.remaining_seconds
     }
 
-    pub fn is_disposed(&self) -> bool {
-        self.disposed
-    }
-
-    /// Advance the countdown to `now`; returns whether any tick fired.
-    pub fn poll(&mut self, now: Instant) -> bool {
-        let mut ticked = false;
-        while !self.disposed && now >= self.next_tick_at {
-            self.next_tick_at += TICK;
-            self.remaining_seconds -= 1;
-            (self.on_tick)(self.remaining_seconds);
-            if let Some(request_render) = &self.request_render {
-                request_render();
-            }
-            ticked = true;
-            if self.remaining_seconds <= 0 {
-                self.dispose();
-                (self.on_expire)();
-            }
-        }
-        ticked
-    }
-
     pub fn dispose(&mut self) {
-        self.disposed = true;
+        self.deadline = None;
+    }
+
+    pub fn is_disposed(&self) -> bool {
+        self.deadline.is_none()
     }
 }

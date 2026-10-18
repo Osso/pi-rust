@@ -1,4 +1,4 @@
-//! Ported `coding-agent/src/modes/interactive/components/*` modules.
+//! Ported from `packages/coding-agent/src/modes/interactive/components/`.
 
 pub mod agent_selection_banner;
 pub mod agent_switcher;
@@ -16,6 +16,7 @@ pub mod oauth_selector;
 pub mod sandbox_selector;
 pub mod scoped_models_selector;
 pub mod session_selector_search;
+pub mod settings_selector;
 pub mod show_images_selector;
 pub mod skill_invocation_message;
 pub mod theme_selector;

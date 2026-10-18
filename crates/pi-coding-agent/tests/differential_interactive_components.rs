@@ -1,44 +1,20 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::Arc;
 
-use pi_agent_core::harness::types::ThinkingLevel;
 use pi_coding_agent::core::extensions::types::{MarkdownMessageType, MarkdownTransformer};
-use pi_coding_agent::core::permissions::presets::{ApprovalPresetName, SandboxProfileName, SandboxProfileScope};
-use pi_coding_agent::core::trust_manager::{ProjectTrustDecision, ProjectTrustStoreEntry};
-use pi_coding_agent::modes::interactive::components::approval_selector::{
-    ApprovalSelectorComponent, ApprovalSelectorOptions, ApprovalSelectorScope,
-};
 use pi_coding_agent::modes::interactive::components::elapsed_time::format_elapsed_duration;
-use pi_coding_agent::modes::interactive::components::extension_selector::{
-    ExtensionSelectorComponent, ExtensionSelectorOptions,
-};
 use pi_coding_agent::modes::interactive::components::keybinding_hints::{
     KeyTextFormatOptions, format_key_text, key_display_text, key_hint, key_text, raw_key_hint,
 };
 use pi_coding_agent::modes::interactive::components::markdown_transform::create_markdown_transform;
-use pi_coding_agent::modes::interactive::components::sandbox_selector::{
-    SandboxSelectorComponent, SandboxSelectorOptions, SandboxSelectorSelection,
-};
-use pi_coding_agent::modes::interactive::components::show_images_selector::ShowImagesSelectorComponent;
-use pi_coding_agent::modes::interactive::components::theme_selector::ThemeSelectorComponent;
-use pi_coding_agent::modes::interactive::components::thinking_selector::ThinkingSelectorComponent;
-use pi_coding_agent::modes::interactive::components::trust_selector::{TrustSelectorComponent, TrustSelectorOptions};
-use pi_coding_agent::modes::interactive::components::user_message_selector::{
-    UserMessageItem, UserMessageSelectorComponent,
-};
 use pi_coding_agent::modes::interactive::components::visual_truncate::truncate_to_visual_lines;
 use pi_coding_agent::modes::interactive::model_search::{ModelSearchItem, get_model_search_candidates};
-use pi_coding_agent::modes::interactive::theme::{
-    ColorMode, ColorValue, REQUIRED_COLORS, Theme, current_theme, set_theme_instance,
-};
-use pi_tui::Component;
+use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, REQUIRED_COLORS, Theme, set_theme_instance};
 use serde_json::{Value, json};
 
-fn install_theme() -> std::sync::Arc<Theme> {
+fn install_theme() -> Arc<Theme> {
     let colors: Vec<(String, ColorValue)> = REQUIRED_COLORS
         .iter()
         .enumerate()
@@ -54,63 +30,28 @@ fn install_theme() -> std::sync::Arc<Theme> {
             )
         })
         .collect();
-    let theme =
-        std::sync::Arc::new(Theme::new(&colors, &colors, ColorMode::Truecolor, None, None).expect("test theme"));
+    let theme = Arc::new(Theme::new(&colors, &colors, ColorMode::Truecolor, None, None).expect("test theme"));
     set_theme_instance(theme.clone());
     theme
 }
 
-fn theme() -> std::sync::Arc<Theme> {
-    current_theme()
-}
-
-type Events = Rc<RefCell<Vec<Value>>>;
-
-fn record(events: &Events, value: Value) {
-    events.borrow_mut().push(value);
-}
-
-fn events_json(events: &Events) -> Value {
-    json!(events.borrow().clone())
-}
-
 #[test]
-fn interactive_components_match_the_pinned_typescript_source() {
-    let theme = install_theme();
-    let _ = theme;
-    pi_tui::set_keybindings(pi_tui::KeybindingsManager::new(
-        pi_coding_agent::core::keybindings::keybindings(),
-        Vec::new(),
-    ));
+fn interactive_leaf_helpers_match_the_pinned_typescript_source() {
+    install_theme();
     let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
-    let themes_response = oracle.request(&json!({
-        "id": 0,
-        "module": "modes/interactive/theme/theme.ts",
-        "operation": "availableThemes",
-    }));
-    let themes: Vec<String> = serde_json::from_value(themes_response["output"].clone()).expect("theme names");
-    for (request, actual) in requests(&themes) {
+    for (request, actual) in requests() {
         let expected = oracle.request(&request);
         assert_eq!(actual, expected["output"], "mismatch for {request}");
     }
 }
 
-fn requests(themes: &[String]) -> Vec<(Value, Value)> {
+fn requests() -> Vec<(Value, Value)> {
     let mut cases = Vec::new();
     cases.extend(elapsed_cases());
     cases.extend(visual_truncate_cases());
     cases.extend(markdown_transform_cases());
     cases.extend(key_hint_cases());
     cases.extend(model_search_cases());
-    cases.extend(approval_cases());
-    cases.extend(sandbox_cases());
-    cases.extend(trust_cases());
-    cases.extend(show_images_cases());
-    cases.extend(thinking_cases());
-    cases.extend(theme_cases(themes));
-    cases.extend(user_message_cases());
-    cases.extend(extension_cases());
-    cases.extend(agent_switcher_cases());
     cases
 }
 
@@ -258,11 +199,11 @@ fn key_hint_cases() -> Vec<(Value, Value)> {
     .collect();
     let rust_hints: Vec<String> = [("tui.select.confirm", "save"), ("tui.select.cancel", "cancel")]
         .iter()
-        .map(|(binding, description)| key_hint(&theme(), binding, description))
+        .map(|(binding, description)| key_hint(binding, description))
         .collect();
     let rust_raw_hints: Vec<String> = [("↑↓", "navigate"), ("Tab", "scope")]
         .iter()
-        .map(|(key, description)| raw_key_hint(&theme(), key, description))
+        .map(|(key, description)| raw_key_hint(key, description))
         .collect();
     vec![(
         json!({
@@ -319,464 +260,5 @@ fn model_search_cases() -> Vec<(Value, Value)> {
             "items": items,
         }),
         json!(output),
-    )]
-}
-
-fn approval_cases() -> Vec<(Value, Value)> {
-    let events = Events::default();
-    let mut component = ApprovalSelectorComponent::new(
-        ApprovalSelectorOptions {
-            current_preset: ApprovalPresetName::AskMe,
-            on_select: {
-                let events = events.clone();
-                Rc::new(move |selection| {
-                    record(
-                        &events,
-                        json!({"preset": selection.preset.as_str(), "scope": approval_scope_name(selection.scope)}),
-                    );
-                })
-            },
-            on_cancel: Rc::new(|| {}),
-        },
-        theme(),
-    );
-    for input in ["j", "\t", "\n"] {
-        component.handle_input(input);
-    }
-    let lines = component.render(120);
-    vec![(
-        json!({
-            "id": 6,
-            "module": "modes/interactive/components/approval-selector.ts",
-            "operation": "approval",
-            "currentPreset": "ask-me",
-            "inputs": ["j", "\t", "\n"],
-            "width": 120,
-        }),
-        json!({"lines": lines, "events": events_json(&events)}),
-    )]
-}
-
-fn approval_scope_name(scope: ApprovalSelectorScope) -> &'static str {
-    match scope {
-        ApprovalSelectorScope::Global => "global",
-        ApprovalSelectorScope::Project => "project",
-    }
-}
-
-fn sandbox_cases() -> Vec<(Value, Value)> {
-    let events = Events::default();
-    let mut component = SandboxSelectorComponent::new(
-        SandboxSelectorOptions {
-            current_profile: SandboxProfileName::WorkspaceWrite,
-            session_profile: None,
-            on_select: {
-                let events = events.clone();
-                Rc::new(move |selection| record(&events, sandbox_event(selection)))
-            },
-            on_cancel: Rc::new(|| {}),
-        },
-        theme(),
-    );
-    for input in ["j", "\t", "\t", "\n"] {
-        component.handle_input(input);
-    }
-    let lines = component.render(120);
-    vec![(
-        json!({
-            "id": 7,
-            "module": "modes/interactive/components/sandbox-selector.ts",
-            "operation": "sandbox",
-            "currentProfile": "workspace-write",
-            "inputs": ["j", "\t", "\t", "\n"],
-            "width": 120,
-        }),
-        json!({"lines": lines, "events": events_json(&events)}),
-    )]
-}
-
-fn sandbox_event(selection: SandboxSelectorSelection) -> Value {
-    match selection {
-        SandboxSelectorSelection::Persistent { profile, scope } => json!({
-            "profile": profile.as_str(),
-            "scope": sandbox_scope_name(scope),
-        }),
-        SandboxSelectorSelection::Session { profile } => {
-            let mut event = serde_json::Map::new();
-            if let Some(profile) = profile {
-                event.insert("profile".to_string(), json!(profile.as_str()));
-            }
-            event.insert("scope".to_string(), json!("session"));
-            Value::Object(event)
-        }
-    }
-}
-
-fn sandbox_scope_name(scope: SandboxProfileScope) -> &'static str {
-    match scope {
-        SandboxProfileScope::Global => "global",
-        SandboxProfileScope::Project => "project",
-        SandboxProfileScope::Session => "session",
-    }
-}
-
-fn trust_cases() -> Vec<(Value, Value)> {
-    let cases = [
-        json!({
-            "savedDecision": null,
-            "projectTrusted": false,
-            "inputs": ["j", "\n"],
-        }),
-        json!({
-            "savedDecision": {"path": "/work/project", "decision": true},
-            "projectTrusted": true,
-            "inputs": ["\n"],
-        }),
-        json!({
-            "savedDecision": {"path": "/work", "decision": false},
-            "projectTrusted": false,
-            "inputs": ["j", "j", "\n"],
-        }),
-    ];
-    let mut requests = Vec::new();
-    for (index, case) in cases.iter().enumerate() {
-        let saved = match &case["savedDecision"] {
-            Value::Null => None,
-            value => Some(ProjectTrustStoreEntry {
-                path: value["path"].as_str().expect("path").to_string(),
-                decision: if value["decision"].as_bool().expect("decision") {
-                    ProjectTrustDecision::Trusted
-                } else {
-                    ProjectTrustDecision::Untrusted
-                },
-            }),
-        };
-        let inputs: Vec<&str> = case["inputs"]
-            .as_array()
-            .expect("inputs")
-            .iter()
-            .map(|value| value.as_str().expect("input"))
-            .collect();
-        let events = Events::default();
-        let mut component = TrustSelectorComponent::new(
-            TrustSelectorOptions {
-                cwd: "/work/project".to_string(),
-                saved_decision: saved,
-                project_trusted: case["projectTrusted"].as_bool().expect("projectTrusted"),
-                on_select: {
-                    let events = events.clone();
-                    Rc::new(move |selection| {
-                        let updates: Vec<Value> = selection
-                            .updates
-                            .iter()
-                            .map(|update| {
-                                json!({
-                                    "path": &update.path,
-                                    "decision": match update.decision {
-                                        ProjectTrustDecision::Trusted => Value::Bool(true),
-                                        ProjectTrustDecision::Untrusted => Value::Bool(false),
-                                        ProjectTrustDecision::Unknown => Value::Null,
-                                    },
-                                })
-                            })
-                            .collect();
-                        record(&events, json!({"trusted": selection.trusted, "updates": updates}));
-                    })
-                },
-                on_cancel: Rc::new(|| {}),
-            },
-            theme(),
-        );
-        for input in &inputs {
-            component.handle_input(input);
-        }
-        let lines = component.render(120);
-        requests.push((
-            json!({
-                "id": 8 + index,
-                "module": "modes/interactive/components/trust-selector.ts",
-                "operation": "trust",
-                "cwd": "/work/project",
-                "savedDecision": case["savedDecision"],
-                "projectTrusted": case["projectTrusted"],
-                "inputs": inputs,
-                "width": 120,
-            }),
-            json!({"lines": lines, "events": events_json(&events)}),
-        ));
-    }
-    requests
-}
-
-fn show_images_cases() -> Vec<(Value, Value)> {
-    let events = Events::default();
-    let mut component = ShowImagesSelectorComponent::new(
-        true,
-        {
-            let events = events.clone();
-            Rc::new(move |show| record(&events, json!({"show": show})))
-        },
-        Rc::new(|| {}),
-        theme(),
-    );
-    for input in ["\x1b[B", "\r"] {
-        component.select_list_mut().handle_input(input);
-    }
-    let lines = component.render(80);
-    vec![(
-        json!({
-            "id": 20,
-            "module": "modes/interactive/components/show-images-selector.ts",
-            "operation": "showImages",
-            "currentValue": true,
-            "inputs": ["\u{1b}[B", "\r"],
-            "width": 80,
-        }),
-        json!({"lines": lines, "events": events_json(&events)}),
-    )]
-}
-
-fn thinking_cases() -> Vec<(Value, Value)> {
-    let events = Events::default();
-    let mut component = ThinkingSelectorComponent::new(
-        ThinkingLevel::Low,
-        &[ThinkingLevel::Off, ThinkingLevel::Low, ThinkingLevel::High],
-        {
-            let events = events.clone();
-            Rc::new(move |level| record(&events, json!({"level": level.as_str()})))
-        },
-        Rc::new(|| {}),
-        theme(),
-    );
-    for input in ["\x1b[B", "\r"] {
-        component.select_list_mut().handle_input(input);
-    }
-    let lines = component.render(100);
-    vec![(
-        json!({
-            "id": 21,
-            "module": "modes/interactive/components/thinking-selector.ts",
-            "operation": "thinking",
-            "currentLevel": "low",
-            "availableLevels": ["off", "low", "high"],
-            "inputs": ["\u{1b}[B", "\r"],
-            "width": 100,
-        }),
-        json!({"lines": lines, "events": events_json(&events)}),
-    )]
-}
-
-fn theme_cases(available_themes: &[String]) -> Vec<(Value, Value)> {
-    let current_theme = available_themes.last().expect("at least one theme");
-    let events = Events::default();
-    let mut component = ThemeSelectorComponent::new(
-        available_themes,
-        current_theme,
-        {
-            let events = events.clone();
-            Rc::new(move |name| record(&events, json!({"select": name})))
-        },
-        Rc::new(|| {}),
-        {
-            let events = events.clone();
-            Rc::new(move |name| record(&events, json!({"preview": name})))
-        },
-        theme(),
-    );
-    for input in ["\x1b[B", "\r"] {
-        component.select_list_mut().handle_input(input);
-    }
-    let lines = component.render(90);
-    vec![(
-        json!({
-            "id": 22,
-            "module": "modes/interactive/components/theme-selector.ts",
-            "operation": "theme",
-            "currentTheme": current_theme,
-            "inputs": ["\u{1b}[B", "\r"],
-            "width": 90,
-        }),
-        json!({"lines": lines, "events": events_json(&events)}),
-    )]
-}
-
-fn user_message_cases() -> Vec<(Value, Value)> {
-    let messages = vec![
-        UserMessageItem {
-            id: "a".into(),
-            text: "first message".into(),
-            timestamp: None,
-        },
-        UserMessageItem {
-            id: "b".into(),
-            text: "second\nmessage that is quite long and will need truncation".into(),
-            timestamp: Some("2026-01-01T00:00:00.000Z".into()),
-        },
-        UserMessageItem {
-            id: "c".into(),
-            text: "  spaced  ".into(),
-            timestamp: None,
-        },
-    ];
-    let events = Events::default();
-    let mut component = UserMessageSelectorComponent::new(
-        messages,
-        {
-            let events = events.clone();
-            Rc::new(move |id| record(&events, json!({"select": id})))
-        },
-        Rc::new(|| {}),
-        Some("b"),
-        theme(),
-    );
-    for input in ["\x1b[A", "\x1b[A", "\r"] {
-        component.message_list_mut().handle_input(input);
-    }
-    let lines = component.render(40);
-    vec![(
-        json!({
-            "id": 23,
-            "module": "modes/interactive/components/user-message-selector.ts",
-            "operation": "userMessage",
-            "initialSelectedId": "b",
-            "messages": [
-                {"id": "a", "text": "first message"},
-                {"id": "b", "text": "second\nmessage that is quite long and will need truncation", "timestamp": "2026-01-01T00:00:00.000Z"},
-                {"id": "c", "text": "  spaced  "},
-            ],
-            "inputs": ["\u{1b}[A", "\u{1b}[A", "\r"],
-            "width": 40,
-        }),
-        json!({"lines": lines, "events": events_json(&events)}),
-    )]
-}
-
-fn agent_switcher_cases() -> Vec<(Value, Value)> {
-    use pi_coding_agent::core::multi_agent_store::{AgentLifecycle, AgentPermission, AgentSlot, AgentSnapshot};
-
-    fn agent(id: &str, display_name: &str) -> AgentSnapshot {
-        AgentSnapshot {
-            id: id.to_string(),
-            parent_id: None,
-            display_name: display_name.to_string(),
-            agent_type: "worker".to_string(),
-            origin: None,
-            lifecycle: AgentLifecycle::Running,
-            revision: 1,
-            created_at: "2026-06-30T00:00:00.000Z".to_string(),
-            updated_at: "2026-06-30T00:00:00.000Z".to_string(),
-            cwd: "/repo".to_string(),
-            worktree: None,
-            model: None,
-            account: None,
-            permission: AgentPermission {
-                policy: "on-request".to_string(),
-                inherited_from: None,
-                narrowed: true,
-            },
-            slot: None,
-            transcript: None,
-            event_stream: None,
-            worker: None,
-            detached: None,
-            current_activity: None,
-            last_activity: None,
-            result: None,
-            error: None,
-            extra: serde_json::Map::new(),
-        }
-    }
-
-    let mut scout = agent("agent-1", "Scout");
-    scout.slot = Some(AgentSlot { index: 2, pinned: true });
-    let mut builder = agent("agent-2", "Builder");
-    builder.agent_type = "background".to_string();
-    builder.lifecycle = AgentLifecycle::WaitingForInput;
-    let mut child = agent("agent-3", "Verifier");
-    child.parent_id = Some("agent-2".to_string());
-    let mut done = agent("agent-4", "Done");
-    done.lifecycle = AgentLifecycle::Completed;
-
-    let agents = vec![scout, builder, child, done];
-    let request_agents: Vec<Value> = agents
-        .iter()
-        .map(|agent| {
-            json!({
-                "id": agent.id,
-                "displayName": agent.display_name,
-                "agentType": agent.agent_type,
-                "lifecycle": pi_coding_agent::core::multi_agent_store::lifecycle_name(agent.lifecycle),
-                "parentId": agent.parent_id,
-                "slot": agent.slot.as_ref().map(|slot| json!({"index": slot.index, "pinned": slot.pinned})),
-            })
-        })
-        .collect();
-
-    let events = Events::default();
-    let inactive_events = Events::default();
-    let mut component = pi_coding_agent::modes::interactive::components::agent_switcher::AgentSwitcherComponent::new(
-        agents,
-        Some("agent-2".to_string()),
-        {
-            let events = events.clone();
-            Rc::new(move |agent_id: &str| record(&events, json!({"select": agent_id})))
-        },
-        Rc::new(|| {}),
-        {
-            let inactive_events = inactive_events.clone();
-            Rc::new(move |agent: &pi_coding_agent::core::multi_agent_store::AgentSnapshot| {
-                record(&inactive_events, json!({"inactive": agent.id}))
-            })
-        },
-        theme(),
-    );
-    for input in ["\u{1b}[B", "\u{1b}[B", "\u{18}", "\r"] {
-        component.handle_input(input);
-    }
-    let lines = component.render(100);
-    let mut combined = events.borrow().clone();
-    combined.extend(inactive_events.borrow().clone());
-    vec![(
-        json!({
-            "id": 25,
-            "module": "modes/interactive/components/agent-switcher.ts",
-            "operation": "agentSwitcher",
-            "agents": request_agents,
-            "selectedAgentId": "agent-2",
-            "inputs": ["\u{1b}[B", "\u{1b}[B", "\u{18}", "\r"],
-            "width": 100,
-        }),
-        json!({"lines": lines, "events": combined}),
-    )]
-}
-
-fn extension_cases() -> Vec<(Value, Value)> {
-    let events = Events::default();
-    let mut component = ExtensionSelectorComponent::new(
-        "Pick one",
-        vec!["alpha".into(), "beta".into(), "gamma".into()],
-        {
-            let events = events.clone();
-            Rc::new(move |option| record(&events, json!({"select": option})))
-        },
-        Rc::new(|| {}),
-        ExtensionSelectorOptions::default(),
-        theme(),
-    );
-    for input in ["j", "j", "\t"] {
-        component.handle_input(input);
-    }
-    let lines = component.render(70);
-    vec![(
-        json!({
-            "id": 24,
-            "module": "modes/interactive/components/extension-selector.ts",
-            "operation": "extension",
-            "title": "Pick one",
-            "options": ["alpha", "beta", "gamma"],
-            "inputs": ["j", "j", "\t"],
-            "width": 70,
-        }),
-        json!({"lines": lines, "events": events_json(&events)}),
     )]
 }

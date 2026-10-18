@@ -1,40 +1,38 @@
-//! Ported from `coding-agent/src/modes/interactive/components/keybinding-hints.ts`.
+//! Ported from `packages/coding-agent/src/modes/interactive/components/keybinding-hints.ts`.
 
-use std::sync::Arc;
+use pi_tui::keybindings::{KeyId, get_keybindings};
 
-use pi_tui::get_keybindings;
-
-use crate::modes::interactive::theme::{Theme, ThemeColor};
+use super::super::theme::{ThemeColor, with_theme};
 
 /// `KeyTextFormatOptions`.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct KeyTextFormatOptions {
     pub capitalize: bool,
 }
 
 fn format_key_part(part: &str, options: KeyTextFormatOptions) -> String {
-    let display_part = if cfg!(target_os = "macos") && part.to_lowercase() == "alt" {
+    let display_part = if cfg!(target_os = "macos") && part.eq_ignore_ascii_case("alt") {
         "option"
     } else {
         part
     };
-    if !options.capitalize {
-        return display_part.to_string();
-    }
-    let mut chars = display_part.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
+    if options.capitalize {
+        let mut characters = display_part.chars();
+        match characters.next() {
+            Some(first) => first.to_uppercase().collect::<String>() + characters.as_str(),
+            None => String::new(),
+        }
+    } else {
+        display_part.to_owned()
     }
 }
 
-/// `formatKeyText`: formats `ctrl+a/shift+b` style key lists.
+/// Format a key spec such as `ctrl+a/alt+b`.
 pub fn format_key_text(key: &str, options: KeyTextFormatOptions) -> String {
     key.split('/')
-        .map(|combo| {
-            combo
-                .split('+')
-                .map(|part| format_key_part(part, options))
+        .map(|part| {
+            part.split('+')
+                .map(|component| format_key_part(component, options))
                 .collect::<Vec<_>>()
                 .join("+")
         })
@@ -42,19 +40,17 @@ pub fn format_key_text(key: &str, options: KeyTextFormatOptions) -> String {
         .join("/")
 }
 
-fn format_keys(keys: &[String], options: KeyTextFormatOptions) -> String {
+fn format_keys(keys: &[KeyId], options: KeyTextFormatOptions) -> String {
     if keys.is_empty() {
         return String::new();
     }
     format_key_text(&keys.join("/"), options)
 }
 
-/// `keyText`: resolved bindings for a keybinding id.
 pub fn key_text(keybinding: &str) -> String {
     format_keys(&get_keybindings().get_keys(keybinding), KeyTextFormatOptions::default())
 }
 
-/// `keyDisplayText`: resolved bindings, capitalized.
 pub fn key_display_text(keybinding: &str) -> String {
     format_keys(
         &get_keybindings().get_keys(keybinding),
@@ -62,13 +58,14 @@ pub fn key_display_text(keybinding: &str) -> String {
     )
 }
 
-/// `keyHint`: dim keys followed by a muted description.
-pub fn key_hint(theme: &Arc<Theme>, keybinding: &str, description: &str) -> String {
-    theme.fg(ThemeColor::Dim, &key_text(keybinding)) + &theme.fg(ThemeColor::Muted, &format!(" {description}"))
+pub fn key_hint(keybinding: &str, description: &str) -> String {
+    let key = with_theme(|theme| theme.fg(ThemeColor::Dim, &key_text(keybinding)));
+    let description = with_theme(|theme| theme.fg(ThemeColor::Muted, &format!(" {description}")));
+    key + &description
 }
 
-/// `rawKeyHint`: dim literal key text followed by a muted description.
-pub fn raw_key_hint(theme: &Arc<Theme>, key: &str, description: &str) -> String {
-    theme.fg(ThemeColor::Dim, &format_key_text(key, KeyTextFormatOptions::default()))
-        + &theme.fg(ThemeColor::Muted, &format!(" {description}"))
+pub fn raw_key_hint(key: &str, description: &str) -> String {
+    let key = with_theme(|theme| theme.fg(ThemeColor::Dim, &format_key_text(key, KeyTextFormatOptions::default())));
+    let description = with_theme(|theme| theme.fg(ThemeColor::Muted, &format!(" {description}")));
+    key + &description
 }

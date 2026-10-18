@@ -1,108 +1,111 @@
-//! Ported from `coding-agent/src/modes/interactive/components/session-selector-search.ts`.
+//! Ported from `packages/coding-agent/src/modes/interactive/components/session-selector-search.ts`.
 
-use pi_js_compat::string::{is_js_whitespace_char, js_trim};
-use pi_tui::fuzzy_match;
+use fancy_regex::{Regex, RegexBuilder};
+use pi_js_compat::string::{is_js_whitespace_char, js_trim, utf16_len};
+use pi_tui::fuzzy::fuzzy_match;
 
 use crate::core::session_manager::SessionInfo;
 
-/// `SortMode`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Session ordering mode in the selector.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SortMode {
     Threaded,
     Recent,
     Relevance,
 }
 
-/// `NameFilter`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Session name filter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NameFilter {
     All,
     Named,
 }
 
-/// One search token.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SearchToken {
-    pub kind: TokenKind,
-    pub value: String,
-}
-
-/// Token kind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TokenKind {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchTokenKind {
     Fuzzy,
     Phrase,
 }
 
-/// `ParsedSearchQuery`.
-#[derive(Debug, Clone)]
-pub struct ParsedSearchQuery {
-    pub mode: SearchMode,
-    pub tokens: Vec<SearchToken>,
-    /// `None` when regex mode has no usable pattern.
-    pub regex: Option<regex::Regex>,
-    /// Parsing failed; the query is treated as non-matching.
-    pub error: Option<String>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SearchToken {
+    pub kind: SearchTokenKind,
+    pub value: String,
 }
 
-/// Query mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SearchMode {
     Tokens,
     Regex,
 }
 
-/// `MatchResult`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Debug)]
+pub struct ParsedSearchQuery {
+    pub mode: SearchMode,
+    pub tokens: Vec<SearchToken>,
+    pub regex: Option<Regex>,
+    /// Parsing failed; the query matches nothing.
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MatchResult {
     pub matches: bool,
-    /// Every token matched as a literal substring, not only as a subsequence.
+    /// Every token matched as a literal substring rather than only as a subsequence.
     pub literal: bool,
     /// Lower is better; only meaningful when `matches`.
     pub score: f64,
 }
 
-impl MatchResult {
-    const NO_MATCH: Self = Self {
-        matches: false,
-        literal: false,
-        score: 0.0,
-    };
+fn normalize_whitespace_lower(text: &str) -> String {
+    let mut normalized = String::new();
+    let mut pending_space = false;
+    for character in text.to_lowercase().chars() {
+        if is_js_whitespace_char(character) {
+            pending_space = !normalized.is_empty();
+        } else {
+            if pending_space {
+                normalized.push(' ');
+                pending_space = false;
+            }
+            normalized.push(character);
+        }
+    }
+    normalized
 }
 
-fn normalize_whitespace_lower(text: &str) -> String {
-    let mut collapsed = String::with_capacity(text.len());
-    let mut pending_space = false;
-    for character in text.chars() {
+fn split_js_whitespace(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = None;
+    for (index, character) in text.char_indices() {
         if is_js_whitespace_char(character) {
-            pending_space = !collapsed.is_empty();
-            continue;
+            if let Some(part_start) = start.take() {
+                parts.push(&text[part_start..index]);
+            }
+        } else if start.is_none() {
+            start = Some(index);
         }
-        if pending_space {
-            collapsed.push(' ');
-            pending_space = false;
-        }
-        collapsed.extend(character.to_lowercase());
     }
-    collapsed
+    if let Some(part_start) = start {
+        parts.push(&text[part_start..]);
+    }
+    parts
 }
 
 fn get_session_search_text(session: &SessionInfo) -> String {
     format!(
         "{} {} {} {}",
         session.id,
-        session.name.as_deref().unwrap_or(""),
+        session.name.as_deref().unwrap_or_default(),
         session.all_messages_text,
         session.cwd
     )
 }
 
-/// `hasSessionName`.
 pub fn has_session_name(session: &SessionInfo) -> bool {
     session.name.as_deref().is_some_and(|name| !js_trim(name).is_empty())
 }
 
-/// `hasSessionMessages`.
 pub fn has_session_messages(session: &SessionInfo) -> bool {
     session.message_count > 0
 }
@@ -117,25 +120,6 @@ fn matches_name_filter(session: &SessionInfo, filter: NameFilter) -> bool {
     }
 }
 
-fn split_js_whitespace(text: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut start = None;
-    for (index, character) in text.char_indices() {
-        if is_js_whitespace_char(character) {
-            if let Some(start) = start.take() {
-                parts.push(&text[start..index]);
-            }
-        } else if start.is_none() {
-            start = Some(index);
-        }
-    }
-    if let Some(start) = start {
-        parts.push(&text[start..]);
-    }
-    parts
-}
-
-/// `parseSearchQuery`.
 pub fn parse_search_query(query: &str) -> ParsedSearchQuery {
     let trimmed = js_trim(query);
     if trimmed.is_empty() {
@@ -154,10 +138,10 @@ pub fn parse_search_query(query: &str) -> ParsedSearchQuery {
                 mode: SearchMode::Regex,
                 tokens: Vec::new(),
                 regex: None,
-                error: Some("Empty regex".to_string()),
+                error: Some("Empty regex".to_owned()),
             };
         }
-        return match regex::RegexBuilder::new(pattern).case_insensitive(true).build() {
+        return match RegexBuilder::new(pattern).case_insensitive(true).build() {
             Ok(regex) => ParsedSearchQuery {
                 mode: SearchMode::Regex,
                 tokens: Vec::new(),
@@ -173,48 +157,72 @@ pub fn parse_search_query(query: &str) -> ParsedSearchQuery {
         };
     }
 
-    let mut tokens = Vec::new();
+    let mut tokens: Vec<SearchToken> = Vec::new();
     let mut buffer = String::new();
     let mut in_quote = false;
     let mut had_unclosed_quote = false;
 
+    fn flush(tokens: &mut Vec<SearchToken>, buffer: &mut String, kind: SearchTokenKind) {
+        let value = js_trim(buffer).to_owned();
+        buffer.clear();
+        if value.is_empty() {
+            return;
+        }
+        tokens.push(SearchToken { kind, value });
+    }
+
     for character in trimmed.chars() {
         if character == '"' {
             if in_quote {
-                push_token(&mut tokens, &mut buffer, TokenKind::Phrase);
+                flush(&mut tokens, &mut buffer, SearchTokenKind::Phrase);
                 in_quote = false;
             } else {
-                push_token(&mut tokens, &mut buffer, TokenKind::Fuzzy);
+                flush(&mut tokens, &mut buffer, SearchTokenKind::Fuzzy);
                 in_quote = true;
             }
             continue;
         }
+
         if !in_quote && is_js_whitespace_char(character) {
-            push_token(&mut tokens, &mut buffer, TokenKind::Fuzzy);
+            flush(&mut tokens, &mut buffer, SearchTokenKind::Fuzzy);
             continue;
         }
+
         buffer.push(character);
     }
 
     if in_quote {
         had_unclosed_quote = true;
     }
+
     if had_unclosed_quote {
+        let tokens = split_js_whitespace(trimmed)
+            .into_iter()
+            .map(js_trim)
+            .filter(|token| !token.is_empty())
+            .map(|token| SearchToken {
+                kind: SearchTokenKind::Fuzzy,
+                value: token.to_owned(),
+            })
+            .collect();
         return ParsedSearchQuery {
             mode: SearchMode::Tokens,
-            tokens: split_js_whitespace(trimmed)
-                .into_iter()
-                .map(|token| SearchToken {
-                    kind: TokenKind::Fuzzy,
-                    value: token.to_string(),
-                })
-                .collect(),
+            tokens,
             regex: None,
             error: None,
         };
     }
 
-    push_token(&mut tokens, &mut buffer, TokenKind::Fuzzy);
+    flush(
+        &mut tokens,
+        &mut buffer,
+        if in_quote {
+            SearchTokenKind::Phrase
+        } else {
+            SearchTokenKind::Fuzzy
+        },
+    );
+
     ParsedSearchQuery {
         mode: SearchMode::Tokens,
         tokens,
@@ -223,22 +231,17 @@ pub fn parse_search_query(query: &str) -> ParsedSearchQuery {
     }
 }
 
-fn push_token(tokens: &mut Vec<SearchToken>, buffer: &mut String, kind: TokenKind) {
-    let value = js_trim(buffer).to_string();
-    buffer.clear();
-    if value.is_empty() {
-        return;
-    }
-    tokens.push(SearchToken { kind, value });
-}
-
 fn is_literal_token_query_match(parsed: &ParsedSearchQuery, text: &str) -> bool {
-    if parsed.tokens.iter().all(|token| token.kind == TokenKind::Phrase) {
+    let all_phrases = parsed.tokens.iter().all(|token| token.kind == SearchTokenKind::Phrase);
+    if all_phrases {
         return true;
     }
-    if !parsed.tokens.iter().all(|token| token.kind == TokenKind::Fuzzy) {
+
+    let all_fuzzy = parsed.tokens.iter().all(|token| token.kind == SearchTokenKind::Fuzzy);
+    if !all_fuzzy {
         return false;
     }
+
     let query = normalize_whitespace_lower(
         &parsed
             .tokens
@@ -250,31 +253,35 @@ fn is_literal_token_query_match(parsed: &ParsedSearchQuery, text: &str) -> bool 
     normalize_whitespace_lower(text).contains(&query)
 }
 
-fn utf16_index(text: &str, byte_index: usize) -> usize {
-    text[..byte_index].encode_utf16().count()
-}
-
 fn match_token_query(text: &str, parsed: &ParsedSearchQuery) -> MatchResult {
     let mut total_score = 0.0;
     let mut normalized_text: Option<String> = None;
 
     for token in &parsed.tokens {
-        if token.kind == TokenKind::Phrase {
+        if token.kind == SearchTokenKind::Phrase {
             let normalized = normalized_text.get_or_insert_with(|| normalize_whitespace_lower(text));
             let phrase = normalize_whitespace_lower(&token.value);
             if phrase.is_empty() {
                 continue;
             }
             let Some(index) = normalized.find(&phrase) else {
-                return MatchResult::NO_MATCH;
+                return MatchResult {
+                    matches: false,
+                    literal: false,
+                    score: 0.0,
+                };
             };
-            total_score += utf16_index(normalized, index) as f64 * 0.1;
+            total_score += utf16_len(&normalized[..index]) as f64 * 0.1;
             continue;
         }
 
         let matched = fuzzy_match(&token.value, text);
         if !matched.matches {
-            return MatchResult::NO_MATCH;
+            return MatchResult {
+                matches: false,
+                literal: false,
+                score: 0.0,
+            };
         }
         total_score += matched.score;
     }
@@ -286,21 +293,28 @@ fn match_token_query(text: &str, parsed: &ParsedSearchQuery) -> MatchResult {
     }
 }
 
-/// `matchSession`.
 pub fn match_session(session: &SessionInfo, parsed: &ParsedSearchQuery) -> MatchResult {
     let text = get_session_search_text(session);
 
     if parsed.mode == SearchMode::Regex {
         let Some(regex) = &parsed.regex else {
-            return MatchResult::NO_MATCH;
+            return MatchResult {
+                matches: false,
+                literal: false,
+                score: 0.0,
+            };
         };
-        let Some(found) = regex.find(&text) else {
-            return MatchResult::NO_MATCH;
+        let Ok(Some(found)) = regex.find(&text) else {
+            return MatchResult {
+                matches: false,
+                literal: false,
+                score: 0.0,
+            };
         };
         return MatchResult {
             matches: true,
             literal: true,
-            score: utf16_index(&text, found.start()) as f64 * 0.1,
+            score: utf16_len(&text[..found.start()]) as f64 * 0.1,
         };
     }
 
@@ -315,7 +329,6 @@ pub fn match_session(session: &SessionInfo, parsed: &ParsedSearchQuery) -> Match
     match_token_query(&text, parsed)
 }
 
-/// `filterAndSortSessions`.
 pub fn filter_and_sort_sessions(
     sessions: &[SessionInfo],
     query: &str,
@@ -327,7 +340,8 @@ pub fn filter_and_sort_sessions(
         .filter(|session| matches_name_filter(session, name_filter))
         .cloned()
         .collect();
-    if js_trim(query).is_empty() {
+    let trimmed = js_trim(query);
+    if trimmed.is_empty() {
         return name_filtered;
     }
 
@@ -363,11 +377,18 @@ pub fn filter_and_sort_sessions(
         scored.push((session, result.literal, result.score));
     }
 
-    scored.sort_by(|a, b| {
-        a.1.cmp(&b.1)
-            .reverse()
-            .then(a.2.total_cmp(&b.2))
-            .then(b.0.modified.cmp(&a.0.modified))
+    scored.sort_by(|left, right| {
+        if left.1 != right.1 {
+            return if left.1 {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            };
+        }
+        match left.2.partial_cmp(&right.2) {
+            Some(std::cmp::Ordering::Equal) | None => right.0.modified.cmp(&left.0.modified),
+            Some(ordering) => ordering,
+        }
     });
 
     scored.into_iter().map(|(session, _, _)| session).collect()

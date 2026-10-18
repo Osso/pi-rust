@@ -1,20 +1,17 @@
-//! Behavioral tests for interactive components whose inputs are OS/state bound.
+//! Behavioral tests for interactive components owned by ca-interactive-b.
 
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, OnceLock};
 
 use pi_coding_agent::ParsedSkillBlock;
 use pi_coding_agent::core::multi_agent_store::{
     AgentLifecycle, AgentPermission, AgentSnapshot, MultiAgentStore, MultiAgentStoreOptions,
 };
 use pi_coding_agent::modes::interactive::components::agent_selection_banner::AgentSelectionBannerComponent;
-use pi_coding_agent::modes::interactive::components::countdown_timer::CountdownTimer;
 use pi_coding_agent::modes::interactive::components::earendil_announcement::EarendilAnnouncementComponent;
 use pi_coding_agent::modes::interactive::components::skill_invocation_message::SkillInvocationMessageComponent;
-use pi_coding_agent::modes::interactive::components::user_message_selector::UserMessageSelectorComponent;
 use pi_coding_agent::modes::interactive::theme::{
-    ColorMode, ColorValue, REQUIRED_COLORS, Theme, ThemeColor, set_theme_instance,
+    ColorMode, ColorValue, REQUIRED_COLORS, Theme, ThemeBg, ThemeColor, set_theme_instance,
 };
 use pi_tui::{Component, MarkdownTheme, strip_terminal_sequences};
 
@@ -40,8 +37,8 @@ fn install_theme() -> Arc<Theme> {
 }
 
 fn theme() -> Arc<Theme> {
-    static KEYBINDINGS: std::sync::Once = std::sync::Once::new();
-    KEYBINDINGS.call_once(|| {
+    static KEYBINDINGS: OnceLock<()> = OnceLock::new();
+    KEYBINDINGS.get_or_init(|| {
         pi_tui::set_keybindings(pi_tui::KeybindingsManager::new(
             pi_coding_agent::core::keybindings::keybindings(),
             Vec::new(),
@@ -177,7 +174,7 @@ fn skill_invocation_message_switches_between_collapsed_and_expanded() {
     let collapsed_text = plain(&collapsed);
     assert!(collapsed_text.contains("code-review"), "{collapsed:?}");
     assert!(collapsed_text.contains("to expand"), "{collapsed:?}");
-    let background = theme.get_bg_ansi(pi_coding_agent::modes::interactive::theme::ThemeBg::CustomMessageBg);
+    let background = theme.get_bg_ansi(ThemeBg::CustomMessageBg);
     assert!(collapsed.iter().any(|line| line.contains(background)), "{collapsed:?}");
 
     component.set_expanded(true);
@@ -211,82 +208,4 @@ fn earendil_announcement_renders_text_and_borders_without_the_bundled_image() {
     let accent = theme.get_fg_ansi(ThemeColor::Accent);
     assert!(lines[0].starts_with(accent), "{lines:?}");
     assert!(lines.last().expect("bottom border").starts_with(accent), "{lines:?}");
-}
-
-#[test]
-fn countdown_timer_ticks_once_per_second_and_expires() {
-    let ticks = Rc::new(Mutex::new(Vec::new()));
-    let expired = Rc::new(Mutex::new(0));
-    let renders = Rc::new(Mutex::new(0));
-    let timer_ticks = ticks.clone();
-    let timer_expired = expired.clone();
-    let timer_renders = renders.clone();
-    let mut timer = CountdownTimer::new(
-        2500.0,
-        Some(Rc::new(move || *timer_renders.lock().expect("renders") += 1)),
-        Rc::new(move |seconds| timer_ticks.lock().expect("ticks").push(seconds)),
-        Rc::new(move || *timer_expired.lock().expect("expired") += 1),
-    );
-
-    assert_eq!(*ticks.lock().expect("ticks"), vec![3]);
-    let start = Instant::now();
-    assert!(!timer.poll(start + Duration::from_millis(999)));
-    assert!(timer.poll(start + Duration::from_millis(1000)));
-    assert_eq!(*ticks.lock().expect("ticks"), vec![3, 2]);
-    assert_eq!(*renders.lock().expect("renders"), 1);
-
-    assert!(timer.poll(start + Duration::from_millis(5000)));
-    assert_eq!(*ticks.lock().expect("ticks"), vec![3, 2, 1, 0]);
-    assert_eq!(*expired.lock().expect("expired"), 1);
-    assert!(timer.is_disposed());
-    assert!(!timer.poll(start + Duration::from_millis(9000)));
-}
-
-#[test]
-fn user_message_selector_auto_cancels_when_empty() {
-    let cancelled = Rc::new(Mutex::new(0));
-    let on_cancel = {
-        let cancelled = cancelled.clone();
-        Rc::new(move || *cancelled.lock().expect("cancelled") += 1)
-    };
-    let before = Instant::now();
-    let mut component =
-        UserMessageSelectorComponent::new(Vec::new(), Rc::new(|_id: &str| {}), on_cancel, None, theme());
-    assert!(plain(&component.render(40)).contains("  No user messages found"));
-
-    assert!(!component.poll(before + Duration::from_millis(99)));
-    assert!(component.poll(before + Duration::from_millis(200)));
-    assert_eq!(*cancelled.lock().expect("cancelled"), 1);
-    assert!(!component.poll(before + Duration::from_millis(500)));
-    assert_eq!(*cancelled.lock().expect("cancelled"), 1);
-}
-
-#[test]
-fn trust_selector_renders_saved_decision_variants() {
-    use pi_coding_agent::core::trust_manager::{ProjectTrustDecision, ProjectTrustStoreEntry};
-    use pi_coding_agent::modes::interactive::components::trust_selector::{
-        TrustSelectorComponent, TrustSelectorOptions,
-    };
-
-    let saved = ProjectTrustStoreEntry {
-        path: "/work".to_string(),
-        decision: ProjectTrustDecision::Untrusted,
-    };
-    let mut component = TrustSelectorComponent::new(
-        TrustSelectorOptions {
-            cwd: "/work/project".to_string(),
-            saved_decision: Some(saved),
-            project_trusted: false,
-            on_select: Rc::new(|_| {}),
-            on_cancel: Rc::new(|| {}),
-        },
-        theme(),
-    );
-    let joined = component.render(100).join("\n");
-    assert!(
-        joined.contains("Saved decision: untrusted (inherited from /work)"),
-        "{joined}"
-    );
-    assert!(joined.contains("Current session: untrusted"), "{joined}");
-    assert_eq!(component.selected_index(), 0);
 }

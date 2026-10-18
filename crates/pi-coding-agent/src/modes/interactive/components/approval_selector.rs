@@ -1,26 +1,26 @@
-//! Ported from `coding-agent/src/modes/interactive/components/approval-selector.ts`.
+//! Ported from `packages/coding-agent/src/modes/interactive/components/approval-selector.ts`.
 
 use std::rc::Rc;
-use std::sync::Arc;
 
-use pi_tui::tui::component;
-use pi_tui::{Component, Container, Spacer, Text};
+use pi_tui::components::spacer::Spacer;
+use pi_tui::components::text::Text;
+use pi_tui::keybindings::get_keybindings;
+use pi_tui::tui::{Component, ComponentRef, Container, component};
 
+use super::super::theme::{ThemeColor, with_theme};
+use super::dynamic_border::dynamic_border;
+use super::keybinding_hints::{key_hint, raw_key_hint};
 use crate::core::permissions::presets::{APPROVAL_PRESETS, ApprovalPresetName};
-use crate::modes::interactive::components::dynamic_border::dynamic_border;
-use crate::modes::interactive::components::keybinding_hints::{key_hint, raw_key_hint};
 
-use crate::modes::interactive::theme::{Theme, ThemeColor};
-
-/// Save scope for an approval preset.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ApprovalSelectorScope {
+/// Where the chosen approval preset is persisted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApprovalScope {
     Global,
     Project,
 }
 
-impl ApprovalSelectorScope {
-    fn as_str(self) -> &'static str {
+impl ApprovalScope {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Global => "global",
             Self::Project => "project",
@@ -28,78 +28,78 @@ impl ApprovalSelectorScope {
     }
 }
 
-/// Selection emitted when the user confirms a preset.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ApprovalSelectorSelection {
     pub preset: ApprovalPresetName,
-    pub scope: ApprovalSelectorScope,
+    pub scope: ApprovalScope,
 }
 
-/// Constructor options.
 pub struct ApprovalSelectorOptions {
     pub current_preset: ApprovalPresetName,
     pub on_select: Rc<dyn Fn(ApprovalSelectorSelection)>,
     pub on_cancel: Rc<dyn Fn()>,
 }
 
-/// Approval preset selector with global/project save scope.
+/// Approval preset list with a global/project save scope.
 pub struct ApprovalSelectorComponent {
     selected_index: usize,
-    scope: ApprovalSelectorScope,
+    scope: ApprovalScope,
     list_container: Container,
     on_select: Rc<dyn Fn(ApprovalSelectorSelection)>,
     on_cancel: Rc<dyn Fn()>,
     current_preset: ApprovalPresetName,
-    top: Container,
-    bottom: Container,
-    theme: Arc<Theme>,
+    prefix_children: Vec<ComponentRef>,
+    suffix_children: Vec<ComponentRef>,
 }
 
 impl ApprovalSelectorComponent {
-    pub fn new(options: ApprovalSelectorOptions, theme: Arc<Theme>) -> Self {
+    pub fn new(options: ApprovalSelectorOptions) -> Self {
         let selected_index = APPROVAL_PRESETS
             .iter()
             .position(|preset| preset.name == options.current_preset)
             .unwrap_or(0);
 
-        let mut top = Container::new();
-        top.add_child(component(dynamic_border(&theme)));
-        top.add_child(component(Spacer::new(1)));
-        top.add_child(component(Text::new(
-            theme.fg(ThemeColor::Accent, &theme.bold("Approval presets")),
-            1,
-            0,
-        )));
-        top.add_child(component(Text::new(
-            theme.fg(ThemeColor::Muted, "Tab switches save scope: global/project"),
-            1,
-            0,
-        )));
-        top.add_child(component(Spacer::new(1)));
-
-        let mut bottom = Container::new();
-        bottom.add_child(component(Spacer::new(1)));
-        let controls = [
-            raw_key_hint(&theme, "↑↓", "navigate"),
-            raw_key_hint(&theme, "Tab", "scope"),
-            key_hint(&theme, "tui.select.confirm", "save"),
-            key_hint(&theme, "tui.select.cancel", "cancel"),
-        ]
-        .join("  ");
-        bottom.add_child(component(Text::new(controls, 1, 0)));
-        bottom.add_child(component(Spacer::new(1)));
-        bottom.add_child(component(dynamic_border(&theme)));
+        let prefix_children = vec![
+            component(dynamic_border()),
+            component(Spacer::new(1)),
+            component(Text::new(
+                with_theme(|theme| theme.fg(ThemeColor::Accent, &theme.bold("Approval presets"))),
+                1,
+                0,
+            )),
+            component(Text::new(
+                with_theme(|theme| theme.fg(ThemeColor::Muted, "Tab switches save scope: global/project")),
+                1,
+                0,
+            )),
+            component(Spacer::new(1)),
+        ];
+        let suffix_children = vec![
+            component(Spacer::new(1)),
+            component(Text::new(
+                raw_key_hint("↑↓", "navigate")
+                    + "  "
+                    + &raw_key_hint("Tab", "scope")
+                    + "  "
+                    + &key_hint("tui.select.confirm", "save")
+                    + "  "
+                    + &key_hint("tui.select.cancel", "cancel"),
+                1,
+                0,
+            )),
+            component(Spacer::new(1)),
+            component(dynamic_border()),
+        ];
 
         let mut selector = Self {
             selected_index,
-            scope: ApprovalSelectorScope::Global,
+            scope: ApprovalScope::Global,
             list_container: Container::new(),
             on_select: options.on_select,
             on_cancel: options.on_cancel,
             current_preset: options.current_preset,
-            top,
-            bottom,
-            theme,
+            prefix_children,
+            suffix_children,
         };
         selector.update_list();
         selector
@@ -108,8 +108,7 @@ impl ApprovalSelectorComponent {
     fn update_list(&mut self) {
         self.list_container.clear();
         self.list_container.add_child(component(Text::new(
-            self.theme
-                .fg(ThemeColor::Muted, &format!("Save scope: {}", self.scope.as_str())),
+            with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("Save scope: {}", self.scope.as_str()))),
             1,
             0,
         )));
@@ -119,17 +118,17 @@ impl ApprovalSelectorComponent {
             let is_selected = index == self.selected_index;
             let is_current = preset.name == self.current_preset;
             let prefix = if is_selected {
-                self.theme.fg(ThemeColor::Accent, "→ ")
+                with_theme(|theme| theme.fg(ThemeColor::Accent, "→ "))
             } else {
-                "  ".to_string()
+                "  ".to_owned()
             };
             let label = if is_selected {
-                self.theme.fg(ThemeColor::Accent, preset.label)
+                with_theme(|theme| theme.fg(ThemeColor::Accent, preset.label))
             } else {
-                self.theme.fg(ThemeColor::Text, preset.label)
+                with_theme(|theme| theme.fg(ThemeColor::Text, preset.label))
             };
             let checkmark = if is_current {
-                self.theme.fg(ThemeColor::Success, " ✓")
+                with_theme(|theme| theme.fg(ThemeColor::Success, " ✓"))
             } else {
                 String::new()
             };
@@ -138,52 +137,57 @@ impl ApprovalSelectorComponent {
         }
     }
 
-    pub fn selected_index(&self) -> usize {
-        self.selected_index
-    }
-
-    pub fn scope(&self) -> ApprovalSelectorScope {
+    pub fn scope(&self) -> ApprovalScope {
         self.scope
     }
 }
 
 impl Component for ApprovalSelectorComponent {
     fn render(&mut self, width: usize) -> Vec<String> {
-        let mut lines = self.top.render_children(width);
-        lines.extend(self.list_container.render_children(width));
-        lines.extend(self.bottom.render_children(width));
+        let mut lines = Vec::new();
+        for child in &self.prefix_children {
+            lines.extend(child.borrow_mut().render(width));
+        }
+        lines.extend(self.list_container.render(width));
+        for child in &self.suffix_children {
+            lines.extend(child.borrow_mut().render(width));
+        }
         lines
     }
 
-    fn handle_input(&mut self, data: &str) {
-        let keybindings = pi_tui::get_keybindings();
-        if keybindings.matches(data, "tui.select.up") || data == "k" {
+    fn handle_input(&mut self, key_data: &str) {
+        let keybindings = get_keybindings();
+        if keybindings.matches(key_data, "tui.select.up") || key_data == "k" {
             self.selected_index = self.selected_index.saturating_sub(1);
             self.update_list();
-        } else if keybindings.matches(data, "tui.select.down") || data == "j" {
+        } else if keybindings.matches(key_data, "tui.select.down") || key_data == "j" {
             self.selected_index = (self.selected_index + 1).min(APPROVAL_PRESETS.len() - 1);
             self.update_list();
-        } else if data == "\t" {
+        } else if key_data == "\t" {
             self.scope = match self.scope {
-                ApprovalSelectorScope::Global => ApprovalSelectorScope::Project,
-                ApprovalSelectorScope::Project => ApprovalSelectorScope::Global,
+                ApprovalScope::Global => ApprovalScope::Project,
+                ApprovalScope::Project => ApprovalScope::Global,
             };
             self.update_list();
-        } else if keybindings.matches(data, "tui.select.confirm") || data == "\n" {
+        } else if keybindings.matches(key_data, "tui.select.confirm") || key_data == "\n" {
             if let Some(selected) = APPROVAL_PRESETS.get(self.selected_index) {
                 (self.on_select)(ApprovalSelectorSelection {
                     preset: selected.name,
                     scope: self.scope,
                 });
             }
-        } else if keybindings.matches(data, "tui.select.cancel") {
+        } else if keybindings.matches(key_data, "tui.select.cancel") {
             (self.on_cancel)();
         }
     }
 
     fn invalidate(&mut self) {
-        self.top.invalidate_children();
-        self.list_container.invalidate_children();
-        self.bottom.invalidate_children();
+        for child in &self.prefix_children {
+            child.borrow_mut().invalidate();
+        }
+        self.list_container.invalidate();
+        for child in &self.suffix_children {
+            child.borrow_mut().invalidate();
+        }
     }
 }

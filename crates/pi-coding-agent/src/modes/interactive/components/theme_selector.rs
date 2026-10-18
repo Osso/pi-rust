@@ -1,13 +1,12 @@
-//! Ported from `coding-agent/src/modes/interactive/components/theme-selector.ts`.
+//! Ported from `packages/coding-agent/src/modes/interactive/components/theme-selector.ts`.
 
 use std::rc::Rc;
-use std::sync::Arc;
 
-use pi_tui::{Component, DynamicBorder, SelectItem, SelectList, SelectListLayoutOptions};
+use pi_tui::components::select_list::{SelectItem, SelectList, SelectListLayoutOptions};
+use pi_tui::tui::{Component, ComponentRef, Container, component};
 
-use crate::modes::interactive::components::dynamic_border::dynamic_border;
-
-use crate::modes::interactive::theme::{Theme, get_select_list_theme};
+use super::super::theme::{get_available_themes, get_select_list_theme};
+use super::dynamic_border::dynamic_border;
 
 const THEME_SELECT_LIST_LAYOUT: SelectListLayoutOptions = SelectListLayoutOptions {
     min_primary_column_width: Some(12),
@@ -15,25 +14,21 @@ const THEME_SELECT_LIST_LAYOUT: SelectListLayoutOptions = SelectListLayoutOption
     truncate_primary: None,
 };
 
-/// Theme selector with preview on selection change.
+/// Theme selector with a live preview on selection change.
 pub struct ThemeSelectorComponent {
-    top_border: DynamicBorder,
-    select_list: SelectList,
-    bottom_border: DynamicBorder,
+    container: Container,
+    select_list: ComponentRef,
 }
 
 impl ThemeSelectorComponent {
-    /// `getAvailableThemes()` is supplied by the caller because the theme
-    /// registry lives in the interactive theme slice.
     pub fn new(
-        themes: &[String],
         current_theme: &str,
         on_select: Rc<dyn Fn(String)>,
         on_cancel: Rc<dyn Fn()>,
         on_preview: Rc<dyn Fn(String)>,
-        theme: Arc<Theme>,
     ) -> Self {
-        let items: Vec<SelectItem> = themes
+        let themes = get_available_themes();
+        let theme_items: Vec<SelectItem> = themes
             .iter()
             .map(|name| {
                 let item = SelectItem::new(name.clone(), name.clone());
@@ -45,43 +40,39 @@ impl ThemeSelectorComponent {
             })
             .collect();
 
-        let mut select_list = SelectList::new(items, 10, get_select_list_theme(), THEME_SELECT_LIST_LAYOUT);
-        if let Some(current_index) = themes.iter().position(|name| name == current_theme) {
-            select_list.set_selected_index(current_index as isize);
+        let mut container = Container::new();
+        container.add_child(component(dynamic_border()));
+
+        let mut select_list = SelectList::new(theme_items, 10, get_select_list_theme(), THEME_SELECT_LIST_LAYOUT);
+        if let Some(index) = themes.iter().position(|name| name == current_theme) {
+            select_list.set_selected_index(index as isize);
         }
         select_list.on_select = Some(Rc::new(move |item: &SelectItem| on_select(item.value.clone())));
         select_list.on_cancel = Some(on_cancel);
         select_list.on_selection_change = Some(Rc::new(move |item: &SelectItem| on_preview(item.value.clone())));
 
-        Self {
-            top_border: dynamic_border(&theme),
-            select_list,
-            bottom_border: dynamic_border(&theme),
-        }
+        let select_list = component(select_list);
+        container.add_child(Rc::clone(&select_list));
+        container.add_child(component(dynamic_border()));
+
+        Self { container, select_list }
     }
 
-    pub fn select_list(&self) -> &SelectList {
-        &self.select_list
-    }
-
-    pub fn select_list_mut(&mut self) -> &mut SelectList {
-        &mut self.select_list
+    pub fn get_select_list(&self) -> ComponentRef {
+        Rc::clone(&self.select_list)
     }
 }
 
 impl Component for ThemeSelectorComponent {
     fn render(&mut self, width: usize) -> Vec<String> {
-        let mut lines = self.top_border.render(width);
-        lines.extend(self.select_list.render(width));
-        lines.extend(self.bottom_border.render(width));
-        lines
+        self.container.render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
-        self.select_list.handle_input(data);
+    fn wants_input(&self) -> bool {
+        false
     }
 
     fn invalidate(&mut self) {
-        self.select_list.invalidate();
+        self.container.invalidate();
     }
 }

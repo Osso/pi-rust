@@ -1,4 +1,4 @@
-//! Ported `coding-agent/src/modes/interactive` modules other than `interactive-mode.ts`.
+//! Ported from `packages/coding-agent/src/modes/interactive/`.
 
 pub mod components;
 pub mod external_editor;

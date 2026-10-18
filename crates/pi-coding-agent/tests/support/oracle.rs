@@ -23,6 +23,7 @@ pub(crate) struct TsOracle {
 }
 
 impl TsOracle {
+    #[allow(dead_code)]
     pub(crate) fn spawn(oracle_filename: &str, source_module: &str) -> Self {
         Self::spawn_with_environment(oracle_filename, source_module, &[])
     }
