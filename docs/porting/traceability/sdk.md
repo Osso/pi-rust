@@ -21,7 +21,8 @@ Rust: `crates/pi-coding-agent/src/core/sdk.rs`.
 - `DefaultResourceLoader` is created and reloaded when `resourceLoader` is omitted;
   `extensionFactories` and `rulesScope` are forwarded.
 - Persisted sandbox profile, model, and thinking level are restored from control-db
-  metadata before model selection.
+  metadata before model selection; control-db read failures propagate instead of
+  being dropped.
 - `streamFn` wires settings timeouts, provider retry, attribution headers, and the
   provider-retry notifier; `convertToLlm` honors `images.blockImages`.
 - `extensions_result` comes from the resource loader.

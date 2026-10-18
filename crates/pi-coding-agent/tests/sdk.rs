@@ -59,8 +59,12 @@ async fn create_agent_session_uses_explicit_model_and_persists_prompt() {
         faux_assistant_message("hello", FauxAssistantMessageOptions::default()).into(),
     ]);
     let session_dir = temp.path().join("sessions").display().to_string();
-    let session_manager =
+    let mut session_manager =
         SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let control_db = temp.path().join("control.db").display().to_string();
+    session_manager
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(temp.path().display().to_string()),
         agent_dir: Some(temp.path().display().to_string()),
@@ -102,8 +106,12 @@ async fn create_agent_session_keeps_running_without_models() {
     .await
     .expect("runtime");
     let session_dir = temp.path().join("sessions").display().to_string();
-    let session_manager =
+    let mut session_manager =
         SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let control_db = temp.path().join("control.db").display().to_string();
+    session_manager
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(temp.path().display().to_string()),
         agent_dir: Some(temp.path().display().to_string()),
@@ -154,8 +162,12 @@ async fn services_and_from_services_create_a_working_session() {
     .await
     .expect("services");
     let session_dir = temp.path().join("sessions").display().to_string();
-    let session_manager =
+    let mut session_manager =
         SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let control_db = temp.path().join("control.db").display().to_string();
+    session_manager
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
     let result = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
         services,
         session_manager,
@@ -186,8 +198,12 @@ async fn excluded_tools_are_removed_from_initial_active_names() {
     let runtime = faux_runtime(&faux).await;
     let model = faux.get_model(None).expect("model");
     let session_dir = temp.path().join("sessions").display().to_string();
-    let session_manager =
+    let mut session_manager =
         SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let control_db = temp.path().join("control.db").display().to_string();
+    session_manager
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(temp.path().display().to_string()),
         agent_dir: Some(temp.path().display().to_string()),

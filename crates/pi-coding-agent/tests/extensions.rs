@@ -1904,7 +1904,9 @@ async fn context_session_manager_is_the_live_shared_handle() {
         pi_coding_agent::core::session_manager::SessionManager::create(&cwd, Some(&session_dir), None)
             .expect("session manager"),
     ));
-    lock_session_manager(&manager).set_metadata_control_db_path(Some(&control_db), Default::default());
+    lock_session_manager(&manager)
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
     let runner = support::runner_for_session(
         &cwd,
         support::runtime(),
@@ -1917,10 +1919,14 @@ async fn context_session_manager_is_the_live_shared_handle() {
 
     {
         let mut extension_manager = lock_session_manager(&extension_handle);
-        extension_manager.set_session_goal_json("{\"objective\":\"shared\"}");
+        extension_manager
+            .set_session_goal_json("{\"objective\":\"shared\"}")
+            .expect("extension goal write");
     }
     assert_eq!(
-        lock_session_manager(&manager).get_session_goal_json(),
+        lock_session_manager(&manager)
+            .get_session_goal_json()
+            .expect("session goal read"),
         Some("{\"objective\":\"shared\"}".to_owned())
     );
 
