@@ -488,7 +488,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/compaction/utils.ts` | 198 | 14 | todo |  |  |
 | `coding-agent/src/core/defaults.ts` | 3 | 14 | done | `crates/pi-coding-agent/src/core/defaults.rs` | `DEFAULT_THINKING_LEVEL = medium` reuses `pi-agent-core` `ThinkingLevel`. |
 | `coding-agent/src/core/messages.ts` | 212 | 14 | done | `crates/pi-coding-agent/src/core/messages.rs` | Re-exports `pi-agent-core` harness messages and adds `is_cut_point_message`; `tests/messages.rs` |
-| `coding-agent/src/core/runtime-message-markers.ts` | 36 | 14 | todo |  |  |
+| `coding-agent/src/core/runtime-message-markers.ts` | 36 | 14 | partial | `crates/pi-coding-agent/src/core/runtime_message_markers.rs` | Marker literals + predicates; WeakMap identity replaced by an explicit stored marker (recorded deviation) ([traceability](traceability/runtime-message-markers.md)). |
 | `coding-agent/src/core/settings-manager.ts` | 1442 | 14 | done | `crates/pi-coding-agent/src/core/settings_manager.rs` | Global/project storage with the shared lock protocol, migrations, typed accessors, field-scoped persistence; differential `coding-agent-settings-manager-oracle.ts` (10 scenarios, file bytes). Synchronous writes documented. |
 | `coding-agent/src/core/detached-job-runner.ts` | 167 | 15 | todo |  |  |
 | `coding-agent/src/core/multi-agent-store.ts` | 1387 | 15 | done | `crates/pi-coding-agent/src/core/multi_agent_store.rs` | Store, subscriptions, persistence, projections; 23 behavioral tests + 28-step differential oracle. |
@@ -638,7 +638,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/cli/credential-print.ts` | 87 | 22 | done | `crates/pi-coding-agent/src/cli/credential_print.rs` | Provider/model selection, credential-type filtering, exact error messages; 8 boundary tests ([traceability](traceability/credential-print.md)). |
 | `coding-agent/src/cli/initial-message.ts` | 43 | 22 | done | `crates/pi-coding-agent/src/cli/initial_message.rs` | stdin/@file/first-message assembly with message shift; 4 tests ([traceability](traceability/initial-message.md)). |
 | `coding-agent/src/cli/list-extensions.ts` | 113 | 22 | todo |  |  |
-| `coding-agent/src/cli/list-tools.ts` | 91 | 22 | todo |  |  |
+| `coding-agent/src/cli/list-tools.ts` | 91 | 22 | done | `crates/pi-coding-agent/src/cli/list_tools.rs` | Source labels, UTF-16 truncation, sorted table; 4-case byte-level differential ([traceability](traceability/list-tools.md)). |
 | `coding-agent/src/cli/project-trust.ts` | 62 | 22 | todo |  |  |
 | `coding-agent/src/cli/resident-console-command.ts` | 200 | 22 | todo |  |  |
 | `coding-agent/src/core/agent-session-runtime.ts` | 576 | 22 | todo |  |  |
@@ -706,7 +706,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/package-manager-cli.ts` | 889 | 22 | partial | `crates/pi-coding-agent/src/package_manager_cli.rs` | Argv parsing, help/usage, validation output/exit codes, list formatting (differential). Execution half returns `PackageAction`; blocked on settings/resource-loader/model-runtime/TUI wiring. |
 | `coding-agent/src/supervisor/approval-reviewer.ts` | 19 | 22 | todo |  |  |
 | `coding-agent/src/supervisor/main.ts` | 436 | 22 | todo |  |  |
-| `coding-agent/src/supervisor/response-tool.ts` | 48 | 22 | todo |  |  |
+| `coding-agent/src/supervisor/response-tool.ts` | 48 | 22 | done | `crates/pi-coding-agent/src/supervisor/response_tool.rs` | Tool metadata/schema and advisory text; 8-case differential ([traceability](traceability/supervisor-response-tool.md)). |
 | `coding-agent/extensions/agents-core/src/parent-agent-journal.ts` | 110 | 23 | todo |  |  |
 | `coding-agent/src/cli.ts` | 25 | 23 | todo |  |  |
 | `coding-agent/src/cli/experimental/command-options.ts` | 38 | 23 | done | `crates/pi-coding-agent/src/cli/experimental/command_options.rs` | Auth/transport options, legacy option errors, unsupported-capability messages ([traceability](traceability/experimental-cli.md)). |
