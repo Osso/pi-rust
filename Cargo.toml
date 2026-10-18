@@ -26,6 +26,5 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
-
 [workspace.lints.rust]
 unsafe_code = "forbid"
