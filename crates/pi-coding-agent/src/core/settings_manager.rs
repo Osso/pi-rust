@@ -84,7 +84,7 @@ impl std::fmt::Display for SettingsFailure {
 impl std::error::Error for SettingsFailure {}
 
 /// A storage backend addressed by settings scope.
-pub trait SettingsStorage {
+pub trait SettingsStorage: Send {
     /// Runs `apply` under the scope's lock and writes the returned text when present.
     fn with_lock(
         &mut self,
@@ -356,7 +356,7 @@ pub struct AgentProfileSettings {
     pub tools: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PackageFilter {
     pub source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -376,6 +376,22 @@ pub struct PackageFilter {
 pub enum PackageSource {
     Name(String),
     Filter(PackageFilter),
+}
+
+impl PackageSource {
+    pub fn source(&self) -> &str {
+        match self {
+            Self::Name(source) => source,
+            Self::Filter(filter) => &filter.source,
+        }
+    }
+
+    pub fn filter(&self) -> Option<&PackageFilter> {
+        match self {
+            Self::Name(_) => None,
+            Self::Filter(filter) => Some(filter),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

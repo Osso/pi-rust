@@ -17,9 +17,12 @@ mark_path_ignored_by_cloud_sync}`, `core::pi_manifest::read_pi_manifest`,
 TypeScript `SettingsManager`. The trait exposes exactly the members this module
 uses: `getGlobalSettings`/`getProjectSettings` (packages, extensions, skills,
 prompts, themes), `setPackages`, `setProjectPackages`, `isProjectTrusted`, and
-`getNpmCommand`. `PackageSource`/`PackageFilter` are the settings wire shapes and
-must be shared with the settings-manager port; they are defined here because
-`package-manager.ts` owns their behaviour.
+`getNpmCommand`. `PackageSource`/`PackageFilter` are re-exported from the ported
+`core::settings_manager` (single definition; `source()`/`filter()` accessors live
+there). `SettingsManagerStore` adapts the real `SettingsManager` through a mutex
+so the package manager can keep `&self` methods; the settings module's
+`SettingsStorage` gained a `Send` bound for that adapter. The trait remains so
+tests can use in-memory fakes.
 
 ## Exported symbols
 
@@ -103,7 +106,7 @@ must be shared with the settings-manager port; they are defined here because
 
 ## Proof
 
-- `cargo test -p pi-coding-agent --test package_manager` (29 tests)
+- `cargo test -p pi-coding-agent --test package_manager` (30 tests)
 - `cargo test -p pi-coding-agent --test package_manager_git` (7 passed, 2 ignored probes)
 - `cargo test -p pi-coding-agent --test differential_package_manager` (12 tests)
 - `cargo clippy -p pi-coding-agent --all-targets -- -D warnings`

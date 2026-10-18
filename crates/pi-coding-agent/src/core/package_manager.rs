@@ -34,6 +34,7 @@ use tokio::process::Child;
 use crate::config;
 use crate::core::output_guard::is_stdout_taken_over;
 use crate::core::pi_manifest::{PiManifest, read_pi_manifest};
+use crate::core::settings_manager::{Settings, SettingsManager};
 use crate::utils::git::{GitSource, parse_git_url};
 use crate::utils::js_json;
 use crate::utils::paths::{
@@ -207,56 +208,7 @@ pub struct ConfiguredPackage {
     pub installed_path: Option<String>,
 }
 
-/// A configured package: plain string or filtered object (`PackageSource`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum PackageSource {
-    Plain(String),
-    Filtered(PackageFilter),
-}
-
-impl PackageSource {
-    pub fn source(&self) -> &str {
-        match self {
-            Self::Plain(source) => source,
-            Self::Filtered(filter) => &filter.source,
-        }
-    }
-
-    pub fn filter(&self) -> Option<&PackageFilter> {
-        match self {
-            Self::Plain(_) => None,
-            Self::Filtered(filter) => Some(filter),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PackageFilter {
-    pub source: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub autoload: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extensions: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub skills: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompts: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub themes: Option<Vec<String>>,
-}
-
-impl PackageFilter {
-    fn patterns(&self, resource_type: ResourceType) -> Option<&Vec<String>> {
-        match resource_type {
-            ResourceType::Extensions => self.extensions.as_ref(),
-            ResourceType::Skills => self.skills.as_ref(),
-            ResourceType::Prompts => self.prompts.as_ref(),
-            ResourceType::Themes => self.themes.as_ref(),
-        }
-    }
-}
+pub use crate::core::settings_manager::{PackageFilter, PackageSource};
 
 /// Settings snapshot consumed by package resolution.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -291,6 +243,76 @@ pub trait PackageSettingsStore: Send + Sync {
 
 pub type MissingSourceHandler<'a> =
     Box<dyn Fn(String) -> BoxFuture<'a, Result<MissingSourceAction, PackageManagerError>> + Send + Sync + 'a>;
+/// Adapter from the ported settings manager to [`PackageSettingsStore`].
+///
+/// The settings manager owns mutable state; the package manager only needs
+/// `&self` access, so the adapter serializes access through a mutex.
+pub struct SettingsManagerStore {
+    manager: Mutex<SettingsManager>,
+}
+
+impl SettingsManagerStore {
+    pub fn new(manager: SettingsManager) -> Self {
+        Self {
+            manager: Mutex::new(manager),
+        }
+    }
+
+    pub fn with<T>(&self, operation: impl FnOnce(&mut SettingsManager) -> T) -> T {
+        let mut manager = self.manager.lock().unwrap();
+        operation(&mut manager)
+    }
+}
+
+impl PackageSettingsStore for SettingsManagerStore {
+    fn global_settings(&self) -> PackageSettingsSnapshot {
+        self.with(|manager| snapshot_from_settings(&manager.get_global_settings()))
+    }
+
+    fn project_settings(&self) -> PackageSettingsSnapshot {
+        self.with(|manager| snapshot_from_settings(&manager.get_project_settings()))
+    }
+
+    fn set_packages(&self, packages: Vec<PackageSource>) {
+        self.with(|manager| manager.set_packages(packages));
+    }
+
+    fn set_project_packages(&self, packages: Vec<PackageSource>) {
+        let _ = self.with(|manager| manager.set_project_packages(packages));
+    }
+
+    fn is_project_trusted(&self) -> bool {
+        self.with(|manager| manager.is_project_trusted())
+    }
+
+    fn get_npm_command(&self) -> Option<Vec<String>> {
+        self.with(|manager| manager.get_npm_command())
+    }
+}
+
+fn snapshot_from_settings(settings: &Settings) -> PackageSettingsSnapshot {
+    // Typed API: entries that do not match the wire shape are ignored instead of
+    // reproducing JavaScript runtime type errors.
+    let packages = settings
+        .get("packages")
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
+        .unwrap_or_default();
+    PackageSettingsSnapshot {
+        packages,
+        extensions: string_list(settings, "extensions"),
+        skills: string_list(settings, "skills"),
+        prompts: string_list(settings, "prompts"),
+        themes: string_list(settings, "themes"),
+    }
+}
+
+fn string_list(settings: &Settings, key: &str) -> Vec<String> {
+    settings
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|entries| entries.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct NpmSource {
@@ -414,6 +436,15 @@ fn to_resolved(entries: ResourceMap) -> Vec<ResolvedResource> {
     let mut seen = HashSet::new();
     resolved.retain(|resource| seen.insert(canonicalize_path(&resource.path)));
     resolved
+}
+
+fn filter_patterns(filter: &PackageFilter, resource_type: ResourceType) -> Option<&Vec<String>> {
+    match resource_type {
+        ResourceType::Extensions => filter.extensions.as_ref(),
+        ResourceType::Skills => filter.skills.as_ref(),
+        ResourceType::Prompts => filter.prompts.as_ref(),
+        ResourceType::Themes => filter.themes.as_ref(),
+    }
 }
 
 fn resource_precedence_rank(metadata: &PathMetadata) -> u8 {
@@ -1374,8 +1405,8 @@ impl DefaultPackageManager {
             }
             let mut next_packages = current_packages.clone();
             next_packages[index] = match existing {
-                PackageSource::Plain(_) => PackageSource::Plain(normalized_source),
-                PackageSource::Filtered(filter) => PackageSource::Filtered(PackageFilter {
+                PackageSource::Name(_) => PackageSource::Name(normalized_source),
+                PackageSource::Filter(filter) => PackageSource::Filter(PackageFilter {
                     source: normalized_source,
                     ..filter.clone()
                 }),
@@ -1385,7 +1416,7 @@ impl DefaultPackageManager {
         }
 
         let mut next_packages = current_packages;
-        next_packages.push(PackageSource::Plain(normalized_source));
+        next_packages.push(PackageSource::Name(normalized_source));
         self.set_packages_for_scope(scope, next_packages);
         Ok(true)
     }
@@ -1530,7 +1561,7 @@ impl DefaultPackageManager {
         };
         let package_sources: Vec<(PackageSource, SourceScope)> = sources
             .iter()
-            .map(|source| (PackageSource::Plain(source.clone()), scope))
+            .map(|source| (PackageSource::Name(source.clone()), scope))
             .collect();
         self.resolve_package_sources(&package_sources, &mut accumulator, None)
             .await?;
@@ -3019,7 +3050,7 @@ impl DefaultPackageManager {
     ) -> bool {
         if let Some(filter) = filter {
             for resource_type in ResourceType::ALL {
-                let patterns = filter.patterns(resource_type);
+                let patterns = filter_patterns(filter, resource_type);
                 if filter.autoload == Some(false) {
                     self.apply_package_delta_filter(
                         package_root,

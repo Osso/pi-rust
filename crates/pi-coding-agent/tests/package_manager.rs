@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use pi_coding_agent::core::package_manager::{
     DefaultPackageManager, PackageFilter, PackageSettingsSnapshot, PackageSettingsStore, PackageSource, ParsedSource,
-    SourceScope,
+    SettingsManagerStore, SourceScope,
 };
 use serde_json::json;
 use tempfile::TempDir;
@@ -105,7 +105,7 @@ impl Fixture {
         )
     }
 
-    fn manager_with(&self, settings: Arc<FakeSettings>) -> DefaultPackageManager {
+    fn manager_with(&self, settings: Arc<dyn PackageSettingsStore>) -> DefaultPackageManager {
         DefaultPackageManager::new(self.cwd.to_str().unwrap(), self.agent_dir.to_str().unwrap(), settings)
     }
 
@@ -312,7 +312,7 @@ fn manifest_globs_and_overrides_control_package_resources() {
     .unwrap();
 
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Plain("./pkg".to_owned())]),
+        snapshot(vec![PackageSource::Name("./pkg".to_owned())]),
         Default::default(),
         false,
     );
@@ -343,11 +343,7 @@ fn package_filters_apply_on_top_of_manifest_filters() {
         extensions: Some(vec!["!extensions/b.ts".to_owned()]),
         ..PackageFilter::default()
     };
-    let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Filtered(filter)]),
-        Default::default(),
-        false,
-    );
+    let settings = FakeSettings::new(snapshot(vec![PackageSource::Filter(filter)]), Default::default(), false);
     let manager = fixture.manager(settings);
 
     let resolved = futures_block(manager.resolve(None)).unwrap();
@@ -372,8 +368,8 @@ fn autoload_disabled_project_entry_is_a_delta_over_the_global_package() {
         ..PackageFilter::default()
     };
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Plain(shared)]),
-        snapshot(vec![PackageSource::Filtered(filter)]),
+        snapshot(vec![PackageSource::Name(shared)]),
+        snapshot(vec![PackageSource::Filter(filter)]),
         true,
     );
     let manager = fixture.manager(settings);
@@ -393,8 +389,8 @@ fn dedupes_project_and_global_packages_with_project_winning() {
     fs::write(package_dir.join("extensions/one.ts"), "x").unwrap();
     let shared = package_dir.to_string_lossy().into_owned();
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Plain(shared.clone())]),
-        snapshot(vec![PackageSource::Plain(shared)]),
+        snapshot(vec![PackageSource::Name(shared.clone())]),
+        snapshot(vec![PackageSource::Name(shared)]),
         true,
     );
     let manager = fixture.manager(settings);
@@ -586,7 +582,7 @@ fn gitignore_files_filter_package_resources_but_not_pi_auto_discovery() {
     fixture.write(".pi/prompts/kept.md", "kept");
 
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Plain("./pkg".to_owned())]),
+        snapshot(vec![PackageSource::Name("./pkg".to_owned())]),
         Default::default(),
         true,
     );
@@ -617,7 +613,7 @@ fn installed_npm_packages_resolve_from_the_managed_root() {
         &json!({"name": "my-pkg", "version": "1.0.0"}).to_string(),
     );
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Plain("npm:my-pkg".to_owned())]),
+        snapshot(vec![PackageSource::Name("npm:my-pkg".to_owned())]),
         Default::default(),
         false,
     );
@@ -826,22 +822,22 @@ fn add_and_remove_sources_normalizes_local_paths() {
     assert!(manager.add_source_to_settings("./local", false).unwrap());
     assert_eq!(
         settings.global_settings().packages,
-        vec![PackageSource::Plain("../project/local".to_owned())]
+        vec![PackageSource::Name("../project/local".to_owned())]
     );
     assert!(!manager.add_source_to_settings("./local", false).unwrap());
     assert!(manager.add_source_to_settings("npm:left-pad", false).unwrap());
     assert_eq!(
         settings.global_settings().packages,
         vec![
-            PackageSource::Plain("../project/local".to_owned()),
-            PackageSource::Plain("npm:left-pad".to_owned()),
+            PackageSource::Name("../project/local".to_owned()),
+            PackageSource::Name("npm:left-pad".to_owned()),
         ]
     );
 
     assert!(manager.remove_source_from_settings("npm:left-pad@1.2.3", false));
     assert_eq!(
         settings.global_settings().packages,
-        vec![PackageSource::Plain("../project/local".to_owned())]
+        vec![PackageSource::Name("../project/local".to_owned())]
     );
     assert!(!manager.remove_source_from_settings("npm:unknown", false));
 }
@@ -855,7 +851,7 @@ fn replaces_a_filtered_source_while_keeping_its_filters() {
         ..PackageFilter::default()
     };
     let settings = Arc::new(FakeSettings::new(
-        snapshot(vec![PackageSource::Filtered(filter)]),
+        snapshot(vec![PackageSource::Filter(filter)]),
         Default::default(),
         false,
     ));
@@ -863,7 +859,7 @@ fn replaces_a_filtered_source_while_keeping_its_filters() {
 
     assert!(manager.add_source_to_settings("npm:left-pad@2.0.0", false).unwrap());
     let packages = settings.global_settings().packages;
-    let PackageSource::Filtered(filter) = &packages[0] else {
+    let PackageSource::Filter(filter) = &packages[0] else {
         panic!("filtered source expected");
     };
     assert_eq!(filter.source, "npm:left-pad@2.0.0");
@@ -876,10 +872,10 @@ fn lists_configured_packages_with_installed_paths() {
     fixture.write_agent("npm/node_modules/user-pkg/package.json", "{\"version\":\"1.0.0\"}");
     let settings = FakeSettings::new(
         snapshot(vec![
-            PackageSource::Plain("npm:user-pkg".to_owned()),
-            PackageSource::Plain("npm:user-missing".to_owned()),
+            PackageSource::Name("npm:user-pkg".to_owned()),
+            PackageSource::Name("npm:user-missing".to_owned()),
         ]),
-        snapshot(vec![PackageSource::Filtered(PackageFilter {
+        snapshot(vec![PackageSource::Filter(PackageFilter {
             source: "npm:project-pkg".to_owned(),
             ..PackageFilter::default()
         })]),
@@ -928,8 +924,8 @@ exit 0
     );
     let settings = FakeSettings::new(
         snapshot(vec![
-            PackageSource::Plain("npm:old-pkg".to_owned()),
-            PackageSource::Plain("npm:pinned@1.0.0".to_owned()),
+            PackageSource::Name("npm:old-pkg".to_owned()),
+            PackageSource::Name("npm:pinned@1.0.0".to_owned()),
         ]),
         Default::default(),
         false,
@@ -957,7 +953,7 @@ exit 0
 fn update_reports_missing_sources_with_suggestions() {
     let fixture = Fixture::new();
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Plain("npm:left-pad".to_owned())]),
+        snapshot(vec![PackageSource::Name("npm:left-pad".to_owned())]),
         Default::default(),
         false,
     );
@@ -989,10 +985,10 @@ exit 0
     );
     let settings = FakeSettings::new(
         snapshot(vec![
-            PackageSource::Plain("npm:old-pkg".to_owned()),
-            PackageSource::Plain("npm:current@2.0.0".to_owned()),
-            PackageSource::Plain("npm:absent".to_owned()),
-            PackageSource::Plain("npm:pinned@1.0.0".to_owned()),
+            PackageSource::Name("npm:old-pkg".to_owned()),
+            PackageSource::Name("npm:current@2.0.0".to_owned()),
+            PackageSource::Name("npm:absent".to_owned()),
+            PackageSource::Name("npm:pinned@1.0.0".to_owned()),
         ]),
         Default::default(),
         false,
@@ -1030,4 +1026,43 @@ fn futures_block<F: std::future::Future>(future: F) -> F::Output {
         .build()
         .unwrap()
         .block_on(future)
+}
+
+#[test]
+fn settings_manager_store_adapts_the_ported_settings_manager() {
+    use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
+
+    let mut settings = serde_json::Map::new();
+    settings.insert("packages".to_owned(), json!(["npm:my-pkg"]));
+    settings.insert("extensions".to_owned(), json!(["extensions"]));
+    settings.insert("npmCommand".to_owned(), json!(["mise", "exec", "node@20", "--", "npm"]));
+    let settings_manager = SettingsManager::in_memory(
+        settings,
+        SettingsManagerCreateOptions {
+            project_trusted: Some(false),
+        },
+    );
+    let store = Arc::new(SettingsManagerStore::new(settings_manager));
+    let fixture = Fixture::new();
+    let manager = fixture.manager_with(store.clone());
+
+    assert!(manager.add_source_to_settings("npm:left-pad", false).unwrap());
+    assert_eq!(
+        store.with(|settings_manager| settings_manager.get_packages().unwrap()),
+        vec![
+            PackageSource::Name("npm:my-pkg".to_owned()),
+            PackageSource::Name("npm:left-pad".to_owned()),
+        ]
+    );
+    assert_eq!(
+        store.with(|manager| manager.get_npm_command()),
+        Some(vec![
+            "mise".to_owned(),
+            "exec".to_owned(),
+            "node@20".to_owned(),
+            "--".to_owned(),
+            "npm".to_owned()
+        ])
+    );
+    assert!(!manager.list_configured_packages().is_empty());
 }
