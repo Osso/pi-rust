@@ -151,6 +151,12 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
             SessionManager::create(&cwd, Some(&session_dir), None).map_err(|error| error.to_string())?
         }
     };
+    let persisted_settings = session_manager.read_persisted_session_settings();
+    lock(&settings_manager).set_session_sandbox_profile(
+        persisted_settings
+            .as_ref()
+            .and_then(|settings| settings.sandbox_profile),
+    );
     let resource_loader = options
         .resource_loader
         .clone()
@@ -162,20 +168,27 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
     let mut model = options.model.clone();
     let mut model_fallback_message: Option<String> = None;
 
+    let saved_model = persisted_settings
+        .as_ref()
+        .and_then(|settings| settings.model.as_ref())
+        .map(|model| (model.provider.clone(), model.model_id.clone()))
+        .or_else(|| {
+            existing_session
+                .model
+                .as_ref()
+                .map(|model| (model.provider.clone(), model.model_id.clone()))
+        });
     if model.is_none()
-        && let Some(saved_model) = existing_session.model.as_ref()
+        && let Some((saved_provider, saved_model_id)) = saved_model
     {
-        let restored = model_runtime.get_model(&saved_model.provider, &saved_model.model_id);
+        let restored = model_runtime.get_model(&saved_provider, &saved_model_id);
         if let Some(restored) = restored
             && model_runtime.has_configured_auth(&restored.provider)
         {
             model = Some(restored);
         }
         if model.is_none() {
-            model_fallback_message = Some(format!(
-                "Could not restore model {}/{}",
-                saved_model.provider, saved_model.model_id
-            ));
+            model_fallback_message = Some(format!("Could not restore model {saved_provider}/{saved_model_id}"));
         }
     }
 
@@ -204,8 +217,13 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
     }
 
     let default_thinking_level = lock(&settings_manager).get_default_thinking_level();
+    let persisted_thinking_level = persisted_settings
+        .as_ref()
+        .and_then(|settings| settings.thinking_level.as_ref())
+        .and_then(|level| serde_json::from_value::<ThinkingLevel>(serde_json::json!(level)).ok());
     let mut thinking_level = options
         .thinking_level
+        .or(persisted_thinking_level)
         .or(default_thinking_level)
         .unwrap_or(DEFAULT_THINKING_LEVEL);
     thinking_level = match &model {

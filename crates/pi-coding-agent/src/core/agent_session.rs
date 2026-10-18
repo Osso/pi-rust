@@ -856,13 +856,26 @@ impl AgentSession {
             Some(Arc::clone(&config.settings_manager)),
         );
 
+        let control_db_path = {
+            let mut manager = lock(&config.session_manager);
+            let path = config
+                .control_db_path
+                .clone()
+                .or_else(|| manager.get_metadata_control_db_path().map(str::to_owned))
+                .unwrap_or_else(|| {
+                    crate::core::session_control_db::get_control_db_path(&crate::config::get_user_state_root())
+                });
+            manager.set_metadata_control_db_path(Some(&path), Default::default());
+            path
+        };
+
         let inner = Arc::new(Inner {
             agent: config.agent,
             session_manager: config.session_manager,
             settings_manager: config.settings_manager,
             cwd: config.cwd,
             agent_dir,
-            control_db_path: config.control_db_path,
+            control_db_path: Some(control_db_path),
             scoped_models: Mutex::new(config.scoped_models),
             resource_loader: config.resource_loader,
             model_runtime,
@@ -2354,6 +2367,7 @@ impl AgentSession {
         let previous_model = self.inner.agent.model();
         let thinking_level = self.get_thinking_level_for_model_switch(None);
         self.inner.agent.set_model(model.clone());
+        lock(&self.inner.session_manager).set_session_model(&model.provider, &model.id);
         lock(&self.inner.settings_manager).set_default_model_and_provider(&model.provider, &model.id);
         self.set_thinking_level(thinking_level);
         self.emit_model_select(&model, Some(&previous_model), ModelSelectSource::Set)
@@ -2444,10 +2458,11 @@ impl AgentSession {
         };
         let next = authed[current_index].clone();
         let thinking_level = self.get_thinking_level_for_model_switch(next.thinking_level);
+        let previous_model = self.inner.agent.model();
         self.inner.agent.set_model(next.model.clone());
+        lock(&self.inner.session_manager).set_session_model(&next.model.provider, &next.model.id);
         lock(&self.inner.settings_manager).set_default_model_and_provider(&next.model.provider, &next.model.id);
         self.set_thinking_level(thinking_level);
-        let previous_model = self.inner.agent.model();
         self.emit_model_select(&next.model, Some(&previous_model), ModelSelectSource::Cycle)
             .await;
         Ok(Some(ModelCycleResult {
@@ -2473,6 +2488,7 @@ impl AgentSession {
         let is_changing = effective != previous;
         self.inner.agent.set_thinking_level(effective);
         if is_changing {
+            lock(&self.inner.session_manager).set_session_thinking_level(effective.as_str());
             if self.supports_thinking() || effective != ThinkingLevel::Off {
                 lock(&self.inner.settings_manager).set_default_thinking_level(effective);
             }
@@ -2583,7 +2599,8 @@ impl AgentSession {
             messages.pop();
             self.inner.agent.set_messages(messages);
         }
-        self.inner.agent.set_model(fallback_model);
+        self.inner.agent.set_model(fallback_model.clone());
+        lock(&self.inner.session_manager).set_session_model(&fallback_model.provider, &fallback_model.id);
         true
     }
 

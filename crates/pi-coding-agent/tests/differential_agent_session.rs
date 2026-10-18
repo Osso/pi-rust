@@ -161,6 +161,7 @@ async fn run_rust(dir: &str) -> Value {
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
         settings_manager: Some(Arc::new(std::sync::Mutex::new(settings_manager))),
+        control_db_path: Some(std::path::Path::new(dir).join("control.db").display().to_string()),
         base_tools: vec![Arc::new(EndTurnTool)],
         ..Default::default()
     })

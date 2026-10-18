@@ -115,7 +115,7 @@ async fn fixture_with(
         excluded_tool_names: None,
         permission_prompt_tool: None,
         agent_dir: Some(temp_dir.path().display().to_string()),
-        control_db_path: None,
+        control_db_path: Some(temp_dir.path().join("control.db").display().to_string()),
         base_tools,
         custom_tools: Vec::<ToolDefinition>::new(),
         multi_agent_runtime_role: None,

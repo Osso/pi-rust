@@ -22,6 +22,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::config::{get_agent_dir, get_sessions_dir};
+use crate::core::session_control_db::{
+    WritableSessionMetadata, read_session_metadata, read_session_sandbox_profile, write_session_metadata,
+    write_session_model, write_session_thinking_level,
+};
 use crate::core::session_tool_output::serialize_session_entry_for_persistence;
 use crate::utils::iso_time;
 use crate::utils::paths::{PathInputOptions, normalize_path, resolve_path};
@@ -2056,6 +2060,27 @@ fn build_branch_label_entries(
 // SessionManager
 // =============================================================================
 
+/// Persisted session settings read from control-db metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PersistedSessionSettings {
+    pub model: Option<PersistedSessionModel>,
+    pub sandbox_profile: Option<crate::core::permissions::presets::SandboxProfileName>,
+    pub thinking_level: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersistedSessionModel {
+    pub provider: String,
+    pub model_id: String,
+}
+
+/// Options for [`SessionManager::set_metadata_control_db_path`].
+#[derive(Debug, Clone, Default)]
+pub struct SetMetadataControlDbPathOptions {
+    pub index_message_text: Option<bool>,
+    pub cwd_override: Option<String>,
+}
+
 /// Manages conversation sessions as append-only trees stored in JSONL files.
 #[derive(Clone)]
 pub struct SessionManager {
@@ -2072,6 +2097,8 @@ pub struct SessionManager {
     leaf_id: Option<String>,
     is_subagent: bool,
     subagent_name: Option<String>,
+    metadata_control_db_path: Option<String>,
+    index_message_text: bool,
 }
 
 impl SessionManager {
@@ -2096,6 +2123,8 @@ impl SessionManager {
             leaf_id: None,
             is_subagent: false,
             subagent_name: None,
+            metadata_control_db_path: None,
+            index_message_text: true,
         };
         if persist && !manager.session_dir.is_empty() && !Path::new(&manager.session_dir).exists() {
             fs::create_dir_all(&manager.session_dir).map_err(|error| SessionManagerError::new(error.to_string()))?;
@@ -2476,6 +2505,130 @@ impl SessionManager {
 
     pub fn get_session_file(&self) -> Option<&str> {
         self.session_file.as_deref()
+    }
+
+    pub fn get_metadata_control_db_path(&self) -> Option<&str> {
+        self.metadata_control_db_path.as_deref()
+    }
+
+    /// `readPersistedSessionSettings`.
+    pub fn read_persisted_session_settings(&self) -> Option<PersistedSessionSettings> {
+        let control_db_path = self.metadata_control_db_path.as_deref()?;
+        let session_file = self.session_file.as_deref()?;
+        let sandbox_profile = read_session_sandbox_profile(control_db_path, session_file, &self.session_id)
+            .ok()
+            .flatten();
+        let metadata = read_session_metadata(control_db_path, session_file).ok().flatten()?;
+        let model = match (metadata.model_provider, metadata.model_id) {
+            (Some(provider), Some(model_id)) => Some(PersistedSessionModel { provider, model_id }),
+            _ => None,
+        };
+        Some(PersistedSessionSettings {
+            model,
+            sandbox_profile,
+            thinking_level: metadata.thinking_level,
+        })
+    }
+
+    /// `setSessionModel`.
+    pub fn set_session_model(&mut self, provider: &str, model_id: &str) {
+        let (Some(control_db_path), Some(session_file)) =
+            (self.metadata_control_db_path.as_deref(), self.session_file.as_deref())
+        else {
+            return;
+        };
+        self.write_metadata_snapshot();
+        let _ = write_session_model(control_db_path, session_file, provider, model_id);
+    }
+
+    /// `setSessionThinkingLevel`.
+    pub fn set_session_thinking_level(&mut self, thinking_level: &str) {
+        let (Some(control_db_path), Some(session_file)) =
+            (self.metadata_control_db_path.as_deref(), self.session_file.as_deref())
+        else {
+            return;
+        };
+        self.write_metadata_snapshot();
+        let _ = write_session_thinking_level(control_db_path, session_file, thinking_level);
+    }
+
+    /// `setMetadataControlDbPath`.
+    pub fn set_metadata_control_db_path(
+        &mut self,
+        control_db_path: Option<&str>,
+        options: SetMetadataControlDbPathOptions,
+    ) {
+        self.metadata_control_db_path = control_db_path.map(str::to_owned);
+        if let Some(index_message_text) = options.index_message_text {
+            self.index_message_text = index_message_text;
+        }
+        self.restore_persisted_metadata();
+        if let Some(cwd_override) = options.cwd_override
+            && let Ok(resolved) = resolve(&cwd_override)
+        {
+            self.cwd = resolved;
+        }
+        self.write_metadata_snapshot();
+    }
+
+    fn restore_persisted_metadata(&mut self) {
+        let (Some(control_db_path), Some(session_file)) =
+            (self.metadata_control_db_path.as_deref(), self.session_file.as_deref())
+        else {
+            return;
+        };
+        let Some(metadata) = read_session_metadata(control_db_path, session_file).ok().flatten() else {
+            return;
+        };
+        if let Ok(resolved) = resolve(&metadata.cwd) {
+            self.cwd = resolved;
+        }
+        if metadata.is_subagent != Some(true) {
+            return;
+        }
+        self.is_subagent = true;
+        self.subagent_name = metadata.subagent_name;
+    }
+
+    fn write_metadata_snapshot(&self) {
+        let (Some(control_db_path), true, Some(session_file)) = (
+            self.metadata_control_db_path.as_deref(),
+            self.persist,
+            self.session_file.as_deref(),
+        ) else {
+            return;
+        };
+        let Some(FileEntry::Header(header)) = self.file_entries.first() else {
+            return;
+        };
+        let mut accumulator = SessionInfoAccumulator::default();
+        for entry in self.file_entries.iter().skip(1) {
+            if let FileEntry::Entry(entry) = entry {
+                apply_session_info_entry(&mut accumulator, entry);
+            }
+        }
+        let info = finish_session_info(session_file, header, accumulator, pi_ai::request::now_millis());
+        let metadata = WritableSessionMetadata {
+            session_path: info.path,
+            id: info.id,
+            cwd: self.cwd.clone(),
+            name: info.name,
+            parent_session_path: info.parent_session_path,
+            archived_at: None,
+            is_archived: info.is_archived,
+            is_subagent: Some(self.is_subagent),
+            subagent_name: self.subagent_name.clone(),
+            model_provider: None,
+            model_id: None,
+            thinking_level: None,
+            created_at: iso_time::format_iso_millis(info.created),
+            modified_at: iso_time::format_iso_millis(info.modified),
+            message_count: i64::try_from(info.message_count).unwrap_or(i64::MAX),
+            first_message: info.first_message,
+            all_messages_text: info.all_messages_text,
+            index_message_text: Some(self.index_message_text),
+        };
+        let _ = write_session_metadata(control_db_path, &metadata);
     }
 
     pub fn is_subagent_session(&self) -> bool {
