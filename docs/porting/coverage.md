@@ -55,7 +55,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/google-generative-ai.ts` | 521 | 1 | todo |  |  |
 | `ai/src/api/google-shared.ts` | 419 | 1 | todo |  |  |
 | `ai/src/api/google-vertex.ts` | 596 | 1 | todo |  |  |
-| `ai/src/api/lazy.ts` | 98 | 1 | todo |  |  |
+| `ai/src/api/lazy.ts` | 98 | 1 | done | `crates/pi-ai/src/api/lazy.rs` | lazy stream/api, setup errors, declared deferred capabilities; differential setup-error |
 | `ai/src/api/mistral-conversations.ts` | 931 | 1 | todo |  |  |
 | `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | todo |  |  |
 | `ai/src/api/openai-completions.ts` | 1577 | 1 | todo |  |  |
@@ -64,12 +64,12 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/pi-messages.ts` | 433 | 1 | todo |  |  |
 | `ai/src/api/simple-options.ts` | 97 | 1 | todo |  |  |
 | `ai/src/api/transform-messages.ts` | 228 | 1 | done | `crates/pi-ai/src/api/transform_messages.rs` | Cross-model thinking/tool-call normalization, image downgrade, synthetic tool results; injected clock; differential 18 scenarios. |
-| `ai/src/auth/context.ts` | 45 | 1 | todo |  |  |
-| `ai/src/auth/credential-store.ts` | 67 | 1 | todo |  |  |
-| `ai/src/auth/resolve.ts` | 205 | 1 | todo |  |  |
-| `ai/src/auth/types.ts` | 240 | 1 | todo |  |  |
-| `ai/src/models-store.ts` | 45 | 1 | todo |  |  |
-| `ai/src/models.ts` | 953 | 1 | todo |  |  |
+| `ai/src/auth/context.ts` | 45 | 1 | done | `crates/pi-ai/src/auth/context.rs` | default env/file context; env branch not unit-tested (process-global) |
+| `ai/src/auth/credential-store.ts` | 67 | 1 | done | `crates/pi-ai/src/auth/credential_store.rs` | serialized modify/delete, abort-before-run, insertion-order list |
+| `ai/src/auth/resolve.ts` | 205 | 1 | done | `crates/pi-ai/src/auth/resolve.rs` | stored/ambient resolution, locked OAuth refresh, ModelsError codes; differential auth cases |
+| `ai/src/auth/types.ts` | 240 | 1 | done | `crates/pi-ai/src/auth/types.rs` | credentials, traits, prompts/events; OAuth extra keys preserved |
+| `ai/src/models-store.ts` | 45 | 1 | done | `crates/pi-ai/src/models_store.rs` | clone semantics, cancellation, timestamp wire shape |
+| `ai/src/models.ts` | 953 | 1 | done | `crates/pi-ai/src/models.rs` | providers/models, refresh generations+publication chains, auth application, login/logout, deferred, cost/thinking helpers; differential cost/thinking/refresh/apply-auth |
 | `ai/src/types.ts` | 846 | 1 | partial | `pi-ai/src/types.rs` | data contracts done; option/callback interfaces → provider runtime slice |
 | `ai/src/utils/deferred-tools.ts` | 39 | 1 | done | `crates/pi-ai/src/utils/deferred_tools.rs` | Immediate/deferred split with insertion order; differential 6 requests. |
 | `ai/src/utils/estimate.ts` | 143 | 1 | done | `crates/pi-ai/src/utils/estimate.rs` | Context/message/tool estimation, UTF-16 lengths, added-tool accounting; differential 10 requests. |
@@ -89,7 +89,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/openai-responses.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/openrouter-images.ts` | 196 | 2 | todo |  |  |
 | `ai/src/api/pi-messages.lazy.ts` | 4 | 2 | todo |  |  |
-| `ai/src/auth/helpers.ts` | 59 | 2 | todo |  |  |
+| `ai/src/auth/helpers.ts` | 59 | 2 | done | `crates/pi-ai/src/auth/helpers.rs` | env api-key auth and lazy OAuth loading |
 | `ai/src/auth/oauth/anthropic.ts` | 364 | 2 | todo |  |  |
 | `ai/src/auth/oauth/kimi-coding.ts` | 310 | 2 | todo |  |  |
 | `ai/src/auth/oauth/load.ts` | 68 | 2 | todo |  |  |
@@ -106,7 +106,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/model-types.ts` | 273 | 2 | done | `crates/pi-ai/src/types.rs` | Type-only module; all interfaces mapped to existing `types.rs` items, no new code. |
 | `ai/src/providers/cloudflare-auth.ts` | 103 | 2 | todo |  |  |
 | `ai/src/providers/cloudflare-stream.ts` | 28 | 2 | todo |  |  |
-| `ai/src/providers/faux.ts` | 708 | 2 | todo |  |  |
+| `ai/src/providers/faux.ts` | 708 | 2 | done | `crates/pi-ai/src/providers/faux.rs` | deterministic faux streams, usage/cache estimation, abort, deferred; differential fixed-chunk scenarios |
 | `ai/src/providers/radius-config.ts` | 96 | 2 | todo |  |  |
 | `ai/src/utils/overflow.ts` | 181 | 2 | done | `crates/pi-ai/src/utils/overflow.rs` | 26 overflow patterns, non-overflow exclusions, silent and length-stop overflow; differential 40 checks + pattern matrix. |
 | `ai/src/utils/retry.ts` | 253 | 2 | done | `crates/pi-ai/src/utils/retry.rs` | Exact classifier plus async backoff/cancellation/callbacks; differential 45 classifications + 10 scripted loops. |
