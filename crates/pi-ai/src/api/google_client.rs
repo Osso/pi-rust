@@ -19,18 +19,23 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use crate::api::google_shared::{GoogleRequestError, is_thinking_part, map_stop_reason, retain_thought_signature};
+use crate::api::google_shared::{
+    GoogleRequestError, GoogleRetryOptions, is_thinking_part, map_stop_reason, retain_thought_signature,
+    retry_google_request,
+};
+use crate::http::default_fetch;
 use crate::models::calculate_cost;
 use crate::request::{Fetch, HttpBody, HttpRequest, HttpResponse};
 use crate::types::{
-    AssistantContent, AssistantMessage, AssistantMessageEvent, Model, ProviderEnv, ProviderHeaders, StopReason,
-    TextContent, ThinkingContent, ToolCall, Usage, UsageCost,
+    AssistantContent, AssistantMessage, AssistantMessageEvent, DoneReason, Model, ProviderEnv, ProviderHeaders,
+    StopReason, TextContent, ThinkingContent, ToolCall, Usage, UsageCost,
 };
 use crate::utils::event_stream::AssistantMessageEventSender;
 use crate::utils::headers::provider_headers_to_record;
 use crate::utils::provider_env::get_provider_env_value;
 
 const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+const JWT_LIFETIME_SECONDS: i64 = 3600;
 const VERTEX_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const SDK_USER_AGENT: &str = "google-genai-sdk/1.52.0";
 const GOOGLE_AI_DEFAULT_API_VERSION: &str = "v1beta";
@@ -186,7 +191,7 @@ impl GoogleClient {
     pub fn generative_ai(model: &Model, api_key: &str, option_headers: Option<&ProviderHeaders>) -> Self {
         let (base_url, api_version) = if !model.base_url.is_empty() {
             (model.base_url.clone(), String::new())
-        } else if let Some(base_url) = process_env_value("GOOGLE_GEMINI_BASE_URL") {
+        } else if let Some(base_url) = read_process_env_value("GOOGLE_GEMINI_BASE_URL") {
             (base_url, GOOGLE_AI_DEFAULT_API_VERSION.to_owned())
         } else {
             (
@@ -223,7 +228,7 @@ impl GoogleClient {
                 },
             ),
             None => (
-                process_env_value("GOOGLE_VERTEX_BASE_URL")
+                read_process_env_value("GOOGLE_VERTEX_BASE_URL")
                     .unwrap_or_else(|| "https://aiplatform.googleapis.com/".to_owned()),
                 "v1".to_owned(),
             ),
@@ -263,7 +268,7 @@ impl GoogleClient {
                 },
             ),
             None => (
-                process_env_value("GOOGLE_VERTEX_BASE_URL").unwrap_or_else(|| vertex_default_base_url(location)),
+                read_process_env_value("GOOGLE_VERTEX_BASE_URL").unwrap_or_else(|| vertex_default_base_url(location)),
                 "v1".to_owned(),
             ),
         };
@@ -358,13 +363,13 @@ impl GoogleClient {
                 headers.append("x-goog-api-key", api_key);
             }
         } else if !headers.contains("authorization") {
-            let token = self.access_token(fetch, signal).await?;
+            let token = self.fetch_access_token(fetch, signal).await?;
             headers.append("authorization", &format!("Bearer {token}"));
         }
         Ok(headers)
     }
 
-    async fn access_token(
+    async fn fetch_access_token(
         &self,
         fetch: &dyn Fetch,
         _signal: Option<&CancellationToken>,
@@ -587,7 +592,7 @@ fn merge_headers(model: &Model, option_headers: Option<&ProviderHeaders>) -> Vec
 }
 
 /// `getEnv()`: trimmed process environment value, empty values are absent.
-fn process_env_value(name: &str) -> Option<String> {
+fn read_process_env_value(name: &str) -> Option<String> {
     std::env::var(name)
         .ok()
         .map(|value| value.trim().to_owned())
@@ -902,7 +907,7 @@ fn sign_service_account_jwt(client_email: &str, private_key: &str) -> Result<Str
     claims.insert("iss".to_owned(), Value::String(client_email.to_owned()));
     claims.insert("scope".to_owned(), Value::String(VERTEX_SCOPE.to_owned()));
     claims.insert("aud".to_owned(), Value::String(GOOGLE_TOKEN_URL.to_owned()));
-    claims.insert("exp".to_owned(), json!(issued_at + 3600));
+    claims.insert("exp".to_owned(), json!(issued_at + JWT_LIFETIME_SECONDS));
     claims.insert("iat".to_owned(), json!(issued_at));
     let header = json!({"alg": "RS256"});
     let signing_input = format!(
@@ -1049,115 +1054,178 @@ pub(crate) async fn pump_stream(
     let mut current: Option<(BlockKind, usize)> = None;
     while let Some(chunk) = google_stream.next_chunk().await {
         let chunk = chunk?;
-        if output.response_id.as_deref().unwrap_or_default().is_empty()
-            && let Some(response_id) = chunk.response_id.clone()
-        {
-            output.response_id = Some(response_id);
-        }
-        if let Some(candidate) = chunk.candidates.as_ref().and_then(|candidates| candidates.first()) {
+        remember_response_id(output, &chunk);
+        if let Some(candidate) = first_candidate(&chunk) {
             if let Some(parts) = candidate.content.as_ref().and_then(|content| content.parts.as_ref()) {
                 for part in parts {
-                    if let Some(text) = &part.text {
-                        let thinking = is_thinking_part(part.thought);
-                        let needs_block = match current {
-                            None => true,
-                            Some((BlockKind::Thinking, _)) => !thinking,
-                            Some((BlockKind::Text, _)) => thinking,
-                        };
-                        if needs_block {
-                            close_block(sender, output, current);
-                            current = Some(open_block(sender, output, thinking));
-                        }
-                        let (kind, index) = current.expect("a block was just opened");
-                        append_text(output, kind, index, text, part.thought_signature.as_deref());
-                        let event = match kind {
-                            BlockKind::Text => AssistantMessageEvent::TextDelta {
-                                content_index: index,
-                                delta: text.clone(),
-                                partial: output.clone(),
-                            },
-                            BlockKind::Thinking => AssistantMessageEvent::ThinkingDelta {
-                                content_index: index,
-                                delta: text.clone(),
-                                partial: output.clone(),
-                            },
-                        };
-                        sender.push(event);
-                    }
-                    if let Some(function_call) = &part.function_call {
-                        if current.is_some() {
-                            close_block(sender, output, current);
-                            current = None;
-                        }
-                        let provided_id = function_call.id.clone();
-                        let duplicate = provided_id.as_ref().is_some_and(|id| {
-                            output
-                                .content
-                                .iter()
-                                .any(|block| matches!(block, AssistantContent::ToolCall(call) if &call.id == id))
-                        });
-                        let tool_call_id = match &provided_id {
-                            Some(id) if !duplicate => id.clone(),
-                            _ => generated_tool_call_id(function_call.name.as_deref().unwrap_or("")),
-                        };
-                        let mut arguments = Map::new();
-                        if let Some(Value::Object(args)) = &function_call.args {
-                            arguments = args.clone();
-                        }
-                        let mut tool_call =
-                            ToolCall::new(tool_call_id, function_call.name.clone().unwrap_or_default(), arguments);
-                        tool_call.thought_signature =
-                            part.thought_signature.clone().filter(|signature| !signature.is_empty());
-                        let index = output.content.len();
-                        output.content.push(AssistantContent::ToolCall(tool_call.clone()));
-                        sender.push(AssistantMessageEvent::ToolCallStart {
-                            content_index: index,
-                            partial: output.clone(),
-                        });
-                        sender.push(AssistantMessageEvent::ToolCallDelta {
-                            content_index: index,
-                            delta: crate::api::google_client::js_json(&Value::Object(tool_call.arguments.clone())),
-                            partial: output.clone(),
-                        });
-                        sender.push(AssistantMessageEvent::ToolCallEnd {
-                            content_index: index,
-                            tool_call,
-                            partial: output.clone(),
-                        });
-                    }
+                    apply_part(sender, output, part, &mut current);
                 }
             }
-            if let Some(finish_reason) = &candidate.finish_reason {
-                output.raw_stop_reason = Some(finish_reason.clone());
-                output.stop_reason =
-                    map_stop_reason(finish_reason).map_err(|message| GoogleRequestError::new(message, None))?;
-                if output
-                    .content
-                    .iter()
-                    .any(|block| matches!(block, AssistantContent::ToolCall(_)))
-                {
-                    output.stop_reason = StopReason::ToolUse;
-                }
-            }
+            apply_finish_reason(output, candidate)?;
         }
-        if let Some(usage) = &chunk.usage_metadata {
-            let cached = usage.cached_content_token_count.unwrap_or(0.0);
-            let thoughts = usage.thoughts_token_count.unwrap_or(0.0);
-            output.usage = Usage {
-                input: usage.prompt_token_count.unwrap_or(0.0) - cached,
-                output: usage.candidates_token_count.unwrap_or(0.0) + thoughts,
-                cache_read: cached,
-                cache_write: 0.0,
-                cache_write_1h: None,
-                reasoning: Some(thoughts),
-                total_tokens: usage.total_token_count.unwrap_or(0.0),
-                cost: UsageCost::default(),
-            };
-            output.usage.cost = calculate_cost(model, &output.usage);
-        }
+        apply_usage(output, model, &chunk);
     }
     close_block(sender, output, current);
     Ok(())
+}
+
+fn first_candidate(chunk: &GoogleChunk) -> Option<&GoogleCandidate> {
+    chunk.candidates.as_ref().and_then(|candidates| candidates.first())
+}
+
+fn remember_response_id(output: &mut AssistantMessage, chunk: &GoogleChunk) {
+    if !output.response_id.as_deref().unwrap_or_default().is_empty() {
+        return;
+    }
+    if let Some(response_id) = chunk.response_id.clone() {
+        output.response_id = Some(response_id);
+    }
+}
+
+fn apply_part(
+    sender: &AssistantMessageEventSender,
+    output: &mut AssistantMessage,
+    part: &GooglePart,
+    current: &mut Option<(BlockKind, usize)>,
+) {
+    if let Some(text) = &part.text {
+        apply_text_part(sender, output, part, text, current);
+    }
+    if let Some(function_call) = &part.function_call {
+        apply_function_call_part(sender, output, part, function_call, current);
+    }
+}
+
+fn apply_text_part(
+    sender: &AssistantMessageEventSender,
+    output: &mut AssistantMessage,
+    part: &GooglePart,
+    text: &str,
+    current: &mut Option<(BlockKind, usize)>,
+) {
+    let thinking = is_thinking_part(part.thought);
+    if block_kind_differs(*current, thinking) {
+        close_block(sender, output, *current);
+        *current = Some(open_block(sender, output, thinking));
+    }
+    let (kind, index) = current.expect("a block was just opened");
+    append_text(output, kind, index, text, part.thought_signature.as_deref());
+    let event = match kind {
+        BlockKind::Text => AssistantMessageEvent::TextDelta {
+            content_index: index,
+            delta: text.to_owned(),
+            partial: output.clone(),
+        },
+        BlockKind::Thinking => AssistantMessageEvent::ThinkingDelta {
+            content_index: index,
+            delta: text.to_owned(),
+            partial: output.clone(),
+        },
+    };
+    sender.push(event);
+}
+
+fn block_kind_differs(current: Option<(BlockKind, usize)>, thinking: bool) -> bool {
+    match current {
+        None => true,
+        Some((BlockKind::Thinking, _)) => !thinking,
+        Some((BlockKind::Text, _)) => thinking,
+    }
+}
+
+fn apply_function_call_part(
+    sender: &AssistantMessageEventSender,
+    output: &mut AssistantMessage,
+    part: &GooglePart,
+    function_call: &GoogleFunctionCall,
+    current: &mut Option<(BlockKind, usize)>,
+) {
+    if current.is_some() {
+        close_block(sender, output, *current);
+        *current = None;
+    }
+    let mut tool_call = ToolCall::new(
+        resolve_tool_call_id(output, function_call),
+        function_call.name.clone().unwrap_or_default(),
+        tool_call_arguments(function_call),
+    );
+    tool_call.thought_signature = part.thought_signature.clone().filter(|signature| !signature.is_empty());
+    emit_tool_call(sender, output, tool_call);
+}
+
+fn resolve_tool_call_id(output: &AssistantMessage, function_call: &GoogleFunctionCall) -> String {
+    let provided_id = function_call.id.clone();
+    let duplicate = provided_id.as_ref().is_some_and(|id| {
+        output
+            .content
+            .iter()
+            .any(|block| matches!(block, AssistantContent::ToolCall(call) if &call.id == id))
+    });
+    match provided_id {
+        Some(id) if !duplicate => id,
+        _ => generated_tool_call_id(function_call.name.as_deref().unwrap_or("")),
+    }
+}
+
+fn tool_call_arguments(function_call: &GoogleFunctionCall) -> Map<String, Value> {
+    match &function_call.args {
+        Some(Value::Object(args)) => args.clone(),
+        _ => Map::new(),
+    }
+}
+
+fn emit_tool_call(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, tool_call: ToolCall) {
+    let index = output.content.len();
+    output.content.push(AssistantContent::ToolCall(tool_call.clone()));
+    sender.push(AssistantMessageEvent::ToolCallStart {
+        content_index: index,
+        partial: output.clone(),
+    });
+    sender.push(AssistantMessageEvent::ToolCallDelta {
+        content_index: index,
+        delta: js_json(&Value::Object(tool_call.arguments.clone())),
+        partial: output.clone(),
+    });
+    sender.push(AssistantMessageEvent::ToolCallEnd {
+        content_index: index,
+        tool_call,
+        partial: output.clone(),
+    });
+}
+
+fn apply_finish_reason(output: &mut AssistantMessage, candidate: &GoogleCandidate) -> Result<(), GoogleRequestError> {
+    let Some(finish_reason) = &candidate.finish_reason else {
+        return Ok(());
+    };
+    output.raw_stop_reason = Some(finish_reason.clone());
+    output.stop_reason = map_stop_reason(finish_reason).map_err(|message| GoogleRequestError::new(message, None))?;
+    if output
+        .content
+        .iter()
+        .any(|block| matches!(block, AssistantContent::ToolCall(_)))
+    {
+        output.stop_reason = StopReason::ToolUse;
+    }
+    Ok(())
+}
+
+fn apply_usage(output: &mut AssistantMessage, model: &Model, chunk: &GoogleChunk) {
+    let Some(usage) = &chunk.usage_metadata else {
+        return;
+    };
+    let cached = usage.cached_content_token_count.unwrap_or(0.0);
+    let thoughts = usage.thoughts_token_count.unwrap_or(0.0);
+    output.usage = Usage {
+        input: usage.prompt_token_count.unwrap_or(0.0) - cached,
+        output: usage.candidates_token_count.unwrap_or(0.0) + thoughts,
+        cache_read: cached,
+        cache_write: 0.0,
+        cache_write_1h: None,
+        reasoning: Some(thoughts),
+        total_tokens: usage.total_token_count.unwrap_or(0.0),
+        cost: UsageCost::default(),
+    };
+    output.usage.cost = calculate_cost(model, &output.usage);
 }
 
 fn open_block(
@@ -1228,4 +1296,50 @@ fn append_text(output: &mut AssistantMessage, kind: BlockKind, index: usize, tex
 fn generated_tool_call_id(name: &str) -> String {
     let counter = TOOL_CALL_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     format!("{name}_{}_{counter}", now_millis_f64() as i64)
+}
+
+/// Resolve the `done` reason shared by both adapters.
+pub(crate) fn completed_reason(
+    output: &AssistantMessage,
+    signal: Option<&CancellationToken>,
+    pending_message: &str,
+) -> Result<DoneReason, String> {
+    if signal.is_some_and(CancellationToken::is_cancelled) {
+        return Err("Request was aborted".to_owned());
+    }
+    if output.stop_reason == StopReason::Pending {
+        return Err(pending_message.to_owned());
+    }
+    if matches!(output.stop_reason, StopReason::Aborted | StopReason::Error) {
+        return Err(match &output.raw_stop_reason {
+            Some(reason) => format!("Provider stopped with: {reason}"),
+            None => "An unknown error occurred".to_owned(),
+        });
+    }
+    match output.stop_reason {
+        StopReason::Stop => Ok(DoneReason::Stop),
+        StopReason::Length => Ok(DoneReason::Length),
+        StopReason::ToolUse => Ok(DoneReason::ToolUse),
+        StopReason::Deferred => Ok(DoneReason::Deferred),
+        StopReason::Pending | StopReason::Error | StopReason::Aborted => Err("An unknown error occurred".to_owned()),
+    }
+}
+
+/// Open the streaming response with the shared Google retry policy.
+pub(crate) async fn open_generate_stream(
+    client: &GoogleClient,
+    params: &Value,
+    request: &crate::request::ProviderRequestOptions,
+) -> Result<GoogleStream, GoogleRequestError> {
+    let fetch = request.fetch.clone().unwrap_or_else(default_fetch);
+    let retry_options = GoogleRetryOptions {
+        max_retries: request.max_retries,
+        max_retry_delay_ms: request.max_retry_delay_ms,
+        signal: request.signal.clone(),
+    };
+    retry_google_request(
+        || client.generate_content_stream(params, fetch.as_ref(), request.signal.as_ref()),
+        retry_options,
+    )
+    .await
 }

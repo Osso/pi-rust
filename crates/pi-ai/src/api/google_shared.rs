@@ -13,8 +13,8 @@ use crate::api::constrained_sampling::{
 };
 use crate::api::transform_messages::transform_messages_with;
 use crate::types::{
-    AssistantContent, AssistantMessage, Context, Message, Modality, Model, StopReason, Tool, ToolResultMessage,
-    UserContent,
+    AssistantContent, AssistantMessage, Context, Message, Modality, Model, ModelThinkingLevel, StopReason, Tool,
+    ToolResultMessage, UserContent,
 };
 use crate::utils::provider_retry::{
     ProviderError, ProviderErrorHeaders, ProviderRequestError, ProviderRetryOptions, retry_provider_request,
@@ -153,61 +153,11 @@ fn convert_user_message(content: &UserContent, contents: &mut Vec<GoogleContent>
 
 fn convert_assistant_message(model: &Model, assistant: &AssistantMessage, contents: &mut Vec<GoogleContent>) {
     let same_provider_and_model = assistant.provider == model.provider && assistant.model == model.id;
-    let mut parts: Vec<Value> = Vec::new();
-
-    for block in &assistant.content {
-        match block {
-            AssistantContent::Text(text) => {
-                let signature = resolve_thought_signature(same_provider_and_model, text.text_signature.as_deref());
-                if text.text.trim().is_empty() && signature.is_none() {
-                    continue;
-                }
-                let mut part = Map::new();
-                part.insert(
-                    "text".to_owned(),
-                    Value::String(sanitize_surrogates(&text.text).to_owned()),
-                );
-                insert_signature(&mut part, signature);
-                parts.push(Value::Object(part));
-            }
-            AssistantContent::Thinking(thinking) => {
-                if same_provider_and_model {
-                    let signature =
-                        resolve_thought_signature(same_provider_and_model, thinking.thinking_signature.as_deref());
-                    if thinking.thinking.trim().is_empty() && signature.is_none() {
-                        continue;
-                    }
-                    let mut part = Map::new();
-                    part.insert("thought".to_owned(), Value::Bool(true));
-                    part.insert(
-                        "text".to_owned(),
-                        Value::String(sanitize_surrogates(&thinking.thinking).to_owned()),
-                    );
-                    insert_signature(&mut part, signature);
-                    parts.push(Value::Object(part));
-                } else {
-                    if thinking.thinking.trim().is_empty() {
-                        continue;
-                    }
-                    parts.push(json!({"text": sanitize_surrogates(&thinking.thinking)}));
-                }
-            }
-            AssistantContent::ToolCall(call) => {
-                let signature = resolve_thought_signature(same_provider_and_model, call.thought_signature.as_deref());
-                let mut function_call = Map::new();
-                function_call.insert("name".to_owned(), Value::String(call.name.clone()));
-                function_call.insert("args".to_owned(), Value::Object(call.arguments.clone()));
-                if requires_tool_call_id(&model.id) {
-                    function_call.insert("id".to_owned(), Value::String(call.id.clone()));
-                }
-                let mut part = Map::new();
-                part.insert("functionCall".to_owned(), Value::Object(function_call));
-                insert_signature(&mut part, signature);
-                parts.push(Value::Object(part));
-            }
-        }
-    }
-
+    let parts: Vec<Value> = assistant
+        .content
+        .iter()
+        .filter_map(|block| convert_assistant_block(model, same_provider_and_model, block))
+        .collect();
     if parts.is_empty() {
         return;
     }
@@ -217,8 +167,84 @@ fn convert_assistant_message(model: &Model, assistant: &AssistantMessage, conten
     });
 }
 
+fn convert_assistant_block(model: &Model, same_provider_and_model: bool, block: &AssistantContent) -> Option<Value> {
+    match block {
+        AssistantContent::Text(text) => convert_text_block(same_provider_and_model, text),
+        AssistantContent::Thinking(thinking) => convert_thinking_block(same_provider_and_model, thinking),
+        AssistantContent::ToolCall(call) => Some(convert_tool_call_block(model, same_provider_and_model, call)),
+    }
+}
+
+fn convert_text_block(same_provider_and_model: bool, text: &crate::types::TextContent) -> Option<Value> {
+    let signature = resolve_thought_signature(same_provider_and_model, text.text_signature.as_deref());
+    if text.text.trim().is_empty() && signature.is_none() {
+        return None;
+    }
+    let mut part = Map::new();
+    part.insert(
+        "text".to_owned(),
+        Value::String(sanitize_surrogates(&text.text).to_owned()),
+    );
+    insert_signature(&mut part, signature);
+    Some(Value::Object(part))
+}
+
+fn convert_thinking_block(same_provider_and_model: bool, thinking: &crate::types::ThinkingContent) -> Option<Value> {
+    if !same_provider_and_model {
+        if thinking.thinking.trim().is_empty() {
+            return None;
+        }
+        return Some(json!({"text": sanitize_surrogates(&thinking.thinking)}));
+    }
+    let signature = resolve_thought_signature(same_provider_and_model, thinking.thinking_signature.as_deref());
+    if thinking.thinking.trim().is_empty() && signature.is_none() {
+        return None;
+    }
+    let mut part = Map::new();
+    part.insert("thought".to_owned(), Value::Bool(true));
+    part.insert(
+        "text".to_owned(),
+        Value::String(sanitize_surrogates(&thinking.thinking).to_owned()),
+    );
+    insert_signature(&mut part, signature);
+    Some(Value::Object(part))
+}
+
+fn convert_tool_call_block(model: &Model, same_provider_and_model: bool, call: &crate::types::ToolCall) -> Value {
+    let signature = resolve_thought_signature(same_provider_and_model, call.thought_signature.as_deref());
+    let mut function_call = Map::new();
+    function_call.insert("name".to_owned(), Value::String(call.name.clone()));
+    function_call.insert("args".to_owned(), Value::Object(call.arguments.clone()));
+    if requires_tool_call_id(&model.id) {
+        function_call.insert("id".to_owned(), Value::String(call.id.clone()));
+    }
+    let mut part = Map::new();
+    part.insert("functionCall".to_owned(), Value::Object(function_call));
+    insert_signature(&mut part, signature);
+    Value::Object(part)
+}
+
 fn convert_tool_result(model: &Model, result: &ToolResultMessage, contents: &mut Vec<GoogleContent>) {
-    let text_result = result
+    let text_result = joined_text_content(result);
+    let image_content = supported_image_content(model, result);
+    let has_images = !image_content.is_empty();
+    let multimodal = supports_multimodal_function_response(&model.id);
+
+    let part = function_response_part(model, result, &text_result, &image_content);
+    append_function_response(contents, part);
+
+    if has_images && !multimodal {
+        let mut parts = vec![json!({"text": "Tool result image:"})];
+        parts.extend(image_parts(&image_content));
+        contents.push(GoogleContent {
+            parts,
+            role: "user".to_owned(),
+        });
+    }
+}
+
+fn joined_text_content(result: &ToolResultMessage) -> String {
+    result
         .content
         .iter()
         .filter_map(|content| match content {
@@ -226,64 +252,67 @@ fn convert_tool_result(model: &Model, result: &ToolResultMessage, contents: &mut
             crate::types::TextOrImageContent::Image(_) => None,
         })
         .collect::<Vec<_>>()
-        .join("\n");
-    let image_content: Vec<&crate::types::ImageContent> = if model.input.contains(&Modality::Image) {
-        result
-            .content
-            .iter()
-            .filter_map(|content| match content {
-                crate::types::TextOrImageContent::Image(image) => Some(image),
-                crate::types::TextOrImageContent::Text(_) => None,
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+        .join("\n")
+}
 
-    let has_text = !text_result.is_empty();
-    let has_images = !image_content.is_empty();
-    let multimodal = supports_multimodal_function_response(&model.id);
-    let response_value = if has_text {
-        sanitize_surrogates(&text_result).to_owned()
-    } else if has_images {
-        "(see attached image)".to_owned()
-    } else {
-        String::new()
-    };
-    let image_parts: Vec<Value> = image_content
+fn supported_image_content<'a>(model: &Model, result: &'a ToolResultMessage) -> Vec<&'a crate::types::ImageContent> {
+    if !model.input.contains(&Modality::Image) {
+        return Vec::new();
+    }
+    result
+        .content
         .iter()
-        .map(|image| json!({"inlineData": {"mimeType": image.mime_type, "data": image.data}}))
-        .collect();
+        .filter_map(|content| match content {
+            crate::types::TextOrImageContent::Image(image) => Some(image),
+            crate::types::TextOrImageContent::Text(_) => None,
+        })
+        .collect()
+}
+
+fn function_response_part(
+    model: &Model,
+    result: &ToolResultMessage,
+    text_result: &str,
+    image_content: &[&crate::types::ImageContent],
+) -> Value {
+    let has_text = !text_result.is_empty();
+    let response_value = if has_text {
+        sanitize_surrogates(text_result).to_owned()
+    } else if image_content.is_empty() {
+        String::new()
+    } else {
+        "(see attached image)".to_owned()
+    };
 
     let mut function_response = Map::new();
     function_response.insert("name".to_owned(), Value::String(result.tool_name.clone()));
     let response_key = if result.is_error { "error" } else { "output" };
     function_response.insert("response".to_owned(), json!({response_key: response_value}));
-    if has_images && multimodal {
-        function_response.insert("parts".to_owned(), Value::Array(image_parts.clone()));
+    if !image_content.is_empty() && supports_multimodal_function_response(&model.id) {
+        function_response.insert("parts".to_owned(), Value::Array(image_parts(image_content)));
     }
     if requires_tool_call_id(&model.id) {
         function_response.insert("id".to_owned(), Value::String(result.tool_call_id.clone()));
     }
-    let function_response_part = json!({"functionResponse": function_response});
+    json!({"functionResponse": function_response})
+}
 
+fn image_parts(image_content: &[&crate::types::ImageContent]) -> Vec<Value> {
+    image_content
+        .iter()
+        .map(|image| json!({"inlineData": {"mimeType": image.mime_type, "data": image.data}}))
+        .collect()
+}
+
+fn append_function_response(contents: &mut Vec<GoogleContent>, part: Value) {
     match contents.last_mut() {
         Some(last) if last.role == "user" && last.parts.iter().any(|part| part.get("functionResponse").is_some()) => {
-            last.parts.push(function_response_part);
+            last.parts.push(part);
         }
         _ => contents.push(GoogleContent {
-            parts: vec![function_response_part],
+            parts: vec![part],
             role: "user".to_owned(),
         }),
-    }
-
-    if has_images && !multimodal {
-        let mut parts = vec![json!({"text": "Tool result image:"})];
-        parts.extend(image_parts);
-        contents.push(GoogleContent {
-            parts,
-            role: "user".to_owned(),
-        });
     }
 }
 
@@ -435,6 +464,152 @@ pub fn map_stop_reason_string(reason: &str) -> StopReason {
         "MAX_TOKENS" => StopReason::Length,
         _ => StopReason::Error,
     }
+}
+
+/// `gemini-3[.N]-pro` (case-insensitive).
+pub(crate) fn is_gemini3_pro_id(model_id: &str) -> bool {
+    gemini3_suffix_matches(model_id, "-pro")
+}
+
+/// `gemini-3[.N]-flash`, plus the `gemini-flash-latest` aliases.
+pub(crate) fn is_gemini3_flash_id(model_id: &str) -> bool {
+    let id = model_id.to_lowercase();
+    if id == "gemini-flash-latest" || id == "gemini-flash-lite-latest" {
+        return true;
+    }
+    gemini3_suffix_matches(model_id, "-flash")
+}
+
+/// `gemma-4` / `gemma4`.
+pub(crate) fn is_gemma4_id(model_id: &str) -> bool {
+    let id = model_id.to_lowercase();
+    id.contains("gemma4") || id.contains("gemma-4")
+}
+
+fn gemini3_suffix_matches(model_id: &str, suffix: &str) -> bool {
+    let id = model_id.to_lowercase();
+    let Some(rest) = id.strip_prefix("gemini-3") else {
+        return false;
+    };
+    let rest = match rest.strip_prefix('.') {
+        Some(rest) => match rest.find('-') {
+            Some(index) if rest[..index].chars().all(|character| character.is_ascii_digit()) => &rest[index..],
+            _ => return false,
+        },
+        None => rest,
+    };
+    rest.starts_with(suffix)
+}
+
+/// `ThinkingLevel` → `ModelThinkingLevel` for `clampThinkingLevel`.
+pub(crate) fn model_thinking_level(level: crate::types::ThinkingLevel) -> ModelThinkingLevel {
+    match level {
+        crate::types::ThinkingLevel::Minimal => ModelThinkingLevel::Minimal,
+        crate::types::ThinkingLevel::Low => ModelThinkingLevel::Low,
+        crate::types::ThinkingLevel::Medium => ModelThinkingLevel::Medium,
+        crate::types::ThinkingLevel::High => ModelThinkingLevel::High,
+        crate::types::ThinkingLevel::Xhigh => ModelThinkingLevel::Xhigh,
+        crate::types::ThinkingLevel::Max => ModelThinkingLevel::Max,
+        crate::types::ThinkingLevel::Ultra => ModelThinkingLevel::Ultra,
+    }
+}
+
+/// Effort name for the shared thinking switches (`None` for `off`/`xhigh`/`max`/`ultra`).
+pub(crate) fn thinking_effort_name(effort: ModelThinkingLevel) -> Option<&'static str> {
+    match effort {
+        ModelThinkingLevel::Minimal => Some("minimal"),
+        ModelThinkingLevel::Low => Some("low"),
+        ModelThinkingLevel::Medium => Some("medium"),
+        ModelThinkingLevel::High => Some("high"),
+        ModelThinkingLevel::Off | ModelThinkingLevel::Xhigh | ModelThinkingLevel::Max | ModelThinkingLevel::Ultra => {
+            None
+        }
+    }
+}
+
+/// Build the shared `GenerateContentParameters` object both adapters send.
+///
+/// `thinking_config` is the already-resolved `thinkingConfig` value (the two
+/// adapters map thinking levels/budgets differently).
+pub(crate) struct GenerateContentParamsInput<'a> {
+    pub model: &'a Model,
+    pub context: &'a Context,
+    pub temperature: Option<f64>,
+    pub max_tokens: Option<f64>,
+    pub tool_choice: Option<&'a str>,
+    pub thinking_config: Option<Value>,
+    pub request_aborted: bool,
+    pub now: i64,
+}
+
+pub(crate) fn build_generate_content_params(
+    input: GenerateContentParamsInput<'_>,
+) -> Result<Map<String, Value>, GoogleRequestError> {
+    let GenerateContentParamsInput {
+        model,
+        context,
+        temperature,
+        max_tokens,
+        tool_choice,
+        thinking_config,
+        request_aborted,
+        now,
+    } = input;
+    let contents = convert_messages(model, context, now);
+    let supports_strict_mode = supports_google_strict_tool_sampling(&model.id);
+    let tools = context.tools.as_deref().filter(|tools| !tools.is_empty());
+    let function_calling_mode = match tools {
+        Some(tools) => resolve_google_function_calling_mode(tools, tool_choice, supports_strict_mode)
+            .map_err(|error| GoogleRequestError::new(error.message, None))?,
+        None => None,
+    };
+
+    let mut config = Map::new();
+    if let Some(temperature) = temperature {
+        config.insert("temperature".to_owned(), json!(temperature));
+    }
+    if let Some(max_tokens) = max_tokens {
+        config.insert("maxOutputTokens".to_owned(), json!(max_tokens));
+    }
+    if let Some(system_prompt) = context.system_prompt.as_deref().filter(|prompt| !prompt.is_empty()) {
+        config.insert(
+            "systemInstruction".to_owned(),
+            Value::String(sanitize_surrogates(system_prompt).to_owned()),
+        );
+    }
+    if let Some(tools) = tools {
+        let declarations = convert_tools(tools, false, supports_strict_mode)
+            .map_err(|error| GoogleRequestError::new(error.message, None))?;
+        if let Some(declarations) = declarations {
+            config.insert("tools".to_owned(), Value::Array(declarations));
+        }
+    }
+    if let Some(mode) = function_calling_mode {
+        config.insert(
+            "toolConfig".to_owned(),
+            json!({"functionCallingConfig": {"mode": mode}}),
+        );
+    }
+    if let Some(thinking_config) = thinking_config {
+        config.insert("thinkingConfig".to_owned(), thinking_config);
+    }
+    if request_aborted {
+        return Err(GoogleRequestError::new("Request aborted", None));
+    }
+
+    let mut params = Map::new();
+    params.insert("model".to_owned(), Value::String(model.id.clone()));
+    params.insert(
+        "contents".to_owned(),
+        Value::Array(
+            contents
+                .into_iter()
+                .map(|content| serde_json::to_value(content).unwrap_or(Value::Null))
+                .collect(),
+        ),
+    );
+    params.insert("config".to_owned(), Value::Object(config));
+    Ok(params)
 }
 
 /// Failure raised by a Google request or by its retry wrapper.

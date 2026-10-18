@@ -4,26 +4,24 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use crate::api::google_client::GoogleClient;
+use crate::api::google_client::{GoogleClient, completed_reason, open_generate_stream, pump_stream};
 use crate::api::google_generative_ai::GoogleThinkingOptions;
 use crate::api::google_shared::{
-    GoogleRequestError, GoogleRetryOptions, GoogleThinkingLevel, convert_messages, convert_tools,
-    resolve_google_function_calling_mode, retry_google_request, supports_google_strict_tool_sampling,
+    GenerateContentParamsInput, GoogleRequestError, GoogleThinkingLevel, build_generate_content_params,
+    is_gemini3_flash_id, is_gemini3_pro_id, model_thinking_level, thinking_effort_name,
 };
 use crate::api::lazy::{LazyApi, lazy_api};
 use crate::api::simple_options::build_base_options;
-use crate::http::default_fetch;
 use crate::models::clamp_thinking_level;
 use crate::request::{ProviderStreams, SimpleStreamOptions, StreamOptions, error_stream, now_millis};
 use crate::types::{
-    AssistantMessage, AssistantMessageEvent, Context, DoneReason, ErrorReason, Model, ModelThinkingLevel, ProviderEnv,
-    StopReason, ThinkingBudgets,
+    AssistantMessage, AssistantMessageEvent, Context, ErrorReason, Model, ModelThinkingLevel, ProviderEnv, StopReason,
+    ThinkingBudgets,
 };
 use crate::utils::event_stream::{
     AssistantMessageEventSender, AssistantMessageEventStream, create_assistant_message_event_stream,
 };
 use crate::utils::provider_env::get_provider_env_value;
-use crate::utils::sanitize_unicode::sanitize_surrogates;
 
 const GCP_VERTEX_CREDENTIALS_MARKER: &str = "gcp-vertex-credentials";
 
@@ -90,7 +88,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
             } else {
                 clamped
             };
-            if is_gemini3_pro_model(&model) || is_gemini3_flash_model(&model) {
+            if is_gemini3_pro_id(&model.id) || is_gemini3_flash_id(&model.id) {
                 Some(GoogleThinkingOptions {
                     enabled: true,
                     budget_tokens: None,
@@ -149,18 +147,6 @@ pub fn google_vertex_api() -> LazyApi {
     )
 }
 
-fn model_thinking_level(level: crate::types::ThinkingLevel) -> ModelThinkingLevel {
-    match level {
-        crate::types::ThinkingLevel::Minimal => ModelThinkingLevel::Minimal,
-        crate::types::ThinkingLevel::Low => ModelThinkingLevel::Low,
-        crate::types::ThinkingLevel::Medium => ModelThinkingLevel::Medium,
-        crate::types::ThinkingLevel::High => ModelThinkingLevel::High,
-        crate::types::ThinkingLevel::Xhigh => ModelThinkingLevel::Xhigh,
-        crate::types::ThinkingLevel::Max => ModelThinkingLevel::Max,
-        crate::types::ThinkingLevel::Ultra => ModelThinkingLevel::Ultra,
-    }
-}
-
 fn run_stream(model: Model, context: Context, options: GoogleVertexOptions) -> AssistantMessageEventStream {
     let (sender, stream) = create_assistant_message_event_stream();
     let signal = options.stream.request.signal.clone();
@@ -197,70 +183,20 @@ async fn run(
     options: &GoogleVertexOptions,
     signal: Option<&CancellationToken>,
 ) -> Result<(), String> {
-    let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
-    let client = match resolve_api_key(options) {
-        Some(api_key) => GoogleClient::vertex_api_key(model, &api_key, options.stream.request.headers.as_ref()),
-        None => {
-            let project = resolve_project(options)?;
-            let location = resolve_location(options)?;
-            GoogleClient::vertex_adc(
-                model,
-                &project,
-                &location,
-                options.stream.request.headers.as_ref(),
-                options.stream.request.env.as_ref(),
-            )
-            .map_err(|error| error.message)?
-        }
-    };
-    let params = Value::Object(build_params(model, context, options).map_err(|error| error.message)?);
-    let params = match &options.stream.request.on_payload {
-        Some(on_payload) => on_payload(params.clone(), model.clone())
-            .await
-            .map_err(|error| error.message)?
-            .unwrap_or(params),
-        None => params,
-    };
-    let retry_options = GoogleRetryOptions {
-        max_retries: options.stream.request.max_retries,
-        max_retry_delay_ms: options.stream.request.max_retry_delay_ms,
-        signal: signal.cloned(),
-    };
-    let mut google_stream = retry_google_request(
-        || client.generate_content_stream(&params, fetch.as_ref(), signal),
-        retry_options,
-    )
-    .await
-    .map_err(|error| error.message)?;
+    let client = resolve_client(model, options)?;
+    let params = prepare_params(model, context, options).await?;
+    let mut google_stream = open_generate_stream(&client, &params, &options.stream.request)
+        .await
+        .map_err(|error| error.message)?;
 
     sender.push(AssistantMessageEvent::Start {
         partial: output.clone(),
     });
-    crate::api::google_client::pump_stream(&mut google_stream, output, sender, model)
+    pump_stream(&mut google_stream, output, sender, model)
         .await
         .map_err(|error| error.message)?;
 
-    if signal.is_some_and(CancellationToken::is_cancelled) {
-        return Err("Request was aborted".to_owned());
-    }
-    if output.stop_reason == StopReason::Pending {
-        return Err("Google Vertex stream ended without a finish reason".to_owned());
-    }
-    if matches!(output.stop_reason, StopReason::Aborted | StopReason::Error) {
-        return Err(match &output.raw_stop_reason {
-            Some(reason) => format!("Provider stopped with: {reason}"),
-            None => "An unknown error occurred".to_owned(),
-        });
-    }
-    let reason = match output.stop_reason {
-        StopReason::Stop => DoneReason::Stop,
-        StopReason::Length => DoneReason::Length,
-        StopReason::ToolUse => DoneReason::ToolUse,
-        StopReason::Deferred => DoneReason::Deferred,
-        StopReason::Pending | StopReason::Error | StopReason::Aborted => {
-            return Err("An unknown error occurred".to_owned());
-        }
-    };
+    let reason = completed_reason(output, signal, "Google Vertex stream ended without a finish reason")?;
     sender.push(AssistantMessageEvent::Done {
         reason,
         message: output.clone(),
@@ -269,76 +205,58 @@ async fn run(
     Ok(())
 }
 
+fn resolve_client(model: &Model, options: &GoogleVertexOptions) -> Result<GoogleClient, String> {
+    if let Some(api_key) = resolve_api_key(options) {
+        return Ok(GoogleClient::vertex_api_key(
+            model,
+            &api_key,
+            options.stream.request.headers.as_ref(),
+        ));
+    }
+    let project = project_from_options_or_env(options)?;
+    let location = location_from_options_or_env(options)?;
+    GoogleClient::vertex_adc(
+        model,
+        &project,
+        &location,
+        options.stream.request.headers.as_ref(),
+        options.stream.request.env.as_ref(),
+    )
+    .map_err(|error| error.message)
+}
+
+async fn prepare_params(model: &Model, context: &Context, options: &GoogleVertexOptions) -> Result<Value, String> {
+    let params = Value::Object(build_params(model, context, options).map_err(|error| error.message)?);
+    let Some(on_payload) = &options.stream.request.on_payload else {
+        return Ok(params);
+    };
+    on_payload(params.clone(), model.clone())
+        .await
+        .map_err(|error| error.message)
+        .map(|replacement| replacement.unwrap_or(params))
+}
+
 fn build_params(
     model: &Model,
     context: &Context,
     options: &GoogleVertexOptions,
 ) -> Result<Map<String, Value>, GoogleRequestError> {
-    let contents = convert_messages(model, context, now_millis());
-    let mut generation_config = Map::new();
-    if let Some(temperature) = options.stream.temperature {
-        generation_config.insert("temperature".to_owned(), json!(temperature));
-    }
-    if let Some(max_tokens) = options.stream.max_tokens {
-        generation_config.insert("maxOutputTokens".to_owned(), json!(max_tokens));
-    }
-
-    let supports_strict_mode = supports_google_strict_tool_sampling(&model.id);
-    let tools = context.tools.as_deref().filter(|tools| !tools.is_empty());
-    let function_calling_mode = match tools {
-        Some(tools) => {
-            resolve_google_function_calling_mode(tools, options.tool_choice.as_deref(), supports_strict_mode)
-                .map_err(|error| GoogleRequestError::new(error.message, None))?
-        }
-        None => None,
-    };
-    let mut config = Map::new();
-    config.extend(generation_config);
-    if let Some(system_prompt) = context.system_prompt.as_deref().filter(|prompt| !prompt.is_empty()) {
-        config.insert(
-            "systemInstruction".to_owned(),
-            Value::String(sanitize_surrogates(system_prompt).to_owned()),
-        );
-    }
-    if let Some(tools) = tools {
-        let declarations = convert_tools(tools, false, supports_strict_mode)
-            .map_err(|error| GoogleRequestError::new(error.message, None))?;
-        if let Some(declarations) = declarations {
-            config.insert("tools".to_owned(), Value::Array(declarations));
-        }
-    }
-    if let Some(mode) = function_calling_mode {
-        config.insert(
-            "toolConfig".to_owned(),
-            json!({"functionCallingConfig": {"mode": mode}}),
-        );
-    }
-    if let Some(thinking_config) = thinking_config(model, options.thinking.as_ref()) {
-        config.insert("thinkingConfig".to_owned(), thinking_config);
-    }
-    if options
+    let request_aborted = options
         .stream
         .request
         .signal
         .as_ref()
-        .is_some_and(CancellationToken::is_cancelled)
-    {
-        return Err(GoogleRequestError::new("Request aborted", None));
-    }
-
-    let mut params = Map::new();
-    params.insert("model".to_owned(), Value::String(model.id.clone()));
-    params.insert(
-        "contents".to_owned(),
-        Value::Array(
-            contents
-                .into_iter()
-                .map(|content| serde_json::to_value(content).unwrap_or(Value::Null))
-                .collect(),
-        ),
-    );
-    params.insert("config".to_owned(), Value::Object(config));
-    Ok(params)
+        .is_some_and(CancellationToken::is_cancelled);
+    build_generate_content_params(GenerateContentParamsInput {
+        model,
+        context,
+        temperature: options.stream.temperature,
+        max_tokens: options.stream.max_tokens,
+        tool_choice: options.tool_choice.as_deref(),
+        thinking_config: thinking_config(model, options.thinking.as_ref()),
+        request_aborted,
+        now: now_millis(),
+    })
 }
 
 fn thinking_config(model: &Model, thinking: Option<&GoogleThinkingOptions>) -> Option<Value> {
@@ -361,63 +279,18 @@ fn thinking_config(model: &Model, thinking: Option<&GoogleThinkingOptions>) -> O
 }
 
 fn get_disabled_thinking_config(model: &Model) -> Value {
-    if is_gemini3_pro_model(model) {
+    if is_gemini3_pro_id(&model.id) {
         return json!({"thinkingLevel": GoogleThinkingLevel::Low});
     }
-    if is_gemini3_flash_model(model) {
+    if is_gemini3_flash_id(&model.id) {
         return json!({"thinkingLevel": GoogleThinkingLevel::Minimal});
     }
     json!({"thinkingBudget": 0})
 }
 
-fn is_gemini3_pro_model(model: &Model) -> bool {
-    let id = model.id.to_lowercase();
-    let Some(rest) = id.strip_prefix("gemini-3") else {
-        return false;
-    };
-    let rest = match rest.strip_prefix('.') {
-        Some(rest) => match rest.find('-') {
-            Some(index) if rest[..index].chars().all(|character| character.is_ascii_digit()) => &rest[index..],
-            _ => return false,
-        },
-        None => rest,
-    };
-    rest.starts_with("-pro")
-}
-
-fn is_gemini3_flash_model(model: &Model) -> bool {
-    let id = model.id.to_lowercase();
-    if id == "gemini-flash-latest" || id == "gemini-flash-lite-latest" {
-        return true;
-    }
-    let Some(rest) = id.strip_prefix("gemini-3") else {
-        return false;
-    };
-    let rest = match rest.strip_prefix('.') {
-        Some(rest) => match rest.find('-') {
-            Some(index) if rest[..index].chars().all(|character| character.is_ascii_digit()) => &rest[index..],
-            _ => return false,
-        },
-        None => rest,
-    };
-    rest.starts_with("-flash")
-}
-
-fn effort_name(effort: ModelThinkingLevel) -> Option<&'static str> {
-    match effort {
-        ModelThinkingLevel::Minimal => Some("minimal"),
-        ModelThinkingLevel::Low => Some("low"),
-        ModelThinkingLevel::Medium => Some("medium"),
-        ModelThinkingLevel::High => Some("high"),
-        ModelThinkingLevel::Off | ModelThinkingLevel::Xhigh | ModelThinkingLevel::Max | ModelThinkingLevel::Ultra => {
-            None
-        }
-    }
-}
-
 fn get_gemini3_thinking_level(effort: ModelThinkingLevel, model: &Model) -> Option<GoogleThinkingLevel> {
-    let effort = effort_name(effort)?;
-    if is_gemini3_pro_model(model) {
+    let effort = thinking_effort_name(effort)?;
+    if is_gemini3_pro_id(&model.id) {
         return Some(match effort {
             "minimal" | "low" => GoogleThinkingLevel::Low,
             _ => GoogleThinkingLevel::High,
@@ -436,7 +309,7 @@ fn get_google_budget(
     effort: ModelThinkingLevel,
     custom_budgets: Option<&ThinkingBudgets>,
 ) -> Option<f64> {
-    let effort = effort_name(effort)?;
+    let effort = thinking_effort_name(effort)?;
     if let Some(budget) = custom_budgets.and_then(|budgets| match effort {
         "minimal" => budgets.minimal,
         "low" => budgets.low,
@@ -475,7 +348,7 @@ fn is_placeholder_api_key(api_key: &str) -> bool {
         .is_some_and(|inner| !inner.is_empty() && !inner.contains('>'))
 }
 
-fn resolve_project(options: &GoogleVertexOptions) -> Result<String, String> {
+fn project_from_options_or_env(options: &GoogleVertexOptions) -> Result<String, String> {
     let env: Option<&ProviderEnv> = options.stream.request.env.as_ref();
     options
         .project
@@ -488,7 +361,7 @@ fn resolve_project(options: &GoogleVertexOptions) -> Result<String, String> {
         })
 }
 
-fn resolve_location(options: &GoogleVertexOptions) -> Result<String, String> {
+fn location_from_options_or_env(options: &GoogleVertexOptions) -> Result<String, String> {
     let env: Option<&ProviderEnv> = options.stream.request.env.as_ref();
     options
         .location

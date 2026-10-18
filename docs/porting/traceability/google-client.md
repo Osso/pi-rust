@@ -21,7 +21,7 @@ Tests: `crates/pi-ai/tests/differential_google_api.rs` (66 scenarios), `crates/p
 | `JSON.stringify` wire formatting (integral numbers) | `js_json` | differential request bodies (e.g. `maxOutputTokens: 100`) |
 | `GoogleToken` JWT bearer exchange | `token_request_body`, `sign_service_account_jwt` | differential ids 103, 105-108, 120; `service_account_tokens_are_signed_rs256_with_the_google_claims` |
 | `OAuth2Client.refreshTokenNoCache` | `token_request_body` authorized-user branch | differential id 104; `authorized_user_tokens_use_the_refresh_token_grant` |
-| token caching / expiry | `GoogleClient::access_token` | `vertex_retries_reuse_the_cached_access_token` |
+| token caching / expiry | `GoogleClient::fetch_access_token` | `vertex_retries_reuse_the_cached_access_token` |
 | `GoogleAuth` ADC file resolution | `load_credentials`, `well_known_adc_path`, `parse_credentials` | differential ids 103-108 (env path); well-known path untested |
 
 ## Gaps
