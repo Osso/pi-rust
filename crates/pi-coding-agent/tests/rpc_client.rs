@@ -600,3 +600,52 @@ lines.on("line", (line) => {
 
     client.stop().await.expect("client must stop");
 }
+
+#[tokio::test]
+async fn bash_sends_the_command_and_returns_the_result() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let script = write_script(
+        &dir,
+        r#"import { createInterface } from "node:readline";
+const lines = createInterface({ input: process.stdin });
+lines.on("line", (line) => {
+  const command = JSON.parse(line);
+  process.stdout.write(JSON.stringify({ type: "echo", line }) + "\n");
+  process.stdout.write(JSON.stringify({
+    id: command.id,
+    type: "response",
+    command: "bash",
+    success: true,
+    data: { output: "hello\n", exitCode: 0, cancelled: false, truncated: false }
+  }) + "\n");
+});
+"#,
+    );
+    let client = RpcClient::new(options(script));
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    let _subscription = client.on_event(move |event| {
+        let _ = sender.send(event.clone());
+    });
+    client.start().await.expect("client must start");
+
+    let result = client.bash("echo hello").await.expect("bash must succeed");
+    assert_eq!(result.output, "hello\n");
+    assert_eq!(result.exit_code, Some(0));
+    assert!(!result.cancelled);
+    assert!(!result.truncated);
+    assert_eq!(result.full_output_path, None);
+
+    let event = tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+        .await
+        .expect("event must arrive")
+        .expect("event channel must stay open");
+    assert_eq!(
+        event,
+        json!({
+            "type": "echo",
+            "line": "{\"type\":\"bash\",\"command\":\"echo hello\",\"id\":\"req_1\"}"
+        })
+    );
+
+    client.stop().await.expect("client must stop");
+}

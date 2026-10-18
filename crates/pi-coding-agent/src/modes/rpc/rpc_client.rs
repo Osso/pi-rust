@@ -24,6 +24,7 @@ use tokio::process::{ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::core::agent_session::SessionStats;
+use crate::core::bash_executor::BashResult;
 use crate::core::compaction::CompactionResult;
 use crate::core::session_manager::{SessionEntry, SessionTreeNode};
 use crate::modes::rpc::jsonl::{JsonlLineReader, attach_jsonl_line_reader, serialize_json_line};
@@ -748,6 +749,16 @@ impl RpcClient {
     pub async fn abort_retry(&self) -> Result<(), RpcClientError> {
         self.send(RpcCommandBody::AbortRetry).await?;
         Ok(())
+    }
+
+    pub async fn bash(&self, command: impl Into<String>) -> Result<BashResult, RpcClientError> {
+        let response = self
+            .send(RpcCommandBody::Bash {
+                command: command.into(),
+                exclude_from_context: None,
+            })
+            .await?;
+        response_data(response, "bash")
     }
 
     pub async fn abort_bash(&self) -> Result<(), RpcClientError> {

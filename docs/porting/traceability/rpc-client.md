@@ -26,11 +26,7 @@ cannot produce (`SIGKILL` always terminates). The TypeScript test files `rpc-cli
 | `clone()` | Sends `{ type: "clone" }` and returns `data.cancelled` | `clone_session`; `clone_sends_the_clone_command_and_returns_cancelled` |
 | `compact(customInstructions?)` | Sends `{ type: "compact", customInstructions }` (omitted when absent) and returns `data` | `compact` + `core::compaction::CompactionResult`; `compact_sends_custom_instructions_and_returns_the_result`, `compact_omits_absent_custom_instructions` |
 | `getSessionStats()` | Sends `{ type: "get_session_stats" }` and returns `data` | `get_session_stats` + `core::agent_session::SessionStats`; `get_session_stats_returns_the_stats_payload` |
-
-## Pending in this slice
-
-- `bash()` is not yet ported: `BashResult` and `AgentSession::execute_bash` belong to the in-flight
-  `ca-detached` slice. No duplicate public type is defined here.
+| `bash(command)` | Sends `{ type: "bash", command }` and returns `data` | `bash` + `core::bash_executor::BashResult`; `bash_sends_the_command_and_returns_the_result` |
 
 ## Exclusions and deviations
 
