@@ -709,7 +709,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/supervisor/response-tool.ts` | 48 | 22 | todo |  |  |
 | `coding-agent/extensions/agents-core/src/parent-agent-journal.ts` | 110 | 23 | todo |  |  |
 | `coding-agent/src/cli.ts` | 25 | 23 | todo |  |  |
-| `coding-agent/src/cli/experimental/command-options.ts` | 38 | 23 | todo |  |  |
+| `coding-agent/src/cli/experimental/command-options.ts` | 38 | 23 | done | `crates/pi-coding-agent/src/cli/experimental/command_options.rs` | Auth/transport options, legacy option errors, unsupported-capability messages ([traceability](traceability/experimental-cli.md)). |
 | `coding-agent/src/core/extensions/extension-runtime.ts` | 103 | 23 | todo |  |  |
 | `coding-agent/src/core/index.ts` | 101 | 23 | todo |  |  |
 | `coding-agent/src/extensions/multi-agent.ts` | 21 | 23 | todo |  |  |
@@ -717,10 +717,10 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/rpc-entry.ts` | 13 | 23 | todo |  |  |
 | `coding-agent/src/server/create-harness.ts` | 161 | 23 | todo |  |  |
 | `coding-agent/src/bun/cli.ts` | 15 | 24 | todo |  |  |
-| `coding-agent/src/cli/experimental/commands/client.ts` | 44 | 24 | todo |  |  |
-| `coding-agent/src/cli/experimental/commands/pi.ts` | 47 | 24 | todo |  |  |
-| `coding-agent/src/cli/experimental/commands/server.ts` | 44 | 24 | todo |  |  |
-| `coding-agent/src/cli/experimental/cli.ts` | 7 | 25 | todo |  |  |
+| `coding-agent/src/cli/experimental/commands/client.ts` | 44 | 24 | done | `crates/pi-coding-agent/src/cli/experimental/commands/client.rs` | Client command builder/action; 18-case composition tests ([traceability](traceability/experimental-cli.md)). |
+| `coding-agent/src/cli/experimental/commands/pi.ts` | 47 | 24 | done | `crates/pi-coding-agent/src/cli/experimental/commands/pi.rs` | Pi command builder/action incl. `--connect` rejection ([traceability](traceability/experimental-cli.md)). |
+| `coding-agent/src/cli/experimental/commands/server.ts` | 44 | 24 | done | `crates/pi-coding-agent/src/cli/experimental/commands/server.rs` | Server command builder/action ([traceability](traceability/experimental-cli.md)). |
+| `coding-agent/src/cli/experimental/cli.ts` | 7 | 25 | done | `crates/pi-coding-agent/src/cli/experimental/cli.rs` | Union invocation and context composition ([traceability](traceability/experimental-cli.md)). |
 
 ## evals (8 files, 1277 lines)
 
