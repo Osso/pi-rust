@@ -14,7 +14,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::process::{ChildStdin, Command};
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
 use tokio_util::sync::CancellationToken;
 
@@ -49,7 +49,7 @@ pub struct CanonicalPyrunApprovalRequest {
     pub tool: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct CanonicalPyrunEvalResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approval: Option<CanonicalPyrunApprovalRequest>,
@@ -63,19 +63,6 @@ pub struct CanonicalPyrunEvalResult {
     pub result_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
-}
-
-impl Default for CanonicalPyrunEvalResult {
-    fn default() -> Self {
-        Self {
-            approval: None,
-            console: None,
-            error: None,
-            executed: None,
-            result_type: String::new(),
-            value: None,
-        }
-    }
 }
 
 /// Progress messages keep their source key order because the extension forwards
@@ -128,9 +115,8 @@ impl CanonicalPyrunProgressUpdate {
     }
 }
 
-pub type PyrunPiRequestHandler = Arc<
-    dyn Fn(PiRequest) -> BoxFuture<'static, Result<Value, HandlerError>> + Send + Sync,
->;
+pub type PyrunPiRequestHandler =
+    Arc<dyn Fn(PiRequest) -> BoxFuture<'static, Result<Value, HandlerError>> + Send + Sync>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PiRequest {
@@ -139,6 +125,7 @@ pub struct PiRequest {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PyrunRunnerOptions {
     pub args: Option<Vec<String>>,
     pub command: Option<String>,
@@ -177,7 +164,9 @@ fn parse_runner_args(value: Option<&str>) -> Result<Option<Vec<String>>, PyrunRu
 }
 
 /// `resolvePyrunRunnerOptions`.
-pub fn resolve_pyrun_runner_options(env: Option<&[(String, String)]>) -> Result<ResolvedPyrunRunnerOptions, PyrunRunnerError> {
+pub fn resolve_pyrun_runner_options(
+    env: Option<&[(String, String)]>,
+) -> Result<ResolvedPyrunRunnerOptions, PyrunRunnerError> {
     let lookup = |key: &str| -> Option<String> {
         match env {
             Some(env) => env
@@ -293,11 +282,15 @@ impl PyrunRunnerClient {
             let state = Arc::clone(&self.state);
             let pid = process.pid;
             let detached = should_detach(&self.options);
-            let generation = generation;
             tokio::spawn(async move {
                 signal.cancelled().await;
                 terminate_generation(&state, generation, pid, detached);
-                reject_generation(&state, generation, PyrunRunnerError::new("Pyrun evaluation aborted"));
+                let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                reject_generation_locked(
+                    &mut state,
+                    generation,
+                    PyrunRunnerError::new("Pyrun evaluation aborted"),
+                );
             })
         });
         {
@@ -310,13 +303,15 @@ impl PyrunRunnerClient {
                 abort_task,
             });
         }
-        let mut stdin = process.stdin.lock().await;
-        if let Err(error) = stdin.write_all(format!("{payload}\n").as_bytes()).await {
-            drop(stdin);
-            self.reject_generation(generation, PyrunRunnerError::new(error.to_string()));
-        } else if let Err(error) = stdin.flush().await {
-            drop(stdin);
-            self.reject_generation(generation, PyrunRunnerError::new(error.to_string()));
+        {
+            let mut stdin = process.stdin.lock().await;
+            if let Err(error) = stdin.write_all(format!("{payload}\n").as_bytes()).await {
+                drop(stdin);
+                self.reject_generation(generation, PyrunRunnerError::new(error.to_string()));
+            } else if let Err(error) = stdin.flush().await {
+                drop(stdin);
+                self.reject_generation(generation, PyrunRunnerError::new(error.to_string()));
+            }
         }
         match receiver.await {
             Ok(result) => result,
@@ -379,9 +374,7 @@ impl PyrunRunnerClient {
                 process_command.env(name, value);
             }
         }
-        let mut child = process_command
-            .spawn()
-            .map_err(|error| spawn_error(&command, &error))?;
+        let mut child = process_command.spawn().map_err(|error| spawn_error(&command, &error))?;
         let stdin = child
             .stdin
             .take()
@@ -408,31 +401,43 @@ impl PyrunRunnerClient {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .process = Some(ProcessHandle {
-                generation,
-                pid,
-                stdin: Arc::clone(&stdin),
-                stderr: Arc::clone(&stderr_buffer),
-            });
+            generation,
+            pid,
+            stdin: Arc::clone(&stdin),
+            stderr: Arc::clone(&stderr_buffer),
+        });
 
         let state = Arc::clone(&self.state);
         let stderr_for_reader = Arc::clone(&stderr_buffer);
         tokio::spawn(async move {
-            let mut reader = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = reader.next_line().await {
-                if line.is_empty() || line.chars().all(char::is_whitespace) {
+            let mut reader = BufReader::new(stdout);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+                let trimmed = line.trim_end_matches(['\n', '\r']);
+                if trimmed.is_empty() || trimmed.chars().all(char::is_whitespace) {
                     continue;
                 }
-                handle_stdout_line(&state, &stdin, generation, &line).await;
+                handle_stdout_line(&state, &stdin, generation, trimmed).await;
             }
         });
         tokio::spawn(async move {
             let mut reader = BufReader::new(stderr);
-            while let Ok(Some(line)) = reader.next_line().await {
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
                 let mut buffer = stderr_for_reader
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 buffer.push_str(&line);
-                buffer.push('\n');
             }
         });
         let state = Arc::clone(&self.state);
@@ -443,7 +448,11 @@ impl PyrunRunnerClient {
                 terminate_process(Some(pid), true);
             }
             let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if state.process.as_ref().is_some_and(|process| process.generation == generation) {
+            if state
+                .process
+                .as_ref()
+                .is_some_and(|process| process.generation == generation)
+            {
                 state.process = None;
             }
             if !state.pending.iter().any(|request| request.generation == generation) {
@@ -505,7 +514,7 @@ fn signal_name(signal: i32) -> String {
 fn terminate_process(pid: Option<u32>, detached: bool) {
     #[cfg(unix)]
     {
-        use rustix::process::{Pid, Signal, kill_process_group, kill_process};
+        use rustix::process::{Pid, Signal, kill_process, kill_process_group};
         let Some(pid) = pid.and_then(|pid| Pid::from_raw(i32::try_from(pid).ok()?)) else {
             return;
         };
@@ -523,7 +532,11 @@ fn terminate_process(pid: Option<u32>, detached: bool) {
 
 fn terminate_generation(state: &Arc<Mutex<RunnerState>>, generation: u64, pid: Option<u32>, detached: bool) {
     let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if state.process.as_ref().is_some_and(|process| process.generation == generation) {
+    if state
+        .process
+        .as_ref()
+        .is_some_and(|process| process.generation == generation)
+    {
         state.process = None;
     }
     drop(state);
@@ -571,63 +584,81 @@ async fn handle_stdout_line(
             return;
         }
     };
-    let message_type = parsed.get("type").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(index) = state.pending.iter().position(|request| request.generation == generation) else {
-        return;
-    };
-    if is_final_result(&parsed) {
-        let Some(mut request) = state.pending.remove(index) else {
+    let message_type = parsed
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    enum LineAction {
+        Pi(Option<PyrunPiRequestHandler>, String, Value),
+        Progress(Option<Arc<dyn Fn(CanonicalPyrunProgressUpdate) + Send + Sync>>),
+    }
+    let action = {
+        let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(index) = state
+            .pending
+            .iter()
+            .position(|request| request.generation == generation)
+        else {
             return;
         };
-        if let Some(task) = request.abort_task.take() {
-            task.abort();
+        if is_final_result(&parsed) {
+            let Some(mut request) = state.pending.remove(index) else {
+                return;
+            };
+            if let Some(task) = request.abort_task.take() {
+                task.abort();
+            }
+            match serde_json::from_value::<CanonicalPyrunEvalResult>(parsed) {
+                Ok(result) => {
+                    let _ = request.resolve.send(Ok(result));
+                }
+                Err(error) => {
+                    let _ = request.resolve.send(Err(PyrunRunnerError::new(error.to_string())));
+                }
+            }
+            return;
         }
-        match serde_json::from_value::<CanonicalPyrunEvalResult>(parsed) {
-            Ok(result) => {
-                let _ = request.resolve.send(Ok(result));
-            }
-            Err(error) => {
-                let _ = request.resolve.send(Err(PyrunRunnerError::new(error.to_string())));
+        if message_type == "pi_request" {
+            let handler = state.pending[index].on_pi_request.clone();
+            let method = parsed
+                .get("method")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            let params = parsed.get("params").cloned().unwrap_or(Value::Null);
+            LineAction::Pi(handler, method, params)
+        } else {
+            LineAction::Progress(state.pending[index].on_progress.clone())
+        }
+    };
+    match action {
+        LineAction::Pi(handler, method, params) => {
+            let response = match handler {
+                Some(handler) => handler(PiRequest { method, params }).await,
+                None => Ok(Value::Null),
+            };
+            let payload = match response {
+                Ok(result) => {
+                    let mut object = serde_json::Map::new();
+                    object.insert("result".to_owned(), result);
+                    Value::Object(object)
+                }
+                Err(error) => {
+                    let mut object = serde_json::Map::new();
+                    object.insert("error".to_owned(), Value::String(error.to_string()));
+                    Value::Object(object)
+                }
+            };
+            let mut stdin = stdin.lock().await;
+            let _ = stdin.write_all(format!("{payload}\n").as_bytes()).await;
+            let _ = stdin.flush().await;
+        }
+        LineAction::Progress(callback) => {
+            if let Some(callback) = callback {
+                callback(CanonicalPyrunProgressUpdate { raw: parsed });
             }
         }
-        return;
-    }
-    if message_type == "pi_request" {
-        let handler = state.pending[index].on_pi_request.clone();
-        drop(state);
-        let method = parsed
-            .get("method")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned();
-        let params = parsed.get("params").cloned().unwrap_or(Value::Null);
-        let response = match handler {
-            Some(handler) => handler(PiRequest { method, params }).await,
-            None => Ok(Value::Null),
-        };
-        let payload = match response {
-            Ok(result) => {
-                let mut object = serde_json::Map::new();
-                object.insert("result".to_owned(), result);
-                Value::Object(object)
-            }
-            Err(error) => {
-                let mut object = serde_json::Map::new();
-                object.insert("error".to_owned(), Value::String(error.to_string()));
-                Value::Object(object)
-            }
-        };
-        let mut stdin = stdin.lock().await;
-        let _ = stdin.write_all(format!("{payload}\n").as_bytes()).await;
-        let _ = stdin.flush().await;
-        return;
-    }
-    let progress = CanonicalPyrunProgressUpdate { raw: parsed };
-    let callback = state.pending[index].on_progress.clone();
-    drop(state);
-    if let Some(callback) = callback {
-        callback(progress);
     }
 }
 

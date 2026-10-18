@@ -6,6 +6,7 @@
 
 pub mod bwrap;
 pub mod goal;
+pub mod pyrun;
 
 use crate::core::extensions::ExtensionRegistry;
 
@@ -13,4 +14,5 @@ use crate::core::extensions::ExtensionRegistry;
 pub fn register_bundled_extensions(registry: &mut ExtensionRegistry) {
     bwrap::register(registry);
     goal::register(registry);
+    pyrun::register(registry);
 }

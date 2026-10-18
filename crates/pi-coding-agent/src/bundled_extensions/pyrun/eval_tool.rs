@@ -73,8 +73,8 @@ pub fn append_capped_console_text(existing_text: &str, new_text: &str) -> String
 
 fn command_result_exit_code(value: &Value) -> Option<f64> {
     let object = value.as_object()?;
-    let has_command_output = object.get("stdout").is_some_and(Value::is_string)
-        && object.get("stderr").is_some_and(Value::is_string);
+    let has_command_output =
+        object.get("stdout").is_some_and(Value::is_string) && object.get("stderr").is_some_and(Value::is_string);
     if !has_command_output {
         return None;
     }
@@ -247,10 +247,11 @@ pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Value {
     let mut footer = Map::new();
     footer.insert(
         "availableProviderCount".to_owned(),
-        json!(ctx
-            .footer_data
-            .as_ref()
-            .map_or(0, |footer| footer.get_available_provider_count())),
+        json!(
+            ctx.footer_data
+                .as_ref()
+                .map_or(0, |footer| footer.get_available_provider_count())
+        ),
     );
     footer.insert(
         "branch".to_owned(),
@@ -293,9 +294,7 @@ pub fn eval_context(ctx: &ExtensionContext) -> Result<PyrunEvalContext, HandlerE
         context_usage: ctx
             .get_context_usage()
             .map_err(|error| HandlerError::new(error.to_string()))?,
-        model: ctx
-            .model()
-            .map_err(|error| HandlerError::new(error.to_string()))?,
+        model: ctx.model().map_err(|error| HandlerError::new(error.to_string()))?,
         cwd: session.get_cwd().to_owned(),
         session_name: session.get_session_name(),
     })
@@ -381,16 +380,12 @@ pub fn create_pyrun_progress_reporter(
     })
 }
 
+#[derive(Default)]
 pub struct PyrunEvalExecutorOptions {
     pub enable_pi_bridge: Option<bool>,
 }
 
-/// `createPyrunEvalExecutor`.
-pub fn create_pyrun_eval_executor(
-    runner: PyrunRunnerClient,
-    dispatch_pi_request: Option<PyrunPiRequestDispatcher>,
-    options: PyrunEvalExecutorOptions,
-) -> Arc<
+pub type PyrunEvaluator = Arc<
     dyn Fn(
             PyrunEvalParams,
             ExtensionContext,
@@ -400,7 +395,14 @@ pub fn create_pyrun_eval_executor(
         ) -> BoxFuture<'static, Result<AgentToolResult, HandlerError>>
         + Send
         + Sync,
-> {
+>;
+
+/// `createPyrunEvalExecutor`.
+pub fn create_pyrun_eval_executor(
+    runner: PyrunRunnerClient,
+    dispatch_pi_request: Option<PyrunPiRequestDispatcher>,
+    options: PyrunEvalExecutorOptions,
+) -> PyrunEvaluator {
     Arc::new(move |params, ctx, on_update, signal, active_tool_call_id| {
         let runner = runner.clone();
         let dispatch_pi_request = dispatch_pi_request.clone();
