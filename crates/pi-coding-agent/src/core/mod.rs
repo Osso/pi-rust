@@ -16,6 +16,7 @@ pub mod models_store;
 pub mod output_guard;
 pub mod permissions;
 pub mod pi_manifest;
+pub mod prompt_templates;
 pub mod provider_display_names;
 pub mod radius;
 pub mod remote_catalog_provider;
