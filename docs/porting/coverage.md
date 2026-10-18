@@ -567,9 +567,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/tree-selector.ts` | 1464 | 19 | todo |  | Blocked: needs session tree entries and branch navigation; not started in this slice. |
 | `coding-agent/src/modes/interactive/components/trust-selector.ts` | 134 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/trust_selector.rs` | Differential render/input/events including inherited decisions. |
 | `coding-agent/src/modes/interactive/components/user-message-selector.ts` | 155 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/user_message_selector.rs` | Differential render/input/events incl. scrolling and truncation; empty auto-cancel in `tests/components.rs`. |
-| `coding-agent/src/cli/config-selector.ts` | 56 | 20 | todo |  |  |
-| `coding-agent/src/cli/startup-ui.ts` | 239 | 20 | todo |  |  |
-| `coding-agent/src/cli/session-picker.ts` | 96 | 21 | todo |  |  |
+| `coding-agent/src/cli/config-selector.ts` | 56 | 20 | todo |  | Blocked on `ConfigSelectorComponent` (`modes/interactive/components/config-selector.ts`, still todo) and `stopThemeWatcher`. |
+| `coding-agent/src/cli/startup-ui.ts` | 239 | 20 | todo |  | Blocked on `FirstTimeSetupComponent` and `ExtensionInputComponent`; `ExtensionSelectorComponent`, `TuiMainScreen`, and `loadThemeFromPath` are ported. |
+| `coding-agent/src/cli/session-picker.ts` | 96 | 21 | partial | `crates/pi-coding-agent/src/cli/session_picker.rs` | `loadSessionsWithControlNames` (archive filter, control-db names, named-first/modified ordering) with 6 tests; `selectSession` blocked on `SessionSelectorComponent` + `cli/startup-ui.ts` ([traceability](traceability/session-picker.md)). |
 | `coding-agent/extensions/agent-viewer/src/index.ts` | 9 | 22 | todo |  |  |
 | `coding-agent/extensions/agents-core/src/control-runtime.ts` | 440 | 22 | todo |  |  |
 | `coding-agent/extensions/agents-core/src/dispatch-runtime.ts` | 660 | 22 | todo |  |  |
@@ -640,7 +640,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/cli/list-extensions.ts` | 113 | 22 | done | `crates/pi-coding-agent/src/cli/list_extensions.rs` | First-party labels, scope/source derivation, UTF-16 column layout, locale path sort; 4-case byte-level differential ([traceability](traceability/list-extensions.md)). |
 | `coding-agent/src/cli/list-tools.ts` | 91 | 22 | done | `crates/pi-coding-agent/src/cli/list_tools.rs` | Source labels, UTF-16 truncation, sorted table; 4-case byte-level differential ([traceability](traceability/list-tools.md)). |
 | `coding-agent/src/cli/project-trust.ts` | 62 | 22 | done | `crates/pi-coding-agent/src/cli/project_trust.rs` | Mode mapping, hasUI gating, Yes/No confirm, notify coloring; startup-ui seam documented ([traceability](traceability/project-trust.md)). |
-| `coding-agent/src/cli/resident-console-command.ts` | 200 | 22 | todo |  |  |
+| `coding-agent/src/cli/resident-console-command.ts` | 200 | 22 | todo |  | Blocked on `AgentSessionEvent` (ca-agent-session); resident-console transport is ported. |
 | `coding-agent/src/core/agent-session-runtime.ts` | 576 | 22 | todo |  |  |
 | `coding-agent/src/core/agent-session-services.ts` | 219 | 22 | todo |  |  |
 | `coding-agent/src/core/agent-session.ts` | 6073 | 22 | todo |  |  |
