@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::context::ToolContext;
 use super::result::text_result;
+use crate::core::extensions::types::ExtensionContext;
 use crate::core::session_manager::SessionEntry;
 
 const DEFAULT_LIMIT: usize = 20;
@@ -208,8 +208,11 @@ fn selected_indexes(match_indexes: &[usize], context_entries: i64, entry_count: 
     indexes
 }
 
-fn require_persisted_session(context: &ToolContext) -> Result<(), ToolError> {
-    if context.session.get_session_file().is_none() {
+fn require_persisted_session(context: &ExtensionContext) -> Result<(), ToolError> {
+    let session = context
+        .session_manager()
+        .map_err(|error| ToolError::new(error.message))?;
+    if session.get_session_file().is_none() {
         return Err(ToolError::new(
             "search_current_session_history requires a persisted current session",
         ));
@@ -217,7 +220,7 @@ fn require_persisted_session(context: &ToolContext) -> Result<(), ToolError> {
     Ok(())
 }
 
-impl AgentHarnessTool<ToolContext> for SearchCurrentSessionHistoryTool {
+impl AgentHarnessTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -244,11 +247,14 @@ impl AgentHarnessTool<ToolContext> for SearchCurrentSessionHistoryTool {
         params: Value,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
-        context: ToolContext,
+        context: ExtensionContext,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
             require_persisted_session(&context)?;
+            let session = context
+                .session_manager()
+                .map_err(|error| ToolError::new(error.message))?;
             let params: SearchCurrentSessionHistoryParams =
                 serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
             let query = js_trim(&params.query);
@@ -256,12 +262,8 @@ impl AgentHarnessTool<ToolContext> for SearchCurrentSessionHistoryTool {
                 return Err(ToolError::new("search_current_session_history query must not be empty"));
             }
 
-            let searchable_entries: Vec<SearchableSessionEntry> = context
-                .session
-                .get_branch()
-                .iter()
-                .filter_map(searchable_entry)
-                .collect();
+            let searchable_entries: Vec<SearchableSessionEntry> =
+                session.get_branch(None).iter().filter_map(searchable_entry).collect();
             let normalized_query = query.to_lowercase();
             let all_match_indexes: Vec<usize> = searchable_entries
                 .iter()
@@ -284,8 +286,7 @@ impl AgentHarnessTool<ToolContext> for SearchCurrentSessionHistoryTool {
             let context_entries = params.context_entries.unwrap_or(0);
             let included_indexes = selected_indexes(&page_match_indexes, context_entries, searchable_entries.len());
             let match_index_set: HashSet<usize> = page_match_indexes.iter().copied().collect();
-            let context_entry_ids: HashSet<String> = context
-                .session
+            let context_entry_ids: HashSet<String> = session
                 .build_context_entries()
                 .iter()
                 .filter_map(|entry| entry.id().map(str::to_owned))

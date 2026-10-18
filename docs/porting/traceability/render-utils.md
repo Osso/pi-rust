@@ -16,9 +16,9 @@ Rust: `pi_coding_agent::core::tools::render_utils`.
 | `render-utils.ts:74-76` | `invalidArgText` | `invalid_arg_text`; renderer differential `invalidArg`. |
 | `render-utils.ts:78-85` | `renderToolPath` | `render_tool_path`; renderer differential `toolPath` cases (null, empty fallback, shortened, linked). |
 
-Key-hint helpers used by the renderers (`formatKeyText`, `keyText`, `keyDisplayText`, `keyHint`, `rawKeyHint`) live in `render_utils` and read the coding-agent keybinding registry plus `current_theme()`, matching the source's module-global `theme`.
+Key-hint helpers (`formatKeyText`, `keyText`, `keyDisplayText`, `keyHint`, `rawKeyHint`) are imported from `modes::interactive::components::keybinding_hints`, the module matching the source import. `render_utils` has no copies.
 
-Differential: `oracle/coding-agent-render-utils-oracle.ts` calls the real pinned module (request `27100`, 23 cases) and compares results byte-for-byte.
+Differential: `oracle/coding-agent-render-utils-oracle.ts` calls the real pinned module with the built-in dark theme (request `27100`, 23 cases) and compares real ANSI output byte-for-byte.
 
 ## Discrepancies
 

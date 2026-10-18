@@ -13,7 +13,7 @@ Rust: `crates/pi-coding-agent/src/core/tools/change_working_directory.rs`
 | `assertExistingDirectory` | same | missing/non-directory tests |
 | `loadTargetCwd` (path resolve, id → `findSessionFileById` + header cwd) | same | id/path tests, differential |
 | current-session id guard | same | `rejects_a_current_session_id_prefix`, differential |
-| `relocateAfterToolResult` | `ToolContext::relocate_after_tool_result` / `RelocateAfterToolResult` | relocate capture tests |
+| `relocateAfterToolResult` | `ExtensionContext::relocate_after_tool_result`; `ExtensionRunner::deliver_tool_result_relocation` | `schedules_relocation_only_for_its_tool_call_id`, differential relocation cases |
 | result text/details/`terminate` | `execute` | differential |
 
 Differential: `tests/differential_session_tools.rs::change_working_directory_tool_differential`
@@ -21,7 +21,7 @@ Differential: `tests/differential_session_tools.rs::change_working_directory_too
 
 ## Gaps
 
-- `renderCall`/`renderResult` need `Theme`.
+- `renderCall`/`renderResult` are not ported yet.
 - Real runtime relocation/restart lifecycle tests (`suite/change-working-directory-tool.test.ts`
   process cases) belong to the agent-session/runtime slices; this slice ports the tool's own
   validation, resolution, and relocation call.

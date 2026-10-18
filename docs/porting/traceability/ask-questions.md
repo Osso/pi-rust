@@ -15,7 +15,7 @@ Rust: `crates/pi-coding-agent/src/core/tools/ask_questions.rs` (`AskQuestionsToo
 | `formatMultiSelectOption`, toggle, custom add, Done join | `format_multi_select_option`, `apply_multi_select_choice`, `ask_multi_select_question` | `supports_multi_select_questions` |
 | `formatAnswers` (`- question → answer`, `(no selection)`) | `format_answers` | result-text test |
 | `unavailableResult` / `cancelledResult` / `answeredResult` | `unavailable_result`, `cancelled_result`, `answered_result` | TUI-unavailable, partial-cancel tests |
-| desktop notification body/title/expiry/urgency and close | `format_ask_questions_notification_body`, `notify_ask_questions_waiting`, `close_ask_questions_notification` | notification and close tests; notifier injected via `ToolContext` |
+| desktop notification body/title/expiry/urgency and close | `format_ask_questions_notification_body`, `notify_ask_questions_waiting`, `close_ask_questions_notification` | notification and close tests with a mock notifier passed to the module function |
 | notification failure handling (`console.error`) | `DesktopNotifier::notify` returning `None` | system notifier has no error channel; gap below |
 
 Differential: `tests/differential_session_tools.rs::ask_questions_tool_differential` with a
@@ -24,7 +24,7 @@ duplicate options, duplicate questions).
 
 ## Gaps
 
-- `renderCall`/`renderResult` need `Theme`.
+- `renderCall`/`renderResult` are not ported yet.
 - The source wraps `sendDesktopNotification` in `try/catch` and logs to `console.error`; the Rust
   `DesktopNotifier` trait has no error channel, so a throwing host notifier cannot be represented.
   Notification content/close behavior is identical.

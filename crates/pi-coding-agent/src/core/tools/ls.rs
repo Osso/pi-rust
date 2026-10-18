@@ -17,11 +17,13 @@ use tokio::io::AsyncReadExt;
 use tokio_util::sync::CancellationToken;
 
 use super::path_utils::{path_exists, resolve_to_cwd};
-use super::render_utils::{get_text_output, key_hint, render_tool_path, str_value};
+use super::render_utils::{get_text_output, render_tool_path, str_value};
+use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, format_size, truncate_head};
-use crate::core::extensions::types::{ExtensionTheme, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
-use crate::core::extensions::wrapper::create_tool_definition_from_agent_tool;
+use crate::core::extensions::types::{ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::modes::interactive::components::keybinding_hints::key_hint;
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -439,11 +441,11 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
 // Renderers
 // ============================================================================
 
-fn format_ls_call(args: &Value, theme: &dyn ExtensionTheme, cwd: &str) -> String {
+fn format_ls_call(args: &Value, theme: &Theme, cwd: &str) -> String {
     let path_display = render_tool_path(str_value(args.get("path")).as_deref(), theme, cwd, Some("."));
-    let mut text = format!("{} {path_display}", theme.fg("toolTitle", &theme.bold("ls")));
+    let mut text = format!("{} {path_display}", theme.fg(ThemeColor::ToolTitle, &theme.bold("ls")));
     if let Some(limit) = args.get("limit").and_then(Value::as_f64) {
-        text.push_str(&theme.fg("toolOutput", &format!(" (limit {})", format_js_number(limit))));
+        text.push_str(&theme.fg(ThemeColor::ToolOutput, &format!(" (limit {})", format_js_number(limit))));
     }
     text
 }
@@ -459,7 +461,7 @@ fn format_js_number(value: f64) -> String {
 fn format_ls_result(
     result: &AgentToolResult,
     options: &ToolRenderResultOptions,
-    theme: &dyn ExtensionTheme,
+    theme: &Theme,
     show_images: bool,
 ) -> String {
     let output = get_text_output(Some(result), show_images).trim().to_owned();
@@ -473,16 +475,16 @@ fn format_ls_result(
             "\n{}",
             display_lines
                 .iter()
-                .map(|line| theme.fg("toolOutput", line))
+                .map(|line| theme.fg(ThemeColor::ToolOutput, line))
                 .collect::<Vec<_>>()
                 .join("\n")
         ));
         if remaining > 0 {
             text.push_str(&format!(
                 "{}{}{}",
-                theme.fg("muted", &format!("\n... ({remaining} more lines,")),
+                theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
-                theme.fg("muted", ")")
+                theme.fg(ThemeColor::Muted, ")")
             ));
         }
     }
@@ -506,14 +508,14 @@ fn format_ls_result(
         }
         text.push_str(&format!(
             "\n{}",
-            theme.fg("warning", &format!("[Truncated: {}]", warnings.join(", ")))
+            theme.fg(ThemeColor::Warning, &format!("[Truncated: {}]", warnings.join(", ")))
         ));
     }
     text
 }
 
 /// `renderCall` for the ls tool.
-pub fn render_call(args: &Value, theme: &dyn ExtensionTheme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     Rc::new(RefCell::new(Text::new(format_ls_call(args, theme, &context.cwd), 0, 0)))
 }
 
@@ -521,7 +523,7 @@ pub fn render_call(args: &Value, theme: &dyn ExtensionTheme, context: &ToolRende
 pub fn render_result(
     result: &AgentToolResult,
     options: &ToolRenderResultOptions,
-    theme: &dyn ExtensionTheme,
+    theme: &Theme,
     context: &ToolRenderContext,
 ) -> ComponentRef {
     Rc::new(RefCell::new(Text::new(

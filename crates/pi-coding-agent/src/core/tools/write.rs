@@ -21,11 +21,12 @@ use tokio_util::sync::CancellationToken;
 use super::file_mutation_queue::with_file_mutation_queue;
 use super::node_fs::node_fs_error;
 use super::path_utils::resolve_to_cwd;
-use super::render_utils::{key_hint, normalize_display_text, render_tool_path, replace_tabs, str_value};
+use super::render_utils::{normalize_display_text, render_tool_path, replace_tabs, str_value};
+use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
-use crate::core::extensions::types::{ExtensionTheme, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
-use crate::core::extensions::wrapper::create_tool_definition_from_agent_tool;
-use crate::modes::interactive::theme::{get_language_from_path, highlight_code};
+use crate::core::extensions::types::{ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::modes::interactive::components::keybinding_hints::key_hint;
+use crate::modes::interactive::theme::{Theme, ThemeColor, get_language_from_path, highlight_code};
 
 const DESCRIPTION: &str = "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.";
 
@@ -196,15 +197,18 @@ fn trim_trailing_empty_lines(mut lines: Vec<String>) -> Vec<String> {
     lines
 }
 
-fn format_write_call(args: &Value, options: &ToolRenderResultOptions, theme: &dyn ExtensionTheme, cwd: &str) -> String {
+fn format_write_call(args: &Value, options: &ToolRenderResultOptions, theme: &Theme, cwd: &str) -> String {
     let raw_path = render_args_path(args);
     let file_content = render_content(args);
     let path_display = render_tool_path(raw_path.as_deref(), theme, cwd, None);
-    let mut text = format!("{} {path_display}", theme.fg("toolTitle", &theme.bold("write")));
+    let mut text = format!(
+        "{} {path_display}",
+        theme.fg(ThemeColor::ToolTitle, &theme.bold("write"))
+    );
     let Some(file_content) = file_content else {
         text.push_str(&format!(
             "\n\n{}",
-            theme.fg("error", "[invalid content arg - expected string]")
+            theme.fg(ThemeColor::Error, "[invalid content arg - expected string]")
         ));
         return text;
     };
@@ -230,7 +234,7 @@ fn format_write_call(args: &Value, options: &ToolRenderResultOptions, theme: &dy
             .iter()
             .map(|line| match lang {
                 Some(_) => (*line).clone(),
-                None => theme.fg("toolOutput", &replace_tabs(line)),
+                None => theme.fg(ThemeColor::ToolOutput, &replace_tabs(line)),
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -238,15 +242,18 @@ fn format_write_call(args: &Value, options: &ToolRenderResultOptions, theme: &dy
     if remaining > 0 {
         text.push_str(&format!(
             "{}{}{}",
-            theme.fg("muted", &format!("\n... ({remaining} more lines, {total_lines} total,")),
+            theme.fg(
+                ThemeColor::Muted,
+                &format!("\n... ({remaining} more lines, {total_lines} total,")
+            ),
             key_hint("app.tools.expand", "to expand"),
-            theme.fg("muted", ")")
+            theme.fg(ThemeColor::Muted, ")")
         ));
     }
     text
 }
 
-fn format_write_result(result: &AgentToolResult, theme: &dyn ExtensionTheme, is_error: bool) -> Option<String> {
+fn format_write_result(result: &AgentToolResult, theme: &Theme, is_error: bool) -> Option<String> {
     if !is_error {
         return None;
     }
@@ -262,11 +269,11 @@ fn format_write_result(result: &AgentToolResult, theme: &dyn ExtensionTheme, is_
     if output.is_empty() {
         return None;
     }
-    Some(format!("\n{}", theme.fg("error", &output)))
+    Some(format!("\n{}", theme.fg(ThemeColor::Error, &output)))
 }
 
 /// `renderCall` for the write tool.
-pub fn render_call(args: &Value, theme: &dyn ExtensionTheme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     let options = ToolRenderResultOptions {
         expanded: context.expanded,
         is_partial: context.is_partial,
@@ -282,7 +289,7 @@ pub fn render_call(args: &Value, theme: &dyn ExtensionTheme, context: &ToolRende
 pub fn render_result(
     result: &AgentToolResult,
     _options: &ToolRenderResultOptions,
-    theme: &dyn ExtensionTheme,
+    theme: &Theme,
     context: &ToolRenderContext,
 ) -> ComponentRef {
     match format_write_result(result, theme, context.is_error) {

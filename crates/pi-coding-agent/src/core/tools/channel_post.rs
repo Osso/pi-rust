@@ -11,8 +11,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::context::ToolContext;
 use super::result::text_result;
+use crate::core::extensions::types::ExtensionContext;
 use crate::core::session_control_db::{
     PostSharedChannelMessageInput, RuntimeMailboxAddress, advance_shared_channel_cursor, post_shared_channel_message,
 };
@@ -57,7 +57,7 @@ pub fn parameters() -> &'static Value {
     })
 }
 
-impl AgentHarnessTool<ToolContext> for ChannelPostTool {
+impl AgentHarnessTool<ExtensionContext> for ChannelPostTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -84,26 +84,37 @@ impl AgentHarnessTool<ToolContext> for ChannelPostTool {
         params: Value,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
-        context: ToolContext,
+        context: ExtensionContext,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
-            if context.multi_agent_agent_id.is_some() || context.multi_agent_requires_agent_id {
+            let agent_id = context
+                .multi_agent_agent_id()
+                .map_err(|error| ToolError::new(error.message))?;
+            let requires_agent_id = context
+                .multi_agent_requires_agent_id()
+                .map_err(|error| ToolError::new(error.message))?;
+            if agent_id.is_some() || requires_agent_id {
                 return Err(ToolError::new("channel_post is only available from main sessions"));
             }
-            let control_db_path = context.require_control_db_path(NAME)?;
+            let control_db_path = context
+                .control_db_path()
+                .map_err(|error| ToolError::new(error.message))?
+                .ok_or_else(|| ToolError::new("channel_post requires a control database path"))?;
             let params: ChannelPostParams =
                 serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
             let message = js_trim(&params.message);
             if message.is_empty() {
                 return Err(ToolError::new("channel_post requires a non-empty message"));
             }
-            let sender = RuntimeMailboxAddress {
-                agent_id: context.multi_agent_agent_id.clone(),
-                session_id: context.session.get_session_id().to_owned(),
-            };
+            let session_id = context
+                .session_manager()
+                .map_err(|error| ToolError::new(error.message))?
+                .get_session_id()
+                .to_owned();
+            let sender = RuntimeMailboxAddress { agent_id, session_id };
             let message_id = post_shared_channel_message(
-                control_db_path,
+                &control_db_path,
                 &PostSharedChannelMessageInput {
                     body: message.to_owned(),
                     sender: sender.clone(),
@@ -111,7 +122,7 @@ impl AgentHarnessTool<ToolContext> for ChannelPostTool {
             )
             .map_err(|error| ToolError::new(error.to_string()))?;
             // The sender already knows what it wrote; skip self-echo on the next idle drain.
-            advance_shared_channel_cursor(control_db_path, &sender, message_id)
+            advance_shared_channel_cursor(&control_db_path, &sender, message_id)
                 .map_err(|error| ToolError::new(error.to_string()))?;
             Ok(text_result(
                 format!("Posted shared channel message {message_id}."),

@@ -519,13 +519,12 @@ fn rust_tool_result(result: Result<pi_agent_core::AgentToolResult, pi_agent_core
 #[tokio::test]
 async fn end_turn_tool_differential() {
     use pi_agent_core::AgentHarnessTool;
-    use pi_coding_agent::core::tools::context::ToolContext;
     use pi_coding_agent::core::tools::end_turn::EndTurnTool;
 
-    let context = ToolContext::new(
-        "/repo",
-        tool_context::StaticSession::new("/repo", "/repo/sessions", "session", None),
-    );
+    let context = tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
+        .build()
+        .await
+        .1;
 
     let mut oracle = Oracle::new();
     for params in [
@@ -551,7 +550,6 @@ async fn end_turn_tool_differential() {
 async fn channel_post_tool_differential() {
     use pi_agent_core::AgentHarnessTool;
     use pi_coding_agent::core::tools::channel_post::ChannelPostTool;
-    use pi_coding_agent::core::tools::context::ToolContext;
 
     let mut oracle = Oracle::new();
     for (name, params, session_id) in [
@@ -568,11 +566,12 @@ async fn channel_post_tool_differential() {
             params.clone(),
             json!({ "controlDbPath": ts_db, "cwd": "/repo", "sessionId": session_id }),
         ));
-        let context = ToolContext::new(
-            "/repo",
-            tool_context::StaticSession::new("/repo", "/repo/sessions", session_id, None),
-        )
-        .with_control_db_path(&rust_db);
+        let context =
+            tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", session_id))
+                .control_db_path(&rust_db)
+                .build()
+                .await
+                .1;
         let rust = rust_tool_result(
             ChannelPostTool::new()
                 .execute("tool-call".to_owned(), params, None, None, context, None)
@@ -609,7 +608,6 @@ async fn channel_post_tool_differential() {
 async fn ask_architect_tool_differential() {
     use pi_agent_core::AgentHarnessTool;
     use pi_coding_agent::core::tools::ask_architect::AskArchitectTool;
-    use pi_coding_agent::core::tools::context::ToolContext;
 
     let root = temp_root("pi-ask-architect-");
     let project = root.path().join("project-worktree");
@@ -643,11 +641,12 @@ async fn ask_architect_tool_differential() {
             params.clone(),
             json!({ "controlDbPath": ts_db, "cwd": "/repo", "sessionId": "main-session" }),
         ));
-        let context = ToolContext::new(
-            "/repo",
-            tool_context::StaticSession::new("/repo", "/repo/sessions", "main-session", None),
-        )
-        .with_control_db_path(&rust_db);
+        let context =
+            tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "main-session"))
+                .control_db_path(&rust_db)
+                .build()
+                .await
+                .1;
         let rust = rust_tool_result(
             AskArchitectTool::new()
                 .execute("tool-call".to_owned(), params, None, None, context, None)
@@ -826,7 +825,6 @@ fn session_fixture_root() -> tempfile::TempDir {
 async fn search_current_session_history_tool_differential() {
     use pi_agent_core::AgentHarnessTool;
     use pi_coding_agent::core::session_manager::SessionManager;
-    use pi_coding_agent::core::tools::context::ToolContext;
     use pi_coding_agent::core::tools::search_current_session_history::SearchCurrentSessionHistoryTool;
 
     let root = temp_root("pi-search-history-");
@@ -875,16 +873,13 @@ async fn search_current_session_history_tool_differential() {
             None,
         )
         .expect("open session");
+        let context = tool_context::TestContextBuilder::new(&cwd, std::sync::Arc::new(manager))
+            .build()
+            .await
+            .1;
         let rust = rust_tool_result(
             SearchCurrentSessionHistoryTool::new()
-                .execute(
-                    "tool-call".to_owned(),
-                    params,
-                    None,
-                    None,
-                    ToolContext::new(&cwd, std::sync::Arc::new(manager)),
-                    None,
-                )
+                .execute("tool-call".to_owned(), params, None, None, context, None)
                 .await,
         );
         assert_eq!(response["output"], rust, "{name}");
@@ -894,30 +889,33 @@ async fn search_current_session_history_tool_differential() {
 #[tokio::test]
 async fn resume_session_tool_differential() {
     use pi_agent_core::AgentHarnessTool;
+    use pi_coding_agent::core::extensions::{ExtensionContext, SwitchSessionCallback};
     use pi_coding_agent::core::session_manager::SessionManager;
-    use pi_coding_agent::core::tools::context::{SessionSwitcher, SwitchSessionResult, ToolContext};
     use pi_coding_agent::core::tools::resume_session::ResumeSessionTool;
     use std::sync::{Arc, Mutex};
 
     struct Recorder {
         cancelled: bool,
-        path: Mutex<Option<String>>,
-        starter: Mutex<Option<String>>,
+        path: Arc<Mutex<Option<String>>>,
+        starter: Arc<Mutex<Option<String>>>,
     }
 
-    impl SessionSwitcher for Recorder {
-        fn switch_session<'a>(
-            &'a self,
-            session_path: &'a str,
-            starter_prompt: Option<&'a str>,
-        ) -> pi_ai::request::BoxFuture<'a, Result<SwitchSessionResult, pi_agent_core::ToolError>> {
-            *self.path.lock().expect("path") = Some(session_path.to_owned());
-            *self.starter.lock().expect("starter") = starter_prompt.map(str::to_owned);
-            Box::pin(async move {
-                Ok(SwitchSessionResult {
-                    cancelled: self.cancelled,
-                })
+    impl Recorder {
+        fn new(cancelled: bool) -> Arc<Self> {
+            Arc::new(Self {
+                cancelled,
+                path: Arc::new(Mutex::new(None)),
+                starter: Arc::new(Mutex::new(None)),
             })
+        }
+
+        fn callback(&self, context: ExtensionContext) -> SwitchSessionCallback {
+            tool_context::recording_switch_session(
+                context,
+                self.cancelled,
+                Arc::clone(&self.path),
+                Arc::clone(&self.starter),
+            )
         }
     }
 
@@ -964,13 +962,14 @@ async fn resume_session_tool_differential() {
                 "cancelled": name == "cancelled"
             }),
         ));
-        let recorder = Arc::new(Recorder {
-            cancelled: name == "cancelled",
-            path: Mutex::new(None),
-            starter: Mutex::new(None),
-        });
+        let recorder = Recorder::new(name == "cancelled");
         let manager = SessionManager::open(&current_path, Some(&sessions_dir), None).expect("open session");
-        let context = ToolContext::new(&root_path, Arc::new(manager)).with_switch_session(recorder.clone());
+        let (mut runner, context) = tool_context::TestContextBuilder::new(&root_path, Arc::new(manager))
+            .build()
+            .await;
+        runner.bind_command_context(Some(tool_context::command_context_actions(
+            recorder.callback(context.clone()),
+        )));
         let result = ResumeSessionTool::new()
             .execute("tool-call".to_owned(), params, None, None, context, None)
             .await;
@@ -994,22 +993,27 @@ async fn resume_session_tool_differential() {
 #[tokio::test]
 async fn change_working_directory_tool_differential() {
     use pi_agent_core::AgentHarnessTool;
+    use pi_coding_agent::core::extensions::RelocateCallback;
     use pi_coding_agent::core::session_manager::SessionManager;
     use pi_coding_agent::core::tools::change_working_directory::ChangeWorkingDirectoryTool;
-    use pi_coding_agent::core::tools::context::{RelocateAfterToolResult, ToolContext};
     use std::sync::{Arc, Mutex};
 
     struct Recorder {
         calls: Mutex<Vec<Value>>,
     }
 
-    impl RelocateAfterToolResult for Recorder {
-        fn relocate_after_tool_result(&self, tool_call_id: &str, target_cwd: &str) {
-            self.calls.lock().expect("calls").push(json!({
-                "toolCallId": tool_call_id,
-                "targetCwd": target_cwd,
-            }));
-        }
+    fn relocate_callback(recorder: Arc<Recorder>) -> RelocateCallback {
+        Arc::new(move |target_cwd| {
+            let recorder = Arc::clone(&recorder);
+            let target_cwd = target_cwd.to_owned();
+            Box::pin(async move {
+                recorder.calls.lock().expect("calls").push(json!({
+                    "toolCallId": "tool-call",
+                    "targetCwd": target_cwd,
+                }));
+                Ok(())
+            })
+        })
     }
 
     let root = session_fixture_root();
@@ -1045,12 +1049,22 @@ async fn change_working_directory_tool_differential() {
             calls: Mutex::new(Vec::new()),
         });
         let manager = SessionManager::open(&current_path, Some(&sessions_dir), None).expect("open session");
-        let context = ToolContext::new(&root_path, Arc::new(manager)).with_relocate_after_tool_result(recorder.clone());
+        let (mut runner, context) = tool_context::TestContextBuilder::new(&root_path, Arc::new(manager))
+            .build()
+            .await;
+        runner.set_tool_result_relocation_handlers(
+            relocate_callback(Arc::clone(&recorder)),
+            Arc::new(|| Box::pin(async {})),
+        );
         let result = ChangeWorkingDirectoryTool::new()
             .execute("tool-call".to_owned(), params, None, None, context, None)
             .await;
         let mut rust = rust_tool_result(result);
         if rust["ok"] == true {
+            runner
+                .deliver_tool_result_relocation("tool-call")
+                .await
+                .expect("deliver relocation");
             rust["relocations"] = Value::Array(recorder.calls.lock().expect("calls").clone());
         }
         assert_eq!(response["output"], rust, "{name}");
@@ -1060,7 +1074,6 @@ async fn change_working_directory_tool_differential() {
 #[tokio::test]
 async fn list_sessions_tool_differential() {
     use pi_agent_core::AgentHarnessTool;
-    use pi_coding_agent::core::tools::context::ToolContext;
     use pi_coding_agent::core::tools::list_sessions::ListSessionsTool;
 
     let mut oracle = Oracle::new();
@@ -1132,11 +1145,12 @@ async fn list_sessions_tool_differential() {
             params.clone(),
             json!({ "controlDbPath": ts_db, "cwd": "/repo", "sessionId": "current", "setup": setup.clone() }),
         ));
-        let context = ToolContext::new(
-            "/repo",
-            tool_context::StaticSession::new("/repo", "/repo/sessions", "current", None),
-        )
-        .with_control_db_path(&rust_db);
+        let context =
+            tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "current"))
+                .control_db_path(&rust_db)
+                .build()
+                .await
+                .1;
         let rust = rust_tool_result(
             ListSessionsTool::new()
                 .execute("tool-call".to_owned(), params, None, None, context, None)
@@ -1149,8 +1163,9 @@ async fn list_sessions_tool_differential() {
 #[tokio::test]
 async fn broadcast_tool_differential() {
     use pi_agent_core::AgentHarnessTool;
+    use pi_coding_agent::core::session_manager::SessionManager;
     use pi_coding_agent::core::tools::broadcast::BroadcastTool;
-    use pi_coding_agent::core::tools::context::ToolContext;
+    use std::sync::Arc;
 
     let setup = vec![
         json!({
@@ -1207,16 +1222,12 @@ async fn broadcast_tool_differential() {
                 "setup": setup.clone()
             }),
         ));
-        let context = ToolContext::new(
-            root.path().display().to_string(),
-            tool_context::StaticSession::new(
-                &root.path().display().to_string(),
-                &sessions_dir,
-                "sender-session",
-                Some(&sender_path),
-            ),
-        )
-        .with_control_db_path(&rust_db);
+        let sender = SessionManager::open(&sender_path, Some(&sessions_dir), None).expect("open sender session");
+        let context = tool_context::TestContextBuilder::new(&root.path().display().to_string(), Arc::new(sender))
+            .control_db_path(&rust_db)
+            .build()
+            .await
+            .1;
         let rust = rust_tool_result(
             BroadcastTool::new()
                 .execute("tool-call".to_owned(), params, None, None, context, None)
@@ -1231,8 +1242,8 @@ async fn broadcast_tool_differential() {
 async fn ask_questions_tool_differential() {
     use pi_agent_core::AgentHarnessTool;
     use pi_ai::request::BoxFuture;
+    use pi_coding_agent::core::extensions::{ExtensionMode, ExtensionUiContext};
     use pi_coding_agent::core::tools::ask_questions::AskQuestionsTool;
-    use pi_coding_agent::core::tools::context::{ExtensionMode, ToolContext, ToolUi};
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
 
@@ -1241,15 +1252,25 @@ async fn ask_questions_tool_differential() {
         inputs: Mutex<VecDeque<Option<String>>>,
     }
 
-    impl ToolUi for ScriptedUi {
-        fn select<'a>(&'a self, _title: &'a str, _options: &'a [String]) -> BoxFuture<'a, Option<String>> {
+    impl ExtensionUiContext for ScriptedUi {
+        fn select<'a>(
+            &'a self,
+            _title: &str,
+            _options: &[String],
+            _opts: Option<&pi_coding_agent::core::extensions::ExtensionUiDialogOptions>,
+        ) -> BoxFuture<'a, Result<Option<String>, String>> {
             let choice = self.selects.lock().expect("selects").pop_front().flatten();
-            Box::pin(async move { choice })
+            Box::pin(async move { Ok(choice) })
         }
 
-        fn input<'a>(&'a self, _title: &'a str, _placeholder: Option<&'a str>) -> BoxFuture<'a, Option<String>> {
+        fn input<'a>(
+            &'a self,
+            _title: &str,
+            _placeholder: Option<&str>,
+            _opts: Option<&pi_coding_agent::core::extensions::ExtensionUiDialogOptions>,
+        ) -> BoxFuture<'a, Result<Option<String>, String>> {
             let answer = self.inputs.lock().expect("inputs").pop_front().flatten();
-            Box::pin(async move { answer })
+            Box::pin(async move { Ok(answer) })
         }
     }
 
@@ -1327,12 +1348,13 @@ async fn ask_questions_tool_differential() {
             selects: Mutex::new(selects.into_iter().map(|value| value.map(str::to_owned)).collect()),
             inputs: Mutex::new(inputs.into_iter().map(|value| value.map(str::to_owned)).collect()),
         });
-        let context = ToolContext::new(
-            "/repo",
-            tool_context::StaticSession::new("/repo", "/repo/sessions", "session", None),
-        )
-        .with_mode(ExtensionMode::Tui, true)
-        .with_ui(ui);
+        let context =
+            tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
+                .mode(ExtensionMode::Tui)
+                .ui(ui)
+                .build()
+                .await
+                .1;
         let rust = rust_tool_result(
             AskQuestionsTool::new()
                 .execute("tool-call".to_owned(), params, None, None, context, None)

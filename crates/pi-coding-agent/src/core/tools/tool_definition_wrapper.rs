@@ -14,6 +14,7 @@ use pi_ai::types::{TextContent, TextOrImageContent};
 use serde_json::{Map, Value};
 
 use super::truncate::{TruncationOptions, format_size, truncate_tail};
+use crate::core::extensions::types::{HandlerError, ToolDefinition};
 
 /// Shared spill state for one tool call: the temp file is created at most once.
 #[derive(Debug, Default)]
@@ -58,6 +59,37 @@ pub fn cap_tool_result_output(mut result: AgentToolResult, spill: &mut ToolOutpu
     )))];
     result.details = Some(merge_output_details(result.details, &truncation, &full_output_path));
     result
+}
+
+/// `createToolDefinitionFromAgentTool`: synthesize a minimal definition from an [`AgentTool`].
+pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolDefinition {
+    let execute_tool = Arc::clone(&tool);
+    ToolDefinition {
+        name: tool.name().to_owned(),
+        label: tool.label().to_owned(),
+        description: tool.description().to_owned(),
+        prompt_snippet: None,
+        prompt_guidelines: None,
+        approval_required: None,
+        approval_kind: None,
+        parameters: tool.parameters().clone(),
+        constrained_sampling: tool.constrained_sampling(),
+        render_shell: None,
+        prepare_arguments: None,
+        prepare_execution: None,
+        execution_mode: tool.execution_mode(),
+        execute: Arc::new(move |tool_call_id, params, signal, on_update, _context| {
+            let tool = Arc::clone(&execute_tool);
+            let on_update = on_update.unwrap_or_else(|| Arc::new(|_result| {}));
+            Box::pin(async move {
+                tool.execute(tool_call_id, params, signal, on_update, None)
+                    .await
+                    .map_err(|error| HandlerError::new(error.message))
+            })
+        }),
+        render_call: None,
+        render_result: None,
+    }
 }
 
 /// `wrapToolDefinition`: cap partial updates and the final result of an [`AgentTool`].

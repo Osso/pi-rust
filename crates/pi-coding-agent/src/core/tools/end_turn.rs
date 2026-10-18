@@ -11,8 +11,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::context::ToolContext;
 use super::result::terminating_text_result;
+use crate::core::extensions::types::ExtensionContext;
 
 pub const NAME: &str = "end_turn";
 pub const LABEL: &str = "end_turn";
@@ -55,7 +55,7 @@ pub fn parameters() -> &'static Value {
     })
 }
 
-impl AgentHarnessTool<ToolContext> for EndTurnTool {
+impl AgentHarnessTool<ExtensionContext> for EndTurnTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -82,7 +82,7 @@ impl AgentHarnessTool<ToolContext> for EndTurnTool {
         params: Value,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
-        _context: ToolContext,
+        _context: ExtensionContext,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {

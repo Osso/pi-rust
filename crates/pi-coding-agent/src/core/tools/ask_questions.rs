@@ -12,12 +12,12 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::context::{ExtensionMode, ToolContext, ToolUi};
 use super::result::{error_text_result, text_result};
 use crate::core::desktop_notification::{
     DesktopNotification, DesktopNotificationHandle, DesktopNotificationUrgency, DesktopNotifier,
     PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS, send_desktop_notification,
 };
+use crate::core::extensions::types::{ExtensionContext, ExtensionMode, ExtensionUiContext};
 
 const MIN_OPTIONS: usize = 2;
 const MAX_OPTIONS: usize = 4;
@@ -201,25 +201,36 @@ fn build_selection_options(question: &Question) -> Vec<SelectionOption> {
     options
 }
 
-async fn ask_custom_answer(ui: &dyn ToolUi, title: &str) -> Option<String> {
-    let answer = ui.input(title, Some("Type your answer")).await;
+async fn ask_custom_answer(ui: &dyn ExtensionUiContext, title: &str) -> Result<Option<String>, ToolError> {
+    let answer = ui
+        .input(title, Some("Type your answer"), None)
+        .await
+        .map_err(ToolError::new)?;
     let trimmed = answer.as_deref().map(js_trim).unwrap_or_default();
-    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+    Ok((!trimmed.is_empty()).then(|| trimmed.to_owned()))
 }
 
-async fn ask_single_question(ui: &dyn ToolUi, question: &Question) -> Option<String> {
+async fn ask_single_question(ui: &dyn ExtensionUiContext, question: &Question) -> Result<Option<String>, ToolError> {
     let options = build_selection_options(question);
     let mut labels: Vec<String> = options.iter().map(|option| option.label.clone()).collect();
     labels.push(CANCEL_LABEL.to_owned());
-    let choice = ui.select(&question.question, &labels).await?;
+    let Some(choice) = ui
+        .select(&question.question, &labels, None)
+        .await
+        .map_err(ToolError::new)?
+    else {
+        return Ok(None);
+    };
     if choice == CANCEL_LABEL {
-        return None;
+        return Ok(None);
     }
-    let selected = options.iter().find(|option| option.label == choice)?;
+    let Some(selected) = options.iter().find(|option| option.label == choice) else {
+        return Ok(None);
+    };
     if selected.custom {
         return ask_custom_answer(ui, &question.question).await;
     }
-    Some(selected.value.clone())
+    Ok(Some(selected.value.clone()))
 }
 
 fn format_multi_select_option(option: &SelectionOption, selected: &[String]) -> String {
@@ -241,25 +252,29 @@ fn read_multi_select_choice<'a>(
 }
 
 async fn apply_multi_select_choice(
-    ui: &dyn ToolUi,
+    ui: &dyn ExtensionUiContext,
     question: &Question,
     option: &SelectionOption,
     selected: &mut Vec<String>,
-) {
+) -> Result<(), ToolError> {
     if !option.custom {
         if let Some(index) = selected.iter().position(|value| value == &option.value) {
             selected.remove(index);
         } else {
             selected.push(option.value.clone());
         }
-        return;
+        return Ok(());
     }
-    if let Some(custom_answer) = ask_custom_answer(ui, &question.question).await {
+    if let Some(custom_answer) = ask_custom_answer(ui, &question.question).await? {
         selected.push(custom_answer);
     }
+    Ok(())
 }
 
-async fn ask_multi_select_question(ui: &dyn ToolUi, question: &Question) -> Option<String> {
+async fn ask_multi_select_question(
+    ui: &dyn ExtensionUiContext,
+    question: &Question,
+) -> Result<Option<String>, ToolError> {
     let options = build_selection_options(question);
     let mut selected: Vec<String> = Vec::new();
     loop {
@@ -269,19 +284,27 @@ async fn ask_multi_select_question(ui: &dyn ToolUi, question: &Question) -> Opti
             .collect();
         labels.push(DONE_LABEL.to_owned());
         labels.push(CANCEL_LABEL.to_owned());
-        let choice = ui.select(&question.question, &labels).await?;
+        let Some(choice) = ui
+            .select(&question.question, &labels, None)
+            .await
+            .map_err(ToolError::new)?
+        else {
+            return Ok(None);
+        };
         if choice == CANCEL_LABEL {
-            return None;
+            return Ok(None);
         }
         if choice == DONE_LABEL {
-            return Some(selected.join(", "));
+            return Ok(Some(selected.join(", ")));
         }
-        let option = read_multi_select_choice(&options, &choice, &selected)?;
-        apply_multi_select_choice(ui, question, option, &mut selected).await;
+        let Some(option) = read_multi_select_choice(&options, &choice, &selected) else {
+            return Ok(None);
+        };
+        apply_multi_select_choice(ui, question, option, &mut selected).await?;
     }
 }
 
-async fn ask_question(ui: &dyn ToolUi, question: &Question) -> Option<String> {
+async fn ask_question(ui: &dyn ExtensionUiContext, question: &Question) -> Result<Option<String>, ToolError> {
     if question.multi_select == Some(true) {
         ask_multi_select_question(ui, question).await
     } else {
@@ -365,7 +388,7 @@ impl DesktopNotifier for SystemDesktopNotifier {
     }
 }
 
-fn notify_ask_questions_waiting(
+pub fn notify_ask_questions_waiting(
     notifier: &dyn DesktopNotifier,
     question_count: usize,
 ) -> Option<Box<dyn DesktopNotificationHandle>> {
@@ -377,13 +400,13 @@ fn notify_ask_questions_waiting(
     })
 }
 
-fn close_ask_questions_notification(notification: Option<Box<dyn DesktopNotificationHandle>>) {
+pub fn close_ask_questions_notification(notification: Option<Box<dyn DesktopNotificationHandle>>) {
     if let Some(notification) = notification {
         notification.close();
     }
 }
 
-impl AgentHarnessTool<ToolContext> for AskQuestionsTool {
+impl AgentHarnessTool<ExtensionContext> for AskQuestionsTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -410,7 +433,7 @@ impl AgentHarnessTool<ToolContext> for AskQuestionsTool {
         params: Value,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
-        context: ToolContext,
+        context: ExtensionContext,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
@@ -420,14 +443,14 @@ impl AgentHarnessTool<ToolContext> for AskQuestionsTool {
                 .unwrap_or_else(|| Value::Array(Vec::new()));
             let parsed: AskQuestionsParams =
                 serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
-            if !context.has_ui || context.mode != ExtensionMode::Tui {
+            let has_ui = context.has_ui().map_err(|error| ToolError::new(error.message))?;
+            let mode = context.mode().map_err(|error| ToolError::new(error.message))?;
+            if !has_ui || mode != ExtensionMode::Tui {
                 return Ok(unavailable_result(&parsed, &questions));
             }
-            let Some(ui) = context.ui.clone() else {
-                return Ok(unavailable_result(&parsed, &questions));
-            };
+            let ui = context.ui().map_err(|error| ToolError::new(error.message))?;
             validate_questions(&parsed.questions)?;
-            let notifier = context.desktop_notifier.clone().unwrap_or_else(system_notifier);
+            let notifier = system_notifier();
             let notification = notify_ask_questions_waiting(notifier.as_ref(), parsed.questions.len());
             let result = ask_all_questions(ui.as_ref(), &parsed, &questions).await;
             close_ask_questions_notification(notification);
@@ -437,13 +460,13 @@ impl AgentHarnessTool<ToolContext> for AskQuestionsTool {
 }
 
 async fn ask_all_questions(
-    ui: &dyn ToolUi,
+    ui: &dyn ExtensionUiContext,
     params: &AskQuestionsParams,
     questions: &Value,
 ) -> Result<AgentToolResult, ToolError> {
     let mut answers: Vec<(String, String)> = Vec::new();
     for question in &params.questions {
-        let Some(answer) = ask_question(ui, question).await else {
+        let Some(answer) = ask_question(ui, question).await? else {
             return Ok(cancelled_result(params, questions, &answers));
         };
         answers.push((question.question.clone(), answer));

@@ -20,14 +20,16 @@ use tokio_util::sync::CancellationToken;
 
 use super::node_fs::node_error_code;
 use super::path_utils::resolve_to_cwd;
-use super::render_utils::{get_text_output, invalid_arg_text, key_hint, shorten_path, str_value};
+use super::render_utils::{get_text_output, invalid_arg_text, shorten_path, str_value};
+use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{
     DEFAULT_MAX_BYTES, GREP_MAX_LINE_LENGTH, TruncationOptions, TruncationResult, format_size, truncate_head,
     truncate_line,
 };
-use crate::core::extensions::types::{ExtensionTheme, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
-use crate::core::extensions::wrapper::create_tool_definition_from_agent_tool;
+use crate::core::extensions::types::{ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::modes::interactive::components::keybinding_hints::key_hint;
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::paths::relative_path;
 use crate::utils::tools_manager::ToolsManager;
 
@@ -501,7 +503,7 @@ fn format_js_number(value: f64) -> String {
     }
 }
 
-fn format_grep_call(args: &Value, theme: &dyn ExtensionTheme) -> String {
+fn format_grep_call(args: &Value, theme: &Theme) -> String {
     let pattern = str_value(args.get("pattern"));
     let raw_path = str_value(args.get("path"));
     let path = raw_path.map(|path| {
@@ -516,18 +518,18 @@ fn format_grep_call(args: &Value, theme: &dyn ExtensionTheme) -> String {
     let invalid_arg = invalid_arg_text(theme);
     let mut text = format!(
         "{} {}{}",
-        theme.fg("toolTitle", &theme.bold("grep")),
+        theme.fg(ThemeColor::ToolTitle, &theme.bold("grep")),
         match pattern {
             None => invalid_arg.clone(),
-            Some(pattern) => theme.fg("accent", &format!("/{pattern}/")),
+            Some(pattern) => theme.fg(ThemeColor::Accent, &format!("/{pattern}/")),
         },
-        theme.fg("toolOutput", &format!(" in {}", path.unwrap_or(invalid_arg)))
+        theme.fg(ThemeColor::ToolOutput, &format!(" in {}", path.unwrap_or(invalid_arg)))
     );
     if let Some(glob) = glob.filter(|glob| !glob.is_empty()) {
-        text.push_str(&theme.fg("toolOutput", &format!(" ({glob})")));
+        text.push_str(&theme.fg(ThemeColor::ToolOutput, &format!(" ({glob})")));
     }
     if let Some(limit) = limit {
-        text.push_str(&theme.fg("toolOutput", &format!(" limit {}", format_js_number(limit))));
+        text.push_str(&theme.fg(ThemeColor::ToolOutput, &format!(" limit {}", format_js_number(limit))));
     }
     text
 }
@@ -535,7 +537,7 @@ fn format_grep_call(args: &Value, theme: &dyn ExtensionTheme) -> String {
 fn format_grep_result(
     result: &AgentToolResult,
     options: &ToolRenderResultOptions,
-    theme: &dyn ExtensionTheme,
+    theme: &Theme,
     show_images: bool,
 ) -> String {
     let output = get_text_output(Some(result), show_images).trim().to_owned();
@@ -549,16 +551,16 @@ fn format_grep_result(
             "\n{}",
             display_lines
                 .iter()
-                .map(|line| theme.fg("toolOutput", line))
+                .map(|line| theme.fg(ThemeColor::ToolOutput, line))
                 .collect::<Vec<_>>()
                 .join("\n")
         ));
         if remaining > 0 {
             text.push_str(&format!(
                 "{}{}{}",
-                theme.fg("muted", &format!("\n... ({remaining} more lines,")),
+                theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
-                theme.fg("muted", ")")
+                theme.fg(ThemeColor::Muted, ")")
             ));
         }
     }
@@ -586,14 +588,14 @@ fn format_grep_result(
         }
         text.push_str(&format!(
             "\n{}",
-            theme.fg("warning", &format!("[Truncated: {}]", warnings.join(", ")))
+            theme.fg(ThemeColor::Warning, &format!("[Truncated: {}]", warnings.join(", ")))
         ));
     }
     text
 }
 
 /// `renderCall` for the grep tool.
-pub fn render_call(args: &Value, theme: &dyn ExtensionTheme, _context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &Value, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
     Rc::new(RefCell::new(Text::new(format_grep_call(args, theme), 0, 0)))
 }
 
@@ -601,7 +603,7 @@ pub fn render_call(args: &Value, theme: &dyn ExtensionTheme, _context: &ToolRend
 pub fn render_result(
     result: &AgentToolResult,
     options: &ToolRenderResultOptions,
-    theme: &dyn ExtensionTheme,
+    theme: &Theme,
     context: &ToolRenderContext,
 ) -> ComponentRef {
     let output = if context.is_error {
