@@ -28,6 +28,7 @@ All direct dependencies are exact-pinned.
 - `icu_collator = 2.3.1` (`compiled_data`) and `icu_locale_core = 2.3.0` — reproduce `String.prototype.localeCompare` ordering for `core::detached_job_retention` tie-breaks, using the host locale like Node's ICU collation.
 - `core::http_dispatcher` adds no dependency: it configures the shared `pi-ai` client through `pi_ai::http::fetch_with_options` (`http1_only`, `read_timeout`), keeping one HTTP stack.
 - `pi-ai` (path) — `utils::management_http` uses the shared `Fetch` contract and default reqwest client (one HTTP stack).
+- `pi-tui` (path) — supplies the TUI keybinding registry (`TUI_KEYBINDINGS`, `KeybindingsManager`) that `core::keybindings` extends with the `app.*` bindings instead of redefining the TUI table.
 - `tempfile = 3.27.0` (development) — creates isolated temporary files, symlinks, and git repositories for path and process tests.
 
 ### `pi-ai`
