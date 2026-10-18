@@ -1,8 +1,7 @@
 use std::fmt::{self, Display, Formatter};
 
-use unicode_normalization::UnicodeNormalization;
-
 use crate::jsdiff::{self, Part};
+use crate::unicode::normalize_nfkc;
 
 /// The line-ending style selected by the source helper.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,7 +134,7 @@ pub fn strip_bom(content: &str) -> StripBomResult {
 
 /// Normalizes text for fuzzy matching: NFKC, trailing whitespace, quotes, dashes, and spaces.
 pub fn normalize_for_fuzzy_match(text: &str) -> String {
-    let normalized = text.nfkc().collect::<String>();
+    let normalized = normalize_nfkc(text);
     normalized
         .split('\n')
         .map(trim_end_javascript)

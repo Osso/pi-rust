@@ -15,7 +15,7 @@ Rust: `crates/pi-agent-core/src/harness/tools/path_utils.rs`.
 ## Rust boundary and discrepancies
 
 - JavaScript regex replacements are implemented as character scans; outputs match the source for valid Unicode.
-- NFD uses `unicode-normalization` (`=0.1.26`); this matches `String.prototype.normalize("NFD")` for representable scalars.
+- NFD uses `pi_agent_core::unicode::normalize_nfd` (`icu_normalizer = 2.3.0`), the workspace-wide ICU4X implementation; `differential_unicode_normalize` proves NFD against Node over Hangul, combining marks, compatibility characters, and emoji.
 - The source builds a `Set` to deduplicate variants; Rust preserves first occurrence order with a vector.
 
 ## Coding-agent path utilities
@@ -28,7 +28,7 @@ Rust: `pi_coding_agent::core::tools::path_utils`. Normalization and resolution d
 |---|---|---|
 | `path-utils.ts:5` | `NARROW_NO_BREAK_SPACE = U+202F` | `NARROW_NO_BREAK_SPACE`; screenshot fixtures |
 | `path-utils.ts:7-9` | `tryMacOSScreenshotPath` rewrites ` AM.`/`am.`/`PM.`/`pm.` after a space to `\u202F` | `replace_am_pm` with an ASCII-only `([AaPp][Mm])` class (JavaScript `i` without `u` folds ASCII only); focused AM/PM tests and differential fixtures |
-| `path-utils.ts:11-14` | `tryNFDVariant` applies `String.prototype.normalize("NFD")` | `to_nfd` via `icu_normalizer::DecomposingNormalizerBorrowed::new_nfd`; focused NFD and NFD+curly tests and differential fixtures |
+| `path-utils.ts:11-14` | `tryNFDVariant` applies `String.prototype.normalize("NFD")` | `to_nfd` delegates to `pi_agent_core::unicode::normalize_nfd` (ICU4X); focused NFD and NFD+curly tests and differential fixtures |
 | `path-utils.ts:16-21` | `tryCurlyQuoteVariant` maps every U+0027 to U+2019 | `replace_with_curly_quote`; focused curly-quote tests |
 | `path-utils.ts:22-29` | `fileExists` uses `accessSync(path, F_OK)` | `path_exists_sync` (`Path::exists`); used by the sync resolver |
 | `path-utils.ts:31-38` | `pathExists` uses async `access` | `path_exists` (`tokio::fs::metadata`); focused and differential async cases |

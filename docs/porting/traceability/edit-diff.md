@@ -11,7 +11,7 @@ Rust: `crates/pi-agent-core/src/harness/tools/edit_diff.rs`. Behavioral proof: `
 | `edit-diff.ts:7-12` | Detect the first line-ending style | `detect_line_ending`; existing line-ending tests |
 | `edit-diff.ts:14-16` | Normalize CRLF/CR to LF | `normalize_to_lf`; existing tests and cross-line-ending edit test |
 | `edit-diff.ts:18-20` | Restore LF to CRLF | `restore_line_endings`; existing tests |
-| `edit-diff.ts:28-48` | NFKC, per-line trailing whitespace, smart quotes, dashes, special spaces | `normalize_for_fuzzy_match`/`normalize_fuzzy_character`; normalization test |
+| `edit-diff.ts:28-48` | NFKC, per-line trailing whitespace, smart quotes, dashes, special spaces | `normalize_for_fuzzy_match`/`normalize_fuzzy_character` over `unicode::normalize_nfkc`; normalization test, differential fuzzy fixtures, and `differential_unicode_normalize` |
 | `edit-diff.ts:50-52` | Split lines keeping newline endings | `split_lines_with_endings`; exercised by fuzzy preservation |
 | `edit-diff.ts:64-72` | Line spans and offsets | `get_line_spans` |
 | `edit-diff.ts:74-97` | Widen a replacement to touched lines and reject out-of-range spans | `get_replacement_line_range`; fuzzy preservation test |
@@ -34,7 +34,7 @@ Rust: `crates/pi-agent-core/src/harness/tools/edit_diff.rs`. Behavioral proof: `
 - `FuzzyMatchResult.index`/`match_length` count UTF-16 code units, matching JavaScript string lengths. Internal matching uses byte offsets so Rust slicing stays correct.
 - `generate_unified_patch`/`generate_diff_string` take an explicit context-line count; the tool passes 4, matching the source default.
 - Only the `diffLines`/`createTwoFilesPatch` paths used by the source are ported; callbacks, `maxEditLength`, timeout aborts, and other jsdiff diff variants are not.
-- NFKC uses `unicode-normalization` (`=0.1.26`); outputs match JavaScript for representable scalar values.
+- NFKC uses `pi_agent_core::unicode::normalize_nfkc` (`icu_normalizer = 2.3.0`); `differential_unicode_normalize` proves all four `String.prototype.normalize` forms against Node over Hangul, combining marks, compatibility characters, and emoji.
 
 ## Shared jsdiff module
 

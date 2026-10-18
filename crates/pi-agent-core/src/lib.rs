@@ -8,6 +8,7 @@ pub mod harness;
 pub mod jsdiff;
 pub mod node;
 pub mod search;
+pub mod unicode;
 
 pub use pi_ai::utils::uuid::uuidv7;
 pub use pi_telemetry::{

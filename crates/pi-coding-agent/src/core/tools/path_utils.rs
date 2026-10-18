@@ -2,8 +2,9 @@
 
 use std::path::Path;
 
-use icu_normalizer::DecomposingNormalizerBorrowed;
 use regex::Regex;
+
+use pi_agent_core::unicode::normalize_nfd;
 
 use crate::utils::paths::{PathError, PathInputOptions, normalize_path, resolve_path};
 
@@ -93,7 +94,5 @@ fn replace_with_curly_quote(file_path: &str) -> String {
 }
 
 fn to_nfd(file_path: &str) -> String {
-    DecomposingNormalizerBorrowed::new_nfd()
-        .normalize(file_path)
-        .into_owned()
+    normalize_nfd(file_path)
 }

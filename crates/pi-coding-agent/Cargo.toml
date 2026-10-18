@@ -26,8 +26,6 @@ tokio-util = "=0.7.20"
 notify = "=8.2.0"
 # Compiles highlight.js grammar patterns for `utils::syntax_highlight`.
 fancy-regex = "=0.16.2"
-# Applies the NFD normalization used for macOS filename variants in `core::tools::path_utils`.
-icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 # Same photon-rs release and transitive `image` stack as the WASM build behind @silvia-odwyer/photon-node 0.3.4.
 photon-rs = { version = "=0.3.3", default-features = false }
 # Fallible decode/encode calls that photon-rs only exposes as panicking wrappers.
