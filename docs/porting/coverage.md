@@ -495,7 +495,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/session-manager.ts` | 2437 | 15 | partial | `crates/pi-coding-agent/src/core/session_manager.rs` | JSONL v1–v3 read/migrate/write, tree/context/fork/relocate, scan listing done; control-db metadata integration blocked on `ca-control-db` |
 | `coding-agent/src/core/session-tool-output.ts` | 380 | 15 | done | `crates/pi-coding-agent/src/core/session_tool_output.rs` | Persistence truncation + atomic migration; `tests/session_tool_output.rs`, differential `41040` |
 | `coding-agent/src/core/telemetry.ts` | 13 | 15 | done | `crates/pi-coding-agent/src/core/telemetry.rs` | Env-flag truthiness and settings fallback; `PI_TELEMETRY` default matches the TS parameter. |
-| `coding-agent/extensions/agents-core/src/runtime-utils.ts` | 30 | 16 | todo |  |  |
+| `coding-agent/extensions/agents-core/src/runtime-utils.ts` | 30 | 16 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/runtime_utils.rs` | Failed-mailbox construction and safe abort; differential case. |
 | `coding-agent/extensions/pyrun/src/detached-bridge.ts` | 153 | 16 | todo |  |  |
 | `coding-agent/src/architect/observer.ts` | 159 | 16 | todo |  |  |
 | `coding-agent/src/cli/control-command.ts` | 122 | 16 | done | `crates/pi-coding-agent/src/cli/control_command.rs` | send/restart/last/path with injected DB path and SIGHUP; 7 tests ([traceability](traceability/control-command.md)). |
@@ -525,7 +525,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/slash-commands.ts` | 48 | 17 | done | `crates/pi-coding-agent/src/core/slash_commands.rs` | Built-in command list and source enum; differential `coding-agent-slash-commands-oracle.ts`. |
 | `coding-agent/src/core/terminal-outbox-delivery.ts` | 84 | 17 | done | `crates/pi-coding-agent/src/core/terminal_outbox_delivery.rs` | Projection claim/deliver/fail, cleanup cadence and retention threshold; 5 behavioral tests ([traceability](traceability/terminal-outbox-delivery.md)). |
 | `coding-agent/src/modes/interactive/theme/theme.ts` | 1337 | 17 | done | `crates/pi-coding-agent/src/modes/interactive/theme/mod.rs` | Theme JSON validation/resolution, color modes, detection, global state, TUI theme adapters; differential `coding-agent-theme-oracle.ts` (24 load cases + 28 helper cases), behavioral `tests/theme.rs`. JSON parse-error text is a documented gap. |
-| `coding-agent/extensions/agents-core/src/lifecycle-runtime.ts` | 42 | 18 | todo |  |  |
+| `coding-agent/extensions/agents-core/src/lifecycle-runtime.ts` | 42 | 18 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/lifecycle_runtime.rs` | Coordinator construction and terminal outbox publication; exercised by spawn/cancel/wait tests. |
 | `coding-agent/extensions/pyrun/src/detached-runner.ts` | 411 | 18 | todo |  |  |
 | `coding-agent/src/core/compaction/index.ts` | 7 | 18 | done | `crates/pi-coding-agent/src/core/compaction.rs` (module re-exports) | Re-exports the three modules; exercised by every compaction test. |
 | `coding-agent/src/core/detached-bash-runner-entry.ts` | 13 | 18 | done | `crates/pi-coding-agent/src/internal_runner.rs` | Internal runner mode dispatches to `run_detached_bash_runner` and writes `<manifest>.runner-error`; covered by `internal_runner` tests and the real runner-process test. |
@@ -568,20 +568,20 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/cli/config-selector.ts` | 56 | 20 | done | `crates/pi-coding-agent/src/cli/config_selector.rs` | Theme init, TUI construction, selector focus, close/exit callbacks, render loop; 4 scripted-terminal probe tests plus the package-command `ConfigSelector` adapter ([traceability](traceability/config-selector.md)). |
 | `coding-agent/src/cli/startup-ui.ts` | 239 | 20 | partial | `crates/pi-coding-agent/src/cli/startup_ui.rs` | Predicates, theme loading, startup TUI (themes, theme detection adapter, keybindings, cursor/clear-on-shrink), `showStartupSelector` with a poll loop; 6 tests incl. two scripted-terminal probes. `showStartupInput`/`showFirstTimeSetup` blocked on `ExtensionInputComponent`/`FirstTimeSetupComponent` ([traceability](traceability/startup-ui.md)). |
 | `coding-agent/src/cli/session-picker.ts` | 96 | 21 | partial | `crates/pi-coding-agent/src/cli/session_picker.rs` | `loadSessionsWithControlNames` (archive filter, control-db names, named-first/modified ordering) with 6 tests; `selectSession` blocked on `SessionSelectorComponent` + `cli/startup-ui.ts` ([traceability](traceability/session-picker.md)). |
-| `coding-agent/extensions/agent-viewer/src/index.ts` | 9 | 22 | todo |  |  |
-| `coding-agent/extensions/agents-core/src/control-runtime.ts` | 440 | 22 | todo |  |  |
-| `coding-agent/extensions/agents-core/src/dispatch-runtime.ts` | 660 | 22 | todo |  |  |
-| `coding-agent/extensions/agents-core/src/index.ts` | 34 | 22 | todo |  |  |
-| `coding-agent/extensions/agents-core/src/mailbox-runtime.ts` | 518 | 22 | todo |  |  |
-| `coding-agent/extensions/agents-core/src/registration.ts` | 312 | 22 | todo |  |  |
-| `coding-agent/extensions/agents-core/src/runtime.ts` | 762 | 22 | todo |  |  |
-| `coding-agent/extensions/agents-core/src/session-factories.ts` | 497 | 22 | todo |  |  |
-| `coding-agent/extensions/agents-core/src/shared.ts` | 54 | 22 | todo |  |  |
-| `coding-agent/extensions/agents-core/src/spawn-attach-runtime.ts` | 637 | 22 | todo |  |  |
-| `coding-agent/extensions/agents-core/src/tool-results.ts` | 19 | 22 | todo |  |  |
-| `coding-agent/extensions/agents-core/src/viewer.ts` | 230 | 22 | todo |  |  |
-| `coding-agent/extensions/agents-core/src/wait-runtime.ts` | 403 | 22 | todo |  |  |
-| `coding-agent/extensions/agents-mailbox/src/index.ts` | 9 | 22 | todo |  |  |
+| `coding-agent/extensions/agent-viewer/src/index.ts` | 9 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/agent_viewer/mod.rs` | Factory registers the agent_viewer tool; registration differential covers metadata. |
+| `coding-agent/extensions/agents-core/src/control-runtime.ts` | 440 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/control_runtime.rs` | Cancel (owned/detached), steering authority and identity errors; behavioral cancel/steer tests. |
+| `coding-agent/extensions/agents-core/src/dispatch-runtime.ts` | 660 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/dispatch_runtime.rs` | Dispatch tracking, completion/failure finalization, lease-loss abort, waiting desktop notifications; spawn/wait tests exercise the path. |
+| `coding-agent/extensions/agents-core/src/index.ts` | 34 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/mod.rs` | Module exports and default factory (`multi_agent_extension`). |
+| `coding-agent/extensions/agents-core/src/mailbox-runtime.ts` | 518 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/mailbox_runtime.rs` | send_agent_message/contact_parent transport, lifecycle mirror, tool registration; behavioral mailbox/contact tests. |
+| `coding-agent/extensions/agents-core/src/registration.ts` | 312 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/registration.rs` | Session hooks, bg/jobs commands, six core tools; tool/command metadata differential + bg/jobs tests. |
+| `coding-agent/extensions/agents-core/src/runtime.ts` | 762 | 22 | partial | `crates/pi-coding-agent/src/bundled_extensions/agents_core/runtime.rs` | Options/handles, Pi request handler, wait/consume, status formatting, jobs, viewer/mailbox factories, bundled registration. Gap: `resolveSelectedSessionMutationTarget` needs the unported interactive `ViewedSessionMutationTarget` API ([traceability](traceability/agents-core.md)). |
+| `coding-agent/extensions/agents-core/src/session-factories.ts` | 497 | 22 | partial | `crates/pi-coding-agent/src/bundled_extensions/agents_core/session_factories.rs` | Goal-objective validation/messages and production-factory marker; differential covers validation. Gap: production child/attached session construction needs unported agent-session multi-agent identity, extension factories, and session_start_event options ([traceability](traceability/agents-core.md)). |
+| `coding-agent/extensions/agents-core/src/shared.ts` | 54 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/shared.rs` | emptyAgent, child-runtime and in-flight predicates, wake types, factory contracts; differential cases. |
+| `coding-agent/extensions/agents-core/src/spawn-attach-runtime.ts` | 637 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/spawn_attach_runtime.rs` | Spawn/journal/commit pipeline, attach resolution, recovery ordering; spawn/attach tests. Production factories are injected. |
+| `coding-agent/extensions/agents-core/src/tool-results.ts` | 19 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/tool_results.rs` | toolResult/errorToolResult/emptyToolResult; differential case. |
+| `coding-agent/extensions/agents-core/src/viewer.ts` | 230 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/viewer.rs` | list_agents/agent_viewer text and details incl. persisted sessions; differential + behavioral cases. |
+| `coding-agent/extensions/agents-core/src/wait-runtime.ts` | 403 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/wait_runtime.rs` | Wake watcher, terminal notification consumption, coordination mailbox/shared-channel delivery; wait tests. |
+| `coding-agent/extensions/agents-mailbox/src/index.ts` | 9 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_mailbox/mod.rs` | Factory registers send_agent_message/contact_parent; registration differential covers metadata. |
 | `coding-agent/extensions/approval-controls/src/index.ts` | 60 | 22 | todo |  |  |
 | `coding-agent/extensions/ask-secret/src/index.ts` | 169 | 22 | todo |  |  |
 | `coding-agent/extensions/browser-cli/src/index.ts` | 169 | 22 | todo |  |  |
@@ -703,12 +703,12 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/supervisor/approval-reviewer.ts` | 19 | 22 | todo |  |  |
 | `coding-agent/src/supervisor/main.ts` | 436 | 22 | todo |  |  |
 | `coding-agent/src/supervisor/response-tool.ts` | 48 | 22 | done | `crates/pi-coding-agent/src/supervisor/response_tool.rs` | Tool metadata/schema and advisory text; 8-case differential ([traceability](traceability/supervisor-response-tool.md)). |
-| `coding-agent/extensions/agents-core/src/parent-agent-journal.ts` | 110 | 23 | todo |  |  |
+| `coding-agent/extensions/agents-core/src/parent-agent-journal.ts` | 110 | 23 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/parent_agent_journal.rs` | Start/completion records, active-id scanning, compaction refresh/restore; differential + journal tests. |
 | `coding-agent/src/cli.ts` | 25 | 23 | done | `crates/pi-coding-agent/src/cli_entry.rs` | Internal-runner gate, dispatcher configuration (fetch returned, no global), main hand-off and error propagation; `CLI_PROCESS_ENV`, `process.title`/`emitWarning` documented gaps ([traceability](traceability/cli-entry.md)). |
 | `coding-agent/src/cli/experimental/command-options.ts` | 38 | 23 | done | `crates/pi-coding-agent/src/cli/experimental/command_options.rs` | Auth/transport options, legacy option errors, unsupported-capability messages ([traceability](traceability/experimental-cli.md)). |
 | `coding-agent/src/core/extensions/extension-runtime.ts` | 103 | 23 | done | `crates/pi-coding-agent/src/core/extensions/extension_runtime.rs` | Runtime state, stale invalidation, flag values, provider queues; differential provider cases. |
 | `coding-agent/src/core/index.ts` | 101 | 23 | done | `crates/pi-coding-agent/src/core/mod.rs` | Barrel re-exports the ported core surface (agent session/runtime/services, extensions, multi-agent store, compaction, event bus, resource loader, source info). Gaps: `executeBashWithOperations`/`BashResult` (ca-detached), `AgentCommandResult`, `ExtensionHandler` alias. |
-| `coding-agent/src/extensions/multi-agent.ts` | 21 | 23 | todo |  |  |
+| `coding-agent/src/extensions/multi-agent.ts` | 21 | 23 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/mod.rs` (re-exports) | Pure re-export module; covered through agents-core. |
 | `coding-agent/src/modes/interactive/components/status-indicator.ts` | 114 | 23 | todo |  |  |
 | `coding-agent/src/rpc-entry.ts` | 13 | 23 | todo |  |  |
 | `coding-agent/src/server/create-harness.ts` | 161 | 23 | todo |  |  |
