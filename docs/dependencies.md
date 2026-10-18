@@ -62,6 +62,7 @@ All direct dependencies are exact-pinned.
 - `unicode-normalization = 0.1.26` (exact) — NFKC/NFD normalization for fuzzy edit matching and read-path variants.
 - `ignore = 0.4.23` (exact) — gitignore pattern matching (`matched`, last-match-wins, negation) behind the skill loader's `.gitignore`/`.ignore`/`.fdignore` handling, replacing the npm `ignore` package.
 - `serde_yaml_ng = 0.10.0` (exact) — parses skill and prompt-template YAML frontmatter in `harness::frontmatter`.
+- `pi-telemetry = { path = "../pi-telemetry", version = "=0.0.0" }` — supplies the `TelemetryContext`/`TelemetrySpan` runtime contract and the schema-definition types used by `harness::telemetry` and `AgentHarnessOptions.context`.
 - `tempfile = 3.27.0` (dev, exact) — creates isolated fixture trees for the node-env, tool, shell-capture, loader, and differential tests, and isolated JSONL session roots.
 - Session storage/search adds no runtime dependency: `serde`/`serde_json` (`preserve_order`) carry the durable JSONL records and search projections, `tokio` (`sync`) supplies the state/write mutexes, `tokio-util` supplies search cancellation, and `pi-ai` supplies `BoxFuture`, `js_number`, and UUIDv7. JSONL file naming formats ISO timestamps with std only.
 

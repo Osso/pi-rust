@@ -1,3 +1,4 @@
+pub mod agent_harness;
 pub mod compaction;
 pub mod env;
 pub mod events;
@@ -26,10 +27,12 @@ pub use skills::{
     SourcedSkillLoadResult, load_skills, load_sourced_skills,
 };
 pub mod system_prompt;
+pub mod telemetry;
 pub mod tools;
 pub mod types;
 pub mod utils;
 
+pub use agent_harness::*;
 pub use env::{NodeExecutionEnv, NodeExecutionEnvOptions};
 pub use events::{
     EventSubscription, HarnessEvent, HarnessEventBus, HarnessEventListener, HarnessEventType, RunEndOutcome,
@@ -46,6 +49,7 @@ pub use reducer::{
     LaneStepState, LaneTargets, NewestOwnState, RecordLogCorruption, RecordLogCorruptionReason, RecordLogSlice,
     TerminalFailureSource, TerminalFailureState, ToolBatchCall, ToolBatchState, reduce_lane_state, validate_record_log,
 };
+pub use telemetry::*;
 pub use types::{
     AgentHarnessResources, AgentHarnessStreamOptions, AgentHarnessStreamOptionsPatch, AgentHarnessTool,
     AgentHarnessToolContextSource, AgentToolExecutionContext, BeforeToolCallResult, BranchSummaryError,

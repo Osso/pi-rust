@@ -30,7 +30,7 @@ pub struct PromptTemplate {
 }
 
 /// Resources made available to explicit invocation methods and system-prompt callbacks.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AgentHarnessResources {
     pub prompt_templates: Option<Vec<PromptTemplate>>,
     pub skills: Option<Vec<Skill>>,
