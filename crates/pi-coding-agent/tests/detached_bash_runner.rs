@@ -489,7 +489,7 @@ async fn launches_an_independent_runner_that_remains_the_payload_parent() {
         .to_string_lossy()
         .into_owned();
     write_detached_bash_launch_manifest(&manifest_path, &data).expect("manifest");
-    let runner = std::process::Command::new(std::env::current_exe().expect("test binary"))
+    let mut runner = std::process::Command::new(std::env::current_exe().expect("test binary"))
         .args(["--exact", "detached_runner_process_entry", "--nocapture"])
         .env(TEST_RUNNER_ENV, &manifest_path)
         .current_dir(fixture.directory.path())
@@ -532,6 +532,7 @@ async fn launches_an_independent_runner_that_remains_the_payload_parent() {
             .expect("output")
             .contains("independent")
     );
+    runner.wait().expect("reap runner");
 }
 
 #[tokio::test]

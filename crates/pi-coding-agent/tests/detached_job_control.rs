@@ -252,5 +252,5 @@ fn enqueues_a_status_response_for_the_requester() {
     assert_eq!(response, 1);
     let messages = list_runtime_mailbox_messages(&fixture.control_db_path).expect("messages");
     assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].body.contains("\"command\":\"respond\""), true);
+    assert!(messages[0].body.contains("\"command\":\"respond\""));
 }

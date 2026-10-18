@@ -82,8 +82,9 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
   state, titles, editor text, theme listing and `setTheme(name)` are implemented.
 - `AutocompleteProviderFactory`/`EditorFactory` aliases are omitted with the
   same dependency.
-- `DetachedJobLifecycleController` is not exposed on the context
-  (detached-job runner not ported).
+- `DetachedJobLifecycleController` is exposed as `ExtensionContext::detached_job_lifecycle()`
+  and bound by `ExtensionRunner::bind_detached_job_lifecycle`. `core::agent_session`
+  (owned by ca-agent-session-2) must call that binder with the session controller.
 - Tool input/detail types remain JSON objects until the tools slices land.
 
 ## Discrepancies

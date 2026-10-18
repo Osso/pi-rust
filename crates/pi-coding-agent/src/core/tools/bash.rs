@@ -909,10 +909,10 @@ async fn observe_foreground_bash_runner(
         if let Some(completion) = settle_foreground_bash_runner(&runner, aborted, options.timeout)? {
             return Ok(completion);
         }
-        if options.detach.signal.is_cancelled() {
-            if let Some(activation) = activate_detached_bash_runner(&runner, cwd, options)? {
-                return Ok(activation.1);
-            }
+        if options.detach.signal.is_cancelled()
+            && let Some(activation) = activate_detached_bash_runner(&runner, cwd, options)?
+        {
+            return Ok(activation.1);
         }
         if !aborted && options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
             aborted = true;
