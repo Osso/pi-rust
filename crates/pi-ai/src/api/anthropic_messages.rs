@@ -879,27 +879,12 @@ fn build_params(
     } else {
         |name: &str| name.to_owned()
     };
-    let transformed_context = Context {
-        system_prompt: context.system_prompt.clone(),
-        messages: transformed.clone(),
-        tools: context.tools.clone(),
-    };
-    let SplitDeferredTools {
-        mut immediate,
-        deferred,
-    } = split_deferred_tools_with(
-        &transformed_context,
+    let (immediate, deferred_tools, deferred_tool_names) = split_tools(
+        context,
+        &transformed,
         compat.supports_tool_references,
         normalize_tool_name,
     );
-    let mut deferred_tools: Vec<Tool> = deferred.into_iter().map(|(_, tool)| tool).collect();
-    if immediate.is_empty() && !deferred_tools.is_empty() {
-        immediate = std::mem::take(&mut deferred_tools);
-    }
-    let deferred_tool_names: BTreeSet<String> = deferred_tools
-        .iter()
-        .map(|tool| normalize_tool_name(&tool.name))
-        .collect();
 
     let mut params = Map::new();
     params.insert("model".to_owned(), Value::String(model.id.clone()));
@@ -920,115 +905,184 @@ fn build_params(
     );
     params.insert("stream".to_owned(), Value::Bool(true));
 
-    if is_oauth {
-        let mut system = Vec::new();
-        let mut identity = Map::new();
-        identity.insert("type".to_owned(), Value::String("text".to_owned()));
-        identity.insert("text".to_owned(), Value::String(CLAUDE_CODE_IDENTITY.to_owned()));
-        if let Some(cache_control) = &cache_control {
-            identity.insert("cache_control".to_owned(), cache_control.clone());
-        }
-        system.push(Value::Object(identity));
-        if let Some(prompt) = &context.system_prompt {
-            let mut block = Map::new();
-            block.insert("type".to_owned(), Value::String("text".to_owned()));
-            block.insert("text".to_owned(), Value::String(sanitize_surrogates(prompt).to_owned()));
-            if let Some(cache_control) = &cache_control {
-                block.insert("cache_control".to_owned(), cache_control.clone());
-            }
-            system.push(Value::Object(block));
-        }
-        params.insert("system".to_owned(), Value::Array(system));
-    } else if let Some(prompt) = &context.system_prompt {
-        let mut block = Map::new();
-        block.insert("type".to_owned(), Value::String("text".to_owned()));
-        block.insert("text".to_owned(), Value::String(sanitize_surrogates(prompt).to_owned()));
-        if let Some(cache_control) = &cache_control {
-            block.insert("cache_control".to_owned(), cache_control.clone());
-        }
-        params.insert("system".to_owned(), Value::Array(vec![Value::Object(block)]));
-    }
+    insert_system_param(&mut params, context, is_oauth, cache_control.as_ref());
+    insert_temperature_param(&mut params, options, anthropic, compat.supports_temperature);
+    insert_tools_param(
+        &mut params,
+        &immediate,
+        &deferred_tools,
+        is_oauth,
+        compat,
+        cache_control.as_ref(),
+    )?;
+    insert_thinking_param(&mut params, model, anthropic);
+    insert_metadata_param(&mut params, options);
+    insert_tool_choice_param(&mut params, anthropic);
 
+    Ok(Value::Object(params))
+}
+
+fn split_tools(
+    context: &Context,
+    transformed: &[Message],
+    supports_tool_references: bool,
+    normalize_tool_name: fn(&str) -> String,
+) -> (Vec<Tool>, Vec<Tool>, BTreeSet<String>) {
+    let transformed_context = Context {
+        system_prompt: context.system_prompt.clone(),
+        messages: transformed.to_vec(),
+        tools: context.tools.clone(),
+    };
+    let SplitDeferredTools {
+        mut immediate,
+        deferred,
+    } = split_deferred_tools_with(&transformed_context, supports_tool_references, normalize_tool_name);
+    let mut deferred_tools: Vec<Tool> = deferred.into_iter().map(|(_, tool)| tool).collect();
+    if immediate.is_empty() && !deferred_tools.is_empty() {
+        immediate = std::mem::take(&mut deferred_tools);
+    }
+    let deferred_tool_names = deferred_tools
+        .iter()
+        .map(|tool| normalize_tool_name(&tool.name))
+        .collect();
+    (immediate, deferred_tools, deferred_tool_names)
+}
+
+fn insert_system_param(
+    params: &mut Map<String, Value>,
+    context: &Context,
+    is_oauth: bool,
+    cache_control: Option<&Value>,
+) {
+    let mut system = Vec::new();
+    if is_oauth {
+        system.push(text_block(CLAUDE_CODE_IDENTITY, cache_control));
+    }
+    if let Some(prompt) = &context.system_prompt {
+        system.push(text_block(sanitize_surrogates(prompt), cache_control));
+    }
+    if !system.is_empty() {
+        params.insert("system".to_owned(), Value::Array(system));
+    }
+}
+
+fn text_block(text: &str, cache_control: Option<&Value>) -> Value {
+    let mut block = Map::new();
+    block.insert("type".to_owned(), Value::String("text".to_owned()));
+    block.insert("text".to_owned(), Value::String(text.to_owned()));
+    if let Some(cache_control) = cache_control {
+        block.insert("cache_control".to_owned(), cache_control.clone());
+    }
+    Value::Object(block)
+}
+
+fn insert_temperature_param(
+    params: &mut Map<String, Value>,
+    options: &StreamOptions,
+    anthropic: &AnthropicOptions,
+    supports_temperature: bool,
+) {
     if let Some(temperature) = options.temperature
         && anthropic.thinking_enabled != Some(true)
-        && compat.supports_temperature
+        && supports_temperature
     {
         params.insert("temperature".to_owned(), js_number(temperature));
     }
+}
 
-    if !immediate.is_empty() || !deferred_tools.is_empty() {
-        let mut tools = convert_tools(
-            &immediate,
-            is_oauth,
-            compat.supports_eager_tool_input_streaming,
-            compat.supports_strict_tools,
-            compat
-                .supports_cache_control_on_tools
-                .then_some(cache_control.as_ref())
-                .flatten(),
-            false,
-        )?;
-        tools.extend(convert_tools(
-            &deferred_tools,
-            is_oauth,
-            compat.supports_eager_tool_input_streaming,
-            compat.supports_strict_tools,
-            None,
-            true,
-        )?);
-        params.insert("tools".to_owned(), Value::Array(tools));
+fn insert_tools_param(
+    params: &mut Map<String, Value>,
+    immediate: &[Tool],
+    deferred: &[Tool],
+    is_oauth: bool,
+    compat: AnthropicCompat,
+    cache_control: Option<&Value>,
+) -> Result<(), String> {
+    if immediate.is_empty() && deferred.is_empty() {
+        return Ok(());
     }
+    let tool_cache_control = compat
+        .supports_cache_control_on_tools
+        .then_some(cache_control)
+        .flatten();
+    let mut tools = convert_tools(
+        immediate,
+        is_oauth,
+        compat.supports_eager_tool_input_streaming,
+        compat.supports_strict_tools,
+        tool_cache_control,
+        false,
+    )?;
+    tools.extend(convert_tools(
+        deferred,
+        is_oauth,
+        compat.supports_eager_tool_input_streaming,
+        compat.supports_strict_tools,
+        None,
+        true,
+    )?);
+    params.insert("tools".to_owned(), Value::Array(tools));
+    Ok(())
+}
 
-    if model.reasoning {
-        if anthropic.thinking_enabled == Some(true) {
-            let display = anthropic
-                .thinking_display
-                .unwrap_or(AnthropicThinkingDisplay::Summarized);
-            let mut thinking = Map::new();
-            if raw_compat(model).force_adaptive_thinking == Some(true) {
-                thinking.insert("type".to_owned(), Value::String("adaptive".to_owned()));
-                thinking.insert(
-                    "display".to_owned(),
-                    serde_json::to_value(display).unwrap_or(Value::Null),
-                );
-                params.insert("thinking".to_owned(), Value::Object(thinking));
-                if let Some(effort) = anthropic.effort {
-                    let mut output_config = Map::new();
-                    output_config.insert("effort".to_owned(), serde_json::to_value(effort).unwrap_or(Value::Null));
-                    params.insert("output_config".to_owned(), Value::Object(output_config));
-                }
-            } else {
-                thinking.insert("type".to_owned(), Value::String("enabled".to_owned()));
-                thinking.insert(
-                    "budget_tokens".to_owned(),
-                    js_number(
-                        anthropic
-                            .thinking_budget_tokens
-                            .filter(|budget| *budget != 0.0)
-                            .unwrap_or(1024.0),
-                    ),
-                );
-                thinking.insert(
-                    "display".to_owned(),
-                    serde_json::to_value(display).unwrap_or(Value::Null),
-                );
-                params.insert("thinking".to_owned(), Value::Object(thinking));
-            }
-        } else if anthropic.thinking_enabled == Some(false)
-            && !matches!(
-                model
-                    .thinking_level_map
-                    .as_ref()
-                    .and_then(|map| map.get(&ModelThinkingLevel::Off)),
-                Some(None)
-            )
-        {
+fn insert_thinking_param(params: &mut Map<String, Value>, model: &Model, anthropic: &AnthropicOptions) {
+    if !model.reasoning {
+        return;
+    }
+    match anthropic.thinking_enabled {
+        Some(true) => insert_enabled_thinking(params, model, anthropic),
+        Some(false) if !thinking_off_is_null(model) => {
             let mut thinking = Map::new();
             thinking.insert("type".to_owned(), Value::String("disabled".to_owned()));
             params.insert("thinking".to_owned(), Value::Object(thinking));
         }
+        _ => {}
     }
+}
 
+fn insert_enabled_thinking(params: &mut Map<String, Value>, model: &Model, anthropic: &AnthropicOptions) {
+    let display = anthropic
+        .thinking_display
+        .unwrap_or(AnthropicThinkingDisplay::Summarized);
+    let mut thinking = Map::new();
+    if raw_compat(model).force_adaptive_thinking == Some(true) {
+        thinking.insert("type".to_owned(), Value::String("adaptive".to_owned()));
+        thinking.insert(
+            "display".to_owned(),
+            serde_json::to_value(display).unwrap_or(Value::Null),
+        );
+        params.insert("thinking".to_owned(), Value::Object(thinking));
+        if let Some(effort) = anthropic.effort {
+            let mut output_config = Map::new();
+            output_config.insert("effort".to_owned(), serde_json::to_value(effort).unwrap_or(Value::Null));
+            params.insert("output_config".to_owned(), Value::Object(output_config));
+        }
+        return;
+    }
+    thinking.insert("type".to_owned(), Value::String("enabled".to_owned()));
+    let budget = anthropic
+        .thinking_budget_tokens
+        .filter(|budget| *budget != 0.0 && budget.is_finite())
+        .unwrap_or(1024.0);
+    thinking.insert("budget_tokens".to_owned(), js_number(budget));
+    thinking.insert(
+        "display".to_owned(),
+        serde_json::to_value(display).unwrap_or(Value::Null),
+    );
+    params.insert("thinking".to_owned(), Value::Object(thinking));
+}
+
+fn thinking_off_is_null(model: &Model) -> bool {
+    matches!(
+        model
+            .thinking_level_map
+            .as_ref()
+            .and_then(|map| map.get(&ModelThinkingLevel::Off)),
+        Some(None)
+    )
+}
+
+fn insert_metadata_param(params: &mut Map<String, Value>, options: &StreamOptions) {
     if let Some(metadata) = &options.metadata
         && let Some(user_id) = metadata.get("user_id").and_then(Value::as_str)
     {
@@ -1036,20 +1090,21 @@ fn build_params(
         object.insert("user_id".to_owned(), Value::String(user_id.to_owned()));
         params.insert("metadata".to_owned(), Value::Object(object));
     }
+}
 
-    if let Some(tool_choice) = &anthropic.tool_choice {
-        let value = match tool_choice {
-            AnthropicToolChoice::Builtin(builtin) => {
-                let mut object = Map::new();
-                object.insert("type".to_owned(), serde_json::to_value(builtin).unwrap_or(Value::Null));
-                Value::Object(object)
-            }
-            AnthropicToolChoice::Named(named) => serde_json::to_value(named).unwrap_or(Value::Null),
-        };
-        params.insert("tool_choice".to_owned(), value);
-    }
-
-    Ok(Value::Object(params))
+fn insert_tool_choice_param(params: &mut Map<String, Value>, anthropic: &AnthropicOptions) {
+    let Some(tool_choice) = &anthropic.tool_choice else {
+        return;
+    };
+    let value = match tool_choice {
+        AnthropicToolChoice::Builtin(builtin) => {
+            let mut object = Map::new();
+            object.insert("type".to_owned(), serde_json::to_value(builtin).unwrap_or(Value::Null));
+            Value::Object(object)
+        }
+        AnthropicToolChoice::Named(named) => serde_json::to_value(named).unwrap_or(Value::Null),
+    };
+    params.insert("tool_choice".to_owned(), value);
 }
 
 struct StreamingBlock {
