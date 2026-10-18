@@ -510,6 +510,88 @@ async function providerRequestScenario(harness: Harness) {
 	return { steps: normalize(steps, tempDir), errors: harness.errors.map((error) => normalize(error, tempDir)) };
 }
 
+async function contextLiveScenario(harness: Harness) {
+	const { runner, tempDir } = harness;
+	let currentModel: any;
+	let currentScoped: any[] = [];
+	let currentThinking = "off";
+	let controlDbPath: string | undefined;
+	let multiAgentAgentId: string | undefined;
+	let multiAgentParentSessionId: string | undefined;
+	let multiAgentRequiresAgentId = false;
+	runner.bindCore(
+		extensionActions,
+		{
+			...contextActions,
+			getModel: () => currentModel,
+			getScopedModels: () => currentScoped,
+			getThinkingLevel: () => currentThinking,
+			getControlDbPath: () => controlDbPath,
+			getMultiAgentAgentId: () => multiAgentAgentId,
+			getMultiAgentParentSessionId: () => multiAgentParentSessionId,
+			getMultiAgentRequiresAgentId: () => multiAgentRequiresAgentId,
+		},
+		undefined,
+	);
+	const read = (ctx: any) => ({
+		cwd: ctx.cwd,
+		mode: ctx.mode,
+		hasUI: ctx.hasUI,
+		model: ctx.model?.id ?? null,
+		scopedModels: ctx.scopedModels.map((entry: any) => entry.model.id),
+		thinkingLevel: ctx.thinkingLevel,
+		controlDbPath: ctx.controlDbPath ?? null,
+		multiAgentAgentId: ctx.multiAgentAgentId ?? null,
+		multiAgentParentSessionId: ctx.multiAgentParentSessionId ?? null,
+		multiAgentRequiresAgentId: ctx.multiAgentRequiresAgentId ?? null,
+	});
+	const ctx = runner.createContext();
+	const command = runner.createCommandContext();
+	const before = read(ctx);
+	const beforeCommand = read(command);
+
+	runner.cwd = path.join(tempDir, "moved");
+	currentModel = { id: "model-a" };
+	currentScoped = [{ model: { id: "model-a" }, thinkingLevel: "high" }];
+	currentThinking = "high";
+	controlDbPath = path.join(tempDir, "control.sqlite");
+	multiAgentAgentId = "agent-1";
+	multiAgentParentSessionId = "parent-1";
+	multiAgentRequiresAgentId = true;
+	runner.setUIContext(undefined, "json");
+
+	const after = read(ctx);
+	const afterCommand = read(command);
+
+	runner.invalidate();
+	const stale: string[] = [];
+	for (const readMember of [
+		() => ctx.cwd,
+		() => ctx.mode,
+		() => ctx.model,
+		() => command.cwd,
+		() => command.getSystemPromptOptions(),
+	]) {
+		try {
+			readMember();
+			stale.push("no error");
+		} catch (error) {
+			stale.push((error as Error).message);
+		}
+	}
+	return {
+		steps: normalize(
+			[
+				{ before, beforeCommand },
+				{ after, afterCommand },
+				{ stale },
+			],
+			tempDir,
+		),
+		errors: harness.errors.map((error) => normalize(error, tempDir)),
+	};
+}
+
 const SCENARIOS: Record<string, Array<[string, string]>> = {
 	dispatch: [
 		[
@@ -614,6 +696,9 @@ const SCENARIOS: Record<string, Array<[string, string]>> = {
 	pi.on("before_provider_headers", (e) => { e.headers["X-2"] = e.headers["X-1"] + "2"; });
 }`],
 	],
+	context_live: [
+		["noop.ts", `export default function() {}`],
+	],
 	provider_request: [
 		["a.ts", `export default function(pi) {
 	pi.on("before_provider_request", (e) => ({ ...e.payload, a: 1 }));
@@ -651,6 +736,8 @@ async function executeScenario(name: string): Promise<unknown> {
 				return await sessionEventsScenario(harness);
 			case "mutations":
 				return await mutationsScenario(harness);
+			case "context_live":
+				return await contextLiveScenario(harness);
 			case "provider_request":
 				return await providerRequestScenario(harness);
 			default:

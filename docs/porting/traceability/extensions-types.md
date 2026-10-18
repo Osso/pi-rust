@@ -9,8 +9,10 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 ## Contract adaptations
 
 - Deviation (approved by the parent slice): handlers receive owned
-  `ExtensionEvent` payloads and an owned `ExtensionContext` snapshot. Async
-  event mutation is expressed through results: `ToolCallEventResult.input`,
+  `ExtensionEvent` payloads; `ExtensionContext` is a cheap handle to shared
+  runner state, so every runner-backed member is a method that asserts the
+  runner is active and reads current values. Async event mutation is expressed
+  through results: `ToolCallEventResult.input`,
   `BeforeProviderHeadersEvent` returning `ProviderHeaders`,
   `ContextEventResult.messages`, `BeforeProviderRequestEventResult`,
   `InputEventResult`, and `ToolResultEventResult`. Observable behavior matches
@@ -46,8 +48,8 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 | `TerminalInputHandler` | `TerminalInputHandler`, `TerminalInputResult` | compile-time |
 | `ExtensionUIContext` | `ExtensionUiContext` trait + `NoOpUiContext` | differential `shortcuts` (hasUI), runner tests |
 | `ContextUsage`, `CompactOptions`, `ExtensionMode` | same names | differential |
-| `ExtensionContext` | `ExtensionContext` + `ExtensionContextCallbacks` | runner/discovery tests, differential |
-| `ExtensionCommandContext` | `ExtensionCommandContext` (Deref to context, method wrappers) | `command_context_passes_fork_options_through`, `stale_contexts_reject_actions` |
+| `ExtensionContext` | `ExtensionContext` + `ExtensionContextState`; runner-backed members are fallible methods reading live shared state | differential `context_live`, `context_members_read_live_runner_state` |
+| `ExtensionCommandContext` | `ExtensionCommandContext` (Deref to context, live method wrappers) | `command_context_passes_fork_options_through`, `stale_context_reads_throw_the_typescript_error_text` |
 | `ReplacedSessionContext` | `ReplacedSessionContext` | compile-time |
 | `ToolRenderResultOptions`, `ToolRenderContext` | same names (`last_component: Option<ComponentRef>`) | compile-time |
 | `ToolDefinition`, `defineTool` | `ToolDefinition`, `define_tool` | `keeps_the_first_registered_tool_and_definition` |
@@ -89,6 +91,11 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 - `emitInput` compares images by value where TypeScript compares array identity
   (`currentImages !== images`). Scripted handlers that return the same array do
   not produce a transform in Rust when the contents are unchanged.
-- Context getters snapshot values at `createContext()`; TypeScript getters read
-  live runner fields. `signal` keeps token identity, so later cancellation is
-  observed.
+
+## Representation
+
+- TypeScript returns getters that call `runner.assertActive()` and read current
+  runner fields. Rust exposes the same members as methods on `ExtensionContext`
+  backed by `ExtensionContextState`; each method performs the stale check and
+  reads live state. `toolExecutionStartedAt`/`toolExecutionAgentId` remain
+  per-invocation fields.
