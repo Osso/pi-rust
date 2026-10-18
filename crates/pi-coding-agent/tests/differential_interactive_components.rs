@@ -109,6 +109,7 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(custom_entry_cases());
     cases.extend(custom_message_cases());
     cases.extend(bash_execution_cases());
+    cases.extend(tree_selector_cases());
     cases
 }
 
@@ -1115,6 +1116,281 @@ fn bash_execution_cases() -> Vec<(Value, Value)> {
         let command = component.get_command().to_owned();
         component.dispose();
         cases.push((request, json!({"lines": lines, "output": output, "command": command})));
+    }
+    cases
+}
+
+fn build_tree_nodes(
+    entries: Vec<pi_coding_agent::core::session_manager::SessionEntry>,
+) -> Vec<pi_coding_agent::core::session_manager::SessionTreeNode> {
+    use pi_coding_agent::core::session_manager::SessionTreeNode;
+    let mut nodes: Vec<SessionTreeNode> = entries
+        .into_iter()
+        .map(|entry| SessionTreeNode {
+            entry,
+            children: Vec::new(),
+            label: None,
+            label_timestamp: None,
+        })
+        .collect();
+    let ids: Vec<(String, usize)> = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, node)| (node.entry.id().unwrap_or_default().to_owned(), index))
+        .collect();
+    let mut roots = Vec::new();
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+    for (index, node) in nodes.iter().enumerate() {
+        match node.entry.parent_id() {
+            None => roots.push(index),
+            Some(parent_id) => {
+                if let Some((_, parent_index)) = ids.iter().find(|(id, _)| id == parent_id) {
+                    children[*parent_index].push(index);
+                } else {
+                    roots.push(index);
+                }
+            }
+        }
+    }
+    fn build(index: usize, nodes: &mut Vec<SessionTreeNode>, children: &[Vec<usize>]) -> SessionTreeNode {
+        let mut node = nodes[index].clone();
+        node.children = children[index]
+            .iter()
+            .map(|child| build(*child, nodes, children))
+            .collect();
+        node
+    }
+    roots.iter().map(|index| build(*index, &mut nodes, &children)).collect()
+}
+
+fn tree_entries_user(
+    id: &str,
+    parent: Option<&str>,
+    content: &str,
+) -> pi_coding_agent::core::session_manager::SessionEntry {
+    use pi_agent_core::agent::AgentMessage;
+    use pi_ai::types::{UserContent, UserMessage, UserRole};
+    use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, SessionMessageEntry};
+    SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        id: id.to_owned(),
+        parent_id: parent.map(str::to_owned),
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+        message: Box::new(AgentMessage::User(UserMessage {
+            role: UserRole::Tag,
+            content: UserContent::Text(content.to_owned()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 0,
+        })),
+    }))
+}
+
+fn tree_entries_assistant(
+    id: &str,
+    parent: Option<&str>,
+    text: &str,
+) -> pi_coding_agent::core::session_manager::SessionEntry {
+    use pi_agent_core::agent::AgentMessage;
+    use pi_ai::types::{AssistantContent, AssistantMessage, StopReason, TextContent};
+    use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, SessionMessageEntry};
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4", 0);
+    message.content = vec![AssistantContent::Text(TextContent::new(text))];
+    message.stop_reason = StopReason::Stop;
+    SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        id: id.to_owned(),
+        parent_id: parent.map(str::to_owned),
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+        message: Box::new(AgentMessage::Assistant(Box::new(message))),
+    }))
+}
+
+fn tree_selector_cases() -> Vec<(Value, Value)> {
+    use pi_coding_agent::modes::interactive::components::tree_selector::FilterMode;
+
+    let metadata_entries = vec![
+        tree_entries_user("user-1", None, "hello"),
+        tree_entries_assistant("asst-1", Some("user-1"), "hi"),
+        tree_entries_user("user-2", Some("asst-1"), "active branch"),
+        pi_coding_agent::core::session_manager::SessionEntry::Known(
+            pi_coding_agent::core::session_manager::KnownSessionEntry::ModelChange(
+                pi_coding_agent::core::session_manager::ModelChangeEntry {
+                    id: "model-1".to_owned(),
+                    parent_id: Some("user-2".to_owned()),
+                    timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+                    provider: "anthropic".to_owned(),
+                    model_id: "claude-sonnet-4".to_owned(),
+                },
+            ),
+        ),
+        tree_entries_user("user-3", Some("asst-1"), "sibling branch"),
+    ];
+
+    let branching_entries = vec![
+        tree_entries_user("user-1", None, "first message"),
+        tree_entries_assistant("asst-1", Some("user-1"), "response 1"),
+        tree_entries_user("user-2", Some("asst-1"), "second message"),
+        tree_entries_assistant("asst-2", Some("user-2"), "response 2"),
+        tree_entries_user("user-3a", Some("asst-2"), "branch A start"),
+        tree_entries_assistant("asst-3a", Some("user-3a"), "branch A response"),
+        tree_entries_user("user-4a", Some("asst-3a"), "branch A deep"),
+        tree_entries_assistant("asst-4a", Some("user-4a"), "branch A leaf"),
+        tree_entries_user("user-3b", Some("asst-2"), "branch B start"),
+        tree_entries_assistant("asst-3b", Some("user-3b"), "branch B response"),
+        tree_entries_user("user-4b", Some("asst-3b"), "branch B deep"),
+    ];
+
+    type TreeCase<'a> = (
+        u64,
+        Vec<pi_coding_agent::core::session_manager::SessionEntry>,
+        &'a str,
+        Option<FilterMode>,
+        Vec<&'a str>,
+        usize,
+        Value,
+    );
+    let variants: Vec<TreeCase> = vec![
+        (160, metadata_entries.clone(), "model-1", None, vec![], 120, json!({})),
+        (
+            161,
+            branching_entries.clone(),
+            "asst-4a",
+            None,
+            vec!["\u{1b}[1;5D", "\u{1b}[1;5D", "\u{1b}[B", "\u{1b}[1;5C"],
+            100,
+            json!({}),
+        ),
+        (
+            162,
+            branching_entries.clone(),
+            "asst-4a",
+            None,
+            vec![
+                "\u{1b}[1;5D",
+                "\u{1b}[1;5D",
+                "\u{1b}[1;5D",
+                "\u{1b}[1;5D",
+                "\u{1b}[1;5D",
+                "\u{1b}[1;5C",
+            ],
+            100,
+            json!({}),
+        ),
+        (
+            163,
+            branching_entries.clone(),
+            "asst-4a",
+            Some(FilterMode::UserOnly),
+            vec![],
+            120,
+            json!({}),
+        ),
+        (
+            164,
+            branching_entries.clone(),
+            "asst-4a",
+            None,
+            vec!["b", "\u{1b}"],
+            100,
+            json!({}),
+        ),
+        (
+            165,
+            branching_entries.clone(),
+            "asst-4a",
+            None,
+            vec!["\u{18}"],
+            100,
+            json!({}),
+        ),
+        (
+            166,
+            branching_entries.clone(),
+            "asst-4a",
+            None,
+            vec!["\u{1b}[1;5D", "\u{1b}[1;5D", "\u{14}"],
+            100,
+            json!({}),
+        ),
+        (
+            167,
+            metadata_entries.clone(),
+            "user-3",
+            None,
+            vec!["\u{13}"],
+            100,
+            json!({"user-2": "active label"}),
+        ),
+        (
+            168,
+            metadata_entries,
+            "model-1",
+            None,
+            vec!["\u{1b}[1;5D"],
+            60,
+            json!({}),
+        ),
+    ];
+
+    let mut cases = Vec::new();
+    for (id, entries, leaf, filter, inputs, width, labels) in variants {
+        let entries_json = serde_json::to_value(&entries).expect("entries serialize");
+        let request = json!({
+            "id": id,
+            "module": "modes/interactive/components/tree-selector.ts",
+            "operation": "treeSelector",
+            "entries": entries_json,
+            "currentLeafId": leaf,
+            "terminalHeight": 24,
+            "initialFilterMode": filter.map(|filter| match filter {
+                FilterMode::Default => "default",
+                FilterMode::NoTools => "no-tools",
+                FilterMode::UserOnly => "user-only",
+                FilterMode::LabeledOnly => "labeled-only",
+                FilterMode::All => "all",
+            }),
+            "inputs": inputs,
+            "width": width,
+            "labels": labels,
+        });
+
+        let mut selector = pi_coding_agent::modes::interactive::components::tree_selector::TreeSelectorComponent::new(
+            build_tree_nodes(entries),
+            Some(leaf.to_owned()),
+            24,
+            std::rc::Rc::new(|_| {}),
+            std::rc::Rc::new(|| {}),
+            None,
+            None,
+            filter,
+        );
+        let copied_sink = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
+        let sink = copied_sink.clone();
+        selector.set_on_copy(Some(std::rc::Rc::new(move |text| {
+            *sink.borrow_mut() = text;
+        })));
+        if let Some(labels) = request["labels"].as_object() {
+            for (entry_id, label) in labels {
+                selector
+                    .tree_list()
+                    .borrow_mut()
+                    .update_node_label(entry_id, label.as_str(), None);
+            }
+        }
+
+        let mut renders = vec![json!(selector.render(width))];
+        let mut selected_ids = vec![json!(
+            selector.tree_list().borrow().selected_entry_id().map(str::to_owned)
+        )];
+        for input in &inputs {
+            selector.handle_input(input);
+            renders.push(json!(selector.render(width)));
+            selected_ids.push(json!(
+                selector.tree_list().borrow().selected_entry_id().map(str::to_owned)
+            ));
+        }
+        let copied = copied_sink.borrow().clone();
+        let output = json!({"renders": renders, "selectedIds": selected_ids, "copied": copied});
+        cases.push((request, output));
     }
     cases
 }

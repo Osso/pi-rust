@@ -37,6 +37,7 @@ pub mod skill_invocation_message;
 pub mod status_indicator;
 pub mod theme_selector;
 pub mod thinking_selector;
+pub mod tree_selector;
 pub mod trust_selector;
 pub mod user_message;
 pub mod user_message_selector;

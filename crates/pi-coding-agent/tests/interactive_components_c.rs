@@ -2,16 +2,21 @@
 
 use std::sync::{Arc, OnceLock};
 
+use pi_agent_core::agent::AgentMessage;
 use pi_agent_core::harness::messages::{BranchSummaryMessage, BranchSummaryRole};
 use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantRole, StopReason, TextContent, ThinkingContent, ToolCall, Usage,
 };
+use pi_ai::types::{UserContent, UserMessage, UserRole};
 use pi_coding_agent::core::extensions::types::{
     CustomMessageContent, CustomMessageValue, EntryRenderOptions, MessageRenderOptions,
 };
 use pi_coding_agent::core::keybindings::KeybindingsManager;
 use pi_coding_agent::core::messages::{CompactionSummaryMessage, CompactionSummaryRole};
-use pi_coding_agent::core::session_manager::CustomEntry;
+use pi_coding_agent::core::session_manager::{
+    CompactionEntry, CustomEntry, KnownSessionEntry, ModelChangeEntry, SessionEntry, SessionMessageEntry,
+    SessionTreeNode, ThinkingLevelChangeEntry,
+};
 use pi_coding_agent::modes::interactive::components::armin::ArminComponent;
 use pi_coding_agent::modes::interactive::components::assistant_message::AssistantMessageComponent;
 use pi_coding_agent::modes::interactive::components::bash_execution::{BashExecutionComponent, BashExecutionOptions};
@@ -34,6 +39,7 @@ use pi_coding_agent::modes::interactive::components::first_time_setup::{
 use pi_coding_agent::modes::interactive::components::status_indicator::{
     CompactionStatusIndicator, CompactionStatusReason, IdleStatus, RetryStatusIndicator, WorkingStatusIndicator,
 };
+use pi_coding_agent::modes::interactive::components::tree_selector::{FilterMode, TreeSelectorComponent};
 use pi_coding_agent::modes::interactive::components::user_message::UserMessageComponent;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, REQUIRED_COLORS, Theme, set_theme_instance};
 use pi_coding_agent::modes::interactive::theme::{TerminalTheme, get_editor_theme};
@@ -1129,4 +1135,442 @@ fn daxnuts_reveals_image_and_text_over_time() {
     assert!(rendered.contains("Powered by daxnuts"), "{rendered}");
     assert!(rendered.contains("Try OpenCode"), "{rendered}");
     component.dispose();
+}
+
+fn user_entry(id: &str, parent_id: Option<&str>, content: &str) -> SessionEntry {
+    SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        id: id.to_owned(),
+        parent_id: parent_id.map(str::to_owned),
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+        message: Box::new(AgentMessage::User(UserMessage {
+            role: UserRole::Tag,
+            content: UserContent::Text(content.to_owned()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 0,
+        })),
+    }))
+}
+
+fn assistant_entry(id: &str, parent_id: Option<&str>, text: &str) -> SessionEntry {
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4", 0);
+    message.content = vec![pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(
+        text,
+    ))];
+    message.stop_reason = StopReason::Stop;
+    SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        id: id.to_owned(),
+        parent_id: parent_id.map(str::to_owned),
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+        message: Box::new(AgentMessage::Assistant(Box::new(message))),
+    }))
+}
+
+fn tool_only_assistant_entry(id: &str, parent_id: Option<&str>) -> SessionEntry {
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4", 0);
+    message.content = vec![pi_ai::types::AssistantContent::ToolCall(pi_ai::types::ToolCall::new(
+        format!("tc-{id}"),
+        "read",
+        serde_json::json!({"path": "test.ts"})
+            .as_object()
+            .cloned()
+            .expect("object"),
+    ))];
+    message.stop_reason = StopReason::ToolUse;
+    SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        id: id.to_owned(),
+        parent_id: parent_id.map(str::to_owned),
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+        message: Box::new(AgentMessage::Assistant(Box::new(message))),
+    }))
+}
+
+fn tool_result_entry(id: &str, parent_id: Option<&str>, tool_call_id: &str, text: &str) -> SessionEntry {
+    SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        id: id.to_owned(),
+        parent_id: parent_id.map(str::to_owned),
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+        message: Box::new(AgentMessage::ToolResult(pi_ai::types::ToolResultMessage {
+            role: pi_ai::types::ToolResultRole::Tag,
+            tool_call_id: tool_call_id.to_owned(),
+            tool_name: "read".to_owned(),
+            content: vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
+                text,
+            ))],
+            details: None,
+            usage: None,
+            added_tool_names: None,
+            is_error: false,
+            timestamp: 0,
+        })),
+    }))
+}
+
+fn model_change_entry(id: &str, parent_id: Option<&str>) -> SessionEntry {
+    SessionEntry::Known(KnownSessionEntry::ModelChange(ModelChangeEntry {
+        id: id.to_owned(),
+        parent_id: parent_id.map(str::to_owned),
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+        provider: "anthropic".to_owned(),
+        model_id: "claude-sonnet-4".to_owned(),
+    }))
+}
+
+fn thinking_change_entry(id: &str, parent_id: Option<&str>) -> SessionEntry {
+    SessionEntry::Known(KnownSessionEntry::ThinkingLevelChange(ThinkingLevelChangeEntry {
+        id: id.to_owned(),
+        parent_id: parent_id.map(str::to_owned),
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+        thinking_level: "high".to_owned(),
+    }))
+}
+
+fn compaction_entry(id: &str, parent_id: &str, first_kept_entry_id: &str, summary: &str) -> SessionEntry {
+    SessionEntry::Known(KnownSessionEntry::Compaction(CompactionEntry {
+        id: id.to_owned(),
+        parent_id: Some(parent_id.to_owned()),
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+        summary: summary.to_owned(),
+        first_kept_entry_id: first_kept_entry_id.to_owned(),
+        tokens_before: 12_345.0,
+        usage: None,
+        duration_ms: None,
+        details: None,
+        provider_native: None,
+        from_hook: None,
+        first_kept_entry_index: None,
+    }))
+}
+
+fn build_tree(entries: Vec<SessionEntry>) -> Vec<SessionTreeNode> {
+    let mut nodes: Vec<SessionTreeNode> = entries
+        .into_iter()
+        .map(|entry| SessionTreeNode {
+            entry,
+            children: Vec::new(),
+            label: None,
+            label_timestamp: None,
+        })
+        .collect();
+    let ids: Vec<(String, usize)> = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, node)| (node.entry.id().unwrap_or_default().to_owned(), index))
+        .collect();
+    let mut roots = Vec::new();
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+    for (index, node) in nodes.iter().enumerate() {
+        match node.entry.parent_id() {
+            None => roots.push(index),
+            Some(parent_id) => {
+                if let Some((_, parent_index)) = ids.iter().find(|(id, _)| id == parent_id) {
+                    children[*parent_index].push(index);
+                } else {
+                    roots.push(index);
+                }
+            }
+        }
+    }
+    fn build(index: usize, nodes: &mut Vec<SessionTreeNode>, children: &[Vec<usize>]) -> SessionTreeNode {
+        let mut node = nodes[index].clone();
+        node.children = children[index]
+            .iter()
+            .map(|child| build(*child, nodes, children))
+            .collect();
+        node
+    }
+    let result: Vec<SessionTreeNode> = roots.iter().map(|index| build(*index, &mut nodes, &children)).collect();
+    result
+}
+
+fn tree_selector(entries: Vec<SessionEntry>, leaf: &str, filter: Option<FilterMode>) -> TreeSelectorComponent {
+    TreeSelectorComponent::new(
+        build_tree(entries),
+        Some(leaf.to_owned()),
+        24,
+        std::rc::Rc::new(|_| {}),
+        std::rc::Rc::new(|| {}),
+        None,
+        None,
+        filter,
+    )
+}
+
+fn selected_id(selector: &TreeSelectorComponent) -> Option<String> {
+    selector.tree_list().borrow().selected_entry_id().map(str::to_owned)
+}
+
+#[test]
+fn tree_selector_focuses_nearest_visible_ancestor_for_metadata_leaf() {
+    theme();
+    let entries = vec![
+        user_entry("user-1", None, "hello"),
+        assistant_entry("asst-1", Some("user-1"), "hi"),
+        user_entry("user-2", Some("asst-1"), "active branch"),
+        model_change_entry("model-1", Some("user-2")),
+        user_entry("user-3", Some("asst-1"), "sibling branch"),
+    ];
+    let selector = tree_selector(entries, "model-1", None);
+    assert_eq!(selected_id(&selector).as_deref(), Some("user-2"));
+
+    let entries = vec![
+        user_entry("user-1", None, "hello"),
+        assistant_entry("asst-1", Some("user-1"), "hi"),
+        user_entry("user-2", Some("asst-1"), "active branch"),
+        thinking_change_entry("thinking-1", Some("user-2")),
+        user_entry("user-3", Some("asst-1"), "sibling branch"),
+    ];
+    let selector = tree_selector(entries, "thinking-1", None);
+    assert_eq!(selected_id(&selector).as_deref(), Some("user-2"));
+}
+
+#[test]
+fn tree_selector_user_only_filter_starts_on_nearest_user() {
+    theme();
+    let entries = vec![
+        user_entry("user-1", None, "hello"),
+        assistant_entry("asst-1", Some("user-1"), "hi"),
+        user_entry("user-2", Some("asst-1"), "active branch"),
+        assistant_entry("asst-2", Some("user-2"), "response"),
+    ];
+    let selector = tree_selector(entries, "asst-2", Some(FilterMode::UserOnly));
+    assert_eq!(selected_id(&selector).as_deref(), Some("user-2"));
+
+    let rendered = plain(&selector.tree_list().borrow_mut().render(200));
+    assert!(rendered.contains("user: hello"), "{rendered}");
+    assert!(rendered.contains("user: active branch"), "{rendered}");
+    assert!(!rendered.contains("assistant:"), "{rendered}");
+    assert!(rendered.contains("[user]"), "{rendered}");
+}
+
+#[test]
+fn tree_selector_switches_filters_and_preserves_ancestor() {
+    theme();
+    let entries = vec![
+        user_entry("user-1", None, "hello"),
+        assistant_entry("asst-1", Some("user-1"), "hi"),
+        user_entry("user-2", Some("asst-1"), "active branch"),
+        assistant_entry("asst-2", Some("user-2"), "response"),
+        user_entry("user-3", Some("asst-1"), "sibling branch"),
+    ];
+    let mut selector = tree_selector(entries, "asst-2", None);
+    assert_eq!(selected_id(&selector).as_deref(), Some("asst-2"));
+
+    selector.handle_input("\u{15}");
+    assert_eq!(selected_id(&selector).as_deref(), Some("user-2"));
+
+    selector.handle_input("\u{4}");
+    assert_eq!(selected_id(&selector).as_deref(), Some("user-2"));
+}
+
+#[test]
+fn tree_selector_help_fits_narrow_width_without_ellipsis() {
+    theme();
+    let entries = vec![
+        user_entry("user-1", None, "hello"),
+        assistant_entry("asst-1", Some("user-1"), "hi"),
+    ];
+    let mut selector = tree_selector(entries, "asst-1", None);
+    let lines = selector.render(30);
+    let rendered = plain(&lines);
+    for expected in ["branch", "copy", "filters", "cycle", "label time"] {
+        assert!(rendered.contains(expected), "missing {expected}: {rendered}");
+    }
+    assert!(!rendered.contains("..."), "{rendered}");
+    for line in &lines {
+        assert!(pi_tui::visible_width(line) <= 30, "{line:?}");
+    }
+}
+
+#[test]
+fn tree_selector_copies_full_selected_message() {
+    use std::cell::RefCell;
+
+    theme();
+    let message = format!("{}\nsecond line", "long message ".repeat(30));
+    let entries = vec![
+        user_entry("user-1", None, "hello"),
+        assistant_entry("asst-1", Some("user-1"), &message),
+    ];
+    let mut selector = tree_selector(entries, "asst-1", None);
+    let copied: std::rc::Rc<RefCell<Option<String>>> = std::rc::Rc::new(RefCell::new(None));
+    let sink = copied.clone();
+    selector.set_on_copy(Some(std::rc::Rc::new(move |text| {
+        *sink.borrow_mut() = text;
+    })));
+    selector.handle_input("\u{18}");
+    assert_eq!(copied.borrow().as_deref(), Some(message.as_str()));
+}
+
+fn branching_tree() -> Vec<SessionEntry> {
+    vec![
+        user_entry("user-1", None, "first message"),
+        assistant_entry("asst-1", Some("user-1"), "response 1"),
+        user_entry("user-2", Some("asst-1"), "second message"),
+        assistant_entry("asst-2", Some("user-2"), "response 2"),
+        user_entry("user-3a", Some("asst-2"), "branch A start"),
+        assistant_entry("asst-3a", Some("user-3a"), "branch A response"),
+        user_entry("user-4a", Some("asst-3a"), "branch A deep"),
+        assistant_entry("asst-4a", Some("user-4a"), "branch A leaf"),
+        user_entry("user-3b", Some("asst-2"), "branch B start"),
+        assistant_entry("asst-3b", Some("user-3b"), "branch B response"),
+        user_entry("user-4b", Some("asst-3b"), "branch B deep"),
+    ]
+}
+
+const CTRL_LEFT: &str = "\u{1b}[1;5D";
+const CTRL_RIGHT: &str = "\u{1b}[1;5C";
+const ALT_LEFT: &str = "\u{1b}[1;3D";
+const ALT_RIGHT: &str = "\u{1b}[1;3C";
+const UP: &str = "\u{1b}[A";
+const DOWN: &str = "\u{1b}[B";
+
+#[test]
+fn tree_selector_ctrl_arrows_fold_and_jump_between_segments() {
+    theme();
+    let mut selector = tree_selector(branching_tree(), "asst-4a", None);
+
+    selector.handle_input(CTRL_LEFT);
+    assert_eq!(selected_id(&selector).as_deref(), Some("user-3a"));
+
+    selector.handle_input(CTRL_LEFT);
+    assert_eq!(selected_id(&selector).as_deref(), Some("user-3a"));
+
+    selector.handle_input(DOWN);
+    assert_eq!(selected_id(&selector).as_deref(), Some("user-3b"));
+
+    selector.handle_input(UP);
+    assert_eq!(selected_id(&selector).as_deref(), Some("user-3a"));
+
+    selector.handle_input(CTRL_RIGHT);
+    assert_eq!(selected_id(&selector).as_deref(), Some("user-3a"));
+
+    selector.handle_input(DOWN);
+    assert_eq!(selected_id(&selector).as_deref(), Some("asst-3a"));
+
+    selector.handle_input(CTRL_LEFT);
+    assert_eq!(selected_id(&selector).as_deref(), Some("user-3a"));
+
+    selector.handle_input(CTRL_RIGHT);
+    assert_eq!(selected_id(&selector).as_deref(), Some("asst-4a"));
+}
+
+#[test]
+fn tree_selector_alt_arrows_alias_fold_and_unfold() {
+    theme();
+    let mut selector = tree_selector(branching_tree(), "asst-4a", None);
+
+    selector.handle_input(ALT_LEFT);
+    assert_eq!(selected_id(&selector).as_deref(), Some("user-3a"));
+    selector.handle_input(ALT_LEFT);
+    assert_eq!(selected_id(&selector).as_deref(), Some("user-3a"));
+    selector.handle_input(ALT_RIGHT);
+    assert_eq!(selected_id(&selector).as_deref(), Some("user-3a"));
+    selector.handle_input(ALT_RIGHT);
+    assert_eq!(selected_id(&selector).as_deref(), Some("asst-4a"));
+}
+
+#[test]
+fn tree_selector_folding_root_hides_subtree_and_preserves_nested_fold() {
+    theme();
+    let mut selector = tree_selector(branching_tree(), "asst-4a", None);
+
+    selector.handle_input(CTRL_LEFT); // asst-4a -> user-3a
+    selector.handle_input(CTRL_LEFT); // fold user-3a
+    selector.handle_input(CTRL_LEFT); // user-3a -> user-2
+    selector.handle_input(CTRL_LEFT); // user-2 -> user-1
+    selector.handle_input(CTRL_LEFT); // fold user-1 (root)
+
+    let rendered = plain(&selector.tree_list().borrow_mut().render(120));
+    assert!(rendered.contains("first message"), "{rendered}");
+    assert!(!rendered.contains("response 1"), "{rendered}");
+    assert!(!rendered.contains("branch A"), "{rendered}");
+
+    selector.handle_input(CTRL_RIGHT); // unfold root
+    let rendered = plain(&selector.tree_list().borrow_mut().render(120));
+    assert!(rendered.contains("response 1"), "{rendered}");
+    // Nested fold on user-3a survived the root fold/unfold.
+    assert!(!rendered.contains("branch A response"), "{rendered}");
+}
+
+#[test]
+fn tree_selector_search_and_filter_changes_reset_folds() {
+    theme();
+    let mut selector = tree_selector(branching_tree(), "asst-4a", None);
+
+    selector.handle_input(CTRL_LEFT);
+    selector.handle_input(CTRL_LEFT); // fold user-3a
+    assert!(!plain(&selector.tree_list().borrow_mut().render(160)).contains("branch A response"));
+
+    selector.handle_input("b");
+    let rendered = plain(&selector.tree_list().borrow_mut().render(160));
+    assert!(rendered.contains("branch A response"), "{rendered}");
+
+    selector.handle_input("\u{1b}");
+    selector.handle_input(CTRL_LEFT);
+    selector.handle_input(CTRL_LEFT);
+    assert!(!plain(&selector.tree_list().borrow_mut().render(160)).contains("branch A response"));
+
+    selector.handle_input("\u{14}"); // ctrl+t: no-tools filter
+    let rendered = plain(&selector.tree_list().borrow_mut().render(160));
+    assert!(rendered.contains("branch A response"), "{rendered}");
+}
+
+#[test]
+fn tree_selector_user_only_compaction_view_orders_summary_before_retained_prompts() {
+    theme();
+    let entries = vec![
+        user_entry("user-old", None, "compacted-away prompt"),
+        assistant_entry("assistant-old", Some("user-old"), "compacted-away response"),
+        user_entry("user-kept", Some("assistant-old"), "retained prompt"),
+        assistant_entry("assistant-kept", Some("user-kept"), "retained response"),
+        compaction_entry(
+            "compaction-1",
+            "assistant-kept",
+            "user-kept",
+            "generated compacted summary",
+        ),
+        user_entry("user-later", Some("compaction-1"), "later prompt"),
+        assistant_entry("assistant-later", Some("user-later"), "later response"),
+    ];
+    let mut selector = tree_selector(entries, "assistant-later", Some(FilterMode::UserOnly));
+    let rendered = plain(&selector.tree_list().borrow_mut().render(200));
+    assert!(!rendered.contains("compacted-away prompt"), "{rendered}");
+    let summary_index = rendered.find("generated compacted summary").expect("summary");
+    let retained_index = rendered.find("retained prompt").expect("retained");
+    let later_index = rendered.find("later prompt").expect("later");
+    assert!(
+        summary_index < retained_index && retained_index < later_index,
+        "{rendered}"
+    );
+    assert!(rendered.contains("(3/3) [user]"), "{rendered}");
+
+    selector.handle_input("\u{4}");
+    let rendered = plain(&selector.tree_list().borrow_mut().render(200));
+    assert!(rendered.contains("compacted-away prompt"), "{rendered}");
+}
+
+#[test]
+fn tree_selector_hides_tool_only_assistants_and_maps_tool_results() {
+    theme();
+    let entries = vec![
+        user_entry("user-1", None, "hello"),
+        tool_only_assistant_entry("asst-tool", Some("user-1")),
+        tool_result_entry("result-1", Some("asst-tool"), "tc-asst-tool", "file contents"),
+        assistant_entry("asst-1", Some("result-1"), "visible"),
+    ];
+    let selector = tree_selector(entries, "asst-1", None);
+    let rendered = plain(&selector.tree_list().borrow_mut().render(160));
+    assert!(!rendered.contains("assistant: (no content)"), "{rendered}");
+    assert!(rendered.contains("[read: test.ts]"), "{rendered}");
+    assert!(rendered.contains("assistant: visible"), "{rendered}");
+
+    // A tool-only assistant is visible when it is the current leaf.
+    let entries = vec![
+        user_entry("user-1", None, "hello"),
+        tool_only_assistant_entry("asst-tool", Some("user-1")),
+    ];
+    let leaf_selector = tree_selector(entries, "asst-tool", None);
+    let rendered = plain(&leaf_selector.tree_list().borrow_mut().render(160));
+    assert!(rendered.contains("assistant: (no content)"), "{rendered}");
 }

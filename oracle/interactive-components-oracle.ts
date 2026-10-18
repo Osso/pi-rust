@@ -221,6 +221,42 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		component.dispose();
 		return { lines, output: component.getOutput(), command: component.getCommand() };
 	},
+	treeSelector: (api, request) => {
+		const nodes = request.entries.map((entry: any) => ({ entry, children: [] }));
+		const byId = new Map(nodes.map((node: any) => [node.entry.id, node]));
+		const roots: any[] = [];
+		for (const node of nodes) {
+			const parent = node.entry.parentId == null ? undefined : byId.get(node.entry.parentId);
+			if (parent) parent.children.push(node);
+			else roots.push(node);
+		}
+		let copied: string | null = null;
+		const selector = new api.TreeSelectorComponent(
+			roots,
+			request.currentLeafId,
+			request.terminalHeight,
+			() => {},
+			() => {},
+			undefined,
+			request.initialSelectedId ?? undefined,
+			request.initialFilterMode ?? undefined,
+		);
+		selector.onCopy = (text: string | undefined) => {
+			copied = text ?? null;
+		};
+		const list = selector.getTreeList();
+		for (const [entryId, label] of Object.entries(request.labels ?? {})) {
+			list.updateNodeLabel(entryId, label);
+		}
+		const renders: string[][] = [];
+		const selectedIds: Array<string | null> = [];
+		for (const input of [null, ...request.inputs]) {
+			if (input !== null) selector.handleInput(input);
+			renders.push(selector.render(request.width));
+			selectedIds.push(list.getSelectedNode()?.entry.id ?? null);
+		}
+		return { renders, selectedIds, copied };
+	},
 	configSelector: async (_api, request, sourceRoot) => {
 		const settingsModule = (await import(pathToFileURL(`${sourceRoot}/core/settings-manager.ts`).href)) as Api;
 		const selectorModule = (await import(
