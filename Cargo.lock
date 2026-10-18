@@ -1999,6 +1999,7 @@ name = "pi-agent-core"
 version = "0.0.0"
 dependencies = [
  "ignore",
+ "indexmap",
  "pi-ai",
  "pi-telemetry",
  "rustix",
@@ -2019,6 +2020,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hmac",
  "httpdate",
+ "indexmap",
  "regex",
  "reqwest",
  "rsa",

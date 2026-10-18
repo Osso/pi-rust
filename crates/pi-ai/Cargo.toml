@@ -12,6 +12,7 @@ futures-util = { version = "=0.3.34", features = ["sink"] }
 getrandom = "=0.4.3"
 hmac = "=0.12.1"
 httpdate = "=1.0.3"
+indexmap = { version = "=2.14.2", features = ["serde"] }
 regex = "=1.13.1"
 reqwest = "=0.13.5"
 rsa = { version = "=0.9.10", features = ["pem", "sha2"] }

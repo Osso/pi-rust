@@ -28,14 +28,16 @@ Tests: `crates/pi-ai/tests/cloudflare_gateway_binding.rs`,
 | endpoint keeps query string | endpoint construction | query test, differential scenario 1 |
 | missing body | `unexpressible("missing body")` | rejection test, differential scenario 5 |
 | non-JSON body | `unexpressible("non-JSON body")` | rejection test, differential scenario 5 |
-| header lowercasing, duplicate collapse, strip set | `collect_headers` | header tests, differential scenarios 2/8 |
+| header lowercasing, duplicate collapse, strip set | `collect_headers` (`IndexMap`) | header tests, differential scenarios 2/8 |
 | signal forwarding | signal passthrough | signal test, differential scenario 6 |
 | binding response passthrough | returns `run` result unchanged | response test, differential scenario 7 |
 | URL-normalized path split (dot segments, fragment) | `url::Url` parsing | normalization test, differential scenarios 3/9 |
 
 ## Differential normalizations
 
-- object key order sorted (TypeScript object iteration order).
+- Object key order is compared in source order (`assert_json_eq_ordered`). The binding
+  `headers` map is an `IndexMap`, preserving the plain-object insertion order TypeScript
+  produces in `collectHeaders`.
 - integral numbers canonicalized to integers.
 
 ## Gaps / discrepancies

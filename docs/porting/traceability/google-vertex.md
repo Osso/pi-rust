@@ -31,7 +31,7 @@ Tests: `crates/pi-ai/tests/differential_google_api.rs` (21 recorded-fixture scen
 | `getGemini3ThinkingLevel` | `get_gemini3_thinking_level` | differential ids 111, 114 |
 | `getGoogleBudget` | `get_google_budget` | differential id 115 |
 | `googleVertexApi` (lazy) | `google_vertex_api` | `lazy_api_wrappers_expose_the_provider_streams_contract` |
-| token exchange (google-auth-library) | `GoogleClient::fetch_access_token`, `sign_service_account_jwt` | differential ids 103, 104, 120; `service_account_tokens_are_signed_rs256_with_the_google_claims` (RS256 verified with the fixture public key), `authorized_user_tokens_use_the_refresh_token_grant`, `vertex_retries_reuse_the_cached_access_token` |
+| token exchange (google-auth-library) | `GoogleClient::fetch_access_token`, `sign_service_account_jwt` | differential ids 103, 104, 120 (JWT header key order asserted); `service_account_tokens_are_signed_rs256_with_the_google_claims` (RS256 verified with the fixture public key), `authorized_user_tokens_use_the_refresh_token_grant`, `vertex_retries_reuse_the_cached_access_token` |
 
 ## Branch notes
 - Default endpoint selection: `global` → `https://aiplatform.googleapis.com/`; `us`/`eu` → `https://aiplatform.{location}.rep.googleapis.com/`; otherwise `https://{location}-aiplatform.googleapis.com/`.

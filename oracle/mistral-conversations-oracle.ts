@@ -52,13 +52,13 @@ type StreamApi = {
 
 // Streaming scratch state (`partialArgs`) never reaches a persisted message and
 // `Date.now()`/`Error.stack` are environment-derived; both are normalized here.
-// Object keys are sorted because TypeScript property order follows `Object.assign`
-// mutation history rather than the event contract.
+// Property order is preserved so the differential compares the exact serialized
+// shape.
 function normalize(value: unknown): unknown {
 	if (Array.isArray(value)) return value.map(normalize);
 	if (value === null || typeof value !== "object") return value;
 	const result: Record<string, unknown> = {};
-	const keys = Object.keys(value).sort();
+	const keys = Object.keys(value);
 	for (const key of keys) {
 		if (key === "partialArgs" || key === "stack") continue;
 		const entry = (value as Record<string, unknown>)[key];
@@ -165,7 +165,7 @@ async function execute(scenario: Scenario, api: StreamApi): Promise<unknown> {
 			url: String(input),
 			method: init?.method ?? "GET",
 			headers: Object.fromEntries(new Headers(init?.headers)),
-			body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
+			body: init?.body === undefined ? undefined : String(init.body),
 		});
 		return createResponse(scenario, abort);
 	};

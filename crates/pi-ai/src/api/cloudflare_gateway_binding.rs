@@ -5,9 +5,9 @@
 //! Binding calls are pre-authenticated and return the provider's native wire
 //! format as a regular streaming response.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 use url::{Origin, Url};
@@ -23,7 +23,7 @@ pub const CLOUDFLARE_GATEWAY_BINDING_AUTH_SENTINEL: &str = "cloudflare-gateway-b
 pub struct AiGatewayUniversalRequest {
     pub provider: String,
     pub endpoint: String,
-    pub headers: BTreeMap<String, String>,
+    pub headers: IndexMap<String, String>,
     pub query: Value,
 }
 
@@ -159,9 +159,10 @@ fn parse_body_query(request: &HttpRequest, method: &str) -> Result<Value, Callba
 }
 
 // Entry header names are lowercased so case-variant duplicates collapse and
-// stripping is uniform.
-fn collect_headers(headers: &[(String, String)]) -> BTreeMap<String, String> {
-    let mut result = BTreeMap::new();
+// stripping is uniform. Insertion order is preserved: TypeScript assigns into a
+// plain object and a later duplicate updates the value without moving the key.
+fn collect_headers(headers: &[(String, String)]) -> IndexMap<String, String> {
+    let mut result = IndexMap::new();
     for (key, value) in headers {
         let name = key.to_ascii_lowercase();
         if !STRIP_HEADERS.contains(&name.as_str()) {
