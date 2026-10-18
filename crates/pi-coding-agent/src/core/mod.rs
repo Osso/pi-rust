@@ -51,6 +51,7 @@ pub mod runtime_coordination_format;
 pub mod runtime_credentials;
 pub mod runtime_process;
 pub mod sdk;
+pub mod self_restart;
 pub mod session_control_db;
 pub mod session_cwd;
 pub mod session_directory;
