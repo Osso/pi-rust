@@ -869,7 +869,11 @@ const PUNCTUATION: &str = "(){}[]<>.,;:'\"!?+-=*/\\|&%^$#@~`";
 
 /// Check if a character is punctuation.
 pub fn is_punctuation_char(value: &str) -> bool {
-    value.chars().any(|character| PUNCTUATION.contains(character))
+    value.chars().any(is_punctuation_char_value)
+}
+
+pub(crate) fn is_punctuation_char_value(character: char) -> bool {
+    PUNCTUATION.contains(character)
 }
 
 fn truncate_fragment_to_width(text: &str, max_width: usize) -> (String, usize) {

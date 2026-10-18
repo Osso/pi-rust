@@ -274,11 +274,11 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/terminal-image.ts` | 657 | 0 | done | `crates/pi-tui/src/terminal_image.rs` + internal `base64.rs` | differential encode/detect/render/placement/dimensions; WebP <30 source bug preserved |
 | `tui/src/undo-stack.ts` | 28 | 0 | done | `crates/pi-tui/src/undo_stack.rs` | clone-on-push; differential N/A (structuredClone) |
 | `tui/src/utils.ts` | 1326 | 0 | done | `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs` | Unicode 17.0 tables; differential corpus + ~11k codepoint samples |
-| `tui/src/autocomplete.ts` | 793 | 1 | todo |  |  |
+| `tui/src/autocomplete.ts` | 793 | 1 | done | `crates/pi-tui/src/autocomplete.rs` | TS test port + real-fd differential; async argument-completion callback and locale collation documented as gaps |
 | `tui/src/keybindings.ts` | 325 | 1 | todo |  |  |
-| `tui/src/latex.ts` | 1373 | 1 | todo |  |  |
+| `tui/src/latex.ts` | 1373 | 1 | done | `crates/pi-tui/src/latex.rs` | TS test suite + generated differential corpus; byte-identical output incl. layout markers |
 | `tui/src/terminal.ts` | 594 | 1 | todo |  |  |
-| `tui/src/word-navigation.ts` | 117 | 1 | todo |  |  |
+| `tui/src/word-navigation.ts` | 117 | 1 | done | `crates/pi-tui/src/word_navigation.rs` | TS tests + boundary differential; ICU4X dictionary-word mismatches pinned as approved deviation |
 | `tui/src/tui.ts` | 2534 | 2 | todo |  |  |
 | `tui/src/components/alt-screen-flash.ts` | 51 | 3 | todo |  |  |
 | `tui/src/components/box.ts` | 137 | 3 | todo |  |  |
