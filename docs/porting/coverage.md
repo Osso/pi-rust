@@ -395,7 +395,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/resident-console-transport.ts` | 414 | 0 | todo |  |  |
 | `coding-agent/src/core/runtime-process.ts` | 103 | 0 | todo |  |  |
 | `coding-agent/src/core/session-errors.ts` | 12 | 0 | done | `crates/pi-coding-agent/src/core/session_errors.rs` | `SessionImportFileNotFoundError`; differential `27004`. |
-| `coding-agent/src/core/session-health.ts` | 135 | 0 | todo |  |  |
+| `coding-agent/src/core/session-health.ts` | 135 | 0 | done | `crates/pi-coding-agent/src/core/session_health.rs` | Records, sticky-death/eligibility, live-status derivation, goal parsing; differential `27008`. `Date.parse` subset lives in `utils::iso_time` (RFC 2822/free-form gap documented). |
 | `coding-agent/src/core/skill-block.ts` | 22 | 0 | partial |  |  |
 | `coding-agent/src/core/sqlite.ts` | 145 | 0 | todo |  |  |
 | `coding-agent/src/core/timings.ts` | 50 | 0 | done | `crates/pi-coding-agent/src/core/timings.rs` | `PI_TIMING` startup profiling; stderr format asserted through a child process. |

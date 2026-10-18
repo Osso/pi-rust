@@ -12,14 +12,6 @@ function errorOf(error: unknown): { name: string; message: string } {
 	return error instanceof Error ? { name: error.name, message: error.message } : { name: "Unknown", message: String(error) };
 }
 
-function attempt(run: () => unknown): unknown {
-	try {
-		return { ok: true, value: run() ?? null };
-	} catch (error) {
-		return { ok: false, error: errorOf(error) };
-	}
-}
-
 function cases(request: Request): unknown[] {
 	if (!Array.isArray(request.cases)) throw new Error(`${request.operation} requires cases`);
 	return request.cases;
@@ -64,6 +56,39 @@ const handlers: Record<string, Handler> = {
 		}),
 	piManifest: (api, request) => cases(request).map((path) => api.readPiManifest(path)),
 	auth: (api, request) => cases(request).map((options) => api.parseAuthInput(options)),
+	sessionHealth: (api, request) => {
+		const nowIso = request.nowIso as string;
+		const base = { ...(api.emptySessionHealth("session-a", nowIso) as Record<string, unknown>) };
+		const live = { ...base, agentGeneration: 1, pid: 1234, checkStatus: "ok", checkedGeneration: 1 };
+		return {
+			empty: base,
+			sticky: [
+				{ ...base, agentGeneration: 2, checkStatus: "dead", checkedGeneration: 2 },
+				{ ...base, agentGeneration: 3, checkStatus: "dead", checkedGeneration: 2 },
+			].map((health) => api.isStickyDead(health)),
+			eligible: [live, { ...live, checkStatus: "never" }, { ...live, checkStatus: "dead" }].map((health) =>
+				api.isSessionEligibleToReceive(health),
+			),
+			ended: api.endSessionHealth(live, nowIso),
+			generations: (() => {
+				const first = api.advanceGenerationForPid(base, 42, nowIso);
+				const same = api.advanceGenerationForPid(first, 42, nowIso);
+				const changed = api.advanceGenerationForPid(same, 43, nowIso);
+				const zero = api.advanceGenerationForPid({ ...base, pid: 7 }, 7, nowIso);
+				return [first, same, changed, zero];
+			})(),
+			goals: cases(request).map((value) => api.parseGoalObjective(value)),
+			liveStatus: (request.liveCases as Array<{ health: Record<string, unknown>; lastActiveAt: string | null }>).map(
+				(entry) =>
+					api.deriveLiveStatus(
+						{ ...live, ...entry.health },
+						entry.lastActiveAt,
+						request.nowMs as number,
+						request.staleMs as number,
+					),
+			),
+		};
+	},
 };
 
 async function main(): Promise<void> {
@@ -98,4 +123,3 @@ void main().catch((error: unknown) => {
 	process.exitCode = 1;
 });
 
-export { attempt };

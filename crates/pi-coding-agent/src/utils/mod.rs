@@ -12,6 +12,7 @@ pub mod git;
 pub mod git_project;
 pub mod git_worktree;
 pub mod html;
+pub mod iso_time;
 pub mod json;
 pub mod management_http;
 pub mod mime;

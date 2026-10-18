@@ -17,6 +17,10 @@ use pi_coding_agent::core::pi_manifest::read_pi_manifest;
 use pi_coding_agent::core::provider_display_names::BUILT_IN_PROVIDER_DISPLAY_NAMES;
 use pi_coding_agent::core::radius::RADIUS_PROVIDER_ID;
 use pi_coding_agent::core::session_errors::SessionImportFileNotFoundError;
+use pi_coding_agent::core::session_health::{
+    SessionCheckStatus, SessionHealthRecord, SessionLiveStatus, advance_generation_for_pid, derive_live_status,
+    empty_session_health, end_session_health, is_session_eligible_to_receive, is_sticky_dead, parse_goal_objective,
+};
 use pi_coding_agent::core::tool_capabilities::{CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES};
 use serde_json::{Value, json};
 
@@ -49,13 +53,13 @@ impl Oracle {
     }
 
     fn call(&mut self, module: &str, operation: &str, cases: Value) -> Value {
+        self.call_raw(json!({"module": module, "operation": operation, "cases": cases}))
+    }
+
+    fn call_raw(&mut self, mut request: Value) -> Value {
         self.next_id += 1;
-        let response = self.inner.request(&json!({
-            "id": self.next_id,
-            "module": module,
-            "operation": operation,
-            "cases": cases,
-        }));
+        request["id"] = json!(self.next_id);
+        let response = self.inner.request(&request);
         assert_eq!(response["ok"], json!(true), "oracle failed: {response}");
         response["output"].clone()
     }
@@ -220,4 +224,157 @@ fn experimental_auth_matches_typescript() {
         })
         .collect();
     assert_eq!(json!(actual), expected);
+}
+
+const NOW_ISO: &str = "2026-01-01T00:00:00.000Z";
+const NOW_MS: i64 = 1_767_225_600_000;
+const STALE_MS: i64 = 300_000;
+
+fn live_health() -> SessionHealthRecord {
+    SessionHealthRecord {
+        agent_generation: 1,
+        pid: Some(1234),
+        check_status: SessionCheckStatus::Ok,
+        checked_generation: Some(1),
+        ..empty_session_health("session-a", NOW_ISO)
+    }
+}
+
+#[test]
+fn session_health_matches_typescript() {
+    let goals = [
+        Value::String(r#"{"objective":"ship list_sessions"}"#.into()),
+        Value::String("raw goal text".into()),
+        Value::Null,
+        Value::String(String::new()),
+        Value::String("   \n ".into()),
+        Value::String(r#"  {"objective":"  padded  "}  "#.into()),
+        Value::String(r#"{"objective":"   "}"#.into()),
+        Value::String(r#"{"objective":5}"#.into()),
+        Value::String("[1]".into()),
+        Value::String("{bad".into()),
+    ];
+    let live_cases = json!([
+        {"health": {}, "lastActiveAt": "2025-12-31T23:59:00.000Z"},
+        {"health": {}, "lastActiveAt": "2025-12-31T23:50:00.000Z"},
+        {"health": {}, "lastActiveAt": "2025-12-31T23:55:00.000Z"},
+        {"health": {}, "lastActiveAt": null},
+        {"health": {}, "lastActiveAt": "not a date"},
+        {"health": {"pid": null}, "lastActiveAt": "2026-01-01T00:00:00.000Z"},
+        {"health": {"checkStatus": "timeout"}, "lastActiveAt": "2026-01-01T00:00:00.000Z"},
+        {"health": {"checkStatus": "dead"}, "lastActiveAt": "2026-01-01T00:00:00.000Z"},
+        {"health": {"checkStatus": "never"}, "lastActiveAt": "2026-01-01T00:00:00.000Z"},
+        {"health": {}, "lastActiveAt": "2027-01-01T00:00:00.000Z"},
+        {"health": {}, "lastActiveAt": "2026-01-01T02:00:00.000+02:00"},
+        {"health": {}, "lastActiveAt": "2025-12-31T19:00:00.000-05:00"},
+        {"health": {}, "lastActiveAt": "2026-01-01"},
+        {"health": {}, "lastActiveAt": "2026-01-01T00:00:00"},
+        {"health": {}, "lastActiveAt": "2026-02-30T00:00:00Z"},
+        {"health": {}, "lastActiveAt": "2026-01-01T24:00:00Z"},
+        {"health": {}, "lastActiveAt": "2026-01-01T25:00:00Z"},
+        {"health": {}, "lastActiveAt": "2026-01-01T00:00:00-0530"},
+        {"health": {}, "lastActiveAt": "2026-01-01T00:00:00.123456Z"},
+        {"health": {}, "lastActiveAt": "+002026-01-01T00:00:00Z"},
+        {"health": {}, "lastActiveAt": "2026-02-31T00:00:00Z"},
+        {"health": {}, "lastActiveAt": "2026-01-32T00:00:00Z"},
+        {"health": {}, "lastActiveAt": "2026-01-00T00:00:00Z"},
+        {"health": {}, "lastActiveAt": "2026-01-01Z"},
+        {"health": {}, "lastActiveAt": "2026-01-01T00:00:00+23:59"},
+        {"health": {}, "lastActiveAt": "2026-01-01T00:00:00+2"},
+        {"health": {}, "lastActiveAt": "2026-01-01T00:00:00.5Z"},
+        {"health": {}, "lastActiveAt": "2026-01-01T00:00:00.123456789123Z"},
+        {"health": {}, "lastActiveAt": "2026-01-01T00:00:00,5Z"},
+        {"health": {}, "lastActiveAt": "0000-01-01T00:00:00Z"},
+        {"health": {}, "lastActiveAt": "-000001-01-01T00:00:00Z"},
+        {"health": {}, "lastActiveAt": "2026-01-01T24:00:00.001Z"},
+        {"health": {}, "lastActiveAt": "2026-01-01T00:00:00+00"},
+        {"health": {}, "lastActiveAt": "2026-01-01T00:00:00-00:00"},
+        {"health": {}, "lastActiveAt": "2026-01-01t00:00:00z"},
+        {"health": {}, "lastActiveAt": "2026-01-01T00:00:00.Z"},
+        {"health": {}, "lastActiveAt": "2026-1-1T00:00:00Z"},
+        {"health": {}, "lastActiveAt": " 2026-01-01T00:00:00Z"},
+        {"health": {}, "lastActiveAt": "2026-01-01T00:00:00Zx"},
+        {"health": {}, "lastActiveAt": "2026-01-01 00:00:00Z"},
+        {"health": {}, "lastActiveAt": "2026-01-01T00:00:00.000+0000"},
+        {"health": {}, "lastActiveAt": "2026-01-01T00:00"},
+    ]);
+
+    let mut oracle = Oracle::spawn();
+    let expected = oracle.call_raw(json!({
+        "module": "core/session-health.ts",
+        "operation": "sessionHealth",
+        "cases": goals,
+        "nowIso": NOW_ISO,
+        "nowMs": NOW_MS,
+        "staleMs": STALE_MS,
+        "liveCases": live_cases,
+    }));
+
+    let base = empty_session_health("session-a", NOW_ISO);
+    let live = live_health();
+    let live_status: Vec<Value> = live_cases
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| {
+            let mut health = live.clone();
+            if case["health"]["pid"].is_null() && case["health"].as_object().unwrap().contains_key("pid") {
+                health.pid = None;
+            }
+            if let Some(status) = case["health"]["checkStatus"].as_str() {
+                health.check_status = serde_json::from_value(json!(status)).unwrap();
+            }
+            let last_active = case["lastActiveAt"].as_str();
+            json!(derive_live_status(&health, last_active, NOW_MS, STALE_MS))
+        })
+        .collect();
+    let first = advance_generation_for_pid(&base, 42, NOW_ISO);
+    let same = advance_generation_for_pid(&first, 42, NOW_ISO);
+    let changed = advance_generation_for_pid(&same, 43, NOW_ISO);
+    let zero = advance_generation_for_pid(
+        &SessionHealthRecord {
+            pid: Some(7),
+            ..base.clone()
+        },
+        7,
+        NOW_ISO,
+    );
+    let actual = json!({
+        "empty": base,
+        "sticky": [
+            is_sticky_dead(&SessionHealthRecord {
+                agent_generation: 2,
+                check_status: SessionCheckStatus::Dead,
+                checked_generation: Some(2),
+                ..base.clone()
+            }),
+            is_sticky_dead(&SessionHealthRecord {
+                agent_generation: 3,
+                check_status: SessionCheckStatus::Dead,
+                checked_generation: Some(2),
+                ..base.clone()
+            }),
+        ],
+        "eligible": [
+            is_session_eligible_to_receive(&live),
+            is_session_eligible_to_receive(&SessionHealthRecord {
+                check_status: SessionCheckStatus::Never,
+                ..live.clone()
+            }),
+            is_session_eligible_to_receive(&SessionHealthRecord {
+                check_status: SessionCheckStatus::Dead,
+                ..live.clone()
+            }),
+        ],
+        "ended": end_session_health(&live, NOW_ISO),
+        "generations": [first, same, changed, zero],
+        "goals": goals.iter().map(|value| json!(parse_goal_objective(Some(value)))).collect::<Vec<_>>(),
+        "liveStatus": live_status,
+    });
+    assert_eq!(actual, expected);
+    assert_eq!(
+        serde_json::to_value(SessionLiveStatus::Ended).unwrap(),
+        json!("ended"),
+        "wire name"
+    );
 }
