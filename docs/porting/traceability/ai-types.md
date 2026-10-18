@@ -34,13 +34,20 @@ Rust: `crates/pi-ai/src/types.rs`, `crates/pi-ai/src/utils/event_stream.rs`, `cr
 | `onPayload`/`onResponse`/`onRetry` | `OnPayload`/`OnResponse`/`OnRetry` (`Arc<dyn Fn>`) | provider slices |
 | `ProviderStreams` (optional `fetchDeferred`/`cancelDeferred`) | trait `ProviderStreams` with `supports_*` presence flags | runtime slice |
 | `ProviderImages` | trait `ProviderImages` | images slice |
+| `ImagesOptions` (`ProviderRequestOptions<ImagesModel>`) | `ImagesRequestOptions` + `ImagesOptions` (`request`, `metadata`, `extra`) | images slice |
+| `ProviderImagesOptions` (`ImagesOptions & Record<string, unknown>`) | `ImagesOptions::extra` | typed exclusion: untyped remainder |
+| `ImagesFunction` | subsumed by `ProviderImages::generate_images` | typed exclusion |
+| `FetchFunction` (`typeof globalThis.fetch`) | trait `Fetch` | `tests/http.rs` |
 | `fetch?: typeof globalThis.fetch` | trait `Fetch` + `HttpRequest`/`HttpResponse`/`HttpBody`; default `http::default_fetch()` (reqwest, rustls) | `tests/http.rs`: request line/headers/body, streamed chunked body, abort → `"This operation was aborted"` |
 | `lazyStream` setup-error message shape | `request::error_stream` | runtime slice |
 
 ## Gaps
 - `telemetryContext` option: added when pi-telemetry merges.
-- `ApiOptionsMap`/`ApiStreamOptions<TApi>`: compile-time mapping only; replaced by `StreamOptions::extra` parsing per API.
-- `StreamFunction`/`ImagesFunction` type aliases: subsumed by the traits.
+- `ApiOptionsMap`/`ApiStreamOptions<TApi>`: compile-time conditional mapping only; replaced by `StreamOptions::extra` parsing per API.
+- `StreamFunction`/`ImagesFunction` type aliases: subsumed by `ProviderStreams`/`ProviderImages`.
+- `ProviderStreamOptions`/`ProviderImagesOptions` untyped remainders: carried in `extra`; typed per-API options live on each API module.
+- `FetchFunction`: typed exclusion; the Rust boundary is the `Fetch` trait (`HttpRequest`/`HttpResponse`/`HttpBody`).
+- Crate-root re-export mapping is in `ai-index.md` (index.ts exports every name above).
 
 ## Discrepancies
 - `EventStream.end()` without a result leaves `result()` pending forever in TS; preserved (`end_without_result_leaves_result_pending`).

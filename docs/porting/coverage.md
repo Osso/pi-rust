@@ -70,13 +70,13 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/auth/types.ts` | 240 | 1 | done | `crates/pi-ai/src/auth/types.rs` | credentials, traits, prompts/events; OAuth extra keys preserved |
 | `ai/src/models-store.ts` | 45 | 1 | done | `crates/pi-ai/src/models_store.rs` | clone semantics, cancellation, timestamp wire shape |
 | `ai/src/models.ts` | 953 | 1 | done | `crates/pi-ai/src/models.rs` | providers/models, refresh generations+publication chains, auth application, login/logout, deferred, cost/thinking helpers; differential cost/thinking/refresh/apply-auth |
-| `ai/src/types.ts` | 846 | 1 | partial | `pi-ai/src/types.rs` | data contracts done; option/callback interfaces → provider runtime slice |
+| `ai/src/types.ts` | 846 | 1 | done | `pi-ai/src/types.rs` + `pi-ai/src/request.rs` | Data contracts and request/callback interfaces; conditional option-map types are typed exclusions ([traceability](traceability/ai-types.md)). |
 | `ai/src/utils/deferred-tools.ts` | 39 | 1 | done | `crates/pi-ai/src/utils/deferred_tools.rs` | Immediate/deferred split with insertion order; differential 6 requests. |
 | `ai/src/utils/estimate.ts` | 143 | 1 | done | `crates/pi-ai/src/utils/estimate.rs` | Context/message/tool estimation, UTF-16 lengths, added-tool accounting; differential 10 requests. |
 | `ai/src/utils/event-stream.ts` | 110 | 1 | done | `pi-ai/src/utils/event_stream.rs` | differential |
 | `ai/src/utils/headers.ts` | 18 | 1 | done | `crates/pi-ai/src/utils/headers.rs` | `Headers.entries()` normalization and provider header filtering; differential 7 requests. |
 | `ai/src/utils/node-http-proxy.ts` | 112 | 1 | done | `crates/pi-ai/src/utils/node_http_proxy.rs` | Proxy selection plus `Fetch` wrapper; differential over target/env matrix (see traceability). |
-| `ai/src/utils/provider-env.ts` | 52 | 1 | partial | `crates/pi-ai/src/utils/provider_env.rs` | Scoped → process env precedence; Bun `/proc/self/environ` fallback not applicable to native Rust (see traceability). |
+| `ai/src/utils/provider-env.ts` | 52 | 1 | done | `crates/pi-ai/src/utils/provider_env.rs` | Scoped → process env precedence; Bun `/proc/self/environ` fallback is a documented typed exclusion ([traceability](traceability/provider-env.md)). |
 | `ai/src/api/anthropic-messages.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/anthropic_messages_lazy.rs` | Lazy loader with no deferred capabilities; behavioral test. |
 | `ai/src/api/azure-openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/azure_openai_responses.rs` | `azure_open_ai_responses_api()` lazy adapter. |
 | `ai/src/api/bedrock-converse-stream.lazy.ts` | 30 | 2 | done | `crates/pi-ai/src/bedrock_provider.rs` | `bedrock_converse_stream_api` + override seam; lazy test |
@@ -116,7 +116,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/auth/oauth/radius.ts` | 403 | 3 | done | `crates/pi-ai/src/auth/oauth/radius.rs` | discovery, localhost:1456 browser callback, device grant, gateway token/refresh; differential device + browser callback + refresh. |
 | `ai/src/image-models.ts` | 42 | 3 | done | `crates/pi-ai/src/image_models.rs` | Lookup/list APIs; `undefined` modeled as `Option`/empty slice (see traceability). |
 | `ai/src/images.ts` | 21 | 3 | done | `crates/pi-ai/src/images.rs` | Builtin registration on first use, registry dispatch, unknown-api error. |
-| `ai/src/index.ts` | 47 | 3 | todo |  |  |
+| `ai/src/index.ts` | 47 | 3 | done | `crates/pi-ai/src/lib.rs` | Crate-root re-exports mirroring every export; TypeBox runtime types are typed exclusions ([traceability](traceability/ai-index.md)). |
 | `ai/src/legacy-api-aliases.ts` | 108 | 3 | done | `crates/pi-ai/src/legacy_api_aliases.rs` | 16 deprecated stream aliases delegating to the lazy api wrappers; 16-case differential ([traceability](traceability/legacy-api-aliases.md)). |
 | `ai/src/oauth.ts` | 10 | 3 | done | `crates/pi-ai/src/oauth.rs` | Type-only compatibility re-exports. |
 | `ai/src/providers/amazon-bedrock.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
@@ -207,7 +207,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/providers/all.ts` | 159 | 5 | done | `crates/pi-ai/src/providers/all.rs` | All 40 factories including both `openai-codex` entries; catalog/order/generatedAt/images differential ([traceability](traceability/providers-all.md)). |
 | `ai/src/cli.ts` | 119 | 6 | todo |  |  |
 | `ai/src/compat.ts` | 299 | 6 | done | `crates/pi-ai/src/compat/mod.rs` | Api registry, builtin registration/override identity, env-key injection, faux registration, legacy dispatch; 9 behavioral + 4 differential requests ([traceability](traceability/compat.md)). |
-| `ai/src/base.ts` | 6 | 7 | todo |  |  |
+| `ai/src/base.ts` | 6 | 7 | done | `crates/pi-ai/src/base.rs` | Re-exports the compat surface plus the index surface ([traceability](traceability/ai-index.md)). |
 
 ## agent (47 files, 12044 lines)
 
