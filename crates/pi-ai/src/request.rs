@@ -76,6 +76,8 @@ pub trait HttpBody: Send {
 
 pub struct HttpResponse {
     pub status: u16,
+    /// Reason phrase from the server (fetch `statusText`).
+    pub status_text: String,
     /// Header pairs with lower-case names.
     pub headers: Vec<(String, String)>,
     pub body: Box<dyn HttpBody>,
