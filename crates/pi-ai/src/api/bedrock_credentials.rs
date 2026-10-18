@@ -122,9 +122,11 @@ async fn resolve_sso_credentials(
         .get("expiresAt")
         .and_then(Value::as_str)
         .ok_or_else(|| CallbackError::new("The SSO session token is invalid"))?;
-    let expires_at_ms =
-        parse_iso8601_millis(expires_at).ok_or_else(|| CallbackError::new("The SSO session token is invalid"))?;
-    if expires_at_ms <= crate::request::now_millis() {
+    let expires_at_ms = crate::js_number::date_parse(expires_at);
+    if expires_at_ms.is_nan() {
+        return Err(CallbackError::new("The SSO session token is invalid"));
+    }
+    if expires_at_ms <= crate::request::now_millis() as f64 {
         return Err(CallbackError::new(
             "The SSO session associated with this profile has expired. To refresh this SSO session run aws sso login with the corresponding profile.",
         ));
@@ -221,34 +223,6 @@ fn percent_encode(value: &str) -> String {
         }
     }
     encoded
-}
-
-fn parse_iso8601_millis(value: &str) -> Option<i64> {
-    // `YYYY-MM-DDTHH:MM:SS(.sss)?Z`
-    let bytes = value.as_bytes();
-    if bytes.len() < 20 || bytes.get(4) != Some(&b'-') || bytes.get(10) != Some(&b'T') || bytes.last() != Some(&b'Z') {
-        return None;
-    }
-    let year = value.get(0..4)?.parse::<i64>().ok()?;
-    let month = value.get(5..7)?.parse::<i64>().ok()?;
-    let day = value.get(8..10)?.parse::<i64>().ok()?;
-    let hour = value.get(11..13)?.parse::<i64>().ok()?;
-    let minute = value.get(14..16)?.parse::<i64>().ok()?;
-    let second = value.get(17..19)?.parse::<i64>().ok()?;
-    let millis = if bytes.get(19) == Some(&b'.') {
-        let fraction = value.get(20..value.len() - 1)?;
-        let digits = fraction.len();
-        let parsed = fraction.parse::<i64>().ok()?;
-        if digits <= 3 {
-            parsed * 10i64.pow(3 - digits as u32)
-        } else {
-            parsed / 10i64.pow(digits as u32 - 3)
-        }
-    } else {
-        0
-    };
-    let days = crate::js_number::days_from_civil(year, month, day);
-    Some(((days * 86_400 + hour * 3600 + minute * 60 + second) * 1000) + millis)
 }
 
 #[derive(Debug, Default)]

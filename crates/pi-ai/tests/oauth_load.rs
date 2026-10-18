@@ -9,11 +9,6 @@ use pi_ai::auth::{AuthError, AuthInteraction, ModelAuth, OAuthAuth, OAuthCredent
 use pi_ai::bun_oauth::register_bun_oauth_flows;
 use tokio_util::sync::CancellationToken;
 
-#[path = "support/oauth.rs"]
-mod oauth_support;
-
-use oauth_support::TestInteraction;
-
 struct StubOAuth(&'static str);
 
 impl OAuthAuth for StubOAuth {
@@ -65,11 +60,14 @@ async fn loader_registry_defaults_overrides_and_bun_registration() {
     );
     let github = load_github_copilot_oauth();
     assert_eq!(github.name(), "GitHub Copilot");
-    let error = github
-        .login(TestInteraction::new(vec![]))
+    let auth = github
+        .to_auth(OAuthCredential::new("refresh", "plain-token", 0.0))
         .await
-        .expect_err("unavailable");
-    assert_eq!(error.detail(), Some("GitHub Copilot OAuth is not ported yet"));
+        .expect("github copilot flow is ported");
+    assert_eq!(
+        auth.base_url.as_deref(),
+        Some("https://api.individual.githubcopilot.com")
+    );
 
     register_bundled_oauth_flow_loaders(OAuthFlowLoaders {
         anthropic: Arc::new(|| stub("custom-anthropic")),
