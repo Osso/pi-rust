@@ -7,6 +7,7 @@ mod unicode_tables;
 pub mod fuzzy;
 pub mod keys;
 pub mod kill_ring;
+pub mod latex;
 pub mod native_modifiers;
 pub mod stdin_buffer;
 pub mod terminal_colors;

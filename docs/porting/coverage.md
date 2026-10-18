@@ -276,7 +276,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/utils.ts` | 1326 | 0 | done | `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs` | Unicode 17.0 tables; differential corpus + ~11k codepoint samples |
 | `tui/src/autocomplete.ts` | 793 | 1 | todo |  |  |
 | `tui/src/keybindings.ts` | 325 | 1 | todo |  |  |
-| `tui/src/latex.ts` | 1373 | 1 | todo |  |  |
+| `tui/src/latex.ts` | 1373 | 1 | done | `crates/pi-tui/src/latex.rs` | TS test suite + generated differential corpus; byte-identical output incl. layout markers |
 | `tui/src/terminal.ts` | 594 | 1 | todo |  |  |
 | `tui/src/word-navigation.ts` | 117 | 1 | todo |  |  |
 | `tui/src/tui.ts` | 2534 | 2 | todo |  |  |
