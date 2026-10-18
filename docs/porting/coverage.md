@@ -470,7 +470,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/auth-storage.ts` | 507 | 5 | done | `crates/pi-coding-agent/src/core/auth_storage.rs` | Cross-process byte parity and both lock directions; 16 focused cases |
 | `coding-agent/src/utils/tool-result-images.ts` | 62 | 5 | done | `crates/pi-coding-agent/src/utils/tool_result_images.rs` | Differential 27107 (7 fixtures); Cow preserves the unchanged-reference contract |
 | `coding-agent/src/core/models-store.ts` | 146 | 6 | done | `crates/pi-coding-agent/src/core/models_store.rs` | Coalesced reloads, canonical entry order documented |
-| `coding-agent/src/bun/register-bedrock.ts` | 4 | 7 | todo |  |  |
+| `coding-agent/src/bun/register-bedrock.ts` | 4 | 7 | done | `crates/pi-coding-agent/src/bun/register_bedrock.rs` | `set_bedrock_provider_module(bedrock_provider_module())`; idempotence test ([traceability](traceability/bun-entry.md)). |
 | `coding-agent/src/core/provider-composer.ts` | 572 | 7 | todo |  |  |
 | `coding-agent/src/extensions/llama/provider.ts` | 150 | 7 | todo |  |  |
 | `coding-agent/src/core/keybindings.ts` | 434 | 8 | done | `crates/pi-coding-agent/src/core/keybindings.rs` | `KEYBINDINGS` layered on `pi-tui`, legacy-name migration/ordering, file load/reload; differential `coding-agent-keybindings-oracle.ts`. |
@@ -541,7 +541,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/keybinding-hints.ts` | 48 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/keybinding_hints.rs` | Formatting and hint composition; `tests/components.rs`. |
 | `coding-agent/src/modes/interactive/theme/theme-controller.ts` | 139 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/theme/theme_controller.rs` | Settings-driven theme selection, auto-sync, preview, rebind; `tests/theme_controller.rs` with a fake `ThemeUi`. |
 | `coding-agent/extensions/pyrun/src/detached-runner-entry.ts` | 13 | 19 | todo |  |  |
-| `coding-agent/src/internal-runner.ts` | 19 | 19 | todo |  |  |
+| `coding-agent/src/internal-runner.ts` | 19 | 19 | done | `crates/pi-coding-agent/src/internal_runner.rs` | Mode dispatch, manifest validation, `.runner-error` file (0o600), exit code; runner bodies owned by other slices ([traceability](traceability/internal-runner.md)). |
 | `coding-agent/src/modes/interactive/components/agent-switcher.ts` | 269 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/agent_switcher.rs` | Tree rows, closed-agent filtering/toggle, scrolling, inactive selection; differential `agent-switcher-*` (3 cases). |
 | `coding-agent/src/modes/interactive/components/approval-selector.ts` | 103 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/approval_selector.rs` | Differential render/input/events (`tests/differential_components.rs`). |
 | `coding-agent/src/modes/interactive/components/bash-execution.ts` | 278 | 19 | todo |  |  |
@@ -708,7 +708,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/supervisor/main.ts` | 436 | 22 | todo |  |  |
 | `coding-agent/src/supervisor/response-tool.ts` | 48 | 22 | done | `crates/pi-coding-agent/src/supervisor/response_tool.rs` | Tool metadata/schema and advisory text; 8-case differential ([traceability](traceability/supervisor-response-tool.md)). |
 | `coding-agent/extensions/agents-core/src/parent-agent-journal.ts` | 110 | 23 | todo |  |  |
-| `coding-agent/src/cli.ts` | 25 | 23 | todo |  |  |
+| `coding-agent/src/cli.ts` | 25 | 23 | done | `crates/pi-coding-agent/src/cli_entry.rs` | Internal-runner gate, dispatcher configuration (fetch returned, no global), main hand-off and error propagation; `CLI_PROCESS_ENV`, `process.title`/`emitWarning` documented gaps ([traceability](traceability/cli-entry.md)). |
 | `coding-agent/src/cli/experimental/command-options.ts` | 38 | 23 | done | `crates/pi-coding-agent/src/cli/experimental/command_options.rs` | Auth/transport options, legacy option errors, unsupported-capability messages ([traceability](traceability/experimental-cli.md)). |
 | `coding-agent/src/core/extensions/extension-runtime.ts` | 103 | 23 | done | `crates/pi-coding-agent/src/core/extensions/extension_runtime.rs` | Runtime state, stale invalidation, flag values, provider queues; differential provider cases. |
 | `coding-agent/src/core/index.ts` | 101 | 23 | todo |  |  |
@@ -716,7 +716,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/status-indicator.ts` | 114 | 23 | todo |  |  |
 | `coding-agent/src/rpc-entry.ts` | 13 | 23 | todo |  |  |
 | `coding-agent/src/server/create-harness.ts` | 161 | 23 | todo |  |  |
-| `coding-agent/src/bun/cli.ts` | 15 | 24 | todo |  |  |
+| `coding-agent/src/bun/cli.ts` | 15 | 24 | done | `crates/pi-coding-agent/src/bun/cli.rs` | Bundled OAuth registration, Bedrock module registration, cli.ts hand-off; `restoreSandboxEnv` documented Bun-only gap ([traceability](traceability/bun-entry.md)). |
 | `coding-agent/src/cli/experimental/commands/client.ts` | 44 | 24 | done | `crates/pi-coding-agent/src/cli/experimental/commands/client.rs` | Client command builder/action; 18-case composition tests ([traceability](traceability/experimental-cli.md)). |
 | `coding-agent/src/cli/experimental/commands/pi.ts` | 47 | 24 | done | `crates/pi-coding-agent/src/cli/experimental/commands/pi.rs` | Pi command builder/action incl. `--connect` rejection ([traceability](traceability/experimental-cli.md)). |
 | `coding-agent/src/cli/experimental/commands/server.ts` | 44 | 24 | done | `crates/pi-coding-agent/src/cli/experimental/commands/server.rs` | Server command builder/action ([traceability](traceability/experimental-cli.md)). |
