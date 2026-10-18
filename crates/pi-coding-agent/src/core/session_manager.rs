@@ -1623,7 +1623,17 @@ fn text_blocks_joined(blocks: &[TextOrImageContent]) -> String {
         .join(" ")
 }
 
+fn message_has_content(message: &AgentMessage) -> bool {
+    match message {
+        AgentMessage::User(_) | AgentMessage::Assistant(_) | AgentMessage::ToolResult(_) => true,
+        AgentMessage::Custom(object) => object.contains_key("content"),
+    }
+}
+
 fn message_activity_time(entry: &SessionMessageEntry) -> Option<i64> {
+    if !message_has_content(&entry.message) {
+        return None;
+    }
     let role = entry.message.role();
     if role != "user" && role != "assistant" {
         return None;
