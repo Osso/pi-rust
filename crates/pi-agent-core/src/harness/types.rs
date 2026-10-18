@@ -137,7 +137,8 @@ impl ToolExecutionMode {
 }
 
 /// Controls how queued messages are drained at a queue point.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum QueueMode {
     All,
     OneAtATime,

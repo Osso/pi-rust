@@ -681,8 +681,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/extensions/llama/index.ts` | 228 | 22 | todo |  |  |
 | `coding-agent/src/extensions/llama/ui.ts` | 542 | 22 | todo |  |  |
 | `coding-agent/src/index.ts` | 444 | 22 | partial |  |  |
-| `coding-agent/src/main.ts` | 1364 | 22 | partial | `crates/pi-coding-agent/src/main.rs` | Startup helpers, first-party factory wiring, and the `createRuntime` factory ported and tested (19 behavioral tests): env/app-mode predicates, diagnostics, auth command, initial message, session resolution/creation, fork/session-id validation, session options, CLI paths, action wrappers, bundled agents registration, per-cwd services/trust/model options. `main()` orchestration, `pi` binary, and process differentials pending ca-rpc ([traceability](traceability/main.md)). |
-| `coding-agent/src/modes/index.ts` | 22 | 22 | todo |  |  |
+| `coding-agent/src/main.ts` | 1364 | 22 | partial | `crates/pi-coding-agent/src/main.rs` | Startup helpers, first-party factory wiring, and the `createRuntime` factory ported and tested (19 behavioral tests): env/app-mode predicates, diagnostics, auth command, initial message, session resolution/creation, fork/session-id validation, session options, CLI paths, action wrappers, bundled agents registration, per-cwd services/trust/model options. `main()` orchestration, `pi` binary, and process differentials in progress ([traceability](traceability/main.md)). |
+| `coding-agent/src/modes/index.ts` | 22 | 22 | done | `crates/pi-coding-agent/src/modes/mod.rs` | Re-export surface; `InteractiveMode` remains with the interactive slice ([traceability](traceability/modes-index.md)). |
 | `coding-agent/src/modes/interactive/components/assistant-message.ts` | 197 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/custom-entry.ts` | 62 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/custom-message.ts` | 113 | 22 | todo |  |  |
@@ -694,11 +694,11 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/tool-execution.ts` | 495 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/user-message.ts` | 70 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/interactive-mode.ts` | 8489 | 22 | todo |  |  |
-| `coding-agent/src/modes/json-event.ts` | 40 | 22 | todo |  |  |
-| `coding-agent/src/modes/print-mode.ts` | 217 | 22 | todo |  |  |
-| `coding-agent/src/modes/rpc/rpc-client.ts` | 642 | 22 | todo |  |  |
-| `coding-agent/src/modes/rpc/rpc-mode.ts` | 846 | 22 | todo |  |  |
-| `coding-agent/src/modes/rpc/rpc-types.ts` | 291 | 22 | todo |  |  |
+| `coding-agent/src/modes/json-event.ts` | 40 | 22 | done | `crates/pi-coding-agent/src/modes/json_event.rs` | `message_update` rebuilt as `{ type, assistantMessageEvent }` with `partial` dropped; 4 behavioral cases + 24-fixture differential ([traceability](traceability/json-event.md)). |
+| `coding-agent/src/modes/print-mode.ts` | 217 | 22 | done | `crates/pi-coding-agent/src/modes/print_mode.rs` | Text/JSON output, end_turn fallback, error exit, extension binding, signal handlers; 5-scenario process differential ([traceability](traceability/print-mode.md)). |
+| `coding-agent/src/modes/rpc/rpc-client.ts` | 642 | 22 | done | `crates/pi-coding-agent/src/modes/rpc/rpc_client.rs` | Process/JSONL/correlation + all commands including `compact`, `bash`, `get_session_stats`; 18 behavioral tests ([traceability](traceability/rpc-client.md)). |
+| `coding-agent/src/modes/rpc/rpc-mode.ts` | 846 | 22 | done | `crates/pi-coding-agent/src/modes/rpc/rpc_mode.rs` | Every command, extension UI context/dialog broker, shutdown, unknown/parse errors; full stdin/stdout differential plus 6 unit tests ([traceability](traceability/rpc-mode.md)). |
+| `coding-agent/src/modes/rpc/rpc-types.ts` | 291 | 22 | done | `crates/pi-coding-agent/src/modes/rpc/rpc_types.rs` | every command/UI variant parsed and serialized in TS field order; see `rpc-types.md`. |
 | `coding-agent/src/package-manager-cli.ts` | 889 | 22 | done | `crates/pi-coding-agent/src/package_manager_cli.rs` | Parsing/help/validation (byte differential) plus the execution half over `PackageCommandEffects`: settings/trust creation, install/remove/list/update, model refresh, self-update plan/commands/note, config scope; 31 behavioral tests. Loader/startup-UI seams documented; the config TUI is wired through `TuiConfigSelector` ([traceability](traceability/package-manager-cli.md)). |
 | `coding-agent/src/supervisor/approval-reviewer.ts` | 19 | 22 | todo |  |  |
 | `coding-agent/src/supervisor/main.ts` | 436 | 22 | todo |  |  |
@@ -710,7 +710,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/index.ts` | 101 | 23 | done | `crates/pi-coding-agent/src/core/mod.rs` | Barrel re-exports the ported core surface (agent session/runtime/services, extensions, multi-agent store, compaction, event bus, resource loader, source info). Gaps: `executeBashWithOperations`/`BashResult` (ca-detached), `AgentCommandResult`, `ExtensionHandler` alias. |
 | `coding-agent/src/extensions/multi-agent.ts` | 21 | 23 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/mod.rs` (re-exports) | Pure re-export module; covered through agents-core. |
 | `coding-agent/src/modes/interactive/components/status-indicator.ts` | 114 | 23 | todo |  |  |
-| `coding-agent/src/rpc-entry.ts` | 13 | 23 | todo |  |  |
+| `coding-agent/src/rpc-entry.ts` | 13 | 23 | done | `crates/pi-coding-agent/src/rpc_entry.rs` | Env pair, `--mode rpc` prefix, dispatcher fetch, error propagation; 3 tests ([traceability](traceability/rpc-entry.md)). |
 | `coding-agent/src/server/create-harness.ts` | 161 | 23 | todo |  |  |
 | `coding-agent/src/bun/cli.ts` | 15 | 24 | done | `crates/pi-coding-agent/src/bun/cli.rs` | Bundled OAuth registration, Bedrock module registration, cli.ts hand-off; `restoreSandboxEnv` documented Bun-only gap ([traceability](traceability/bun-entry.md)). |
 | `coding-agent/src/cli/experimental/commands/client.ts` | 44 | 24 | done | `crates/pi-coding-agent/src/cli/experimental/commands/client.rs` | Client command builder/action; 18-case composition tests ([traceability](traceability/experimental-cli.md)). |

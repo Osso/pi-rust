@@ -9,6 +9,42 @@ use tokio::sync::mpsc;
 
 pub const EXIT_STDIO_GRACE_MS: u64 = 100;
 
+/// Node reports signal names (`SIGTERM`), not numbers.
+#[cfg(unix)]
+pub fn signal_name(signal: i32) -> String {
+    match signal {
+        1 => "SIGHUP",
+        2 => "SIGINT",
+        3 => "SIGQUIT",
+        4 => "SIGILL",
+        6 => "SIGABRT",
+        8 => "SIGFPE",
+        9 => "SIGKILL",
+        11 => "SIGSEGV",
+        13 => "SIGPIPE",
+        14 => "SIGALRM",
+        15 => "SIGTERM",
+        other => return format!("SIG{other}"),
+    }
+    .to_owned()
+}
+
+/// Name of the signal that terminated `status`, or `unknown` for platforms
+/// without signal reporting.
+#[cfg(unix)]
+pub fn exit_signal_name(status: &std::process::ExitStatus) -> String {
+    use std::os::unix::process::ExitStatusExt;
+
+    status.signal().map_or_else(|| "unknown".to_owned(), signal_name)
+}
+
+/// Name of the signal that terminated `status`, or `unknown` for platforms
+/// without signal reporting.
+#[cfg(not(unix))]
+pub fn exit_signal_name(_status: &std::process::ExitStatus) -> String {
+    "unknown".to_owned()
+}
+
 /// Exit status plus the stdout/stderr drained while waiting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessOutput {

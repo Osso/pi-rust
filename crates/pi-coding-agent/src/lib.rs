@@ -12,6 +12,7 @@ pub mod main_runner;
 pub mod migrations;
 pub mod modes;
 pub mod package_manager_cli;
+pub mod rpc_entry;
 pub mod supervisor;
 pub mod utils;
 
