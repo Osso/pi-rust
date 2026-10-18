@@ -47,11 +47,7 @@ const DESCRIPTION_PREFIX: &str =
     "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last";
 
 /// Output artifact paths for a detached job.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DetachedJobArtifacts {
-    pub directory: String,
-    pub output_path: String,
-}
+pub use crate::core::detached_job_runner::DetachedJobArtifacts;
 
 /// A command that moved to the background.
 #[derive(Debug, Clone, PartialEq, Eq)]
