@@ -12,6 +12,7 @@ use crate::auth::{
 use crate::models::Provider;
 use crate::providers::{CustomProviderSpec, custom_provider, single_api};
 use crate::request::BoxFuture;
+use crate::types::ProviderEnv;
 
 const VERTEX_ADC_PATH: &str = "~/.config/gcloud/application_default_credentials.json";
 
@@ -136,68 +137,101 @@ async fn prompt_text(interaction: &Arc<dyn AuthInteraction>, message: &str) -> R
 }
 
 async fn resolve(input: &ApiKeyResolveInput) -> Result<Option<AuthResult>, AuthError> {
-    let credential = input.credential.as_ref();
-    let credential_env = credential.and_then(|credential| credential.env.as_ref());
-    let stored_key = credential.and_then(|credential| credential.key.clone());
-    let key = match stored_key.clone() {
+    if let Some(result) = api_key_result(input).await? {
+        return Ok(Some(result));
+    }
+    adc_result(input).await
+}
+
+async fn api_key_result(input: &ApiKeyResolveInput) -> Result<Option<AuthResult>, AuthError> {
+    let stored_key = input.credential.as_ref().and_then(|credential| credential.key.clone());
+    let stored_key_present = stored_key.is_some();
+    let key = match stored_key {
         Some(key) => Some(key),
         None => env_value(&input.ctx, "GOOGLE_CLOUD_API_KEY", &input.signal).await?,
     };
-    if let Some(key) = key.filter(|key| !key.is_empty()) {
-        return Ok(Some(AuthResult {
-            auth: ModelAuth {
-                api_key: Some(key),
-                headers: None,
-                base_url: None,
-            },
-            env: None,
-            source: Some(if stored_key.is_some() {
-                "stored credential".to_owned()
-            } else {
-                "GOOGLE_CLOUD_API_KEY".to_owned()
-            }),
-        }));
-    }
+    let Some(key) = key.filter(|key| !key.is_empty()) else {
+        return Ok(None);
+    };
+    let source = if stored_key_present {
+        "stored credential"
+    } else {
+        "GOOGLE_CLOUD_API_KEY"
+    };
+    Ok(Some(AuthResult {
+        auth: ModelAuth {
+            api_key: Some(key),
+            headers: None,
+            base_url: None,
+        },
+        env: None,
+        source: Some(source.to_owned()),
+    }))
+}
 
-    let adc_path = credential_env
+async fn adc_result(input: &ApiKeyResolveInput) -> Result<Option<AuthResult>, AuthError> {
+    let credential_env = input.credential.as_ref().and_then(|credential| credential.env.as_ref());
+    let has_credentials = has_adc_credentials(input, credential_env).await?;
+    let project = project_id(input, credential_env).await?;
+    let location = location_id(input, credential_env).await?;
+    let missing_project = project.as_ref().is_none_or(|project| project.is_empty());
+    let missing_location = location.as_ref().is_none_or(|location| location.is_empty());
+    if !has_credentials || missing_project || missing_location {
+        return Ok(None);
+    }
+    let source = if input.credential.is_some() {
+        "stored credential"
+    } else {
+        "gcloud application default credentials"
+    };
+    Ok(Some(AuthResult {
+        auth: ModelAuth::default(),
+        env: credential_env.cloned(),
+        source: Some(source.to_owned()),
+    }))
+}
+
+async fn has_adc_credentials(
+    input: &ApiKeyResolveInput,
+    credential_env: Option<&ProviderEnv>,
+) -> Result<bool, AuthError> {
+    let stored_path = credential_env
         .and_then(|env| env.get("GOOGLE_APPLICATION_CREDENTIALS"))
         .cloned();
-    let adc_path = match adc_path {
+    let adc_path = match stored_path {
         Some(path) => Some(path),
         None => env_value(&input.ctx, "GOOGLE_APPLICATION_CREDENTIALS", &input.signal).await?,
     };
     check_aborted(&input.signal)?;
-    let has_credentials = input
+    let exists = input
         .ctx
         .file_exists(adc_path.as_deref().unwrap_or(VERTEX_ADC_PATH))
         .await;
     check_aborted(&input.signal)?;
+    Ok(exists)
+}
 
-    let project = match credential_env.and_then(|env| env.get("GOOGLE_CLOUD_PROJECT")) {
-        Some(project) => Some(project.clone()),
-        None => match env_value(&input.ctx, "GOOGLE_CLOUD_PROJECT", &input.signal).await? {
-            Some(project) => Some(project),
-            None => env_value(&input.ctx, "GCLOUD_PROJECT", &input.signal).await?,
-        },
-    };
-    let location = match credential_env.and_then(|env| env.get("GOOGLE_CLOUD_LOCATION")) {
-        Some(location) => Some(location.clone()),
-        None => env_value(&input.ctx, "GOOGLE_CLOUD_LOCATION", &input.signal).await?,
-    };
-
-    if has_credentials && project.is_some_and(|project| !project.is_empty()) && location.is_some_and(|l| !l.is_empty())
-    {
-        return Ok(Some(AuthResult {
-            auth: ModelAuth::default(),
-            env: credential_env.cloned(),
-            source: Some(if credential.is_some() {
-                "stored credential".to_owned()
-            } else {
-                "gcloud application default credentials".to_owned()
-            }),
-        }));
+async fn project_id(
+    input: &ApiKeyResolveInput,
+    credential_env: Option<&ProviderEnv>,
+) -> Result<Option<String>, AuthError> {
+    if let Some(project) = credential_env.and_then(|env| env.get("GOOGLE_CLOUD_PROJECT")) {
+        return Ok(Some(project.clone()));
     }
-    Ok(None)
+    if let Some(project) = env_value(&input.ctx, "GOOGLE_CLOUD_PROJECT", &input.signal).await? {
+        return Ok(Some(project));
+    }
+    env_value(&input.ctx, "GCLOUD_PROJECT", &input.signal).await
+}
+
+async fn location_id(
+    input: &ApiKeyResolveInput,
+    credential_env: Option<&ProviderEnv>,
+) -> Result<Option<String>, AuthError> {
+    if let Some(location) = credential_env.and_then(|env| env.get("GOOGLE_CLOUD_LOCATION")) {
+        return Ok(Some(location.clone()));
+    }
+    env_value(&input.ctx, "GOOGLE_CLOUD_LOCATION", &input.signal).await
 }
 
 async fn env_value(

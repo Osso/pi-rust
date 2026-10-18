@@ -68,36 +68,44 @@ impl RadiusState {
 
     /// `refreshModels(context)`.
     async fn refresh(&self, context: RefreshModelsContext) -> Result<(), CallbackError> {
-        if let Some(stored) = context.stored.as_ref() {
-            let restored: Vec<Model> = stored
-                .models
-                .iter()
-                .filter(|model| model.provider == self.id)
-                .cloned()
-                .collect();
-            if !self.publish_update(&context.publish, restored).await? {
-                return Ok(());
-            }
-        }
-
-        // Import catalogs cached by the pre-ModelsStore Radius implementation.
-        if context.stored.is_none()
-            && let Some(Credential::OAuth(credential)) = context.credential.as_ref()
+        if let Some(stored) = context.stored.as_ref()
+            && !self.restore_stored(&context.publish, stored).await?
         {
-            let legacy = get_radius_models(&self.id, Some(credential));
-            if !legacy.is_empty() && !self.publish_persist(&context.publish, legacy).await? {
-                return Ok(());
-            }
+            return Ok(());
         }
+        if context.stored.is_none() && !self.import_legacy_catalog(&context).await? {
+            return Ok(());
+        }
+        self.refresh_from_gateway(&context).await
+    }
 
+    async fn restore_stored(&self, publish: &PublishFn, stored: &ModelsStoreEntry) -> Result<bool, CallbackError> {
+        let restored = stored
+            .models
+            .iter()
+            .filter(|model| model.provider == self.id)
+            .cloned()
+            .collect();
+        self.publish_update(publish, restored).await
+    }
+
+    /// Imports catalogs cached by the pre-ModelsStore Radius implementation.
+    async fn import_legacy_catalog(&self, context: &RefreshModelsContext) -> Result<bool, CallbackError> {
+        let Some(Credential::OAuth(credential)) = context.credential.as_ref() else {
+            return Ok(true);
+        };
+        let legacy = get_radius_models(&self.id, Some(credential));
+        if legacy.is_empty() {
+            return Ok(true);
+        }
+        self.publish_persist(&context.publish, legacy).await
+    }
+
+    async fn refresh_from_gateway(&self, context: &RefreshModelsContext) -> Result<(), CallbackError> {
         if !context.allow_network || context.signal.is_cancelled() {
             return Ok(());
         }
-        let api_key = match context.credential.as_ref() {
-            Some(Credential::OAuth(credential)) => Some(credential.access.clone()),
-            Some(Credential::ApiKey(credential)) => credential.key.clone(),
-            None => None,
-        };
+        let api_key = credential_api_key(context.credential.as_ref());
         let config = load_radius_gateway_config(
             &self.fetch,
             &self.gateway,
@@ -111,6 +119,16 @@ impl RadiusState {
         let refreshed = get_radius_models_from_config(&self.id, &config);
         self.publish_persist(&context.publish, refreshed).await?;
         Ok(())
+    }
+}
+
+/// OAuth credentials authorize with the access token, api-key credentials with
+/// the stored key.
+fn credential_api_key(credential: Option<&Credential>) -> Option<String> {
+    match credential {
+        Some(Credential::OAuth(credential)) => Some(credential.access.clone()),
+        Some(Credential::ApiKey(credential)) => credential.key.clone(),
+        None => None,
     }
 }
 

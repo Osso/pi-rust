@@ -128,75 +128,87 @@ async fn login(interaction: &Arc<dyn AuthInteraction>) -> Result<ApiKeyCredentia
 }
 
 async fn resolve(input: &ApiKeyResolveInput) -> Result<Option<AuthResult>, AuthError> {
-    if input
-        .credential
-        .as_ref()
-        .and_then(|credential| credential.key.as_ref())
-        .is_some()
-    {
-        return Ok(Some(AuthResult {
-            auth: ModelAuth::default(),
-            env: input.credential.as_ref().and_then(|credential| credential.env.clone()),
-            source: Some("stored credential".to_owned()),
-        }));
+    if let Some(result) = stored_key_result(input) {
+        return Ok(Some(result));
     }
-
-    let credential_env = input.credential.as_ref().and_then(|credential| credential.env.as_ref());
-    let stored_profile = credential_env
-        .and_then(|env| env.get("AWS_PROFILE"))
-        .filter(|value| !value.is_empty())
-        .cloned();
-
     if env_value(&input.ctx, "AWS_BEARER_TOKEN_BEDROCK", &input.signal)
         .await?
         .is_some()
     {
-        return Ok(Some(AuthResult {
-            auth: ModelAuth::default(),
-            env: None,
-            source: Some("AWS_BEARER_TOKEN_BEDROCK".to_owned()),
-        }));
+        return Ok(Some(ambient_result("AWS_BEARER_TOKEN_BEDROCK")));
     }
-
-    if stored_profile.is_some() || env_value(&input.ctx, "AWS_PROFILE", &input.signal).await?.is_some() {
-        return Ok(Some(AuthResult {
-            auth: ModelAuth::default(),
-            env: credential_env.cloned(),
-            source: Some(if stored_profile.is_some() {
-                "stored credential".to_owned()
-            } else {
-                "AWS_PROFILE".to_owned()
-            }),
-        }));
+    if let Some(result) = profile_result(input).await? {
+        return Ok(Some(result));
     }
+    if access_keys_present(input).await? {
+        return Ok(Some(ambient_result("AWS access keys")));
+    }
+    let source = ambient_chain_source(input).await?;
+    Ok(source.map(ambient_result))
+}
 
-    let access_key = env_value(&input.ctx, "AWS_ACCESS_KEY_ID", &input.signal).await?;
-    if access_key.is_some()
-        && env_value(&input.ctx, "AWS_SECRET_ACCESS_KEY", &input.signal)
-            .await?
-            .is_some()
+fn stored_key_result(input: &ApiKeyResolveInput) -> Option<AuthResult> {
+    let credential = input.credential.as_ref()?;
+    credential.key.as_ref()?;
+    Some(AuthResult {
+        auth: ModelAuth::default(),
+        env: credential.env.clone(),
+        source: Some("stored credential".to_owned()),
+    })
+}
+
+fn ambient_result(source: &str) -> AuthResult {
+    AuthResult {
+        auth: ModelAuth::default(),
+        env: None,
+        source: Some(source.to_owned()),
+    }
+}
+
+async fn profile_result(input: &ApiKeyResolveInput) -> Result<Option<AuthResult>, AuthError> {
+    let credential_env = input.credential.as_ref().and_then(|credential| credential.env.as_ref());
+    let stored_profile = credential_env
+        .and_then(|env| env.get("AWS_PROFILE"))
+        .filter(|value| !value.is_empty())
+        .is_some();
+    if !stored_profile && env_value(&input.ctx, "AWS_PROFILE", &input.signal).await?.is_none() {
+        return Ok(None);
+    }
+    let source = if stored_profile {
+        "stored credential"
+    } else {
+        "AWS_PROFILE"
+    };
+    Ok(Some(AuthResult {
+        auth: ModelAuth::default(),
+        env: credential_env.cloned(),
+        source: Some(source.to_owned()),
+    }))
+}
+
+async fn access_keys_present(input: &ApiKeyResolveInput) -> Result<bool, AuthError> {
+    if env_value(&input.ctx, "AWS_ACCESS_KEY_ID", &input.signal)
+        .await?
+        .is_none()
     {
-        return Ok(Some(AuthResult {
-            auth: ModelAuth::default(),
-            env: None,
-            source: Some("AWS access keys".to_owned()),
-        }));
+        return Ok(false);
     }
+    Ok(env_value(&input.ctx, "AWS_SECRET_ACCESS_KEY", &input.signal)
+        .await?
+        .is_some())
+}
 
-    for (name, source) in [
+async fn ambient_chain_source(input: &ApiKeyResolveInput) -> Result<Option<&'static str>, AuthError> {
+    let sources = [
         ("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "ECS task role"),
         ("AWS_CONTAINER_CREDENTIALS_FULL_URI", "ECS task role"),
         ("AWS_WEB_IDENTITY_TOKEN_FILE", "web identity token"),
-    ] {
+    ];
+    for (name, source) in sources {
         if env_value(&input.ctx, name, &input.signal).await?.is_some() {
-            return Ok(Some(AuthResult {
-                auth: ModelAuth::default(),
-                env: None,
-                source: Some(source.to_owned()),
-            }));
+            return Ok(Some(source));
         }
     }
-
     Ok(None)
 }
 
