@@ -279,7 +279,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/latex.ts` | 1373 | 1 | todo |  |  |
 | `tui/src/terminal.ts` | 594 | 1 | done | `crates/pi-tui/src/terminal.rs` | differential negotiation/timeout/normalization; ProcessTerminal event-queue seam; resize polling |
 | `tui/src/word-navigation.ts` | 117 | 1 | todo |  |  |
-| `tui/src/tui.ts` | 2534 | 2 | todo |  |  |
+| `tui/src/tui.ts` | 2534 | 2 | partial | `crates/pi-tui/src/tui.rs` | differential byte stream (main+renderer), overlays/focus/fixed cells/render regions; viewport fullscreen helpers deferred to alt-screen slice |
 | `tui/src/components/alt-screen-flash.ts` | 51 | 3 | todo |  |  |
 | `tui/src/components/box.ts` | 137 | 3 | todo |  |  |
 | `tui/src/components/dynamic-border.ts` | 15 | 3 | todo |  |  |
@@ -292,8 +292,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/components/truncated-text.ts` | 65 | 3 | todo |  |  |
 | `tui/src/editor-component.ts` | 74 | 3 | todo |  |  |
 | `tui/src/layout-node.ts` | 51 | 3 | todo |  |  |
-| `tui/src/root-compositor.ts` | 91 | 3 | todo |  |  |
-| `tui/src/tui-main-screen.ts` | 586 | 3 | todo |  |  |
+| `tui/src/root-compositor.ts` | 91 | 3 | done | `crates/pi-tui/src/root_compositor.rs` | flow/bottom layout callbacks covered by render-region tests |
+| `tui/src/tui-main-screen.ts` | 586 | 3 | done | `crates/pi-tui/src/tui_main_screen.rs` | differential byte stream; capture/restore implemented (no listed test) |
 | `tui/src/alt-screen-search.ts` | 157 | 4 | todo |  |  |
 | `tui/src/components/loader.ts` | 94 | 4 | todo |  |  |
 | `tui/src/components/scroll-view.ts` | 216 | 4 | todo |  |  |
