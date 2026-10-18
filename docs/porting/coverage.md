@@ -639,7 +639,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/cli/initial-message.ts` | 43 | 22 | done | `crates/pi-coding-agent/src/cli/initial_message.rs` | stdin/@file/first-message assembly with message shift; 4 tests ([traceability](traceability/initial-message.md)). |
 | `coding-agent/src/cli/list-extensions.ts` | 113 | 22 | todo |  |  |
 | `coding-agent/src/cli/list-tools.ts` | 91 | 22 | done | `crates/pi-coding-agent/src/cli/list_tools.rs` | Source labels, UTF-16 truncation, sorted table; 4-case byte-level differential ([traceability](traceability/list-tools.md)). |
-| `coding-agent/src/cli/project-trust.ts` | 62 | 22 | todo |  |  |
+| `coding-agent/src/cli/project-trust.ts` | 62 | 22 | done | `crates/pi-coding-agent/src/cli/project_trust.rs` | Mode mapping, hasUI gating, Yes/No confirm, notify coloring; startup-ui seam documented ([traceability](traceability/project-trust.md)). |
 | `coding-agent/src/cli/resident-console-command.ts` | 200 | 22 | todo |  |  |
 | `coding-agent/src/core/agent-session-runtime.ts` | 576 | 22 | todo |  |  |
 | `coding-agent/src/core/agent-session-services.ts` | 219 | 22 | todo |  |  |
@@ -656,7 +656,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/model-resolver.ts` | 780 | 22 | todo |  |  |
 | `coding-agent/src/core/permissions/mcp-permission-prompt.ts` | 250 | 22 | done | `crates/pi-coding-agent/src/core/permissions/mcp_permission_prompt.rs` | Decision parsing, desktop notification, rule-store skip/apply, in-place input replacement; 15 tests. See `coding-agent-mcp-permission-prompt.md`. |
 | `coding-agent/src/core/permissions/orchestrator.ts` | 39 | 22 | done | `crates/pi-coding-agent/src/core/permissions/orchestrator.rs` | Policy → hook → LLM → generic reviewer ordering; 7 tests. See `coding-agent-permissions-orchestrator.md`. |
-| `coding-agent/src/core/project-trust.ts` | 96 | 22 | partial | — | Blocked on `extensions/types.ts` (`LoadExtensionsResult`, `ProjectTrustContext`) and `extensions/runner.ts` (`emitProjectTrustEvent`). `formatProjectTrustPrompt`, option selection, and `resolveProjectTrusted` are not ported; no stand-in types added. |
+| `coding-agent/src/core/project-trust.ts` | 96 | 22 | done | `crates/pi-coding-agent/src/core/project_trust.rs` | Override, resource gate, extension `project_trust` event, stored/default decisions, UI selection and persistence; 19 behavioral tests ([traceability](traceability/project-trust.md)). |
 | `coding-agent/src/core/resource-loader.ts` | 1270 | 22 | partial | `crates/pi-coding-agent/src/core/resource_loader.rs` | Rule-file loading and inline/first-party path naming done; `DefaultResourceLoader`, context-file discovery, and `findShadowedContextFile` are blocked on extensions/loader, package-manager, footer-data-provider, and theme loader. |
 | `coding-agent/src/core/sdk.ts` | 462 | 22 | todo |  |  |
 | `coding-agent/src/core/self-restart.ts` | 251 | 22 | todo |  |  |

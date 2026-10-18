@@ -11,6 +11,7 @@ pub mod initial_message;
 pub mod list_models;
 pub mod list_tools;
 pub mod login_command;
+pub mod project_trust;
 pub mod sessions_command;
 pub use auth_check::{
     AuthCheckReason, AuthCheckResult, AuthCheckStatus, CheckProviderAuthOptions, check_provider_auth,
@@ -30,4 +31,5 @@ pub use login_command::{
     BrowserCliOpener, LoginCommandDependencies, LoginCommandOutcome, LoginIo, RunLoginCommandOptions, StdioLoginIo,
     handle_login_command, run_login_command,
 };
+pub use project_trust::{CreateProjectTrustContextOptions, ProjectTrustStartupUi, create_project_trust_context};
 pub use sessions_command::{SessionsCommandDependencies, SessionsCommandOutcome, handle_sessions_command};

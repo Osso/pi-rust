@@ -55,6 +55,8 @@ impl ExtensionUiContext for ProjectTrustUi {
         options: &[String],
         _opts: Option<&crate::core::extensions::types::ExtensionUiDialogOptions>,
     ) -> BoxFuture<'a, Result<Option<String>, String>> {
+        let title = title.to_owned();
+        let options = options.to_vec();
         Box::pin(async move {
             if !self.interactive() {
                 return Ok(None);
@@ -62,7 +64,7 @@ impl ExtensionUiContext for ProjectTrustUi {
             let Some(startup_ui) = self.startup_ui.as_ref() else {
                 return Ok(None);
             };
-            Ok(startup_ui.select(title, options).await)
+            Ok(startup_ui.select(&title, &options).await)
         })
     }
 
@@ -72,6 +74,7 @@ impl ExtensionUiContext for ProjectTrustUi {
         message: &str,
         _opts: Option<&crate::core::extensions::types::ExtensionUiDialogOptions>,
     ) -> BoxFuture<'a, Result<bool, String>> {
+        let title = format!("{title}\n{message}");
         Box::pin(async move {
             if !self.interactive() {
                 return Ok(false);
@@ -80,7 +83,7 @@ impl ExtensionUiContext for ProjectTrustUi {
                 return Ok(false);
             };
             let options = ["Yes".to_owned(), "No".to_owned()];
-            let selected = startup_ui.select(&format!("{title}\n{message}"), &options).await;
+            let selected = startup_ui.select(&title, &options).await;
             Ok(selected.as_deref() == Some("Yes"))
         })
     }
@@ -91,6 +94,8 @@ impl ExtensionUiContext for ProjectTrustUi {
         placeholder: Option<&str>,
         _opts: Option<&crate::core::extensions::types::ExtensionUiDialogOptions>,
     ) -> BoxFuture<'a, Result<Option<String>, String>> {
+        let title = title.to_owned();
+        let placeholder = placeholder.map(str::to_owned);
         Box::pin(async move {
             if !self.interactive() {
                 return Ok(None);
@@ -98,7 +103,7 @@ impl ExtensionUiContext for ProjectTrustUi {
             let Some(startup_ui) = self.startup_ui.as_ref() else {
                 return Ok(None);
             };
-            Ok(startup_ui.input(title, placeholder).await)
+            Ok(startup_ui.input(&title, placeholder.as_deref()).await)
         })
     }
 

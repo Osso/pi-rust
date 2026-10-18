@@ -7,7 +7,7 @@ use crate::core::extensions::types::{
 };
 use crate::core::settings_manager::DefaultProjectTrust;
 use crate::core::trust_manager::{
-    ProjectTrustDecision, ProjectTrustOption, ProjectTrustStore, get_project_trust_options,
+    ProjectTrustDecision, ProjectTrustOption, ProjectTrustStore, TrustError, get_project_trust_options,
     has_trust_requiring_project_resources,
 };
 
@@ -61,12 +61,15 @@ pub fn format_project_trust_prompt(cwd: &str) -> String {
 }
 
 /// `resolveProjectTrusted`.
-pub async fn resolve_project_trusted(options: ResolveProjectTrustedOptions<'_>) -> bool {
+///
+/// The TypeScript version rejects when the trust store cannot be read or
+/// written; the typed Rust signature surfaces that as `Err`.
+pub async fn resolve_project_trusted(options: ResolveProjectTrustedOptions<'_>) -> Result<bool, TrustError> {
     if let Some(trust_override) = options.trust_override {
-        return trust_override;
+        return Ok(trust_override);
     }
     if !has_trust_requiring_project_resources(options.cwd) {
-        return true;
+        return Ok(true);
     }
 
     if let Some(extensions_result) = options.extensions_result {
@@ -89,42 +92,41 @@ pub async fn resolve_project_trusted(options: ResolveProjectTrustedOptions<'_>) 
         if let Some(result) = result {
             let trusted = result.trusted == ProjectTrustEventDecision::Yes;
             if result.remember == Some(true) {
-                let _ = options.trust_store.set(
+                options.trust_store.set(
                     options.cwd,
                     if trusted {
                         ProjectTrustDecision::Trusted
                     } else {
                         ProjectTrustDecision::Untrusted
                     },
-                );
+                )?;
             }
-            return trusted;
+            return Ok(trusted);
         }
     }
 
-    match options.trust_store.get(options.cwd) {
-        Ok(ProjectTrustDecision::Trusted) => return true,
-        Ok(ProjectTrustDecision::Untrusted) => return false,
-        Ok(ProjectTrustDecision::Unknown) | Err(_) => {}
+    match options.trust_store.get(options.cwd)? {
+        ProjectTrustDecision::Trusted => return Ok(true),
+        ProjectTrustDecision::Untrusted => return Ok(false),
+        ProjectTrustDecision::Unknown => {}
     }
 
     match options.default_project_trust.unwrap_or(DefaultProjectTrust::Ask) {
-        DefaultProjectTrust::Always => return true,
-        DefaultProjectTrust::Never => return false,
+        DefaultProjectTrust::Always => return Ok(true),
+        DefaultProjectTrust::Never => return Ok(false),
         DefaultProjectTrust::Ask => {}
     }
 
     if !options.project_trust_context.has_ui {
-        return false;
+        return Ok(false);
     }
 
-    let selected = select_project_trust_option(options.cwd, options.project_trust_context).await;
-    match selected {
+    match select_project_trust_option(options.cwd, options.project_trust_context).await {
         Some(selected) => {
-            save_project_trust_prompt_result(options.trust_store, &selected);
-            selected.trusted
+            save_project_trust_prompt_result(options.trust_store, &selected)?;
+            Ok(selected.trusted)
         }
-        None => false,
+        None => Ok(false),
     }
 }
 
@@ -140,9 +142,12 @@ async fn select_project_trust_option(cwd: &str, context: &ProjectTrustContext) -
     options.into_iter().find(|option| option.label == selected)
 }
 
-fn save_project_trust_prompt_result(trust_store: &ProjectTrustStore, result: &ProjectTrustOption) {
+fn save_project_trust_prompt_result(
+    trust_store: &ProjectTrustStore,
+    result: &ProjectTrustOption,
+) -> Result<(), TrustError> {
     if result.updates.is_empty() {
-        return;
+        return Ok(());
     }
-    let _ = trust_store.set_many(&result.updates);
+    trust_store.set_many(&result.updates)
 }
