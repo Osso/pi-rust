@@ -15,6 +15,7 @@ pub mod login_command;
 pub mod project_trust;
 pub mod session_picker;
 pub mod sessions_command;
+pub mod startup_ui;
 pub use auth_check::{
     AuthCheckReason, AuthCheckResult, AuthCheckStatus, CheckProviderAuthOptions, check_provider_auth,
     create_auth_check_model_runtime, get_provider_credential,
