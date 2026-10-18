@@ -199,7 +199,7 @@ pub async fn load_sourced_skills<TSource: Clone>(
 }
 
 /// Gitignore-style matcher accumulating rules from every visited directory.
-struct IgnoreMatcher {
+pub struct IgnoreMatcher {
     state: Mutex<IgnoreMatcherState>,
 }
 
@@ -209,7 +209,8 @@ struct IgnoreMatcherState {
 }
 
 impl IgnoreMatcher {
-    fn new(root_dir: &str) -> Self {
+    /// Creates a matcher rooted at `root_dir`.
+    pub fn new(root_dir: &str) -> Self {
         Self {
             state: Mutex::new(IgnoreMatcherState {
                 builder: GitignoreBuilder::new(root_dir),
@@ -218,7 +219,8 @@ impl IgnoreMatcher {
         }
     }
 
-    fn add(&self, patterns: &[String]) {
+    /// Adds gitignore-style patterns accumulated for one visited directory.
+    pub fn add(&self, patterns: &[String]) {
         let mut state = lock_matcher(&self.state);
         for pattern in patterns {
             let _ = state.builder.add_line(None, pattern);
@@ -227,7 +229,8 @@ impl IgnoreMatcher {
     }
 
     /// Matches one path, mirroring the source `ignore().ignores(path)` single-path check.
-    fn ignores(&self, path: &str, is_dir: bool) -> bool {
+    /// Matches one path, mirroring the source `ignore().ignores(path)` single-path check.
+    pub fn ignores(&self, path: &str, is_dir: bool) -> bool {
         let mut state = lock_matcher(&self.state);
         if state.compiled.is_none() {
             state.compiled = state.builder.build().ok();

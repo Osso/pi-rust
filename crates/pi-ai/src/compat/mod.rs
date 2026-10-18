@@ -12,17 +12,6 @@ pub mod extension_oauth_types;
 
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock};
 
-use crate::api::anthropic_messages_lazy::anthropic_messages_api;
-use crate::api::azure_openai_responses::azure_open_ai_responses_api;
-use crate::api::google_generative_ai::google_generative_ai_api;
-use crate::api::google_vertex::google_vertex_api;
-use crate::api::mistral_conversations::mistral_conversations_api;
-use crate::api::openai_codex_responses::openai_codex_responses_api;
-use crate::api::openai_completions::open_ai_completions_api;
-use crate::api::openai_responses::open_ai_responses_api;
-use crate::api::pi_messages::pi_messages_api;
-use crate::bedrock_provider::bedrock_converse_stream_api;
-use crate::env_api_keys::get_env_api_key;
 use crate::models::{CreateModelsOptions, Models as ModelsTrait, ModelsCollection, Provider};
 use crate::providers::all::{builtin_models, get_builtin_model, get_builtin_models, get_builtin_providers};
 use crate::providers::faux::{
@@ -35,7 +24,23 @@ use crate::request::{
 use crate::types::{AssistantMessage, Context, DeferredHandle, Model};
 use crate::utils::event_stream::{AssistantMessageEventStream, StreamFailure};
 
+pub use crate::api::anthropic_messages_lazy::anthropic_messages_api;
+pub use crate::api::azure_openai_responses::azure_open_ai_responses_api;
+pub use crate::api::google_generative_ai::google_generative_ai_api;
+pub use crate::api::google_vertex::google_vertex_api;
+pub use crate::api::mistral_conversations::mistral_conversations_api;
+pub use crate::api::openai_codex_responses::openai_codex_responses_api;
+pub use crate::api::openai_completions::open_ai_completions_api;
+pub use crate::api::openai_responses::open_ai_responses_api;
+pub use crate::api::pi_messages::pi_messages_api;
+pub use crate::bedrock_provider::bedrock_converse_stream_api;
+pub use crate::env_api_keys::*;
+pub use crate::image_models::*;
+pub use crate::images::*;
+pub use crate::images_api_registry::*;
+pub use crate::legacy_api_aliases::*;
 pub use crate::providers::all::BuiltinProvider;
+pub use crate::utils::retry::*;
 
 /// Deprecated static catalog read (`getModel`).
 pub fn get_model(provider: &str, model_id: &str) -> Option<Model> {
@@ -376,16 +381,17 @@ fn has_resolved_cloudflare_auth(options: &StreamOptions) -> bool {
             .is_some_and(|value| value.is_some())
 }
 
+fn builtin_api_instance(api: &str) -> Option<Arc<ApiProvider>> {
+    lock()
+        .builtins
+        .iter()
+        .find(|(builtin_api, _)| builtin_api == api)
+        .and_then(|(_, instance)| instance.clone())
+}
+
 fn get_builtin_provider_for_model(model: &Model) -> Option<Arc<dyn Provider>> {
     let registered = get_api_provider(&model.api)?;
-    let builtin = {
-        let registry = lock();
-        registry
-            .builtins
-            .iter()
-            .find(|(api, _)| *api == model.api)
-            .and_then(|(_, builtin)| builtin.clone())
-    }?;
+    let builtin = builtin_api_instance(&model.api)?;
     if !Arc::ptr_eq(&registered, &builtin) {
         return None;
     }

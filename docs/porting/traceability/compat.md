@@ -3,7 +3,7 @@
 Source: `packages/ai/src/compat.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 Rust: `crates/pi-ai/src/compat/mod.rs` (the module also owns
 `compat/extension-oauth-types.ts` in `compat/extension_oauth_types.rs`).
-Tests: `crates/pi-ai/tests/compat.rs` (9 behavioral),
+Tests: `crates/pi-ai/tests/compat.rs` (10 behavioral),
 `crates/pi-ai/tests/differential_compat.rs` (4 differential requests against
 the pinned TS module).
 

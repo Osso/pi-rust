@@ -241,6 +241,19 @@ pub enum AuthStatusSource {
     ModelsJsonCommand,
 }
 
+impl AuthStatusSource {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Stored => "stored",
+            Self::Runtime => "runtime",
+            Self::Environment => "environment",
+            Self::Fallback => "fallback",
+            Self::ModelsJsonKey => "models_json_key",
+            Self::ModelsJsonCommand => "models_json_command",
+        }
+    }
+}
+
 /// Provider auth status shown by auth pickers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
