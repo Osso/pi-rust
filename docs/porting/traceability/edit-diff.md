@@ -32,6 +32,7 @@ Rust: `crates/pi-agent-core/src/harness/tools/edit_diff.rs`. Behavioral proof: `
 ## Rust boundary and discrepancies
 
 - `FuzzyMatchResult.index`/`match_length` count UTF-16 code units, matching JavaScript string lengths. Internal matching uses byte offsets so Rust slicing stays correct.
+- `normalize_for_fuzzy_match` trims the JavaScript `trimEnd` character set (including U+FEFF, excluding U+0085), not Rust `str::trim_end`; the coding-agent differential normalize cases cover NEL and BOM.
 - `generate_unified_patch`/`generate_diff_string` take an explicit context-line count; the tool passes 4, matching the source default.
 - Only the `diffLines`/`createTwoFilesPatch` paths used by the source are ported; callbacks, `maxEditLength`, timeout aborts, and other jsdiff diff variants are not.
 - NFKC uses `pi_agent_core::unicode::normalize_nfkc` (`icu_normalizer = 2.3.0`); `differential_unicode_normalize` proves all four `String.prototype.normalize` forms against Node over Hangul, combining marks, compatibility characters, and emoji.
