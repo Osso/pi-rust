@@ -1,0 +1,251 @@
+//! Request-side contracts from `packages/ai/src/types.ts`: provider request
+//! options, stream options, callbacks, and the `fetch` replacement.
+//!
+//! TypeScript `ProviderStreamOptions = StreamOptions & Record<string, unknown>`
+//! carries API-specific fields untyped through generic dispatch; Rust keeps them
+//! in [`StreamOptions::extra`] and each API module parses its typed options from it.
+
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
+use serde_json::Value;
+use tokio_util::sync::CancellationToken;
+
+use crate::types::{AssistantMessage, AssistantMessageEvent, ErrorReason, StopReason};
+use crate::types::{
+    CacheRetention, Context, DeferredHandle, ImagesContext, ImagesModel, JsonObject, Model, ProviderEnv,
+    ProviderHeaders, ProviderResponse, ProviderRetryEvent, ThinkingBudgets, ThinkingLevel, Transport,
+};
+use crate::utils::event_stream::{AssistantMessageEventStream, create_assistant_message_event_stream};
+
+/// Boxed `Send` future used by dyn-compatible async contracts.
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// Error surfaced by a callback or fetch implementation (`unknown` in TypeScript).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallbackError {
+    pub message: String,
+}
+
+impl CallbackError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for CallbackError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for CallbackError {}
+
+/// `onPayload(payload, model)`: `Ok(None)` keeps the payload, `Ok(Some(v))` replaces it.
+pub type OnPayload =
+    Arc<dyn Fn(Value, Model) -> BoxFuture<'static, Result<Option<Value>, CallbackError>> + Send + Sync>;
+/// `onResponse(response, model)`, awaited before the body is consumed.
+pub type OnResponse =
+    Arc<dyn Fn(ProviderResponse, Model) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
+/// `onRetry(event, model)`.
+pub type OnRetry = Arc<dyn Fn(ProviderRetryEvent, &Model) + Send + Sync>;
+
+/// One HTTP request handed to a [`Fetch`] implementation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpRequest {
+    pub method: String,
+    pub url: String,
+    /// Header pairs in send order.
+    pub headers: Vec<(String, String)>,
+    pub body: Option<Vec<u8>>,
+}
+
+/// Streaming response body.
+pub trait HttpBody: Send {
+    /// Next body chunk; `None` at end of body.
+    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>>;
+}
+
+pub struct HttpResponse {
+    pub status: u16,
+    /// Header pairs with lower-case names.
+    pub headers: Vec<(String, String)>,
+    pub body: Box<dyn HttpBody>,
+}
+
+/// Replacement for the `fetch` option (`typeof globalThis.fetch`).
+pub trait Fetch: Send + Sync {
+    fn fetch(
+        &self,
+        request: HttpRequest,
+        signal: Option<CancellationToken>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>>;
+}
+
+/// `ProviderRequestOptions`: auth, transport, and lifecycle callbacks shared by provider requests.
+#[derive(Clone, Default)]
+pub struct ProviderRequestOptions {
+    pub signal: Option<CancellationToken>,
+    pub api_key: Option<String>,
+    /// Custom HTTP implementation; `None` uses the crate default client.
+    pub fetch: Option<Arc<dyn Fetch>>,
+    /// Provider-scoped environment values; take precedence over the process environment.
+    pub env: Option<ProviderEnv>,
+    pub on_payload: Option<OnPayload>,
+    pub on_response: Option<OnResponse>,
+    /// Merged over provider defaults; `None` values suppress a default header.
+    pub headers: Option<ProviderHeaders>,
+    pub timeout_ms: Option<f64>,
+    pub max_retries: Option<f64>,
+    /// Cap on server-requested retry delay. Default 60000; 0 disables the cap.
+    pub max_retry_delay_ms: Option<f64>,
+}
+
+/// `StreamOptions` plus the untyped API-specific remainder.
+#[derive(Clone, Default)]
+pub struct StreamOptions {
+    pub request: ProviderRequestOptions,
+    pub temperature: Option<f64>,
+    /// Merged into OpenAI-compatible request bodies after named fields.
+    pub sampling_params: Option<JsonObject>,
+    pub max_tokens: Option<f64>,
+    pub transport: Option<Transport>,
+    /// Default "short".
+    pub cache_retention: Option<CacheRetention>,
+    pub session_id: Option<String>,
+    pub on_retry: Option<OnRetry>,
+    pub websocket_connect_timeout_ms: Option<f64>,
+    pub metadata: Option<JsonObject>,
+    /// API-specific fields (`AnthropicOptions`, `OpenAICompletionsOptions`, ...) in camelCase JSON.
+    pub extra: JsonObject,
+}
+
+/// `deferred?: boolean | { window?: "15m" | "1h" | "24h" }`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeferredRequest {
+    Disabled,
+    Enabled { window: Option<DeferredWindow> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeferredWindow {
+    Minutes15,
+    Hour1,
+    Hours24,
+}
+
+impl DeferredWindow {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Minutes15 => "15m",
+            Self::Hour1 => "1h",
+            Self::Hours24 => "24h",
+        }
+    }
+}
+
+/// `SimpleStreamOptions`: unified reasoning options for `streamSimple()`.
+#[derive(Clone, Default)]
+pub struct SimpleStreamOptions {
+    pub stream: StreamOptions,
+    pub reasoning: Option<ThinkingLevel>,
+    pub deferred: Option<DeferredRequest>,
+    pub thinking_budgets: Option<ThinkingBudgets>,
+}
+
+/// `DeferredFetchOptions`.
+#[derive(Clone, Default)]
+pub struct DeferredFetchOptions {
+    pub request: ProviderRequestOptions,
+    /// Maximum long-poll duration in ms; default 0 performs one status check.
+    pub wait: Option<f64>,
+}
+
+/// `DeferredCancelOptions`.
+pub type DeferredCancelOptions = ProviderRequestOptions;
+
+/// `ImagesOptions`.
+#[derive(Clone, Default)]
+pub struct ImagesOptions {
+    pub request: ProviderRequestOptions,
+    pub metadata: Option<JsonObject>,
+    pub extra: JsonObject,
+}
+
+/// `ProviderStreams`: the uniform stream contract of an API implementation module.
+///
+/// Stream methods return synchronously; failures are encoded in the stream.
+pub trait ProviderStreams: Send + Sync {
+    fn stream(&self, model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream;
+
+    fn stream_simple(
+        &self,
+        model: Model,
+        context: Context,
+        options: SimpleStreamOptions,
+    ) -> AssistantMessageEventStream;
+
+    /// Whether `fetch_deferred` exists (method presence in TS).
+    fn supports_fetch_deferred(&self) -> bool {
+        false
+    }
+
+    fn fetch_deferred(
+        &self,
+        model: Model,
+        _handle: DeferredHandle,
+        _options: DeferredFetchOptions,
+    ) -> AssistantMessageEventStream {
+        error_stream(&model, "API does not support deferred responses")
+    }
+
+    /// Whether `cancel_deferred` exists (method presence in TS).
+    fn supports_cancel_deferred(&self) -> bool {
+        false
+    }
+
+    fn cancel_deferred(
+        &self,
+        _model: Model,
+        _handle: DeferredHandle,
+        _options: DeferredCancelOptions,
+    ) -> BoxFuture<'_, Result<(), CallbackError>> {
+        Box::pin(async { Err(CallbackError::new("API cannot cancel deferred responses")) })
+    }
+}
+
+/// `ProviderImages`: image-generation API contract.
+pub trait ProviderImages: Send + Sync {
+    fn generate_images(
+        &self,
+        model: ImagesModel,
+        context: ImagesContext,
+        options: ImagesOptions,
+    ) -> BoxFuture<'_, Result<crate::types::AssistantImages, CallbackError>>;
+}
+
+/// A stream that immediately terminates with an `error` event for `model`
+/// (the shape `lazyStream` produces when setup fails).
+pub fn error_stream(model: &Model, message: &str) -> AssistantMessageEventStream {
+    let (sender, stream) = create_assistant_message_event_stream();
+    let mut error = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis());
+    error.stop_reason = StopReason::Error;
+    error.error_message = Some(message.to_owned());
+    sender.push(AssistantMessageEvent::Error {
+        reason: ErrorReason::Error,
+        error: error.clone(),
+    });
+    sender.end(Some(error));
+    stream
+}
+
+/// `Date.now()`.
+pub fn now_millis() -> i64 {
+    let elapsed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
+}

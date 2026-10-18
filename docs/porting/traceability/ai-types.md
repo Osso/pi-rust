@@ -24,9 +24,23 @@ Rust: `crates/pi-ai/src/types.rs`, `crates/pi-ai/src/utils/event_stream.rs`, `cr
 | `AssistantMessageEventStream`, `createAssistantMessageEventStream` | `create_assistant_message_event_stream` | covered by type tests; exercised by providers |
 | `ImagesContext`, `AssistantImages`, `ImagesModel`, `ProviderRetryEvent`, `ProviderResponse`, `DeferredHandle`, `ProviderNativeContext`, `ThinkingBudgets`, `TextSignatureV1` | same names | serde derive; exercised by consuming slices |
 
-## Gaps (owned by later slices)
-- `ProviderRequestOptions`, `StreamOptions`, `SimpleStreamOptions`, `DeferredFetchOptions`, `ImagesOptions`, `ApiOptionsMap`, `ProviderStreams`, `ProviderImages`, `StreamFunction`, `ImagesFunction`: callback/function interfaces → provider-runtime slice (`api/lazy.ts`, `models.ts`).
-- `ProviderEnv`/`ProviderHeaders` are type aliases only here.
+## Request contracts (`crates/pi-ai/src/request.rs`, `crates/pi-ai/src/http.rs`)
+| TS | Rust | Proof |
+|---|---|---|
+| `ProviderRequestOptions` | `ProviderRequestOptions` (`signal` → `CancellationToken`) | consumed by provider slices |
+| `StreamOptions`, `ProviderStreamOptions` (`& Record<string, unknown>`) | `StreamOptions { request, ..., extra }`; API modules parse typed options from `extra` | provider slices |
+| `SimpleStreamOptions` (`deferred: boolean \| {window}`) | `SimpleStreamOptions`, `DeferredRequest`, `DeferredWindow` | provider slices |
+| `DeferredFetchOptions`, `DeferredCancelOptions`, `ImagesOptions` | same names | provider slices |
+| `onPayload`/`onResponse`/`onRetry` | `OnPayload`/`OnResponse`/`OnRetry` (`Arc<dyn Fn>`) | provider slices |
+| `ProviderStreams` (optional `fetchDeferred`/`cancelDeferred`) | trait `ProviderStreams` with `supports_*` presence flags | runtime slice |
+| `ProviderImages` | trait `ProviderImages` | images slice |
+| `fetch?: typeof globalThis.fetch` | trait `Fetch` + `HttpRequest`/`HttpResponse`/`HttpBody`; default `http::default_fetch()` (reqwest, rustls) | `tests/http.rs`: request line/headers/body, streamed chunked body, abort → `"This operation was aborted"` |
+| `lazyStream` setup-error message shape | `request::error_stream` | runtime slice |
+
+## Gaps
+- `telemetryContext` option: added when pi-telemetry merges.
+- `ApiOptionsMap`/`ApiStreamOptions<TApi>`: compile-time mapping only; replaced by `StreamOptions::extra` parsing per API.
+- `StreamFunction`/`ImagesFunction` type aliases: subsumed by the traits.
 
 ## Discrepancies
 - `EventStream.end()` without a result leaves `result()` pending forever in TS; preserved (`end_without_result_leaves_result_pending`).

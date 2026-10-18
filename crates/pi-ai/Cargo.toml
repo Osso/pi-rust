@@ -8,12 +8,14 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+reqwest = "=0.13.5"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["preserve_order"] }
-tokio = { version = "=1.53.3", features = ["sync"] }
+tokio = { version = "=1.53.3", features = ["macros", "sync"] }
+tokio-util = "=0.7.20"
 
 [dev-dependencies]
-tokio = { version = "=1.53.3", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "=1.53.3", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 
 [lints]
 workspace = true
