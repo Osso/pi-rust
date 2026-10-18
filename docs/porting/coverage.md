@@ -221,8 +221,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/telemetry.ts` | 615 | 1 | todo |  |  |
 | `agent/src/proxy.ts` | 370 | 4 | done | `crates/pi-agent-core/src/agent/proxy.rs` | Proxy SSE reconstruction, error/abort paths, injectable `Fetch`; see `agent-proxy.md`. |
 | `agent/src/types.ts` | 470 | 4 | done | `crates/pi-agent-core/src/agent/types.rs` | Full export set; `AgentMessage` custom variant is a raw JSON object; see `agent-types.md`. |
-| `agent/src/harness/compaction/utils.ts` | 163 | 5 | partial |  |  |
-| `agent/src/harness/messages.ts` | 188 | 5 | partial |  |  |
+| `agent/src/harness/compaction/utils.ts` | 163 | 5 | done | `crates/pi-agent-core/src/harness/compaction/utils.rs` | File-op accumulation, sorted lists, conversation serialization with UTF-16 truncation and full-output markers; see `compaction-utils.md`. |
+| `agent/src/harness/messages.ts` | 188 | 5 | partial | `crates/pi-agent-core/src/harness/messages.rs` | Markers, message records, `bashExecutionToText`, and `convertToLlm` ported; timestamp-string parsing and `createCustomMessage` remain deferred; see `messages.md`. |
 | `agent/src/harness/session/session.ts` | 340 | 5 | done | `crates/pi-agent-core/src/harness/session/facade.rs` | Session facade, lane views, query/limit validation, payload checks; see `session-facade.md`. |
 | `agent/src/harness/session/types.ts` | 406 | 5 | done | `crates/pi-agent-core/src/harness/session/types.rs` | Typed entries/records/queries/errors; `OptionalValue` keeps explicit null; see `session-types.md`. |
 | `agent/src/harness/types.ts` | 320 | 5 | partial | `crates/pi-agent-core/src/harness/types.rs` | FileSystem/Shell/ExecutionEnv, options, errors and records ported; Result helpers are Rust idioms; harness tool/stream-option types await harness orchestration; see `harness-types.md`. |
@@ -244,7 +244,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/search/index.ts` | 32 | 6 | done | `crates/pi-agent-core/src/search/index.rs` | Search options/hit traits; see `search-index.md`. |
 | `agent/src/search/scanning.ts` | 176 | 6 | done | `crates/pi-agent-core/src/search/scanning.rs` | Paged scanning, labels, filters, abort, custom hits; see `search-scanning.md`. |
 | `agent/src/agent.ts` | 626 | 7 | done | `crates/pi-agent-core/src/agent/agent.rs` | Stateful wrapper, queues, lifecycle, listener settlement and failure propagation, continue/reset; 23 tests + 6 differential scenarios; see `agent.md`. |
-| `agent/src/harness/compaction/compaction.ts` | 910 | 7 | partial |  |  |
+| `agent/src/harness/compaction/compaction.ts` | 910 | 7 | done | `crates/pi-agent-core/src/harness/compaction/mod.rs` | Token estimates, cut points, preparation, summary/compact orchestration via `pi_ai` Models; exact prompts; 32 behavioral tests + differential cases; see `compaction.md`. |
 | `agent/src/harness/session/jsonl/codec.ts` | 240 | 7 | done | `crates/pi-agent-core/src/harness/session/jsonl/codec.rs` | Byte-identical header/mutation codec with TS key order and js_number; see `session-jsonl-codec.md`. |
 | `agent/src/harness/session/memory.ts` | 192 | 7 | done | `crates/pi-agent-core/src/harness/session/memory.rs` | In-memory storage/repo with injectable clock and ids; see `session-memory.md`. |
 | `agent/src/harness/tools/bash.ts` | 161 | 7 | done | `crates/pi-agent-core/src/harness/tools/bash.rs` | Schema, prepare/prefix, throttled updates, truncation/error/abort mapping; 8 behavioral + 7 differential fixtures; see `harness-tools-bash.md`. |
@@ -257,7 +257,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/session/jsonl.ts` | 9 | 10 | done | `crates/pi-agent-core/src/harness/session/jsonl/mod.rs` | Barrel re-exports; see `session-index.md`. |
 | `agent/src/harness/session/index.ts` | 13 | 11 | done | `crates/pi-agent-core/src/harness/session/mod.rs` | Session package exports; see `session-index.md`. |
 | `agent/src/harness/agent-harness.ts` | 508 | 12 | todo |  |  |
-| `agent/src/harness/compaction/branch-summarization.ts` | 282 | 12 | todo |  |  |
+| `agent/src/harness/compaction/branch-summarization.ts` | 282 | 12 | done | `crates/pi-agent-core/src/harness/compaction/branch_summarization.rs` | Branch collection, token-budgeted preparation, summary generation and errors; 13 behavioral tests + differential cases; see `branch-summarization.md`. |
 | `agent/src/index.ts` | 145 | 13 | partial |  |  |
 | `agent/src/node.ts` | 2 | 14 | todo |  |  |
 

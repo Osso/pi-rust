@@ -785,7 +785,7 @@ fn stream_failure_message(model: &Model, failure: pi_ai::utils::event_stream::St
     message
 }
 
-pub(super) async fn complete_simple_with_retries<C: RetryCallbacks + ?Sized>(
+pub async fn complete_simple_with_retries<C: RetryCallbacks + ?Sized>(
     models: &dyn Models,
     model: &Model,
     context: Context,
