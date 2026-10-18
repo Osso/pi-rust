@@ -25,7 +25,7 @@ use pi_coding_agent::bundled_extensions::agents_core::shared::{
 use pi_coding_agent::bundled_extensions::agents_core::spawn_attach_runtime::{SpawnAgentRuntimeInput, spawn_agent};
 use pi_coding_agent::core::desktop_notification::{DesktopNotification, DesktopNotificationHandle, DesktopNotifier};
 use pi_coding_agent::core::extensions::types::{
-    ExtensionActions, ExtensionContext, ExtensionContextActions, ExtensionMode, ExtensionUiContext,
+    ExtensionActions, ExtensionContext, ExtensionContextActions, ExtensionMode, ExtensionUiContext, NotifyType,
 };
 use pi_coding_agent::core::extensions::{ExtensionRunner, create_extension_runtime, load_extension_from_factory};
 use pi_coding_agent::core::multi_agent_store::{
@@ -100,6 +100,25 @@ impl DesktopNotifier for RecordingNotifier {
             .expect("notifications")
             .push(format!("{}|{}", notification.title, notification.body));
         None
+    }
+}
+
+#[derive(Default)]
+struct RecordingUi {
+    notifications: Mutex<Vec<(String, Option<NotifyType>)>>,
+    editor_text: Mutex<String>,
+}
+
+impl ExtensionUiContext for RecordingUi {
+    fn notify(&self, message: &str, notify_type: Option<NotifyType>) {
+        self.notifications
+            .lock()
+            .expect("notifications")
+            .push((message.to_owned(), notify_type));
+    }
+
+    fn set_editor_text(&self, text: &str) {
+        *self.editor_text.lock().expect("editor text") = text.to_owned();
     }
 }
 
@@ -191,6 +210,17 @@ async fn test_context_with(
     agent_id: Option<String>,
     requires_agent_id: bool,
 ) -> (ExtensionRunner, ExtensionContext) {
+    test_context_with_extensions(test, session_manager, ui, agent_id, requires_agent_id, Vec::new()).await
+}
+
+async fn test_context_with_extensions(
+    test: &TestDir,
+    session_manager: Arc<SessionManager>,
+    ui: Option<Arc<dyn ExtensionUiContext>>,
+    agent_id: Option<String>,
+    requires_agent_id: bool,
+    extensions: Vec<pi_coding_agent::core::extensions::Extension>,
+) -> (ExtensionRunner, ExtensionContext) {
     let runtime = create_extension_runtime();
     let storage = pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new());
     let model_runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
@@ -203,7 +233,7 @@ async fn test_context_with(
     .await
     .expect("model runtime");
     let registry = Arc::new(pi_coding_agent::core::model_registry::ModelRegistry::new(model_runtime));
-    let mut runner = ExtensionRunner::new(Vec::new(), runtime, &test.cwd, session_manager, registry, None);
+    let mut runner = ExtensionRunner::new(extensions, runtime, &test.cwd, session_manager, registry, None);
     runner.bind_core(
         actions(),
         context_actions(test.control_db_path.clone(), agent_id, requires_agent_id),
@@ -852,6 +882,215 @@ async fn registration_exposes_the_source_tools_and_commands() {
         extension.commands.get("jobs").expect("jobs").description.as_deref(),
         Some("List background agent jobs.")
     );
+}
+
+#[tokio::test]
+async fn background_command_reports_unavailable_and_validation_errors() {
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    let ui = Arc::new(RecordingUi::default());
+    let mut options = MultiAgentExtensionOptions {
+        store: Some(Arc::clone(&store)),
+        ..Default::default()
+    };
+    options.runtime_handles = Some(create_multi_agent_runtime_handles());
+    let extension = load_extension_from_factory(
+        Arc::new(move |pi| {
+            let options = options.clone();
+            let result = multi_agent_extension(pi, &options);
+            Box::pin(async move { result })
+        }),
+        &test.cwd,
+        Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
+        create_extension_runtime(),
+        "<first-party:agents-core>",
+    )
+    .await
+    .expect("extension");
+    let session_manager = Arc::new(SessionManager::in_memory(Some(&test.cwd), None).expect("session"));
+    let (runner, _ctx) = test_context_with_extensions(
+        &test,
+        session_manager,
+        Some(ui.clone() as Arc<dyn ExtensionUiContext>),
+        None,
+        false,
+        vec![extension],
+    )
+    .await;
+    let command = runner.get_command("bg").expect("bg command").handler;
+    command(String::new(), runner.create_command_context())
+        .await
+        .expect("bg command");
+    let notifications = ui.notifications.lock().expect("notifications").clone();
+    assert_eq!(
+        notifications[0],
+        (
+            "Background jobs are unavailable: no child session runtime is configured.".to_owned(),
+            Some(NotifyType::Error)
+        )
+    );
+}
+
+#[tokio::test]
+async fn jobs_command_lists_background_agents() {
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    let ui = Arc::new(RecordingUi::default());
+    let (_runner, ctx) = test_context(&test, Some(ui.clone() as Arc<dyn ExtensionUiContext>), None, false).await;
+    let command_ctx = pi_coding_agent::core::extensions::types::ExtensionCommandContext { context: ctx.clone() };
+    pi_coding_agent::bundled_extensions::agents_core::runtime::jobs_command(&store, &command_ctx).expect("jobs");
+    assert_eq!(
+        ui.notifications.lock().expect("notifications").clone(),
+        vec![("No background jobs.".to_owned(), Some(NotifyType::Info))]
+    );
+
+    let mut agent = serde_json::from_value::<AgentSnapshot>(json!({
+        "id": "job",
+        "displayName": "Background Job",
+        "agentType": "background",
+        "lifecycle": "running",
+        "revision": 1,
+        "createdAt": "2026-06-21T00:00:00.000Z",
+        "updatedAt": "2026-06-21T00:00:00.000Z",
+        "cwd": "/repo",
+        "permission": {"policy": "on-request", "narrowed": true}
+    }))
+    .expect("agent");
+    agent.extra = Default::default();
+    store.publish_lifecycle_coordinator_snapshot(&agent);
+    pi_coding_agent::bundled_extensions::agents_core::runtime::jobs_command(&store, &command_ctx).expect("jobs");
+    let notifications = ui.notifications.lock().expect("notifications").clone();
+    assert_eq!(notifications[1].0, "job Background Job is running.");
+}
+
+#[tokio::test]
+async fn attach_session_agent_attaches_a_saved_session() {
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    let session_dir = std::path::Path::new(&test.session_path).parent().expect("parent");
+    let mut saved =
+        SessionManager::create(&test.cwd, Some(&session_dir.display().to_string()), None).expect("saved session");
+    saved.append_session_info("Saved Session").expect("name");
+    let saved_path = saved.get_session_file().expect("saved path").to_owned();
+    drop(saved);
+
+    let (_runner, ctx) = test_context(&test, None, None, false).await;
+    let handles = create_multi_agent_runtime_handles();
+    let result = pi_coding_agent::bundled_extensions::agents_core::spawn_attach_runtime::attach_session_agent(
+        &pi_coding_agent::bundled_extensions::agents_core::spawn_attach_runtime::AttachSessionAgentRuntimeInput {
+            create_attached_session: None,
+            ctx,
+            desktop_notifier: Arc::new(RecordingNotifier::default()),
+            dispatches: Arc::clone(&handles.dispatches),
+            handles: Some(Arc::clone(&handles.sessions)),
+            params: pi_coding_agent::bundled_extensions::agents_core::spawn_attach_runtime::AttachSessionAgentParams {
+                agent_type: None,
+                display_name: None,
+                name: None,
+                parent_id: None,
+                path: Some(saved_path.clone()),
+                prompt: None,
+                session_id: None,
+            },
+            ownerships: Arc::clone(&handles.ownerships),
+            store: Arc::clone(&store),
+            waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
+        },
+    )
+    .await
+    .expect("attach");
+    let details = result.details.clone().expect("details");
+    assert_eq!(details["dispatched"], json!(false));
+    assert_eq!(details["agent"]["lifecycle"], json!("waiting_for_input"));
+    assert!(
+        details["agent"]["transcript"]["sessionId"]
+            .as_str()
+            .is_some_and(|session_id| !session_id.is_empty())
+    );
+    assert_eq!(details["agent"]["transcript"]["path"], json!(saved_path));
+    assert!(text(&result).starts_with("Attached "));
+}
+
+#[tokio::test]
+async fn wait_agent_consumes_pending_terminal_notification() {
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    let (_runner, ctx) = test_context(&test, None, None, false).await;
+    let handles = create_multi_agent_runtime_handles();
+    let (journal, _entries) = recording_journal();
+    let result = spawn_agent(SpawnAgentRuntimeInput {
+        active_tool_call_id: None,
+        create_child_session: Some(fake_factory("finished", true)),
+        ctx: ctx.clone(),
+        desktop_notifier: Arc::new(RecordingNotifier::default()),
+        dispatches: Arc::clone(&handles.dispatches),
+        handles: Some(Arc::clone(&handles.sessions)),
+        ownerships: Arc::clone(&handles.ownerships),
+        params: json!({"prompt": "work"}),
+        pi: Some(journal),
+        store: Arc::clone(&store),
+        waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
+        _marker: std::marker::PhantomData,
+    })
+    .await
+    .expect("spawn");
+    let agent_id = result.details.expect("details")["agent"]["id"]
+        .as_str()
+        .expect("id")
+        .to_owned();
+    let dispatch = handles
+        .dispatches
+        .lock()
+        .expect("dispatches")
+        .get(&agent_id)
+        .cloned()
+        .expect("dispatch");
+    dispatch.await.expect("dispatch");
+
+    let waited = wait_agents(&store, &handles, None, Some(&ctx)).await.expect("wait");
+    let details = waited.details.clone().expect("details");
+    assert_eq!(details["agent"]["id"], json!(agent_id));
+    assert_eq!(details["agents"][0]["lifecycle"], json!("completed"));
+    assert!(text(&waited).contains("finished") || text(&waited).contains("completed"));
+}
+
+#[tokio::test]
+async fn request_handler_lists_agents_and_routes_select_callback() {
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    seed_child(&store, &test, "child", "child-session");
+    let selected = Arc::new(Mutex::new(Vec::new()));
+    let selected_clone = Arc::clone(&selected);
+    let mut options = MultiAgentExtensionOptions {
+        store: Some(Arc::clone(&store)),
+        select_agent_view: Some(Arc::new(move |agent_id| {
+            selected_clone.lock().expect("selected").push(agent_id.to_owned());
+            Some(true)
+        })),
+        ..Default::default()
+    };
+    options.runtime_handles = Some(create_multi_agent_runtime_handles());
+    let handler = create_multi_agent_pi_request_handler(&options, None);
+    let (_runner, ctx) = test_context(&test, None, None, false).await;
+
+    let list = handler
+        .handle(&json!({"method": "agents.list"}), &ctx, None, None)
+        .await
+        .expect("list");
+    assert_eq!(list["activeCount"], json!(1));
+    assert_eq!(list["agents"][0]["id"], json!("child"));
+
+    let selected_agent = handler
+        .handle(
+            &json!({"method": "agents.select", "params": {"agentId": "child"}}),
+            &ctx,
+            None,
+            None,
+        )
+        .await
+        .expect("select");
+    assert_eq!(selected_agent["agent"]["id"], json!("child"));
+    assert_eq!(selected.lock().expect("selected").as_slice(), ["child"]);
 }
 
 fn text(result: &AgentToolResult) -> String {

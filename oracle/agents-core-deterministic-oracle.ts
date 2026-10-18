@@ -38,6 +38,8 @@ type Case = {
 	lifecycle?: string;
 	message?: string;
 	parentId?: string;
+	params?: unknown;
+	message?: string;
 	prompt?: string;
 	sessionId?: string;
 	toAgentId?: string;
@@ -67,6 +69,9 @@ type Api = {
 	listAgents(store: StoreStub, params: { parentId?: string }): ToolResult;
 	agentViewer(store: StoreStub, params: { agentId: string; sessionId?: string }): ToolResult;
 	appendParentAgentStart(pi: { appendEntry(type: string, data: unknown): void }, agent: AgentSnapshot): void;
+	registerAgentsCoreTools(pi: unknown, options: unknown): void;
+	registerAllTools(pi: unknown, options: unknown): void;
+	assertNoWaitAgentsParams(params: unknown, apiName: string): void;
 };
 
 function normalizeError(error: unknown): { name: string; message: string } {
@@ -147,6 +152,72 @@ function executeCase(api: Api, testCase: Case): unknown {
 					...(testCase.sessionId === undefined ? {} : { sessionId: testCase.sessionId }),
 				}),
 			);
+		case "toolMetadata": {
+			const tools: Array<Record<string, unknown>> = [];
+			const commands: Array<Record<string, unknown>> = [];
+			const fakePi = {
+				on: () => () => {},
+				registerCommand: (name: string, definition: { description?: string }) => {
+					commands.push({ name, description: definition.description ?? null });
+				},
+				registerTool: (tool: {
+					name: string;
+					label: string;
+					description: string;
+					promptGuidelines?: string[];
+					parameters: unknown;
+					approvalRequired?: boolean;
+				}) => {
+					tools.push({
+						name: tool.name,
+						label: tool.label,
+						description: tool.description,
+						promptGuidelines: tool.promptGuidelines ?? null,
+						parameters: tool.parameters,
+						approvalRequired: tool.approvalRequired ?? null,
+					});
+				},
+			};
+			api.registerAgentsCoreTools(fakePi, {});
+			return { commands, tools };
+		}
+		case "allToolMetadata": {
+			const tools: Array<Record<string, unknown>> = [];
+			const commands: Array<Record<string, unknown>> = [];
+			const fakePi = {
+				on: () => () => {},
+				registerCommand: (name: string, definition: { description?: string }) => {
+					commands.push({ name, description: definition.description ?? null });
+				},
+				registerTool: (tool: {
+					name: string;
+					label: string;
+					description: string;
+					promptGuidelines?: string[];
+					parameters: unknown;
+					approvalRequired?: boolean;
+				}) => {
+					tools.push({
+						name: tool.name,
+						label: tool.label,
+						description: tool.description,
+						promptGuidelines: tool.promptGuidelines ?? null,
+						parameters: tool.parameters,
+						approvalRequired: tool.approvalRequired ?? null,
+					});
+				},
+			};
+			api.registerAllTools(fakePi, {});
+			return { commands, tools };
+		}
+		case "assertNoWaitParams": {
+			try {
+				api.assertNoWaitAgentsParams(testCase.params ?? null, testCase.message ?? "wait_agent");
+				return { ok: true };
+			} catch (error) {
+				return { ok: false, error: normalizeError(error).message };
+			}
+		}
 		case "appendParentAgentStart": {
 			const entries: Array<{ type: string; data: unknown }> = [];
 			api.appendParentAgentStart(
@@ -224,6 +295,8 @@ async function main(): Promise<void> {
 	const sessionFactories = await import(pathToFileURL(`${sourceRoot}/session-factories.ts`).href);
 	const viewer = await import(pathToFileURL(`${sourceRoot}/viewer.ts`).href);
 	const parentAgentJournal = await import(pathToFileURL(`${sourceRoot}/parent-agent-journal.ts`).href);
+	const registration = await import(pathToFileURL(`${sourceRoot}/registration.ts`).href);
+	const runtime = await import(pathToFileURL(`${sourceRoot}/runtime.ts`).href);
 	serveRequests({
 		emptyAgent: shared.emptyAgent,
 		isInFlightLifecycle: shared.isInFlightLifecycle,
@@ -237,6 +310,9 @@ async function main(): Promise<void> {
 		listAgents: viewer.listAgents,
 		agentViewer: viewer.agentViewer,
 		appendParentAgentStart: parentAgentJournal.appendParentAgentStart,
+		registerAgentsCoreTools: registration.registerAgentsCoreTools,
+		registerAllTools: runtime.default,
+		assertNoWaitAgentsParams: runtime.assertNoWaitAgentsParams,
 	});
 }
 

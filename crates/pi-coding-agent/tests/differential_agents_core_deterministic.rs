@@ -147,6 +147,15 @@ fn execute_case(case: &Value) -> Result<Value, String> {
                 .map(|result| normalize_result(&result))
                 .map_err(|error| error.message)
         }
+        "assertNoWaitParams" => {
+            let params = case.get("params").cloned().unwrap_or(Value::Null);
+            let name = case["message"].as_str().unwrap_or("wait_agent");
+            match pi_coding_agent::bundled_extensions::agents_core::runtime::assert_no_wait_agents_params(&params, name)
+            {
+                Ok(()) => Ok(json!({"ok": true})),
+                Err(error) => Ok(json!({"ok": false, "error": error.message})),
+            }
+        }
         "appendParentAgentStart" => {
             let journal = RecordingJournal {
                 entries: Mutex::new(Vec::new()),
@@ -217,6 +226,11 @@ fn cases() -> Vec<Value> {
         json!({"name": "view-mismatch", "op": "agentViewer", "agents": [transcript_agent.clone()], "agentId": "a", "sessionId": "other"}),
         json!({"name": "view-terminal-error", "op": "agentViewer", "agents": [failed_agent], "agentId": "d"}),
         json!({"name": "view-terminal-summary", "op": "agentViewer", "agents": [completed_agent], "agentId": "c"}),
+        json!({"name": "wait-null", "op": "assertNoWaitParams", "params": null}),
+        json!({"name": "wait-empty", "op": "assertNoWaitParams", "params": {}}),
+        json!({"name": "wait-invalid", "op": "assertNoWaitParams", "params": {"parentId": "main"}}),
+        json!({"name": "wait-array", "op": "assertNoWaitParams", "params": []}),
+        json!({"name": "wait-invalid-name", "op": "assertNoWaitParams", "params": {"a": 1}, "message": "pi.agents.wait"}),
         json!({"name": "journal", "op": "appendParentAgentStart", "agent": transcript_agent}),
     ]
 }
@@ -245,4 +259,76 @@ fn deterministic_agents_core_cases_match_the_pinned_typescript_modules() {
             panic!("case {index} failed: {error}");
         }
     }
+}
+
+#[tokio::test]
+async fn registration_metadata_matches_the_pinned_typescript_registration() {
+    use std::sync::Arc;
+
+    use pi_coding_agent::bundled_extensions::agents_core::runtime::{
+        MultiAgentExtensionOptions, create_multi_agent_runtime_handles, multi_agent_extension,
+    };
+    use pi_coding_agent::core::extensions::{create_extension_runtime, load_extension_from_factory};
+
+    let mut oracle = oracle::TsOracle::spawn(
+        "agents-core-deterministic-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    let response = oracle.request(&json!({
+        "id": 9302,
+        "cases": [{"name": "tools", "op": "allToolMetadata"}]
+    }));
+    assert_eq!(response["ok"], Value::Bool(true), "oracle failed: {response}");
+    let expected = response["output"]["results"][0]["value"].clone();
+
+    let options = MultiAgentExtensionOptions {
+        runtime_handles: Some(create_multi_agent_runtime_handles()),
+        ..Default::default()
+    };
+    let extension = load_extension_from_factory(
+        Arc::new(move |pi| {
+            let options = options.clone();
+            let result = multi_agent_extension(pi, &options);
+            Box::pin(async move { result })
+        }),
+        "/repo",
+        Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
+        create_extension_runtime(),
+        "<first-party:agents-core>",
+    )
+    .await
+    .expect("extension");
+
+    let tools: Vec<Value> = extension
+        .tools
+        .values()
+        .map(|registered| {
+            let tool = &registered.definition;
+            json!({
+                "name": tool.name,
+                "label": tool.label,
+                "description": tool.description,
+                "promptGuidelines": tool.prompt_guidelines,
+                "parameters": tool.parameters,
+                "approvalRequired": tool.approval_required,
+            })
+        })
+        .collect();
+    let commands: Vec<Value> = extension
+        .commands
+        .values()
+        .map(|command| json!({"name": command.name, "description": command.description}))
+        .collect();
+    let actual = json!({"commands": commands, "tools": tools});
+    let expected_tools = expected["tools"].as_array().expect("tools");
+    let actual_tools = actual["tools"].as_array().expect("tools");
+    assert_eq!(expected_tools.len(), actual_tools.len(), "tool count");
+    for (index, expected_tool) in expected_tools.iter().enumerate() {
+        assert_eq!(
+            expected_tool, &actual_tools[index],
+            "tool {index} {}",
+            expected_tool["name"]
+        );
+    }
+    assert_eq!(expected["commands"], actual["commands"]);
 }

@@ -443,7 +443,7 @@ fn register_cancel_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegist
     let _ = pi.register_tool(tool_definition(
         "close_agent",
         "Close Agent",
-        "Cancel an agent and its active descendants through the multi-agent runtime.",
+        "Close an agent through the multi-agent store using the current store revision.",
         None,
         cancel_agent_schema(),
         Arc::new(move |_tool_call_id, params, _signal, _on_update, _ctx| {
@@ -694,28 +694,23 @@ fn start_background_dispatch(
         ctx,
         created_session,
     );
-    notify_background_dispatch(promise, &background.handles, ctx);
-    let ownerships = Arc::clone(&background.ownerships);
-    let agent_id = agent.id.clone();
-    tokio::spawn(async move {
-        // The dispatch removes itself from the handles map; ownership is released
-        // when the tracked dispatch settles.
-        let _ = agent_id;
-        let _ = ownerships;
-    });
+    notify_background_dispatch(promise, &background.handles, &background.ownerships, ctx);
     background.store.get_agent(&agent.id).unwrap_or(agent)
 }
 
 fn notify_background_dispatch(
     promise: BoxFuture<'static, Result<AgentSnapshot, String>>,
     handles: &BackgroundSessionHandles,
+    ownerships: &Arc<Mutex<HashMap<String, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
     ctx: &ExtensionCommandContext,
 ) {
     let handles = Arc::clone(handles);
+    let ownerships = Arc::clone(ownerships);
     let ui = ctx.ui().ok();
     tokio::spawn(async move {
         if let Ok(agent) = promise.await {
             handles.lock().expect("sessions").remove(&agent.id);
+            ownerships.lock().expect("ownerships").remove(&agent.id);
             if let Some(ui) = ui {
                 ui.notify(
                     &format_agent_status(&agent),
