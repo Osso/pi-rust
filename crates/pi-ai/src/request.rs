@@ -177,10 +177,40 @@ pub struct DeferredFetchOptions {
 /// `DeferredCancelOptions`.
 pub type DeferredCancelOptions = ProviderRequestOptions;
 
+/// `onPayload(payload, model)` for image requests.
+pub type ImagesOnPayload =
+    Arc<dyn Fn(Value, ImagesModel) -> BoxFuture<'static, Result<Option<Value>, CallbackError>> + Send + Sync>;
+/// `onResponse(response, model)` for image requests.
+pub type ImagesOnResponse =
+    Arc<dyn Fn(ProviderResponse, ImagesModel) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
+
+/// `ProviderRequestOptions<ImagesModel>`: the image-side request contract.
+///
+/// TypeScript parameterizes `ProviderRequestOptions` over the model type; Rust
+/// keeps a distinct struct so image callbacks receive `ImagesModel` rather than
+/// the chat `Model`.
+#[derive(Clone, Default)]
+pub struct ImagesRequestOptions {
+    pub signal: Option<CancellationToken>,
+    pub api_key: Option<String>,
+    /// Custom HTTP implementation; `None` uses the crate default client.
+    pub fetch: Option<Arc<dyn Fetch>>,
+    /// Provider-scoped environment values; take precedence over the process environment.
+    pub env: Option<ProviderEnv>,
+    pub on_payload: Option<ImagesOnPayload>,
+    pub on_response: Option<ImagesOnResponse>,
+    /// Merged over provider defaults; `None` values suppress a default header.
+    pub headers: Option<ProviderHeaders>,
+    pub timeout_ms: Option<f64>,
+    pub max_retries: Option<f64>,
+    /// Cap on server-requested retry delay. Default 60000; 0 disables the cap.
+    pub max_retry_delay_ms: Option<f64>,
+}
+
 /// `ImagesOptions`.
 #[derive(Clone, Default)]
 pub struct ImagesOptions {
-    pub request: ProviderRequestOptions,
+    pub request: ImagesRequestOptions,
     pub metadata: Option<JsonObject>,
     pub extra: JsonObject,
 }

@@ -75,7 +75,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/estimate.ts` | 143 | 1 | done | `crates/pi-ai/src/utils/estimate.rs` | Context/message/tool estimation, UTF-16 lengths, added-tool accounting; differential 10 requests. |
 | `ai/src/utils/event-stream.ts` | 110 | 1 | done | `pi-ai/src/utils/event_stream.rs` | differential |
 | `ai/src/utils/headers.ts` | 18 | 1 | done | `crates/pi-ai/src/utils/headers.rs` | `Headers.entries()` normalization and provider header filtering; differential 7 requests. |
-| `ai/src/utils/node-http-proxy.ts` | 112 | 1 | todo |  |  |
+| `ai/src/utils/node-http-proxy.ts` | 112 | 1 | done | `crates/pi-ai/src/utils/node_http_proxy.rs` | Proxy selection plus `Fetch` wrapper; differential over target/env matrix (see traceability). |
 | `ai/src/utils/provider-env.ts` | 52 | 1 | partial | `crates/pi-ai/src/utils/provider_env.rs` | Scoped → process env precedence; Bun `/proc/self/environ` fallback not applicable to native Rust (see traceability). |
 | `ai/src/api/anthropic-messages.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/azure-openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/azure_openai_responses.rs` | `azure_open_ai_responses_api()` lazy adapter. |
@@ -87,7 +87,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/openai-codex-responses.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/openai-completions.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_completions.rs` | `open_ai_completions_api()` lazy adapter. |
 | `ai/src/api/openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_responses.rs` | `open_ai_responses_api()` lazy adapter. |
-| `ai/src/api/openrouter-images.ts` | 196 | 2 | todo |  |  |
+| `ai/src/api/openrouter-images.ts` | 196 | 2 | done | `crates/pi-ai/src/api/openrouter_images.rs` | Request building, usage/image parsing, SDK error mapping, timeout; recorded-fixture differential (see traceability). |
 | `ai/src/api/pi-messages.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/pi_messages.rs` | `pi_messages_api()` wraps `PiMessagesApi` in `LazyApi`. |
 | `ai/src/auth/helpers.ts` | 59 | 2 | done | `crates/pi-ai/src/auth/helpers.rs` | env api-key auth and lazy OAuth loading |
 | `ai/src/auth/oauth/anthropic.ts` | 364 | 2 | todo |  |  |
@@ -98,10 +98,10 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/auth/oauth/xai.ts` | 239 | 2 | todo |  |  |
 | `ai/src/bedrock-provider.ts` | 6 | 2 | todo |  |  |
 | `ai/src/compat/extension-oauth-types.ts` | 45 | 2 | todo |  |  |
-| `ai/src/env-api-keys.ts` | 187 | 2 | todo |  |  |
-| `ai/src/image-models.generated.ts` | 639 | 2 | todo |  |  |
-| `ai/src/images-api-registry.ts` | 53 | 2 | todo |  |  |
-| `ai/src/images-models.ts` | 275 | 2 | todo |  |  |
+| `ai/src/env-api-keys.ts` | 187 | 2 | done | `crates/pi-ai/src/env_api_keys.rs` | Provider env map, Anthropic token exclusion, Vertex ADC cache, and Bedrock ambient sources; differential over provider/env matrix (see traceability). |
+| `ai/src/image-models.generated.ts` | 639 | 2 | done | `crates/pi-ai/data/image-models.json`, `crates/pi-ai/src/image_models_generated.rs` | Embedded TS-generated JSON with identical values and order; differential full catalog. |
+| `ai/src/images-api-registry.ts` | 53 | 2 | done | `crates/pi-ai/src/images_api_registry.rs` | API registration/lookup and api-mismatch wrapper; `sourceId` excluded as unobservable (see traceability). |
+| `ai/src/images-models.ts` | 275 | 2 | done | `crates/pi-ai/src/images_models.rs` | Providers, auth merge, dynamic refresh with in-flight dedupe; differential for registry/auth merge. `builtinImagesModels` gap tracked under providers/all. |
 | `ai/src/model-catalog.ts` | 27 | 2 | done | `crates/pi-ai/src/model_catalog.rs` | Group flattening; `provider` parameter is type-only; differential 4 requests. |
 | `ai/src/model-types.ts` | 273 | 2 | done | `crates/pi-ai/src/types.rs` | Type-only module; all interfaces mapped to existing `types.rs` items, no new code. |
 | `ai/src/providers/cloudflare-auth.ts` | 103 | 2 | todo |  |  |
@@ -112,10 +112,10 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/retry.ts` | 253 | 2 | done | `crates/pi-ai/src/utils/retry.rs` | Exact classifier plus async backoff/cancellation/callbacks; differential 45 classifications + 10 scripted loops. |
 | `ai/src/utils/text.ts` | 12 | 2 | done | `crates/pi-ai/src/utils/text.rs` | `contentText` over assistant and tool-result blocks; differential 6 requests. |
 | `ai/src/utils/validation.ts` | 350 | 2 | done | `crates/pi-ai/src/utils/validation.rs` | Full hand-written TypeBox-compatible validator, coercions, error messages; 25 behavioral + 67 differential cases ([traceability](traceability/validation.md)). |
-| `ai/src/api/openrouter-images.lazy.ts` | 10 | 3 | todo |  |  |
+| `ai/src/api/openrouter-images.lazy.ts` | 10 | 3 | done | `crates/pi-ai/src/api/openrouter_images_lazy.rs` | Direct-link factory replacing the dynamic import. |
 | `ai/src/auth/oauth/radius.ts` | 403 | 3 | todo |  |  |
-| `ai/src/image-models.ts` | 42 | 3 | todo |  |  |
-| `ai/src/images.ts` | 21 | 3 | todo |  |  |
+| `ai/src/image-models.ts` | 42 | 3 | done | `crates/pi-ai/src/image_models.rs` | Lookup/list APIs; `undefined` modeled as `Option`/empty slice (see traceability). |
+| `ai/src/images.ts` | 21 | 3 | done | `crates/pi-ai/src/images.rs` | Builtin registration on first use, registry dispatch, unknown-api error. |
 | `ai/src/index.ts` | 47 | 3 | todo |  |  |
 | `ai/src/legacy-api-aliases.ts` | 108 | 3 | todo |  |  |
 | `ai/src/oauth.ts` | 10 | 3 | todo |  |  |
@@ -134,7 +134,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/providers/google.models.ts` | 8 | 3 | todo |  |  |
 | `ai/src/providers/groq.models.ts` | 8 | 3 | todo |  |  |
 | `ai/src/providers/huggingface.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/images/register-builtins.ts` | 50 | 3 | todo |  |  |
+| `ai/src/providers/images/register-builtins.ts` | 50 | 3 | done | `crates/pi-ai/src/providers/images/register_builtins.rs` | Direct link replaces lazy import; load-error branch is not representable (see traceability). |
 | `ai/src/providers/kimi-coding.models.ts` | 8 | 3 | todo |  |  |
 | `ai/src/providers/minimax-cn.models.ts` | 8 | 3 | todo |  |  |
 | `ai/src/providers/minimax.models.ts` | 8 | 3 | todo |  |  |
@@ -189,7 +189,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/providers/openai.ts` | 15 | 4 | todo |  |  |
 | `ai/src/providers/opencode-go.ts` | 20 | 4 | todo |  |  |
 | `ai/src/providers/opencode.ts` | 24 | 4 | todo |  |  |
-| `ai/src/providers/openrouter-images.ts` | 22 | 4 | todo |  |  |
+| `ai/src/providers/openrouter-images.ts` | 22 | 4 | done | `crates/pi-ai/src/providers/openrouter_images.rs` | Catalog, api-key auth, lazy OAuth surface; OAuth flow module remains an explicit gap (see traceability). |
 | `ai/src/providers/openrouter.ts` | 23 | 4 | todo |  |  |
 | `ai/src/providers/qwen-token-plan-cn.ts` | 15 | 4 | todo |  |  |
 | `ai/src/providers/qwen-token-plan-individual.ts` | 15 | 4 | todo |  |  |

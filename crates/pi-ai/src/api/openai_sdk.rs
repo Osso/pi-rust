@@ -44,6 +44,13 @@ pub struct SdkResponse {
     pub stream: SseJsonStream,
 }
 
+/// A successful non-streaming response (`create(..., { stream: false })`).
+pub struct SdkJsonResponse {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub data: Value,
+}
+
 #[derive(Debug)]
 pub enum SdkError {
     /// SDK/API error carrying the fields `normalizeProviderError` probes.
@@ -64,6 +71,15 @@ impl SdkClient {
         signal: Option<CancellationToken>,
     ) -> BoxFuture<'_, Result<SdkResponse, ProviderRequestError<CallbackError>>> {
         self.create_stream("/chat/completions", params, signal)
+    }
+
+    /// `client.chat.completions.create(params, { stream: false }).withResponse()`.
+    pub fn create_chat_completion(
+        &self,
+        params: Value,
+        signal: Option<CancellationToken>,
+    ) -> BoxFuture<'_, Result<SdkJsonResponse, ProviderRequestError<CallbackError>>> {
+        Box::pin(async move { self.send_json("/chat/completions", params, signal).await })
     }
 
     /// `client.responses.create(params, { stream: true }).withResponse()`.
@@ -94,10 +110,40 @@ impl SdkClient {
         params: Value,
         signal: Option<CancellationToken>,
     ) -> Result<SdkResponse, ProviderRequestError<CallbackError>> {
+        let response = self.send_raw(path, &params, signal.clone()).await?;
+        let headers = response.headers.clone();
+        Ok(SdkResponse {
+            status: response.status,
+            headers: response.headers,
+            stream: SseJsonStream::new(response.body, signal, headers),
+        })
+    }
+
+    async fn send_json(
+        &self,
+        path: &str,
+        params: Value,
+        signal: Option<CancellationToken>,
+    ) -> Result<SdkJsonResponse, ProviderRequestError<CallbackError>> {
+        let response = self.send_raw(path, &params, signal.clone()).await?;
+        let status = response.status;
+        let headers = response.headers.clone();
+        let text = String::from_utf8_lossy(&read_success_body(response.body, signal.as_ref()).await?).into_owned();
+        let data = serde_json::from_str(&text)
+            .map_err(|error| ProviderRequestError::Other(CallbackError::new(error.to_string())))?;
+        Ok(SdkJsonResponse { status, headers, data })
+    }
+
+    async fn send_raw(
+        &self,
+        path: &str,
+        params: &Value,
+        signal: Option<CancellationToken>,
+    ) -> Result<HttpResponse, ProviderRequestError<CallbackError>> {
         if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
             return Err(ProviderRequestError::Abort(crate::utils::abort::AbortError::new()));
         }
-        let body = serde_json::to_vec(&params)
+        let body = serde_json::to_vec(params)
             .map_err(|error| ProviderRequestError::Other(CallbackError::new(error.to_string())))?;
         let request = HttpRequest {
             method: "POST".to_owned(),
@@ -125,13 +171,7 @@ impl SdkClient {
         if !(200..300).contains(&response.status) {
             return Err(ProviderRequestError::Provider(read_http_error(response, signal).await));
         }
-
-        let headers = response.headers.clone();
-        Ok(SdkResponse {
-            status: response.status,
-            headers: response.headers,
-            stream: SseJsonStream::new(response.body, signal, headers),
-        })
+        Ok(response)
     }
 
     fn build_url(&self, path: &str) -> String {
@@ -237,6 +277,26 @@ fn platform_arch() -> &'static str {
         "arm"
     } else {
         "unknown"
+    }
+}
+
+async fn read_success_body(
+    mut body: Box<dyn HttpBody>,
+    signal: Option<&CancellationToken>,
+) -> Result<Vec<u8>, ProviderRequestError<CallbackError>> {
+    let mut bytes = Vec::new();
+    loop {
+        if signal.is_some_and(CancellationToken::is_cancelled) {
+            return Err(ProviderRequestError::Abort(crate::utils::abort::AbortError::new()));
+        }
+        match body.next_chunk().await {
+            Some(Ok(chunk)) => bytes.extend_from_slice(&chunk),
+            Some(Err(_)) if signal.is_some_and(CancellationToken::is_cancelled) => {
+                return Err(ProviderRequestError::Abort(crate::utils::abort::AbortError::new()));
+            }
+            Some(Err(error)) => return Err(ProviderRequestError::Other(error)),
+            None => return Ok(bytes),
+        }
     }
 }
 
