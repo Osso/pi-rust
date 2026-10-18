@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 use crate::core::detached_job_runner::DetachedJobLifecycleController;
 use crate::core::diagnostics::{ResourceDiagnostic, ResourceDiagnosticType};
 use crate::core::model_registry::ModelRegistry;
-use crate::core::session_manager::SessionManager;
+use crate::core::session_manager::SharedSessionManager;
 use crate::core::settings_manager::SettingsManager;
 use crate::core::source_info::{SourceInfo, SourceOrigin, SourceScope};
 use crate::core::system_prompt::BuildSystemPromptOptions;
@@ -233,7 +233,7 @@ impl ExtensionRunner {
         extensions: Vec<Extension>,
         runtime: ExtensionRuntime,
         cwd: impl Into<String>,
-        session_manager: Arc<SessionManager>,
+        session_manager: SharedSessionManager,
         model_registry: Arc<ModelRegistry>,
         settings_manager: Option<Arc<Mutex<SettingsManager>>>,
     ) -> Self {

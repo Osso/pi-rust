@@ -1,14 +1,14 @@
 //! Port of `packages/coding-agent/src/core/session-manager.ts`.
 //!
-//! Sessions are append-only trees stored as JSONL. The control-db metadata
-//! integration (`setMetadataControlDbPath`, goal/model/sandbox accessors and
-//! metadata-backed listing) is owned by the parallel `ca-control-db` slice and
-//! is intentionally absent here; see `docs/porting/traceability/session-manager.md`.
+//! Sessions are append-only trees stored as JSONL. Control-db metadata
+//! (`setMetadataControlDbPath`, goal/model/sandbox accessors and
+//! metadata-backed listing) is persisted through `session_control_db`.
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use pi_agent_core::agent::AgentMessage;
 use pi_agent_core::harness::messages::{
@@ -2079,6 +2079,15 @@ pub struct PersistedSessionModel {
 pub struct SetMetadataControlDbPathOptions {
     pub index_message_text: Option<bool>,
     pub cwd_override: Option<String>,
+}
+
+/// Handle shared by `AgentSession` and `ExtensionContext`, mirroring the single
+/// `SessionManager` object the source passes to both.
+pub type SharedSessionManager = Arc<Mutex<SessionManager>>;
+
+/// Locks a shared session handle, recovering from a poisoned mutex.
+pub fn lock_session_manager(handle: &SharedSessionManager) -> MutexGuard<'_, SessionManager> {
+    handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Manages conversation sessions as append-only trees stored in JSONL files.

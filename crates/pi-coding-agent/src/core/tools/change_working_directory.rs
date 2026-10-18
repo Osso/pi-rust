@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 use super::result::terminating_text_result;
 use super::resume_session::{find_session_file_by_id, resolve_session_path};
 use crate::core::extensions::types::ExtensionContext;
+use crate::core::session_manager::lock_session_manager;
 use crate::core::session_manager::{SessionManager, read_session_header};
 use crate::utils::paths::{PathInputOptions, resolve_path};
 
@@ -198,7 +199,12 @@ impl AgentHarnessTool<ExtensionContext> for ChangeWorkingDirectoryTool {
                 .control_db_path()
                 .map_err(|error| ToolError::new(error.message))?;
             let previous_cwd = cwd.clone();
-            let resolved = load_target_cwd(&target, &cwd, &session, control_db_path.as_deref())?;
+            let resolved = load_target_cwd(
+                &target,
+                &cwd,
+                &lock_session_manager(&session),
+                control_db_path.as_deref(),
+            )?;
             context
                 .relocate_after_tool_result(&tool_call_id, &resolved.cwd)
                 .map_err(|error| ToolError::new(error.message))?;

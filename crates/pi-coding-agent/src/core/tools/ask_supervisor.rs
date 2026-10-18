@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 use super::result::text_result;
 use crate::core::extensions::types::ExtensionContext;
 use crate::core::session_control_db::{SupervisorRequestKind, SupervisorResponse};
+use crate::core::session_manager::lock_session_manager;
 use crate::supervisor::client::{RequestSupervisorDecisionInput, advisory_payload, request_supervisor_decision};
 use crate::supervisor::project_resolver::{DEFAULT_SUPERVISOR_KB_DIR, resolve_supervisor_project_for_cwd};
 
@@ -99,11 +100,10 @@ impl AgentHarnessTool<ExtensionContext> for AskSupervisorTool {
         Box::pin(async move {
             assert_main_session(&context, NAME)?;
             let control_db_path = require_control_db_path(&context, NAME)?;
-            let sender_session_id = context
+            let session_manager = context
                 .session_manager()
-                .map_err(|error| ToolError::new(error.message))?
-                .get_session_id()
-                .to_owned();
+                .map_err(|error| ToolError::new(error.message))?;
+            let sender_session_id = lock_session_manager(&session_manager).get_session_id().to_owned();
             if sender_session_id.is_empty() {
                 return Err(ToolError::new("ask_supervisor requires a persisted session id"));
             }

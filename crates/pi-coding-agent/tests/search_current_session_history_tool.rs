@@ -3,11 +3,11 @@
 #[path = "support/tool_context.rs"]
 mod tool_context;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use pi_agent_core::{AgentHarnessTool, AgentMessage};
 use pi_ai::types::{AssistantContent, AssistantMessage, TextContent};
-use pi_coding_agent::core::session_manager::{CompactionAppendOptions, SessionManager};
+use pi_coding_agent::core::session_manager::{CompactionAppendOptions, SessionManager, SharedSessionManager};
 use pi_coding_agent::core::tools::search_current_session_history::SearchCurrentSessionHistoryTool;
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -33,7 +33,7 @@ fn assistant_message(text: &str, timestamp: i64) -> AgentMessage {
     AgentMessage::Assistant(Box::new(message))
 }
 
-async fn search(manager: &Arc<SessionManager>, params: Value) -> pi_agent_core::AgentToolResult {
+async fn search(manager: &SharedSessionManager, params: Value) -> pi_agent_core::AgentToolResult {
     let context = tool_context::TestContextBuilder::new("/repo", Arc::clone(manager))
         .build()
         .await
@@ -60,7 +60,7 @@ async fn matches_user_messages_without_searching_assistant_or_tool_content() {
             2,
         ))
         .expect("append assistant");
-    let manager = Arc::new(manager);
+    let manager = Arc::new(Mutex::new(manager));
 
     let user_match = search(&manager, json!({ "query": "list-skills" })).await;
     let assistant_match = search(&manager, json!({ "query": "reddit" })).await;
@@ -93,7 +93,7 @@ async fn searches_full_active_branch_entries_hidden_by_compaction_and_includes_n
     manager
         .append_message(user_message("Current follow-up", 3))
         .expect("append follow-up");
-    let manager = Arc::new(manager);
+    let manager = Arc::new(Mutex::new(manager));
 
     let result = search(&manager, json!({ "query": "COBALT", "context_entries": 1 })).await;
 
@@ -129,7 +129,7 @@ async fn excludes_entries_from_inactive_branches() {
     manager
         .append_message(user_message("active branch", 3))
         .expect("append active");
-    let manager = Arc::new(manager);
+    let manager = Arc::new(Mutex::new(manager));
 
     let result = search(&manager, json!({ "query": "inactive branch secret" })).await;
 
@@ -148,7 +148,7 @@ async fn matches_literal_multiline_and_escaped_characters_in_message_content() {
     manager
         .append_message(user_message(content, 1))
         .expect("append message");
-    let manager = Arc::new(manager);
+    let manager = Arc::new(Mutex::new(manager));
 
     let result = search(&manager, json!({ "query": content })).await;
 
@@ -166,7 +166,7 @@ async fn paginates_matches_while_returning_full_matching_content() {
     manager
         .append_message(user_message("needle two", 2))
         .expect("append two");
-    let manager = Arc::new(manager);
+    let manager = Arc::new(Mutex::new(manager));
 
     let first_page = search(&manager, json!({ "query": "needle", "limit": 1 })).await;
     assert_eq!(details(&first_page)["totalMatches"], 2);
@@ -212,7 +212,7 @@ async fn rejects_an_invalid_cursor() {
     manager
         .append_message(user_message("needle", 1))
         .expect("append message");
-    let manager = Arc::new(manager);
+    let manager = Arc::new(Mutex::new(manager));
     let context = tool_context::TestContextBuilder::new("/repo", Arc::clone(&manager))
         .build()
         .await

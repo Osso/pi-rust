@@ -17,6 +17,7 @@ use crate::core::session_control_db::{
     EnqueueRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessage, RuntimeMailboxMessageKind,
     RuntimeMailboxStoreRef, enqueue_runtime_mailbox_message, list_runtime_mailbox_messages, read_session_metadata,
 };
+use crate::core::session_manager::lock_session_manager;
 use tokio_util::sync::CancellationToken;
 
 use super::runtime_utils::create_failed_mailbox_message;
@@ -406,8 +407,9 @@ impl RuntimeLifecycleMirror {
     }
 
     pub fn bind(&self, ctx: &ExtensionContext) -> Result<(), HandlerError> {
-        let session_manager = ctx.session_manager()?;
-        let session_id = session_manager.get_session_id().to_owned();
+        let session_id = lock_session_manager(&ctx.session_manager()?)
+            .get_session_id()
+            .to_owned();
         let mut state = self.state.lock().expect("mirror state");
         state.bound_ctx = Some(ctx.clone());
         if state.bound_session_id.as_deref() == Some(session_id.as_str()) && state.unsubscribe.is_some() {
@@ -499,7 +501,9 @@ fn enqueue_runtime_session_message(
         );
         return Ok(false);
     };
-    let session_manager = ctx.session_manager()?;
+    let session_id = lock_session_manager(&ctx.session_manager()?)
+        .get_session_id()
+        .to_owned();
     let input = EnqueueRuntimeMailboxMessageInput {
         kind: mailbox_kind(message.kind),
         recipient: RuntimeMailboxAddress {
@@ -508,7 +512,7 @@ fn enqueue_runtime_session_message(
         },
         sender: RuntimeMailboxAddress {
             agent_id: (message.from_agent_id != MAIN_THREAD_AGENT_ID).then(|| message.from_agent_id.clone()),
-            session_id: session_manager.get_session_id().to_owned(),
+            session_id,
         },
         store_ref,
     };
@@ -577,8 +581,9 @@ fn enqueue_lifecycle_runtime_mailbox_message(
     let Some(recipient) = resolve_runtime_recipient(store, notification, ctx)? else {
         return Ok(());
     };
-    let session_manager = ctx.session_manager()?;
-    let current_session_id = session_manager.get_session_id().to_owned();
+    let current_session_id = lock_session_manager(&ctx.session_manager()?)
+        .get_session_id()
+        .to_owned();
     let sender_session_id = agent
         .as_ref()
         .and_then(|agent| agent.transcript.as_ref())
@@ -642,13 +647,15 @@ fn enqueue_runtime_mailbox_store_message(
         );
         return Ok(false);
     };
-    let session_manager = ctx.session_manager()?;
+    let session_id = lock_session_manager(&ctx.session_manager()?)
+        .get_session_id()
+        .to_owned();
     let input = EnqueueRuntimeMailboxMessageInput {
         kind: mailbox_kind(message.kind),
         recipient,
         sender: RuntimeMailboxAddress {
             agent_id: Some(message.from_agent_id.clone()),
-            session_id: session_manager.get_session_id().to_owned(),
+            session_id,
         },
         store_ref,
     };
@@ -675,14 +682,16 @@ fn resolve_runtime_recipient(
         }));
     }
     if !is_main_runtime_target(&message.to_agent_id) {
-        let session_manager = ctx.session_manager()?;
         return Ok(Some(RuntimeMailboxAddress {
             agent_id: Some(message.to_agent_id.clone()),
-            session_id: session_manager.get_session_id().to_owned(),
+            session_id: lock_session_manager(&ctx.session_manager()?)
+                .get_session_id()
+                .to_owned(),
         }));
     }
-    let session_manager = ctx.session_manager()?;
-    let current_session_id = session_manager.get_session_id().to_owned();
+    let current_session_id = lock_session_manager(&ctx.session_manager()?)
+        .get_session_id()
+        .to_owned();
     let session_id = read_parent_runtime_session_id(ctx)?.unwrap_or(current_session_id);
     Ok(Some(RuntimeMailboxAddress {
         agent_id: None,
@@ -694,15 +703,16 @@ fn read_parent_runtime_session_id(ctx: &ExtensionContext) -> Result<Option<Strin
     if let Some(parent_session_id) = ctx.multi_agent_parent_session_id()? {
         return Ok(Some(parent_session_id));
     }
-    let session_manager = ctx.session_manager()?;
-    if !session_manager.is_subagent_session() {
-        return Ok(None);
-    }
-    let Some(parent_session) = session_manager
-        .get_header()
-        .and_then(|header| header.parent_session.clone())
-    else {
-        return Ok(None);
+    let parent_session = {
+        let session_manager = ctx.session_manager()?;
+        let manager = lock_session_manager(&session_manager);
+        if !manager.is_subagent_session() {
+            return Ok(None);
+        }
+        let Some(parent_session) = manager.get_header().and_then(|header| header.parent_session.clone()) else {
+            return Ok(None);
+        };
+        parent_session
     };
     let Some(control_db_path) = ctx.control_db_path()? else {
         return Ok(Some(parent_session));

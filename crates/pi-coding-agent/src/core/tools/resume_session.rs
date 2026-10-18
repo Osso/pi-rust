@@ -19,7 +19,7 @@ use crate::core::extensions::types::{ExtensionContext, SwitchSessionOptions, Use
 use crate::core::session_control_db::{
     SessionMetadata, find_active_session_metadata_by_id, find_active_session_metadata_by_name,
 };
-use crate::core::session_manager::{SessionInfo, SessionManager};
+use crate::core::session_manager::{SessionInfo, SessionManager, lock_session_manager};
 use crate::utils::paths::{PathInputOptions, resolve_path};
 
 pub const NAME: &str = "resume_session";
@@ -399,8 +399,13 @@ impl AgentHarnessTool<ExtensionContext> for ResumeSessionTool {
                 .control_db_path()
                 .map_err(|error| ToolError::new(error.message))?;
             let resume_params = normalize_resume_session_params(&params)?;
-            let session_path = resolve_resume_session_file(&resume_params, &cwd, &session, control_db_path.as_deref())?;
-            assert_resume_target_is_different(&session_path, &session)?;
+            let session_path = {
+                let manager = lock_session_manager(&session);
+                let session_path =
+                    resolve_resume_session_file(&resume_params, &cwd, &manager, control_db_path.as_deref())?;
+                assert_resume_target_is_different(&session_path, &manager)?;
+                session_path
+            };
             let starter_prompt = resume_params.starter_prompt.clone();
             let options = starter_prompt.clone().map(|prompt| SwitchSessionOptions {
                 with_session: Some(Arc::new(move |replaced| {

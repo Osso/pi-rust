@@ -889,13 +889,7 @@ impl AgentSession {
             Vec::new(),
             crate::core::extensions::extension_runtime::create_extension_runtime(),
             config.cwd.clone(),
-            Arc::new(
-                config
-                    .session_manager
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .clone(),
-            ),
+            Arc::clone(&config.session_manager),
             Arc::new(ModelRegistry::new(model_runtime.clone())),
             Some(Arc::clone(&config.settings_manager)),
         );
@@ -1137,13 +1131,7 @@ impl AgentSession {
             extensions.extensions,
             extensions.runtime,
             self.inner.cwd.clone(),
-            Arc::new(
-                self.inner
-                    .session_manager
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .clone(),
-            ),
+            Arc::clone(&self.inner.session_manager),
             Arc::new(self.inner.model_registry.clone()),
             Some(Arc::clone(&self.inner.settings_manager)),
         );

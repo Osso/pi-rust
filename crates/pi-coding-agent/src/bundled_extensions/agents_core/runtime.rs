@@ -16,7 +16,7 @@ use crate::core::extensions::types::{
     ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError, NotifyType, ToolDefinition,
 };
 use crate::core::multi_agent_store::{AgentSnapshot, MultiAgentStore, MultiAgentStoreOptions, is_active_lifecycle};
-use crate::core::session_manager::{KnownSessionEntry, SessionEntry};
+use crate::core::session_manager::{KnownSessionEntry, SessionEntry, lock_session_manager};
 use crate::core::sqlite::ControlDbError;
 
 use super::control_runtime::OwnedAgentRuntime;
@@ -326,7 +326,8 @@ impl MultiAgentPiRequestHandler {
             ),
             "messages.last" => {
                 let session_manager = ctx.session_manager()?;
-                Ok(find_last_session_message(&session_manager.get_branch(None)))
+                let manager = lock_session_manager(&session_manager);
+                Ok(find_last_session_message(&manager.get_branch(None)))
             }
             "messages.send" => {
                 let params: super::mailbox_runtime::SendAgentMessageParams =
