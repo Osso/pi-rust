@@ -1,6 +1,7 @@
 pub mod auth_guidance;
 pub mod auth_storage;
 pub mod cache_stats;
+pub mod compaction;
 mod config_value;
 pub mod defaults;
 pub mod desktop_notification;
@@ -11,6 +12,7 @@ pub mod event_bus;
 pub mod exec;
 pub mod experimental;
 pub mod export_html;
+pub mod extensions;
 pub mod external_session_importer;
 pub mod footer_data_provider;
 pub mod http_dispatcher;

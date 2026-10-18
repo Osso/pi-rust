@@ -36,6 +36,7 @@ All direct dependencies are exact-pinned.
 - `core::http_dispatcher` adds no dependency: it configures the shared `pi-ai` client through `pi_ai::http::fetch_with_options` (`http1_only`, `read_timeout`), keeping one HTTP stack.
 - `pi-ai` (path) — `utils::management_http` uses the shared `Fetch` contract and default reqwest client (one HTTP stack).
 - `pi-tui` (path) — supplies the TUI keybinding registry (`TUI_KEYBINDINGS`, `KeybindingsManager`) that `core::keybindings` extends with the `app.*` bindings instead of redefining the TUI table.
+- HTML export embeds the pinned source assets `marked` 18.0.5 and `highlight.js` 11.9.0 (plus `template.html`/`template.css`/`template.js`) as `include_str!` data; they are vendored source files, not Cargo dependencies. See `docs/porting/traceability/coding-agent-export-html.md` for hashes.
 - `tempfile = 3.27.0` (development) — creates isolated temporary files, symlinks, and git repositories for path and process tests.
 - `core::package_manager` adds `pi-js-compat` (path, `=0.0.0`) for `minimatch` 10.2.5 pattern matching in package resource filters, `semver = 1.0.28` for npm version validation/range matching (exact, caret, tilde, wildcard, comparator ranges), `globset = 0.4.20` for `glob`-style manifest-entry expansion (dot entries skipped, filesystem order preserved), `ignore = 0.4.23` for `.gitignore`/`.ignore`/`.fdignore` handling with the same matcher as the skill loader, `sha2 = 0.10.9` for the `createHash("sha256")` temporary-directory name, and `futures-util = 0.3.34` for bounded-concurrency update checks and git updates. `serde_json` gains the `preserve_order` feature so settings/auth/keybindings files and package-filter objects keep TypeScript insertion order. `utils::paths::relative_path` is now `pub` so package sources reuse the ported path-relative implementation instead of duplicating it.
 
@@ -126,7 +127,7 @@ No runtime dependencies. CBOR encoding and decoding are hand-written against the
 
 ### `pi-telemetry`
 
-- `indexmap = 2.14.2` (`serde`) — `TelemetryMap`, the insertion-ordered map behind schema span/attribute/event maps and `SpanAttributes`, matching TypeScript object key order (already in the lock via `serde_json` `preserve_order`).
+- `indexmap = 2.14.2` (`serde`) — `TelemetryMap`, the insertion-ordered map behind schema span/attribute/event maps and `SpanAttributes`, matching TypeScript object key order (already in the lock via `serde_json` `preserve_order`). Also backs extension handler/tool/command/flag/shortcut registries, whose iteration order is the TypeScript `Map` load order.
 - `serde = 1.0.229` — derives the camelCase wire shape for schema definitions and recorded spans/events, including the internally tagged status and parent definitions.
 
 ### `pi-client`

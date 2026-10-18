@@ -14,6 +14,7 @@ use pi_ai::utils::estimate::{
 use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy, retry_assistant_call};
 use pi_ai::utils::text::{ContentText, content_text};
 use pi_ai::utils::uuid::uuidv7;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
@@ -150,7 +151,8 @@ pub struct CompactionDetails {
 }
 
 /// Compaction thresholds and retention settings.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompactionSettings {
     pub enabled: bool,
     pub reserve_tokens: f64,

@@ -1,0 +1,377 @@
+//! Port of `packages/coding-agent/src/core/compaction/branch-summarization.ts`.
+
+use pi_agent_core::agent::{AgentMessage, StreamFn};
+use pi_agent_core::harness::compaction::NoRetryCallbacks;
+use pi_agent_core::harness::compaction::utils::{
+    FileOperations, compute_file_lists, create_file_ops, extract_file_ops_from_message, format_file_operations,
+};
+use pi_agent_core::harness::messages::{
+    CompactionSummaryOptions, convert_to_llm, create_branch_summary_message, create_compaction_summary_message,
+    create_custom_message,
+};
+use pi_ai::request::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
+use pi_ai::types::{
+    Model, ProviderEnv, ProviderHeaders, StopReason, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
+};
+use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy};
+use pi_ai::utils::text::{ContentText, content_text};
+use pi_js_compat::date::date_parse_millis;
+use serde::{Deserialize, Serialize};
+use tokio_util::sync::CancellationToken;
+
+use super::utils::{SUMMARIZATION_SYSTEM_PROMPT, serialize_conversation};
+use super::{complete_summarization, estimate_tokens};
+use crate::core::session_manager::{KnownSessionEntry, SessionEntry, SessionManager};
+
+/// Result of a branch-summary generation attempt.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchSummaryResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_files: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified_files: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aborted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Details stored in `BranchSummaryEntry.details` for file tracking.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchSummaryDetails {
+    pub read_files: Vec<String>,
+    pub modified_files: Vec<String>,
+}
+
+/// Entries prepared for branch summarization.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BranchPreparation {
+    /// Messages extracted for summarization, in chronological order.
+    pub messages: Vec<AgentMessage>,
+    /// File operations extracted from tool calls.
+    pub file_ops: FileOperations,
+    /// Total estimated tokens in messages.
+    pub total_tokens: f64,
+}
+
+/// Entries to summarize and the common ancestor with the new position.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CollectEntriesResult {
+    /// Entries to summarize, in chronological order.
+    pub entries: Vec<SessionEntry>,
+    /// Common ancestor between old and new position, if any.
+    pub common_ancestor_id: Option<String>,
+}
+
+/// Options for [`generate_branch_summary`].
+pub struct GenerateBranchSummaryOptions<'a> {
+    pub model: &'a Model,
+    pub api_key: Option<String>,
+    pub headers: Option<ProviderHeaders>,
+    pub env: Option<ProviderEnv>,
+    pub signal: Option<CancellationToken>,
+    pub custom_instructions: Option<&'a str>,
+    /// When true, `custom_instructions` replaces the default prompt instead of being appended.
+    pub replace_instructions: bool,
+    /// Tokens reserved for prompt + LLM response (default 16384).
+    pub reserve_tokens: Option<f64>,
+    pub stream_fn: Option<&'a StreamFn>,
+    pub retry: Option<&'a RetryPolicy>,
+}
+
+fn timestamp_millis(timestamp: &str) -> i64 {
+    date_parse_millis(timestamp).unwrap_or(0)
+}
+
+/// Collect entries to summarize when navigating from one position to another.
+pub fn collect_entries_for_branch_summary(
+    session: &SessionManager,
+    old_leaf_id: Option<&str>,
+    target_id: &str,
+) -> CollectEntriesResult {
+    let Some(old_leaf_id) = old_leaf_id else {
+        return CollectEntriesResult {
+            entries: Vec::new(),
+            common_ancestor_id: None,
+        };
+    };
+
+    let old_path: std::collections::HashSet<String> = session
+        .get_branch(Some(old_leaf_id))
+        .into_iter()
+        .filter_map(|entry| entry.id().map(str::to_owned))
+        .collect();
+    let target_path = session.get_branch(Some(target_id));
+
+    let common_ancestor_id = target_path
+        .iter()
+        .rev()
+        .find(|entry| entry.id().is_some_and(|id| old_path.contains(id)))
+        .and_then(|entry| entry.id().map(str::to_owned));
+
+    let mut entries = Vec::new();
+    let mut current = Some(old_leaf_id.to_owned());
+    while let Some(id) = current {
+        if Some(id.as_str()) == common_ancestor_id.as_deref() {
+            break;
+        }
+        let Some(entry) = session.get_entry(&id) else {
+            break;
+        };
+        entries.push(entry.clone());
+        current = entry.parent_id().map(str::to_owned);
+    }
+    entries.reverse();
+
+    CollectEntriesResult {
+        entries,
+        common_ancestor_id,
+    }
+}
+
+fn get_message_from_entry(entry: &SessionEntry) -> Option<AgentMessage> {
+    match entry {
+        SessionEntry::Known(KnownSessionEntry::Message(entry)) => {
+            if entry.message.role() == "toolResult" {
+                return None;
+            }
+            Some((*entry.message).clone())
+        }
+        SessionEntry::Known(KnownSessionEntry::CustomMessage(entry)) => Some(create_custom_message(
+            &entry.custom_type,
+            entry.content.clone(),
+            entry.display,
+            entry.details.clone(),
+            timestamp_millis(&entry.timestamp),
+        )),
+        SessionEntry::Known(KnownSessionEntry::BranchSummary(entry)) => Some(create_branch_summary_message(
+            &entry.summary,
+            &entry.from_id,
+            timestamp_millis(&entry.timestamp),
+        )),
+        SessionEntry::Known(KnownSessionEntry::Compaction(entry)) => Some(create_compaction_summary_message(
+            &entry.summary,
+            entry.tokens_before,
+            timestamp_millis(&entry.timestamp),
+            &CompactionSummaryOptions {
+                duration_ms: entry.duration_ms,
+                ..CompactionSummaryOptions::default()
+            },
+        )),
+        _ => None,
+    }
+}
+
+/// Prepare entries for summarization with a token budget.
+pub fn prepare_branch_entries(entries: &[SessionEntry], token_budget: f64) -> BranchPreparation {
+    let mut messages = Vec::new();
+    let mut file_ops = create_file_ops();
+    let mut total_tokens = 0.0;
+
+    // First pass: cumulative file tracking from pi-generated branch summaries.
+    for entry in entries {
+        if let SessionEntry::Known(KnownSessionEntry::BranchSummary(summary)) = entry
+            && !summary.from_hook.unwrap_or(false)
+            && let Some(details) = summary.details.as_ref()
+        {
+            if let Some(read_files) = details.get("readFiles").and_then(serde_json::Value::as_array) {
+                for path in read_files.iter().filter_map(serde_json::Value::as_str) {
+                    file_ops.read.insert(path.to_owned());
+                }
+            }
+            if let Some(modified_files) = details.get("modifiedFiles").and_then(serde_json::Value::as_array) {
+                for path in modified_files.iter().filter_map(serde_json::Value::as_str) {
+                    file_ops.edited.insert(path.to_owned());
+                }
+            }
+        }
+    }
+
+    // Second pass: walk from newest to oldest until the token budget is exhausted.
+    for index in (0..entries.len()).rev() {
+        let entry = &entries[index];
+        let Some(message) = get_message_from_entry(entry) else {
+            continue;
+        };
+        extract_file_ops_from_message(&message, &mut file_ops);
+        let tokens = estimate_tokens(&message);
+
+        if token_budget > 0.0 && total_tokens + tokens > token_budget {
+            if matches!(entry.entry_type(), "compaction" | "branch_summary") && total_tokens < token_budget * 0.9 {
+                messages.insert(0, message);
+                total_tokens += tokens;
+            }
+            break;
+        }
+
+        messages.insert(0, message);
+        total_tokens += tokens;
+    }
+
+    BranchPreparation {
+        messages,
+        file_ops,
+        total_tokens,
+    }
+}
+
+const BRANCH_SUMMARY_PREAMBLE: &str = "The user explored a different conversation branch before returning here.
+Summary of that exploration:
+
+";
+
+const BRANCH_SUMMARY_PROMPT: &str =
+    "Create a structured summary of this conversation branch for context when returning later.
+
+Use this EXACT format:
+
+## Goal
+[What was the user trying to accomplish in this branch?]
+
+## Constraints & Preferences
+- [Any constraints, preferences, or requirements mentioned]
+- [Or \"(none)\" if none were mentioned]
+
+## Progress
+### Done
+- [x] [Completed tasks/changes]
+
+### In Progress
+- [ ] [Work that was started but not finished]
+
+### Blocked
+- [Issues preventing progress, if any]
+
+## Key Decisions
+- **[Decision]**: [Brief rationale]
+
+## Next Steps
+1. [What should happen next to continue this work]
+
+Keep each section concise. Preserve exact file paths, function names, and error messages.";
+
+/// Generate a summary of abandoned branch entries.
+pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
+    entries: &[SessionEntry],
+    options: &GenerateBranchSummaryOptions<'_>,
+    callbacks: Option<&mut C>,
+) -> BranchSummaryResult {
+    let reserve_tokens = options.reserve_tokens.unwrap_or(16_384.0);
+    let context_window = if options.model.context_window > 0.0 {
+        options.model.context_window
+    } else {
+        128_000.0
+    };
+    let token_budget = context_window - reserve_tokens;
+
+    let BranchPreparation { messages, file_ops, .. } = prepare_branch_entries(entries, token_budget);
+
+    if messages.is_empty() {
+        return BranchSummaryResult {
+            summary: Some("No content to summarize".to_owned()),
+            ..BranchSummaryResult::default()
+        };
+    }
+
+    let conversation_text = serialize_conversation(&convert_to_llm(&messages));
+
+    let instructions = match (options.replace_instructions, options.custom_instructions) {
+        (true, Some(custom)) => custom.to_owned(),
+        (false, Some(custom)) => format!("{BRANCH_SUMMARY_PROMPT}\n\nAdditional focus: {custom}"),
+        _ => BRANCH_SUMMARY_PROMPT.to_owned(),
+    };
+    let prompt_text = format!("<conversation>\n{conversation_text}\n</conversation>\n\n{instructions}");
+
+    let summarization_message = AgentMessage::User(UserMessage {
+        role: UserRole::Tag,
+        content: UserContent::Blocks(vec![TextOrImageContent::Text(pi_ai::types::TextContent::new(
+            prompt_text,
+        ))]),
+        input_source: None,
+        provider_native: None,
+        timestamp: super::now_millis(),
+    });
+
+    let context = pi_ai::types::Context {
+        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_owned()),
+        messages: convert_to_llm(&[summarization_message]),
+        tools: None,
+    };
+    let request_options = SimpleStreamOptions {
+        stream: StreamOptions {
+            request: ProviderRequestOptions {
+                signal: options.signal.clone(),
+                api_key: options.api_key.clone(),
+                headers: options.headers.clone(),
+                env: options.env.clone(),
+                ..ProviderRequestOptions::default()
+            },
+            max_tokens: Some(2048.0),
+            ..StreamOptions::default()
+        },
+        ..SimpleStreamOptions::default()
+    };
+    let response = complete_summarization(
+        options.model,
+        context,
+        request_options,
+        options.stream_fn,
+        options.retry,
+        callbacks,
+    )
+    .await;
+
+    if response.stop_reason == StopReason::Aborted {
+        return BranchSummaryResult {
+            aborted: Some(true),
+            ..BranchSummaryResult::default()
+        };
+    }
+    if response.stop_reason == StopReason::Error {
+        return BranchSummaryResult {
+            error: Some(
+                response
+                    .error_message
+                    .clone()
+                    .filter(|message| !message.is_empty())
+                    .unwrap_or_else(|| "Summarization failed".to_owned()),
+            ),
+            ..BranchSummaryResult::default()
+        };
+    }
+
+    let mut summary = content_text(ContentText::Assistant(&response.content), "\n");
+    summary = format!("{BRANCH_SUMMARY_PREAMBLE}{summary}");
+
+    let file_lists = compute_file_lists(&file_ops);
+    summary.push_str(&format_file_operations(
+        &file_lists.read_files,
+        &file_lists.modified_files,
+    ));
+
+    BranchSummaryResult {
+        summary: Some(if summary.is_empty() {
+            "No summary generated".to_owned()
+        } else {
+            summary
+        }),
+        usage: Some(response.usage),
+        read_files: Some(file_lists.read_files),
+        modified_files: Some(file_lists.modified_files),
+        ..BranchSummaryResult::default()
+    }
+}
+
+/// Convenience wrapper matching the TypeScript call shape with no retry callbacks.
+pub async fn generate_branch_summary_default(
+    entries: &[SessionEntry],
+    options: &GenerateBranchSummaryOptions<'_>,
+) -> BranchSummaryResult {
+    generate_branch_summary(entries, options, None::<&mut NoRetryCallbacks>).await
+}
