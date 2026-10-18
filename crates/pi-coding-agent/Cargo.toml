@@ -14,7 +14,8 @@ pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }
 pi-ai = { version = "=0.0.0", path = "../pi-ai" }
 # Shared JS semantics: Date.parse, localeCompare, Base64, numbers, minimatch.
 pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }
-# Insertion-ordered registries matching TypeScript `Map` iteration in extensions.
+# Insertion-ordered registries matching TypeScript `Map` iteration in extensions
+# and the unknown CLI flags that TypeScript stores in a `Map`.
 indexmap = { version = "=2.14.2", features = ["serde"] }
 # Supplies the TUI keybinding registry that coding-agent extends.
 pi-tui = { version = "=0.0.0", path = "../pi-tui" }
@@ -22,6 +23,8 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
 regex = "=1.13.1"
 gethostname = "=1.1.0"
+# `Math.random()` jitter between Supervisor request attempts.
+getrandom = "=0.4.3"
 serde_yaml_ng = "=0.10.0"
 url = "=2.5.8"
 percent-encoding = "=2.3.2"
@@ -65,9 +68,10 @@ sha2 = "=0.10.9"
 futures-util = "=0.3.34"
 # Shared control.sqlite access; same pinned rusqlite release as pi-session-sqlite.
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
+# `mkdtempSync`-style private directory for the external editor prompt.
+tempfile = "=3.27.0"
 
 [dev-dependencies]
-tempfile = "=3.27.0"
 tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs"] }
 
 [lints]

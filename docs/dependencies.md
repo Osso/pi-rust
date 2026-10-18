@@ -18,10 +18,13 @@ All direct dependencies are exact-pinned.
 - `pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }` — shared JS-semantics helpers (`locale_compare`, minimatch) used by `core::model_resolver` and provider attribution; avoids duplicate collation/glob implementations.
 - `pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }` — supplies the typed `ThinkingLevel` used by the direct-module default constant and the shared `format_size` implementation used by coding-agent's package-visible wrapper. Request `13185` changes no dependency version or lock entry.
 - `serde = 1.0.229` — exposes the typed serialization contract used by RPC JSONL records and `GitSource` wire values (`derive` feature).
+- `tempfile = 3.27.0` — creates the private `pi-editor-*` directory for the interactive external editor (`mkdtempSync` equivalent); the mode is set to 0700 to match Node.
 - `serde_json = 1.0.151` (`preserve_order`, `float_roundtrip`) — produces compact semantic JSON before the LF record delimiter, represents parsed frontmatter values, preserves insertion order for byte-identical `settings.json` output (`js_json::stringify_pretty`), and keeps session-entry key order and decimal floats byte-compatible with TypeScript `JSON.stringify`/`JSON.parse`.
+- `indexmap = 2.14.2` — insertion-ordered `IndexMap` for the unknown CLI flags that TypeScript stores in a `Map`, preserving first-insertion order with last-value-wins replacement.
 - `regex = 1.13.1` — compiles the pinned ANSI compatibility pattern in `utils::ansi` and the three pinned `supports-color` patterns in `utils::chalk`.
 - `utils::chalk` needs no dependency: `std::io::IsTerminal` supplies TTY detection, replacing `node:tty`.
 - `gethostname = 1.1.0` — supplies the local hostname for OSC 7 terminal current-directory sequences.
+- `getrandom = 0.4.3` — fills the `Math.random()` jitter between Supervisor request attempts in `supervisor::client`.
 - `serde_yaml_ng = 0.10.0` — parses YAML frontmatter in `utils::frontmatter`.
 - `url = 2.5.8` — parses WHATWG URLs in `utils::git` and `file://` paths in `utils::paths`.
 - `percent-encoding = 2.3.2` — decodes percent-encoded URL components in `utils::git` and `utils::paths`.
@@ -36,6 +39,7 @@ All direct dependencies are exact-pinned.
 - `core::http_dispatcher` adds no dependency: it configures the shared `pi-ai` client through `pi_ai::http::fetch_with_options` (`http1_only`, `read_timeout`), keeping one HTTP stack.
 - `pi-ai` (path) — `utils::management_http` uses the shared `Fetch` contract and default reqwest client (one HTTP stack).
 - `pi-tui` (path) — supplies the TUI keybinding registry (`TUI_KEYBINDINGS`, `KeybindingsManager`) that `core::keybindings` extends with the `app.*` bindings instead of redefining the TUI table.
+- HTML export embeds the pinned source assets `marked` 18.0.5 and `highlight.js` 11.9.0 (plus `template.html`/`template.css`/`template.js`) as `include_str!` data; they are vendored source files, not Cargo dependencies. See `docs/porting/traceability/coding-agent-export-html.md` for hashes.
 - `tempfile = 3.27.0` (development) — creates isolated temporary files, symlinks, and git repositories for path and process tests.
 - `core::package_manager` adds `pi-js-compat` (path, `=0.0.0`) for `minimatch` 10.2.5 pattern matching in package resource filters, `semver = 1.0.28` for npm version validation/range matching (exact, caret, tilde, wildcard, comparator ranges), `globset = 0.4.20` for `glob`-style manifest-entry expansion (dot entries skipped, filesystem order preserved), `ignore = 0.4.23` for `.gitignore`/`.ignore`/`.fdignore` handling with the same matcher as the skill loader, `sha2 = 0.10.9` for the `createHash("sha256")` temporary-directory name, and `futures-util = 0.3.34` for bounded-concurrency update checks and git updates. `serde_json` gains the `preserve_order` feature so settings/auth/keybindings files and package-filter objects keep TypeScript insertion order. `utils::paths::relative_path` is now `pub` so package sources reuse the ported path-relative implementation instead of duplicating it.
 
@@ -44,7 +48,8 @@ All direct dependencies are exact-pinned.
 - `pi-js-compat` (path, `=0.0.0`) — `Number`/`parseInt`/`parseFloat`/`Date.parse` and Base64 (`atob`/`btoa`) helpers shared with the rest of the workspace.
 - `regex = 1.13.1` — case-insensitive (`(?i)`) provider error classification for `utils/overflow.ts` and `utils/retry.ts`, replacing JavaScript `RegExp(..., "i")`.
 - `serde = 1.0.229` — derives the diagnostics wire records and diagnostic-code enum.
-- `serde_json = 1.0.151` — carries JSON-shaped thrown values, optional diagnostic details, and streaming-parse results; the `preserve_order` feature keeps TypeScript object insertion order (`indexmap` is its transitive implementation, not a direct dependency) and `float_roundtrip` parses decimal JSON floats with the same correctly-rounded result as JavaScript `JSON.parse`.
+- `serde_json = 1.0.151` — carries JSON-shaped thrown values, optional diagnostic details, and streaming-parse results; the `preserve_order` feature keeps TypeScript object insertion order (`indexmap` is its transitive implementation) and `float_roundtrip` parses decimal JSON floats with the same correctly-rounded result as JavaScript `JSON.parse`.
+- `indexmap = 2.14.2` — direct use for `AiGatewayUniversalRequest.headers`, whose insertion order is observable in the `binding.run()` argument (TypeScript builds it as a plain object).
 - `url = 2.5.8` — parses manual OAuth redirect input, validates/normalizes verification URIs, and builds authorize/token query strings with `URLSearchParams`-compatible encoding.
 - `tokio = 1.53.3` (`io-util`, `macros`, `net`, `rt`, `sync`, `time`; dev adds `rt-multi-thread`, `test-util`) — `Notify` for `EventStream`, timers/cancellation for abort, retry, and OAuth polling, the loopback TCP listener behind the OAuth callback servers, and TCP/WebSocket transport for Codex.
 - `reqwest = 0.13.5` (default features: rustls/aws-lc TLS, HTTP/2) — default `Fetch` implementation replacing `globalThis.fetch`.
@@ -72,6 +77,7 @@ All direct dependencies are exact-pinned.
 - `rustix = 1.1.5` (`process`, exact) — kills shell process groups with SIGKILL for timeout, abort, and cleanup without `unsafe` or libc.
 - `icu_normalizer = 2.3.0` (exact, `compiled_data`, no default features) — the workspace's single `String.prototype.normalize` implementation for NFC/NFD/NFKC/NFKD, used by fuzzy edit matching and read-path variants; ICU4X data matches Node's ICU family.
 - `ignore = 0.4.23` (exact) — gitignore pattern matching (`matched`, last-match-wins, negation) behind the skill loader's `.gitignore`/`.ignore`/`.fdignore` handling, replacing the npm `ignore` package.
+- `indexmap = 2.14.2` (`serde`) — `IndexSet` for `AgentState.pending_tool_calls` and `FileOperations`, whose TypeScript `Set` iteration order is insertion order.
 - `serde_yaml_ng = 0.10.0` (exact) — parses skill and prompt-template YAML frontmatter in `harness::frontmatter`.
 - `pi-telemetry = { path = "../pi-telemetry", version = "=0.0.0" }` — supplies the `TelemetryContext`/`TelemetrySpan` runtime contract and the schema-definition types used by `harness::telemetry` and `AgentHarnessOptions.context`.
 - `tempfile = 3.27.0` (dev, exact) — creates isolated fixture trees for the node-env, tool, shell-capture, loader, and differential tests, and isolated JSONL session roots.

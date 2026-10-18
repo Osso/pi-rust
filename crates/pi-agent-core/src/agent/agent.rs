@@ -201,11 +201,11 @@ struct AgentInner {
     transform_context: Option<TransformContext>,
     stream_function: StreamFn,
     get_api_key: Option<GetApiKey>,
-    before_tool_call: Option<BeforeToolCallHook>,
-    after_tool_call: Option<AfterToolCallHook>,
-    should_stop_after_turn: Option<ShouldStopAfterTurnHook>,
-    prepare_next_turn: Option<PrepareNextTurnSignalHook>,
-    prepare_next_turn_with_context: Option<PrepareNextTurnContextHook>,
+    before_tool_call: Mutex<Option<BeforeToolCallHook>>,
+    after_tool_call: Mutex<Option<AfterToolCallHook>>,
+    should_stop_after_turn: Mutex<Option<ShouldStopAfterTurnHook>>,
+    prepare_next_turn: Mutex<Option<PrepareNextTurnSignalHook>>,
+    prepare_next_turn_with_context: Mutex<Option<PrepareNextTurnContextHook>>,
     session_id: Mutex<Option<String>>,
     thinking_budgets: Mutex<Option<ThinkingBudgets>>,
     transport: Mutex<Transport>,
@@ -236,7 +236,7 @@ impl Agent {
             is_streaming: false,
             is_model_request_active: false,
             streaming_message: None,
-            pending_tool_calls: std::collections::BTreeSet::new(),
+            pending_tool_calls: indexmap::IndexSet::new(),
             error_message: None,
         };
         Ok(Self {
@@ -257,11 +257,11 @@ impl Agent {
                 transform_context: options.transform_context,
                 stream_function,
                 get_api_key: options.get_api_key,
-                before_tool_call: options.before_tool_call,
-                after_tool_call: options.after_tool_call,
-                should_stop_after_turn: options.should_stop_after_turn,
-                prepare_next_turn: options.prepare_next_turn,
-                prepare_next_turn_with_context: options.prepare_next_turn_with_context,
+                before_tool_call: Mutex::new(options.before_tool_call),
+                after_tool_call: Mutex::new(options.after_tool_call),
+                should_stop_after_turn: Mutex::new(options.should_stop_after_turn),
+                prepare_next_turn: Mutex::new(options.prepare_next_turn),
+                prepare_next_turn_with_context: Mutex::new(options.prepare_next_turn_with_context),
                 session_id: Mutex::new(options.session_id),
                 thinking_budgets: Mutex::new(options.thinking_budgets),
                 transport: Mutex::new(options.transport.unwrap_or(Transport::Auto)),
@@ -289,6 +289,66 @@ impl Agent {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .retain(|(listener_id, _)| *listener_id != id);
+    }
+
+    fn hook<T: Clone>(&self, slot: &Mutex<Option<T>>) -> Option<T> {
+        slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+    }
+
+    /// Replaces `beforeToolCall` (TypeScript's public mutable field).
+    pub fn set_before_tool_call(&self, hook: Option<BeforeToolCallHook>) {
+        *self
+            .inner
+            .before_tool_call
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = hook;
+    }
+
+    /// Replaces `afterToolCall`.
+    pub fn set_after_tool_call(&self, hook: Option<AfterToolCallHook>) {
+        *self
+            .inner
+            .after_tool_call
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = hook;
+    }
+
+    /// Replaces `shouldStopAfterTurn`.
+    pub fn set_should_stop_after_turn(&self, hook: Option<ShouldStopAfterTurnHook>) {
+        *self
+            .inner
+            .should_stop_after_turn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = hook;
+    }
+
+    /// Replaces `prepareNextTurnWithContext`.
+    pub fn set_prepare_next_turn_with_context(&self, hook: Option<PrepareNextTurnContextHook>) {
+        *self
+            .inner
+            .prepare_next_turn_with_context
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = hook;
+    }
+
+    /// Returns the currently installed `shouldStopAfterTurn` hook.
+    pub fn should_stop_after_turn_hook(&self) -> Option<ShouldStopAfterTurnHook> {
+        self.hook(&self.inner.should_stop_after_turn)
+    }
+
+    /// Returns the currently installed `prepareNextTurnWithContext` hook.
+    pub fn prepare_next_turn_with_context_hook(&self) -> Option<PrepareNextTurnContextHook> {
+        self.hook(&self.inner.prepare_next_turn_with_context)
+    }
+
+    /// Returns the currently installed legacy `prepareNextTurn` hook.
+    pub fn prepare_next_turn_hook(&self) -> Option<PrepareNextTurnSignalHook> {
+        self.hook(&self.inner.prepare_next_turn)
+    }
+
+    /// The configured stream function (`streamFn`).
+    pub fn stream_fn(&self) -> StreamFn {
+        Arc::clone(&self.inner.stream_function)
     }
 
     /// Current state snapshot.
@@ -350,7 +410,7 @@ impl Agent {
         self.state_lock().streaming_message.clone()
     }
 
-    pub fn pending_tool_calls(&self) -> std::collections::BTreeSet<String> {
+    pub fn pending_tool_calls(&self) -> indexmap::IndexSet<String> {
         self.state_lock().pending_tool_calls.clone()
     }
 
@@ -667,8 +727,8 @@ impl Agent {
                 .tool_execution
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()),
-            before_tool_call: self.inner.before_tool_call.clone(),
-            after_tool_call: self.inner.after_tool_call.clone(),
+            before_tool_call: self.hook(&self.inner.before_tool_call),
+            after_tool_call: self.hook(&self.inner.after_tool_call),
         }
     }
 
@@ -703,7 +763,7 @@ impl Agent {
     }
 
     fn build_should_stop_hook(&self, run_signal: Option<CancellationToken>) -> Option<ShouldStopAfterTurnHook> {
-        self.inner.should_stop_after_turn.clone().map(|hook| {
+        self.hook(&self.inner.should_stop_after_turn).map(|hook| {
             Arc::new(
                 move |context: ShouldStopAfterTurnContext, _: Option<CancellationToken>| {
                     hook(context, run_signal.clone())
@@ -713,10 +773,9 @@ impl Agent {
     }
 
     fn build_prepare_next_turn_hook(&self, run_signal: Option<CancellationToken>) -> Option<PrepareNextTurnHook> {
-        match (
-            &self.inner.prepare_next_turn_with_context,
-            &self.inner.prepare_next_turn,
-        ) {
+        let prepare_next_turn_with_context = self.hook(&self.inner.prepare_next_turn_with_context);
+        let prepare_next_turn = self.hook(&self.inner.prepare_next_turn);
+        match (prepare_next_turn_with_context.as_ref(), prepare_next_turn.as_ref()) {
             (Some(with_context), _) => {
                 let with_context = Arc::clone(with_context);
                 Some(
@@ -784,7 +843,7 @@ impl Agent {
                     state.pending_tool_calls.insert(tool_call_id.clone());
                 }
                 AgentEvent::ToolExecutionEnd { tool_call_id, .. } => {
-                    state.pending_tool_calls.remove(tool_call_id);
+                    state.pending_tool_calls.shift_remove(tool_call_id);
                 }
                 AgentEvent::TurnEnd { message, .. } => {
                     if let Some(assistant) = message.as_assistant()

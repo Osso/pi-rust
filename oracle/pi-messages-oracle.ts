@@ -43,16 +43,16 @@ type StreamApi = {
 };
 
 // `partialArgs` is JS streaming scratch; timestamps and stacks are
-// environment-derived. Object keys are sorted because TypeScript property order
-// follows mutation history. `contentSignature`/`redacted` are extra fields the
+// environment-derived. `contentSignature`/`redacted` are extra fields the
 // converter spreads into end events but that are not part of the
-// `AssistantMessageEvent` contract.
+// `AssistantMessageEvent` contract. Property order is preserved so the
+// differential compares the exact serialized shape.
 function normalize(value: unknown): unknown {
 	if (Array.isArray(value)) return value.map(normalize);
 	if (value === null || typeof value !== "object") return value;
 	const source = value as Record<string, unknown>;
 	const result: Record<string, unknown> = {};
-	for (const key of Object.keys(source).sort()) {
+	for (const key of Object.keys(source)) {
 		if (key === "partialArgs" || key === "stack") continue;
 		if (key === "timestamp" || key === "timestampMs") {
 			result[key] = 0;
@@ -129,7 +129,7 @@ async function execute(scenario: Scenario, api: StreamApi): Promise<unknown> {
 			url: String(input),
 			method: init?.method ?? "GET",
 			headers: Object.fromEntries(new Headers(init?.headers)),
-			body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
+			body: init?.body === undefined ? undefined : String(init.body),
 		});
 		if (scenario.fetchError === "abort") {
 			controller.abort();

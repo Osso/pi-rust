@@ -1,6 +1,10 @@
+pub mod agent_session;
+pub mod agent_session_runtime;
+pub mod agent_session_services;
 pub mod auth_guidance;
 pub mod auth_storage;
 pub mod cache_stats;
+pub mod compaction;
 mod config_value;
 pub mod defaults;
 pub mod desktop_notification;
@@ -40,8 +44,10 @@ pub mod resource_loader;
 pub mod rule_store;
 pub mod runtime_credentials;
 pub mod runtime_process;
+pub mod sdk;
 pub mod session_control_db;
 pub mod session_cwd;
+pub mod session_directory;
 pub mod session_errors;
 pub mod session_health;
 pub mod session_manager;
@@ -67,3 +73,5 @@ pub use config_value::{
     resolve_config_value_or_throw, resolve_config_value_uncached, resolve_headers, resolve_headers_or_throw,
 };
 pub use skill_block::{ParsedSkillBlock, parse_skill_block};
+pub mod project_trust;
+pub mod runtime_message_markers;

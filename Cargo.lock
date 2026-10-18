@@ -2000,6 +2000,7 @@ version = "0.0.0"
 dependencies = [
  "icu_normalizer",
  "ignore",
+ "indexmap",
  "pi-ai",
  "pi-js-compat",
  "pi-telemetry",
@@ -2020,6 +2021,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hmac",
  "httpdate",
+ "indexmap",
  "pi-js-compat",
  "regex",
  "reqwest",
@@ -2053,6 +2055,7 @@ dependencies = [
  "fancy-regex",
  "futures-util",
  "gethostname",
+ "getrandom 0.4.3",
  "globset",
  "ignore",
  "image 0.24.9",

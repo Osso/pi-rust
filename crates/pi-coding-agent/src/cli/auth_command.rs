@@ -1,6 +1,10 @@
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
+use pi_ai::auth::types::AuthResult;
+
+use super::args::Args;
+
 const AUTH_CHECK_USAGE: &str = "pi auth check --provider <provider> [--json] [--credentials] [--no-refresh]";
 const AUTH_API_KEY_USAGE: &str = "pi auth print-api-key --provider <provider> [--model <model>]";
 const AUTH_BEARER_TOKEN_USAGE: &str =
@@ -233,4 +237,106 @@ fn duration_multiplier(unit: &str) -> f64 {
         "m" => MILLISECONDS_PER_MINUTE,
         _ => MILLISECONDS_PER_HOUR,
     }
+}
+
+/// Provider/model selected by `validateAuthCommandArgs`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthCommandTarget {
+    provider: Option<String>,
+    model: Option<String>,
+}
+
+impl AuthCommandTarget {
+    pub fn provider(&self) -> Option<&str> {
+        self.provider.as_deref()
+    }
+
+    pub fn model(&self) -> Option<&str> {
+        self.model.as_deref()
+    }
+}
+
+/// `validateAuthCommandArgs`.
+pub fn validate_auth_command_args(args: &Args, kind: AuthCommandKind) -> Result<AuthCommandTarget, AuthCommandError> {
+    let provider = trimmed_value(&args.provider);
+    let model = trimmed_value(&args.model);
+
+    if let Some(option) = args.unknown_flags.keys().next() {
+        return Err(AuthCommandError::new(format!(
+            "Unknown option --{option} for \"{}\".",
+            get_auth_command_name(kind)
+        )));
+    }
+    if args.api_key.is_some() || !args.messages.is_empty() || !args.file_args.is_empty() {
+        return Err(AuthCommandError::new(
+            "Auth commands only accept --provider and --model",
+        ));
+    }
+    if provider.is_none() && model.is_none() {
+        return Err(AuthCommandError::new(match kind {
+            AuthCommandKind::Check => "Auth checks require --provider <provider> or --model <model>",
+            AuthCommandKind::ApiKey | AuthCommandKind::BearerToken => {
+                "Credential printing requires --provider <provider> or --model <model>"
+            }
+        }));
+    }
+
+    Ok(AuthCommandTarget { provider, model })
+}
+
+fn trimmed_value(value: &Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(pi_js_compat::string::js_trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+/// `getAuthCredential`.
+pub fn get_auth_credential(auth: Option<&AuthResult>) -> Option<String> {
+    let auth = auth?;
+    if let Some(api_key) = auth.auth.api_key.as_deref().filter(|value| !value.is_empty()) {
+        return Some(api_key.to_owned());
+    }
+
+    let authorization = auth
+        .auth
+        .headers
+        .as_ref()?
+        .iter()
+        .find(|(name, _)| name.to_lowercase() == "authorization")
+        .and_then(|(_, value)| value.as_deref())?;
+    bearer_token(authorization)
+}
+
+/// `^Bearer\s+(.+)$` with the source `iu` flags: JavaScript whitespace after
+/// the case-insensitive prefix, then at least one non-line-terminator character.
+fn bearer_token(authorization: &str) -> Option<String> {
+    const PREFIX: &str = "Bearer";
+    if authorization.len() < PREFIX.len() || !authorization[..PREFIX.len()].eq_ignore_ascii_case(PREFIX) {
+        return None;
+    }
+
+    let rest = &authorization[PREFIX.len()..];
+    let whitespace_end = rest
+        .char_indices()
+        .take_while(|(_, character)| pi_js_compat::string::is_js_whitespace_char(*character))
+        .map(|(index, character)| index + character.len_utf8())
+        .last()
+        .unwrap_or(0);
+    let token = &rest[whitespace_end..];
+    if token.is_empty() || token.chars().any(is_line_terminator) {
+        return None;
+    }
+    Some(token.to_owned())
+}
+
+fn is_line_terminator(character: char) -> bool {
+    matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}')
+}
+
+/// `printAuthCommandHelp` output including the trailing newline from `console.log`.
+pub fn print_auth_command_help() -> String {
+    const HELP: &str = "Usage:\n  pi auth print-api-key [--provider <provider>] [--model <model>]\n  pi auth print-bearer-token [--provider <provider>] [--model <model>] [--min-expiry <duration>]\n  pi auth check [--provider <provider>] [--model <model>] [--json] [--credentials] [--no-refresh]\n\nAuth commands require at least one of --provider or --model. Checks refresh expired OAuth credentials by default; --no-refresh prevents this. --credentials emits the credential, or includes it in JSON output.\n";
+    HELP.to_owned()
 }

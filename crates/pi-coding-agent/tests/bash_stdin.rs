@@ -1,0 +1,42 @@
+use std::collections::BTreeMap;
+use std::os::unix::fs::PermissionsExt;
+use std::sync::Arc;
+
+use pi_coding_agent::core::tools::bash::{BashExecOptions, BashOperations, create_local_bash_operations};
+
+#[test]
+fn sends_commands_over_stdin_for_the_legacy_wsl_shim() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let shell_relative = "C:\\Windows\\System32\\bash.exe";
+    let shell_path = temp.path().join(shell_relative);
+    std::fs::create_dir_all(shell_path.parent().expect("parent")).expect("parent dirs");
+    std::fs::write(&shell_path, "#!/bin/sh\ncat\n").expect("shim");
+    let mut permissions = std::fs::metadata(&shell_path).expect("metadata").permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&shell_path, permissions).expect("chmod");
+
+    let original_cwd = std::env::current_dir().expect("cwd");
+    std::env::set_current_dir(temp.path()).expect("chdir");
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    let chunks = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured = Arc::clone(&chunks);
+    let operations = create_local_bash_operations(Some(shell_relative));
+    let command = "name='World'; echo \"Hello, ${name}!\"";
+    let result = runtime
+        .block_on(operations.exec(
+            command,
+            &temp.path().to_string_lossy(),
+            BashExecOptions {
+                on_data: Arc::new(move |data| captured.lock().expect("chunks").extend_from_slice(data)),
+                signal: None,
+                timeout: None,
+                env: std::env::vars().collect::<BTreeMap<_, _>>(),
+                detach: None,
+            },
+        ))
+        .expect("stdin shell");
+    std::env::set_current_dir(original_cwd).expect("restore cwd");
+    assert_eq!(result.exit_code, Some(0));
+    let output = String::from_utf8(chunks.lock().expect("chunks").clone()).expect("utf8");
+    assert_eq!(output, command);
+}

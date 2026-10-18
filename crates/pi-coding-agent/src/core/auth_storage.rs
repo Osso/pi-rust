@@ -16,7 +16,7 @@ use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::get_agent_dir;
-use crate::core::config_value::resolve_config_value;
+use crate::core::config_value::{is_command_config_value, resolve_config_value};
 use crate::utils::js_json;
 use crate::utils::lockfile::{LockErrorCode, LockOptions, acquire, acquire_sync};
 use crate::utils::paths::{get_file_revision, normalize_path};
@@ -470,6 +470,7 @@ impl CredentialStore for ReadOnlyAuthStorage {
             data.get(&provider_id)
                 .map(to_credential)
                 .transpose()
+                .map(|credential| credential.map(|credential| resolved_read_only_credential(&credential)))
                 .map_err(StorageError::into_auth_error)
         })
     }
@@ -803,6 +804,20 @@ fn resolved_credential(credential: &Credential) -> Credential {
         key: resolve_config_value(key, Some(&env)),
         env: api_key.env.clone(),
     })
+}
+
+/// `ReadOnlyAuthStorage.read` resolves templates but never executes command references.
+fn resolved_read_only_credential(credential: &Credential) -> Credential {
+    let Credential::ApiKey(api_key) = credential else {
+        return credential.clone();
+    };
+    let Some(key) = &api_key.key else {
+        return credential.clone();
+    };
+    if is_command_config_value(key) {
+        return credential.clone();
+    }
+    resolved_credential(credential)
 }
 
 impl CredentialStore for AuthStorage {

@@ -1,0 +1,4 @@
+# Overrides the user-level `build.incremental = true`: incremental state for
+# ~460 test binaries is the largest part of target/.
+[build]
+incremental = false

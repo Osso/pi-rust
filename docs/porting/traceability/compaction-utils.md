@@ -9,7 +9,7 @@ Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 | TypeScript | Rust | Tests |
 |---|---|---|
-| `FileOperations` (`Set<string>` x3) | `FileOperations` (`BTreeSet<String>` x3) | `creates_empty_file_operations`, differential |
+| `FileOperations` (`Set<string>` x3) | `FileOperations` (`IndexSet<String>` x3) | `creates_empty_file_operations`, differential |
 | `createFileOps` | `create_file_ops` | `creates_empty_file_operations` |
 | `extractFileOpsFromMessage` | `extract_file_ops_from_message` | three extraction tests, differential `prepare_branch_entries` |
 | `computeFileLists` | `compute_file_lists` | `computes_sorted_read_only_and_modified_lists`, differential `compute_file_lists` |
@@ -23,8 +23,9 @@ Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 ## Behavior notes
 
-- Sets map to `BTreeSet`; `computeFileLists` sorts both output lists, so insertion
-  order is not observable. Read-only files exclude any modified path.
+- Sets map to `IndexSet`, matching the insertion order of the TypeScript `Set`.
+  `computeFileLists` sorts both output lists explicitly, so the derived lists are
+  ordered by path. Read-only files exclude any modified path.
 - Assistant tool calls are serialized as `name(key=JSON.stringify(value), ...)` with
   JSON object insertion order preserved (`serde_json` `preserve_order`).
 - Tool results are truncated at 2 000 UTF-16 units with
@@ -50,5 +51,4 @@ empty lists, and Unicode/NUL/newline content.
    cannot represent `undefined`, so only `[unserializable]` on serialization failure
    is reachable.
 3. **Set insertion order.** TypeScript preserves insertion order in the `FileOperations`
-   sets; the Rust accumulator is ordered by path. No exported function exposes set
-   order (`computeFileLists` sorts), so this is not observable.
+   sets; `IndexSet` preserves it too. The oracle serializes the sets without sorting.

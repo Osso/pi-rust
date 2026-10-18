@@ -209,3 +209,75 @@ fn format_decimal_digits(digits: &str, point: i32, sign: &str) -> String {
         format!("{sign}{head}.{tail}e{exponent_sign}{}", exponent.abs())
     }
 }
+
+/// ECMA-262 `Number.prototype.toFixed(fraction_digits)` for finite values below
+/// `1e21`, computed from the exact binary value of the double.
+///
+/// The spec picks the closest multiple of `10^-fraction_digits` to the exact
+/// value and the larger one on an exact tie (away from zero after sign
+/// extraction). Rust's `{:.n}` formatting rounds half to even, which differs
+/// for values such as `1.25` or `9/8`.
+pub fn to_fixed(value: f64, fraction_digits: u32) -> String {
+    if !value.is_finite() || value.abs() >= 1e21 {
+        return js_number_to_string(value);
+    }
+    let sign = if value.is_sign_negative() { "-" } else { "" };
+    let magnitude = value.abs();
+    let scale = 10_u128
+        .checked_pow(fraction_digits)
+        .expect("toFixed fraction digits must fit the scale");
+    let rounded = round_scaled(magnitude, scale);
+    let whole = rounded / scale;
+    if fraction_digits == 0 {
+        return format!("{sign}{whole}");
+    }
+    let fraction = rounded % scale;
+    format!("{sign}{whole}.{fraction:0width$}", width = fraction_digits as usize)
+}
+
+/// `floor(x * scale + 1/2)` on the exact value of `x`.
+fn round_scaled(magnitude: f64, scale: u128) -> u128 {
+    let bits = magnitude.to_bits();
+    let exponent_bits = ((bits >> 52) & 0x7ff) as i32;
+    let fraction_bits = bits & ((1_u64 << 52) - 1);
+    let (mantissa, exponent) = if exponent_bits == 0 {
+        (u128::from(fraction_bits), -1074)
+    } else {
+        (u128::from(fraction_bits | (1_u64 << 52)), exponent_bits - 1075)
+    };
+
+    let scaled = mantissa * scale;
+    if exponent >= 0 {
+        return scaled << exponent;
+    }
+
+    let shift = (-exponent) as u32;
+    if shift >= 64 {
+        return 0;
+    }
+    (2 * scaled + (1_u128 << shift)) >> (shift + 1)
+}
+
+#[cfg(test)]
+mod to_fixed_tests {
+    use super::to_fixed;
+
+    #[test]
+    fn matches_ecmascript_rounding_of_exact_double_values() {
+        // Values where naive `(value * 10).round()` or Rust `{:.1}` differ from the spec.
+        assert_eq!(to_fixed(1.15, 1), "1.1");
+        assert_eq!(to_fixed(1.25, 1), "1.3");
+        assert_eq!(to_fixed(1.35, 1), "1.4");
+        assert_eq!(to_fixed(999.95, 1), "1000.0");
+        assert_eq!(to_fixed(2.5, 0), "3");
+        assert_eq!(to_fixed(1.5, 0), "2");
+        assert_eq!(to_fixed(-1.25, 1), "-1.3");
+        assert_eq!(to_fixed(0.0, 1), "0.0");
+        assert_eq!(to_fixed(1.0, 2), "1.00");
+        assert_eq!(to_fixed(1.005, 2), "1.00");
+        assert_eq!(to_fixed(1.045, 2), "1.04");
+        assert_eq!(to_fixed(0.0001, 2), "0.00");
+        assert_eq!(to_fixed(1e21, 1), "1e+21");
+        assert_eq!(to_fixed(f64::NAN, 1), "NaN");
+    }
+}

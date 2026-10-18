@@ -41,3 +41,50 @@ pub fn js_trim_end(value: &str) -> &str {
 pub fn utf16_len(value: &str) -> usize {
     value.encode_utf16().count()
 }
+
+/// JavaScript `String.prototype.replace(searchValue, replaceValue)` for string
+/// arguments: replaces the first occurrence and expands `$$`, `$&`, `` $` ``
+/// and `$'` in the replacement. Capture references stay literal because a
+/// string search value has no capture groups.
+pub fn replace(input: &str, search: &str, replacement: &str) -> String {
+    let Some(index) = input.find(search) else {
+        return input.to_owned();
+    };
+    let end = index + search.len();
+    let mut output = String::with_capacity(input.len());
+    output.push_str(&input[..index]);
+    output.push_str(&expand_replacement(replacement, search, &input[..index], &input[end..]));
+    output.push_str(&input[end..]);
+    output
+}
+
+fn expand_replacement(replacement: &str, matched: &str, prefix: &str, suffix: &str) -> String {
+    let mut output = String::with_capacity(replacement.len());
+    let mut characters = replacement.chars();
+    while let Some(character) = characters.next() {
+        if character != '$' {
+            output.push(character);
+            continue;
+        }
+        match characters.clone().next() {
+            Some('$') => {
+                characters.next();
+                output.push('$');
+            }
+            Some('&') => {
+                characters.next();
+                output.push_str(matched);
+            }
+            Some('`') => {
+                characters.next();
+                output.push_str(prefix);
+            }
+            Some('\'') => {
+                characters.next();
+                output.push_str(suffix);
+            }
+            _ => output.push('$'),
+        }
+    }
+    output
+}

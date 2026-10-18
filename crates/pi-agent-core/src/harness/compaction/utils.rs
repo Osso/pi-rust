@@ -1,7 +1,6 @@
 //! Port of `packages/agent/src/harness/compaction/utils.ts`.
 
-use std::collections::BTreeSet;
-
+use indexmap::IndexSet;
 use pi_ai::types::{AssistantContent, Message, TextOrImageContent, UserContent};
 use serde_json::Value;
 
@@ -14,11 +13,11 @@ const TOOL_RESULT_MAX_CHARS: usize = 2000;
 #[serde(rename_all = "camelCase")]
 pub struct FileOperations {
     /// Files read but not necessarily modified.
-    pub read: BTreeSet<String>,
+    pub read: IndexSet<String>,
     /// Files written by full-file write operations.
-    pub written: BTreeSet<String>,
+    pub written: IndexSet<String>,
     /// Files modified by edit operations.
-    pub edited: BTreeSet<String>,
+    pub edited: IndexSet<String>,
 }
 
 /// Sorted read-only and modified file lists derived from [`FileOperations`].
@@ -62,16 +61,25 @@ pub fn extract_file_ops_from_message(message: &AgentMessage, file_ops: &mut File
 
 /// Compute sorted read-only and modified file lists from accumulated operations.
 pub fn compute_file_lists(file_ops: &FileOperations) -> FileLists {
-    let modified: BTreeSet<&String> = file_ops.edited.iter().chain(&file_ops.written).collect();
+    let modified: IndexSet<&String> = file_ops.edited.iter().chain(&file_ops.written).collect();
+    let mut read_files: Vec<String> = file_ops
+        .read
+        .iter()
+        .filter(|path| !modified.contains(path))
+        .cloned()
+        .collect();
+    let mut modified_files: Vec<String> = modified.into_iter().cloned().collect();
+    sort_utf16(&mut read_files);
+    sort_utf16(&mut modified_files);
     FileLists {
-        read_files: file_ops
-            .read
-            .iter()
-            .filter(|path| !modified.contains(path))
-            .cloned()
-            .collect(),
-        modified_files: modified.into_iter().cloned().collect(),
+        read_files,
+        modified_files,
     }
+}
+
+/// `Array.prototype.sort()` default comparison orders UTF-16 code units.
+fn sort_utf16(values: &mut [String]) {
+    values.sort_by(|left, right| left.encode_utf16().cmp(right.encode_utf16()));
 }
 
 /// Formats read-only and modified file lists as summary metadata sections.
@@ -98,6 +106,17 @@ fn format_section(tag: &str, entries: &[String]) -> String {
 
 /// Serialize LLM messages to plain text for summarization prompts.
 pub fn serialize_conversation(messages: &[Message]) -> String {
+    serialize_conversation_with_arguments(messages, &safe_json_stringify)
+}
+
+/// [`serialize_conversation`] with a caller-supplied tool-argument serializer.
+///
+/// The coding-agent copy of this module truncates tool arguments; the agent copy
+/// serializes them in full. Both share this body.
+pub fn serialize_conversation_with_arguments(
+    messages: &[Message],
+    serialize_argument: &dyn Fn(&Value) -> String,
+) -> String {
     let mut parts = Vec::new();
 
     for message in messages {
@@ -112,7 +131,7 @@ pub fn serialize_conversation(messages: &[Message]) -> String {
                 }
             }
             Message::Assistant(assistant) => {
-                serialize_assistant_message(&assistant.content, &mut parts);
+                serialize_assistant_message(&assistant.content, serialize_argument, &mut parts);
             }
             Message::ToolResult(result) => {
                 let content = text_blocks(&result.content);
@@ -140,7 +159,11 @@ fn text_blocks(blocks: &[TextOrImageContent]) -> String {
         .join("")
 }
 
-fn serialize_assistant_message(content: &[AssistantContent], parts: &mut Vec<String>) {
+fn serialize_assistant_message(
+    content: &[AssistantContent],
+    serialize_argument: &dyn Fn(&Value) -> String,
+    parts: &mut Vec<String>,
+) {
     let mut text_parts = Vec::new();
     let mut tool_calls = Vec::new();
 
@@ -148,7 +171,11 @@ fn serialize_assistant_message(content: &[AssistantContent], parts: &mut Vec<Str
         match block {
             AssistantContent::Text(text) => text_parts.push(text.text.clone()),
             AssistantContent::ToolCall(call) => {
-                tool_calls.push(format!("{}({})", call.name, serialize_tool_arguments(&call.arguments)));
+                tool_calls.push(format!(
+                    "{}({})",
+                    call.name,
+                    serialize_tool_arguments(&call.arguments, serialize_argument)
+                ));
             }
             AssistantContent::Thinking(_) => {}
         }
@@ -162,10 +189,13 @@ fn serialize_assistant_message(content: &[AssistantContent], parts: &mut Vec<Str
     }
 }
 
-fn serialize_tool_arguments(arguments: &serde_json::Map<String, Value>) -> String {
+fn serialize_tool_arguments(
+    arguments: &serde_json::Map<String, Value>,
+    serialize_argument: &dyn Fn(&Value) -> String,
+) -> String {
     arguments
         .iter()
-        .map(|(key, value)| format!("{key}={}", safe_json_stringify(value)))
+        .map(|(key, value)| format!("{key}={}", serialize_argument(value)))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -188,7 +218,8 @@ fn serialize_tool_result_for_summary(content: &str, details: Option<&Value>) -> 
     format!("{serialized}\n\n[Output truncated. Full output: {full_output_path}]")
 }
 
-fn truncate_for_summary(text: &str, max_chars: usize) -> String {
+/// Truncate text to a maximum UTF-16 length for summarization.
+pub fn truncate_for_summary(text: &str, max_chars: usize) -> String {
     let units: Vec<u16> = text.encode_utf16().collect();
     if units.len() <= max_chars {
         return text.to_owned();
