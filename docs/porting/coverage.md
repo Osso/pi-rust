@@ -645,7 +645,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/agent-session-services.ts` | 219 | 22 | todo |  |  |
 | `coding-agent/src/core/agent-session.ts` | 6073 | 22 | todo |  |  |
 | `coding-agent/src/core/bash-executor.ts` | 156 | 22 | todo |  |  |
-| `coding-agent/src/core/export-html/index.ts` | 316 | 22 | todo |  |  |
+| `coding-agent/src/core/export-html/index.ts` | 316 | 22 | done | `crates/pi-coding-agent/src/core/export_html/index.rs` | Theme derivation, embedded templates, session-data base64, file/live export, exact JS `String.replace` semantics; byte-for-byte differential for 3 themes + error parity. See `coding-agent-export-html.md`. |
 | `coding-agent/src/core/export-html/tool-renderer.ts` | 172 | 22 | todo |  |  |
 | `coding-agent/src/core/extensions/index.ts` | 192 | 22 | todo |  |  |
 | `coding-agent/src/core/extensions/loader.ts` | 790 | 22 | todo |  |  |

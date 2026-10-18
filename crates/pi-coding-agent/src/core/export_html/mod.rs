@@ -1,3 +1,10 @@
+//! Port of `packages/coding-agent/src/core/export-html/index.ts`.
+
 pub mod ansi_to_html;
+pub mod index;
 
 pub use ansi_to_html::{ansi_lines_to_html, ansi_to_html};
+pub use index::{
+    ExportError, ExportOptions, RenderedToolHtml, RenderedToolResult, SessionData, ToolHtmlRenderer, ToolSummary,
+    export_from_file, export_session_to_html,
+};
