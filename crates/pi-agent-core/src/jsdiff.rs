@@ -1,5 +1,5 @@
 //! Port of the parts of `diff@8.0.4` used by the agent and coding-agent tools:
-//! `diffLines`, `structuredPatch`, and `createTwoFilesPatch` with
+//! `diffLines`, `diffWords`, `structuredPatch`, and `createTwoFilesPatch` with
 //! `FILE_HEADERS_ONLY`.
 
 use std::collections::HashMap;
@@ -32,7 +32,23 @@ pub fn diff_lines(old_text: &str, new_text: &str) -> Vec<Part> {
     let old_tokens = remove_empty(tokenize(old_text));
     let new_tokens = remove_empty(tokenize(new_text));
     let components = Search::new(&old_tokens, &new_tokens).run();
-    build_values(&components, &old_tokens, &new_tokens)
+    build_values(&components, &old_tokens, &new_tokens, Mode::Lines)
+}
+
+/// `diffWords(old_str, new_str)` with default options.
+pub fn diff_words(old_text: &str, new_text: &str) -> Vec<Part> {
+    let old_tokens = remove_empty(tokenize_words(old_text));
+    let new_tokens = remove_empty(tokenize_words(new_text));
+    let components = Search::new_words(&old_tokens, &new_tokens).run();
+    let mut parts = build_values(&components, &old_tokens, &new_tokens, Mode::Words);
+    dedupe_change_object_whitespace(&mut parts);
+    parts
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Lines,
+    Words,
 }
 
 /// `tokenize(value, {})`: split into lines with their terminators.
@@ -62,6 +78,7 @@ fn remove_empty(tokens: Vec<String>) -> Vec<String> {
 struct Search<'a> {
     old_tokens: &'a [String],
     new_tokens: &'a [String],
+    mode: Mode,
     best_path: HashMap<i64, Path>,
     min_diagonal: i64,
     max_diagonal: i64,
@@ -69,9 +86,18 @@ struct Search<'a> {
 
 impl<'a> Search<'a> {
     fn new(old_tokens: &'a [String], new_tokens: &'a [String]) -> Self {
+        Self::with_mode(old_tokens, new_tokens, Mode::Lines)
+    }
+
+    fn new_words(old_tokens: &'a [String], new_tokens: &'a [String]) -> Self {
+        Self::with_mode(old_tokens, new_tokens, Mode::Words)
+    }
+
+    fn with_mode(old_tokens: &'a [String], new_tokens: &'a [String], mode: Mode) -> Self {
         Self {
             old_tokens,
             new_tokens,
+            mode,
             best_path: HashMap::new(),
             min_diagonal: i64::MIN,
             max_diagonal: i64::MAX,
@@ -85,7 +111,7 @@ impl<'a> Search<'a> {
             old_pos: -1,
             last: None,
         };
-        let new_pos = extract_common(&mut start, self.new_tokens, self.old_tokens, 0);
+        let new_pos = extract_common(&mut start, self.new_tokens, self.old_tokens, 0, self.mode);
         if start.old_pos + 1 >= old_len && new_pos + 1 >= new_len {
             return flatten(start.last);
         }
@@ -133,7 +159,7 @@ impl<'a> Search<'a> {
         } else {
             add_to_path(remove_path.as_ref().expect("remove path"), false, true, 1)
         };
-        let new_pos = extract_common(&mut base_path, self.new_tokens, self.old_tokens, diagonal);
+        let new_pos = extract_common(&mut base_path, self.new_tokens, self.old_tokens, diagonal, self.mode);
         if base_path.old_pos + 1 >= old_len && new_pos + 1 >= new_len {
             return Some(flatten(base_path.last));
         }
@@ -172,7 +198,7 @@ fn add_to_path(path: &Path, added: bool, removed: bool, old_pos_increment: i64) 
     }
 }
 
-fn extract_common(path: &mut Path, new_tokens: &[String], old_tokens: &[String], diagonal: i64) -> i64 {
+fn extract_common(path: &mut Path, new_tokens: &[String], old_tokens: &[String], diagonal: i64, mode: Mode) -> i64 {
     let new_len = new_tokens.len() as i64;
     let old_len = old_tokens.len() as i64;
     let mut old_pos = path.old_pos;
@@ -180,7 +206,11 @@ fn extract_common(path: &mut Path, new_tokens: &[String], old_tokens: &[String],
     let mut common = 0;
     while new_pos + 1 < new_len
         && old_pos + 1 < old_len
-        && old_tokens[(old_pos + 1) as usize] == new_tokens[(new_pos + 1) as usize]
+        && tokens_equal(
+            &old_tokens[(old_pos + 1) as usize],
+            &new_tokens[(new_pos + 1) as usize],
+            mode,
+        )
     {
         new_pos += 1;
         old_pos += 1;
@@ -209,7 +239,14 @@ fn flatten(last: Option<Rc<Component>>) -> Vec<Component> {
     components
 }
 
-fn build_values(components: &[Component], old_tokens: &[String], new_tokens: &[String]) -> Vec<Part> {
+fn tokens_equal(left: &str, right: &str, mode: Mode) -> bool {
+    match mode {
+        Mode::Lines => left == right,
+        Mode::Words => left.trim() == right.trim(),
+    }
+}
+
+fn build_values(components: &[Component], old_tokens: &[String], new_tokens: &[String], mode: Mode) -> Vec<Part> {
     let mut parts = Vec::new();
     let mut old_pos = 0;
     let mut new_pos = 0;
@@ -218,14 +255,14 @@ fn build_values(components: &[Component], old_tokens: &[String], new_tokens: &[S
             parts.push(Part {
                 added: false,
                 removed: true,
-                value: old_tokens[old_pos..old_pos + component.count].concat(),
+                value: join_tokens(&old_tokens[old_pos..old_pos + component.count], mode),
             });
             old_pos += component.count;
         } else {
             parts.push(Part {
                 added: component.added,
                 removed: false,
-                value: new_tokens[new_pos..new_pos + component.count].concat(),
+                value: join_tokens(&new_tokens[new_pos..new_pos + component.count], mode),
             });
             new_pos += component.count;
             if !component.added {
@@ -234,6 +271,300 @@ fn build_values(components: &[Component], old_tokens: &[String], new_tokens: &[S
         }
     }
     parts
+}
+
+fn join_tokens(tokens: &[String], mode: Mode) -> String {
+    match mode {
+        Mode::Lines => tokens.concat(),
+        Mode::Words => tokens
+            .iter()
+            .enumerate()
+            .map(|(index, token)| {
+                if index == 0 {
+                    token.clone()
+                } else {
+                    token.trim_start_matches(js_whitespace).to_string()
+                }
+            })
+            .collect(),
+    }
+}
+
+/// JavaScript `\s`.
+fn js_whitespace(character: char) -> bool {
+    matches!(
+        character,
+        '\t' | '\n' | '\u{000B}' | '\u{000C}' | '\r' | ' ' | '\u{00A0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' | '\u{205F}' | '\u{3000}' | '\u{FEFF}'
+    )
+}
+
+/// `WordDiff.tokenize` with the default (non-segmenter) tokenizer.
+fn tokenize_words(value: &str) -> Vec<String> {
+    let mut parts: Vec<String> = Vec::new();
+    let characters: Vec<char> = value.chars().collect();
+    let mut index = 0;
+    while index < characters.len() {
+        if is_word_character(characters[index]) {
+            let start = index;
+            while index < characters.len() && is_word_character(characters[index]) {
+                index += 1;
+            }
+            parts.push(characters[start..index].iter().collect());
+        } else if js_whitespace(characters[index]) {
+            let start = index;
+            while index < characters.len() && js_whitespace(characters[index]) {
+                index += 1;
+            }
+            parts.push(characters[start..index].iter().collect());
+        } else {
+            parts.push(characters[index].to_string());
+            index += 1;
+        }
+    }
+
+    let mut tokens: Vec<String> = Vec::new();
+    let mut previous: Option<String> = None;
+    for part in parts {
+        let part_is_whitespace = part.chars().any(js_whitespace);
+        if part_is_whitespace {
+            if previous.is_none() {
+                tokens.push(part.clone());
+            } else {
+                let last = tokens.pop().unwrap_or_default();
+                tokens.push(format!("{last}{part}"));
+            }
+        } else if let Some(previous_part) = &previous {
+            if previous_part.chars().any(js_whitespace) {
+                if tokens.last() == Some(previous_part) {
+                    let last = tokens.pop().unwrap_or_default();
+                    tokens.push(format!("{last}{part}"));
+                } else {
+                    tokens.push(format!("{previous_part}{part}"));
+                }
+            } else {
+                tokens.push(part.clone());
+            }
+        } else {
+            tokens.push(part.clone());
+        }
+        previous = Some(part);
+    }
+    tokens
+}
+
+fn is_word_character(character: char) -> bool {
+    matches!(
+        character,
+        'a'..='z'
+            | 'A'..='Z'
+            | '0'..='9'
+            | '_'
+            | '\u{00AD}'
+            | '\u{00C0}'..='\u{00D6}'
+            | '\u{00D8}'..='\u{00F6}'
+            | '\u{00F8}'..='\u{02C6}'
+            | '\u{02C8}'..='\u{02D7}'
+            | '\u{02DE}'..='\u{02FF}'
+            | '\u{1E00}'..='\u{1EFF}'
+    )
+}
+
+fn dedupe_change_object_whitespace(parts: &mut [Part]) {
+    let mut last_keep: Option<usize> = None;
+    let mut insertion: Option<usize> = None;
+    let mut deletion: Option<usize> = None;
+    for index in 0..parts.len() {
+        if parts[index].added {
+            insertion = Some(index);
+        } else if parts[index].removed {
+            deletion = Some(index);
+        } else {
+            if insertion.is_some() || deletion.is_some() {
+                dedupe_whitespace_in_change_objects(parts, last_keep, deletion, insertion, Some(index));
+            }
+            last_keep = Some(index);
+            insertion = None;
+            deletion = None;
+        }
+    }
+    if insertion.is_some() || deletion.is_some() {
+        dedupe_whitespace_in_change_objects(parts, last_keep, deletion, insertion, None);
+    }
+}
+
+fn dedupe_whitespace_in_change_objects(
+    parts: &mut [Part],
+    start_keep: Option<usize>,
+    deletion: Option<usize>,
+    insertion: Option<usize>,
+    end_keep: Option<usize>,
+) {
+    if let (Some(deletion_index), Some(insertion_index)) = (deletion, insertion) {
+        let deletion_value = parts[deletion_index].value.clone();
+        let insertion_value = parts[insertion_index].value.clone();
+        let (old_prefix, old_suffix) = leading_and_trailing_ws(&deletion_value);
+        let (new_prefix, new_suffix) = leading_and_trailing_ws(&insertion_value);
+        if let Some(keep) = start_keep {
+            let common = longest_common_prefix(&old_prefix, &new_prefix);
+            parts[keep].value = replace_suffix(&parts[keep].value, &new_prefix, &common);
+            parts[deletion_index].value = remove_prefix(&parts[deletion_index].value, &common);
+            parts[insertion_index].value = remove_prefix(&parts[insertion_index].value, &common);
+        }
+        if let Some(keep) = end_keep {
+            let common = longest_common_suffix(&old_suffix, &new_suffix);
+            parts[keep].value = replace_prefix(&parts[keep].value, &new_suffix, &common);
+            parts[deletion_index].value = remove_suffix(&parts[deletion_index].value, &common);
+            parts[insertion_index].value = remove_suffix(&parts[insertion_index].value, &common);
+        }
+    } else if let Some(insertion_index) = insertion {
+        if start_keep.is_some() {
+            let whitespace = leading_ws(&parts[insertion_index].value);
+            parts[insertion_index].value = parts[insertion_index].value[whitespace.len()..].to_string();
+        }
+        if let Some(keep) = end_keep {
+            let whitespace = leading_ws(&parts[keep].value);
+            parts[keep].value = parts[keep].value[whitespace.len()..].to_string();
+        }
+    } else if let (Some(start), Some(end)) = (start_keep, end_keep) {
+        let Some(deletion_index) = deletion else {
+            return;
+        };
+        let new_ws_full = leading_ws(&parts[end].value);
+        let (deletion_ws_start, deletion_ws_end) = leading_and_trailing_ws(&parts[deletion_index].value);
+        let new_ws_start = longest_common_prefix(&new_ws_full, &deletion_ws_start);
+        let deletion_value = remove_prefix(&parts[deletion_index].value, &new_ws_start);
+        let remaining_new_ws = remove_prefix(&new_ws_full, &new_ws_start);
+        let new_ws_end = longest_common_suffix(&remaining_new_ws, &deletion_ws_end);
+        parts[deletion_index].value = remove_suffix(&deletion_value, &new_ws_end);
+        parts[end].value = replace_prefix(&parts[end].value, &new_ws_full, &new_ws_end);
+        let start_suffix = &new_ws_full[..new_ws_full.len() - new_ws_end.len()];
+        parts[start].value = replace_suffix(&parts[start].value, &new_ws_full, start_suffix);
+    } else if let Some(end) = end_keep {
+        let Some(deletion_index) = deletion else {
+            return;
+        };
+        let end_keep_ws_prefix = leading_ws(&parts[end].value);
+        let deletion_ws_suffix = trailing_ws(&parts[deletion_index].value);
+        let overlap = maximum_overlap(&deletion_ws_suffix, &end_keep_ws_prefix);
+        parts[deletion_index].value = remove_suffix(&parts[deletion_index].value, &overlap);
+    } else if let Some(start) = start_keep {
+        let Some(deletion_index) = deletion else {
+            return;
+        };
+        let start_keep_ws_suffix = trailing_ws(&parts[start].value);
+        let deletion_ws_prefix = leading_ws(&parts[deletion_index].value);
+        let overlap = maximum_overlap(&start_keep_ws_suffix, &deletion_ws_prefix);
+        parts[deletion_index].value = remove_prefix(&parts[deletion_index].value, &overlap);
+    }
+}
+
+fn leading_ws(value: &str) -> String {
+    value
+        .chars()
+        .take_while(|character| js_whitespace(*character))
+        .collect()
+}
+
+fn trailing_ws(value: &str) -> String {
+    let mut characters: Vec<char> = value
+        .chars()
+        .rev()
+        .take_while(|character| js_whitespace(*character))
+        .collect();
+    characters.reverse();
+    characters.into_iter().collect()
+}
+
+fn leading_and_trailing_ws(value: &str) -> (String, String) {
+    (leading_ws(value), trailing_ws(value))
+}
+
+fn longest_common_prefix(left: &str, right: &str) -> String {
+    left.chars()
+        .zip(right.chars())
+        .take_while(|(left, right)| left == right)
+        .map(|(left, _)| left)
+        .collect()
+}
+
+fn longest_common_suffix(left: &str, right: &str) -> String {
+    let left: Vec<char> = left.chars().collect();
+    let right: Vec<char> = right.chars().collect();
+    if left.is_empty() || right.is_empty() || left.last() != right.last() {
+        return String::new();
+    }
+    let mut count = 0;
+    while count < left.len() && count < right.len() && left[left.len() - 1 - count] == right[right.len() - 1 - count] {
+        count += 1;
+    }
+    left[left.len() - count..].iter().collect()
+}
+
+fn replace_prefix(string: &str, old_prefix: &str, new_prefix: &str) -> String {
+    assert!(
+        string.starts_with(old_prefix),
+        "string {string:?} doesn't start with prefix {old_prefix:?}; this is a bug"
+    );
+    format!("{new_prefix}{}", &string[old_prefix.len()..])
+}
+
+fn replace_suffix(string: &str, old_suffix: &str, new_suffix: &str) -> String {
+    if old_suffix.is_empty() {
+        return format!("{string}{new_suffix}");
+    }
+    assert!(
+        string.ends_with(old_suffix),
+        "string {string:?} doesn't end with suffix {old_suffix:?}; this is a bug"
+    );
+    format!("{}{new_suffix}", &string[..string.len() - old_suffix.len()])
+}
+
+fn remove_prefix(string: &str, old_prefix: &str) -> String {
+    replace_prefix(string, old_prefix, "")
+}
+
+fn remove_suffix(string: &str, old_suffix: &str) -> String {
+    replace_suffix(string, old_suffix, "")
+}
+
+fn maximum_overlap(left: &str, right: &str) -> String {
+    right.chars().take(overlap_count(left, right)).collect()
+}
+
+fn overlap_count(left: &str, right: &str) -> usize {
+    let left: Vec<char> = left.chars().collect();
+    let right: Vec<char> = right.chars().collect();
+    let start_left = left.len().saturating_sub(right.len());
+    let end_right = right.len().min(left.len());
+    if end_right == 0 {
+        return 0;
+    }
+    let mut map = vec![0usize; end_right];
+    let mut k = 0;
+    for index in 1..end_right {
+        if right[index] == right[k] {
+            map[index] = map[k];
+        } else {
+            map[index] = k;
+        }
+        while k > 0 && right[index] != right[k] {
+            k = map[k];
+        }
+        if right[index] == right[k] {
+            k += 1;
+        }
+    }
+    k = 0;
+    for character in left.iter().skip(start_left) {
+        while k > 0 && Some(character) != right.get(k) {
+            k = map[k];
+        }
+        if Some(character) == right.get(k) {
+            k += 1;
+        }
+    }
+    k
 }
 
 /// One `structuredPatch` hunk.

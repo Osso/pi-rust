@@ -15,7 +15,10 @@ pub fn get_model_search_candidates(item: &ModelSearchItem) -> Vec<String> {
         format!("{}/{}", item.provider, item.id),
         format!("{} {}", item.provider, item.id),
     ];
-    if let Some(name) = &item.name {
+    // The source's `if (name)` drops an empty display name.
+    if let Some(name) = &item.name
+        && !name.is_empty()
+    {
         candidates.push(name.clone());
     }
     candidates
