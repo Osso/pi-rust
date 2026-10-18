@@ -4,6 +4,10 @@ All direct dependencies are exact-pinned.
 
 ## Runtime
 
+### `pi-js-compat`
+
+- `icu_collator = 2.3.1` (`compiled_data`) and `icu_locale_core = 2.3.0` — reproduce `String.prototype.localeCompare` / `Intl.Collator` ordering with the host locale, the single implementation shared by `pi-coding-agent`, `pi-agent-core`, and `pi-tui`.
+
 ### `pi-coding-agent`
 
 - Auth commands, config-value reference/environment-status helpers, `ParsedSkillBlock`/`parse_skill_block`, the focused direct-module CLI `Mode` value, the focused direct-module `isValidThinkingLevel` predicate, and the tool-output persistence constants use only the Rust standard library beyond the existing exact local `pi-agent-core` type dependency. `MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES` uses `usize` only as a narrow exception for the exact TypeScript numeric literal used as a byte limit; this does not generalize JavaScript `number` mappings.

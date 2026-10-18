@@ -2068,6 +2068,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pi-js-compat"
+version = "0.0.0"
+dependencies = [
+ "icu_collator",
+ "icu_locale_core",
+ "serde_json",
+]
+
+[[package]]
 name = "pi-protocol"
 version = "0.0.0"
 dependencies = [
