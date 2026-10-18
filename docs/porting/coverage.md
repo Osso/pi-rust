@@ -47,7 +47,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/sanitize-unicode.ts` | 25 | 0 | done | `crates/pi-ai/src/utils/sanitize_unicode.rs` | Surrogate repair over UTF-16 units plus typed identity API; differential. |
 | `ai/src/utils/typebox-helpers.ts` | 24 | 0 | done | `crates/pi-ai/src/utils/typebox_helpers.rs` | `StringEnum` builder plus explicit TypeBox-origin newtype ([traceability](traceability/typebox-helpers.md)). |
 | `ai/src/utils/uuid.ts` | 48 | 0 | done | `crates/pi-ai/src/utils/uuid.rs` | RFC 9562 UUIDv7 with monotonic sequence; TS vectors + structural differential. |
-| `ai/src/api/anthropic-messages.ts` | 1366 | 1 | todo |  |  |
+| `ai/src/api/anthropic-messages.ts` | 1366 | 1 | done | `crates/pi-ai/src/api/anthropic_messages.rs` + `api/anthropic_sdk.rs` | Messages conversion, SDK request construction (URL/headers/body/status errors/retry), SSE state machine, thinking/cache/tool compat; 27 behavioral tests + 41 recorded-fixture differential scenarios. |
 | `ai/src/api/azure-openai-responses.ts` | 330 | 1 | done | `crates/pi-ai/src/api/azure_openai_responses.rs` | Deployment/env/base-URL resolution, api-key auth, strict tools, reasoning; 9 recorded-fetch differential scenarios. |
 | `ai/src/api/bedrock-converse-stream.ts` | 1190 | 1 | done | `crates/pi-ai/src/api/bedrock_converse_stream.rs` | Full stream/streamSimple, SigV4, event-stream framing, credential/profile chain, retries, custom headers; 16 behavioral + 18-scenario differential oracle |
 | `ai/src/api/constrained-sampling.ts` | 277 | 1 | done | `crates/pi-ai/src/api/constrained_sampling.rs` | Strict-schema conversion, grammar sampling, append-only JSON deltas; differential 47 requests. |
@@ -77,7 +77,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/headers.ts` | 18 | 1 | done | `crates/pi-ai/src/utils/headers.rs` | `Headers.entries()` normalization and provider header filtering; differential 7 requests. |
 | `ai/src/utils/node-http-proxy.ts` | 112 | 1 | done | `crates/pi-ai/src/utils/node_http_proxy.rs` | Proxy selection plus `Fetch` wrapper; differential over target/env matrix (see traceability). |
 | `ai/src/utils/provider-env.ts` | 52 | 1 | partial | `crates/pi-ai/src/utils/provider_env.rs` | Scoped → process env precedence; Bun `/proc/self/environ` fallback not applicable to native Rust (see traceability). |
-| `ai/src/api/anthropic-messages.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/anthropic-messages.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/anthropic_messages_lazy.rs` | Lazy loader with no deferred capabilities; behavioral test. |
 | `ai/src/api/azure-openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/azure_openai_responses.rs` | `azure_open_ai_responses_api()` lazy adapter. |
 | `ai/src/api/bedrock-converse-stream.lazy.ts` | 30 | 2 | done | `crates/pi-ai/src/bedrock_provider.rs` | `bedrock_converse_stream_api` + override seam; lazy test |
 | `ai/src/api/cloudflare-gateway-binding.ts` | 192 | 2 | done | `crates/pi-ai/src/api/cloudflare_gateway_binding.rs` | Workers AI binding transport: prefix normalization, provider/endpoint split, header stripping, signal passthrough; differential 11 scenarios. |

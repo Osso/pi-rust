@@ -36,6 +36,7 @@ All direct dependencies are exact-pinned.
 - `sha2 = 0.10.9` — computes the PKCE S256 code challenge and the SHA-256 payload/canonical-request digests used by Bedrock SigV4.
 - `hmac = 0.12.1` — derives the Bedrock SigV4 signing key and signatures (`HMAC-SHA256`).
 - `sha1 = 0.10.6` — computes the AWS SSO token-cache filename (SHA-1 of the session name or start URL).
+- The Anthropic Messages adapter adds no dependency: its private `@anthropic-ai/sdk` 0.91.1 request path (URL, headers, JSON body, status errors) is built with the existing `serde_json`, `tokio`, and `tokio-util` contracts.
 
 ### `pi-agent-core`
 
