@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/cli/auth-command.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Current coverage maps command metadata, pure help detection, and parsing. Fifty direct requests compare the real pinned module with Rust through one persistent oracle process: fourteen metadata/help requests (`12000..=12013`) and thirty-six parser requests (`12014..=12049`).
+Current coverage maps command metadata, pure help detection, parsing, argument validation, credential extraction, and help output. Fifty direct requests compare the real pinned module with Rust through one persistent oracle process: fourteen metadata/help requests (`12000..=12013`) and thirty-six parser requests (`12014..=12049`). Validation, credential extraction, and help output are process/credential modules compared with focused tests.
 
 | TypeScript source | Observable behavior | Rust proof |
 |---|---|---|
@@ -22,3 +22,13 @@ Current coverage maps command metadata, pure help detection, and parsing. Fifty 
 | `main.ts:60-67,230-251` | Use metadata, help detection, and parsing before later CLI validation/dispatch | Consumer mapping only; Rust main integration remains out of scope |
 
 Rust uses typed enums/structs rather than TypeScript literal/object values. `min_expiry_ms` is a field-specific `f64`, not a generic JavaScript-number model. Direct responses compare its exact IEEE-754 bits at zero, safe-integer precision boundaries, finite `1e308`, parser-produced infinity, and multiplication-produced infinity. The source `/iu` regex accepts uppercase and long-s unit spellings, but its lowercase-only multiplier comparisons send all such spellings to hours; Rust intentionally preserves this source bug. JavaScript lone-surrogate arguments and invalid runtime input types remain outside the Rust string/slice boundary.
+
+## Remaining exports
+
+| TypeScript source | Observable behavior | Rust proof |
+|---|---|---|
+| `auth-command.ts:96-123` | `validateAuthCommandArgs` trims provider/model, rejects unknown flags with the first flag name, rejects `--api-key`/messages/files, and requires a target per kind | `tests/auth_command_helpers.rs` (4 tests) |
+| `auth-command.ts:125-132` | `getAuthCredential` prefers a truthy API key, then the first case-insensitive `authorization` header, then `^Bearer\s+(.+)$` with `iu` semantics | `tests/auth_command_helpers.rs` (3 tests), including JavaScript whitespace and line-terminator exclusions |
+| `auth-command.ts:37-45` | `printAuthCommandHelp` emits the exact usage block plus the `console.log` newline | `tests/auth_command_helpers.rs` |
+
+`ProviderHeaders` is the shared `BTreeMap` from `pi-ai`; the source iterates object insertion order, so duplicate differently-cased `authorization` keys could pick a different first entry. Single-header auth results are identical. Invalid runtime input types (non-string header values) are excluded by the typed Rust API.

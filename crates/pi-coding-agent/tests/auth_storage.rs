@@ -497,7 +497,7 @@ fn lock_holder(path: &std::path::Path) -> BoxFuture<'static, pi_coding_agent::ut
 }
 
 #[test]
-fn read_only_storage_validates_credentials() {
+fn read_only_storage_resolves_templates_without_executing_commands() {
     let _guard = serial();
     let dir = temp_dir("read-only");
     let auth_path = dir.join("auth.json");
@@ -512,10 +512,23 @@ fn read_only_storage_validates_credentials() {
     let Credential::ApiKey(api_key) = credential.expect("credential") else {
         panic!("expected api key");
     };
+    assert_eq!(api_key.key, None, "unresolved template resolves to undefined");
+
+    write_auth(
+        &auth_path,
+        json!({"anthropic": {"type": "api_key", "key": "!echo secret"}}),
+    );
+    let storage = ReadOnlyAuthStorage::new(Some(&auth_path.display().to_string()));
+    let credential = runtime()
+        .block_on(storage.read("anthropic", AuthOperationOptions::default()))
+        .unwrap();
+    let Credential::ApiKey(api_key) = credential.expect("credential") else {
+        panic!("expected api key");
+    };
     assert_eq!(
         api_key.key.as_deref(),
-        Some("$NOT_RESOLVED"),
-        "read-only storage does not resolve"
+        Some("!echo secret"),
+        "command references stay literal"
     );
 
     write_auth(&auth_path, json!({"anthropic": {"type": "api_key", "key": 3}}));

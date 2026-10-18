@@ -1,8 +1,11 @@
 #![deny(clippy::print_stdout)]
 
+pub mod bun;
 pub mod cli;
+pub mod cli_entry;
 pub mod config;
 pub mod core;
+pub mod internal_runner;
 pub mod migrations;
 pub mod modes;
 pub mod package_manager_cli;
