@@ -11,6 +11,13 @@ All direct dependencies are exact-pinned.
 - `serde = 1.0.229` — exposes the typed serialization contract used by RPC JSONL records.
 - `serde_json = 1.0.151` — produces compact semantic JSON before the LF record delimiter.
 
+### `pi-ai`
+
+- `serde = 1.0.229` — derives the diagnostics wire records and diagnostic-code enum.
+- `serde_json = 1.0.151` — carries JSON-shaped thrown values and optional diagnostic details.
+- `serde_json` feature `preserve_order` — keeps JS object key order for tool arguments, details, and provider-native values (workspace-wide via feature unification).
+- `tokio = 1.53.3` (`sync`) — `Notify` for the async `EventStream`; dev: `macros`, `rt-multi-thread`, `time` for async tests.
+
 ### `pi-agent-core`
 
 No runtime dependencies. The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToolExecutionContext` slices add no runtime or development dependency; `ThinkingLevel` does not depend on the distinct protocol schema. Existing public-index typeproofs use the pinned TypeScript toolchain. Typed filesystem/execution, compaction and branch-summary errors, `QueueMode`, `ToolExecutionMode`, and `ThinkingLevel` enum/literal mappings, `CompactionSettings`/`should_compact`, module-local `SUMMARIZATION_SYSTEM_PROMPT` (not exported from the harness root or package index), module-local `CutPointResult`/`ContextUsageEstimate` (not exported from the harness root or package index), `Skill`/`PromptTemplate`/`PromptTemplateDiagnostic`/`AgentHarnessResources` values, prompt-template argument helpers, Skill system-prompt/invocation formatting, summary marker constants and value-only `BashExecutionMessage`/`BranchSummaryMessage` records, compaction file-operation formatting, image MIME/Base64 helpers, edit line-ending/BOM helpers, `FileKind`/`FileInfo` metadata values, output truncation, and binary-output sanitization use only the Rust standard library.
