@@ -1049,19 +1049,26 @@ fn retire_session_health_for_listener(
 pub fn read_runtime_mailbox_listener(
     control_db_path: &str,
     recipient: &RuntimeMailboxAddress,
-) -> Result<Option<RuntimeMailboxListener>, ControlDbError> {
+) -> Result<Option<RuntimeMailboxListenerRecord>, ControlDbError> {
     with_control_db(control_db_path, |db| {
         let Some(row) = read_runtime_mailbox_listener_row(db, recipient)? else {
             return Ok(None);
         };
-        Ok(Some(RuntimeMailboxListener {
-            session_id: recipient.session_id.clone(),
-            agent_id: recipient.agent_id.clone(),
+        Ok(Some(RuntimeMailboxListenerRecord {
             pid: row.pid,
             session_path: trusted_runtime_mailbox_session_path(&row),
             updated_at: row.updated_at,
         }))
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeMailboxListenerRecord {
+    pub pid: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_path: Option<String>,
+    pub updated_at: String,
 }
 
 /// `assertMainSessionRuntimeAvailable`.

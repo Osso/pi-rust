@@ -493,6 +493,199 @@ pub enum MailboxMessageCommandResult {
     },
 }
 
+impl Serialize for AgentViewSelectionResult {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        match self {
+            Self::Ok(agent) => {
+                let mut state = serializer.serialize_struct("AgentViewSelectionResult", 2)?;
+                state.serialize_field("ok", &true)?;
+                state.serialize_field("agent", agent)?;
+                state.end()
+            }
+            Self::NotFound { agent_id } => {
+                let mut state = serializer.serialize_struct("AgentViewSelectionResult", 3)?;
+                state.serialize_field("ok", &false)?;
+                state.serialize_field("error", "not_found")?;
+                state.serialize_field("agentId", agent_id)?;
+                state.end()
+            }
+        }
+    }
+}
+
+impl Serialize for ActiveAgentTargetSelectionResult {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        match self {
+            Self::Ok(agent) => {
+                let mut state = serializer.serialize_struct("ActiveAgentTargetSelectionResult", 2)?;
+                state.serialize_field("ok", &true)?;
+                state.serialize_field("agent", agent)?;
+                state.end()
+            }
+            Self::NotFound { agent_id } => {
+                let mut state = serializer.serialize_struct("ActiveAgentTargetSelectionResult", 3)?;
+                state.serialize_field("ok", &false)?;
+                state.serialize_field("error", "not_found")?;
+                state.serialize_field("agentId", agent_id)?;
+                state.end()
+            }
+            Self::Inactive { agent } => {
+                let mut state = serializer.serialize_struct("ActiveAgentTargetSelectionResult", 3)?;
+                state.serialize_field("ok", &false)?;
+                state.serialize_field("error", "inactive")?;
+                state.serialize_field("agent", agent)?;
+                state.end()
+            }
+        }
+    }
+}
+
+impl Serialize for AgentMetadataCommandResult {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        match self {
+            Self::Ok(agent) => {
+                let mut state = serializer.serialize_struct("AgentMetadataCommandResult", 2)?;
+                state.serialize_field("ok", &true)?;
+                state.serialize_field("agent", agent)?;
+                state.end()
+            }
+            Self::NotFound { agent_id } => {
+                let mut state = serializer.serialize_struct("AgentMetadataCommandResult", 3)?;
+                state.serialize_field("ok", &false)?;
+                state.serialize_field("error", "not_found")?;
+                state.serialize_field("agentId", agent_id)?;
+                state.end()
+            }
+            Self::StaleRevision { current, projection } => {
+                let mut state = serializer.serialize_struct("AgentMetadataCommandResult", 4)?;
+                state.serialize_field("ok", &false)?;
+                state.serialize_field("error", "stale_revision")?;
+                state.serialize_field("current", current)?;
+                state.serialize_field("projection", projection)?;
+                state.end()
+            }
+            Self::SlotConflict {
+                current,
+                occupant,
+                projection,
+            } => {
+                let mut state = serializer.serialize_struct("AgentMetadataCommandResult", 5)?;
+                state.serialize_field("ok", &false)?;
+                state.serialize_field("error", "slot_conflict")?;
+                state.serialize_field("current", current)?;
+                state.serialize_field("occupant", occupant)?;
+                state.serialize_field("projection", projection)?;
+                state.end()
+            }
+        }
+    }
+}
+
+impl Serialize for AgentTranscriptCommandResult {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        match self {
+            Self::Ok(agent) => {
+                let mut state = serializer.serialize_struct("AgentTranscriptCommandResult", 2)?;
+                state.serialize_field("ok", &true)?;
+                state.serialize_field("agent", agent)?;
+                state.end()
+            }
+            Self::NotFound { agent_id } => {
+                let mut state = serializer.serialize_struct("AgentTranscriptCommandResult", 3)?;
+                state.serialize_field("ok", &false)?;
+                state.serialize_field("error", "not_found")?;
+                state.serialize_field("agentId", agent_id)?;
+                state.end()
+            }
+        }
+    }
+}
+
+impl Serialize for ParentContactResult {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        match self {
+            Self::Ok { agent, message } => {
+                let mut state = serializer.serialize_struct("ParentContactResult", 3)?;
+                state.serialize_field("ok", &true)?;
+                state.serialize_field("agent", agent)?;
+                state.serialize_field("message", message)?;
+                state.end()
+            }
+            Self::NotFound { agent_id } => {
+                let mut state = serializer.serialize_struct("ParentContactResult", 3)?;
+                state.serialize_field("ok", &false)?;
+                state.serialize_field("error", "not_found")?;
+                state.serialize_field("agentId", agent_id)?;
+                state.end()
+            }
+            Self::ParentNotFound { current } => {
+                let mut state = serializer.serialize_struct("ParentContactResult", 3)?;
+                state.serialize_field("ok", &false)?;
+                state.serialize_field("error", "parent_not_found")?;
+                state.serialize_field("current", current)?;
+                state.end()
+            }
+            Self::StaleRevision { current } => {
+                let mut state = serializer.serialize_struct("ParentContactResult", 3)?;
+                state.serialize_field("ok", &false)?;
+                state.serialize_field("error", "stale_revision")?;
+                state.serialize_field("current", current)?;
+                state.end()
+            }
+        }
+    }
+}
+
+impl Serialize for MailboxMessageCommandResult {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        match self {
+            Self::Ok { agent, message } => {
+                let mut state = serializer.serialize_struct("MailboxMessageCommandResult", 3)?;
+                state.serialize_field("ok", &true)?;
+                state.serialize_field("agent", agent)?;
+                state.serialize_field("message", message)?;
+                state.end()
+            }
+            Self::NotFound { agent_id } => {
+                let mut state = serializer.serialize_struct("MailboxMessageCommandResult", 3)?;
+                state.serialize_field("ok", &false)?;
+                state.serialize_field("error", "not_found")?;
+                state.serialize_field("agentId", agent_id)?;
+                state.end()
+            }
+            Self::TargetNotFound { current, target_id } => {
+                let mut state = serializer.serialize_struct("MailboxMessageCommandResult", 4)?;
+                state.serialize_field("ok", &false)?;
+                state.serialize_field("error", "target_not_found")?;
+                state.serialize_field("current", current)?;
+                state.serialize_field("targetId", target_id)?;
+                state.end()
+            }
+            Self::StaleRevision { current } => {
+                let mut state = serializer.serialize_struct("MailboxMessageCommandResult", 3)?;
+                state.serialize_field("ok", &false)?;
+                state.serialize_field("error", "stale_revision")?;
+                state.serialize_field("current", current)?;
+                state.end()
+            }
+            Self::ForbiddenTarget { current, target } => {
+                let mut state = serializer.serialize_struct("MailboxMessageCommandResult", 4)?;
+                state.serialize_field("ok", &false)?;
+                state.serialize_field("error", "forbidden_target")?;
+                state.serialize_field("current", current)?;
+                state.serialize_field("target", target)?;
+                state.end()
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultiAgentStoreError {
     pub message: String,

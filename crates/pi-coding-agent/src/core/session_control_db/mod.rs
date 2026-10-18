@@ -74,12 +74,12 @@ pub use lifecycle::{
     FinalizeDetachedJobInput, FinalizeDetachedJobResult, finalize_detached_job, prepare_control_db_for_self_restart,
 };
 pub use mailbox::{
-    assert_main_session_runtime_available, claim_runtime_mailbox_messages, consume_runtime_mailbox_message,
-    consume_runtime_mailbox_message_by_store_ref, deliver_runtime_mailbox_message, enqueue_runtime_mailbox_message,
-    enqueue_stored_runtime_mailbox_message, fail_runtime_mailbox_message, list_runtime_mailbox_listeners,
-    list_runtime_mailbox_messages, mark_runtime_mailbox_message_delivered, read_runtime_mailbox_listener,
-    read_runtime_mailbox_message, read_runtime_mailbox_message_for_delivery, recover_dead_runtime_mailbox_claims,
-    register_runtime_mailbox_listener, release_runtime_mailbox_message_claim,
+    RuntimeMailboxListenerRecord, assert_main_session_runtime_available, claim_runtime_mailbox_messages,
+    consume_runtime_mailbox_message, consume_runtime_mailbox_message_by_store_ref, deliver_runtime_mailbox_message,
+    enqueue_runtime_mailbox_message, enqueue_stored_runtime_mailbox_message, fail_runtime_mailbox_message,
+    list_runtime_mailbox_listeners, list_runtime_mailbox_messages, mark_runtime_mailbox_message_delivered,
+    read_runtime_mailbox_listener, read_runtime_mailbox_message, read_runtime_mailbox_message_for_delivery,
+    recover_dead_runtime_mailbox_claims, register_runtime_mailbox_listener, release_runtime_mailbox_message_claim,
     resolve_own_main_runtime_coordination_recipient, retire_runtime_mailbox_listener,
     take_runtime_mailbox_messages_for_delivery,
 };
@@ -140,8 +140,8 @@ pub enum RuntimeMailboxMessageStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeMailboxAddress {
-    pub session_id: String,
     pub agent_id: Option<String>,
+    pub session_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,17 +171,17 @@ pub struct RuntimeMailboxMessage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeMailboxStoreRef {
-    pub session_path: String,
     pub message_id: String,
+    pub session_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SharedChannelMessage {
-    pub id: i64,
-    pub sender: RuntimeMailboxAddress,
     pub body: String,
     pub created_at: String,
+    pub id: i64,
+    pub sender: RuntimeMailboxAddress,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -366,13 +366,8 @@ pub(crate) fn with_control_db<T>(
     let db = {
         let _guard = setup_lock.lock().expect("control db setup mutex");
         let db = create_writable_control_db(control_db_path)?;
-        let result = (|| {
-            configure_shared_sqlite_database(&db, DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS)?;
-            initialize_schema(&db, None)
-        })();
-        if let Err(error) = result {
-            return Err(error);
-        }
+        configure_shared_sqlite_database(&db, DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS)?;
+        initialize_schema(&db, None)?;
         db
     };
     let result = callback(&db);
@@ -707,9 +702,9 @@ pub(crate) fn nullable_string_field(
     context: &str,
 ) -> Result<Option<String>, ControlDbError> {
     match data.get(field) {
-        Some(Value::Null) | None => Ok(None),
+        Some(Value::Null) => Ok(None),
         Some(Value::String(value)) => Ok(Some(value.clone())),
-        Some(_) => Err(ControlDbError::new(format!("Invalid {field} at {context}"))),
+        _ => Err(ControlDbError::new(format!("Invalid {field} at {context}"))),
     }
 }
 
@@ -742,7 +737,7 @@ pub(crate) fn runtime_process_instance_id() -> &'static str {
     })
 }
 
-pub(crate) fn serialize_process_identity(identity: &ProcessIdentity) -> String {
+pub fn serialize_process_identity(identity: &ProcessIdentity) -> String {
     let mut object = Map::new();
     object.insert("pid".to_owned(), Value::from(identity.pid));
     object.insert("startTimeTicks".to_owned(), Value::from(identity.start_time_ticks));

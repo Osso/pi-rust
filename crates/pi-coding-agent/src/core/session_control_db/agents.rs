@@ -394,10 +394,11 @@ impl RecoverDeadRuntimeError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DetachedArtifactAgentRecord {
-    pub session_path: String,
     pub agent: AgentSnapshot,
+    pub session_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -407,7 +408,8 @@ pub struct MultiAgentCounters {
     pub next_message_number: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MultiAgentPersistedState {
     pub agents: Vec<Value>,
     pub mailbox_messages: Vec<Value>,
