@@ -11,9 +11,7 @@ use pi_coding_agent::core::session_control_db::{
 use pi_coding_agent::core::session_directory::{
     BroadcastSessionFilters, BroadcastSessionsInput, SessionDirectoryOptions, broadcast_to_sessions, list_sessions,
 };
-use pi_coding_agent::core::session_health::{
-    SessionCheckStatus, SessionHealthRecord, SessionLiveStatus, empty_session_health,
-};
+use pi_coding_agent::core::session_health::{SessionCheckStatus, SessionLiveStatus, empty_session_health};
 use tempfile::TempDir;
 
 struct Fixture {
@@ -667,5 +665,3 @@ fn broadcast_rejects_an_empty_message() {
     .expect_err("empty broadcast must fail");
     assert_eq!(error.to_string(), "broadcast requires a non-empty message");
 }
-
-fn _unused(_: SessionHealthRecord) {}

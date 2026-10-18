@@ -43,12 +43,11 @@ async fn request_supervisor_decision_attempt(
     let poll_interval_ms = input.poll_interval_ms.unwrap_or(50);
     while now_millis() < deadline {
         let request = read_supervisor_request(&input.control_db_path, request_id)?;
-        if let Some(request) = request {
-            if request.status == SupervisorRequestStatus::Completed {
-                if let Some(response) = request.response {
-                    return Ok(Some(response));
-                }
-            }
+        if let Some(request) = request
+            && request.status == SupervisorRequestStatus::Completed
+            && let Some(response) = request.response
+        {
+            return Ok(Some(response));
         }
         tokio::time::sleep(std::time::Duration::from_millis(poll_interval_ms)).await;
     }

@@ -511,12 +511,12 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/provider-attribution.ts` | 97 | 16 | done | `crates/pi-coding-agent/src/core/provider_attribution.rs` | OpenRouter/NVIDIA/Cloudflare attribution, OpenCode session headers, override merge; pure-header tests from sdk-openrouter-attribution. |
 | `coding-agent/src/core/runtime-coordination-format.ts` | 38 | 16 | todo |  |  |
 | `coding-agent/src/core/session-cwd.ts` | 83 | 16 | partial | `crates/pi-coding-agent/src/core/session_cwd.rs` | Issue/format/assert/reopen done; control-db cwd metadata blocked on `ca-control-db` |
-| `coding-agent/src/core/session-directory.ts` | 365 | 16 | partial |  | Blocked on `ca-control-db`; every export reads/writes the control DB |
+| `coding-agent/src/core/session-directory.ts` | 365 | 16 | done | `crates/pi-coding-agent/src/core/session_directory.rs` | Reconcile/list/broadcast over control DB; 17 behavioral + 2 differential suites (9 scenarios). Architect snapshot side effect is out of slice. |
 | `coding-agent/src/core/source-info.ts` | 40 | 16 | partial | `crates/pi-coding-agent/src/core/source_info.rs` | `createSyntheticSourceInfo` done with camelCase serde. `createSourceInfo` is blocked on `PathMetadata` from `package-manager.ts` (ca-package-manager slice). |
 | `coding-agent/src/core/usage-totals.ts` | 67 | 16 | done | `crates/pi-coding-agent/src/core/usage_totals.rs` | Totals and cost breakdown; `tests/usage_totals.rs` |
 | `coding-agent/src/modes/interactive/components/custom-editor.ts` | 148 | 16 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/session-selector-search.ts` | 219 | 16 | todo |  |  |
-| `coding-agent/src/supervisor/client.ts` | 63 | 16 | todo |  |  |
+| `coding-agent/src/supervisor/client.ts` | 63 | 16 | done | `crates/pi-coding-agent/src/supervisor/client.rs` | Durable request/poll/retry with jitter; 3 ported behavioral tests. |
 | `coding-agent/src/supervisor/service.ts` | 210 | 16 | todo |  |  |
 | `coding-agent/src/architect/prompt.ts` | 12 | 17 | todo |  |  |
 | `coding-agent/src/core/compaction/branch-summarization.ts` | 378 | 17 | todo |  |  |
@@ -661,24 +661,24 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/sdk.ts` | 462 | 22 | todo |  |  |
 | `coding-agent/src/core/self-restart.ts` | 251 | 22 | todo |  |  |
 | `coding-agent/src/core/system-prompt.ts` | 218 | 22 | done | `crates/pi-coding-agent/src/core/system_prompt.rs` | Default/custom prompt assembly, tool snippets, guidelines, rules, skills; differential `coding-agent-system-prompt-oracle.ts`. |
-| `coding-agent/src/core/tools/ask-architect.ts` | 95 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/ask-questions.ts` | 309 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/ask-supervisor.ts` | 89 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/ask-architect.ts` | 95 | 22 | done | `crates/pi-coding-agent/src/core/tools/ask_architect.rs` | 4 behavioral cases + differential (4 scenarios). Render hooks need `Theme`. |
+| `coding-agent/src/core/tools/ask-questions.ts` | 309 | 22 | done | `crates/pi-coding-agent/src/core/tools/ask_questions.rs` | 12 ported behavioral tests + differential (6 cases). Render hooks need `Theme`; notifier errors not representable. |
+| `coding-agent/src/core/tools/ask-supervisor.ts` | 89 | 22 | done | `crates/pi-coding-agent/src/core/tools/ask_supervisor.rs` | Schema/guards + durable advisory flow; behavioral tests (timing-based, no differential). |
 | `coding-agent/src/core/tools/bash.ts` | 864 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/broadcast.ts` | 115 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/change-working-directory.ts` | 145 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/channel-post.ts` | 72 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/broadcast.ts` | 115 | 22 | done | `crates/pi-coding-agent/src/core/tools/broadcast.rs` | Behavioral tests + differential (2 tool cases, 3 directory scenarios). Render hooks need `Theme`. |
+| `coding-agent/src/core/tools/change-working-directory.ts` | 145 | 22 | done | `crates/pi-coding-agent/src/core/tools/change_working_directory.rs` | 9 behavioral tests + differential (7 cases). Process/restart lifecycle belongs to runtime slices. |
+| `coding-agent/src/core/tools/channel-post.ts` | 72 | 22 | done | `crates/pi-coding-agent/src/core/tools/channel_post.rs` | Behavioral tests + differential (result, channel rows, cursor). Render hooks need `Theme`. |
 | `coding-agent/src/core/tools/code-index.ts` | 329 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/edit.ts` | 443 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/end-turn.ts` | 37 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/end-turn.ts` | 37 | 22 | done | `crates/pi-coding-agent/src/core/tools/end_turn.rs` | 3 behavioral tests + differential. |
 | `coding-agent/src/core/tools/find.ts` | 381 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/grep.ts` | 400 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/index.ts` | 420 | 22 | partial | `crates/pi-coding-agent/src/core/tools/mod.rs` | Only `DEFAULT_ACTIVE_TOOL_NAMES` (needed by system-prompt); tool definitions/factories remain for ca-tools-text. |
-| `coding-agent/src/core/tools/list-sessions.ts` | 81 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/list-sessions.ts` | 81 | 22 | done | `crates/pi-coding-agent/src/core/tools/list_sessions.rs` | Behavioral tests + differential (3 cases). Render hooks need `Theme`. |
 | `coding-agent/src/core/tools/ls.ts` | 326 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/read.ts` | 468 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/resume-session.ts` | 294 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/search-current-session-history.ts` | 196 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/resume-session.ts` | 294 | 22 | done | `crates/pi-coding-agent/src/core/tools/resume_session.rs` | 11 behavioral tests + differential (12 cases). Session-manager metadata listing remains partial. |
+| `coding-agent/src/core/tools/search-current-session-history.ts` | 196 | 22 | done | `crates/pi-coding-agent/src/core/tools/search_current_session_history.rs` | 7 ported tests + differential (6 cases) with byte-exact pretty JSON. Render hooks need `Theme`. |
 | `coding-agent/src/core/tools/tool-definition-wrapper.ts` | 160 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/write.ts` | 274 | 22 | todo |  |  |
 | `coding-agent/src/extensions/index.ts` | 4 | 22 | todo |  |  |

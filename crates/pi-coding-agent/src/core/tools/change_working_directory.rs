@@ -130,12 +130,12 @@ fn load_target_cwd(target: &ChangeWorkingDirectoryTarget, context: &ToolContext)
         }
         ChangeWorkingDirectoryTarget::Id(id) => {
             let session_path = find_session_file_by_id(id, context)?;
-            if let Some(current_session_file) = context.session.get_session_file() {
-                if resolve_session_path(current_session_file) == resolve_session_path(&session_path) {
-                    return Err(ToolError::new(
-                        "current session id cannot be used as a working directory target",
-                    ));
-                }
+            if let Some(current_session_file) = context.session.get_session_file()
+                && resolve_session_path(current_session_file) == resolve_session_path(&session_path)
+            {
+                return Err(ToolError::new(
+                    "current session id cannot be used as a working directory target",
+                ));
             }
             let cwd = read_session_header(&session_path)
                 .and_then(|header| header.cwd)

@@ -322,10 +322,10 @@ pub fn find_session_file_by_id(id: &str, context: &ToolContext) -> Result<String
 }
 
 fn assert_resume_target_is_different(session_path: &str, context: &ToolContext) -> Result<(), ToolError> {
-    if let Some(current_session_path) = context.session.get_session_file() {
-        if resolve_session_path(session_path) == resolve_session_path(current_session_path) {
-            return Err(ToolError::new("resume_session cannot resume the current session"));
-        }
+    if let Some(current_session_path) = context.session.get_session_file()
+        && resolve_session_path(session_path) == resolve_session_path(current_session_path)
+    {
+        return Err(ToolError::new("resume_session cannot resume the current session"));
     }
     Ok(())
 }
