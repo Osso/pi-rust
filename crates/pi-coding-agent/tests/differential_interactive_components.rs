@@ -1,9 +1,19 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use pi_coding_agent::core::extensions::types::{MarkdownMessageType, MarkdownTransformer};
+use pi_coding_agent::core::package_manager::{
+    MetadataOrigin, PathMetadata, ResolvedPaths, ResolvedResource, SourceScope,
+};
+use pi_coding_agent::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
+use pi_coding_agent::modes::interactive::components::config_selector::{
+    ConfigSelectorComponent, ConfigSelectorOptions, ConfigWriteScope, ScopedResolvedPaths,
+};
+use pi_coding_agent::modes::interactive::components::diff::render_diff;
 use pi_coding_agent::modes::interactive::components::elapsed_time::format_elapsed_duration;
 use pi_coding_agent::modes::interactive::components::keybinding_hints::{
     KeyTextFormatOptions, format_key_text, key_display_text, key_hint, key_text, raw_key_hint,
@@ -12,6 +22,7 @@ use pi_coding_agent::modes::interactive::components::markdown_transform::create_
 use pi_coding_agent::modes::interactive::components::visual_truncate::truncate_to_visual_lines;
 use pi_coding_agent::modes::interactive::model_search::{ModelSearchItem, get_model_search_candidates};
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, REQUIRED_COLORS, Theme, set_theme_instance};
+use pi_tui::Component;
 use serde_json::{Value, json};
 
 fn install_theme() -> Arc<Theme> {
@@ -52,6 +63,8 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(markdown_transform_cases());
     cases.extend(key_hint_cases());
     cases.extend(model_search_cases());
+    cases.extend(diff_cases());
+    cases.extend(config_selector_cases());
     cases
 }
 
@@ -260,5 +273,108 @@ fn model_search_cases() -> Vec<(Value, Value)> {
             "items": items,
         }),
         json!(output),
+    )]
+}
+
+fn diff_cases() -> Vec<(Value, Value)> {
+    let cases = [
+        " 1 foo\n-2 old value here\n+2 new value here\n 3 baz",
+        " 1 keep\n-2 a\n-3 b\n+2 c\n+3 d\n 4 tail",
+        " 1 a\n+2 inserted\n 2 b",
+        "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-1 old\n+1 new",
+        "-2 a\tb\n+2 a\tc",
+        "-2 foo   bar baz\n+2 foo  baz",
+        "-2 foo baz\n+2 foo bar baz",
+        "-2 foo bar baz\n+2 foo baz",
+        "-2 café  x\n+2 café y",
+        "-2  x\n+2 x",
+        "-2 (foo)\n+2 (bar)",
+        "-2 foo\n+2 foo bar",
+        "-2 a  b  c\n+2 a b c",
+        "-2 日本語 テスト\n+2 日本語 テスト2",
+        " 1 same\n-2\n+2\n 3 end",
+        "",
+    ];
+    let output: Vec<String> = cases.iter().map(|value| render_diff(value)).collect();
+    vec![(
+        json!({
+            "id": 6,
+            "module": "modes/interactive/components/diff.ts",
+            "operation": "renderDiff",
+            "cases": cases,
+        }),
+        json!(output),
+    )]
+}
+
+fn config_selector_cases() -> Vec<(Value, Value)> {
+    let package_root = "/tmp/pi-config-oracle/package";
+    let cwd = "/tmp/pi-config-oracle/project";
+    let agent_dir = "/tmp/pi-config-oracle/agent";
+    let resolved = ResolvedPaths {
+        extensions: vec![ResolvedResource {
+            path: format!("{package_root}/extensions/bar.ts"),
+            enabled: true,
+            metadata: PathMetadata {
+                source: "npm:pi-tools".to_string(),
+                scope: SourceScope::User,
+                origin: MetadataOrigin::Package,
+                base_dir: Some(package_root.to_string()),
+            },
+        }],
+        ..Default::default()
+    };
+    let mut global_settings = Settings::new();
+    global_settings.insert("packages".to_string(), json!(["npm:pi-tools"]));
+    let manager = Rc::new(RefCell::new(SettingsManager::in_memory(
+        global_settings,
+        SettingsManagerCreateOptions {
+            project_trusted: Some(true),
+        },
+    )));
+    let mut selector = ConfigSelectorComponent::new(ConfigSelectorOptions {
+        resolved_paths: ScopedResolvedPaths {
+            global: resolved.clone(),
+            project: resolved,
+        },
+        settings_manager: manager.clone(),
+        cwd: cwd.to_string(),
+        agent_dir: agent_dir.to_string(),
+        on_close: Rc::new(|| {}),
+        on_exit: Rc::new(|| {}),
+        request_render: Rc::new(|| {}),
+        terminal_height: Some(24),
+        write_scope: ConfigWriteScope::Project,
+        project_mode_available: true,
+    });
+    let inputs = [" ", " ", " "];
+    let mut renders = Vec::new();
+    for input in inputs {
+        selector.get_resource_list_mut().handle_input(input);
+        renders.push(selector.render(100));
+    }
+    let project_packages = manager
+        .borrow()
+        .get_project_settings()
+        .get("packages")
+        .cloned()
+        .unwrap_or(Value::Null);
+    vec![(
+        json!({
+            "id": 7,
+            "module": "modes/interactive/components/config-selector.ts",
+            "operation": "configSelector",
+            "packageRoot": package_root,
+            "cwd": cwd,
+            "agentDir": agent_dir,
+            "writeScope": "project",
+            "inputs": inputs,
+            "globalPackages": ["npm:pi-tools"],
+            "width": 100,
+        }),
+        json!({
+            "projectPackages": project_packages,
+            "renders": renders,
+        }),
     )]
 }

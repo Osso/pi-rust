@@ -537,7 +537,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/agent-selection-banner.ts` | 36 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/agent_selection_banner.rs` | selected-agent banner; behavioral test against the ported store |
 | `coding-agent/src/modes/interactive/components/armin.ts` | 382 | 18 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/daxnuts.ts` | 164 | 18 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/diff.ts` | 147 | 18 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/diff.ts` | 147 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/diff.rs`, `crates/pi-agent-core/src/jsdiff.rs` | Line parsing, context/added/removed rendering, intra-line `diffWords` highlighting with shared jsdiff word tokenizer and whitespace dedupe; 16 differential cases (`tests/differential_interactive_components.rs`); see `interactive-diff.md`. |
 | `coding-agent/src/modes/interactive/components/dynamic-border.ts` | 8 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/dynamic_border.rs` | Theme-colored border wrapper; covered through every selector's differential render. |
 | `coding-agent/src/modes/interactive/components/keybinding-hints.ts` | 48 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/keybinding_hints.rs` | Formatting and hint composition; `tests/components.rs`. |
 | `coding-agent/src/modes/interactive/theme/theme-controller.ts` | 139 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/theme/theme_controller.rs` | Settings-driven theme selection, auto-sync, preview, rebind; `tests/theme_controller.rs` with a fake `ThemeUi`. |
@@ -549,7 +549,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/bordered-loader.ts` | 70 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/branch-summary-message.ts` | 58 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/compaction-summary-message.ts` | 92 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/config-selector.ts` | 942 | 19 | todo |  | Blocked: needs the settings/config mutation surface plus model runtime; not started in this slice. |
+| `coding-agent/src/modes/interactive/components/config-selector.ts` | 942 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/config_selector.rs` | Global/project resource grouping, search, package and top-level toggles, project override cycle, inherited dimming, scope switching; 7 behavioral tests (`tests/config_selector.rs`) + differential render/toggle parity; see `interactive-config-selector.md`. |
 | `coding-agent/src/modes/interactive/components/earendil-announcement.ts` | 53 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/earendil_announcement.rs` | text/border branch tested; bundled-image branch is an asset gap |
 | `coding-agent/src/modes/interactive/components/extension-editor.ts` | 132 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/extension-input.ts` | 88 | 19 | todo |  |  |

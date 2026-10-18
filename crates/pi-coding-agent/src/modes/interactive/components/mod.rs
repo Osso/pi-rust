@@ -3,7 +3,9 @@
 pub mod agent_selection_banner;
 pub mod agent_switcher;
 pub mod approval_selector;
+pub mod config_selector;
 pub mod countdown_timer;
+pub mod diff;
 pub mod dynamic_border;
 pub mod earendil_announcement;
 pub mod elapsed_time;

@@ -10,7 +10,7 @@ function errorOf(error: unknown): { name: string; message: string } {
 	return error instanceof Error ? { name: error.name, message: error.message } : { name: "Unknown", message: String(error) };
 }
 
-const handlers: Record<string, (api: Api, request: Request) => unknown> = {
+const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) => unknown> = {
 	elapsed: (api, request) => request.values.map((value: number) => api.formatElapsedDuration(value)),
 	visualTruncate: (api, request) =>
 		request.cases.map((value: any) => api.truncateToVisualLines(value.text, value.maxVisualLines, value.width, value.paddingX)),
@@ -31,6 +31,48 @@ const handlers: Record<string, (api: Api, request: Request) => unknown> = {
 		rawKeyHint: request.rawHints.map((hint: any) => api.rawKeyHint(hint.key, hint.description)),
 	}),
 	modelSearch: (api, request) => request.items.map((item: any) => api.getModelSearchCandidates(item)),
+	renderDiff: (api, request) => request.cases.map((value: string) => api.renderDiff(value)),
+	configSelector: async (_api, request, sourceRoot) => {
+		const settingsModule = (await import(pathToFileURL(`${sourceRoot}/core/settings-manager.ts`).href)) as Api;
+		const selectorModule = (await import(
+			pathToFileURL(`${sourceRoot}/modes/interactive/components/config-selector.ts`).href
+		)) as Api;
+		const storage = new settingsModule.InMemorySettingsStorage();
+		storage.withLock("global", () => JSON.stringify({ packages: request.globalPackages }));
+		const settingsManager = settingsModule.SettingsManager.fromStorage(storage, { projectTrusted: true });
+		const metadata = {
+			source: "npm:pi-tools",
+			scope: "user",
+			origin: "package",
+			baseDir: request.packageRoot,
+		};
+		const resolved = {
+			extensions: [
+				{ path: `${request.packageRoot}/extensions/bar.ts`, enabled: true, metadata },
+			],
+			skills: [],
+			prompts: [],
+			themes: [],
+		};
+		const selector = new selectorModule.ConfigSelectorComponent(
+			{ global: resolved, project: resolved },
+			settingsManager,
+			request.cwd,
+			request.agentDir,
+			() => {},
+			() => {},
+			() => {},
+			24,
+			request.writeScope,
+			true,
+		);
+		const renders: string[][] = [];
+		for (const input of request.inputs) {
+			selector.getResourceList().handleInput(input);
+			renders.push(selector.render(request.width));
+		}
+		return { projectPackages: settingsManager.getProjectSettings().packages ?? [], renders };
+	},
 };
 
 const THEME_KEYS = [
@@ -75,7 +117,8 @@ async function main(): Promise<void> {
 			id = request.id;
 			const handler = handlers[request.operation];
 			if (!handler) throw new Error(`unknown operation ${request.operation}`);
-			process.stdout.write(`${JSON.stringify({ id, ok: true, output: handler(await load(request.module), request) })}\n`);
+			const output = await handler(await load(request.module), request, sourceRoot);
+			process.stdout.write(`${JSON.stringify({ id, ok: true, output })}\n`);
 		} catch (error) {
 			process.stdout.write(`${JSON.stringify({ id, ok: false, error: errorOf(error) })}\n`);
 		}
