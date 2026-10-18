@@ -1,0 +1,681 @@
+//! Port of `packages/ai/src/api/openai-responses.ts` (+ `.lazy.ts`).
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use serde_json::{Map, Value};
+use tokio_util::sync::CancellationToken;
+
+use crate::api::constrained_sampling::create_grammar_tool_input_properties;
+use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
+use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
+use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
+use crate::api::openai_responses_shared::{
+    ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, OpenAIResponsesStreamOptions,
+    ResponsesDeferredToolsMode, convert_responses_messages, convert_responses_tools, process_responses_stream,
+    push_responses_done,
+};
+use crate::api::openai_sdk::{SdkClient, SdkClientConfig, SdkError, format_request_error, format_sdk_error};
+use crate::api::simple_options::{build_base_options, clamp_standard_reasoning_level, model_thinking_level};
+use crate::models::clamp_thinking_level;
+use crate::request::{
+    BoxFuture, CallbackError, ProviderRequestOptions, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis,
+};
+use crate::types::{
+    AssistantMessage, CacheRetention, Context, ErrorReason, Model, ModelCompat, ModelThinkingLevel, ProviderEnv,
+    ProviderHeaders, ProviderResponse, SessionAffinityFormat, Usage,
+};
+use crate::utils::deferred_tools::split_deferred_tools;
+use crate::utils::event_stream::{AssistantMessageEventSender, create_assistant_message_event_stream};
+use crate::utils::headers::headers_to_record;
+use crate::utils::provider_env::get_provider_env_value;
+use crate::utils::provider_retry::{ProviderRequestError, ProviderRetryOptions, retry_provider_request};
+
+const OPENAI_TOOL_CALL_PROVIDERS: [&str; 3] = ["openai", "openai-codex", "opencode"];
+// OpenAI Responses rejects max_output_tokens below 16.
+const OPENAI_RESPONSES_MIN_OUTPUT_TOKENS: f64 = 16.0;
+
+/// `OpenAIResponsesOptions`.
+#[derive(Debug, Clone, Default)]
+pub struct OpenAIResponsesOptions {
+    pub reasoning_effort: Option<String>,
+    pub reasoning_summary: Option<String>,
+    pub service_tier: Option<String>,
+    pub tool_choice: Option<Value>,
+}
+
+impl OpenAIResponsesOptions {
+    pub fn from_stream_options(options: &StreamOptions) -> Self {
+        Self {
+            reasoning_effort: string_field(&options.extra, "reasoningEffort"),
+            reasoning_summary: string_field(&options.extra, "reasoningSummary"),
+            service_tier: string_field(&options.extra, "serviceTier"),
+            tool_choice: options.extra.get("toolChoice").cloned(),
+        }
+    }
+}
+
+fn string_field(extra: &Map<String, Value>, key: &str) -> Option<String> {
+    extra.get(key).and_then(Value::as_str).map(str::to_owned)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResolvedCompat {
+    supports_developer_role: bool,
+    session_affinity_format: SessionAffinityFormat,
+    supports_long_cache_retention: bool,
+    supports_strict_mode: bool,
+    supports_openai_grammar_tools: bool,
+    supports_additional_tools: bool,
+    supports_tool_search: bool,
+    supports_explicit_prompt_cache_mode: bool,
+}
+
+fn detect_session_affinity_format(model: &Model) -> SessionAffinityFormat {
+    if model.provider == "openrouter" || model.base_url.contains("openrouter.ai") {
+        SessionAffinityFormat::Openrouter
+    } else {
+        SessionAffinityFormat::Openai
+    }
+}
+
+pub fn get_compat(model: &Model) -> ResolvedCompat {
+    let compat = match &model.compat {
+        Some(ModelCompat::OpenAIResponses(compat)) => Some(compat),
+        _ => None,
+    };
+    ResolvedCompat {
+        supports_developer_role: compat.and_then(|compat| compat.supports_developer_role).unwrap_or(true),
+        session_affinity_format: compat
+            .and_then(|compat| compat.session_affinity_format)
+            .unwrap_or_else(|| detect_session_affinity_format(model)),
+        supports_long_cache_retention: compat
+            .and_then(|compat| compat.supports_long_cache_retention)
+            .unwrap_or(true),
+        supports_strict_mode: compat.and_then(|compat| compat.supports_strict_mode).unwrap_or(false),
+        supports_openai_grammar_tools: compat
+            .and_then(|compat| compat.supports_openai_grammar_tools)
+            .unwrap_or(false),
+        supports_additional_tools: compat
+            .and_then(|compat| compat.supports_additional_tools)
+            .unwrap_or(false),
+        supports_tool_search: compat.and_then(|compat| compat.supports_tool_search).unwrap_or(false),
+        supports_explicit_prompt_cache_mode: compat
+            .and_then(|compat| compat.supports_explicit_prompt_cache_mode)
+            .unwrap_or(false),
+    }
+}
+
+fn has_header(headers: Option<&ProviderHeaders>, name: &str) -> bool {
+    headers.is_some_and(|headers| {
+        headers.iter().any(|(key, value)| {
+            key.eq_ignore_ascii_case(name) && value.as_ref().is_some_and(|value| !value.trim().is_empty())
+        })
+    })
+}
+
+fn get_client_api_key(
+    provider: &str,
+    api_key: Option<&str>,
+    headers: Option<&ProviderHeaders>,
+) -> Result<String, String> {
+    if let Some(api_key) = api_key.filter(|api_key| !api_key.is_empty()) {
+        return Ok(api_key.to_owned());
+    }
+    if has_header(headers, "authorization") || has_header(headers, "cf-aig-authorization") {
+        return Ok("unused".to_owned());
+    }
+    Err(format!("No API key for provider: {provider}"))
+}
+
+fn resolve_cache_retention(cache_retention: Option<CacheRetention>, env: Option<&ProviderEnv>) -> CacheRetention {
+    if let Some(cache_retention) = cache_retention {
+        return cache_retention;
+    }
+    if get_provider_env_value("PI_CACHE_RETENTION", env).as_deref() == Some("long") {
+        return CacheRetention::Long;
+    }
+    CacheRetention::Short
+}
+
+fn get_prompt_cache_retention(compat: &ResolvedCompat, cache_retention: CacheRetention) -> Option<&'static str> {
+    (cache_retention == CacheRetention::Long && compat.supports_long_cache_retention).then_some("24h")
+}
+
+fn thinking_level_from_str(value: &str) -> Option<ModelThinkingLevel> {
+    match value {
+        "off" => Some(ModelThinkingLevel::Off),
+        "minimal" => Some(ModelThinkingLevel::Minimal),
+        "low" => Some(ModelThinkingLevel::Low),
+        "medium" => Some(ModelThinkingLevel::Medium),
+        "high" => Some(ModelThinkingLevel::High),
+        "xhigh" => Some(ModelThinkingLevel::Xhigh),
+        "max" => Some(ModelThinkingLevel::Max),
+        "ultra" => Some(ModelThinkingLevel::Ultra),
+        _ => None,
+    }
+}
+
+fn mapped_effort(model: &Model, effort: &str) -> String {
+    thinking_level_from_str(effort)
+        .and_then(|level| {
+            model
+                .thinking_level_map
+                .as_ref()
+                .and_then(|map| map.get(&level))
+                .cloned()
+                .flatten()
+        })
+        .unwrap_or_else(|| effort.to_owned())
+}
+
+fn off_effort(model: &Model) -> Option<String> {
+    let Some(map) = model.thinking_level_map.as_ref() else {
+        return Some("none".to_owned());
+    };
+    match map.get(&ModelThinkingLevel::Off) {
+        Some(Some(value)) => Some(value.clone()),
+        Some(None) => None,
+        None => Some("none".to_owned()),
+    }
+}
+
+pub fn build_params(
+    model: &Model,
+    context: &Context,
+    options: &OpenAIResponsesOptions,
+    stream_options: &StreamOptions,
+    compat: &ResolvedCompat,
+    grammar_tool_input_properties: &BTreeMap<String, String>,
+) -> Result<Value, String> {
+    let deferred_tools_mode = if compat.supports_additional_tools {
+        Some(ResponsesDeferredToolsMode::AdditionalTools)
+    } else if compat.supports_tool_search {
+        Some(ResponsesDeferredToolsMode::ToolSearch)
+    } else {
+        None
+    };
+    let tool_placement = split_deferred_tools(context, deferred_tools_mode.is_some());
+    let deferred_tools = tool_placement.deferred.iter().cloned().collect::<BTreeMap<_, _>>();
+    let messages = convert_responses_messages(
+        model,
+        context,
+        &OPENAI_TOOL_CALL_PROVIDERS.into_iter().map(str::to_owned).collect(),
+        Some(&ConvertResponsesMessagesOptions {
+            grammar_tool_input_properties: Some(grammar_tool_input_properties.clone()),
+            deferred_tools: Some(deferred_tools),
+            deferred_tools_mode,
+            tool_options: Some(ConvertResponsesToolsOptions {
+                supports_strict_mode: Some(compat.supports_strict_mode),
+                supports_openai_grammar_tools: Some(compat.supports_openai_grammar_tools),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }),
+    )?;
+
+    let cache_retention = resolve_cache_retention(stream_options.cache_retention, stream_options.request.env.as_ref());
+    let disable_implicit_prompt_cache =
+        cache_retention == CacheRetention::None && compat.supports_explicit_prompt_cache_mode;
+
+    let mut params = Map::new();
+    params.insert("model".to_owned(), Value::String(model.id.clone()));
+    params.insert("input".to_owned(), Value::Array(messages));
+    params.insert("stream".to_owned(), Value::Bool(true));
+    if cache_retention != CacheRetention::None
+        && let Some(key) = clamp_openai_prompt_cache_key(stream_options.session_id.as_deref())
+    {
+        params.insert("prompt_cache_key".to_owned(), Value::String(key.to_owned()));
+    }
+    if let Some(retention) = get_prompt_cache_retention(compat, cache_retention) {
+        params.insert("prompt_cache_retention".to_owned(), Value::String(retention.to_owned()));
+    }
+    if disable_implicit_prompt_cache {
+        params.insert(
+            "prompt_cache_options".to_owned(),
+            crate::api::openai_sdk::json_object(vec![("mode", Value::String("explicit".to_owned()))]),
+        );
+    }
+    params.insert("store".to_owned(), Value::Bool(false));
+
+    if let Some(max_tokens) = stream_options
+        .max_tokens
+        .filter(|max_tokens| *max_tokens != 0.0 && max_tokens.is_finite())
+    {
+        params.insert(
+            "max_output_tokens".to_owned(),
+            number_value(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)),
+        );
+    }
+    if let Some(temperature) = stream_options.temperature {
+        params.insert("temperature".to_owned(), number_value(temperature));
+    }
+    if let Some(service_tier) = &options.service_tier {
+        params.insert("service_tier".to_owned(), Value::String(service_tier.clone()));
+    }
+    if !tool_placement.immediate.is_empty() {
+        params.insert(
+            "tools".to_owned(),
+            convert_responses_tools(
+                &tool_placement.immediate,
+                Some(&ConvertResponsesToolsOptions {
+                    supports_strict_mode: Some(compat.supports_strict_mode),
+                    supports_openai_grammar_tools: Some(compat.supports_openai_grammar_tools),
+                    ..Default::default()
+                }),
+            )
+            .map_err(|error| error.message)?,
+        );
+    }
+    if let Some(tool_choice) = &options.tool_choice {
+        params.insert("tool_choice".to_owned(), tool_choice.clone());
+    }
+
+    if model.reasoning {
+        if options.reasoning_effort.is_some() || options.reasoning_summary.is_some() {
+            let effort = options
+                .reasoning_effort
+                .as_deref()
+                .map(|effort| mapped_effort(model, effort))
+                .unwrap_or_else(|| "medium".to_owned());
+            let summary = options.reasoning_summary.clone().unwrap_or_else(|| "auto".to_owned());
+            params.insert(
+                "reasoning".to_owned(),
+                crate::api::openai_sdk::json_object(vec![
+                    ("effort", Value::String(effort)),
+                    ("summary", Value::String(summary)),
+                ]),
+            );
+            params.insert(
+                "include".to_owned(),
+                Value::Array(vec![Value::String("reasoning.encrypted_content".to_owned())]),
+            );
+        } else if model.provider != "github-copilot"
+            && let Some(effort) = off_effort(model)
+        {
+            params.insert(
+                "reasoning".to_owned(),
+                crate::api::openai_sdk::json_object(vec![("effort", Value::String(effort))]),
+            );
+        }
+        if model.provider == "xai" {
+            params.insert(
+                "include".to_owned(),
+                Value::Array(vec![Value::String("reasoning.encrypted_content".to_owned())]),
+            );
+        }
+    }
+
+    if let Some(sampling_params) = &stream_options.sampling_params {
+        for (key, value) in sampling_params {
+            params.insert(key.clone(), value.clone());
+        }
+    }
+    Ok(Value::Object(params))
+}
+
+fn number_value(value: f64) -> Value {
+    serde_json::Number::from_f64(value)
+        .map(Value::Number)
+        .unwrap_or(Value::Null)
+}
+
+fn get_service_tier_cost_multiplier(model_id: &str, service_tier: Option<&str>) -> f64 {
+    match service_tier {
+        Some("flex") => 0.5,
+        Some("priority") if model_id == "gpt-5.5" => 2.5,
+        Some("priority") => 2.0,
+        _ => 1.0,
+    }
+}
+
+fn apply_service_tier_pricing(usage: &mut Usage, service_tier: Option<&str>, model_id: &str) {
+    let multiplier = get_service_tier_cost_multiplier(model_id, service_tier);
+    if multiplier == 1.0 {
+        return;
+    }
+    usage.cost.input *= multiplier;
+    usage.cost.output *= multiplier;
+    usage.cost.cache_read *= multiplier;
+    usage.cost.cache_write *= multiplier;
+    usage.cost.total = usage.cost.input + usage.cost.output + usage.cost.cache_read + usage.cost.cache_write;
+}
+
+fn merge_provider_headers(
+    base: Option<&BTreeMap<String, String>>,
+    dynamic: Option<BTreeMap<String, String>>,
+    options_headers: Option<&ProviderHeaders>,
+) -> BTreeMap<String, Option<String>> {
+    let mut merged: BTreeMap<String, Option<String>> = BTreeMap::new();
+    for (name, value) in base.into_iter().flatten() {
+        merged.insert(name.clone(), Some(value.clone()));
+    }
+    for (name, value) in dynamic.into_iter().flatten() {
+        merged.insert(name, Some(value));
+    }
+    for (name, value) in options_headers.into_iter().flatten() {
+        merged.insert(name.clone(), value.clone());
+    }
+    merged
+}
+
+fn create_client(
+    model: &Model,
+    context: &Context,
+    api_key: &str,
+    options: &StreamOptions,
+    session_id: Option<&str>,
+    compat: &ResolvedCompat,
+) -> SdkClient {
+    let dynamic = (model.provider == "github-copilot").then(|| {
+        let has_images = has_copilot_vision_input(&context.messages);
+        build_copilot_dynamic_headers(&context.messages, has_images)
+    });
+    let mut headers = merge_provider_headers(model.headers.as_ref(), dynamic, options.request.headers.as_ref());
+    if let Some(session_id) = session_id {
+        match compat.session_affinity_format {
+            SessionAffinityFormat::Openrouter => {
+                headers.insert("x-session-id".to_owned(), Some(session_id.to_owned()));
+            }
+            format => {
+                if format == SessionAffinityFormat::Openai {
+                    headers.insert("session_id".to_owned(), Some(session_id.to_owned()));
+                }
+                headers.insert("x-client-request-id".to_owned(), Some(session_id.to_owned()));
+            }
+        }
+    }
+    SdkClient::new(SdkClientConfig {
+        api_key: api_key.to_owned(),
+        base_url: model.base_url.clone(),
+        default_headers: headers,
+        timeout_ms: options.request.timeout_ms,
+        fetch: options.request.fetch.clone(),
+        azure: None,
+    })
+}
+
+enum Failure {
+    Sdk(SdkError),
+    Request(Box<ProviderRequestError<CallbackError>>),
+    Message(String),
+}
+
+impl Failure {
+    fn format(self) -> String {
+        match self {
+            Self::Sdk(error) => format_sdk_error(&error, Some("OpenAI API error")),
+            Self::Request(error) => format_request_error(&error, Some("OpenAI API error")),
+            Self::Message(message) => message,
+        }
+    }
+}
+
+fn retry_options(options: &ProviderRequestOptions) -> ProviderRetryOptions {
+    ProviderRetryOptions {
+        max_retries: options
+            .max_retries
+            .filter(|retries| *retries > 0.0)
+            .map(|retries| retries as usize)
+            .unwrap_or(0),
+        max_retry_delay_ms: options.max_retry_delay_ms,
+        signal: options.signal.clone(),
+    }
+}
+
+async fn run_stream(
+    model: &Model,
+    context: &Context,
+    stream_options: &StreamOptions,
+    options: &OpenAIResponsesOptions,
+    output: &mut AssistantMessage,
+    sender: &AssistantMessageEventSender,
+) -> Result<(), Failure> {
+    let api_key = get_client_api_key(
+        &model.provider,
+        stream_options.request.api_key.as_deref(),
+        stream_options.request.headers.as_ref(),
+    )
+    .map_err(Failure::Message)?;
+    let cache_retention = resolve_cache_retention(stream_options.cache_retention, stream_options.request.env.as_ref());
+    let cache_session_id = (cache_retention != CacheRetention::None)
+        .then_some(stream_options.session_id.as_deref())
+        .flatten();
+    let compat = get_compat(model);
+    let grammar_tool_input_properties =
+        create_grammar_tool_input_properties(context.tools.as_deref(), compat.supports_openai_grammar_tools)
+            .map_err(|error| Failure::Message(error.message))?;
+    let client = create_client(model, context, &api_key, stream_options, cache_session_id, &compat);
+    let mut params = build_params(
+        model,
+        context,
+        options,
+        stream_options,
+        &compat,
+        &grammar_tool_input_properties,
+    )
+    .map_err(Failure::Message)?;
+
+    if let Some(on_payload) = &stream_options.request.on_payload
+        && let Some(next_params) = on_payload(params.clone(), model.clone())
+            .await
+            .map_err(|error| Failure::Message(error.message))?
+    {
+        params = next_params;
+    }
+
+    let signal = stream_options.request.signal.clone();
+    let response = retry_provider_request(
+        || client.create_response_stream(params.clone(), signal.clone()),
+        retry_options(&stream_options.request),
+    )
+    .await
+    .map_err(|error| Failure::Request(Box::new(error)))?;
+
+    if let Some(on_response) = &stream_options.request.on_response {
+        on_response(
+            ProviderResponse {
+                status: f64::from(response.status),
+                headers: headers_to_record(response.headers.clone()),
+            },
+            model.clone(),
+        )
+        .await
+        .map_err(|error| Failure::Message(error.message))?;
+    }
+    sender.push(crate::types::AssistantMessageEvent::Start {
+        partial: output.clone(),
+    });
+
+    let mut stream = response.stream;
+    let stream_options_for_shared = OpenAIResponsesStreamOptions {
+        service_tier: options.service_tier.clone(),
+        grammar_tool_input_properties: Some(grammar_tool_input_properties),
+        apply_service_tier_pricing: Some(Arc::new({
+            let model_id = model.id.clone();
+            move |usage: &mut Usage, service_tier: Option<&str>| {
+                apply_service_tier_pricing(usage, service_tier, &model_id);
+            }
+        })),
+        ..Default::default()
+    };
+    process_responses_stream(&mut stream, output, sender, model, Some(&stream_options_for_shared))
+        .await
+        .map_err(|failure| match failure {
+            crate::api::openai_responses_shared::ResponsesStreamFailure::Source(error) => Failure::Sdk(error),
+            crate::api::openai_responses_shared::ResponsesStreamFailure::Message(message) => Failure::Message(message),
+        })?;
+
+    if stream_options
+        .request
+        .signal
+        .as_ref()
+        .is_some_and(CancellationToken::is_cancelled)
+    {
+        return Err(Failure::Message("Request was aborted".to_owned()));
+    }
+    if output.stop_reason == crate::types::StopReason::Pending {
+        return Err(Failure::Message(
+            "OpenAI Responses stream ended without a stop reason".to_owned(),
+        ));
+    }
+    if matches!(
+        output.stop_reason,
+        crate::types::StopReason::Aborted | crate::types::StopReason::Error
+    ) {
+        return Err(Failure::Message(
+            output
+                .error_message
+                .clone()
+                .unwrap_or_else(|| "An unknown error occurred".to_owned()),
+        ));
+    }
+    push_responses_done(sender, output).map_err(Failure::Message)?;
+    Ok(())
+}
+
+fn run_and_emit(
+    model: &Model,
+    context: &Context,
+    stream_options: StreamOptions,
+) -> crate::utils::event_stream::AssistantMessageEventStream {
+    let (sender, stream) = create_assistant_message_event_stream();
+    let model = model.clone();
+    let context = context.clone();
+    tokio::spawn(async move {
+        let options = OpenAIResponsesOptions::from_stream_options(&stream_options);
+        let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis());
+        let result = run_stream(&model, &context, &stream_options, &options, &mut output, &sender).await;
+        if let Err(failure) = result {
+            output.stop_reason = if stream_options
+                .request
+                .signal
+                .as_ref()
+                .is_some_and(CancellationToken::is_cancelled)
+            {
+                crate::types::StopReason::Aborted
+            } else {
+                crate::types::StopReason::Error
+            };
+            output.error_message = Some(failure.format());
+            sender.push(crate::types::AssistantMessageEvent::Error {
+                reason: if output.stop_reason == crate::types::StopReason::Aborted {
+                    ErrorReason::Aborted
+                } else {
+                    ErrorReason::Error
+                },
+                error: output.clone(),
+            });
+            sender.end(Some(output));
+        }
+    });
+    stream
+}
+
+/// `stream`.
+pub fn stream(
+    model: Model,
+    context: Context,
+    options: StreamOptions,
+) -> crate::utils::event_stream::AssistantMessageEventStream {
+    run_and_emit(&model, &context, options)
+}
+
+/// `streamSimple`.
+pub fn stream_simple(
+    model: Model,
+    context: Context,
+    options: SimpleStreamOptions,
+) -> crate::utils::event_stream::AssistantMessageEventStream {
+    let api_key = match get_client_api_key(
+        &model.provider,
+        options.stream.request.api_key.as_deref(),
+        options.stream.request.headers.as_ref(),
+    ) {
+        Ok(api_key) => api_key,
+        Err(message) => return crate::request::error_stream(&model, &message),
+    };
+    let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
+    let clamped_reasoning = options
+        .reasoning
+        .map(|reasoning| clamp_thinking_level(&model, model_thinking_level(reasoning)));
+    let reasoning_effort = clamp_standard_reasoning_level(clamped_reasoning);
+    let mut stream_options = base;
+    if let Some(reasoning_effort) = reasoning_effort {
+        stream_options
+            .extra
+            .insert("reasoningEffort".to_owned(), Value::String(reasoning_effort));
+    }
+    run_and_emit(&model, &context, stream_options)
+}
+
+/// `ProviderStreams` adapter for `openAIResponsesApi()`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OpenAIResponsesApi;
+
+impl ProviderStreams for OpenAIResponsesApi {
+    fn stream(
+        &self,
+        model: Model,
+        context: Context,
+        options: StreamOptions,
+    ) -> crate::utils::event_stream::AssistantMessageEventStream {
+        stream(model, context, options)
+    }
+
+    fn stream_simple(
+        &self,
+        model: Model,
+        context: Context,
+        options: SimpleStreamOptions,
+    ) -> crate::utils::event_stream::AssistantMessageEventStream {
+        stream_simple(model, context, options)
+    }
+}
+
+/// `openAIResponsesApi()` from `openai-responses.lazy.ts`.
+pub fn open_ai_responses_api() -> LazyApi {
+    lazy_api(
+        Arc::new(|| {
+            Box::pin(async { Ok(Arc::new(OpenAIResponsesApi) as Arc<dyn ProviderStreams>) })
+                as BoxFuture<'static, Result<Arc<dyn ProviderStreams>, CallbackError>>
+        }),
+        LazyApiCapabilities::default(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn model(provider: &str, id: &str) -> Model {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "name": id, "api": "openai-responses", "provider": provider,
+            "baseUrl": "https://api.openai.com/v1", "reasoning": true,
+            "input": ["text"],
+            "cost": {"input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0},
+            "contextWindow": 128000, "maxTokens": 4096
+        }))
+        .expect("model")
+    }
+
+    #[test]
+    fn service_tier_multiplier_matches_provider_rules() {
+        assert_eq!(get_service_tier_cost_multiplier("gpt-5.5", Some("flex")), 0.5);
+        assert_eq!(get_service_tier_cost_multiplier("gpt-5.5", Some("priority")), 2.5);
+        assert_eq!(get_service_tier_cost_multiplier("gpt-5.4", Some("priority")), 2.0);
+        assert_eq!(get_service_tier_cost_multiplier("gpt-5.4", None), 1.0);
+    }
+
+    #[test]
+    fn compat_defaults_follow_provider_and_url() {
+        assert_eq!(
+            get_compat(&model("openai", "gpt-5.5")).session_affinity_format,
+            SessionAffinityFormat::Openai
+        );
+        assert_eq!(
+            get_compat(&model("openrouter", "x")).session_affinity_format,
+            SessionAffinityFormat::Openrouter
+        );
+    }
+}

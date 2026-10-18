@@ -709,6 +709,30 @@ impl<'de> Deserialize<'de> for ConstrainedSampling {
     }
 }
 
+/// A JSON Schema built with the TypeBox-equivalent builder (`Type.*` /
+/// [`crate::utils::typebox_helpers::string_enum`]).
+///
+/// TypeScript TypeBox schemas carry a hidden `~kind` marker (and
+/// `Symbol.for("TypeBox.Kind")` in older releases). `Tool::parameters` is a
+/// plain `serde_json::Value`, which cannot hold hidden properties, so the
+/// origin is recorded explicitly on [`Tool::typebox_kind`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeBoxSchema(Value);
+
+impl TypeBoxSchema {
+    pub fn new(parameters: Value) -> Self {
+        Self(parameters)
+    }
+
+    pub fn value(&self) -> &Value {
+        &self.0
+    }
+
+    pub fn into_value(self) -> Value {
+        self.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Tool {
@@ -718,6 +742,35 @@ pub struct Tool {
     pub parameters: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub constrained_sampling: Option<ConstrainedSampling>,
+    /// Whether `parameters` was built with TypeBox. TypeScript's
+    /// `Value.Convert` only converts schemas carrying the hidden `~kind`
+    /// marker; plain JSON schemas (MCP/extension tools) skip that pass.
+    #[serde(skip)]
+    pub typebox_kind: bool,
+}
+
+impl Tool {
+    /// Tool with a plain JSON Schema (MCP/extension origin).
+    pub fn new(name: impl Into<String>, description: impl Into<String>, parameters: Value) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            parameters,
+            constrained_sampling: None,
+            typebox_kind: false,
+        }
+    }
+
+    /// Tool whose schema was built with the TypeBox-equivalent builder.
+    pub fn typebox(name: impl Into<String>, description: impl Into<String>, parameters: TypeBoxSchema) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            parameters: parameters.into_value(),
+            constrained_sampling: None,
+            typebox_kind: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
