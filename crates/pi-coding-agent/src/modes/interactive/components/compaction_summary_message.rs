@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use pi_js_compat::number::js_to_fixed;
+use pi_js_compat::number::to_fixed;
 use pi_tui::components::r#box::BoxComponent;
 use pi_tui::components::text::StyleFn;
 use pi_tui::tui::component;
@@ -107,14 +107,14 @@ fn format_token_count(tokens: f64) -> String {
     if tokens < 1000.0 {
         return pi_js_compat::number::js_number_to_string(tokens);
     }
-    format!("{}k", js_to_fixed(tokens / 1000.0, 1))
+    format!("{}k", to_fixed(tokens / 1000.0, 1))
 }
 
 fn format_compaction_duration(duration_ms: f64) -> Option<String> {
     if duration_ms < 1000.0 {
         return Some(format!("{}ms", pi_js_compat::number::js_number_to_string(duration_ms)));
     }
-    Some(format!("{}s", js_to_fixed(duration_ms / 1000.0, 1)))
+    Some(format!("{}s", to_fixed(duration_ms / 1000.0, 1)))
 }
 
 impl Component for CompactionSummaryMessageComponent {

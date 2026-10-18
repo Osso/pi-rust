@@ -3,7 +3,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use pi_js_compat::number::{js_number_to_string, js_to_fixed, parse_float, parse_int, parse_number};
+use pi_js_compat::number::{js_number_to_string, parse_float, parse_int, parse_number, to_fixed};
 use serde_json::json;
 
 const NUMBER_VALUES: &[&str] = &[
@@ -202,7 +202,7 @@ fn matches_node_number_conversions() {
     assert_eq!(actual_strings, expected_strings, "String(Number(string))");
 }
 
-const FIXED_CASES: &[(f64, usize)] = &[
+const FIXED_CASES: &[(f64, u32)] = &[
     (0.0, 1),
     (-0.0, 1),
     (1.0, 1),
@@ -253,7 +253,7 @@ fn matches_node_to_fixed() {
         .collect();
     let actual: Vec<String> = FIXED_CASES
         .iter()
-        .map(|(value, digits)| js_to_fixed(*value, *digits))
+        .map(|(value, digits)| to_fixed(*value, *digits))
         .collect();
     assert_eq!(actual, expected, "Number.prototype.toFixed");
 }

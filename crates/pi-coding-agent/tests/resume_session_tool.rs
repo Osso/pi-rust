@@ -3,13 +3,15 @@
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::AgentHarnessTool;
-use pi_ai::request::BoxFuture;
+use pi_coding_agent::core::extensions::{ExtensionContext, SwitchSessionCallback};
 use pi_coding_agent::core::session_control_db::{WritableSessionMetadata, get_control_db_path, write_session_metadata};
 use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionManager};
-use pi_coding_agent::core::tools::context::{SessionSwitcher, SwitchSessionResult, ToolContext};
 use pi_coding_agent::core::tools::resume_session::ResumeSessionTool;
 use serde_json::json;
 use tempfile::TempDir;
+
+#[path = "support/tool_context.rs"]
+mod tool_context;
 
 fn seed_message(text: &str, timestamp: i64) -> pi_agent_core::AgentMessage {
     serde_json::from_value(json!({ "role": "user", "content": text, "timestamp": timestamp }))
@@ -37,33 +39,26 @@ fn materialize(manager: &mut SessionManager) {
 
 struct SwitchRecorder {
     cancelled: bool,
-    path: Mutex<Option<String>>,
-    starter_prompt: Mutex<Option<String>>,
+    path: Arc<Mutex<Option<String>>>,
+    starter_prompt: Arc<Mutex<Option<String>>>,
 }
 
 impl SwitchRecorder {
     fn new(cancelled: bool) -> Arc<Self> {
         Arc::new(Self {
             cancelled,
-            path: Mutex::new(None),
-            starter_prompt: Mutex::new(None),
+            path: Arc::new(Mutex::new(None)),
+            starter_prompt: Arc::new(Mutex::new(None)),
         })
     }
-}
 
-impl SessionSwitcher for SwitchRecorder {
-    fn switch_session<'a>(
-        &'a self,
-        session_path: &'a str,
-        starter_prompt: Option<&'a str>,
-    ) -> BoxFuture<'a, Result<SwitchSessionResult, pi_agent_core::ToolError>> {
-        *self.path.lock().expect("path lock") = Some(session_path.to_owned());
-        *self.starter_prompt.lock().expect("starter lock") = starter_prompt.map(str::to_owned);
-        Box::pin(async move {
-            Ok(SwitchSessionResult {
-                cancelled: self.cancelled,
-            })
-        })
+    fn callback(&self, context: ExtensionContext) -> SwitchSessionCallback {
+        tool_context::recording_switch_session(
+            context,
+            self.cancelled,
+            Arc::clone(&self.path),
+            Arc::clone(&self.starter_prompt),
+        )
     }
 }
 
@@ -114,7 +109,7 @@ impl Fixture {
         manager
     }
 
-    fn context(&self, switcher: Option<Arc<dyn SessionSwitcher>>) -> ToolContext {
+    async fn context(&self, switcher: Option<Arc<SwitchRecorder>>, agent_id: Option<&str>) -> ExtensionContext {
         let current_path = self
             .current
             .get_session_file()
@@ -122,17 +117,23 @@ impl Fixture {
             .to_owned();
         let reader =
             SessionManager::open(&current_path, Some(self.session_dir.as_str()), None).expect("reopen current session");
-        let context =
-            ToolContext::new(self.current.get_cwd(), Arc::new(reader)).with_control_db_path(&self.control_db_path);
-        match switcher {
-            Some(switcher) => context.with_switch_session(switcher),
-            None => context,
+        let mut builder = tool_context::TestContextBuilder::new(self.current.get_cwd(), Arc::new(reader))
+            .control_db_path(&self.control_db_path);
+        if let Some(agent_id) = agent_id {
+            builder = builder.agent_id(agent_id);
         }
+        let (mut runner, context) = builder.build().await;
+        if let Some(recorder) = switcher {
+            runner.bind_command_context(Some(tool_context::command_context_actions(
+                recorder.callback(context.clone()),
+            )));
+        }
+        context
     }
 }
 
 async fn execute(
-    context: ToolContext,
+    context: ExtensionContext,
     params: serde_json::Value,
 ) -> Result<pi_agent_core::AgentToolResult, pi_agent_core::ToolError> {
     ResumeSessionTool::new()
@@ -143,9 +144,7 @@ async fn execute(
 #[tokio::test]
 async fn rejects_child_agent_contexts() {
     let fixture = Fixture::new();
-    let context = fixture
-        .context(Some(SwitchRecorder::new(false)))
-        .with_multi_agent_agent_id("agent_1");
+    let context = fixture.context(Some(SwitchRecorder::new(false)), Some("agent_1")).await;
     let error = execute(context, json!({ "path": "/tmp/x.jsonl" }))
         .await
         .expect_err("child agent must fail");
@@ -174,7 +173,7 @@ async fn rejects_resuming_the_current_session_by_path_id_or_name() {
         json!({ "id": session_id }),
         json!({ "name": "current session" }),
     ] {
-        let error = execute(fixture.context(Some(SwitchRecorder::new(false))), target)
+        let error = execute(fixture.context(Some(SwitchRecorder::new(false)), None).await, target)
             .await
             .expect_err("self resume must fail");
         assert_eq!(error.to_string(), "resume_session cannot resume the current session");
@@ -196,7 +195,7 @@ async fn resolves_target_sessions_by_id_and_name() {
 
     let recorder = SwitchRecorder::new(false);
     let id_result = execute(
-        fixture.context(Some(recorder.clone())),
+        fixture.context(Some(Arc::clone(&recorder)), None).await,
         json!({ "id": "019f7421-2000" }),
     )
     .await
@@ -216,7 +215,7 @@ async fn resolves_target_sessions_by_id_and_name() {
     assert_eq!(id_result.terminate, Some(true));
 
     let name_result = execute(
-        fixture.context(Some(SwitchRecorder::new(false))),
+        fixture.context(Some(SwitchRecorder::new(false)), None).await,
         json!({ "name": "named target" }),
     )
     .await
@@ -230,7 +229,7 @@ async fn resolves_target_sessions_by_id_and_name() {
 #[tokio::test]
 async fn rejects_missing_and_multiple_targets() {
     let fixture = Fixture::new();
-    let error = execute(fixture.context(Some(SwitchRecorder::new(false))), json!({}))
+    let error = execute(fixture.context(Some(SwitchRecorder::new(false)), None).await, json!({}))
         .await
         .expect_err("missing target must fail");
     assert_eq!(
@@ -239,7 +238,7 @@ async fn rejects_missing_and_multiple_targets() {
     );
 
     let error = execute(
-        fixture.context(Some(SwitchRecorder::new(false))),
+        fixture.context(Some(SwitchRecorder::new(false)), None).await,
         json!({ "id": "target", "path": "/tmp/session.jsonl" }),
     )
     .await
@@ -261,7 +260,7 @@ async fn rejects_ambiguous_named_targets() {
     second.append_session_info("duplicate target").expect("name");
 
     let error = execute(
-        fixture.context(Some(SwitchRecorder::new(false))),
+        fixture.context(Some(SwitchRecorder::new(false)), None).await,
         json!({ "name": "duplicate target" }),
     )
     .await
@@ -299,7 +298,7 @@ async fn rejects_targets_whose_metadata_points_at_missing_session_files() {
     .expect("write metadata");
 
     for params in [json!({ "id": "019f7421-stale" }), json!({ "name": "stale target" })] {
-        let error = execute(fixture.context(Some(SwitchRecorder::new(false))), params)
+        let error = execute(fixture.context(Some(SwitchRecorder::new(false)), None).await, params)
             .await
             .expect_err("stale target must fail");
         assert_eq!(error.to_string(), format!("Session file does not exist: {stale_path}"));
@@ -320,7 +319,7 @@ async fn resolves_id_targets_across_a_custom_session_directory() {
 
     let recorder = SwitchRecorder::new(false);
     let result = execute(
-        fixture.context(Some(recorder.clone())),
+        fixture.context(Some(Arc::clone(&recorder)), None).await,
         json!({ "id": "019f7421-1000" }),
     )
     .await
@@ -344,7 +343,7 @@ async fn forwards_the_starter_prompt_and_reports_cancellation() {
 
     let recorder = SwitchRecorder::new(false);
     let result = execute(
-        fixture.context(Some(recorder.clone())),
+        fixture.context(Some(Arc::clone(&recorder)), None).await,
         json!({ "path": target_path, "starter_prompt": "continue in target" }),
     )
     .await
@@ -359,7 +358,7 @@ async fn forwards_the_starter_prompt_and_reports_cancellation() {
     );
 
     let cancelled = execute(
-        fixture.context(Some(SwitchRecorder::new(true))),
+        fixture.context(Some(SwitchRecorder::new(true)), None).await,
         json!({ "path": target_path, "starter_prompt": "should not send" }),
     )
     .await
@@ -379,7 +378,7 @@ async fn rejects_missing_or_non_jsonl_session_files() {
     let fixture = Fixture::new();
     let missing = fixture._temp_dir.path().join("missing.jsonl").display().to_string();
     let error = execute(
-        fixture.context(Some(SwitchRecorder::new(false))),
+        fixture.context(Some(SwitchRecorder::new(false)), None).await,
         json!({ "path": missing }),
     )
     .await
@@ -390,7 +389,7 @@ async fn rejects_missing_or_non_jsonl_session_files() {
     std::fs::write(&text_path, "not a session").expect("write file");
     let text_path = text_path.display().to_string();
     let error = execute(
-        fixture.context(Some(SwitchRecorder::new(false))),
+        fixture.context(Some(SwitchRecorder::new(false)), None).await,
         json!({ "path": text_path }),
     )
     .await
@@ -404,12 +403,15 @@ async fn rejects_missing_or_non_jsonl_session_files() {
 #[tokio::test]
 async fn requires_switch_session_capability() {
     let fixture = Fixture::new();
-    let error = execute(fixture.context(None), json!({ "path": "/tmp/session.jsonl" }))
+    let target_cwd = fixture._temp_dir.path().join("target").display().to_string();
+    let target = fixture.target(&target_cwd, "019f7421-4000-7000-8000-000000000001");
+    let target_path = target.get_session_file().expect("target file").to_owned();
+    let error = execute(fixture.context(None, None).await, json!({ "path": target_path }))
         .await
         .expect_err("missing capability must fail");
     assert_eq!(
         error.to_string(),
-        "resume_session is not available in this session mode"
+        "Session resume is not available in this session mode"
     );
 }
 
@@ -417,7 +419,7 @@ async fn requires_switch_session_capability() {
 async fn rejects_blank_target_strings() {
     let fixture = Fixture::new();
     let error = execute(
-        fixture.context(Some(SwitchRecorder::new(false))),
+        fixture.context(Some(SwitchRecorder::new(false)), None).await,
         json!({ "name": "   " }),
     )
     .await

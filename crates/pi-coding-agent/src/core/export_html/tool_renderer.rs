@@ -14,7 +14,8 @@ use super::ansi_to_html::ansi_lines_to_html;
 use super::index::{RenderedToolResult, ToolHtmlRenderer};
 use pi_agent_core::agent::types::AgentToolResult;
 
-use crate::core::extensions::types::{ExtensionTheme, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::core::extensions::types::{ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::modes::interactive::theme::Theme;
 
 /// Looks up an extension tool definition by name.
 pub type ToolDefinitionLookup = Arc<dyn Fn(&str) -> Option<ToolDefinition> + Send + Sync>;
@@ -23,7 +24,7 @@ pub type ToolDefinitionLookup = Arc<dyn Fn(&str) -> Option<ToolDefinition> + Sen
 pub struct ToolHtmlRendererDeps {
     /// Function to look up a tool definition by name.
     pub get_tool_definition: ToolDefinitionLookup,
-    pub theme: Arc<dyn ExtensionTheme>,
+    pub theme: Arc<Theme>,
     pub cwd: String,
     /// Terminal width for rendering (default: 100).
     pub width: Option<usize>,
@@ -39,7 +40,7 @@ struct RendererState {
 /// Tool HTML renderer backed by extension TUI renderers.
 pub struct ExtensionToolHtmlRenderer {
     get_tool_definition: ToolDefinitionLookup,
-    theme: Arc<dyn ExtensionTheme>,
+    theme: Arc<Theme>,
     cwd: String,
     width: usize,
     state: RefCell<RendererState>,

@@ -18,13 +18,13 @@ use tokio::io::AsyncReadExt;
 use tokio_util::sync::CancellationToken;
 
 use super::node_fs::node_error_code;
-use super::render_utils::{get_text_output, invalid_arg_text, key_hint, shorten_path, str_value};
+use super::render_utils::{get_text_output, invalid_arg_text, shorten_path, str_value};
+use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, format_size, truncate_head};
-use crate::core::extensions::types::{
-    ExtensionTheme, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, ToolRenderer,
-};
-use crate::core::extensions::wrapper::create_tool_definition_from_agent_tool;
+use crate::core::extensions::types::{ToolDefinition, ToolRenderContext, ToolRenderResultOptions, ToolRenderer};
+use crate::modes::interactive::components::keybinding_hints::key_hint;
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 const MAX_SAFE_INTEGER: usize = 9_007_199_254_740_991;
 const SYMBOL_KINDS: [&str; 9] = [
@@ -431,23 +431,18 @@ fn bool_argument(params: &Value, name: &str) -> bool {
 // Renderers
 // ============================================================================
 
-fn format_code_index_call(
-    tool_name: &str,
-    target: Option<String>,
-    theme: &dyn ExtensionTheme,
-    suffix: Option<String>,
-) -> String {
+fn format_code_index_call(tool_name: &str, target: Option<String>, theme: &Theme, suffix: Option<String>) -> String {
     let invalid_arg = invalid_arg_text(theme);
     let mut text = format!(
         "{} {}",
-        theme.fg("toolTitle", &theme.bold(tool_name)),
+        theme.fg(ThemeColor::ToolTitle, &theme.bold(tool_name)),
         match target {
             None => invalid_arg,
-            Some(target) => theme.fg("accent", &shorten_path(&target)),
+            Some(target) => theme.fg(ThemeColor::Accent, &shorten_path(&target)),
         }
     );
     if let Some(suffix) = suffix.filter(|suffix| !suffix.is_empty()) {
-        text.push_str(&theme.fg("toolOutput", &format!(" {suffix}")));
+        text.push_str(&theme.fg(ThemeColor::ToolOutput, &format!(" {suffix}")));
     }
     text
 }
@@ -455,7 +450,7 @@ fn format_code_index_call(
 fn format_code_index_result(
     result: &AgentToolResult,
     options: &ToolRenderResultOptions,
-    theme: &dyn ExtensionTheme,
+    theme: &Theme,
     show_images: bool,
 ) -> String {
     let output = get_text_output(Some(result), show_images).trim().to_owned();
@@ -469,16 +464,16 @@ fn format_code_index_result(
             "\n{}",
             display_lines
                 .iter()
-                .map(|line| theme.fg("toolOutput", line))
+                .map(|line| theme.fg(ThemeColor::ToolOutput, line))
                 .collect::<Vec<_>>()
                 .join("\n")
         ));
         if remaining > 0 {
             text.push_str(&format!(
                 "{}{}{}",
-                theme.fg("muted", &format!("\n... ({remaining} more lines,")),
+                theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
-                theme.fg("muted", ")")
+                theme.fg(ThemeColor::Muted, ")")
             ));
         }
     }
@@ -492,7 +487,7 @@ fn format_code_index_result(
         text.push_str(&format!(
             "\n{}",
             theme.fg(
-                "warning",
+                ThemeColor::Warning,
                 &format!("[Truncated: {} limit]", format_size(truncation.max_bytes))
             )
         ));
@@ -501,7 +496,7 @@ fn format_code_index_result(
 }
 
 /// `renderCall` for the outline tool.
-pub fn outline_render_call(args: &Value, theme: &dyn ExtensionTheme, _context: &ToolRenderContext) -> ComponentRef {
+pub fn outline_render_call(args: &Value, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
     let suffix = {
         let mut parts = Vec::new();
         if args.get("digest").and_then(Value::as_bool).unwrap_or(false) {
@@ -523,7 +518,7 @@ pub fn outline_render_call(args: &Value, theme: &dyn ExtensionTheme, _context: &
 }
 
 /// `renderCall` for the symbol tool.
-pub fn symbol_render_call(args: &Value, theme: &dyn ExtensionTheme, _context: &ToolRenderContext) -> ComponentRef {
+pub fn symbol_render_call(args: &Value, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
     let suffix = {
         let mut parts = Vec::new();
         if let Some(kind) = str_value(args.get("kind")).filter(|kind| !kind.is_empty()) {
@@ -542,7 +537,7 @@ pub fn symbol_render_call(args: &Value, theme: &dyn ExtensionTheme, _context: &T
 }
 
 /// `renderCall` for the references tool.
-pub fn references_render_call(args: &Value, theme: &dyn ExtensionTheme, _context: &ToolRenderContext) -> ComponentRef {
+pub fn references_render_call(args: &Value, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
     let suffix = str_value(args.get("kind"))
         .filter(|kind| !kind.is_empty())
         .map(|kind| format!("({kind})"));
@@ -557,7 +552,7 @@ pub fn references_render_call(args: &Value, theme: &dyn ExtensionTheme, _context
 pub fn code_index_render_result(
     result: &AgentToolResult,
     options: &ToolRenderResultOptions,
-    theme: &dyn ExtensionTheme,
+    theme: &Theme,
     context: &ToolRenderContext,
 ) -> ComponentRef {
     Rc::new(RefCell::new(Text::new(

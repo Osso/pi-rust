@@ -19,12 +19,13 @@ use tokio_util::sync::CancellationToken;
 
 use super::node_fs::node_fs_error;
 use super::path_utils::resolve_read_path_async;
-use super::render_utils::{get_text_output, key_hint, key_text, render_tool_path, replace_tabs, str_value};
+use super::render_utils::{get_text_output, render_tool_path, replace_tabs, str_value};
 use super::truncate::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, TruncationOptions, TruncationResult, format_size, truncate_head,
 };
-use crate::core::extensions::types::{ExtensionTheme, ToolRenderContext, ToolRenderResultOptions};
-use crate::modes::interactive::theme::{get_language_from_path, highlight_code};
+use crate::core::extensions::types::{ToolRenderContext, ToolRenderResultOptions};
+use crate::modes::interactive::components::keybinding_hints::{key_hint, key_text};
+use crate::modes::interactive::theme::{Theme, ThemeColor, get_language_from_path, highlight_code};
 use crate::utils::image_process::{ProcessImageOptions, ProcessImageResult, process_image};
 use crate::utils::mime::detect_supported_image_mime_type_from_file;
 use crate::utils::paths::format_path_relative_to_cwd_or_absolute;
@@ -503,7 +504,7 @@ fn render_args_path(args: &Value) -> Option<String> {
     str_value(value)
 }
 
-fn format_read_line_range(args: &Value, theme: &dyn ExtensionTheme) -> String {
+fn format_read_line_range(args: &Value, theme: &Theme) -> String {
     let offset = args.get("offset").and_then(Value::as_f64);
     let limit = args.get("limit").and_then(Value::as_f64);
     if offset.is_none() && limit.is_none() {
@@ -513,8 +514,8 @@ fn format_read_line_range(args: &Value, theme: &dyn ExtensionTheme) -> String {
     let end_line = limit.map(|limit| start_line + limit - 1.0);
     let start = format_js_number(start_line);
     match end_line {
-        Some(end_line) => theme.fg("warning", &format!(":{start}-{}", format_js_number(end_line))),
-        None => theme.fg("warning", &format!(":{start}")),
+        Some(end_line) => theme.fg(ThemeColor::Warning, &format!(":{start}-{}", format_js_number(end_line))),
+        None => theme.fg(ThemeColor::Warning, &format!(":{start}")),
     }
 }
 
@@ -526,11 +527,11 @@ fn format_js_number(value: f64) -> String {
     }
 }
 
-fn format_read_call(args: &Value, theme: &dyn ExtensionTheme, cwd: &str) -> String {
+fn format_read_call(args: &Value, theme: &Theme, cwd: &str) -> String {
     let path_display = render_tool_path(render_args_path(args).as_deref(), theme, cwd, None);
     format!(
         "{} {path_display}{}",
-        theme.fg("toolTitle", &theme.bold("read")),
+        theme.fg(ThemeColor::ToolTitle, &theme.bold("read")),
         format_read_line_range(args, theme)
     )
 }
@@ -614,17 +615,16 @@ fn get_compact_read_classification(args: &Value, cwd: &str) -> Option<CompactRea
     None
 }
 
-fn format_compact_read_call(
-    classification: &CompactReadClassification,
-    args: &Value,
-    theme: &dyn ExtensionTheme,
-) -> String {
-    let expand_hint = theme.fg("dim", &format!(" ({} to expand)", key_text("app.tools.expand")));
+fn format_compact_read_call(classification: &CompactReadClassification, args: &Value, theme: &Theme) -> String {
+    let expand_hint = theme.fg(
+        ThemeColor::Dim,
+        &format!(" ({} to expand)", key_text("app.tools.expand")),
+    );
     if classification.kind == CompactReadKind::Skill {
         return format!(
             "{}{}{}{}",
-            theme.fg("customMessageLabel", "\u{1b}[1m[skill]\u{1b}[22m "),
-            theme.fg("customMessageText", &classification.label),
+            theme.fg(ThemeColor::CustomMessageLabel, "\u{1b}[1m[skill]\u{1b}[22m "),
+            theme.fg(ThemeColor::CustomMessageText, &classification.label),
             format_read_line_range(args, theme),
             expand_hint
         );
@@ -636,8 +636,8 @@ fn format_compact_read_call(
     };
     format!(
         "{} {}{}{}",
-        theme.fg("toolTitle", &theme.bold(&format!("read {kind}"))),
-        theme.fg("accent", &classification.label),
+        theme.fg(ThemeColor::ToolTitle, &theme.bold(&format!("read {kind}"))),
+        theme.fg(ThemeColor::Accent, &classification.label),
         format_read_line_range(args, theme),
         expand_hint
     )
@@ -656,7 +656,7 @@ fn format_read_result(
     args: &Value,
     result: &AgentToolResult,
     options: &ToolRenderResultOptions,
-    theme: &dyn ExtensionTheme,
+    theme: &Theme,
     show_images: bool,
     is_error: bool,
 ) -> String {
@@ -684,7 +684,7 @@ fn format_read_result(
             .iter()
             .map(|line| match lang {
                 Some(_) => replace_tabs(line),
-                None => theme.fg("toolOutput", &replace_tabs(line)),
+                None => theme.fg(ThemeColor::ToolOutput, &replace_tabs(line)),
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -692,9 +692,9 @@ fn format_read_result(
     if remaining > 0 {
         text.push_str(&format!(
             "{}{}{}",
-            theme.fg("muted", &format!("\n... ({remaining} more lines,")),
+            theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
             key_hint("app.tools.expand", "to expand"),
-            theme.fg("muted", ")")
+            theme.fg(ThemeColor::Muted, ")")
         ));
     }
     if let Some(truncation) = result
@@ -708,7 +708,7 @@ fn format_read_result(
             text.push_str(&format!(
                 "\n{}",
                 theme.fg(
-                    "warning",
+                    ThemeColor::Warning,
                     &format!("[First line exceeds {} limit]", format_size(truncation.max_bytes))
                 )
             ));
@@ -716,7 +716,7 @@ fn format_read_result(
             text.push_str(&format!(
                 "\n{}",
                 theme.fg(
-                    "warning",
+                    ThemeColor::Warning,
                     &format!(
                         "[Truncated: showing {} of {} lines ({} line limit)]",
                         truncation.output_lines, truncation.total_lines, truncation.max_lines
@@ -727,7 +727,7 @@ fn format_read_result(
             text.push_str(&format!(
                 "\n{}",
                 theme.fg(
-                    "warning",
+                    ThemeColor::Warning,
                     &format!(
                         "[Truncated: {} lines shown ({} limit)]",
                         truncation.output_lines,
@@ -741,7 +741,7 @@ fn format_read_result(
 }
 
 /// `renderCall` for the read tool.
-pub fn render_call(args: &Value, theme: &dyn ExtensionTheme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     let classification = if context.expanded {
         None
     } else {
@@ -758,7 +758,7 @@ pub fn render_call(args: &Value, theme: &dyn ExtensionTheme, context: &ToolRende
 pub fn render_result(
     result: &AgentToolResult,
     options: &ToolRenderResultOptions,
-    theme: &dyn ExtensionTheme,
+    theme: &Theme,
     context: &ToolRenderContext,
 ) -> ComponentRef {
     let text = format_read_result(
@@ -778,7 +778,7 @@ pub fn create_read_tool_definition(
     options: ReadToolOptions,
 ) -> crate::core::extensions::types::ToolDefinition {
     let tool: std::sync::Arc<dyn AgentTool> = std::sync::Arc::new(ReadTool::with_options(cwd, options));
-    let mut definition = crate::core::extensions::wrapper::create_tool_definition_from_agent_tool(tool);
+    let mut definition = super::tool_definition_wrapper::create_tool_definition_from_agent_tool(tool);
     definition.render_call = Some(std::sync::Arc::new(render_call));
     definition.render_result = Some(std::sync::Arc::new(render_result));
     definition

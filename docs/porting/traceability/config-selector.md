@@ -1,0 +1,46 @@
+# config-selector traceability
+
+Source: `packages/coding-agent/src/cli/config-selector.ts` (56 lines, pinned revision in
+`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent/src/cli/config_selector.rs`.
+
+Status: done. The TUI is driven through a scripted `Terminal` in a child probe because
+`init_theme` resolves built-in themes from the package directory and edition 2024 forbids a safe
+`std::env::set_var` in-process.
+
+## Exported symbols
+
+| TS symbol | Rust | Tests |
+| --- | --- | --- |
+| `ConfigSelectorOptions` | `ConfigSelectorOptions` | adapter test |
+| `selectConfig` | `select_config` | `escape_closes_the_selector`, `ctrl_c_closes_through_the_default_cancel_binding`, `ctrl_c_exits_when_the_cancel_binding_excludes_it` |
+| — (command-path adapter) | `TuiConfigSelector` (`package_manager_cli::ConfigSelector`) | `package_command_adapter_returns_ok_after_the_tui_closes` |
+
+## Branches
+
+| # | Branch | Test |
+| --- | --- | --- |
+| 1 | `initTheme(getTheme(), true)` before the TUI | exercised by every probe (theme watcher started/stopped) |
+| 2 | `new TuiMainScreen(new ProcessTerminal(), undefined, agentDir)` | probe (fake terminal + agent dir) |
+| 3 | `onClose` → stop, `stopThemeWatcher`, resolve | `escape_closes_the_selector` |
+| 4 | `onExit` → stop, `stopThemeWatcher`, `process.exit(0)` | `ctrl_c_exits_when_the_cancel_binding_excludes_it` |
+| 5 | ctrl+c with the default `tui.select.cancel` binding (`escape`, `ctrl+c`) takes the cancel branch first | `ctrl_c_closes_through_the_default_cancel_binding` |
+| 6 | selector focused, terminal rows passed as `terminalHeight` | probe (renders without panic; focus drives the key handling) |
+| 7 | request-render callback wired to `ui.requestRender()` | probe (`flush_pending` renders) |
+
+## Deviations
+
+- **Event loop** — the TypeScript TUI owns its loop; Rust's `TuiMainScreen` is driven by the
+  caller. `select_config` polls `process_events`/`flush_pending` every 5 ms until a close/exit
+  callback fires.
+- **Focus target** — TypeScript focuses `selector.getResourceList()`; the Rust
+  `ConfigSelectorComponent` forwards `handle_input` to its resource list and is focusable, so the
+  component itself is focused.
+- **Settings manager identity** — `TuiConfigSelector` reloads an equivalent `SettingsManager` for
+  the TUI because the command-path store owns its manager behind a mutex. Toggles write through
+  to the same settings files, and the command exits right after the TUI closes.
+- **`process.exit(0)`** — returned as `SelectConfigOutcome::Exit`; the adapter treats both
+  outcomes as normal completion because the command's exit status is 0 either way.
+
+## Proof
+
+`cargo test -p pi-coding-agent --test config_selector_cli` (4 tests + 1 ignored probe entry).

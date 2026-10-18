@@ -3,23 +3,24 @@ mod oracle;
 
 use pi_agent_core::agent::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use pi_coding_agent::core::extensions::types::ExtensionTheme;
 use pi_coding_agent::core::tools::render_utils::{
     get_text_output, invalid_arg_text, normalize_display_text, render_tool_path, replace_tabs, shorten_path, str_value,
 };
 use serde_json::{Value, json};
 
-struct FakeTheme;
-
-impl ExtensionTheme for FakeTheme {
-    fn fg(&self, color: &str, text: &str) -> String {
-        format!("[fg:{color}]{text}[/]")
-    }
+fn dark_theme() -> std::sync::Arc<pi_coding_agent::modes::interactive::theme::Theme> {
+    use pi_coding_agent::modes::interactive::theme::{ColorMode, load_theme_from_path, set_theme_instance};
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
+    let theme =
+        std::sync::Arc::new(load_theme_from_path(&path, Some(ColorMode::Truecolor)).expect("built-in dark theme"));
+    set_theme_instance(std::sync::Arc::clone(&theme));
+    theme
 }
 
 #[test]
 fn coding_agent_render_utils_matches_the_pinned_typescript_source() {
     let home = std::env::var("HOME").expect("HOME");
+    let theme = dark_theme();
     let mut cases = Vec::new();
     for path in [
         format!("{home}/projects/file.txt"),
@@ -84,7 +85,7 @@ fn coding_agent_render_utils_matches_the_pinned_typescript_source() {
     }
     cases.push((
         json!({"kind": "invalidArg"}),
-        json!({"ok": true, "value": invalid_arg_text(&FakeTheme)}),
+        json!({"ok": true, "value": invalid_arg_text(&theme)}),
     ));
     for (path, empty_fallback) in [
         (None, None),
@@ -99,13 +100,14 @@ fn coding_agent_render_utils_matches_the_pinned_typescript_source() {
         }
         cases.push((
             request,
-            json!({"ok": true, "value": render_tool_path(path, &FakeTheme, "/tmp", empty_fallback)}),
+            json!({"ok": true, "value": render_tool_path(path, &theme, "/tmp", empty_fallback)}),
         ));
     }
 
-    let mut oracle = oracle::TsOracle::spawn(
+    let mut oracle = oracle::TsOracle::spawn_with_environment(
         "coding-agent-render-utils-oracle.ts",
         "packages/coding-agent/src/core/tools/render-utils.ts",
+        &[("COLORTERM", std::ffi::OsString::from("truecolor"))],
     );
     let expected = oracle.request(&json!({
         "id": 27_100,

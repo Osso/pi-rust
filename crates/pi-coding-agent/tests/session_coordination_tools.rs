@@ -4,6 +4,7 @@
 mod tool_context;
 
 use pi_agent_core::AgentHarnessTool;
+use pi_coding_agent::core::extensions::ExtensionContext;
 use pi_coding_agent::core::session_control_db::{
     RuntimeMailboxAddress, SupervisorResponse, WritableSessionMetadata, archive_session, claim_next_supervisor_request,
     complete_supervisor_request, get_control_db_path, list_pending_architect_requests,
@@ -15,11 +16,9 @@ use pi_coding_agent::core::tools::ask_architect::AskArchitectTool;
 use pi_coding_agent::core::tools::ask_supervisor::{AskSupervisorTool, parameters as ask_supervisor_parameters};
 use pi_coding_agent::core::tools::broadcast::BroadcastTool;
 use pi_coding_agent::core::tools::channel_post::ChannelPostTool;
-use pi_coding_agent::core::tools::context::ToolContext;
 use pi_coding_agent::core::tools::list_sessions::ListSessionsTool;
 use serde_json::json;
 use tempfile::TempDir;
-use tool_context::StaticSession;
 
 fn write_metadata(control_db_path: &str, id: &str, session_path: &str, modified_at: &str, subagent: bool) {
     write_session_metadata(
@@ -62,18 +61,33 @@ fn register_listener(control_db_path: &str, session_id: &str, session_path: Opti
     .expect("register listener");
 }
 
-fn context(control_db_path: &str, session_id: &str, session_file: Option<&str>) -> ToolContext {
-    ToolContext::new(
-        "/repo",
-        StaticSession::new("/repo", "/repo/sessions", session_id, session_file),
-    )
-    .with_control_db_path(control_db_path)
+async fn context(control_db_path: &str, session_id: &str, persisted: bool) -> ExtensionContext {
+    let session = if persisted {
+        let dir = tempfile::tempdir().expect("session dir");
+        tool_context::persisted_session("/repo", &dir.path().join("sessions").display().to_string(), session_id)
+    } else {
+        tool_context::in_memory_session("/repo", session_id)
+    };
+    tool_context::TestContextBuilder::new("/repo", session)
+        .control_db_path(control_db_path)
+        .build()
+        .await
+        .1
 }
 
-async fn execute<T: AgentHarnessTool<ToolContext>>(
+async fn subagent_context(control_db_path: &str, session_id: &str, agent_id: &str) -> ExtensionContext {
+    tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", session_id))
+        .control_db_path(control_db_path)
+        .agent_id(agent_id)
+        .build()
+        .await
+        .1
+}
+
+async fn execute<T: AgentHarnessTool<ExtensionContext>>(
     tool: &T,
     params: serde_json::Value,
-    context: ToolContext,
+    context: ExtensionContext,
 ) -> Result<pi_agent_core::AgentToolResult, pi_agent_core::ToolError> {
     tool.execute("tool-call".to_owned(), params, None, None, context, None)
         .await
@@ -128,7 +142,7 @@ async fn returns_only_active_and_ended_non_archived_main_sessions_with_include_e
     let result = execute(
         &ListSessionsTool::new(),
         json!({ "include_ended": true }),
-        context(&control_db_path, "current", Some("/sessions/current.jsonl")),
+        context(&control_db_path, "current", false).await,
     )
     .await
     .expect("list sessions");
@@ -172,7 +186,7 @@ async fn excludes_ended_rows_when_include_ended_is_false() {
     let result = execute(
         &ListSessionsTool::new(),
         json!({ "include_ended": false }),
-        context(&control_db_path, "current", Some("/sessions/current.jsonl")),
+        context(&control_db_path, "current", false).await,
     )
     .await
     .expect("list sessions");
@@ -189,7 +203,7 @@ async fn rejects_channel_post_from_subagent_contexts() {
     let error = execute(
         &ChannelPostTool::new(),
         json!({ "message": "hello" }),
-        context("/unused", "child-session", None).with_multi_agent_agent_id("agent_1"),
+        subagent_context("/unused", "child-session", "agent_1").await,
     )
     .await
     .expect_err("subagent channel post must fail");
@@ -204,7 +218,7 @@ async fn channel_post_posts_the_message_and_advances_the_sender_cursor() {
     let result = execute(
         &ChannelPostTool::new(),
         json!({ "message": "  hello  " }),
-        context(&control_db_path, "main-session", None),
+        context(&control_db_path, "main-session", false).await,
     )
     .await
     .expect("channel post");
@@ -236,7 +250,7 @@ async fn channel_post_rejects_an_empty_message() {
     let error = execute(
         &ChannelPostTool::new(),
         json!({ "message": "   " }),
-        context(&control_db_path, "main-session", None),
+        context(&control_db_path, "main-session", false).await,
     )
     .await
     .expect_err("empty message must fail");
@@ -255,7 +269,7 @@ async fn ask_architect_persists_the_canonical_project_path() {
     let result = execute(
         &AskArchitectTool::new(),
         json!({ "message": "inspect this", "project_path": project_link }),
-        context(&control_db_path, "main-session", None),
+        context(&control_db_path, "main-session", false).await,
     )
     .await
     .expect("ask architect");
@@ -279,7 +293,7 @@ async fn ask_architect_defaults_the_project_context_to_the_session_cwd() {
     execute(
         &AskArchitectTool::new(),
         json!({ "message": "inspect this" }),
-        context(&control_db_path, "main-session", None),
+        context(&control_db_path, "main-session", false).await,
     )
     .await
     .expect("ask architect");
@@ -299,7 +313,7 @@ async fn ask_architect_rejects_invalid_explicit_project_paths() {
         let error = execute(
             &AskArchitectTool::new(),
             json!({ "message": "inspect this", "project_path": project_path }),
-            context(&control_db_path, "main-session", None),
+            context(&control_db_path, "main-session", false).await,
         )
         .await
         .expect_err("invalid path must fail");
@@ -312,7 +326,7 @@ async fn ask_architect_rejects_invalid_explicit_project_paths() {
     let error = execute(
         &AskArchitectTool::new(),
         json!({ "message": "inspect this", "project_path": temp_dir.path().join("missing") }),
-        context(&control_db_path, "main-session", None),
+        context(&control_db_path, "main-session", false).await,
     )
     .await
     .expect_err("missing path must fail");
@@ -324,7 +338,7 @@ async fn ask_architect_rejects_invalid_explicit_project_paths() {
     let error = execute(
         &AskArchitectTool::new(),
         json!({ "message": "inspect this", "project_path": file_path }),
-        context(&control_db_path, "main-session", None),
+        context(&control_db_path, "main-session", false).await,
     )
     .await
     .expect_err("file path must fail");
@@ -339,7 +353,7 @@ async fn ask_architect_rejects_subagent_runtimes() {
     let error = execute(
         &AskArchitectTool::new(),
         json!({ "message": "inspect this" }),
-        context("/unused", "child-session", None).with_multi_agent_agent_id("agent_1"),
+        subagent_context("/unused", "child-session", "agent_1").await,
     )
     .await
     .expect_err("subagent architect request must fail");
@@ -358,7 +372,7 @@ async fn ask_supervisor_rejects_subagent_runtimes() {
     let error = execute(
         &AskSupervisorTool::new(),
         json!({ "question": "Is this complete?" }),
-        context("/unused", "child-session", None).with_multi_agent_agent_id("agent_1"),
+        subagent_context("/unused", "child-session", "agent_1").await,
     )
     .await
     .expect_err("subagent advisory must fail");
@@ -393,7 +407,7 @@ async fn ask_supervisor_returns_the_advisory_answer() {
     let result = execute(
         &AskSupervisorTool::new(),
         json!({ "question": "Is this complete?" }),
-        context(&control_db_path, "main-session", None),
+        context(&control_db_path, "main-session", false).await,
     )
     .await
     .expect("ask supervisor");
@@ -417,7 +431,7 @@ async fn broadcast_requires_a_persisted_session_file() {
     let error = execute(
         &BroadcastTool::new(),
         json!({ "message": "please restart" }),
-        context(&control_db_path, "sender", None),
+        context(&control_db_path, "sender", false).await,
     )
     .await
     .expect_err("missing session file must fail");
@@ -431,7 +445,7 @@ async fn broadcast_rejects_an_empty_message() {
     let error = execute(
         &BroadcastTool::new(),
         json!({ "message": "   " }),
-        context(&control_db_path, "sender", Some("/sessions/sender.jsonl")),
+        context(&control_db_path, "sender", true).await,
     )
     .await
     .expect_err("empty message must fail");
@@ -446,10 +460,10 @@ async fn list_sessions_requires_a_control_database_path() {
             json!({}),
             None,
             None,
-            ToolContext::new(
-                "/repo",
-                StaticSession::new("/repo", "/repo/sessions", "session", Some("/repo/sessions/s.jsonl")),
-            ),
+            tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
+                .build()
+                .await
+                .1,
             None,
         )
         .await

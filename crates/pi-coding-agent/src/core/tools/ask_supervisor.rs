@@ -10,8 +10,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::context::ToolContext;
 use super::result::text_result;
+use crate::core::extensions::types::ExtensionContext;
 use crate::core::session_control_db::{SupervisorRequestKind, SupervisorResponse};
 use crate::supervisor::client::{RequestSupervisorDecisionInput, advisory_payload, request_supervisor_decision};
 use crate::supervisor::project_resolver::{DEFAULT_SUPERVISOR_KB_DIR, resolve_supervisor_project_for_cwd};
@@ -66,7 +66,7 @@ pub fn parameters() -> &'static Value {
     })
 }
 
-impl AgentHarnessTool<ToolContext> for AskSupervisorTool {
+impl AgentHarnessTool<ExtensionContext> for AskSupervisorTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -93,20 +93,25 @@ impl AgentHarnessTool<ToolContext> for AskSupervisorTool {
         params: Value,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
-        context: ToolContext,
+        context: ExtensionContext,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
             assert_main_session(&context, NAME)?;
-            let control_db_path = context.require_control_db_path(NAME)?;
-            let sender_session_id = context.session.get_session_id();
+            let control_db_path = require_control_db_path(&context, NAME)?;
+            let sender_session_id = context
+                .session_manager()
+                .map_err(|error| ToolError::new(error.message))?
+                .get_session_id()
+                .to_owned();
             if sender_session_id.is_empty() {
                 return Err(ToolError::new("ask_supervisor requires a persisted session id"));
             }
             let params: AskSupervisorParams =
                 serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
+            let cwd = context.cwd().map_err(|error| ToolError::new(error.message))?;
             let project_id =
-                resolve_supervisor_project_for_cwd(&context.cwd, DEFAULT_SUPERVISOR_KB_DIR).map_err(ToolError::new)?;
+                resolve_supervisor_project_for_cwd(&cwd, DEFAULT_SUPERVISOR_KB_DIR).map_err(ToolError::new)?;
             let response = request_supervisor_decision(&RequestSupervisorDecisionInput {
                 control_db_path: control_db_path.to_owned(),
                 kind: SupervisorRequestKind::SupervisorAdvisory,
@@ -138,11 +143,24 @@ impl AgentHarnessTool<ToolContext> for AskSupervisorTool {
     }
 }
 
-fn assert_main_session(context: &ToolContext, tool_name: &str) -> Result<(), ToolError> {
-    if context.multi_agent_agent_id.is_some() || context.multi_agent_requires_agent_id {
+fn assert_main_session(context: &ExtensionContext, tool_name: &str) -> Result<(), ToolError> {
+    let agent_id = context
+        .multi_agent_agent_id()
+        .map_err(|error| ToolError::new(error.message))?;
+    let requires_agent_id = context
+        .multi_agent_requires_agent_id()
+        .map_err(|error| ToolError::new(error.message))?;
+    if agent_id.is_some() || requires_agent_id {
         return Err(ToolError::new(format!(
             "{tool_name} is only available from main sessions"
         )));
     }
     Ok(())
+}
+
+fn require_control_db_path(context: &ExtensionContext, tool_name: &str) -> Result<String, ToolError> {
+    context
+        .control_db_path()
+        .map_err(|error| ToolError::new(error.message))?
+        .ok_or_else(|| ToolError::new(format!("{tool_name} requires a control database path")))
 }

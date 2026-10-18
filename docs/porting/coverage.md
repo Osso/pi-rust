@@ -448,7 +448,6 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/model-runtime.ts` | 795 | 2 | done | `crates/pi-coding-agent/src/core/model_runtime.rs` | Configured Models collection: builtin/models.json/extension composition, availability snapshots, serialized credential operations, auth/stream/deferred paths; runtime tests port model-runtime-* and registry runtime cases; differential oracle over temp models.json/auth fixtures (providers, models, errors, statuses, auth, compatibility). Interactive login/logout and deferred providers untested (gaps in traceability). |
 | `coding-agent/src/core/model-resolver.ts` | 780 | 2 | done | `crates/pi-coding-agent/src/core/model_resolver.rs` | Exact/fuzzy/canonical matching, thinking suffixes, scope globs, CLI resolution, initial/restore selection; differential oracle (parse/scope/cli/defaults/exact/initial). `process.exit` becomes `Err`; restore logs go to stderr. |
 | `coding-agent/src/core/provider-composer.ts` | 573 | 2 | done | `crates/pi-coding-agent/src/core/provider_composer.rs` | Built-in + models.json + extension layers, compat/override merges, auth wrappers, configured headers/status, refresh/filter/deferred delegation; tests port model-registry composition cases. |
-| `coding-agent/src/core/tools/path-utils.ts` | 118 | 2 | done | `crates/pi-coding-agent/src/core/tools/path_utils.rs` | all TS tests ported + differential; NFD via `pi_agent_core::unicode` |
 | `coding-agent/src/utils/clipboard.ts` | 175 | 2 | done | `crates/pi-coding-agent/src/utils/clipboard.rs` | Fake-tool PATH scenarios plus captured OSC 52 output; no differential (process/OS module) |
 | `coding-agent/src/utils/image-convert.ts` | 49 | 2 | done | `crates/pi-coding-agent/src/utils/image_convert.rs` | Differential 27101/27102; synchronous (no loadPhoton) |
 | `coding-agent/src/utils/image-resize-core.ts` | 164 | 2 | done | `crates/pi-coding-agent/src/utils/image_resize_core.rs` | Differential 27103 (15 fixtures: limits, quality steps, degenerate targets) |
@@ -466,12 +465,12 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/resolve-config-value.ts` | 287 | 4 | done | `crates/pi-coding-agent/src/core/config_value.rs` | Full module: templates, commands, cache, or-throw, headers; differential 12050-12083 plus 27 resolve/throw/header requests |
 | `coding-agent/src/core/runtime-credentials.ts` | 58 | 4 | done | `crates/pi-coding-agent/src/core/runtime_credentials.rs` | Overlay masking, list merge, delete ordering |
 | `coding-agent/src/utils/image-process.ts` | 119 | 4 | done | `crates/pi-coding-agent/src/utils/image_process.rs` | Differential 27106 (8 fixtures incl. BMP conversion and omission messages) |
-| `coding-agent/src/cli/file-processor.ts` | 87 | 5 | todo |  |  |
+| `coding-agent/src/cli/file-processor.ts` | 87 | 5 | done | `crates/pi-coding-agent/src/cli/file_processor.rs` | @file text/image processing, MIME sniffing, empty/missing handling; 6 tests ([traceability](traceability/file-processor.md)). |
 | `coding-agent/src/client/transcript.ts` | 101 | 5 | todo |  |  |
 | `coding-agent/src/core/auth-storage.ts` | 507 | 5 | done | `crates/pi-coding-agent/src/core/auth_storage.rs` | Cross-process byte parity and both lock directions; 16 focused cases |
 | `coding-agent/src/utils/tool-result-images.ts` | 62 | 5 | done | `crates/pi-coding-agent/src/utils/tool_result_images.rs` | Differential 27107 (7 fixtures); Cow preserves the unchanged-reference contract |
 | `coding-agent/src/core/models-store.ts` | 146 | 6 | done | `crates/pi-coding-agent/src/core/models_store.rs` | Coalesced reloads, canonical entry order documented |
-| `coding-agent/src/bun/register-bedrock.ts` | 4 | 7 | todo |  |  |
+| `coding-agent/src/bun/register-bedrock.ts` | 4 | 7 | done | `crates/pi-coding-agent/src/bun/register_bedrock.rs` | `set_bedrock_provider_module(bedrock_provider_module())`; idempotence test ([traceability](traceability/bun-entry.md)). |
 | `coding-agent/src/core/provider-composer.ts` | 572 | 7 | todo |  |  |
 | `coding-agent/src/extensions/llama/provider.ts` | 150 | 7 | todo |  |  |
 | `coding-agent/src/core/keybindings.ts` | 434 | 8 | done | `crates/pi-coding-agent/src/core/keybindings.rs` | `KEYBINDINGS` layered on `pi-tui`, legacy-name migration/ordering, file load/reload; differential `coding-agent-keybindings-oracle.ts`. |
@@ -480,8 +479,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/visual-truncate.ts` | 50 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/components/visual_truncate.rs` | wrap-aware tail truncation; differential; `slice(-0)` quirk preserved |
 | `coding-agent/src/modes/interactive/interactive-root-compositor.ts` | 40 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/interactive_root_compositor.rs` | flow/bottom order + layout callbacks; behavioral test |
 | `coding-agent/src/modes/interactive/working-editor.ts` | 67 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/working_editor.rs` | sync/position/clear; `EditorComponent` opt-in capability; CustomEditor case in ca-interactive-a |
-| `coding-agent/src/cli/list-models.ts` | 115 | 9 | todo |  |  |
-| `coding-agent/src/cli/login-command.ts` | 278 | 9 | todo |  |  |
+| `coding-agent/src/cli/list-models.ts` | 115 | 9 | done | `crates/pi-coding-agent/src/cli/list_models.rs` | Token-count formatting, fuzzy filter, sorted table; 9-case byte-level differential ([traceability](traceability/list-models.md)). |
+| `coding-agent/src/cli/login-command.ts` | 278 | 9 | done | `crates/pi-coding-agent/src/cli/login_command.rs` | OAuth login flow, prompt/select IO, browser-cli opening, usage; 7 boundary tests ([traceability](traceability/login-command.md)). |
 | `coding-agent/src/client/remote-session.ts` | 420 | 9 | todo |  |  |
 | `coding-agent/src/core/model-registry.ts` | 158 | 9 | done | `crates/pi-coding-agent/src/core/model_registry.rs` | Facade over ModelRuntime: resolved auth/compatibility fallback, statuses, display names, registration; registry tests. Overloads split into two methods. |
 | `coding-agent/src/migrations.ts` | 365 | 9 | done | `crates/pi-coding-agent/src/migrations.rs` | Auth/session/tools/keybindings/commands migrations, deprecation warnings, `runMigrations`; differential over fixture agent dirs. TTY keypress wait deferred. |
@@ -489,7 +488,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/compaction/utils.ts` | 198 | 14 | done | `crates/pi-coding-agent/src/core/compaction/utils.rs` | Reuses agent-core file ops + system prompt; coding-agent 1000-char tool-argument truncation; 7 tests + differential. See `coding-agent-compaction-utils.md`. |
 | `coding-agent/src/core/defaults.ts` | 3 | 14 | done | `crates/pi-coding-agent/src/core/defaults.rs` | `DEFAULT_THINKING_LEVEL = medium` reuses `pi-agent-core` `ThinkingLevel`. |
 | `coding-agent/src/core/messages.ts` | 212 | 14 | done | `crates/pi-coding-agent/src/core/messages.rs` | Re-exports `pi-agent-core` harness messages and adds `is_cut_point_message`; `tests/messages.rs` |
-| `coding-agent/src/core/runtime-message-markers.ts` | 36 | 14 | todo |  |  |
+| `coding-agent/src/core/runtime-message-markers.ts` | 36 | 14 | partial | `crates/pi-coding-agent/src/core/runtime_message_markers.rs` | Marker literals + predicates; WeakMap identity replaced by an explicit stored marker (recorded deviation) ([traceability](traceability/runtime-message-markers.md)). |
 | `coding-agent/src/core/settings-manager.ts` | 1442 | 14 | done | `crates/pi-coding-agent/src/core/settings_manager.rs` | Global/project storage with the shared lock protocol, migrations, typed accessors, field-scoped persistence; differential `coding-agent-settings-manager-oracle.ts` (10 scenarios, file bytes). Synchronous writes documented. |
 | `coding-agent/src/core/detached-job-runner.ts` | 167 | 15 | todo |  |  |
 | `coding-agent/src/core/multi-agent-store.ts` | 1387 | 15 | done | `crates/pi-coding-agent/src/core/multi_agent_store.rs` | Store, subscriptions, persistence, projections; 23 behavioral tests + 28-step differential oracle. |
@@ -501,9 +500,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/agents-core/src/runtime-utils.ts` | 30 | 16 | todo |  |  |
 | `coding-agent/extensions/pyrun/src/detached-bridge.ts` | 153 | 16 | todo |  |  |
 | `coding-agent/src/architect/observer.ts` | 159 | 16 | todo |  |  |
-| `coding-agent/src/cli/control-command.ts` | 122 | 16 | todo |  |  |
-| `coding-agent/src/cli/debug-command.ts` | 77 | 16 | todo |  |  |
-| `coding-agent/src/cli/sessions-command.ts` | 106 | 16 | todo |  |  |
+| `coding-agent/src/cli/control-command.ts` | 122 | 16 | done | `crates/pi-coding-agent/src/cli/control_command.rs` | send/restart/last/path with injected DB path and SIGHUP; 7 tests ([traceability](traceability/control-command.md)). |
+| `coding-agent/src/cli/debug-command.ts` | 77 | 16 | done | `crates/pi-coding-agent/src/cli/debug_command.rs` | Live-session lookup, socket path, attach error wrapping; 4 tests. Debug REPL server remains the documented `node:vm` gap ([traceability](traceability/debug-command.md)). |
+| `coding-agent/src/cli/sessions-command.ts` | 106 | 16 | done | `crates/pi-coding-agent/src/cli/sessions_command.rs` | archive/truncate-tool-output, cutoff math, report text; 6 tests ([traceability](traceability/sessions-command.md)). |
 | `coding-agent/src/core/cache-stats.ts` | 164 | 16 | done | `crates/pi-coding-agent/src/core/cache_stats.rs` | Cache-waste scan and miss detection; `tests/cache_stats.rs` |
 | `coding-agent/src/core/compaction/compaction.ts` | 1179 | 16 | done | `crates/pi-coding-agent/src/core/compaction.rs` | Session-entry cut points (budget + protected suffix), goal-reminder filtering, materialization, split-turn summaries, `compact`; 40 tests + differential. See `coding-agent-compaction.md`. |
 | `coding-agent/src/core/detached-job-cleanup.ts` | 351 | 16 | todo |  |  |
@@ -533,7 +532,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/compaction/index.ts` | 7 | 18 | done | `crates/pi-coding-agent/src/core/compaction.rs` (module re-exports) | Re-exports the three modules; exercised by every compaction test. |
 | `coding-agent/src/core/detached-bash-runner-entry.ts` | 13 | 18 | todo |  |  |
 | `coding-agent/src/core/detached-job-lifecycle.ts` | 214 | 18 | todo |  |  |
-| `coding-agent/src/core/tools/render-utils.ts` | 85 | 18 | done | `crates/pi-coding-agent/src/core/tools/render_utils.rs` | Helpers, `getTextOutput`, invalid-arg/tool-path renderers, key hints; differential 31 cases |
+| `coding-agent/src/core/tools/render-utils.ts` | 85 | 18 | done | `crates/pi-coding-agent/src/core/tools/render_utils.rs` | Helpers, `getTextOutput`, invalid-arg/tool-path renderers; key hints live in `keybinding_hints`; differential 23 dark-theme cases |
 | `coding-agent/src/modes/interactive/components/agent-selection-banner.ts` | 36 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/agent_selection_banner.rs` | selected-agent banner; behavioral test against the ported store |
 | `coding-agent/src/modes/interactive/components/armin.ts` | 382 | 18 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/daxnuts.ts` | 164 | 18 | todo |  |  |
@@ -542,7 +541,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/keybinding-hints.ts` | 48 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/keybinding_hints.rs` | Formatting and hint composition; `tests/components.rs`. |
 | `coding-agent/src/modes/interactive/theme/theme-controller.ts` | 139 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/theme/theme_controller.rs` | Settings-driven theme selection, auto-sync, preview, rebind; `tests/theme_controller.rs` with a fake `ThemeUi`. |
 | `coding-agent/extensions/pyrun/src/detached-runner-entry.ts` | 13 | 19 | todo |  |  |
-| `coding-agent/src/internal-runner.ts` | 19 | 19 | todo |  |  |
+| `coding-agent/src/internal-runner.ts` | 19 | 19 | done | `crates/pi-coding-agent/src/internal_runner.rs` | Mode dispatch, manifest validation, `.runner-error` file (0o600), exit code; runner bodies owned by other slices ([traceability](traceability/internal-runner.md)). |
 | `coding-agent/src/modes/interactive/components/agent-switcher.ts` | 269 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/agent_switcher.rs` | Tree rows, closed-agent filtering/toggle, scrolling, inactive selection; differential `agent-switcher-*` (3 cases). |
 | `coding-agent/src/modes/interactive/components/approval-selector.ts` | 103 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/approval_selector.rs` | Differential render/input/events (`tests/differential_components.rs`). |
 | `coding-agent/src/modes/interactive/components/bash-execution.ts` | 278 | 19 | todo |  |  |
@@ -568,9 +567,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/tree-selector.ts` | 1464 | 19 | todo |  | Blocked: needs session tree entries and branch navigation; not started in this slice. |
 | `coding-agent/src/modes/interactive/components/trust-selector.ts` | 134 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/trust_selector.rs` | Differential render/input/events including inherited decisions. |
 | `coding-agent/src/modes/interactive/components/user-message-selector.ts` | 155 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/user_message_selector.rs` | Differential render/input/events incl. scrolling and truncation; empty auto-cancel in `tests/components.rs`. |
-| `coding-agent/src/cli/config-selector.ts` | 56 | 20 | todo |  |  |
-| `coding-agent/src/cli/startup-ui.ts` | 239 | 20 | todo |  |  |
-| `coding-agent/src/cli/session-picker.ts` | 96 | 21 | todo |  |  |
+| `coding-agent/src/cli/config-selector.ts` | 56 | 20 | done | `crates/pi-coding-agent/src/cli/config_selector.rs` | Theme init, TUI construction, selector focus, close/exit callbacks, render loop; 4 scripted-terminal probe tests plus the package-command `ConfigSelector` adapter ([traceability](traceability/config-selector.md)). |
+| `coding-agent/src/cli/startup-ui.ts` | 239 | 20 | partial | `crates/pi-coding-agent/src/cli/startup_ui.rs` | Predicates, theme loading, startup TUI (themes, theme detection adapter, keybindings, cursor/clear-on-shrink), `showStartupSelector` with a poll loop; 6 tests incl. two scripted-terminal probes. `showStartupInput`/`showFirstTimeSetup` blocked on `ExtensionInputComponent`/`FirstTimeSetupComponent` ([traceability](traceability/startup-ui.md)). |
+| `coding-agent/src/cli/session-picker.ts` | 96 | 21 | partial | `crates/pi-coding-agent/src/cli/session_picker.rs` | `loadSessionsWithControlNames` (archive filter, control-db names, named-first/modified ordering) with 6 tests; `selectSession` blocked on `SessionSelectorComponent` + `cli/startup-ui.ts` ([traceability](traceability/session-picker.md)). |
 | `coding-agent/extensions/agent-viewer/src/index.ts` | 9 | 22 | todo |  |  |
 | `coding-agent/extensions/agents-core/src/control-runtime.ts` | 440 | 22 | todo |  |  |
 | `coding-agent/extensions/agents-core/src/dispatch-runtime.ts` | 660 | 22 | todo |  |  |
@@ -633,15 +632,15 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/spec-validation/src/index.ts` | 34 | 22 | todo |  |  |
 | `coding-agent/src/architect/main.ts` | 308 | 22 | todo |  |  |
 | `coding-agent/src/architect/project-spec.ts` | 70 | 22 | todo |  |  |
-| `coding-agent/src/cli/args.ts` | 481 | 22 | partial |  |  |
-| `coding-agent/src/cli/auth-check.ts` | 73 | 22 | todo |  |  |
-| `coding-agent/src/cli/auth-command.ts` | 125 | 22 | partial |  |  |
-| `coding-agent/src/cli/credential-print.ts` | 87 | 22 | todo |  |  |
-| `coding-agent/src/cli/initial-message.ts` | 43 | 22 | todo |  |  |
-| `coding-agent/src/cli/list-extensions.ts` | 113 | 22 | todo |  |  |
-| `coding-agent/src/cli/list-tools.ts` | 91 | 22 | todo |  |  |
-| `coding-agent/src/cli/project-trust.ts` | 62 | 22 | todo |  |  |
-| `coding-agent/src/cli/resident-console-command.ts` | 200 | 22 | todo |  |  |
+| `coding-agent/src/cli/args.ts` | 481 | 22 | done | `crates/pi-coding-agent/src/cli/args.rs` | `parseArgs`/`printHelp`/`isValidThinkingLevel` plus extension-flag help; 19 focused tests and 47 differential requests ([traceability](traceability/args.md)). |
+| `coding-agent/src/cli/auth-check.ts` | 73 | 22 | done | `crates/pi-coding-agent/src/cli/auth_check.rs` | Readiness results, credential reads, auth-check runtime; 9 boundary tests porting `auth-check.test.ts` ([traceability](traceability/auth-check.md)). |
+| `coding-agent/src/cli/auth-command.ts` | 125 | 22 | done | `crates/pi-coding-agent/src/cli/auth_command.rs` | Parsing plus validation, credential extraction, and help output; 50 differential requests + 14 focused tests ([traceability](traceability/auth-command.md)). |
+| `coding-agent/src/cli/credential-print.ts` | 87 | 22 | done | `crates/pi-coding-agent/src/cli/credential_print.rs` | Provider/model selection, credential-type filtering, exact error messages; 8 boundary tests ([traceability](traceability/credential-print.md)). |
+| `coding-agent/src/cli/initial-message.ts` | 43 | 22 | done | `crates/pi-coding-agent/src/cli/initial_message.rs` | stdin/@file/first-message assembly with message shift; 4 tests ([traceability](traceability/initial-message.md)). |
+| `coding-agent/src/cli/list-extensions.ts` | 113 | 22 | done | `crates/pi-coding-agent/src/cli/list_extensions.rs` | First-party labels, scope/source derivation, UTF-16 column layout, locale path sort; 4-case byte-level differential ([traceability](traceability/list-extensions.md)). |
+| `coding-agent/src/cli/list-tools.ts` | 91 | 22 | done | `crates/pi-coding-agent/src/cli/list_tools.rs` | Source labels, UTF-16 truncation, sorted table; 4-case byte-level differential ([traceability](traceability/list-tools.md)). |
+| `coding-agent/src/cli/project-trust.ts` | 62 | 22 | done | `crates/pi-coding-agent/src/cli/project_trust.rs` | Mode mapping, hasUI gating, Yes/No confirm, notify coloring; startup-ui seam documented ([traceability](traceability/project-trust.md)). |
+| `coding-agent/src/cli/resident-console-command.ts` | 200 | 22 | partial | `crates/pi-coding-agent/src/cli/resident_console_command.rs` | `parseResidentConsoleArgs` (service flags, flag conflict, prompt join/trim) with 4 tests; runner and `ResidentConsoleUi` blocked on `AgentSessionEvent`, `AssistantMessageComponent`, `UserMessageComponent` ([traceability](traceability/resident-console-command.md)). |
 | `coding-agent/src/core/agent-session-runtime.ts` | 576 | 22 | todo |  |  |
 | `coding-agent/src/core/agent-session-services.ts` | 219 | 22 | todo |  |  |
 | `coding-agent/src/core/agent-session.ts` | 6073 | 22 | todo |  |  |
@@ -651,36 +650,36 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/extensions/index.ts` | 192 | 22 | done | `crates/pi-coding-agent/src/core/extensions/mod.rs` | Re-export map; TypeScript-only aliases omitted with types gaps. |
 | `coding-agent/src/core/extensions/loader.ts` | 790 | 22 | partial | `crates/pi-coding-agent/src/core/extensions/loader.rs` | Rust registry, discovery, package.json entries, disabled filtering, exact diagnostics; jiti/module loading is the approved deviation. |
 | `coding-agent/src/core/extensions/runner.ts` | 1552 | 22 | partial | `crates/pi-coding-agent/src/core/extensions/runner.rs` | Full dispatch/merge/error isolation, shortcuts/commands/flags/tools; 13-scenario differential; contexts read live shared runner state. `setSandboxProfile` gap (session API). |
-| `coding-agent/src/core/extensions/types.ts` | 2001 | 22 | partial | `crates/pi-coding-agent/src/core/extensions/types.rs` | Event/result/API contracts; live `ExtensionContextState` backing method-based context members; component-factory UI methods and per-tool input structs are documented gaps. |
+| `coding-agent/src/core/extensions/types.ts` | 2001 | 22 | partial | `crates/pi-coding-agent/src/core/extensions/types.rs` | Event/result/API contracts; live `ExtensionContextState` backing method-based context members; concrete `Theme`; component-factory UI methods and per-tool input structs are documented gaps. |
 | `coding-agent/src/core/extensions/wrapper.ts` | 46 | 22 | partial | `crates/pi-coding-agent/src/core/extensions/wrapper.rs` | addedToolNames diff done; `wrapToolDefinition` truncation/prepareArguments gaps owned by ca-tools-core. |
 | `coding-agent/src/core/footer-data-provider.ts` | 450 | 22 | todo |  |  |
 | `coding-agent/src/core/model-resolver.ts` | 780 | 22 | todo |  |  |
 | `coding-agent/src/core/permissions/mcp-permission-prompt.ts` | 250 | 22 | done | `crates/pi-coding-agent/src/core/permissions/mcp_permission_prompt.rs` | Decision parsing, desktop notification, rule-store skip/apply, in-place input replacement; 15 tests. See `coding-agent-mcp-permission-prompt.md`. |
 | `coding-agent/src/core/permissions/orchestrator.ts` | 39 | 22 | done | `crates/pi-coding-agent/src/core/permissions/orchestrator.rs` | Policy → hook → LLM → generic reviewer ordering; 7 tests. See `coding-agent-permissions-orchestrator.md`. |
-| `coding-agent/src/core/project-trust.ts` | 96 | 22 | partial | — | Blocked on `extensions/types.ts` (`LoadExtensionsResult`, `ProjectTrustContext`) and `extensions/runner.ts` (`emitProjectTrustEvent`). `formatProjectTrustPrompt`, option selection, and `resolveProjectTrusted` are not ported; no stand-in types added. |
+| `coding-agent/src/core/project-trust.ts` | 96 | 22 | done | `crates/pi-coding-agent/src/core/project_trust.rs` | Override, resource gate, extension `project_trust` event, stored/default decisions, UI selection and persistence; 19 behavioral tests ([traceability](traceability/project-trust.md)). |
 | `coding-agent/src/core/resource-loader.ts` | 1270 | 22 | partial | `crates/pi-coding-agent/src/core/resource_loader.rs` | Rule-file loading and inline/first-party path naming done; `DefaultResourceLoader`, context-file discovery, and `findShadowedContextFile` are blocked on extensions/loader, package-manager, footer-data-provider, and theme loader. |
 | `coding-agent/src/core/sdk.ts` | 462 | 22 | todo |  |  |
 | `coding-agent/src/core/self-restart.ts` | 251 | 22 | todo |  |  |
 | `coding-agent/src/core/system-prompt.ts` | 218 | 22 | done | `crates/pi-coding-agent/src/core/system_prompt.rs` | Default/custom prompt assembly, tool snippets, guidelines, rules, skills; differential `coding-agent-system-prompt-oracle.ts`. |
-| `coding-agent/src/core/tools/ask-architect.ts` | 95 | 22 | done | `crates/pi-coding-agent/src/core/tools/ask_architect.rs` | 4 behavioral cases + differential (4 scenarios). Render hooks need `Theme`. |
+| `coding-agent/src/core/tools/ask-architect.ts` | 95 | 22 | done | `crates/pi-coding-agent/src/core/tools/ask_architect.rs` | 4 behavioral cases + differential (4 scenarios). Render hooks are not ported yet. |
 | `coding-agent/src/core/tools/ask-questions.ts` | 309 | 22 | done | `crates/pi-coding-agent/src/core/tools/ask_questions.rs` | 12 ported behavioral tests + differential (6 cases). Render hooks need `Theme`; notifier errors not representable. |
 | `coding-agent/src/core/tools/ask-supervisor.ts` | 89 | 22 | done | `crates/pi-coding-agent/src/core/tools/ask_supervisor.rs` | Schema/guards + durable advisory flow; behavioral tests (timing-based, no differential). |
-| `coding-agent/src/core/tools/bash.ts` | 864 | 22 | partial | `crates/pi-coding-agent/src/core/tools/bash.rs` | Execution + call renderer; result renderer needs visual-truncate; runner-owned detach pending; differential 7 cases |
-| `coding-agent/src/core/tools/broadcast.ts` | 115 | 22 | done | `crates/pi-coding-agent/src/core/tools/broadcast.rs` | Behavioral tests + differential (2 tool cases, 3 directory scenarios). Render hooks need `Theme`. |
+| `coding-agent/src/core/tools/bash.ts` | 864 | 22 | partial | `crates/pi-coding-agent/src/core/tools/bash.rs` | Execution + call/result renderers (expanded, collapsed visual truncation, truncation warnings); runner-owned detach pending; differential 7 execution + 3 renderer cases |
+| `coding-agent/src/core/tools/broadcast.ts` | 115 | 22 | done | `crates/pi-coding-agent/src/core/tools/broadcast.rs` | Behavioral tests + differential (2 tool cases, 3 directory scenarios). Render hooks are not ported yet. |
 | `coding-agent/src/core/tools/change-working-directory.ts` | 145 | 22 | done | `crates/pi-coding-agent/src/core/tools/change_working_directory.rs` | 9 behavioral tests + differential (7 cases). Process/restart lifecycle belongs to runtime slices. |
-| `coding-agent/src/core/tools/channel-post.ts` | 72 | 22 | done | `crates/pi-coding-agent/src/core/tools/channel_post.rs` | Behavioral tests + differential (result, channel rows, cursor). Render hooks need `Theme`. |
+| `coding-agent/src/core/tools/channel-post.ts` | 72 | 22 | done | `crates/pi-coding-agent/src/core/tools/channel_post.rs` | Behavioral tests + differential (result, channel rows, cursor). Render hooks are not ported yet. |
 | `coding-agent/src/core/tools/code-index.ts` | 329 | 22 | done | `crates/pi-coding-agent/src/core/tools/code_index.rs` | outline/symbol/references + renderers; differential 9 execution + renderer cases |
-| `coding-agent/src/core/tools/edit.ts` | 443 | 22 | partial | `crates/pi-coding-agent/src/core/tools/edit.rs` | Execution, arg preparation, diff/patch details; renderers need components/diff.ts; differential 4 cases |
+| `coding-agent/src/core/tools/edit.ts` | 443 | 22 | partial | `crates/pi-coding-agent/src/core/tools/edit.rs` | Execution, arg preparation, diff/patch details, call/result renderers via `render_diff`; async on-disk preview state gap; differential 4 execution + 3 renderer cases |
 | `coding-agent/src/core/tools/end-turn.ts` | 37 | 22 | done | `crates/pi-coding-agent/src/core/tools/end_turn.rs` | 3 behavioral tests + differential. |
 | `coding-agent/src/core/tools/find.ts` | 381 | 22 | done | `crates/pi-coding-agent/src/core/tools/find.rs` | fd argv, gitignore, limits + renderers; differential 9 execution + renderer cases |
 | `coding-agent/src/core/tools/grep.ts` | 400 | 22 | done | `crates/pi-coding-agent/src/core/tools/grep.rs` | rg JSON streaming, context, limits + renderers; differential 13 execution + renderer cases |
 | `coding-agent/src/core/tools/index.ts` | 420 | 22 | partial | `crates/pi-coding-agent/src/core/tools/mod.rs` | Only `DEFAULT_ACTIVE_TOOL_NAMES` (needed by system-prompt); tool definitions/factories remain for ca-tools-text. |
-| `coding-agent/src/core/tools/list-sessions.ts` | 81 | 22 | done | `crates/pi-coding-agent/src/core/tools/list_sessions.rs` | Behavioral tests + differential (3 cases). Render hooks need `Theme`. |
+| `coding-agent/src/core/tools/list-sessions.ts` | 81 | 22 | done | `crates/pi-coding-agent/src/core/tools/list_sessions.rs` | Behavioral tests + differential (3 cases). Render hooks are not ported yet. |
 | `coding-agent/src/core/tools/ls.ts` | 326 | 22 | done | `crates/pi-coding-agent/src/core/tools/ls.rs` | rtk fast path, fs listing, limits + renderers; differential 7 execution + renderer cases |
 | `coding-agent/src/core/tools/read.ts` | 468 | 22 | done | `crates/pi-coding-agent/src/core/tools/read.rs` | Execution + renderers; differential 11 execution + renderer cases |
 | `coding-agent/src/core/tools/resume-session.ts` | 294 | 22 | done | `crates/pi-coding-agent/src/core/tools/resume_session.rs` | 11 behavioral tests + differential (12 cases). Session-manager metadata listing remains partial. |
-| `coding-agent/src/core/tools/search-current-session-history.ts` | 196 | 22 | done | `crates/pi-coding-agent/src/core/tools/search_current_session_history.rs` | 7 ported tests + differential (6 cases) with byte-exact pretty JSON. Render hooks need `Theme`. |
-| `coding-agent/src/core/tools/tool-definition-wrapper.ts` | 160 | 22 | partial | `crates/pi-coding-agent/src/core/tools/tool_definition_wrapper.rs` | `capToolResultOutput`, `wrap_agent_tool`, `create_tool_definition_from_agent_tool`; extension-context adaptation gap |
+| `coding-agent/src/core/tools/search-current-session-history.ts` | 196 | 22 | done | `crates/pi-coding-agent/src/core/tools/search_current_session_history.rs` | 7 ported tests + differential (6 cases) with byte-exact pretty JSON. Render hooks are not ported yet. |
+| `coding-agent/src/core/tools/tool-definition-wrapper.ts` | 160 | 22 | partial | `crates/pi-coding-agent/src/core/tools/tool_definition_wrapper.rs` | `capToolResultOutput`, `wrap_agent_tool`, `create_tool_definition_from_agent_tool`; execution-context injection is provided by the runner context |
 | `coding-agent/src/core/tools/write.ts` | 274 | 22 | done | `crates/pi-coding-agent/src/core/tools/write.rs` | Execution + renderers; differential execution + renderer cases |
 | `coding-agent/src/extensions/index.ts` | 4 | 22 | todo |  |  |
 | `coding-agent/src/extensions/llama/index.ts` | 228 | 22 | todo |  |  |
@@ -704,24 +703,24 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/rpc/rpc-client.ts` | 642 | 22 | todo |  |  |
 | `coding-agent/src/modes/rpc/rpc-mode.ts` | 846 | 22 | todo |  |  |
 | `coding-agent/src/modes/rpc/rpc-types.ts` | 291 | 22 | todo |  |  |
-| `coding-agent/src/package-manager-cli.ts` | 889 | 22 | partial | `crates/pi-coding-agent/src/package_manager_cli.rs` | Argv parsing, help/usage, validation output/exit codes, list formatting (differential). Execution half returns `PackageAction`; blocked on settings/resource-loader/model-runtime/TUI wiring. |
+| `coding-agent/src/package-manager-cli.ts` | 889 | 22 | done | `crates/pi-coding-agent/src/package_manager_cli.rs` | Parsing/help/validation (byte differential) plus the execution half over `PackageCommandEffects`: settings/trust creation, install/remove/list/update, model refresh, self-update plan/commands/note, config scope; 31 behavioral tests. Loader/startup-UI seams documented; the config TUI is wired through `TuiConfigSelector` ([traceability](traceability/package-manager-cli.md)). |
 | `coding-agent/src/supervisor/approval-reviewer.ts` | 19 | 22 | todo |  |  |
 | `coding-agent/src/supervisor/main.ts` | 436 | 22 | todo |  |  |
-| `coding-agent/src/supervisor/response-tool.ts` | 48 | 22 | todo |  |  |
+| `coding-agent/src/supervisor/response-tool.ts` | 48 | 22 | done | `crates/pi-coding-agent/src/supervisor/response_tool.rs` | Tool metadata/schema and advisory text; 8-case differential ([traceability](traceability/supervisor-response-tool.md)). |
 | `coding-agent/extensions/agents-core/src/parent-agent-journal.ts` | 110 | 23 | todo |  |  |
-| `coding-agent/src/cli.ts` | 25 | 23 | todo |  |  |
-| `coding-agent/src/cli/experimental/command-options.ts` | 38 | 23 | todo |  |  |
+| `coding-agent/src/cli.ts` | 25 | 23 | done | `crates/pi-coding-agent/src/cli_entry.rs` | Internal-runner gate, dispatcher configuration (fetch returned, no global), main hand-off and error propagation; `CLI_PROCESS_ENV`, `process.title`/`emitWarning` documented gaps ([traceability](traceability/cli-entry.md)). |
+| `coding-agent/src/cli/experimental/command-options.ts` | 38 | 23 | done | `crates/pi-coding-agent/src/cli/experimental/command_options.rs` | Auth/transport options, legacy option errors, unsupported-capability messages ([traceability](traceability/experimental-cli.md)). |
 | `coding-agent/src/core/extensions/extension-runtime.ts` | 103 | 23 | done | `crates/pi-coding-agent/src/core/extensions/extension_runtime.rs` | Runtime state, stale invalidation, flag values, provider queues; differential provider cases. |
 | `coding-agent/src/core/index.ts` | 101 | 23 | todo |  |  |
 | `coding-agent/src/extensions/multi-agent.ts` | 21 | 23 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/status-indicator.ts` | 114 | 23 | done | `crates/pi-coding-agent/src/modes/interactive/components/status_indicator.rs` | Working/retry/compaction/branch/idle; differential 8 cases. |
 | `coding-agent/src/rpc-entry.ts` | 13 | 23 | todo |  |  |
 | `coding-agent/src/server/create-harness.ts` | 161 | 23 | todo |  |  |
-| `coding-agent/src/bun/cli.ts` | 15 | 24 | todo |  |  |
-| `coding-agent/src/cli/experimental/commands/client.ts` | 44 | 24 | todo |  |  |
-| `coding-agent/src/cli/experimental/commands/pi.ts` | 47 | 24 | todo |  |  |
-| `coding-agent/src/cli/experimental/commands/server.ts` | 44 | 24 | todo |  |  |
-| `coding-agent/src/cli/experimental/cli.ts` | 7 | 25 | todo |  |  |
+| `coding-agent/src/bun/cli.ts` | 15 | 24 | done | `crates/pi-coding-agent/src/bun/cli.rs` | Bundled OAuth registration, Bedrock module registration, cli.ts hand-off; `restoreSandboxEnv` documented Bun-only gap ([traceability](traceability/bun-entry.md)). |
+| `coding-agent/src/cli/experimental/commands/client.ts` | 44 | 24 | done | `crates/pi-coding-agent/src/cli/experimental/commands/client.rs` | Client command builder/action; 18-case composition tests ([traceability](traceability/experimental-cli.md)). |
+| `coding-agent/src/cli/experimental/commands/pi.ts` | 47 | 24 | done | `crates/pi-coding-agent/src/cli/experimental/commands/pi.rs` | Pi command builder/action incl. `--connect` rejection ([traceability](traceability/experimental-cli.md)). |
+| `coding-agent/src/cli/experimental/commands/server.ts` | 44 | 24 | done | `crates/pi-coding-agent/src/cli/experimental/commands/server.rs` | Server command builder/action ([traceability](traceability/experimental-cli.md)). |
+| `coding-agent/src/cli/experimental/cli.ts` | 7 | 25 | done | `crates/pi-coding-agent/src/cli/experimental/cli.rs` | Union invocation and context composition ([traceability](traceability/experimental-cli.md)). |
 
 ## evals (8 files, 1277 lines)
 

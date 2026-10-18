@@ -19,12 +19,19 @@ type Api = {
 	renderToolPath(rawPath: string | null, theme: unknown, cwd: string, options?: { emptyFallback?: string }): string;
 };
 
-const fakeTheme = {
-	fg: (color: string, text: string) => `[fg:${color}]${text}[/]`,
-};
+async function loadTheme(sourcePath: string): Promise<unknown> {
+	const { dirname, join } = await import("node:path");
+	const { pathToFileURL } = await import("node:url");
+	const themeModule = (await import(
+		pathToFileURL(join(dirname(sourcePath), "../../modes/interactive/theme/theme.ts")).href
+	)) as { initTheme(name?: string): void; theme: unknown };
+	themeModule.initTheme("dark");
+	return themeModule.theme;
+}
 
 void runOracle(async (module, request) => {
 	const api = module as unknown as Api;
+	const fakeTheme = await loadTheme(process.argv[2] ?? "");
 	const results = [];
 	for (const value of requireCases(request)) {
 		const input = value as Case;

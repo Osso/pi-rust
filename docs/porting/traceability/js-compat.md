@@ -31,7 +31,6 @@ CLDR collation data for the tested locales.
 | `Number.parseInt(string, radix)` (`radix` 0/16 prefix handling, longest digit prefix) | `parse_int` | `tests/number.rs`, `tests/differential_number.rs` |
 | `Number.parseFloat(string)` (leading numeric prefix, exponent rollback) | `parse_float` | `tests/number.rs`, `tests/differential_number.rs` |
 | ECMA-262 `Number::toString` (shortest round-trip digits, exponent thresholds) | `js_number_to_string` | `tests/number.rs`, `tests/differential_number.rs` (`String(Number(s))`) |
-| ECMA-262 `Number.prototype.toFixed` (V8 halfway-away-from-zero on the exact binary value) | `js_to_fixed` | `tests/differential_number.rs::matches_node_to_fixed` |
 | `JSON.stringify`-style `f64` serialization | `serialize`, `serialize_option` | consumed by `pi-ai`/`pi-agent-core` wire records; existing differential suites |
 
 Differential: 36 `Number` inputs, 28 `parseFloat` inputs, 21 `parseInt` pairs, and
@@ -147,3 +146,15 @@ Discrepancies (source bugs preserved or classified):
 - `brace-expansion` uses `Math.random()` sentinels; the port uses fixed
   non-printing sentinels. Observable output is identical for patterns that do
   not contain those sentinel code points.
+
+## `to_fixed` (added for coding-agent `list-models`)
+
+`Number.prototype.toFixed(fractionDigits)` for finite values below `1e21` is
+implemented from the exact binary value of the double: the mantissa is scaled
+by `10^fractionDigits` and rounded to the nearest integer with an exact tie
+rounding away from zero. `fractionDigits` is capped by the `u128` scale
+(15 digits), which covers every source call site. Unit tests cover the cases
+where `(value * 10).round()` or Rust `{:.1}` diverge (`1.15`, `1.25`, `999.95`,
+`1.005`, `1.045`). The `list-models` differential exercises the formatting
+end-to-end; `tests/differential_number.rs::matches_node_to_fixed` covers the
+`toFixed` edge cases, including `(-0).toFixed(1) == "0.0"`.

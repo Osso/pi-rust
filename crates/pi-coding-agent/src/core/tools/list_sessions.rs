@@ -10,8 +10,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::context::ToolContext;
 use super::result::text_result;
+use crate::core::extensions::types::ExtensionContext;
 use crate::core::session_directory::{SessionDirectoryOptions, list_sessions};
 use crate::core::session_health::SessionDirectoryEntry;
 
@@ -88,7 +88,7 @@ fn format_session_line(session: &SessionDirectoryEntry) -> String {
     )
 }
 
-impl AgentHarnessTool<ToolContext> for ListSessionsTool {
+impl AgentHarnessTool<ExtensionContext> for ListSessionsTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -115,15 +115,18 @@ impl AgentHarnessTool<ToolContext> for ListSessionsTool {
         params: Value,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
-        context: ToolContext,
+        context: ExtensionContext,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
-            let control_db_path = context.require_control_db_path(NAME)?;
+            let control_db_path = context
+                .control_db_path()
+                .map_err(|error| ToolError::new(error.message))?
+                .ok_or_else(|| ToolError::new("list_sessions requires a control database path"))?;
             let params: ListSessionsParams =
                 serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
             let sessions = list_sessions(
-                control_db_path,
+                &control_db_path,
                 &SessionDirectoryOptions {
                     include_ended: Some(params.include_ended.unwrap_or(true)),
                     ..Default::default()
