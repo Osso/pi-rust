@@ -1,5 +1,10 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
+use std::sync::Arc;
+
+use pi_ai::request::BoxFuture;
+use tokio_util::sync::CancellationToken;
 
 /// Skill loaded from a `SKILL.md` file or provided by an application.
 #[derive(Debug)]
@@ -169,7 +174,7 @@ pub struct FileError {
     pub message: String,
     pub code: FileErrorCode,
     pub path: Option<String>,
-    pub cause: Option<Box<dyn Error + 'static>>,
+    pub cause: Option<Box<dyn Error + Send + Sync + 'static>>,
 }
 
 impl FileError {
@@ -177,7 +182,7 @@ impl FileError {
         code: FileErrorCode,
         message: impl Into<String>,
         path: Option<String>,
-        cause: Option<Box<dyn Error + 'static>>,
+        cause: Option<Box<dyn Error + Send + Sync + 'static>>,
     ) -> Self {
         Self {
             name: "FileError".to_owned(),
@@ -197,7 +202,7 @@ impl Display for FileError {
 
 impl Error for FileError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.cause.as_deref()
+        self.cause.as_deref().map(|error| error as &(dyn Error + 'static))
     }
 }
 
@@ -232,11 +237,15 @@ pub struct ExecutionError {
     pub name: String,
     pub message: String,
     pub code: ExecutionErrorCode,
-    pub cause: Option<Box<dyn Error + 'static>>,
+    pub cause: Option<Box<dyn Error + Send + Sync + 'static>>,
 }
 
 impl ExecutionError {
-    pub fn new(code: ExecutionErrorCode, message: impl Into<String>, cause: Option<Box<dyn Error + 'static>>) -> Self {
+    pub fn new(
+        code: ExecutionErrorCode,
+        message: impl Into<String>,
+        cause: Option<Box<dyn Error + Send + Sync + 'static>>,
+    ) -> Self {
         Self {
             name: "ExecutionError".to_owned(),
             message: message.into(),
@@ -254,7 +263,7 @@ impl Display for ExecutionError {
 
 impl Error for ExecutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.cause.as_deref()
+        self.cause.as_deref().map(|error| error as &(dyn Error + 'static))
     }
 }
 
@@ -281,11 +290,15 @@ pub struct CompactionError {
     pub name: String,
     pub message: String,
     pub code: CompactionErrorCode,
-    pub cause: Option<Box<dyn Error + 'static>>,
+    pub cause: Option<Box<dyn Error + Send + Sync + 'static>>,
 }
 
 impl CompactionError {
-    pub fn new(code: CompactionErrorCode, message: impl Into<String>, cause: Option<Box<dyn Error + 'static>>) -> Self {
+    pub fn new(
+        code: CompactionErrorCode,
+        message: impl Into<String>,
+        cause: Option<Box<dyn Error + Send + Sync + 'static>>,
+    ) -> Self {
         Self {
             name: "CompactionError".to_owned(),
             message: message.into(),
@@ -303,7 +316,7 @@ impl Display for CompactionError {
 
 impl Error for CompactionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.cause.as_deref()
+        self.cause.as_deref().map(|error| error as &(dyn Error + 'static))
     }
 }
 
@@ -330,14 +343,14 @@ pub struct BranchSummaryError {
     pub name: String,
     pub message: String,
     pub code: BranchSummaryErrorCode,
-    pub cause: Option<Box<dyn Error + 'static>>,
+    pub cause: Option<Box<dyn Error + Send + Sync + 'static>>,
 }
 
 impl BranchSummaryError {
     pub fn new(
         code: BranchSummaryErrorCode,
         message: impl Into<String>,
-        cause: Option<Box<dyn Error + 'static>>,
+        cause: Option<Box<dyn Error + Send + Sync + 'static>>,
     ) -> Self {
         Self {
             name: "BranchSummaryError".to_owned(),
@@ -356,6 +369,175 @@ impl Display for BranchSummaryError {
 
 impl Error for BranchSummaryError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.cause.as_deref()
+        self.cause.as_deref().map(|error| error as &(dyn Error + 'static))
     }
 }
+
+/// Content accepted by filesystem write and append operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileContent<'a> {
+    Text(&'a str),
+    Bytes(&'a [u8]),
+}
+
+impl<'a> FileContent<'a> {
+    pub fn as_bytes(self) -> &'a [u8] {
+        match self {
+            Self::Text(text) => text.as_bytes(),
+            Self::Bytes(bytes) => bytes,
+        }
+    }
+}
+
+/// Options for [`FileSystem::read_text_lines`].
+#[derive(Debug, Clone, Default)]
+pub struct ReadTextLinesOptions {
+    pub max_lines: Option<usize>,
+    pub abort: Option<CancellationToken>,
+}
+
+/// Options for [`FileSystem::create_dir`]. `recursive` defaults to `true`.
+#[derive(Debug, Clone, Default)]
+pub struct CreateDirOptions {
+    pub recursive: Option<bool>,
+}
+
+/// Options for [`FileSystem::remove`]. Both flags default to `false`.
+#[derive(Debug, Clone, Default)]
+pub struct RemoveOptions {
+    pub recursive: Option<bool>,
+    pub force: Option<bool>,
+}
+
+/// Options for [`FileSystem::create_temp_file`].
+#[derive(Debug, Clone, Default)]
+pub struct CreateTempFileOptions {
+    pub prefix: Option<String>,
+    pub suffix: Option<String>,
+}
+
+/// Options for [`Shell::exec`].
+#[derive(Clone, Default)]
+pub struct ShellExecOptions {
+    /// Working directory for the command; relative paths resolve against [`FileSystem::cwd`].
+    pub cwd: Option<String>,
+    /// Environment variables that override inherited defaults when `inherit_env` is `true`.
+    pub env: Option<HashMap<String, String>>,
+    /// Whether to inherit the execution environment's default variables. Defaults to `true`.
+    pub inherit_env: Option<bool>,
+    /// Timeout in seconds. No timeout when absent.
+    pub timeout: Option<f64>,
+    /// Cancellation token used to terminate the command.
+    pub abort: Option<CancellationToken>,
+    /// Called with stdout chunks as they are produced. `Err` carries the callback error message.
+    pub on_stdout: Option<Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>>,
+    /// Called with stderr chunks as they are produced. `Err` carries the callback error message.
+    pub on_stderr: Option<Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>>,
+}
+
+impl std::fmt::Debug for ShellExecOptions {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ShellExecOptions")
+            .field("cwd", &self.cwd)
+            .field("env", &self.env)
+            .field("inherit_env", &self.inherit_env)
+            .field("timeout", &self.timeout)
+            .field("abort", &self.abort)
+            .field("on_stdout", &self.on_stdout.as_ref().map(|_| "<callback>"))
+            .field("on_stderr", &self.on_stderr.as_ref().map(|_| "<callback>"))
+            .finish()
+    }
+}
+
+/// Successful process-execution result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShellExecResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+}
+
+/// Filesystem capability used by the harness.
+///
+/// Paths passed to methods may be absolute or relative to [`FileSystem::cwd`]. Paths returned by
+/// file operations are addressed paths in the filesystem namespace, but are not canonicalized
+/// through symlinks unless returned by [`FileSystem::canonical_path`].
+pub trait FileSystem: Send + Sync {
+    /// Current working directory for relative paths.
+    fn cwd(&self) -> &str;
+    /// Return an absolute addressed path without requiring it to exist and without resolving symlinks.
+    fn absolute_path<'a>(
+        &'a self,
+        path: &'a str,
+        abort: Option<&'a CancellationToken>,
+    ) -> BoxFuture<'a, Result<String, FileError>>;
+    /// Join path segments in the filesystem namespace without requiring the result to exist.
+    fn join_path<'a>(
+        &'a self,
+        parts: &'a [String],
+        abort: Option<&'a CancellationToken>,
+    ) -> BoxFuture<'a, Result<String, FileError>>;
+    fn read_text_file<'a>(
+        &'a self,
+        path: &'a str,
+        abort: Option<&'a CancellationToken>,
+    ) -> BoxFuture<'a, Result<String, FileError>>;
+    fn read_text_lines<'a>(
+        &'a self,
+        path: &'a str,
+        options: ReadTextLinesOptions,
+    ) -> BoxFuture<'a, Result<Vec<String>, FileError>>;
+    fn read_binary_file<'a>(
+        &'a self,
+        path: &'a str,
+        abort: Option<&'a CancellationToken>,
+    ) -> BoxFuture<'a, Result<Vec<u8>, FileError>>;
+    fn write_file<'a>(
+        &'a self,
+        path: &'a str,
+        content: FileContent<'a>,
+        abort: Option<&'a CancellationToken>,
+    ) -> BoxFuture<'a, Result<(), FileError>>;
+    fn append_file<'a>(&'a self, path: &'a str, content: FileContent<'a>) -> BoxFuture<'a, Result<(), FileError>>;
+    fn rename_file<'a>(
+        &'a self,
+        source_path: &'a str,
+        destination_path: &'a str,
+        abort: Option<&'a CancellationToken>,
+    ) -> BoxFuture<'a, Result<(), FileError>>;
+    fn file_info<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<FileInfo, FileError>>;
+    fn list_dir<'a>(
+        &'a self,
+        path: &'a str,
+        abort: Option<&'a CancellationToken>,
+    ) -> BoxFuture<'a, Result<Vec<FileInfo>, FileError>>;
+    fn canonical_path<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<String, FileError>>;
+    fn exists<'a>(
+        &'a self,
+        path: &'a str,
+        abort: Option<&'a CancellationToken>,
+    ) -> BoxFuture<'a, Result<bool, FileError>>;
+    fn create_dir<'a>(&'a self, path: &'a str, options: CreateDirOptions) -> BoxFuture<'a, Result<(), FileError>>;
+    fn remove<'a>(&'a self, path: &'a str, options: RemoveOptions) -> BoxFuture<'a, Result<(), FileError>>;
+    fn create_temp_dir<'a>(&'a self, prefix: &'a str) -> BoxFuture<'a, Result<String, FileError>>;
+    fn create_temp_file<'a>(&'a self, options: CreateTempFileOptions) -> BoxFuture<'a, Result<String, FileError>>;
+    /// Release filesystem resources. Must be best-effort and must not fail.
+    fn cleanup(&self) -> BoxFuture<'_, ()>;
+}
+
+/// Shell execution capability used by the harness.
+pub trait Shell: Send + Sync {
+    fn exec<'a>(
+        &'a self,
+        command: &'a str,
+        options: ShellExecOptions,
+    ) -> BoxFuture<'a, Result<ShellExecResult, ExecutionError>>;
+    /// Release shell resources. Must be best-effort and must not fail.
+    fn cleanup(&self) -> BoxFuture<'_, ()>;
+}
+
+/// Filesystem and process execution environment used by the harness.
+pub trait ExecutionEnv: FileSystem + Shell {}
+
+impl<T> ExecutionEnv for T where T: FileSystem + Shell {}
