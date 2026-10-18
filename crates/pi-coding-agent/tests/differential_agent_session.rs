@@ -81,6 +81,7 @@ impl pi_agent_core::agent::types::AgentTool for EndTurnTool {
 fn faux() -> pi_ai::providers::faux::FauxProviderHandle {
     faux_provider(RegisterFauxProviderOptions {
         provider: Some("faux".to_owned()),
+        api: Some("faux".to_owned()),
         models: Some(vec![FauxModelDefinition {
             id: "faux-1".to_owned(),
             name: Some("Faux Model".to_owned()),
@@ -90,6 +91,11 @@ fn faux() -> pi_ai::providers::faux::FauxProviderHandle {
             context_window: Some(100_000.0),
             max_tokens: Some(4096.0),
         }]),
+        token_size: Some(pi_ai::providers::faux::FauxTokenSize {
+            min: Some(1.0),
+            max: Some(1.0),
+        }),
+        tokens_per_second: Some(1_000_000.0),
         ..Default::default()
     })
 }
@@ -220,7 +226,20 @@ fn event_name_and_value(event: &pi_coding_agent::core::agent_session::AgentSessi
         event,
         AgentSessionEvent::Agent(pi_agent_core::agent::types::AgentEvent::MessageUpdate { .. })
     ) {
-        return (String::new(), None);
+        let AgentSessionEvent::Agent(pi_agent_core::agent::types::AgentEvent::MessageUpdate {
+            message,
+            assistant_message_event,
+        }) = event
+        else {
+            unreachable!()
+        };
+        return (
+            "message_update".to_owned(),
+            Some(json!({
+                "message": message_summary(message),
+                "assistantMessageEvent": assistant_message_event,
+            })),
+        );
     }
     match event {
         AgentSessionEvent::Agent(agent_event) => {
@@ -405,8 +424,17 @@ fn agent_session_multi_turn_matches_typescript() {
     let expected = normalize(expected, &mut ids, &dir_path);
     let mut actual_ids = std::collections::HashMap::new();
     let actual = normalize(&actual, &mut actual_ids, &dir_path);
-    assert_eq!(actual["events"], expected["events"], "event stream mismatch");
+    assert_json_seq(&actual["events"], &expected["events"], "event stream");
     assert_eq!(actual["stats"], expected["stats"], "stats mismatch");
     assert_eq!(actual["messages"], expected["messages"], "message mismatch");
     assert_eq!(actual["lines"], expected["lines"], "session JSONL mismatch");
+}
+
+fn assert_json_seq(actual: &Value, expected: &Value, label: &str) {
+    let actual = actual.as_array().expect("actual array");
+    let expected = expected.as_array().expect("expected array");
+    assert_eq!(actual.len(), expected.len(), "{label} length mismatch");
+    for (index, (actual, expected)) in actual.iter().zip(expected).enumerate() {
+        assert_eq!(actual, expected, "{label} mismatch at index {index}");
+    }
 }

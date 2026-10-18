@@ -68,7 +68,12 @@ async function run(request) {
 	mkdirSync(agentDir, { recursive: true });
 	writeFileSync(join(agentDir, "auth.json"), JSON.stringify({ faux: { type: "api_key", key: "faux-key" } }));
 	writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: {} }));
-	const core = createFauxCore({ models: [{ id: "faux-1", name: "Faux Model", reasoning: true, contextWindow: 100000, maxTokens: 4096 }] });
+	const core = createFauxCore({
+		api: "faux",
+		models: [{ id: "faux-1", name: "Faux Model", reasoning: true, contextWindow: 100000, maxTokens: 4096 }],
+		tokenSize: { min: 1, max: 1 },
+		tokensPerSecond: 1_000_000,
+	});
 	core.setResponses([
 		fauxAssistantMessage([fauxText("world"), fauxToolCall("end_turn", { reason: "done" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxText("again"), fauxToolCall("end_turn", { reason: "done" })], { stopReason: "toolUse" }),
@@ -121,12 +126,15 @@ async function run(request) {
 		initialActiveToolNames: [],
 	});
 	const events = [];
-	session.subscribe((event) => {
-		if (event.type === "message_update") return;
+	session.subscribe((rawEvent) => {
+		const event = structuredClone(rawEvent);
 		const entry = { type: event.type };
 		if (event.type === "agent_end") entry.willRetry = event.willRetry;
 		if (event.type === "thinking_level_changed") entry.level = event.level;
-		if (event.type === "message_start" || event.type === "message_end") entry.message = messageSummary(event.message);
+		if (event.type === "message_start" || event.type === "message_update" || event.type === "message_end") {
+			entry.message = messageSummary(event.message);
+		}
+		if (event.type === "message_update") entry.assistantMessageEvent = event.assistantMessageEvent;
 		if (event.type === "queue_update") {
 			entry.steering = event.steering;
 			entry.followUp = event.followUp;
