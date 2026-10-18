@@ -8,11 +8,9 @@ use std::sync::Arc;
 use pi_agent_core::{AgentHarnessTool, AgentMessage};
 use pi_ai::types::{AssistantContent, AssistantMessage, TextContent};
 use pi_coding_agent::core::session_manager::{CompactionAppendOptions, SessionManager};
-use pi_coding_agent::core::tools::context::ToolContext;
 use pi_coding_agent::core::tools::search_current_session_history::SearchCurrentSessionHistoryTool;
 use serde_json::{Value, json};
 use tempfile::TempDir;
-use tool_context::StaticSession;
 
 fn manager_fixture() -> (TempDir, SessionManager) {
     let temp_dir = tempfile::tempdir().expect("temp dir");
@@ -36,18 +34,12 @@ fn assistant_message(text: &str, timestamp: i64) -> AgentMessage {
 }
 
 async fn search(manager: &Arc<SessionManager>, params: Value) -> pi_agent_core::AgentToolResult {
+    let context = tool_context::TestContextBuilder::new("/repo", Arc::clone(manager))
+        .build()
+        .await
+        .1;
     SearchCurrentSessionHistoryTool::new()
-        .execute(
-            "search-history".to_owned(),
-            params,
-            None,
-            None,
-            ToolContext::new(
-                "/repo",
-                Arc::clone(manager) as Arc<dyn pi_coding_agent::core::tools::context::ReadonlySessionManager>,
-            ),
-            None,
-        )
+        .execute("search-history".to_owned(), params, None, None, context, None)
         .await
         .expect("search history")
 }
@@ -193,13 +185,17 @@ async fn paginates_matches_while_returning_full_matching_content() {
 
 #[tokio::test]
 async fn requires_a_persisted_current_session() {
+    let context = tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
+        .build()
+        .await
+        .1;
     let error = SearchCurrentSessionHistoryTool::new()
         .execute(
             "search-history".to_owned(),
             json!({ "query": "needle" }),
             None,
             None,
-            ToolContext::new("/repo", StaticSession::new("/repo", "/repo/sessions", "session", None)),
+            context,
             None,
         )
         .await
@@ -217,16 +213,17 @@ async fn rejects_an_invalid_cursor() {
         .append_message(user_message("needle", 1))
         .expect("append message");
     let manager = Arc::new(manager);
+    let context = tool_context::TestContextBuilder::new("/repo", Arc::clone(&manager))
+        .build()
+        .await
+        .1;
     let error = SearchCurrentSessionHistoryTool::new()
         .execute(
             "search-history".to_owned(),
             json!({ "query": "needle", "cursor": "-1" }),
             None,
             None,
-            ToolContext::new(
-                "/repo",
-                Arc::clone(&manager) as Arc<dyn pi_coding_agent::core::tools::context::ReadonlySessionManager>,
-            ),
+            context,
             None,
         )
         .await

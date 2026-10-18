@@ -3,11 +3,12 @@ mod oracle;
 
 use pi_agent_core::agent::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use pi_coding_agent::core::extensions::types::{ExtensionTheme, ToolRenderContext};
+use pi_coding_agent::core::extensions::types::ToolRenderContext;
 use pi_coding_agent::core::tools::bash::render_call as bash_render_call;
 use pi_coding_agent::core::tools::code_index::{
     code_index_render_result, outline_render_call, references_render_call, symbol_render_call,
 };
+use pi_coding_agent::core::tools::edit::{render_call as edit_render_call, render_result as edit_render_result};
 use pi_coding_agent::core::tools::find::{render_call as find_render_call, render_result as find_render_result};
 use pi_coding_agent::core::tools::grep::{render_call as grep_render_call, render_result as grep_render_result};
 use pi_coding_agent::core::tools::ls::{render_call as ls_render_call, render_result as ls_render_result};
@@ -15,20 +16,13 @@ use pi_coding_agent::core::tools::read::{render_call as read_render_call, render
 use pi_coding_agent::core::tools::write::{render_call as write_render_call, render_result as write_render_result};
 use serde_json::{Value, json};
 
-struct FakeTheme;
-
-impl ExtensionTheme for FakeTheme {
-    fn fg(&self, color: &str, text: &str) -> String {
-        format!("[fg:{color}]{text}[/]")
-    }
-
-    fn bg(&self, color: &str, text: &str) -> String {
-        format!("[bg:{color}]{text}[/]")
-    }
-
-    fn bold(&self, text: &str) -> String {
-        format!("[bold]{text}[/]")
-    }
+fn dark_theme() -> std::sync::Arc<pi_coding_agent::modes::interactive::theme::Theme> {
+    use pi_coding_agent::modes::interactive::theme::{ColorMode, load_theme_from_path, set_theme_instance};
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
+    let theme =
+        std::sync::Arc::new(load_theme_from_path(&path, Some(ColorMode::Truecolor)).expect("built-in dark theme"));
+    set_theme_instance(std::sync::Arc::clone(&theme));
+    theme
 }
 
 fn context(args: Value, expanded: bool, is_error: bool, show_images: bool) -> ToolRenderContext {
@@ -80,19 +74,19 @@ fn truncation(lines: usize) -> Value {
 
 #[test]
 fn coding_agent_tool_renderers_match_the_pinned_typescript_source() {
-    let theme = pi_coding_agent::modes::interactive::theme::Theme::new(
-        &[],
-        &[],
-        pi_coding_agent::modes::interactive::theme::ColorMode::Truecolor,
-        None,
-        None,
-    )
-    .expect("empty theme");
-    pi_coding_agent::modes::interactive::theme::set_theme_instance(std::sync::Arc::new(theme));
+    let theme = dark_theme();
     let cases = vec![
         json!({"tool": "read", "kind": "call", "args": {"path": "src/file.txt"}}),
         json!({"tool": "read", "kind": "result", "args": {"path": "src/file.txt"},
             "result": {"content": [{"type": "text", "text": "line1\nline2\n\n"}]}}),
+        json!({"tool": "edit", "kind": "call", "args": {"path": "src/file.txt", "edits": [{"oldText": "a", "newText": "b"}]}}),
+        json!({"tool": "edit", "kind": "result",
+            "args": {"path": "src/file.txt", "edits": [{"oldText": "a", "newText": "b"}]},
+            "result": {"content": [{"type": "text", "text": "Successfully replaced 1 block(s) in src/file.txt."}],
+                "details": {"diff": "@@ -1,1 +1,1 @@\n-a\n+b", "firstChangedLine": 1}}}),
+        json!({"tool": "edit", "kind": "result", "isError": true,
+            "args": {"path": "src/file.txt", "edits": [{"oldText": "a", "newText": "b"}]},
+            "result": {"content": [{"type": "text", "text": "Could not edit file: src/file.txt. Error code: ENOENT."}]}}),
         json!({"tool": "write", "kind": "call", "args": {"path": "src/new.txt", "content": "hello\nworld\n"}}),
         json!({"tool": "write", "kind": "result", "isError": true,
             "result": {"content": [{"type": "text", "text": "disk full"}]}}),
@@ -111,11 +105,19 @@ fn coding_agent_tool_renderers_match_the_pinned_typescript_source() {
         json!({"tool": "references", "kind": "call", "args": {"name": "createTool", "kind": "call"}}),
         json!({"tool": "read", "kind": "result", "args": {"path": "src/file.txt"},
             "result": {"content": [{"type": "text", "text": "line1"}], "details": {"truncation": truncation(2500)}}}),
+        json!({"tool": "bash", "kind": "result", "args": {"command": "printf"},
+            "result": {"content": [{"type": "text", "text": "line1\nline2"}]}}),
+        json!({"tool": "bash", "kind": "result", "expanded": false, "args": {"command": "seq"},
+            "result": {"content": [{"type": "text", "text": "1\n2\n3\n4\n5\n6\n7\n8"}]}}),
+        json!({"tool": "bash", "kind": "result", "args": {"command": "seq"},
+            "result": {"content": [{"type": "text", "text": "last\n\n[Showing last 100B of 2KB. Full output: /tmp/pi-tool-test.log]"}],
+                "details": {"truncation": truncation(2500), "fullOutputPath": "/tmp/pi-tool-test.log"}}}),
     ];
 
-    let mut oracle = oracle::TsOracle::spawn(
+    let mut oracle = oracle::TsOracle::spawn_with_environment(
         "coding-agent-tool-renderers-oracle.ts",
         "packages/coding-agent/src/core/tools/read.ts",
+        &[("COLORTERM", std::ffi::OsString::from("truecolor"))],
     );
     let expected = oracle.request(&json!({
         "id": 27_900,
@@ -127,12 +129,12 @@ fn coding_agent_tool_renderers_match_the_pinned_typescript_source() {
     let expected_results = expected["output"].as_array().expect("oracle output array");
     assert_eq!(expected_results.len(), cases.len());
     for (index, (case, expected)) in cases.iter().zip(expected_results).enumerate() {
-        let actual = render_case(case);
+        let actual = render_case(case, &theme);
         assert_eq!(&actual, expected, "case {index}");
     }
 }
 
-fn render_case(case: &Value) -> Value {
+fn render_case(case: &Value, theme: &pi_coding_agent::modes::interactive::theme::Theme) -> Value {
     let tool = case["tool"].as_str().expect("tool");
     let kind = case["kind"].as_str().expect("kind");
     let args = case.get("args").cloned().unwrap_or_else(|| json!({}));
@@ -140,18 +142,18 @@ fn render_case(case: &Value) -> Value {
     let is_error = case.get("isError").and_then(Value::as_bool).unwrap_or(false);
     let show_images = case.get("showImages").and_then(Value::as_bool).unwrap_or(true);
     let context = context(args.clone(), expanded, is_error, show_images);
-    let theme = FakeTheme;
     let component = if kind == "call" {
         match tool {
-            "read" => read_render_call(&args, &theme, &context),
-            "write" => write_render_call(&args, &theme, &context),
-            "ls" => ls_render_call(&args, &theme, &context),
-            "grep" => grep_render_call(&args, &theme, &context),
-            "find" => find_render_call(&args, &theme, &context),
-            "outline" => outline_render_call(&args, &theme, &context),
-            "symbol" => symbol_render_call(&args, &theme, &context),
-            "references" => references_render_call(&args, &theme, &context),
-            "bash" => bash_render_call(&args, &theme, &context),
+            "read" => read_render_call(&args, theme, &context),
+            "write" => write_render_call(&args, theme, &context),
+            "edit" => edit_render_call(&args, theme, &context),
+            "ls" => ls_render_call(&args, theme, &context),
+            "grep" => grep_render_call(&args, theme, &context),
+            "find" => find_render_call(&args, theme, &context),
+            "outline" => outline_render_call(&args, theme, &context),
+            "symbol" => symbol_render_call(&args, theme, &context),
+            "references" => references_render_call(&args, theme, &context),
+            "bash" => bash_render_call(&args, theme, &context),
             other => panic!("unknown tool {other}"),
         }
     } else {
@@ -168,12 +170,14 @@ fn render_case(case: &Value) -> Value {
             is_partial: false,
         };
         match tool {
-            "read" => read_render_result(&result, &options, &theme, &context),
-            "write" => write_render_result(&result, &options, &theme, &context),
-            "ls" => ls_render_result(&result, &options, &theme, &context),
-            "grep" => grep_render_result(&result, &options, &theme, &context),
-            "find" => find_render_result(&result, &options, &theme, &context),
-            "outline" | "symbol" | "references" => code_index_render_result(&result, &options, &theme, &context),
+            "read" => read_render_result(&result, &options, theme, &context),
+            "write" => write_render_result(&result, &options, theme, &context),
+            "edit" => edit_render_result(&result, &options, theme, &context),
+            "bash" => pi_coding_agent::core::tools::bash::render_result(&result, &options, theme, &context),
+            "ls" => ls_render_result(&result, &options, theme, &context),
+            "grep" => grep_render_result(&result, &options, theme, &context),
+            "find" => find_render_result(&result, &options, theme, &context),
+            "outline" | "symbol" | "references" => code_index_render_result(&result, &options, theme, &context),
             other => panic!("unknown tool {other}"),
         }
     };

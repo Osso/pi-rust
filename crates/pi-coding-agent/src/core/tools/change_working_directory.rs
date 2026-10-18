@@ -11,10 +11,10 @@ use pi_js_compat::string::js_trim;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::context::ToolContext;
 use super::result::terminating_text_result;
 use super::resume_session::{find_session_file_by_id, resolve_session_path};
-use crate::core::session_manager::read_session_header;
+use crate::core::extensions::types::ExtensionContext;
+use crate::core::session_manager::{SessionManager, read_session_header};
 use crate::utils::paths::{PathInputOptions, resolve_path};
 
 pub const NAME: &str = "change_working_directory";
@@ -116,10 +116,15 @@ fn assert_existing_directory(cwd: &str) -> Result<(), ToolError> {
     Ok(())
 }
 
-fn load_target_cwd(target: &ChangeWorkingDirectoryTarget, context: &ToolContext) -> Result<ResolvedTarget, ToolError> {
+fn load_target_cwd(
+    target: &ChangeWorkingDirectoryTarget,
+    cwd: &str,
+    session: &SessionManager,
+    control_db_path: Option<&str>,
+) -> Result<ResolvedTarget, ToolError> {
     match target {
         ChangeWorkingDirectoryTarget::Path(path) => {
-            let cwd = resolve_path(path, &context.cwd, &PathInputOptions::default())
+            let cwd = resolve_path(path, cwd, &PathInputOptions::default())
                 .map_err(|error| ToolError::new(error.to_string()))?;
             assert_existing_directory(&cwd)?;
             Ok(ResolvedTarget {
@@ -129,8 +134,8 @@ fn load_target_cwd(target: &ChangeWorkingDirectoryTarget, context: &ToolContext)
             })
         }
         ChangeWorkingDirectoryTarget::Id(id) => {
-            let session_path = find_session_file_by_id(id, context)?;
-            if let Some(current_session_file) = context.session.get_session_file()
+            let session_path = find_session_file_by_id(id, session, control_db_path)?;
+            if let Some(current_session_file) = session.get_session_file()
                 && resolve_session_path(current_session_file) == resolve_session_path(&session_path)
             {
                 return Err(ToolError::new(
@@ -153,7 +158,7 @@ fn load_target_cwd(target: &ChangeWorkingDirectoryTarget, context: &ToolContext)
     }
 }
 
-impl AgentHarnessTool<ToolContext> for ChangeWorkingDirectoryTool {
+impl AgentHarnessTool<ExtensionContext> for ChangeWorkingDirectoryTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -180,19 +185,23 @@ impl AgentHarnessTool<ToolContext> for ChangeWorkingDirectoryTool {
         params: Value,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
-        context: ToolContext,
+        context: ExtensionContext,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
-            let Some(relocate) = context.relocate_after_tool_result.clone() else {
-                return Err(ToolError::new(
-                    "change_working_directory is not available in this session mode",
-                ));
-            };
             let target = normalize_target(&params)?;
-            let previous_cwd = context.cwd.clone();
-            let resolved = load_target_cwd(&target, &context)?;
-            relocate.relocate_after_tool_result(&tool_call_id, &resolved.cwd);
+            let cwd = context.cwd().map_err(|error| ToolError::new(error.message))?;
+            let session = context
+                .session_manager()
+                .map_err(|error| ToolError::new(error.message))?;
+            let control_db_path = context
+                .control_db_path()
+                .map_err(|error| ToolError::new(error.message))?;
+            let previous_cwd = cwd.clone();
+            let resolved = load_target_cwd(&target, &cwd, &session, control_db_path.as_deref())?;
+            context
+                .relocate_after_tool_result(&tool_call_id, &resolved.cwd)
+                .map_err(|error| ToolError::new(error.message))?;
             let mut details = Map::new();
             details.insert("previousCwd".to_owned(), Value::String(previous_cwd));
             details.insert("cwd".to_owned(), Value::String(resolved.cwd.clone()));

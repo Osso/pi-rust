@@ -6,7 +6,6 @@ pub mod broadcast;
 pub mod change_working_directory;
 pub mod channel_post;
 pub mod code_index;
-pub mod context;
 pub mod edit;
 pub mod edit_diff;
 pub mod end_turn;

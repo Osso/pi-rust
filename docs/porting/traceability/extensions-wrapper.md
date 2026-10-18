@@ -12,11 +12,10 @@ Rust: `crates/pi-coding-agent/src/core/extensions/wrapper.rs`.
 
 ## Gaps
 
-- `tool-definition-wrapper.ts` (`capToolResultOutput` truncation/spill,
-  `prepareArguments` invocation, execution context injection) is owned by
-  ca-tools-core and not yet ported. The wrapper calls `ToolDefinition.execute`
-  directly with the runner context and passes `tool_execution_started_at` /
-  `tool_execution_agent_id`.
+- `tool-definition-wrapper.ts` lives in `core::tools::tool_definition_wrapper`
+  (matching the source path), not in this module. The wrapper calls
+  `ToolDefinition.execute` directly with the runner context and passes
+  `tool_execution_started_at` / `tool_execution_agent_id`.
 - `prepareArguments` is not applied by the wrapper (agent-core default identity)
   until the tools wrapper lands.
 - `prepareExecution` errors map to `None` because `AgentTool::prepare_execution`

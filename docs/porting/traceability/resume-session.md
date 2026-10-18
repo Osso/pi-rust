@@ -17,7 +17,7 @@ Rust: `crates/pi-coding-agent/src/core/tools/resume_session.rs` (`ResumeSessionT
 | `resolveResumeSessionFile` (path, name scopes, id) | same | id/name/path tests |
 | `findSessionFileById` | `find_session_file_by_id` | reused by `change_working_directory` |
 | `assertResumeTargetIsDifferent` | same | self-resume test |
-| `switchSession` + optional `withSession` starter prompt | `ToolContext::switch_session` / `SessionSwitcher` (`starter_prompt`) | starter/cancel tests, differential |
+| `switchSession` + optional `withSession` starter prompt | `ExtensionContext::switch_session` + `SwitchSessionOptions::with_session` sending through `ReplacedSessionContext` | starter/cancel tests, differential |
 | result text/details/`terminate` | `execute` | differential |
 
 Differential: `tests/differential_session_tools.rs::resume_session_tool_differential`
@@ -26,7 +26,7 @@ missing path, both targets, no target, blank name, cancelled switch).
 
 ## Gaps
 
-- `renderCall`/`renderResult` need `Theme`.
+- `renderCall`/`renderResult` are not ported yet.
 - `SessionManager.list`/`listAll` metadata integration is still partial in the port
   (`control_db_path` is accepted but the scan is used). `resume_session` therefore resolves
   metadata-only sessions through `findActiveSessionMetadata*` and file scans; differential

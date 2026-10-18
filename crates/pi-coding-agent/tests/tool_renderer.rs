@@ -12,17 +12,19 @@ use pi_coding_agent::core::export_html::{
     RenderedToolResult, ToolHtmlRenderer, ToolHtmlRendererDeps, create_tool_html_renderer,
 };
 use pi_coding_agent::core::extensions::types::{
-    ExtensionContext, ExtensionTheme, HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
+    ExtensionContext, HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
 };
+use pi_coding_agent::modes::interactive::theme::Theme;
 use pi_tui::tui::{Component, ComponentRef};
 use serde_json::{Value, json};
 
-struct TestTheme;
-
-impl ExtensionTheme for TestTheme {
-    fn fg(&self, _color: &str, text: &str) -> String {
-        text.to_owned()
-    }
+fn dark_theme() -> std::sync::Arc<pi_coding_agent::modes::interactive::theme::Theme> {
+    use pi_coding_agent::modes::interactive::theme::{ColorMode, load_theme_from_path, set_theme_instance};
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
+    let theme =
+        std::sync::Arc::new(load_theme_from_path(&path, Some(ColorMode::Truecolor)).expect("built-in dark theme"));
+    set_theme_instance(std::sync::Arc::clone(&theme));
+    theme
 }
 
 struct TestComponent {
@@ -41,12 +43,9 @@ fn make_component(lines: Vec<String>, widths: Arc<Mutex<Vec<usize>>>) -> Compone
     Rc::new(RefCell::new(TestComponent { lines, widths }))
 }
 
-type RenderCall = Arc<dyn Fn(&Value, &dyn ExtensionTheme, &ToolRenderContext) -> ComponentRef + Send + Sync>;
-type RenderResult = Arc<
-    dyn Fn(&AgentToolResult, &ToolRenderResultOptions, &dyn ExtensionTheme, &ToolRenderContext) -> ComponentRef
-        + Send
-        + Sync,
->;
+type RenderCall = Arc<dyn Fn(&Value, &Theme, &ToolRenderContext) -> ComponentRef + Send + Sync>;
+type RenderResult =
+    Arc<dyn Fn(&AgentToolResult, &ToolRenderResultOptions, &Theme, &ToolRenderContext) -> ComponentRef + Send + Sync>;
 
 fn tool_definition(render_call: Option<RenderCall>, render_result: Option<RenderResult>) -> ToolDefinition {
     ToolDefinition {
@@ -80,7 +79,7 @@ fn tool_definition(render_call: Option<RenderCall>, render_result: Option<Render
 fn make_renderer(tool: Option<ToolDefinition>, width: Option<usize>) -> Rc<dyn ToolHtmlRenderer> {
     create_tool_html_renderer(ToolHtmlRendererDeps {
         get_tool_definition: Arc::new(move |name: &str| tool.clone().filter(|definition| definition.name == name)),
-        theme: Arc::new(TestTheme),
+        theme: dark_theme(),
         cwd: "/tmp".to_owned(),
         width,
     })
