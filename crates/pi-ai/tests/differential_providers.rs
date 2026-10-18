@@ -440,7 +440,10 @@ fn dispatch_cases() -> Vec<(String, Model)> {
             // These APIs go through vendor SDKs that bypass `globalThis.fetch`;
             // their request construction is covered by
             // `differential_bedrock_converse_stream` and `differential_google_api`.
-            if SDK_APIS.contains(&model.api.as_str()) {
+            // `opencode-go`'s unmapped google-generative-ai model is the
+            // exception: it fails before any request on both sides.
+            let unmapped_source_discrepancy = provider.id() == "opencode-go" && model.api == "google-generative-ai";
+            if SDK_APIS.contains(&model.api.as_str()) && !unmapped_source_discrepancy {
                 continue;
             }
             if seen.contains(&model.api) {
