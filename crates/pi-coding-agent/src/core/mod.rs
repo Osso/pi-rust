@@ -1,6 +1,7 @@
 mod config_value;
 pub mod defaults;
 pub mod export_html;
+mod js_string;
 pub mod session_manager;
 pub mod session_tool_output;
 mod skill_block;

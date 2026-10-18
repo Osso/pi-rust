@@ -450,7 +450,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/windows-self-update.ts` | 84 | 2 | todo |  |  |
 | `coding-agent/src/core/auth-guidance.ts` | 25 | 3 | todo |  |  |
 | `coding-agent/src/core/permissions/rule-store.ts` | 303 | 3 | todo |  |  |
-| `coding-agent/src/core/tools/edit-diff.ts` | 645 | 3 | todo |  |  |
+| `coding-agent/src/core/tools/edit-diff.ts` | 645 | 3 | done | `crates/pi-coding-agent/src/core/tools/edit_diff.rs`, `jsdiff.rs` | differential ~790 cases incl. jsdiff port |
 | `coding-agent/src/core/trust-manager.ts` | 254 | 3 | todo |  |  |
 | `coding-agent/src/utils/changelog.ts` | 201 | 3 | todo |  |  |
 | `coding-agent/src/utils/image-resize-worker.ts` | 42 | 3 | todo |  |  |

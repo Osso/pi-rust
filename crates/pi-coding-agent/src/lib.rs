@@ -8,6 +8,7 @@ pub use core::{
     session_manager::CURRENT_SESSION_VERSION,
     session_tool_output::{MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES, TOOL_RESULT_TRUNCATION_MARKER},
     source_info::{SourceInfo, create_synthetic_source_info},
+    tools::edit_diff::{EditDiffResult, generate_diff_string, generate_unified_patch},
     tools::{
         DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncationOptions, TruncationResult, format_size, truncate_head,
         truncate_line, truncate_tail,
