@@ -99,7 +99,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/bedrock-provider.ts` | 6 | 2 | todo |  |  |
 | `ai/src/compat/extension-oauth-types.ts` | 45 | 2 | todo |  |  |
 | `ai/src/env-api-keys.ts` | 187 | 2 | done | `crates/pi-ai/src/env_api_keys.rs` | Provider env map, Anthropic token exclusion, Vertex ADC cache, and Bedrock ambient sources; differential over provider/env matrix (see traceability). |
-| `ai/src/image-models.generated.ts` | 639 | 2 | todo |  |  |
+| `ai/src/image-models.generated.ts` | 639 | 2 | done | `crates/pi-ai/data/image-models.json`, `crates/pi-ai/src/image_models_generated.rs` | Embedded TS-generated JSON with identical values and order; differential full catalog. |
 | `ai/src/images-api-registry.ts` | 53 | 2 | todo |  |  |
 | `ai/src/images-models.ts` | 275 | 2 | todo |  |  |
 | `ai/src/model-catalog.ts` | 27 | 2 | done | `crates/pi-ai/src/model_catalog.rs` | Group flattening; `provider` parameter is type-only; differential 4 requests. |
@@ -114,7 +114,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/validation.ts` | 350 | 2 | done | `crates/pi-ai/src/utils/validation.rs` | Full hand-written TypeBox-compatible validator, coercions, error messages; 25 behavioral + 67 differential cases ([traceability](traceability/validation.md)). |
 | `ai/src/api/openrouter-images.lazy.ts` | 10 | 3 | todo |  |  |
 | `ai/src/auth/oauth/radius.ts` | 403 | 3 | todo |  |  |
-| `ai/src/image-models.ts` | 42 | 3 | todo |  |  |
+| `ai/src/image-models.ts` | 42 | 3 | done | `crates/pi-ai/src/image_models.rs` | Lookup/list APIs; `undefined` modeled as `Option`/empty slice (see traceability). |
 | `ai/src/images.ts` | 21 | 3 | todo |  |  |
 | `ai/src/index.ts` | 47 | 3 | todo |  |  |
 | `ai/src/legacy-api-aliases.ts` | 108 | 3 | todo |  |  |

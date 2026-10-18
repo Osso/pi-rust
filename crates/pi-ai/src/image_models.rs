@@ -8,9 +8,7 @@ use crate::types::ImagesModel;
 /// The TypeScript signature claims a model but returns `undefined` for unknown
 /// provider/model pairs; Rust makes that case explicit with `Option`.
 pub fn get_image_model(provider: &str, model_id: &str) -> Option<&'static ImagesModel> {
-    get_image_models(provider)
-        .iter()
-        .find(|model| model.id == model_id)
+    get_image_models(provider).iter().find(|model| model.id == model_id)
 }
 
 /// `getImageProviders()`.
