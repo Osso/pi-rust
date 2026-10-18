@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
+use crate::core::detached_job_runner::DetachedJobLifecycleController;
 use crate::core::diagnostics::{ResourceDiagnostic, ResourceDiagnosticType};
 use crate::core::model_registry::ModelRegistry;
 use crate::core::session_manager::SessionManager;
@@ -305,6 +306,17 @@ impl ExtensionRunner {
         state.compact_fn = actions.compact;
         state.get_system_prompt_fn = actions.get_system_prompt;
         state.get_system_prompt_options_fn = actions.get_system_prompt_options;
+    }
+
+    /// Binds the session-current detached job lifecycle exposed as `ctx.detachedJobLifecycle`.
+    ///
+    /// The agent-session owner calls this after [`Self::bind_core`]; the context
+    /// getter is available before binding and returns `None`.
+    pub fn bind_detached_job_lifecycle(
+        &mut self,
+        provider: Arc<dyn Fn() -> Option<Arc<DetachedJobLifecycleController>> + Send + Sync>,
+    ) {
+        self.live().get_detached_job_lifecycle_fn = provider;
     }
 
     fn flush_pending_provider_registrations(&self, provider_actions: Option<&ProviderActions>) {

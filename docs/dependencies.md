@@ -24,7 +24,8 @@ All direct dependencies are exact-pinned.
 - `regex = 1.13.1` — compiles the pinned ANSI compatibility pattern in `utils::ansi` and the three pinned `supports-color` patterns in `utils::chalk`.
 - `utils::chalk` needs no dependency: `std::io::IsTerminal` supplies TTY detection, replacing `node:tty`.
 - `gethostname = 1.1.0` — supplies the local hostname for OSC 7 terminal current-directory sequences.
-- `getrandom = 0.4.3` — fills the `Math.random()` jitter between Supervisor request attempts in `supervisor::client`.
+- `getrandom = 0.4.3` — fills the `Math.random()` jitter between Supervisor request attempts in `supervisor::client` and the `randomBytes(8)` suffix of `pi-bash-*.log` full-output files in `core::bash_executor`.
+- `sha2 = 0.10.9` — computes the detached-job output SHA-256 (`createHash("sha256")`) in `core::detached_job_runner` and the launch-manifest checksum in `core::detached_bash_runner`.
 - `serde_yaml_ng = 0.10.0` — parses YAML frontmatter in `utils::frontmatter`.
 - `url = 2.5.8` — parses WHATWG URLs in `utils::git` and `file://` paths in `utils::paths`.
 - `percent-encoding = 2.3.2` — decodes percent-encoded URL components in `utils::git` and `utils::paths`.
