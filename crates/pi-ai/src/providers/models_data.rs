@@ -118,7 +118,7 @@ pub fn builtin_model(provider: &str, model_id: &str) -> Option<Model> {
 pub fn model_data_generated_at() -> Option<f64> {
     let manifest: Value = serde_json::from_str(MODEL_DATA_MANIFEST).ok()?;
     let generated_at = manifest.get("generatedAt")?.as_str()?;
-    let millis = crate::js_number::date_parse(generated_at);
+    let millis = pi_js_compat::date::date_parse(generated_at);
     (!millis.is_nan()).then_some(millis)
 }
 

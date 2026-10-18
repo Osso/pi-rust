@@ -5,10 +5,11 @@ use pi_ai::types::{ImageContent, TextContent, TextOrImageContent};
 use serde_json::{Value, json};
 
 use crate::agent::{AgentTool, AgentToolResult, ToolError};
-use crate::harness::tools::image::{detect_supported_image_mime_type, encode_base64};
+use crate::harness::tools::image::detect_supported_image_mime_type;
 use crate::harness::tools::path_utils::resolve_read_tool_path;
 use crate::harness::tools::tool_context::ExecutionToolContext;
 use crate::harness::utils::{DEFAULT_MAX_BYTES, TruncationOptions, format_size, truncate_head};
+use pi_js_compat::base64::buffer_to_base64;
 use tokio_util::sync::CancellationToken;
 
 const DESCRIPTION: &str = "Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 10KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.";
@@ -319,7 +320,7 @@ fn encode_image_result(bytes: &[u8], mime_type: &'static str) -> AgentToolResult
     AgentToolResult {
         content: vec![
             TextOrImageContent::Text(TextContent::new(format!("Read image file [{mime_type}]"))),
-            TextOrImageContent::Image(ImageContent::new(encode_base64(bytes), mime_type)),
+            TextOrImageContent::Image(ImageContent::new(buffer_to_base64(bytes), mime_type)),
         ],
         details: None,
         usage: None,

@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Value};
 
-use super::js_number::js_number_to_string;
+use pi_js_compat::number::js_number_to_string;
 
 /// Error fields extracted from a JavaScript `Error`-shaped throw.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

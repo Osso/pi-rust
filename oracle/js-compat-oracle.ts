@@ -29,13 +29,41 @@ type BraceExpandRequest = {
 	options: Record<string, unknown>;
 };
 
-type Request = LocaleCompareRequest | MinimatchRequest | BraceExpandRequest;
+type NumberRequest = {
+	id: RequestId;
+	operation: "number";
+	number_values: string[];
+	float_values: string[];
+	int_values: Array<[string, number]>;
+	number_strings: string[];
+};
+
+type DateParseRequest = {
+	id: RequestId;
+	operation: "date_parse";
+	values: string[];
+};
+
+type Base64Request = {
+	id: RequestId;
+	operation: "base64";
+	values: string[];
+	bytes: string[];
+};
+
+type Request =
+	| LocaleCompareRequest
+	| MinimatchRequest
+	| BraceExpandRequest
+	| NumberRequest
+	| DateParseRequest
+	| Base64Request;
 
 type Response =
 	| {
 			id: RequestId;
 			ok: true;
-			output: { results: Array<number | boolean | string[]> };
+			output: Record<string, unknown>;
 	  }
 	| {
 			id: RequestId;
@@ -72,6 +100,12 @@ function sign(value: number): number {
 	return value < 0 ? -1 : value > 0 ? 1 : 0;
 }
 
+function normalizeParsed(value: number): string {
+	if (Number.isNaN(value)) return "NaN";
+	if (Object.is(value, -0)) return "-0";
+	return String(value);
+}
+
 function executeLocaleCompare(request: LocaleCompareRequest): Response {
 	const compare =
 		request.locale === null
@@ -84,6 +118,49 @@ function executeLocaleCompare(request: LocaleCompareRequest): Response {
 async function execute(request: Request): Promise<Response> {
 	if (request.operation === "locale_compare") {
 		return executeLocaleCompare(request);
+	}
+	if (request.operation === "number") {
+		return {
+			id: request.id,
+			ok: true,
+			output: {
+				number: request.number_values.map((value) => normalizeParsed(Number(value))),
+				float: request.float_values.map((value) => normalizeParsed(parseFloat(value))),
+				int: request.int_values.map(([value, radix]) => normalizeParsed(parseInt(value, radix))),
+				strings: request.number_strings.map((value) => String(Number(value))),
+			},
+		};
+	}
+	if (request.operation === "date_parse") {
+		return {
+			id: request.id,
+			ok: true,
+			output: {
+				results: request.values.map((value) => {
+					const parsed = Date.parse(value);
+					return Number.isNaN(parsed) ? null : parsed;
+				}),
+			},
+		};
+	}
+	if (request.operation === "base64") {
+		const atobResults = request.values.map((value) => {
+			try {
+				return Buffer.from(atob(value), "binary").toString("hex");
+			} catch {
+				return "ERR";
+			}
+		});
+		return {
+			id: request.id,
+			ok: true,
+			output: {
+				atob: atobResults,
+				buffer: request.values.map((value) => Buffer.from(value, "base64").toString("hex")),
+				byteLength: request.values.map((value) => Buffer.byteLength(value, "base64")),
+				btoa: request.bytes.map((value) => Buffer.from(value, "hex").toString("base64")),
+			},
+		};
 	}
 	const minimatchModule = await loadMinimatch();
 	if (request.operation === "minimatch") {

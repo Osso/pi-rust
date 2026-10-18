@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use pi_agent_core::harness::ThinkingLevel;
-use pi_ai::js_number;
 use pi_ai::types::Transport;
 use pi_ai::utils::uuid::random_uuid;
+use pi_js_compat::number as js_number;
 use pi_tui::ScrollViewScrollbar;
 use pi_tui::tui::TuiMode;
 use serde::{Deserialize, Serialize};

@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use pi_ai::request::BoxFuture;
+use pi_js_compat::number::js_number_to_string;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -588,7 +589,7 @@ fn exec_outcome_to_result(
     if wait.timed_out {
         return Err(ExecutionError::new(
             ExecutionErrorCode::Timeout,
-            format!("timeout:{}", format_js_number(options.timeout.unwrap_or_default())),
+            format!("timeout:{}", js_number_to_string(options.timeout.unwrap_or_default())),
             None,
         ));
     }
@@ -749,19 +750,12 @@ fn resolve_timeout_ms(timeout: Option<f64>) -> Result<Option<f64>, ExecutionErro
             ExecutionErrorCode::Timeout,
             format!(
                 "Invalid timeout: maximum is {} seconds",
-                format_js_number(MAX_TIMEOUT_SECONDS)
+                js_number_to_string(MAX_TIMEOUT_SECONDS)
             ),
             None,
         ));
     }
     Ok(Some(timeout_ms))
-}
-
-fn format_js_number(value: f64) -> String {
-    if value.fract() == 0.0 && value.abs() < 1e21 {
-        return format!("{}", value as i64);
-    }
-    format!("{value}")
 }
 
 fn build_env(

@@ -136,7 +136,7 @@ fn decode_header_value(value_type: u8, bytes: &[u8]) -> Result<(String, usize), 
             let length =
                 u16::from_be_bytes(bytes.get(0..2).ok_or_else(header_error)?.try_into().expect("len")) as usize;
             let value = bytes.get(2..2 + length).ok_or_else(header_error)?;
-            Ok((crate::utils::base64::encode(value), 2 + length))
+            Ok((pi_js_compat::base64::btoa(value), 2 + length))
         }
         7 => {
             let length =

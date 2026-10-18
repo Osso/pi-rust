@@ -26,9 +26,9 @@ use crate::utils::event_stream::{
     AssistantMessageEventSender, AssistantMessageEventStream, create_assistant_message_event_stream,
 };
 use crate::utils::headers::{headers_to_record, provider_headers_to_record};
-use crate::utils::js_number::js_number_to_string;
 use crate::utils::json_parse::parse_streaming_json;
 use crate::utils::provider_env::get_provider_env_value;
+use pi_js_compat::number::js_number_to_string;
 
 const MAX_DIAGNOSTIC_BODY_CHARS: usize = 8192;
 
@@ -100,12 +100,12 @@ fn tool_choice_value(choice: &PiMessagesToolChoice) -> Value {
 #[serde(rename_all = "camelCase")]
 pub struct PiMessagesRewriteImpact {
     pub policy_id: String,
-    #[serde(serialize_with = "crate::js_number::serialize")]
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub policy_version: f64,
     pub changed: bool,
-    #[serde(serialize_with = "crate::js_number::serialize")]
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub token_count_change: f64,
-    #[serde(serialize_with = "crate::js_number::serialize")]
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub message_count_change: f64,
     pub system_prompt_changed: bool,
 }

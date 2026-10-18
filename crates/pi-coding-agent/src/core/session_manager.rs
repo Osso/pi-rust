@@ -15,9 +15,9 @@ use pi_agent_core::harness::messages::{
     CompactionSummaryOptions, CustomMessageContent, create_branch_summary_message, create_compaction_summary_message,
     create_custom_message,
 };
-use pi_ai::js_number;
 use pi_ai::types::{ProviderNativeContext, TextOrImageContent, Usage, UserContent};
 use pi_ai::utils::uuid::{random_uuid, uuidv7};
+use pi_js_compat::number as js_number;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -870,7 +870,7 @@ fn message_from_context_entry(entry: &SessionEntry) -> Option<AgentMessage> {
     match entry {
         SessionEntry::Known(KnownSessionEntry::Message(message)) => Some(message.message.as_ref().clone()),
         SessionEntry::Known(KnownSessionEntry::CustomMessage(message)) => {
-            let timestamp = iso_time::parse_javascript_date(&message.timestamp).unwrap_or(0);
+            let timestamp = pi_js_compat::date::date_parse_millis(&message.timestamp).unwrap_or(0);
             Some(create_custom_message(
                 &message.custom_type,
                 message.content.clone(),
@@ -880,7 +880,7 @@ fn message_from_context_entry(entry: &SessionEntry) -> Option<AgentMessage> {
             ))
         }
         SessionEntry::Known(KnownSessionEntry::BranchSummary(summary)) if !summary.summary.is_empty() => {
-            let timestamp = iso_time::parse_javascript_date(&summary.timestamp).unwrap_or(0);
+            let timestamp = pi_js_compat::date::date_parse_millis(&summary.timestamp).unwrap_or(0);
             Some(create_branch_summary_message(
                 &summary.summary,
                 &summary.from_id,
@@ -888,7 +888,7 @@ fn message_from_context_entry(entry: &SessionEntry) -> Option<AgentMessage> {
             ))
         }
         SessionEntry::Known(KnownSessionEntry::Compaction(compaction)) => {
-            let timestamp = iso_time::parse_javascript_date(&compaction.timestamp).unwrap_or(0);
+            let timestamp = pi_js_compat::date::date_parse_millis(&compaction.timestamp).unwrap_or(0);
             Some(create_compaction_summary_message(
                 &compaction.summary,
                 compaction.tokens_before,
@@ -1646,7 +1646,7 @@ fn message_activity_time(entry: &SessionMessageEntry) -> Option<i64> {
     {
         return Some(timestamp as i64);
     }
-    iso_time::parse_javascript_date(&entry.timestamp)
+    pi_js_compat::date::date_parse_millis(&entry.timestamp)
 }
 
 fn apply_session_info_entry(accumulator: &mut SessionInfoAccumulator, entry: &SessionEntry) {
@@ -1693,7 +1693,7 @@ fn finish_session_info(
     fallback_modified: i64,
 ) -> SessionInfo {
     let cwd = header.cwd.clone().unwrap_or_default();
-    let header_time = iso_time::parse_javascript_date(&header.timestamp);
+    let header_time = pi_js_compat::date::date_parse_millis(&header.timestamp);
     let modified = match accumulator.last_activity_time {
         Some(time) if time > 0 => time,
         _ => header_time.unwrap_or(fallback_modified),
@@ -1978,7 +1978,7 @@ fn attach_children_in_bottom_up_order(
         children.sort_by_key(|node| {
             node.entry
                 .timestamp()
-                .and_then(iso_time::parse_javascript_date)
+                .and_then(pi_js_compat::date::date_parse_millis)
                 .unwrap_or(0)
         });
         if let Some(mut node) = nodes[*position].take() {

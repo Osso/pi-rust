@@ -23,13 +23,78 @@ oracle normalizes both sides to the sign of the comparison.
 Deviations: none observed for the corpus. ICU4X and Node's ICU4C use the same
 CLDR collation data for the tested locales.
 
-## Callers (migrated in the consolidation commit)
+## `Number` / `parseInt` / `parseFloat` / `Number::toString` (`src/number.rs`)
+
+| Source behaviour | Rust item | Proof |
+|---|---|---|
+| `Number(string)` (whitespace, `0x`/`0b`/`0o`, `Infinity`, `NaN` rejection) | `parse_number` | `tests/number.rs`, `tests/differential_number.rs` |
+| `Number.parseInt(string, radix)` (`radix` 0/16 prefix handling, longest digit prefix) | `parse_int` | `tests/number.rs`, `tests/differential_number.rs` |
+| `Number.parseFloat(string)` (leading numeric prefix, exponent rollback) | `parse_float` | `tests/number.rs`, `tests/differential_number.rs` |
+| ECMA-262 `Number::toString` (shortest round-trip digits, exponent thresholds) | `js_number_to_string` | `tests/number.rs`, `tests/differential_number.rs` (`String(Number(s))`) |
+| `JSON.stringify`-style `f64` serialization | `serialize`, `serialize_option` | consumed by `pi-ai`/`pi-agent-core` wire records; existing differential suites |
+
+Differential: 36 `Number` inputs, 28 `parseFloat` inputs, 21 `parseInt` pairs, and
+26 `String(Number(s))` inputs against Node 26.
+
+## `Date.parse` (`src/date.rs`)
+
+| Source behaviour | Rust item | Proof |
+|---|---|---|
+| HTTP-date forms (`RFC 1123`, `RFC 850`, asctime) | `httpdate` for zoned forms; asctime wall clock is resolved in local time like V8 | `tests/date.rs`, `tests/differential_date_parse.rs` |
+| ECMAScript ISO 8601: 4-digit and signed 6-digit years, `YYYY[-M[-D]]`, `T`/`t`/whitespace separators, optional seconds/fraction, `Z`/`z`/`±HH:MM`/`±HHMM` | `parse_iso8601_millis` | `tests/date.rs`, `tests/differential_date_parse.rs` |
+| Zone-less date-time = local; strict date-only = UTC; non-padded legacy date-only = local; `Z` on any date-only = UTC | `resolve_local_from_wall`, `finish_date` | `tests/date.rs`, differential under `TZ=UTC` and `TZ=America/Chicago` |
+| DST gap/fold disambiguation | `jiff::civil::DateTime::to_zoned` (`compatible`: gap uses the pre-transition offset, fold uses the earlier instant) | `tests/date.rs::uses_compatible_disambiguation_for_dst_transitions` |
+| Extended years beyond jiff's timestamp range | offset from the nearest representable year (`9998`/`-9998`), applied to the original wall clock | `tests/date.rs`, differential (`+010000`, `-000001`, `-271821`, `+275760`) |
+| `MakeDay` normalization (`2020-02-31` → March 2, day 32 invalid) | `normalize_day` | `tests/date.rs`, differential |
+| `24:00` only with zero minutes/seconds/millis | time validation in `parse_iso8601_millis` | `tests/date.rs`, differential |
+| `days_from_civil` | `days_from_civil` | `tests/date.rs::days_from_civil_matches_known_dates` |
+
+Differential: 100 inputs under `TZ=UTC`, `TZ=America/Chicago`, and the inherited
+process zone.
+
+Gaps: V8 legacy formats (`"Jan 1 2020"`, `"1/1/2020"`, RFC 2822 without
+`GMT`) are not parsed. HTTP dates before 1970 are rejected by `httpdate` and
+therefore return `NaN` (the previous port documented the same gap).
+
+## Base64 (`src/base64.rs`)
+
+| Source behaviour | Rust item | Proof |
+|---|---|---|
+| `atob(string)` (ASCII whitespace ignored, padding optional, standard alphabet only, `InvalidCharacterError` cases) | `atob` | `tests/base64.rs`, `tests/differential_base64.rs` |
+| `btoa(binaryString)` | `btoa` | `tests/base64.rs`, `tests/differential_base64.rs` |
+| `Buffer.from(string, "base64")` (standard + URL-safe alphabets, invalid characters skipped, stop at `=`) | `buffer_from_base64` | `tests/base64.rs`, `tests/differential_base64.rs` |
+| `Buffer#toString("base64")` | `buffer_to_base64` | `tests/base64.rs`, `tests/differential_base64.rs` |
+| Decoded byte length used by terminal-image sizing | `buffer_decoded_len` | `tests/base64.rs` |
+
+Differential: 34 payloads and 11 byte sequences against Node.
+
+Discrepancy: `buffer_decoded_len` preserves the previous `pi-tui` behavior of
+counting only standard-alphabet symbols, so it differs from Node's
+`Buffer.byteLength(s, "base64")` for inputs containing whitespace or invalid
+characters. `terminal_image` only feeds it protocol payloads. The previous
+`pi-tui` decoder rejected URL-safe symbols; the shared `buffer_from_base64`
+accepts them, matching Node.
+
+## JavaScript string helpers (`src/string.rs`)
+
+`is_js_whitespace_unit`, `is_js_whitespace_char`, `js_trim`, `js_trim_start`,
+`js_trim_end`, and `utf16_len` replace the `pi-tui` `js_compat` module. Proof:
+the migrated `pi-tui` differential suites (`differential_{fuzzy,latex,keys,stdin_buffer,terminal_colors,utils}`)
+and `pi-js-compat` unit tests.
+
+## Migrated callers
 
 | Old path | New path |
 |---|---|
-| `crates/pi-coding-agent/src/core/detached_job_retention.rs` (`compare_paths`) | `pi_js_compat::locale_compare` |
+| `crates/pi-ai/src/js_number.rs`, `crates/pi-ai/src/utils/js_number.rs` | `pi_js_compat::number`, `pi_js_compat::date` |
+| `crates/pi-ai/src/utils/base64.rs` | `pi_js_compat::base64::{atob, btoa}` |
+| `crates/pi-agent-core/src/harness/tools/image.rs` (`encode_base64`, `decode_base64`) | `pi_js_compat::base64::{buffer_to_base64, buffer_from_base64}` |
 | `crates/pi-agent-core/src/harness/{skills,prompt_templates}.rs` (ASCII approximation) | `pi_js_compat::locale_compare` |
+| `crates/pi-tui/src/{js_number,js_compat,base64}.rs` | `pi_js_compat::{number, string, base64}` |
 | `crates/pi-tui/src/autocomplete.rs` (ASCII approximation) | `pi_js_compat::locale_compare` |
+| `crates/pi-coding-agent/src/core/detached_job_retention.rs` (`compare_paths`) | `pi_js_compat::locale_compare` |
+| `crates/pi-coding-agent/src/utils/iso_time.rs` (`parse_javascript_date`) | `pi_js_compat::date::date_parse` |
+| `crates/pi-coding-agent/src/utils/footer_status.rs` (byte-order sort) | `pi_js_compat::locale_compare` |
 
 ## `minimatch` 10.2.5 (`src/minimatch/`)
 

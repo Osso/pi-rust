@@ -6,10 +6,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use crate::js_number;
 use crate::request::BoxFuture;
 use crate::types::Model;
 use crate::utils::abort::operation_signal;
+use pi_js_compat::number as js_number;
 
 use crate::auth::types::AuthError;
 

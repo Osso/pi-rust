@@ -1,6 +1,6 @@
 //! Terminal color-scheme and background-color report parsing.
 
-use crate::js_compat::js_trim;
+use pi_js_compat::string::js_trim;
 
 /// 8-bit RGB color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

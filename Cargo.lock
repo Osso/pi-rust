@@ -2001,6 +2001,7 @@ dependencies = [
  "icu_normalizer",
  "ignore",
  "pi-ai",
+ "pi-js-compat",
  "pi-telemetry",
  "rustix",
  "serde",
@@ -2019,6 +2020,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hmac",
  "httpdate",
+ "pi-js-compat",
  "regex",
  "reqwest",
  "rsa",
@@ -2052,12 +2054,8 @@ dependencies = [
  "futures-util",
  "gethostname",
  "globset",
- "httpdate",
- "icu_collator",
- "icu_locale_core",
  "ignore",
  "image 0.24.9",
- "jiff",
  "notify",
  "percent-encoding",
  "photon-rs",
@@ -2084,8 +2082,11 @@ name = "pi-js-compat"
 version = "0.0.0"
 dependencies = [
  "fancy-regex",
+ "httpdate",
  "icu_collator",
  "icu_locale_core",
+ "jiff",
+ "serde",
  "serde_json",
 ]
 
@@ -2139,6 +2140,7 @@ version = "0.0.0"
 dependencies = [
  "fancy-regex",
  "icu_segmenter",
+ "pi-js-compat",
  "regex",
  "rustix",
  "serde",

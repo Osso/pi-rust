@@ -12,7 +12,7 @@ publish = false
 pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }
 # Supplies the shared HTTP `Fetch` contract and default client.
 pi-ai = { version = "=0.0.0", path = "../pi-ai" }
-# Shared JavaScript semantics (minimatch) for package resource filters.
+# Shared JS semantics: Date.parse, localeCompare, Base64, numbers, minimatch.
 pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }
 # Supplies the TUI keybinding registry that coding-agent extends.
 pi-tui = { version = "=0.0.0", path = "../pi-tui" }
@@ -51,11 +51,6 @@ image = { version = "=0.24.9", default-features = false, features = [
 clipboard-rs = "=0.3.4"
 # Filesystem access checks (`W_OK`) and process signals, matching Node `fs.accessSync` / `process.kill`.
 rustix = { version = "=1.1.5", features = ["fs", "process"] }
-# Parses the catalog response `Last-Modified` header (Node `Date.parse`).
-httpdate = "=1.0.3"
-jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-system"] }
-icu_collator = { version = "=2.3.1", features = ["compiled_data"] }
-icu_locale_core = "=2.3.0"
 # npm semver validation/range matching for package sources.
 semver = "=1.0.28"
 # `glob` manifest-entry expansion in `core::package_manager`.

@@ -4,7 +4,7 @@
 //! Lower score is better. Ported from `packages/tui/src/fuzzy.ts`; scoring runs
 //! over UTF-16 code units so astral characters keep the TypeScript index weights.
 
-use crate::js_compat::{is_js_whitespace_char, is_js_whitespace_unit, js_trim};
+use pi_js_compat::string::{is_js_whitespace_char, is_js_whitespace_unit, js_trim};
 
 /// Result of a fuzzy match attempt.
 #[derive(Debug, Clone, Copy, PartialEq)]

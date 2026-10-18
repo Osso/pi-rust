@@ -1,8 +1,5 @@
 //! Rust port of Pi's terminal UI library.
 
-mod base64;
-mod js_compat;
-mod js_number;
 mod unicode_tables;
 
 pub mod alt_screen_search;

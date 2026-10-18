@@ -121,6 +121,42 @@ pub(crate) enum MmPattern {
     Invalid,
 }
 
+#[derive(Default)]
+struct ScanState {
+    escaping: bool,
+    in_brace: bool,
+    brace_start: usize,
+    brace_negated: bool,
+}
+
+impl ScanState {
+    /// Consumes escape and character-class bookkeeping characters. Returns
+    /// `true` when the character belongs to the literal accumulator.
+    fn consume(&mut self, character: char, index: usize) -> bool {
+        if self.escaping || character == '\\' {
+            self.escaping = !self.escaping;
+            return true;
+        }
+        if self.in_brace {
+            if index == self.brace_start + 1 {
+                if character == '^' || character == '!' {
+                    self.brace_negated = true;
+                }
+            } else if character == ']' && !(index == self.brace_start + 2 && self.brace_negated) {
+                self.in_brace = false;
+            }
+            return true;
+        }
+        if character == '[' {
+            self.in_brace = true;
+            self.brace_start = index;
+            self.brace_negated = false;
+            return true;
+        }
+        false
+    }
+}
+
 impl Ast {
     pub(crate) fn from_glob(pattern: &str, options: &MinimatchOptions) -> Self {
         let characters: Vec<char> = pattern.chars().collect();
@@ -175,32 +211,11 @@ impl Ast {
     fn parse_plain(&mut self, characters: &[char], position: usize, node: NodeId, ext_depth: usize) -> usize {
         let mut index = position;
         let mut accumulated = String::new();
-        let mut escaping = false;
-        let mut in_brace = false;
-        let mut brace_start = 0usize;
-        let mut brace_negated = false;
+        let mut scan = ScanState::default();
         while index < characters.len() {
             let character = characters[index];
             index += 1;
-            if escaping || character == '\\' {
-                escaping = !escaping;
-                accumulated.push(character);
-                continue;
-            }
-            if in_brace {
-                if index == brace_start + 1 {
-                    if character == '^' || character == '!' {
-                        brace_negated = true;
-                    }
-                } else if character == ']' && !(index == brace_start + 2 && brace_negated) {
-                    in_brace = false;
-                }
-                accumulated.push(character);
-                continue;
-            } else if character == '[' {
-                in_brace = true;
-                brace_start = index;
-                brace_negated = false;
+            if scan.consume(character, index) {
                 accumulated.push(character);
                 continue;
             }
@@ -227,32 +242,11 @@ impl Ast {
         let mut part = self.new_node(None, Some(node));
         let mut parts = Vec::new();
         let mut accumulated = String::new();
-        let mut escaping = false;
-        let mut in_brace = false;
-        let mut brace_start = 0usize;
-        let mut brace_negated = false;
+        let mut scan = ScanState::default();
         while index < characters.len() {
             let character = characters[index];
             index += 1;
-            if escaping || character == '\\' {
-                escaping = !escaping;
-                accumulated.push(character);
-                continue;
-            }
-            if in_brace {
-                if index == brace_start + 1 {
-                    if character == '^' || character == '!' {
-                        brace_negated = true;
-                    }
-                } else if character == ']' && !(index == brace_start + 2 && brace_negated) {
-                    in_brace = false;
-                }
-                accumulated.push(character);
-                continue;
-            } else if character == '[' {
-                in_brace = true;
-                brace_start = index;
-                brace_negated = false;
+            if scan.consume(character, index) {
                 accumulated.push(character);
                 continue;
             }
@@ -651,38 +645,75 @@ impl Ast {
         }
         self.nodes[node].has_magic = Some(has_magic);
         self.nodes[node].uflag = self.nodes[node].uflag || uflag;
-        let mut start = String::new();
-        if is_start && let Some(AstPart::Str(first)) = self.nodes[node].parts.first() {
-            let dot_traversal_allowed = self.nodes[node].parts.len() == 1 && JUST_DOTS.contains(&first.as_str());
-            if !dot_traversal_allowed {
-                let first_source = source.chars().next();
-                let need_no_traversal = (dot && first_source.is_some_and(|c| ADD_PATTERN_START.contains(&c)))
-                    || (source.starts_with("\\.")
-                        && source.chars().nth(2).is_some_and(|c| ADD_PATTERN_START.contains(&c)))
-                    || (source.starts_with("\\..\\")
-                        && source.chars().nth(4).is_some_and(|c| ADD_PATTERN_START.contains(&c)));
-                let need_no_dot =
-                    !dot && allow_dot != Some(true) && first_source.is_some_and(|c| ADD_PATTERN_START.contains(&c));
-                start = if need_no_traversal {
-                    START_NO_TRAVERSAL.to_owned()
-                } else if need_no_dot {
-                    START_NO_DOT.to_owned()
-                } else {
-                    String::new()
-                };
-            }
+        let start = if is_start {
+            self.start_anchor(node, &source, dot, allow_dot)
+        } else {
+            ""
+        };
+        let end = if self.is_negative_tail(node, is_end) {
+            "(?:$|\\/)"
+        } else {
+            ""
+        };
+        let final_source = format!("{start}{source}{end}");
+        (final_source, unescape(&source), has_magic, self.nodes[node].uflag)
+    }
+
+    fn start_anchor(&self, node: NodeId, source: &str, dot: bool, allow_dot: Option<bool>) -> &'static str {
+        let Some(AstPart::Str(first)) = self.nodes[node].parts.first() else {
+            return "";
+        };
+        let dot_traversal_allowed = self.nodes[node].parts.len() == 1 && JUST_DOTS.contains(&first.as_str());
+        if dot_traversal_allowed {
+            return "";
         }
-        let mut end = String::new();
-        if is_end
+        let first_source = source.chars().next();
+        let need_no_traversal = (dot && first_source.is_some_and(|c| ADD_PATTERN_START.contains(&c)))
+            || (source.starts_with("\\.") && source.chars().nth(2).is_some_and(|c| ADD_PATTERN_START.contains(&c)))
+            || (source.starts_with("\\..\\") && source.chars().nth(4).is_some_and(|c| ADD_PATTERN_START.contains(&c)));
+        let need_no_dot =
+            !dot && allow_dot != Some(true) && first_source.is_some_and(|c| ADD_PATTERN_START.contains(&c));
+        if need_no_traversal {
+            START_NO_TRAVERSAL
+        } else if need_no_dot {
+            START_NO_DOT
+        } else {
+            ""
+        }
+    }
+
+    fn is_negative_tail(&self, node: NodeId, is_end: bool) -> bool {
+        is_end
             && self.filled_negs
             && self.nodes[node]
                 .parent
                 .is_some_and(|parent| self.nodes[parent].kind == Some(ExtKind::Bang))
-        {
-            end = "(?:$|\\/)".to_owned();
+    }
+
+    fn extglob_close(
+        &self,
+        node: NodeId,
+        kind: ExtKind,
+        body_dot_allowed: &str,
+        dot: bool,
+        allow_dot: Option<bool>,
+    ) -> String {
+        match kind {
+            ExtKind::Bang => {
+                let prefix = if self.is_start(node) && !dot && allow_dot != Some(true) {
+                    START_NO_DOT
+                } else {
+                    ""
+                };
+                format!(")){prefix}{STAR})")
+            }
+            ExtKind::At => ")".to_owned(),
+            ExtKind::Question => ")?".to_owned(),
+            ExtKind::Plus if !body_dot_allowed.is_empty() => ")".to_owned(),
+            ExtKind::Star if !body_dot_allowed.is_empty() => ")?".to_owned(),
+            ExtKind::Plus => ")+".to_owned(),
+            ExtKind::Star => ")*".to_owned(),
         }
-        let final_source = format!("{start}{source}{end}");
-        (final_source, unescape(&source), has_magic, self.nodes[node].uflag)
     }
 
     fn extglob_regexp_source(
@@ -717,22 +748,7 @@ impl Ast {
             let prefix = if self.is_start(node) && !dot { START_NO_DOT } else { "" };
             format!("{prefix}{STAR_NO_EMPTY}")
         } else {
-            let close = match kind {
-                ExtKind::Bang => {
-                    let prefix = if self.is_start(node) && !dot && allow_dot != Some(true) {
-                        START_NO_DOT
-                    } else {
-                        ""
-                    };
-                    format!(")){prefix}{STAR})")
-                }
-                ExtKind::At => ")".to_owned(),
-                ExtKind::Question => ")?".to_owned(),
-                ExtKind::Plus if !body_dot_allowed.is_empty() => ")".to_owned(),
-                ExtKind::Star if !body_dot_allowed.is_empty() => ")?".to_owned(),
-                ExtKind::Plus => ")+".to_owned(),
-                ExtKind::Star => ")*".to_owned(),
-            };
+            let close = self.extglob_close(node, kind, &body_dot_allowed, dot, allow_dot);
             format!("{start}{body}{close}")
         };
         (final_source, unescape(&body), true, self.nodes[node].uflag)

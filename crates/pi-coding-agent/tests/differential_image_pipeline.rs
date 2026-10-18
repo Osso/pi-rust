@@ -13,7 +13,6 @@ mod image_fixtures;
 
 use std::io::Cursor;
 
-use pi_agent_core::harness::tools::image::{decode_base64, encode_base64};
 use pi_ai::types::{ImageContent, TextContent, TextOrImageContent};
 use pi_coding_agent::utils::exif_orientation::apply_exif_orientation;
 use pi_coding_agent::utils::image_convert::{convert_image_bytes_to_png, convert_to_png};
@@ -22,6 +21,7 @@ use pi_coding_agent::utils::image_resize::{format_dimension_note, resize_image};
 use pi_coding_agent::utils::image_resize_core::{ImageResizeOptions, ResizedImage, resize_image_in_process};
 use pi_coding_agent::utils::photon::decode_image;
 use pi_coding_agent::utils::tool_result_images::{NormalizeToolResultImagesOptions, normalize_tool_result_images};
+use pi_js_compat::base64::{buffer_from_base64, buffer_to_base64};
 use serde_json::{Value, json};
 
 const SOURCE_MODULE: &str = "packages/coding-agent/src/utils/photon.ts";
@@ -84,12 +84,12 @@ fn compare_convert_to_png(oracle: &mut oracle::TsOracle) {
         ("tiny-jpeg", image_fixtures::TINY_JPEG.to_owned(), "image/jpeg"),
         (
             "large-png",
-            encode_base64(&image_fixtures::checker_png(64, 48)),
+            buffer_to_base64(&image_fixtures::checker_png(64, 48)),
             "image/png",
         ),
         (
             "webp",
-            encode_base64(&encode(
+            buffer_to_base64(&encode(
                 &image_fixtures::checker_png(24, 16),
                 image::ImageOutputFormat::WebP,
             )),
@@ -97,7 +97,7 @@ fn compare_convert_to_png(oracle: &mut oracle::TsOracle) {
         ),
         (
             "gif",
-            encode_base64(&encode(
+            buffer_to_base64(&encode(
                 &image_fixtures::checker_png(16, 12),
                 image::ImageOutputFormat::Gif,
             )),
@@ -150,7 +150,7 @@ fn compare_convert_bytes_to_png(oracle: &mut oracle::TsOracle) {
         .map(|(name, bytes)| {
             json!({
                 "name": name,
-                "data": convert_image_bytes_to_png(bytes).map(|png| encode_base64(&png)),
+                "data": convert_image_bytes_to_png(bytes).map(|png| buffer_to_base64(&png)),
             })
         })
         .collect::<Vec<_>>();
@@ -452,8 +452,8 @@ fn orientation_fixtures() -> Vec<(&'static str, Vec<u8>)> {
 
 fn conversion_fixtures() -> Vec<(&'static str, Vec<u8>)> {
     vec![
-        ("tiny-png", decode_base64(image_fixtures::TINY_PNG)),
-        ("tiny-jpeg", decode_base64(image_fixtures::TINY_JPEG)),
+        ("tiny-png", buffer_from_base64(image_fixtures::TINY_PNG)),
+        ("tiny-jpeg", buffer_from_base64(image_fixtures::TINY_JPEG)),
         (
             "webp",
             encode(&image_fixtures::checker_png(20, 14), image::ImageOutputFormat::WebP),
@@ -629,8 +629,7 @@ struct NormalizeFixture {
 
 fn normalize_fixtures() -> Vec<NormalizeFixture> {
     let text = |value: &str| json!({"type": "text", "text": value});
-    let image =
-        |bytes: &[u8], mime_type: &str| json!({"type": "image", "data": encode_base64(bytes), "mimeType": mime_type});
+    let image = |bytes: &[u8], mime_type: &str| json!({"type": "image", "data": buffer_to_base64(bytes), "mimeType": mime_type});
 
     vec![
         NormalizeFixture {
@@ -642,7 +641,7 @@ fn normalize_fixtures() -> Vec<NormalizeFixture> {
             name: "within-limits",
             content: vec![
                 text("screenshot"),
-                image(&decode_base64(image_fixtures::TINY_PNG_1X1), "image/png"),
+                image(&buffer_from_base64(image_fixtures::TINY_PNG_1X1), "image/png"),
             ],
             options: Value::Null,
         },

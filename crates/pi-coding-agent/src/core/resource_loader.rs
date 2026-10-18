@@ -9,7 +9,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::core::detached_job_retention::compare_paths;
+use pi_js_compat::locale_compare;
 
 /// `<first-party:name>` paths name a bundled extension.
 pub fn first_party_extension_name(extension_path: &str) -> Option<&str> {
@@ -63,7 +63,7 @@ pub fn load_rules_files_from_dir(dir_path: &str) -> std::io::Result<Vec<RuleFile
         .filter_map(|entry| entry.file_name().into_string().ok())
         .filter(|name| name.ends_with(".md"))
         .collect();
-    names.sort_by(|left, right| compare_paths(left, right));
+    names.sort_by(|left, right| locale_compare(left, right));
 
     let mut files = Vec::new();
     for name in names {

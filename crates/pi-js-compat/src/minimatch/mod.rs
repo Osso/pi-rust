@@ -106,56 +106,65 @@ enum FastTest {
 impl FastTest {
     fn matches(&self, value: &str) -> bool {
         match self {
-            Self::Star { dot } => {
-                if *dot {
-                    !value.is_empty() && value != "." && value != ".."
-                } else {
-                    !value.is_empty() && !value.starts_with('.')
-                }
-            }
-            Self::StarDotExt { ext, dot, nocase } => {
-                let (value, ext) = if *nocase {
-                    (value.to_lowercase(), ext.to_lowercase())
-                } else {
-                    (value.to_owned(), ext.clone())
-                };
-                (*dot || !value.starts_with('.')) && value.ends_with(&ext)
-            }
+            Self::Star { dot } => star_matches(value, *dot),
+            Self::StarDotExt { ext, dot, nocase } => star_dot_ext_matches(value, ext, *dot, *nocase),
             Self::Qmarks {
                 length,
                 ext,
                 dot,
                 nocase,
-            } => {
-                if value.encode_utf16().count() != *length {
-                    return false;
-                }
-                if *dot {
-                    if value == "." || value == ".." {
-                        return false;
-                    }
-                } else if value.starts_with('.') {
-                    return false;
-                }
-                if ext.is_empty() {
-                    return true;
-                }
-                if *nocase {
-                    value.to_lowercase().ends_with(&ext.to_lowercase())
-                } else {
-                    value.ends_with(ext)
-                }
-            }
-            Self::StarDotStar { dot } => {
-                if *dot {
-                    value != "." && value != ".." && value.contains('.')
-                } else {
-                    !value.starts_with('.') && value.contains('.')
-                }
-            }
-            Self::DotStar => value != "." && value != ".." && value.starts_with('.'),
+            } => qmarks_match(value, *length, ext, *dot, *nocase),
+            Self::StarDotStar { dot } => star_dot_star_matches(value, *dot),
+            Self::DotStar => dot_star_matches(value),
         }
     }
+}
+
+fn star_matches(value: &str, dot: bool) -> bool {
+    if dot {
+        return !value.is_empty() && value != "." && value != "..";
+    }
+    !value.is_empty() && !value.starts_with('.')
+}
+
+fn star_dot_ext_matches(value: &str, ext: &str, dot: bool, nocase: bool) -> bool {
+    let (value, ext) = if nocase {
+        (value.to_lowercase(), ext.to_lowercase())
+    } else {
+        (value.to_owned(), ext.to_owned())
+    };
+    (dot || !value.starts_with('.')) && value.ends_with(&ext)
+}
+
+fn qmarks_match(value: &str, length: usize, ext: &str, dot: bool, nocase: bool) -> bool {
+    if value.encode_utf16().count() != length {
+        return false;
+    }
+    if dot {
+        if value == "." || value == ".." {
+            return false;
+        }
+    } else if value.starts_with('.') {
+        return false;
+    }
+    if ext.is_empty() {
+        return true;
+    }
+    if nocase {
+        return value.to_lowercase().ends_with(&ext.to_lowercase());
+    }
+    value.ends_with(ext)
+}
+
+fn star_dot_star_matches(value: &str, dot: bool) -> bool {
+    if dot {
+        return value != "." && value != ".." && value.contains('.');
+    }
+    !value.starts_with('.') && value.contains('.')
+}
+
+fn dot_star_matches(value: &str) -> bool {
+    value != "." && value != ".." && value.starts_with('.')
 }
 
 fn fast_test(pattern: &str, options: &MinimatchOptions) -> Option<FastTest> {
@@ -334,23 +343,24 @@ impl Minimatch {
             .find(|segment| !segment.is_empty())
             .cloned()
             .unwrap_or_default();
+        match self.match_pattern_set(&file, &filename, partial) {
+            Some(result) => result,
+            None => !self.options.flip_negate && self.negate,
+        }
+    }
+
+    fn match_pattern_set(&self, file: &[String], filename: &str, partial: bool) -> Option<bool> {
         for pattern in &self.set {
             let file = if self.options.match_base && pattern.len() == 1 {
-                vec![filename.clone()]
+                vec![filename.to_owned()]
             } else {
-                file.clone()
+                file.to_vec()
             };
             if self.match_one(&file, pattern, partial) {
-                if self.options.flip_negate {
-                    return true;
-                }
-                return !self.negate;
+                return Some(self.options.flip_negate || !self.negate);
             }
         }
-        if self.options.flip_negate {
-            return false;
-        }
-        self.negate
+        None
     }
 
     fn match_one(&self, file: &[String], pattern: &[Part], partial: bool) -> bool {

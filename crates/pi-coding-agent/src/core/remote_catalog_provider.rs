@@ -382,12 +382,10 @@ fn cleared_entry(stored: Option<&ModelsStoreEntry>, checked_at: f64) -> ModelsSt
     entry
 }
 
+/// `Date.parse(headers.get("last-modified") ?? "")`, with `NaN` stored as `0`.
 fn response_last_modified(headers: &[(String, String)]) -> f64 {
-    header_value(headers, "last-modified")
-        .and_then(|value| httpdate::parse_http_date(value).ok())
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|elapsed| elapsed.as_millis() as f64)
-        .unwrap_or(0.0)
+    let last_modified = pi_js_compat::date::date_parse(header_value(headers, "last-modified").unwrap_or(""));
+    if last_modified.is_nan() { 0.0 } else { last_modified }
 }
 
 async fn parse_response_catalog(provider_id: &str, body: Box<dyn HttpBody>) -> Result<Vec<Model>, CallbackError> {

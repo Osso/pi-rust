@@ -1,4 +1,4 @@
-use pi_agent_core::harness::tools::image::decode_base64;
+use pi_js_compat::base64::buffer_from_base64;
 use serde_json::{Value, json};
 
 use super::{oracle::TsOracle, support::ok_response};
@@ -47,7 +47,7 @@ fn request() -> Value {
 fn response() -> Value {
     let results = VALUES
         .iter()
-        .map(|value| hex(&decode_base64(value)))
+        .map(|value| hex(&buffer_from_base64(value)))
         .collect::<Vec<_>>();
     ok_response(REQUEST_ID, json!({"results": results}))
 }

@@ -8,6 +8,8 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+# Shared JS string/number/Base64 semantics.
+pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }
 # Grapheme cluster segmentation matching the Unicode 17.0 tables used by Node's Intl.Segmenter.
 unicode-segmentation = "=1.13.3"
 # Compiles the Unicode-property patterns ported verbatim from the LaTeX renderer.

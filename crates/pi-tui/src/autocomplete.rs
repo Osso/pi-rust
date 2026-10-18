@@ -17,7 +17,8 @@ use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
 use crate::fuzzy::fuzzy_filter;
-use crate::js_compat::js_trim;
+use pi_js_compat::locale_compare;
+use pi_js_compat::string::js_trim;
 
 const PATH_DELIMITERS: [char; 5] = [' ', '\t', '"', '\'', '='];
 
@@ -792,26 +793,6 @@ fn compare_suggestions(left: &AutocompleteItem, right: &AutocompleteItem) -> std
         return right_is_dir.cmp(&left_is_dir);
     }
     locale_compare(&left.label, &right.label)
-}
-
-/// Approximates the default `Intl.Collator` ordering for ASCII names:
-/// case-insensitive primary order, then lowercase before uppercase.
-fn locale_compare(left: &str, right: &str) -> std::cmp::Ordering {
-    let primary = left.to_lowercase().cmp(&right.to_lowercase());
-    if primary != std::cmp::Ordering::Equal {
-        return primary;
-    }
-    for (left_character, right_character) in left.chars().zip(right.chars()) {
-        if left_character == right_character {
-            continue;
-        }
-        let left_rank = u8::from(left_character.is_uppercase());
-        let right_rank = u8::from(right_character.is_uppercase());
-        return left_rank
-            .cmp(&right_rank)
-            .then_with(|| left_character.cmp(&right_character));
-    }
-    left.len().cmp(&right.len())
 }
 
 fn clamp_boundary(text: &str, index: usize) -> usize {

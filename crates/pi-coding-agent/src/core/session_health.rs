@@ -3,8 +3,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::utils::iso_time;
-
 pub const SESSION_CHECK_STALE_MS: i64 = 5 * 60 * 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -112,7 +110,11 @@ pub fn derive_live_status(
     if health.check_status != SessionCheckStatus::Ok || health.pid.is_none() {
         return SessionLiveStatus::Ended;
     }
-    match last_active_at.and_then(iso_time::parse_javascript_date) {
+    let last_active_ms = last_active_at
+        .map(pi_js_compat::date::date_parse)
+        .filter(|millis| !millis.is_nan())
+        .map(|millis| millis as i64);
+    match last_active_ms {
         Some(last_active_ms) if now_ms - last_active_ms <= stale_ms => SessionLiveStatus::Running,
         _ => SessionLiveStatus::Idle,
     }

@@ -10,10 +10,10 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::{AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, OAuthCredential};
-use pi_ai::js_number::parse_int;
 use pi_ai::models::Provider;
 use pi_ai::providers::all::builtin_providers;
 use pi_ai::request::{BoxFuture, CallbackError};
+use pi_js_compat::number::parse_int;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 

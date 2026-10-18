@@ -15,7 +15,6 @@ use std::time::{Duration, Instant};
 use crate::alt_screen_search::{
     AltScreenSearchComponent, AltScreenSearchMatch, find_alt_screen_search_matches, get_alt_screen_search_match_key,
 };
-use crate::base64;
 use crate::components::alt_screen_flash::{AltScreenFlashContainer, DEFAULT_DURATION_MS};
 use crate::components::scroll_view::{
     ScrollFollow, ScrollState, ScrollView, ScrollViewOptions, ScrollViewScrollToOptions,
@@ -1161,10 +1160,10 @@ impl TuiAltScreen {
         if text.is_empty() {
             return;
         }
-        self.base
-            .terminal()
-            .borrow_mut()
-            .write(&format!("\x1b]52;c;{}\x07", base64::encode(text.as_bytes())));
+        self.base.terminal().borrow_mut().write(&format!(
+            "\x1b]52;c;{}\x07",
+            pi_js_compat::base64::btoa(text.as_bytes())
+        ));
         self.flash("Copied!", None);
     }
 

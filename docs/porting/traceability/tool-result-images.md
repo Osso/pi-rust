@@ -19,7 +19,7 @@ Differential proof: request `27107` normalizes 7 content fixtures (no images, wi
 ## Discrepancies
 
 - "Same array reference" is modeled as `Cow::Borrowed` so callers can skip rewriting; `Cow::Owned` means the result changed.
-- `Buffer.from(data, "base64")` uses `pi_agent_core::harness::tools::image::decode_base64`, which matches Node's lenient decoding (standard and URL-safe alphabets, stop at `=`); proof is the pi-agent-core differential `base64_decode` request `13100`.
+- `Buffer.from(data, "base64")` uses `pi_js_compat::base64::buffer_from_base64`, which matches Node's lenient decoding (standard and URL-safe alphabets, stop at `=`); proof is the pi-agent-core differential `base64_decode` request `13100`.
 
 ## Proof inventory
 

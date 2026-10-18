@@ -50,7 +50,7 @@ Source: `packages/tui/src/latex.ts` (1373 lines). Rust: `crates/pi-tui/src/latex
 
 - The renderer is a byte-for-byte port: private-use markers (`U+F0000`–`U+F0005`), protected spaces (`U+F0002`), and the exact spacing/indentation rules are preserved. Differential compares full output strings.
 - JavaScript string indexing is by UTF-16 code unit; Rust indexes by UTF-8 byte. The parser only uses indices to locate ASCII delimiters (`\`, `{`, `}`, `[`, `]`, `$`, `%`, `#`, `_`, `&`, `*`, `.`), so byte and code-unit positions agree at every consumed boundary. Single-character argument reads consume one Unicode scalar instead of one UTF-16 unit; the resulting concatenated output is identical, verified by the differential corpus (`😀`, CJK, combining marks).
-- `Array.from(value)` code-point counting is reproduced with `chars().count()`; `String.prototype.trim`/`trimEnd` use the ECMAScript whitespace set from `js_compat`.
+- `Array.from(value)` code-point counting is reproduced with `chars().count()`; `String.prototype.trim`/`trimEnd` use the ECMAScript whitespace set from `pi_js_compat::string`.
 - `\p{L}` / `\p{N}` are compiled by `regex` (Unicode general categories), matching the JavaScript property escapes. `\b` in the case-condition pattern is implemented as an ASCII word boundary (`has_case_prefix`), matching JavaScript's non-Unicode `\b`; Rust's `\b` is Unicode-aware and would differ for `ifé`.
 - The source's `SYMBOLS`, `NEGATED_SYMBOLS`, `BLACKBOARD`, `SUPERSCRIPTS`, `SUBSCRIPTS`, `ACCENTS`, and command sets were extracted mechanically from the TypeScript file, not retyped.
 

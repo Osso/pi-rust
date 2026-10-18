@@ -30,7 +30,6 @@ use crate::api::openai_responses_shared::{
 };
 use crate::api::simple_options::build_base_options;
 use crate::http::default_fetch;
-use crate::js_number::{date_parse, parse_number};
 use crate::models::clamp_thinking_level;
 use crate::request::{
     BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, ProviderStreams, SimpleStreamOptions,
@@ -51,6 +50,8 @@ use crate::utils::event_stream::{
     AssistantMessageEventSender, AssistantMessageEventStream, create_assistant_message_event_stream,
 };
 use crate::utils::uuid::uuidv7;
+use pi_js_compat::date::date_parse;
+use pi_js_compat::number::parse_number;
 
 pub const DEFAULT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api";
 const JWT_CLAIM_PATH: &str = "https://api.openai.com/auth";
@@ -868,7 +869,7 @@ fn extract_account_id(token: &str) -> Result<String, CodexStreamError> {
     if parts.len() != 3 {
         return Err(failure());
     }
-    let payload = crate::utils::base64::decode(parts[1]).map_err(|_| failure())?;
+    let payload = pi_js_compat::base64::atob(parts[1]).map_err(|_| failure())?;
     let payload: Value = serde_json::from_slice(&payload).map_err(|_| failure())?;
     payload
         .get(JWT_CLAIM_PATH)

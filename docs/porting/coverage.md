@@ -245,7 +245,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/search/scanning.ts` | 176 | 6 | done | `crates/pi-agent-core/src/search/scanning.rs` | Paged scanning, labels, filters, abort, custom hits; see `search-scanning.md`. |
 | `agent/src/agent.ts` | 626 | 7 | done | `crates/pi-agent-core/src/agent/agent.rs` | Stateful wrapper, queues, lifecycle, listener settlement and failure propagation, continue/reset; 23 tests + 6 differential scenarios; see `agent.md`. |
 | `agent/src/harness/compaction/compaction.ts` | 910 | 7 | done | `crates/pi-agent-core/src/harness/compaction/mod.rs` | Token estimates, cut points, preparation, summary/compact orchestration via `pi_ai` Models; exact prompts; 32 behavioral tests + differential cases; see `compaction.md`. |
-| `agent/src/harness/session/jsonl/codec.ts` | 240 | 7 | done | `crates/pi-agent-core/src/harness/session/jsonl/codec.rs` | Byte-identical header/mutation codec with TS key order and js_number; see `session-jsonl-codec.md`. |
+| `agent/src/harness/session/jsonl/codec.ts` | 240 | 7 | done | `crates/pi-agent-core/src/harness/session/jsonl/codec.rs` | Byte-identical header/mutation codec with TS key order and `pi_js_compat::number`; see `session-jsonl-codec.md`. |
 | `agent/src/harness/session/memory.ts` | 192 | 7 | done | `crates/pi-agent-core/src/harness/session/memory.rs` | In-memory storage/repo with injectable clock and ids; see `session-memory.md`. |
 | `agent/src/harness/tools/bash.ts` | 161 | 7 | done | `crates/pi-agent-core/src/harness/tools/bash.rs` | Schema, prepare/prefix, throttled updates, truncation/error/abort mapping; 8 behavioral + 7 differential fixtures; see `harness-tools-bash.md`. |
 | `agent/src/harness/tools/edit.ts` | 127 | 7 | done | `crates/pi-agent-core/src/harness/tools/edit.rs` | Legacy argument preparation, queued edits, diff/patch details; 8 behavioral + 11 differential fixtures; see `harness-tools-edit.md`. |
@@ -271,7 +271,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/native-modifiers.ts` | 66 | 0 | partial | `crates/pi-tui/src/native_modifiers.rs` | constant false; Node N-API addon path unported (gap) |
 | `tui/src/stdin-buffer.ts` | 444 | 0 | done | `crates/pi-tui/src/stdin_buffer.rs` | differential chunk/paste matrix; driver-owned timer API |
 | `tui/src/terminal-colors.ts` | 73 | 0 | done | `crates/pi-tui/src/terminal_colors.rs` | differential parse matrix; TUI query method out of leaf scope |
-| `tui/src/terminal-image.ts` | 657 | 0 | done | `crates/pi-tui/src/terminal_image.rs` + internal `base64.rs` | differential encode/detect/render/placement/dimensions; WebP <30 source bug preserved |
+| `tui/src/terminal-image.ts` | 657 | 0 | done | `crates/pi-tui/src/terminal_image.rs` + `pi-js-compat` Base64 | differential encode/detect/render/placement/dimensions; WebP <30 source bug preserved |
 | `tui/src/undo-stack.ts` | 28 | 0 | done | `crates/pi-tui/src/undo_stack.rs` | clone-on-push; differential N/A (structuredClone) |
 | `tui/src/utils.ts` | 1326 | 0 | done | `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs` | Unicode 17.0 tables; differential corpus + ~11k codepoint samples |
 | `tui/src/autocomplete.ts` | 793 | 1 | done | `crates/pi-tui/src/autocomplete.rs` | TS test port + real-fd differential; async argument-completion callback and locale collation documented as gaps |

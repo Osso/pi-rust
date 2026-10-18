@@ -20,7 +20,6 @@ use crate::api::simple_options::{
 };
 use crate::api::transform_messages::transform_messages_with;
 use crate::http::default_fetch;
-use crate::js_number::{date_parse, parse_number};
 use crate::models::calculate_cost;
 use crate::request::{
     HttpBody, HttpRequest, HttpResponse, OnPayload, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis,
@@ -30,7 +29,6 @@ use crate::types::{
     JsonObject, Message, Model, ProviderEnv, StopReason, ThinkingBudgets, ThinkingContent, ThinkingLevel, Tool,
     ToolCall, ToolResultContent, ToolResultMessage, Usage,
 };
-use crate::utils::base64;
 use crate::utils::diagnostics::{AssistantMessageDiagnostic, append_assistant_message_diagnostic};
 use crate::utils::event_stream::{
     AssistantMessageEventSender, AssistantMessageEventStream, create_assistant_message_event_stream,
@@ -39,6 +37,9 @@ use crate::utils::headers::provider_headers_to_record;
 use crate::utils::json_parse::parse_streaming_json;
 use crate::utils::provider_env::get_provider_env_value;
 use crate::utils::sanitize_unicode::sanitize_surrogates;
+use pi_js_compat::base64;
+use pi_js_compat::date::date_parse;
+use pi_js_compat::number::{js_number_to_string, parse_number};
 
 const EMPTY_TEXT_PLACEHOLDER: &str = "<empty>";
 const BEDROCK_DATA_RETENTION_DOCS_URL: &str =
@@ -769,12 +770,12 @@ fn create_image_block(mime_type: &str, data: &str) -> Result<Value, BedrockError
         "image/webp" => "webp",
         other => return Err(BedrockError::other(format!("Unknown image type: {other}"))),
     };
-    let bytes = base64::decode(data).map_err(|_| BedrockError::other("Invalid image data"))?;
+    let bytes = base64::atob(data).map_err(|_| BedrockError::other("Invalid image data"))?;
     Ok(object(vec![(
         "image",
         object(vec![
             ("format", json!(format)),
-            ("source", object(vec![("bytes", json!(base64::encode(&bytes)))])),
+            ("source", object(vec![("bytes", json!(base64::btoa(&bytes)))])),
         ]),
     )]))
 }
@@ -1774,7 +1775,7 @@ impl BedrockError {
 fn format_bedrock_error(error: &BedrockError) -> String {
     let message_carries_body = error.body.as_ref().is_none_or(|body| error.message.contains(body));
     let core = match (message_carries_body, error.status, error.body.as_deref()) {
-        (false, Some(status), Some(body)) => format!("{}: {body}", js_number(status)),
+        (false, Some(status), Some(body)) => format!("{}: {body}", js_number_to_string(status)),
         _ => error.message.clone(),
     };
     let hint = if core.to_lowercase().contains("data retention mode") {
@@ -1798,14 +1799,6 @@ fn bedrock_error_prefix(name: &str) -> String {
         "ThrottlingException" => "Throttling error".to_owned(),
         "ServiceUnavailableException" => "Service unavailable".to_owned(),
         other => other.to_owned(),
-    }
-}
-
-fn js_number(value: f64) -> String {
-    if value.fract() == 0.0 {
-        format!("{}", value as i64)
-    } else {
-        value.to_string()
     }
 }
 

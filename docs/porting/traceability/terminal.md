@@ -24,7 +24,7 @@ Source: `packages/tui/src/terminal.ts` (594 lines, pinned revision in
 | --- | --- | --- |
 | kitty-flags response regex / device-attributes regex | `parse_keyboard_protocol_negotiation_sequence` | parse test + differential |
 | negotiation prefix (`ESC [`, `ESC [ ? [\d;]*`) | `is_keyboard_protocol_negotiation_sequence_prefix` | split-CSI replay test |
-| `PI_TUI_ESC_TIMEOUT` finite/positive override | `resolve_escape_timeout_ms` (`Number(string)` via `js_number::parse_number`) | override/invalid tests, `environment_numbers_use_javascript_number_parsing` |
+| `PI_TUI_ESC_TIMEOUT` finite/positive override | `resolve_escape_timeout_ms` (`Number(string)` via `pi_js_compat::number::parse_number`) | override/invalid tests, `environment_numbers_use_javascript_number_parsing` |
 | SSH defaults (100 ms) vs 10 ms | `resolve_escape_timeout_ms` | SSH/default tests |
 | native Shift+Enter rewrite only for `\r` + shift | `normalize_native_shift_enter_input` | rewrite/no-op tests |
 | raw-mode error message by flag | `TerminalRawModeError::Display` | typed-error test |
@@ -68,4 +68,4 @@ three raw-mode failure cases exactly.
 - Progress keepalive is checked in `poll_events` instead of a `setInterval`.
 - `PI_TUI_WRITE_LOG` directory filenames use `tui-<unix-seconds>-<pid>.log`
   instead of a local `YYYY-MM-DD_HH-MM-SS` timestamp.
-- `PI_TUI_ESC_TIMEOUT`/`COLUMNS`/`LINES` use `js_number::parse_number`, a copy of `pi_ai::js_number::parse_number` (`pi-tui` does not depend on `pi-ai`), so hex/binary/octal literals and `Infinity` match JS `Number`.
+- `PI_TUI_ESC_TIMEOUT`/`COLUMNS`/`LINES` use `pi_js_compat::number::parse_number`, so hex/binary/octal literals and `Infinity` match JS `Number`.

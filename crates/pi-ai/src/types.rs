@@ -1,6 +1,6 @@
 //! Port of the data contracts in `packages/ai/src/types.ts`.
 //!
-//! TypeScript `number` fields are `f64` serialized through [`crate::js_number`];
+//! TypeScript `number` fields are `f64` serialized through [`pi_js_compat::number`];
 //! Unix-millisecond timestamps are `i64`. Option/callback interfaces
 //! (`StreamOptions` and friends) live with the provider runtime.
 
@@ -10,8 +10,8 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
-use crate::js_number;
 use crate::utils::diagnostics::AssistantMessageDiagnostic;
+use pi_js_compat::number as js_number;
 
 /// `Api`: a known API literal or any custom string.
 pub type Api = String;

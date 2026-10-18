@@ -6,9 +6,9 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use super::abort::AbortError;
-use crate::js_number::{date_parse, parse_float};
 use crate::request::now_millis;
-use crate::utils::js_number::js_number_to_string;
+use pi_js_compat::date::date_parse;
+use pi_js_compat::number::{js_number_to_string, parse_float};
 
 pub const DEFAULT_MAX_RETRY_DELAY_MS: f64 = 60_000.0;
 const RETRYABLE_CLIENT_STATUSES: [f64; 3] = [408.0, 409.0, 429.0];

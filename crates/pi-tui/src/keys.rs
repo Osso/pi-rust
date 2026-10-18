@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::js_compat::utf16_len;
+use pi_js_compat::string::utf16_len;
 
 /// Event types from the Kitty keyboard protocol (flag 2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

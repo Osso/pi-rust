@@ -9,11 +9,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::config::package_config;
-use crate::core::detached_job_retention::compare_paths;
 use crate::core::diagnostics::{ResourceCollision, ResourceDiagnostic, ResourceDiagnosticType, ResourceType};
 use crate::core::source_info::{SourceInfo, SourceScope, SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::utils::frontmatter::parse_frontmatter;
 use crate::utils::paths::{PathInputOptions, canonicalize_path, resolve_path};
+use pi_js_compat::locale_compare;
 
 const MAX_NAME_LENGTH: usize = 64;
 const MAX_DESCRIPTION_LENGTH: usize = 1024;
@@ -317,7 +317,7 @@ fn load_skills_from_dir_internal(
     let mut entries: Vec<fs::DirEntry> = entries.filter_map(Result::ok).collect();
     // Node's `readdirSync` returns libuv's `scandir` order (locale-collated names).
     entries.sort_by(|left, right| {
-        compare_paths(
+        locale_compare(
             &left.file_name().to_string_lossy(),
             &right.file_name().to_string_lossy(),
         )

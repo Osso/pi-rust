@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use super::js_number::js_number_to_string;
+use pi_js_compat::number::js_number_to_string;
 
 pub const MAX_PROVIDER_ERROR_BODY_CHARS: usize = 4000;
 

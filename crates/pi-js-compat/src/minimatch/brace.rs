@@ -274,6 +274,21 @@ enum OptionValues {
     Values(Vec<String>),
 }
 
+enum GroupAction {
+    Continue(Vec<char>),
+    Return(Vec<String>),
+}
+
+struct GroupInput<'a> {
+    accumulated: &'a [String],
+    pre: &'a str,
+    body: &'a [char],
+    post: &'a [char],
+    max: usize,
+    max_length: usize,
+    drop_empties: bool,
+}
+
 fn expand_escaped(mut remaining: Vec<char>, max: usize, max_length: usize, is_top: bool) -> Vec<String> {
     let mut accumulated = vec![String::new()];
     let mut drop_empties = false;
@@ -286,16 +301,9 @@ fn expand_escaped(mut remaining: Vec<char>, max: usize, max_length: usize, is_to
         let pre: String = matched.pre.iter().collect();
         let body: Vec<char> = matched.body.to_vec();
         let post: Vec<char> = matched.post.to_vec();
+        let input = group_input(&accumulated, &pre, &body, &post, max, max_length, drop_empties);
         if pre.ends_with('$') {
-            let literal = format!("{pre}{{{}}}", body.iter().collect::<String>());
-            accumulated = combine(
-                &accumulated,
-                &literal,
-                &[String::new()],
-                max,
-                max_length,
-                drop_empties && post.is_empty(),
-            );
+            accumulated = expand_dollar_group(&input);
             first_group = false;
             if post.is_empty() {
                 break;
@@ -304,74 +312,123 @@ fn expand_escaped(mut remaining: Vec<char>, max: usize, max_length: usize, is_to
             continue;
         }
         let body_text: String = body.iter().collect();
-        let is_numeric_sequence = is_numeric_sequence(&body_text);
         let is_alpha_sequence = is_alpha_sequence(&body_text);
-        let is_sequence = is_numeric_sequence || is_alpha_sequence;
+        let is_sequence = is_numeric_sequence(&body_text) || is_alpha_sequence;
         let is_options = body.contains(&',');
         if !is_sequence && !is_options {
-            if post_has_trailing_comma_group(&post) {
-                let mut combined = matched.pre.to_vec();
-                combined.push('{');
-                combined.extend_from_slice(&body);
-                combined.extend(ESC_CLOSE.chars());
-                combined.extend_from_slice(&post);
-                remaining = combined;
-                continue;
+            match expand_plain_group(&input) {
+                GroupAction::Continue(next) => {
+                    remaining = next;
+                    continue;
+                }
+                GroupAction::Return(values) => return values,
             }
-            let literal = format!("{pre}{{{body_text}}}{}", post.iter().collect::<String>());
-            return combine(&accumulated, &literal, &[String::new()], max, max_length, drop_empties);
         }
         if first_group {
             drop_empties = is_top && !is_sequence;
             first_group = false;
         }
-        if is_sequence {
-            let values = expand_sequence(&body, is_alpha_sequence, max, max_length);
-            accumulated = combine(
-                &accumulated,
-                &pre,
-                &values,
-                max,
-                max_length,
-                drop_empties && post.is_empty(),
-            );
-        } else {
-            let mut drops_empties = drop_empties && post.is_empty() && pre.is_empty();
-            for value in &accumulated {
-                if !value.is_empty() {
-                    drops_empties = false;
-                }
-            }
-            match expand_options(&body, max, max_length, drops_empties) {
-                OptionValues::Single(value) => {
-                    let literal = format!("{pre}{value}");
-                    accumulated = combine(
-                        &accumulated,
-                        &literal,
-                        &[String::new()],
-                        max,
-                        max_length,
-                        drop_empties && post.is_empty(),
-                    );
-                }
-                OptionValues::Values(values) => {
-                    accumulated = combine(
-                        &accumulated,
-                        &pre,
-                        &values,
-                        max,
-                        max_length,
-                        drop_empties && post.is_empty(),
-                    );
-                }
-            }
-        }
+        let input = group_input(&accumulated, &pre, &body, &post, max, max_length, drop_empties);
+        accumulated = expand_group_values(&input, is_sequence, is_alpha_sequence);
         if post.is_empty() {
             break;
         }
         remaining = post;
     }
     accumulated
+}
+
+fn group_input<'a>(
+    accumulated: &'a [String],
+    pre: &'a str,
+    body: &'a [char],
+    post: &'a [char],
+    max: usize,
+    max_length: usize,
+    drop_empties: bool,
+) -> GroupInput<'a> {
+    GroupInput {
+        accumulated,
+        pre,
+        body,
+        post,
+        max,
+        max_length,
+        drop_empties,
+    }
+}
+
+fn expand_dollar_group(input: &GroupInput<'_>) -> Vec<String> {
+    let literal = format!("{}{{{}}}", input.pre, input.body.iter().collect::<String>());
+    combine(
+        input.accumulated,
+        &literal,
+        &[String::new()],
+        input.max,
+        input.max_length,
+        input.drop_empties && input.post.is_empty(),
+    )
+}
+
+fn expand_plain_group(input: &GroupInput<'_>) -> GroupAction {
+    if post_has_trailing_comma_group(input.post) {
+        let mut combined = input.pre.chars().collect::<Vec<_>>();
+        combined.push('{');
+        combined.extend_from_slice(input.body);
+        combined.extend(ESC_CLOSE.chars());
+        combined.extend_from_slice(input.post);
+        return GroupAction::Continue(combined);
+    }
+    let literal = format!(
+        "{}{{{}}}{}",
+        input.pre,
+        input.body.iter().collect::<String>(),
+        input.post.iter().collect::<String>()
+    );
+    GroupAction::Return(combine(
+        input.accumulated,
+        &literal,
+        &[String::new()],
+        input.max,
+        input.max_length,
+        input.drop_empties,
+    ))
+}
+
+fn expand_group_values(input: &GroupInput<'_>, is_sequence: bool, is_alpha_sequence: bool) -> Vec<String> {
+    if is_sequence {
+        let values = expand_sequence(input.body, is_alpha_sequence, input.max, input.max_length);
+        return combine(
+            input.accumulated,
+            input.pre,
+            &values,
+            input.max,
+            input.max_length,
+            input.drop_empties && input.post.is_empty(),
+        );
+    }
+    let drops_empties = input.drop_empties
+        && input.post.is_empty()
+        && input.pre.is_empty()
+        && input.accumulated.iter().all(|value| value.is_empty());
+    match expand_options(input.body, input.max, input.max_length, drops_empties) {
+        OptionValues::Single(value) => combine(
+            input.accumulated,
+            &format!("{}{value}", input.pre),
+            &[String::new()],
+            input.max,
+            input.max_length,
+            input.drop_empties && input.post.is_empty(),
+        ),
+        OptionValues::Values(values) => combine(
+            input.accumulated,
+            input.pre,
+            &values,
+            input.max,
+            input.max_length,
+            input.drop_empties && input.post.is_empty(),
+        ),
+    }
 }
 
 fn expand_options(body: &[char], max: usize, max_length: usize, drops_empties: bool) -> OptionValues {

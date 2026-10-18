@@ -1,4 +1,5 @@
-use pi_agent_core::harness::tools::image::{detect_supported_image_mime_type, encode_base64};
+use pi_agent_core::harness::tools::image::detect_supported_image_mime_type;
+use pi_js_compat::base64::buffer_to_base64;
 use serde_json::{Value, json};
 
 use super::{oracle::TsOracle, support::ok_response};
@@ -60,7 +61,7 @@ fn rust_response(fixture: &Fixture) -> Value {
             json!({
                 "name": case.name,
                 "mimeType": detect_supported_image_mime_type(&case.bytes),
-                "base64": encode_base64(&case.bytes),
+                "base64": buffer_to_base64(&case.bytes),
             })
         })
         .collect::<Vec<_>>();

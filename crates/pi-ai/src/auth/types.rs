@@ -320,13 +320,13 @@ pub enum AuthEvent {
         #[serde(
             rename = "intervalSeconds",
             skip_serializing_if = "Option::is_none",
-            serialize_with = "crate::js_number::serialize_option"
+            serialize_with = "pi_js_compat::number::serialize_option"
         )]
         interval_seconds: Option<f64>,
         #[serde(
             rename = "expiresInSeconds",
             skip_serializing_if = "Option::is_none",
-            serialize_with = "crate::js_number::serialize_option"
+            serialize_with = "pi_js_compat::number::serialize_option"
         )]
         expires_in_seconds: Option<f64>,
     },

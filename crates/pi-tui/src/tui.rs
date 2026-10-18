@@ -2291,7 +2291,7 @@ fn parse_kitty_image_header(line: &str) -> Option<KittyImageHeader> {
         let Some(value) = parts.next() else {
             continue;
         };
-        let number = crate::js_number::parse_number(value);
+        let number = pi_js_compat::number::parse_number(value);
         if number.fract() != 0.0 || number <= 0.0 || number > f64::from(u32::MAX) {
             continue;
         }

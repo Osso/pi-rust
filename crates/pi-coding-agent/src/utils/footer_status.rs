@@ -23,15 +23,15 @@ pub fn sanitize_footer_status_text(text: &str) -> String {
 
 /// Format extension status lines: other statuses joined first, then the goal.
 ///
-/// The source sorts keys with `localeCompare`; the Rust boundary uses ordinary
-/// string ordering, which matches for ASCII keys.
+/// The source sorts keys with `localeCompare`.
 pub fn format_extension_status_text_lines(statuses: &BTreeMap<String, String>) -> Vec<String> {
     let mut lines = Vec::new();
 
-    let other_statuses = statuses
+    let mut other_statuses = statuses
         .iter()
         .filter(|(key, _)| key.as_str() != GOAL_STATUS_KEY)
         .collect::<Vec<_>>();
+    other_statuses.sort_by(|(left, _), (right, _)| pi_js_compat::locale_compare(left, right));
     if !other_statuses.is_empty() {
         let line = other_statuses
             .iter()

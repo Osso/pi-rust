@@ -12,6 +12,8 @@ name = "pi-ai"
 path = "src/bin/pi-ai.rs"
 
 [dependencies]
+# Shared JavaScript number/date/Base64 semantics.
+pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }
 futures-util = { version = "=0.3.34", features = ["sink"] }
 getrandom = "=0.4.3"
 hmac = "=0.12.1"

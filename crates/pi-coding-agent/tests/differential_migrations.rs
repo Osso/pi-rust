@@ -52,7 +52,7 @@ fn collect_entries(root: &Path, dir: &Path, entries: &mut Vec<Value>) {
             entries.push(json!({
                 "path": relative,
                 "kind": "file",
-                "contents": pi_ai::utils::base64::encode(&fs::read(&path).unwrap()),
+                "contents": pi_js_compat::base64::buffer_to_base64(&fs::read(&path).unwrap()),
             }));
         }
     }

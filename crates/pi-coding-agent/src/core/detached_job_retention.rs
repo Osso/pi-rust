@@ -1,11 +1,6 @@
 //! Detached artifact retention (`core/detached-job-retention.ts`).
 
-use std::cell::RefCell;
 use std::cmp::Ordering;
-
-use icu_collator::options::{CollatorOptions, Strength};
-use icu_collator::{Collator, CollatorBorrowed, CollatorPreferences};
-use icu_locale_core::Locale;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DetachedArtifactRetentionCandidate {
@@ -71,45 +66,7 @@ fn compare_candidates(
     left.terminal_at
         .partial_cmp(&right.terminal_at)
         .unwrap_or(Ordering::Equal)
-        .then_with(|| compare_paths(&left.directory_path, &right.directory_path))
-}
-
-/// `String.prototype.localeCompare`: ICU collation in the host locale, like Node.
-pub(crate) fn compare_paths(left: &str, right: &str) -> Ordering {
-    COLLATOR.with(|collator| collator.borrow().compare(left, right))
-}
-
-thread_local! {
-    /// `Collator` holds `Rc` payloads, so it is not `Sync`; one per thread.
-    static COLLATOR: RefCell<CollatorBorrowed<'static>> = RefCell::new(build_collator());
-}
-
-fn build_collator() -> CollatorBorrowed<'static> {
-    let locale: Locale = host_locale()
-        .parse()
-        .unwrap_or_else(|_| "und".parse().expect("und is a valid locale"));
-    let mut options = CollatorOptions::default();
-    options.strength = Some(Strength::Tertiary);
-    Collator::try_new(CollatorPreferences::from(&locale), options).unwrap_or_else(|_| {
-        Collator::try_new(CollatorPreferences::default(), CollatorOptions::default()).expect("root collator")
-    })
-}
-
-/// ICU's default locale comes from the environment; so does Node's.
-fn host_locale() -> String {
-    let raw = std::env::var("LC_ALL")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .or_else(|| std::env::var("LC_COLLATE").ok().filter(|value| !value.is_empty()))
-        .or_else(|| std::env::var("LANG").ok().filter(|value| !value.is_empty()))
-        .unwrap_or_else(|| "und".to_owned());
-    let language = raw.split(['.', '@']).next().unwrap_or("und");
-    let normalized = language.replace('_', "-");
-    if normalized.is_empty() {
-        "und".to_owned()
-    } else {
-        normalized
-    }
+        .then_with(|| pi_js_compat::locale_compare(&left.directory_path, &right.directory_path))
 }
 
 fn find_expired_candidates(

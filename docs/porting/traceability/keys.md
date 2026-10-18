@@ -48,7 +48,7 @@ Differential oracle: `oracle/tui-leaves-oracle.ts` (`keys_parse`, `keys_match`, 
 - Global Kitty state is an `AtomicBool`; the TypeScript module-level mutable variable maps directly.
 - `matchesKey` lowercases the whole key ID and splits on `+`; modifier order in `parseKey` output is always shift, ctrl, alt, super.
 - Legacy ambiguity is mode-aware: `\x1b `, `\x1bB`, `\x1bF`, `\x1b<letter>`, `\x1b<control>`, `\n`, and `\x1b\r` change meaning when Kitty protocol is active.
-- `data.length` checks use UTF-16 length (`js_compat::utf16_len`) so astral characters keep JavaScript behavior (`\x1b` + emoji is length 3 and is not parsed as an alt key).
+- `data.length` checks use UTF-16 length (`pi_js_compat::string::utf16_len`) so astral characters keep JavaScript behavior (`\x1b` + emoji is length 3 and is not parsed as an alt key).
 - `String.fromCharCode` semantics for symbol checks and printable decode are reproduced with `char_from_utf16_code` (low 16 bits; surrogate results are not symbol keys).
 - Raw `0x08` is plain backspace unless `WT_SESSION` is set locally (no `SSH_CONNECTION`/`SSH_CLIENT`/`SSH_TTY`); then it is ctrl+backspace. Empty environment values are treated as unset (`Boolean(process.env.X)`).
 

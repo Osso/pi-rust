@@ -173,7 +173,7 @@ pub fn osc52_sequences(stdout: &[u8]) -> Vec<String> {
 pub fn osc52_sequence(text: &str) -> String {
     format!(
         "\u{1b}]52;c;{}\u{7}",
-        pi_agent_core::harness::tools::image::encode_base64(text.as_bytes())
+        pi_js_compat::base64::buffer_to_base64(text.as_bytes())
     )
 }
 

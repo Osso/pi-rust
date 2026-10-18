@@ -276,12 +276,14 @@ fn message_like_to_agent_messages(
     if content.is_empty() {
         return Vec::new();
     }
-    let unix_timestamp = timestamp.and_then(iso_time::parse_javascript_date).unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_millis() as i64)
-            .unwrap_or(0)
-    });
+    let unix_timestamp = timestamp
+        .and_then(pi_js_compat::date::date_parse_millis)
+        .unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_millis() as i64)
+                .unwrap_or(0)
+        });
     match message.get("role").and_then(Value::as_str) {
         Some("user") => vec![AgentMessage::User(UserMessage {
             role: UserRole::Tag,
