@@ -239,14 +239,13 @@ fn compare_load(oracle: &mut oracle::TsOracle) {
         }));
         assert_eq!(response["ok"], true, "oracle failed: {response}");
 
-        let mut actual = load_prompt_templates(&LoadPromptTemplatesOptions {
+        let actual = load_prompt_templates(&LoadPromptTemplatesOptions {
             cwd: cwd.to_string_lossy().into_owned(),
             agent_dir: agent_dir.to_string_lossy().into_owned(),
             prompt_paths: prompt_paths.clone(),
             include_defaults: *include_defaults,
         })
         .expect("templates load");
-        actual.sort_by(|left, right| left.file_path.cmp(&right.file_path));
         assert_eq!(json!(actual), response["output"]["templates"], "case {index}");
     }
 }

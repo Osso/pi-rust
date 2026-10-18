@@ -36,5 +36,5 @@ Source: `packages/coding-agent/src/core/prompt-templates.ts` (285 lines, pinned 
 
 - Focused: `cargo test -p pi-coding-agent --test prompt_templates` (3 passed).
 - Differential: `cargo test -p pi-coding-agent --test differential_prompt_templates` (1 passed) via
-  `oracle/coding-agent-prompt-templates-oracle.ts`; template lists are sorted by `filePath` because
-  directory enumeration order is not a contract.
+  `oracle/coding-agent-prompt-templates-oracle.ts`, comparing templates in source order. Directory entries
+  are locale-collated in Rust to match libuv `scandir` order used by Node `readdirSync`.

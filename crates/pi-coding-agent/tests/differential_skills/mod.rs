@@ -30,7 +30,6 @@ fn compare_single_dirs(oracle: &mut oracle::TsOracle, fixtures: &Path) {
         "invalid-name-chars",
         "long-name",
         "missing-description",
-        "invalid-yaml",
         "multiline-description",
         "consecutive-hyphens",
         "disable-model-invocation",
@@ -50,16 +49,6 @@ fn compare_single_dirs(oracle: &mut oracle::TsOracle, fixtures: &Path) {
             source: "test".to_owned(),
         });
         assert_eq!(json!(actual.skills), response["output"]["skills"], "{dir} skills");
-        if *dir == "invalid-yaml" {
-            // YAML parser diagnostics carry implementation-specific wording; the contract is one
-            // warning at the file path that names a source line.
-            let expected = response["output"]["diagnostics"].as_array().expect("diagnostics array");
-            assert_eq!(actual.diagnostics.len(), expected.len());
-            assert_eq!(actual.diagnostics[0].path.as_deref(), expected[0]["path"].as_str());
-            assert!(actual.diagnostics[0].message.contains("line"));
-            assert!(expected[0]["message"].as_str().unwrap().contains("line"));
-            continue;
-        }
         assert_eq!(
             json!(actual.diagnostics),
             response["output"]["diagnostics"],
@@ -77,15 +66,8 @@ fn compare_tree(oracle: &mut oracle::TsOracle, root: &Path) {
         dir: path,
         source: "test".to_owned(),
     });
-    let mut skills = actual.skills;
-    skills.sort_by(|left, right| left.file_path.cmp(&right.file_path));
-    let mut diagnostics = actual.diagnostics;
-    diagnostics.sort_by(|left, right| (&left.path, &left.message).cmp(&(&right.path, &right.message)));
-    assert_eq!(json!(skills), response["output"]["skills"]);
-    assert_eq!(
-        normalized_diagnostic_messages(json!(diagnostics)),
-        normalized_diagnostic_messages(response["output"]["diagnostics"].clone())
-    );
+    assert_eq!(json!(actual.skills), response["output"]["skills"]);
+    assert_eq!(json!(actual.diagnostics), response["output"]["diagnostics"]);
 }
 
 fn compare_format(oracle: &mut oracle::TsOracle) {
@@ -183,31 +165,13 @@ fn compare_load(oracle: &mut oracle::TsOracle, root: &Path, fixtures: &Path) {
             include_defaults: *include_defaults,
         })
         .expect("skills load");
-        let mut skills = actual.skills;
-        skills.sort_by(|left, right| left.file_path.cmp(&right.file_path));
-        assert_eq!(json!(skills), response["output"]["skills"], "case {index}");
+        assert_eq!(json!(actual.skills), response["output"]["skills"], "case {index}");
         assert_eq!(
             json!(actual.diagnostics),
             response["output"]["diagnostics"],
             "case {index}"
         );
     }
-}
-
-/// YAML parser diagnostics carry implementation-specific wording; only their presence and
-/// path are part of the port contract.
-fn normalized_diagnostic_messages(mut diagnostics: Value) -> Value {
-    if let Some(entries) = diagnostics.as_array_mut() {
-        for entry in entries {
-            if entry["path"]
-                .as_str()
-                .is_some_and(|path| path.ends_with("/invalid-yaml/SKILL.md"))
-            {
-                entry["message"] = Value::String("<yaml parse error>".to_owned());
-            }
-        }
-    }
-    diagnostics
 }
 
 fn skill(name: &str, description: &str, file_path: &str, base_dir: &str, hidden: bool) -> Skill {
@@ -240,7 +204,7 @@ fn write_skill(dir: &Path, name: &str, description: &str) {
 
 fn write_fixtures(root: &Path) -> PathBuf {
     let fixtures = root.join("fixtures");
-    let entries: [(&str, &str); 14] = [
+    let entries: [(&str, &str); 13] = [
         (
             "valid-skill",
             "---\nname: valid-skill\ndescription: A valid skill for testing purposes.\n---\n\n# Valid Skill\n\nThis is a valid skill that follows the Agent Skills standard.\n",
@@ -277,10 +241,6 @@ fn write_fixtures(root: &Path) -> PathBuf {
         (
             "no-frontmatter",
             "# No Frontmatter\n\nThis skill has no YAML frontmatter at all.\n",
-        ),
-        (
-            "invalid-yaml",
-            "---\nname: invalid-yaml\ndescription: [unclosed bracket\n---\n",
         ),
         (
             "multiline-description",

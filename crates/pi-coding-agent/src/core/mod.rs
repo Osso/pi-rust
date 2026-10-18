@@ -29,6 +29,7 @@ pub mod session_errors;
 pub mod session_health;
 pub mod session_manager;
 pub mod session_tool_output;
+pub mod settings_manager;
 mod skill_block;
 pub mod skills;
 pub mod slash_commands;

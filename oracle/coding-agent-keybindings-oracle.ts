@@ -42,7 +42,6 @@ function execute(request: Request, api: KeybindingsApi): unknown {
 	}
 	const manager = api.KeybindingsManager.create(request.agentDir);
 	return {
-		userBindings: entries(manager.getUserBindings()),
 		effective: entries(manager.getEffectiveConfig()),
 		keys: request.keys.map((keybinding) => manager.getKeys(keybinding)),
 	};

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::config::package_config;
+use crate::core::detached_job_retention::compare_paths;
 use crate::core::source_info::{SourceInfo, SourceScope, SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::utils::frontmatter::parse_frontmatter;
 use crate::utils::paths::{PathInputOptions, resolve_path};
@@ -280,7 +281,15 @@ fn load_templates_from_dir(dir: &Path, get_source_info: &dyn Fn(&Path) -> Source
     let Ok(entries) = fs::read_dir(dir) else {
         return templates;
     };
-    for entry in entries.filter_map(Result::ok) {
+    let mut entries: Vec<fs::DirEntry> = entries.filter_map(Result::ok).collect();
+    // Node's `readdirSync` returns libuv's `scandir` order (locale-collated names).
+    entries.sort_by(|left, right| {
+        compare_paths(
+            &left.file_name().to_string_lossy(),
+            &right.file_name().to_string_lossy(),
+        )
+    });
+    for entry in entries {
         let full_path = dir.join(entry.file_name());
         let is_file = fs::metadata(&full_path).is_ok_and(|metadata| metadata.is_file());
         if is_file

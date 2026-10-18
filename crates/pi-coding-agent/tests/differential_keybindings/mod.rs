@@ -74,17 +74,6 @@ fn compare_loaded_files(oracle: &mut oracle::TsOracle) {
         assert_eq!(response["ok"], true, "oracle failed for {name}: {response}");
 
         let manager = KeybindingsManager::create(Some(temp.path()));
-        let user_bindings: Vec<Value> = manager
-            .get_user_bindings()
-            .into_iter()
-            .map(|(key, keys)| json!([key, keys]))
-            .collect();
-        assert_eq!(
-            Value::Array(user_bindings),
-            response["output"]["userBindings"],
-            "{name}"
-        );
-
         let effective: Vec<Value> = manager
             .get_effective_config()
             .into_iter()

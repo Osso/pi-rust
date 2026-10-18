@@ -54,17 +54,13 @@ function execute(request: Request, api: SkillsApi): unknown {
 			return api.loadSkillsFromDir({ dir: request.dir, source: request.source });
 		case "format":
 			return { prompt: api.formatSkillsForPrompt(request.skills) };
-		case "load": {
-			const result = api.loadSkills({
+		case "load":
+			return api.loadSkills({
 				cwd: request.cwd,
 				agentDir: request.agentDir,
 				skillPaths: request.skillPaths,
 				includeDefaults: request.includeDefaults,
 			});
-			// Multi-source discovery order depends on directory enumeration; compare sorted.
-			result.skills.sort((left, right) => (left.filePath < right.filePath ? -1 : left.filePath > right.filePath ? 1 : 0));
-			return result;
-		}
 	}
 }
 

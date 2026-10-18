@@ -55,18 +55,15 @@ function execute(request: Request, api: PromptTemplatesApi): unknown {
 			return { content: api.substituteArgs(request.content, request.args) };
 		case "expand":
 			return { content: api.expandPromptTemplate(request.text, request.templates) };
-		case "load": {
-			const templates = api.loadPromptTemplates({
-				cwd: request.cwd,
-				agentDir: request.agentDir,
-				promptPaths: request.promptPaths,
-				includeDefaults: request.includeDefaults,
-			});
-			templates.sort((left, right) =>
-				left.filePath < right.filePath ? -1 : left.filePath > right.filePath ? 1 : 0,
-			);
-			return { templates };
-		}
+		case "load":
+			return {
+				templates: api.loadPromptTemplates({
+					cwd: request.cwd,
+					agentDir: request.agentDir,
+					promptPaths: request.promptPaths,
+					includeDefaults: request.includeDefaults,
+				}),
+			};
 	}
 }
 

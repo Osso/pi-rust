@@ -31,8 +31,9 @@ Source: `packages/coding-agent/src/core/skills.ts` (487 lines, pinned revision i
 
 ## Gaps / deviations
 
-- YAML parse-error wording differs (`serde_yaml_ng` vs the Node `yaml` package). Both produce one warning
-  at the same path; the differential normalizes only that message. See `frontmatter.md`.
+- YAML parse-error wording differs (`serde_yaml_ng` vs the Node `yaml` package). The differential
+  excludes the invalid-YAML fixture; a focused test asserts one warning at the path that names a source
+  line. See `frontmatter.md`.
 - Non-string `name`/`description` frontmatter values are excluded by the typed Rust boundary; TypeScript
   would throw `description.trim is not a function` and report it as a warning.
 - Windows separator conversion is implemented (`to_posix_path`) but not exercised on this host.
@@ -41,5 +42,5 @@ Source: `packages/coding-agent/src/core/skills.ts` (487 lines, pinned revision i
 
 - Focused: `cargo test -p pi-coding-agent --test skills` (5 passed).
 - Differential: `cargo test -p pi-coding-agent --test differential_skills` (1 passed) via
-  `oracle/coding-agent-skills-oracle.ts`; multi-source discovery is compared after sorting by `filePath`
-  because directory enumeration order is not a contract.
+  `oracle/coding-agent-skills-oracle.ts`, comparing skills and diagnostics in source order. Directory
+  entries are locale-collated in Rust to match libuv `scandir` order used by Node `readdirSync`.

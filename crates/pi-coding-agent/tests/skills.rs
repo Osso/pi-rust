@@ -80,6 +80,28 @@ fn skips_skills_without_a_description() {
 }
 
 #[test]
+fn invalid_yaml_reports_one_warning_at_the_file() {
+    let temp = TempDir::new().unwrap();
+    let dir = temp.path().join("invalid-yaml");
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("SKILL.md");
+    fs::write(&path, "---\nname: invalid-yaml\ndescription: [unclosed bracket\n---\n").unwrap();
+
+    let result = load_skills_from_dir(&LoadSkillsFromDirOptions {
+        dir: dir.to_string_lossy().into_owned(),
+        source: "test".to_owned(),
+    });
+
+    assert!(result.skills.is_empty());
+    assert_eq!(result.diagnostics.len(), 1);
+    assert_eq!(
+        result.diagnostics[0].path.as_deref(),
+        Some(path.to_string_lossy().as_ref())
+    );
+    assert!(result.diagnostics[0].message.contains("line"));
+}
+
+#[test]
 fn prefers_the_directory_root_skill_and_skips_dot_directories() {
     let temp = TempDir::new().unwrap();
     let root = temp.path().join("root-skill-preferred");
