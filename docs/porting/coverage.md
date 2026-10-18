@@ -500,9 +500,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/agents-core/src/runtime-utils.ts` | 30 | 16 | todo |  |  |
 | `coding-agent/extensions/pyrun/src/detached-bridge.ts` | 153 | 16 | todo |  |  |
 | `coding-agent/src/architect/observer.ts` | 159 | 16 | todo |  |  |
-| `coding-agent/src/cli/control-command.ts` | 122 | 16 | todo |  |  |
-| `coding-agent/src/cli/debug-command.ts` | 77 | 16 | todo |  |  |
-| `coding-agent/src/cli/sessions-command.ts` | 106 | 16 | todo |  |  |
+| `coding-agent/src/cli/control-command.ts` | 122 | 16 | done | `crates/pi-coding-agent/src/cli/control_command.rs` | send/restart/last/path with injected DB path and SIGHUP; 7 tests ([traceability](traceability/control-command.md)). |
+| `coding-agent/src/cli/debug-command.ts` | 77 | 16 | done | `crates/pi-coding-agent/src/cli/debug_command.rs` | Live-session lookup, socket path, attach error wrapping; 4 tests. Debug REPL server remains the documented `node:vm` gap ([traceability](traceability/debug-command.md)). |
+| `coding-agent/src/cli/sessions-command.ts` | 106 | 16 | done | `crates/pi-coding-agent/src/cli/sessions_command.rs` | archive/truncate-tool-output, cutoff math, report text; 6 tests ([traceability](traceability/sessions-command.md)). |
 | `coding-agent/src/core/cache-stats.ts` | 164 | 16 | done | `crates/pi-coding-agent/src/core/cache_stats.rs` | Cache-waste scan and miss detection; `tests/cache_stats.rs` |
 | `coding-agent/src/core/compaction/compaction.ts` | 1179 | 16 | todo |  |  |
 | `coding-agent/src/core/detached-job-cleanup.ts` | 351 | 16 | todo |  |  |
