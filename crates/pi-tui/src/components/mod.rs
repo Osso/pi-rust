@@ -4,6 +4,7 @@ pub mod alt_screen_flash;
 pub mod r#box;
 pub mod cancellable_loader;
 pub mod dynamic_border;
+pub mod editor;
 pub mod h_stack;
 pub mod image;
 pub mod input;

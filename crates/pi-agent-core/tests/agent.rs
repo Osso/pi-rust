@@ -18,6 +18,7 @@ fn message_listener(events: Arc<Mutex<Vec<AgentEvent>>>) -> AgentListener {
         let events = Arc::clone(&events);
         Box::pin(async move {
             events.lock().unwrap().push(event);
+            Ok(())
         })
     })
 }
@@ -106,6 +107,7 @@ async fn subscribes_to_events_and_unsubscribes() {
         let event_count_hook = Arc::clone(&event_count_hook);
         Box::pin(async move {
             event_count_hook.fetch_add(1, Ordering::SeqCst);
+            Ok(())
         })
     }));
     assert_eq!(event_count.load(Ordering::SeqCst), 0);
@@ -173,6 +175,7 @@ async fn awaits_async_subscribers_before_prompt_resolves() {
                 barrier_hook.notified().await;
                 listener_finished_hook.store(true, Ordering::SeqCst);
             }
+            Ok(())
         })
     }));
     let prompt_resolved = Arc::new(AtomicBool::new(false));
@@ -212,6 +215,7 @@ async fn wait_for_idle_waits_for_async_subscribers() {
             if should_wait {
                 barrier_hook.notified().await;
             }
+            Ok(())
         })
     }));
     let agent_clone = agent.clone();
@@ -271,6 +275,7 @@ async fn passes_active_abort_signal_to_subscribers() {
             if is_start {
                 *received_signal_hook.lock().unwrap() = Some(signal);
             }
+            Ok(())
         })
     }));
     let agent_clone = agent.clone();
@@ -421,6 +426,7 @@ async fn ignores_settled_parallel_tool_update_while_another_tool_runs() {
         let events_hook = Arc::clone(&events_hook);
         Box::pin(async move {
             events_hook.lock().unwrap().push(event);
+            Ok(())
         })
     }));
     let agent_clone = agent.clone();

@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::{
-    AfterToolCallResult, Agent, AgentContext, AgentLoopConfig, AgentMessage, AgentOptions, AgentTool, AgentToolResult,
-    ContinueOptions, StreamFn,
+    AfterToolCallResult, Agent, AgentContext, AgentError, AgentEvent, AgentEventSink, AgentLoopConfig, AgentMessage,
+    AgentOptions, AgentTool, AgentToolResult, ContinueOptions, StreamFn,
 };
 use pi_agent_core::harness::BeforeToolCallResult;
 use pi_agent_core::harness::ToolExecutionMode;
@@ -130,6 +130,110 @@ fn echo_tool() -> TestTool {
     });
     tool.parameters = value_tool_schema();
     tool
+}
+
+fn event_name(event: &AgentEvent) -> &'static str {
+    event_types(std::slice::from_ref(event))[0]
+}
+
+fn throwing_event_sink(events: Arc<Mutex<Vec<Value>>>, throw_on: &'static str) -> AgentEventSink {
+    Arc::new(move |event| {
+        let events = Arc::clone(&events);
+        Box::pin(async move {
+            let name = event_name(&event);
+            events
+                .lock()
+                .unwrap()
+                .push(normalized(serde_json::to_value(&event).unwrap()));
+            if name == throw_on {
+                return Err(AgentError::new(format!("listener exploded on {name}")));
+            }
+            Ok(())
+        })
+    })
+}
+
+async fn run_loop_with_throwing_emit(
+    throw_on: &'static str,
+    tools: Vec<Arc<dyn AgentTool>>,
+    scripts: Vec<Script>,
+) -> Value {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let result = pi_agent_core::agent::run_agent_loop(
+        vec![AgentMessage::User(user("Hello"))],
+        context(Vec::new(), tools, ""),
+        config(),
+        throwing_event_sink(Arc::clone(&events), throw_on),
+        None,
+        Some(scripted_stream_fn(scripts)),
+    )
+    .await;
+    let mut output = json!({"events": events.lock().unwrap().clone()});
+    match result {
+        Ok(messages) => output["messages"] = normalized(serde_json::to_value(messages).unwrap()),
+        Err(error) => output["error"] = json!(error.to_string()),
+    }
+    output
+}
+
+async fn run_agent_with_throwing_listener(
+    throw_on: &'static str,
+    tools: Vec<Arc<dyn AgentTool>>,
+    scripts: Vec<Script>,
+) -> Value {
+    let events = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let agent = Agent::new(AgentOptions {
+        initial_state: Some(pi_agent_core::agent::AgentInitialState {
+            tools: Some(tools),
+            ..Default::default()
+        }),
+        stream_fn: Some(recording_stream_fn(Arc::clone(&requests), scripts)),
+        ..Default::default()
+    })
+    .unwrap();
+    let events_hook = Arc::clone(&events);
+    agent.subscribe(Arc::new(move |event, _signal| {
+        let events_hook = Arc::clone(&events_hook);
+        Box::pin(async move {
+            let name = event_name(&event);
+            events_hook
+                .lock()
+                .unwrap()
+                .push(normalized(serde_json::to_value(&event).unwrap()));
+            if name == throw_on {
+                return Err(AgentError::new(format!("listener exploded on {name}")));
+            }
+            Ok(())
+        })
+    }));
+    let error = agent.prompt("Hello").await.err().map(|error| error.to_string());
+    let mut output = agent_output(&agent, events.lock().unwrap().clone(), &requests);
+    if let Some(error) = error {
+        output["error"] = json!(error);
+    }
+    output
+}
+
+fn big_text(mode: &str) -> String {
+    match mode {
+        "lines" => (0..2001)
+            .map(|index| char::from(b'a' + (index % 26) as u8).to_string())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        "single" => "a".repeat(20000),
+        "emoji" => "😀".repeat(3000),
+        _ => panic!("unknown big mode {mode}"),
+    }
+}
+
+fn big_details(mode: &str) -> Value {
+    let value = if mode == "lines" {
+        "y".repeat(20000)
+    } else {
+        big_text(mode)
+    };
+    json!({"value": value})
 }
 
 fn tool_message(id: &str, name: &str, value: &str) -> AssistantMessage {
@@ -769,6 +873,7 @@ async fn run_scenario(name: &str) -> Value {
                         .lock()
                         .unwrap()
                         .push(normalized(serde_json::to_value(event).unwrap()));
+                    Ok(())
                 })
             }));
             let agent_clone = agent.clone();
@@ -805,6 +910,7 @@ async fn run_scenario(name: &str) -> Value {
                         .lock()
                         .unwrap()
                         .push(normalized(serde_json::to_value(event).unwrap()));
+                    Ok(())
                 })
             }));
             agent.prompt("Hello").await.unwrap();
@@ -833,10 +939,114 @@ async fn run_scenario(name: &str) -> Value {
                         .lock()
                         .unwrap()
                         .push(normalized(serde_json::to_value(event).unwrap()));
+                    Ok(())
                 })
             }));
             agent.continue_run(ContinueOptions::default()).await.unwrap();
             agent_output(&agent, events.lock().unwrap().clone(), &requests)
+        }
+        "listener_message_end_loop" => {
+            run_loop_with_throwing_emit(
+                "message_end",
+                Vec::new(),
+                vec![Script::message(text_assistant("Hi there!"))],
+            )
+            .await
+        }
+        "listener_agent_end_loop" => {
+            run_loop_with_throwing_emit(
+                "agent_end",
+                Vec::new(),
+                vec![Script::message(text_assistant("Hi there!"))],
+            )
+            .await
+        }
+        "listener_tool_execution_end_loop" => {
+            run_loop_with_throwing_emit(
+                "tool_execution_end",
+                vec![Arc::new(echo_tool())],
+                vec![
+                    Script::message(tool_message("tool-1", "echo", "hello")),
+                    Script::message(text_assistant("done")),
+                ],
+            )
+            .await
+        }
+        "listener_message_end_agent" => {
+            run_agent_with_throwing_listener(
+                "message_end",
+                Vec::new(),
+                vec![Script::message(text_assistant("Hi there!"))],
+            )
+            .await
+        }
+        "listener_agent_end_agent" => {
+            run_agent_with_throwing_listener(
+                "agent_end",
+                Vec::new(),
+                vec![Script::message(text_assistant("Hi there!"))],
+            )
+            .await
+        }
+        "listener_tool_execution_end_agent" => {
+            run_agent_with_throwing_listener(
+                "tool_execution_end",
+                vec![Arc::new(echo_tool())],
+                vec![
+                    Script::message(tool_message("tool-1", "echo", "hello")),
+                    Script::message(text_assistant("done")),
+                ],
+            )
+            .await
+        }
+        "tool_result_cap" => {
+            let mut tool = TestTool::new("big", |_id, _params| text_result(""));
+            tool.parameters = json!({
+                "type": "object",
+                "properties": {"mode": {"type": "string"}},
+                "required": ["mode"]
+            });
+            tool.execute = Arc::new(|_id, params, _signal, on_update| {
+                let mode = params["mode"].as_str().unwrap_or_default().to_owned();
+                Box::pin(async move {
+                    let text = big_text(&mode);
+                    if mode == "lines" {
+                        on_update(AgentToolResult {
+                            content: vec![TextOrImageContent::Text(TextContent::new(text.clone()))],
+                            details: Some(json!({"value": "z".repeat(20000)})),
+                            usage: None,
+                            added_tool_names: None,
+                            is_error: None,
+                            terminate: None,
+                        });
+                    }
+                    Ok(AgentToolResult {
+                        content: vec![TextOrImageContent::Text(TextContent::new(text))],
+                        details: Some(big_details(&mode)),
+                        usage: None,
+                        added_tool_names: None,
+                        is_error: None,
+                        terminate: None,
+                    })
+                })
+            });
+            let mut cfg = config();
+            cfg.tool_execution = ToolExecutionMode::Sequential;
+            run_loop(
+                vec![AgentMessage::User(user("cap results"))],
+                context(Vec::new(), vec![Arc::new(tool)], ""),
+                cfg,
+                requests,
+                vec![
+                    Script::message(tool_use(vec![
+                        AssistantContent::ToolCall(tool_call("cap-lines", "big", json!({"mode": "lines"}))),
+                        AssistantContent::ToolCall(tool_call("cap-single", "big", json!({"mode": "single"}))),
+                        AssistantContent::ToolCall(tool_call("cap-emoji", "big", json!({"mode": "emoji"}))),
+                    ])),
+                    Script::message(text_assistant("done")),
+                ],
+            )
+            .await
         }
         other => panic!("unknown scenario {other}"),
     }
@@ -932,6 +1142,13 @@ pub async fn run_differential() {
         "abort_tool",
         "agent_text",
         "agent_continue_queue",
+        "listener_message_end_loop",
+        "listener_tool_execution_end_loop",
+        "listener_agent_end_loop",
+        "listener_message_end_agent",
+        "listener_tool_execution_end_agent",
+        "listener_agent_end_agent",
+        "tool_result_cap",
     ];
     for scenario in scenarios {
         let response = oracle.request(&json!({"id": scenario, "scenario": scenario}));

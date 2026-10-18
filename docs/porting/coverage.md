@@ -227,7 +227,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/session/types.ts` | 406 | 5 | todo |  |  |
 | `agent/src/harness/types.ts` | 320 | 5 | partial |  |  |
 | `agent/src/stream-fn.ts` | 20 | 5 | done | `crates/pi-agent-core/src/agent/stream_fn.rs` | Process-global default stream fn; exact missing-default error; see `agent-stream-fn.md`. |
-| `agent/src/agent-loop.ts` | 1028 | 6 | done | `crates/pi-agent-core/src/agent/agent_loop.rs` | Event ordering, tool modes, steering/follow-up, termination, abort races, restored tool calls; 32 behavioral tests + 27 differential scenarios; see `agent-loop.md`. |
+| `agent/src/agent-loop.ts` | 1028 | 6 | done | `crates/pi-agent-core/src/agent/agent_loop.rs` | Event ordering, tool modes, steering/follow-up, termination, abort races, restored tool calls, listener failures, result capping; 37 behavioral tests + 34 differential scenarios; see `agent-loop.md`. |
 | `agent/src/harness/env/nodejs.ts` | 695 | 6 | todo |  |  |
 | `agent/src/harness/prompt-templates.ts` | 262 | 6 | partial |  |  |
 | `agent/src/harness/reducer.ts` | 667 | 6 | todo |  |  |
@@ -243,7 +243,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/utils/shell-output.ts` | 199 | 6 | partial |  |  |
 | `agent/src/search/index.ts` | 32 | 6 | todo |  |  |
 | `agent/src/search/scanning.ts` | 176 | 6 | todo |  |  |
-| `agent/src/agent.ts` | 626 | 7 | done | `crates/pi-agent-core/src/agent/agent.rs` | Stateful wrapper, queues, lifecycle, listener settlement, continue/reset; 23 tests + 3 differential scenarios; see `agent.md`. |
+| `agent/src/agent.ts` | 626 | 7 | done | `crates/pi-agent-core/src/agent/agent.rs` | Stateful wrapper, queues, lifecycle, listener settlement and failure propagation, continue/reset; 23 tests + 6 differential scenarios; see `agent.md`. |
 | `agent/src/harness/compaction/compaction.ts` | 910 | 7 | partial |  |  |
 | `agent/src/harness/session/jsonl/codec.ts` | 240 | 7 | todo |  |  |
 | `agent/src/harness/session/memory.ts` | 192 | 7 | todo |  |  |
@@ -290,7 +290,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/components/spacer.ts` | 28 | 3 | done | `crates/pi-tui/src/components/spacer.rs` | differential line counts + setLines |
 | `tui/src/components/text.ts` | 106 | 3 | done | `crates/pi-tui/src/components/text.rs` | TS differential wrapping/padding/background/cache |
 | `tui/src/components/truncated-text.ts` | 65 | 3 | done | `crates/pi-tui/src/components/truncated_text.rs` | all TS tests ported + differential |
-| `tui/src/editor-component.ts` | 74 | 3 | todo |  |  |
+| `tui/src/editor-component.ts` | 74 | 3 | done | `crates/pi-tui/src/editor_component.rs` | Optional members mapped to default trait methods; typed callback fields ([traceability](traceability/editor-component.md)). |
 | `tui/src/layout-node.ts` | 51 | 3 | done | `crates/pi-tui/src/layout_node.rs` | `Component::layout_node` replaces the `LAYOUT_NODE` symbol |
 | `tui/src/root-compositor.ts` | 91 | 3 | done | `crates/pi-tui/src/root_compositor.rs` | flow/bottom layout callbacks covered by render-region tests |
 | `tui/src/tui-main-screen.ts` | 586 | 3 | done | `crates/pi-tui/src/tui_main_screen.rs` | differential byte stream; capture/restore implemented (no listed test) |
@@ -300,7 +300,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/components/settings-list.ts` | 249 | 4 | done | `crates/pi-tui/src/components/settings_list.rs` | TS tests ported + differential search/cycle/submenu/scroll matrix |
 | `tui/src/components/stack.ts` | 154 | 4 | done | `crates/pi-tui/src/components/stack.rs` | size allocation covered by layout tests + differential |
 | `tui/src/components/cancellable-loader.ts` | 40 | 5 | done | `crates/pi-tui/src/components/cancellable_loader.rs` | differential escape abort + render; AbortSignal mapped to CancellationToken |
-| `tui/src/components/editor.ts` | 2687 | 5 | todo |  |  |
+| `tui/src/components/editor.ts` | 2687 | 5 | done | `crates/pi-tui/src/components/editor.rs` | Full TS test port (202 cases) + 28-scenario differential against real TS editor; timer/async requests driver-owned ([traceability](traceability/editor.md)). |
 | `tui/src/components/h-stack.ts` | 44 | 5 | done | `crates/pi-tui/src/components/h_stack.rs` | TS layout tests + differential composition/alignment |
 | `tui/src/components/v-stack.ts` | 33 | 5 | done | `crates/pi-tui/src/components/v_stack.rs` | TS layout tests + differential sizes/gaps |
 | `tui/src/layout.ts` | 410 | 5 | done | `crates/pi-tui/src/layout.rs` | TS layout tests ported; differential frame geometry, scrollbar, kitty crop |

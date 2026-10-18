@@ -8,7 +8,7 @@ Tests: `crates/pi-agent-core/tests/agent_loop.rs`, `crates/pi-agent-core/tests/a
 
 | TypeScript export | Rust item | Tests |
 |---|---|---|
-| `AgentEventSink` | `agent::AgentEventSink` | all loop tests |
+| `AgentEventSink` | `agent::AgentEventSink` (returns `Result<(), AgentError>`) | all loop tests; differential `listener_*_loop` |
 | `agentLoop` | `agent::agent_loop` | `emits_events_with_agent_message_types`, differential `text`/`tools` |
 | `agentLoopContinue` | `agent::agent_loop_continue` (returns `Result`) | `continue_throws_when_context_has_no_messages`, `continue_*` tests |
 | `runAgentLoop` | `agent::run_agent_loop` | exercised through `agent_loop` and Agent |
@@ -46,14 +46,14 @@ Tests: `crates/pi-agent-core/tests/agent_loop.rs`, `crates/pi-agent-core/tests/a
 | `beforeToolCall` block/reason/terminate | same | `stops_after_blocked_tool_call_when_before_hook_terminates`, `continues_after_mixed_batch_*`, differential `blocked_terminate` |
 | `beforeToolCall` argument mutation without revalidation | `BeforeToolCallContext.args: Arc<Mutex<Value>>`; the loop reads the cell after the hook | `executes_mutated_before_tool_call_args_without_revalidation`, differential `before_mutation` |
 | abort during before hook / before execution | same (`Operation aborted`) | code inspection; `agent_abort.rs` covers abort during execute |
-| `executePreparedToolCall`: update callback, ignore-after-settle, abort race, thrown error → error result | same (updates spawned then awaited; `AtomicBool` acceptance flag) | `ignores_tool_updates_after_execution_settles` (Agent), `agent_abort.rs`, differential `tool_error`/`parallel_update` |
+| `executePreparedToolCall`: update callback, ignore-after-settle, abort race, thrown error → error result | same (updates spawned then awaited; `AtomicBool` acceptance flag); update emit failures propagate | `ignores_tool_updates_after_execution_settles` (Agent), `agent_abort.rs`, differential `tool_error`/`parallel_update` |
 | `afterToolCall` field-by-field overrides, error → error result | same | `after_tool_call_can_mark_batch_as_terminating`, differential `after_tool_call` |
-| result capping: text 10 KiB / 2000 lines, details preview | `cap_tool_result*` (UTF-16 slicing to mirror JS `slice`) | gap: no dedicated unit test; exercised only for small payloads |
+| emit rejection aborts the loop and propagates to `runAgentLoop`/`agentLoop` | `emit_event(...)?` at every emission site; `agentLoop` fails the stream with the error | differential `listener_message_end_loop`, `listener_agent_end_loop`, `listener_tool_execution_end_loop` |
+| result capping: text 10 KiB / 2000 lines, details preview, partial updates | `cap_tool_result*` (UTF-16 code-unit slicing to mirror JS `slice`) | `caps_tool_result_text_at_the_line_limit`, `caps_tool_result_text_at_the_byte_limit`, `caps_tool_result_text_by_utf16_code_units`, `caps_tool_result_details_with_a_capped_preview`, `leaves_small_tool_results_unchanged`, differential `tool_result_cap` |
 | tool result message shape, `message_start`/`message_end` | same | `handles_tool_calls_and_results`, differential `tools` |
 
 ## Discrepancies / exclusions
 
-- `AgentEventSink` is `BoxFuture<'static, ()>` per the binding decision, so listener errors raised inside `Agent`'s sink cannot abort the loop; TypeScript's `emit` would reject. Recorded as an accepted typed deviation.
 - `prepareArguments` must return a JSON object; TypeScript accepts any runtime value and lets validation decide. Explicit typed exclusion.
 - Sparse/`null` holes in assistant content cannot be represented; the loop treats content blocks as typed values.
 - Tool-result text capping mirrors JS UTF-16 `slice` via `Vec<u16>`; lone surrogates (not representable in Rust `String`) become U+FFFD.
