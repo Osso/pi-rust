@@ -158,6 +158,14 @@ fn default_search_text<M>(_metadata: &M, entry: &Entry, label: Option<&str>) -> 
     }
 }
 
+fn normalize_query(text: &str, options: &SessionSearchOptions) -> Option<String> {
+    let normalized = text.trim().to_lowercase();
+    if normalized.is_empty() || options.limit == Some(0) || options.entry_types.as_ref().is_some_and(Vec::is_empty) {
+        return None;
+    }
+    Some(normalized)
+}
+
 fn default_match(query_text: &str, candidate: &SessionSearchCandidate) -> bool {
     candidate.text.to_lowercase().contains(query_text)
 }
@@ -189,52 +197,88 @@ pub async fn scan_readable_entries<M: SessionMetadataValue>(
         .clone()
         .unwrap_or_else(|| Arc::new(default_search_text::<M>));
     let page_size = query.limit.or(options.page_size).unwrap_or(100);
-    let mut after_seq = query.after_seq.unwrap_or(0);
     let entry_types = query.entry_types;
-    let mut candidates = Vec::new();
+    scan_all_pages(
+        readable,
+        metadata,
+        &project_text,
+        entry_types.as_deref(),
+        page_size,
+        query.after_seq.unwrap_or(0),
+    )
+    .await
+}
 
+async fn scan_all_pages<M: SessionMetadataValue>(
+    readable: &Arc<dyn ScanningReadable<M>>,
+    metadata: &M,
+    project_text: &ScanningSearchTextProjector<M>,
+    entry_types: Option<&[EntryType]>,
+    page_size: usize,
+    mut after_seq: i64,
+) -> Result<Vec<SessionSearchCandidate>, SearchError> {
+    let mut candidates = Vec::new();
     loop {
-        let entries = readable
-            .entries(EntryQuery {
-                entry_type: entry_types
-                    .as_ref()
-                    .filter(|types| types.len() == 1)
-                    .map(|types| types[0]),
-                order: Some(EntryOrder::OldestFirst),
-                limit: Some(page_size),
-                cursor: Some(EntryCursor { after_seq }),
-                custom_type: None,
-            })
-            .await?;
-        if entries.is_empty() {
-            break;
-        }
-        for entry in &entries {
-            if let Some(types) = &entry_types
-                && !types.contains(&entry.entry_type())
-            {
-                continue;
-            }
-            let label = readable.label(entry.id()).await?;
-            let mut fields = JsonObject::new();
-            if let Some(label) = &label {
-                fields.insert("label".to_owned(), serde_json::Value::String(label.clone()));
-            }
-            candidates.push(SessionSearchCandidate {
-                entry_id: entry.id().to_owned(),
-                seq: entry.seq,
-                entry_type: entry.entry_type(),
-                timestamp: entry.timestamp,
-                text: project_text(metadata, entry, label.as_deref()),
-                fields: if label.is_some() { Some(fields) } else { None },
-            });
-        }
-        after_seq = entries.last().map(|entry| entry.seq).unwrap_or(after_seq);
-        if entries.len() < page_size {
-            break;
+        let (page, next_after, page_len) =
+            scan_page(readable, metadata, project_text, entry_types, page_size, after_seq).await?;
+        candidates.extend(page);
+        after_seq = next_after;
+        if page_len < page_size {
+            return Ok(candidates);
         }
     }
-    Ok(candidates)
+}
+
+async fn scan_page<M: SessionMetadataValue>(
+    readable: &Arc<dyn ScanningReadable<M>>,
+    metadata: &M,
+    project_text: &ScanningSearchTextProjector<M>,
+    entry_types: Option<&[EntryType]>,
+    page_size: usize,
+    after_seq: i64,
+) -> Result<(Vec<SessionSearchCandidate>, i64, usize), SearchError> {
+    let entries = readable
+        .entries(EntryQuery {
+            entry_type: entry_types.filter(|types| types.len() == 1).map(|types| types[0]),
+            order: Some(EntryOrder::OldestFirst),
+            limit: Some(page_size),
+            cursor: Some(EntryCursor { after_seq }),
+            custom_type: None,
+        })
+        .await?;
+    let Some(last) = entries.last() else {
+        return Ok((Vec::new(), after_seq, 0));
+    };
+    let mut candidates = Vec::new();
+    for entry in &entries {
+        if entry_types.is_some_and(|types| !types.contains(&entry.entry_type())) {
+            continue;
+        }
+        candidates.push(project_candidate(readable, metadata, project_text, entry).await?);
+    }
+    Ok((candidates, last.seq, entries.len()))
+}
+
+async fn project_candidate<M: SessionMetadataValue>(
+    readable: &Arc<dyn ScanningReadable<M>>,
+    metadata: &M,
+    project_text: &ScanningSearchTextProjector<M>,
+    entry: &Entry,
+) -> Result<SessionSearchCandidate, SearchError> {
+    let label = readable.label(entry.id()).await?;
+    let fields = label.as_ref().map(|label| {
+        let mut fields = JsonObject::new();
+        fields.insert("label".to_owned(), serde_json::Value::String(label.clone()));
+        fields
+    });
+    Ok(SessionSearchCandidate {
+        entry_id: entry.id().to_owned(),
+        seq: entry.seq,
+        entry_type: entry.entry_type(),
+        timestamp: entry.timestamp,
+        text: project_text(metadata, entry, label.as_deref()),
+        fields,
+    })
 }
 
 /// Scan every entry of one readable session.
@@ -273,6 +317,90 @@ where
     ScanningSessionSearch { source, options }
 }
 
+impl<M, O, H> ScanningSessionSearch<M, O, H>
+where
+    M: SessionMetadataValue,
+    O: Send + 'static,
+    H: SessionSearchHit + Clone + Send + Sync + From<ScanningSessionSearchHit> + 'static,
+{
+    async fn collect_readable_hits(
+        &self,
+        readable: &Arc<dyn ScanningReadable<M>>,
+        normalized_text: &str,
+        entry_types: Option<&[EntryType]>,
+        search_options: &SessionSearchOptions,
+        seen_session_ids: &mut HashSet<String>,
+        hits: &mut Vec<H>,
+    ) -> Result<bool, SearchError> {
+        check_aborted(search_options)?;
+        let metadata = readable.metadata().await?;
+        if !seen_session_ids.insert(metadata.id().to_owned()) {
+            return Err(SearchError::DuplicateSessionId(metadata.id().to_owned()));
+        }
+        let candidates = scan_readable_entries(
+            readable,
+            &metadata,
+            &self.options.readable,
+            ScanReadableQuery {
+                entry_types: entry_types.map(<[EntryType]>::to_vec),
+                ..ScanReadableQuery::default()
+            },
+        )
+        .await?;
+        self.collect_candidate_hits(&candidates, normalized_text, &metadata, search_options, hits)
+    }
+
+    fn collect_candidate_hits(
+        &self,
+        candidates: &[SessionSearchCandidate],
+        normalized_text: &str,
+        metadata: &M,
+        search_options: &SessionSearchOptions,
+        hits: &mut Vec<H>,
+    ) -> Result<bool, SearchError> {
+        for candidate in candidates {
+            check_aborted(search_options)?;
+            if !self.candidate_matches(normalized_text, candidate, metadata) {
+                continue;
+            }
+            hits.push(self.create_hit(metadata, candidate));
+            if search_options.limit.is_some_and(|limit| hits.len() >= limit) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+    async fn load_readables(
+        &self,
+        normalized_text: &str,
+        search_options: &SessionSearchOptions,
+    ) -> Result<Vec<Arc<dyn ScanningReadable<M>>>, SearchError> {
+        let source_options = self
+            .options
+            .source_options
+            .as_ref()
+            .and_then(|source_options| source_options(normalized_text, search_options));
+        match &self.source {
+            ScanningSource::Readables(readables) => Ok(readables.clone()),
+            ScanningSource::Dynamic(source) => Ok(source(source_options).await?),
+        }
+    }
+
+    fn candidate_matches(&self, normalized_text: &str, candidate: &SessionSearchCandidate, metadata: &M) -> bool {
+        match &self.options.matcher {
+            Some(matcher) => matcher(normalized_text, candidate, metadata),
+            None => default_match(normalized_text, candidate),
+        }
+    }
+
+    fn create_hit(&self, metadata: &M, candidate: &SessionSearchCandidate) -> H {
+        match &self.options.create_hit {
+            Some(create_hit) => create_hit(metadata, candidate),
+            None => H::from(default_hit(metadata, candidate)),
+        }
+    }
+}
+
 impl<M, O, H> SessionSearch<H> for ScanningSessionSearch<M, O, H>
 where
     M: SessionMetadataValue,
@@ -285,59 +413,25 @@ where
         search_options: SessionSearchOptions,
     ) -> BoxFuture<'a, Result<Vec<H>, SearchError>> {
         Box::pin(async move {
-            let normalized_text = text.trim().to_lowercase();
-            if normalized_text.is_empty() || search_options.limit == Some(0) {
+            let Some(normalized_text) = normalize_query(text, &search_options) else {
                 return Ok(Vec::new());
-            }
-            if search_options.entry_types.as_ref().is_some_and(Vec::is_empty) {
-                return Ok(Vec::new());
-            }
-            let entry_types = search_options.entry_types.clone();
-            let source_options = self
-                .options
-                .source_options
-                .as_ref()
-                .and_then(|source_options| source_options(&normalized_text, &search_options));
-            let readables = match &self.source {
-                ScanningSource::Readables(readables) => readables.clone(),
-                ScanningSource::Dynamic(source) => source(source_options).await?,
             };
-
+            let readables = self.load_readables(&normalized_text, &search_options).await?;
             let mut hits = Vec::new();
             let mut seen_session_ids = HashSet::new();
             for readable in readables {
-                check_aborted(&search_options)?;
-                let metadata = readable.metadata().await?;
-                if !seen_session_ids.insert(metadata.id().to_owned()) {
-                    return Err(SearchError::DuplicateSessionId(metadata.id().to_owned()));
-                }
-                let candidates = scan_readable_entries(
-                    &readable,
-                    &metadata,
-                    &self.options.readable,
-                    ScanReadableQuery {
-                        entry_types: entry_types.clone(),
-                        ..ScanReadableQuery::default()
-                    },
-                )
-                .await?;
-                for candidate in candidates {
-                    check_aborted(&search_options)?;
-                    let matches = match &self.options.matcher {
-                        Some(matcher) => matcher(&normalized_text, &candidate, &metadata),
-                        None => default_match(&normalized_text, &candidate),
-                    };
-                    if !matches {
-                        continue;
-                    }
-                    let hit = match &self.options.create_hit {
-                        Some(create_hit) => create_hit(&metadata, &candidate),
-                        None => H::from(default_hit(&metadata, &candidate)),
-                    };
-                    hits.push(hit);
-                    if search_options.limit.is_some_and(|limit| hits.len() >= limit) {
-                        return Ok(hits);
-                    }
+                let done = self
+                    .collect_readable_hits(
+                        &readable,
+                        &normalized_text,
+                        search_options.entry_types.as_deref(),
+                        &search_options,
+                        &mut seen_session_ids,
+                        &mut hits,
+                    )
+                    .await?;
+                if done {
+                    return Ok(hits);
                 }
             }
             Ok(hits)

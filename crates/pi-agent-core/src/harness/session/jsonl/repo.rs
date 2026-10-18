@@ -114,27 +114,42 @@ async fn jsonl_session_directories(
     cwd: Option<&str>,
 ) -> Result<Vec<String>, SessionError> {
     let sessions_root = jsonl_sessions_root(options).await?;
-    if let Some(cwd) = cwd {
-        let resolved_cwd = file_result(
-            options.fs.absolute_path(cwd).await,
-            &format!("Failed to resolve session cwd {cwd}"),
-        )?;
-        let directory = jsonl_session_directory(&options.fs, &sessions_root, &resolved_cwd).await?;
-        let exists = file_result(
-            options.fs.exists(&directory).await,
-            &format!("Failed to check sessions directory {directory}"),
-        )?;
-        return Ok(if exists { vec![directory] } else { Vec::new() });
+    match cwd {
+        Some(cwd) => session_directory_for_cwd(options, &sessions_root, cwd).await,
+        None => child_session_directories(options, &sessions_root).await,
     }
+}
+
+async fn session_directory_for_cwd(
+    options: &JsonlSessionRepoOptions,
+    sessions_root: &str,
+    cwd: &str,
+) -> Result<Vec<String>, SessionError> {
+    let resolved_cwd = file_result(
+        options.fs.absolute_path(cwd).await,
+        &format!("Failed to resolve session cwd {cwd}"),
+    )?;
+    let directory = jsonl_session_directory(&options.fs, sessions_root, &resolved_cwd).await?;
     let exists = file_result(
-        options.fs.exists(&sessions_root).await,
+        options.fs.exists(&directory).await,
+        &format!("Failed to check sessions directory {directory}"),
+    )?;
+    Ok(if exists { vec![directory] } else { Vec::new() })
+}
+
+async fn child_session_directories(
+    options: &JsonlSessionRepoOptions,
+    sessions_root: &str,
+) -> Result<Vec<String>, SessionError> {
+    let exists = file_result(
+        options.fs.exists(sessions_root).await,
         &format!("Failed to check sessions directory {sessions_root}"),
     )?;
     if !exists {
         return Ok(Vec::new());
     }
     let entries = file_result(
-        options.fs.list_dir(&sessions_root).await,
+        options.fs.list_dir(sessions_root).await,
         &format!("Failed to list sessions directory {sessions_root}"),
     )?;
     Ok(entries
@@ -156,24 +171,10 @@ pub async fn list_jsonl_session_metadata(
 ) -> Result<Vec<JsonlSessionMetadata>, SessionError> {
     let mut metadata = Vec::new();
     for directory in jsonl_session_directories(options, query.cwd.as_deref()).await? {
-        let files = file_result(
-            options.fs.list_dir(&directory).await,
-            &format!("Failed to list sessions directory {directory}"),
-        )?
-        .into_iter()
-        .filter(|entry| entry.kind != crate::harness::types::FileKind::Directory && entry.name.ends_with(".jsonl"));
-        for file in files {
-            let lines = file_result(
-                options.fs.read_text_lines(&file.path, Some(1)).await,
-                &format!("Failed to read session header {}", file.path),
-            )?;
-            let Some(first_line) = lines.first() else {
-                continue;
-            };
-            let Ok(header) = parse_header(first_line) else {
-                continue;
-            };
-            metadata.push(metadata_from_header(&header, file.path, file.mtime_ms));
+        for file in list_jsonl_files(options, &directory).await? {
+            if let Some(listed) = read_listed_header(options, &file).await? {
+                metadata.push(listed);
+            }
         }
     }
     metadata.sort_by(|left, right| {
@@ -183,6 +184,37 @@ pub async fn list_jsonl_session_metadata(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     Ok(metadata)
+}
+
+async fn list_jsonl_files(
+    options: &JsonlSessionRepoOptions,
+    directory: &str,
+) -> Result<Vec<crate::harness::types::FileInfo>, SessionError> {
+    let files = file_result(
+        options.fs.list_dir(directory).await,
+        &format!("Failed to list sessions directory {directory}"),
+    )?;
+    Ok(files
+        .into_iter()
+        .filter(|entry| entry.kind != crate::harness::types::FileKind::Directory && entry.name.ends_with(".jsonl"))
+        .collect())
+}
+
+async fn read_listed_header(
+    options: &JsonlSessionRepoOptions,
+    file: &crate::harness::types::FileInfo,
+) -> Result<Option<JsonlSessionMetadata>, SessionError> {
+    let lines = file_result(
+        options.fs.read_text_lines(&file.path, Some(1)).await,
+        &format!("Failed to read session header {}", file.path),
+    )?;
+    let Some(first_line) = lines.first() else {
+        return Ok(None);
+    };
+    let Ok(header) = parse_header(first_line) else {
+        return Ok(None);
+    };
+    Ok(Some(metadata_from_header(&header, file.path.clone(), file.mtime_ms)))
 }
 
 /// Load a JSONL storage for a listed metadata record.
@@ -367,16 +399,7 @@ impl JsonlSessionRepo {
                 .await,
             &format!("Failed to resolve path for session {}", destination.id),
         )?;
-        let header = JsonlV4Header {
-            kind: HeaderKind::Header,
-            version: 4,
-            id: destination.id.clone(),
-            created_at,
-            cwd: destination.cwd.clone(),
-            parent_session_id: options.parent_session_id.clone(),
-            legacy_parent_session_path: None,
-            metadata: options.metadata.clone(),
-        };
+        let header = build_header(destination, created_at, options);
         file_result(
             self.fs.create_dir(&session_directory, true).await,
             "Failed to create sessions directory",
@@ -406,6 +429,23 @@ impl JsonlSessionRepo {
     async fn session_directory(&self, cwd: &str) -> Result<String, SessionError> {
         let root = jsonl_sessions_root(&self.options()).await?;
         jsonl_session_directory(&self.fs, &root, cwd).await
+    }
+}
+
+fn build_header(
+    destination: &CreateDestination,
+    created_at: i64,
+    options: &JsonlSessionCreateOptions,
+) -> JsonlV4Header {
+    JsonlV4Header {
+        kind: HeaderKind::Header,
+        version: 4,
+        id: destination.id.clone(),
+        created_at,
+        cwd: destination.cwd.clone(),
+        parent_session_id: options.parent_session_id.clone(),
+        legacy_parent_session_path: None,
+        metadata: options.metadata.clone(),
     }
 }
 

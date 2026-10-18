@@ -64,50 +64,11 @@ impl JsonlSessionStorage {
     /// Load and replay a session file, repairing a torn final append.
     pub async fn load(fs: Arc<dyn JsonlSessionRepoFileSystem>, path: &str, clock: Clock) -> Result<Self, SessionError> {
         let content = file_result(fs.read_text_file(path).await, &format!("Failed to read session {path}"))?;
-        let mut physical_lines: Vec<String> = content.split('\n').map(str::to_owned).collect();
-        if physical_lines.last().is_some_and(String::is_empty) {
-            physical_lines.pop();
+        let physical_lines = split_physical_lines(&content);
+        let storage = load_storage_from_lines(Arc::clone(&fs), path, clock, &physical_lines).await?;
+        if replay_mutations(&storage, path, &physical_lines).await? {
+            return Ok(storage);
         }
-        if physical_lines.is_empty() || physical_lines[0].is_empty() {
-            return Err(invalid_file(
-                path,
-                1,
-                &crate::harness::session::types::JsonlDecodeError::new(JsonlDecodeKind::Schema, "is missing a header"),
-            ));
-        }
-        let header = parse_header(&physical_lines[0]).map_err(|error| invalid_file(path, 1, &error))?;
-        let file_info = file_result(
-            fs.file_info(path).await,
-            &format!("Failed to read session metadata {path}"),
-        )?;
-        let storage = Self::with_clock(
-            Arc::clone(&fs),
-            metadata_from_header(&header, path.to_owned(), file_info.mtime_ms),
-            clock,
-        );
-
-        for index in 1..physical_lines.len() {
-            let line = &physical_lines[index];
-            let mutation = match parse_mutation(line) {
-                Ok(mutation) => mutation,
-                Err(error) => {
-                    let is_torn_tail = index == physical_lines.len() - 1 && error.kind == JsonlDecodeKind::Syntax;
-                    if is_torn_tail {
-                        let valid_prefix = format!("{}\n", physical_lines[..index].join("\n"));
-                        publish_file_atomically(&fs, path, &valid_prefix, "torn-tail repair").await?;
-                        return Ok(storage);
-                    }
-                    return Err(invalid_file(path, index + 1, &error));
-                }
-            };
-            if let Err(error) = storage.state.lock().await.apply_mutation(&mutation) {
-                if error.code() == SessionErrorCode::InvalidEntry {
-                    return Err(invalid_mutation_file(path, index + 1, &error));
-                }
-                return Err(error);
-            }
-        }
-
         if !content.ends_with('\n') {
             file_result(
                 fs.append_file(path, "\n").await,
@@ -174,6 +135,67 @@ async fn publish_file_atomically(
         let _ = fs.remove(&temp_path, false, true).await;
     }
     result
+}
+
+fn split_physical_lines(content: &str) -> Vec<String> {
+    let mut lines: Vec<String> = content.split('\n').map(str::to_owned).collect();
+    if lines.last().is_some_and(String::is_empty) {
+        lines.pop();
+    }
+    lines
+}
+
+async fn load_storage_from_lines(
+    fs: Arc<dyn JsonlSessionRepoFileSystem>,
+    path: &str,
+    clock: Clock,
+    physical_lines: &[String],
+) -> Result<JsonlSessionStorage, SessionError> {
+    let Some(first_line) = physical_lines.first().filter(|line| !line.is_empty()) else {
+        return Err(invalid_file(
+            path,
+            1,
+            &crate::harness::session::types::JsonlDecodeError::new(JsonlDecodeKind::Schema, "is missing a header"),
+        ));
+    };
+    let header = parse_header(first_line).map_err(|error| invalid_file(path, 1, &error))?;
+    let file_info = file_result(
+        fs.file_info(path).await,
+        &format!("Failed to read session metadata {path}"),
+    )?;
+    Ok(JsonlSessionStorage::with_clock(
+        fs,
+        metadata_from_header(&header, path.to_owned(), file_info.mtime_ms),
+        clock,
+    ))
+}
+
+async fn replay_mutations(
+    storage: &JsonlSessionStorage,
+    path: &str,
+    physical_lines: &[String],
+) -> Result<bool, SessionError> {
+    for (index, line) in physical_lines.iter().enumerate().skip(1) {
+        let mutation = match parse_mutation(line) {
+            Ok(mutation) => mutation,
+            Err(error) => {
+                let is_torn_tail = index == physical_lines.len() - 1 && error.kind == JsonlDecodeKind::Syntax;
+                if is_torn_tail {
+                    let valid_prefix = format!("{}\n", physical_lines[..index].join("\n"));
+                    publish_file_atomically(&storage.fs, path, &valid_prefix, "torn-tail repair").await?;
+                    return Ok(true);
+                }
+                return Err(invalid_file(path, index + 1, &error));
+            }
+        };
+        if let Err(error) = storage.state.lock().await.apply_mutation(&mutation) {
+            if error.code() == SessionErrorCode::InvalidEntry {
+                return Err(invalid_mutation_file(path, index + 1, &error));
+            }
+            return Err(error);
+        }
+    }
+    Ok(false)
 }
 
 macro_rules! lock_state {

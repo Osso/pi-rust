@@ -169,24 +169,7 @@ impl SessionState {
     }
 
     fn apply_entry(&mut self, lane: Option<&str>, entry: &Entry) -> Result<(), SessionError> {
-        if self.used_ids.contains(entry.id()) {
-            return Err(invalid_mutation(format!("contains duplicate id {}", entry.id())));
-        }
-        if let Some(lane) = lane {
-            let leaf_id = match self.lanes.iter().find(|(candidate, _)| candidate == lane) {
-                Some((_, leaf_id)) => leaf_id.clone(),
-                None => return Err(invalid_mutation(format!("references missing lane {lane}"))),
-            };
-            if entry.parent_id != leaf_id {
-                return Err(invalid_mutation("does not chain to the lane leaf"));
-            }
-        }
-        if let Some(parent_id) = &entry.parent_id
-            && !self.entries_by_id.contains_key(parent_id)
-        {
-            return Err(invalid_mutation(format!("references missing parent {parent_id}")));
-        }
-
+        self.validate_entry_for_lane(lane, entry)?;
         self.sequence = entry.seq;
         self.used_ids.insert(entry.id().to_owned());
         self.entries_by_id.insert(entry.id().to_owned(), self.entries.len());
@@ -206,17 +189,52 @@ impl SessionState {
         Ok(())
     }
 
+    fn validate_entry_for_lane(&self, lane: Option<&str>, entry: &Entry) -> Result<(), SessionError> {
+        if self.used_ids.contains(entry.id()) {
+            return Err(invalid_mutation(format!("contains duplicate id {}", entry.id())));
+        }
+        if let Some(lane) = lane {
+            let leaf_id = match self.lanes.iter().find(|(candidate, _)| candidate == lane) {
+                Some((_, leaf_id)) => leaf_id.clone(),
+                None => return Err(invalid_mutation(format!("references missing lane {lane}"))),
+            };
+            if entry.parent_id != leaf_id {
+                return Err(invalid_mutation("does not chain to the lane leaf"));
+            }
+        }
+        if let Some(parent_id) = &entry.parent_id
+            && !self.entries_by_id.contains_key(parent_id)
+        {
+            return Err(invalid_mutation(format!("references missing parent {parent_id}")));
+        }
+        Ok(())
+    }
+
     fn apply_record(&mut self, record: &LaneRecord) -> Result<(), SessionError> {
+        self.validate_record_identity(record)?;
+        self.sequence = record.seq;
+        self.used_ids.insert(record.id().to_owned());
+        self.records.push(record.clone());
+        self.track_open_operation(record);
+        self.log.push(LogItem::Record {
+            seq: record.seq,
+            record: record.clone(),
+        });
+        self.accumulate_usage(record);
+        Ok(())
+    }
+
+    fn validate_record_identity(&self, record: &LaneRecord) -> Result<(), SessionError> {
         if !self.lanes.iter().any(|(lane, _)| lane == record.lane()) {
             return Err(invalid_mutation(format!("references missing lane {}", record.lane())));
         }
         if self.used_ids.contains(record.id()) {
             return Err(invalid_mutation(format!("contains duplicate id {}", record.id())));
         }
+        Ok(())
+    }
 
-        self.sequence = record.seq;
-        self.used_ids.insert(record.id().to_owned());
-        self.records.push(record.clone());
+    fn track_open_operation(&mut self, record: &LaneRecord) {
         match record.record_type() {
             RecordType::OperationStarted => {
                 self.open_operations_by_lane
@@ -233,17 +251,16 @@ impl SessionState {
             }
             _ => {}
         }
-        self.log.push(LogItem::Record {
-            seq: record.seq,
-            record: record.clone(),
-        });
-        if let Some(usage) = record.body.usage() {
-            self.stats.cached_tokens += usage.cache_read;
-            self.stats.uncached_tokens += usage.input + usage.cache_write;
-            self.stats.total_tokens += usage.total_tokens;
-            self.stats.cost_total += usage.cost.total;
-        }
-        Ok(())
+    }
+
+    fn accumulate_usage(&mut self, record: &LaneRecord) {
+        let Some(usage) = record.body.usage() else {
+            return;
+        };
+        self.stats.cached_tokens += usage.cache_read;
+        self.stats.uncached_tokens += usage.input + usage.cache_write;
+        self.stats.total_tokens += usage.total_tokens;
+        self.stats.cost_total += usage.cost.total;
     }
 
     fn apply_fact(&mut self, seq: i64, fact: &FactItem) -> Result<(), SessionError> {
@@ -294,34 +311,44 @@ impl SessionState {
     pub fn find_entries_on_branch(&self, query: &StorageBranchQuery) -> Result<Vec<Entry>, SessionError> {
         assert_valid_limit(query.entry.limit)?;
         assert_valid_cursor(query.entry.cursor.map(|cursor| cursor.after_seq))?;
-        let mut results = Vec::new();
-        let limit = query.entry.limit.unwrap_or(usize::MAX);
         if query.entry.order == Some(EntryOrder::OldestFirst) {
-            let mut path: Vec<Entry> = self.walk_to_root(&query.start, None)?;
-            path.reverse();
-            for entry in path {
-                let reached_bound =
-                    Some(entry.id()) == query.stop_at_id.as_deref() || Some(entry.entry_type()) == query.stop_at_type;
-                if matches_entry_query(&entry, &query.entry) {
-                    results.push(entry);
-                }
-                if reached_bound || results.len() == limit {
-                    break;
-                }
+            return self.find_branch_oldest_first(query);
+        }
+        self.find_branch_newest_first(query)
+    }
+
+    fn find_branch_oldest_first(&self, query: &StorageBranchQuery) -> Result<Vec<Entry>, SessionError> {
+        let mut path: Vec<Entry> = self.walk_to_root(&query.start, None)?;
+        path.reverse();
+        let limit = query.entry.limit.unwrap_or(usize::MAX);
+        let mut results = Vec::new();
+        for entry in path {
+            let reached_bound =
+                Some(entry.id()) == query.stop_at_id.as_deref() || Some(entry.entry_type()) == query.stop_at_type;
+            if matches_entry_query(&entry, &query.entry) {
+                results.push(entry);
             }
-        } else {
-            let bounds = BranchBounds {
-                start: Some(query.start.clone()),
-                stop_at_type: query.stop_at_type,
-                stop_at_id: query.stop_at_id.clone(),
-            };
-            for entry in self.walk_to_root(&query.start, Some(&bounds))? {
-                if matches_entry_query(&entry, &query.entry) {
-                    results.push(entry);
-                }
-                if results.len() == limit {
-                    break;
-                }
+            if reached_bound || results.len() == limit {
+                break;
+            }
+        }
+        Ok(results)
+    }
+
+    fn find_branch_newest_first(&self, query: &StorageBranchQuery) -> Result<Vec<Entry>, SessionError> {
+        let bounds = BranchBounds {
+            start: Some(query.start.clone()),
+            stop_at_type: query.stop_at_type,
+            stop_at_id: query.stop_at_id.clone(),
+        };
+        let limit = query.entry.limit.unwrap_or(usize::MAX);
+        let mut results = Vec::new();
+        for entry in self.walk_to_root(&query.start, Some(&bounds))? {
+            if matches_entry_query(&entry, &query.entry) {
+                results.push(entry);
+            }
+            if results.len() == limit {
+                break;
             }
         }
         Ok(results)
@@ -385,78 +412,9 @@ impl SessionState {
     }
 
     pub fn create_fork_mutations(&self, options: &ForkOptions) -> Result<Vec<SessionMutation>, SessionError> {
-        let (copied_entries, fork_lanes) = match options {
-            ForkOptions::Tree => (
-                self.find_entries(&EntryQuery {
-                    order: Some(EntryOrder::OldestFirst),
-                    ..EntryQuery::default()
-                })?,
-                self.get_lanes(),
-            ),
-            _ => {
-                let selected_entry_id = match options {
-                    ForkOptions::Branch | ForkOptions::BranchDefaultBefore => self.require_lane("main")?,
-                    ForkOptions::BranchAt { entry_id } | ForkOptions::BranchBefore { entry_id } => {
-                        Some(entry_id.clone())
-                    }
-                    ForkOptions::Tree => unreachable!(),
-                };
-                let target_id = match selected_entry_id {
-                    None => None,
-                    Some(selected) => {
-                        let entry = self
-                            .get_entry(&selected)
-                            .filter(|entry| entry.entry_type() == EntryType::Message);
-                        let Some(entry) = entry else {
-                            return Err(SessionError::new(
-                                SessionErrorCode::InvalidForkTarget,
-                                format!("Fork target is not a message entry: {selected}"),
-                            ));
-                        };
-                        match options {
-                            ForkOptions::BranchBefore { .. } | ForkOptions::BranchDefaultBefore => {
-                                entry.parent_id.clone()
-                            }
-                            _ => Some(entry.id().to_owned()),
-                        }
-                    }
-                };
-                let copied = match &target_id {
-                    None => Vec::new(),
-                    Some(start) => self.find_entries_on_branch(&StorageBranchQuery {
-                        entry: EntryQuery {
-                            order: Some(EntryOrder::OldestFirst),
-                            ..EntryQuery::default()
-                        },
-                        start: start.clone(),
-                        stop_at_type: None,
-                        stop_at_id: None,
-                    })?,
-                };
-                (
-                    copied,
-                    vec![LanePointer {
-                        lane: "main".to_owned(),
-                        leaf_id: target_id,
-                    }],
-                )
-            }
-        };
-
-        let mut mutations = Vec::new();
-        let mut sequence = 1_i64;
-        for source_entry in &copied_entries {
-            mutations.push(SessionMutation::Entry {
-                lane: None,
-                entry: Entry {
-                    body: source_entry.body.clone(),
-                    parent_id: source_entry.parent_id.clone(),
-                    seq: sequence,
-                    timestamp: source_entry.timestamp,
-                },
-            });
-            sequence += 1;
-        }
+        let (copied_entries, fork_lanes) = self.fork_sources(options)?;
+        let mut mutations = fork_entry_mutations(&copied_entries);
+        let mut sequence = mutations.len() as i64 + 1;
         for pointer in &fork_lanes {
             mutations.push(SessionMutation::Lane {
                 seq: sequence,
@@ -474,32 +432,88 @@ impl SessionState {
             });
             sequence += 1;
         }
-        for entry in &copied_entries {
-            if let Some(label) = self.labels.get(entry.id()) {
-                mutations.push(SessionMutation::Fact {
-                    seq: sequence,
-                    fact: FactItem::Label {
-                        target_id: entry.id().to_owned(),
-                        label: Some(label.clone()),
-                    },
-                });
-                sequence += 1;
-            }
-        }
+        mutations.extend(self.fork_label_mutations(&copied_entries, sequence));
         Ok(mutations)
+    }
+
+    fn fork_label_mutations(&self, copied_entries: &[Entry], mut sequence: i64) -> Vec<SessionMutation> {
+        let mut mutations = Vec::new();
+        for entry in copied_entries {
+            let Some(label) = self.labels.get(entry.id()) else {
+                continue;
+            };
+            mutations.push(SessionMutation::Fact {
+                seq: sequence,
+                fact: FactItem::Label {
+                    target_id: entry.id().to_owned(),
+                    label: Some(label.clone()),
+                },
+            });
+            sequence += 1;
+        }
+        mutations
+    }
+
+    fn fork_sources(&self, options: &ForkOptions) -> Result<(Vec<Entry>, Vec<LanePointer>), SessionError> {
+        if matches!(options, ForkOptions::Tree) {
+            let entries = self.find_entries(&EntryQuery {
+                order: Some(EntryOrder::OldestFirst),
+                ..EntryQuery::default()
+            })?;
+            return Ok((entries, self.get_lanes()));
+        }
+        let target_id = self.fork_target(options)?;
+        let entries = match &target_id {
+            None => Vec::new(),
+            Some(start) => self.find_entries_on_branch(&StorageBranchQuery {
+                entry: EntryQuery {
+                    order: Some(EntryOrder::OldestFirst),
+                    ..EntryQuery::default()
+                },
+                start: start.clone(),
+                stop_at_type: None,
+                stop_at_id: None,
+            })?,
+        };
+        let lanes = vec![LanePointer {
+            lane: "main".to_owned(),
+            leaf_id: target_id,
+        }];
+        Ok((entries, lanes))
+    }
+
+    fn fork_target(&self, options: &ForkOptions) -> Result<Option<String>, SessionError> {
+        let selected_entry_id = match options {
+            ForkOptions::Branch | ForkOptions::BranchDefaultBefore => self.require_lane("main")?,
+            ForkOptions::BranchAt { entry_id } | ForkOptions::BranchBefore { entry_id } => Some(entry_id.clone()),
+            ForkOptions::Tree => unreachable!("tree forks do not select a branch target"),
+        };
+        let Some(selected) = selected_entry_id else {
+            return Ok(None);
+        };
+        let Some(entry) = self
+            .get_entry(&selected)
+            .filter(|entry| entry.entry_type() == EntryType::Message)
+        else {
+            return Err(SessionError::new(
+                SessionErrorCode::InvalidForkTarget,
+                format!("Fork target is not a message entry: {selected}"),
+            ));
+        };
+        let before = matches!(
+            options,
+            ForkOptions::BranchBefore { .. } | ForkOptions::BranchDefaultBefore
+        );
+        Ok(if before {
+            entry.parent_id.clone()
+        } else {
+            Some(entry.id().to_owned())
+        })
     }
 
     fn walk_to_root(&self, start: &str, bounds: Option<&BranchBounds>) -> Result<Vec<Entry>, SessionError> {
         let mut visited = HashSet::new();
-        let mut current = match self.get_entry(start) {
-            Some(entry) => entry.clone(),
-            None => {
-                return Err(SessionError::new(
-                    SessionErrorCode::NotFound,
-                    format!("Entry not found: {start}"),
-                ));
-            }
-        };
+        let mut current = self.entry_or_not_found(start)?;
         let mut path = Vec::new();
         loop {
             if !visited.insert(current.id().to_owned()) {
@@ -509,25 +523,58 @@ impl SessionState {
                 ));
             }
             let parent_id = current.parent_id.clone();
-            let reached_bound = Some(current.id()) == bounds.and_then(|bounds| bounds.stop_at_id.as_deref())
-                || Some(current.entry_type()) == bounds.and_then(|bounds| bounds.stop_at_type);
+            let stop = reached_bound(&current, bounds) || parent_id.is_none();
             path.push(current);
-            if reached_bound || parent_id.is_none() {
+            if stop {
                 break;
             }
-            let parent_id = parent_id.expect("parent checked above");
-            current = match self.get_entry(&parent_id) {
-                Some(entry) => entry.clone(),
-                None => {
-                    return Err(SessionError::new(
-                        SessionErrorCode::InvalidEntry,
-                        format!("Entry not found: {parent_id}"),
-                    ));
-                }
-            };
+            current = self.entry_or_invalid(parent_id.expect("parent checked above"))?;
         }
         Ok(path)
     }
+
+    fn entry_or_not_found(&self, id: &str) -> Result<Entry, SessionError> {
+        match self.get_entry(id) {
+            Some(entry) => Ok(entry.clone()),
+            None => Err(SessionError::new(
+                SessionErrorCode::NotFound,
+                format!("Entry not found: {id}"),
+            )),
+        }
+    }
+
+    fn entry_or_invalid(&self, id: String) -> Result<Entry, SessionError> {
+        match self.get_entry(&id) {
+            Some(entry) => Ok(entry.clone()),
+            None => Err(SessionError::new(
+                SessionErrorCode::InvalidEntry,
+                format!("Entry not found: {id}"),
+            )),
+        }
+    }
+}
+
+fn reached_bound(entry: &Entry, bounds: Option<&BranchBounds>) -> bool {
+    let Some(bounds) = bounds else {
+        return false;
+    };
+    Some(entry.id()) == bounds.stop_at_id.as_deref() || Some(entry.entry_type()) == bounds.stop_at_type
+}
+
+fn fork_entry_mutations(copied_entries: &[Entry]) -> Vec<SessionMutation> {
+    copied_entries
+        .iter()
+        .enumerate()
+        .map(|(index, source_entry)| SessionMutation::Entry {
+            lane: None,
+            entry: Entry {
+                body: source_entry.body.clone(),
+                parent_id: source_entry.parent_id.clone(),
+                seq: index as i64 + 1,
+                timestamp: source_entry.timestamp,
+            },
+        })
+        .collect()
 }
 
 fn matches_entry_query(entry: &Entry, query: &EntryQuery) -> bool {

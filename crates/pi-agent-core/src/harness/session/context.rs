@@ -42,43 +42,54 @@ pub struct SessionContextBuildOptions {
     pub entry_projectors: HashMap<String, CustomEntryContextMessageProjector>,
 }
 
-fn derive_session_context_state(path_entries: &[Entry]) -> (String, Option<SessionModel>, Option<Vec<String>>) {
-    let mut thinking_level = "off".to_owned();
-    let mut model = None;
-    let mut active_tool_names = None;
+struct ContextState {
+    thinking_level: String,
+    model: Option<SessionModel>,
+    active_tool_names: Option<Vec<String>>,
+}
 
-    for entry in path_entries {
-        match &entry.body {
-            crate::harness::session::types::EntryBody::ThinkingLevelChange {
-                thinking_level: level, ..
-            } => {
-                thinking_level = level.clone();
-            }
-            crate::harness::session::types::EntryBody::ModelChange { provider, model_id, .. } => {
-                model = Some(SessionModel {
-                    provider: provider.clone(),
-                    model_id: model_id.clone(),
-                });
-            }
-            crate::harness::session::types::EntryBody::Message { message, .. } => {
-                if let Some(assistant) = message.as_assistant() {
-                    model = Some(SessionModel {
-                        provider: assistant.provider.clone(),
-                        model_id: assistant.model.clone(),
-                    });
-                }
-            }
-            crate::harness::session::types::EntryBody::ActiveToolsChange {
-                active_tool_names: names,
-                ..
-            } => {
-                active_tool_names = Some(names.clone());
-            }
-            _ => {}
+impl Default for ContextState {
+    fn default() -> Self {
+        Self {
+            thinking_level: "off".to_owned(),
+            model: None,
+            active_tool_names: None,
         }
     }
+}
 
-    (thinking_level, model, active_tool_names)
+fn derive_session_context_state(path_entries: &[Entry]) -> ContextState {
+    let mut state = ContextState::default();
+    for entry in path_entries {
+        apply_context_state(&mut state, entry);
+    }
+    state
+}
+
+fn apply_context_state(state: &mut ContextState, entry: &Entry) {
+    match &entry.body {
+        crate::harness::session::types::EntryBody::ThinkingLevelChange { thinking_level, .. } => {
+            state.thinking_level = thinking_level.clone();
+        }
+        crate::harness::session::types::EntryBody::ModelChange { provider, model_id, .. } => {
+            state.model = Some(SessionModel {
+                provider: provider.clone(),
+                model_id: model_id.clone(),
+            });
+        }
+        crate::harness::session::types::EntryBody::Message { message, .. } => {
+            if let Some(assistant) = message.as_assistant() {
+                state.model = Some(SessionModel {
+                    provider: assistant.provider.clone(),
+                    model_id: assistant.model.clone(),
+                });
+            }
+        }
+        crate::harness::session::types::EntryBody::ActiveToolsChange { active_tool_names, .. } => {
+            state.active_tool_names = Some(active_tool_names.clone());
+        }
+        _ => {}
+    }
 }
 
 /// Keep the latest compaction and everything after it.
@@ -114,48 +125,73 @@ pub fn session_entry_to_context_messages(
     options: &SessionContextBuildOptions,
 ) -> Vec<AgentMessage> {
     match &entry.body {
-        crate::harness::session::types::EntryBody::Message { message, .. } => {
-            if message
-                .as_assistant()
-                .is_some_and(|assistant| assistant.stop_reason == pi_ai::types::StopReason::Deferred)
-            {
-                return Vec::new();
-            }
-            vec![message.clone()]
-        }
+        crate::harness::session::types::EntryBody::Message { message, .. } => message_entry_messages(message),
         crate::harness::session::types::EntryBody::Compaction {
             summary,
             tokens_before,
             retained_tail,
             ..
-        } => {
-            let mut messages = vec![create_compaction_summary_message(
-                summary,
-                *tokens_before,
-                entry.timestamp,
-                &CompactionSummaryOptions::default(),
-            )];
-            messages.extend(retained_tail.iter().cloned());
-            messages
-        }
+        } => compaction_messages(summary, *tokens_before, entry.timestamp, retained_tail),
         crate::harness::session::types::EntryBody::BranchSummary { summary, from_id, .. } => {
-            if summary.is_empty() {
-                return Vec::new();
-            }
-            vec![create_branch_summary_message(summary, from_id, entry.timestamp)]
+            branch_summary_messages(summary, from_id, entry.timestamp)
         }
-        crate::harness::session::types::EntryBody::Custom { custom_type, .. } => options
-            .entry_projectors
-            .get(custom_type)
-            .and_then(|projector| projector(entry, index, entries))
-            .unwrap_or_default(),
+        crate::harness::session::types::EntryBody::Custom { custom_type, .. } => {
+            custom_entry_messages(entry, custom_type, index, entries, options)
+        }
         _ => Vec::new(),
     }
 }
 
+fn message_entry_messages(message: &AgentMessage) -> Vec<AgentMessage> {
+    if message
+        .as_assistant()
+        .is_some_and(|assistant| assistant.stop_reason == pi_ai::types::StopReason::Deferred)
+    {
+        return Vec::new();
+    }
+    vec![message.clone()]
+}
+
+fn compaction_messages(
+    summary: &str,
+    tokens_before: f64,
+    timestamp: i64,
+    retained_tail: &[AgentMessage],
+) -> Vec<AgentMessage> {
+    let mut messages = vec![create_compaction_summary_message(
+        summary,
+        tokens_before,
+        timestamp,
+        &CompactionSummaryOptions::default(),
+    )];
+    messages.extend(retained_tail.iter().cloned());
+    messages
+}
+
+fn branch_summary_messages(summary: &str, from_id: &str, timestamp: i64) -> Vec<AgentMessage> {
+    if summary.is_empty() {
+        return Vec::new();
+    }
+    vec![create_branch_summary_message(summary, from_id, timestamp)]
+}
+
+fn custom_entry_messages(
+    entry: &Entry,
+    custom_type: &str,
+    index: usize,
+    entries: &[Entry],
+    options: &SessionContextBuildOptions,
+) -> Vec<AgentMessage> {
+    options
+        .entry_projectors
+        .get(custom_type)
+        .and_then(|projector| projector(entry, index, entries))
+        .unwrap_or_default()
+}
+
 /// Build the full session context from a branch path.
 pub fn build_session_context(path_entries: &[Entry], options: &SessionContextBuildOptions) -> SessionContext {
-    let (thinking_level, model, active_tool_names) = derive_session_context_state(path_entries);
+    let state = derive_session_context_state(path_entries);
     let context_entries = build_context_entries(path_entries, options);
     let mut messages = Vec::new();
     for (index, entry) in context_entries.iter().enumerate() {
@@ -168,8 +204,8 @@ pub fn build_session_context(path_entries: &[Entry], options: &SessionContextBui
     }
     SessionContext {
         messages,
-        thinking_level,
-        model,
-        active_tool_names,
+        thinking_level: state.thinking_level,
+        model: state.model,
+        active_tool_names: state.active_tool_names,
     }
 }

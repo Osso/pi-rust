@@ -62,24 +62,12 @@ fn decode_header(line: &str) -> Result<JsonlV4Header, JsonlDecodeError> {
     if value.get("version").and_then(Value::as_u64) != Some(4) {
         return Err(schema_error("has unsupported session version"));
     }
-    let parent_session_id = match value.get("parentSessionId") {
-        None => None,
-        Some(Value::String(text)) => Some(text.clone()),
-        Some(_) => return Err(schema_error("has invalid parentSessionId")),
-    };
-    let legacy_parent_session_path = match value.get("legacyParentSessionPath") {
-        None => None,
-        Some(Value::String(text)) => Some(text.clone()),
-        Some(_) => return Err(schema_error("has invalid legacyParentSessionPath")),
-    };
+    let parent_session_id = decode_optional_string(&value, "parentSessionId", "has invalid parentSessionId")?;
+    let legacy_parent_session_path =
+        decode_optional_string(&value, "legacyParentSessionPath", "has invalid legacyParentSessionPath")?;
     if parent_session_id.is_some() && legacy_parent_session_path.is_some() {
         return Err(schema_error("has both parentSessionId and legacyParentSessionPath"));
     }
-    let metadata = match value.get("metadata") {
-        None => None,
-        Some(Value::Object(object)) => Some(object.clone()),
-        Some(_) => return Err(schema_error("has invalid metadata")),
-    };
     Ok(JsonlV4Header {
         kind: HeaderKind::Header,
         version: 4,
@@ -88,8 +76,28 @@ fn decode_header(line: &str) -> Result<JsonlV4Header, JsonlDecodeError> {
         cwd: require_string(value.get("cwd"), "cwd")?,
         parent_session_id,
         legacy_parent_session_path,
-        metadata,
+        metadata: decode_metadata(&value)?,
     })
+}
+
+fn decode_optional_string(
+    value: &Map<String, Value>,
+    key: &str,
+    message: &str,
+) -> Result<Option<String>, JsonlDecodeError> {
+    match value.get(key) {
+        None => Ok(None),
+        Some(Value::String(text)) => Ok(Some(text.clone())),
+        Some(_) => Err(schema_error(message)),
+    }
+}
+
+fn decode_metadata(value: &Map<String, Value>) -> Result<Option<JsonObject>, JsonlDecodeError> {
+    match value.get("metadata") {
+        None => Ok(None),
+        Some(Value::Object(object)) => Ok(Some(object.clone())),
+        Some(_) => Err(schema_error("has invalid metadata")),
+    }
 }
 
 /// Parse a session header line.
@@ -207,35 +215,38 @@ fn parse_lane_mutation(value: &Map<String, Value>, seq: i64) -> Result<SessionMu
 }
 
 fn parse_fact_mutation(value: &Map<String, Value>, seq: i64) -> Result<SessionMutation, JsonlDecodeError> {
-    use crate::harness::session::types::FactItem;
     match value.get("fact").and_then(Value::as_str) {
-        Some("name") => {
-            let name = match value.get("name") {
-                None => None,
-                Some(Value::String(name)) => Some(name.clone()),
-                Some(_) => return Err(schema_error("has invalid name")),
-            };
-            Ok(SessionMutation::Fact {
-                seq,
-                fact: FactItem::Name { name },
-            })
-        }
-        Some("label") => {
-            let label = match value.get("label") {
-                None => None,
-                Some(Value::String(label)) => Some(label.clone()),
-                Some(_) => return Err(schema_error("has invalid label")),
-            };
-            Ok(SessionMutation::Fact {
-                seq,
-                fact: FactItem::Label {
-                    target_id: require_string(value.get("targetId"), "targetId")?,
-                    label,
-                },
-            })
-        }
+        Some("name") => parse_name_fact(value, seq),
+        Some("label") => parse_label_fact(value, seq),
         _ => Err(schema_error("has unknown fact type")),
     }
+}
+
+fn parse_name_fact(value: &Map<String, Value>, seq: i64) -> Result<SessionMutation, JsonlDecodeError> {
+    let name = match value.get("name") {
+        None => None,
+        Some(Value::String(name)) => Some(name.clone()),
+        Some(_) => return Err(schema_error("has invalid name")),
+    };
+    Ok(SessionMutation::Fact {
+        seq,
+        fact: crate::harness::session::types::FactItem::Name { name },
+    })
+}
+
+fn parse_label_fact(value: &Map<String, Value>, seq: i64) -> Result<SessionMutation, JsonlDecodeError> {
+    let label = match value.get("label") {
+        None => None,
+        Some(Value::String(label)) => Some(label.clone()),
+        Some(_) => return Err(schema_error("has invalid label")),
+    };
+    Ok(SessionMutation::Fact {
+        seq,
+        fact: crate::harness::session::types::FactItem::Label {
+            target_id: require_string(value.get("targetId"), "targetId")?,
+            label,
+        },
+    })
 }
 
 fn decode_mutation(line: &str) -> Result<SessionMutation, JsonlDecodeError> {

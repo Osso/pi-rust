@@ -171,23 +171,28 @@ fn normalize(path: &Path) -> PathBuf {
     parts.iter().collect()
 }
 
+fn file_kind(metadata: &fs::Metadata, path: &Path) -> Result<FileKind, FileError> {
+    let file_type = metadata.file_type();
+    if file_type.is_symlink() {
+        return Ok(FileKind::Symlink);
+    }
+    if file_type.is_dir() {
+        return Ok(FileKind::Directory);
+    }
+    if file_type.is_file() {
+        return Ok(FileKind::File);
+    }
+    Err(FileError::new(
+        FileErrorCode::Invalid,
+        "Unsupported file type",
+        Some(path.to_string_lossy().into_owned()),
+        None,
+    ))
+}
+
 fn file_info_from_path(path: &Path) -> Result<FileInfo, FileError> {
     let metadata = fs::symlink_metadata(path).map_err(|error| file_error(&error, path))?;
-    let file_type = metadata.file_type();
-    let kind = if file_type.is_symlink() {
-        FileKind::Symlink
-    } else if file_type.is_dir() {
-        FileKind::Directory
-    } else if file_type.is_file() {
-        FileKind::File
-    } else {
-        return Err(FileError::new(
-            FileErrorCode::Invalid,
-            "Unsupported file type",
-            Some(path.to_string_lossy().into_owned()),
-            None,
-        ));
-    };
+    let kind = file_kind(&metadata, path)?;
     let mtime_ms = metadata
         .modified()
         .ok()
