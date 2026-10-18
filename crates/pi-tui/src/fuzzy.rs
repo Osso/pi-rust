@@ -4,6 +4,8 @@
 //! Lower score is better. Ported from `packages/tui/src/fuzzy.ts`; scoring runs
 //! over UTF-16 code units so astral characters keep the TypeScript index weights.
 
+use crate::js_compat::{is_js_whitespace_char, is_js_whitespace_unit, js_trim};
+
 /// Result of a fuzzy match attempt.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FuzzyMatch {
@@ -106,33 +108,6 @@ fn match_query(normalized_query: &str, text_lower: &str) -> FuzzyMatch {
 
 fn is_word_boundary_unit(unit: u16) -> bool {
     matches!(unit, 0x20 | 0x2d | 0x5f | 0x2e | 0x2f | 0x3a) || is_js_whitespace_unit(unit)
-}
-
-/// ECMAScript `\s` / `trim()` whitespace code units.
-fn is_js_whitespace_unit(unit: u16) -> bool {
-    matches!(
-        unit,
-        0x0009..=0x000d
-            | 0x0020
-            | 0x00a0
-            | 0x1680
-            | 0x2000..=0x200a
-            | 0x2028
-            | 0x2029
-            | 0x202f
-            | 0x205f
-            | 0x3000
-            | 0xfeff
-    )
-}
-
-fn is_js_whitespace_char(ch: char) -> bool {
-    ch.len_utf16() == 1 && is_js_whitespace_unit(ch as u16)
-}
-
-/// ECMAScript `String.prototype.trim`.
-pub(crate) fn js_trim(value: &str) -> &str {
-    value.trim_matches(is_js_whitespace_char)
 }
 
 fn swapped_alphanumeric(query_lower: &str) -> Option<String> {

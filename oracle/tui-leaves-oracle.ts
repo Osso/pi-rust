@@ -76,6 +76,12 @@ function simulateKillRing(api: KillRingApi, operations: KillRingOperation[]): un
 	return { snapshots, length: ring.length, entries };
 }
 
+type TerminalColorsApi = {
+	parseOsc11BackgroundColor(data: string): { r: number; g: number; b: number } | undefined;
+	isOsc11BackgroundColorResponse(data: string): boolean;
+	parseTerminalColorSchemeReport(data: string): "dark" | "light" | undefined;
+};
+
 async function loadApi(sourceDirectory: string, moduleName: string): Promise<unknown> {
 	return import(pathToFileURL(path.join(sourceDirectory, moduleName)).href);
 }
@@ -105,6 +111,17 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 			const api = (await loadApi(sourceDirectory, "kill-ring.ts")) as KillRingApi;
 			const cases = requireArray<KillRingOperation[]>(request, "cases");
 			return { results: cases.map((operations) => simulateKillRing(api, operations)) };
+		}
+		case "terminal_colors": {
+			const api = (await loadApi(sourceDirectory, "terminal-colors.ts")) as TerminalColorsApi;
+			const cases = requireArray<string>(request, "cases");
+			return {
+				results: cases.map((data) => ({
+					rgb: api.parseOsc11BackgroundColor(data) ?? null,
+					isResponse: api.isOsc11BackgroundColorResponse(data),
+					scheme: api.parseTerminalColorSchemeReport(data) ?? null,
+				})),
+			};
 		}
 		default:
 			throw new Error(`unsupported operation: ${request.operation}`);
