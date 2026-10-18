@@ -148,3 +148,4 @@ No runtime dependencies. CBOR encoding and decoding are hand-written against the
 
 - `serde = 1.0.229` — derives typed JSON-lines request and response structures for differential tests.
 - `serde_json = 1.0.151` — differential-oracle transport (including `pi-tui`) and typed protocol/RPC/truncation/harness-error/metadata/resource/auth/config-value messages. Public-index type proofs use the pinned TypeScript toolchain without adding a Rust dependency.
+

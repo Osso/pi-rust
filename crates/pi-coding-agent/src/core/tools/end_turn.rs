@@ -98,3 +98,12 @@ impl AgentHarnessTool<ExtensionContext> for EndTurnTool {
         })
     }
 }
+
+/// `createEndTurnToolDefinition()`.
+pub fn create_end_turn_tool_definition() -> crate::core::extensions::types::ToolDefinition {
+    let mut definition =
+        crate::core::extensions::wrapper::harness_tool_definition(std::sync::Arc::new(EndTurnTool::new()));
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition
+}

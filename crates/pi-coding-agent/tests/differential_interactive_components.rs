@@ -1,3 +1,5 @@
+#[path = "support/agent_session_fixture.rs"]
+mod agent_session_fixture;
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -5,24 +7,56 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use pi_coding_agent::core::extensions::types::{MarkdownMessageType, MarkdownTransformer};
+use pi_agent_core::harness::messages::{BranchSummaryMessage, BranchSummaryRole};
+use pi_ai::types::{
+    AssistantContent, AssistantMessage, AssistantRole, StopReason, TextContent, ThinkingContent, ToolCall, Usage,
+};
+use pi_coding_agent::core::extensions::types::{
+    CustomMessageContent, CustomMessageValue, MarkdownMessageType, MarkdownTransformContext, MarkdownTransformer,
+    MessageRenderOptions, RenderShell, ToolDefinition,
+};
+use pi_coding_agent::core::keybindings::KeybindingsManager;
+use pi_coding_agent::core::messages::{CompactionSummaryMessage, CompactionSummaryRole};
 use pi_coding_agent::core::package_manager::{
     MetadataOrigin, PathMetadata, ResolvedPaths, ResolvedResource, SourceScope,
 };
 use pi_coding_agent::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
+use pi_coding_agent::modes::interactive::components::assistant_message::AssistantMessageComponent;
+use pi_coding_agent::modes::interactive::components::bash_execution::{BashExecutionComponent, BashExecutionOptions};
+use pi_coding_agent::modes::interactive::components::bordered_loader::{BorderedLoader, BorderedLoaderOptions};
+use pi_coding_agent::modes::interactive::components::branch_summary_message::BranchSummaryMessageComponent;
+use pi_coding_agent::modes::interactive::components::compaction_summary_message::CompactionSummaryMessageComponent;
 use pi_coding_agent::modes::interactive::components::config_selector::{
     ConfigSelectorComponent, ConfigSelectorOptions, ConfigWriteScope, ScopedResolvedPaths,
 };
+use pi_coding_agent::modes::interactive::components::custom_entry::CustomEntryComponent;
+use pi_coding_agent::modes::interactive::components::custom_message::CustomMessageComponent;
 use pi_coding_agent::modes::interactive::components::diff::render_diff;
 use pi_coding_agent::modes::interactive::components::elapsed_time::format_elapsed_duration;
+use pi_coding_agent::modes::interactive::components::extension_editor::{
+    ExtensionEditorComponent, ExtensionEditorHost,
+};
+use pi_coding_agent::modes::interactive::components::extension_input::{
+    ExtensionInputComponent, ExtensionInputOptions,
+};
+use pi_coding_agent::modes::interactive::components::first_time_setup::{
+    FirstTimeSetupComponent, FirstTimeSetupOptions,
+};
 use pi_coding_agent::modes::interactive::components::keybinding_hints::{
     KeyTextFormatOptions, format_key_text, key_display_text, key_hint, key_text, raw_key_hint,
 };
 use pi_coding_agent::modes::interactive::components::markdown_transform::create_markdown_transform;
+use pi_coding_agent::modes::interactive::components::status_indicator::{
+    BranchSummaryStatusIndicator, CompactionStatusIndicator, CompactionStatusReason, IdleStatus, RetryStatusIndicator,
+    WorkingStatusIndicator,
+};
+use pi_coding_agent::modes::interactive::components::user_message::UserMessageComponent;
 use pi_coding_agent::modes::interactive::components::visual_truncate::truncate_to_visual_lines;
 use pi_coding_agent::modes::interactive::model_search::{ModelSearchItem, get_model_search_candidates};
-use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, REQUIRED_COLORS, Theme, set_theme_instance};
-use pi_tui::Component;
+use pi_coding_agent::modes::interactive::theme::{
+    ColorMode, ColorValue, REQUIRED_COLORS, TerminalTheme, Theme, set_theme_instance,
+};
+use pi_tui::{Component, Text};
 use serde_json::{Value, json};
 
 fn install_theme() -> Arc<Theme> {
@@ -65,6 +99,24 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(model_search_cases());
     cases.extend(diff_cases());
     cases.extend(config_selector_cases());
+    cases.extend(branch_summary_cases());
+    cases.extend(compaction_summary_cases());
+    cases.extend(assistant_message_cases());
+    cases.extend(user_message_cases());
+    cases.extend(bordered_loader_cases());
+    cases.extend(status_indicator_cases());
+    cases.extend(extension_input_cases());
+    cases.extend(extension_editor_cases());
+    cases.extend(first_time_setup_cases());
+    cases.extend(custom_entry_cases());
+    cases.extend(custom_message_cases());
+    cases.extend(bash_execution_cases());
+    cases.extend(tree_selector_cases());
+    cases.extend(session_selector_cases());
+    cases.extend(footer_helper_cases());
+    cases.extend(footer_cases());
+    cases.extend(tool_execution_cases());
+    cases.extend(tool_renderer_cases());
     cases
 }
 
@@ -377,4 +429,1683 @@ fn config_selector_cases() -> Vec<(Value, Value)> {
             "renders": renders,
         }),
     )]
+}
+
+fn branch_summary_cases() -> Vec<(Value, Value)> {
+    let mut cases = Vec::new();
+    for (index, expanded) in [false, true].into_iter().enumerate() {
+        let request = json!({
+            "id": 20 + index,
+            "module": "modes/interactive/components/branch-summary-message.ts",
+            "operation": "branchSummary",
+            "summary": "The branch covered **two** files.\n\n- one\n- two",
+            "fromId": "entry-1",
+            "timestamp": 1_700_000_000_000.0,
+            "expanded": expanded,
+            "width": 60,
+        });
+        let mut component = BranchSummaryMessageComponent::new(
+            BranchSummaryMessage {
+                role: BranchSummaryRole::BranchSummary,
+                summary: "The branch covered **two** files.\n\n- one\n- two".to_owned(),
+                from_id: "entry-1".to_owned(),
+                timestamp: 1_700_000_000_000.0,
+            },
+            None,
+        );
+        component.set_expanded(expanded);
+        cases.push((request, json!(component.render(60))));
+    }
+    cases
+}
+
+fn compaction_message(tokens_before: f64) -> CompactionSummaryMessage {
+    CompactionSummaryMessage {
+        role: CompactionSummaryRole::CompactionSummary,
+        summary: "The summary text.".to_owned(),
+        tokens_before,
+        tokens_after: None,
+        kept_from_previous_context_tokens: None,
+        compacted_result_tokens: None,
+        duration_ms: None,
+        provider_native: None,
+        timestamp: 1_700_000_000_000.0,
+    }
+}
+
+fn compaction_summary_cases() -> Vec<(Value, Value)> {
+    let mut variants = vec![compaction_message(999.0), compaction_message(1234.0)];
+    let mut with_after = compaction_message(286_705.0);
+    with_after.tokens_after = Some(31_234.0);
+    with_after.kept_from_previous_context_tokens = Some(26_667.0);
+    with_after.compacted_result_tokens = Some(4567.0);
+    variants.push(with_after);
+    let mut with_duration = compaction_message(1234.0);
+    with_duration.duration_ms = Some(4567.0);
+    variants.push(with_duration);
+    let mut short_duration = compaction_message(1500.0);
+    short_duration.duration_ms = Some(999.0);
+    variants.push(short_duration);
+
+    let mut cases = Vec::new();
+    for (index, message) in variants.into_iter().enumerate() {
+        for (offset, expanded) in [false, true].into_iter().enumerate() {
+            let request = json!({
+                "id": 30 + index * 2 + offset,
+                "module": "modes/interactive/components/compaction-summary-message.ts",
+                "operation": "compactionSummary",
+                "message": serde_json::to_value(&message).expect("message serializes"),
+                "expanded": expanded,
+                "width": 100,
+            });
+            let mut component = CompactionSummaryMessageComponent::new(message.clone(), None);
+            component.set_expanded(expanded);
+            cases.push((request, json!(component.render(100))));
+        }
+    }
+    cases
+}
+
+fn assistant_fixture(content: Vec<AssistantContent>, stop_reason: StopReason) -> AssistantMessage {
+    AssistantMessage {
+        role: AssistantRole::Tag,
+        content,
+        api: "openai-responses".to_owned(),
+        provider: "openai".to_owned(),
+        model: "gpt-4o-mini".to_owned(),
+        usage: Usage::default(),
+        stop_reason,
+        timestamp: 1_700_000_000_000,
+        response_model: None,
+        response_id: None,
+        image_generation_result: None,
+        diagnostics: None,
+        deferred: None,
+        error_message: None,
+        raw_stop_reason: None,
+        end_turn: None,
+    }
+}
+
+fn assistant_message_cases() -> Vec<(Value, Value)> {
+    let text_only = assistant_fixture(
+        vec![AssistantContent::Text(TextContent::new("hello **world**"))],
+        StopReason::Stop,
+    );
+    let with_tool = assistant_fixture(
+        vec![
+            AssistantContent::Text(TextContent::new("calling tool")),
+            AssistantContent::ToolCall(ToolCall::new(
+                "tool-1",
+                "read",
+                serde_json::json!({"path": "file.txt"})
+                    .as_object()
+                    .cloned()
+                    .expect("object"),
+            )),
+        ],
+        StopReason::ToolUse,
+    );
+    let thinking_and_text = assistant_fixture(
+        vec![
+            AssistantContent::Thinking(ThinkingContent::new("first thought")),
+            AssistantContent::Thinking(ThinkingContent::new("second thought")),
+            AssistantContent::Text(TextContent::new("answer")),
+        ],
+        StopReason::Stop,
+    );
+    let length = assistant_fixture(
+        vec![AssistantContent::Thinking(ThinkingContent::new("private"))],
+        StopReason::Length,
+    );
+    let mut aborted = assistant_fixture(
+        vec![AssistantContent::Text(TextContent::new("partial"))],
+        StopReason::Aborted,
+    );
+    aborted.error_message = Some("Request was aborted".to_owned());
+    let mut error = assistant_fixture(
+        vec![AssistantContent::Text(TextContent::new("partial"))],
+        StopReason::Error,
+    );
+    error.error_message = Some("boom".to_owned());
+
+    let mut cases = Vec::new();
+    let variants: Vec<(AssistantMessage, bool, usize, usize, Vec<Value>)> = vec![
+        (text_only, false, 1, 80, Vec::new()),
+        (with_tool, false, 1, 60, Vec::new()),
+        (thinking_and_text.clone(), false, 1, 80, Vec::new()),
+        (thinking_and_text, true, 1, 80, Vec::new()),
+        (length, true, 1, 80, Vec::new()),
+        (aborted, false, 1, 80, Vec::new()),
+        (error, false, 0, 80, Vec::new()),
+    ];
+    for (index, (message, hide_thinking, output_pad, width, transformers)) in variants.into_iter().enumerate() {
+        let request = json!({
+            "id": 40 + index,
+            "module": "modes/interactive/components/assistant-message.ts",
+            "operation": "assistantMessage",
+            "message": serde_json::to_value(&message).expect("message serializes"),
+            "hideThinkingBlock": hide_thinking,
+            "hiddenThinkingLabel": "Thinking...",
+            "outputPad": output_pad,
+            "transformers": transformers,
+            "width": width,
+        });
+        let mut component = AssistantMessageComponent::new(
+            Some(message),
+            hide_thinking,
+            None,
+            Some("Thinking...".to_owned()),
+            output_pad,
+            Vec::new(),
+        );
+        cases.push((request, json!(component.render(width))));
+    }
+
+    let transformed = assistant_fixture(
+        vec![AssistantContent::Text(TextContent::new("mixed Case"))],
+        StopReason::Stop,
+    );
+    let transformers = json!([{"kind": "upper"}, {"kind": "append", "text": "!"}]);
+    let rust_transformers: Vec<MarkdownTransformer> = vec![
+        Arc::new(|markdown: &str, _context| markdown.to_uppercase()),
+        Arc::new(|markdown: &str, _context| format!("{markdown}!")),
+    ];
+    let request = json!({
+        "id": 50,
+        "module": "modes/interactive/components/assistant-message.ts",
+        "operation": "assistantMessage",
+        "message": serde_json::to_value(&transformed).expect("message serializes"),
+        "hideThinkingBlock": false,
+        "hiddenThinkingLabel": "Thinking...",
+        "outputPad": 1,
+        "transformers": transformers,
+        "width": 80,
+    });
+    let mut component = AssistantMessageComponent::new(
+        Some(transformed),
+        false,
+        None,
+        Some("Thinking...".to_owned()),
+        1,
+        rust_transformers,
+    );
+    cases.push((request, json!(component.render(80))));
+    cases
+}
+
+fn user_message_cases() -> Vec<(Value, Value)> {
+    let variants = [
+        ("hello", 1usize, 40usize, Vec::new()),
+        ("# Heading\n\nSome **bold** text.", 1, 40, Vec::new()),
+        ("1. first\n2. second", 0, 30, Vec::new()),
+        ("mixed Case", 1, 80, vec![json!({"kind": "upper"})]),
+        ("suffix", 1, 80, vec![json!({"kind": "append", "text": "!"})]),
+    ];
+    let mut cases = Vec::new();
+    for (index, (text, output_pad, width, transformers)) in variants.into_iter().enumerate() {
+        let request = json!({
+            "id": 60 + index,
+            "module": "modes/interactive/components/user-message.ts",
+            "operation": "userMessage",
+            "text": text,
+            "outputPad": output_pad,
+            "transformers": transformers,
+            "width": width,
+        });
+        let rust_transformers: Vec<MarkdownTransformer> = transformers
+            .iter()
+            .map(|transformer| match transformer["kind"].as_str() {
+                Some("upper") => {
+                    Arc::new(|markdown: &str, _context: &MarkdownTransformContext| markdown.to_uppercase())
+                        as MarkdownTransformer
+                }
+                Some("append") => {
+                    let suffix = transformer["text"].as_str().unwrap_or_default().to_owned();
+                    Arc::new(move |markdown: &str, _context: &MarkdownTransformContext| format!("{markdown}{suffix}"))
+                        as MarkdownTransformer
+                }
+                other => panic!("unknown transformer {other:?}"),
+            })
+            .collect();
+        let mut component = UserMessageComponent::new(text, None, output_pad, rust_transformers);
+        cases.push((request, json!(component.render(width))));
+    }
+    cases
+}
+
+fn bordered_loader_cases() -> Vec<(Value, Value)> {
+    let mut cases = Vec::new();
+    for (index, cancellable) in [true, false].into_iter().enumerate() {
+        let request = json!({
+            "id": 70 + index,
+            "module": "modes/interactive/components/bordered-loader.ts",
+            "operation": "borderedLoader",
+            "message": "Working...",
+            "cancellable": cancellable,
+            "width": 60,
+        });
+        let mut loader = BorderedLoader::new(
+            std::rc::Rc::new(|| {}),
+            "Working...",
+            BorderedLoaderOptions {
+                cancellable: Some(cancellable),
+            },
+        );
+        let output = json!(loader.render(60));
+        loader.dispose();
+        cases.push((request, output));
+    }
+    cases
+}
+
+fn status_indicator_cases() -> Vec<(Value, Value)> {
+    let mut cases = Vec::new();
+    let mut push = |_id: u64, request: Value, output: Value| cases.push((request, output));
+
+    let mut working = WorkingStatusIndicator::new(std::rc::Rc::new(|| {}), "Working...", None);
+    push(
+        80,
+        json!({
+            "id": 80,
+            "module": "modes/interactive/components/status-indicator.ts",
+            "operation": "statusIndicator",
+            "kind": "working",
+            "message": "Working...",
+            "width": 40,
+        }),
+        json!(working.render(40)),
+    );
+    working.dispose();
+
+    let mut retry = RetryStatusIndicator::new(std::rc::Rc::new(|| {}), 1, 3, 2500);
+    push(
+        81,
+        json!({
+            "id": 81,
+            "module": "modes/interactive/components/status-indicator.ts",
+            "operation": "statusIndicator",
+            "kind": "retry",
+            "attempt": 1,
+            "maxAttempts": 3,
+            "delayMs": 2500,
+            "width": 80,
+        }),
+        json!(retry.render(80)),
+    );
+    retry.dispose();
+
+    for (index, (reason, label)) in [
+        (CompactionStatusReason::Manual, "manual"),
+        (CompactionStatusReason::Threshold, "threshold"),
+        (CompactionStatusReason::Overflow, "overflow"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut indicator = CompactionStatusIndicator::new(std::rc::Rc::new(|| {}), reason);
+        push(
+            82 + index as u64,
+            json!({
+                "id": 82 + index as u64,
+                "module": "modes/interactive/components/status-indicator.ts",
+                "operation": "statusIndicator",
+                "kind": "compaction",
+                "reason": label,
+                "width": 90,
+            }),
+            json!(indicator.render(90)),
+        );
+        indicator.dispose();
+    }
+
+    let mut branch = BranchSummaryStatusIndicator::new(std::rc::Rc::new(|| {}));
+    push(
+        85,
+        json!({
+            "id": 85,
+            "module": "modes/interactive/components/status-indicator.ts",
+            "operation": "statusIndicator",
+            "kind": "branchSummary",
+            "width": 90,
+        }),
+        json!(branch.render(90)),
+    );
+    branch.dispose();
+
+    let mut idle = IdleStatus;
+    push(
+        86,
+        json!({
+            "id": 86,
+            "module": "modes/interactive/components/status-indicator.ts",
+            "operation": "statusIndicator",
+            "kind": "idle",
+            "width": 20,
+        }),
+        json!(idle.render(20)),
+    );
+    cases
+}
+
+fn extension_input_cases() -> Vec<(Value, Value)> {
+    let mut cases = Vec::new();
+    for (index, (title, inputs, width)) in [("Name", vec!["a", "b", "c"], 60usize), ("Name", vec![], 20)]
+        .into_iter()
+        .enumerate()
+    {
+        let request = json!({
+            "id": 90 + index,
+            "module": "modes/interactive/components/extension-input.ts",
+            "operation": "extensionInput",
+            "title": title,
+            "placeholder": null,
+            "inputs": inputs,
+            "width": width,
+        });
+        let mut input = ExtensionInputComponent::new(
+            title,
+            None,
+            std::rc::Rc::new(|_| {}),
+            std::rc::Rc::new(|| {}),
+            ExtensionInputOptions::default(),
+        );
+        for data in &inputs {
+            input.handle_input(data);
+        }
+        cases.push((request, json!(input.render(width))));
+    }
+    cases
+}
+
+fn extension_editor_cases() -> Vec<(Value, Value)> {
+    let mut cases = Vec::new();
+    for (index, (title, prefill, width)) in [("Compose", Some("prefill"), 80usize), ("Compose", None, 40)]
+        .into_iter()
+        .enumerate()
+    {
+        let request = json!({
+            "id": 100 + index,
+            "module": "modes/interactive/components/extension-editor.ts",
+            "operation": "extensionEditor",
+            "title": title,
+            "prefill": prefill,
+            "width": width,
+        });
+        let host: std::rc::Rc<dyn ExtensionEditorHost> = std::rc::Rc::new(TestEditorHost);
+        let mut editor = ExtensionEditorComponent::new(
+            host,
+            KeybindingsManager::new(Default::default(), None),
+            title,
+            prefill,
+            std::rc::Rc::new(|_| {}),
+            std::rc::Rc::new(|| {}),
+            pi_tui::components::editor::EditorOptions::default(),
+            Some("nano".to_owned()),
+        );
+        cases.push((request, json!(editor.render(width))));
+    }
+    cases
+}
+
+struct TestEditorHost;
+
+impl pi_tui::components::editor::EditorHost for TestEditorHost {
+    fn terminal_rows(&self) -> usize {
+        24
+    }
+
+    fn request_render(&self) {}
+
+    fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
+        std::rc::Rc::new(TestFixedCell)
+    }
+}
+
+struct TestFixedCell;
+
+impl pi_tui::components::editor::EditorFixedCell for TestFixedCell {
+    fn place(&self, _row: i64, _col: i64) {}
+    fn clear(&self) {}
+    fn update(&self, _value: &str) -> bool {
+        true
+    }
+}
+
+impl ExtensionEditorHost for TestEditorHost {
+    fn suspend(&self) {}
+    fn resume(&self) {}
+    fn request_forced_render(&self) {}
+}
+
+fn first_time_setup_cases() -> Vec<(Value, Value)> {
+    let mut cases = Vec::new();
+    for (index, (detected, inputs)) in [
+        (TerminalTheme::Dark, vec!["j", "\r", "j", "\r"]),
+        (TerminalTheme::Light, vec!["\r", "\r"]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let request = json!({
+            "id": 110 + index,
+            "module": "modes/interactive/components/first-time-setup.ts",
+            "operation": "firstTimeSetup",
+            "detectedTheme": detected.as_str(),
+            "inputs": inputs,
+            "width": 100,
+        });
+        let previews = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let submitted = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let preview_sink = previews.clone();
+        let submit_sink = submitted.clone();
+        let mut setup = FirstTimeSetupComponent::new(FirstTimeSetupOptions {
+            detected_theme: detected,
+            on_theme_preview: std::rc::Rc::new(move |theme| preview_sink.borrow_mut().push(theme.as_str())),
+            on_submit: std::rc::Rc::new(move |result| {
+                submit_sink.borrow_mut().push(json!({
+                    "theme": result.theme.as_str(),
+                    "shareAnalytics": result.share_analytics,
+                }));
+            }),
+            on_cancel: std::rc::Rc::new(|| {}),
+        });
+        let mut renders = vec![json!(setup.render(100))];
+        for data in &inputs {
+            setup.handle_input(data);
+            renders.push(json!(setup.render(100)));
+        }
+        let output = json!({
+            "renders": renders,
+            "previews": *previews.borrow(),
+            "submitted": *submitted.borrow(),
+        });
+        cases.push((request, output));
+    }
+    cases
+}
+
+fn custom_entry_cases() -> Vec<(Value, Value)> {
+    let mut cases = Vec::new();
+    for (index, expanded) in [false, true].into_iter().enumerate() {
+        let request = json!({
+            "id": 120 + index,
+            "module": "modes/interactive/components/custom-entry.ts",
+            "operation": "customEntry",
+            "customType": "test",
+            "expanded": expanded,
+            "width": 40,
+        });
+        let renderer: pi_coding_agent::core::extensions::types::EntryRenderer = Arc::new(
+            |entry: &pi_coding_agent::core::session_manager::CustomEntry,
+             options: &pi_coding_agent::core::extensions::types::EntryRenderOptions,
+             _theme: &pi_coding_agent::modes::interactive::theme::Theme| {
+                let component: pi_tui::tui::ComponentRef =
+                    std::rc::Rc::new(std::cell::RefCell::new(pi_tui::Text::new(
+                        format!("custom {} expanded={}", entry.custom_type, options.expanded),
+                        0,
+                        0,
+                    )));
+                Some(component)
+            },
+        );
+        let entry = pi_coding_agent::core::session_manager::CustomEntry {
+            custom_type: "test".to_owned(),
+            data: None,
+            id: "entry".to_owned(),
+            parent_id: None,
+            timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+        };
+        let mut component = CustomEntryComponent::new(entry, renderer);
+        component.set_expanded(expanded);
+        cases.push((
+            request,
+            json!({"lines": component.render(40), "hasContent": component.has_content()}),
+        ));
+    }
+
+    let request = json!({
+        "id": 122,
+        "module": "modes/interactive/components/custom-entry.ts",
+        "operation": "customEntryEmpty",
+        "customType": "empty",
+        "width": 40,
+    });
+    let renderer: pi_coding_agent::core::extensions::types::EntryRenderer = Arc::new(|_entry, _options, _theme| None);
+    let entry = pi_coding_agent::core::session_manager::CustomEntry {
+        custom_type: "empty".to_owned(),
+        data: None,
+        id: "entry".to_owned(),
+        parent_id: None,
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+    };
+    let mut component = CustomEntryComponent::new(entry, renderer);
+    cases.push((
+        request,
+        json!({"lines": component.render(40), "hasContent": component.has_content()}),
+    ));
+    cases
+}
+
+fn custom_message_value(content: CustomMessageContent) -> CustomMessageValue {
+    CustomMessageValue {
+        custom_type: "test".to_owned(),
+        content,
+        display: true,
+        details: None,
+        timestamp: 0.0,
+    }
+}
+
+fn custom_message_cases() -> Vec<(Value, Value)> {
+    let variants = [
+        (json!("hello **world**"), false, false, 1usize, 1usize, 40usize),
+        (
+            json!([{"type": "text", "text": "first"}, {"type": "image", "data": "AA==", "mimeType": "image/png"}, {"type": "text", "text": "second"}]),
+            false,
+            false,
+            1,
+            1,
+            50,
+        ),
+        (json!("custom"), true, true, 1, 0, 40),
+    ];
+    let mut cases = Vec::new();
+    for (index, (content, custom_renderer, expanded, output_pad, final_output_pad, width)) in
+        variants.into_iter().enumerate()
+    {
+        let request = json!({
+            "id": 130 + index,
+            "module": "modes/interactive/components/custom-message.ts",
+            "operation": "customMessage",
+            "customType": "test",
+            "content": content,
+            "customRenderer": custom_renderer,
+            "expanded": expanded,
+            "outputPad": output_pad,
+            "finalOutputPad": final_output_pad,
+            "width": width,
+        });
+        let rust_content = match &content {
+            Value::String(text) => CustomMessageContent::Text(text.clone()),
+            Value::Array(blocks) => CustomMessageContent::Blocks(
+                blocks
+                    .iter()
+                    .filter_map(|block| {
+                        if block["type"] == "text" {
+                            Some(pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
+                                block["text"].as_str().unwrap_or_default(),
+                            )))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+            ),
+            _ => panic!("unexpected content"),
+        };
+        type MessageRenderer = pi_coding_agent::core::extensions::types::MessageRenderer;
+        let renderer: Option<MessageRenderer> = custom_renderer.then(|| {
+            Arc::new(
+                |_message: &CustomMessageValue,
+                 options: &MessageRenderOptions,
+                 _theme: &pi_coding_agent::modes::interactive::theme::Theme| {
+                    let component: pi_tui::tui::ComponentRef =
+                        std::rc::Rc::new(std::cell::RefCell::new(pi_tui::Text::new(
+                            format!("custom pad={} expanded={}", options.output_pad, options.expanded),
+                            options.output_pad as usize,
+                            0,
+                        )));
+                    Some(component)
+                },
+            ) as pi_coding_agent::core::extensions::types::MessageRenderer
+        });
+        let mut component = CustomMessageComponent::new(custom_message_value(rust_content), renderer, None, output_pad);
+        component.set_output_pad(final_output_pad);
+        component.set_expanded(expanded);
+        cases.push((request, json!(component.render(width))));
+    }
+    cases
+}
+
+fn bash_execution_cases() -> Vec<(Value, Value)> {
+    type BashCase = (bool, Vec<&'static str>, bool, Option<i32>, bool, bool, usize);
+    let variants: Vec<BashCase> = vec![
+        (false, vec!["hello\n"], true, Some(0), false, false, 60),
+        (true, vec!["hello\n"], true, Some(0), false, false, 60),
+        (
+            false,
+            vec!["\u{1b}[31mred\u{1b}[0m\r\nline\r"],
+            true,
+            Some(3),
+            false,
+            false,
+            60,
+        ),
+        (false, vec!["partial"], true, None, true, false, 60),
+        (false, vec!["one\ntwo\n"], false, Some(0), false, false, 60),
+    ];
+    let mut cases = Vec::new();
+    for (index, (exclude, chunks, complete, exit_code, cancelled, expanded, width)) in variants.into_iter().enumerate()
+    {
+        let request = json!({
+            "id": 140 + index,
+            "module": "modes/interactive/components/bash-execution.ts",
+            "operation": "bashExecution",
+            "command": "echo hi",
+            "excludeFromContext": exclude,
+            "chunks": chunks,
+            "complete": complete,
+            "exitCode": exit_code,
+            "cancelled": cancelled,
+            "truncation": null,
+            "fullOutputPath": null,
+            "expanded": expanded,
+            "width": width,
+        });
+        let mut component = BashExecutionComponent::new(
+            "echo hi",
+            std::rc::Rc::new(|| {}),
+            exclude,
+            BashExecutionOptions {
+                show_elapsed: Some(false),
+            },
+        );
+        for chunk in &chunks {
+            component.append_output(chunk);
+        }
+        if complete {
+            component.set_complete(exit_code, cancelled, None, None);
+        }
+        component.set_expanded(expanded);
+        let lines = component.render(width);
+        let output = component.get_output();
+        let command = component.get_command().to_owned();
+        component.dispose();
+        cases.push((request, json!({"lines": lines, "output": output, "command": command})));
+    }
+    cases
+}
+
+fn build_tree_nodes(
+    entries: Vec<pi_coding_agent::core::session_manager::SessionEntry>,
+) -> Vec<pi_coding_agent::core::session_manager::SessionTreeNode> {
+    use pi_coding_agent::core::session_manager::SessionTreeNode;
+    let mut nodes: Vec<SessionTreeNode> = entries
+        .into_iter()
+        .map(|entry| SessionTreeNode {
+            entry,
+            children: Vec::new(),
+            label: None,
+            label_timestamp: None,
+        })
+        .collect();
+    let ids: Vec<(String, usize)> = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, node)| (node.entry.id().unwrap_or_default().to_owned(), index))
+        .collect();
+    let mut roots = Vec::new();
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+    for (index, node) in nodes.iter().enumerate() {
+        match node.entry.parent_id() {
+            None => roots.push(index),
+            Some(parent_id) => {
+                if let Some((_, parent_index)) = ids.iter().find(|(id, _)| id == parent_id) {
+                    children[*parent_index].push(index);
+                } else {
+                    roots.push(index);
+                }
+            }
+        }
+    }
+    fn build(index: usize, nodes: &mut Vec<SessionTreeNode>, children: &[Vec<usize>]) -> SessionTreeNode {
+        let mut node = nodes[index].clone();
+        node.children = children[index]
+            .iter()
+            .map(|child| build(*child, nodes, children))
+            .collect();
+        node
+    }
+    roots.iter().map(|index| build(*index, &mut nodes, &children)).collect()
+}
+
+fn tree_entries_user(
+    id: &str,
+    parent: Option<&str>,
+    content: &str,
+) -> pi_coding_agent::core::session_manager::SessionEntry {
+    use pi_agent_core::agent::AgentMessage;
+    use pi_ai::types::{UserContent, UserMessage, UserRole};
+    use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, SessionMessageEntry};
+    SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        id: id.to_owned(),
+        parent_id: parent.map(str::to_owned),
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+        message: Box::new(AgentMessage::User(UserMessage {
+            role: UserRole::Tag,
+            content: UserContent::Text(content.to_owned()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 0,
+        })),
+    }))
+}
+
+fn tree_entries_assistant(
+    id: &str,
+    parent: Option<&str>,
+    text: &str,
+) -> pi_coding_agent::core::session_manager::SessionEntry {
+    use pi_agent_core::agent::AgentMessage;
+    use pi_ai::types::{AssistantContent, AssistantMessage, StopReason, TextContent};
+    use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, SessionMessageEntry};
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4", 0);
+    message.content = vec![AssistantContent::Text(TextContent::new(text))];
+    message.stop_reason = StopReason::Stop;
+    SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        id: id.to_owned(),
+        parent_id: parent.map(str::to_owned),
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+        message: Box::new(AgentMessage::Assistant(Box::new(message))),
+    }))
+}
+
+fn tree_selector_cases() -> Vec<(Value, Value)> {
+    use pi_coding_agent::modes::interactive::components::tree_selector::FilterMode;
+
+    let metadata_entries = vec![
+        tree_entries_user("user-1", None, "hello"),
+        tree_entries_assistant("asst-1", Some("user-1"), "hi"),
+        tree_entries_user("user-2", Some("asst-1"), "active branch"),
+        pi_coding_agent::core::session_manager::SessionEntry::Known(
+            pi_coding_agent::core::session_manager::KnownSessionEntry::ModelChange(
+                pi_coding_agent::core::session_manager::ModelChangeEntry {
+                    id: "model-1".to_owned(),
+                    parent_id: Some("user-2".to_owned()),
+                    timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+                    provider: "anthropic".to_owned(),
+                    model_id: "claude-sonnet-4".to_owned(),
+                },
+            ),
+        ),
+        tree_entries_user("user-3", Some("asst-1"), "sibling branch"),
+    ];
+
+    let branching_entries = vec![
+        tree_entries_user("user-1", None, "first message"),
+        tree_entries_assistant("asst-1", Some("user-1"), "response 1"),
+        tree_entries_user("user-2", Some("asst-1"), "second message"),
+        tree_entries_assistant("asst-2", Some("user-2"), "response 2"),
+        tree_entries_user("user-3a", Some("asst-2"), "branch A start"),
+        tree_entries_assistant("asst-3a", Some("user-3a"), "branch A response"),
+        tree_entries_user("user-4a", Some("asst-3a"), "branch A deep"),
+        tree_entries_assistant("asst-4a", Some("user-4a"), "branch A leaf"),
+        tree_entries_user("user-3b", Some("asst-2"), "branch B start"),
+        tree_entries_assistant("asst-3b", Some("user-3b"), "branch B response"),
+        tree_entries_user("user-4b", Some("asst-3b"), "branch B deep"),
+    ];
+
+    type TreeCase<'a> = (
+        u64,
+        Vec<pi_coding_agent::core::session_manager::SessionEntry>,
+        &'a str,
+        Option<FilterMode>,
+        Vec<&'a str>,
+        usize,
+        Value,
+    );
+    let variants: Vec<TreeCase> = vec![
+        (160, metadata_entries.clone(), "model-1", None, vec![], 120, json!({})),
+        (
+            161,
+            branching_entries.clone(),
+            "asst-4a",
+            None,
+            vec!["\u{1b}[1;5D", "\u{1b}[1;5D", "\u{1b}[B", "\u{1b}[1;5C"],
+            100,
+            json!({}),
+        ),
+        (
+            162,
+            branching_entries.clone(),
+            "asst-4a",
+            None,
+            vec![
+                "\u{1b}[1;5D",
+                "\u{1b}[1;5D",
+                "\u{1b}[1;5D",
+                "\u{1b}[1;5D",
+                "\u{1b}[1;5D",
+                "\u{1b}[1;5C",
+            ],
+            100,
+            json!({}),
+        ),
+        (
+            163,
+            branching_entries.clone(),
+            "asst-4a",
+            Some(FilterMode::UserOnly),
+            vec![],
+            120,
+            json!({}),
+        ),
+        (
+            164,
+            branching_entries.clone(),
+            "asst-4a",
+            None,
+            vec!["b", "\u{1b}"],
+            100,
+            json!({}),
+        ),
+        (
+            165,
+            branching_entries.clone(),
+            "asst-4a",
+            None,
+            vec!["\u{18}"],
+            100,
+            json!({}),
+        ),
+        (
+            166,
+            branching_entries.clone(),
+            "asst-4a",
+            None,
+            vec!["\u{1b}[1;5D", "\u{1b}[1;5D", "\u{14}"],
+            100,
+            json!({}),
+        ),
+        (
+            167,
+            metadata_entries.clone(),
+            "user-3",
+            None,
+            vec!["\u{13}"],
+            100,
+            json!({"user-2": "active label"}),
+        ),
+        (
+            168,
+            metadata_entries,
+            "model-1",
+            None,
+            vec!["\u{1b}[1;5D"],
+            60,
+            json!({}),
+        ),
+    ];
+
+    let mut cases = Vec::new();
+    for (id, entries, leaf, filter, inputs, width, labels) in variants {
+        let entries_json = serde_json::to_value(&entries).expect("entries serialize");
+        let request = json!({
+            "id": id,
+            "module": "modes/interactive/components/tree-selector.ts",
+            "operation": "treeSelector",
+            "entries": entries_json,
+            "currentLeafId": leaf,
+            "terminalHeight": 24,
+            "initialFilterMode": filter.map(|filter| match filter {
+                FilterMode::Default => "default",
+                FilterMode::NoTools => "no-tools",
+                FilterMode::UserOnly => "user-only",
+                FilterMode::LabeledOnly => "labeled-only",
+                FilterMode::All => "all",
+            }),
+            "inputs": inputs,
+            "width": width,
+            "labels": labels,
+        });
+
+        let mut selector = pi_coding_agent::modes::interactive::components::tree_selector::TreeSelectorComponent::new(
+            build_tree_nodes(entries),
+            Some(leaf.to_owned()),
+            24,
+            std::rc::Rc::new(|_| {}),
+            std::rc::Rc::new(|| {}),
+            None,
+            None,
+            filter,
+        );
+        let copied_sink = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
+        let sink = copied_sink.clone();
+        selector.set_on_copy(Some(std::rc::Rc::new(move |text| {
+            *sink.borrow_mut() = text;
+        })));
+        if let Some(labels) = request["labels"].as_object() {
+            for (entry_id, label) in labels {
+                selector
+                    .tree_list()
+                    .borrow_mut()
+                    .update_node_label(entry_id, label.as_str(), None);
+            }
+        }
+
+        let mut renders = vec![json!(selector.render(width))];
+        let mut selected_ids = vec![json!(
+            selector.tree_list().borrow().selected_entry_id().map(str::to_owned)
+        )];
+        for input in &inputs {
+            selector.handle_input(input);
+            renders.push(json!(selector.render(width)));
+            selected_ids.push(json!(
+                selector.tree_list().borrow().selected_entry_id().map(str::to_owned)
+            ));
+        }
+        let copied = copied_sink.borrow().clone();
+        let output = json!({"renders": renders, "selectedIds": selected_ids, "copied": copied});
+        cases.push((request, output));
+    }
+    cases
+}
+
+fn session_info_fixture(
+    path: &str,
+    name: Option<&str>,
+    first_message: &str,
+    modified_offset_ms: i64,
+    archived: bool,
+) -> pi_coding_agent::core::session_manager::SessionInfo {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| i64::try_from(elapsed.as_millis()).unwrap_or_default())
+        .unwrap_or_default();
+    pi_coding_agent::core::session_manager::SessionInfo {
+        path: path.to_owned(),
+        id: format!("id-{path}"),
+        cwd: "/repo".to_owned(),
+        name: name.map(str::to_owned),
+        is_archived: archived.then_some(true),
+        parent_session_path: None,
+        created: now - modified_offset_ms,
+        modified: now - modified_offset_ms,
+        message_count: 4,
+        first_message: first_message.to_owned(),
+        all_messages_text: first_message.to_owned(),
+    }
+}
+
+fn session_json(session: &pi_coding_agent::core::session_manager::SessionInfo) -> Value {
+    json!({
+        "path": session.path,
+        "id": session.id,
+        "cwd": session.cwd,
+        "name": session.name,
+        "isArchived": session.is_archived,
+        "parentSessionPath": session.parent_session_path,
+        "created": session.created,
+        "modified": session.modified,
+        "messageCount": session.message_count,
+        "firstMessage": session.first_message,
+        "allMessagesText": session.all_messages_text,
+    })
+}
+
+fn session_selector_cases() -> Vec<(Value, Value)> {
+    use pi_coding_agent::core::keybindings::KeybindingsManager;
+    use pi_coding_agent::modes::interactive::components::session_selector::{
+        SessionListLoader, SessionSelectorComponent,
+    };
+
+    fn loader(sessions: Vec<pi_coding_agent::core::session_manager::SessionInfo>) -> SessionListLoader {
+        std::rc::Rc::new(move |_progress| {
+            let sessions = sessions.clone();
+            Box::pin(async move { Ok(sessions) })
+        })
+    }
+
+    let current = vec![
+        session_info_fixture("/sessions/alpha.jsonl", Some("alpha"), "alpha prompt", 7_200_000, false),
+        session_info_fixture("/sessions/beta.jsonl", None, "beta prompt", 2 * 86_400_000, false),
+        session_info_fixture("/sessions/gamma.jsonl", None, "gamma prompt", 180_000, false),
+    ];
+    let all = vec![
+        session_info_fixture("/sessions/alpha.jsonl", Some("alpha"), "alpha prompt", 7_200_000, false),
+        session_info_fixture("/sessions/beta.jsonl", None, "beta prompt", 2 * 86_400_000, false),
+        session_info_fixture("/other/delta.jsonl", Some("delta"), "delta prompt", 3_600_000, false),
+    ];
+    let archived = vec![session_info_fixture(
+        "/sessions/old.jsonl",
+        Some("old"),
+        "archived prompt",
+        5 * 86_400_000,
+        true,
+    )];
+
+    type SessionCase<'a> = (u64, Vec<&'a str>, Option<&'a str>, bool, usize);
+    let variants: Vec<SessionCase> = vec![
+        (180, vec![], Some("/sessions/beta.jsonl"), false, 120),
+        (181, vec!["\t"], None, false, 120),
+        (182, vec!["\t", "\t"], None, true, 120),
+        (183, vec!["\u{13}", "\u{13}", "\u{13}"], None, false, 120),
+        (184, vec!["\u{e}"], None, false, 120),
+        (185, vec!["a", "l", "p"], None, false, 120),
+        (186, vec!["\u{1b}[B", "\u{1b}[B", "\u{1b}[A"], None, false, 120),
+        (187, vec!["\u{10}"], None, false, 120),
+        (188, vec!["\t", "\u{13}"], None, false, 100),
+    ];
+
+    let mut cases = Vec::new();
+    for (id, inputs, current_file, with_archived, width) in variants {
+        let request = json!({
+            "id": id,
+            "module": "modes/interactive/components/session-selector.ts",
+            "operation": "sessionSelector",
+            "currentSessions": current.iter().map(session_json).collect::<Vec<_>>(),
+            "allSessions": all.iter().map(session_json).collect::<Vec<_>>(),
+            "archivedSessions": with_archived.then(|| archived.iter().map(session_json).collect::<Vec<_>>()),
+            "currentSessionFile": current_file,
+            "inputs": inputs,
+            "width": width,
+        });
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let output = runtime.block_on(async {
+            let mut selector = SessionSelectorComponent::new(
+                loader(current.clone()),
+                loader(all.clone()),
+                std::rc::Rc::new(|_| {}),
+                std::rc::Rc::new(|| {}),
+                std::rc::Rc::new(|| {}),
+                std::rc::Rc::new(|| {}),
+                None,
+                None,
+                Some(KeybindingsManager::new(Default::default(), None)),
+                None,
+                with_archived.then(|| loader(archived.clone())),
+                current_file,
+            );
+            selector.load_current_sessions().await;
+
+            let mut renders = vec![json!(selector.render(width))];
+            let mut selected = vec![json!(
+                selector.session_list().get_selected_session_path().map(str::to_owned)
+            )];
+            for input in &inputs {
+                selector.handle_input(input);
+                if selector.has_pending_action() {
+                    selector.run_pending_action().await;
+                }
+                renders.push(json!(selector.render(width)));
+                selected.push(json!(
+                    selector.session_list().get_selected_session_path().map(str::to_owned)
+                ));
+            }
+            json!({"renders": renders, "selected": selected})
+        });
+        cases.push((request, output));
+    }
+    cases
+}
+
+fn tool_content(value: &Value) -> Vec<pi_ai::types::TextOrImageContent> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| item.get("type").and_then(Value::as_str) == Some("text"))
+                .map(|item| {
+                    pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
+                        item.get("text").and_then(Value::as_str).unwrap_or(""),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn custom_tool_definition(call: &'static str, result: &'static str, shell: RenderShell) -> ToolDefinition {
+    use pi_agent_core::agent::types::AgentToolResult;
+    ToolDefinition {
+        name: "custom_tool".to_owned(),
+        label: "custom_tool".to_owned(),
+        description: String::new(),
+        prompt_snippet: None,
+        prompt_guidelines: None,
+        approval_required: None,
+        approval_kind: None,
+        parameters: json!({"type": "object", "properties": {}}),
+        constrained_sampling: None,
+        render_shell: Some(shell),
+        prepare_arguments: None,
+        prepare_execution: None,
+        execution_mode: None,
+        execute: Arc::new(|_tool_call_id, _params, _signal, _on_update, _context| {
+            Box::pin(async move {
+                Ok(AgentToolResult {
+                    content: vec![],
+                    details: None,
+                    usage: None,
+                    added_tool_names: None,
+                    is_error: None,
+                    terminate: None,
+                })
+            })
+        }),
+        render_call: Some(Arc::new(move |_args, _theme, _context| {
+            Rc::new(RefCell::new(Text::new(call, 0, 0)))
+        })),
+        render_result: Some(Arc::new(move |_result, options, _theme, _context| {
+            Rc::new(RefCell::new(Text::new(
+                format!("{result} expanded={}", options.expanded),
+                0,
+                0,
+            )))
+        })),
+    }
+}
+
+fn tool_execution_case(
+    id: u64,
+    tool_name: &str,
+    definition: Option<ToolDefinition>,
+    definition_json: Value,
+    args: Value,
+    events: Vec<Value>,
+    width: usize,
+) -> (Value, Value) {
+    use pi_coding_agent::modes::interactive::components::tool_execution::{
+        ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
+    };
+
+    let request = json!({
+        "id": id,
+        "module": "modes/interactive/components/tool-execution.ts",
+        "operation": "toolExecution",
+        "toolName": tool_name,
+        "toolCallId": "call-1",
+        "args": args,
+        "options": {},
+        "definition": definition_json,
+        "events": events,
+        "width": width,
+        "cwd": "/tmp/pi-tool-execution",
+    });
+
+    let request_render = Arc::new(|| {});
+    let mut component = ToolExecutionComponent::new(
+        tool_name,
+        "call-1",
+        args,
+        ToolExecutionOptions::default(),
+        definition,
+        request_render,
+        "/tmp/pi-tool-execution",
+    );
+    let mut renders = Vec::new();
+    for event in events {
+        match event.get("type").and_then(Value::as_str) {
+            Some("args") => component.update_args(event.get("args").cloned().unwrap_or(Value::Null)),
+            Some("argsComplete") => component.set_args_complete(),
+            Some("expanded") => component.set_expanded(event.get("expanded").and_then(Value::as_bool) == Some(true)),
+            Some("result") => {
+                let result = event.get("result").cloned().unwrap_or(Value::Null);
+                component.update_result(
+                    ToolExecutionResult {
+                        content: tool_content(result.get("content").unwrap_or(&Value::Null)),
+                        details: result.get("details").cloned(),
+                        is_error: result.get("isError").and_then(Value::as_bool) == Some(true),
+                    },
+                    event.get("isPartial").and_then(Value::as_bool) == Some(true),
+                    None,
+                );
+            }
+            _ => {}
+        }
+        renders.push(json!(component.render(width)));
+    }
+    (request, json!(renders))
+}
+
+fn tool_execution_cases() -> Vec<(Value, Value)> {
+    let mut cases = Vec::new();
+    cases.push(tool_execution_case(
+        300,
+        "mystery",
+        None,
+        Value::Null,
+        json!({"answer": 42}),
+        vec![
+            json!({"type": "args", "args": {"answer": 43}}),
+            json!({"type": "argsComplete"}),
+            json!({"type": "result", "result": {"content": [{"type": "text", "text": "hello"}], "isError": false}}),
+        ],
+        60,
+    ));
+    cases.push(tool_execution_case(
+        301,
+        "list_sessions",
+        None,
+        Value::Null,
+        json!({}),
+        vec![
+            json!({"type": "argsComplete"}),
+            json!({"type": "result", "result": {"content": [{"type": "text", "text": "line1\nline2"}], "isError": false}}),
+        ],
+        80,
+    ));
+    cases.push(tool_execution_case(
+        302,
+        "list_sessions",
+        None,
+        Value::Null,
+        json!({}),
+        vec![
+            json!({"type": "argsComplete"}),
+            json!({"type": "result", "result": {"content": [], "isError": true}}),
+        ],
+        80,
+    ));
+    let long_text = (0..150)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    cases.push(tool_execution_case(
+        303,
+        "list_sessions",
+        None,
+        Value::Null,
+        json!({}),
+        vec![
+            json!({"type": "argsComplete"}),
+            json!({"type": "result", "result": {"content": [{"type": "text", "text": long_text}], "isError": false}}),
+        ],
+        80,
+    ));
+    let definition_json = json!({"name": "custom_tool", "shell": "self", "call": "CALL", "result": "RES"});
+    cases.push(tool_execution_case(
+        304,
+        "custom_tool",
+        Some(custom_tool_definition("CALL", "RES", RenderShell::SelfRender)),
+        definition_json,
+        json!({"x": 1}),
+        vec![
+            json!({"type": "result", "result": {"content": [{"type": "text", "text": "ignored"}], "isError": false}}),
+            json!({"type": "expanded", "expanded": true}),
+        ],
+        70,
+    ));
+    let definition_json = json!({"name": "custom_tool", "shell": "default", "call": "CALL", "result": "RES"});
+    cases.push(tool_execution_case(
+        305,
+        "custom_tool",
+        Some(custom_tool_definition("CALL", "RES", RenderShell::Default)),
+        definition_json,
+        json!({}),
+        vec![json!({"type": "result", "result": {"content": [], "isError": false}})],
+        70,
+    ));
+    cases.push(tool_execution_case(
+        306,
+        "end_turn",
+        None,
+        Value::Null,
+        json!({"reason": "done"}),
+        vec![json!({"type": "result", "result": {"content": [{"type": "text", "text": "Turn ended: done"}], "isError": false}})],
+        70,
+    ));
+    cases
+}
+
+fn tool_renderer_cases() -> Vec<(Value, Value)> {
+    use pi_agent_core::agent::types::AgentToolResult;
+    use pi_coding_agent::core::extensions::types::{ToolRenderContext, ToolRenderResultOptions};
+    use pi_coding_agent::core::tools::{ToolsOptions, create_all_tool_definitions};
+
+    let cases = vec![
+        json!({"tool": "change_working_directory", "kind": "call", "args": {"path": "/repo/x"}}),
+        json!({"tool": "change_working_directory", "kind": "call", "args": {"id": "abc"}}),
+        json!({"tool": "change_working_directory", "kind": "result", "content": [{"type": "text", "text": "Changed working directory to /repo/x"}], "isError": false}),
+        json!({"tool": "resume_session", "kind": "call", "args": {"path": "/s.jsonl", "starter_prompt": "go"}}),
+        json!({"tool": "resume_session", "kind": "call", "args": {"name": "named"}}),
+        json!({"tool": "resume_session", "kind": "result", "content": [{"type": "text", "text": "Resume cancelled"}], "isError": true}),
+        json!({"tool": "search_current_session_history", "kind": "call", "args": {"query": "needle"}}),
+        json!({"tool": "search_current_session_history", "kind": "call", "args": {}}),
+        json!({"tool": "search_current_session_history", "kind": "result", "content": [{"type": "text", "text": "{\"x\":1}"}], "isError": false}),
+        json!({"tool": "broadcast", "kind": "call", "args": {"session_ids": ["a", "b"], "cwd": "/repo", "name": "worker", "status": ["running", "idle"]}}),
+        json!({"tool": "broadcast", "kind": "call", "args": {}}),
+        json!({"tool": "broadcast", "kind": "result", "content": [{"type": "text", "text": "id outcome=ok check=alive"}], "isError": false}),
+        json!({"tool": "channel_post", "kind": "call", "args": {"message": "hi"}}),
+        json!({"tool": "channel_post", "kind": "result", "content": [], "isError": false}),
+        json!({"tool": "ask_questions", "kind": "call", "args": {"questions": [{"question": "A?", "options": []}, {"question": "B?", "options": []}]}}),
+        json!({"tool": "ask_questions", "kind": "result", "content": [], "details": {"questions": [], "answers": {"Which?": "Alpha", "Other?": ""}, "cancelled": false}}),
+        json!({"tool": "ask_questions", "kind": "result", "content": [], "details": {"questions": [], "answers": {}, "cancelled": true}}),
+        json!({"tool": "ask_questions", "kind": "result", "content": [], "details": null}),
+        json!({"tool": "ask_supervisor", "kind": "call", "args": {"question": "help"}}),
+        json!({"tool": "ask_supervisor", "kind": "result", "content": [{"type": "text", "text": "advice"}], "isError": false}),
+        json!({"tool": "list_sessions", "kind": "call", "args": {}}),
+        json!({"tool": "list_sessions", "kind": "result", "content": [{"type": "text", "text": "line1\nline2"}], "isError": false}),
+    ];
+    let width = 80;
+    let definitions = create_all_tool_definitions("/tmp/pi-tool-renderers", ToolsOptions::default());
+    let theme = pi_coding_agent::modes::interactive::theme::with_theme(std::clone::Clone::clone);
+    let mut renders = Vec::new();
+    for case in &cases {
+        let tool = case.get("tool").and_then(Value::as_str).expect("tool name");
+        let definition = definitions
+            .iter()
+            .find(|(name, _)| *name == tool)
+            .map(|(_, definition)| definition)
+            .expect("definition");
+        let context = ToolRenderContext {
+            args: case.get("args").cloned().unwrap_or(Value::Null),
+            tool_call_id: "call-1".to_owned(),
+            invalidate: Arc::new(|| {}),
+            last_component: None,
+            state: Value::Null,
+            cwd: "/tmp/pi-tool-renderers".to_owned(),
+            execution_started: false,
+            args_complete: true,
+            is_partial: false,
+            expanded: false,
+            show_images: true,
+            is_error: false,
+        };
+        let component = if case.get("kind").and_then(Value::as_str) == Some("call") {
+            let renderer = definition.render_call.as_ref().expect("call renderer");
+            renderer(&context.args, &theme, &context)
+        } else {
+            let renderer = definition.render_result.as_ref().expect("result renderer");
+            let result = AgentToolResult {
+                content: tool_content(case.get("content").unwrap_or(&Value::Null)),
+                details: case.get("details").cloned().filter(|details| !details.is_null()),
+                usage: None,
+                added_tool_names: None,
+                is_error: case.get("isError").and_then(Value::as_bool),
+                terminate: None,
+            };
+            let options = ToolRenderResultOptions {
+                expanded: false,
+                is_partial: false,
+            };
+            renderer(&result, &options, &theme, &context)
+        };
+        renders.push(json!(component.borrow_mut().render(width)));
+    }
+    let request = json!({
+        "id": 320,
+        "module": "modes/interactive/components/tool-execution.ts",
+        "operation": "toolRenderers",
+        "cases": cases,
+        "width": width,
+    });
+    vec![(request, json!(renders))]
+}
+
+fn footer_helper_cases() -> Vec<(Value, Value)> {
+    use pi_coding_agent::modes::interactive::components::footer::{format_cwd_for_footer, format_tokens};
+
+    let tokens = [
+        0.0,
+        999.0,
+        1000.0,
+        1500.0,
+        9999.0,
+        10_000.0,
+        12_345.0,
+        999_999.0,
+        1_000_000.0,
+        1_500_000.0,
+        9_999_999.0,
+        10_000_000.0,
+        12_345_678.0,
+    ];
+    let cwd_cases = [
+        ("/home/tester", Some("/home/tester")),
+        ("/home/tester/projects/pi", Some("/home/tester")),
+        ("/home/tester", None),
+        ("/opt/other", Some("/home/tester")),
+        ("/opt/other", Some("")),
+    ];
+    let request = json!({
+        "id": 200,
+        "module": "modes/interactive/components/footer.ts",
+        "operation": "footerHelpers",
+        "tokens": tokens,
+        "cwdCases": cwd_cases.iter().map(|(cwd, home)| json!({"cwd": cwd, "home": home})).collect::<Vec<_>>(),
+    });
+    let output = json!({
+        "tokens": tokens.iter().map(|count| format_tokens(*count)).collect::<Vec<_>>(),
+        "cwd": cwd_cases
+            .iter()
+            .map(|(cwd, home)| format_cwd_for_footer(cwd, *home))
+            .collect::<Vec<_>>(),
+    });
+    vec![(request, output)]
+}
+
+fn footer_model(id: &str, provider: &str, reasoning: bool, context_window: f64) -> Value {
+    json!({
+        "id": id,
+        "name": id,
+        "api": "faux",
+        "provider": provider,
+        "baseUrl": "",
+        "reasoning": reasoning,
+        "input": ["text"],
+        "cost": {"input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0},
+        "contextWindow": context_window,
+        "maxTokens": 4096.0,
+    })
+}
+
+fn footer_cases() -> Vec<(Value, Value)> {
+    use pi_coding_agent::core::footer_data_provider::{ContextUsage, FooterDataProvider, FooterSessionOverride};
+    use pi_coding_agent::modes::interactive::components::footer::FooterComponent;
+
+    struct FooterVariant {
+        id: u64,
+        input: f64,
+        output: f64,
+        cache_read: f64,
+        cache_write: f64,
+        cost: f64,
+        percent: Option<f64>,
+    }
+    let variants = vec![
+        FooterVariant {
+            id: 210,
+            input: 10_000.0,
+            output: 2_000.0,
+            cache_read: 3_000.0,
+            cache_write: 4_000.0,
+            cost: 0.1234,
+            percent: Some(25.0),
+        },
+        FooterVariant {
+            id: 211,
+            input: 0.0,
+            output: 0.0,
+            cache_read: 0.0,
+            cache_write: 0.0,
+            cost: 0.0,
+            percent: Some(75.0),
+        },
+        FooterVariant {
+            id: 212,
+            input: 0.0,
+            output: 0.0,
+            cache_read: 0.0,
+            cache_write: 0.0,
+            cost: 0.0,
+            percent: Some(95.0),
+        },
+        FooterVariant {
+            id: 213,
+            input: 0.0,
+            output: 0.0,
+            cache_read: 0.0,
+            cache_write: 0.0,
+            cost: 0.0,
+            percent: None,
+        },
+    ];
+    let mut cases = Vec::new();
+    for (index, variant) in variants.into_iter().enumerate() {
+        let FooterVariant {
+            id,
+            input,
+            output,
+            cache_read,
+            cache_write,
+            cost,
+            percent,
+        } = variant;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let _runtime_guard = runtime.enter();
+        let directory = tempfile::tempdir().expect("temp dir");
+        let (session, entries, override_manager) = runtime.block_on(async {
+            let fixture = crate::agent_session_fixture::fixture(
+                directory.path(),
+                pi_agent_core::harness::types::ThinkingLevel::High,
+            )
+            .await;
+            let session = std::sync::Arc::new(fixture.session);
+            let entries = {
+                let mut manager = session.session_manager();
+                manager.append_session_info("Test Session").expect("session name");
+                let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0);
+                assistant.usage.input = input;
+                assistant.usage.output = output;
+                assistant.usage.cache_read = cache_read;
+                assistant.usage.cache_write = cache_write;
+                assistant.usage.cost.total = cost;
+                assistant.stop_reason = StopReason::Stop;
+                manager
+                    .append_message(pi_agent_core::agent::AgentMessage::Assistant(Box::new(assistant)))
+                    .expect("assistant");
+                manager
+                    .append_message(pi_agent_core::agent::AgentMessage::ToolResult(
+                        pi_ai::types::ToolResultMessage {
+                            role: pi_ai::types::ToolResultRole::Tag,
+                            tool_call_id: "tool".to_owned(),
+                            tool_name: "read".to_owned(),
+                            content: vec![],
+                            details: None,
+                            usage: Some(pi_ai::types::Usage {
+                                input: 500.0,
+                                output: 100.0,
+                                ..Default::default()
+                            }),
+                            added_tool_names: None,
+                            is_error: false,
+                            timestamp: 0,
+                        },
+                    ))
+                    .expect("tool result");
+                serde_json::to_value(manager.get_entries()).expect("entries")
+            };
+            let override_dir = directory.path().join("override");
+            std::fs::create_dir_all(&override_dir).expect("override dir");
+            let override_fixture = crate::agent_session_fixture::fixture(
+                &override_dir,
+                pi_agent_core::harness::types::ThinkingLevel::High,
+            )
+            .await;
+            let override_manager = override_fixture.session.session_manager_handle();
+            {
+                let mut manager = override_manager.lock().expect("override manager");
+                manager.append_session_info("Override Session").expect("override name");
+                let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0);
+                assistant.usage.input = 7000.0;
+                assistant.usage.output = 8000.0;
+                assistant.usage.cache_read = 9000.0;
+                assistant.usage.cache_write = 1000.0;
+                assistant.usage.cost.total = 0.5;
+                assistant.stop_reason = StopReason::Stop;
+                manager
+                    .append_message(pi_agent_core::agent::AgentMessage::Assistant(Box::new(assistant)))
+                    .expect("override assistant");
+            }
+            (session, entries, override_manager)
+        });
+
+        let override_session = json!({
+            "sessionName": "Override Session",
+            "sessionCwd": "/override",
+            "entries": [{
+                "type": "message",
+                "id": "override-entry",
+                "parentId": null,
+                "timestamp": "2026-01-01T00:00:00.000Z",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "override"}],
+                    "api": "faux",
+                    "provider": "faux",
+                    "model": "faux-1",
+                    "usage": {
+                        "input": 7000,
+                        "output": 8000,
+                        "cacheRead": 9000,
+                        "cacheWrite": 1000,
+                        "totalTokens": 25000,
+                        "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0.5}
+                    },
+                    "stopReason": "stop",
+                    "timestamp": 0
+                }
+            }]
+        });
+        let model = footer_model("gpt-x", "openai", true, 200_000.0);
+        let override_model: pi_ai::types::Model = serde_json::from_value(model.clone()).expect("model deserializes");
+        let width = if index == 0 { 120 } else { 40 };
+        let request = json!({
+            "id": id,
+            "module": "modes/interactive/components/footer.ts",
+            "operation": "footer",
+            "model": model,
+            "thinkingLevel": "high",
+            "sessionName": "Test Session",
+            "sessionCwd": directory.path().display().to_string(),
+            "entries": entries,
+            "usingSubscription": false,
+            "contextUsage": null,
+            "gitBranch": null,
+            "executableName": null,
+            "statuses": {"goal": "working on the port"},
+            "providerCount": 0,
+            "autoCompact": index == 0,
+            "override": {
+                "cwd": "/repo",
+                "model": model,
+                "thinkingLevel": "high",
+                "contextUsage": percent.map(|percent| json!({
+                    "tokens": 50_000.0,
+                    "contextWindow": 200_000.0,
+                    "percent": percent
+                }))
+            },
+            "overrideSession": if index == 0 { override_session } else { Value::Null },
+            "width": width,
+        });
+
+        let footer_data = std::sync::Arc::new(FooterDataProvider::new(directory.path()));
+        footer_data.set_extension_status("goal", Some("working on the port"));
+        let mut footer = FooterComponent::new(session, footer_data);
+        footer.set_auto_compact_enabled(index == 0);
+        footer.set_session_override(FooterSessionOverride {
+            cwd: "/repo".to_owned(),
+            session_manager: (index == 0).then_some(override_manager),
+            model: Some(override_model),
+            thinking_level: "high".to_owned(),
+            context_usage: percent.map(|percent| ContextUsage {
+                tokens: Some(50_000.0),
+                context_window: 200_000.0,
+                percent: Some(percent),
+            }),
+        });
+        cases.push((request, json!(footer.render(width))));
+    }
+    cases
 }

@@ -1,7 +1,7 @@
 //! `search_current_session_history` tool (`core/tools/search-current-session-history.ts`).
 
 use std::collections::HashSet;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
     AgentHarnessTool, AgentMessage, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError,
@@ -9,13 +9,15 @@ use pi_agent_core::{
 };
 use pi_ai::request::BoxFuture;
 use pi_js_compat::string::js_trim;
+use pi_tui::tui::ComponentRef;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::result::text_result;
-use crate::core::extensions::types::ExtensionContext;
+use crate::core::extensions::types::{ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::core::session_manager::SessionEntry;
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 const DEFAULT_LIMIT: usize = 20;
 
@@ -326,4 +328,43 @@ impl AgentHarnessTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
             Ok(text_result(text, details_value))
         })
     }
+}
+
+fn format_call(args: &Value, theme: &Theme) -> String {
+    let query = match args.get("query") {
+        None | Some(Value::Null) => Value::String(String::new()),
+        Some(query) => query.clone(),
+    };
+    let query = crate::utils::js_json::stringify(&query);
+    format!(
+        "{} {}",
+        theme.fg(ThemeColor::ToolTitle, &theme.bold("search_current_session_history")),
+        theme.fg(ThemeColor::Accent, &query)
+    )
+}
+
+/// `renderCall` for the search_current_session_history tool.
+pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+    super::render_text_component(context, format_call(args, theme))
+}
+
+/// `renderResult` for the search_current_session_history tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    _options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    super::render_text_component(context, super::render_tool_output(result, theme))
+}
+
+/// `createSearchCurrentSessionHistoryToolDefinition()`.
+pub fn create_search_current_session_history_tool_definition() -> ToolDefinition {
+    let mut definition =
+        crate::core::extensions::wrapper::harness_tool_definition(Arc::new(SearchCurrentSessionHistoryTool::new()));
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
+    definition
 }
