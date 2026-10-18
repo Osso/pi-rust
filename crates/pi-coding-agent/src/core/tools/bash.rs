@@ -1,9 +1,8 @@
 //! Ported from `packages/coding-agent/src/core/tools/bash.ts`.
 //!
 //! Local shell execution with streaming output, throttled updates, timeout and
-//! abort mapping, and tail truncation with a full-output spill file. The
-//! runner-owned detach path needs the unported `detached-job-runner` lifecycle
-//! controller.
+//! abort mapping, tail truncation with a full-output spill file, and the
+//! runner-owned detach path backed by the detached job lifecycle controller.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -31,7 +30,17 @@ use super::render_utils::{get_text_output, invalid_arg_text, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, TruncationResult, format_size};
+use crate::core::detached_bash_runner::{
+    DetachedBashForegroundCompletion, is_process_identity_alive, terminate_foreground_runner,
+    write_detached_bash_activation,
+};
+use crate::core::detached_job_runner::{
+    DetachedJobAgentType, DetachedJobLifecycleController, DetachedJobOwnership, LaunchDetachedBashInput,
+    RegisterDetachedJobInput,
+};
 use crate::core::extensions::types::{ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::core::multi_agent_store::{AgentLifecycle, is_active_lifecycle};
+use crate::core::tool_detach_registry::{ToolDetachHandle, ToolDetachRegistry};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::components::visual_truncate::truncate_to_visual_lines;
 use crate::modes::interactive::theme::{Theme, ThemeColor, current_theme};
@@ -63,6 +72,36 @@ pub struct BashDetachOptions {
     pub artifacts: Option<DetachedJobArtifacts>,
     pub job_id: Option<String>,
     pub signal: CancellationToken,
+}
+
+/// `BashSpawnContext`: command, cwd, and environment before execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BashSpawnContext {
+    pub command: String,
+    pub cwd: String,
+    pub env: BTreeMap<String, String>,
+}
+
+/// `BashSpawnHook`.
+pub type BashSpawnHook = Arc<dyn Fn(BashSpawnContext) -> BashSpawnContext + Send + Sync>;
+
+/// Session metadata exposed as `PI_*` environment variables.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BashSessionEnvironment {
+    pub session_id: String,
+    pub session_file: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub reasoning_level: Option<String>,
+}
+
+/// Reads the current session environment at execution time.
+pub type BashSessionEnvironmentProvider = Arc<dyn Fn() -> Option<BashSessionEnvironment> + Send + Sync>;
+
+/// `BashBackgroundJobsOptions`: resolves the session's detached job lifecycle.
+#[derive(Clone)]
+pub struct BashBackgroundJobs {
+    pub get_lifecycle: Arc<dyn Fn() -> Option<Arc<DetachedJobLifecycleController>> + Send + Sync>,
 }
 
 /// Result of executing one shell command.
@@ -382,6 +421,16 @@ pub struct BashToolOptions {
     pub shell_path: Option<String>,
     /// Whether to expose `PI_*` session environment variables. Default: true.
     pub expose_session_environment: Option<bool>,
+    /// Hook to adjust command, cwd, or env before execution.
+    pub spawn_hook: Option<BashSpawnHook>,
+    /// Current session metadata for `PI_*` variables.
+    pub session_environment: Option<BashSessionEnvironmentProvider>,
+    /// Signal used to detach an in-flight command into a background job.
+    pub detach: Option<BashDetachOptions>,
+    /// Registry used by interactive controls to detach in-flight tool calls.
+    pub detach_registry: Option<Arc<ToolDetachRegistry>>,
+    /// Multi-agent detached job lifecycle for runner-owned execution.
+    pub background_jobs: Option<Arc<BashBackgroundJobs>>,
 }
 
 /// Executes shell commands.
@@ -389,8 +438,14 @@ pub struct BashTool {
     cwd: String,
     parameters: Value,
     operations: Arc<dyn BashOperations>,
+    custom_operations: bool,
     command_prefix: Option<String>,
     expose_session_environment: bool,
+    spawn_hook: Option<BashSpawnHook>,
+    session_environment: Option<BashSessionEnvironmentProvider>,
+    detach: Option<BashDetachOptions>,
+    detach_registry: Option<Arc<ToolDetachRegistry>>,
+    background_jobs: Option<Arc<BashBackgroundJobs>>,
 }
 
 impl BashTool {
@@ -399,6 +454,7 @@ impl BashTool {
     }
 
     pub fn with_options(cwd: impl Into<String>, options: BashToolOptions) -> Self {
+        let custom_operations = options.operations.is_some();
         let operations = options
             .operations
             .unwrap_or_else(|| Arc::new(create_local_bash_operations(options.shell_path.as_deref())));
@@ -406,8 +462,14 @@ impl BashTool {
             cwd: cwd.into(),
             parameters: bash_schema(),
             operations,
+            custom_operations,
             command_prefix: options.command_prefix,
             expose_session_environment: options.expose_session_environment.unwrap_or(true),
+            spawn_hook: options.spawn_hook,
+            session_environment: options.session_environment,
+            detach: options.detach,
+            detach_registry: options.detach_registry,
+            background_jobs: options.background_jobs,
         }
     }
 }
@@ -449,7 +511,7 @@ impl AgentTool for BashTool {
 
     fn execute(
         &self,
-        _tool_call_id: String,
+        tool_call_id: String,
         params: Value,
         signal: Option<CancellationToken>,
         on_update: AgentToolUpdateCallback,
@@ -457,14 +519,29 @@ impl AgentTool for BashTool {
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         let cwd = self.cwd.clone();
         let operations = Arc::clone(&self.operations);
+        let custom_operations = self.custom_operations;
         let command_prefix = self.command_prefix.clone();
         let expose_session_environment = self.expose_session_environment;
+        let spawn_hook = self.spawn_hook.clone();
+        let session_environment = self.session_environment.clone();
+        let configured_detach = self.detach.clone();
+        let detach_registry = self.detach_registry.clone();
+        let background_jobs = self.background_jobs.clone();
         Box::pin(async move {
             execute_bash(
                 &cwd,
-                operations,
-                command_prefix,
-                expose_session_environment,
+                BashExecutionOptions {
+                    operations,
+                    custom_operations,
+                    command_prefix,
+                    expose_session_environment,
+                    spawn_hook,
+                    session_environment,
+                    configured_detach,
+                    detach_registry,
+                    background_jobs,
+                },
+                tool_call_id,
                 params,
                 signal,
                 on_update,
@@ -474,7 +551,25 @@ impl AgentTool for BashTool {
     }
 }
 
-fn shell_env(expose_session_environment: bool) -> BTreeMap<String, String> {
+struct BashExecutionOptions {
+    operations: Arc<dyn BashOperations>,
+    custom_operations: bool,
+    command_prefix: Option<String>,
+    expose_session_environment: bool,
+    spawn_hook: Option<BashSpawnHook>,
+    session_environment: Option<BashSessionEnvironmentProvider>,
+    configured_detach: Option<BashDetachOptions>,
+    detach_registry: Option<Arc<ToolDetachRegistry>>,
+    background_jobs: Option<Arc<BashBackgroundJobs>>,
+}
+
+fn resolve_spawn_context(
+    command: String,
+    cwd: &str,
+    spawn_hook: Option<&BashSpawnHook>,
+    expose_session_environment: bool,
+    session_environment: Option<&BashSessionEnvironmentProvider>,
+) -> BashSpawnContext {
     let mut env = get_shell_env();
     for name in [
         "PI_SESSION_ID",
@@ -485,15 +580,34 @@ fn shell_env(expose_session_environment: bool) -> BTreeMap<String, String> {
     ] {
         env.remove(name);
     }
-    let _ = expose_session_environment;
-    env
+    if expose_session_environment && let Some(session) = session_environment.and_then(|provider| provider()) {
+        env.insert("PI_SESSION_ID".to_owned(), session.session_id);
+        if let Some(session_file) = session.session_file {
+            env.insert("PI_SESSION_FILE".to_owned(), session_file);
+        }
+        if let (Some(provider), Some(model)) = (session.provider, session.model) {
+            env.insert("PI_PROVIDER".to_owned(), provider);
+            env.insert("PI_MODEL".to_owned(), model);
+        }
+        if let Some(reasoning_level) = session.reasoning_level {
+            env.insert("PI_REASONING_LEVEL".to_owned(), reasoning_level);
+        }
+    }
+    let base = BashSpawnContext {
+        command,
+        cwd: cwd.to_owned(),
+        env,
+    };
+    match spawn_hook {
+        Some(spawn_hook) => spawn_hook(base),
+        None => base,
+    }
 }
 
 async fn execute_bash(
     cwd: &str,
-    operations: Arc<dyn BashOperations>,
-    command_prefix: Option<String>,
-    expose_session_environment: bool,
+    options: BashExecutionOptions,
+    tool_call_id: String,
     params: Value,
     signal: Option<CancellationToken>,
     on_update: AgentToolUpdateCallback,
@@ -504,11 +618,42 @@ async fn execute_bash(
         .ok_or_else(|| ToolError::new("bash tool requires a string command"))?
         .to_owned();
     let timeout = params.get("timeout").and_then(Value::as_f64);
-    let resolved_command = match &command_prefix {
+    let resolved_command = match &options.command_prefix {
         Some(prefix) => format!("{prefix}\n{command}"),
         None => command,
     };
-    let env = shell_env(expose_session_environment);
+    let spawn_context = resolve_spawn_context(
+        resolved_command,
+        cwd,
+        options.spawn_hook.as_ref(),
+        options.expose_session_environment,
+        options.session_environment.as_ref(),
+    );
+    let lifecycle = options.background_jobs.as_ref().and_then(|jobs| (jobs.get_lifecycle)());
+    let detach_controller =
+        if options.configured_detach.is_none() && lifecycle.is_some() && options.detach_registry.is_some() {
+            Some(CancellationToken::new())
+        } else {
+            None
+        };
+    let detach = options.configured_detach.clone().or_else(|| {
+        detach_controller.as_ref().map(|signal| BashDetachOptions {
+            artifacts: None,
+            job_id: None,
+            signal: signal.clone(),
+        })
+    });
+    let detach_subscription = detach_controller.as_ref().and_then(|signal| {
+        options
+            .detach_registry
+            .as_ref()
+            .map(|registry| registry.register(Arc::new(BashDetachHandle { signal: signal.clone() })))
+    });
+    let operations = Arc::clone(&options.operations);
+    let custom_operations = options.custom_operations;
+    let shell_path = None::<String>;
+    let env = spawn_context.env.clone();
+    let command = spawn_context.command.clone();
     let output = Arc::new(Mutex::new(OutputAccumulator::new(OutputAccumulatorOptions {
         temp_file_prefix: "pi-bash".to_owned(),
         ..OutputAccumulatorOptions::default()
@@ -517,7 +662,7 @@ async fn execute_bash(
     throttle.emit_initial();
     let accepting_output = Arc::new(AtomicBool::new(true));
 
-    let on_data = {
+    let on_data: BashDataCallback = {
         let output = Arc::clone(&output);
         let throttle = Arc::clone(&throttle);
         let accepting_output = Arc::clone(&accepting_output);
@@ -530,19 +675,45 @@ async fn execute_bash(
         })
     };
 
-    let result = operations
-        .exec(
-            &resolved_command,
+    let use_detached_runner = !custom_operations && lifecycle.is_some() && detach.is_some();
+    let result = if use_detached_runner {
+        execute_runner_owned_bash(
+            &command,
             cwd,
-            BashExecOptions {
-                on_data,
+            RunnerOwnedOptions {
+                detach: detach.clone().expect("detach options"),
+                env: env.clone(),
+                lifecycle: lifecycle.clone().expect("lifecycle"),
+                on_data: Arc::clone(&on_data),
+                shell_path: shell_path.clone(),
                 signal: signal.clone(),
                 timeout,
-                env,
-                detach: None,
+                tool_call_id: tool_call_id.clone(),
             },
         )
-        .await;
+        .await
+    } else {
+        operations
+            .exec(
+                &command,
+                cwd,
+                BashExecOptions {
+                    on_data: Arc::clone(&on_data),
+                    signal: signal.clone(),
+                    timeout,
+                    env: env.clone(),
+                    detach,
+                },
+            )
+            .await
+            .map(|result| BashRunnerResult {
+                exit_code: result.exit_code,
+                detached: result.detached,
+            })
+    };
+    if let Some(subscription) = detach_subscription {
+        subscription.unregister();
+    }
 
     accepting_output.store(false, Ordering::SeqCst);
     let snapshot = finish_output(&output, &throttle);
@@ -582,6 +753,277 @@ async fn execute_bash(
             Err(error)
         }
     }
+}
+
+struct BashDetachHandle {
+    signal: CancellationToken,
+}
+
+impl ToolDetachHandle for BashDetachHandle {
+    fn detach(&self) -> bool {
+        if self.signal.is_cancelled() {
+            return false;
+        }
+        self.signal.cancel();
+        true
+    }
+}
+
+struct RunnerOwnedOptions {
+    detach: BashDetachOptions,
+    env: BTreeMap<String, String>,
+    lifecycle: Arc<DetachedJobLifecycleController>,
+    on_data: BashDataCallback,
+    shell_path: Option<String>,
+    signal: Option<CancellationToken>,
+    timeout: Option<f64>,
+    tool_call_id: String,
+}
+
+struct BashRunnerResult {
+    exit_code: Option<i32>,
+    detached: Option<BashDetachedResult>,
+}
+
+async fn execute_runner_owned_bash(
+    command: &str,
+    cwd: &str,
+    options: RunnerOwnedOptions,
+) -> Result<BashRunnerResult, ToolError> {
+    let shell = get_shell_config(options.shell_path.as_deref()).map_err(|error| ToolError::new(error.to_string()))?;
+    if shell.command_transport == CommandTransport::Stdin {
+        return Err(ToolError::new(
+            "Detached Bash runner does not support stdin shell transport",
+        ));
+    }
+    if let Some(restored) = wait_for_restored_bash_job(&options).await? {
+        return Ok(restored);
+    }
+    let mut args = shell.args.clone();
+    args.push(command.to_owned());
+    let runner = options
+        .lifecycle
+        .launch_bash(&LaunchDetachedBashInput {
+            args,
+            command: shell.shell,
+            cwd: cwd.to_owned(),
+            env: options
+                .env
+                .iter()
+                .map(|(name, value)| (name.clone(), value.clone()))
+                .collect(),
+            timeout_ms: resolve_timeout_ms(options.timeout)?.map(|timeout_ms| timeout_ms as i64),
+            tool_call_id: Some(options.tool_call_id.clone()),
+        })
+        .map_err(|error| ToolError::new(error.to_string()))?;
+    observe_foreground_bash_runner(runner, cwd, &options).await
+}
+
+async fn wait_for_restored_bash_job(options: &RunnerOwnedOptions) -> Result<Option<BashRunnerResult>, ToolError> {
+    let restored_job = options
+        .lifecycle
+        .find_bash_job_by_tool_call_id(&options.tool_call_id)
+        .map_err(|error| ToolError::new(error.to_string()))?;
+    let Some(mut restored_state) = restored_job else {
+        return Ok(None);
+    };
+    while is_active_lifecycle(restored_state.lifecycle) {
+        restored_state = options
+            .lifecycle
+            .observe(&restored_state.id)
+            .map_err(|error| ToolError::new(error.to_string()))?
+            .unwrap_or(restored_state);
+        if is_active_lifecycle(restored_state.lifecycle) {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+    if restored_state.lifecycle == AgentLifecycle::Failed
+        && restored_state.error.as_ref().and_then(|error| error.code.as_deref()) == Some("lost_runtime")
+    {
+        return Ok(None);
+    }
+    let output_path = restored_state
+        .result
+        .as_ref()
+        .and_then(|result| result.file_refs.as_ref())
+        .and_then(|file_refs| {
+            file_refs
+                .iter()
+                .find(|file_ref| file_ref.label.as_deref() == Some("Bash output"))
+                .map(|file_ref| file_ref.path.clone())
+        });
+    if let Some(output_path) = output_path
+        && let Ok(output) = std::fs::read(&output_path)
+    {
+        (options.on_data)(&output);
+    }
+    result_from_terminal_bash_agent(&restored_state, false, options.timeout).map(Some)
+}
+
+fn result_from_terminal_bash_agent(
+    agent: &crate::core::multi_agent_store::AgentSnapshot,
+    aborted: bool,
+    timeout: Option<f64>,
+) -> Result<BashRunnerResult, ToolError> {
+    if aborted || agent.lifecycle == AgentLifecycle::Aborted {
+        return Err(ToolError::new("aborted"));
+    }
+    if agent.lifecycle == AgentLifecycle::Failed
+        && agent
+            .error
+            .as_ref()
+            .is_some_and(|error| error.message.contains("timed out"))
+    {
+        return Err(ToolError::new(format!(
+            "timeout:{}",
+            timeout.map(format_timeout_seconds).unwrap_or_default()
+        )));
+    }
+    Ok(BashRunnerResult {
+        exit_code: Some(if agent.lifecycle == AgentLifecycle::Completed {
+            0
+        } else {
+            1
+        }),
+        detached: None,
+    })
+}
+
+fn format_timeout_seconds(timeout: f64) -> String {
+    if timeout.fract() == 0.0 {
+        format!("{}", timeout as i64)
+    } else {
+        format!("{timeout}")
+    }
+}
+
+async fn observe_foreground_bash_runner(
+    runner: crate::core::detached_job_runner::LaunchedDetachedBashJob,
+    cwd: &str,
+    options: &RunnerOwnedOptions,
+) -> Result<BashRunnerResult, ToolError> {
+    let mut output_offset = 0_u64;
+    let mut aborted = false;
+    loop {
+        output_offset = forward_bash_runner_output(&runner, output_offset, &options.on_data);
+        if let Some(completion) = settle_foreground_bash_runner(&runner, aborted, options.timeout)? {
+            return Ok(completion);
+        }
+        if options.detach.signal.is_cancelled()
+            && let Some(activation) = activate_detached_bash_runner(&runner, cwd, options)?
+        {
+            return Ok(activation.1);
+        }
+        if !aborted && options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            aborted = true;
+            terminate_foreground_bash_runner(runner.runner_pid);
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+fn forward_bash_runner_output(
+    runner: &crate::core::detached_job_runner::LaunchedDetachedBashJob,
+    output_offset: u64,
+    on_data: &BashDataCallback,
+) -> u64 {
+    let Ok(output) = std::fs::read(&runner.artifacts.output_path) else {
+        return output_offset;
+    };
+    if output.len() as u64 <= output_offset {
+        return output_offset;
+    }
+    on_data(&output[output_offset as usize..]);
+    output.len() as u64
+}
+
+fn settle_foreground_bash_runner(
+    runner: &crate::core::detached_job_runner::LaunchedDetachedBashJob,
+    aborted: bool,
+    timeout: Option<f64>,
+) -> Result<Option<BashRunnerResult>, ToolError> {
+    if let Some(completion) = read_foreground_bash_completion(&runner.foreground_completion_path)? {
+        if completion.timed_out {
+            return Err(ToolError::new(format!(
+                "timeout:{}",
+                timeout.map(format_timeout_seconds).unwrap_or_default()
+            )));
+        }
+        if aborted || completion.cancel_reason.is_some() {
+            return Err(ToolError::new("aborted"));
+        }
+        return Ok(Some(BashRunnerResult {
+            exit_code: Some(completion.exit_code.unwrap_or(1)),
+            detached: None,
+        }));
+    }
+    if is_process_identity_alive(&runner.process_identity) {
+        return Ok(None);
+    }
+    let runner_error_path = format!("{}.runner-error", runner.manifest_path);
+    if let Ok(message) = std::fs::read_to_string(&runner_error_path) {
+        return Err(ToolError::new(message.trim().to_owned()));
+    }
+    if aborted {
+        return Err(ToolError::new("aborted"));
+    }
+    Err(ToolError::new("Detached Bash runner exited without producing a result"))
+}
+
+fn read_foreground_bash_completion(path: &str) -> Result<Option<DetachedBashForegroundCompletion>, ToolError> {
+    if !Path::new(path).exists() {
+        return Ok(None);
+    }
+    let data = std::fs::read_to_string(path).map_err(|error| ToolError::new(error.to_string()))?;
+    serde_json::from_str(&data)
+        .map(Some)
+        .map_err(|error| ToolError::new(error.to_string()))
+}
+
+fn activate_detached_bash_runner(
+    runner: &crate::core::detached_job_runner::LaunchedDetachedBashJob,
+    cwd: &str,
+    options: &RunnerOwnedOptions,
+) -> Result<Option<(DetachedJobOwnership, BashRunnerResult)>, ToolError> {
+    if !is_process_identity_alive(&runner.process_identity) {
+        return Ok(None);
+    }
+    let ownership = match options.lifecycle.register(&RegisterDetachedJobInput {
+        agent_type: DetachedJobAgentType::Bash,
+        cwd: cwd.to_owned(),
+        display_name: "Bash command".to_owned(),
+        job_id: runner.job_id.clone(),
+        process_identity: runner.process_identity.clone(),
+        worker_handle_id: runner.runner_pid.to_string(),
+        tool_call_id: Some(options.tool_call_id.clone()),
+        detached: Some(true),
+        file_refs: None,
+    }) {
+        Ok(ownership) => ownership,
+        Err(error) => {
+            terminate_foreground_bash_runner(runner.runner_pid);
+            return Err(ToolError::new(error.to_string()));
+        }
+    };
+    if let Err(error) = write_detached_bash_activation(&runner.activation_path, &ownership.identity) {
+        terminate_foreground_bash_runner(runner.runner_pid);
+        return Err(ToolError::new(error.to_string()));
+    }
+    Ok(Some((
+        ownership,
+        BashRunnerResult {
+            exit_code: None,
+            detached: Some(BashDetachedResult {
+                job_id: runner.job_id.clone(),
+                message: format!("Detached bash command as background job {}.", runner.job_id),
+                log_path: Some(runner.artifacts.output_path.clone()),
+            }),
+        },
+    )))
+}
+
+fn terminate_foreground_bash_runner(pid: u32) {
+    let _ = terminate_foreground_runner(pid, rustix::process::Signal::TERM);
 }
 
 fn finish_output(
