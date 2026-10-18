@@ -39,7 +39,7 @@ impl ByteConnection for BlockedConnection {
         self.closed.load(Ordering::SeqCst)
     }
 
-    fn send(&self, _chunk: Vec<u8>) -> BoxFuture<'_, ConnectionResult> {
+    fn send(&self, _chunk: Vec<u8>) -> BoxFuture<'static, ConnectionResult> {
         Box::pin(std::future::pending())
     }
 

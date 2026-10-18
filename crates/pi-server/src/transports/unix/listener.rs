@@ -5,7 +5,7 @@ use std::io::ErrorKind;
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use pi_protocol::DEFAULT_MAX_FRAME_LENGTH;
@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{UnixListener as TokioUnixListener, UnixStream};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::connection::{ByteConnection, ByteConnectionAcceptor, ByteConnectionHandler, ConnectionResult};
@@ -386,9 +386,9 @@ async fn read_connection(
     handler.on_close();
 }
 
-/// One Unix-domain stream with serialized writes and bounded pending bytes.
+/// One Unix-domain stream with ordered writes and bounded pending bytes.
 pub struct UnixByteConnection {
-    writer: tokio::sync::Mutex<OwnedWriteHalf>,
+    commands: mpsc::UnboundedSender<WriteCommand>,
     closed: AtomicBool,
     closing: AtomicBool,
     pending_bytes: AtomicUsize,
@@ -396,6 +396,20 @@ pub struct UnixByteConnection {
     graceful_close_timeout_ms: u64,
     close_lock: tokio::sync::Mutex<()>,
     closed_tx: watch::Sender<bool>,
+}
+
+enum WriteCommand {
+    Chunk {
+        bytes: Vec<u8>,
+        result: oneshot::Sender<ConnectionResult>,
+    },
+    Shutdown {
+        result: oneshot::Sender<ConnectionResult>,
+    },
+    Close {
+        final_chunk: Option<Vec<u8>>,
+        result: oneshot::Sender<ConnectionResult>,
+    },
 }
 
 impl UnixByteConnection {
@@ -406,8 +420,9 @@ impl UnixByteConnection {
     ) -> (Arc<Self>, OwnedReadHalf) {
         let (reader, writer) = stream.into_split();
         let (closed_tx, _) = watch::channel(false);
+        let (commands, receiver) = mpsc::unbounded_channel();
         let connection = Arc::new(Self {
-            writer: tokio::sync::Mutex::new(writer),
+            commands,
             closed: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             pending_bytes: AtomicUsize::new(0),
@@ -416,6 +431,8 @@ impl UnixByteConnection {
             close_lock: tokio::sync::Mutex::new(()),
             closed_tx,
         });
+        let weak = Arc::downgrade(&connection);
+        tokio::spawn(write_loop(writer, receiver, weak));
         (connection, reader)
     }
 
@@ -429,8 +446,15 @@ impl UnixByteConnection {
 
     /// Ends the write side after the peer stops reading, matching half-close defaults.
     async fn finish_read(&self) {
-        let mut writer = self.writer.lock().await;
-        let _ = writer.shutdown().await;
+        let (result_tx, result_rx) = oneshot::channel();
+        if self
+            .commands
+            .send(WriteCommand::Shutdown { result: result_tx })
+            .is_err()
+        {
+            return;
+        }
+        let _ = result_rx.await;
     }
 
     /// Framed bytes accepted by `send` that have not completed writing yet.
@@ -438,11 +462,10 @@ impl UnixByteConnection {
         self.pending_bytes.load(Ordering::SeqCst)
     }
 
-    async fn send_impl(&self, chunk: Vec<u8>) -> ConnectionResult {
+    fn reserve(&self, size: usize) -> Result<(), Box<dyn Error + Send + Sync>> {
         if self.closed.load(Ordering::SeqCst) || self.closing.load(Ordering::SeqCst) {
             return Err(Box::new(std::io::Error::other("Unix connection is closed")));
         }
-        let size = chunk.len();
         let previous = self.pending_bytes.fetch_add(size, Ordering::SeqCst);
         if previous + size > self.max_pending_bytes {
             self.pending_bytes.fetch_sub(size, Ordering::SeqCst);
@@ -450,19 +473,27 @@ impl UnixByteConnection {
                 "Unix connection exceeded its pending byte limit",
             )));
         }
-        let result = async {
-            let mut writer = self.writer.lock().await;
-            if self.closed.load(Ordering::SeqCst) || self.closing.load(Ordering::SeqCst) {
-                return Err(
-                    Box::new(std::io::Error::other("Unix connection is closed")) as Box<dyn Error + Send + Sync>
-                );
-            }
-            writer.write_all(&chunk).await?;
-            Ok(())
+        Ok(())
+    }
+
+    fn send_impl(&self, chunk: Vec<u8>) -> BoxFuture<'static, ConnectionResult> {
+        let size = chunk.len();
+        if let Err(error) = self.reserve(size) {
+            return Box::pin(async move { Err(error) });
         }
-        .await;
-        self.pending_bytes.fetch_sub(size, Ordering::SeqCst);
-        result
+        let (result_tx, result_rx) = oneshot::channel();
+        if self
+            .commands
+            .send(WriteCommand::Chunk {
+                bytes: chunk,
+                result: result_tx,
+            })
+            .is_err()
+        {
+            self.pending_bytes.fetch_sub(size, Ordering::SeqCst);
+            return Box::pin(async { Err(writer_stopped_error()) });
+        }
+        Box::pin(async move { result_rx.await.unwrap_or_else(|_| Err(writer_stopped_error())) })
     }
 
     async fn close_impl(&self, final_chunk: Option<Vec<u8>>) -> ConnectionResult {
@@ -475,15 +506,18 @@ impl UnixByteConnection {
             return Ok(());
         }
         self.closing.store(true, Ordering::SeqCst);
-        let write_result = async {
-            let mut writer = self.writer.lock().await;
-            if let Some(final_chunk) = final_chunk {
-                writer.write_all(&final_chunk).await?;
-            }
-            writer.shutdown().await?;
-            Ok::<(), Box<dyn Error + Send + Sync>>(())
+        let (result_tx, result_rx) = oneshot::channel();
+        if self
+            .commands
+            .send(WriteCommand::Close {
+                final_chunk,
+                result: result_tx,
+            })
+            .is_err()
+        {
+            return Err(writer_stopped_error());
         }
-        .await;
+        let write_result = result_rx.await.unwrap_or_else(|_| Err(writer_stopped_error()));
         if write_result.is_err() {
             self.mark_closed();
             return write_result;
@@ -499,13 +533,58 @@ impl UnixByteConnection {
     }
 }
 
+fn writer_stopped_error() -> Box<dyn Error + Send + Sync> {
+    Box::new(std::io::Error::other("Unix connection writer stopped"))
+}
+
+async fn write_loop(
+    mut writer: OwnedWriteHalf,
+    mut commands: mpsc::UnboundedReceiver<WriteCommand>,
+    connection: Weak<UnixByteConnection>,
+) {
+    while let Some(command) = commands.recv().await {
+        match command {
+            WriteCommand::Chunk { bytes, result } => {
+                let size = bytes.len();
+                let outcome = writer
+                    .write_all(&bytes)
+                    .await
+                    .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>);
+                if let Some(connection) = connection.upgrade() {
+                    connection.pending_bytes.fetch_sub(size, Ordering::SeqCst);
+                }
+                let _ = result.send(outcome);
+            }
+            WriteCommand::Shutdown { result } => {
+                let outcome = writer
+                    .shutdown()
+                    .await
+                    .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>);
+                let _ = result.send(outcome);
+            }
+            WriteCommand::Close { final_chunk, result } => {
+                let outcome = async {
+                    if let Some(final_chunk) = final_chunk {
+                        writer.write_all(&final_chunk).await?;
+                    }
+                    writer.shutdown().await?;
+                    Ok(())
+                }
+                .await;
+                let _ = result.send(outcome);
+                return;
+            }
+        }
+    }
+}
+
 impl ByteConnection for UnixByteConnection {
     fn closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
     }
 
-    fn send(&self, chunk: Vec<u8>) -> BoxFuture<'_, ConnectionResult> {
-        Box::pin(async move { self.send_impl(chunk).await })
+    fn send(&self, chunk: Vec<u8>) -> BoxFuture<'static, ConnectionResult> {
+        self.send_impl(chunk)
     }
 
     fn close(&self, final_chunk: Option<Vec<u8>>) -> BoxFuture<'_, ConnectionResult> {

@@ -84,78 +84,35 @@ function execute(request: Request, api: ProtocolApi): string {
 				}),
 			);
 		case "usage": {
-			const usage = api.toProtocolUsage(request.usage);
-			const frame = encodeServerMessage({
-				type: "event",
-				event: {
-					type: "session_snapshot",
-					snapshot: {
-						id: "session-1",
-						cwd: "/workspace",
-						createdAt: 1,
-						updatedAt: 1,
-						phase: "idle",
-						model: { provider: "test-provider", id: "model-1" },
-						thinkingLevel: "off",
-						attached: true,
-						locked: true,
-						revision: 1,
-						transcript: [
-							{
-								id: "assistant-1",
-								role: "assistant",
-								content: [],
-								model: { provider: "test-provider", id: "model-1" },
-								status: "complete",
-								stopReason: "stop",
-								timestamp: 1,
-								...(usage === undefined ? {} : { usage }),
-							},
-						],
-						queuedSteer: [],
-						queuedSteerCount: 0,
-					},
+			const item = api.toProtocolAssistantMessage(
+				{
+					role: "assistant",
+					content: [],
+					api: "test-api",
+					provider: "test-provider",
+					model: "model-1",
+					usage: request.usage,
+					stopReason: "stop",
+					timestamp: 1,
 				},
-			});
-			return toHex(frame);
+				{ id: "assistant-1" },
+			);
+			return snapshotFrame(item);
 		}
 		case "sanitize_details": {
-			const details = api.sanitizeProtocolDetails(request.value);
-			const frame = encodeServerMessage({
-				type: "event",
-				event: {
-					type: "session_snapshot",
-					snapshot: {
-						id: "session-1",
-						cwd: "/workspace",
-						createdAt: 1,
-						updatedAt: 1,
-						phase: "idle",
-						model: { provider: "test-provider", id: "model-1" },
-						thinkingLevel: "off",
-						attached: true,
-						locked: true,
-						revision: 1,
-						transcript: [
-							{
-								id: "tool-1",
-								role: "tool",
-								toolCallId: "call-1",
-								toolName: "read",
-								input: {},
-								content: [],
-								...(details === undefined ? {} : { details }),
-								status: "complete",
-								isError: false,
-								timestamp: 1,
-							},
-						],
-						queuedSteer: [],
-						queuedSteerCount: 0,
-					},
+			const item = api.toProtocolToolResultMessage(
+				{
+					role: "toolResult",
+					toolCallId: "call-1",
+					toolName: "read",
+					content: [],
+					details: request.value,
+					isError: false,
+					timestamp: 1,
 				},
-			});
-			return toHex(frame);
+				{ id: "tool-1", call: { type: "toolCall", id: "call-1", name: "read", arguments: { path: "README.md" } } },
+			);
+			return snapshotFrame(item);
 		}
 	}
 }

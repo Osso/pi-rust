@@ -13,7 +13,9 @@ pub type ConnectionResult = Result<(), Box<dyn std::error::Error + Send + Sync>>
 /// An established, authorized ordered byte connection.
 pub trait ByteConnection: Send + Sync {
     fn closed(&self) -> bool;
-    fn send(&self, chunk: Vec<u8>) -> BoxFuture<'_, ConnectionResult>;
+    /// Reserves the next write slot in call order. The returned future completes when that chunk is
+    /// written, so callers can enqueue without waiting for the write to finish.
+    fn send(&self, chunk: Vec<u8>) -> BoxFuture<'static, ConnectionResult>;
     fn close(&self, final_chunk: Option<Vec<u8>>) -> BoxFuture<'_, ConnectionResult>;
 }
 

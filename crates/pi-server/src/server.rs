@@ -476,9 +476,29 @@ impl ServerCore {
     }
 
     pub(crate) fn send_message_detached(self: &Arc<Self>, connection: Arc<ConnectionState>, message: ServerMessage) {
+        if connection.disconnected.load(Ordering::SeqCst) || connection.connection.closed() {
+            return;
+        }
+        let frame = match pi_protocol::encode_server_message(&message, Some(self.max_frame_length)) {
+            Ok(frame) => frame,
+            Err(error) => {
+                self.report_error(&error);
+                let core = self.clone();
+                tokio::spawn(async move {
+                    core.close_connection(connection.connection.clone(), None).await;
+                    core.disconnect(connection).await;
+                });
+                return;
+            }
+        };
+        let write = connection.connection.send(frame);
         let core = self.clone();
         tokio::spawn(async move {
-            core.send_message(connection, message).await;
+            if let Err(error) = write.await {
+                core.report_error(error.as_ref());
+                core.close_connection(connection.connection.clone(), None).await;
+                core.disconnect(connection).await;
+            }
         });
     }
 

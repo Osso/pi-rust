@@ -179,8 +179,21 @@ pub struct AssistantTranscriptItemInput {
     pub state: AssistantTranscriptState,
 }
 
+/// Field insertion order of the source producer that created an assistant item.
+///
+/// The protocol encoder preserves insertion order, and the pinned TypeScript server has two
+/// producers that disagree: `toProtocolAssistantMessage` emits the schema order, while
+/// `TestSessionRuntime` writes `status` before `model` and `timestamp` last.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssistantTranscriptOrder {
+    /// `packages/server/src/protocol.ts` bridge order.
+    Bridge,
+    /// `packages/server/src/testing/service.ts` runtime order.
+    Runtime,
+}
+
 /// An assistant message in a session transcript.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct AssistantTranscriptItem {
     id: String,
     content: Vec<AssistantContent>,
@@ -189,10 +202,36 @@ pub struct AssistantTranscriptItem {
     usage: Option<Usage>,
     timestamp: u64,
     state: AssistantTranscriptState,
+    order: AssistantTranscriptOrder,
+}
+
+impl PartialEq for AssistantTranscriptItem {
+    /// Wire order is a serialization detail; equality compares protocol fields only.
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.content == other.content
+            && self.model == other.model
+            && self.response_model == other.response_model
+            && self.usage == other.usage
+            && self.timestamp == other.timestamp
+            && self.state == other.state
+    }
 }
 
 impl AssistantTranscriptItem {
     pub fn new(input: AssistantTranscriptItemInput) -> Result<Self, SchemaValueError> {
+        Self::with_order(input, AssistantTranscriptOrder::Bridge)
+    }
+
+    /// Creates an item with the insertion order used by the server's test runtime producer.
+    pub fn new_runtime(input: AssistantTranscriptItemInput) -> Result<Self, SchemaValueError> {
+        Self::with_order(input, AssistantTranscriptOrder::Runtime)
+    }
+
+    fn with_order(
+        input: AssistantTranscriptItemInput,
+        order: AssistantTranscriptOrder,
+    ) -> Result<Self, SchemaValueError> {
         validate_non_empty(&input.id, SchemaValueError::EmptyId)?;
         if let Some(response_model) = &input.response_model {
             validate_non_empty(response_model, SchemaValueError::EmptyResponseModel)?;
@@ -211,6 +250,7 @@ impl AssistantTranscriptItem {
             usage: input.usage,
             timestamp: input.timestamp,
             state: input.state,
+            order,
         })
     }
 
@@ -240,6 +280,10 @@ impl AssistantTranscriptItem {
 
     pub const fn state(&self) -> &AssistantTranscriptState {
         &self.state
+    }
+
+    pub const fn order(&self) -> AssistantTranscriptOrder {
+        self.order
     }
 }
 
