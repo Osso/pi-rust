@@ -4,6 +4,7 @@ mod base64;
 mod js_compat;
 mod unicode_tables;
 
+pub mod alt_screen_search;
 pub mod autocomplete;
 pub mod components;
 pub mod fuzzy;
