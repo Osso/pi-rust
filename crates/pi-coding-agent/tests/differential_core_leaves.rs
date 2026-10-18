@@ -20,6 +20,7 @@ use pi_coding_agent::core::permissions::presets::{
 use pi_coding_agent::core::pi_manifest::read_pi_manifest;
 use pi_coding_agent::core::provider_display_names::BUILT_IN_PROVIDER_DISPLAY_NAMES;
 use pi_coding_agent::core::radius::RADIUS_PROVIDER_ID;
+use pi_coding_agent::core::runtime_process::command_line_is_pi_runtime;
 use pi_coding_agent::core::session_errors::SessionImportFileNotFoundError;
 use pi_coding_agent::core::session_health::{
     SessionCheckStatus, SessionHealthRecord, SessionLiveStatus, advance_generation_for_pid, derive_live_status,
@@ -644,4 +645,32 @@ fn project_resolver_matches_typescript() {
         json!({"resolved": resolved, "identities": identities, "configs": configs}),
         expected
     );
+}
+
+#[test]
+fn runtime_process_command_line_detection_matches_typescript() {
+    let command_lines = [
+        vec!["pi"],
+        vec!["/usr/local/bin/pi"],
+        vec!["/opt/Pi.EXE"],
+        vec!["pi-extra"],
+        vec!["bash"],
+        vec!["node", "/home/osso/Projects/pi/packages/coding-agent/src/cli.ts"],
+        vec!["bun", "packages/coding-agent/src/bun/cli.ts"],
+        vec!["node", "packages/coding-agent/dist/cli.js"],
+        vec!["node", "C:\\work\\packages\\coding-agent\\dist\\cli.js"],
+        vec!["node", "dist/cli.js"],
+        vec!["node", "packages/coding-agent/src/cli.tsx"],
+        vec!["node", "other.js"],
+        vec![],
+    ];
+    let mut oracle = Oracle::spawn();
+    let expected = oracle.call("core/runtime-process.ts", "runtimeProcess", json!(command_lines));
+    let actual: Vec<bool> = command_lines
+        .iter()
+        .map(|command_line| {
+            command_line_is_pi_runtime(&command_line.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>())
+        })
+        .collect();
+    assert_eq!(json!(actual), expected);
 }

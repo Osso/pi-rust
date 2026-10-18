@@ -380,7 +380,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/cli/experimental/command.ts` | 205 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/command.rs` | Typed command/option/subcommand parser; differential `27010`. |
 | `coding-agent/src/cli/experimental/transport-address.ts` | 48 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/transport_address.rs` | Unix transport address validation; differential `27009`. |
 | `coding-agent/src/core/debug-repl.ts` | 292 | 0 | todo |  |  |
-| `coding-agent/src/core/desktop-notification.ts` | 116 | 0 | todo |  |  |
+| `coding-agent/src/core/desktop-notification.ts` | 116 | 0 | done | `crates/pi-coding-agent/src/core/desktop_notification.rs` | notify-send argv, deferred close, busctl close; fake-binary child probes. |
 | `coding-agent/src/core/detached-job-retention.ts` | 76 | 0 | todo |  |  |
 | `coding-agent/src/core/diagnostics.ts` | 15 | 0 | done | `crates/pi-coding-agent/src/core/diagnostics.rs` | `ResourceCollision`/`ResourceDiagnostic` wire records. |
 | `coding-agent/src/core/event-bus.ts` | 33 | 0 | done | `crates/pi-coding-agent/src/core/event_bus.rs` | Channel bus with subscriptions, clear, and failure isolation; handlers are typed `Fn(&Value) -> Result`. |
@@ -393,7 +393,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/provider-display-names.ts` | 34 | 0 | done | `crates/pi-coding-agent/src/core/provider_display_names.rs` | 32 built-in display names; differential `27004`. |
 | `coding-agent/src/core/radius.ts` | 1 | 0 | done | `crates/pi-coding-agent/src/core/radius.rs` | `RADIUS_PROVIDER_ID`; differential `27004`. |
 | `coding-agent/src/core/resident-console-transport.ts` | 414 | 0 | todo |  |  |
-| `coding-agent/src/core/runtime-process.ts` | 103 | 0 | todo |  |  |
+| `coding-agent/src/core/runtime-process.ts` | 103 | 0 | done | `crates/pi-coding-agent/src/core/runtime_process.rs` | `/proc` identity/state, Pi-runtime command-line detection; differential `27012`. macOS `ps` cmdline fallback is a documented gap. |
 | `coding-agent/src/core/session-errors.ts` | 12 | 0 | done | `crates/pi-coding-agent/src/core/session_errors.rs` | `SessionImportFileNotFoundError`; differential `27004`. |
 | `coding-agent/src/core/session-health.ts` | 135 | 0 | done | `crates/pi-coding-agent/src/core/session_health.rs` | Records, sticky-death/eligibility, live-status derivation, goal parsing; differential `27008`. `Date.parse` subset lives in `utils::iso_time` (RFC 2822/free-form gap documented). |
 | `coding-agent/src/core/skill-block.ts` | 22 | 0 | partial |  |  |
@@ -431,8 +431,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/pi-user-agent.ts` | 4 | 0 | done | `crates/pi-coding-agent/src/utils/pi_user_agent.rs` | Differential 26005; runtime token is `rust` |
 | `coding-agent/src/utils/sleep.ts` | 18 | 0 | done | `crates/pi-coding-agent/src/utils/sleep.rs` | Focused timing/abort tests |
 | `coding-agent/src/utils/terminal-current-directory.ts` | 13 | 0 | done | `crates/pi-coding-agent/src/utils/terminal_current_directory.rs` | Differential 26006; focused tests |
-| `coding-agent/src/core/detached-job-bootstrap.ts` | 113 | 1 | todo |  |  |
-| `coding-agent/src/core/exec.ts` | 107 | 1 | todo |  |  |
+| `coding-agent/src/core/detached-job-bootstrap.ts` | 113 | 1 | done | `crates/pi-coding-agent/src/core/detached_job_bootstrap.rs` | Gated payload with persisted identity; `setsid(1)`+sh replaces `detached:true`+fd 3 (approved deviation). |
+| `coding-agent/src/core/exec.ts` | 107 | 1 | done | `crates/pi-coding-agent/src/core/exec.rs` | Shell-free exec with timeout/abort termination and killed-by-signal code 0; behavioral process tests. |
 | `coding-agent/src/core/permissions/presets.ts` | 62 | 1 | done | `crates/pi-coding-agent/src/core/permissions/presets.rs` | Presets, sandbox profiles, policy↔preset mapping; differential `27003`. |
 | `coding-agent/src/core/tools/output-accumulator.ts` | 224 | 1 | todo |  |  |
 | `coding-agent/src/utils/clipboard-image.ts` | 300 | 1 | todo |  |  |

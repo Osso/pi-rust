@@ -20,6 +20,7 @@ All direct dependencies are exact-pinned.
 - `tokio-util = 0.7.20` — supplies `CancellationToken` as the Rust `AbortSignal` mapping.
 - `notify = 8.2.0` — provides the platform file watcher behind `utils::fs_watch`.
 - `jiff = 0.2.38` (`std`, `tz-system`) — resolves the system UTC offset for offset-less timestamps in `utils::iso_time`, replacing V8's local-time `Date.parse` resolution.
+- `rustix = 1.1.5` (`process`) — sends `SIGTERM`/`SIGKILL` for `core::exec` termination and performs the `kill(pid, 0)` existence check in `core::runtime_process`.
 - `pi-ai` (path) — `utils::management_http` uses the shared `Fetch` contract and default reqwest client (one HTTP stack).
 - `tempfile = 3.27.0` (development) — creates isolated temporary files, symlinks, and git repositories for path and process tests.
 

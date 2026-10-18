@@ -56,6 +56,8 @@ const handlers: Record<string, Handler> = {
 		}),
 	piManifest: (api, request) => cases(request).map((path) => api.readPiManifest(path)),
 	auth: (api, request) => cases(request).map((options) => api.parseAuthInput(options)),
+	runtimeProcess: (api, request) =>
+		cases(request).map((value) => api.commandLineIsPiRuntime(value)),
 	transportAddress: (api, request) =>
 		cases(request).map((value) => {
 			const input = value as { value: string; option: "--listen" | "--connect" };

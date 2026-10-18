@@ -1,12 +1,16 @@
 mod config_value;
 pub mod defaults;
+pub mod desktop_notification;
+pub mod detached_job_bootstrap;
 pub mod diagnostics;
 pub mod event_bus;
+pub mod exec;
 pub mod experimental;
 pub mod permissions;
 pub mod pi_manifest;
 pub mod provider_display_names;
 pub mod radius;
+pub mod runtime_process;
 pub mod session_errors;
 pub mod session_health;
 pub mod session_manager;
