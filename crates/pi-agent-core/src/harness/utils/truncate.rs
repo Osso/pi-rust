@@ -1,3 +1,5 @@
+use serde::Serialize;
+
 /// Default maximum number of output lines.
 pub const DEFAULT_MAX_LINES: usize = 2_000;
 /// Default maximum number of output bytes.
@@ -26,14 +28,16 @@ impl Default for TruncationOptions {
 }
 
 /// Identifies the limit that truncated output.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TruncatedBy {
     Lines,
     Bytes,
 }
 
 /// Truncated output and source-compatible metadata.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TruncationResult {
     pub content: String,
     pub truncated: bool,

@@ -215,9 +215,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 |---|---:|---:|---|---|---|
 | `agent/src/harness/events.ts` | 102 | 0 | todo |  |  |
 | `agent/src/harness/result.ts` | 63 | 0 | todo |  |  |
-| `agent/src/harness/tools/edit-diff.ts` | 500 | 0 | partial |  |  |
-| `agent/src/harness/tools/image.ts` | 104 | 0 | partial |  |  |
-| `agent/src/harness/utils/truncate.ts` | 350 | 0 | partial |  |  |
+| `agent/src/harness/tools/edit-diff.ts` | 500 | 0 | done | `crates/pi-agent-core/src/harness/tools/edit_diff.rs` | Fuzzy matching, replacements, jsdiff line diff/unified patch; 8 behavioral + edit differential fixtures; see `edit-diff.md`. |
+| `agent/src/harness/tools/image.ts` | 104 | 0 | done | `crates/pi-agent-core/src/harness/tools/image.rs` | MIME detection + Base64; focused and differential proof; see `image-helpers.md`. |
+| `agent/src/harness/utils/truncate.ts` | 350 | 0 | done | `crates/pi-agent-core/src/harness/utils/truncate.rs` | Head/tail/line truncation and size formatting; focused and 34-request differential proof; see `truncation.md`. |
 | `agent/src/harness/telemetry.ts` | 615 | 1 | todo |  |  |
 | `agent/src/proxy.ts` | 370 | 4 | done | `crates/pi-agent-core/src/agent/proxy.rs` | Proxy SSE reconstruction, error/abort paths, injectable `Fetch`; see `agent-proxy.md`. |
 | `agent/src/types.ts` | 470 | 4 | done | `crates/pi-agent-core/src/agent/types.rs` | Full export set; `AgentMessage` custom variant is a raw JSON object; see `agent-types.md`. |
@@ -225,10 +225,10 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/messages.ts` | 188 | 5 | partial |  |  |
 | `agent/src/harness/session/session.ts` | 340 | 5 | todo |  |  |
 | `agent/src/harness/session/types.ts` | 406 | 5 | todo |  |  |
-| `agent/src/harness/types.ts` | 320 | 5 | partial |  |  |
+| `agent/src/harness/types.ts` | 320 | 5 | partial | `crates/pi-agent-core/src/harness/types.rs` | FileSystem/Shell/ExecutionEnv, options, errors and records ported; Result helpers are Rust idioms; harness tool/stream-option types await harness orchestration; see `harness-types.md`. |
 | `agent/src/stream-fn.ts` | 20 | 5 | done | `crates/pi-agent-core/src/agent/stream_fn.rs` | Process-global default stream fn; exact missing-default error; see `agent-stream-fn.md`. |
 | `agent/src/agent-loop.ts` | 1028 | 6 | done | `crates/pi-agent-core/src/agent/agent_loop.rs` | Event ordering, tool modes, steering/follow-up, termination, abort races, restored tool calls, listener failures, result capping; 37 behavioral tests + 34 differential scenarios; see `agent-loop.md`. |
-| `agent/src/harness/env/nodejs.ts` | 695 | 6 | todo |  |  |
+| `agent/src/harness/env/nodejs.ts` | 695 | 6 | done | `crates/pi-agent-core/src/harness/env/nodejs.rs` | tokio fs/process env, shell selection, env handling, timeout/abort/process-group kill, streaming; 23 tests; Windows branches excluded; see `harness-nodejs-env.md`. |
 | `agent/src/harness/prompt-templates.ts` | 262 | 6 | partial |  |  |
 | `agent/src/harness/reducer.ts` | 667 | 6 | todo |  |  |
 | `agent/src/harness/session/context.ts` | 100 | 6 | todo |  |  |
@@ -237,22 +237,22 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/session/state.ts` | 344 | 6 | todo |  |  |
 | `agent/src/harness/skills.ts` | 375 | 6 | todo |  |  |
 | `agent/src/harness/system-prompt.ts` | 34 | 6 | todo |  |  |
-| `agent/src/harness/tools/file-mutation-queue.ts` | 56 | 6 | todo |  |  |
-| `agent/src/harness/tools/path-utils.ts` | 30 | 6 | todo |  |  |
-| `agent/src/harness/tools/tool-context.ts` | 6 | 6 | todo |  |  |
-| `agent/src/harness/utils/shell-output.ts` | 199 | 6 | partial |  |  |
+| `agent/src/harness/tools/file-mutation-queue.ts` | 56 | 6 | done | `crates/pi-agent-core/src/harness/tools/file_mutation_queue.rs` | Canonical-path serialization shared via `ExecutionToolContext`; see `file-mutation-queue.md`. |
+| `agent/src/harness/tools/path-utils.ts` | 30 | 6 | done | `crates/pi-agent-core/src/harness/tools/path_utils.rs` | Path normalization and read variants; see `path-utils.md`. |
+| `agent/src/harness/tools/tool-context.ts` | 6 | 6 | done | `crates/pi-agent-core/src/harness/tools/tool_context.rs` | Env + mutation queue bound at tool construction; see `tool-context.md`. |
+| `agent/src/harness/utils/shell-output.ts` | 199 | 6 | done | `crates/pi-agent-core/src/harness/utils/shell_output.rs` | Sanitizer + full `executeShellWithCapture`; 6 tests and bash differential fixtures; see `shell-output.md`. |
 | `agent/src/search/index.ts` | 32 | 6 | todo |  |  |
 | `agent/src/search/scanning.ts` | 176 | 6 | todo |  |  |
 | `agent/src/agent.ts` | 626 | 7 | done | `crates/pi-agent-core/src/agent/agent.rs` | Stateful wrapper, queues, lifecycle, listener settlement and failure propagation, continue/reset; 23 tests + 6 differential scenarios; see `agent.md`. |
 | `agent/src/harness/compaction/compaction.ts` | 910 | 7 | partial |  |  |
 | `agent/src/harness/session/jsonl/codec.ts` | 240 | 7 | todo |  |  |
 | `agent/src/harness/session/memory.ts` | 192 | 7 | todo |  |  |
-| `agent/src/harness/tools/bash.ts` | 161 | 7 | todo |  |  |
-| `agent/src/harness/tools/edit.ts` | 127 | 7 | todo |  |  |
-| `agent/src/harness/tools/read.ts` | 144 | 7 | todo |  |  |
-| `agent/src/harness/tools/write.ts` | 39 | 7 | todo |  |  |
+| `agent/src/harness/tools/bash.ts` | 161 | 7 | done | `crates/pi-agent-core/src/harness/tools/bash.rs` | Schema, prepare/prefix, throttled updates, truncation/error/abort mapping; 8 behavioral + 7 differential fixtures; see `harness-tools-bash.md`. |
+| `agent/src/harness/tools/edit.ts` | 127 | 7 | done | `crates/pi-agent-core/src/harness/tools/edit.rs` | Legacy argument preparation, queued edits, diff/patch details; 8 behavioral + 11 differential fixtures; see `harness-tools-edit.md`. |
+| `agent/src/harness/tools/read.ts` | 144 | 7 | done | `crates/pi-agent-core/src/harness/tools/read.rs` | Text offsets/limits/truncation, image detection and processor; 5 behavioral + 9 differential fixtures; see `harness-tools-read.md`. |
+| `agent/src/harness/tools/write.ts` | 39 | 7 | done | `crates/pi-agent-core/src/harness/tools/write.rs` | Queued writes, abort checks, UTF-16 byte count; 2 tests + 3 differential fixtures; see `harness-tools-write.md`. |
 | `agent/src/harness/session/jsonl/storage.ts` | 277 | 8 | todo |  |  |
-| `agent/src/harness/tools/index.ts` | 23 | 8 | todo |  |  |
+| `agent/src/harness/tools/index.ts` | 23 | 8 | done | `crates/pi-agent-core/src/harness/tools/mod.rs` | Tool module re-exports; input/details are JSON values; see `harness-tools-index.md`. |
 | `agent/src/harness/session/jsonl/repo.ts` | 247 | 9 | todo |  |  |
 | `agent/src/harness/session/jsonl.ts` | 9 | 10 | todo |  |  |
 | `agent/src/harness/session/index.ts` | 13 | 11 | todo |  |  |

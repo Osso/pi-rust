@@ -122,7 +122,7 @@ fn rust_response(id: u64, fixture: &Fixture) -> Value {
     ok_response(id, normalize_error(error.as_ref()))
 }
 
-fn build_error(fixture: &Fixture) -> Box<dyn StdError + 'static> {
+fn build_error(fixture: &Fixture) -> Box<dyn StdError + Send + Sync + 'static> {
     let cause = fixture.cause.as_ref().map(build_cause);
     match fixture.kind {
         HarnessErrorKind::File => Box::new(FileError::new(
@@ -149,7 +149,7 @@ fn build_error(fixture: &Fixture) -> Box<dyn StdError + 'static> {
     }
 }
 
-fn build_cause(cause: &CauseFixture) -> Box<dyn StdError + 'static> {
+fn build_cause(cause: &CauseFixture) -> Box<dyn StdError + Send + Sync + 'static> {
     match cause {
         CauseFixture::Ordinary { message } => Box::new(TestCause {
             message: (*message).to_owned(),

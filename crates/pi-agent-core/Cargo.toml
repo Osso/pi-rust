@@ -11,12 +11,15 @@ publish = false
 pi-ai = { version = "=0.0.0", path = "../pi-ai" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["preserve_order"] }
-tokio = { version = "=1.53.3", features = ["macros", "rt", "sync", "time"] }
+tokio = { version = "=1.53.3", features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
+rustix = { version = "=1.1.5", features = ["process"] }
+unicode-normalization = "=0.1.26"
 tokio-util = { version = "=0.7.20", features = ["rt"] }
 
 [dev-dependencies]
 serde_json = { version = "=1.0.151", features = ["preserve_order"] }
-tokio = { version = "=1.53.3", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tempfile = "=3.27.0"
+tokio = { version = "=1.53.3", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
 
 [lints]
 workspace = true
