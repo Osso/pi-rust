@@ -1,5 +1,5 @@
-//! Private port of the parts of `diff@8.0.4` that the coding agent uses:
-//! `diffLines` with default options and `createTwoFilesPatch` with
+//! Port of the parts of `diff@8.0.4` used by the agent and coding-agent tools:
+//! `diffLines`, `structuredPatch`, and `createTwoFilesPatch` with
 //! `FILE_HEADERS_ONLY`.
 
 use std::collections::HashMap;
@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 /// One diff part with source-compatible flags and joined token value.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Part {
+pub struct Part {
     pub added: bool,
     pub removed: bool,
     pub value: String,
@@ -28,15 +28,15 @@ struct Path {
 }
 
 /// `diffLines(old_str, new_str)` with default options.
-pub(crate) fn diff_lines(old_text: &str, new_text: &str) -> Vec<Part> {
+pub fn diff_lines(old_text: &str, new_text: &str) -> Vec<Part> {
     let old_tokens = remove_empty(tokenize(old_text));
     let new_tokens = remove_empty(tokenize(new_text));
-    let components = compute(&old_tokens, &new_tokens);
+    let components = Search::new(&old_tokens, &new_tokens).run();
     build_values(&components, &old_tokens, &new_tokens)
 }
 
 /// `tokenize(value, {})`: split into lines with their terminators.
-fn tokenize(value: &str) -> Vec<String> {
+pub fn tokenize(value: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut characters = value.chars().peekable();
@@ -59,94 +59,96 @@ fn remove_empty(tokens: Vec<String>) -> Vec<String> {
     tokens.into_iter().filter(|token| !token.is_empty()).collect()
 }
 
-fn compute(old_tokens: &[String], new_tokens: &[String]) -> Vec<Component> {
-    let old_len = old_tokens.len() as i64;
-    let new_len = new_tokens.len() as i64;
-    let mut best_path: HashMap<i64, Path> = HashMap::new();
-    let mut start = Path {
-        old_pos: -1,
-        last: None,
-    };
-    let new_pos = extract_common(&mut start, new_tokens, old_tokens, 0);
-    if start.old_pos + 1 >= old_len && new_pos + 1 >= new_len {
-        return flatten(start.last);
-    }
-    best_path.insert(0, start);
-
-    let mut min_diagonal = i64::MIN;
-    let mut max_diagonal = i64::MAX;
-    let mut edit_length = 1;
-    let max_edit_length = new_len + old_len;
-    while edit_length <= max_edit_length {
-        let mut diagonal = (-edit_length).max(min_diagonal);
-        let upper = edit_length.min(max_diagonal);
-        while diagonal <= upper {
-            if let Some(component) = extend_diagonal(
-                &mut best_path,
-                diagonal,
-                old_tokens,
-                new_tokens,
-                &mut min_diagonal,
-                &mut max_diagonal,
-            ) {
-                return component;
-            }
-            diagonal += 2;
-        }
-        edit_length += 1;
-    }
-    Vec::new()
+struct Search<'a> {
+    old_tokens: &'a [String],
+    new_tokens: &'a [String],
+    best_path: HashMap<i64, Path>,
+    min_diagonal: i64,
+    max_diagonal: i64,
 }
 
-#[allow(clippy::too_many_arguments)]
-fn extend_diagonal(
-    best_path: &mut HashMap<i64, Path>,
-    diagonal: i64,
-    old_tokens: &[String],
-    new_tokens: &[String],
-    min_diagonal: &mut i64,
-    max_diagonal: &mut i64,
-) -> Option<Vec<Component>> {
-    let old_len = old_tokens.len() as i64;
-    let new_len = new_tokens.len() as i64;
-    let remove_path = best_path.remove(&(diagonal - 1));
-    let add_path = best_path.get(&(diagonal + 1)).cloned();
-
-    let can_add = add_path.as_ref().is_some_and(|path| {
-        let new_pos = path.old_pos - diagonal;
-        (0..new_len).contains(&new_pos)
-    });
-    let can_remove = remove_path.as_ref().is_some_and(|path| path.old_pos + 1 < old_len);
-    if !can_add && !can_remove {
-        best_path.remove(&diagonal);
-        return None;
+impl<'a> Search<'a> {
+    fn new(old_tokens: &'a [String], new_tokens: &'a [String]) -> Self {
+        Self {
+            old_tokens,
+            new_tokens,
+            best_path: HashMap::new(),
+            min_diagonal: i64::MIN,
+            max_diagonal: i64::MAX,
+        }
     }
 
-    let use_add = match (&remove_path, &add_path) {
-        (None, _) => true,
-        (Some(remove), Some(add)) => !can_remove || (can_add && remove.old_pos < add.old_pos),
-        (Some(_), None) => !can_remove,
-    };
-    let mut base_path = if use_add {
-        add_to_path(add_path.as_ref().expect("add path"), true, false, 0)
-    } else {
-        add_to_path(remove_path.as_ref().expect("remove path"), false, true, 1)
-    };
-    let new_pos = extract_common(&mut base_path, new_tokens, old_tokens, diagonal);
-    if base_path.old_pos + 1 >= old_len && new_pos + 1 >= new_len {
-        return Some(flatten(base_path.last));
+    fn run(mut self) -> Vec<Component> {
+        let old_len = self.old_tokens.len() as i64;
+        let new_len = self.new_tokens.len() as i64;
+        let mut start = Path {
+            old_pos: -1,
+            last: None,
+        };
+        let new_pos = extract_common(&mut start, self.new_tokens, self.old_tokens, 0);
+        if start.old_pos + 1 >= old_len && new_pos + 1 >= new_len {
+            return flatten(start.last);
+        }
+        self.best_path.insert(0, start);
+
+        let max_edit_length = new_len + old_len;
+        let mut edit_length = 1;
+        while edit_length <= max_edit_length {
+            let mut diagonal = (-edit_length).max(self.min_diagonal);
+            let upper = edit_length.min(self.max_diagonal);
+            while diagonal <= upper {
+                if let Some(component) = self.extend_diagonal(diagonal) {
+                    return component;
+                }
+                diagonal += 2;
+            }
+            edit_length += 1;
+        }
+        Vec::new()
     }
 
-    let old_done = base_path.old_pos + 1 >= old_len;
-    let new_done = new_pos + 1 >= new_len;
-    best_path.insert(diagonal, base_path);
-    if old_done {
-        *max_diagonal = (*max_diagonal).min(diagonal - 1);
+    fn extend_diagonal(&mut self, diagonal: i64) -> Option<Vec<Component>> {
+        let old_len = self.old_tokens.len() as i64;
+        let new_len = self.new_tokens.len() as i64;
+        let remove_path = self.best_path.remove(&(diagonal - 1));
+        let add_path = self.best_path.get(&(diagonal + 1)).cloned();
+
+        let can_add = add_path.as_ref().is_some_and(|path| {
+            let new_pos = path.old_pos - diagonal;
+            (0..new_len).contains(&new_pos)
+        });
+        let can_remove = remove_path.as_ref().is_some_and(|path| path.old_pos + 1 < old_len);
+        if !can_add && !can_remove {
+            self.best_path.remove(&diagonal);
+            return None;
+        }
+
+        let use_add = match (&remove_path, &add_path) {
+            (None, _) => true,
+            (Some(remove), Some(add)) => !can_remove || (can_add && remove.old_pos < add.old_pos),
+            (Some(_), None) => !can_remove,
+        };
+        let mut base_path = if use_add {
+            add_to_path(add_path.as_ref().expect("add path"), true, false, 0)
+        } else {
+            add_to_path(remove_path.as_ref().expect("remove path"), false, true, 1)
+        };
+        let new_pos = extract_common(&mut base_path, self.new_tokens, self.old_tokens, diagonal);
+        if base_path.old_pos + 1 >= old_len && new_pos + 1 >= new_len {
+            return Some(flatten(base_path.last));
+        }
+
+        let old_done = base_path.old_pos + 1 >= old_len;
+        let new_done = new_pos + 1 >= new_len;
+        self.best_path.insert(diagonal, base_path);
+        if old_done {
+            self.max_diagonal = self.max_diagonal.min(diagonal - 1);
+        }
+        if new_done {
+            self.min_diagonal = self.min_diagonal.max(diagonal + 1);
+        }
+        None
     }
-    if new_done {
-        *min_diagonal = (*min_diagonal).max(diagonal + 1);
-    }
-    None
 }
 
 fn add_to_path(path: &Path, added: bool, removed: bool, old_pos_increment: i64) -> Path {
@@ -234,8 +236,18 @@ fn build_values(components: &[Component], old_tokens: &[String], new_tokens: &[S
     parts
 }
 
+/// One `structuredPatch` hunk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hunk {
+    pub old_start: i64,
+    pub old_lines: i64,
+    pub new_start: i64,
+    pub new_lines: i64,
+    pub lines: Vec<String>,
+}
+
 /// `createTwoFilesPatch(name, name, old, new, undefined, undefined, { context, headerOptions: FILE_HEADERS_ONLY })`.
-pub(crate) fn create_two_files_patch(name: &str, old_text: &str, new_text: &str, context: usize) -> String {
+pub fn create_two_files_patch(name: &str, old_text: &str, new_text: &str, context: usize) -> String {
     let patch = structured_patch(old_text, new_text, context);
     let mut lines = vec![format!("--- {name}"), format!("+++ {name}")];
     for hunk in patch {
@@ -260,21 +272,14 @@ pub(crate) fn create_two_files_patch(name: &str, old_text: &str, new_text: &str,
     output
 }
 
-struct Hunk {
-    old_start: i64,
-    old_lines: i64,
-    new_start: i64,
-    new_lines: i64,
-    lines: Vec<String>,
-}
-
 struct Segment {
     added: bool,
     removed: bool,
     lines: Vec<String>,
 }
 
-fn structured_patch(old_text: &str, new_text: &str, context: usize) -> Vec<Hunk> {
+/// `structuredPatch(old, new, undefined, undefined, undefined, { context })`.
+pub fn structured_patch(old_text: &str, new_text: &str, context: usize) -> Vec<Hunk> {
     let mut segments: Vec<Segment> = diff_lines(old_text, new_text)
         .into_iter()
         .map(|part| Segment {

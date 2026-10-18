@@ -2048,10 +2048,12 @@ name = "pi-coding-agent"
 version = "0.0.0"
 dependencies = [
  "clipboard-rs",
+ "fancy-regex",
  "gethostname",
  "httpdate",
  "icu_collator",
  "icu_locale_core",
+ "icu_normalizer",
  "image 0.24.9",
  "jiff",
  "notify",

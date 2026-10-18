@@ -5,6 +5,7 @@
 
 pub mod agent;
 pub mod harness;
+pub mod jsdiff;
 pub mod node;
 pub mod search;
 

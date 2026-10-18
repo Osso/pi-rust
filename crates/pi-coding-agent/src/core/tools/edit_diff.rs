@@ -5,7 +5,6 @@ use std::io;
 use icu_normalizer::ComposingNormalizerBorrowed;
 use tokio::io::AsyncReadExt;
 
-use super::jsdiff;
 use super::path_utils::resolve_to_cwd;
 use crate::core::js_string::trim_end_javascript;
 use crate::utils::paths::PathError;
@@ -14,6 +13,7 @@ pub use pi_agent_core::harness::tools::edit_diff::{
     AppliedEditsResult, Edit, FuzzyMatchResult, LineEnding, StripBomResult, detect_line_ending, normalize_to_lf,
     restore_line_endings, strip_bom,
 };
+pub use pi_agent_core::jsdiff;
 
 const DEFAULT_DUPLICATE_CONTEXT_MATCHES: usize = 5;
 const DEFAULT_DUPLICATE_CONTEXT_LINES: usize = 2;
