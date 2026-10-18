@@ -14,6 +14,11 @@ use pi_tui::terminal_image::{
 };
 
 static CAPS_LOCK: Mutex<()> = Mutex::new(());
+static REGISTRY_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_registry() -> std::sync::MutexGuard<'static, ()> {
+    REGISTRY_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
+}
 
 fn with_caps(caps: TerminalCapabilities, test: impl FnOnce()) {
     let _guard = CAPS_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
@@ -310,6 +315,7 @@ fn renders_kitty_images_without_cursor_movement_when_requested() {
 
 #[test]
 fn registers_metadata_and_crops_a_partially_visible_placement() {
+    let _registry_guard = lock_registry();
     with_caps(kitty_caps(), || {
         set_cell_dimensions(CellDimensions {
             width_px: 10,
@@ -345,6 +351,7 @@ fn registers_metadata_and_crops_a_partially_visible_placement() {
 
 #[test]
 fn creates_placement_only_commands_for_uploaded_and_cropped_images() {
+    let _registry_guard = lock_registry();
     register_kitty_image_metadata(pi_tui::terminal_image::KittyImageMetadata {
         image_id: 42,
         columns: 3,
@@ -673,6 +680,7 @@ fn allocate_image_id_stays_in_range() {
 
 #[test]
 fn registry_evicts_oldest_entries_beyond_1000() {
+    let _registry_guard = lock_registry();
     for image_id in 20_000..21_100 {
         register_kitty_image_metadata(pi_tui::terminal_image::KittyImageMetadata {
             image_id,
