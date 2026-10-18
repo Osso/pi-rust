@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { registerFauxProvider, fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai/compat";
 
 const sdkPath = process.argv[2];
 const packagesRoot = resolve(dirname(sdkPath), "../../..");
@@ -55,7 +55,10 @@ function messageSummary(message) {
 		: typeof message.content === "string"
 			? message.content
 			: "";
-	return { role: message.role, text, stopReason: message.stopReason, errorMessage: message.errorMessage };
+	const summary = { role: message.role, text };
+	if (message.stopReason !== undefined) summary.stopReason = message.stopReason;
+	if (message.errorMessage !== undefined) summary.errorMessage = message.errorMessage;
+	return summary;
 }
 
 async function run(request) {
@@ -65,14 +68,34 @@ async function run(request) {
 	mkdirSync(agentDir, { recursive: true });
 	writeFileSync(join(agentDir, "auth.json"), JSON.stringify({ faux: { type: "api_key", key: "faux-key" } }));
 	writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: {} }));
-	const core = createFauxCore({});
-	core.setResponses([fauxAssistantMessage("world"), fauxAssistantMessage("again")]);
+	const core = createFauxCore({ models: [{ id: "faux-1", name: "Faux Model", reasoning: true, contextWindow: 100000, maxTokens: 4096 }] });
+	core.setResponses([
+		fauxAssistantMessage([fauxText("world"), fauxToolCall("end_turn", { reason: "done" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("again"), fauxToolCall("end_turn", { reason: "done" })], { stopReason: "toolUse" }),
+	]);
 	const model = core.getModel();
 	const authStorage = AuthStorage.inMemory();
 	await authStorage.modify(model.provider, async () => ({ type: "api_key", key: "faux-key" }));
 	const modelRuntime = await ModelRuntime.create({
 		credentials: authStorage,
 		modelsPath: join(dir, "models.json"),
+	});
+	modelRuntime.registerProvider(model.provider, {
+		baseUrl: model.baseUrl,
+		api: model.api,
+		models: [
+			{
+				id: model.id,
+				name: model.name,
+				api: model.api,
+				reasoning: model.reasoning,
+				input: model.input,
+				cost: model.cost,
+				contextWindow: model.contextWindow,
+				maxTokens: model.maxTokens,
+				baseUrl: model.baseUrl,
+			},
+		],
 	});
 	const sessionDir = join(dir, "sessions");
 	const sessionManager = SessionManager.create(dir, sessionDir);
@@ -99,6 +122,7 @@ async function run(request) {
 	});
 	const events = [];
 	session.subscribe((event) => {
+		if (event.type === "message_update") return;
 		const entry = { type: event.type };
 		if (event.type === "agent_end") entry.willRetry = event.willRetry;
 		if (event.type === "thinking_level_changed") entry.level = event.level;

@@ -21,6 +21,63 @@ use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::settings_manager::SettingsManager;
 use serde_json::{Value, json};
 
+struct EndTurnTool;
+
+impl pi_agent_core::agent::types::AgentTool for EndTurnTool {
+    fn name(&self) -> &str {
+        "end_turn"
+    }
+
+    fn description(&self) -> &str {
+        "End the current model turn. Provide a concise reason explaining why the turn is finished."
+    }
+
+    fn parameters(&self) -> &Value {
+        static PARAMETERS: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+        PARAMETERS.get_or_init(|| {
+            json!({
+                "type": "object",
+                "properties": {"reason": {"type": "string"}},
+                "required": ["reason"]
+            })
+        })
+    }
+
+    fn label(&self) -> &str {
+        "end_turn"
+    }
+
+    fn execute(
+        &self,
+        _tool_call_id: String,
+        params: Value,
+        _signal: Option<tokio_util::sync::CancellationToken>,
+        _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
+        _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
+    ) -> pi_ai::request::BoxFuture<
+        'static,
+        Result<pi_agent_core::agent::types::AgentToolResult, pi_agent_core::agent::types::ToolError>,
+    > {
+        Box::pin(async move {
+            let reason = params
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
+            if reason.is_empty() {
+                return Err(pi_agent_core::agent::types::ToolError::new(
+                    "end_turn reason must be a non-empty string",
+                ));
+            }
+            let mut result = pi_agent_core::agent::types::AgentToolResult::text(format!("Turn ended: {reason}"));
+            result.details = Some(json!({"reason": reason}));
+            result.terminate = Some(true);
+            Ok(result)
+        })
+    }
+}
+
 fn faux() -> pi_ai::providers::faux::FauxProviderHandle {
     faux_provider(RegisterFauxProviderOptions {
         provider: Some("faux".to_owned()),
@@ -40,9 +97,40 @@ fn faux() -> pi_ai::providers::faux::FauxProviderHandle {
 async fn run_rust(dir: &str) -> Value {
     let faux = faux();
     let model = faux.get_model(None).expect("faux model");
+    let tool_call = |id: &str| {
+        pi_ai::types::AssistantContent::ToolCall(pi_ai::types::ToolCall {
+            r#type: pi_ai::types::ToolCallTag::Tag,
+            id: id.to_owned(),
+            name: "end_turn".to_owned(),
+            arguments: json!({"reason": "done"}).as_object().cloned().unwrap_or_default(),
+            execution: None,
+            thought_signature: None,
+            namespace: None,
+        })
+    };
     faux.set_responses(vec![
-        faux_assistant_message("world", FauxAssistantMessageOptions::default()).into(),
-        faux_assistant_message("again", FauxAssistantMessageOptions::default()).into(),
+        faux_assistant_message(
+            pi_ai::providers::faux::FauxContent::Blocks(vec![
+                pi_ai::providers::faux::faux_text("world"),
+                tool_call("call-1"),
+            ]),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+        faux_assistant_message(
+            pi_ai::providers::faux::FauxContent::Blocks(vec![
+                pi_ai::providers::faux::faux_text("again"),
+                tool_call("call-2"),
+            ]),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
     ]);
     let mut data = serde_json::Map::new();
     data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
@@ -67,6 +155,7 @@ async fn run_rust(dir: &str) -> Value {
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
         settings_manager: Some(Arc::new(std::sync::Mutex::new(settings_manager))),
+        base_tools: vec![Arc::new(EndTurnTool)],
         ..Default::default()
     })
     .await
@@ -82,6 +171,9 @@ async fn run_rust(dir: &str) -> Value {
             for (key, field) in fields {
                 entry.insert(key, field);
             }
+        }
+        if entry.get("type").and_then(Value::as_str) == Some("") {
+            return;
         }
         sink.lock().unwrap().push(Value::Object(entry));
     }));
@@ -124,6 +216,12 @@ async fn run_rust(dir: &str) -> Value {
 
 fn event_name_and_value(event: &pi_coding_agent::core::agent_session::AgentSessionEvent) -> (String, Option<Value>) {
     use pi_coding_agent::core::agent_session::AgentSessionEvent;
+    if matches!(
+        event,
+        AgentSessionEvent::Agent(pi_agent_core::agent::types::AgentEvent::MessageUpdate { .. })
+    ) {
+        return (String::new(), None);
+    }
     match event {
         AgentSessionEvent::Agent(agent_event) => {
             let value = serde_json::to_value(agent_event).ok();
@@ -184,12 +282,16 @@ fn message_summary_value(value: &Value) -> Value {
             .collect::<String>(),
         _ => String::new(),
     };
-    json!({
-        "role": role,
-        "text": text,
-        "stopReason": value.get("stopReason"),
-        "errorMessage": value.get("errorMessage"),
-    })
+    let mut summary = serde_json::Map::new();
+    summary.insert("role".to_owned(), Value::String(role.to_owned()));
+    summary.insert("text".to_owned(), Value::String(text));
+    if let Some(stop_reason) = value.get("stopReason").filter(|value| !value.is_null()) {
+        summary.insert("stopReason".to_owned(), stop_reason.clone());
+    }
+    if let Some(error_message) = value.get("errorMessage").filter(|value| !value.is_null()) {
+        summary.insert("errorMessage".to_owned(), error_message.clone());
+    }
+    Value::Object(summary)
 }
 
 fn normalize(value: &Value, ids: &mut std::collections::HashMap<String, String>, dir: &str) -> Value {
@@ -198,7 +300,7 @@ fn normalize(value: &Value, ids: &mut std::collections::HashMap<String, String>,
             if text == dir || text.starts_with(&format!("{dir}/")) {
                 return Value::String(text.replace(dir, "<dir>"));
             }
-            if is_uuid(text) {
+            if is_generated_id(text) || is_short_id(text) || is_uuid(text) {
                 let next = format!("<id-{}>", ids.len());
                 let marker = ids.entry(text.clone()).or_insert(next).clone();
                 return Value::String(marker);
@@ -216,12 +318,25 @@ fn normalize(value: &Value, ids: &mut std::collections::HashMap<String, String>,
             }
         }
         Value::Array(items) => Value::Array(items.iter().map(|item| normalize(item, ids, dir)).collect()),
-        Value::Object(object) => Value::Object(
-            object
-                .iter()
-                .map(|(key, value)| (key.clone(), normalize(value, ids, dir)))
-                .collect(),
-        ),
+        Value::Object(object) => {
+            let is_usage = object.contains_key("totalTokens");
+            Value::Object(
+                object
+                    .iter()
+                    .map(|(key, value)| {
+                        if is_usage
+                            && matches!(
+                                key.as_str(),
+                                "input" | "output" | "cacheRead" | "cacheWrite" | "totalTokens"
+                            )
+                        {
+                            return (key.clone(), Value::String("<n>".to_owned()));
+                        }
+                        (key.clone(), normalize(value, ids, dir))
+                    })
+                    .collect(),
+            )
+        }
         other => other.clone(),
     }
 }
@@ -235,6 +350,30 @@ fn is_uuid(text: &str) -> bool {
                 character.is_ascii_hexdigit()
             }
         })
+}
+
+fn is_short_id(text: &str) -> bool {
+    text.len() == 8 && text.chars().all(|character| character.is_ascii_hexdigit())
+}
+
+fn is_generated_id(text: &str) -> bool {
+    if let Some(rest) = text.strip_prefix("call-")
+        && !rest.is_empty()
+        && rest.chars().all(|character| character.is_ascii_digit())
+    {
+        return true;
+    }
+    let Some((prefix, rest)) = text.split_once(':') else {
+        return false;
+    };
+    if prefix != "tool" && prefix != "faux" {
+        return false;
+    }
+    let Some((timestamp, random)) = rest.split_once(':') else {
+        return false;
+    };
+    timestamp.chars().all(|character| character.is_ascii_digit())
+        && random.chars().all(|character| character.is_ascii_alphanumeric())
 }
 
 fn is_iso_timestamp(text: &str) -> bool {
