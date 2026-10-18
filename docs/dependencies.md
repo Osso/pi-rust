@@ -15,7 +15,11 @@ All direct dependencies are exact-pinned.
 - `serde_yaml_ng = 0.10.0` — parses YAML frontmatter in `utils::frontmatter`.
 - `url = 2.5.8` — parses WHATWG URLs in `utils::git` and `file://` paths in `utils::paths`.
 - `percent-encoding = 2.3.2` — decodes percent-encoded URL components in `utils::git` and `utils::paths`.
-- `tempfile = 3.27.0` (development) — creates isolated temporary files and symlinks for path and process tests.
+- `tokio = 1.53.3` — provides async sleep, cancellation, and process I/O for `utils::{sleep, abort, child_process}`.
+- `tokio-util = 0.7.20` — supplies `CancellationToken` as the Rust `AbortSignal` mapping.
+- `notify = 8.2.0` — provides the platform file watcher behind `utils::fs_watch`.
+- `ureq = 3.3.0` — blocking HTTP transport for `utils::management_http`.
+- `tempfile = 3.27.0` (development) — creates isolated temporary files, symlinks, and git repositories for path and process tests.
 
 ### `pi-agent-core`
 

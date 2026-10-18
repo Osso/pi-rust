@@ -10,7 +10,10 @@ export type OracleRequest = {
 	[key: string]: unknown;
 };
 
-export type OracleHandler = (api: Record<string, unknown>, request: OracleRequest) => unknown;
+export type OracleHandler = (
+	api: Record<string, unknown>,
+	request: OracleRequest,
+) => unknown | Promise<unknown>;
 
 type Response =
 	| { id: RequestId; ok: true; output: unknown }
@@ -21,12 +24,16 @@ function normalizeError(error: unknown): { name: string; message: string } {
 	return { name: "UnknownError", message: String(error) };
 }
 
-function executeRequestLine(line: string, api: Record<string, unknown>, handler: OracleHandler): void {
+async function executeRequestLine(
+	line: string,
+	api: Record<string, unknown>,
+	handler: OracleHandler,
+): Promise<void> {
 	let id: RequestId = null;
 	try {
 		const request = JSON.parse(line) as OracleRequest;
 		id = request.id;
-		const output = handler(api, request);
+		const output = await handler(api, request);
 		process.stdout.write(`${JSON.stringify({ id, ok: true, output } satisfies Response)}\n`);
 	} catch (error) {
 		process.stdout.write(`${JSON.stringify({ id, ok: false, error: normalizeError(error) } satisfies Response)}\n`);
@@ -36,13 +43,15 @@ function executeRequestLine(line: string, api: Record<string, unknown>, handler:
 function serveRequests(api: Record<string, unknown>, handler: OracleHandler): void {
 	const decoder = new StringDecoder("utf8");
 	let buffer = "";
+	let queue = Promise.resolve();
 	process.stdin.on("data", (chunk: string | Buffer) => {
 		buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
 		while (true) {
 			const lineFeed = buffer.indexOf("\n");
 			if (lineFeed === -1) return;
-			executeRequestLine(buffer.slice(0, lineFeed), api, handler);
+			const line = buffer.slice(0, lineFeed);
 			buffer = buffer.slice(lineFeed + 1);
+			queue = queue.then(() => executeRequestLine(line, api, handler));
 		}
 	});
 }
