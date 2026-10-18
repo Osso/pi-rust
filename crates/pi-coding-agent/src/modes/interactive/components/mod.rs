@@ -1,6 +1,7 @@
 //! Ported `coding-agent/src/modes/interactive/components/*` modules.
 
 pub mod agent_selection_banner;
+pub mod agent_switcher;
 pub mod approval_selector;
 pub mod countdown_timer;
 pub mod dynamic_border;

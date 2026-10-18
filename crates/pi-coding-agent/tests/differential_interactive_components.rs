@@ -78,6 +78,10 @@ fn events_json(events: &Events) -> Value {
 fn interactive_components_match_the_pinned_typescript_source() {
     let theme = install_theme();
     let _ = theme;
+    pi_tui::set_keybindings(pi_tui::KeybindingsManager::new(
+        pi_coding_agent::core::keybindings::keybindings(),
+        Vec::new(),
+    ));
     let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
     let themes_response = oracle.request(&json!({
         "id": 0,
@@ -106,6 +110,7 @@ fn requests(themes: &[String]) -> Vec<(Value, Value)> {
     cases.extend(theme_cases(themes));
     cases.extend(user_message_cases());
     cases.extend(extension_cases());
+    cases.extend(agent_switcher_cases());
     cases
 }
 
@@ -643,6 +648,105 @@ fn user_message_cases() -> Vec<(Value, Value)> {
             "width": 40,
         }),
         json!({"lines": lines, "events": events_json(&events)}),
+    )]
+}
+
+fn agent_switcher_cases() -> Vec<(Value, Value)> {
+    use pi_coding_agent::core::multi_agent_store::{AgentLifecycle, AgentPermission, AgentSlot, AgentSnapshot};
+
+    fn agent(id: &str, display_name: &str) -> AgentSnapshot {
+        AgentSnapshot {
+            id: id.to_string(),
+            parent_id: None,
+            display_name: display_name.to_string(),
+            agent_type: "worker".to_string(),
+            origin: None,
+            lifecycle: AgentLifecycle::Running,
+            revision: 1,
+            created_at: "2026-06-30T00:00:00.000Z".to_string(),
+            updated_at: "2026-06-30T00:00:00.000Z".to_string(),
+            cwd: "/repo".to_string(),
+            worktree: None,
+            model: None,
+            account: None,
+            permission: AgentPermission {
+                policy: "on-request".to_string(),
+                inherited_from: None,
+                narrowed: true,
+            },
+            slot: None,
+            transcript: None,
+            event_stream: None,
+            worker: None,
+            detached: None,
+            current_activity: None,
+            last_activity: None,
+            result: None,
+            error: None,
+            extra: serde_json::Map::new(),
+        }
+    }
+
+    let mut scout = agent("agent-1", "Scout");
+    scout.slot = Some(AgentSlot { index: 2, pinned: true });
+    let mut builder = agent("agent-2", "Builder");
+    builder.agent_type = "background".to_string();
+    builder.lifecycle = AgentLifecycle::WaitingForInput;
+    let mut child = agent("agent-3", "Verifier");
+    child.parent_id = Some("agent-2".to_string());
+    let mut done = agent("agent-4", "Done");
+    done.lifecycle = AgentLifecycle::Completed;
+
+    let agents = vec![scout, builder, child, done];
+    let request_agents: Vec<Value> = agents
+        .iter()
+        .map(|agent| {
+            json!({
+                "id": agent.id,
+                "displayName": agent.display_name,
+                "agentType": agent.agent_type,
+                "lifecycle": pi_coding_agent::core::multi_agent_store::lifecycle_name(agent.lifecycle),
+                "parentId": agent.parent_id,
+                "slot": agent.slot.as_ref().map(|slot| json!({"index": slot.index, "pinned": slot.pinned})),
+            })
+        })
+        .collect();
+
+    let events = Events::default();
+    let inactive_events = Events::default();
+    let mut component = pi_coding_agent::modes::interactive::components::agent_switcher::AgentSwitcherComponent::new(
+        agents,
+        Some("agent-2".to_string()),
+        {
+            let events = events.clone();
+            Rc::new(move |agent_id: &str| record(&events, json!({"select": agent_id})))
+        },
+        Rc::new(|| {}),
+        {
+            let inactive_events = inactive_events.clone();
+            Rc::new(move |agent: &pi_coding_agent::core::multi_agent_store::AgentSnapshot| {
+                record(&inactive_events, json!({"inactive": agent.id}))
+            })
+        },
+        theme(),
+    );
+    for input in ["\u{1b}[B", "\u{1b}[B", "\u{18}", "\r"] {
+        component.handle_input(input);
+    }
+    let lines = component.render(100);
+    let mut combined = events.borrow().clone();
+    combined.extend(inactive_events.borrow().clone());
+    vec![(
+        json!({
+            "id": 25,
+            "module": "modes/interactive/components/agent-switcher.ts",
+            "operation": "agentSwitcher",
+            "agents": request_agents,
+            "selectedAgentId": "agent-2",
+            "inputs": ["\u{1b}[B", "\u{1b}[B", "\u{18}", "\r"],
+            "width": 100,
+        }),
+        json!({"lines": lines, "events": combined}),
     )]
 }
 

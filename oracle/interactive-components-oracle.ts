@@ -136,6 +136,31 @@ const handlers: Record<string, (api: Api, request: Request) => unknown> = {
 		applyInputs(component.getMessageList(), request.inputs);
 		return { lines: component.render(request.width), events };
 	},
+	agentSwitcher: (api, request) => {
+		const events: unknown[] = [];
+		const agents = request.agents.map((value: any) => ({
+			id: value.id,
+			parentId: value.parentId ?? undefined,
+			displayName: value.displayName,
+			agentType: value.agentType ?? "worker",
+			lifecycle: value.lifecycle ?? "running",
+			slot: value.slot ?? undefined,
+			createdAt: "2026-06-30T00:00:00.000Z",
+			updatedAt: "2026-06-30T00:00:00.000Z",
+			cwd: "/repo",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+		}));
+		const component = new api.AgentSwitcherComponent(
+			agents,
+			request.selectedAgentId ?? undefined,
+			(agentId: string) => events.push({ select: agentId }),
+			() => events.push({ cancel: true }),
+			(agent: any) => events.push({ inactive: agent.id }),
+		);
+		applyInputs(component, request.inputs);
+		return { lines: component.render(request.width), events };
+	},
 	extension: (api, request) => {
 		const events: unknown[] = [];
 		const component = new api.ExtensionSelectorComponent(
@@ -155,6 +180,9 @@ async function main(): Promise<void> {
 	if (!sourceRoot) throw new Error("interactive oracle requires the coding-agent src directory");
 	const themeModule = (await import(pathToFileURL(`${sourceRoot}/modes/interactive/theme/theme.ts`).href)) as Api;
 	themeModule.setThemeInstance(buildTheme(themeModule.Theme));
+	const keybindingsModule = (await import(pathToFileURL(`${sourceRoot}/core/keybindings.ts`).href)) as Api;
+	const tuiModule = (await import(pathToFileURL(`${sourceRoot}/../../tui/src/index.ts`).href)) as Api;
+	tuiModule.setKeybindings(new keybindingsModule.KeybindingsManager());
 	const modules = new Map<string, Api>();
 	const load = async (module: string): Promise<Api> => {
 		let api = modules.get(module);

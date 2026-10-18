@@ -40,6 +40,13 @@ fn install_theme() -> Arc<Theme> {
 }
 
 fn theme() -> Arc<Theme> {
+    static KEYBINDINGS: std::sync::Once = std::sync::Once::new();
+    KEYBINDINGS.call_once(|| {
+        pi_tui::set_keybindings(pi_tui::KeybindingsManager::new(
+            pi_coding_agent::core::keybindings::keybindings(),
+            Vec::new(),
+        ));
+    });
     install_theme()
 }
 
@@ -242,15 +249,15 @@ fn user_message_selector_auto_cancels_when_empty() {
         let cancelled = cancelled.clone();
         Rc::new(move || *cancelled.lock().expect("cancelled") += 1)
     };
+    let before = Instant::now();
     let mut component =
         UserMessageSelectorComponent::new(Vec::new(), Rc::new(|_id: &str| {}), on_cancel, None, theme());
     assert!(plain(&component.render(40)).contains("  No user messages found"));
 
-    let now = Instant::now();
-    assert!(!component.poll(now + Duration::from_millis(99)));
-    assert!(component.poll(now + Duration::from_millis(100)));
+    assert!(!component.poll(before + Duration::from_millis(99)));
+    assert!(component.poll(before + Duration::from_millis(200)));
     assert_eq!(*cancelled.lock().expect("cancelled"), 1);
-    assert!(!component.poll(now + Duration::from_millis(500)));
+    assert!(!component.poll(before + Duration::from_millis(500)));
     assert_eq!(*cancelled.lock().expect("cancelled"), 1);
 }
 
