@@ -4,6 +4,8 @@ pub mod api;
 pub mod auth;
 pub mod env_api_keys;
 pub mod http;
+pub mod image_models;
+pub mod image_models_generated;
 pub mod js_number;
 pub mod model_catalog;
 pub mod models;
