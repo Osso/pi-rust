@@ -44,12 +44,12 @@ function normalizeError(error: unknown): { name: string; message: string; code?:
 	return normalized;
 }
 
-function sorted(values: Set<string>): string[] {
-	return [...values].sort();
+function ordered(values: Set<string>): string[] {
+	return [...values];
 }
 
 function fileOpsJson(fileOps: any): unknown {
-	return { read: sorted(fileOps.read), written: sorted(fileOps.written), edited: sorted(fileOps.edited) };
+	return { read: ordered(fileOps.read), written: ordered(fileOps.written), edited: ordered(fileOps.edited) };
 }
 
 function fileOpsFromJson(value: any): any {

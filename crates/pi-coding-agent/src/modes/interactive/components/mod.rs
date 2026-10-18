@@ -10,6 +10,7 @@ pub mod extension_selector;
 pub mod keybinding_hints;
 pub mod markdown_transform;
 pub mod sandbox_selector;
+pub mod session_selector_search;
 pub mod show_images_selector;
 pub mod skill_invocation_message;
 pub mod theme_selector;
