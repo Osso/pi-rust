@@ -139,6 +139,114 @@ type StdinBufferApi = {
 	};
 };
 
+type TerminalImageApi = {
+	setCapabilities(caps: { images: "kitty" | "iterm2" | null; trueColor: boolean; hyperlinks: boolean }): void;
+	resetCapabilitiesCache(): void;
+	setCellDimensions(dims: { widthPx: number; heightPx: number }): void;
+	detectCapabilities(tmuxForwardsHyperlink: () => boolean): {
+		images: "kitty" | "iterm2" | null;
+		trueColor: boolean;
+		hyperlinks: boolean;
+	};
+	isImageLine(line: string): boolean;
+	encodeKitty(
+		data: string,
+		options: { columns?: number; rows?: number; imageId?: number; moveCursor?: boolean },
+	): string;
+	encodeITerm2(
+		data: string,
+		options: {
+			width?: number | string;
+			height?: number | string;
+			name?: string;
+			preserveAspectRatio?: boolean;
+			inline?: boolean;
+		},
+	): string;
+	deleteKittyImage(imageId: number): string;
+	deleteAllKittyImages(): string;
+	deleteAllKittyPlacements(): string;
+	calculateImageCellSize(
+		image: { widthPx: number; heightPx: number },
+		maxWidthCells: number,
+		maxHeightCells: number | undefined,
+		cell: { widthPx: number; heightPx: number },
+	): { columns: number; rows: number };
+	getPngDimensions(data: string): { widthPx: number; heightPx: number } | null;
+	getJpegDimensions(data: string): { widthPx: number; heightPx: number } | null;
+	getGifDimensions(data: string): { widthPx: number; heightPx: number } | null;
+	getWebpDimensions(data: string): { widthPx: number; heightPx: number } | null;
+	getImageDimensions(data: string, mimeType: string): { widthPx: number; heightPx: number } | null;
+	registerKittyImageMetadata(metadata: {
+		imageId: number;
+		columns: number;
+		rows: number;
+		widthPx: number;
+		heightPx: number;
+	}): void;
+	getKittyImageMetadata(line: string): {
+		imageId: number;
+		columns: number;
+		rows: number;
+		widthPx: number;
+		heightPx: number;
+	} | undefined;
+	cropKittyImageLine(line: string, hiddenRows: number, visibleRows: number): string;
+	getKittyImagePlacement(line: string): unknown;
+	renderImage(
+		data: string,
+		image: { widthPx: number; heightPx: number },
+		options: {
+			maxWidthCells?: number;
+			maxHeightCells?: number;
+			preserveAspectRatio?: boolean;
+			imageId?: number;
+			moveCursor?: boolean;
+		},
+	): { sequence: string; columns: number; rows: number; imageId?: number } | null;
+	hyperlink(text: string, url: string): string;
+	imageFallback(
+		mimeType: string,
+		dimensions: { widthPx: number; heightPx: number } | undefined,
+		filename: string | undefined,
+	): string;
+};
+
+const TERMINAL_ENV_KEYS = [
+	"TERM",
+	"TERM_PROGRAM",
+	"TERMINAL_EMULATOR",
+	"COLORTERM",
+	"TMUX",
+	"KITTY_WINDOW_ID",
+	"GHOSTTY_RESOURCES_DIR",
+	"WEZTERM_PANE",
+	"ITERM_SESSION_ID",
+	"WT_SESSION",
+	"CMUX_WORKSPACE_ID",
+	"WARP_SESSION_ID",
+	"WARP_TERMINAL_SESSION_UUID",
+];
+
+function withTerminalEnvironment<T>(values: Record<string, string | null>, action: () => T): T {
+	const saved = new Map<string, string | undefined>();
+	for (const key of TERMINAL_ENV_KEYS) {
+		saved.set(key, process.env[key]);
+		delete process.env[key];
+	}
+	try {
+		for (const [key, value] of Object.entries(values)) {
+			if (value !== null) process.env[key] = value;
+		}
+		return action();
+	} finally {
+		for (const [key, value] of saved) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	}
+}
+
 async function loadApi(sourceDirectory: string, moduleName: string): Promise<unknown> {
 	return import(pathToFileURL(path.join(sourceDirectory, moduleName)).href);
 }
@@ -341,6 +449,137 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 			}));
 			for (const buffer of buffers) buffer.destroy();
 			return { results: output };
+		}
+		case "terminal_image_lines": {
+			const api = (await loadApi(sourceDirectory, "terminal-image.ts")) as TerminalImageApi;
+			const cases = requireArray<string>(request, "cases");
+			return { results: cases.map((line) => api.isImageLine(line)) };
+		}
+		case "terminal_image_encode": {
+			const api = (await loadApi(sourceDirectory, "terminal-image.ts")) as TerminalImageApi;
+			const cases = requireArray<Record<string, unknown>>(request, "cases");
+			return {
+				results: cases.map((testCase) =>
+					testCase.kind === "kitty"
+						? api.encodeKitty(testCase.data as string, testCase.options as never)
+						: api.encodeITerm2(testCase.data as string, testCase.options as never),
+				),
+			};
+		}
+		case "terminal_image_dimensions": {
+			const api = (await loadApi(sourceDirectory, "terminal-image.ts")) as TerminalImageApi;
+			const cases = requireArray<{ data: string; mimeType: string }>(request, "cases");
+			return {
+				results: cases.map((testCase) => ({
+					png: api.getPngDimensions(testCase.data),
+					jpeg: api.getJpegDimensions(testCase.data),
+					gif: api.getGifDimensions(testCase.data),
+					webp: api.getWebpDimensions(testCase.data),
+					dispatched: api.getImageDimensions(testCase.data, testCase.mimeType),
+				})),
+			};
+		}
+		case "terminal_image_calc": {
+			const api = (await loadApi(sourceDirectory, "terminal-image.ts")) as TerminalImageApi;
+			const cases = requireArray<{
+				image: { widthPx: number; heightPx: number };
+				maxWidth: number;
+				maxHeight?: number;
+				cell: { widthPx: number; heightPx: number };
+			}>(request, "cases");
+			return {
+				results: cases.map((testCase) =>
+					api.calculateImageCellSize(testCase.image, testCase.maxWidth, testCase.maxHeight, testCase.cell),
+				),
+			};
+		}
+		case "terminal_image_detect": {
+			const api = (await loadApi(sourceDirectory, "terminal-image.ts")) as TerminalImageApi;
+			const cases = requireArray<{ env: Record<string, string | null>; tmux: boolean }>(request, "cases");
+			return {
+				results: cases.map((testCase) =>
+					withTerminalEnvironment(testCase.env, () => api.detectCapabilities(() => testCase.tmux)),
+				),
+			};
+		}
+		case "terminal_image_placement": {
+			const api = (await loadApi(sourceDirectory, "terminal-image.ts")) as TerminalImageApi;
+			api.registerKittyImageMetadata({ imageId: 42, columns: 3, rows: 3, widthPx: 100, heightPx: 100 });
+			const transmission = api.encodeKitty("A".repeat(8192), {
+				columns: 3,
+				rows: 3,
+				imageId: 42,
+				moveCursor: false,
+			});
+			const cropped = api.cropKittyImageLine(transmission, 2, 1);
+			const line = `left ${cropped} right`;
+			return {
+				results: {
+					metadata: api.getKittyImageMetadata(transmission) ?? null,
+					cropped,
+					placement: api.getKittyImagePlacement(line) ?? null,
+				},
+			};
+		}
+		case "terminal_image_render": {
+			const api = (await loadApi(sourceDirectory, "terminal-image.ts")) as TerminalImageApi;
+			const cases = requireArray<{
+				caps: { images: "kitty" | "iterm2" | null; trueColor: boolean; hyperlinks: boolean };
+				cell: { widthPx: number; heightPx: number };
+				data: string;
+				image: { widthPx: number; heightPx: number };
+				options: Record<string, unknown>;
+			}>(request, "cases");
+			const results = cases.map((testCase) => {
+				api.setCapabilities(testCase.caps);
+				api.setCellDimensions(testCase.cell);
+				try {
+					const result = api.renderImage(testCase.data, testCase.image, testCase.options);
+					return result === null ? null : { ...result, imageId: result.imageId ?? null };
+				} finally {
+					api.resetCapabilitiesCache();
+					api.setCellDimensions({ widthPx: 9, heightPx: 18 });
+				}
+			});
+			return { results };
+		}
+		case "terminal_image_fallback": {
+			const api = (await loadApi(sourceDirectory, "terminal-image.ts")) as TerminalImageApi;
+			const cases = requireArray<{
+				caps: { images: "kitty" | "iterm2" | null; trueColor: boolean; hyperlinks: boolean };
+				mimeType: string;
+				dimensions: { widthPx: number; heightPx: number } | null;
+				filename: string | null;
+			}>(request, "cases");
+			return {
+				results: cases.map((testCase) => {
+					api.setCapabilities(testCase.caps);
+					try {
+						return api.imageFallback(
+							testCase.mimeType,
+							testCase.dimensions ?? undefined,
+							testCase.filename ?? undefined,
+						);
+					} finally {
+						api.resetCapabilitiesCache();
+					}
+				}),
+			};
+		}
+		case "terminal_image_hyperlink": {
+			const api = (await loadApi(sourceDirectory, "terminal-image.ts")) as TerminalImageApi;
+			const cases = requireArray<{ text: string; url: string }>(request, "cases");
+			return { results: cases.map((testCase) => api.hyperlink(testCase.text, testCase.url)) };
+		}
+		case "terminal_image_delete": {
+			const api = (await loadApi(sourceDirectory, "terminal-image.ts")) as TerminalImageApi;
+			return {
+				results: {
+					one: api.deleteKittyImage(42),
+					all: api.deleteAllKittyImages(),
+					placements: api.deleteAllKittyPlacements(),
+				},
+			};
 		}
 		default:
 			throw new Error(`unsupported operation: ${request.operation}`);
