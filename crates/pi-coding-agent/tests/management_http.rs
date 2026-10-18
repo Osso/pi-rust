@@ -56,6 +56,7 @@ impl Fetch for MockFetch {
             match next {
                 Scripted::Status(status) => Ok(HttpResponse {
                     status,
+                    status_text: String::new(),
                     headers: Vec::new(),
                     body: Box::new(EmptyBody),
                 }),

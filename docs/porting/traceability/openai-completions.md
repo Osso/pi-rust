@@ -1,0 +1,53 @@
+# openai-completions traceability
+
+Source: `packages/ai/src/api/openai-completions.ts` and `openai-completions.lazy.ts`.
+Rust: `crates/pi-ai/src/api/openai_completions.rs`.
+Tests: module unit tests, `crates/pi-ai/tests/openai_completions.rs` (9 behavioral), `crates/pi-ai/tests/differential_openai_completions.rs` (35 recorded-fetch scenarios).
+
+## Symbols → proof
+| TS | Rust | Test |
+|---|---|---|
+| `OpenAICompletionsOptions` | `OpenAICompletionsOptions` | differential 1-3, 31-32 |
+| `ConvertCompletionsMessagesOptions` | same | behavioral grammar test |
+| `ResolvedOpenAICompletionsCompat` | same | compat unit test |
+| `resolveCacheRetention` | `resolve_cache_retention` | 18 |
+| `stream` / `streamSimple` | same + `OpenAICompletionsApi` | all |
+| `createClient` (copilot, affinity headers) | `create_client` | 19-20 |
+| `buildParams` | `build_params` | all request comparisons |
+| `buildChatTemplateValues` / `resolveChatTemplateKwargValue` | same-named snake_case | 11-12 |
+| `getCompatCacheControl` | `get_compat_cache_control` | 29 |
+| `applyAnthropicCacheControl` | `apply_anthropic_cache_control` | 29; behavioral test |
+| `addCacheControlToSystemPrompt` | inline in `apply_anthropic_cache_control` | 29 |
+| `addCacheControlToLastConversationMessage` | inline in `apply_anthropic_cache_control` | 29 |
+| `addCacheControlToLastTool` | inline in `apply_anthropic_cache_control` | 29 |
+| `addCacheControlToTextContent` | `add_cache_control_to_text_content` | 29 |
+| `convertMessages` | `convert_messages` | behavioral tests; differential 0-30 |
+| `convertTools` | `convert_tools` | 17 |
+| `parseChunkUsage` | `parse_chunk_usage` | 0, 18 |
+| `mapStopReason` | `map_stop_reason` | 16; unit test |
+| `detectCompat` / `getCompat` | `detect_compat` / `get_compat` | all scenarios; unit test |
+| lazy wrapper | `open_ai_completions_api` | `LazyApi` covered by `api_lazy` tests |
+
+## Branch coverage
+- Thinking formats: `openai` (1-3), `openrouter` (3-4), `deepseek` (5-6), `together` (7), `baseten` (8), `zai` (9), `qwen` (10), `chat-template` (11-12), `qwen-chat-template` (13), `string-thinking` (14), `ant-ling` (15).
+- Thinking token budget: 31 (custom cap) and 32 (ceiling clamp).
+- Tool calls with streamed arguments: 16; grammar/custom tools: 17; strict mode: 17.
+- Usage/cost: 0, 18; reasoning tokens: 0.
+- Prompt cache key/retention: 18; session affinity: 19-20; developer role: 0 vs 30.
+- `max_tokens` vs `max_completion_tokens`: 5-6 vs 0.
+- `store` and `stream_options.include_usage`: 0, 33.
+- OpenRouter/Vercel routing: 21.
+- HTTP errors/retry/abort/malformed: 22-25.
+- Images (user + tool result): 26; Kimi deferred tools: 27; encrypted reasoning details: 28.
+- Anthropic cache control: 29.
+
+## Differential normalization
+- Timestamps become `0`; environment identity headers become `<env>`; malformed-JSON messages become `<json-error>`; event `partial` is snapshotted at push time.
+
+## Gaps
+- `streamSimple` API-key failure returns an error stream instead of throwing synchronously.
+- `onPayload`/`onResponse` are exercised by Rust behavior but not serialized through the oracle.
+- `as any` request fields (`stream_options`, `thinking`, `chat_template_*`, `thinking_token_budget`) are emitted as JSON values by design.
+
+## Discrepancies
+- None. `mapStopReason(null)` is represented by an absent/`null` finish reason and maps to `stop`.
