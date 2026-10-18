@@ -6,8 +6,10 @@ pub mod auth_check;
 pub mod control_command;
 pub mod credential_print;
 pub mod debug_command;
+pub mod file_processor;
 pub mod initial_message;
 pub mod list_models;
+pub mod login_command;
 pub mod sessions_command;
 pub use auth_check::{
     AuthCheckReason, AuthCheckResult, AuthCheckStatus, CheckProviderAuthOptions, check_provider_auth,
@@ -20,5 +22,10 @@ pub use auth_command::{
 pub use control_command::{ControlCommandDependencies, ControlCommandOutcome, handle_control_command};
 pub use credential_print::{CredentialPrintError, CredentialPrintKind, resolve_credential_for_print};
 pub use debug_command::{DebugCommandDependencies, DebugCommandOutcome, attach_debug_repl, handle_debug_command};
+pub use file_processor::{FileProcessorError, ProcessFileOptions, ProcessedFiles, process_file_arguments};
 pub use list_models::{ListModelsOutput, ListModelsRuntime, format_token_count};
+pub use login_command::{
+    BrowserCliOpener, LoginCommandDependencies, LoginCommandOutcome, LoginIo, RunLoginCommandOptions, StdioLoginIo,
+    handle_login_command, run_login_command,
+};
 pub use sessions_command::{SessionsCommandDependencies, SessionsCommandOutcome, handle_sessions_command};

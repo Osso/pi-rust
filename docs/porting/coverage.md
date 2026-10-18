@@ -465,7 +465,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/resolve-config-value.ts` | 287 | 4 | done | `crates/pi-coding-agent/src/core/config_value.rs` | Full module: templates, commands, cache, or-throw, headers; differential 12050-12083 plus 27 resolve/throw/header requests |
 | `coding-agent/src/core/runtime-credentials.ts` | 58 | 4 | done | `crates/pi-coding-agent/src/core/runtime_credentials.rs` | Overlay masking, list merge, delete ordering |
 | `coding-agent/src/utils/image-process.ts` | 119 | 4 | done | `crates/pi-coding-agent/src/utils/image_process.rs` | Differential 27106 (8 fixtures incl. BMP conversion and omission messages) |
-| `coding-agent/src/cli/file-processor.ts` | 87 | 5 | todo |  |  |
+| `coding-agent/src/cli/file-processor.ts` | 87 | 5 | done | `crates/pi-coding-agent/src/cli/file_processor.rs` | @file text/image processing, MIME sniffing, empty/missing handling; 6 tests ([traceability](traceability/file-processor.md)). |
 | `coding-agent/src/client/transcript.ts` | 101 | 5 | todo |  |  |
 | `coding-agent/src/core/auth-storage.ts` | 507 | 5 | done | `crates/pi-coding-agent/src/core/auth_storage.rs` | Cross-process byte parity and both lock directions; 16 focused cases |
 | `coding-agent/src/utils/tool-result-images.ts` | 62 | 5 | done | `crates/pi-coding-agent/src/utils/tool_result_images.rs` | Differential 27107 (7 fixtures); Cow preserves the unchanged-reference contract |
@@ -480,7 +480,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/interactive-root-compositor.ts` | 40 | 8 | todo |  |  |
 | `coding-agent/src/modes/interactive/working-editor.ts` | 67 | 8 | todo |  |  |
 | `coding-agent/src/cli/list-models.ts` | 115 | 9 | done | `crates/pi-coding-agent/src/cli/list_models.rs` | Token-count formatting, fuzzy filter, sorted table; 9-case byte-level differential ([traceability](traceability/list-models.md)). |
-| `coding-agent/src/cli/login-command.ts` | 278 | 9 | todo |  |  |
+| `coding-agent/src/cli/login-command.ts` | 278 | 9 | done | `crates/pi-coding-agent/src/cli/login_command.rs` | OAuth login flow, prompt/select IO, browser-cli opening, usage; 7 boundary tests ([traceability](traceability/login-command.md)). |
 | `coding-agent/src/client/remote-session.ts` | 420 | 9 | todo |  |  |
 | `coding-agent/src/core/model-registry.ts` | 158 | 9 | done | `crates/pi-coding-agent/src/core/model_registry.rs` | Facade over ModelRuntime: resolved auth/compatibility fallback, statuses, display names, registration; registry tests. Overloads split into two methods. |
 | `coding-agent/src/migrations.ts` | 365 | 9 | done | `crates/pi-coding-agent/src/migrations.rs` | Auth/session/tools/keybindings/commands migrations, deprecation warnings, `runMigrations`; differential over fixture agent dirs. TTY keypress wait deferred. |
