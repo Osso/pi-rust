@@ -136,6 +136,25 @@ const handlers: Record<string, (api: Api, request: Request) => unknown> = {
 		applyInputs(component.getMessageList(), request.inputs);
 		return { lines: component.render(request.width), events };
 	},
+	oauthSelector: (api, request) => {
+		const events: unknown[] = [];
+		const providers = request.providers.map((value: any) => ({
+			id: value.id,
+			name: value.name,
+			authType: value.authType,
+			method: value.methodName ? { name: value.methodName } : undefined,
+			status: value.status ?? undefined,
+		}));
+		const component = new api.OAuthSelectorComponent(
+			request.mode,
+			providers,
+			(providerId: string, authType: string) => events.push({ select: providerId, authType }),
+			() => events.push({ cancel: true }),
+			request.initialSearchInput ?? undefined,
+		);
+		applyInputs(component, request.inputs);
+		return { lines: component.render(request.width), events };
+	},
 	agentSwitcher: (api, request) => {
 		const events: unknown[] = [];
 		const agents = request.agents.map((value: any) => ({
