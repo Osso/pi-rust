@@ -370,3 +370,71 @@ setInterval(() => {}, 1000);
 
     client.stop().await.expect("client must stop");
 }
+
+#[tokio::test]
+async fn clone_sends_the_clone_command_and_returns_cancelled() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let script = write_script(
+        &dir,
+        r#"import { createInterface } from "node:readline";
+const lines = createInterface({ input: process.stdin });
+lines.on("line", (line) => {
+  const command = JSON.parse(line);
+  process.stdout.write(JSON.stringify({ type: "echo", line }) + "\n");
+  process.stdout.write(JSON.stringify({
+    id: command.id,
+    type: "response",
+    command: "clone",
+    success: true,
+    data: { cancelled: false }
+  }) + "\n");
+});
+"#,
+    );
+    let client = RpcClient::new(options(script));
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    let _subscription = client.on_event(move |event| {
+        let _ = sender.send(event.clone());
+    });
+    client.start().await.expect("client must start");
+
+    let result = client.clone_session().await.expect("clone must succeed");
+    assert!(!result.cancelled);
+
+    let event = tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+        .await
+        .expect("event must arrive")
+        .expect("event channel must stay open");
+    assert_eq!(
+        event,
+        json!({"type": "echo", "line": "{\"type\":\"clone\",\"id\":\"req_1\"}"})
+    );
+
+    client.stop().await.expect("client must stop");
+}
+
+#[tokio::test]
+async fn treats_responses_with_an_empty_id_as_events() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let script = write_script(
+        &dir,
+        r#"process.stdout.write(JSON.stringify({ type: "response", id: "", command: "x", success: true }) + "\n");
+process.stdin.resume();
+setInterval(() => {}, 1000);
+"#,
+    );
+    let client = RpcClient::new(options(script));
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    let _subscription = client.on_event(move |event| {
+        let _ = sender.send(event.clone());
+    });
+    client.start().await.expect("client must start");
+
+    let event = tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+        .await
+        .expect("event must arrive")
+        .expect("event channel must stay open");
+    assert_eq!(event["id"], json!(""));
+
+    client.stop().await.expect("client must stop");
+}
