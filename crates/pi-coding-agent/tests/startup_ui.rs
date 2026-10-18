@@ -1,16 +1,81 @@
 //! `cli/startup-ui.ts` predicates and theme loading.
 
+#[path = "support/env_probe.rs"]
+mod env_probe;
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use pi_coding_agent::cli::startup_ui::{
-    is_official_distribution, load_startup_themes, load_themes, should_run_first_time_setup,
+    is_official_distribution, load_startup_themes, load_themes, should_run_first_time_setup, show_startup_selector,
 };
 use pi_coding_agent::config;
 use pi_coding_agent::core::package_manager::ResolvedResource;
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
+use pi_tui::terminal::{Terminal, TerminalEvent, TerminalRawModeError};
 use serde_json::json;
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::Mutex;
+
+struct ScriptedTerminal {
+    keys: Mutex<Vec<String>>,
+}
+
+impl ScriptedTerminal {
+    fn new(keys: Vec<String>) -> Self {
+        Self { keys: Mutex::new(keys) }
+    }
+}
+
+impl Terminal for ScriptedTerminal {
+    fn start(&mut self) -> Result<(), TerminalRawModeError> {
+        Ok(())
+    }
+
+    fn stop(&mut self) {}
+
+    fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
+
+    fn write(&mut self, _data: &str) {}
+
+    fn columns(&self) -> usize {
+        80
+    }
+
+    fn rows(&self) -> usize {
+        24
+    }
+
+    fn kitty_protocol_active(&self) -> bool {
+        false
+    }
+
+    fn move_by(&mut self, _lines: isize) {}
+
+    fn hide_cursor(&mut self) {}
+
+    fn show_cursor(&mut self) {}
+
+    fn clear_line(&mut self) {}
+
+    fn clear_from_cursor(&mut self) {}
+
+    fn clear_screen(&mut self) {}
+
+    fn set_title(&mut self, _title: &str) {}
+
+    fn set_progress(&mut self, _active: bool) {}
+
+    fn poll_events(&mut self) -> Vec<TerminalEvent> {
+        let mut keys = self.keys.lock().unwrap();
+        if keys.is_empty() {
+            return Vec::new();
+        }
+        vec![TerminalEvent::Input(keys.remove(0))]
+    }
+}
 
 fn temp_dir(name: &str) -> PathBuf {
     let unique = std::time::SystemTime::now()
@@ -138,4 +203,72 @@ async fn load_startup_themes_uses_global_settings_only() {
     let themes = load_startup_themes(&settings_manager).await.unwrap();
     let names: Vec<&str> = themes.iter().filter_map(|theme| theme.name.as_deref()).collect();
     assert!(names.contains(&"startup"), "{names:?}");
+}
+
+fn in_memory_settings() -> SettingsManager {
+    SettingsManager::in_memory(
+        serde_json::Map::new(),
+        SettingsManagerCreateOptions {
+            project_trusted: Some(false),
+        },
+    )
+}
+
+fn run_selector_probe(key: &str) -> String {
+    let dir = temp_dir("selector-probe");
+    let out = dir.join("outcome.json");
+    let output = env_probe::run_probe(
+        "startup_selector_probe_child",
+        &[
+            ("PI_STARTUP_SELECTOR_KEY", key.into()),
+            ("PI_STARTUP_SELECTOR_OUT", out.as_os_str().to_owned()),
+            (
+                "PI_PACKAGE_DIR",
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).into_os_string(),
+            ),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "startup selector probe failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_str(&fs::read_to_string(&out).expect("selector outcome")).unwrap();
+    value["selected"].as_str().unwrap_or("cancelled").to_owned()
+}
+
+#[test]
+#[ignore = "child probe entry point"]
+fn startup_selector_probe_child() {
+    if !env_probe::in_probe() {
+        return;
+    }
+    let key = std::env::var("PI_STARTUP_SELECTOR_KEY").expect("probe key");
+    let out = std::env::var("PI_STARTUP_SELECTOR_OUT").expect("probe out path");
+    let settings_manager = in_memory_settings();
+    let terminal = Rc::new(RefCell::new(ScriptedTerminal::new(vec![key])));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let selected = runtime
+        .block_on(show_startup_selector(
+            &settings_manager,
+            terminal,
+            &env(&[("COLORFGBG", "0;15")]),
+            "Pick one",
+            vec![("Yes".to_owned(), "yes".to_owned()), ("No".to_owned(), "no".to_owned())],
+        ))
+        .expect("selector runs");
+    fs::write(out, serde_json::to_string(&json!({ "selected": selected })).unwrap()).unwrap();
+}
+
+#[test]
+fn startup_selector_returns_the_selected_value() {
+    assert_eq!(run_selector_probe("\r"), "yes");
+}
+
+#[test]
+fn startup_selector_returns_none_when_cancelled() {
+    assert_eq!(run_selector_probe("\u{1b}"), "cancelled");
 }

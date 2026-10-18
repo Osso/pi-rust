@@ -3,22 +3,24 @@
 Source: `packages/coding-agent/src/cli/startup-ui.ts` (239 lines, pinned revision in
 `docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent/src/cli/startup_ui.rs`.
 
-Status: partial. The distribution/setup predicates and theme loading are ported and tested.
-The TUI construction and the selector/input/first-time-setup dialogs are blocked.
+Status: partial. Predicates, theme loading, the startup TUI, and the selector dialog are
+ported and tested; the input and first-time-setup dialogs are blocked.
 
 ## Exported symbols
 
 | TS symbol | Rust | Tests |
 | --- | --- | --- |
 | `shouldRunFirstTimeSetup` | `should_run_first_time_setup` (+ `_for_process`) | `first_time_setup_needs_official_distribution_experimental_flag_default_agent_dir_and_missing_settings` |
-| `createStartupTui` | blocked | — |
-| `startStartupTui` | blocked | — |
-| `showStartupSelector` | blocked | — |
+| `createStartupTui` | `create_startup_tui` | selector probes (create + start + clear) |
+| `startStartupTui` | `start_startup_tui` | selector probes |
+| `showStartupSelector` | `show_startup_selector` | `startup_selector_returns_the_selected_value`, `startup_selector_returns_none_when_cancelled` |
 | `showFirstTimeSetup` | blocked | — |
 | `showStartupInput` | blocked | — |
 | private `isOfficialDistribution` | `is_official_distribution` | `official_distribution_requires_all_three_identifiers` |
 | private `loadThemes` | `load_themes` | `load_themes_skips_disabled_and_broken_entries_and_dedupes_names` |
 | private `loadStartupThemes` | `load_startup_themes` | `load_startup_themes_uses_global_settings_only` |
+| private `startStartupTui`/`applyDetectedStartupTheme`/`clearStartupTui` | `start_startup_tui`, `apply_detected_startup_theme`, `clear_startup_tui` | selector probes |
+| — (theme detector adapter) | `StartupThemeDetector` (`TerminalBackgroundThemeDetector` + `TerminalAutoThemeDetector` over `TuiMainScreen`) | selector probes (100 ms query, env fallback) |
 
 ## Branches
 
@@ -29,28 +31,38 @@ The TUI construction and the selector/input/first-time-setup dialogs are blocked
 | 3 | agent-dir override set → no setup | same |
 | 4 | settings file exists → no setup | same |
 | 5 | all conditions hold → setup | same |
-| 6 | disabled resource skipped | `load_themes_...` |
-| 7 | broken theme skipped (`catch`) | same |
-| 8 | duplicate theme name skipped | same |
-| 9 | enabled theme loaded | same |
-| 10 | `loadStartupThemes` reads global settings with `projectTrusted: false` and skips missing packages | `load_startup_themes_uses_global_settings_only` |
+| 6 | disabled resource / broken theme / duplicate name / enabled theme | `load_themes_...` |
+| 7 | startup themes read global settings with `projectTrusted: false`, missing packages skipped | `load_startup_themes_uses_global_settings_only` |
+| 8 | registered themes + terminal background + theme setting resolution + keybindings + cursor/clear-on-shrink | selector probes (`create_startup_tui`) |
+| 9 | fixed theme setting skips auto detection; auto/unset runs the 100 ms query then `setTheme` | selector probes with no theme setting |
+| 10 | selector value lookup by label; cancel resolves `undefined` | `startup_selector_returns_the_selected_value`, `..._none_when_cancelled` |
+| 11 | clear (25 ms) + `ui.stop()` before resolving | selector probes |
 
 ## Blocked parts
 
-- **`createStartupTui` / `startStartupTui` / `applyDetectedStartupTheme` / `clearStartupTui`** —
-  need a `TerminalAutoThemeDetector` adapter over `TuiMainScreen` (the theme module exposes the
-  trait, but no TUI adapter exists yet) plus `TuiMainScreen::with_options` wiring. `init_theme`
-  also resolves built-in themes from the package directory, so an in-process test would need the
-  package-dir probe used by `tests/theme.rs`.
-- **`showStartupSelector`** — `ExtensionSelectorComponent` is ported, but driving it requires the
-  TUI event loop and `startStartupTui`; no fake terminal exists in the workspace.
-- **`showStartupInput` / `showFirstTimeSetup`** — blocked on `ExtensionInputComponent` and
-  `FirstTimeSetupComponent` (`modes/interactive/components/`), both not ported.
+- **`showStartupInput`** — needs `ExtensionInputComponent` (`modes/interactive/components/`),
+  not ported.
+- **`showFirstTimeSetup`** — needs `FirstTimeSetupComponent`, not ported; also writes
+  `setTheme`/`setEnableAnalytics` and flushes settings.
+- **`ProjectTrustStartupUi` adapter** — `cli::project_trust::ProjectTrustStartupUi` returns
+  `BoxFuture` (Send) and lives in `Arc<dyn ExtensionUiContext>` (Send + Sync), while the startup
+  TUI is `Rc`-based. A Send-safe driver over the TUI is required before the adapter can be
+  written; until then `create_project_trust_context` keeps its `startup_ui: None` seam.
 
-`shouldRunFirstTimeSetup` takes the environment map explicitly because edition 2024 forbids a
-safe `std::env::set_var`; `should_run_first_time_setup_for_process` reads `std::env::vars()` for
-production callers.
+## Deviations
+
+- **Event loop** — the TypeScript TUI owns its loop; `show_startup_selector` polls
+  `process_events`/`flush_pending` every 5 ms until the selector resolves, then clears (25 ms)
+  and stops.
+- **`applyDetectedStartupTheme`** — TypeScript runs it as `void` after `ui.start()`; the Rust
+  detection path is synchronous (query + event polling), so `start_startup_tui` runs it inline
+  before returning.
+- **Theme query adapter** — `TuiMainScreen` queries settle through `process_events`, so the
+  adapter polls until the query settles; a timeout surfaces as `None`, matching the source.
+- **`shouldRunFirstTimeSetup`** takes the environment map explicitly because edition 2024 forbids
+  a safe `std::env::set_var`; `should_run_first_time_setup_for_process` reads `std::env::vars()`.
 
 ## Proof
 
-`cargo test -p pi-coding-agent --test startup_ui` (4 tests).
+`cargo test -p pi-coding-agent --test startup_ui` (6 tests + 1 ignored probe entry; the two
+selector tests run the TUI in a child process with `PI_PACKAGE_DIR` set).
