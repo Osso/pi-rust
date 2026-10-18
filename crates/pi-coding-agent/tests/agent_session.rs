@@ -1,5 +1,8 @@
 //! Behavioral tests for `core/agent-session.ts`.
 
+#[path = "support/image_fixtures.rs"]
+mod image_fixtures;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -68,6 +71,14 @@ fn stream_fn(runtime: ModelRuntime) -> pi_agent_core::agent::types::StreamFn {
 }
 
 async fn fixture() -> Fixture {
+    fixture_with(Default::default(), Vec::new(), None).await
+}
+
+async fn fixture_with(
+    settings: pi_coding_agent::core::settings_manager::Settings,
+    base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
+    initial_active_tool_names: Option<Vec<String>>,
+) -> Fixture {
     let temp_dir = tempfile::tempdir().expect("temp dir");
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("faux".to_owned()),
@@ -90,7 +101,7 @@ async fn fixture() -> Fixture {
     .expect("agent");
     let session_manager =
         SessionManager::in_memory(Some(&temp_dir.path().display().to_string()), None).expect("in-memory session");
-    let settings_manager = SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default());
+    let settings_manager = SettingsManager::in_memory(settings, SettingsManagerCreateOptions::default());
     let session = AgentSession::new(AgentSessionConfig {
         agent,
         session_manager: Arc::new(std::sync::Mutex::new(session_manager)),
@@ -99,13 +110,13 @@ async fn fixture() -> Fixture {
         scoped_models: Vec::new(),
         resource_loader: pi_coding_agent::core::resource_loader::StaticResourceLoader::new(),
         model_runtime: runtime,
-        initial_active_tool_names: None,
+        initial_active_tool_names,
         allowed_tool_names: None,
         excluded_tool_names: None,
         permission_prompt_tool: None,
         agent_dir: Some(temp_dir.path().display().to_string()),
         control_db_path: None,
-        base_tools: Vec::new(),
+        base_tools,
         custom_tools: Vec::<ToolDefinition>::new(),
         multi_agent_runtime_role: None,
         multi_agent_execution_capability: None,
@@ -666,6 +677,137 @@ async fn duplicate_turn_guard_marks_events_and_skips_persistence() {
                 .is_ok_and(|json| json.contains("You repeated the same response. Stop looping."))
     });
     assert!(!guard_persisted, "guard message must not be persisted");
+}
+
+#[tokio::test]
+async fn normalizes_oversized_tool_result_images() {
+    let fixture = fixture_with(
+        Default::default(),
+        vec![Arc::new(ScreenshotTool)],
+        Some(vec!["screenshot".to_owned()]),
+    )
+    .await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message(
+            vec![pi_ai::providers::faux::faux_tool_call(
+                "screenshot",
+                serde_json::Map::new(),
+                Some("call-1".to_owned()),
+            )],
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    fixture
+        .session
+        .prompt("take a screenshot", PromptOptions::default())
+        .await
+        .expect("prompt");
+
+    let image = tool_result_image(&fixture.session);
+    let bytes = pi_js_compat::base64::atob(&image).expect("base64 image");
+    use image::GenericImageView;
+    let (width, height) = image::load_from_memory(&bytes).expect("decodable image").dimensions();
+    assert!(width <= 2000 && height <= 2000, "{width}x{height}");
+}
+
+#[tokio::test]
+async fn keeps_oversized_tool_result_images_when_auto_resize_is_disabled() {
+    let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
+    settings.insert("images".to_owned(), serde_json::json!({"autoResize": false}));
+    let fixture = fixture_with(
+        settings,
+        vec![Arc::new(ScreenshotTool)],
+        Some(vec!["screenshot".to_owned()]),
+    )
+    .await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message(
+            vec![pi_ai::providers::faux::faux_tool_call(
+                "screenshot",
+                serde_json::Map::new(),
+                Some("call-1".to_owned()),
+            )],
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    fixture
+        .session
+        .prompt("take a screenshot", PromptOptions::default())
+        .await
+        .expect("prompt");
+
+    assert_eq!(tool_result_image(&fixture.session), oversized_png_base64());
+}
+
+struct ScreenshotTool;
+
+fn oversized_png_base64() -> String {
+    image_fixtures::encode(&image_fixtures::checker_png(2400, 4800))
+}
+
+fn tool_result_image(session: &AgentSession) -> String {
+    session
+        .messages()
+        .iter()
+        .find_map(|message| match message {
+            AgentMessage::ToolResult(result) => result.content.iter().find_map(|block| match block {
+                pi_ai::types::TextOrImageContent::Image(image) => Some(image.data.clone()),
+                pi_ai::types::TextOrImageContent::Text(_) => None,
+            }),
+            _ => None,
+        })
+        .expect("tool result image")
+}
+
+impl pi_agent_core::agent::types::AgentTool for ScreenshotTool {
+    fn name(&self) -> &str {
+        "screenshot"
+    }
+
+    fn description(&self) -> &str {
+        "Return an oversized screenshot"
+    }
+
+    fn parameters(&self) -> &serde_json::Value {
+        static PARAMETERS: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+        PARAMETERS.get_or_init(|| serde_json::json!({"type": "object", "properties": {}}))
+    }
+
+    fn label(&self) -> &str {
+        "Screenshot"
+    }
+
+    fn execute(
+        &self,
+        _tool_call_id: String,
+        _params: serde_json::Value,
+        _signal: Option<tokio_util::sync::CancellationToken>,
+        _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
+        _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
+    ) -> pi_ai::request::BoxFuture<
+        'static,
+        Result<pi_agent_core::agent::types::AgentToolResult, pi_agent_core::agent::types::ToolError>,
+    > {
+        Box::pin(async move {
+            let mut result = pi_agent_core::agent::types::AgentToolResult::text("captured");
+            result.content.push(pi_ai::types::TextOrImageContent::Image(
+                pi_ai::types::ImageContent::new(oversized_png_base64(), "image/png"),
+            ));
+            Ok(result)
+        })
+    }
 }
 
 #[tokio::test]

@@ -1346,24 +1346,43 @@ impl AgentSession {
 
     async fn after_tool_call(&self, context: AfterToolCallContext) -> Option<AfterToolCallResult> {
         let runner = self.runner();
-        if !runner.has_handlers("tool_result") {
+        let hook_result = if runner.has_handlers("tool_result") {
+            let event = crate::core::extensions::types::ToolResultEvent {
+                tool_name: crate::core::extensions::types::ToolName::Custom(context.tool_call.name.clone()),
+                tool_call_id: context.tool_call.id.clone(),
+                input: context.args.as_object().cloned().unwrap_or_default(),
+                content: context.result.content.clone(),
+                is_error: context.is_error,
+                usage: context.result.usage.clone(),
+                details: context.result.details.clone(),
+            };
+            runner.emit_tool_result(event).await
+        } else {
+            None
+        };
+        let content = hook_result
+            .as_ref()
+            .and_then(|result| result.content.clone())
+            .unwrap_or_else(|| context.result.content.clone());
+        let auto_resize_images = lock(&self.inner.settings_manager).get_image_auto_resize();
+        let normalized = crate::utils::tool_result_images::normalize_tool_result_images(
+            &content,
+            Some(crate::utils::tool_result_images::NormalizeToolResultImagesOptions {
+                auto_resize_images: Some(auto_resize_images),
+            }),
+        )
+        .await;
+        if hook_result.is_none() && matches!(normalized, std::borrow::Cow::Borrowed(_)) {
             return None;
         }
-        let event = crate::core::extensions::types::ToolResultEvent {
-            tool_name: crate::core::extensions::types::ToolName::Custom(context.tool_call.name.clone()),
-            tool_call_id: context.tool_call.id.clone(),
-            input: context.args.as_object().cloned().unwrap_or_default(),
-            content: context.result.content.clone(),
-            is_error: context.is_error,
-            usage: context.result.usage.clone(),
-            details: context.result.details.clone(),
-        };
-        let result = runner.emit_tool_result(event).await?;
         Some(AfterToolCallResult {
-            content: result.content,
-            details: result.details,
-            is_error: result.is_error,
-            usage: result.usage,
+            content: Some(normalized.into_owned()),
+            details: hook_result.as_ref().and_then(|result| result.details.clone()),
+            is_error: hook_result
+                .as_ref()
+                .and_then(|result| result.is_error)
+                .or(Some(context.is_error)),
+            usage: hook_result.as_ref().and_then(|result| result.usage.clone()),
             terminate: None,
         })
     }
