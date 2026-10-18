@@ -22,6 +22,8 @@ All direct dependencies are exact-pinned.
 - `photon-rs = 0.3.3` (exact, `default-features = false`) — the Rust image library compiled to the `@silvia-odwyer/photon-node` 0.3.4 WASM used by `utils::{photon, exif_orientation, image_convert, image_resize_core}`. Resize (Lanczos3), flips, and `PhotonImage` come from this crate so output bytes match.
 - `image = 0.24.9` (exact, `default-features = false`, codec features mirroring photon-rs) — supplies the fallible `load_from_memory`/`DynamicImage::write_to` calls behind `utils::photon`, replacing photon-rs' panicking wrappers; pinned with the `png 0.17.14`, `jpeg-decoder 0.3.1`, `gif 0.13.1`, `tiff 0.9.1`, `flate2 1.0.34`, `miniz_oxide 0.8.0`, `fdeflate 0.3.6`, `weezl 0.1.8` versions embedded in that WASM build (see `docs/porting/traceability/photon.md`).
 - `clipboard-rs = 0.3.4` (exact) — the release vendored by `@mariozechner/clipboard` 0.3.9, providing the native X11/Wayland/macOS/Windows clipboard behind `utils::clipboard_native`.
+- `httpdate = 1.0.3` — parses the remote catalog's `Last-Modified` header into the millisecond timestamp stored in `models-store.json` (Node `Date.parse`).
+- `rustix = 1.1.5` — supplies `fs::access(WRITE_OK)` for the install-path writability check (`fs.accessSync` parity) and `process::kill_process_group` for `utils::shell::kill_process_tree` (`process.kill(-pid)` parity); the crate is already pinned in the workspace by `pi-tui`.
 - `pi-ai` (path) — `utils::management_http` uses the shared `Fetch` contract and default reqwest client (one HTTP stack).
 - `tempfile = 3.27.0` (development) — creates isolated temporary files, symlinks, and git repositories for path and process tests.
 
@@ -71,6 +73,7 @@ The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToolExecutionContext` slices
 - `tokio-util = 0.7.20` (`rt`) — `CancellationToken` maps the `AbortSignal` passed to autocomplete suggestions and kills an in-flight `fd` child; the editor aborts superseded requests and `CancellableLoader` maps its abort signal.
 - `tempfile = 3.27.0` (development) — creates isolated directory trees and symlinks for autocomplete tests.
 - No runtime Base64 dependency: `terminal_image` uses the crate-local `src/base64.rs` implementation of Node `Buffer` leniency and standard padded encoding.
+- `httpdate = 1.0.3` — parses the remote catalog's `Last-Modified` header into the millisecond timestamp stored in `models-store.json` (Node `Date.parse`).
 - `rustix = 1.1.5` (exact, `termios` feature) — safe termios raw-mode and window-size syscalls for `ProcessTerminal`; `unsafe_code = "forbid"` rules out `libc`/`nix` wrappers that need unsafe call sites.
 - `src/unicode_tables.rs` is generated data, not a dependency: Unicode 17.0 emoji sequences, character-property ranges, and `get-east-asian-width` 1.6.0 width ranges (see `docs/porting/traceability/utils.md`).
 - The editor adds no dependency: it reuses `unicode-segmentation`, `regex`, `tokio`, and `tokio-util`.

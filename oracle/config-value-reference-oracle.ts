@@ -4,6 +4,19 @@ import { pathToFileURL } from "node:url";
 type RequestId = string | number | null;
 
 type ConfigValueReferenceApi = {
+	resolveConfigValue(config: string, env?: Record<string, string>): string | undefined;
+	resolveConfigValueUncached(config: string, env?: Record<string, string>): string | undefined;
+	resolveConfigValueOrThrow(config: string, description: string, env?: Record<string, string>): string;
+	resolveHeaders(
+		headers: Record<string, string> | undefined,
+		env?: Record<string, string>,
+	): Record<string, string> | undefined;
+	resolveHeadersOrThrow(
+		headers: Record<string, string> | undefined,
+		description: string,
+		env?: Record<string, string>,
+	): Record<string, string> | undefined;
+	clearConfigValueCache(): void;
 	getConfigValueEnvVarName(config: string): string | undefined;
 	getConfigValueEnvVarNames(config: string): string[];
 	getMissingConfigValueEnvVarNames(config: string, env?: Record<string, string>): string[];
@@ -24,7 +37,35 @@ type StatusRequest = {
 	processEnv?: Record<string, string | null>;
 };
 
-type Request = ReferenceRequest | StatusRequest;
+type ResolveRequest = {
+	id: RequestId;
+	operation: "resolve";
+	config: string;
+	env: Record<string, string> | null;
+	processEnv?: Record<string, string | null>;
+	uncached?: boolean;
+};
+
+type ThrowRequest = {
+	id: RequestId;
+	operation: "throw";
+	config: string;
+	description: string;
+	env: Record<string, string> | null;
+	processEnv?: Record<string, string | null>;
+};
+
+type HeadersRequest = {
+	id: RequestId;
+	operation: "headers";
+	headers: Record<string, string> | null;
+	description?: string;
+	env: Record<string, string> | null;
+	processEnv?: Record<string, string | null>;
+	throwOnError?: boolean;
+};
+
+type Request = ReferenceRequest | StatusRequest | ResolveRequest | ThrowRequest | HeadersRequest;
 
 type ReferenceOutput = {
 	envVarName: string | null;
@@ -94,9 +135,50 @@ function statusOutput(request: StatusRequest, api: ConfigValueReferenceApi): Sta
 	}));
 }
 
+function resolveOutput(request: ResolveRequest, api: ConfigValueReferenceApi): { value: string | null } {
+	const env = request.env ?? undefined;
+	return withProcessEnvironment(request.processEnv, () => {
+		const value = request.uncached
+			? api.resolveConfigValueUncached(request.config, env)
+			: api.resolveConfigValue(request.config, env);
+		return { value: value ?? null };
+	});
+}
+
+function throwOutput(request: ThrowRequest, api: ConfigValueReferenceApi): { value: string } {
+	const env = request.env ?? undefined;
+	return withProcessEnvironment(request.processEnv, () => ({
+		value: api.resolveConfigValueOrThrow(request.config, request.description, env),
+	}));
+}
+
+function headersOutput(
+	request: HeadersRequest,
+	api: ConfigValueReferenceApi,
+): { headers: Record<string, string> | null } {
+	const env = request.env ?? undefined;
+	const headers = request.headers ?? undefined;
+	return withProcessEnvironment(request.processEnv, () => {
+		const resolved = request.throwOnError
+			? api.resolveHeadersOrThrow(headers, request.description ?? "Provider", env)
+			: api.resolveHeaders(headers, env);
+		return { headers: resolved ?? null };
+	});
+}
+
 function execute(request: Request, api: ConfigValueReferenceApi): Response {
 	try {
-		const output = "operation" in request ? statusOutput(request, api) : referenceOutput(request.config, api);
+		if (!("operation" in request)) {
+			return { id: request.id, ok: true, output: referenceOutput(request.config, api) };
+		}
+		const output =
+			request.operation === "resolve"
+				? resolveOutput(request, api)
+				: request.operation === "throw"
+					? throwOutput(request, api)
+					: request.operation === "headers"
+						? headersOutput(request, api)
+						: statusOutput(request, api);
 		return { id: request.id, ok: true, output };
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };

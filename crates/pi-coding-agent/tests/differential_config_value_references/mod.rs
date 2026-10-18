@@ -1,7 +1,15 @@
 mod fixtures;
 #[path = "../support/oracle.rs"]
 mod oracle;
+mod resolve;
+mod resolve_probe;
 mod status;
+
+#[test]
+#[ignore = "child probe entry point"]
+fn resolve_process_probe_child() {
+    resolve_probe::run_child();
+}
 
 pub(crate) fn run() {
     let mut oracle = oracle::TsOracle::spawn(
@@ -19,6 +27,7 @@ pub(crate) fn run() {
     }
 
     status::run(&mut oracle);
+    resolve::run(&mut oracle);
 
     #[cfg(unix)]
     status::run_non_unicode_status();

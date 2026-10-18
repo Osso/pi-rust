@@ -1836,6 +1836,7 @@ version = "0.0.0"
 dependencies = [
  "clipboard-rs",
  "gethostname",
+ "httpdate",
  "image 0.24.9",
  "notify",
  "percent-encoding",
@@ -1843,6 +1844,7 @@ dependencies = [
  "pi-agent-core",
  "pi-ai",
  "regex",
+ "rustix",
  "serde",
  "serde_json",
  "serde_yaml_ng",
