@@ -1,5 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 /// Scope of a source path in the coding-agent metadata model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SourceScope {
     User,
     Project,
@@ -18,7 +21,8 @@ impl SourceScope {
 }
 
 /// Origin of a source path in the coding-agent metadata model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SourceOrigin {
     Package,
     TopLevel,
@@ -35,12 +39,14 @@ impl SourceOrigin {
 }
 
 /// Source metadata returned by the synthetic source-info constructor.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SourceInfo {
     pub path: String,
     pub source: String,
     pub scope: SourceScope,
     pub origin: SourceOrigin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_dir: Option<String>,
 }
 

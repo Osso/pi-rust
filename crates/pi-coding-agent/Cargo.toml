@@ -12,6 +12,8 @@ publish = false
 pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }
 # Supplies the shared HTTP `Fetch` contract and default client.
 pi-ai = { version = "=0.0.0", path = "../pi-ai" }
+# Supplies the TUI keybinding registry that coding-agent extends.
+pi-tui = { version = "=0.0.0", path = "../pi-tui" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["preserve_order"] }
 regex = "=1.13.1"
