@@ -104,8 +104,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/images-models.ts` | 275 | 2 | done | `crates/pi-ai/src/images_models.rs` | Providers, auth merge, dynamic refresh with in-flight dedupe; differential for registry/auth merge. `builtinImagesModels` gap tracked under providers/all. |
 | `ai/src/model-catalog.ts` | 27 | 2 | done | `crates/pi-ai/src/model_catalog.rs` | Group flattening; `provider` parameter is type-only; differential 4 requests. |
 | `ai/src/model-types.ts` | 273 | 2 | done | `crates/pi-ai/src/types.rs` | Type-only module; all interfaces mapped to existing `types.rs` items, no new code. |
-| `ai/src/providers/cloudflare-auth.ts` | 103 | 2 | todo |  |  |
-| `ai/src/providers/cloudflare-stream.ts` | 28 | 2 | todo |  |  |
+| `ai/src/providers/cloudflare-auth.ts` | 103 | 2 | done | `crates/pi-ai/src/providers/cloudflare_auth.rs` | Per-field credential/env merge, workers vs gateway headers; differential auth + login flows. |
+| `ai/src/providers/cloudflare-stream.ts` | 28 | 2 | done | `crates/pi-ai/src/providers/cloudflare_stream.rs` | Endpoint placeholder materialization; behavioral + differential. |
 | `ai/src/providers/faux.ts` | 708 | 2 | done | `crates/pi-ai/src/providers/faux.rs` | deterministic faux streams, usage/cache estimation, abort, deferred; differential fixed-chunk scenarios |
 | `ai/src/providers/radius-config.ts` | 96 | 2 | done | `crates/pi-ai/src/providers/radius_config.rs` | URL normalization, config sanitization, model projection, bearer config load; differential. |
 | `ai/src/utils/overflow.ts` | 181 | 2 | done | `crates/pi-ai/src/utils/overflow.rs` | 26 overflow patterns, non-overflow exclusions, silent and length-stop overflow; differential 40 checks + pattern matrix. |
@@ -119,92 +119,92 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/index.ts` | 47 | 3 | todo |  |  |
 | `ai/src/legacy-api-aliases.ts` | 108 | 3 | todo |  |  |
 | `ai/src/oauth.ts` | 10 | 3 | done | `crates/pi-ai/src/oauth.rs` | Type-only compatibility re-exports. |
-| `ai/src/providers/amazon-bedrock.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/ant-ling.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/anthropic.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/azure-openai-responses.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/baseten.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/cerebras.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/cloudflare-ai-gateway.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/cloudflare-workers-ai.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/deepseek.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/fireworks.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/github-copilot.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/google-vertex.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/google.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/groq.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/huggingface.models.ts` | 8 | 3 | todo |  |  |
+| `ai/src/providers/amazon-bedrock.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/ant-ling.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/anthropic.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/azure-openai-responses.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/baseten.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/cerebras.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/cloudflare-ai-gateway.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/cloudflare-workers-ai.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/deepseek.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/fireworks.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/github-copilot.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/google-vertex.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/google.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/groq.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/huggingface.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
 | `ai/src/providers/images/register-builtins.ts` | 50 | 3 | done | `crates/pi-ai/src/providers/images/register_builtins.rs` | Direct link replaces lazy import; load-error branch is not representable (see traceability). |
-| `ai/src/providers/kimi-coding.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/minimax-cn.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/minimax.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/mistral.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/moonshotai-cn.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/moonshotai.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/nvidia.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/openai-codex-gc.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/openai-codex.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/openai.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/opencode-go.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/opencode.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/openrouter.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/qwen-token-plan-cn.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/qwen-token-plan-individual.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/qwen-token-plan.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/radius.ts` | 82 | 3 | todo |  |  |
-| `ai/src/providers/together.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/vercel-ai-gateway.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/xai.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/xiaomi-token-plan-ams.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/xiaomi-token-plan-cn.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/xiaomi-token-plan-sgp.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/xiaomi.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/zai-coding-cn.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/zai.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/auth/oauth/github-copilot.ts` | 417 | 4 | todo |  |  |
-| `ai/src/models.generated.ts` | 127 | 4 | todo |  |  |
-| `ai/src/providers/amazon-bedrock.ts` | 90 | 4 | todo |  |  |
-| `ai/src/providers/ant-ling.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/anthropic.ts` | 59 | 4 | todo |  |  |
-| `ai/src/providers/azure-openai-responses.ts` | 14 | 4 | todo |  |  |
-| `ai/src/providers/baseten.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/cerebras.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/cloudflare-ai-gateway.ts` | 23 | 4 | todo |  |  |
-| `ai/src/providers/cloudflare-workers-ai.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/deepseek.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/fireworks.ts` | 19 | 4 | todo |  |  |
-| `ai/src/providers/github-copilot.ts` | 34 | 4 | todo |  |  |
-| `ai/src/providers/google-vertex.ts` | 100 | 4 | todo |  |  |
-| `ai/src/providers/google.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/groq.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/huggingface.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/kimi-coding.ts` | 24 | 4 | todo |  |  |
-| `ai/src/providers/minimax-cn.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/minimax.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/mistral.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/moonshotai-cn.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/moonshotai.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/nvidia.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/openai-codex.ts` | 25 | 4 | todo |  |  |
-| `ai/src/providers/openai.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/opencode-go.ts` | 20 | 4 | todo |  |  |
-| `ai/src/providers/opencode.ts` | 24 | 4 | todo |  |  |
+| `ai/src/providers/kimi-coding.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/minimax-cn.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/minimax.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/mistral.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/moonshotai-cn.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/moonshotai.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/nvidia.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/openai-codex-gc.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/openai-codex.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/openai.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/opencode-go.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/opencode.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/openrouter.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/qwen-token-plan-cn.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/qwen-token-plan-individual.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/qwen-token-plan.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/radius.ts` | 82 | 3 | done | `crates/pi-ai/src/providers/radius.rs` | Dynamic catalog provider with stored/legacy/network refresh; behavioral tests. |
+| `ai/src/providers/together.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/vercel-ai-gateway.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/xai.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/xiaomi-token-plan-ams.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/xiaomi-token-plan-cn.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/xiaomi-token-plan-sgp.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/xiaomi.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/zai-coding-cn.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/zai.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/auth/oauth/github-copilot.ts` | 417 | 4 | done | `crates/pi-ai/src/auth/oauth/github_copilot.rs` | Device flow, policy enablement (concurrency 4), picker parsing, toAuth; behavioral + differential refresh/toAuth. |
+| `ai/src/models.generated.ts` | 127 | 4 | done | `crates/pi-ai/src/providers/models_data.rs` | Embedded generated catalogs plus manifest timestamp; differential full catalog. |
+| `ai/src/providers/amazon-bedrock.ts` | 90 | 4 | done | `crates/pi-ai/src/providers/amazon_bedrock.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/ant-ling.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/ant_ling.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/anthropic.ts` | 59 | 4 | done | `crates/pi-ai/src/providers/anthropic.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/azure-openai-responses.ts` | 14 | 4 | done | `crates/pi-ai/src/providers/azure_openai_responses.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/baseten.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/baseten.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/cerebras.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/cerebras.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/cloudflare-ai-gateway.ts` | 23 | 4 | done | `crates/pi-ai/src/providers/cloudflare_ai_gateway.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/cloudflare-workers-ai.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/cloudflare_workers_ai.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/deepseek.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/deepseek.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/fireworks.ts` | 19 | 4 | done | `crates/pi-ai/src/providers/fireworks.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/github-copilot.ts` | 34 | 4 | done | `crates/pi-ai/src/providers/github_copilot.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/google-vertex.ts` | 100 | 4 | done | `crates/pi-ai/src/providers/google_vertex.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/google.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/google.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/groq.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/groq.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/huggingface.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/huggingface.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/kimi-coding.ts` | 24 | 4 | done | `crates/pi-ai/src/providers/kimi_coding.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/minimax-cn.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/minimax_cn.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/minimax.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/minimax.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/mistral.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/mistral.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/moonshotai-cn.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/moonshotai_cn.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/moonshotai.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/moonshotai.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/nvidia.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/nvidia.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/openai-codex.ts` | 25 | 4 | todo |  | Excluded from this slice: depends on the in-flight api-codex adapter. |
+| `ai/src/providers/openai.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/openai.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/opencode-go.ts` | 20 | 4 | done | `crates/pi-ai/src/providers/opencode_go.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/opencode.ts` | 24 | 4 | done | `crates/pi-ai/src/providers/opencode.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
 | `ai/src/providers/openrouter-images.ts` | 22 | 4 | done | `crates/pi-ai/src/providers/openrouter_images.rs` | Catalog, api-key auth, lazy OAuth surface; OAuth flow module remains an explicit gap (see traceability). |
-| `ai/src/providers/openrouter.ts` | 23 | 4 | todo |  |  |
-| `ai/src/providers/qwen-token-plan-cn.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/qwen-token-plan-individual.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/qwen-token-plan.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/together.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/vercel-ai-gateway.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/xai.ts` | 28 | 4 | todo |  |  |
-| `ai/src/providers/xiaomi-token-plan-ams.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/xiaomi-token-plan-cn.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/xiaomi-token-plan-sgp.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/xiaomi.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/zai-coding-cn.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/zai.ts` | 15 | 4 | todo |  |  |
-| `ai/src/bun-oauth.ts` | 21 | 5 | done | `crates/pi-ai/src/bun_oauth.rs` | Registers all ported flows; github-copilot loader is an explicit gap. |
-| `ai/src/providers/all.ts` | 159 | 5 | todo |  |  |
+| `ai/src/providers/openrouter.ts` | 23 | 4 | done | `crates/pi-ai/src/providers/openrouter.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/qwen-token-plan-cn.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/qwen_token_plan_cn.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/qwen-token-plan-individual.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/qwen_token_plan_individual.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/qwen-token-plan.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/qwen_token_plan.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/together.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/together.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/vercel-ai-gateway.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/vercel_ai_gateway.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/xai.ts` | 28 | 4 | done | `crates/pi-ai/src/providers/xai.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/xiaomi-token-plan-ams.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/xiaomi_token_plan_ams.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/xiaomi-token-plan-cn.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/xiaomi_token_plan_cn.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/xiaomi-token-plan-sgp.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/xiaomi_token_plan_sgp.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/xiaomi.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/xiaomi.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/zai-coding-cn.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/zai_coding_cn.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/zai.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/zai.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/bun-oauth.ts` | 21 | 5 | done | `crates/pi-ai/src/bun_oauth.rs` | Registers all ported flows, including GitHub Copilot. |
+| `ai/src/providers/all.ts` | 159 | 5 | partial | `crates/pi-ai/src/providers/all.rs` | All factories except the two `openai-codex` providers (api-codex slice); catalog/order/generatedAt/images differential. |
 | `ai/src/cli.ts` | 119 | 6 | todo |  |  |
 | `ai/src/compat.ts` | 299 | 6 | todo |  |  |
 | `ai/src/base.ts` | 6 | 7 | todo |  |  |
