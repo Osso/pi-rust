@@ -18,6 +18,7 @@ Tests: covered indirectly by `crates/pi-ai/tests/differential_openai_responses.r
 | Header assembly order/override/null suppression | `SdkClient::build_headers` | request headers in all scenarios |
 | `Authorization: Bearer` / Azure `api-key` | `build_headers` | responses/completions vs azure |
 | JSON body encoding (`FallbackEncoder`) | `send` (`serde_json::to_vec`) | request body in all scenarios |
+| Non-streaming `create(..., { stream: false })` JSON response | `SdkClient::create_chat_completion` (`send_json`) | `differential_openrouter_images` |
 | `APIError.generate` status/body message | `error_message`, `api_error_detail` | responses 12-13, completions 22-23 |
 | SSE chunk splitting and line decoding | `find_double_newline_index`, `decode_sse_segment` | all stream scenarios (7-char chunk splits) |
 | `[DONE]` handling | `SseJsonStream::next_event` | all stream scenarios |

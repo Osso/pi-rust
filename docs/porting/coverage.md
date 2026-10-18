@@ -87,7 +87,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/openai-codex-responses.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/openai-completions.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_completions.rs` | `open_ai_completions_api()` lazy adapter. |
 | `ai/src/api/openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_responses.rs` | `open_ai_responses_api()` lazy adapter. |
-| `ai/src/api/openrouter-images.ts` | 196 | 2 | todo |  |  |
+| `ai/src/api/openrouter-images.ts` | 196 | 2 | done | `crates/pi-ai/src/api/openrouter_images.rs` | Request building, usage/image parsing, SDK error mapping, timeout; recorded-fixture differential (see traceability). |
 | `ai/src/api/pi-messages.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/auth/helpers.ts` | 59 | 2 | done | `crates/pi-ai/src/auth/helpers.rs` | env api-key auth and lazy OAuth loading |
 | `ai/src/auth/oauth/anthropic.ts` | 364 | 2 | todo |  |  |
@@ -112,7 +112,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/retry.ts` | 253 | 2 | done | `crates/pi-ai/src/utils/retry.rs` | Exact classifier plus async backoff/cancellation/callbacks; differential 45 classifications + 10 scripted loops. |
 | `ai/src/utils/text.ts` | 12 | 2 | done | `crates/pi-ai/src/utils/text.rs` | `contentText` over assistant and tool-result blocks; differential 6 requests. |
 | `ai/src/utils/validation.ts` | 350 | 2 | done | `crates/pi-ai/src/utils/validation.rs` | Full hand-written TypeBox-compatible validator, coercions, error messages; 25 behavioral + 67 differential cases ([traceability](traceability/validation.md)). |
-| `ai/src/api/openrouter-images.lazy.ts` | 10 | 3 | todo |  |  |
+| `ai/src/api/openrouter-images.lazy.ts` | 10 | 3 | done | `crates/pi-ai/src/api/openrouter_images_lazy.rs` | Direct-link factory replacing the dynamic import. |
 | `ai/src/auth/oauth/radius.ts` | 403 | 3 | todo |  |  |
 | `ai/src/image-models.ts` | 42 | 3 | done | `crates/pi-ai/src/image_models.rs` | Lookup/list APIs; `undefined` modeled as `Option`/empty slice (see traceability). |
 | `ai/src/images.ts` | 21 | 3 | todo |  |  |

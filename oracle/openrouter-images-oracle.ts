@@ -41,12 +41,19 @@ function normalizeError(error: unknown): { name: string; message: string } {
 }
 
 function normalizeHeaders(headers: unknown): Record<string, string> {
-	if (headers instanceof Headers) return Object.fromEntries(headers.entries());
-	if (Array.isArray(headers)) return Object.fromEntries(headers as Array<[string, string]>);
-	if (headers && typeof headers === "object") {
-		return Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, String(value)]));
-	}
-	return {};
+	const record =
+		headers instanceof Headers
+			? Object.fromEntries(headers.entries())
+			: Array.isArray(headers)
+				? Object.fromEntries(headers as Array<[string, string]>)
+				: headers && typeof headers === "object"
+					? Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, String(value)]))
+					: {};
+	return Object.fromEntries(
+		Object.entries(record).filter(
+			([name]) => name !== "user-agent" && !name.startsWith("x-stainless-"),
+		),
+	);
 }
 
 async function execute(request: Request, api: ImagesApi): Promise<Record<string, unknown>> {

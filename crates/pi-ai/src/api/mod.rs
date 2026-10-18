@@ -8,5 +8,7 @@ pub mod openai_prompt_cache;
 pub mod openai_responses;
 pub mod openai_responses_shared;
 pub mod openai_sdk;
+pub mod openrouter_images;
+pub mod openrouter_images_lazy;
 pub mod simple_options;
 pub mod transform_messages;

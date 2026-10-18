@@ -1,0 +1,348 @@
+//! Port of `packages/ai/src/api/openrouter-images.ts`.
+
+use std::collections::BTreeMap;
+
+use serde_json::{Map, Value};
+use tokio_util::sync::CancellationToken;
+
+use crate::api::openai_sdk::{SdkClient, SdkClientConfig, SdkJsonResponse, format_request_error};
+use crate::request::{BoxFuture, CallbackError, ImagesOptions, ProviderImages, now_millis};
+use crate::types::{
+    AssistantImages, ImageContent, ImagesContext, ImagesModel, ImagesStopReason, Modality, ProviderResponse,
+    TextContent, TextOrImageContent, Usage, UsageCost,
+};
+use crate::utils::headers::headers_to_record;
+use crate::utils::provider_retry::{
+    ProviderError, ProviderErrorHeaders, ProviderRequestError, ProviderRetryOptions, retry_provider_request,
+};
+use crate::utils::sanitize_unicode::sanitize_surrogates;
+
+const DEFAULT_TIMEOUT_MS: f64 = 600_000.0;
+
+/// `generateImages` for the OpenRouter image API.
+///
+/// TypeScript encodes every failure in the returned `AssistantImages`; the Rust
+/// `ProviderImages` contract is `Result`, and this function always returns `Ok`
+/// with `stopReason: "error" | "aborted"` for failures.
+pub fn generate_images(
+    model: ImagesModel,
+    context: ImagesContext,
+    options: ImagesOptions,
+) -> BoxFuture<'static, Result<AssistantImages, CallbackError>> {
+    Box::pin(async move { Ok(run_generate_images(model, context, options).await) })
+}
+
+/// `openrouter-images` API implementation for [`ProviderImages`].
+pub struct OpenRouterImagesApi;
+
+impl ProviderImages for OpenRouterImagesApi {
+    fn generate_images(
+        &self,
+        model: ImagesModel,
+        context: ImagesContext,
+        options: ImagesOptions,
+    ) -> BoxFuture<'static, Result<AssistantImages, CallbackError>> {
+        generate_images(model, context, options)
+    }
+}
+
+async fn run_generate_images(model: ImagesModel, context: ImagesContext, options: ImagesOptions) -> AssistantImages {
+    let mut output = AssistantImages {
+        api: model.api.clone(),
+        provider: model.provider.clone(),
+        model: model.id.clone(),
+        output: Vec::new(),
+        response_id: None,
+        usage: None,
+        stop_reason: ImagesStopReason::Stop,
+        error_message: None,
+        timestamp: now_millis(),
+    };
+
+    match request_images(&model, &context, &options).await {
+        Ok((data, response)) => {
+            if let Some(on_response) = &options.request.on_response
+                && let Err(error) = on_response(response, model.clone()).await
+            {
+                return fail(&mut output, &options, error.message);
+            }
+            apply_response(&mut output, &data, &model);
+            output
+        }
+        Err(message) => fail(&mut output, &options, message),
+    }
+}
+
+fn fail(output: &mut AssistantImages, options: &ImagesOptions, message: String) -> AssistantImages {
+    output.stop_reason = if options
+        .request
+        .signal
+        .as_ref()
+        .is_some_and(CancellationToken::is_cancelled)
+    {
+        ImagesStopReason::Aborted
+    } else {
+        ImagesStopReason::Error
+    };
+    output.error_message = Some(message);
+    output.clone()
+}
+
+async fn request_images(
+    model: &ImagesModel,
+    context: &ImagesContext,
+    options: &ImagesOptions,
+) -> Result<(Value, ProviderResponse), String> {
+    let api_key = options
+        .request
+        .api_key
+        .as_deref()
+        .ok_or_else(|| format!("No API key for provider: {}", model.provider))?;
+
+    let mut params = build_params(model, context);
+    if let Some(on_payload) = &options.request.on_payload
+        && let Some(next_params) = on_payload(params.clone(), model.clone())
+            .await
+            .map_err(|error| error.message)?
+    {
+        params = next_params;
+    }
+
+    let client = SdkClient::new(SdkClientConfig {
+        api_key: api_key.to_owned(),
+        base_url: model.base_url.clone(),
+        default_headers: merged_headers(model, options),
+        timeout_ms: options.request.timeout_ms,
+        fetch: options.request.fetch.clone(),
+        azure: None,
+    });
+    let retry_options = ProviderRetryOptions {
+        max_retries: options
+            .request
+            .max_retries
+            .map_or(0, |retries| retries.max(0.0) as usize),
+        max_retry_delay_ms: options.request.max_retry_delay_ms,
+        signal: options.request.signal.clone(),
+    };
+    let signal = options.request.signal.clone();
+    let timeout = timeout_duration(options.request.timeout_ms);
+    let result = retry_provider_request(
+        || {
+            let params = params.clone();
+            let client = &client;
+            let signal = signal.clone();
+            async move {
+                match timeout {
+                    Some(timeout) => {
+                        tokio::select! {
+                            biased;
+                            () = tokio::time::sleep(timeout) => Err(timeout_error()),
+                            result = client.create_chat_completion(params, signal) => result,
+                        }
+                    }
+                    None => client.create_chat_completion(params, signal).await,
+                }
+            }
+        },
+        retry_options,
+    )
+    .await;
+
+    result
+        .map(|response: SdkJsonResponse| {
+            (
+                response.data,
+                ProviderResponse {
+                    status: f64::from(response.status),
+                    headers: headers_to_record(response.headers),
+                },
+            )
+        })
+        .map_err(|error| format_request_error(&error, None))
+}
+
+fn timeout_duration(timeout_ms: Option<f64>) -> Option<std::time::Duration> {
+    let timeout_ms = timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
+    if timeout_ms <= 0.0 {
+        return None;
+    }
+    std::time::Duration::try_from_secs_f64(timeout_ms / 1000.0).ok()
+}
+
+fn timeout_error() -> ProviderRequestError<CallbackError> {
+    ProviderRequestError::Provider(ProviderError {
+        message: "Request timed out.".to_owned(),
+        status: None,
+        headers: ProviderErrorHeaders::new(),
+        body: None,
+        inner_error: None,
+    })
+}
+
+fn merged_headers(model: &ImagesModel, options: &ImagesOptions) -> BTreeMap<String, Option<String>> {
+    let mut merged: BTreeMap<String, Option<String>> = BTreeMap::new();
+    if let Some(headers) = &model.headers {
+        for (name, value) in headers {
+            merged.insert(name.clone(), Some(value.clone()));
+        }
+    }
+    if let Some(headers) = &options.request.headers {
+        for (name, value) in headers {
+            merged.insert(name.clone(), value.clone());
+        }
+    }
+    // `providerHeadersToRecord` drops explicit suppressions before the SDK sees them.
+    merged.retain(|_, value| value.is_some());
+    merged
+}
+
+fn build_params(model: &ImagesModel, context: &ImagesContext) -> Value {
+    let content: Vec<Value> = context
+        .input
+        .iter()
+        .map(|item| match item {
+            TextOrImageContent::Text(text) => {
+                let mut part = Map::new();
+                part.insert("type".to_owned(), Value::String("text".to_owned()));
+                part.insert(
+                    "text".to_owned(),
+                    Value::String(sanitize_surrogates(&text.text).to_owned()),
+                );
+                Value::Object(part)
+            }
+            TextOrImageContent::Image(image) => {
+                let mut image_url = Map::new();
+                image_url.insert(
+                    "url".to_owned(),
+                    Value::String(format!("data:{};base64,{}", image.mime_type, image.data)),
+                );
+                let mut part = Map::new();
+                part.insert("type".to_owned(), Value::String("image_url".to_owned()));
+                part.insert("image_url".to_owned(), Value::Object(image_url));
+                Value::Object(part)
+            }
+        })
+        .collect();
+
+    let mut message = Map::new();
+    message.insert("role".to_owned(), Value::String("user".to_owned()));
+    message.insert("content".to_owned(), Value::Array(content));
+
+    let modalities = if model.output.contains(&Modality::Text) {
+        vec!["image", "text"]
+    } else {
+        vec!["image"]
+    };
+
+    let mut params = Map::new();
+    params.insert("model".to_owned(), Value::String(model.id.clone()));
+    params.insert("messages".to_owned(), Value::Array(vec![Value::Object(message)]));
+    params.insert("stream".to_owned(), Value::Bool(false));
+    params.insert(
+        "modalities".to_owned(),
+        Value::Array(
+            modalities
+                .into_iter()
+                .map(|modality| Value::String(modality.to_owned()))
+                .collect(),
+        ),
+    );
+    Value::Object(params)
+}
+
+fn apply_response(output: &mut AssistantImages, data: &Value, model: &ImagesModel) {
+    output.response_id = data.get("id").and_then(Value::as_str).map(str::to_owned);
+    if let Some(usage) = data.get("usage").filter(|usage| !usage.is_null()) {
+        output.usage = Some(parse_usage(usage, model));
+    }
+
+    let Some(choice) = data
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+    else {
+        return;
+    };
+    let Some(message) = choice.get("message") else {
+        return;
+    };
+
+    if let Some(content) = message.get("content").and_then(Value::as_str)
+        && !content.is_empty()
+    {
+        output.output.push(TextOrImageContent::Text(TextContent::new(content)));
+    }
+
+    let images = message
+        .get("images")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    for image in images {
+        let image_url = match image.get("image_url") {
+            Some(Value::String(url)) => Some(url.as_str()),
+            Some(Value::Object(object)) => object.get("url").and_then(Value::as_str),
+            _ => None,
+        };
+        let Some((mime_type, data)) = image_url.and_then(parse_data_url) else {
+            continue;
+        };
+        output
+            .output
+            .push(TextOrImageContent::Image(ImageContent::new(data, mime_type)));
+    }
+}
+
+fn parse_data_url(url: &str) -> Option<(&str, &str)> {
+    let rest = url.strip_prefix("data:")?;
+    let (mime_type, payload) = rest.split_once(';')?;
+    if mime_type.is_empty() {
+        return None;
+    }
+    let data = payload.strip_prefix("base64,")?;
+    if data.is_empty() || data.contains(['\n', '\r']) {
+        return None;
+    }
+    Some((mime_type, data))
+}
+
+fn parse_usage(raw: &Value, model: &ImagesModel) -> Usage {
+    let number = |name: &str| raw.get(name).and_then(Value::as_f64).unwrap_or(0.0);
+    let details = raw.get("prompt_tokens_details");
+    let detail = |name: &str| {
+        details
+            .and_then(|details| details.get(name))
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    };
+
+    let prompt_tokens = number("prompt_tokens");
+    let reported_cached_tokens = detail("cached_tokens");
+    let cache_write_tokens = detail("cache_write_tokens");
+    let cache_read_tokens = if cache_write_tokens > 0.0 {
+        (reported_cached_tokens - cache_write_tokens).max(0.0)
+    } else {
+        reported_cached_tokens
+    };
+    let input = (prompt_tokens - cache_read_tokens - cache_write_tokens).max(0.0);
+    let output = number("completion_tokens");
+    let rates = &model.cost.rates;
+    let mut cost = UsageCost {
+        input: (rates.input / 1_000_000.0) * input,
+        output: (rates.output / 1_000_000.0) * output,
+        cache_read: (rates.cache_read / 1_000_000.0) * cache_read_tokens,
+        cache_write: (rates.cache_write / 1_000_000.0) * cache_write_tokens,
+        total: 0.0,
+    };
+    cost.total = cost.input + cost.output + cost.cache_read + cost.cache_write;
+    Usage {
+        input,
+        output,
+        cache_read: cache_read_tokens,
+        cache_write: cache_write_tokens,
+        cache_write_1h: None,
+        reasoning: None,
+        total_tokens: input + output + cache_read_tokens + cache_write_tokens,
+        cost,
+    }
+}
