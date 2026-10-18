@@ -20,5 +20,6 @@ pub mod mime;
 pub mod open_browser;
 pub mod paths;
 pub mod pi_user_agent;
+pub mod shell;
 pub mod sleep;
 pub mod terminal_current_directory;
