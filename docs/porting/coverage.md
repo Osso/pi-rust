@@ -45,7 +45,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/json-parse.ts` | 124 | 0 | done | `crates/pi-ai/src/utils/json_parse.rs` | JSON repair + `partial-json@0.1.7` streaming parser; prefix/malformed differential corpus. |
 | `ai/src/utils/provider-retry.ts` | 125 | 0 | done | `crates/pi-ai/src/utils/provider_retry.rs` | SDK retry policy, server delays, abortable sleep; Tokio tests. |
 | `ai/src/utils/sanitize-unicode.ts` | 25 | 0 | done | `crates/pi-ai/src/utils/sanitize_unicode.rs` | Surrogate repair over UTF-16 units plus typed identity API; differential. |
-| `ai/src/utils/typebox-helpers.ts` | 24 | 0 | gap |  | Adapts the TypeBox JSON-schema builder; deferred pending the JSON-schema design decision ([traceability](traceability/typebox-helpers.md)). |
+| `ai/src/utils/typebox-helpers.ts` | 24 | 0 | done | `crates/pi-ai/src/utils/typebox_helpers.rs` | `StringEnum` builder plus explicit TypeBox-origin newtype ([traceability](traceability/typebox-helpers.md)). |
 | `ai/src/utils/uuid.ts` | 48 | 0 | done | `crates/pi-ai/src/utils/uuid.rs` | RFC 9562 UUIDv7 with monotonic sequence; TS vectors + structural differential. |
 | `ai/src/api/anthropic-messages.ts` | 1366 | 1 | todo |  |  |
 | `ai/src/api/azure-openai-responses.ts` | 330 | 1 | todo |  |  |
@@ -111,7 +111,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/overflow.ts` | 181 | 2 | done | `crates/pi-ai/src/utils/overflow.rs` | 26 overflow patterns, non-overflow exclusions, silent and length-stop overflow; differential 40 checks + pattern matrix. |
 | `ai/src/utils/retry.ts` | 253 | 2 | done | `crates/pi-ai/src/utils/retry.rs` | Exact classifier plus async backoff/cancellation/callbacks; differential 45 classifications + 10 scripted loops. |
 | `ai/src/utils/text.ts` | 12 | 2 | done | `crates/pi-ai/src/utils/text.rs` | `contentText` over assistant and tool-result blocks; differential 6 requests. |
-| `ai/src/utils/validation.ts` | 350 | 2 | todo |  |  |
+| `ai/src/utils/validation.ts` | 350 | 2 | done | `crates/pi-ai/src/utils/validation.rs` | Full hand-written TypeBox-compatible validator, coercions, error messages; 25 behavioral + 67 differential cases ([traceability](traceability/validation.md)). |
 | `ai/src/api/openrouter-images.lazy.ts` | 10 | 3 | todo |  |  |
 | `ai/src/auth/oauth/radius.ts` | 403 | 3 | todo |  |  |
 | `ai/src/image-models.ts` | 42 | 3 | todo |  |  |
