@@ -1,0 +1,245 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use pi_agent_core::agent::AgentMessage;
+use pi_ai::types::{
+    AssistantContent, AssistantMessage, AssistantRole, StopReason, TextContent, TextOrImageContent, ToolResultMessage,
+    ToolResultRole, Usage,
+};
+use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, SessionManager, SessionMessageEntry};
+use pi_coding_agent::core::session_tool_output::{
+    MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES, TOOL_RESULT_TRUNCATION_MARKER, migrate_tool_result_session_files,
+    truncate_tool_result_for_persistence,
+};
+
+fn temp_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("pi-rust-{name}-{}", pi_ai::utils::uuid::random_uuid()));
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn tool_result(text: &str) -> AgentMessage {
+    AgentMessage::ToolResult(ToolResultMessage {
+        role: ToolResultRole::Tag,
+        tool_call_id: "call-1".to_owned(),
+        tool_name: "bash".to_owned(),
+        content: vec![TextOrImageContent::Text(TextContent::new(text))],
+        details: None,
+        usage: None,
+        added_tool_names: None,
+        is_error: false,
+        timestamp: 1,
+    })
+}
+
+fn tool_result_entry(text: &str) -> SessionEntry {
+    SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+        id: "tool-1".to_owned(),
+        parent_id: None,
+        timestamp: "2025-01-01T00:00:00.000Z".to_owned(),
+        message: Box::new(tool_result(text)),
+    }))
+}
+
+fn text_from_tool_result(entry: &SessionEntry) -> String {
+    let message = entry.as_message().unwrap();
+    match message.message.as_ref() {
+        AgentMessage::ToolResult(result) => match &result.content[0] {
+            TextOrImageContent::Text(text) => text.text.clone(),
+            TextOrImageContent::Image(_) => panic!("expected text tool result"),
+        },
+        other => panic!("expected tool result, got {other:?}"),
+    }
+}
+
+fn assistant_message(text: &str) -> AgentMessage {
+    AgentMessage::Assistant(Box::new(AssistantMessage {
+        role: AssistantRole::Tag,
+        content: vec![AssistantContent::Text(TextContent::new(text))],
+        api: "anthropic-messages".to_owned(),
+        provider: "anthropic".to_owned(),
+        model: "test".to_owned(),
+        response_model: None,
+        response_id: None,
+        image_generation_result: None,
+        diagnostics: None,
+        usage: Usage::default(),
+        stop_reason: StopReason::Stop,
+        deferred: None,
+        error_message: None,
+        raw_stop_reason: None,
+        end_turn: None,
+        timestamp: 1,
+    }))
+}
+
+fn write_session(path: &Path, message: AgentMessage) {
+    let assistant =
+        pi_coding_agent::core::session_manager::SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+            id: "assistant-1".to_owned(),
+            parent_id: None,
+            timestamp: "2025-01-01T00:00:00.000Z".to_owned(),
+            message: Box::new(assistant_message("assistant")),
+        }));
+    let tool =
+        pi_coding_agent::core::session_manager::SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
+            id: "tool-1".to_owned(),
+            parent_id: Some("assistant-1".to_owned()),
+            timestamp: "2025-01-01T00:00:00.000Z".to_owned(),
+            message: Box::new(message),
+        }));
+    let header = pi_coding_agent::core::session_manager::SessionHeader {
+        header_type: pi_coding_agent::core::session_manager::HeaderTag::Session,
+        version: Some(3.0),
+        id: "session-1".to_owned(),
+        timestamp: "2025-01-01T00:00:00.000Z".to_owned(),
+        cwd: Some("/tmp".to_owned()),
+        parent_session: None,
+        original_key_order: None,
+    };
+    let lines = [
+        pi_coding_agent::core::session_manager::FileEntry::Header(header),
+        pi_coding_agent::core::session_manager::FileEntry::Entry(assistant),
+        pi_coding_agent::core::session_manager::FileEntry::Entry(tool),
+    ]
+    .iter()
+    .map(|entry| serde_json::to_string(entry).unwrap())
+    .collect::<Vec<_>>()
+    .join("\n");
+    fs::write(path, format!("{lines}\n")).unwrap();
+}
+
+#[test]
+fn caps_single_line_tool_result_on_disk_without_changing_the_runtime_entry() {
+    let dir = temp_dir("tool-output-cap");
+    let mut session =
+        SessionManager::create(&dir.display().to_string(), Some(&dir.display().to_string()), None).unwrap();
+    let original = "x".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES + 100);
+    session.append_message(assistant_message("assistant")).unwrap();
+    let entry_id = session.append_message(tool_result(&original)).unwrap();
+    let file = session.get_session_file().unwrap().to_owned();
+    let content = fs::read_to_string(&file).unwrap();
+    let lines: Vec<&str> = content.lines().collect();
+    let persisted_index = lines
+        .iter()
+        .position(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .ok()
+                .is_some_and(|entry| entry["type"] == "message" && entry["message"]["role"] == "toolResult")
+        })
+        .unwrap();
+    let persisted: serde_json::Value = serde_json::from_str(lines[persisted_index]).unwrap();
+    let persisted_text = persisted["message"]["content"][0]["text"].as_str().unwrap();
+    assert!(persisted_text.len() <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES);
+    assert!(lines[persisted_index].len() <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES);
+    assert!(persisted_text.contains(TOOL_RESULT_TRUNCATION_MARKER));
+
+    let runtime = session.get_entry(&entry_id).unwrap();
+    assert_eq!(text_from_tool_result(runtime), original);
+}
+
+#[test]
+fn truncates_multibyte_utf8_at_a_valid_boundary() {
+    let entry = tool_result_entry(&"😀漢字".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES));
+    let (persisted, changed) = truncate_tool_result_for_persistence(&entry);
+    assert!(changed);
+    let text = text_from_tool_result(&persisted);
+    assert!(text.len() <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES);
+    assert!(text.contains(TOOL_RESULT_TRUNCATION_MARKER));
+    assert!(!text.contains('\u{fffd}'));
+}
+
+#[test]
+fn does_not_emit_replacement_character_at_multibyte_boundary() {
+    let entry = tool_result_entry(&"😀".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES));
+    let (persisted, _) = truncate_tool_result_for_persistence(&entry);
+    let text = text_from_tool_result(&persisted);
+    assert!(!text.contains('\u{fffd}'));
+}
+
+#[test]
+fn returns_unchanged_small_tool_results() {
+    let entry = tool_result_entry("small output");
+    let (persisted, changed) = truncate_tool_result_for_persistence(&entry);
+    assert!(!changed);
+    assert_eq!(persisted, entry);
+}
+
+#[test]
+fn migrates_oversized_sessions_atomically_and_idempotently() {
+    let agent_dir = temp_dir("tool-output-migration");
+    let session_dir = agent_dir.join("sessions").join("project");
+    let session_path = session_dir.join("session.jsonl");
+    fs::create_dir_all(&session_dir).unwrap();
+    write_session(
+        &session_path,
+        tool_result(&"y".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES + 1)),
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&session_path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let malformed_path = agent_dir.join("broken.jsonl");
+    fs::write(&malformed_path, "not json\n").unwrap();
+    let non_session_path = agent_dir.join("other.jsonl");
+    fs::write(&non_session_path, "{\"type\":\"event\"}\n").unwrap();
+
+    let first = migrate_tool_result_session_files(&agent_dir.display().to_string(), || 1_700_000_000_000);
+    assert_eq!(first.changed_files, 1);
+    assert_eq!(first.truncated_messages, 1);
+    assert_eq!(first.skipped_malformed_files, 1);
+    assert_eq!(first.skipped_non_session_files, 1);
+    let backups: Vec<String> = fs::read_dir(&session_dir)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains(".tool-output-backup-"))
+        .collect();
+    assert_eq!(backups.len(), 1);
+
+    let content = fs::read_to_string(&session_path).unwrap();
+    let migrated: serde_json::Value = serde_json::from_str(content.lines().nth(2).unwrap()).unwrap();
+    let migrated_text = migrated["message"]["content"][0]["text"].as_str().unwrap();
+    assert!(migrated_text.len() <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(fs::metadata(&session_path).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    let second = migrate_tool_result_session_files(&agent_dir.display().to_string(), || 1_700_000_000_000);
+    assert_eq!(second.changed_files, 0);
+    assert_eq!(second.truncated_messages, 0);
+    let backups_after: Vec<String> = fs::read_dir(&session_dir)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains(".tool-output-backup-"))
+        .collect();
+    assert_eq!(backups_after.len(), 1);
+    assert!(session_path.exists());
+}
+
+#[test]
+fn skips_a_session_that_changes_during_migration() {
+    let agent_dir = temp_dir("tool-output-changed");
+    let session_dir = agent_dir.join("sessions").join("project");
+    let session_path = session_dir.join("session.jsonl");
+    fs::create_dir_all(&session_dir).unwrap();
+    write_session(
+        &session_path,
+        tool_result(&"z".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES + 1)),
+    );
+
+    let report = migrate_tool_result_session_files(&agent_dir.display().to_string(), || {
+        let mut content = fs::read_to_string(&session_path).unwrap();
+        content.push('\n');
+        fs::write(&session_path, content).unwrap();
+        1_700_000_000_000
+    });
+
+    assert_eq!(report.changed_files, 0);
+    assert_eq!(report.skipped_error_files, 1);
+    assert!(report.errors[0].contains("session changed while scanning"));
+}

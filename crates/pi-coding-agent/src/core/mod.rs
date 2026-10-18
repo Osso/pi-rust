@@ -1,5 +1,6 @@
 pub mod auth_guidance;
 pub mod auth_storage;
+pub mod cache_stats;
 mod config_value;
 pub mod defaults;
 pub mod desktop_notification;
@@ -9,8 +10,10 @@ pub mod diagnostics;
 pub mod event_bus;
 pub mod exec;
 pub mod experimental;
+pub mod external_session_importer;
 pub mod http_dispatcher;
 pub mod keybindings;
+pub mod messages;
 pub mod model_config;
 pub mod models_store;
 pub mod output_guard;
@@ -25,6 +28,7 @@ pub mod resource_loader;
 pub mod rule_store;
 pub mod runtime_credentials;
 pub mod runtime_process;
+pub mod session_cwd;
 pub mod session_errors;
 pub mod session_health;
 pub mod session_manager;
@@ -40,6 +44,7 @@ pub mod tool_capabilities;
 pub mod tool_detach_registry;
 pub mod tools;
 pub mod trust_manager;
+pub mod usage_totals;
 
 pub use config_value::{
     ConfigValueError, clear_config_value_cache, get_config_value_env_var_name, get_config_value_env_var_names,
