@@ -1075,133 +1075,11 @@ pub fn commit_multi_agent_steering_delivery(
 ) -> Result<CommitMultiAgentSteeringDeliveryResult, ControlDbError> {
     with_control_db(control_db_path, |db| {
         for _ in 0..MULTI_AGENT_STEERING_DELIVERY_MAX_ATTEMPTS {
-            let agent_row: Option<String> = db
-                .query_row(
-                    "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-                    params![input.session_path, input.agent_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            let Some(agent_data) = agent_row else {
-                return Ok(CommitMultiAgentSteeringDeliveryResult::Err {
-                    error: SteeringCommandError::AgentNotFound,
-                });
+            let plan = match read_steering_delivery_plan(db, input)? {
+                Ok(plan) => plan,
+                Err(error) => return Ok(CommitMultiAgentSteeringDeliveryResult::Err { error }),
             };
-            let agent_context = format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
-            let agent_object = parse_stored_json_object(&agent_data, &agent_context)?;
-            let agent = parse_agent_snapshot(&agent_object, &agent_context)?;
-            let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
-            let identity = MultiAgentRuntimeOwnershipIdentity {
-                session_path: input.session_path.clone(),
-                agent_id: input.agent_id.clone(),
-                process_identity: input.process_identity.clone(),
-                owner: input.owner.clone(),
-            };
-            if !super::runtime_owner_matches(ownership.as_ref(), &identity) {
-                return Ok(CommitMultiAgentSteeringDeliveryResult::Err {
-                    error: SteeringCommandError::MutationMismatch,
-                });
-            }
-            if !can_persist_lifecycle_transition(&agent.lifecycle, &input.requested_lifecycle) {
-                return Ok(CommitMultiAgentSteeringDeliveryResult::Err {
-                    error: SteeringCommandError::InvalidTransition,
-                });
-            }
-            let message_data: Option<String> = db
-                .query_row(
-                    "SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
-                    params![input.session_path, input.message_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            let Some(message_data) = message_data else {
-                return Ok(CommitMultiAgentSteeringDeliveryResult::Err {
-                    error: SteeringCommandError::MessageNotFound,
-                });
-            };
-            let message_context = format!(
-                "multi_agent_mailbox_messages:{}#{}",
-                input.session_path, input.message_id
-            );
-            let mut message = parse_stored_json_object(&message_data, &message_context)?;
-            validate_mailbox_payload(&Value::Object(message.clone()), &message_context)?;
-            if message.get("kind").and_then(Value::as_str) != Some("steer")
-                || message.get("toAgentId").and_then(Value::as_str) != Some(input.agent_id.as_str())
-            {
-                return Ok(CommitMultiAgentSteeringDeliveryResult::Err {
-                    error: SteeringCommandError::MessageNotFound,
-                });
-            }
-            let mut updated_agent_object = agent_object.clone();
-            updated_agent_object.insert("lifecycle".to_owned(), Value::String(input.requested_lifecycle.clone()));
-            updated_agent_object.insert("revision".to_owned(), Value::from(agent.revision + 1));
-            updated_agent_object.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
-            let updated_agent: AgentSnapshot = serde_json::from_value(Value::Object(updated_agent_object))
-                .map_err(|error| ControlDbError::new(error.to_string()))?;
-            message.insert("status".to_owned(), Value::String("delivered".to_owned()));
-            message.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
-            let updated_message: AgentMailboxMessage = serde_json::from_value(Value::Object(message.clone()))
-                .map_err(|error| ControlDbError::new(error.to_string()))?;
-            let plan = SteeringDeliveryPlan {
-                agent_data,
-                message_data,
-                process_identity_data: serialize_process_identity(&input.process_identity),
-                updated_agent_data: super::serialize_agent(&updated_agent)?,
-                updated_message_data: js_json::stringify(&Value::Object(message)),
-                updated_agent,
-                updated_message,
-            };
-            let persisted = with_immediate_transaction(db, |db| {
-                let agent_updated = db.execute(
-                    "UPDATE multi_agent_agents SET data = ?, updated_at = ?
-				 WHERE session_path = ? AND agent_id = ? AND data = ?
-				 AND EXISTS (
-					SELECT 1 FROM multi_agent_runtime_owners
-					WHERE session_path = ? AND agent_id = ? AND process_identity = ?
-					AND owner_session_id = ? AND owner_agent_id IS ?
-				 )
-				 AND EXISTS (
-					SELECT 1 FROM multi_agent_mailbox_messages
-					WHERE session_path = ? AND message_id = ? AND data = ?
-				 )",
-                    params![
-                        plan.updated_agent_data,
-                        input.updated_at,
-                        input.session_path,
-                        input.agent_id,
-                        plan.agent_data,
-                        input.session_path,
-                        input.agent_id,
-                        plan.process_identity_data,
-                        input.owner.session_id,
-                        input.owner.agent_id,
-                        input.session_path,
-                        input.message_id,
-                        plan.message_data
-                    ],
-                )?;
-                if agent_updated != 1 {
-                    return Ok(false);
-                }
-                let message_updated = db.execute(
-                    "UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
-				 WHERE session_path = ? AND message_id = ? AND data = ?",
-                    params![
-                        plan.updated_message_data,
-                        input.updated_at,
-                        input.session_path,
-                        input.message_id,
-                        plan.message_data
-                    ],
-                )?;
-                if message_updated != 1 {
-                    return Err(ControlDbError::new(format!(
-                        "Steering message changed during delivery {}#{}",
-                        input.session_path, input.message_id
-                    )));
-                }
-                Ok(true)
-            })?;
+            let persisted = with_immediate_transaction(db, |db| persist_steering_delivery(db, input, &plan))?;
             if persisted {
                 return Ok(CommitMultiAgentSteeringDeliveryResult::Ok {
                     agent: Box::new(plan.updated_agent),
@@ -1215,6 +1093,134 @@ pub fn commit_multi_agent_steering_delivery(
     })
 }
 
+fn read_steering_delivery_plan(
+    db: &Connection,
+    input: &CommitMultiAgentSteeringDeliveryInput,
+) -> Result<Result<SteeringDeliveryPlan, SteeringCommandError>, ControlDbError> {
+    let agent_row: Option<String> = db
+        .query_row(
+            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
+            params![input.session_path, input.agent_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(agent_data) = agent_row else {
+        return Ok(Err(SteeringCommandError::AgentNotFound));
+    };
+    let agent_context = format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
+    let agent_object = parse_stored_json_object(&agent_data, &agent_context)?;
+    let agent = parse_agent_snapshot(&agent_object, &agent_context)?;
+    let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
+    let identity = MultiAgentRuntimeOwnershipIdentity {
+        session_path: input.session_path.clone(),
+        agent_id: input.agent_id.clone(),
+        process_identity: input.process_identity.clone(),
+        owner: input.owner.clone(),
+    };
+    if !super::runtime_owner_matches(ownership.as_ref(), &identity) {
+        return Ok(Err(SteeringCommandError::MutationMismatch));
+    }
+    if !can_persist_lifecycle_transition(&agent.lifecycle, &input.requested_lifecycle) {
+        return Ok(Err(SteeringCommandError::InvalidTransition));
+    }
+    let message_data: Option<String> = db
+        .query_row(
+            "SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
+            params![input.session_path, input.message_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(message_data) = message_data else {
+        return Ok(Err(SteeringCommandError::MessageNotFound));
+    };
+    let message_context = format!(
+        "multi_agent_mailbox_messages:{}#{}",
+        input.session_path, input.message_id
+    );
+    let mut message = parse_stored_json_object(&message_data, &message_context)?;
+    validate_mailbox_payload(&Value::Object(message.clone()), &message_context)?;
+    let is_steering_message = message.get("kind").and_then(Value::as_str) == Some("steer");
+    let addressed_to_agent = message.get("toAgentId").and_then(Value::as_str) == Some(input.agent_id.as_str());
+    if !is_steering_message || !addressed_to_agent {
+        return Ok(Err(SteeringCommandError::MessageNotFound));
+    }
+    let mut updated_agent_object = agent_object.clone();
+    updated_agent_object.insert("lifecycle".to_owned(), Value::String(input.requested_lifecycle.clone()));
+    updated_agent_object.insert("revision".to_owned(), Value::from(agent.revision + 1));
+    updated_agent_object.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
+    let updated_agent: AgentSnapshot = serde_json::from_value(Value::Object(updated_agent_object))
+        .map_err(|error| ControlDbError::new(error.to_string()))?;
+    message.insert("status".to_owned(), Value::String("delivered".to_owned()));
+    message.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
+    let updated_message: AgentMailboxMessage = serde_json::from_value(Value::Object(message.clone()))
+        .map_err(|error| ControlDbError::new(error.to_string()))?;
+    Ok(Ok(SteeringDeliveryPlan {
+        agent_data,
+        message_data,
+        process_identity_data: serialize_process_identity(&input.process_identity),
+        updated_agent_data: super::serialize_agent(&updated_agent)?,
+        updated_message_data: js_json::stringify(&Value::Object(message)),
+        updated_agent,
+        updated_message,
+    }))
+}
+
+fn persist_steering_delivery(
+    db: &Connection,
+    input: &CommitMultiAgentSteeringDeliveryInput,
+    plan: &SteeringDeliveryPlan,
+) -> Result<bool, ControlDbError> {
+    let agent_updated = db.execute(
+        "UPDATE multi_agent_agents SET data = ?, updated_at = ?
+		 WHERE session_path = ? AND agent_id = ? AND data = ?
+		 AND EXISTS (
+			SELECT 1 FROM multi_agent_runtime_owners
+			WHERE session_path = ? AND agent_id = ? AND process_identity = ?
+			AND owner_session_id = ? AND owner_agent_id IS ?
+		 )
+		 AND EXISTS (
+			SELECT 1 FROM multi_agent_mailbox_messages
+			WHERE session_path = ? AND message_id = ? AND data = ?
+		 )",
+        params![
+            plan.updated_agent_data,
+            input.updated_at,
+            input.session_path,
+            input.agent_id,
+            plan.agent_data,
+            input.session_path,
+            input.agent_id,
+            plan.process_identity_data,
+            input.owner.session_id,
+            input.owner.agent_id,
+            input.session_path,
+            input.message_id,
+            plan.message_data
+        ],
+    )?;
+    if agent_updated != 1 {
+        return Ok(false);
+    }
+    let message_updated = db.execute(
+        "UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
+		 WHERE session_path = ? AND message_id = ? AND data = ?",
+        params![
+            plan.updated_message_data,
+            input.updated_at,
+            input.session_path,
+            input.message_id,
+            plan.message_data
+        ],
+    )?;
+    if message_updated != 1 {
+        return Err(ControlDbError::new(format!(
+            "Steering message changed during delivery {}#{}",
+            input.session_path, input.message_id
+        )));
+    }
+    Ok(true)
+}
+
 // ---------------------------------------------------------------------------
 // Lifecycle mutation
 // ---------------------------------------------------------------------------
@@ -1226,96 +1232,132 @@ pub fn commit_multi_agent_lifecycle_mutation(
 ) -> Result<CommitMultiAgentLifecycleMutationResult, ControlDbError> {
     with_control_db(control_db_path, |db| {
         for _ in 0..MULTI_AGENT_LIFECYCLE_MUTATION_MAX_ATTEMPTS {
-            let data: Option<String> = db
-                .query_row(
-                    "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-                    params![input.session_path, input.agent_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            let Some(data) = data else {
-                return Ok(CommitMultiAgentLifecycleMutationResult::Err {
-                    error: LifecycleCommandError::AgentNotFound,
-                });
-            };
-            let agent = parse_stored_json_object(
-                &data,
-                &format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id),
-            )?;
-            let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
-            let identity = MultiAgentRuntimeOwnershipIdentity {
-                session_path: input.session_path.clone(),
-                agent_id: input.agent_id.clone(),
-                process_identity: input.process_identity.clone(),
-                owner: input.owner.clone(),
-            };
-            if !super::runtime_owner_matches(ownership.as_ref(), &identity) {
-                return Ok(CommitMultiAgentLifecycleMutationResult::Err {
-                    error: LifecycleCommandError::MutationMismatch,
-                });
-            }
-            let current_lifecycle = agent.get("lifecycle").and_then(Value::as_str).unwrap_or("");
-            if current_lifecycle == input.requested_lifecycle {
-                return Ok(CommitMultiAgentLifecycleMutationResult::Ok { agent });
-            }
-            if !can_persist_lifecycle_transition_str(current_lifecycle, &input.requested_lifecycle) {
-                return Ok(CommitMultiAgentLifecycleMutationResult::Err {
-                    error: LifecycleCommandError::InvalidTransition,
-                });
-            }
-            let revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
-            let mut updated = agent.clone();
-            updated.insert("lifecycle".to_owned(), Value::String(input.requested_lifecycle.clone()));
-            updated.insert("revision".to_owned(), Value::from(revision));
-            updated.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
-            let cancellation = input
-                .detached_cancellation
-                .as_ref()
-                .map(|cancellation| build_detached_cancellation_message(input, cancellation, revision))
-                .transpose()?;
-            let updated_data = js_json::stringify(&Value::Object(updated.clone()));
-            let persisted = with_immediate_transaction(db, |db| {
-                let changed = db.execute(
-                    "UPDATE multi_agent_agents SET data = ?, updated_at = ?
-				 WHERE session_path = ? AND agent_id = ? AND data = ?
-				 AND EXISTS (
-					SELECT 1 FROM multi_agent_runtime_owners
-					WHERE session_path = ? AND agent_id = ? AND process_identity = ?
-					AND owner_session_id = ? AND owner_agent_id IS ?
-				 )",
-                    params![
-                        updated_data,
-                        input.updated_at,
-                        input.session_path,
-                        input.agent_id,
-                        data,
-                        input.session_path,
-                        input.agent_id,
-                        serialize_process_identity(&input.process_identity),
-                        input.owner.session_id,
-                        input.owner.agent_id
-                    ],
-                )?;
-                if changed != 1 {
-                    return Ok(false);
+            let plan = match read_lifecycle_mutation_plan(db, input)? {
+                LifecycleMutationRead::Plan(plan) => plan,
+                LifecycleMutationRead::Unchanged(agent) => {
+                    return Ok(CommitMultiAgentLifecycleMutationResult::Ok { agent });
                 }
-                if let Some((message_id, message)) = &cancellation {
-                    db.execute(
-                        "INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
-		 VALUES (?, ?, ?, ?)",
-                        params![input.session_path, message_id, message, input.updated_at],
-                    )?;
+                LifecycleMutationRead::Err(error) => {
+                    return Ok(CommitMultiAgentLifecycleMutationResult::Err { error });
                 }
-                Ok(true)
-            })?;
+            };
+            let persisted = with_immediate_transaction(db, |db| persist_lifecycle_mutation(db, input, &plan))?;
             if persisted {
-                return Ok(CommitMultiAgentLifecycleMutationResult::Ok { agent: updated });
+                return Ok(CommitMultiAgentLifecycleMutationResult::Ok { agent: plan.updated });
             }
         }
         Ok(CommitMultiAgentLifecycleMutationResult::Err {
             error: LifecycleCommandError::MutationMismatch,
         })
     })
+}
+
+struct LifecycleMutationPlan {
+    data: String,
+    updated: Map<String, Value>,
+    updated_data: String,
+    cancellation: Option<(String, String)>,
+    process_identity_data: String,
+}
+
+enum LifecycleMutationRead {
+    Plan(LifecycleMutationPlan),
+    Unchanged(Map<String, Value>),
+    Err(LifecycleCommandError),
+}
+
+fn read_lifecycle_mutation_plan(
+    db: &Connection,
+    input: &CommitMultiAgentLifecycleMutationInput,
+) -> Result<LifecycleMutationRead, ControlDbError> {
+    let data: Option<String> = db
+        .query_row(
+            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
+            params![input.session_path, input.agent_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(data) = data else {
+        return Ok(LifecycleMutationRead::Err(LifecycleCommandError::AgentNotFound));
+    };
+    let agent = parse_stored_json_object(
+        &data,
+        &format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id),
+    )?;
+    let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
+    let identity = MultiAgentRuntimeOwnershipIdentity {
+        session_path: input.session_path.clone(),
+        agent_id: input.agent_id.clone(),
+        process_identity: input.process_identity.clone(),
+        owner: input.owner.clone(),
+    };
+    if !super::runtime_owner_matches(ownership.as_ref(), &identity) {
+        return Ok(LifecycleMutationRead::Err(LifecycleCommandError::MutationMismatch));
+    }
+    let current_lifecycle = agent.get("lifecycle").and_then(Value::as_str).unwrap_or("");
+    if current_lifecycle == input.requested_lifecycle {
+        return Ok(LifecycleMutationRead::Unchanged(agent));
+    }
+    if !can_persist_lifecycle_transition_str(current_lifecycle, &input.requested_lifecycle) {
+        return Ok(LifecycleMutationRead::Err(LifecycleCommandError::InvalidTransition));
+    }
+    let revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
+    let mut updated = agent;
+    updated.insert("lifecycle".to_owned(), Value::String(input.requested_lifecycle.clone()));
+    updated.insert("revision".to_owned(), Value::from(revision));
+    updated.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
+    let cancellation = input
+        .detached_cancellation
+        .as_ref()
+        .map(|cancellation| build_detached_cancellation_message(input, cancellation, revision))
+        .transpose()?;
+    let updated_data = js_json::stringify(&Value::Object(updated.clone()));
+    Ok(LifecycleMutationRead::Plan(LifecycleMutationPlan {
+        data,
+        updated,
+        updated_data,
+        cancellation,
+        process_identity_data: serialize_process_identity(&input.process_identity),
+    }))
+}
+
+fn persist_lifecycle_mutation(
+    db: &Connection,
+    input: &CommitMultiAgentLifecycleMutationInput,
+    plan: &LifecycleMutationPlan,
+) -> Result<bool, ControlDbError> {
+    let changed = db.execute(
+        "UPDATE multi_agent_agents SET data = ?, updated_at = ?
+		 WHERE session_path = ? AND agent_id = ? AND data = ?
+		 AND EXISTS (
+			SELECT 1 FROM multi_agent_runtime_owners
+			WHERE session_path = ? AND agent_id = ? AND process_identity = ?
+			AND owner_session_id = ? AND owner_agent_id IS ?
+		 )",
+        params![
+            plan.updated_data,
+            input.updated_at,
+            input.session_path,
+            input.agent_id,
+            plan.data,
+            input.session_path,
+            input.agent_id,
+            plan.process_identity_data,
+            input.owner.session_id,
+            input.owner.agent_id
+        ],
+    )?;
+    if changed != 1 {
+        return Ok(false);
+    }
+    if let Some((message_id, message)) = &plan.cancellation {
+        db.execute(
+            "INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+		 VALUES (?, ?, ?, ?)",
+            params![input.session_path, message_id, message, input.updated_at],
+        )?;
+    }
+    Ok(true)
 }
 
 fn build_detached_cancellation_message(
@@ -1414,98 +1456,130 @@ pub fn commit_multi_agent_terminal_mutation(
 ) -> Result<CommitMultiAgentTerminalMutationResult, ControlDbError> {
     with_control_db(control_db_path, |db| {
         for _ in 0..MULTI_AGENT_TERMINAL_MUTATION_MAX_ATTEMPTS {
-            let agent_row: Option<String> = db
-                .query_row(
-                    "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-                    params![input.session_path, input.agent_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            let Some(agent_data) = agent_row else {
-                return Ok(CommitMultiAgentTerminalMutationResult::Err {
-                    error: LifecycleCommandError::AgentNotFound,
-                });
-            };
-            let agent = parse_stored_json_object(
-                &agent_data,
-                &format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id),
-            )?;
-            let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
-            let identity = MultiAgentRuntimeOwnershipIdentity {
-                session_path: input.session_path.clone(),
-                agent_id: input.agent_id.clone(),
-                process_identity: input.process_identity.clone(),
-                owner: input.owner.clone(),
-            };
-            if !super::runtime_owner_matches(ownership.as_ref(), &identity) {
-                return Ok(CommitMultiAgentTerminalMutationResult::Err {
-                    error: LifecycleCommandError::MutationMismatch,
-                });
-            }
-            let current_lifecycle = agent.get("lifecycle").and_then(Value::as_str).unwrap_or("");
-            if current_lifecycle == input.terminal_lifecycle {
-                return Ok(terminal_mutation_replay_result(db, input, &agent));
-            }
-            let terminal_revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
-            if !can_persist_terminal_transition(current_lifecycle, &input.terminal_lifecycle) {
-                return Ok(CommitMultiAgentTerminalMutationResult::Err {
-                    error: LifecycleCommandError::InvalidTransition,
-                });
-            }
-            if has_active_persisted_descendant(db, &input.session_path, &input.agent_id)? {
-                return Ok(CommitMultiAgentTerminalMutationResult::Err {
-                    error: LifecycleCommandError::InvalidTransition,
-                });
-            }
-            let mut updated = agent.clone();
-            for (key, value) in input.agent_details.to_map() {
-                updated.insert(key, value);
-            }
-            updated.remove("currentActivity");
-            updated.insert("lifecycle".to_owned(), Value::String(input.terminal_lifecycle.clone()));
-            updated.insert("revision".to_owned(), Value::from(terminal_revision));
-            updated.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
-            let updated_data = js_json::stringify(&Value::Object(updated));
-            let process_identity_data = serialize_process_identity(&input.process_identity);
-            let persisted = with_immediate_transaction(db, |db| {
-                if !update_terminal_agent_if_current(
-                    db,
-                    &TerminalAgentCasInput {
-                        agent_data: &agent_data,
-                        agent_id: &input.agent_id,
-                        owner: &input.owner,
-                        process_identity_data: &process_identity_data,
-                        require_unique_ownership: false,
-                        session_path: &input.session_path,
-                        updated_agent_data: &updated_data,
-                        updated_at: &input.updated_at,
-                    },
-                )? {
-                    return Ok(false);
+            let plan = match read_terminal_mutation_plan(db, input)? {
+                TerminalMutationRead::Plan(plan) => plan,
+                TerminalMutationRead::Replay(result) => return Ok(result),
+                TerminalMutationRead::Err(error) => {
+                    return Ok(CommitMultiAgentTerminalMutationResult::Err { error });
                 }
-                db.execute(
-                    "INSERT INTO multi_agent_terminal_outbox (
-				session_path, agent_id, terminal_revision, event_kind, status,
-				claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
-			) VALUES (?, ?, ?, ?, 'pending', NULL, NULL, NULL, 0, NULL, ?)",
-                    params![
-                        input.session_path,
-                        input.agent_id,
-                        terminal_revision,
-                        input.event_kind,
-                        input.updated_at
-                    ],
-                )?;
-                Ok(true)
-            })?;
+            };
+            let persisted = with_immediate_transaction(db, |db| persist_terminal_mutation(db, input, &plan))?;
             if persisted {
-                return Ok(CommitMultiAgentTerminalMutationResult::Ok { terminal_revision });
+                return Ok(CommitMultiAgentTerminalMutationResult::Ok {
+                    terminal_revision: plan.terminal_revision,
+                });
             }
         }
         Ok(CommitMultiAgentTerminalMutationResult::Err {
             error: LifecycleCommandError::MutationMismatch,
         })
     })
+}
+
+struct TerminalMutationPlan {
+    agent_data: String,
+    terminal_revision: i64,
+    updated_data: String,
+    process_identity_data: String,
+}
+
+enum TerminalMutationRead {
+    Plan(TerminalMutationPlan),
+    Replay(CommitMultiAgentTerminalMutationResult),
+    Err(LifecycleCommandError),
+}
+
+fn read_terminal_mutation_plan(
+    db: &Connection,
+    input: &CommitMultiAgentTerminalMutationInput,
+) -> Result<TerminalMutationRead, ControlDbError> {
+    let agent_row: Option<String> = db
+        .query_row(
+            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
+            params![input.session_path, input.agent_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(agent_data) = agent_row else {
+        return Ok(TerminalMutationRead::Err(LifecycleCommandError::AgentNotFound));
+    };
+    let agent = parse_stored_json_object(
+        &agent_data,
+        &format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id),
+    )?;
+    let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
+    let identity = MultiAgentRuntimeOwnershipIdentity {
+        session_path: input.session_path.clone(),
+        agent_id: input.agent_id.clone(),
+        process_identity: input.process_identity.clone(),
+        owner: input.owner.clone(),
+    };
+    if !super::runtime_owner_matches(ownership.as_ref(), &identity) {
+        return Ok(TerminalMutationRead::Err(LifecycleCommandError::MutationMismatch));
+    }
+    let current_lifecycle = agent.get("lifecycle").and_then(Value::as_str).unwrap_or("");
+    if current_lifecycle == input.terminal_lifecycle {
+        return Ok(TerminalMutationRead::Replay(terminal_mutation_replay_result(
+            db, input, &agent,
+        )));
+    }
+    let terminal_revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
+    if !can_persist_terminal_transition(current_lifecycle, &input.terminal_lifecycle) {
+        return Ok(TerminalMutationRead::Err(LifecycleCommandError::InvalidTransition));
+    }
+    if has_active_persisted_descendant(db, &input.session_path, &input.agent_id)? {
+        return Ok(TerminalMutationRead::Err(LifecycleCommandError::InvalidTransition));
+    }
+    let mut updated = agent;
+    for (key, value) in input.agent_details.to_map() {
+        updated.insert(key, value);
+    }
+    updated.remove("currentActivity");
+    updated.insert("lifecycle".to_owned(), Value::String(input.terminal_lifecycle.clone()));
+    updated.insert("revision".to_owned(), Value::from(terminal_revision));
+    updated.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
+    Ok(TerminalMutationRead::Plan(TerminalMutationPlan {
+        agent_data,
+        terminal_revision,
+        updated_data: js_json::stringify(&Value::Object(updated)),
+        process_identity_data: serialize_process_identity(&input.process_identity),
+    }))
+}
+
+fn persist_terminal_mutation(
+    db: &Connection,
+    input: &CommitMultiAgentTerminalMutationInput,
+    plan: &TerminalMutationPlan,
+) -> Result<bool, ControlDbError> {
+    if !update_terminal_agent_if_current(
+        db,
+        &TerminalAgentCasInput {
+            agent_data: &plan.agent_data,
+            agent_id: &input.agent_id,
+            owner: &input.owner,
+            process_identity_data: &plan.process_identity_data,
+            require_unique_ownership: false,
+            session_path: &input.session_path,
+            updated_agent_data: &plan.updated_data,
+            updated_at: &input.updated_at,
+        },
+    )? {
+        return Ok(false);
+    }
+    db.execute(
+        "INSERT INTO multi_agent_terminal_outbox (
+				session_path, agent_id, terminal_revision, event_kind, status,
+				claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
+			) VALUES (?, ?, ?, ?, 'pending', NULL, NULL, NULL, 0, NULL, ?)",
+        params![
+            input.session_path,
+            input.agent_id,
+            plan.terminal_revision,
+            input.event_kind,
+            input.updated_at
+        ],
+    )?;
+    Ok(true)
 }
 
 pub(crate) struct TerminalAgentCasInput<'a> {
@@ -1708,27 +1782,9 @@ pub fn create_failed_multi_agent_child(
                     error: CreateChildError::AgentExists,
                 });
             }
-            let result = with_immediate_transaction(db, |db| {
-                if !insert_multi_agent_agent_if_parent_current(
-                    db,
-                    &input.session_path,
-                    &input.agent.id,
-                    &serialized_agent,
-                    &input.now_iso,
-                    &parent,
-                )? {
-                    return Ok(None);
-                }
-                db.execute(
-                    "INSERT INTO multi_agent_terminal_outbox (
-				session_path, agent_id, terminal_revision, event_kind, status,
-				claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
-			) VALUES (?, ?, 1, 'failed', 'pending', NULL, NULL, NULL, 0, NULL, ?)",
-                    params![input.session_path, input.agent.id, input.now_iso],
-                )?;
-                Ok(Some(()))
-            })?;
-            if result.is_some() {
+            let inserted =
+                with_immediate_transaction(db, |db| insert_failed_child(db, input, &serialized_agent, &parent))?;
+            if inserted {
                 return Ok(CreateFailedMultiAgentChildResult::Ok {
                     agent: Box::new(input.agent.clone()),
                 });
@@ -1817,6 +1873,33 @@ fn insert_multi_agent_agent_if_parent_current(
     )? == 1)
 }
 
+fn insert_failed_child(
+    db: &Connection,
+    input: &CreateFailedMultiAgentChildInput,
+    serialized_agent: &str,
+    parent: &ActiveParentSnapshot,
+) -> Result<bool, ControlDbError> {
+    let inserted = insert_multi_agent_agent_if_parent_current(
+        db,
+        &input.session_path,
+        &input.agent.id,
+        serialized_agent,
+        &input.now_iso,
+        parent,
+    )?;
+    if !inserted {
+        return Ok(false);
+    }
+    db.execute(
+        "INSERT INTO multi_agent_terminal_outbox (
+				session_path, agent_id, terminal_revision, event_kind, status,
+				claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
+			) VALUES (?, ?, 1, 'failed', 'pending', NULL, NULL, NULL, 0, NULL, ?)",
+        params![input.session_path, input.agent.id, input.now_iso],
+    )?;
+    Ok(true)
+}
+
 /// `createMultiAgentChildWithRuntimeOwnership`.
 pub fn create_multi_agent_child_with_runtime_ownership(
     control_db_path: &str,
@@ -1859,27 +1942,10 @@ pub fn create_multi_agent_child_with_runtime_ownership(
                     error: CreateChildError::AgentExists,
                 });
             }
-            let result = with_immediate_transaction(db, |db| {
-                if !insert_multi_agent_agent_if_parent_current(
-                    db,
-                    &input.session_path,
-                    &input.agent_id,
-                    &serialized_agent,
-                    &input.now_iso,
-                    &parent,
-                )? {
-                    return Ok(false);
-                }
-                persist_acquired_runtime_ownership(
-                    db,
-                    &input.session_path,
-                    &input.agent_id,
-                    &process_identity_data,
-                    &input.owner,
-                )?;
-                Ok(true)
+            let inserted = with_immediate_transaction(db, |db| {
+                insert_child_with_ownership(db, input, &serialized_agent, &process_identity_data, &parent)
             })?;
-            if result {
+            if inserted {
                 return Ok(CreateMultiAgentChildWithRuntimeOwnershipResult::Ok {
                     agent: Box::new(input.agent.clone()),
                     ownership: Box::new(ownership_from_identity_parts(
@@ -1896,6 +1962,34 @@ pub fn create_multi_agent_child_with_runtime_ownership(
             input.session_path, input.agent_id
         )))
     })
+}
+
+fn insert_child_with_ownership(
+    db: &Connection,
+    input: &CreateMultiAgentChildWithRuntimeOwnershipInput,
+    serialized_agent: &str,
+    process_identity_data: &str,
+    parent: &ActiveParentSnapshot,
+) -> Result<bool, ControlDbError> {
+    let inserted = insert_multi_agent_agent_if_parent_current(
+        db,
+        &input.session_path,
+        &input.agent_id,
+        serialized_agent,
+        &input.now_iso,
+        parent,
+    )?;
+    if !inserted {
+        return Ok(false);
+    }
+    persist_acquired_runtime_ownership(
+        db,
+        &input.session_path,
+        &input.agent_id,
+        process_identity_data,
+        &input.owner,
+    )?;
+    Ok(true)
 }
 
 /// `createMultiAgentAttachment`.
@@ -2042,33 +2136,19 @@ pub fn acquire_attached_runtime_ownership(
                 }
             };
             let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
-            let current_identity = ownership
-                .as_ref()
-                .and_then(|ownership| ownership.process_identity.as_deref())
-                .and_then(|value| parse_process_identity(value).ok());
-            let current_owner_alive = current_identity.as_ref().is_some_and(process_identity_is_alive);
-            let identity = MultiAgentRuntimeOwnershipIdentity {
-                session_path: input.session_path.clone(),
-                agent_id: input.agent_id.clone(),
-                process_identity: input.process_identity.clone(),
-                owner: input.owner.clone(),
-            };
-            if let Some(current_ownership) = ownership.as_ref()
-                && current_owner_alive
-                && super::runtime_owner_matches(Some(current_ownership), &identity)
-            {
-                return Ok(AcquireAttachedRuntimeOwnershipResult::Ok {
-                    agent: Box::new(agent),
-                    ownership: Box::new(super::multi_agent_runtime_ownership_from_row(current_ownership)?),
-                });
-            }
-            let replaces_current_incarnation = current_identity
-                .as_ref()
-                .is_some_and(|current| same_process_with_superseded_incarnation(current, &input.process_identity));
-            if current_owner_alive && !replaces_current_incarnation {
-                return Ok(AcquireAttachedRuntimeOwnershipResult::Err {
-                    error: AcquireAttachedError::OwnershipHeld,
-                });
+            match decide_ownership_acquisition(ownership.as_ref(), input)? {
+                OwnershipAcquisition::AlreadyOwned(current) => {
+                    return Ok(AcquireAttachedRuntimeOwnershipResult::Ok {
+                        agent: Box::new(agent),
+                        ownership: Box::new(current),
+                    });
+                }
+                OwnershipAcquisition::Held => {
+                    return Ok(AcquireAttachedRuntimeOwnershipResult::Err {
+                        error: AcquireAttachedError::OwnershipHeld,
+                    });
+                }
+                OwnershipAcquisition::Acquire => {}
             }
             let mut updated_agent = agent.clone();
             updated_agent.revision += 1;
@@ -2076,55 +2156,15 @@ pub fn acquire_attached_runtime_ownership(
             let updated_agent_data = super::serialize_agent(&updated_agent)?;
             let process_identity_data = serialize_process_identity(&input.process_identity);
             let persisted = with_immediate_transaction(db, |db| {
-                if !supervisor_session_authority_is_current(
-                    db,
-                    &input.session_path,
-                    &input.supervisor,
-                    &supervisor_authority,
-                )? {
-                    return Ok(Some(AcquireAttachedRuntimeOwnershipResult::Err {
-                        error: AcquireAttachedError::MutationMismatch,
-                    }));
-                }
-                let row: Option<String> = db
-                    .query_row(
-                        "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-                        params![input.session_path, input.agent_id],
-                        |row| row.get(0),
-                    )
-                    .optional()?;
-                let Some(row) = row else {
-                    return Ok(Some(AcquireAttachedRuntimeOwnershipResult::Err {
-                        error: AcquireAttachedError::AgentNotFound,
-                    }));
+                let commit = AcquiredOwnershipCommit {
+                    supervisor_authority: &supervisor_authority,
+                    expected_agent_data: &data,
+                    expected_ownership: ownership.as_ref(),
+                    updated_agent: &updated_agent,
+                    updated_agent_data: &updated_agent_data,
+                    process_identity_data: &process_identity_data,
                 };
-                if row != data {
-                    return Ok(None);
-                }
-                let current = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
-                if !super::multi_agent_runtime_ownership_rows_equal(ownership.as_ref(), current.as_ref()) {
-                    return Ok(None);
-                }
-                persist_acquired_runtime_ownership(
-                    db,
-                    &input.session_path,
-                    &input.agent_id,
-                    &process_identity_data,
-                    &input.owner,
-                )?;
-                db.execute(
-                    "UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-                    params![updated_agent_data, input.now_iso, input.session_path, input.agent_id],
-                )?;
-                Ok(Some(AcquireAttachedRuntimeOwnershipResult::Ok {
-                    agent: Box::new(updated_agent.clone()),
-                    ownership: Box::new(ownership_from_identity_parts(
-                        &input.session_path,
-                        &input.agent_id,
-                        &input.owner,
-                        &input.process_identity,
-                    )),
-                }))
+                commit_acquired_runtime_ownership(db, input, &commit)
             })?;
             if let Some(result) = persisted {
                 return Ok(result);
@@ -2134,6 +2174,113 @@ pub fn acquire_attached_runtime_ownership(
             error: AcquireAttachedError::MutationMismatch,
         })
     })
+}
+
+enum OwnershipAcquisition {
+    AlreadyOwned(MultiAgentRuntimeOwnership),
+    Held,
+    Acquire,
+}
+
+fn decide_ownership_acquisition(
+    ownership: Option<&MultiAgentRuntimeOwnershipRow>,
+    input: &AcquireAttachedRuntimeOwnershipInput,
+) -> Result<OwnershipAcquisition, ControlDbError> {
+    let current_identity = ownership
+        .and_then(|ownership| ownership.process_identity.as_deref())
+        .and_then(|value| parse_process_identity(value).ok());
+    let current_owner_alive = current_identity.as_ref().is_some_and(process_identity_is_alive);
+    let identity = MultiAgentRuntimeOwnershipIdentity {
+        session_path: input.session_path.clone(),
+        agent_id: input.agent_id.clone(),
+        process_identity: input.process_identity.clone(),
+        owner: input.owner.clone(),
+    };
+    if let Some(current_ownership) = ownership
+        && current_owner_alive
+        && super::runtime_owner_matches(Some(current_ownership), &identity)
+    {
+        return Ok(OwnershipAcquisition::AlreadyOwned(
+            super::multi_agent_runtime_ownership_from_row(current_ownership)?,
+        ));
+    }
+    let replaces_current_incarnation = current_identity
+        .as_ref()
+        .is_some_and(|current| same_process_with_superseded_incarnation(current, &input.process_identity));
+    if current_owner_alive && !replaces_current_incarnation {
+        return Ok(OwnershipAcquisition::Held);
+    }
+    Ok(OwnershipAcquisition::Acquire)
+}
+
+struct AcquiredOwnershipCommit<'a> {
+    supervisor_authority: &'a SupervisorSessionAuthoritySnapshot,
+    expected_agent_data: &'a str,
+    expected_ownership: Option<&'a MultiAgentRuntimeOwnershipRow>,
+    updated_agent: &'a AgentSnapshot,
+    updated_agent_data: &'a str,
+    process_identity_data: &'a str,
+}
+
+fn commit_acquired_runtime_ownership(
+    db: &Connection,
+    input: &AcquireAttachedRuntimeOwnershipInput,
+    commit: &AcquiredOwnershipCommit<'_>,
+) -> Result<Option<AcquireAttachedRuntimeOwnershipResult>, ControlDbError> {
+    if !supervisor_session_authority_is_current(
+        db,
+        &input.session_path,
+        &input.supervisor,
+        commit.supervisor_authority,
+    )? {
+        return Ok(Some(AcquireAttachedRuntimeOwnershipResult::Err {
+            error: AcquireAttachedError::MutationMismatch,
+        }));
+    }
+    let row: Option<String> = db
+        .query_row(
+            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
+            params![input.session_path, input.agent_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(row) = row else {
+        return Ok(Some(AcquireAttachedRuntimeOwnershipResult::Err {
+            error: AcquireAttachedError::AgentNotFound,
+        }));
+    };
+    if row != commit.expected_agent_data {
+        return Ok(None);
+    }
+    let current = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
+    if !super::multi_agent_runtime_ownership_rows_equal(commit.expected_ownership, current.as_ref()) {
+        return Ok(None);
+    }
+    persist_acquired_runtime_ownership(
+        db,
+        &input.session_path,
+        &input.agent_id,
+        commit.process_identity_data,
+        &input.owner,
+    )?;
+    db.execute(
+        "UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
+        params![
+            commit.updated_agent_data,
+            input.now_iso,
+            input.session_path,
+            input.agent_id
+        ],
+    )?;
+    Ok(Some(AcquireAttachedRuntimeOwnershipResult::Ok {
+        agent: Box::new(commit.updated_agent.clone()),
+        ownership: Box::new(ownership_from_identity_parts(
+            &input.session_path,
+            &input.agent_id,
+            &input.owner,
+            &input.process_identity,
+        )),
+    }))
 }
 
 fn read_attached_runtime_agent(
@@ -2426,64 +2573,23 @@ fn update_multi_agent_agent_metadata(
 ) -> Result<Option<Value>, ControlDbError> {
     with_control_db(control_db_path, |db| {
         for _ in 0..MULTI_AGENT_METADATA_UPDATE_MAX_ATTEMPTS {
-            let row: Option<(String, String)> = db
-                .query_row(
-                    "SELECT data, updated_at FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-                    params![session_path, agent_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
-                .optional()?;
-            let Some((data, row_updated_at)) = row else {
+            let Some((data, row_updated_at)) = read_metadata_agent_row(db, session_path, agent_id)? else {
                 return Ok(None);
             };
-            let context = format!("multi_agent_agents:{session_path}#{agent_id}");
-            let mut agent = parse_stored_json_object(&data, &context)?;
-            validate_persisted_agent_payload(&agent, &context)?;
-            if let Some(ownership) = activity_ownership
-                && !multi_agent_activity_ownership_matches(db, session_path, agent_id, ownership)?
-            {
+            let Some(mut agent) = read_metadata_agent(db, session_path, agent_id, &data, metadata, activity_ownership)?
+            else {
                 return Ok(None);
-            }
-            if !permits_multi_agent_current_activity(&agent, metadata) {
-                return Ok(None);
-            }
-            for (key, value) in metadata {
-                if value.is_null() {
-                    agent.remove(key);
-                } else {
-                    agent.insert(key.clone(), value.clone());
-                }
-            }
-            agent.insert("updatedAt".to_owned(), Value::String(updated_at.to_owned()));
+            };
+            apply_metadata_patch(&mut agent, metadata, updated_at);
             let serialized = js_json::stringify(&Value::Object(agent.clone()));
-            let changed = match activity_ownership {
-                Some(ownership) => db.execute(
-                    "UPDATE multi_agent_agents SET data = ?, updated_at = ?
-				 WHERE session_path = ? AND agent_id = ? AND data = ? AND updated_at = ?
-				 AND EXISTS (
-					SELECT 1 FROM multi_agent_runtime_owners
-					WHERE session_path = ? AND agent_id = ? AND owner_session_id = ?
-					AND owner_agent_id IS NULL AND process_identity = ?
-				 )",
-                    params![
-                        serialized,
-                        updated_at,
-                        session_path,
-                        agent_id,
-                        data,
-                        row_updated_at,
-                        session_path,
-                        agent_id,
-                        ownership.owner_session_id,
-                        serialize_process_identity(&ownership.process_identity)
-                    ],
-                )?,
-                None => db.execute(
-                    "UPDATE multi_agent_agents SET data = ?, updated_at = ?
-				 WHERE session_path = ? AND agent_id = ? AND data = ? AND updated_at = ?",
-                    params![serialized, updated_at, session_path, agent_id, data, row_updated_at],
-                )?,
+            let update = MetadataUpdate {
+                data: &data,
+                row_updated_at: &row_updated_at,
+                serialized: &serialized,
+                updated_at,
+                activity_ownership,
             };
+            let changed = persist_metadata_update(db, session_path, agent_id, &update)?;
             if changed == 1 {
                 return Ok(Some(Value::Object(agent)));
             }
@@ -2492,6 +2598,104 @@ fn update_multi_agent_agent_metadata(
             "Multi-agent metadata changed repeatedly while updating {session_path}#{agent_id}"
         )))
     })
+}
+
+fn read_metadata_agent_row(
+    db: &Connection,
+    session_path: &str,
+    agent_id: &str,
+) -> Result<Option<(String, String)>, ControlDbError> {
+    Ok(db
+        .query_row(
+            "SELECT data, updated_at FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
+            params![session_path, agent_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?)
+}
+
+fn read_metadata_agent(
+    db: &Connection,
+    session_path: &str,
+    agent_id: &str,
+    data: &str,
+    metadata: &Map<String, Value>,
+    activity_ownership: Option<&crate::core::multi_agent_store::AgentCurrentActivityOwner>,
+) -> Result<Option<Map<String, Value>>, ControlDbError> {
+    let context = format!("multi_agent_agents:{session_path}#{agent_id}");
+    let agent = parse_stored_json_object(data, &context)?;
+    validate_persisted_agent_payload(&agent, &context)?;
+    if let Some(ownership) = activity_ownership
+        && !multi_agent_activity_ownership_matches(db, session_path, agent_id, ownership)?
+    {
+        return Ok(None);
+    }
+    if !permits_multi_agent_current_activity(&agent, metadata) {
+        return Ok(None);
+    }
+    Ok(Some(agent))
+}
+
+fn apply_metadata_patch(agent: &mut Map<String, Value>, metadata: &Map<String, Value>, updated_at: &str) {
+    for (key, value) in metadata {
+        if value.is_null() {
+            agent.remove(key);
+        } else {
+            agent.insert(key.clone(), value.clone());
+        }
+    }
+    agent.insert("updatedAt".to_owned(), Value::String(updated_at.to_owned()));
+}
+
+struct MetadataUpdate<'a> {
+    data: &'a str,
+    row_updated_at: &'a str,
+    serialized: &'a str,
+    updated_at: &'a str,
+    activity_ownership: Option<&'a crate::core::multi_agent_store::AgentCurrentActivityOwner>,
+}
+
+fn persist_metadata_update(
+    db: &Connection,
+    session_path: &str,
+    agent_id: &str,
+    update: &MetadataUpdate<'_>,
+) -> Result<usize, ControlDbError> {
+    let Some(ownership) = update.activity_ownership else {
+        return Ok(db.execute(
+            "UPDATE multi_agent_agents SET data = ?, updated_at = ?
+			 WHERE session_path = ? AND agent_id = ? AND data = ? AND updated_at = ?",
+            params![
+                update.serialized,
+                update.updated_at,
+                session_path,
+                agent_id,
+                update.data,
+                update.row_updated_at
+            ],
+        )?);
+    };
+    Ok(db.execute(
+        "UPDATE multi_agent_agents SET data = ?, updated_at = ?
+		 WHERE session_path = ? AND agent_id = ? AND data = ? AND updated_at = ?
+		 AND EXISTS (
+			SELECT 1 FROM multi_agent_runtime_owners
+			WHERE session_path = ? AND agent_id = ? AND owner_session_id = ?
+			AND owner_agent_id IS NULL AND process_identity = ?
+		 )",
+        params![
+            update.serialized,
+            update.updated_at,
+            session_path,
+            agent_id,
+            update.data,
+            update.row_updated_at,
+            session_path,
+            agent_id,
+            ownership.owner_session_id,
+            serialize_process_identity(&ownership.process_identity)
+        ],
+    )?)
 }
 
 fn multi_agent_activity_ownership_matches(

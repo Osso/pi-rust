@@ -3,7 +3,7 @@
 use std::collections::{BTreeSet, HashSet};
 
 use rusqlite::{Connection, OptionalExtension, params};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use super::{
     ControlDbError, parse_stored_json_object, require_string_field, to_runtime_mailbox_message_kind,
@@ -829,20 +829,45 @@ fn migrate_legacy_runtime_mailbox_row(
     };
     let routed = add_runtime_mailbox_routing(&message, &input)?;
     let canonical_status = to_runtime_mailbox_message_status(&require_string_field(&routed, "status", &context)?);
-    let legacy_status = if row.status == "claimed" {
-        super::RuntimeMailboxMessageStatus::Pending
-    } else {
-        to_runtime_mailbox_message_status(&row.status)
-    };
-    let status = if matches!(
+    let status = migrated_mailbox_status(row, canonical_status);
+    let mut updated = routed.clone();
+    apply_migrated_mailbox_fields(&mut updated, &routed, row, status, now_iso);
+    write_canonical_mailbox_payload(
+        db,
+        canonical.id,
+        &updated,
+        if row.updated_at.is_empty() {
+            now_iso
+        } else {
+            &row.updated_at
+        },
+    )
+}
+
+fn migrated_mailbox_status(
+    row: &LegacyRuntimeMailboxRow,
+    canonical_status: super::RuntimeMailboxMessageStatus,
+) -> super::RuntimeMailboxMessageStatus {
+    let is_terminal = matches!(
         canonical_status,
         super::RuntimeMailboxMessageStatus::Delivered | super::RuntimeMailboxMessageStatus::Failed
-    ) {
-        canonical_status
-    } else {
-        legacy_status
-    };
-    let mut updated = routed.clone();
+    );
+    if is_terminal {
+        return canonical_status;
+    }
+    if row.status == "claimed" {
+        return super::RuntimeMailboxMessageStatus::Pending;
+    }
+    to_runtime_mailbox_message_status(&row.status)
+}
+
+fn apply_migrated_mailbox_fields(
+    updated: &mut Map<String, Value>,
+    routed: &Map<String, Value>,
+    row: &LegacyRuntimeMailboxRow,
+    status: super::RuntimeMailboxMessageStatus,
+    now_iso: &str,
+) {
     updated.insert(
         "createdAt".to_owned(),
         match routed.get("createdAt") {
@@ -879,16 +904,6 @@ fn migrate_legacy_runtime_mailbox_row(
             },
         );
     }
-    write_canonical_mailbox_payload(
-        db,
-        canonical.id,
-        &updated,
-        if row.updated_at.is_empty() {
-            now_iso
-        } else {
-            &row.updated_at
-        },
-    )
 }
 
 fn status_name(status: super::RuntimeMailboxMessageStatus) -> &'static str {
