@@ -17,6 +17,14 @@ exact `JSON.stringify` line (field order, omitted `undefined`, explicit `null`).
 | `RpcExtensionUIRequest` | Nine `method` variants; `timeout`/`placeholder`/`prefill`/`notifyType`/`statusText`/`widgetLines`/`widgetPlacement` omitted when `undefined` | `RpcExtensionUiRequest` + `RpcExtensionUiRequestPayload`; `serializes_every_extension_ui_request_in_ts_field_order` covers all nine |
 | `RpcExtensionUIResponse` | Exactly one of `value`, `confirmed`, `cancelled` | `RpcExtensionUiResponse` + untagged payload; `parses_every_extension_ui_response_shape` |
 
+## Shared types
+
+- `ThinkingLevel`, `QueueMode` → `pi_agent_core::harness` (the TypeScript imports `ThinkingLevel` from
+  `pi-agent-core`, so `"off"` is accepted). `QueueMode` gained serde derives on the shared enum.
+- `StreamingBehavior`, `NotifyType`, `WidgetPlacement` → `core::extensions::types` (identical wire enums).
+- `RpcSlashCommand`/`RpcSlashCommandSource` alias `core::slash_commands::{SlashCommandInfo, SlashCommandSource}`;
+  the shapes are identical, so no second record is defined.
+
 ## Exclusions and deviations
 
 - Typed Rust APIs exclude invalid JavaScript runtime input types (decision 2026-08-12): non-string `id`

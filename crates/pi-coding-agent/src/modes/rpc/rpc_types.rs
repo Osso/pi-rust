@@ -4,53 +4,19 @@
 //! session events leave as JSON lines on stdout. Field order follows the
 //! TypeScript object literals so serialized lines stay byte-identical.
 
-use pi_ai::types::{ImageContent, Model, ThinkingLevel};
+pub use pi_agent_core::harness::QueueMode;
+use pi_agent_core::harness::ThinkingLevel;
+use pi_ai::types::{ImageContent, Model};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::core::source_info::SourceInfo;
+pub use crate::core::extensions::types::{NotifyType, StreamingBehavior, WidgetPlacement};
+use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
 
-/// Queue delivery mode shared by steering and follow-up queues.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum QueueMode {
-    All,
-    OneAtATime,
-}
-
-/// Streaming behavior accepted by the `prompt` command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum StreamingBehavior {
-    Steer,
-    FollowUp,
-}
-
-/// Notification severity emitted by the `notify` extension UI method.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum NotifyType {
-    Info,
-    Warning,
-    Error,
-}
-
-/// Widget placement emitted by the `setWidget` extension UI method.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum WidgetPlacement {
-    AboveEditor,
-    BelowEditor,
-}
-
-/// Command source reported by `get_commands`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RpcSlashCommandSource {
-    Extension,
-    Prompt,
-    Skill,
-}
+/// `RpcSlashCommand` has the same shape as the shared slash-command record.
+pub type RpcSlashCommand = SlashCommandInfo;
+/// `RpcSlashCommand["source"]` is the shared slash-command source.
+pub type RpcSlashCommandSource = SlashCommandSource;
 
 /// An RPC command body, i.e. `RpcCommand` without the correlation id.
 ///
@@ -222,17 +188,6 @@ impl RpcCommand {
     pub const fn new(body: RpcCommandBody, id: Option<String>) -> Self {
         Self { body, id }
     }
-}
-
-/// A command available for invocation via prompt (`RpcSlashCommand`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcSlashCommand {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    pub source: RpcSlashCommandSource,
-    pub source_info: SourceInfo,
 }
 
 /// Session state returned by `get_state` (`RpcSessionState`).

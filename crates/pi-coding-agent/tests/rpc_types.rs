@@ -1,4 +1,5 @@
-use pi_ai::types::{ImageContent, Modality, Model, ModelCost, ProviderId, ThinkingLevel};
+use pi_agent_core::harness::ThinkingLevel;
+use pi_ai::types::{ImageContent, Modality, Model, ModelCost, ProviderId};
 use pi_coding_agent::core::source_info::{SourceInfo, SourceOrigin, SourceScope};
 use pi_coding_agent::modes::rpc::{
     ExtensionUiRequestTag, ExtensionUiResponseTag, NotifyType, QueueMode, RpcCommand, RpcCommandBody,
@@ -114,7 +115,7 @@ fn parses_every_state_model_and_thinking_command() {
     assert_eq!(
         parse(r#"{"type":"set_thinking_level","level":"xhigh"}"#).body,
         RpcCommandBody::SetThinkingLevel {
-            level: ThinkingLevel::Xhigh,
+            level: ThinkingLevel::XHigh,
         }
     );
     assert_eq!(

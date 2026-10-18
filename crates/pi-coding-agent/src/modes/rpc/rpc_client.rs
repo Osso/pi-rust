@@ -13,7 +13,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use pi_ai::types::{ImageContent, Model, ThinkingLevel};
+use pi_agent_core::harness::ThinkingLevel;
+use pi_ai::types::{ImageContent, Model};
 use rustix::process::Signal;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -291,6 +292,12 @@ struct ProcessHandle {
     exit: watch::Receiver<Option<ExitInfo>>,
 }
 
+struct PendingRequest {
+    id: String,
+    line: String,
+    receiver: oneshot::Receiver<Result<RpcResponse, RpcClientError>>,
+}
+
 #[derive(Default)]
 struct ProcessState {
     child: Option<ProcessHandle>,
@@ -392,58 +399,36 @@ impl RpcClient {
     /// Starts the RPC agent process.
     pub async fn start(&self) -> Result<(), RpcClientError> {
         let mut process = self.inner.process.lock().await;
-        {
-            let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-            if process.child.is_some() || sync.stopping {
-                return Err(RpcClientError::AlreadyStartedOrStopping);
-            }
-            sync.exit = None;
-            sync.exit_error = None;
-        }
-
-        let generation = self.inner.next_generation.fetch_add(1, Ordering::SeqCst) + 1;
-        let mut child = spawn_child(&self.inner.options, self.inner.stderr())?;
-        let stdin = child.stdin.take().expect("piped child stdin must exist");
-        let stdout = child.stdout.take().expect("piped child stdout must exist");
-        let stderr = child.stderr.take().expect("piped child stderr must exist");
-        let pid = child.id().expect("spawned child must have a pid");
-        let (exit_sender, exit_receiver) = watch::channel(None);
-
-        let stderr_inner = Arc::clone(&self.inner);
-        tokio::spawn(async move {
-            read_stderr(stderr_inner, stderr).await;
-        });
-
-        let reader_inner = Arc::clone(&self.inner);
-        let reader = attach_jsonl_line_reader(stdout, move |line| reader_inner.handle_line(&line));
-
-        let wait_inner = Arc::clone(&self.inner);
-        tokio::spawn(async move {
-            let status = child.wait().await;
-            publish_exit(wait_inner, generation, exit_sender, status);
-        });
-
-        process.child = Some(ProcessHandle {
-            pid,
-            exit: exit_receiver,
-        });
-        process.stdin = Some(stdin);
-        process.reader = Some(reader);
-        self.inner.sync.lock().expect("sync state poisoned").active_generation = Some(generation);
+        let generation = self.begin_start(&process)?;
+        let spawned = spawn_process(&self.inner.options, self.inner.stderr())?;
+        install_process(&self.inner, generation, spawned, &mut process);
         drop(process);
 
         tokio::time::sleep(STARTUP_DELAY).await;
+        self.verify_started(generation)
+    }
 
+    fn begin_start(&self, process: &ProcessState) -> Result<u64, RpcClientError> {
+        let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+        if process.child.is_some() || sync.stopping {
+            return Err(RpcClientError::AlreadyStartedOrStopping);
+        }
+        sync.exit = None;
+        sync.exit_error = None;
+        Ok(self.inner.next_generation.fetch_add(1, Ordering::SeqCst) + 1)
+    }
+
+    fn verify_started(&self, generation: u64) -> Result<(), RpcClientError> {
         let sync = self.inner.sync.lock().expect("sync state poisoned");
         if sync.stopping || sync.active_generation != Some(generation) {
             return Err(RpcClientError::StoppedDuringStartup {
                 stderr: sync.stderr.clone(),
             });
         }
-        if let Some(exit) = sync.exit {
-            return Err(process_exit_error(exit, &sync.stderr));
+        match sync.exit {
+            Some(exit) => Err(process_exit_error(exit, &sync.stderr)),
+            None => Ok(()),
         }
-        Ok(())
     }
 
     /// Stops the RPC agent process.
@@ -538,69 +523,88 @@ impl RpcClient {
     /// Sends a command and waits for its response.
     pub async fn send(&self, body: RpcCommandBody) -> Result<RpcResponse, RpcClientError> {
         let command_type = body.command_type();
-        let (id, line, receiver) = {
-            let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-            if sync.stopping {
-                return Err(RpcClientError::Stopping {
-                    stderr: sync.stderr.clone(),
-                });
-            }
-            if let Some(error) = &sync.stop_error {
-                return Err(RpcClientError::PreviousStopFailed {
-                    message: error.to_string(),
-                });
-            }
-            if sync.active_generation.is_none() {
-                return Err(RpcClientError::NotStarted);
-            }
-            if let Some(error) = &sync.exit_error {
-                return Err(error.clone());
-            }
-            if let Some(exit) = sync.exit {
-                let error = process_exit_error(exit, &sync.stderr);
-                sync.exit_error = Some(error.clone());
-                return Err(error);
-            }
+        let request = self.begin_request(body)?;
+        self.write_request_line(&request).await?;
+        self.await_request_response(request, command_type).await
+    }
 
-            sync.next_request_id += 1;
-            let id = format!("req_{}", sync.next_request_id);
-            let command = RpcCommand::new(body, Some(id.clone()));
-            let line = serialize_json_line(&command).map_err(|error| RpcClientError::Serialize {
+    fn begin_request(&self, body: RpcCommandBody) -> Result<PendingRequest, RpcClientError> {
+        let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+        if sync.stopping {
+            return Err(RpcClientError::Stopping {
+                stderr: sync.stderr.clone(),
+            });
+        }
+        if let Some(error) = &sync.stop_error {
+            return Err(RpcClientError::PreviousStopFailed {
                 message: error.to_string(),
-            })?;
-            let (sender, receiver) = oneshot::channel();
-            sync.pending.insert(id.clone(), sender);
-            (id, line, receiver)
-        };
+            });
+        }
+        if sync.active_generation.is_none() {
+            return Err(RpcClientError::NotStarted);
+        }
+        if let Some(error) = &sync.exit_error {
+            return Err(error.clone());
+        }
+        if let Some(exit) = sync.exit {
+            let error = process_exit_error(exit, &sync.stderr);
+            sync.exit_error = Some(error.clone());
+            return Err(error);
+        }
 
+        sync.next_request_id += 1;
+        let id = format!("req_{}", sync.next_request_id);
+        let command = RpcCommand::new(body, Some(id.clone()));
+        let line = serialize_json_line(&command).map_err(|error| RpcClientError::Serialize {
+            message: error.to_string(),
+        })?;
+        let (sender, receiver) = oneshot::channel();
+        sync.pending.insert(id.clone(), sender);
+        Ok(PendingRequest { id, line, receiver })
+    }
+
+    async fn write_request_line(&self, request: &PendingRequest) -> Result<(), RpcClientError> {
         let write_result = {
             let mut process = self.inner.process.lock().await;
             match process.stdin.as_mut() {
-                Some(stdin) => stdin.write_all(line.as_bytes()).await,
+                Some(stdin) => stdin.write_all(request.line.as_bytes()).await,
                 None => Err(std::io::Error::new(
                     std::io::ErrorKind::NotConnected,
                     "stdin is not available",
                 )),
             }
         };
-        if let Err(error) = write_result {
-            let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-            sync.pending.remove(&id);
-            let error = RpcClientError::StdinError {
-                message: error.to_string(),
-                stderr: sync.stderr.clone(),
-            };
-            sync.exit_error = Some(error.clone());
-            return Err(error);
-        }
+        let Err(error) = write_result else {
+            return Ok(());
+        };
 
-        match tokio::time::timeout(REQUEST_TIMEOUT, receiver).await {
+        let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+        sync.pending.remove(&request.id);
+        let error = RpcClientError::StdinError {
+            message: error.to_string(),
+            stderr: sync.stderr.clone(),
+        };
+        sync.exit_error = Some(error.clone());
+        Err(error)
+    }
+
+    async fn await_request_response(
+        &self,
+        request: PendingRequest,
+        command_type: &str,
+    ) -> Result<RpcResponse, RpcClientError> {
+        match tokio::time::timeout(REQUEST_TIMEOUT, request.receiver).await {
             Ok(Ok(response)) => response,
             Ok(Err(_)) => Err(RpcClientError::Stopped {
                 stderr: self.inner.stderr(),
             }),
             Err(_) => {
-                self.inner.sync.lock().expect("sync state poisoned").pending.remove(&id);
+                self.inner
+                    .sync
+                    .lock()
+                    .expect("sync state poisoned")
+                    .pending
+                    .remove(&request.id);
                 Err(RpcClientError::RequestTimeout {
                     command: command_type.to_owned(),
                     stderr: self.inner.stderr(),
@@ -971,7 +975,15 @@ fn process_exit_error(exit: ExitInfo, stderr: &str) -> RpcClientError {
     }
 }
 
-fn spawn_child(options: &RpcClientOptions, stderr: String) -> Result<tokio::process::Child, RpcClientError> {
+struct SpawnedProcess {
+    child: tokio::process::Child,
+    stdin: ChildStdin,
+    stdout: tokio::process::ChildStdout,
+    stderr: tokio::process::ChildStderr,
+    pid: u32,
+}
+
+fn spawn_process(options: &RpcClientOptions, stderr: String) -> Result<SpawnedProcess, RpcClientError> {
     let cli_path = options.cli_path.clone().unwrap_or_else(|| PathBuf::from("dist/cli.js"));
     let mut command = Command::new("node");
     command.args(&options.node_args);
@@ -992,10 +1004,49 @@ fn spawn_child(options: &RpcClientOptions, stderr: String) -> Result<tokio::proc
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    command.spawn().map_err(|error| RpcClientError::ProcessError {
+
+    let mut child = command.spawn().map_err(|error| RpcClientError::ProcessError {
         message: spawn_error_message(&error),
         stderr,
+    })?;
+    let stdin = child.stdin.take().expect("piped child stdin must exist");
+    let stdout = child.stdout.take().expect("piped child stdout must exist");
+    let stderr = child.stderr.take().expect("piped child stderr must exist");
+    let pid = child.id().expect("spawned child must have a pid");
+    Ok(SpawnedProcess {
+        child,
+        stdin,
+        stdout,
+        stderr,
+        pid,
     })
+}
+
+fn install_process(inner: &Arc<ClientInner>, generation: u64, spawned: SpawnedProcess, process: &mut ProcessState) {
+    let (exit_sender, exit_receiver) = watch::channel(None);
+
+    let stderr_inner = Arc::clone(inner);
+    tokio::spawn(async move {
+        read_stderr(stderr_inner, spawned.stderr).await;
+    });
+
+    let reader_inner = Arc::clone(inner);
+    let reader = attach_jsonl_line_reader(spawned.stdout, move |line| reader_inner.handle_line(&line));
+
+    let wait_inner = Arc::clone(inner);
+    tokio::spawn(async move {
+        let mut child = spawned.child;
+        let status = child.wait().await;
+        publish_exit(wait_inner, generation, exit_sender, status);
+    });
+
+    process.child = Some(ProcessHandle {
+        pid: spawned.pid,
+        exit: exit_receiver,
+    });
+    process.stdin = Some(spawned.stdin);
+    process.reader = Some(reader);
+    inner.sync.lock().expect("sync state poisoned").active_generation = Some(generation);
 }
 
 fn spawn_error_message(error: &std::io::Error) -> String {
