@@ -386,6 +386,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/event-bus.ts` | 33 | 0 | done | `crates/pi-coding-agent/src/core/event_bus.rs` | Channel bus with subscriptions, clear, and failure isolation; handlers are typed `Fn(&Value) -> Result`. |
 | `coding-agent/src/core/experimental.ts` | 9 | 0 | done | `crates/pi-coding-agent/src/core/experimental.rs` | `PI_EXPERIMENTAL` gate + strict tool sampling config; child-process env probes. |
 | `coding-agent/src/core/export-html/ansi-to-html.ts` | 258 | 0 | done | `crates/pi-coding-agent/src/core/export_html/ansi_to_html.rs` | differential 47 cases incl. JS number formatting |
+| `coding-agent/src/core/footer-data-provider.ts` | 450 | 2 | done | `crates/pi-coding-agent/src/core/footer_data_provider.rs` | Branch detection (regular/worktree/reftable), executable name, statuses, watcher debounce/retry; behavioral tests with an injected git runner. `session_manager` in the footer override is type-erased until the session slice lands. |
 | `coding-agent/src/core/http-dispatcher.ts` | 111 | 0 | done | `crates/pi-coding-agent/src/core/http_dispatcher.rs` | Timeout parse/format, proxy resolution, configured `Fetch` (returns instead of mutating a global); differential `27013`. `autoSelectFamilyAttemptTimeout` is a documented gap. |
 | `coding-agent/src/core/output-guard.ts` | 126 | 0 | done | `crates/pi-coding-agent/src/core/output_guard.rs` | Raw stdout writer, chunking, backpressure, takeover flag; stray stdout prevented by `deny(clippy::print_stdout)` (approved deviation). |
 | `coding-agent/src/core/permissions/policy.ts` | 33 | 0 | done | `crates/pi-coding-agent/src/core/permissions/policy.rs` | Policy parse/normalize/evaluate; differential `27001`/`27002`. |
@@ -443,6 +444,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/version-check.ts` | 109 | 1 | done | `crates/pi-coding-agent/src/utils/version_check.rs` | Differential 676 semver pairs + 676 newer checks + error fixtures; injected-Fetch release tests |
 | `coding-agent/src/config.ts` | 595 | 2 | done | `crates/pi-coding-agent/src/config.rs` | Compiled-binary runtime mapping (PI_PACKAGE_DIR/exe dir); install branches via injected context; differential config oracle (4 path + 13 install scenarios) |
 | `coding-agent/src/core/model-config.ts` | 298 | 2 | done | `crates/pi-coding-agent/src/core/model_config.rs` | TypeBox-equivalent schema via the shared validation engine; differential 21 fixtures (provider maps + exact error text) |
+| `coding-agent/src/core/model-runtime.ts` | 795 | 2 | done | `crates/pi-coding-agent/src/core/model_runtime.rs` | Configured Models collection: builtin/models.json/extension composition, availability snapshots, serialized credential operations, auth/stream/deferred paths; runtime tests port model-runtime-* and registry runtime cases; differential oracle over temp models.json/auth fixtures (providers, models, errors, statuses, auth, compatibility). Interactive login/logout and deferred providers untested (gaps in traceability). |
+| `coding-agent/src/core/model-resolver.ts` | 780 | 2 | done | `crates/pi-coding-agent/src/core/model_resolver.rs` | Exact/fuzzy/canonical matching, thinking suffixes, scope globs, CLI resolution, initial/restore selection; differential oracle (parse/scope/cli/defaults/exact/initial). `process.exit` becomes `Err`; restore logs go to stderr. |
+| `coding-agent/src/core/provider-composer.ts` | 573 | 2 | done | `crates/pi-coding-agent/src/core/provider_composer.rs` | Built-in + models.json + extension layers, compat/override merges, auth wrappers, configured headers/status, refresh/filter/deferred delegation; tests port model-registry composition cases. |
 | `coding-agent/src/core/tools/path-utils.ts` | 118 | 2 | done | `crates/pi-coding-agent/src/core/tools/path_utils.rs` | all TS tests ported + differential; NFD via `pi_agent_core::unicode` |
 | `coding-agent/src/utils/clipboard.ts` | 175 | 2 | done | `crates/pi-coding-agent/src/utils/clipboard.rs` | Fake-tool PATH scenarios plus captured OSC 52 output; no differential (process/OS module) |
 | `coding-agent/src/utils/image-convert.ts` | 49 | 2 | done | `crates/pi-coding-agent/src/utils/image_convert.rs` | Differential 27101/27102; synchronous (no loadPhoton) |
@@ -478,7 +482,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/cli/list-models.ts` | 115 | 9 | todo |  |  |
 | `coding-agent/src/cli/login-command.ts` | 278 | 9 | todo |  |  |
 | `coding-agent/src/client/remote-session.ts` | 420 | 9 | todo |  |  |
-| `coding-agent/src/core/model-registry.ts` | 158 | 9 | todo |  |  |
+| `coding-agent/src/core/model-registry.ts` | 158 | 9 | done | `crates/pi-coding-agent/src/core/model_registry.rs` | Facade over ModelRuntime: resolved auth/compatibility fallback, statuses, display names, registration; registry tests. Overloads split into two methods. |
 | `coding-agent/src/migrations.ts` | 365 | 9 | done | `crates/pi-coding-agent/src/migrations.rs` | Auth/session/tools/keybindings/commands migrations, deprecation warnings, `runMigrations`; differential over fixture agent dirs. TTY keypress wait deferred. |
 | `coding-agent/src/client/index.ts` | 15 | 10 | todo |  |  |
 | `coding-agent/src/core/compaction/utils.ts` | 198 | 14 | todo |  |  |
@@ -492,7 +496,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/session-control-db.ts` | 7047 | 15 | done | `crates/pi-coding-agent/src/core/session_control_db/` | Schema v14, migrations, all table APIs; 37 behavioral, 74-step differential, and 4 cross-implementation tests. |
 | `coding-agent/src/core/session-manager.ts` | 2437 | 15 | partial | `crates/pi-coding-agent/src/core/session_manager.rs` | JSONL v1–v3 read/migrate/write, tree/context/fork/relocate, scan listing done; control-db metadata integration blocked on `ca-control-db` |
 | `coding-agent/src/core/session-tool-output.ts` | 380 | 15 | done | `crates/pi-coding-agent/src/core/session_tool_output.rs` | Persistence truncation + atomic migration; `tests/session_tool_output.rs`, differential `41040` |
-| `coding-agent/src/core/telemetry.ts` | 13 | 15 | todo |  |  |
+| `coding-agent/src/core/telemetry.ts` | 13 | 15 | done | `crates/pi-coding-agent/src/core/telemetry.rs` | Env-flag truthiness and settings fallback; `PI_TELEMETRY` default matches the TS parameter. |
 | `coding-agent/extensions/agents-core/src/runtime-utils.ts` | 30 | 16 | todo |  |  |
 | `coding-agent/extensions/pyrun/src/detached-bridge.ts` | 153 | 16 | todo |  |  |
 | `coding-agent/src/architect/observer.ts` | 159 | 16 | todo |  |  |
@@ -504,7 +508,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/detached-job-cleanup.ts` | 351 | 16 | todo |  |  |
 | `coding-agent/src/core/detached-job-control.ts` | 213 | 16 | todo |  |  |
 | `coding-agent/src/core/external-session-importer.ts` | 310 | 16 | done | `crates/pi-coding-agent/src/core/external_session_importer.rs` | Codex/Claude fixture imports; `tests/external_session_importer.rs` |
-| `coding-agent/src/core/provider-attribution.ts` | 97 | 16 | todo |  |  |
+| `coding-agent/src/core/provider-attribution.ts` | 97 | 16 | done | `crates/pi-coding-agent/src/core/provider_attribution.rs` | OpenRouter/NVIDIA/Cloudflare attribution, OpenCode session headers, override merge; pure-header tests from sdk-openrouter-attribution. |
 | `coding-agent/src/core/runtime-coordination-format.ts` | 38 | 16 | todo |  |  |
 | `coding-agent/src/core/session-cwd.ts` | 83 | 16 | partial | `crates/pi-coding-agent/src/core/session_cwd.rs` | Issue/format/assert/reopen done; control-db cwd metadata blocked on `ca-control-db` |
 | `coding-agent/src/core/session-directory.ts` | 365 | 16 | partial |  | Blocked on `ca-control-db`; every export reads/writes the control DB |
