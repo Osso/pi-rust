@@ -90,8 +90,9 @@ pub fn normalize_windows_shell_path(file_path: &str) -> String {
     let Some(rest) = file_path.strip_prefix('/') else {
         return file_path.to_owned();
     };
-    let rest = strip_ascii_prefix(rest, "mnt/").unwrap_or(rest);
-    let rest = strip_ascii_prefix(rest, "cygdrive/").unwrap_or(rest);
+    let rest = strip_ascii_prefix(rest, "mnt/")
+        .or_else(|| strip_ascii_prefix(rest, "cygdrive/"))
+        .unwrap_or(rest);
 
     let mut characters = rest.chars();
     let Some(drive) = characters.next() else {

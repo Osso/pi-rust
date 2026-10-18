@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 26_007;
 
-const CASES: [&str; 24] = [
+const CASES: [&str; 28] = [
     "---\nname: \"skill-name\"\ndescription: 'A desc'\nfoo-bar: value\n---\n\nBody text",
     "---\r\nname: test\r\n---\r\nLine one\r\nLine two",
     "---\nfoo: [bar\n---\nBody",
@@ -31,6 +31,10 @@ const CASES: [&str; 24] = [
     "----\nBody",
     "\n---\nkey: value\n---\nBody",
     "---\nyes_value: yes\nno_value: no\n---\nBody",
+    "---\n- one\n- two\n---\nBody",
+    "---\njust a scalar\n---\nBody",
+    "---\nquoted: \"line\\nbreak\"\n---\nBody",
+    "---\nnull_value:\n---\nBody",
 ];
 
 #[test]

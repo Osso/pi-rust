@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/utils/paths.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Differential proof: request `26009` executes the real pinned module across 76 cases covering local-path classification, Windows shell paths, normalization options, file URLs, resolution, relative paths, canonicalization, and file revisions. Focused tests: `crates/pi-coding-agent/tests/paths.rs`.
+Differential proof: request `26009` executes the real pinned module across 78 cases covering local-path classification, Windows shell paths, normalization options, file URLs, resolution, relative paths, canonicalization, and file revisions. Focused tests: `crates/pi-coding-agent/tests/paths.rs`.
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
@@ -29,4 +29,4 @@ Differential proof: request `26009` executes the real pinned module across 76 ca
 ## Proof inventory
 
 - Focused cases: 13.
-- Differential request: `26009`, 76 cases.
+- Differential request: `26009`, 78 cases.

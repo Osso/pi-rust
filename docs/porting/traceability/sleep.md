@@ -13,6 +13,7 @@ Differential test skipped: the module depends on real timers, so timing is prove
 ## Discrepancies
 
 - `AbortSignal` maps to `tokio_util::sync::CancellationToken`; the error is a typed enum instead of `Error("Aborted")`.
+- The duration is `u64` milliseconds; JavaScript negative, fractional, and non-finite values are excluded by the typed boundary.
 
 ## Proof inventory
 

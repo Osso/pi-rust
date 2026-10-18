@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/utils/frontmatter.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Differential proof: request `26007` executes the real pinned module across 24 valid, invalid, CRLF, block-scalar, nested, and unterminated cases. Focused tests: `crates/pi-coding-agent/tests/frontmatter.rs`.
+Differential proof: request `26007` executes the real pinned module across 28 valid, invalid, CRLF, block-scalar, nested, and unterminated cases. Focused tests: `crates/pi-coding-agent/tests/frontmatter.rs`.
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
@@ -23,4 +23,4 @@ Differential proof: request `26007` executes the real pinned module across 24 va
 ## Proof inventory
 
 - Focused cases: 9.
-- Differential request: `26007`, 24 cases.
+- Differential request: `26007`, 28 cases.

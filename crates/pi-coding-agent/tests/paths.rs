@@ -99,6 +99,8 @@ fn converts_windows_shell_paths() {
         "/c/Users\\example",
         "relative/file",
         "/tmp/file",
+        "/mnt/cygdrive/c/x",
+        "/cygdrive/mnt/c/x",
     ] {
         assert_eq!(normalize_windows_shell_path(path), path);
     }

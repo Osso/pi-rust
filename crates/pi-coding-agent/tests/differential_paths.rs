@@ -105,6 +105,8 @@ fn cases() -> Vec<Case> {
         Case::WindowsShell("relative/file"),
         Case::WindowsShell("/tmp/file"),
         Case::WindowsShell("/1/x"),
+        Case::WindowsShell("/mnt/cygdrive/c/x"),
+        Case::WindowsShell("/cygdrive/mnt/c/x"),
         Case::Normalize("~", Options::home()),
         Case::Normalize("~/file.txt", Options::home()),
         Case::Normalize("~draft.md", Options::home()),
