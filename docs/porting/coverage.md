@@ -533,7 +533,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/compaction/index.ts` | 7 | 18 | done | `crates/pi-coding-agent/src/core/compaction.rs` (module re-exports) | Re-exports the three modules; exercised by every compaction test. |
 | `coding-agent/src/core/detached-bash-runner-entry.ts` | 13 | 18 | todo |  |  |
 | `coding-agent/src/core/detached-job-lifecycle.ts` | 214 | 18 | todo |  |  |
-| `coding-agent/src/core/tools/render-utils.ts` | 85 | 18 | todo |  |  |
+| `coding-agent/src/core/tools/render-utils.ts` | 85 | 18 | done | `crates/pi-coding-agent/src/core/tools/render_utils.rs` | Helpers, `getTextOutput`, invalid-arg/tool-path renderers, key hints; differential 31 cases |
 | `coding-agent/src/modes/interactive/components/agent-selection-banner.ts` | 36 | 18 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/armin.ts` | 382 | 18 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/daxnuts.ts` | 164 | 18 | todo |  |  |
@@ -665,23 +665,23 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/tools/ask-architect.ts` | 95 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/ask-questions.ts` | 309 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/ask-supervisor.ts` | 89 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/bash.ts` | 864 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/bash.ts` | 864 | 22 | partial | `crates/pi-coding-agent/src/core/tools/bash.rs` | Execution + call renderer; result renderer needs visual-truncate; runner-owned detach pending; differential 7 cases |
 | `coding-agent/src/core/tools/broadcast.ts` | 115 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/change-working-directory.ts` | 145 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/channel-post.ts` | 72 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/code-index.ts` | 329 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/edit.ts` | 443 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/code-index.ts` | 329 | 22 | done | `crates/pi-coding-agent/src/core/tools/code_index.rs` | outline/symbol/references + renderers; differential 9 execution + renderer cases |
+| `coding-agent/src/core/tools/edit.ts` | 443 | 22 | partial | `crates/pi-coding-agent/src/core/tools/edit.rs` | Execution, arg preparation, diff/patch details; renderers need components/diff.ts; differential 4 cases |
 | `coding-agent/src/core/tools/end-turn.ts` | 37 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/find.ts` | 381 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/grep.ts` | 400 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/find.ts` | 381 | 22 | done | `crates/pi-coding-agent/src/core/tools/find.rs` | fd argv, gitignore, limits + renderers; differential 9 execution + renderer cases |
+| `coding-agent/src/core/tools/grep.ts` | 400 | 22 | done | `crates/pi-coding-agent/src/core/tools/grep.rs` | rg JSON streaming, context, limits + renderers; differential 13 execution + renderer cases |
 | `coding-agent/src/core/tools/index.ts` | 420 | 22 | partial | `crates/pi-coding-agent/src/core/tools/mod.rs` | Only `DEFAULT_ACTIVE_TOOL_NAMES` (needed by system-prompt); tool definitions/factories remain for ca-tools-text. |
 | `coding-agent/src/core/tools/list-sessions.ts` | 81 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/ls.ts` | 326 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/read.ts` | 468 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/ls.ts` | 326 | 22 | done | `crates/pi-coding-agent/src/core/tools/ls.rs` | rtk fast path, fs listing, limits + renderers; differential 7 execution + renderer cases |
+| `coding-agent/src/core/tools/read.ts` | 468 | 22 | done | `crates/pi-coding-agent/src/core/tools/read.rs` | Execution + renderers; differential 11 execution + renderer cases |
 | `coding-agent/src/core/tools/resume-session.ts` | 294 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/search-current-session-history.ts` | 196 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/tool-definition-wrapper.ts` | 160 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/write.ts` | 274 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/tool-definition-wrapper.ts` | 160 | 22 | partial | `crates/pi-coding-agent/src/core/tools/tool_definition_wrapper.rs` | `capToolResultOutput`, `wrap_agent_tool`, `create_tool_definition_from_agent_tool`; extension-context adaptation gap |
+| `coding-agent/src/core/tools/write.ts` | 274 | 22 | done | `crates/pi-coding-agent/src/core/tools/write.rs` | Execution + renderers; differential execution + renderer cases |
 | `coding-agent/src/extensions/index.ts` | 4 | 22 | todo |  |  |
 | `coding-agent/src/extensions/llama/index.ts` | 228 | 22 | todo |  |  |
 | `coding-agent/src/extensions/llama/ui.ts` | 542 | 22 | todo |  |  |

@@ -288,6 +288,16 @@ pub struct ThemeSetResult {
 pub trait ExtensionTheme: Send + Sync {
     /// Style `text` with the named theme color.
     fn fg(&self, color: &str, text: &str) -> String;
+
+    /// Style `text` with the named theme background color.
+    fn bg(&self, _color: &str, text: &str) -> String {
+        text.to_owned()
+    }
+
+    /// Bold `text`.
+    fn bold(&self, text: &str) -> String {
+        text.to_owned()
+    }
 }
 
 /// Identity theme used when no UI is bound.
