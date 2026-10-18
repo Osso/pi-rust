@@ -1,5 +1,6 @@
 #![deny(clippy::print_stdout)]
 
+pub mod architect;
 pub mod cli;
 pub mod client;
 pub mod config;
@@ -7,6 +8,7 @@ pub mod core;
 pub mod migrations;
 pub mod modes;
 pub mod package_manager_cli;
+pub mod server;
 pub mod supervisor;
 pub mod utils;
 

@@ -616,17 +616,16 @@ where
     if let Some(previous) = &previous
         && previous.id() != next.id()
         && previous.attached()
+        && let Err(error) = previous.detach().map_err(RemoteSessionError::from_client)?.await
     {
-        if let Err(error) = previous.detach().map_err(RemoteSessionError::from_client)?.await {
-            let cleanup_error = detach_handle(next).await;
-            if let Some(cleanup_error) = cleanup_error {
-                return Err(RemoteSessionError::Aggregate(vec![
-                    RemoteSessionError::from_client(error),
-                    cleanup_error,
-                ]));
-            }
-            return Err(RemoteSessionError::from_client(error));
+        let cleanup_error = detach_handle(next).await;
+        if let Some(cleanup_error) = cleanup_error {
+            return Err(RemoteSessionError::Aggregate(vec![
+                RemoteSessionError::from_client(error),
+                cleanup_error,
+            ]));
         }
+        return Err(RemoteSessionError::from_client(error));
     }
     assert_not_disposed_after_await(core, &next).await?;
     bind(core, next, Some(snapshot))

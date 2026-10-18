@@ -14,6 +14,8 @@ use pi_protocol::{
     TranscriptItem, encode_server_message,
 };
 
+type MessageListener = Arc<dyn Fn(&ClientMessage) + Send + Sync>;
+
 pub struct MemoryServer {
     inner: Mutex<ServerInner>,
 }
@@ -21,7 +23,7 @@ pub struct MemoryServer {
 struct ServerInner {
     handlers: Option<ByteTransportHandlers>,
     decoder: ClientMessageDecoder,
-    listeners: Vec<Arc<dyn Fn(&ClientMessage) + Send + Sync>>,
+    listeners: Vec<MessageListener>,
 }
 
 struct MemoryTransport {
@@ -48,7 +50,7 @@ impl MemoryServer {
         })
     }
 
-    pub fn on_message(&self, listener: Arc<dyn Fn(&ClientMessage) + Send + Sync>) {
+    pub fn on_message(&self, listener: MessageListener) {
         self.inner.lock().unwrap().listeners.push(listener);
     }
 

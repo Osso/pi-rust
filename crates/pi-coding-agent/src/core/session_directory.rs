@@ -148,7 +148,7 @@ fn binding_heartbeat_is_fresh(updated_at: &str, now_ms: i64) -> bool {
         return false;
     };
     let heartbeat_age_ms = now_ms - heartbeat_ms;
-    heartbeat_age_ms >= 0 && heartbeat_age_ms <= SESSION_CHECK_STALE_MS
+    (0..=SESSION_CHECK_STALE_MS).contains(&heartbeat_age_ms)
 }
 
 fn synchronized_bound_session_health(

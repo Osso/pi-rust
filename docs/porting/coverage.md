@@ -499,7 +499,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/telemetry.ts` | 13 | 15 | done | `crates/pi-coding-agent/src/core/telemetry.rs` | Env-flag truthiness and settings fallback; `PI_TELEMETRY` default matches the TS parameter. |
 | `coding-agent/extensions/agents-core/src/runtime-utils.ts` | 30 | 16 | todo |  |  |
 | `coding-agent/extensions/pyrun/src/detached-bridge.ts` | 153 | 16 | todo |  |  |
-| `coding-agent/src/architect/observer.ts` | 159 | 16 | todo |  |  |
+| `coding-agent/src/architect/observer.ts` | 159 | 16 | done | `crates/pi-coding-agent/src/architect/observer.rs` | Observation diffs, bounded SQL snapshot, claim/renew/complete; 6 behavioral tests |
 | `coding-agent/src/cli/control-command.ts` | 122 | 16 | todo |  |  |
 | `coding-agent/src/cli/debug-command.ts` | 77 | 16 | todo |  |  |
 | `coding-agent/src/cli/sessions-command.ts` | 106 | 16 | todo |  |  |
@@ -516,9 +516,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/usage-totals.ts` | 67 | 16 | done | `crates/pi-coding-agent/src/core/usage_totals.rs` | Totals and cost breakdown; `tests/usage_totals.rs` |
 | `coding-agent/src/modes/interactive/components/custom-editor.ts` | 148 | 16 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/session-selector-search.ts` | 219 | 16 | todo |  |  |
-| `coding-agent/src/supervisor/client.ts` | 63 | 16 | todo |  |  |
-| `coding-agent/src/supervisor/service.ts` | 210 | 16 | todo |  |  |
-| `coding-agent/src/architect/prompt.ts` | 12 | 17 | todo |  |  |
+| `coding-agent/src/supervisor/client.ts` | 63 | 16 | done | `crates/pi-coding-agent/src/supervisor/client.rs` | Durable decision request, polling, retry jitter, attempt suffix; 2 behavioral tests |
+| `coding-agent/src/supervisor/service.ts` | 210 | 16 | done | `crates/pi-coding-agent/src/supervisor/service.rs` | Prompt building, response parsing, durable completion/expiry/preemption; 4 behavioral tests |
+| `coding-agent/src/architect/prompt.ts` | 12 | 17 | done | `crates/pi-coding-agent/src/architect/prompt.rs` | Exact system prompt and observation prompt |
 | `coding-agent/src/core/compaction/branch-summarization.ts` | 378 | 17 | todo |  |  |
 | `coding-agent/src/core/detached-bash-runner.ts` | 294 | 17 | todo |  |  |
 | `coding-agent/src/core/lifecycle-coordinator.ts` | 448 | 17 | done | `crates/pi-coding-agent/src/core/lifecycle_coordinator.rs` | Command surface over control-db lifecycle mutations; 23 behavioral tests. |
@@ -630,8 +630,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/session-archive/src/index.ts` | 26 | 22 | todo |  |  |
 | `coding-agent/extensions/session-id/src/index.ts` | 10 | 22 | todo |  |  |
 | `coding-agent/extensions/spec-validation/src/index.ts` | 34 | 22 | todo |  |  |
-| `coding-agent/src/architect/main.ts` | 308 | 22 | todo |  |  |
-| `coding-agent/src/architect/project-spec.ts` | 70 | 22 | todo |  |  |
+| `coding-agent/src/architect/main.ts` | 308 | 22 | partial | `crates/pi-coding-agent/src/architect/main.rs` | Queue, settings, store, gating, cycle, stop handler, service loop; console server and session creation blocked |
+| `coding-agent/src/architect/project-spec.ts` | 70 | 22 | partial | `crates/pi-coding-agent/src/architect/project_spec.rs` | Path containment and root discovery; tool registration blocked on extension API |
 | `coding-agent/src/cli/args.ts` | 481 | 22 | partial |  |  |
 | `coding-agent/src/cli/auth-check.ts` | 73 | 22 | todo |  |  |
 | `coding-agent/src/cli/auth-command.ts` | 125 | 22 | partial |  |  |
@@ -704,9 +704,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/rpc/rpc-mode.ts` | 846 | 22 | todo |  |  |
 | `coding-agent/src/modes/rpc/rpc-types.ts` | 291 | 22 | todo |  |  |
 | `coding-agent/src/package-manager-cli.ts` | 889 | 22 | partial | `crates/pi-coding-agent/src/package_manager_cli.rs` | Argv parsing, help/usage, validation output/exit codes, list formatting (differential). Execution half returns `PackageAction`; blocked on settings/resource-loader/model-runtime/TUI wiring. |
-| `coding-agent/src/supervisor/approval-reviewer.ts` | 19 | 22 | todo |  |  |
-| `coding-agent/src/supervisor/main.ts` | 436 | 22 | todo |  |  |
-| `coding-agent/src/supervisor/response-tool.ts` | 48 | 22 | todo |  |  |
+| `coding-agent/src/supervisor/approval-reviewer.ts` | 19 | 22 | done | `crates/pi-coding-agent/src/supervisor/approval_reviewer.rs` | Decision escalation paths; 3 behavioral tests |
+| `coding-agent/src/supervisor/main.ts` | 436 | 22 | partial | `crates/pi-coding-agent/src/supervisor/main.rs` | Queue, settings, gating, console snapshot, session open, request loop, request processing, response reading; session/resource-loader/extension wiring blocked |
+| `coding-agent/src/supervisor/response-tool.ts` | 48 | 22 | partial | `crates/pi-coding-agent/src/supervisor/response_tool.rs` | Schema, metadata, execute text; tool registration blocked on extension API |
 | `coding-agent/extensions/agents-core/src/parent-agent-journal.ts` | 110 | 23 | todo |  |  |
 | `coding-agent/src/cli.ts` | 25 | 23 | todo |  |  |
 | `coding-agent/src/cli/experimental/command-options.ts` | 38 | 23 | todo |  |  |
@@ -715,7 +715,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/extensions/multi-agent.ts` | 21 | 23 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/status-indicator.ts` | 114 | 23 | todo |  |  |
 | `coding-agent/src/rpc-entry.ts` | 13 | 23 | todo |  |  |
-| `coding-agent/src/server/create-harness.ts` | 161 | 23 | todo |  |  |
+| `coding-agent/src/server/create-harness.ts` | 161 | 23 | partial | `crates/pi-coding-agent/src/server/create_harness.rs` | Tool wrapper and system-prompt assembly; default-tool factory blocked on ca-tools-core prompt contributions |
 | `coding-agent/src/bun/cli.ts` | 15 | 24 | todo |  |  |
 | `coding-agent/src/cli/experimental/commands/client.ts` | 44 | 24 | todo |  |  |
 | `coding-agent/src/cli/experimental/commands/pi.ts` | 47 | 24 | todo |  |  |
