@@ -2,6 +2,7 @@
 
 pub mod api;
 pub mod auth;
+pub mod env_api_keys;
 pub mod http;
 pub mod js_number;
 pub mod model_catalog;

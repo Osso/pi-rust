@@ -98,7 +98,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/auth/oauth/xai.ts` | 239 | 2 | todo |  |  |
 | `ai/src/bedrock-provider.ts` | 6 | 2 | todo |  |  |
 | `ai/src/compat/extension-oauth-types.ts` | 45 | 2 | todo |  |  |
-| `ai/src/env-api-keys.ts` | 187 | 2 | todo |  |  |
+| `ai/src/env-api-keys.ts` | 187 | 2 | done | `crates/pi-ai/src/env_api_keys.rs` | Provider env map, Anthropic token exclusion, Vertex ADC cache, and Bedrock ambient sources; differential over provider/env matrix (see traceability). |
 | `ai/src/image-models.generated.ts` | 639 | 2 | todo |  |  |
 | `ai/src/images-api-registry.ts` | 53 | 2 | todo |  |  |
 | `ai/src/images-models.ts` | 275 | 2 | todo |  |  |
