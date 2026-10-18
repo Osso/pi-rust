@@ -2012,6 +2012,7 @@ pub struct Extension {
 }
 
 /// Result of loading extensions.
+#[derive(Clone)]
 pub struct LoadExtensionsResult {
     pub extensions: Vec<Extension>,
     pub errors: Vec<ExtensionLoadError>,

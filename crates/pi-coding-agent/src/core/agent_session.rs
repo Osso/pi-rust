@@ -22,6 +22,7 @@ use pi_agent_core::harness::messages::{
     BashExecutionMessage, BashExecutionRole, CustomMessageContent, create_custom_message,
 };
 use pi_agent_core::harness::types::ThinkingLevel;
+use pi_ai::request::BoxFuture;
 use pi_ai::types::{
     AssistantContent, AssistantMessage, ImageContent, InputSource, Model, ProviderHeaders, ProviderRetryEvent,
     StopReason, TextContent, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
@@ -199,6 +200,8 @@ pub struct AgentSessionConfig {
     pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
     pub thinking_phase_timeout_ms: Option<u64>,
+    pub extension_runner_ref: Option<Arc<Mutex<Option<ExtensionRunner>>>>,
+    pub session_start_event: Option<SessionStartEvent>,
 }
 
 /// `PromptOptions`.
@@ -765,6 +768,19 @@ struct Inner {
     pending_bash_messages: Mutex<Vec<BashExecutionMessage>>,
     bash_abort_controllers: Mutex<Vec<CancellationToken>>,
     disposed: AtomicBool,
+    extension_runner: Mutex<ExtensionRunner>,
+    extension_runner_ref: Option<Arc<Mutex<Option<ExtensionRunner>>>>,
+    session_start_event: SessionStartEvent,
+    extension_ui_context: Mutex<Option<Arc<dyn ExtensionUiContext>>>,
+    extension_footer_data: Mutex<Option<Arc<FooterDataProvider>>>,
+    extension_mode: Mutex<ExtensionMode>,
+    extension_control_db_path: Mutex<Option<String>>,
+    extension_command_context_actions: Mutex<Option<ExtensionCommandContextActions>>,
+    extension_abort_handler: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    extension_shutdown_handler: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    extension_error_listener: Mutex<Option<ExtensionErrorListener>>,
+    extension_error_unsubscriber: Mutex<Option<ErrorSubscription>>,
+    turn_index: AtomicU64,
 }
 
 /// Core session abstraction shared by all run modes.
@@ -792,6 +808,25 @@ impl AgentSession {
             .agent_dir
             .clone()
             .unwrap_or_else(|| crate::config::get_agent_dir().display().to_string());
+        let extension_runner_ref = config.extension_runner_ref.clone();
+        let session_start_event = config.session_start_event.clone().unwrap_or(SessionStartEvent {
+            reason: crate::core::extensions::types::SessionStartReason::Startup,
+            previous_session_file: None,
+        });
+        let placeholder_runner = ExtensionRunner::new(
+            Vec::new(),
+            crate::core::extensions::extension_runtime::create_extension_runtime(),
+            config.cwd.clone(),
+            Arc::new(
+                config
+                    .session_manager
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .clone(),
+            ),
+            Arc::new(ModelRegistry::new(model_runtime.clone())),
+            Some(Arc::clone(&config.settings_manager)),
+        );
 
         let inner = Arc::new(Inner {
             agent: config.agent,
@@ -843,6 +878,19 @@ impl AgentSession {
             pending_bash_messages: Mutex::new(Vec::new()),
             bash_abort_controllers: Mutex::new(Vec::new()),
             disposed: AtomicBool::new(false),
+            extension_runner: Mutex::new(placeholder_runner),
+            extension_runner_ref,
+            session_start_event,
+            extension_ui_context: Mutex::new(None),
+            extension_footer_data: Mutex::new(None),
+            extension_mode: Mutex::new(ExtensionMode::Print),
+            extension_control_db_path: Mutex::new(None),
+            extension_command_context_actions: Mutex::new(None),
+            extension_abort_handler: Mutex::new(None),
+            extension_shutdown_handler: Mutex::new(None),
+            extension_error_listener: Mutex::new(None),
+            extension_error_unsubscriber: Mutex::new(None),
+            turn_index: AtomicU64::new(0),
         });
 
         let session = Self { inner };
@@ -884,7 +932,7 @@ impl AgentSession {
                         return Ok(None);
                     };
                     let session = AgentSession { inner };
-                    Ok(session.before_tool_call(context))
+                    Ok(session.before_tool_call(context).await)
                 })
             },
         )));
@@ -897,7 +945,7 @@ impl AgentSession {
                         return Ok(None);
                     };
                     let session = AgentSession { inner };
-                    Ok(session.after_tool_call(context))
+                    Ok(session.after_tool_call(context).await)
                 })
             },
         )));
@@ -973,6 +1021,28 @@ impl AgentSession {
         _flag_values: Option<BTreeMap<String, Value>>,
         include_all_extension_tools: bool,
     ) {
+        let extensions = self.inner.resource_loader.get_extensions();
+        let mut runner = ExtensionRunner::new(
+            extensions.extensions,
+            extensions.runtime,
+            self.inner.cwd.clone(),
+            Arc::new(
+                self.inner
+                    .session_manager
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .clone(),
+            ),
+            Arc::new(self.inner.model_registry.clone()),
+            Some(Arc::clone(&self.inner.settings_manager)),
+        );
+        runner.set_internal_commands(self.create_internal_commands());
+        self.bind_extension_core(&mut runner);
+        *lock(&self.inner.extension_runner) = runner.clone();
+        if let Some(reference) = &self.inner.extension_runner_ref {
+            *lock(reference) = Some(runner.clone());
+        }
+        self.apply_extension_bindings(&runner);
         self.refresh_tool_registry(active_tool_names, include_all_extension_tools);
     }
 
@@ -1010,6 +1080,45 @@ impl AgentSession {
                 )
             })
             .collect();
+
+        let extension_tools = {
+            let runner = self.runner();
+            runner
+                .get_all_registered_tools()
+                .into_iter()
+                .filter(|tool| is_allowed(&tool.definition.name))
+                .map(|tool| {
+                    let name = tool.definition.name.clone();
+                    let wrapped = wrap_registered_tool(tool.clone(), &runner);
+                    let definition = ToolDefinition {
+                        name: name.clone(),
+                        description: tool.definition.description.clone(),
+                        parameters: tool.definition.parameters.clone(),
+                        prompt_snippet: tool.definition.prompt_snippet.clone(),
+                        prompt_guidelines: tool.definition.prompt_guidelines.clone().unwrap_or_default(),
+                        approval_required: tool.definition.approval_required.unwrap_or(true),
+                        tool: wrapped,
+                    };
+                    (
+                        name,
+                        ToolDefinitionEntry {
+                            definition,
+                            source_info: tool.source_info.clone(),
+                        },
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        for (name, entry) in extension_tools {
+            if let Some(existing) = definition_registry
+                .iter_mut()
+                .find(|(tool_name, _)| *tool_name == name)
+            {
+                existing.1 = entry;
+            } else {
+                definition_registry.push((name, entry));
+            }
+        }
 
         let custom_tools = self
             .inner
@@ -1156,10 +1265,23 @@ impl AgentSession {
         prompt
     }
 
-    fn before_tool_call(&self, context: BeforeToolCallContext) -> Option<BeforeToolCallResult> {
-        let tool_name = context.tool_call.name.clone();
+    async fn before_tool_call(&self, context: BeforeToolCallContext) -> Option<BeforeToolCallResult> {
+        let runner = self.runner();
+        let event = ToolCallEvent {
+            tool_name: crate::core::extensions::types::ToolName::Custom(context.tool_call.name.clone()),
+            tool_call_id: context.tool_call.id.clone(),
+            bypass_permissions: false,
+            input: context.args_snapshot().as_object().cloned().unwrap_or_default(),
+        };
+        if runner.has_tool_gates() {
+            let mut gated = event.clone();
+            if let Ok(Some(result)) = runner.emit_tool_gates(&mut gated).await {
+                return Some(tool_call_result_to_before(result));
+            }
+        }
+
         let approval_required = self
-            .find_tool_definition(&tool_name)
+            .find_tool_definition(&context.tool_call.name)
             .is_none_or(|entry| entry.definition.approval_required);
         let policy = lock(&self.inner.settings_manager).get_approval_policy();
         let decision = evaluate_approval_policy(
@@ -1175,13 +1297,62 @@ impl AgentSession {
                     terminate: None,
                 })
             }
-            crate::core::permissions::policy::ApprovalPolicyDecision::Review => None,
+            crate::core::permissions::policy::ApprovalPolicyDecision::Review => {
+                if approval_required && runner.has_approval_reviewers() {
+                    let mut reviewed = event.clone();
+                    match runner.emit_approval_reviewers(&mut reviewed).await {
+                        Ok(Some(crate::core::extensions::types::ApprovalReviewerResult::Deny { reason })) => {
+                            return Some(BeforeToolCallResult {
+                                block: Some(true),
+                                reason: Some(reason),
+                                terminate: None,
+                            });
+                        }
+                        Ok(Some(crate::core::extensions::types::ApprovalReviewerResult::Allow { .. })) => {
+                            return None;
+                        }
+                        _ => {}
+                    }
+                }
+                if !runner.has_handlers("tool_call") {
+                    return None;
+                }
+                let mut called = event;
+                match runner.emit_tool_call(&mut called).await {
+                    Ok(Some(result)) => Some(tool_call_result_to_before(result)),
+                    Ok(None) => None,
+                    Err(error) => Some(BeforeToolCallResult {
+                        block: Some(true),
+                        reason: Some(format!("Extension failed, blocking execution: {error}")),
+                        terminate: None,
+                    }),
+                }
+            }
         }
     }
 
-    fn after_tool_call(&self, context: AfterToolCallContext) -> Option<AfterToolCallResult> {
-        let _ = context;
-        None
+    async fn after_tool_call(&self, context: AfterToolCallContext) -> Option<AfterToolCallResult> {
+        let runner = self.runner();
+        if !runner.has_handlers("tool_result") {
+            return None;
+        }
+        let event = crate::core::extensions::types::ToolResultEvent {
+            tool_name: crate::core::extensions::types::ToolName::Custom(context.tool_call.name.clone()),
+            tool_call_id: context.tool_call.id.clone(),
+            input: context.args.as_object().cloned().unwrap_or_default(),
+            content: context.result.content.clone(),
+            is_error: context.is_error,
+            usage: context.result.usage.clone(),
+            details: context.result.details.clone(),
+        };
+        let result = runner.emit_tool_result(event).await?;
+        Some(AfterToolCallResult {
+            content: result.content,
+            details: result.details,
+            is_error: result.is_error,
+            usage: result.usage,
+            terminate: None,
+        })
     }
 
     fn find_tool_definition(&self, name: &str) -> Option<ToolDefinitionEntry> {
@@ -1210,6 +1381,7 @@ impl AgentSession {
     }
 
     async fn emit_agent_settled(&self) {
+        self.emit_agent_settled_extension().await;
         self.emit(AgentSessionEvent::AgentSettled(AgentSettledEvent {
             event_type: "agent_settled",
         }));
@@ -1294,7 +1466,7 @@ impl AgentSession {
         self.inner.agent.steer(message);
     }
 
-    async fn handle_agent_event(&self, event: AgentEvent) {
+    async fn handle_agent_event(&self, mut event: AgentEvent) {
         let original_tool_call_id = match &event {
             AgentEvent::MessageEnd { message } => match message {
                 AgentMessage::ToolResult(result) => Some(result.tool_call_id.clone()),
@@ -1312,6 +1484,10 @@ impl AgentSession {
             self.mark_duplicate_assistant_message_for_presentation(&mut assistant);
         }
         self.remove_started_message_from_queue(&event);
+        let replacement = self.emit_extension_event(&mut event).await;
+        if let (Some(replacement), AgentEvent::MessageEnd { message }) = (replacement, &mut event) {
+            *message = replacement;
+        }
         let listener_event = match &event {
             AgentEvent::AgentEnd { messages } => AgentSessionEvent::AgentEnd(AgentEndEvent::new(
                 messages.clone(),
@@ -1608,6 +1784,13 @@ impl AgentSession {
     pub async fn prompt(&self, text: &str, options: PromptOptions) -> Result<(), AgentSessionError> {
         let expand = options.expand_prompt_templates.unwrap_or(true);
         if expand && text.starts_with('/') {
+            if self.try_execute_extension_command(text).await {
+                self.record_handled_slash_command_history(text);
+                if let Some(preflight) = &options.preflight_result {
+                    preflight(true);
+                }
+                return Ok(());
+            }
             if !self.is_known_slash_command(text) {
                 return Err(error(format!(
                     "Unknown slash command: {}",
@@ -1660,7 +1843,7 @@ impl AgentSession {
                 "Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.",
             ));
         }
-        let input = self.prepare_prompt_input(text, options);
+        let input = self.prepare_prompt_input(text, options).await;
         let Some((text, images)) = input else {
             return Ok(None);
         };
@@ -1671,21 +1854,44 @@ impl AgentSession {
         if self.queue_prompt_if_streaming(&text, &images, options).await? {
             return Ok(None);
         }
-        let messages = self.build_prompt_messages(&text, &images, options);
+        let messages = self.build_prompt_messages(&text, &images, options).await;
         Ok(Some(messages))
     }
 
-    fn prepare_prompt_input(
+    async fn prepare_prompt_input(
         &self,
         text: &str,
         options: &PromptOptions,
     ) -> Option<(String, Vec<ImageContent>)> {
         let mut current_text = text.to_owned();
+        let mut current_images = options.images.clone();
+        match self
+            .emit_extension_input(
+                &current_text,
+                &current_images,
+                options.source,
+                if self.is_streaming() {
+                    options.streaming_behavior
+                } else {
+                    None
+                },
+            )
+            .await
+        {
+            InputEventResult::Handled => return None,
+            InputEventResult::Transform { text, images } => {
+                current_text = text;
+                if let Some(images) = images {
+                    current_images = images;
+                }
+            }
+            InputEventResult::Continue => {}
+        }
         if options.expand_prompt_templates.unwrap_or(true) {
             current_text = self.expand_skill_command(&current_text);
             current_text = expand_prompt_template(&current_text, &self.prompt_templates());
         }
-        Some((current_text, options.images.clone()))
+        Some((current_text, current_images))
     }
 
     async fn queue_prompt_if_streaming(
@@ -1722,7 +1928,7 @@ impl AgentSession {
         Ok(())
     }
 
-    fn build_prompt_messages(
+    async fn build_prompt_messages(
         &self,
         text: &str,
         images: &[ImageContent],
@@ -1742,9 +1948,40 @@ impl AgentSession {
         }
         let mut messages = vec![user_message];
         messages.extend(lock(&self.inner.pending_next_turn_messages).drain(..));
-        *lock(&self.inner.system_prompt_override) = None;
-        let prompt = lock(&self.inner.base_system_prompt).clone();
-        self.inner.agent.set_system_prompt(prompt);
+        let base_prompt = lock(&self.inner.base_system_prompt).clone();
+        let base_options = lock(&self.inner.base_system_prompt_options)
+            .clone()
+            .unwrap_or_else(|| BuildSystemPromptOptions {
+                cwd: self.inner.cwd.clone(),
+                ..Default::default()
+            });
+        let result = self
+            .emit_before_agent_start(text, images, &base_options)
+            .await;
+        if let Some(result) = &result {
+            for payload in result.messages.clone().unwrap_or_default() {
+                let content = match payload.content {
+                    crate::core::extensions::types::CustomMessageContent::Text(text) => {
+                        CustomMessageContent::Text(text)
+                    }
+                    crate::core::extensions::types::CustomMessageContent::Blocks(blocks) => {
+                        CustomMessageContent::Blocks(blocks)
+                    }
+                };
+                messages.push(create_custom_message(
+                    &payload.custom_type,
+                    content,
+                    payload.display,
+                    payload.details,
+                    now_millis(),
+                ));
+            }
+        }
+        let system_prompt_override = result.and_then(|result| result.system_prompt);
+        *lock(&self.inner.system_prompt_override) = system_prompt_override.clone();
+        self.inner
+            .agent
+            .set_system_prompt(system_prompt_override.unwrap_or(base_prompt));
         messages
     }
 
@@ -2090,9 +2327,8 @@ impl AgentSession {
         lock(&self.inner.settings_manager)
             .set_default_model_and_provider(&model.provider, &model.id);
         self.set_thinking_level(thinking_level);
-        if previous_model.id != model.id || previous_model.provider != model.provider {
-            // `model_select` extension event is a recorded gap.
-        }
+        self.emit_model_select(&model, Some(&previous_model), ModelSelectSource::Set)
+            .await;
         Ok(())
     }
 
@@ -2189,6 +2425,9 @@ impl AgentSession {
         lock(&self.inner.settings_manager)
             .set_default_model_and_provider(&next.model.provider, &next.model.id);
         self.set_thinking_level(thinking_level);
+        let previous_model = self.inner.agent.model();
+        self.emit_model_select(&next.model, Some(&previous_model), ModelSelectSource::Cycle)
+            .await;
         Ok(Some(ModelCycleResult {
             model: next.model,
             thinking_level: self.thinking_level(),
@@ -2221,6 +2460,12 @@ impl AgentSession {
                     level: effective,
                 },
             ));
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                let session = self.clone();
+                handle.spawn(async move {
+                    session.emit_thinking_level_select(effective, previous).await;
+                });
+            }
         }
     }
 
@@ -2943,9 +3188,15 @@ impl AgentSession {
         self.emit(AgentSessionEvent::SessionInfoChanged(
             SessionInfoChangedEvent {
                 event_type: "session_info_changed",
-                name,
+                name: name.clone(),
             },
         ));
+        let session = self.clone();
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                session.emit_session_info_changed(name).await;
+            });
+        }
     }
 
     pub fn clear_session_name(&self) {
@@ -3309,4 +3560,1074 @@ fn _unused_import_markers() {
     let _ = ApprovalPolicy::OnRequest;
     let _ = THINKING_PHASE_TIMEOUT_MS;
     let _ = BUILT_IN_COMPACTION_DISABLED_MESSAGE;
+}
+
+// =============================================================================
+// Extension integration
+// =============================================================================
+
+use crate::core::extensions::types::ToolCallEvent;
+use crate::core::extensions::runner::{
+    BeforeAgentStartCombinedResult, ErrorSubscription, ExtensionErrorListener, ExtensionRunner,
+};
+use crate::core::extensions::types::{
+    AgentEndEvent as ExtensionAgentEndEvent, AgentSettledEvent as ExtensionAgentSettledEvent,
+    AgentStartEvent, ExtensionActions, ExtensionCommandContext, ExtensionCommandContextActions,
+    ExtensionContextActions, ExtensionEvent, ExtensionMode, ExtensionUiContext,
+    InputEventResult, InputSource as ExtensionInputSource, MessageDelivery, MessageEndEvent, MessageStartEvent,
+    MessageUpdateEvent, ModelSelectEvent, ModelSelectSource, ProviderActions, SessionStartEvent,
+    StreamingBehavior as ExtensionStreamingBehavior, ThinkingLevelSelectEvent, ToolExecutionEndEvent,
+    ToolExecutionStartEvent, ToolExecutionUpdateEvent, ToolInfo as ExtensionToolInfo, TurnEndEvent, TurnStartEvent,
+    UserMessageContent, UserMessageDelivery,
+};
+use crate::core::extensions::wrapper::wrap_registered_tool;
+use crate::core::slash_commands::SlashCommandInfo;
+use crate::core::footer_data_provider::FooterDataProvider;
+
+/// `ExtensionBindings` passed to [`AgentSession::bind_extensions`].
+#[derive(Default)]
+pub struct ExtensionBindings {
+    pub ui_context: Option<Arc<dyn ExtensionUiContext>>,
+    pub footer_data: Option<Arc<FooterDataProvider>>,
+    pub mode: Option<ExtensionMode>,
+    pub control_db_path: Option<String>,
+    pub command_context_actions: Option<ExtensionCommandContextActions>,
+    pub abort_handler: Option<Arc<dyn Fn() + Send + Sync>>,
+    pub shutdown_handler: Option<Arc<dyn Fn() + Send + Sync>>,
+    pub on_error: Option<ExtensionErrorListener>,
+}
+
+impl AgentSession {
+    fn runner(&self) -> ExtensionRunner {
+        lock(&self.inner.extension_runner).clone()
+    }
+
+    /// Binds extension host callbacks and emits `session_start`.
+    pub async fn bind_extensions(&self, bindings: ExtensionBindings) {
+        if let Some(ui_context) = bindings.ui_context {
+            *lock(&self.inner.extension_ui_context) = Some(ui_context);
+        }
+        if let Some(footer_data) = bindings.footer_data {
+            *lock(&self.inner.extension_footer_data) = Some(footer_data);
+        }
+        if let Some(mode) = bindings.mode {
+            *lock(&self.inner.extension_mode) = mode;
+        }
+        if let Some(control_db_path) = bindings.control_db_path {
+            *lock(&self.inner.extension_control_db_path) = Some(control_db_path);
+        }
+        if let Some(actions) = bindings.command_context_actions {
+            *lock(&self.inner.extension_command_context_actions) = Some(actions);
+        }
+        if let Some(handler) = bindings.abort_handler {
+            *lock(&self.inner.extension_abort_handler) = Some(handler);
+        }
+        if let Some(handler) = bindings.shutdown_handler {
+            *lock(&self.inner.extension_shutdown_handler) = Some(handler);
+        }
+        if let Some(listener) = bindings.on_error {
+            *lock(&self.inner.extension_error_listener) = Some(listener);
+        }
+        let runner = self.runner();
+        self.apply_extension_bindings(&runner);
+        let mut event = ExtensionEvent::SessionStart(self.inner.session_start_event.clone());
+        runner.emit(&mut event).await;
+        self.extend_resources_from_extensions().await;
+    }
+
+    fn apply_extension_bindings(&self, runner: &ExtensionRunner) {
+        let mut runner = runner.clone();
+        runner.set_ui_context(
+            lock(&self.inner.extension_ui_context).clone(),
+            *lock(&self.inner.extension_mode),
+        );
+        if let Some(actions) = lock(&self.inner.extension_command_context_actions).clone() {
+            runner.bind_command_context(Some(actions));
+        }
+        let mut unsubscribe = lock(&self.inner.extension_error_unsubscriber).take();
+        if let Some(subscription) = unsubscribe.take() {
+            subscription.unsubscribe();
+        }
+        if let Some(listener) = lock(&self.inner.extension_error_listener).clone() {
+            *lock(&self.inner.extension_error_unsubscriber) = Some(runner.on_error(listener));
+        }
+        *lock(&self.inner.extension_runner) = runner;
+    }
+
+    async fn extend_resources_from_extensions(&self) {
+        let runner = self.runner();
+        if !runner.has_handlers("resources_discover") {
+            return;
+        }
+        let paths = runner
+            .emit_resources_discover(
+                &self.inner.cwd,
+                if self.inner.session_start_event.reason
+                    == crate::core::extensions::types::SessionStartReason::Reload
+                {
+                    crate::core::extensions::types::ResourcesDiscoverReason::Reload
+                } else {
+                    crate::core::extensions::types::ResourcesDiscoverReason::Startup
+                },
+            )
+            .await;
+        if paths.skill_paths.is_empty() && paths.prompt_paths.is_empty() && paths.theme_paths.is_empty() {
+            return;
+        }
+        let convert = |entries: Vec<crate::core::extensions::runner::DiscoveredPath>| {
+            entries
+                .into_iter()
+                .map(|entry| crate::core::resource_loader::ExtendedResourcePath {
+                    path: entry.path,
+                    metadata: crate::core::package_manager::PathMetadata {
+                        source: extension_source_label(&entry.extension_path),
+                        scope: crate::core::package_manager::SourceScope::Temporary,
+                        origin: crate::core::package_manager::MetadataOrigin::TopLevel,
+                        base_dir: (!entry.extension_path.starts_with('<'))
+                            .then(|| {
+                                std::path::Path::new(&entry.extension_path)
+                                    .parent()
+                                    .map(|path| path.display().to_string())
+                            })
+                            .flatten(),
+                    },
+                })
+                .collect::<Vec<_>>()
+        };
+        self.inner
+            .resource_loader
+            .extend_resources(crate::core::resource_loader::ResourceExtensionPaths {
+                skill_paths: convert(paths.skill_paths),
+                prompt_paths: convert(paths.prompt_paths),
+                theme_paths: convert(paths.theme_paths),
+            });
+        let prompt = self.rebuild_system_prompt(&self.get_active_tool_names());
+        *lock(&self.inner.base_system_prompt) = prompt.clone();
+        self.inner.agent.set_system_prompt(prompt);
+    }
+
+    fn create_internal_commands(&self) -> indexmap::IndexMap<String, crate::core::extensions::types::InternalCommandHandler> {
+        let weak = Arc::downgrade(&self.inner);
+        let handler: crate::core::extensions::types::InternalCommandHandler =
+            Arc::new(move |args: &str, ctx: &ExtensionCommandContext| {
+                let model_reference = args.trim().to_owned();
+                let ctx = ctx.clone();
+                let weak = weak.clone();
+                Box::pin(async move {
+                    if model_reference.is_empty() {
+                        return Ok(());
+                    }
+                    let scoped = ctx.context.get_scoped_models();
+                    let models = if scoped.is_empty() {
+                        ctx.context.model_registry.get_available()
+                    } else {
+                        scoped.into_iter().map(|scoped| scoped.model).collect()
+                    };
+                    let Some(model) = find_exact_model_reference_match(&model_reference, &models) else {
+                        return Err(crate::core::extensions::types::HandlerError::new(format!(
+                            "Model not found or not authenticated: {model_reference}"
+                        )));
+                    };
+                    let provider = model.provider.clone();
+                    let model_id = model.id.clone();
+                    let Some(inner) = weak.upgrade() else {
+                        return Err(crate::core::extensions::types::HandlerError::new(
+                            "Session is disposed",
+                        ));
+                    };
+                    AgentSession { inner }
+                        .set_model(model)
+                        .await
+                        .map_err(|error| {
+                            crate::core::extensions::types::HandlerError::new(error.message())
+                        })?;
+                    let _ = (provider, model_id);
+                    Ok(())
+                })
+            });
+        let mut commands = indexmap::IndexMap::new();
+        commands.insert("model".to_owned(), handler);
+        commands
+    }
+
+    fn bind_extension_core(&self, runner: &mut ExtensionRunner) {
+        let weak = Arc::downgrade(&self.inner);
+        let actions = extension_actions(weak.clone());
+        let context_actions = extension_context_actions(weak.clone());
+        let provider_actions = extension_provider_actions(weak);
+        runner.bind_core(actions, context_actions, Some(provider_actions));
+    }
+
+    async fn emit_extension_event(&self, event: &mut AgentEvent) -> Option<AgentMessage> {
+        let runner = self.runner();
+        match event {
+            AgentEvent::AgentStart => {
+                self.inner.turn_index.store(0, Ordering::SeqCst);
+                let mut extension_event = ExtensionEvent::AgentStart(AgentStartEvent {});
+                runner.emit(&mut extension_event).await;
+                None
+            }
+            AgentEvent::AgentEnd { messages } => {
+                let mut extension_event = ExtensionEvent::AgentEnd(ExtensionAgentEndEvent {
+                    messages: messages.clone(),
+                    session_continuation: None,
+                });
+                runner.emit(&mut extension_event).await;
+                None
+            }
+            AgentEvent::TurnStart => {
+                let mut extension_event = ExtensionEvent::TurnStart(TurnStartEvent {
+                    turn_index: self.inner.turn_index.load(Ordering::SeqCst) as f64,
+                    timestamp: now_millis() as f64,
+                });
+                runner.emit(&mut extension_event).await;
+                None
+            }
+            AgentEvent::TurnEnd { message, tool_results } => {
+                let mut extension_event = ExtensionEvent::TurnEnd(TurnEndEvent {
+                    turn_index: self.inner.turn_index.load(Ordering::SeqCst) as f64,
+                    message: message.clone(),
+                    tool_results: tool_results.clone(),
+                });
+                runner.emit(&mut extension_event).await;
+                self.inner.turn_index.fetch_add(1, Ordering::SeqCst);
+                None
+            }
+            AgentEvent::MessageStart { message } => {
+                let mut extension_event = ExtensionEvent::MessageStart(MessageStartEvent {
+                    message: message.clone(),
+                });
+                runner.emit(&mut extension_event).await;
+                None
+            }
+            AgentEvent::MessageUpdate {
+                message,
+                assistant_message_event,
+            } => {
+                let mut extension_event = ExtensionEvent::MessageUpdate(MessageUpdateEvent {
+                    message: message.clone(),
+                    assistant_message_event: (**assistant_message_event).clone(),
+                });
+                runner.emit(&mut extension_event).await;
+                None
+            }
+            AgentEvent::MessageEnd { message } => {
+                let replacement = runner
+                    .emit_message_end(MessageEndEvent {
+                        message: message.clone(),
+                    })
+                    .await;
+                replacement.map(normalize_message_content)
+            }
+            AgentEvent::ToolExecutionStart {
+                tool_call_id,
+                tool_name,
+                args,
+                ..
+            } => {
+                let mut extension_event = ExtensionEvent::ToolExecutionStart(ToolExecutionStartEvent {
+                    tool_call_id: tool_call_id.clone(),
+                    tool_name: tool_name.clone(),
+                    args: args.clone(),
+                });
+                runner.emit(&mut extension_event).await;
+                None
+            }
+            AgentEvent::ToolExecutionUpdate {
+                tool_call_id,
+                tool_name,
+                args,
+                partial_result,
+            } => {
+                let mut extension_event = ExtensionEvent::ToolExecutionUpdate(ToolExecutionUpdateEvent {
+                    tool_call_id: tool_call_id.clone(),
+                    tool_name: tool_name.clone(),
+                    args: args.clone(),
+                    partial_result: serde_json::to_value(partial_result).unwrap_or(Value::Null),
+                });
+                runner.emit(&mut extension_event).await;
+                None
+            }
+            AgentEvent::ToolExecutionEnd {
+                tool_call_id,
+                tool_name,
+                result,
+                is_error,
+                ..
+            } => {
+                let mut extension_event = ExtensionEvent::ToolExecutionEnd(ToolExecutionEndEvent {
+                    tool_call_id: tool_call_id.clone(),
+                    tool_name: tool_name.clone(),
+                    result: serde_json::to_value(result).unwrap_or(Value::Null),
+                    is_error: *is_error,
+                });
+                runner.emit(&mut extension_event).await;
+                None
+            }
+            AgentEvent::ModelRequestStart | AgentEvent::ModelRequestEnd => None,
+        }
+    }
+
+    async fn emit_model_select(
+        &self,
+        next_model: &Model,
+        previous_model: Option<&Model>,
+        source: ModelSelectSource,
+    ) {
+        if pi_ai::models::models_are_equal(previous_model, Some(next_model)) {
+            return;
+        }
+        let mut event = ExtensionEvent::ModelSelect(ModelSelectEvent {
+            model: next_model.clone(),
+            previous_model: previous_model.cloned(),
+            source,
+        });
+        self.runner().emit(&mut event).await;
+    }
+
+    async fn emit_thinking_level_select(&self, level: ThinkingLevel, previous: ThinkingLevel) {
+        let mut event = ExtensionEvent::ThinkingLevelSelect(ThinkingLevelSelectEvent {
+            level,
+            previous_level: previous,
+        });
+        self.runner().emit(&mut event).await;
+    }
+
+    async fn emit_session_info_changed(&self, name: Option<String>) {
+        let mut event = ExtensionEvent::SessionInfoChanged(
+            crate::core::extensions::types::SessionInfoChangedEvent { name },
+        );
+        self.runner().emit(&mut event).await;
+    }
+
+    async fn emit_agent_settled_extension(&self) {
+        let mut event = ExtensionEvent::AgentSettled(ExtensionAgentSettledEvent {});
+        self.runner().emit(&mut event).await;
+    }
+
+    async fn try_execute_extension_command(&self, text: &str) -> bool {
+        let (command_name, args) = match text.split_once(' ') {
+            Some((name, args)) => (name.trim_start_matches('/'), args),
+            None => (text.trim_start_matches('/'), ""),
+        };
+        let runner = self.runner();
+        let Some(command) = runner.get_prompt_command(command_name) else {
+            return false;
+        };
+        let context = self.create_command_context();
+        if let Err(error) = (command.handler)(args, &context).await {
+            runner.emit_error(crate::core::extensions::types::ExtensionError {
+                extension_path: format!("command:{command_name}"),
+                event: "command".to_owned(),
+                error: error.to_string(),
+                stack: None,
+            });
+        }
+        true
+    }
+
+    fn record_handled_slash_command_history(&self, text: &str) {
+        let Some(control_db_path) = &self.inner.control_db_path else {
+            return;
+        };
+        if let Err(error) =
+            crate::core::session_control_db::record_prompt_history_entry(control_db_path, text)
+        {
+            eprintln!("Failed to persist prompt history for handled slash command: {error}");
+        }
+    }
+
+    async fn emit_extension_input(
+        &self,
+        text: &str,
+        images: &[ImageContent],
+        source: Option<InputSource>,
+        streaming_behavior: Option<StreamingBehavior>,
+    ) -> InputEventResult {
+        let runner = self.runner();
+        if !runner.has_handlers("input") {
+            return InputEventResult::Continue;
+        }
+        runner
+            .emit_input(
+                text,
+                (!images.is_empty()).then(|| images.to_vec()),
+                match source.unwrap_or(InputSource::Interactive) {
+                    InputSource::Interactive => ExtensionInputSource::Interactive,
+                    InputSource::Rpc => ExtensionInputSource::Rpc,
+                    InputSource::Extension => ExtensionInputSource::Extension,
+                },
+                streaming_behavior.map(|behavior| match behavior {
+                    StreamingBehavior::Steer => ExtensionStreamingBehavior::Steer,
+                    StreamingBehavior::FollowUp => ExtensionStreamingBehavior::FollowUp,
+                }),
+            )
+            .await
+    }
+
+    async fn emit_before_agent_start(
+        &self,
+        text: &str,
+        images: &[ImageContent],
+        options: &BuildSystemPromptOptions,
+    ) -> Option<BeforeAgentStartCombinedResult> {
+        let runner = self.runner();
+        let base_prompt = lock(&self.inner.base_system_prompt).clone();
+        runner
+            .emit_before_agent_start(
+                text,
+                (!images.is_empty()).then(|| images.to_vec()),
+                &base_prompt,
+                options.clone(),
+            )
+            .await
+    }
+}
+
+fn tool_call_result_to_before(
+    result: crate::core::extensions::types::ToolCallEventResult,
+) -> BeforeToolCallResult {
+    BeforeToolCallResult {
+        block: result.block,
+        reason: result.reason,
+        terminate: result.terminate,
+    }
+}
+
+fn extension_source_label(extension_path: &str) -> String {
+    if extension_path.starts_with('<') {
+        return format!("extension:{}", extension_path.replace(['<', '>'], ""));
+    }
+    let base = std::path::Path::new(extension_path)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let name = base
+        .strip_suffix(".ts")
+        .or_else(|| base.strip_suffix(".js"))
+        .unwrap_or(&base);
+    format!("extension:{name}")
+}
+
+fn extension_tool_info(entry: &ToolDefinitionEntry) -> ExtensionToolInfo {
+    ExtensionToolInfo {
+        name: entry.definition.name.clone(),
+        description: entry.definition.description.clone(),
+        parameters: entry.definition.parameters.clone(),
+        prompt_guidelines: (!entry.definition.prompt_guidelines.is_empty())
+            .then(|| entry.definition.prompt_guidelines.clone()),
+        source_info: entry.source_info.clone(),
+    }
+}
+
+fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
+    let send_weak = weak.clone();
+    let send_message: crate::core::extensions::types::SendMessageHandler = Arc::new(
+        move |message: crate::core::extensions::types::CustomMessagePayload,
+              options: Option<crate::core::extensions::types::SendMessageOptions>| {
+            let Some(inner) = send_weak.upgrade() else {
+                return Ok(());
+            };
+            let session = AgentSession { inner };
+            let content = match message.content {
+                crate::core::extensions::types::CustomMessageContent::Text(text) => {
+                    CustomMessageContent::Text(text)
+                }
+                crate::core::extensions::types::CustomMessageContent::Blocks(blocks) => {
+                    CustomMessageContent::Blocks(blocks)
+                }
+            };
+            let trigger_turn = options.as_ref().and_then(|options| options.trigger_turn).unwrap_or(false);
+            let deliver_as = options.as_ref().and_then(|options| options.deliver_as);
+            if deliver_as == Some(MessageDelivery::NextTurn) {
+                session.send_custom_message_next_turn(
+                    &message.custom_type,
+                    content,
+                    message.display,
+                    message.details,
+                );
+                return Ok(());
+            }
+            let deliver = match deliver_as {
+                Some(MessageDelivery::Steer) => Some(StreamingBehavior::Steer),
+                Some(MessageDelivery::FollowUp) => Some(StreamingBehavior::FollowUp),
+                _ => None,
+            };
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    let _ = session
+                        .send_custom_message(
+                            &message.custom_type,
+                            content,
+                            message.display,
+                            message.details,
+                            trigger_turn,
+                            deliver,
+                        )
+                        .await;
+                });
+            }
+            Ok(())
+        },
+    );
+    let send_user_weak = weak.clone();
+    let send_user_message: crate::core::extensions::types::SendUserMessageHandler = Arc::new(
+        move |content: UserMessageContent,
+              options: Option<crate::core::extensions::types::SendUserMessageOptions>| {
+            let Some(inner) = send_user_weak.upgrade() else {
+                return Ok(());
+            };
+            let session = AgentSession { inner };
+            let content = match content {
+                UserMessageContent::Text(text) => UserContent::Text(text),
+                UserMessageContent::Blocks(blocks) => UserContent::Blocks(blocks),
+            };
+            let deliver_as = options.as_ref().and_then(|options| options.deliver_as).map(|delivery| {
+                match delivery {
+                    UserMessageDelivery::Steer => StreamingBehavior::Steer,
+                    UserMessageDelivery::FollowUp => StreamingBehavior::FollowUp,
+                }
+            });
+            let expand = options
+                .as_ref()
+                .and_then(|options| options.expand_prompt_templates)
+                .unwrap_or(false);
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    let _ = session.send_user_message(content, deliver_as, expand).await;
+                });
+            }
+            Ok(())
+        },
+    );
+    let append_weak = weak.clone();
+    let append_entry: crate::core::extensions::types::AppendEntryHandler =
+        Arc::new(move |custom_type: &str, data: Option<Value>| {
+            let Some(inner) = append_weak.upgrade() else {
+                return Ok(());
+            };
+            let session = AgentSession { inner };
+            let entry_id = session
+                .session_manager()
+                .append_custom_entry(custom_type, data)
+                .map_err(|error| crate::core::extensions::types::HandlerError::new(error.to_string()))?;
+            let entry = session.session_manager().get_entry(&entry_id).cloned();
+            if let Some(entry) = entry {
+                session.emit(AgentSessionEvent::EntryAppended(EntryAppendedEvent {
+                    event_type: "entry_appended",
+                    entry,
+                }));
+            }
+            Ok(())
+        });
+    let resume_weak = weak.clone();
+    let request_resume_continuation: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        if let Some(inner) = resume_weak.upgrade() {
+            AgentSession { inner }.request_resume_continuation();
+        }
+    });
+    let name_weak = weak.clone();
+    let set_session_name: crate::core::extensions::types::SetSessionNameHandler = Arc::new(move |name: &str| {
+        let Some(inner) = name_weak.upgrade() else {
+            return Ok(());
+        };
+        AgentSession { inner }.set_session_name(name);
+        Ok(())
+    });
+    let get_name_weak = weak.clone();
+    let get_session_name: crate::core::extensions::types::GetSessionNameHandler =
+        Arc::new(move || match get_name_weak.upgrade() {
+            Some(inner) => Ok(AgentSession { inner }.session_name()),
+            None => Ok(None),
+        });
+    let label_weak = weak.clone();
+    let set_label: crate::core::extensions::types::SetLabelHandler =
+        Arc::new(move |entry_id: &str, label: Option<&str>| {
+            let Some(inner) = label_weak.upgrade() else {
+                return Ok(());
+            };
+            AgentSession { inner }
+                .session_manager()
+                .append_label_change(entry_id, label)
+                .map(|_| ())
+                .map_err(|error| crate::core::extensions::types::HandlerError::new(error.to_string()))
+        });
+    let active_weak = weak.clone();
+    let get_active_tools: crate::core::extensions::types::GetActiveToolsHandler =
+        Arc::new(move || match active_weak.upgrade() {
+            Some(inner) => Ok(AgentSession { inner }.get_active_tool_names()),
+            None => Ok(Vec::new()),
+        });
+    let all_weak = weak.clone();
+    let get_all_tools: crate::core::extensions::types::GetAllToolsHandler =
+        Arc::new(move || match all_weak.upgrade() {
+            Some(inner) => Ok(lock(&inner.tool_definitions)
+                .iter()
+                .map(|(_, entry)| extension_tool_info(entry))
+                .collect()),
+            None => Ok(Vec::new()),
+        });
+    let set_active_weak = weak.clone();
+    let set_active_tools: crate::core::extensions::types::SetActiveToolsHandler =
+        Arc::new(move |tool_names: &[String]| {
+            if let Some(inner) = set_active_weak.upgrade() {
+                AgentSession { inner }.set_active_tools_by_name(tool_names);
+            }
+            Ok(())
+        });
+    let call_tool_weak = weak.clone();
+    let call_tool: crate::core::extensions::types::CallToolHandler = Arc::new(
+        move |name: String,
+              params: Value,
+              signal: Option<CancellationToken>,
+              tool_call_id: Option<String>| {
+            let Some(inner) = call_tool_weak.upgrade() else {
+                return Box::pin(async {
+                    Err(crate::core::extensions::types::HandlerError::new(
+                        "Session is disposed",
+                    ))
+                });
+            };
+            let session = AgentSession { inner };
+            Box::pin(async move { session.call_active_tool(&name, params, signal, tool_call_id).await })
+        },
+    );
+    let command_weak = weak.clone();
+    let call_command: crate::core::extensions::types::CallCommandHandler =
+        Arc::new(move |name: String, args: Option<String>| {
+            let Some(inner) = command_weak.upgrade() else {
+                return Box::pin(async {
+                    Err(crate::core::extensions::types::HandlerError::new(
+                        "Session is disposed",
+                    ))
+                });
+            };
+            let session = AgentSession { inner };
+            Box::pin(async move {
+                let runner = session.runner();
+                let Some(command) = runner.get_prompt_command(&name) else {
+                    return Err(crate::core::extensions::types::HandlerError::new(format!(
+                        "Command not found: {name}"
+                    )));
+                };
+                let context = session.create_command_context();
+                (command.handler)(&args.unwrap_or_default(), &context)
+                    .await
+                    .map(|()| Value::Null)
+            })
+        });
+    let refresh_weak = weak.clone();
+    let refresh_tools: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        if let Some(inner) = refresh_weak.upgrade() {
+            AgentSession { inner }.refresh_tool_registry(None, false);
+        }
+    });
+    let commands_weak = weak.clone();
+    let get_commands: crate::core::extensions::types::GetCommandsHandler =
+        Arc::new(move || match commands_weak.upgrade() {
+            Some(inner) => Ok(AgentSession { inner }.slash_commands()),
+            None => Ok(Vec::new()),
+        });
+    let set_model_weak = weak.clone();
+    let set_model: crate::core::extensions::types::SetModelHandler = Arc::new(move |model: Model| {
+        let Some(inner) = set_model_weak.upgrade() else {
+            return Box::pin(async { Ok(false) });
+        };
+        let session = AgentSession { inner };
+        Box::pin(async move {
+            if !session
+                .model_runtime()
+                .has_configured_auth(&model.provider)
+            {
+                return Ok(false);
+            }
+            session
+                .set_model(model)
+                .await
+                .map(|()| true)
+                .map_err(|error| crate::core::extensions::types::HandlerError::new(error.message()))
+        })
+    });
+    let thinking_weak = weak.clone();
+    let get_thinking_level: crate::core::extensions::types::GetThinkingLevelHandler =
+        Arc::new(move || match thinking_weak.upgrade() {
+            Some(inner) => Ok(AgentSession { inner }.thinking_level()),
+            None => Ok(ThinkingLevel::Off),
+        });
+    let set_thinking_weak = weak.clone();
+    let set_thinking_level: crate::core::extensions::types::SetThinkingLevelHandler =
+        Arc::new(move |level: ThinkingLevel| {
+            if let Some(inner) = set_thinking_weak.upgrade() {
+                AgentSession { inner }.set_thinking_level(level);
+            }
+            Ok(())
+        });
+
+    ExtensionActions {
+        send_message,
+        send_user_message,
+        append_entry,
+        request_resume_continuation,
+        set_session_name,
+        get_session_name,
+        set_label,
+        get_active_tools,
+        get_all_tools,
+        set_active_tools,
+        call_tool,
+        call_command,
+        refresh_tools,
+        get_commands,
+        set_model,
+        get_thinking_level,
+        set_thinking_level,
+    }
+}
+
+fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
+    let model_weak = weak.clone();
+    let get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync> = Arc::new(move || {
+        model_weak.upgrade().map(|inner| AgentSession { inner }.model())
+    });
+    let thinking_weak = weak.clone();
+    let get_thinking_level: Option<Arc<dyn Fn() -> ThinkingLevel + Send + Sync>> =
+        Some(Arc::new(move || match thinking_weak.upgrade() {
+            Some(inner) => AgentSession { inner }.thinking_level(),
+            None => ThinkingLevel::Off,
+        }));
+    let scoped_weak = weak.clone();
+    let get_scoped_models: Option<Arc<dyn Fn() -> Vec<ScopedModel> + Send + Sync>> =
+        Some(Arc::new(move || match scoped_weak.upgrade() {
+            Some(inner) => AgentSession { inner }.scoped_models(),
+            None => Vec::new(),
+        }));
+    let footer_weak = weak.clone();
+    let get_footer_data: Option<Arc<dyn Fn() -> Option<Arc<FooterDataProvider>> + Send + Sync>> =
+        Some(Arc::new(move || match footer_weak.upgrade() {
+            Some(inner) => lock(&inner.extension_footer_data).clone(),
+            None => None,
+        }));
+    let idle_weak = weak.clone();
+    let is_idle: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || {
+        idle_weak
+            .upgrade()
+            .is_none_or(|inner| !AgentSession { inner }.is_streaming())
+    });
+    let retry_weak = weak.clone();
+    let has_active_retry: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || {
+        retry_weak
+            .upgrade()
+            .is_some_and(|inner| AgentSession { inner }.has_active_retry())
+    });
+    let trust_weak = weak.clone();
+    let is_project_trusted: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || {
+        trust_weak.upgrade().is_some_and(|inner| {
+            lock(&inner.settings_manager).is_project_trusted()
+        })
+    });
+    let signal_weak = weak.clone();
+    let get_signal: Arc<dyn Fn() -> Option<CancellationToken> + Send + Sync> = Arc::new(move || {
+        signal_weak
+            .upgrade()
+            .and_then(|inner| inner.agent.signal())
+    });
+    let abort_weak = weak.clone();
+    let abort: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        let Some(inner) = abort_weak.upgrade() else {
+            return;
+        };
+        let session = AgentSession { inner };
+        if let Some(handler) = lock(&session.inner.extension_abort_handler).clone() {
+            handler();
+            return;
+        }
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let _ = session.abort().await;
+            });
+        }
+    });
+    let pending_weak = weak.clone();
+    let has_pending_messages: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || {
+        pending_weak
+            .upgrade()
+            .is_some_and(|inner| AgentSession { inner }.has_pending_messages())
+    });
+    let shutdown_weak = weak.clone();
+    let shutdown: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        if let Some(inner) = shutdown_weak.upgrade()
+            && let Some(handler) = lock(&inner.extension_shutdown_handler).clone()
+        {
+            handler();
+        }
+    });
+    let restart_weak = weak.clone();
+    let restart: Arc<
+        dyn Fn(Option<crate::core::extensions::types::RestartOptions>) -> BoxFuture<'static, ()>
+            + Send
+            + Sync,
+    > =
+        Arc::new(move |options| {
+            let Some(inner) = restart_weak.upgrade() else {
+                return Box::pin(async {}) as BoxFuture<'static, ()>;
+            };
+            let session = AgentSession { inner };
+            let actions = lock(&session.inner.extension_command_context_actions).clone();
+            Box::pin(async move {
+                if let Some(actions) = actions {
+                    (actions.restart)(options).await;
+                }
+            })
+        });
+    let control_weak = weak.clone();
+    let get_control_db_path: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>> =
+        Some(Arc::new(move || {
+            control_weak.upgrade().and_then(|inner| {
+                lock(&inner.extension_control_db_path)
+                    .clone()
+                    .or_else(|| inner.control_db_path.clone())
+            })
+        }));
+    let usage_weak = weak.clone();
+    let get_context_usage: Arc<dyn Fn() -> Option<crate::core::extensions::types::ContextUsage> + Send + Sync> =
+        Arc::new(move || {
+            usage_weak.upgrade().and_then(|inner| {
+                AgentSession { inner }.get_context_usage().map(|usage| {
+                    crate::core::extensions::types::ContextUsage {
+                        tokens: Some(usage.tokens),
+                        context_window: usage.context_window,
+                        percent: Some(usage.percent),
+                    }
+                })
+            })
+        });
+    let compact_weak = weak.clone();
+    let compact: Arc<dyn Fn(Option<crate::core::extensions::types::CompactOptions>) + Send + Sync> =
+        Arc::new(move |options| {
+            let Some(inner) = compact_weak.upgrade() else {
+                return;
+            };
+            let session = AgentSession { inner };
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    let custom = options.as_ref().and_then(|options| options.custom_instructions.clone());
+                    match session.compact(custom.as_deref()).await {
+                        Ok(_result) => {
+                            // `on_complete` expects the coding-agent compaction result
+                            // type (ca-compaction-export); recorded gap.
+                        }
+                        Err(error) => {
+                            if let Some(on_error) = options.as_ref().and_then(|options| options.on_error.clone()) {
+                                on_error(error.message());
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    let prompt_weak = weak.clone();
+    let get_system_prompt: Arc<dyn Fn() -> String + Send + Sync> = Arc::new(move || {
+        prompt_weak
+            .upgrade()
+            .map(|inner| AgentSession { inner }.system_prompt())
+            .unwrap_or_default()
+    });
+    let options_weak = weak.clone();
+    let get_system_prompt_options: Option<
+        Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>,
+    > = Some(Arc::new(move || {
+        options_weak
+            .upgrade()
+            .and_then(|inner| lock(&inner.base_system_prompt_options).clone())
+            .unwrap_or_default()
+    }));
+
+    ExtensionContextActions {
+        get_model,
+        get_thinking_level,
+        get_scoped_models,
+        get_footer_data,
+        is_idle,
+        has_active_retry,
+        is_project_trusted,
+        get_signal,
+        abort,
+        has_pending_messages,
+        shutdown,
+        restart,
+        get_control_db_path,
+        get_context_usage,
+        get_multi_agent_agent_id: None,
+        get_multi_agent_parent_session_id: None,
+        get_multi_agent_requires_agent_id: None,
+        get_multi_agent_store: None,
+        get_tool_detach_registry: None,
+        compact,
+        get_system_prompt,
+        get_system_prompt_options,
+    }
+}
+
+fn extension_provider_actions(weak: Weak<Inner>) -> ProviderActions {
+    let register_weak = weak.clone();
+    let register_provider: Option<Arc<dyn Fn(&str, &crate::core::provider_composer::ProviderConfigInput) -> Result<(), String> + Send + Sync>> =
+        Some(Arc::new(move |name: &str, config: &crate::core::provider_composer::ProviderConfigInput| {
+            let Some(inner) = register_weak.upgrade() else {
+                return Err("Session is disposed".to_owned());
+            };
+            inner
+                .model_runtime
+                .register_provider(name, config.clone())
+                .map_err(|error| error.to_string())?;
+            refresh_current_model_from_registry(&inner);
+            Ok(())
+        }));
+    let native_weak = weak.clone();
+    let register_native_provider: Option<Arc<dyn Fn(Arc<dyn pi_ai::models::Provider>) + Send + Sync>> =
+        Some(Arc::new(move |provider| {
+            if let Some(inner) = native_weak.upgrade() {
+                inner.model_runtime.register_native_provider(provider);
+                refresh_current_model_from_registry(&inner);
+            }
+        }));
+    let unregister_weak = weak;
+    let unregister_provider: Option<Arc<dyn Fn(&str) + Send + Sync>> = Some(Arc::new(move |name: &str| {
+        if let Some(inner) = unregister_weak.upgrade() {
+            inner.model_runtime.unregister_provider(name);
+            refresh_current_model_from_registry(&inner);
+        }
+    }));
+    ProviderActions {
+        register_provider,
+        register_native_provider,
+        unregister_provider,
+    }
+}
+
+fn refresh_current_model_from_registry(inner: &Arc<Inner>) {
+    let current = inner.agent.model();
+    if let Some(refreshed) = inner.model_runtime.get_model(&current.provider, &current.id) {
+        inner.agent.set_model(refreshed);
+    }
+}
+
+impl AgentSession {
+    fn create_command_context(&self) -> ExtensionCommandContext {
+        self.runner().create_command_context()
+    }
+
+    fn slash_commands(&self) -> Vec<SlashCommandInfo> {
+        let runner = self.runner();
+        let mut commands: Vec<SlashCommandInfo> = runner
+            .get_registered_commands()
+            .into_iter()
+            .map(|command| SlashCommandInfo {
+                name: command.invocation_name,
+                description: command.description,
+                source: crate::core::slash_commands::SlashCommandSource::Extension,
+                source_info: command.source_info,
+            })
+            .collect();
+        for template in self.prompt_templates() {
+            commands.push(SlashCommandInfo {
+                name: template.name,
+                description: Some(template.description),
+                source: crate::core::slash_commands::SlashCommandSource::Prompt,
+                source_info: template.source_info,
+            });
+        }
+        for skill in self.inner.resource_loader.get_skills().skills {
+            commands.push(SlashCommandInfo {
+                name: format!("skill:{}", skill.name),
+                description: Some(skill.description),
+                source: crate::core::slash_commands::SlashCommandSource::Skill,
+                source_info: skill.source_info,
+            });
+        }
+        commands
+    }
+
+    async fn call_active_tool(
+        &self,
+        tool_name: &str,
+        params: Value,
+        signal: Option<CancellationToken>,
+        active_tool_call_id: Option<String>,
+    ) -> Result<pi_agent_core::agent::types::AgentToolResult, crate::core::extensions::types::HandlerError> {
+        if !self.get_active_tool_names().iter().any(|name| name == tool_name) {
+            return Err(crate::core::extensions::types::HandlerError::new(format!(
+                "Tool is not active: {tool_name}"
+            )));
+        }
+        if tool_name == "pyrun_eval" {
+            return Err(crate::core::extensions::types::HandlerError::new(
+                "pyrun_eval cannot call itself through pi.tools.call",
+            ));
+        }
+        let tool = lock(&self.inner.tool_registry)
+            .get(tool_name)
+            .cloned()
+            .ok_or_else(|| {
+                crate::core::extensions::types::HandlerError::new(format!(
+                    "Tool is not registered: {tool_name}"
+                ))
+            })?;
+        let tool_call_id = active_tool_call_id
+            .unwrap_or_else(|| format!("pyrun:{tool_name}:{}", now_millis()));
+        let arguments = params.as_object().cloned().unwrap_or_else(|| {
+            let mut object = Map::new();
+            object.insert("value".to_owned(), params.clone());
+            object
+        });
+        let tool_call = AgentToolCall {
+            r#type: pi_ai::types::ToolCallTag::Tag,
+            id: tool_call_id.clone(),
+            name: tool_name.to_owned(),
+            arguments,
+            execution: None,
+            thought_signature: None,
+            namespace: None,
+        };
+        let tool_spec = pi_ai::types::Tool::new(
+            tool_name,
+            tool.description(),
+            tool.parameters().clone(),
+        );
+        let validated = pi_ai::utils::validation::validate_tool_arguments(&tool_spec, &tool_call)
+            .map_err(|error| crate::core::extensions::types::HandlerError::new(error.to_string()))?;
+        let before = self.before_tool_call(BeforeToolCallContext {
+            assistant_message: synthetic_tool_call_assistant_message(&self.model(), &tool_call),
+            tool_call: tool_call.clone(),
+            args: Arc::new(Mutex::new(validated.clone())),
+            context: pi_agent_core::agent::types::AgentContext {
+                system_prompt: self.system_prompt(),
+                messages: self.messages(),
+                tools: Some(self.inner.agent.tools()),
+            },
+        }).await;
+        if before.as_ref().and_then(|result| result.block) == Some(true) {
+            let reason = before
+                .and_then(|result| result.reason)
+                .unwrap_or_else(|| "Tool execution was blocked".to_owned());
+            return Ok(pi_agent_core::agent::types::AgentToolResult::text(reason));
+        }
+        let result = tool
+            .execute(tool_call_id, validated.clone(), signal, Arc::new(|_| {}), None)
+            .await
+            .map_err(|error| crate::core::extensions::types::HandlerError::new(error.message))?;
+        Ok(result)
+    }
+}
+
+fn synthetic_tool_call_assistant_message(model: &Model, tool_call: &AgentToolCall) -> AssistantMessage {
+    let mut message = AssistantMessage::empty(
+        model.api.clone(),
+        model.provider.clone(),
+        model.id.clone(),
+        0,
+    );
+    message.content = vec![AssistantContent::ToolCall(tool_call.clone())];
+    message.stop_reason = StopReason::ToolUse;
+    message.timestamp = now_millis();
+    message
 }

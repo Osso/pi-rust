@@ -113,6 +113,8 @@ async fn fixture() -> Fixture {
         multi_agent_runtime_role: None,
         multi_agent_execution_capability: None,
         thinking_phase_timeout_ms: None,
+        extension_runner_ref: None,
+        session_start_event: None,
     })
     .expect("session");
     Fixture {

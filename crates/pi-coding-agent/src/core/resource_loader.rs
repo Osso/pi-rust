@@ -165,18 +165,22 @@ pub struct LoadedAgentsFiles {
 /// `getExtensions` and `extendResources` are absent until `ca-extensions-api`
 /// merges; see `docs/porting/traceability/agent-session.md`.
 pub trait ResourceLoader: Send + Sync {
+    /// Extension load result (`{ extensions, errors, runtime }`).
+    fn get_extensions(&self) -> crate::core::extensions::types::LoadExtensionsResult;
     fn get_skills(&self) -> LoadedSkills;
     fn get_prompts(&self) -> LoadedPrompts;
     fn get_agents_files(&self) -> LoadedAgentsFiles;
     fn get_rules_content(&self) -> Option<String>;
     fn get_system_prompt(&self) -> Option<String>;
     fn get_append_system_prompt(&self) -> Vec<String>;
+    fn extend_resources(&self, paths: ResourceExtensionPaths);
     fn reload(&self) -> BoxFuture<'static, ()>;
 }
 
 /// Empty loader used by tests and callers without resource discovery.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct StaticResourceLoader {
+    pub extensions: Option<crate::core::extensions::types::LoadExtensionsResult>,
     pub skills: LoadedSkills,
     pub prompts: LoadedPrompts,
     pub agents_files: LoadedAgentsFiles,
@@ -192,6 +196,16 @@ impl StaticResourceLoader {
 }
 
 impl ResourceLoader for StaticResourceLoader {
+    fn get_extensions(&self) -> crate::core::extensions::types::LoadExtensionsResult {
+        self.extensions.clone().unwrap_or_else(|| {
+            crate::core::extensions::types::LoadExtensionsResult {
+                extensions: Vec::new(),
+                errors: Vec::new(),
+                runtime: crate::core::extensions::extension_runtime::create_extension_runtime(),
+            }
+        })
+    }
+
     fn get_skills(&self) -> LoadedSkills {
         self.skills.clone()
     }
@@ -215,6 +229,8 @@ impl ResourceLoader for StaticResourceLoader {
     fn get_append_system_prompt(&self) -> Vec<String> {
         self.append_system_prompt.clone()
     }
+
+    fn extend_resources(&self, _paths: ResourceExtensionPaths) {}
 
     fn reload(&self) -> BoxFuture<'static, ()> {
         Box::pin(async {})

@@ -372,6 +372,14 @@ async fn create_agent_session_internal(
         })
     };
 
+    let steering_mode = lock(&settings).get_steering_mode();
+    let follow_up_mode = lock(&settings).get_follow_up_mode();
+    let transport = lock(&settings).get_transport();
+    let thinking_budgets = lock(&settings)
+        .get_thinking_budgets()
+        .and_then(|budgets| serde_json::to_value(budgets).ok())
+        .and_then(|value| serde_json::from_value(value).ok());
+    let max_retry_delay_ms = lock(&settings).get_provider_retry_settings().max_retry_delay_ms;
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {
             system_prompt: Some(String::new()),
@@ -383,14 +391,11 @@ async fn create_agent_session_internal(
         convert_to_llm: Some(convert_to_llm_with_block_images),
         stream_fn: Some(stream_fn),
         session_id: Some(session_id),
-        steering_mode: Some(lock(&settings).get_steering_mode()),
-        follow_up_mode: Some(lock(&settings).get_follow_up_mode()),
-        transport: Some(lock(&settings).get_transport()),
-        thinking_budgets: lock(&settings)
-            .get_thinking_budgets()
-            .and_then(|budgets| serde_json::to_value(budgets).ok())
-            .and_then(|value| serde_json::from_value(value).ok()),
-        max_retry_delay_ms: Some(lock(&settings).get_provider_retry_settings().max_retry_delay_ms),
+        steering_mode: Some(steering_mode),
+        follow_up_mode: Some(follow_up_mode),
+        transport: Some(transport),
+        thinking_budgets,
+        max_retry_delay_ms: Some(max_retry_delay_ms),
         ..Default::default()
     })
     .map_err(|error| error.message().to_owned())?;
@@ -422,6 +427,8 @@ async fn create_agent_session_internal(
         multi_agent_runtime_role: options.multi_agent_runtime_role,
         multi_agent_execution_capability: options.multi_agent_execution_capability,
         thinking_phase_timeout_ms: None,
+        extension_runner_ref: None,
+        session_start_event: None,
     })
     .map_err(|error| error.message().to_owned())?;
     let notifier_session = session.clone();
