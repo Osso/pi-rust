@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/modes/rpc/rpc-client.ts` at commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Proof: `tests/rpc_client.rs` drives real `node` child scripts over stdio (no model/network); the
+Proof: `tests/rpc_client.rs` (14 cases) drives real `node` child scripts over stdio (no model/network); the
 in-module unit test injects the kill call to reach the forced-termination failure path, which the OS
 cannot produce (`SIGKILL` always terminates). The TypeScript test files `rpc-client-process-exit.test.ts`,
 `rpc-client-idle-events.test.ts`, and `rpc-client-clone.test.ts` are covered by these cases.
@@ -17,13 +17,13 @@ cannot produce (`SIGKILL` always terminates). The TypeScript test files `rpc-cli
 | `onEvent(listener)` | Listener receives every non-correlated line in wire order; returns an unsubscribe function | `on_event` + `RpcEventSubscription` (unsubscribe on `unsubscribe()`/`Drop`); `delivers_unmatched_responses_as_events`, `sends_jsonl_commands_with_id_last_and_correlates_responses` |
 | `getStderr()` | Collected child stderr | `stderr()`; `collects_child_stderr` |
 | `send(command)` | Rejects while stopping/stopped/not started/exited; assigns `req_<n>`; appends `id` last; 30 s response timeout | `send`; `sends_jsonl_commands_with_id_last_and_correlates_responses` (exact line), `rejects_commands_sent_after_stop_begins` |
-| `handleLine(line)` | Ignores non-JSON; resolves a pending request when `type === "response"` and `id` is truthy and pending; otherwise emits an event | `ClientInner::handle_line`, `response_id`; `delivers_unmatched_responses_as_events` |
+| `handleLine(line)` | Ignores non-JSON; resolves a pending request when `type === "response"` and `id` is truthy and pending; otherwise emits an event | `ClientInner::handle_line`, `response_id`; `delivers_unmatched_responses_as_events`, `treats_responses_with_an_empty_id_as_events` |
 | `waitForIdle(timeout = 60000)` | Resolves on the first `agent_end` without `willRetry`; timeout `Timeout waiting for agent to become idle. Stderr: …` | `wait_for_idle`; `waits_through_retrying_agent_ends` |
 | `collectEvents(timeout = 60000)` | Collects through the final `agent_end`; timeout `Timeout collecting events. Stderr: …` | `collect_events`/`EventCollector`; `collects_retry_events_through_the_final_agent_end` |
 | `promptAndWait(message, images, timeout)` | Subscribes before prompting, then returns the collected events | `prompt_and_wait`; `collects_retry_events_through_the_final_agent_end` |
 | `prompt`/`steer`/`followUp`/`abort`/`interrupt`/`setThinkingLevel`/`setSteeringMode`/`setFollowUpMode`/`setAutoCompaction`/`setAutoRetry`/`abortRetry`/`abortBash`/`setSessionName` | Send only; a `success: false` response is ignored | same-named methods; `rejects_commands_sent_after_stop_begins` |
 | `newSession`, `getState`, `setModel`, `cycleModel`, `getAvailableModels`, `cycleThinkingLevel`, `getAvailableThinkingLevels`, `exportHtml`, `switchSession`, `fork`, `clone`, `getForkMessages`, `getEntries`, `getTree`, `getLastAssistantText`, `getMessages`, `getCommands` | `getData`: throw the response `error` on failure, otherwise return `data` | `response_data` + typed result structs; `surfaces_command_failure_messages`, `sends_jsonl_commands_with_id_last_and_correlates_responses` |
-| `clone()` | Sends `{ type: "clone" }` and returns `data.cancelled` | `clone_session`; covered by `sends_jsonl_commands_with_id_last_and_correlates_responses` machinery (same `send`/`getData` path) |
+| `clone()` | Sends `{ type: "clone" }` and returns `data.cancelled` | `clone_session`; `clone_sends_the_clone_command_and_returns_cancelled` |
 
 ## Pending in this slice
 
