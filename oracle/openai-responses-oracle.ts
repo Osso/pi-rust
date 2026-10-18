@@ -154,9 +154,18 @@ async function execute(request: Request, module: Module): Promise<unknown> {
 				}
 			: baseOptions;
 	const events: Array<unknown> = [];
-	const stream = module[request.operation](request.model, request.context, options);
-	for await (const event of stream) {
+	const stream = module[request.operation](request.model, request.context, options) as unknown as {
+		push: (event: unknown) => void;
+		[Symbol.asyncIterator](): AsyncIterator<Record<string, unknown>>;
+		result(): Promise<unknown>;
+	};
+	const originalPush = stream.push.bind(stream);
+	stream.push = (event: unknown) => {
 		events.push(stripStreamingScratch(JSON.parse(JSON.stringify(event))));
+		originalPush(event);
+	};
+	for await (const _event of stream) {
+		// Events are snapshotted at push time above.
 	}
 	let result: unknown;
 	try {

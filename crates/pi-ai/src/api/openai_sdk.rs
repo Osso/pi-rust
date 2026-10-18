@@ -269,7 +269,7 @@ async fn read_http_error(response: HttpResponse, signal: Option<CancellationToke
         status: Some(f64::from(response.status)),
         headers,
         body,
-        inner_error,
+        inner_error: inner_error.map(Box::new),
     }
 }
 
@@ -326,39 +326,36 @@ impl SseJsonStream {
     }
 
     pub async fn next_event(&mut self) -> Result<Option<Value>, SdkError> {
-        loop {
-            if self.done {
-                return Ok(None);
-            }
-            if self.pending.is_empty() {
-                self.fill_events().await?;
-                if self.pending.is_empty() {
-                    return Ok(None);
-                }
-            }
-            let event = self.pending.pop_front().expect("event is queued");
-            if event.data.starts_with("[DONE]") {
-                self.done = true;
-                return Ok(None);
-            }
-            let value: Value =
-                serde_json::from_str(&event.data).map_err(|error| SdkError::Message(error.to_string()))?;
-            if let Some(error) = value.get("error").filter(|error| is_truthy(error)) {
-                let message = api_error_detail(error);
-                let mut headers = ProviderErrorHeaders::new();
-                for (name, value) in &self.headers {
-                    headers.insert(name, value);
-                }
-                return Err(SdkError::Provider(Box::new(ProviderError {
-                    message,
-                    status: None,
-                    headers,
-                    body: is_plain_non_empty_object(error).then(|| error.to_string()),
-                    inner_error: Some(error.clone()),
-                })));
-            }
-            return Ok(Some(value));
+        if self.done {
+            return Ok(None);
         }
+        if self.pending.is_empty() {
+            self.fill_events().await?;
+            if self.pending.is_empty() {
+                return Ok(None);
+            }
+        }
+        let event = self.pending.pop_front().expect("event is queued");
+        if event.data.starts_with("[DONE]") {
+            self.done = true;
+            return Ok(None);
+        }
+        let value: Value = serde_json::from_str(&event.data).map_err(|error| SdkError::Message(error.to_string()))?;
+        if let Some(error) = value.get("error").filter(|error| is_truthy(error)) {
+            let message = api_error_detail(error);
+            let mut headers = ProviderErrorHeaders::new();
+            for (name, value) in &self.headers {
+                headers.insert(name, value);
+            }
+            return Err(SdkError::Provider(Box::new(ProviderError {
+                message,
+                status: None,
+                headers,
+                body: is_plain_non_empty_object(error).then(|| error.to_string()),
+                inner_error: Some(Box::new(error.clone())),
+            })));
+        }
+        Ok(Some(value))
     }
 
     async fn fill_events(&mut self) -> Result<(), SdkError> {
@@ -513,7 +510,7 @@ fn normalized_provider_error(error: &ProviderError) -> crate::utils::error_body:
 /// Inner `error` object from an SDK HTTP error, used for OpenRouter `metadata.raw`.
 pub fn sdk_error_inner(error: &SdkError) -> Option<&Value> {
     match error {
-        SdkError::Provider(error) => error.inner_error.as_ref(),
+        SdkError::Provider(error) => error.inner_error.as_deref(),
         SdkError::Message(_) => None,
     }
 }
@@ -530,7 +527,7 @@ pub fn provider_error_from_body(status: u16, body: &str) -> ProviderError {
             .as_ref()
             .filter(|error| is_plain_non_empty_object(error))
             .map(|error| error.to_string()),
-        inner_error: inner,
+        inner_error: inner.map(Box::new),
     }
 }
 

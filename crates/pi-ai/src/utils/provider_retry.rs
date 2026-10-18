@@ -38,7 +38,7 @@ pub struct ProviderError {
     /// SDK-parsed body object text (`normalizeProviderError`'s `error` field).
     pub body: Option<String>,
     /// SDK-parsed inner `error` object, retained for provider-specific metadata.
-    pub inner_error: Option<serde_json::Value>,
+    pub inner_error: Option<Box<serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

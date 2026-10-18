@@ -210,10 +210,11 @@ mod tests {
             ("top_p".to_owned(), json!(0.9)),
             ("seed".to_owned(), json!(1)),
         ]));
-        let mut stream = StreamOptions::default();
-        stream.sampling_params = Some(JsonObject::from_iter([("seed".to_owned(), json!(2))]));
         let options = SimpleStreamOptions {
-            stream,
+            stream: StreamOptions {
+                sampling_params: Some(JsonObject::from_iter([("seed".to_owned(), json!(2))])),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let base = build_base_options(

@@ -323,7 +323,7 @@ fn create_client(
 
 enum Failure {
     Sdk(SdkError),
-    Request(ProviderRequestError<CallbackError>),
+    Request(Box<ProviderRequestError<CallbackError>>),
     Message(String),
 }
 
@@ -395,7 +395,7 @@ async fn run_stream(
         retry_options(&stream_options.request),
     )
     .await
-    .map_err(Failure::Request)?;
+    .map_err(|error| Failure::Request(Box::new(error)))?;
 
     if let Some(on_response) = &stream_options.request.on_response {
         on_response(
