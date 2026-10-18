@@ -6,6 +6,8 @@ pub mod cli_entry;
 pub mod config;
 pub mod core;
 pub mod internal_runner;
+#[path = "main.rs"]
+pub mod main_runner;
 pub mod migrations;
 pub mod modes;
 pub mod package_manager_cli;

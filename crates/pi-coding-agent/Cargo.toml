@@ -6,6 +6,9 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish = false
+# `src/main.rs` is the ported `main.ts` library module; the executable target is
+# declared explicitly as `pi`.
+autobins = false
 
 [dependencies]
 # Supplies typed agent-harness values and the shared truncation size formatter.
@@ -28,7 +31,7 @@ getrandom = "=0.4.3"
 serde_yaml_ng = "=0.10.0"
 url = "=2.5.8"
 percent-encoding = "=2.3.2"
-tokio = { version = "=1.53.3", features = ["rt", "macros", "time", "sync", "process", "io-util", "fs"] }
+tokio = { version = "=1.53.3", features = ["rt", "macros", "time", "sync", "process", "io-util", "io-std", "fs"] }
 tokio-util = "=0.7.20"
 notify = "=8.2.0"
 # Compiles highlight.js grammar patterns for `utils::syntax_highlight`.
