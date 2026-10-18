@@ -236,7 +236,7 @@ impl Agent {
             is_streaming: false,
             is_model_request_active: false,
             streaming_message: None,
-            pending_tool_calls: std::collections::BTreeSet::new(),
+            pending_tool_calls: indexmap::IndexSet::new(),
             error_message: None,
         };
         Ok(Self {
@@ -350,7 +350,7 @@ impl Agent {
         self.state_lock().streaming_message.clone()
     }
 
-    pub fn pending_tool_calls(&self) -> std::collections::BTreeSet<String> {
+    pub fn pending_tool_calls(&self) -> indexmap::IndexSet<String> {
         self.state_lock().pending_tool_calls.clone()
     }
 
@@ -784,7 +784,7 @@ impl Agent {
                     state.pending_tool_calls.insert(tool_call_id.clone());
                 }
                 AgentEvent::ToolExecutionEnd { tool_call_id, .. } => {
-                    state.pending_tool_calls.remove(tool_call_id);
+                    state.pending_tool_calls.shift_remove(tool_call_id);
                 }
                 AgentEvent::TurnEnd { message, .. } => {
                     if let Some(assistant) = message.as_assistant()

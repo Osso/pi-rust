@@ -15,6 +15,7 @@ All direct dependencies are exact-pinned.
 ### `pi-coding-agent`
 
 - Auth commands, config-value reference/environment-status helpers, `ParsedSkillBlock`/`parse_skill_block`, the focused direct-module CLI `Mode` value, the focused direct-module `isValidThinkingLevel` predicate, and the tool-output persistence constants use only the Rust standard library beyond the existing exact local `pi-agent-core` type dependency. `MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES` uses `usize` only as a narrow exception for the exact TypeScript numeric literal used as a byte limit; this does not generalize JavaScript `number` mappings.
+- `pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }` — shared JS-semantics helpers (`locale_compare`, minimatch) used by `core::model_resolver` and provider attribution; avoids duplicate collation/glob implementations.
 - `pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }` — supplies the typed `ThinkingLevel` used by the direct-module default constant and the shared `format_size` implementation used by coding-agent's package-visible wrapper. Request `13185` changes no dependency version or lock entry.
 - `serde = 1.0.229` — exposes the typed serialization contract used by RPC JSONL records and `GitSource` wire values (`derive` feature).
 - `serde_json = 1.0.151` (`preserve_order`, `float_roundtrip`) — produces compact semantic JSON before the LF record delimiter, represents parsed frontmatter values, preserves insertion order for byte-identical `settings.json` output (`js_json::stringify_pretty`), and keeps session-entry key order and decimal floats byte-compatible with TypeScript `JSON.stringify`/`JSON.parse`.
@@ -44,7 +45,8 @@ All direct dependencies are exact-pinned.
 - `pi-js-compat` (path, `=0.0.0`) — `Number`/`parseInt`/`parseFloat`/`Date.parse` and Base64 (`atob`/`btoa`) helpers shared with the rest of the workspace.
 - `regex = 1.13.1` — case-insensitive (`(?i)`) provider error classification for `utils/overflow.ts` and `utils/retry.ts`, replacing JavaScript `RegExp(..., "i")`.
 - `serde = 1.0.229` — derives the diagnostics wire records and diagnostic-code enum.
-- `serde_json = 1.0.151` — carries JSON-shaped thrown values, optional diagnostic details, and streaming-parse results; the `preserve_order` feature keeps TypeScript object insertion order (`indexmap` is its transitive implementation, not a direct dependency) and `float_roundtrip` parses decimal JSON floats with the same correctly-rounded result as JavaScript `JSON.parse`.
+- `serde_json = 1.0.151` — carries JSON-shaped thrown values, optional diagnostic details, and streaming-parse results; the `preserve_order` feature keeps TypeScript object insertion order (`indexmap` is its transitive implementation) and `float_roundtrip` parses decimal JSON floats with the same correctly-rounded result as JavaScript `JSON.parse`.
+- `indexmap = 2.14.2` — direct use for `AiGatewayUniversalRequest.headers`, whose insertion order is observable in the `binding.run()` argument (TypeScript builds it as a plain object).
 - `url = 2.5.8` — parses manual OAuth redirect input, validates/normalizes verification URIs, and builds authorize/token query strings with `URLSearchParams`-compatible encoding.
 - `tokio = 1.53.3` (`io-util`, `macros`, `net`, `rt`, `sync`, `time`; dev adds `rt-multi-thread`, `test-util`) — `Notify` for `EventStream`, timers/cancellation for abort, retry, and OAuth polling, the loopback TCP listener behind the OAuth callback servers, and TCP/WebSocket transport for Codex.
 - `reqwest = 0.13.5` (default features: rustls/aws-lc TLS, HTTP/2) — default `Fetch` implementation replacing `globalThis.fetch`.
@@ -72,6 +74,7 @@ All direct dependencies are exact-pinned.
 - `rustix = 1.1.5` (`process`, exact) — kills shell process groups with SIGKILL for timeout, abort, and cleanup without `unsafe` or libc.
 - `icu_normalizer = 2.3.0` (exact, `compiled_data`, no default features) — the workspace's single `String.prototype.normalize` implementation for NFC/NFD/NFKC/NFKD, used by fuzzy edit matching and read-path variants; ICU4X data matches Node's ICU family.
 - `ignore = 0.4.23` (exact) — gitignore pattern matching (`matched`, last-match-wins, negation) behind the skill loader's `.gitignore`/`.ignore`/`.fdignore` handling, replacing the npm `ignore` package.
+- `indexmap = 2.14.2` (`serde`) — `IndexSet` for `AgentState.pending_tool_calls` and `FileOperations`, whose TypeScript `Set` iteration order is insertion order.
 - `serde_yaml_ng = 0.10.0` (exact) — parses skill and prompt-template YAML frontmatter in `harness::frontmatter`.
 - `pi-telemetry = { path = "../pi-telemetry", version = "=0.0.0" }` — supplies the `TelemetryContext`/`TelemetrySpan` runtime contract and the schema-definition types used by `harness::telemetry` and `AgentHarnessOptions.context`.
 - `tempfile = 3.27.0` (dev, exact) — creates isolated fixture trees for the node-env, tool, shell-capture, loader, and differential tests, and isolated JSONL session roots.

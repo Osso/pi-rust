@@ -1,7 +1,6 @@
 //! Port of `packages/agent/src/harness/compaction/utils.ts`.
 
-use std::collections::BTreeSet;
-
+use indexmap::IndexSet;
 use pi_ai::types::{AssistantContent, Message, TextOrImageContent, UserContent};
 use serde_json::Value;
 
@@ -13,11 +12,11 @@ const TOOL_RESULT_MAX_CHARS: usize = 2000;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FileOperations {
     /// Files read but not necessarily modified.
-    pub read: BTreeSet<String>,
+    pub read: IndexSet<String>,
     /// Files written by full-file write operations.
-    pub written: BTreeSet<String>,
+    pub written: IndexSet<String>,
     /// Files modified by edit operations.
-    pub edited: BTreeSet<String>,
+    pub edited: IndexSet<String>,
 }
 
 /// Sorted read-only and modified file lists derived from [`FileOperations`].
@@ -61,16 +60,25 @@ pub fn extract_file_ops_from_message(message: &AgentMessage, file_ops: &mut File
 
 /// Compute sorted read-only and modified file lists from accumulated operations.
 pub fn compute_file_lists(file_ops: &FileOperations) -> FileLists {
-    let modified: BTreeSet<&String> = file_ops.edited.iter().chain(&file_ops.written).collect();
+    let modified: IndexSet<&String> = file_ops.edited.iter().chain(&file_ops.written).collect();
+    let mut read_files: Vec<String> = file_ops
+        .read
+        .iter()
+        .filter(|path| !modified.contains(path))
+        .cloned()
+        .collect();
+    let mut modified_files: Vec<String> = modified.into_iter().cloned().collect();
+    sort_utf16(&mut read_files);
+    sort_utf16(&mut modified_files);
     FileLists {
-        read_files: file_ops
-            .read
-            .iter()
-            .filter(|path| !modified.contains(path))
-            .cloned()
-            .collect(),
-        modified_files: modified.into_iter().cloned().collect(),
+        read_files,
+        modified_files,
     }
+}
+
+/// `Array.prototype.sort()` default comparison orders UTF-16 code units.
+fn sort_utf16(values: &mut [String]) {
+    values.sort_by(|left, right| left.encode_utf16().cmp(right.encode_utf16()));
 }
 
 /// Formats read-only and modified file lists as summary metadata sections.

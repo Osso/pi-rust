@@ -21,7 +21,7 @@ Rust: `crates/pi-agent-core/src/agent/types.rs`. Tests: `crates/pi-agent-core/te
 | `ThinkingLevel` | `harness::types::ThinkingLevel` | `thinking_level.rs` | Reused; `reasoning_for` maps it onto `pi_ai::types::ThinkingLevel` (`off` → `None`). |
 | `CustomAgentMessages` | n/a (type-level) | `agent_types.rs` | Declaration merging has no Rust equivalent; custom messages are `AgentMessage::Custom(JsonObject)`. |
 | `AgentMessage` | `agent::AgentMessage` | `agent_types.rs` | Untagged enum; `Custom` keeps the full object including `role` and round-trips verbatim. |
-| `AgentState` | `agent::AgentState` | `agent.rs` | Snapshot returned by `Agent::state()`; runtime fields are copied, not live accessors. |
+| `AgentState` | `agent::AgentState` | `agent.rs` | Snapshot returned by `Agent::state()`; runtime fields are copied, not live accessors. `pending_tool_calls` is an `IndexSet`, preserving TypeScript `Set` insertion order. |
 | `AgentToolResult` | `agent::AgentToolResult` | `agent_types.rs` | `details` is `Option<Value>` so TS `undefined` is omitted from JSON; `terminate`/`isError` stay optional. |
 | `AgentToolUpdateCallback` | `agent::AgentToolUpdateCallback` | `agent_loop.rs` | Ignored after settlement by the loop's accepting-updates flag. |
 | `AgentToolExecutionContext` | `harness::types::AgentToolExecutionContext` | `agent_tool_execution_context.rs` | Reused; `started_at` stays `f64` per the existing port contract. |
