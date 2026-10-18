@@ -1,9 +1,18 @@
 mod config_value;
 pub mod defaults;
+pub mod diagnostics;
+pub mod experimental;
+pub mod permissions;
+pub mod pi_manifest;
+pub mod provider_display_names;
+pub mod radius;
+pub mod session_errors;
 pub mod session_manager;
 pub mod session_tool_output;
 mod skill_block;
 pub mod source_info;
+pub mod timings;
+pub mod tool_capabilities;
 pub mod tools;
 
 pub use config_value::{
