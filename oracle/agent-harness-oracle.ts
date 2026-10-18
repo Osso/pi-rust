@@ -307,7 +307,7 @@ async function telemetrySchemas(api: Api): Promise<unknown> {
 	return {
 		ai: api.telemetry.AI_TELEMETRY_SCHEMA,
 		harness: api.telemetry.HARNESS_TELEMETRY_SCHEMA,
-		agent: api.telemetry.AGENT_TELEMETRY_SCHEMAS.map((schema) => Object.keys(schema.spans).sort()),
+		agent: api.telemetry.AGENT_TELEMETRY_SCHEMAS.map((schema) => Object.keys(schema.spans)),
 	};
 }
 

@@ -27,7 +27,7 @@ schemas and recorded spans with the pinned TypeScript module.
 | `telemetry.ts:138-145` | Callback receives the admitted span; failure status follows the `pi-telemetry` contract | `start_ai_span` delegates to `TelemetryContextExt::start_span`; `maps_callback_failures_to_error_status` |
 | `telemetry.ts:602-614` | Same admission path for harness spans | `start_harness_span`; focused and differential span tests |
 | `telemetry.ts:183-231` | Operation spans share start/error attributes, then add their own kind/outcome | `operation_span` merges the shared maps; differential schema equality covers run, compaction, and navigation |
-| `telemetry.ts:232-573` | Span map insertion order is `run, compaction, navigation, checkpoint, turn, step, tool, hook, sleep, event_handler, session.write` | Rust uses `BTreeMap`, so iteration is lexicographic. Differential compares parsed JSON values and the focused test asserts the lexicographic key set; the TypeScript test's insertion-order assertion has no Rust equivalent (gap below) |
+| `telemetry.ts:232-573` | Span map insertion order is `run, compaction, navigation, checkpoint, turn, step, tool, hook, sleep, event_handler, session.write` | `pi_telemetry::TelemetryMap` (insertion-ordered `IndexMap`); the focused test asserts the source span order and the differential checks key order of every schema map (`map_key_orders`) |
 | `telemetry.ts:42-118` | AI span has no declared events | `events: None`; `declares_the_ai_request_schema` |
 | `telemetry.ts:232-573` | Every harness span has no declared events | `events: None` for all eleven spans; differential schema equality |
 
@@ -46,10 +46,6 @@ schemas and recorded spans with the pinned TypeScript module.
   backed and exposed through `ai_telemetry_schema()`,
   `harness_telemetry_schema()`, and `agent_telemetry_schemas()` because Rust
   cannot build populated maps in a `const` item.
-- **Insertion order.** The source object preserves insertion order; Rust
-  `BTreeMap` sorts span and attribute keys. JSON object equality is unaffected,
-  but byte-level key order is not reproduced. This is inherited from the
-  `pi-telemetry` schema representation.
 - **Documentation generator.** `packages/agent/scripts/generate-telemetry-docs.ts`
   and the checked-in `docs/telemetry-schema.md` are build-time documentation,
   not a runtime module; they are not ported. The schema data they render is

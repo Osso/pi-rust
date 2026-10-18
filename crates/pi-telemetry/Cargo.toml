@@ -8,6 +8,8 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+# Insertion-ordered maps: schema span/attribute keys keep TypeScript object order.
+indexmap = { version = "=2.14.2", features = ["serde"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 
 [dev-dependencies]

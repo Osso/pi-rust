@@ -58,6 +58,33 @@ fn normalize(value: &Value) -> Value {
     }
 }
 
+/// Key order of every schema map (`spans`, `startAttributes`, `endAttributes`, `events`, `attributes`).
+fn map_key_orders(value: &Value, path: &str) -> Vec<(String, Vec<String>)> {
+    const MAP_FIELDS: [&str; 5] = ["spans", "startAttributes", "endAttributes", "events", "attributes"];
+    let mut orders = Vec::new();
+    match value {
+        Value::Object(entries) => {
+            for (name, child) in entries {
+                let child_path = format!("{path}/{name}");
+                if MAP_FIELDS.contains(&name.as_str())
+                    && let Value::Object(map) = child
+                {
+                    orders.push((child_path.clone(), map.keys().cloned().collect()));
+                }
+                orders.extend(map_key_orders(child, &child_path));
+            }
+        }
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                orders.extend(map_key_orders(item, &format!("{path}[{index}]")));
+            }
+        }
+        _ => {}
+    }
+    orders.sort();
+    orders
+}
+
 fn request(oracle: &mut support::TsOracle, scenario: &str) -> Value {
     let response = oracle.request(&json!({ "id": scenario, "operation": scenario }));
     assert_eq!(response["ok"], true, "oracle scenario {scenario} failed: {response}");
@@ -66,7 +93,14 @@ fn request(oracle: &mut support::TsOracle, scenario: &str) -> Value {
 
 fn assert_matches(oracle: &mut support::TsOracle, scenario: &str, actual: Value) {
     let expected = normalize(&request(oracle, scenario));
-    assert_eq!(normalize(&actual), expected, "scenario {scenario}");
+    let actual = normalize(&actual);
+    assert_eq!(actual, expected, "scenario {scenario}");
+    // Value equality ignores key order; schema maps keep TypeScript insertion order.
+    assert_eq!(
+        map_key_orders(&actual, ""),
+        map_key_orders(&expected, ""),
+        "scenario {scenario} key order"
+    );
 }
 
 fn model(provider: &str, id: &str) -> Model {

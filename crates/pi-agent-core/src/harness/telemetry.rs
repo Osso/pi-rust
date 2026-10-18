@@ -4,7 +4,6 @@
 //! starters. Rust cannot construct the schema maps in constants, so the
 //! exported values are backed by `LazyLock` statics and returned by reference.
 
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::future::Future;
 use std::sync::LazyLock;
@@ -12,8 +11,8 @@ use std::sync::LazyLock;
 use pi_telemetry::{
     SpanAttributes, SpanOptions, TelemetryAttributeCardinality, TelemetryAttributeDefinition,
     TelemetryAttributeMetadata, TelemetryAttributeValueDefinition, TelemetryContext, TelemetryContextExt,
-    TelemetryDefaultStatus, TelemetryParentDefinition, TelemetryRequiredAttributeDefinition, TelemetrySchemaDefinition,
-    TelemetrySpan, TelemetrySpanDefinition, TelemetrySpanStatusDefinition,
+    TelemetryDefaultStatus, TelemetryMap, TelemetryParentDefinition, TelemetryRequiredAttributeDefinition,
+    TelemetrySchemaDefinition, TelemetrySpan, TelemetrySpanDefinition, TelemetrySpanStatusDefinition,
 };
 
 /// `AiSpanName`: the AI request span declared by [`ai_telemetry_schema`].
@@ -160,7 +159,7 @@ where
 fn build_ai_schema() -> TelemetrySchemaDefinition {
     TelemetrySchemaDefinition {
         version: 1,
-        spans: BTreeMap::from([("pi.ai.request".to_owned(), ai_request_span())]),
+        spans: TelemetryMap::from([("pi.ai.request".to_owned(), ai_request_span())]),
     }
 }
 
@@ -174,7 +173,7 @@ fn ai_request_span() -> TelemetrySpanDefinition {
     )
 }
 
-fn ai_request_start_attributes() -> BTreeMap<String, TelemetryRequiredAttributeDefinition> {
+fn ai_request_start_attributes() -> TelemetryMap<TelemetryRequiredAttributeDefinition> {
     start_map(vec![
         (
             "pi.ai.operation",
@@ -200,7 +199,7 @@ fn ai_request_start_attributes() -> BTreeMap<String, TelemetryRequiredAttributeD
     ])
 }
 
-fn ai_request_end_attributes() -> BTreeMap<String, TelemetryAttributeDefinition> {
+fn ai_request_end_attributes() -> TelemetryMap<TelemetryAttributeDefinition> {
     end_map(vec![
         ("pi.ai.response.model", attribute("Concrete response model", string())),
         (
@@ -322,7 +321,7 @@ fn checkpoint_span() -> TelemetrySpanDefinition {
                 ),
             ),
         ]),
-        BTreeMap::new(),
+        TelemetryMap::new(),
         "Checkpoint work throws",
     )
 }
@@ -338,7 +337,7 @@ fn turn_span() -> TelemetrySpanDefinition {
             ("pi.operation.id", required_high("Durable operation id", string())),
             ("pi.turn.id", required_high("Invocation-local turn id", string())),
         ]),
-        BTreeMap::new(),
+        TelemetryMap::new(),
         "Turn work throws",
     )
 }
@@ -529,7 +528,7 @@ fn event_handler_span() -> TelemetrySpanDefinition {
                 optional_high("Lane name for lane-scoped events", string()),
             ),
         ]),
-        BTreeMap::new(),
+        TelemetryMap::new(),
         "The listener throws",
     )
 }
@@ -591,7 +590,7 @@ fn operation_span(
     )
 }
 
-fn operation_start_attributes() -> BTreeMap<String, TelemetryRequiredAttributeDefinition> {
+fn operation_start_attributes() -> TelemetryMap<TelemetryRequiredAttributeDefinition> {
     start_map(vec![
         ("pi.session.id", required_high("Session id", string())),
         ("pi.lane.name", required_high("Lane name", string())),
@@ -603,7 +602,7 @@ fn operation_start_attributes() -> BTreeMap<String, TelemetryRequiredAttributeDe
     ])
 }
 
-fn operation_error_attributes() -> BTreeMap<String, TelemetryAttributeDefinition> {
+fn operation_error_attributes() -> TelemetryMap<TelemetryAttributeDefinition> {
     end_map(vec![
         (
             "pi.error.code",
@@ -619,8 +618,8 @@ fn operation_error_attributes() -> BTreeMap<String, TelemetryAttributeDefinition
 fn span(
     description: &str,
     parents: TelemetryParentDefinition,
-    start_attributes: BTreeMap<String, TelemetryRequiredAttributeDefinition>,
-    end_attributes: BTreeMap<String, TelemetryAttributeDefinition>,
+    start_attributes: TelemetryMap<TelemetryRequiredAttributeDefinition>,
+    end_attributes: TelemetryMap<TelemetryAttributeDefinition>,
     error_when: &str,
 ) -> TelemetrySpanDefinition {
     TelemetrySpanDefinition {
@@ -717,14 +716,14 @@ fn boolean() -> TelemetryAttributeValueDefinition {
 
 fn start_map(
     entries: Vec<(&str, TelemetryRequiredAttributeDefinition)>,
-) -> BTreeMap<String, TelemetryRequiredAttributeDefinition> {
+) -> TelemetryMap<TelemetryRequiredAttributeDefinition> {
     entries
         .into_iter()
         .map(|(name, definition)| (name.to_owned(), definition))
         .collect()
 }
 
-fn end_map(entries: Vec<(&str, TelemetryAttributeDefinition)>) -> BTreeMap<String, TelemetryAttributeDefinition> {
+fn end_map(entries: Vec<(&str, TelemetryAttributeDefinition)>) -> TelemetryMap<TelemetryAttributeDefinition> {
     entries
         .into_iter()
         .map(|(name, definition)| (name.to_owned(), definition))

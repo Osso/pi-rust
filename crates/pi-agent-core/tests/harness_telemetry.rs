@@ -92,16 +92,16 @@ fn declares_every_harness_span_in_the_source_order_and_combined_schema_order() {
     assert_eq!(
         names,
         vec![
-            "pi.harness.checkpoint",
-            "pi.harness.compaction",
-            "pi.harness.event_handler",
-            "pi.harness.hook",
-            "pi.harness.navigation",
             "pi.harness.run",
-            "pi.harness.sleep",
+            "pi.harness.compaction",
+            "pi.harness.navigation",
+            "pi.harness.checkpoint",
+            "pi.harness.turn",
             "pi.harness.step",
             "pi.harness.tool",
-            "pi.harness.turn",
+            "pi.harness.hook",
+            "pi.harness.sleep",
+            "pi.harness.event_handler",
             "pi.session.write",
         ]
     );

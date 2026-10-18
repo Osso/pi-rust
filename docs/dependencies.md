@@ -112,6 +112,7 @@ No runtime dependencies. CBOR encoding and decoding are hand-written against the
 
 ### `pi-telemetry`
 
+- `indexmap = 2.14.2` (`serde`) — `TelemetryMap`, the insertion-ordered map behind schema span/attribute/event maps and `SpanAttributes`, matching TypeScript object key order (already in the lock via `serde_json` `preserve_order`).
 - `serde = 1.0.229` — derives the camelCase wire shape for schema definitions and recorded spans/events, including the internally tagged status and parent definitions.
 
 ### `pi-client`
