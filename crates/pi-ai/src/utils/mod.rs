@@ -7,3 +7,4 @@ mod js_number;
 pub mod json_parse;
 pub mod provider_retry;
 pub mod sanitize_unicode;
+pub mod uuid;

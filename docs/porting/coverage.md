@@ -36,7 +36,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/auth/oauth/device-code.ts` | 98 | 0 | done | `crates/pi-ai/src/auth/oauth/device_code.rs` | RFC 8628 polling with deadline, slow_down and cancellation; Tokio tests. |
 | `ai/src/auth/oauth/oauth-page.ts` | 109 | 0 | done | `crates/pi-ai/src/auth/oauth/oauth_page.rs` | Success/error HTML rendering with escaping; byte-exact differential. |
 | `ai/src/auth/oauth/pkce.ts` | 34 | 0 | done | `crates/pi-ai/src/auth/oauth/pkce.rs` | Base64url verifier and SHA-256 challenge; differential challenge check. |
-| `ai/src/session-resources.ts` | 24 | 0 | todo |  |  |
+| `ai/src/session-resources.ts` | 24 | 0 | done | `crates/pi-ai/src/session_resources.rs` | Global cleanup registry with unregister and aggregated errors; marker-isolated tests. |
 | `ai/src/utils/abort-signals.ts` | 41 | 0 | done | `crates/pi-ai/src/utils/abort_signals.rs` | Child-token combination with bridge tasks; Tokio tests. |
 | `ai/src/utils/abort.ts` | 50 | 0 | done | `crates/pi-ai/src/utils/abort.rs` | Abort race and operation signal over `CancellationToken`; Tokio tests. |
 | `ai/src/utils/diagnostics.ts` | 45 | 0 | done | `crates/pi-ai/src/utils/diagnostics.rs` | Thrown-value formatting, error extraction, diagnostic creation/append, serde wire shape. |
@@ -45,8 +45,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/json-parse.ts` | 124 | 0 | done | `crates/pi-ai/src/utils/json_parse.rs` | JSON repair + `partial-json@0.1.7` streaming parser; prefix/malformed differential corpus. |
 | `ai/src/utils/provider-retry.ts` | 125 | 0 | done | `crates/pi-ai/src/utils/provider_retry.rs` | SDK retry policy, server delays, abortable sleep; Tokio tests. |
 | `ai/src/utils/sanitize-unicode.ts` | 25 | 0 | done | `crates/pi-ai/src/utils/sanitize_unicode.rs` | Surrogate repair over UTF-16 units plus typed identity API; differential. |
-| `ai/src/utils/typebox-helpers.ts` | 24 | 0 | todo |  |  |
-| `ai/src/utils/uuid.ts` | 48 | 0 | todo |  |  |
+| `ai/src/utils/typebox-helpers.ts` | 24 | 0 | gap |  | Adapts the TypeBox JSON-schema builder; deferred pending the JSON-schema design decision. |
+| `ai/src/utils/uuid.ts` | 48 | 0 | done | `crates/pi-ai/src/utils/uuid.rs` | RFC 9562 UUIDv7 with monotonic sequence; TS vectors + structural differential. |
 | `ai/src/api/anthropic-messages.ts` | 1366 | 1 | todo |  |  |
 | `ai/src/api/azure-openai-responses.ts` | 330 | 1 | todo |  |  |
 | `ai/src/api/bedrock-converse-stream.ts` | 1190 | 1 | todo |  |  |
