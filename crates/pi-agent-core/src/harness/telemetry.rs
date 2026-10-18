@@ -158,7 +158,24 @@ where
 }
 
 fn build_ai_schema() -> TelemetrySchemaDefinition {
-    let start = start_map(vec![
+    TelemetrySchemaDefinition {
+        version: 1,
+        spans: BTreeMap::from([("pi.ai.request".to_owned(), ai_request_span())]),
+    }
+}
+
+fn ai_request_span() -> TelemetrySpanDefinition {
+    span(
+        "One logical request to an AI provider",
+        TelemetryParentDefinition::Any,
+        ai_request_start_attributes(),
+        ai_request_end_attributes(),
+        "The operation throws or returns an error result",
+    )
+}
+
+fn ai_request_start_attributes() -> BTreeMap<String, TelemetryRequiredAttributeDefinition> {
+    start_map(vec![
         (
             "pi.ai.operation",
             required(
@@ -180,9 +197,11 @@ fn build_ai_schema() -> TelemetrySchemaDefinition {
                 boolean(),
             ),
         ),
-    ]);
+    ])
+}
 
-    let end = end_map(vec![
+fn ai_request_end_attributes() -> BTreeMap<String, TelemetryAttributeDefinition> {
+    end_map(vec![
         ("pi.ai.response.model", attribute("Concrete response model", string())),
         (
             "pi.ai.response.id",
@@ -227,319 +246,322 @@ fn build_ai_schema() -> TelemetrySchemaDefinition {
             "pi.ai.error.type",
             low_cardinality(attribute("Provider or transport error class", string())),
         ),
-    ]);
-
-    TelemetrySchemaDefinition {
-        version: 1,
-        spans: BTreeMap::from([(
-            "pi.ai.request".to_owned(),
-            span(
-                "One logical request to an AI provider",
-                TelemetryParentDefinition::Any,
-                start,
-                end,
-                "The operation throws or returns an error result",
-            ),
-        )]),
-    }
+    ])
 }
 
 fn build_harness_schema() -> TelemetrySchemaDefinition {
-    let mut spans = BTreeMap::new();
-    spans.insert(
-        "pi.harness.run".to_owned(),
-        operation_span(
-            "One admitted in-process run invocation",
-            "run",
-            "Run operation kind",
-            &["completed", "aborted", "failed", "suspended"],
-            "Run invocation outcome",
-            "The run fails or throws",
-        ),
-    );
-    spans.insert(
-        "pi.harness.compaction".to_owned(),
-        operation_span(
-            "One admitted in-process manual compaction invocation",
-            "compaction",
-            "Compaction operation kind",
-            &["completed", "declined", "aborted", "failed"],
-            "Compaction invocation outcome",
-            "The compaction fails or throws",
-        ),
-    );
-    spans.insert(
-        "pi.harness.navigation".to_owned(),
-        operation_span(
-            "One admitted in-process navigation invocation",
-            "navigation",
-            "Navigation operation kind",
-            &["completed", "declined", "aborted", "failed"],
-            "Navigation invocation outcome",
-            "The navigation fails or throws",
-        ),
-    );
-    spans.insert(
-        "pi.harness.checkpoint".to_owned(),
-        span(
-            "One run checkpoint",
-            TelemetryParentDefinition::Spans {
-                spans: vec!["pi.harness.run".to_owned()],
-            },
-            start_map(vec![
-                ("pi.lane.name", required_high("Lane name", string())),
-                ("pi.operation.id", required_high("Durable operation id", string())),
-                (
-                    "pi.checkpoint.kind",
-                    required(
-                        "Checkpoint purpose",
-                        string_values(&["normal", "failure_drain", "abort_reconcile"]),
-                    ),
-                ),
-            ]),
-            BTreeMap::new(),
-            "Checkpoint work throws",
-        ),
-    );
-    spans.insert(
-        "pi.harness.turn".to_owned(),
-        span(
-            "One assistant response and its tool batch",
-            TelemetryParentDefinition::Spans {
-                spans: vec!["pi.harness.run".to_owned()],
-            },
-            start_map(vec![
-                ("pi.lane.name", required_high("Lane name", string())),
-                ("pi.operation.id", required_high("Durable operation id", string())),
-                ("pi.turn.id", required_high("Invocation-local turn id", string())),
-            ]),
-            BTreeMap::new(),
-            "Turn work throws",
-        ),
-    );
-    spans.insert(
-        "pi.harness.step".to_owned(),
-        span(
-            "One durable retry attempt",
-            TelemetryParentDefinition::Spans {
-                spans: vec![
-                    "pi.harness.turn".to_owned(),
-                    "pi.harness.checkpoint".to_owned(),
-                    "pi.harness.compaction".to_owned(),
-                    "pi.harness.navigation".to_owned(),
-                ],
-            },
-            start_map(vec![
-                ("pi.lane.name", required_high("Lane name", string())),
-                ("pi.operation.id", required_high("Durable operation id", string())),
-                (
-                    "pi.step.kind",
-                    required(
-                        "Retryable step kind",
-                        string_values(&["assistant", "compaction", "branch_summary"]),
-                    ),
-                ),
-                (
-                    "pi.step.attempt",
-                    required("One-based durable attempt number", number()),
-                ),
-                (
-                    "pi.compaction.reason",
-                    optional(
-                        "Compaction trigger",
-                        string_values(&["manual", "threshold", "overflow"]),
-                    ),
-                ),
-            ]),
-            end_map(vec![(
-                "pi.step.outcome",
-                attribute(
-                    "Attempt outcome",
-                    string_values(&["succeeded", "retry", "failed", "aborted", "deferred", "overflow"]),
-                ),
-            )]),
-            "The attempt retries, fails, or throws",
-        ),
-    );
-    spans.insert(
-        "pi.harness.tool".to_owned(),
-        span(
-            "One raw phase-2 tool execution",
-            TelemetryParentDefinition::Spans {
-                spans: vec!["pi.harness.turn".to_owned(), "pi.harness.run".to_owned()],
-            },
-            start_map(vec![
-                ("pi.lane.name", required_high("Lane name", string())),
-                ("pi.operation.id", required_high("Durable operation id", string())),
-                ("pi.turn.id", optional_high("Invocation-local live turn id", string())),
-                ("pi.tool.name", required("Tool name", string())),
-                ("pi.tool.call_id", required_high("Tool call id", string())),
-                (
-                    "pi.tool.replay",
-                    required("Declared replay policy", string_values(&["never", "safe"])),
-                ),
-                (
-                    "pi.tool.recovery",
-                    required("Whether this is recovery execution", boolean()),
-                ),
-            ]),
-            end_map(vec![(
-                "pi.tool.is_error",
-                attribute("Whether raw phase-2 execution returned an error", boolean()),
-            )]),
-            "Raw phase-2 execution returns an error",
-        ),
-    );
-    spans.insert(
-        "pi.harness.hook".to_owned(),
-        span(
-            "One registered hook handler invocation",
-            TelemetryParentDefinition::Any,
-            start_map(vec![
-                ("pi.lane.name", required_high("Lane name", string())),
-                (
-                    "pi.operation.id",
-                    optional_high("Durable operation id when accepted", string()),
-                ),
-                (
-                    "pi.hook.name",
-                    required(
-                        "Hook name",
-                        string_values(&[
-                            "before_run",
-                            "before_resume",
-                            "before_run_end",
-                            "transform_context",
-                            "before_request",
-                            "before_payload",
-                            "after_response",
-                            "before_tool",
-                            "after_tool",
-                            "before_compaction",
-                            "before_navigation",
-                        ]),
-                    ),
-                ),
-                (
-                    "pi.hook.registration_id",
-                    optional("Stable hook registration id", string()),
-                ),
-            ]),
-            end_map(vec![(
-                "pi.hook.outcome",
-                attribute(
-                    "Handler outcome",
-                    string_values(&["completed", "skipped", "blocked", "failed"]),
-                ),
-            )]),
-            "The handler throws",
-        ),
-    );
-    spans.insert(
-        "pi.harness.sleep".to_owned(),
-        span(
-            "One retry delay",
-            TelemetryParentDefinition::Spans {
-                spans: vec!["pi.harness.step".to_owned(), "pi.harness.run".to_owned()],
-            },
-            start_map(vec![
-                ("pi.operation.id", required_high("Durable operation id", string())),
-                (
-                    "pi.sleep.delay_ms",
-                    required("Requested delay in milliseconds", number()),
-                ),
-            ]),
-            end_map(vec![(
-                "pi.sleep.outcome",
-                attribute("Delay outcome", string_values(&["elapsed", "aborted"])),
-            )]),
-            "Sleep work throws",
-        ),
-    );
-    spans.insert(
-        "pi.harness.event_handler".to_owned(),
-        span(
-            "One passive event listener invocation",
-            TelemetryParentDefinition::Any,
-            start_map(vec![
-                (
-                    "pi.event.type",
-                    required_low(
-                        "Delivered harness event type",
-                        string_values(&[
-                            "run_start",
-                            "run_resume",
-                            "run_suspend",
-                            "run_abort",
-                            "run_end",
-                            "fault",
-                            "handler_error",
-                            "turn_start",
-                            "turn_end",
-                            "retry_scheduled",
-                            "retry_start",
-                            "retry_end",
-                            "message_start",
-                            "message_update",
-                            "message_end",
-                            "tool_start",
-                            "tool_update",
-                            "tool_end",
-                            "entry_added",
-                            "write_pending",
-                            "queue_update",
-                            "fact_update",
-                            "config_update",
-                            "compaction_start",
-                            "compaction_end",
-                            "navigation_start",
-                            "navigation_end",
-                            "lane_created",
-                            "usage",
-                        ]),
-                    ),
-                ),
-                (
-                    "pi.lane.name",
-                    optional_high("Lane name for lane-scoped events", string()),
-                ),
-            ]),
-            BTreeMap::new(),
-            "The listener throws",
-        ),
-    );
-    spans.insert(
-        "pi.session.write".to_owned(),
-        span(
-            "One committed session mutation",
-            TelemetryParentDefinition::Any,
-            start_map(vec![
-                ("pi.lane.name", required_high("Lane name", string())),
-                (
-                    "pi.operation.id",
-                    optional_high("Durable operation id when accepted", string()),
-                ),
-                (
-                    "pi.session.mutation",
-                    required(
-                        "Session mutation kind",
-                        string_values(&["entry", "record", "lane", "fact"]),
-                    ),
-                ),
-                (
-                    "pi.session.item_type",
-                    optional("Entry, record, lane, or fact subtype", string()),
-                ),
-            ]),
-            end_map(vec![(
-                "pi.session.seq",
-                attribute("Committed session sequence when exposed", number()),
-            )]),
-            "Storage rejects the mutation",
-        ),
-    );
+    let spans = [
+        ("pi.harness.run", run_span()),
+        ("pi.harness.compaction", compaction_span()),
+        ("pi.harness.navigation", navigation_span()),
+        ("pi.harness.checkpoint", checkpoint_span()),
+        ("pi.harness.turn", turn_span()),
+        ("pi.harness.step", step_span()),
+        ("pi.harness.tool", tool_span()),
+        ("pi.harness.hook", hook_span()),
+        ("pi.harness.sleep", sleep_span()),
+        ("pi.harness.event_handler", event_handler_span()),
+        ("pi.session.write", session_write_span()),
+    ];
+    TelemetrySchemaDefinition {
+        version: 1,
+        spans: spans
+            .into_iter()
+            .map(|(name, definition)| (name.to_owned(), definition))
+            .collect(),
+    }
+}
 
-    TelemetrySchemaDefinition { version: 1, spans }
+fn run_span() -> TelemetrySpanDefinition {
+    operation_span(
+        "One admitted in-process run invocation",
+        "run",
+        "Run operation kind",
+        &["completed", "aborted", "failed", "suspended"],
+        "Run invocation outcome",
+        "The run fails or throws",
+    )
+}
+
+fn compaction_span() -> TelemetrySpanDefinition {
+    operation_span(
+        "One admitted in-process manual compaction invocation",
+        "compaction",
+        "Compaction operation kind",
+        &["completed", "declined", "aborted", "failed"],
+        "Compaction invocation outcome",
+        "The compaction fails or throws",
+    )
+}
+
+fn navigation_span() -> TelemetrySpanDefinition {
+    operation_span(
+        "One admitted in-process navigation invocation",
+        "navigation",
+        "Navigation operation kind",
+        &["completed", "declined", "aborted", "failed"],
+        "Navigation invocation outcome",
+        "The navigation fails or throws",
+    )
+}
+
+fn checkpoint_span() -> TelemetrySpanDefinition {
+    span(
+        "One run checkpoint",
+        TelemetryParentDefinition::Spans {
+            spans: vec!["pi.harness.run".to_owned()],
+        },
+        start_map(vec![
+            ("pi.lane.name", required_high("Lane name", string())),
+            ("pi.operation.id", required_high("Durable operation id", string())),
+            (
+                "pi.checkpoint.kind",
+                required(
+                    "Checkpoint purpose",
+                    string_values(&["normal", "failure_drain", "abort_reconcile"]),
+                ),
+            ),
+        ]),
+        BTreeMap::new(),
+        "Checkpoint work throws",
+    )
+}
+
+fn turn_span() -> TelemetrySpanDefinition {
+    span(
+        "One assistant response and its tool batch",
+        TelemetryParentDefinition::Spans {
+            spans: vec!["pi.harness.run".to_owned()],
+        },
+        start_map(vec![
+            ("pi.lane.name", required_high("Lane name", string())),
+            ("pi.operation.id", required_high("Durable operation id", string())),
+            ("pi.turn.id", required_high("Invocation-local turn id", string())),
+        ]),
+        BTreeMap::new(),
+        "Turn work throws",
+    )
+}
+
+fn step_span() -> TelemetrySpanDefinition {
+    span(
+        "One durable retry attempt",
+        TelemetryParentDefinition::Spans {
+            spans: vec![
+                "pi.harness.turn".to_owned(),
+                "pi.harness.checkpoint".to_owned(),
+                "pi.harness.compaction".to_owned(),
+                "pi.harness.navigation".to_owned(),
+            ],
+        },
+        start_map(vec![
+            ("pi.lane.name", required_high("Lane name", string())),
+            ("pi.operation.id", required_high("Durable operation id", string())),
+            (
+                "pi.step.kind",
+                required(
+                    "Retryable step kind",
+                    string_values(&["assistant", "compaction", "branch_summary"]),
+                ),
+            ),
+            (
+                "pi.step.attempt",
+                required("One-based durable attempt number", number()),
+            ),
+            (
+                "pi.compaction.reason",
+                optional(
+                    "Compaction trigger",
+                    string_values(&["manual", "threshold", "overflow"]),
+                ),
+            ),
+        ]),
+        end_map(vec![(
+            "pi.step.outcome",
+            attribute(
+                "Attempt outcome",
+                string_values(&["succeeded", "retry", "failed", "aborted", "deferred", "overflow"]),
+            ),
+        )]),
+        "The attempt retries, fails, or throws",
+    )
+}
+
+fn tool_span() -> TelemetrySpanDefinition {
+    span(
+        "One raw phase-2 tool execution",
+        TelemetryParentDefinition::Spans {
+            spans: vec!["pi.harness.turn".to_owned(), "pi.harness.run".to_owned()],
+        },
+        start_map(vec![
+            ("pi.lane.name", required_high("Lane name", string())),
+            ("pi.operation.id", required_high("Durable operation id", string())),
+            ("pi.turn.id", optional_high("Invocation-local live turn id", string())),
+            ("pi.tool.name", required("Tool name", string())),
+            ("pi.tool.call_id", required_high("Tool call id", string())),
+            (
+                "pi.tool.replay",
+                required("Declared replay policy", string_values(&["never", "safe"])),
+            ),
+            (
+                "pi.tool.recovery",
+                required("Whether this is recovery execution", boolean()),
+            ),
+        ]),
+        end_map(vec![(
+            "pi.tool.is_error",
+            attribute("Whether raw phase-2 execution returned an error", boolean()),
+        )]),
+        "Raw phase-2 execution returns an error",
+    )
+}
+
+fn hook_span() -> TelemetrySpanDefinition {
+    span(
+        "One registered hook handler invocation",
+        TelemetryParentDefinition::Any,
+        start_map(vec![
+            ("pi.lane.name", required_high("Lane name", string())),
+            (
+                "pi.operation.id",
+                optional_high("Durable operation id when accepted", string()),
+            ),
+            (
+                "pi.hook.name",
+                required(
+                    "Hook name",
+                    string_values(&[
+                        "before_run",
+                        "before_resume",
+                        "before_run_end",
+                        "transform_context",
+                        "before_request",
+                        "before_payload",
+                        "after_response",
+                        "before_tool",
+                        "after_tool",
+                        "before_compaction",
+                        "before_navigation",
+                    ]),
+                ),
+            ),
+            (
+                "pi.hook.registration_id",
+                optional("Stable hook registration id", string()),
+            ),
+        ]),
+        end_map(vec![(
+            "pi.hook.outcome",
+            attribute(
+                "Handler outcome",
+                string_values(&["completed", "skipped", "blocked", "failed"]),
+            ),
+        )]),
+        "The handler throws",
+    )
+}
+
+fn sleep_span() -> TelemetrySpanDefinition {
+    span(
+        "One retry delay",
+        TelemetryParentDefinition::Spans {
+            spans: vec!["pi.harness.step".to_owned(), "pi.harness.run".to_owned()],
+        },
+        start_map(vec![
+            ("pi.operation.id", required_high("Durable operation id", string())),
+            (
+                "pi.sleep.delay_ms",
+                required("Requested delay in milliseconds", number()),
+            ),
+        ]),
+        end_map(vec![(
+            "pi.sleep.outcome",
+            attribute("Delay outcome", string_values(&["elapsed", "aborted"])),
+        )]),
+        "Sleep work throws",
+    )
+}
+
+fn event_handler_span() -> TelemetrySpanDefinition {
+    span(
+        "One passive event listener invocation",
+        TelemetryParentDefinition::Any,
+        start_map(vec![
+            (
+                "pi.event.type",
+                required_low(
+                    "Delivered harness event type",
+                    string_values(&[
+                        "run_start",
+                        "run_resume",
+                        "run_suspend",
+                        "run_abort",
+                        "run_end",
+                        "fault",
+                        "handler_error",
+                        "turn_start",
+                        "turn_end",
+                        "retry_scheduled",
+                        "retry_start",
+                        "retry_end",
+                        "message_start",
+                        "message_update",
+                        "message_end",
+                        "tool_start",
+                        "tool_update",
+                        "tool_end",
+                        "entry_added",
+                        "write_pending",
+                        "queue_update",
+                        "fact_update",
+                        "config_update",
+                        "compaction_start",
+                        "compaction_end",
+                        "navigation_start",
+                        "navigation_end",
+                        "lane_created",
+                        "usage",
+                    ]),
+                ),
+            ),
+            (
+                "pi.lane.name",
+                optional_high("Lane name for lane-scoped events", string()),
+            ),
+        ]),
+        BTreeMap::new(),
+        "The listener throws",
+    )
+}
+
+fn session_write_span() -> TelemetrySpanDefinition {
+    span(
+        "One committed session mutation",
+        TelemetryParentDefinition::Any,
+        start_map(vec![
+            ("pi.lane.name", required_high("Lane name", string())),
+            (
+                "pi.operation.id",
+                optional_high("Durable operation id when accepted", string()),
+            ),
+            (
+                "pi.session.mutation",
+                required(
+                    "Session mutation kind",
+                    string_values(&["entry", "record", "lane", "fact"]),
+                ),
+            ),
+            (
+                "pi.session.item_type",
+                optional("Entry, record, lane, or fact subtype", string()),
+            ),
+        ]),
+        end_map(vec![(
+            "pi.session.seq",
+            attribute("Committed session sequence when exposed", number()),
+        )]),
+        "Storage rejects the mutation",
+    )
 }
 
 fn operation_span(

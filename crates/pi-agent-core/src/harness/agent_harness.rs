@@ -1079,6 +1079,15 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().expect("harness state mutex must not be poisoned")
 }
 
+fn initial_active_tool_names(options: &AgentHarnessOptions) -> Vec<String> {
+    match &options.active_tool_names {
+        Some(names) => names.clone(),
+        None => options.tools.as_ref().map_or_else(Vec::new, |tools| {
+            tools.iter().map(|tool| tool.name().to_owned()).collect()
+        }),
+    }
+}
+
 impl AgentHarness {
     /// Returns the lane name.
     pub const fn name(&self) -> &'static str {
@@ -1105,11 +1114,7 @@ impl AgentHarness {
 
     fn new(options: AgentHarnessOptions) -> Self {
         let closed = ClosedFlag::new();
-        let active_tool_names = options.active_tool_names.unwrap_or_else(|| {
-            options.tools.as_ref().map_or_else(Vec::new, |tools| {
-                tools.iter().map(HarnessTool::name).map(str::to_owned).collect()
-            })
-        });
+        let active_tool_names = initial_active_tool_names(&options);
         let resources = options.resources.unwrap_or(Resources {
             skills: None,
             prompt_templates: None,
