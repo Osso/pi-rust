@@ -1,0 +1,55 @@
+# openai-responses-shared traceability
+
+Source: `packages/ai/src/api/openai-responses-shared.ts`.
+Rust: `crates/pi-ai/src/api/openai_responses_shared.rs`.
+Tests: `crates/pi-ai/tests/openai_responses_shared.rs` (7 behavioral), `crates/pi-ai/tests/differential_openai_responses_shared.rs` (3 differential suites: 12 conversion scenarios, 7 tool scenarios, 12 stream scenarios) against the pinned TS module.
+
+## Representation
+- Request bodies and SSE events are `serde_json::Value`; this preserves TypeScript key order and omitted-vs-null distinctions without inventing wire structs for the OpenAI SDK types.
+- `ResponsesEventSource` abstracts the event iterator; production uses the SDK SSE decoder, tests use `VecResponsesEventSource`.
+- `ResponsesStreamFailure<E>` separates event-source failures (SDK errors) from state-machine rejections (plain `Error` messages), matching TypeScript's `throw` propagation.
+- `TextSignatureV1`/`TextSignatureVersion` from `types.rs` encode and parse the message signature.
+- Streaming scratch fields (`partialJson`, `customInput`, `streamIndex`, `partialArgs`) are typed slot state, not fields on `ToolCall`; they are never persisted.
+
+## Symbols → proof
+| TS | Rust | Test |
+|---|---|---|
+| `encodeTextSignatureV1` / `parseTextSignature` | `encode_text_signature_v1` / `parse_text_signature` | stream scenarios 0-2; differential |
+| `convertToolResultOutput` | `convert_tool_result_output` | conversion 3,7,8; `empty_tool_result_uses_no_tool_output_placeholder` |
+| citation constants + `isRawHostedSearchCitation` | `RAW_*`, `is_raw_hosted_search_citation`, `is_citation_reference` | unit tests; stream scenario 4 |
+| `getCitationBoundarySeparator` | `get_citation_boundary_separator` | stream scenario 4; split-delta unit test |
+| `appendVisibleCitationText` | `append_visible_citation_text` | unit tests; stream scenario 4 |
+| `findTrailingCitationBufferStart` | `find_trailing_citation_buffer_start` | split-delta unit test |
+| `normalizeClosedCitationMarkers` | `normalize_closed_citation_markers` | unit tests |
+| `normalizeCitationTextDelta` / `finishCitationText` / `normalizeCitationText` | same-named snake_case functions | unit tests; stream scenario 4 |
+| `OpenAIResponsesStreamOptions` | `OpenAIResponsesStreamOptions` | stream scenarios; service-tier callbacks exercised by `openai-responses` tests |
+| `ConvertResponsesMessagesOptions` / `ConvertResponsesToolsOptions` | same-named structs | conversion/tool scenarios |
+| `convertResponsesMessages` | `convert_responses_messages` | conversion 0-11; behavioral tests |
+| system role (`developer`/`system`) | `convert_responses_messages` | conversion 0 vs 1 |
+| provider-native input insertion | `convert_responses_messages` | conversion 6; behavioral test |
+| tool-call ID normalization (`normalizeIdPart`, `buildForeignResponsesItemId`, pipe split) | `normalize_id_part`, `build_foreign_responses_item_id`, `split_tool_call_id` | conversion 3-4; behavioral test |
+| message IDs/fallbacks/`shortHash` | text-block branch | conversion 2; behavioral test |
+| custom-tool replay + namespace gating | tool-call branch | conversion 9; stream scenario 3 |
+| deferred tools (`additional-tools`, `tool-search`) | tool-result branch | conversion 10-11 |
+| `convertResponsesTools` | `convert_responses_tools` | tool scenarios 0-6 |
+| `processResponsesStream` | `process_responses_stream` | stream scenarios 0-11; behavioral tests |
+| reasoning slots and signature backfill | `Slot::Thinking`, `backfill_reasoning_signatures` | stream 1, 11 |
+| text slots and citation streaming | `Slot::Text`, `append_provider_text_delta` | stream 0, 4 |
+| function/custom tool slots | `Slot::ToolCall` | stream 2-3 |
+| usage/cost and service-tier resolution | `finalize_response` | stream 0; service-tier pricing in `openai-responses` |
+| stop-reason mapping | `map_stop_reason` | stream 0, 6, 9 |
+| terminal-event requirement | end-of-loop check | stream 8; behavioral test |
+| `response.failed` / `error` messages | event arms | stream 7 |
+
+## Differential normalizations
+- Event `partial` payloads are snapshotted by the oracle at push time. TypeScript events carry a live reference; Rust events carry a value snapshot. Snapshotting is the observable equivalent for a consumer reading each event.
+- The oracle strips TypeScript streaming scratch keys (`partialJson`, `customInput`, `streamIndex`, `partialArgs`) from event snapshots. Rust keeps them in slot state and never exposes them.
+- Numbers compare as `f64` values (`float_roundtrip` parsing), not lexical forms.
+- Timestamps are supplied by the test fixture, so no clock normalization is needed.
+
+## Gaps
+- `applyServiceTierPricing`/`resolveServiceTier` callbacks cannot be expressed in the JSON oracle; Rust behavior is covered in `openai-responses` behavioral tests.
+- TypeScript untyped escape hatches (`as any`, deleting scratch fields) have no Rust equivalent by design.
+
+## Discrepancies
+- None. `mapStopReason`'s `never` branch throws `Unhandled stop reason: <status>`; Rust returns the same message as an error.
