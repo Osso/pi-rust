@@ -8,9 +8,8 @@ use pi_ai::api::bedrock_converse_stream::{stream, stream_simple};
 use pi_ai::api::bedrock_sigv4::{AwsCredentials, sign_request};
 use pi_ai::request::{HttpRequest, ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{
-    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, Message,
-    Model, ProviderEnv, StopReason, ThinkingBudgets, ThinkingLevel, Tool, ToolResultContent,
-    ToolResultMessage, ToolResultRole, UserContent, UserMessage, UserRole,
+    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, Message, Model, ProviderEnv,
+    StopReason, Tool, ToolResultContent, ToolResultMessage, ToolResultRole, UserContent, UserMessage, UserRole,
 };
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
@@ -20,8 +19,16 @@ const SECRET_KEY: &str = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
 
 #[derive(Clone)]
 enum FrameSpec {
-    Event { event_type: String, payload: Value, corrupt_message: bool, corrupt_prelude: bool },
-    Exception { exception_type: String, payload: Value },
+    Event {
+        event_type: String,
+        payload: Value,
+        corrupt_message: bool,
+        corrupt_prelude: bool,
+    },
+    Exception {
+        exception_type: String,
+        payload: Value,
+    },
 }
 
 impl FrameSpec {
@@ -189,10 +196,7 @@ impl ResponseSpec {
         if let Some(text) = &self.text {
             return text.as_bytes().to_vec();
         }
-        self.frames
-            .iter()
-            .flat_map(FrameSpec::to_bytes)
-            .collect()
+        self.frames.iter().flat_map(FrameSpec::to_bytes).collect()
     }
 }
 
@@ -204,14 +208,7 @@ struct Scenario {
     process_env: BTreeMap<String, String>,
     script: Vec<ResponseSpec>,
     capture_payload: bool,
-    abort: Option<Abort>,
     simple: Option<SimpleStreamOptions>,
-}
-
-#[derive(Clone)]
-enum Abort {
-    Immediate,
-    AfterEvents(usize),
 }
 
 fn default_env() -> ProviderEnv {
@@ -278,7 +275,10 @@ fn options() -> StreamOptions {
 fn text_script() -> Vec<ResponseSpec> {
     vec![ResponseSpec::eventstream(vec![
         FrameSpec::event("messageStart", json!({"role": "assistant"})),
-        FrameSpec::event("contentBlockDelta", json!({"contentBlockIndex": 0, "delta": {"text": "Hello"}})),
+        FrameSpec::event(
+            "contentBlockDelta",
+            json!({"contentBlockIndex": 0, "delta": {"text": "Hello"}}),
+        ),
         FrameSpec::event("contentBlockStop", json!({"contentBlockIndex": 0})),
         FrameSpec::event("messageStop", json!({"stopReason": "end_turn"})),
         FrameSpec::event(
@@ -298,7 +298,6 @@ fn scenarios() -> Vec<Scenario> {
         process_env: BTreeMap::new(),
         script: text_script(),
         capture_payload: false,
-        abort: None,
         simple: None,
     });
 
@@ -313,7 +312,10 @@ fn scenarios() -> Vec<Scenario> {
             json!({"contentBlockIndex": 0, "delta": {"reasoningContent": {"signature": "sig"}}}),
         ),
         FrameSpec::event("contentBlockStop", json!({"contentBlockIndex": 0})),
-        FrameSpec::event("contentBlockDelta", json!({"contentBlockIndex": 1, "delta": {"text": "Answer"}})),
+        FrameSpec::event(
+            "contentBlockDelta",
+            json!({"contentBlockIndex": 1, "delta": {"text": "Answer"}}),
+        ),
         FrameSpec::event("contentBlockStop", json!({"contentBlockIndex": 1})),
         FrameSpec::event("messageStop", json!({"stopReason": "end_turn"})),
         FrameSpec::event(
@@ -329,7 +331,6 @@ fn scenarios() -> Vec<Scenario> {
         process_env: BTreeMap::new(),
         script: vec![ResponseSpec::eventstream(reasoning_body)],
         capture_payload: false,
-        abort: None,
         simple: None,
     });
 
@@ -358,7 +359,6 @@ fn scenarios() -> Vec<Scenario> {
         process_env: BTreeMap::new(),
         script: vec![ResponseSpec::eventstream(tool_body)],
         capture_payload: false,
-        abort: None,
         simple: None,
     });
 
@@ -377,7 +377,6 @@ fn scenarios() -> Vec<Scenario> {
             FrameSpec::event("messageStop", json!({"stopReason": "end_turn"})),
         ])],
         capture_payload: false,
-        abort: None,
         simple: None,
     });
 
@@ -426,7 +425,6 @@ fn scenarios() -> Vec<Scenario> {
                 FrameSpec::event("messageStop", json!({"stopReason": "end_turn"})),
             ])],
             capture_payload: true,
-            abort: None,
             simple: None,
         });
     }
@@ -437,10 +435,7 @@ fn scenarios() -> Vec<Scenario> {
             role: UserRole::Tag,
             content: UserContent::Blocks(vec![
                 pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new("look")),
-                pi_ai::types::TextOrImageContent::Image(pi_ai::types::ImageContent::new(
-                    "aGVsbG8=",
-                    "image/png",
-                )),
+                pi_ai::types::TextOrImageContent::Image(pi_ai::types::ImageContent::new("aGVsbG8=", "image/png")),
             ]),
             input_source: None,
             provider_native: None,
@@ -508,9 +503,7 @@ fn scenarios() -> Vec<Scenario> {
     let mut rich_options = options();
     rich_options.temperature = Some(0.5);
     rich_options.max_tokens = Some(1234.0);
-    rich_options
-        .extra
-        .insert("toolChoice".to_owned(), json!("auto"));
+    rich_options.extra.insert("toolChoice".to_owned(), json!("auto"));
     rich_options
         .extra
         .insert("requestMetadata".to_owned(), json!({"team": "core"}));
@@ -529,7 +522,6 @@ fn scenarios() -> Vec<Scenario> {
             FrameSpec::event("messageStop", json!({"stopReason": "end_turn"})),
         ])],
         capture_payload: false,
-        abort: None,
         simple: None,
     });
 
@@ -543,7 +535,6 @@ fn scenarios() -> Vec<Scenario> {
         process_env: BTreeMap::new(),
         script: text_script(),
         capture_payload: false,
-        abort: None,
         simple: None,
     });
 
@@ -557,7 +548,6 @@ fn scenarios() -> Vec<Scenario> {
         process_env: BTreeMap::new(),
         script: text_script(),
         capture_payload: false,
-        abort: None,
         simple: None,
     });
 
@@ -571,7 +561,223 @@ fn scenarios() -> Vec<Scenario> {
         process_env: BTreeMap::new(),
         script: text_script(),
         capture_payload: false,
-        abort: None,
+        simple: None,
+    });
+
+    let error_script = vec![
+        ResponseSpec::http(
+            429,
+            vec![
+                ("content-type", "application/json"),
+                (
+                    "x-amzn-errortype",
+                    "ThrottlingException:http://internal.amazon.com/coral/com.amazon.bedrock/",
+                ),
+                ("x-amzn-requestid", "req-1"),
+                ("retry-after", "0"),
+            ],
+            r#"{"message":"slow down"}"#,
+        ),
+        ResponseSpec::http(
+            429,
+            vec![
+                ("content-type", "application/json"),
+                (
+                    "x-amzn-errortype",
+                    "ThrottlingException:http://internal.amazon.com/coral/com.amazon.bedrock/",
+                ),
+                ("x-amzn-requestid", "req-2"),
+                ("retry-after", "0"),
+            ],
+            r#"{"message":"slow down"}"#,
+        ),
+        ResponseSpec::http(
+            400,
+            vec![
+                ("content-type", "application/json"),
+                (
+                    "x-amzn-errortype",
+                    "ValidationException:http://internal.amazon.com/coral/com.amazon.bedrock/",
+                ),
+                ("x-amzn-requestid", "req-final"),
+            ],
+            r#"{"message":"The provided model identifier is invalid."}"#,
+        ),
+    ];
+    scenarios.push(Scenario {
+        name: "errors-retry",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: error_script,
+        capture_payload: false,
+        simple: None,
+    });
+
+    scenarios.push(Scenario {
+        name: "service-unavailable",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: vec![
+            ResponseSpec::http(
+                400,
+                vec![
+                    ("content-type", "application/json"),
+                    (
+                        "x-amzn-errortype",
+                        "ServiceUnavailableException:http://internal.amazon.com/coral/com.amazon.bedrock/",
+                    ),
+                    ("x-amzn-requestid", "req-service-1"),
+                    ("retry-after", "0"),
+                ],
+                r#"{"message":"try later"}"#,
+            ),
+            ResponseSpec::http(
+                400,
+                vec![
+                    ("content-type", "application/json"),
+                    (
+                        "x-amzn-errortype",
+                        "ServiceUnavailableException:http://internal.amazon.com/coral/com.amazon.bedrock/",
+                    ),
+                    ("x-amzn-requestid", "req-service-2"),
+                    ("retry-after", "0"),
+                ],
+                r#"{"message":"try later"}"#,
+            ),
+            ResponseSpec::http(
+                400,
+                vec![
+                    ("content-type", "application/json"),
+                    (
+                        "x-amzn-errortype",
+                        "ServiceUnavailableException:http://internal.amazon.com/coral/com.amazon.bedrock/",
+                    ),
+                    ("x-amzn-requestid", "req-service-3"),
+                    ("retry-after", "0"),
+                ],
+                r#"{"message":"try later"}"#,
+            ),
+        ],
+        capture_payload: false,
+        simple: None,
+    });
+
+    scenarios.push(Scenario {
+        name: "mid-stream-exception",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: vec![ResponseSpec::eventstream(vec![
+            FrameSpec::event("messageStart", json!({"role": "assistant"})),
+            FrameSpec::exception(
+                "ThrottlingException",
+                json!({"message": "Too many requests, please wait."}),
+            ),
+        ])],
+        capture_payload: false,
+        simple: None,
+    });
+
+    scenarios.push(Scenario {
+        name: "corrupt-message-crc",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: vec![ResponseSpec::eventstream(vec![
+            FrameSpec::event("messageStart", json!({"role": "assistant"})),
+            FrameSpec::Event {
+                event_type: "contentBlockDelta".to_owned(),
+                payload: json!({"contentBlockIndex": 0, "delta": {"text": "Hello"}}),
+                corrupt_message: true,
+                corrupt_prelude: false,
+            },
+        ])],
+        capture_payload: false,
+        simple: None,
+    });
+
+    scenarios.push(Scenario {
+        name: "corrupt-prelude-crc",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: vec![ResponseSpec::eventstream(vec![
+            FrameSpec::event("messageStart", json!({"role": "assistant"})),
+            FrameSpec::Event {
+                event_type: "contentBlockDelta".to_owned(),
+                payload: json!({"contentBlockIndex": 0, "delta": {"text": "Hello"}}),
+                corrupt_message: false,
+                corrupt_prelude: true,
+            },
+        ])],
+        capture_payload: false,
+        simple: None,
+    });
+
+    let credentials_path = std::env::temp_dir().join(format!("pi-bedrock-diff-{}", std::process::id()));
+    std::fs::create_dir_all(&credentials_path).expect("temp dir");
+    let credentials_file = credentials_path.join("credentials");
+    std::fs::write(
+        &credentials_file,
+        format!("[dev]\naws_access_key_id = {ACCESS_KEY}\naws_secret_access_key = {SECRET_KEY}\n"),
+    )
+    .expect("credentials file");
+    let mut profile_env = ProviderEnv::new();
+    profile_env.insert("AWS_REGION".to_owned(), "us-east-1".to_owned());
+    profile_env.insert(
+        "AWS_SHARED_CREDENTIALS_FILE".to_owned(),
+        credentials_file.to_string_lossy().into_owned(),
+    );
+    let mut profile_options = StreamOptions {
+        request: ProviderRequestOptions {
+            env: Some(profile_env),
+            ..Default::default()
+        },
+        cache_retention: Some(CacheRetention::None),
+        ..Default::default()
+    };
+    profile_options.extra.insert("profile".to_owned(), json!("dev"));
+    let mut profile_process_env = BTreeMap::new();
+    profile_process_env.insert(
+        "AWS_SHARED_CREDENTIALS_FILE".to_owned(),
+        credentials_file.to_string_lossy().into_owned(),
+    );
+    scenarios.push(Scenario {
+        name: "profile-credentials",
+        model: model(),
+        context: context(),
+        options: profile_options,
+        process_env: profile_process_env,
+        script: text_script(),
+        capture_payload: false,
+        simple: None,
+    });
+
+    let mut skip_env = ProviderEnv::new();
+    skip_env.insert("AWS_REGION".to_owned(), "us-east-1".to_owned());
+    skip_env.insert("AWS_BEDROCK_SKIP_AUTH".to_owned(), "1".to_owned());
+    scenarios.push(Scenario {
+        name: "skip-auth",
+        model: model(),
+        context: context(),
+        options: StreamOptions {
+            request: ProviderRequestOptions {
+                env: Some(skip_env),
+                ..Default::default()
+            },
+            cache_retention: Some(CacheRetention::None),
+            ..Default::default()
+        },
+        process_env: BTreeMap::new(),
+        script: text_script(),
+        capture_payload: false,
         simple: None,
     });
 
@@ -586,10 +792,6 @@ fn scenario_to_oracle_request(id: usize, scenario: &Scenario) -> Value {
     if scenario.capture_payload {
         options["capturePayload"] = json!(true);
     }
-    let abort = scenario.abort.as_ref().map(|abort| match abort {
-        Abort::Immediate => json!("immediate"),
-        Abort::AfterEvents(count) => json!({"afterEvents": count}),
-    });
     json!({
         "id": id,
         "model": serde_json::to_value(&scenario.model).expect("model"),
@@ -598,7 +800,6 @@ fn scenario_to_oracle_request(id: usize, scenario: &Scenario) -> Value {
         "processEnv": scenario.process_env,
         "script": scenario.script.iter().map(ResponseSpec::to_ts).collect::<Vec<_>>(),
         "capturePayload": scenario.capture_payload,
-        "abort": abort,
     })
 }
 
@@ -640,7 +841,14 @@ fn simple_to_ts(simple: &SimpleStreamOptions) -> Value {
     value
 }
 
-async fn run_rust(scenario: &Scenario) -> (Vec<HttpRequest>, Vec<AssistantMessageEvent>, AssistantMessage, Option<Value>) {
+async fn run_rust(
+    scenario: &Scenario,
+) -> (
+    Vec<HttpRequest>,
+    Vec<AssistantMessageEvent>,
+    AssistantMessage,
+    Option<Value>,
+) {
     let fetch = ScriptedFetch::new(
         scenario
             .script
@@ -654,49 +862,38 @@ async fn run_rust(scenario: &Scenario) -> (Vec<HttpRequest>, Vec<AssistantMessag
     );
     let mut options = scenario.options.clone();
     options.request.fetch = Some(fetch.clone());
+    let captured = Arc::new(std::sync::Mutex::new(None));
     if scenario.capture_payload {
-        let captured = Arc::new(std::sync::Mutex::new(None));
         let captured_clone = Arc::clone(&captured);
         options.request.on_payload = Some(Arc::new(move |payload, _model| {
             *captured_clone.lock().expect("capture") = Some(payload);
             Box::pin(async { Ok(None) })
         }));
-        let token = CancellationToken::new();
-        if let Some(Abort::Immediate) = scenario.abort {
-            token.cancel();
-        }
-        options.request.signal = Some(token.clone());
-        let (events, message) = if let Some(simple) = &scenario.simple {
-            let mut simple = simple.clone();
-            simple.stream = options;
-            drain(stream_simple(scenario.model.clone(), scenario.context.clone(), simple)).await
-        } else {
-            drain(stream(scenario.model.clone(), scenario.context.clone(), options)).await
-        };
-        return (
-            fetch.requests(),
-            events,
-            message,
-            captured.lock().expect("capture").clone(),
-        );
     }
     let token = CancellationToken::new();
-    if let Some(Abort::Immediate) = scenario.abort {
-        token.cancel();
-    }
     options.request.signal = Some(token.clone());
     let (events, message) = if let Some(simple) = &scenario.simple {
         let mut simple = simple.clone();
         simple.stream = options;
-        drain(stream_simple(scenario.model.clone(), scenario.context.clone(), simple)).await
+        drain_with_abort(
+            stream_simple(scenario.model.clone(), scenario.context.clone(), simple),
+            token,
+        )
+        .await
     } else {
-        drain(stream(scenario.model.clone(), scenario.context.clone(), options)).await
+        drain_with_abort(stream(scenario.model.clone(), scenario.context.clone(), options), token).await
     };
-    (fetch.requests(), events, message, None)
+    (
+        fetch.requests(),
+        events,
+        message,
+        captured.lock().expect("capture").clone(),
+    )
 }
 
-async fn drain(
+async fn drain_with_abort(
     mut stream: pi_ai::utils::event_stream::AssistantMessageEventStream,
+    _token: CancellationToken,
 ) -> (Vec<AssistantMessageEvent>, AssistantMessage) {
     let mut events = Vec::new();
     while let Some(event) = stream.next().await {
@@ -822,9 +1019,14 @@ fn verify_signature(scenario: &Scenario, oracle_request: &Value) {
         );
         return;
     }
-    if scenario.process_env.contains_key("AWS_BEDROCK_SKIP_AUTH") {
-        return;
-    }
+    let skip_auth = scenario
+        .options
+        .request
+        .env
+        .as_ref()
+        .and_then(|env| env.get("AWS_BEDROCK_SKIP_AUTH"))
+        .is_some_and(|value| value == "1")
+        || scenario.process_env.contains_key("AWS_BEDROCK_SKIP_AUTH");
     let headers = oracle_request["headers"].as_object().expect("headers");
     let authorization = headers
         .get("authorization")
@@ -834,19 +1036,11 @@ fn verify_signature(scenario: &Scenario, oracle_request: &Value) {
         .get("x-amz-date")
         .and_then(Value::as_str)
         .expect("oracle x-amz-date");
-    let region = authorization
-        .split('/')
-        .nth(2)
-        .expect("credential scope region");
+    let region = authorization.split('/').nth(2).expect("credential scope region");
     let mut rust_headers: Vec<(String, String)> = headers
         .iter()
-        .filter(|(name, _)| name.to_ascii_lowercase() != "authorization")
-        .map(|(name, value)| {
-            (
-                name.clone(),
-                value.as_str().expect("header string").to_owned(),
-            )
-        })
+        .filter(|(name, _)| !name.eq_ignore_ascii_case("authorization"))
+        .map(|(name, value)| (name.clone(), value.as_str().expect("header string").to_owned()))
         .collect();
     let body = oracle_request["body"].as_str().expect("body").as_bytes();
     let hostname = oracle_request["hostname"].as_str().expect("hostname");
@@ -856,8 +1050,16 @@ fn verify_signature(scenario: &Scenario, oracle_request: &Value) {
         oracle_request["path"].as_str().expect("path")
     );
     let credentials = AwsCredentials {
-        access_key_id: ACCESS_KEY.to_owned(),
-        secret_access_key: SECRET_KEY.to_owned(),
+        access_key_id: if skip_auth {
+            "dummy-access-key".to_owned()
+        } else {
+            ACCESS_KEY.to_owned()
+        },
+        secret_access_key: if skip_auth {
+            "dummy-secret-key".to_owned()
+        } else {
+            SECRET_KEY.to_owned()
+        },
         session_token: headers
             .get("x-amz-security-token")
             .and_then(Value::as_str)
@@ -869,8 +1071,7 @@ fn verify_signature(scenario: &Scenario, oracle_request: &Value) {
         &mut rust_headers,
         body,
         &credentials,
-        region,
-        "bedrock",
+        (region, "bedrock"),
         parse_amz_date(amz_date),
     )
     .expect("sign");
@@ -892,7 +1093,12 @@ async fn bedrock_converse_stream_matches_the_pinned_typescript_module() {
     for (index, scenario) in scenarios().into_iter().enumerate() {
         let id = index + 1;
         let response = oracle.request(&scenario_to_oracle_request(id, &scenario));
-        assert_eq!(response["ok"], json!(true), "oracle failed for {}: {response}", scenario.name);
+        assert_eq!(
+            response["ok"],
+            json!(true),
+            "oracle failed for {}: {response}",
+            scenario.name
+        );
         let output = &response["output"];
 
         let (requests, events, message, captured) = run_rust(&scenario).await;
@@ -983,12 +1189,10 @@ impl pi_ai::request::Fetch for ScriptedFetch {
         signal: Option<CancellationToken>,
     ) -> pi_ai::request::BoxFuture<'_, Result<pi_ai::request::HttpResponse, pi_ai::request::CallbackError>> {
         Box::pin(async move {
-            if signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
-                return Err(pi_ai::request::CallbackError::new(
-                    pi_ai::http::ABORT_ERROR_MESSAGE,
-                ));
-            }
             self.requests.lock().expect("requests").push(request);
+            if signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+                return Err(pi_ai::request::CallbackError::new(pi_ai::http::ABORT_ERROR_MESSAGE));
+            }
             let response = self
                 .responses
                 .lock()
@@ -997,6 +1201,7 @@ impl pi_ai::request::Fetch for ScriptedFetch {
                 .expect("scripted response");
             Ok(pi_ai::request::HttpResponse {
                 status: response.status,
+                status_text: String::new(),
                 headers: response.headers,
                 body: Box::new(ScriptedBody {
                     chunks: response.chunks.into(),
@@ -1013,9 +1218,7 @@ struct ScriptedBody {
 }
 
 impl pi_ai::request::HttpBody for ScriptedBody {
-    fn next_chunk(
-        &mut self,
-    ) -> pi_ai::request::BoxFuture<'_, Option<Result<Vec<u8>, pi_ai::request::CallbackError>>> {
+    fn next_chunk(&mut self) -> pi_ai::request::BoxFuture<'_, Option<Result<Vec<u8>, pi_ai::request::CallbackError>>> {
         Box::pin(async move {
             if self.signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
                 return Some(Err(pi_ai::request::CallbackError::new(

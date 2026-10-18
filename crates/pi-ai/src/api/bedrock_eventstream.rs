@@ -77,11 +77,8 @@ impl EventStreamDecoder {
         }
 
         let message = &self.buffer[..total_length];
-        let expected_message_crc = u32::from_be_bytes(
-            message[total_length - 4..total_length]
-                .try_into()
-                .expect("message crc"),
-        );
+        let expected_message_crc =
+            u32::from_be_bytes(message[total_length - 4..total_length].try_into().expect("message crc"));
         let calculated_message_crc = crc32(&message[..total_length - 4]);
         if expected_message_crc != calculated_message_crc {
             return Err(EventStreamError::new(format!(
@@ -119,7 +116,10 @@ fn decode_header_value(value_type: u8, bytes: &[u8]) -> Result<(String, usize), 
     match value_type {
         0 => Ok(("true".to_owned(), 0)),
         1 => Ok(("false".to_owned(), 0)),
-        2 => Ok((i8::from_be_bytes([*bytes.first().ok_or_else(header_error)?]).to_string(), 1)),
+        2 => Ok((
+            i8::from_be_bytes([*bytes.first().ok_or_else(header_error)?]).to_string(),
+            1,
+        )),
         3 => Ok((
             i16::from_be_bytes(bytes.get(0..2).ok_or_else(header_error)?.try_into().expect("short")).to_string(),
             2,
@@ -133,14 +133,16 @@ fn decode_header_value(value_type: u8, bytes: &[u8]) -> Result<(String, usize), 
             8,
         )),
         6 => {
-            let length = u16::from_be_bytes(bytes.get(0..2).ok_or_else(header_error)?.try_into().expect("len")) as usize;
+            let length =
+                u16::from_be_bytes(bytes.get(0..2).ok_or_else(header_error)?.try_into().expect("len")) as usize;
             let value = bytes.get(2..2 + length).ok_or_else(header_error)?;
             Ok((crate::utils::base64::encode(value), 2 + length))
         }
         7 => {
-            let length = u16::from_be_bytes(bytes.get(0..2).ok_or_else(header_error)?.try_into().expect("len")) as usize;
-            let value = std::str::from_utf8(bytes.get(2..2 + length).ok_or_else(header_error)?)
-                .map_err(|_| header_error())?;
+            let length =
+                u16::from_be_bytes(bytes.get(0..2).ok_or_else(header_error)?.try_into().expect("len")) as usize;
+            let value =
+                std::str::from_utf8(bytes.get(2..2 + length).ok_or_else(header_error)?).map_err(|_| header_error())?;
             Ok((value.to_owned(), 2 + length))
         }
         8 => Ok((
@@ -148,7 +150,9 @@ fn decode_header_value(value_type: u8, bytes: &[u8]) -> Result<(String, usize), 
             8,
         )),
         9 => Ok((format!("{:?}", bytes.get(0..16).ok_or_else(header_error)?), 16)),
-        _ => Err(EventStreamError::new(format!("Unsupported event stream header value type {value_type}"))),
+        _ => Err(EventStreamError::new(format!(
+            "Unsupported event stream header value type {value_type}"
+        ))),
     }
 }
 

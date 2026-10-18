@@ -77,13 +77,11 @@ function encodeFrame(
 	const out = Buffer.alloc(totalLength);
 	out.writeUInt32BE(totalLength, 0);
 	out.writeUInt32BE(headersLength, 4);
-	let preludeCrc = crc32(out.subarray(0, 8)) >>> 0;
-	if (corruptPrelude) preludeCrc ^= 1;
+	const preludeCrc = (crc32(out.subarray(0, 8)) ^ (corruptPrelude ? 1 : 0)) >>> 0;
 	out.writeUInt32BE(preludeCrc, 8);
 	Buffer.from(headerParts).copy(out, 12);
 	Buffer.from(payload).copy(out, 12 + headersLength);
-	let messageCrc = crc32(out.subarray(0, totalLength - 4)) >>> 0;
-	if (corruptMessage) messageCrc ^= 1;
+	const messageCrc = (crc32(out.subarray(0, totalLength - 4)) ^ (corruptMessage ? 1 : 0)) >>> 0;
 	out.writeUInt32BE(messageCrc, totalLength - 4);
 	return out;
 }
@@ -129,7 +127,10 @@ async function main(): Promise<void> {
 		new URL("node_modules/@smithy/node-http-handler/dist-cjs/index.js", sourceRoot).href
 	)) as { NodeHttpHandler: { prototype: { handle: (...args: unknown[]) => Promise<unknown> } } };
 
-	nodeHttpHandler.NodeHttpHandler.prototype.handle = async (request: unknown) => {
+	nodeHttpHandler.NodeHttpHandler.prototype.handle = async (
+		request: unknown,
+		options?: { abortSignal?: AbortSignal },
+	) => {
 		activeRequests.push(request as Record<string, unknown>);
 		const response = activeScript[Math.min(scriptIndex, activeScript.length - 1)];
 		scriptIndex += 1;
@@ -139,11 +140,18 @@ async function main(): Promise<void> {
 			: Buffer.from(response.text ?? "", "utf8");
 		const headers: Record<string, string> = {};
 		for (const [name, value] of response.headers) headers[name] = value;
+		const body = Readable.from(splitBytes(bytes, response.chunkSizes));
+		const signal = options?.abortSignal;
+		if (signal) {
+			const abort = () => body.destroy(new Error("This operation was aborted"));
+			if (signal.aborted) abort();
+			else signal.addEventListener("abort", abort, { once: true });
+		}
 		return {
 			response: {
 				statusCode: response.status,
 				headers,
-				body: Readable.from(splitBytes(bytes, response.chunkSizes)),
+				body,
 			},
 		};
 	};

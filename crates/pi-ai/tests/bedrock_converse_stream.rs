@@ -3,13 +3,11 @@ mod bedrock_support;
 use std::sync::{Arc, Mutex};
 
 use bedrock_support::*;
-use pi_ai::api::bedrock_converse_stream::{
-    stream, stream_simple,
-};
+use pi_ai::api::bedrock_converse_stream::{stream, stream_simple};
 use pi_ai::request::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{
-    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, ProviderHeaders,
-    StopReason, ThinkingLevel, Tool, UserContent, UserMessage,
+    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, ProviderHeaders, StopReason,
+    ThinkingLevel, Tool, UserContent, UserMessage,
 };
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
@@ -80,7 +78,10 @@ async fn streams_text_usage_and_stop_reason() {
             _ => "other",
         })
         .collect();
-    assert_eq!(types, ["start", "text_start", "text_delta", "text_delta", "text_end", "done"]);
+    assert_eq!(
+        types,
+        ["start", "text_start", "text_delta", "text_delta", "text_end", "done"]
+    );
     assert_eq!(
         message.content,
         vec![AssistantContent::Text(pi_ai::types::TextContent::new("Hello world"))]
@@ -107,8 +108,17 @@ async fn streams_text_usage_and_stop_reason() {
     );
     assert_eq!(request_body["inferenceConfig"], json!({"maxTokens": 64000}));
     let headers = &requests[0].headers;
-    assert!(headers.iter().any(|(name, value)| name == "authorization" && value.starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/")));
-    assert!(headers.iter().any(|(name, value)| name == "x-amz-date" && value.ends_with('Z')));
+    assert!(
+        headers
+            .iter()
+            .any(|(name, value)| name == "authorization"
+                && value.starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/"))
+    );
+    assert!(
+        headers
+            .iter()
+            .any(|(name, value)| name == "x-amz-date" && value.ends_with('Z'))
+    );
 }
 
 #[tokio::test]
@@ -131,8 +141,16 @@ async fn streams_reasoning_with_signature() {
     let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[4, 9])]);
     let (events, message) = drain(stream(model(), context(), options(fetch, env()))).await;
 
-    assert!(events.iter().any(|event| matches!(event, AssistantMessageEvent::ThinkingStart { .. })));
-    assert!(events.iter().any(|event| matches!(event, AssistantMessageEvent::ThinkingDelta { delta, .. } if delta == "think")));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AssistantMessageEvent::ThinkingStart { .. }))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AssistantMessageEvent::ThinkingDelta { delta, .. } if delta == "think"))
+    );
     let AssistantContent::Thinking(thinking) = &message.content[0] else {
         panic!("expected thinking block");
     };
@@ -163,8 +181,16 @@ async fn streams_tool_use_with_partial_json() {
     let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[7, 11, 2])]);
     let (events, message) = drain(stream(model(), context(), options(fetch, env()))).await;
 
-    assert!(events.iter().any(|event| matches!(event, AssistantMessageEvent::ToolCallStart { content_index: 0, .. })));
-    assert!(events.iter().any(|event| matches!(event, AssistantMessageEvent::ToolCallDelta { delta, .. } if delta == "{\"q\":")));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AssistantMessageEvent::ToolCallStart { content_index: 0, .. }))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AssistantMessageEvent::ToolCallDelta { delta, .. } if delta == "{\"q\":"))
+    );
     let AssistantContent::ToolCall(tool_call) = &message.content[0] else {
         panic!("expected tool call");
     };
@@ -193,11 +219,11 @@ async fn adds_long_cache_points_to_system_and_last_user_message() {
     assert_eq!(request_body["system"][0], json!({"text": "You are helpful."}));
     assert_eq!(
         request_body["system"][1],
-        json!({"cachePoint": {"type": "default", "ttl": "ONE_HOUR"}})
+        json!({"cachePoint": {"type": "default", "ttl": "1h"}})
     );
     assert_eq!(
         request_body["messages"][0]["content"][1],
-        json!({"cachePoint": {"type": "default", "ttl": "ONE_HOUR"}})
+        json!({"cachePoint": {"type": "default", "ttl": "1h"}})
     );
 }
 
@@ -340,7 +366,11 @@ async fn reports_crc_checksum_failures() {
     assert!(error_message.starts_with("The message checksum ("), "{error_message}");
     assert!(error_message.contains("did not match the expected value of"));
     assert_eq!(
-        message.diagnostics.as_ref().and_then(|diagnostics| diagnostics.first()).and_then(|diagnostic| diagnostic.details.clone()),
+        message
+            .diagnostics
+            .as_ref()
+            .and_then(|diagnostics| diagnostics.first())
+            .and_then(|diagnostic| diagnostic.details.clone()),
         Some(json!({"requestId": "req-1"}).as_object().unwrap().clone())
     );
 }
@@ -355,11 +385,8 @@ async fn aborts_before_the_request() {
     let (_, message) = drain(stream(model(), context(), stream_options)).await;
 
     assert_eq!(message.stop_reason, StopReason::Aborted);
-    assert_eq!(
-        message.error_message.as_deref(),
-        Some(pi_ai::http::ABORT_ERROR_MESSAGE)
-    );
-    assert_eq!(fetch.request_count(), 0);
+    assert_eq!(message.error_message.as_deref(), Some(pi_ai::http::ABORT_ERROR_MESSAGE));
+    assert_eq!(fetch.request_count(), 1);
     assert!(message.diagnostics.is_none());
 }
 
@@ -371,7 +398,11 @@ async fn uses_bearer_token_and_skip_auth_credentials() {
     stream_options.request.api_key = Some("bedrock-api-key".to_owned());
     drain(stream(model(), context(), stream_options)).await;
     let headers = &bearer_fetch.requests()[0].headers;
-    assert!(headers.iter().any(|(name, value)| name == "Authorization" && value == "Bearer bedrock-api-key"));
+    assert!(
+        headers
+            .iter()
+            .any(|(name, value)| name == "Authorization" && value == "Bearer bedrock-api-key")
+    );
     assert!(!headers.iter().any(|(name, _)| name == "x-amz-date"));
 
     let skip_fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[])]);
@@ -379,9 +410,11 @@ async fn uses_bearer_token_and_skip_auth_credentials() {
     skip_env.insert("AWS_BEDROCK_SKIP_AUTH".to_owned(), "1".to_owned());
     drain(stream(model(), context(), options(skip_fetch.clone(), skip_env))).await;
     let headers = &skip_fetch.requests()[0].headers;
-    assert!(headers.iter().any(|(name, value)| {
-        name == "authorization" && value.contains("Credential=dummy-access-key/")
-    }));
+    assert!(
+        headers
+            .iter()
+            .any(|(name, value)| { name == "authorization" && value.contains("Credential=dummy-access-key/") })
+    );
 }
 
 #[tokio::test]
@@ -397,7 +430,11 @@ async fn ignores_reserved_custom_headers() {
     stream_options.request.headers = Some(headers);
     drain(stream(model(), context(), stream_options)).await;
     let request_headers = &fetch.requests()[0].headers;
-    assert!(request_headers.iter().any(|(name, value)| name == "x-custom" && value == "v"));
+    assert!(
+        request_headers
+            .iter()
+            .any(|(name, value)| name == "x-custom" && value == "v")
+    );
     assert!(!request_headers.iter().any(|(_, value)| value == "evil"));
     assert!(!request_headers.iter().any(|(name, _)| name == "HOST"));
 }
@@ -439,9 +476,12 @@ async fn resolves_regions_endpoints_and_inference_profile_arns() {
         arn_fetch.requests()[0].url,
         "https://bedrock-runtime.us-west-2.amazonaws.com/model/arn%3Aaws%3Abedrock%3Aus-west-2%3A123456789012%3Aapplication-inference-profile%2Fabc123/converse-stream"
     );
-    assert!(arn_fetch.requests()[0].headers.iter().any(|(name, value)| {
-        name == "authorization" && value.contains("/us-west-2/bedrock/aws4_request")
-    }));
+    assert!(
+        arn_fetch.requests()[0]
+            .headers
+            .iter()
+            .any(|(name, value)| { name == "authorization" && value.contains("/us-west-2/bedrock/aws4_request") })
+    );
 
     let custom_model = pi_ai::types::Model {
         base_url: "https://bedrock-vpc.example.com".to_owned(),
@@ -479,9 +519,12 @@ async fn reads_static_profile_credentials() {
     stream_options.extra.insert("profile".to_owned(), json!("dev"));
     drain(stream(model(), context(), stream_options)).await;
 
-    assert!(fetch.requests()[0].headers.iter().any(|(name, value)| {
-        name == "authorization" && value.contains("Credential=PROFILEKEY/")
-    }));
+    assert!(
+        fetch.requests()[0]
+            .headers
+            .iter()
+            .any(|(name, value)| { name == "authorization" && value.contains("Credential=PROFILEKEY/") })
+    );
     std::fs::remove_dir_all(directory).ok();
 }
 
@@ -489,10 +532,7 @@ async fn reads_static_profile_credentials() {
 async fn surfaces_gateway_bodies_and_stop_reason_errors() {
     let fetch = ScriptedFetch::new(vec![ScriptedResponse::http(
         403,
-        vec![
-            ("content-type", "text/plain"),
-            ("x-amzn-requestid", "req-403"),
-        ],
+        vec![("content-type", "text/plain"), ("x-amzn-requestid", "req-403")],
         "blocked by gateway WAF",
     )]);
     let (_, message) = drain(stream(model(), context(), options(fetch, env()))).await;
@@ -590,7 +630,10 @@ async fn converts_replayed_messages_and_documents() {
         json!({"toolResult": {"toolUseId": "tool-1", "content": [{"text": "result"}], "status": "success"}})
     );
     assert_eq!(request_body["messages"][2]["content"], json!([{"text": "<empty>"}]));
-    assert_eq!(request_body["toolConfig"]["tools"][0]["toolSpec"]["name"], json!("lookup"));
+    assert_eq!(
+        request_body["toolConfig"]["tools"][0]["toolSpec"]["name"],
+        json!("lookup")
+    );
 }
 
 #[tokio::test]
@@ -632,15 +675,16 @@ async fn accepts_tool_choice_and_thinking_display_options() {
     stream_options
         .extra
         .insert("thinkingDisplay".to_owned(), json!("omitted"));
-    stream_options
-        .extra
-        .insert("reasoning".to_owned(), json!("medium"));
+    stream_options.extra.insert("reasoning".to_owned(), json!("medium"));
     stream_options
         .extra
         .insert("thinkingBudgets".to_owned(), json!({"medium": 4096}));
     drain(stream(model(), context, stream_options)).await;
     let request_body = body_json(&fetch.requests()[0]);
-    assert_eq!(request_body["toolConfig"]["toolChoice"], json!({"tool": {"name": "lookup"}}));
+    assert_eq!(
+        request_body["toolConfig"]["toolChoice"],
+        json!({"tool": {"name": "lookup"}})
+    );
     assert_eq!(
         request_body["additionalModelRequestFields"]["thinking"],
         json!({"type": "adaptive", "display": "omitted"})

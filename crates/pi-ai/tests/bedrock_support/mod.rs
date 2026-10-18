@@ -89,10 +89,10 @@ impl Fetch for ScriptedFetch {
         signal: Option<CancellationToken>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async move {
+            self.requests.lock().expect("request lock").push(request);
             if signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
                 return Err(CallbackError::new(pi_ai::http::ABORT_ERROR_MESSAGE));
             }
-            self.requests.lock().expect("request lock").push(request);
             let response = self
                 .responses
                 .lock()
@@ -101,6 +101,7 @@ impl Fetch for ScriptedFetch {
                 .expect("scripted response must exist");
             Ok(HttpResponse {
                 status: response.status,
+                status_text: String::new(),
                 headers: response.headers,
                 body: Box::new(ScriptedBody {
                     chunks: response.chunks.into(),

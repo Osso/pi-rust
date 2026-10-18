@@ -10,28 +10,24 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::api::bedrock_credentials::{
-    env_credentials, profile_credentials, profile_name, profile_region,
-};
+use crate::api::bedrock_credentials::{env_credentials, profile_credentials, profile_name, profile_region};
 use crate::api::bedrock_eventstream::EventStreamDecoder;
 use crate::api::bedrock_sigv4::{AwsCredentials, sign_request};
-use crate::api::constrained_sampling::{
-    get_json_schema_tool_parameters, resolve_json_schema_strict_sampling,
-};
+use crate::api::constrained_sampling::{get_json_schema_tool_parameters, resolve_json_schema_strict_sampling};
 use crate::api::simple_options::{
     adjust_max_tokens_for_thinking, build_base_options, clamp_max_tokens_to_context, clamp_reasoning,
+    model_thinking_level,
 };
 use crate::api::transform_messages::transform_messages_with;
 use crate::http::default_fetch;
 use crate::models::calculate_cost;
 use crate::request::{
-    HttpBody, HttpRequest, HttpResponse, OnPayload, ProviderStreams, SimpleStreamOptions, StreamOptions,
-    now_millis,
+    HttpBody, HttpRequest, HttpResponse, OnPayload, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis,
 };
 use crate::types::{
-    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, DoneReason,
-    ErrorReason, JsonObject, Message, Model, ProviderEnv, StopReason, ThinkingBudgets, ThinkingContent,
-    ThinkingLevel, Tool, ToolCall, ToolResultContent, ToolResultMessage, Usage,
+    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, DoneReason, ErrorReason,
+    JsonObject, Message, Model, ProviderEnv, StopReason, ThinkingBudgets, ThinkingContent, ThinkingLevel, Tool,
+    ToolCall, ToolResultContent, ToolResultMessage, Usage,
 };
 use crate::utils::base64;
 use crate::utils::diagnostics::{AssistantMessageDiagnostic, append_assistant_message_diagnostic};
@@ -86,9 +82,7 @@ impl<'de> Deserialize<'de> for BedrockToolChoice {
                 "auto" => Ok(Self::Auto),
                 "any" => Ok(Self::Any),
                 "none" => Ok(Self::None),
-                other => Err(serde::de::Error::custom(format!(
-                    "unknown Bedrock toolChoice {other}"
-                ))),
+                other => Err(serde::de::Error::custom(format!("unknown Bedrock toolChoice {other}"))),
             },
             Repr::Tool { r#type, name } if r#type == "tool" => Ok(Self::Tool { name }),
             Repr::Tool { r#type, .. } => Err(serde::de::Error::custom(format!(
@@ -180,12 +174,8 @@ pub fn stream(model: Model, context: Context, options: StreamOptions) -> Assista
 }
 
 /// `streamSimple`: reasoning-aware wrapper over [`stream`].
-pub fn stream_simple(
-    model: Model,
-    context: Context,
-    options: SimpleStreamOptions,
-) -> AssistantMessageEventStream {
-    let base = build_base_options(&model, &context, Some(&options));
+pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOptions) -> AssistantMessageEventStream {
+    let base = build_base_options(&model, &context, Some(&options), None);
     let Some(reasoning) = options.reasoning else {
         return stream(model, context, base);
     };
@@ -202,19 +192,23 @@ pub fn stream_simple(
             return stream(model, context, base);
         }
 
-        let adjusted = adjust_max_tokens_for_thinking(
+        let (adjusted_max_tokens, adjusted_thinking_budget) = adjust_max_tokens_for_thinking(
             base.max_tokens,
             model.max_tokens,
             reasoning,
             options.thinking_budgets.as_ref(),
         );
-        let max_tokens = clamp_max_tokens_to_context(&model, &context, adjusted.max_tokens);
+        let max_tokens = clamp_max_tokens_to_context(&model, &context, adjusted_max_tokens);
         let mut budgets = options.thinking_budgets.clone().unwrap_or_default();
         match clamp_reasoning(Some(reasoning)).unwrap_or(ThinkingLevel::High) {
-            ThinkingLevel::Minimal => budgets.minimal = Some(adjusted.thinking_budget.min((max_tokens - 1024.0).max(0.0))),
-            ThinkingLevel::Low => budgets.low = Some(adjusted.thinking_budget.min((max_tokens - 1024.0).max(0.0))),
-            ThinkingLevel::Medium => budgets.medium = Some(adjusted.thinking_budget.min((max_tokens - 1024.0).max(0.0))),
-            _ => budgets.high = Some(adjusted.thinking_budget.min((max_tokens - 1024.0).max(0.0))),
+            ThinkingLevel::Minimal => {
+                budgets.minimal = Some(adjusted_thinking_budget.min((max_tokens - 1024.0).max(0.0)))
+            }
+            ThinkingLevel::Low => budgets.low = Some(adjusted_thinking_budget.min((max_tokens - 1024.0).max(0.0))),
+            ThinkingLevel::Medium => {
+                budgets.medium = Some(adjusted_thinking_budget.min((max_tokens - 1024.0).max(0.0)))
+            }
+            _ => budgets.high = Some(adjusted_thinking_budget.min((max_tokens - 1024.0).max(0.0))),
         }
         let mut extra = base.extra.clone();
         extra.insert("reasoning".to_owned(), json!(reasoning));
@@ -382,10 +376,10 @@ async fn drive(
         return Err(BedrockError::abort("Request was aborted"));
     }
     match output.stop_reason {
-        StopReason::Pending => Err(
-            BedrockError::stream("Bedrock stream ended without a stop reason")
-                .with_request_id(request_id.as_deref()),
-        ),
+        StopReason::Pending => {
+            Err(BedrockError::stream("Bedrock stream ended without a stop reason")
+                .with_request_id(request_id.as_deref()))
+        }
         StopReason::Error | StopReason::Aborted => Err(BedrockError::stream(
             output
                 .error_message
@@ -410,11 +404,7 @@ async fn drive(
     }
 }
 
-async fn apply_on_payload(
-    on_payload: &OnPayload,
-    payload: Value,
-    model: &Model,
-) -> Result<Value, BedrockError> {
+async fn apply_on_payload(on_payload: &OnPayload, payload: Value, model: &Model) -> Result<Value, BedrockError> {
     match on_payload(payload.clone(), model.clone()).await {
         Ok(Some(replacement)) => Ok(replacement),
         Ok(None) => Ok(payload),
@@ -460,9 +450,11 @@ fn build_command_input(
         input.insert("system".to_owned(), Value::Array(system));
     }
     input.insert("inferenceConfig".to_owned(), Value::Object(inference_config));
-    if let Some(tool_config) =
-        convert_tool_config(context.tools.as_deref(), options.tool_choice.as_ref(), supports_strict_mode)?
-    {
+    if let Some(tool_config) = convert_tool_config(
+        context.tools.as_deref(),
+        options.tool_choice.as_ref(),
+        supports_strict_mode,
+    )? {
         input.insert("toolConfig".to_owned(), tool_config);
     }
     if let Some(fields) = build_additional_model_request_fields(model, options) {
@@ -512,7 +504,10 @@ fn convert_messages(
                     next += 1;
                 }
                 index = next - 1;
-                result.push(object(vec![("role", json!("user")), ("content", Value::Array(tool_results))]));
+                result.push(object(vec![
+                    ("role", json!("user")),
+                    ("content", Value::Array(tool_results)),
+                ]));
             }
         }
         index += 1;
@@ -575,7 +570,10 @@ fn convert_assistant_message(message: &AssistantMessage, model: &Model) -> Optio
                     object(vec![
                         ("toolUseId", json!(tool_call.id)),
                         ("name", json!(tool_call.name)),
-                        ("input", sanitize_bedrock_document(&Value::Object(tool_call.arguments.clone()))),
+                        (
+                            "input",
+                            sanitize_bedrock_document(&Value::Object(tool_call.arguments.clone())),
+                        ),
                     ]),
                 )]));
             }
@@ -585,7 +583,11 @@ fn convert_assistant_message(message: &AssistantMessage, model: &Model) -> Optio
                     continue;
                 }
                 if supports_thinking_signature(model) {
-                    match thinking.thinking_signature.as_deref().filter(|signature| !signature.trim().is_empty()) {
+                    match thinking
+                        .thinking_signature
+                        .as_deref()
+                        .filter(|signature| !signature.trim().is_empty())
+                    {
                         Some(signature) => content.push(object(vec![(
                             "reasoningContent",
                             object(vec![(
@@ -607,7 +609,10 @@ fn convert_assistant_message(message: &AssistantMessage, model: &Model) -> Optio
     if content.is_empty() {
         return None;
     }
-    Some(object(vec![("role", json!("assistant")), ("content", Value::Array(content))]))
+    Some(object(vec![
+        ("role", json!("assistant")),
+        ("content", Value::Array(content)),
+    ]))
 }
 
 fn convert_tool_result(message: &ToolResultMessage) -> Value {
@@ -615,10 +620,7 @@ fn convert_tool_result(message: &ToolResultMessage) -> Value {
         "toolResult",
         object(vec![
             ("toolUseId", json!(message.tool_call_id)),
-            (
-                "content",
-                Value::Array(convert_tool_result_content(&message.content)),
-            ),
+            ("content", Value::Array(convert_tool_result_content(&message.content))),
             ("status", json!(if message.is_error { "error" } else { "success" })),
         ]),
     )])
@@ -731,14 +733,11 @@ fn convert_tool_config(
     for tool in tools {
         let strict = resolve_json_schema_strict_sampling(tool, supports_strict_mode)
             .map_err(|error| BedrockError::other(error.message))?;
-        let parameters = get_json_schema_tool_parameters(tool, strict)
-            .map_err(|error| BedrockError::other(error.message))?;
+        let parameters =
+            get_json_schema_tool_parameters(tool, strict).map_err(|error| BedrockError::other(error.message))?;
         let mut spec = Map::new();
         spec.insert("name".to_owned(), json!(tool.name));
-        spec.insert(
-            "inputSchema".to_owned(),
-            object(vec![("json", parameters)]),
-        );
+        spec.insert("inputSchema".to_owned(), object(vec![("json", parameters)]));
         spec.insert("description".to_owned(), json!(tool.description));
         if strict == Some(true) {
             spec.insert("strict".to_owned(), json!(true));
@@ -769,16 +768,12 @@ fn create_image_block(mime_type: &str, data: &str) -> Result<Value, BedrockError
         "image/webp" => "webp",
         other => return Err(BedrockError::other(format!("Unknown image type: {other}"))),
     };
-    let bytes = base64::decode(data)
-        .map_err(|_| BedrockError::other("Invalid image data"))?;
+    let bytes = base64::decode(data).map_err(|_| BedrockError::other("Invalid image data"))?;
     Ok(object(vec![(
         "image",
         object(vec![
             ("format", json!(format)),
-            (
-                "source",
-                object(vec![("bytes", json!(base64::encode(&bytes)))]),
-            ),
+            ("source", object(vec![("bytes", json!(base64::encode(&bytes)))])),
         ]),
     )]))
 }
@@ -845,13 +840,15 @@ fn supports_adaptive_thinking(model_id: &str, model_name: Option<&str>) -> bool 
 }
 
 fn supports_native_xhigh_effort(model: &Model) -> bool {
-    model_match_candidates(&model.id, Some(&model.name)).iter().any(|candidate| {
-        candidate.contains("opus-4-7")
-            || candidate.contains("opus-4-8")
-            || candidate.contains("opus-5")
-            || candidate.contains("sonnet-5")
-            || candidate.contains("fable-5")
-    })
+    model_match_candidates(&model.id, Some(&model.name))
+        .iter()
+        .any(|candidate| {
+            candidate.contains("opus-4-7")
+                || candidate.contains("opus-4-8")
+                || candidate.contains("opus-5")
+                || candidate.contains("sonnet-5")
+                || candidate.contains("fable-5")
+        })
 }
 
 fn map_thinking_level_to_effort(model: &Model, level: Option<ThinkingLevel>) -> String {
@@ -872,18 +869,6 @@ fn map_thinking_level_to_effort(model: &Model, level: Option<ThinkingLevel>) -> 
     }
 }
 
-fn model_thinking_level(level: ThinkingLevel) -> crate::types::ModelThinkingLevel {
-    match level {
-        ThinkingLevel::Minimal => crate::types::ModelThinkingLevel::Minimal,
-        ThinkingLevel::Low => crate::types::ModelThinkingLevel::Low,
-        ThinkingLevel::Medium => crate::types::ModelThinkingLevel::Medium,
-        ThinkingLevel::High => crate::types::ModelThinkingLevel::High,
-        ThinkingLevel::Xhigh => crate::types::ModelThinkingLevel::Xhigh,
-        ThinkingLevel::Max => crate::types::ModelThinkingLevel::Max,
-        ThinkingLevel::Ultra => crate::types::ModelThinkingLevel::Ultra,
-    }
-}
-
 fn supports_prompt_caching(model: &Model, env: Option<&ProviderEnv>) -> bool {
     let candidates = model_match_candidates(&model.id, Some(&model.name));
     if !candidates.iter().any(|candidate| candidate.contains("claude")) {
@@ -892,8 +877,12 @@ fn supports_prompt_caching(model: &Model, env: Option<&ProviderEnv>) -> bool {
     candidates.iter().any(|candidate| {
         candidate.contains("fable-5") || candidate.contains("opus-5") || candidate.contains("sonnet-5")
     }) || candidates.iter().any(|candidate| candidate.contains("-4-"))
-        || candidates.iter().any(|candidate| candidate.contains("claude-3-7-sonnet"))
-        || candidates.iter().any(|candidate| candidate.contains("claude-3-5-haiku"))
+        || candidates
+            .iter()
+            .any(|candidate| candidate.contains("claude-3-7-sonnet"))
+        || candidates
+            .iter()
+            .any(|candidate| candidate.contains("claude-3-5-haiku"))
 }
 
 fn supports_thinking_signature(model: &Model) -> bool {
@@ -960,10 +949,7 @@ fn build_additional_model_request_fields(model: &Model, options: &BedrockOptions
         }
         fields.insert("thinking".to_owned(), Value::Object(thinking));
         if options.interleaved_thinking.unwrap_or(true) {
-            fields.insert(
-                "anthropic_beta".to_owned(),
-                json!(["interleaved-thinking-2025-05-14"]),
-            );
+            fields.insert("anthropic_beta".to_owned(), json!(["interleaved-thinking-2025-05-14"]));
         }
     }
     Some(Value::Object(fields))
@@ -992,10 +978,7 @@ fn map_stop_reason(reason: Option<&str>) -> (StopReason, Option<String>) {
         Some("end_turn" | "stop_sequence") => (StopReason::Stop, None),
         Some("max_tokens" | "model_context_window_exceeded") => (StopReason::Length, None),
         Some("tool_use") => (StopReason::ToolUse, None),
-        Some(reason) if !reason.is_empty() => (
-            StopReason::Error,
-            Some(format!("Provider stopped with: {reason}")),
-        ),
+        Some(reason) if !reason.is_empty() => (StopReason::Error, Some(format!("Provider stopped with: {reason}"))),
         _ => (StopReason::Error, None),
     }
 }
@@ -1010,7 +993,6 @@ fn sync_content(output: &mut AssistantMessage, blocks: &[BlockState]) {
     output.content = blocks.iter().map(|block| block.content.clone()).collect();
 }
 
-#[allow(clippy::too_many_arguments)]
 fn handle_message(
     sender: &AssistantMessageEventSender,
     model: &Model,
@@ -1223,7 +1205,7 @@ fn handle_content_block_delta(
 fn handle_content_block_stop(
     sender: &AssistantMessageEventSender,
     output: &mut AssistantMessage,
-    blocks: &mut Vec<BlockState>,
+    blocks: &mut [BlockState],
     payload: &Value,
 ) {
     let content_block_index = payload.get("contentBlockIndex").and_then(Value::as_i64).unwrap_or(0);
@@ -1265,10 +1247,7 @@ fn handle_content_block_stop(
 fn handle_metadata(usage: &Value, model: &Model, output: &mut AssistantMessage) {
     let input = usage.get("inputTokens").and_then(Value::as_f64).unwrap_or(0.0);
     let output_tokens = usage.get("outputTokens").and_then(Value::as_f64).unwrap_or(0.0);
-    let cache_read = usage
-        .get("cacheReadInputTokens")
-        .and_then(Value::as_f64)
-        .unwrap_or(0.0);
+    let cache_read = usage.get("cacheReadInputTokens").and_then(Value::as_f64).unwrap_or(0.0);
     let cache_write = usage
         .get("cacheWriteInputTokens")
         .and_then(Value::as_f64)
@@ -1439,16 +1418,15 @@ async fn execute_request(
     let invocation_id = random_uuid_v4();
     let mut headers = base_headers(&url, &body, &invocation_id, 1);
     apply_custom_headers(&mut headers, options.stream.request.headers.as_ref());
-    let fetch = options
-        .stream
-        .request
-        .fetch
-        .clone()
-        .unwrap_or_else(default_fetch);
+    let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
 
     let mut attempt = 1usize;
     loop {
-        set_header(&mut headers, "amz-sdk-request", &format!("attempt={attempt}; max={MAX_ATTEMPTS}"));
+        set_header(
+            &mut headers,
+            "amz-sdk-request",
+            &format!("attempt={attempt}; max={MAX_ATTEMPTS}"),
+        );
         if let Some(token) = &config.bearer_token {
             set_header_exact(&mut headers, "Authorization", &format!("Bearer {token}"));
         } else if let Some(credentials) = &config.credentials {
@@ -1458,8 +1436,7 @@ async fn execute_request(
                 &mut headers,
                 &body,
                 credentials,
-                &config.region,
-                SERVICE,
+                (&config.region, SERVICE),
                 now_millis(),
             )
             .map_err(|error| BedrockError::other(error.message()))?;
@@ -1596,15 +1573,15 @@ fn retry_after_ms(headers: &[(String, String)]) -> Option<f64> {
             if let Ok(seconds) = value.trim().parse::<f64>() {
                 return Some(seconds * 1000.0);
             }
-            if let Ok(date) = httpdate::parse_http_date(value) {
-                if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-                    let now = now.as_millis() as i64;
-                    let target = date
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|duration| duration.as_millis() as i64)
-                        .unwrap_or(now);
-                    return Some((target - now) as f64);
-                }
+            if let Ok(date) = httpdate::parse_http_date(value)
+                && let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            {
+                let now = now.as_millis() as i64;
+                let target = date
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|duration| duration.as_millis() as i64)
+                    .unwrap_or(now);
+                return Some((target - now) as f64);
             }
         }
     }
@@ -1642,22 +1619,40 @@ async fn sleep_or_abort(
 }
 
 fn is_retryable(error: &BedrockError) -> bool {
-    matches!(error.status, Some(408.0 | 429.0 | 500.0 | 502.0 | 503.0 | 504.0))
+    matches!(error.status, Some(429.0 | 500.0 | 502.0 | 503.0 | 504.0))
         || error.name.as_deref().is_some_and(|name| {
             matches!(
                 name,
                 "ThrottlingException"
                     | "TooManyRequestsException"
                     | "RequestLimitExceeded"
-                    | "ServiceUnavailableException"
-                    | "InternalServerException"
+                    | "RequestThrottled"
+                    | "RequestThrottledException"
+                    | "ThrottledException"
+                    | "Throttling"
+                    | "SlowDown"
+                    | "BandwidthLimitExceeded"
+                    | "LimitExceededException"
+                    | "PriorRequestNotComplete"
+                    | "ProvisionedThroughputExceededException"
+                    | "TransactionInProgressException"
             )
         })
+        || error
+            .name
+            .as_deref()
+            .is_some_and(|name| matches!(name, "TimeoutError" | "RequestTimeout" | "RequestTimeoutException"))
 }
 
 fn http_error(status: u16, headers: &[(String, String)], body: &[u8]) -> BedrockError {
-    let code = header_value(headers, "x-amzn-errortype")
-        .and_then(|value| value.split(':').next().map(str::trim).filter(|code| !code.is_empty()).map(str::to_owned));
+    let code = header_value(headers, "x-amzn-errortype").and_then(|value| {
+        value
+            .split(':')
+            .next()
+            .map(str::trim)
+            .filter(|code| !code.is_empty())
+            .map(str::to_owned)
+    });
     let request_id = header_value(headers, "x-amzn-requestid").map(str::to_owned);
     let text = String::from_utf8_lossy(body).into_owned();
     let parsed = serde_json::from_str::<Value>(&text).ok();
@@ -1670,10 +1665,7 @@ fn http_error(status: u16, headers: &[(String, String)], body: &[u8]) -> Bedrock
     });
     let (message, body) = match parsed_message {
         Some(message) => (message, None),
-        None => (
-            code.clone().unwrap_or_else(|| "UnknownError".to_owned()),
-            Some(text),
-        ),
+        None => (code.clone().unwrap_or_else(|| "UnknownError".to_owned()), Some(text)),
     };
     BedrockError {
         name: code.clone(),
@@ -1746,18 +1738,10 @@ impl BedrockError {
 }
 
 fn format_bedrock_error(error: &BedrockError) -> String {
-    let message_carries_body = error
-        .body
-        .as_ref()
-        .is_none_or(|body| error.message.contains(body));
-    let core = if !message_carries_body && error.status.is_some() && error.body.is_some() {
-        format!(
-            "{}: {}",
-            js_number(error.status.expect("status checked")),
-            error.body.as_deref().expect("body checked")
-        )
-    } else {
-        error.message.clone()
+    let message_carries_body = error.body.as_ref().is_none_or(|body| error.message.contains(body));
+    let core = match (message_carries_body, error.status, error.body.as_deref()) {
+        (false, Some(status), Some(body)) => format!("{}: {body}", js_number(status)),
+        _ => error.message.clone(),
     };
     let hint = if core.to_lowercase().contains("data retention mode") {
         format!(" See {BEDROCK_DATA_RETENTION_DOCS_URL} for supported data retention modes.")
@@ -1765,11 +1749,7 @@ fn format_bedrock_error(error: &BedrockError) -> String {
         String::new()
     };
     if error.service_exception {
-        let prefix = error
-            .name
-            .as_deref()
-            .map(bedrock_error_prefix)
-            .unwrap_or_default();
+        let prefix = error.name.as_deref().map(bedrock_error_prefix).unwrap_or_default();
         format!("{prefix}: {core}{hint}")
     } else {
         format!("{core}{hint}")
@@ -1837,4 +1817,3 @@ fn append_bedrock_failure_diagnostic(output: &mut AssistantMessage, error: &Bedr
         },
     );
 }
-

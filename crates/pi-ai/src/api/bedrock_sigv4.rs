@@ -70,8 +70,7 @@ pub fn sign_request(
     headers: &mut Vec<(String, String)>,
     body: &[u8],
     credentials: &AwsCredentials,
-    region: &str,
-    service: &str,
+    scope: (&str, &str),
     timestamp_ms: i64,
 ) -> Result<(), SigningError> {
     let parts = ParsedUrl::parse(url)?;
@@ -79,6 +78,7 @@ pub fn sign_request(
     remove_header(headers, "date");
     remove_header(headers, "x-amz-date");
 
+    let (region, service) = scope;
     let (long_date, short_date) = format_amz_date(timestamp_ms);
     set_header(headers, "host", &parts.authority);
     set_header(headers, "x-amz-date", &long_date);
@@ -145,10 +145,7 @@ fn canonical_headers(headers: &[(String, String)]) -> std::collections::BTreeMap
     let mut canonical = std::collections::BTreeMap::new();
     for (name, value) in headers {
         let lower = name.to_ascii_lowercase();
-        if UNSIGNABLE.contains(&lower.as_str())
-            || lower.starts_with("proxy-")
-            || lower.starts_with("sec-")
-        {
+        if UNSIGNABLE.contains(&lower.as_str()) || lower.starts_with("proxy-") || lower.starts_with("sec-") {
             continue;
         }
         canonical.insert(lower, normalize_header_value(value));
@@ -168,10 +165,7 @@ fn find_header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a st
 }
 
 fn set_header(headers: &mut Vec<(String, String)>, name: &str, value: &str) {
-    if let Some(header) = headers
-        .iter_mut()
-        .find(|(key, _)| key.eq_ignore_ascii_case(name))
-    {
+    if let Some(header) = headers.iter_mut().find(|(key, _)| key.eq_ignore_ascii_case(name)) {
         header.0 = name.to_owned();
         header.1 = value.to_owned();
     } else {

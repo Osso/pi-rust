@@ -20,7 +20,7 @@ pub fn decode(input: &str) -> Result<Vec<u8>, Base64Error> {
             _ => return Err(Base64Error),
         }
     }
-    if padding > 2 || (padding > 0 && (symbols.len() + padding) % 4 != 0) {
+    if padding > 2 || (padding > 0 && !(symbols.len() + padding).is_multiple_of(4)) {
         return Err(Base64Error);
     }
     if symbols.len() % 4 == 1 {

@@ -1,6 +1,6 @@
 pub mod abort;
-pub mod base64;
 pub mod abort_signals;
+pub mod base64;
 pub mod deferred_tools;
 pub mod diagnostics;
 pub mod error_body;
@@ -8,7 +8,7 @@ pub mod estimate;
 pub mod event_stream;
 pub mod hash;
 pub mod headers;
-mod js_number;
+pub(crate) mod js_number;
 pub mod json_parse;
 pub mod overflow;
 pub mod provider_env;

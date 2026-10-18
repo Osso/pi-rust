@@ -52,7 +52,7 @@ pub fn profile_credentials(
         if let Some(credentials) = static_credentials(&section) {
             return Ok(Some(credentials));
         }
-        let Some(settings) = sso_settings(&files, &profile, &section) else {
+        let Some(settings) = sso_settings(&files, &section) else {
             return Ok(None);
         };
         resolve_sso_credentials(&settings, fetch).await.map(Some)
@@ -89,25 +89,17 @@ struct SsoSettings {
     cache_key: String,
 }
 
-fn sso_settings(
-    files: &SharedFiles,
-    profile: &str,
-    section: &BTreeMap<String, String>,
-) -> Option<SsoSettings> {
+fn sso_settings(files: &SharedFiles, section: &BTreeMap<String, String>) -> Option<SsoSettings> {
     let (region, cache_key) = match section.get("sso_session") {
         Some(session_name) => {
             let session = files.sso_session(session_name)?;
-            (
-                session.get("sso_region")?.clone(),
-                session_name.clone(),
-            )
+            (session.get("sso_region")?.clone(), session_name.clone())
         }
         None => (
             section.get("sso_region")?.clone(),
             section.get("sso_start_url")?.clone(),
         ),
     };
-    let _ = profile;
     Some(SsoSettings {
         region,
         account_id: section.get("sso_account_id")?.clone(),
@@ -130,8 +122,8 @@ async fn resolve_sso_credentials(
         .get("expiresAt")
         .and_then(Value::as_str)
         .ok_or_else(|| CallbackError::new("The SSO session token is invalid"))?;
-    let expires_at_ms = parse_iso8601_millis(expires_at)
-        .ok_or_else(|| CallbackError::new("The SSO session token is invalid"))?;
+    let expires_at_ms =
+        parse_iso8601_millis(expires_at).ok_or_else(|| CallbackError::new("The SSO session token is invalid"))?;
     if expires_at_ms <= crate::request::now_millis() {
         return Err(CallbackError::new(
             "The SSO session associated with this profile has expired. To refresh this SSO session run aws sso login with the corresponding profile.",
@@ -197,8 +189,8 @@ fn read_sso_token(cache_key: &str) -> Result<Value, CallbackError> {
 }
 
 fn sso_token_path(cache_key: &str) -> Result<PathBuf, CallbackError> {
-    let home = std::env::var("HOME")
-        .map_err(|_| CallbackError::new("HOME is not set; cannot read the SSO token cache"))?;
+    let home =
+        std::env::var("HOME").map_err(|_| CallbackError::new("HOME is not set; cannot read the SSO token cache"))?;
     let digest = Sha1::digest(cache_key.as_bytes());
     let mut name = String::with_capacity(40);
     for byte in digest {
@@ -334,10 +326,10 @@ fn parse_ini(path: &Path) -> Option<Vec<(String, BTreeMap<String, String>)>> {
             continue;
         }
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            if let Some(section) = current.take() {
-                if let Some(last) = sections.last_mut() {
-                    last.1.extend(section);
-                }
+            if let Some(section) = current.take()
+                && let Some(last) = sections.last_mut()
+            {
+                last.1.extend(section);
             }
             let name = trimmed[1..trimmed.len() - 1].trim().to_owned();
             sections.push((name, BTreeMap::new()));
@@ -351,10 +343,10 @@ fn parse_ini(path: &Path) -> Option<Vec<(String, BTreeMap<String, String>)>> {
             section.insert(key.trim().to_ascii_lowercase(), value.trim().to_owned());
         }
     }
-    if let Some(section) = current {
-        if let Some(last) = sections.last_mut() {
-            last.1.extend(section);
-        }
+    if let Some(section) = current
+        && let Some(last) = sections.last_mut()
+    {
+        last.1.extend(section);
     }
     Some(sections)
 }

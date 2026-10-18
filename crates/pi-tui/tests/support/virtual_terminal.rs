@@ -20,6 +20,7 @@ struct Cell {
     text: String,
     width: usize,
     italic: bool,
+    underline: bool,
 }
 
 impl Cell {
@@ -28,6 +29,7 @@ impl Cell {
             text: " ".to_string(),
             width: 1,
             italic: false,
+            underline: false,
         }
     }
 
@@ -36,6 +38,7 @@ impl Cell {
             text: String::new(),
             width: 0,
             italic: false,
+            underline: false,
         }
     }
 }
@@ -49,6 +52,7 @@ struct Emulator {
     cursor_col: usize,
     saved_cursor: Option<(usize, usize)>,
     italic: bool,
+    underline: bool,
 }
 
 impl Emulator {
@@ -62,6 +66,7 @@ impl Emulator {
             cursor_col: 0,
             saved_cursor: None,
             italic: false,
+            underline: false,
         }
     }
 
@@ -121,6 +126,7 @@ impl Emulator {
                 text,
                 width,
                 italic: self.italic,
+                underline: self.underline,
             };
             for offset in 1..width {
                 if self.cursor_col + offset < self.columns {
@@ -268,13 +274,19 @@ impl Emulator {
     fn apply_sgr(&mut self, params: &[i64]) {
         if params.is_empty() {
             self.italic = false;
+            self.underline = false;
             return;
         }
         for parameter in params {
             match parameter {
-                0 => self.italic = false,
+                0 => {
+                    self.italic = false;
+                    self.underline = false;
+                }
                 3 => self.italic = true,
+                4 => self.underline = true,
                 23 => self.italic = false,
+                24 => self.underline = false,
                 _ => {}
             }
         }
@@ -406,6 +418,10 @@ impl VirtualTerminal {
 
     pub fn cell_italic(&self, row: usize, col: usize) -> bool {
         self.emulator.screen[row][col].italic
+    }
+
+    pub fn cell_underline(&self, row: usize, col: usize) -> bool {
+        self.emulator.screen[row][col].underline
     }
 
     pub fn flush(&mut self) {}

@@ -5,6 +5,7 @@ mod js_compat;
 mod unicode_tables;
 
 pub mod autocomplete;
+pub mod components;
 pub mod fuzzy;
 pub mod keybindings;
 pub mod keys;
