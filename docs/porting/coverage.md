@@ -291,19 +291,19 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/components/text.ts` | 106 | 3 | done | `crates/pi-tui/src/components/text.rs` | TS differential wrapping/padding/background/cache |
 | `tui/src/components/truncated-text.ts` | 65 | 3 | todo |  |  |
 | `tui/src/editor-component.ts` | 74 | 3 | todo |  |  |
-| `tui/src/layout-node.ts` | 51 | 3 | todo |  |  |
+| `tui/src/layout-node.ts` | 51 | 3 | done | `crates/pi-tui/src/layout_node.rs` | `Component::layout_node` replaces the `LAYOUT_NODE` symbol |
 | `tui/src/root-compositor.ts` | 91 | 3 | done | `crates/pi-tui/src/root_compositor.rs` | flow/bottom layout callbacks covered by render-region tests |
 | `tui/src/tui-main-screen.ts` | 586 | 3 | done | `crates/pi-tui/src/tui_main_screen.rs` | differential byte stream; capture/restore implemented (no listed test) |
 | `tui/src/alt-screen-search.ts` | 157 | 4 | todo |  |  |
 | `tui/src/components/loader.ts` | 94 | 4 | done | `crates/pi-tui/src/components/loader.rs` | TS test port + differential; frame timer is driver-owned (`poll`) |
-| `tui/src/components/scroll-view.ts` | 216 | 4 | todo |  |  |
+| `tui/src/components/scroll-view.ts` | 216 | 4 | done | `crates/pi-tui/src/components/scroll_view.rs` | TS layout tests ported; differential geometry/scroll state; scrollbar timer driver-owned |
 | `tui/src/components/settings-list.ts` | 249 | 4 | todo |  |  |
-| `tui/src/components/stack.ts` | 154 | 4 | todo |  |  |
+| `tui/src/components/stack.ts` | 154 | 4 | done | `crates/pi-tui/src/components/stack.rs` | size allocation covered by layout tests + differential |
 | `tui/src/components/cancellable-loader.ts` | 40 | 5 | todo |  |  |
 | `tui/src/components/editor.ts` | 2687 | 5 | todo |  |  |
-| `tui/src/components/h-stack.ts` | 44 | 5 | todo |  |  |
-| `tui/src/components/v-stack.ts` | 33 | 5 | todo |  |  |
-| `tui/src/layout.ts` | 410 | 5 | todo |  |  |
+| `tui/src/components/h-stack.ts` | 44 | 5 | done | `crates/pi-tui/src/components/h_stack.rs` | TS layout tests + differential composition/alignment |
+| `tui/src/components/v-stack.ts` | 33 | 5 | done | `crates/pi-tui/src/components/v_stack.rs` | TS layout tests + differential sizes/gaps |
+| `tui/src/layout.ts` | 410 | 5 | done | `crates/pi-tui/src/layout.rs` | TS layout tests ported; differential frame geometry, scrollbar, kitty crop |
 | `tui/src/tui-alt-screen.ts` | 1291 | 6 | todo |  |  |
 | `tui/src/index.ts` | 161 | 7 | todo |  |  |
 

@@ -120,4 +120,8 @@ impl Component for Text {
         self.cached_width = None;
         self.cached_lines = None;
     }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
 }
