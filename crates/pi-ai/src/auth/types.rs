@@ -317,9 +317,17 @@ pub enum AuthEvent {
         user_code: String,
         #[serde(rename = "verificationUri")]
         verification_uri: String,
-        #[serde(rename = "intervalSeconds", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "intervalSeconds",
+            skip_serializing_if = "Option::is_none",
+            serialize_with = "crate::js_number::serialize_option"
+        )]
         interval_seconds: Option<f64>,
-        #[serde(rename = "expiresInSeconds", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "expiresInSeconds",
+            skip_serializing_if = "Option::is_none",
+            serialize_with = "crate::js_number::serialize_option"
+        )]
         expires_in_seconds: Option<f64>,
     },
     Progress {

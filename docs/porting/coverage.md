@@ -90,14 +90,14 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/openrouter-images.ts` | 196 | 2 | done | `crates/pi-ai/src/api/openrouter_images.rs` | Request building, usage/image parsing, SDK error mapping, timeout; recorded-fixture differential (see traceability). |
 | `ai/src/api/pi-messages.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/pi_messages.rs` | `pi_messages_api()` wraps `PiMessagesApi` in `LazyApi`. |
 | `ai/src/auth/helpers.ts` | 59 | 2 | done | `crates/pi-ai/src/auth/helpers.rs` | env api-key auth and lazy OAuth loading |
-| `ai/src/auth/oauth/anthropic.ts` | 364 | 2 | todo |  |  |
-| `ai/src/auth/oauth/kimi-coding.ts` | 310 | 2 | todo |  |  |
-| `ai/src/auth/oauth/load.ts` | 68 | 2 | todo |  |  |
-| `ai/src/auth/oauth/openai-codex.ts` | 544 | 2 | todo |  |  |
-| `ai/src/auth/oauth/openrouter.ts` | 311 | 2 | todo |  |  |
-| `ai/src/auth/oauth/xai.ts` | 239 | 2 | todo |  |  |
+| `ai/src/auth/oauth/anthropic.ts` | 364 | 2 | done | `crates/pi-ai/src/auth/oauth/anthropic.rs` | manual-code/callback race, localhost:53692 server, JSON exchange, refresh skew; differential manual + callback + refresh. |
+| `ai/src/auth/oauth/kimi-coding.ts` | 310 | 2 | done | `crates/pi-ai/src/auth/oauth/kimi_coding.rs` | RFC 8628 device flow, host overrides, retry/unauthorized refresh; differential device + refresh. |
+| `ai/src/auth/oauth/load.ts` | 68 | 2 | done | `crates/pi-ai/src/auth/oauth/load.rs` | Bundled-loader registry with direct-construction fallback; github-copilot fallback gap. |
+| `ai/src/auth/oauth/openai-codex.ts` | 544 | 2 | done | `crates/pi-ai/src/auth/oauth/openai_codex.rs` | select prompt, device grant, localhost:1455 callback, JWT accountId, form exchange/refresh; differential device + refresh. |
+| `ai/src/auth/oauth/openrouter.ts` | 311 | 2 | done | `crates/pi-ai/src/auth/oauth/openrouter.rs` | ephemeral PKCE callback, one-shot claim, key exchange, manual code, identity refresh; differential manual + callback. |
+| `ai/src/auth/oauth/xai.ts` | 239 | 2 | done | `crates/pi-ai/src/auth/oauth/xai.rs` | https-only verification URIs, device polling, refresh-token preservation, one-hour default; differential device + refresh. |
 | `ai/src/bedrock-provider.ts` | 6 | 2 | done | `crates/pi-ai/src/bedrock_provider.rs` | `bedrock_provider_module`; provider module test |
-| `ai/src/compat/extension-oauth-types.ts` | 45 | 2 | todo |  |  |
+| `ai/src/compat/extension-oauth-types.ts` | 45 | 2 | done | `crates/pi-ai/src/compat/extension_oauth_types.rs` | Type-only extension callback surface and credential alias. |
 | `ai/src/env-api-keys.ts` | 187 | 2 | done | `crates/pi-ai/src/env_api_keys.rs` | Provider env map, Anthropic token exclusion, Vertex ADC cache, and Bedrock ambient sources; differential over provider/env matrix (see traceability). |
 | `ai/src/image-models.generated.ts` | 639 | 2 | done | `crates/pi-ai/data/image-models.json`, `crates/pi-ai/src/image_models_generated.rs` | Embedded TS-generated JSON with identical values and order; differential full catalog. |
 | `ai/src/images-api-registry.ts` | 53 | 2 | done | `crates/pi-ai/src/images_api_registry.rs` | API registration/lookup and api-mismatch wrapper; `sourceId` excluded as unobservable (see traceability). |
@@ -107,18 +107,18 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/providers/cloudflare-auth.ts` | 103 | 2 | todo |  |  |
 | `ai/src/providers/cloudflare-stream.ts` | 28 | 2 | todo |  |  |
 | `ai/src/providers/faux.ts` | 708 | 2 | done | `crates/pi-ai/src/providers/faux.rs` | deterministic faux streams, usage/cache estimation, abort, deferred; differential fixed-chunk scenarios |
-| `ai/src/providers/radius-config.ts` | 96 | 2 | todo |  |  |
+| `ai/src/providers/radius-config.ts` | 96 | 2 | done | `crates/pi-ai/src/providers/radius_config.rs` | URL normalization, config sanitization, model projection, bearer config load; differential. |
 | `ai/src/utils/overflow.ts` | 181 | 2 | done | `crates/pi-ai/src/utils/overflow.rs` | 26 overflow patterns, non-overflow exclusions, silent and length-stop overflow; differential 40 checks + pattern matrix. |
 | `ai/src/utils/retry.ts` | 253 | 2 | done | `crates/pi-ai/src/utils/retry.rs` | Exact classifier plus async backoff/cancellation/callbacks; differential 45 classifications + 10 scripted loops. |
 | `ai/src/utils/text.ts` | 12 | 2 | done | `crates/pi-ai/src/utils/text.rs` | `contentText` over assistant and tool-result blocks; differential 6 requests. |
 | `ai/src/utils/validation.ts` | 350 | 2 | done | `crates/pi-ai/src/utils/validation.rs` | Full hand-written TypeBox-compatible validator, coercions, error messages; 25 behavioral + 67 differential cases ([traceability](traceability/validation.md)). |
 | `ai/src/api/openrouter-images.lazy.ts` | 10 | 3 | done | `crates/pi-ai/src/api/openrouter_images_lazy.rs` | Direct-link factory replacing the dynamic import. |
-| `ai/src/auth/oauth/radius.ts` | 403 | 3 | todo |  |  |
+| `ai/src/auth/oauth/radius.ts` | 403 | 3 | done | `crates/pi-ai/src/auth/oauth/radius.rs` | discovery, localhost:1456 browser callback, device grant, gateway token/refresh; differential device + browser callback + refresh. |
 | `ai/src/image-models.ts` | 42 | 3 | done | `crates/pi-ai/src/image_models.rs` | Lookup/list APIs; `undefined` modeled as `Option`/empty slice (see traceability). |
 | `ai/src/images.ts` | 21 | 3 | done | `crates/pi-ai/src/images.rs` | Builtin registration on first use, registry dispatch, unknown-api error. |
 | `ai/src/index.ts` | 47 | 3 | todo |  |  |
 | `ai/src/legacy-api-aliases.ts` | 108 | 3 | todo |  |  |
-| `ai/src/oauth.ts` | 10 | 3 | todo |  |  |
+| `ai/src/oauth.ts` | 10 | 3 | done | `crates/pi-ai/src/oauth.rs` | Type-only compatibility re-exports. |
 | `ai/src/providers/amazon-bedrock.models.ts` | 8 | 3 | todo |  |  |
 | `ai/src/providers/ant-ling.models.ts` | 8 | 3 | todo |  |  |
 | `ai/src/providers/anthropic.models.ts` | 8 | 3 | todo |  |  |
@@ -203,7 +203,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/providers/xiaomi.ts` | 15 | 4 | todo |  |  |
 | `ai/src/providers/zai-coding-cn.ts` | 15 | 4 | todo |  |  |
 | `ai/src/providers/zai.ts` | 15 | 4 | todo |  |  |
-| `ai/src/bun-oauth.ts` | 21 | 5 | todo |  |  |
+| `ai/src/bun-oauth.ts` | 21 | 5 | done | `crates/pi-ai/src/bun_oauth.rs` | Registers all ported flows; github-copilot loader is an explicit gap. |
 | `ai/src/providers/all.ts` | 159 | 5 | todo |  |  |
 | `ai/src/cli.ts` | 119 | 6 | todo |  |  |
 | `ai/src/compat.ts` | 299 | 6 | todo |  |  |

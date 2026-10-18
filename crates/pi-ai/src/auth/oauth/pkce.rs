@@ -9,8 +9,15 @@ pub struct Pkce {
 }
 
 pub fn generate_pkce() -> Pkce {
+    generate_pkce_with(|bytes| {
+        getrandom::fill(bytes).expect("OS random source must be available for PKCE");
+    })
+}
+
+/// PKCE generation with an injected random byte source.
+pub fn generate_pkce_with(mut fill: impl FnMut(&mut [u8])) -> Pkce {
     let mut verifier_bytes = [0_u8; VERIFIER_BYTES];
-    fill_random(&mut verifier_bytes);
+    fill(&mut verifier_bytes);
     let verifier = base64url_encode(&verifier_bytes);
     let challenge = challenge_for(&verifier);
 
@@ -20,10 +27,6 @@ pub fn generate_pkce() -> Pkce {
 pub fn challenge_for(verifier: &str) -> String {
     let digest = Sha256::digest(verifier.as_bytes());
     base64url_encode(&digest)
-}
-
-fn fill_random(bytes: &mut [u8]) {
-    getrandom::fill(bytes).expect("OS random source must be available for PKCE");
 }
 
 fn base64url_encode(bytes: &[u8]) -> String {
