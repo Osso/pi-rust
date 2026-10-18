@@ -6,5 +6,7 @@
 //! JavaScript string whitespace.
 
 pub mod collator;
+pub mod minimatch;
+pub mod string;
 
 pub use collator::{compare_in_locale, host_locale, locale_compare};
