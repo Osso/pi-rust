@@ -791,26 +791,50 @@ impl DefaultResourceLoader {
     /// Reloads every resource for the current settings and trust state.
     pub async fn reload_with(&self, resolve_project_trust: Option<ResolveProjectTrust>) -> Result<(), String> {
         reset_timings(TimingLabel::Extensions);
-
         if self.state().loaded {
             clear_extension_cache();
         }
 
-        let mut pre_trust_extensions: Option<LoadExtensionsResult> = None;
-        if let Some(resolver) = resolve_project_trust {
-            let loaded = self.load_project_trust_extensions().await?;
-            let project_trusted = resolver(loaded.clone()).await?;
-            self.settings().set_project_trusted(project_trusted);
-            pre_trust_extensions = Some(loaded);
-        }
-
+        let pre_trust_extensions = self.load_pre_trust_extensions(resolve_project_trust).await?;
         self.settings().reload();
+        let mut resource_sets = self.resolve_resource_sets().await?;
+        let mut state = ResourceLoaderState::default();
+
+        self.load_extensions_into(&mut state, &resource_sets, pre_trust_extensions)
+            .await?;
+        state.resource_metadata_by_path = std::mem::take(&mut resource_sets.metadata_by_path);
+        self.load_skills_into(&mut state, &resource_sets)?;
+        self.load_prompts_into(&mut state, &resource_sets)?;
+        self.load_themes_into(&mut state, &resource_sets)?;
+        self.load_agents_files_into(&mut state);
+        self.load_rules_into(&mut state)?;
+        self.load_system_prompts_into(&mut state);
+
+        state.loaded = true;
+        *self.state() = state;
+        Ok(())
+    }
+
+    async fn load_pre_trust_extensions(
+        &self,
+        resolve_project_trust: Option<ResolveProjectTrust>,
+    ) -> Result<Option<LoadExtensionsResult>, String> {
+        let Some(resolver) = resolve_project_trust else {
+            return Ok(None);
+        };
+        let loaded = self.load_project_trust_extensions().await?;
+        let project_trusted = resolver(loaded.clone()).await?;
+        self.settings().set_project_trusted(project_trusted);
+        Ok(Some(loaded))
+    }
+
+    async fn resolve_resource_sets(&self) -> Result<ResolvedResourceSets, String> {
         let resolved_paths = self
             .package_manager
             .resolve(None)
             .await
             .map_err(|error| error.to_string())?;
-        let cli_extension_paths = self
+        let cli_paths = self
             .package_manager
             .resolve_extension_sources(&self.additional_extension_paths, false, true)
             .await
@@ -826,11 +850,7 @@ impl DefaultResourceLoader {
             .map(|resource| map_skill_path(resource, &mut metadata_by_path))
             .collect();
 
-        for resource in cli_extension_paths
-            .extensions
-            .iter()
-            .chain(cli_extension_paths.skills.iter())
-        {
+        for resource in cli_paths.extensions.iter().chain(cli_paths.skills.iter()) {
             metadata_by_path.entry(resource.path.clone()).or_insert(PathMetadata {
                 source: "cli".to_owned(),
                 scope: crate::core::package_manager::SourceScope::Temporary,
@@ -839,124 +859,152 @@ impl DefaultResourceLoader {
             });
         }
 
-        let cli_enabled_extensions = enabled_paths(&cli_extension_paths.extensions, &mut metadata_by_path);
-        let cli_enabled_skills = enabled_paths(&cli_extension_paths.skills, &mut metadata_by_path);
-        let cli_enabled_prompts = enabled_paths(&cli_extension_paths.prompts, &mut metadata_by_path);
-        let cli_enabled_themes = enabled_paths(&cli_extension_paths.themes, &mut metadata_by_path);
+        Ok(ResolvedResourceSets {
+            cli_extensions: enabled_paths(&cli_paths.extensions, &mut metadata_by_path),
+            cli_skills: enabled_paths(&cli_paths.skills, &mut metadata_by_path),
+            cli_prompts: enabled_paths(&cli_paths.prompts, &mut metadata_by_path),
+            cli_themes: enabled_paths(&cli_paths.themes, &mut metadata_by_path),
+            enabled_extensions,
+            enabled_skills,
+            enabled_prompts,
+            enabled_themes,
+            metadata_by_path,
+        })
+    }
 
-        let extension_paths = self.filter_disabled_extension_paths(if self.no_extensions {
-            cli_enabled_extensions
+    async fn load_extensions_into(
+        &self,
+        state: &mut ResourceLoaderState,
+        resource_sets: &ResolvedResourceSets,
+        pre_trust_extensions: Option<LoadExtensionsResult>,
+    ) -> Result<(), String> {
+        let primary_paths = if self.no_extensions {
+            resource_sets.cli_extensions.clone()
         } else {
-            self.merge_paths(&cli_enabled_extensions, &enabled_extensions)
-        });
-
+            self.merge_paths(&resource_sets.cli_extensions, &resource_sets.enabled_extensions)
+        };
+        let extension_paths = self.filter_disabled_extension_paths(primary_paths);
         let mut extensions_result = self
             .load_final_extension_set(&extension_paths, pre_trust_extensions)
             .await;
+
         for path in &self.additional_extension_paths {
-            if is_local_path(path) {
-                let resolved = self.resolve_resource_path(path);
-                if !Path::new(&resolved).exists() {
-                    extensions_result
-                        .errors
-                        .push(crate::core::extensions::types::ExtensionLoadError {
-                            path: resolved.clone(),
-                            error: format!("Extension path does not exist: {resolved}"),
-                        });
-                }
+            if !is_local_path(path) {
+                continue;
+            }
+            let resolved = self.resolve_resource_path(path);
+            if !Path::new(&resolved).exists() {
+                extensions_result
+                    .errors
+                    .push(crate::core::extensions::types::ExtensionLoadError {
+                        path: resolved.clone(),
+                        error: format!("Extension path does not exist: {resolved}"),
+                    });
             }
         }
+
         if let Some(override_fn) = &self.extensions_override {
             extensions_result = override_fn(extensions_result);
         }
-        self.apply_extension_source_info(&mut extensions_result.extensions, &metadata_by_path)?;
+        self.apply_extension_source_info(&mut extensions_result.extensions, &resource_sets.metadata_by_path)?;
+        state.extensions_result = extensions_result;
+        Ok(())
+    }
 
-        let skill_paths = if self.no_skills {
-            self.merge_paths(&cli_enabled_skills, &self.additional_skill_paths)
-        } else {
-            let mut primary = cli_enabled_skills;
-            primary.extend(enabled_skills);
-            self.merge_paths(&primary, &self.additional_skill_paths)
-        };
-        let mut state = ResourceLoaderState {
-            resource_metadata_by_path: metadata_by_path,
-            ..ResourceLoaderState::default()
-        };
+    fn load_skills_into(
+        &self,
+        state: &mut ResourceLoaderState,
+        resource_sets: &ResolvedResourceSets,
+    ) -> Result<(), String> {
+        let mut primary_paths = resource_sets.cli_skills.clone();
+        if !self.no_skills {
+            primary_paths.extend(resource_sets.enabled_skills.iter().cloned());
+        }
+        let skill_paths = self.merge_paths(&primary_paths, &self.additional_skill_paths);
         state.last_skill_paths = skill_paths.clone();
-        self.update_skills_from_paths(&mut state, &skill_paths)?;
-        for path in &self.additional_skill_paths {
-            if is_local_path(path) {
-                let resolved = self.resolve_resource_path(path);
-                if !Path::new(&resolved).exists()
-                    && !state
-                        .skill_diagnostics
-                        .iter()
-                        .any(|diagnostic| diagnostic.path.as_deref() == Some(resolved.as_str()))
-                {
-                    state.skill_diagnostics.push(ResourceDiagnostic {
-                        diagnostic_type: ResourceDiagnosticType::Error,
-                        message: "Skill path does not exist".to_owned(),
-                        path: Some(resolved),
-                        collision: None,
-                    });
-                }
-            }
-        }
+        self.update_skills_from_paths(state, &skill_paths)?;
+        self.push_missing_path_diagnostics(
+            &mut state.skill_diagnostics,
+            &self.additional_skill_paths,
+            "Skill path does not exist",
+            PathCheck::Local,
+        );
+        Ok(())
+    }
 
-        let prompt_paths = if self.no_prompt_templates {
-            self.merge_paths(&cli_enabled_prompts, &self.additional_prompt_template_paths)
-        } else {
-            let mut primary = cli_enabled_prompts;
-            primary.extend(enabled_prompts);
-            self.merge_paths(&primary, &self.additional_prompt_template_paths)
-        };
+    fn load_prompts_into(
+        &self,
+        state: &mut ResourceLoaderState,
+        resource_sets: &ResolvedResourceSets,
+    ) -> Result<(), String> {
+        let mut primary_paths = resource_sets.cli_prompts.clone();
+        if !self.no_prompt_templates {
+            primary_paths.extend(resource_sets.enabled_prompts.iter().cloned());
+        }
+        let prompt_paths = self.merge_paths(&primary_paths, &self.additional_prompt_template_paths);
         state.last_prompt_paths = prompt_paths.clone();
-        self.update_prompts_from_paths(&mut state, &prompt_paths)?;
-        for path in &self.additional_prompt_template_paths {
-            if is_local_path(path) {
-                let resolved = self.resolve_resource_path(path);
-                if !Path::new(&resolved).exists()
-                    && !state
-                        .prompt_diagnostics
-                        .iter()
-                        .any(|diagnostic| diagnostic.path.as_deref() == Some(resolved.as_str()))
-                {
-                    state.prompt_diagnostics.push(ResourceDiagnostic {
-                        diagnostic_type: ResourceDiagnosticType::Error,
-                        message: "Prompt template path does not exist".to_owned(),
-                        path: Some(resolved),
-                        collision: None,
-                    });
-                }
-            }
-        }
+        self.update_prompts_from_paths(state, &prompt_paths)?;
+        self.push_missing_path_diagnostics(
+            &mut state.prompt_diagnostics,
+            &self.additional_prompt_template_paths,
+            "Prompt template path does not exist",
+            PathCheck::Local,
+        );
+        Ok(())
+    }
 
-        let theme_paths = if self.no_themes {
-            self.merge_paths(&cli_enabled_themes, &self.additional_theme_paths)
-        } else {
-            let mut primary = cli_enabled_themes;
-            primary.extend(enabled_themes);
-            self.merge_paths(&primary, &self.additional_theme_paths)
-        };
+    fn load_themes_into(
+        &self,
+        state: &mut ResourceLoaderState,
+        resource_sets: &ResolvedResourceSets,
+    ) -> Result<(), String> {
+        let mut primary_paths = resource_sets.cli_themes.clone();
+        if !self.no_themes {
+            primary_paths.extend(resource_sets.enabled_themes.iter().cloned());
+        }
+        let theme_paths = self.merge_paths(&primary_paths, &self.additional_theme_paths);
         state.last_theme_paths = theme_paths.clone();
-        self.update_themes_from_paths(&mut state, &theme_paths)?;
-        for path in &self.additional_theme_paths {
-            let resolved = self.resolve_resource_path(path);
-            if !Path::new(&resolved).exists()
-                && !state
-                    .theme_diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.path.as_deref() == Some(resolved.as_str()))
-            {
-                state.theme_diagnostics.push(ResourceDiagnostic {
-                    diagnostic_type: ResourceDiagnosticType::Error,
-                    message: "Theme path does not exist".to_owned(),
-                    path: Some(resolved),
-                    collision: None,
-                });
-            }
-        }
+        self.update_themes_from_paths(state, &theme_paths)?;
+        self.push_missing_path_diagnostics(
+            &mut state.theme_diagnostics,
+            &self.additional_theme_paths,
+            "Theme path does not exist",
+            PathCheck::Any,
+        );
+        Ok(())
+    }
 
+    fn push_missing_path_diagnostics(
+        &self,
+        diagnostics: &mut Vec<ResourceDiagnostic>,
+        paths: &[String],
+        message: &str,
+        check: PathCheck,
+    ) {
+        for path in paths {
+            if check == PathCheck::Local && !is_local_path(path) {
+                continue;
+            }
+            let resolved = self.resolve_resource_path(path);
+            if Path::new(&resolved).exists() {
+                continue;
+            }
+            let already_reported = diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.path.as_deref() == Some(resolved.as_str()));
+            if already_reported {
+                continue;
+            }
+            diagnostics.push(ResourceDiagnostic {
+                diagnostic_type: ResourceDiagnosticType::Error,
+                message: message.to_owned(),
+                path: Some(resolved),
+                collision: None,
+            });
+        }
+    }
+
+    fn load_agents_files_into(&self, state: &mut ResourceLoaderState) {
         let agents_files = LoadedAgentsFiles {
             agents_files: if self.no_context_files {
                 Vec::new()
@@ -969,29 +1017,16 @@ impl DefaultResourceLoader {
             None => agents_files,
         };
         state.agents_files = resolved_agents_files.agents_files;
+    }
 
+    fn load_rules_into(&self, state: &mut ResourceLoaderState) -> Result<(), String> {
         let global_rules_dir = Path::new(&self.agent_dir).join("rules");
-        let mut rules_files =
-            load_rules_files_from_dir(&global_rules_dir.to_string_lossy()).map_err(|error| error.to_string())?;
-        if self.rules_scope != RulesScope::Shared {
-            rules_files.extend(
-                load_rules_files_from_dir(&global_rules_dir.join(self.rules_scope.as_str()).to_string_lossy())
-                    .map_err(|error| error.to_string())?,
-            );
-        }
+        let mut rules_files = load_rule_scope_files(&global_rules_dir, self.rules_scope)?;
         if self.settings().is_project_trusted() {
             let project_rules_dir = Path::new(&self.cwd)
                 .join(&package_config().config_dir_name)
                 .join("rules");
-            rules_files.extend(
-                load_rules_files_from_dir(&project_rules_dir.to_string_lossy()).map_err(|error| error.to_string())?,
-            );
-            if self.rules_scope != RulesScope::Shared {
-                rules_files.extend(
-                    load_rules_files_from_dir(&project_rules_dir.join(self.rules_scope.as_str()).to_string_lossy())
-                        .map_err(|error| error.to_string())?,
-                );
-            }
+            rules_files.extend(load_rule_scope_files(&project_rules_dir, self.rules_scope)?);
         }
         state.rules_content = (!rules_files.is_empty()).then(|| {
             rules_files
@@ -1001,7 +1036,10 @@ impl DefaultResourceLoader {
                 .join("\n\n")
         });
         state.rules_files = rules_files;
+        Ok(())
+    }
 
+    fn load_system_prompts_into(&self, state: &mut ResourceLoaderState) {
         let system_prompt_source = self
             .system_prompt_source
             .clone()
@@ -1031,12 +1069,8 @@ impl DefaultResourceLoader {
         state.append_system_prompt_source_paths = append_sources
             .iter()
             .filter(|source| Path::new(source).exists())
-            .map(|source| resolve_from_process_cwd(source))
+            .map(|source| resolve_from_process_cwd(source.as_str()))
             .collect();
-        state.extensions_result = extensions_result;
-        state.loaded = true;
-        *self.state() = state;
-        Ok(())
     }
 
     async fn load_current_extension_set(&self, include_inline_factories: bool) -> Result<LoadExtensionsResult, String> {
@@ -1740,6 +1774,36 @@ impl ResourceLoader for DefaultResourceLoader {
     fn reload(&self) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(async move { self.reload_with(None).await })
     }
+}
+
+struct ResolvedResourceSets {
+    enabled_extensions: Vec<String>,
+    enabled_skills: Vec<String>,
+    enabled_prompts: Vec<String>,
+    enabled_themes: Vec<String>,
+    cli_extensions: Vec<String>,
+    cli_skills: Vec<String>,
+    cli_prompts: Vec<String>,
+    cli_themes: Vec<String>,
+    metadata_by_path: IndexMap<String, PathMetadata>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PathCheck {
+    Local,
+    Any,
+}
+
+fn load_rule_scope_files(shared_dir: &Path, scope: RulesScope) -> Result<Vec<RuleFile>, String> {
+    let mut files = load_rules_files_from_dir(&shared_dir.to_string_lossy()).map_err(|error| error.to_string())?;
+    if scope == RulesScope::Shared {
+        return Ok(files);
+    }
+    files.extend(
+        load_rules_files_from_dir(&shared_dir.join(scope.as_str()).to_string_lossy())
+            .map_err(|error| error.to_string())?,
+    );
+    Ok(files)
 }
 
 fn enabled_resources(
