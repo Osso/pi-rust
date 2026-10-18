@@ -9,7 +9,7 @@ All direct dependencies are exact-pinned.
 - Auth commands, config-value reference/environment-status helpers, `ParsedSkillBlock`/`parse_skill_block`, the focused direct-module CLI `Mode` value, the focused direct-module `isValidThinkingLevel` predicate, and the tool-output persistence constants use only the Rust standard library beyond the existing exact local `pi-agent-core` type dependency. `MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES` uses `usize` only as a narrow exception for the exact TypeScript numeric literal used as a byte limit; this does not generalize JavaScript `number` mappings.
 - `pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }` — supplies the typed `ThinkingLevel` used by the direct-module default constant and the shared `format_size` implementation used by coding-agent's package-visible wrapper. Request `13185` changes no dependency version or lock entry.
 - `serde = 1.0.229` — exposes the typed serialization contract used by RPC JSONL records and `GitSource` wire values (`derive` feature).
-- `serde_json = 1.0.151` — produces compact semantic JSON before the LF record delimiter and represents parsed frontmatter values.
+- `serde_json = 1.0.151` (`preserve_order`) — produces compact semantic JSON before the LF record delimiter, represents parsed frontmatter values, and preserves insertion order for byte-identical `settings.json` output (`js_json::stringify_pretty`).
 - `regex = 1.13.1` — compiles the pinned ANSI compatibility pattern in `utils::ansi` and the three pinned `supports-color` patterns in `utils::chalk`.
 - `utils::chalk` needs no dependency: `std::io::IsTerminal` supplies TTY detection, replacing `node:tty`.
 - `gethostname = 1.1.0` — supplies the local hostname for OSC 7 terminal current-directory sequences.
@@ -28,6 +28,7 @@ All direct dependencies are exact-pinned.
 - `icu_collator = 2.3.1` (`compiled_data`) and `icu_locale_core = 2.3.0` — reproduce `String.prototype.localeCompare` ordering for `core::detached_job_retention` tie-breaks, using the host locale like Node's ICU collation.
 - `core::http_dispatcher` adds no dependency: it configures the shared `pi-ai` client through `pi_ai::http::fetch_with_options` (`http1_only`, `read_timeout`), keeping one HTTP stack.
 - `pi-ai` (path) — `utils::management_http` uses the shared `Fetch` contract and default reqwest client (one HTTP stack).
+- `pi-tui` (path) — supplies the TUI keybinding registry (`TUI_KEYBINDINGS`, `KeybindingsManager`) that `core::keybindings` extends with the `app.*` bindings instead of redefining the TUI table.
 - `tempfile = 3.27.0` (development) — creates isolated temporary files, symlinks, and git repositories for path and process tests.
 
 ### `pi-ai`

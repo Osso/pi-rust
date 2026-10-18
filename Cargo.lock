@@ -2059,6 +2059,7 @@ dependencies = [
  "photon-rs",
  "pi-agent-core",
  "pi-ai",
+ "pi-tui",
  "regex",
  "rustix",
  "serde",

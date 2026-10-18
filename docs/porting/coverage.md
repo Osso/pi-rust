@@ -396,7 +396,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/runtime-process.ts` | 103 | 0 | done | `crates/pi-coding-agent/src/core/runtime_process.rs` | `/proc` identity/state, Pi-runtime command-line detection; differential `27012`. macOS `ps` cmdline fallback is a documented gap. |
 | `coding-agent/src/core/session-errors.ts` | 12 | 0 | done | `crates/pi-coding-agent/src/core/session_errors.rs` | `SessionImportFileNotFoundError`; differential `27004`. |
 | `coding-agent/src/core/session-health.ts` | 135 | 0 | done | `crates/pi-coding-agent/src/core/session_health.rs` | Records, sticky-death/eligibility, live-status derivation, goal parsing; differential `27008`. `Date.parse` subset lives in `utils::iso_time` (RFC 2822/free-form gap documented). |
-| `coding-agent/src/core/skill-block.ts` | 22 | 0 | partial |  |  |
+| `coding-agent/src/core/skill-block.ts` | 22 | 0 | done | `crates/pi-coding-agent/src/core/skill_block.rs` | `parseSkillBlock` with backtracking to a valid closing tag; differential `skill-block-oracle.ts` plus focused cases. |
 | `coding-agent/src/core/sqlite.ts` | 145 | 0 | todo |  |  |
 | `coding-agent/src/core/timings.ts` | 50 | 0 | done | `crates/pi-coding-agent/src/core/timings.rs` | `PI_TIMING` startup profiling; stderr format asserted through a child process. |
 | `coding-agent/src/core/tool-capabilities.ts` | 11 | 0 | done | `crates/pi-coding-agent/src/core/tool_capabilities.rs` | Child-disabled and supervisor-only tool names; differential `27004`. |
@@ -469,7 +469,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/bun/register-bedrock.ts` | 4 | 7 | todo |  |  |
 | `coding-agent/src/core/provider-composer.ts` | 572 | 7 | todo |  |  |
 | `coding-agent/src/extensions/llama/provider.ts` | 150 | 7 | todo |  |  |
-| `coding-agent/src/core/keybindings.ts` | 434 | 8 | todo |  |  |
+| `coding-agent/src/core/keybindings.ts` | 434 | 8 | done | `crates/pi-coding-agent/src/core/keybindings.rs` | `KEYBINDINGS` layered on `pi-tui`, legacy-name migration/ordering, file load/reload; differential `coding-agent-keybindings-oracle.ts`. |
 | `coding-agent/src/core/model-runtime.ts` | 795 | 8 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/countdown-timer.ts` | 39 | 8 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/visual-truncate.ts` | 50 | 8 | todo |  |  |
@@ -482,10 +482,10 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/migrations.ts` | 365 | 9 | todo |  |  |
 | `coding-agent/src/client/index.ts` | 15 | 10 | todo |  |  |
 | `coding-agent/src/core/compaction/utils.ts` | 198 | 14 | todo |  |  |
-| `coding-agent/src/core/defaults.ts` | 3 | 14 | partial |  |  |
+| `coding-agent/src/core/defaults.ts` | 3 | 14 | done | `crates/pi-coding-agent/src/core/defaults.rs` | `DEFAULT_THINKING_LEVEL = medium` reuses `pi-agent-core` `ThinkingLevel`. |
 | `coding-agent/src/core/messages.ts` | 212 | 14 | todo |  |  |
 | `coding-agent/src/core/runtime-message-markers.ts` | 36 | 14 | todo |  |  |
-| `coding-agent/src/core/settings-manager.ts` | 1442 | 14 | todo |  |  |
+| `coding-agent/src/core/settings-manager.ts` | 1442 | 14 | done | `crates/pi-coding-agent/src/core/settings_manager.rs` | Global/project storage with the shared lock protocol, migrations, typed accessors, field-scoped persistence; differential `coding-agent-settings-manager-oracle.ts` (10 scenarios, file bytes). Synchronous writes documented. |
 | `coding-agent/src/core/detached-job-runner.ts` | 167 | 15 | todo |  |  |
 | `coding-agent/src/core/multi-agent-store.ts` | 1387 | 15 | todo |  |  |
 | `coding-agent/src/core/package-manager.ts` | 2699 | 15 | todo |  |  |
@@ -508,7 +508,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/runtime-coordination-format.ts` | 38 | 16 | todo |  |  |
 | `coding-agent/src/core/session-cwd.ts` | 83 | 16 | todo |  |  |
 | `coding-agent/src/core/session-directory.ts` | 365 | 16 | todo |  |  |
-| `coding-agent/src/core/source-info.ts` | 40 | 16 | partial |  |  |
+| `coding-agent/src/core/source-info.ts` | 40 | 16 | partial | `crates/pi-coding-agent/src/core/source_info.rs` | `createSyntheticSourceInfo` done with camelCase serde. `createSourceInfo` is blocked on `PathMetadata` from `package-manager.ts` (ca-package-manager slice). |
 | `coding-agent/src/core/usage-totals.ts` | 67 | 16 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/custom-editor.ts` | 148 | 16 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/session-selector-search.ts` | 219 | 16 | todo |  |  |
@@ -518,9 +518,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/compaction/branch-summarization.ts` | 378 | 17 | todo |  |  |
 | `coding-agent/src/core/detached-bash-runner.ts` | 294 | 17 | todo |  |  |
 | `coding-agent/src/core/lifecycle-coordinator.ts` | 448 | 17 | todo |  |  |
-| `coding-agent/src/core/prompt-templates.ts` | 285 | 17 | todo |  |  |
-| `coding-agent/src/core/skills.ts` | 487 | 17 | todo |  |  |
-| `coding-agent/src/core/slash-commands.ts` | 48 | 17 | todo |  |  |
+| `coding-agent/src/core/prompt-templates.ts` | 285 | 17 | done | `crates/pi-coding-agent/src/core/prompt_templates.rs` | Argument parsing/substitution, discovery, expansion, source metadata; differential `coding-agent-prompt-templates-oracle.ts`. |
+| `coding-agent/src/core/skills.ts` | 487 | 17 | done | `crates/pi-coding-agent/src/core/skills.rs` | Discovery, ignore rules, validation, collisions, prompt formatting; differential `coding-agent-skills-oracle.ts`. YAML error wording normalized (see traceability). |
+| `coding-agent/src/core/slash-commands.ts` | 48 | 17 | done | `crates/pi-coding-agent/src/core/slash_commands.rs` | Built-in command list and source enum; differential `coding-agent-slash-commands-oracle.ts`. |
 | `coding-agent/src/core/terminal-outbox-delivery.ts` | 84 | 17 | todo |  |  |
 | `coding-agent/src/modes/interactive/theme/theme.ts` | 1337 | 17 | todo |  |  |
 | `coding-agent/extensions/agents-core/src/lifecycle-runtime.ts` | 42 | 18 | todo |  |  |
@@ -652,11 +652,11 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/model-resolver.ts` | 780 | 22 | todo |  |  |
 | `coding-agent/src/core/permissions/mcp-permission-prompt.ts` | 250 | 22 | todo |  |  |
 | `coding-agent/src/core/permissions/orchestrator.ts` | 39 | 22 | todo |  |  |
-| `coding-agent/src/core/project-trust.ts` | 96 | 22 | todo |  |  |
-| `coding-agent/src/core/resource-loader.ts` | 1270 | 22 | todo |  |  |
+| `coding-agent/src/core/project-trust.ts` | 96 | 22 | partial | — | Blocked on `extensions/types.ts` (`LoadExtensionsResult`, `ProjectTrustContext`) and `extensions/runner.ts` (`emitProjectTrustEvent`). `formatProjectTrustPrompt`, option selection, and `resolveProjectTrusted` are not ported; no stand-in types added. |
+| `coding-agent/src/core/resource-loader.ts` | 1270 | 22 | partial | `crates/pi-coding-agent/src/core/resource_loader.rs` | Rule-file loading and inline/first-party path naming done; `DefaultResourceLoader`, context-file discovery, and `findShadowedContextFile` are blocked on extensions/loader, package-manager, footer-data-provider, and theme loader. |
 | `coding-agent/src/core/sdk.ts` | 462 | 22 | todo |  |  |
 | `coding-agent/src/core/self-restart.ts` | 251 | 22 | todo |  |  |
-| `coding-agent/src/core/system-prompt.ts` | 218 | 22 | todo |  |  |
+| `coding-agent/src/core/system-prompt.ts` | 218 | 22 | done | `crates/pi-coding-agent/src/core/system_prompt.rs` | Default/custom prompt assembly, tool snippets, guidelines, rules, skills; differential `coding-agent-system-prompt-oracle.ts`. |
 | `coding-agent/src/core/tools/ask-architect.ts` | 95 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/ask-questions.ts` | 309 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/ask-supervisor.ts` | 89 | 22 | todo |  |  |
@@ -669,7 +669,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/tools/end-turn.ts` | 37 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/find.ts` | 381 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/grep.ts` | 400 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/index.ts` | 420 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/index.ts` | 420 | 22 | partial | `crates/pi-coding-agent/src/core/tools/mod.rs` | Only `DEFAULT_ACTIVE_TOOL_NAMES` (needed by system-prompt); tool definitions/factories remain for ca-tools-text. |
 | `coding-agent/src/core/tools/list-sessions.ts` | 81 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/ls.ts` | 326 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/read.ts` | 468 | 22 | todo |  |  |

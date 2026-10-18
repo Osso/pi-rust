@@ -75,7 +75,7 @@ fn compare_candidates(
 }
 
 /// `String.prototype.localeCompare`: ICU collation in the host locale, like Node.
-fn compare_paths(left: &str, right: &str) -> Ordering {
+pub(crate) fn compare_paths(left: &str, right: &str) -> Ordering {
     COLLATOR.with(|collator| collator.borrow().compare(left, right))
 }
 
