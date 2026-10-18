@@ -117,15 +117,7 @@ fn providers_match_the_ts_factories() {
         .map(|provider| provider["id"].as_str().expect("id").to_owned())
         .collect();
 
-    // Only the api-codex slice providers are missing from this slice.
-    assert_eq!(
-        ts_ids
-            .iter()
-            .filter(|id| !rust_ids.contains(id))
-            .cloned()
-            .collect::<Vec<_>>(),
-        vec!["openai-codex".to_owned(), "openai-codex-gc".to_owned()]
-    );
+    assert_eq!(ts_ids, rust_ids);
     for rust_provider in &rust_providers {
         let id = rust_provider["id"].as_str().expect("id");
         let ts_provider = ts_providers

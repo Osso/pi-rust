@@ -4,7 +4,7 @@ Sources: `packages/ai/src/types.ts`, `packages/ai/src/utils/event-stream.ts`.
 Rust: `crates/pi-ai/src/types.rs`, `crates/pi-ai/src/utils/event_stream.rs`, `crates/pi-ai/src/js_number.rs`.
 
 ## Representation decisions
-- TS `number` → `f64` serialized via `js_number` (integral values print without `.0`, like `JSON.stringify`). Unix-ms `timestamp` → `i64`. `contentIndex` → `usize`.
+- TS `number` → `f64` serialized via `js_number` (integral values print without `.0`, like `JSON.stringify`). Unix-ms `timestamp` → `i64`. `contentIndex` → `usize`. `Number.parseInt` → `js_number::parse_int` (used by the `pi-ai` CLI selection prompt).
 - `Api`/`ProviderId`/`ImagesApi`/`ImagesProviderId` (`Known… | string`) → `String`; known literals exported as `KNOWN_APIS`, `KNOWN_PROVIDERS`, `KNOWN_IMAGES_APIS`, `KNOWN_IMAGES_PROVIDERS`.
 - Each content/message struct carries its literal discriminant (`type`/`role`) as a single-value enum field, so standalone values (`imageGenerationResult`, `toolCall`, `AssistantMessage`) serialize with the tag first like TS. Unions over them (`AssistantContent`, `TextOrImageContent`, `Message`) are `untagged` and dispatch on that tag.
 - `Model<TApi>.compat` → `ModelCompat`, parsed by `api` (`openai-completions`; `openai-responses|azure-openai-responses|openai-codex-responses`; `anthropic-messages`; `bedrock-converse-stream`); other APIs ignore `compat` (TS `never`).
@@ -34,13 +34,20 @@ Rust: `crates/pi-ai/src/types.rs`, `crates/pi-ai/src/utils/event_stream.rs`, `cr
 | `onPayload`/`onResponse`/`onRetry` | `OnPayload`/`OnResponse`/`OnRetry` (`Arc<dyn Fn>`) | provider slices |
 | `ProviderStreams` (optional `fetchDeferred`/`cancelDeferred`) | trait `ProviderStreams` with `supports_*` presence flags | runtime slice |
 | `ProviderImages` | trait `ProviderImages` | images slice |
+| `ImagesOptions` (`ProviderRequestOptions<ImagesModel>`) | `ImagesRequestOptions` + `ImagesOptions` (`request`, `metadata`, `extra`) | images slice |
+| `ProviderImagesOptions` (`ImagesOptions & Record<string, unknown>`) | `ImagesOptions::extra` | typed exclusion: untyped remainder |
+| `ImagesFunction` | subsumed by `ProviderImages::generate_images` | typed exclusion |
+| `FetchFunction` (`typeof globalThis.fetch`) | trait `Fetch` | `tests/http.rs` |
 | `fetch?: typeof globalThis.fetch` | trait `Fetch` + `HttpRequest`/`HttpResponse`/`HttpBody`; default `http::default_fetch()` (reqwest, rustls) | `tests/http.rs`: request line/headers/body, streamed chunked body, abort → `"This operation was aborted"` |
 | `lazyStream` setup-error message shape | `request::error_stream` | runtime slice |
 
 ## Gaps
 - `telemetryContext` option: added when pi-telemetry merges.
-- `ApiOptionsMap`/`ApiStreamOptions<TApi>`: compile-time mapping only; replaced by `StreamOptions::extra` parsing per API.
-- `StreamFunction`/`ImagesFunction` type aliases: subsumed by the traits.
+- `ApiOptionsMap`/`ApiStreamOptions<TApi>`: compile-time conditional mapping only; replaced by `StreamOptions::extra` parsing per API.
+- `StreamFunction`/`ImagesFunction` type aliases: subsumed by `ProviderStreams`/`ProviderImages`.
+- `ProviderStreamOptions`/`ProviderImagesOptions` untyped remainders: carried in `extra`; typed per-API options live on each API module.
+- `FetchFunction`: typed exclusion; the Rust boundary is the `Fetch` trait (`HttpRequest`/`HttpResponse`/`HttpBody`).
+- Crate-root re-export mapping is in `ai-index.md` (index.ts exports every name above).
 
 ## Discrepancies
 - `EventStream.end()` without a result leaves `result()` pending forever in TS; preserved (`end_without_result_leaves_result_pending`).
