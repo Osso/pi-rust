@@ -12,10 +12,14 @@ publish = false
 unicode-segmentation = "=1.13.3"
 # Compiles the Unicode-property patterns ported verbatim from the LaTeX renderer.
 regex = "=1.13.1"
+# Executes the lookaround/backreference grammar ported from marked 18.0.5.
+fancy-regex = "=0.16.2"
+# Serializes the ported marked token model for differential comparison.
+serde = { version = "=1.0.229", features = ["derive"] }
 # ICU4X word segmentation: dictionary/LSTM behavior matching Intl.Segmenter.
 icu_segmenter = "=2.3.0"
 # Async process I/O for fd-backed file suggestions and AbortSignal cancellation.
-tokio = { version = "=1.53.3", features = ["process", "rt", "sync", "io-util"] }
+tokio = { version = "=1.53.3", features = ["process", "rt", "sync", "io-util", "macros"] }
 tokio-util = { version = "=0.7.20", features = ["rt"] }
 # Safe termios/tty access for ProcessTerminal raw mode and window size (no libc/unsafe).
 rustix = { version = "=1.1.5", features = ["termios"] }
@@ -25,7 +29,7 @@ rustix = { version = "=1.1.5", features = ["termios"] }
 serde_json = "=1.0.151"
 # Creates isolated directory trees for path-completion tests.
 tempfile = "=3.27.0"
-tokio = { version = "=1.53.3", features = ["macros", "rt", "rt-multi-thread"] }
+tokio = { version = "=1.53.3", features = ["macros", "rt", "rt-multi-thread", "time"] }
 
 [lints]
 workspace = true

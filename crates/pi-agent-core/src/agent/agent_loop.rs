@@ -23,7 +23,8 @@ use crate::agent::types::{
 };
 
 /// Event sink used by the low-level loop.
-pub type AgentEventSink = Arc<dyn Fn(AgentEvent) -> pi_ai::request::BoxFuture<'static, ()> + Send + Sync>;
+pub type AgentEventSink =
+    Arc<dyn Fn(AgentEvent) -> pi_ai::request::BoxFuture<'static, Result<(), AgentError>> + Send + Sync>;
 
 const END_TURN_CONTINUATION_INSTRUCTION: &str = "Your previous response was already delivered. Do not continue, repeat, or infer a new user request. Call `end_turn` now with a concise reason.";
 
@@ -75,6 +76,7 @@ fn event_sink(sender: pi_ai::utils::event_stream::EventSender<AgentEvent, Vec<Ag
         let sender = sender.clone();
         Box::pin(async move {
             sender.push(event);
+            Ok(())
         })
     })
 }
@@ -109,8 +111,8 @@ pub async fn run_agent_loop(
     };
     current_context.messages.extend(prompts.iter().cloned());
 
-    emit_event(&emit, AgentEvent::AgentStart).await;
-    emit_event(&emit, AgentEvent::TurnStart).await;
+    emit_event(&emit, AgentEvent::AgentStart).await?;
+    emit_event(&emit, AgentEvent::TurnStart).await?;
     for prompt in &prompts {
         emit_event(
             &emit,
@@ -118,14 +120,14 @@ pub async fn run_agent_loop(
                 message: prompt.clone(),
             },
         )
-        .await;
+        .await?;
         emit_event(
             &emit,
             AgentEvent::MessageEnd {
                 message: prompt.clone(),
             },
         )
-        .await;
+        .await?;
     }
 
     let stream_fn = resolve_stream_fn(stream_fn)?;
@@ -148,8 +150,8 @@ pub async fn run_agent_loop_continue(
     let mut current_context = context;
     let mut continuation_config = config;
 
-    emit_event(&emit, AgentEvent::AgentStart).await;
-    emit_event(&emit, AgentEvent::TurnStart).await;
+    emit_event(&emit, AgentEvent::AgentStart).await?;
+    emit_event(&emit, AgentEvent::TurnStart).await?;
 
     if restored_pending_tool_message(&current_context.messages).is_some()
         && let ResumeOutcome::Stop(messages) = resume_pending_tool_batch(
@@ -203,7 +205,7 @@ async fn resume_pending_tool_batch(
             tool_results: batch.messages.clone(),
         },
     )
-    .await;
+    .await?;
     throw_if_aborted(signal)?;
     if batch.terminate {
         let messages = finish_agent(new_messages.clone(), emit).await?;
@@ -307,8 +309,8 @@ async fn run_loop(
 
         while has_more_tool_calls || !pending_messages.is_empty() {
             throw_if_aborted(&signal)?;
-            start_turn(&mut state, emit).await;
-            inject_pending_messages(&mut state, &mut pending_messages, emit).await;
+            start_turn(&mut state, emit).await?;
+            inject_pending_messages(&mut state, &mut pending_messages, emit).await?;
 
             let message = request_assistant_message(&mut state, &signal, emit, &stream_fn).await?;
             state.new_messages.push(message.clone().into());
@@ -321,7 +323,7 @@ async fn run_loop(
                         tool_results: Vec::new(),
                     },
                 )
-                .await;
+                .await?;
                 return finish_agent(state.new_messages, emit).await;
             }
 
@@ -354,23 +356,23 @@ async fn finish_agent(messages: Vec<AgentMessage>, emit: &AgentEventSink) -> Res
             messages: messages.clone(),
         },
     )
-    .await;
+    .await?;
     Ok(messages)
 }
 
-async fn start_turn(state: &mut LoopState, emit: &AgentEventSink) {
+async fn start_turn(state: &mut LoopState, emit: &AgentEventSink) -> Result<(), AgentError> {
     if state.first_turn {
         state.first_turn = false;
-    } else {
-        emit_event(emit, AgentEvent::TurnStart).await;
+        return Ok(());
     }
+    emit_event(emit, AgentEvent::TurnStart).await
 }
 
 async fn inject_pending_messages(
     state: &mut LoopState,
     pending_messages: &mut Vec<AgentMessage>,
     emit: &AgentEventSink,
-) {
+) -> Result<(), AgentError> {
     for message in pending_messages.drain(..) {
         emit_event(
             emit,
@@ -378,17 +380,18 @@ async fn inject_pending_messages(
                 message: message.clone(),
             },
         )
-        .await;
+        .await?;
         emit_event(
             emit,
             AgentEvent::MessageEnd {
                 message: message.clone(),
             },
         )
-        .await;
+        .await?;
         state.current_context.messages.push(message.clone());
         state.new_messages.push(message);
     }
+    Ok(())
 }
 
 async fn request_assistant_message(
@@ -406,7 +409,7 @@ async fn request_assistant_message(
     });
     state.continuation_instruction_pending = false;
 
-    emit_event(emit, AgentEvent::ModelRequestStart).await;
+    emit_event(emit, AgentEvent::ModelRequestStart).await?;
     let streamed = stream_assistant_response(
         &mut state.current_context,
         &state.config,
@@ -416,7 +419,7 @@ async fn request_assistant_message(
         runtime_continuation_message,
     )
     .await;
-    emit_event(emit, AgentEvent::ModelRequestEnd).await;
+    emit_event(emit, AgentEvent::ModelRequestEnd).await?;
     streamed
 }
 
@@ -465,7 +468,7 @@ async fn finish_turn(
             tool_results: tool_results.to_vec(),
         },
     )
-    .await;
+    .await?;
     throw_if_aborted(signal)?;
 
     let next_turn_context = ShouldStopAfterTurnContext {
@@ -591,7 +594,11 @@ struct StreamedAssistant {
     added_partial: bool,
 }
 
-async fn handle_stream_start(context: &mut AgentContext, partial: &AssistantMessage, emit: &AgentEventSink) {
+async fn handle_stream_start(
+    context: &mut AgentContext,
+    partial: &AssistantMessage,
+    emit: &AgentEventSink,
+) -> Result<(), AgentError> {
     context.messages.push(partial.clone().into());
     emit_event(
         emit,
@@ -599,7 +606,7 @@ async fn handle_stream_start(context: &mut AgentContext, partial: &AssistantMess
             message: partial.clone().into(),
         },
     )
-    .await;
+    .await
 }
 
 async fn handle_stream_update(
@@ -607,7 +614,7 @@ async fn handle_stream_update(
     partial: &AssistantMessage,
     event: &AssistantMessageEvent,
     emit: &AgentEventSink,
-) {
+) -> Result<(), AgentError> {
     if let Some(last) = context.messages.last_mut() {
         *last = partial.clone().into();
     }
@@ -618,7 +625,7 @@ async fn handle_stream_update(
             assistant_message_event: Box::new(event.clone()),
         },
     )
-    .await;
+    .await
 }
 
 fn assistant_event_partial(event: &AssistantMessageEvent) -> Option<&AssistantMessage> {
@@ -655,7 +662,7 @@ async fn consume_assistant_stream(
             AssistantMessageEvent::Start { partial } => {
                 partial_message = Some(partial.clone());
                 added_partial = true;
-                handle_stream_start(context, partial, emit).await;
+                handle_stream_start(context, partial, emit).await?;
             }
             AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. } => {
                 let message = await_with_abort(response.result(), signal)
@@ -671,7 +678,7 @@ async fn consume_assistant_stream(
                     continue;
                 }
                 partial_message = Some(partial.clone());
-                handle_stream_update(context, partial, &event, emit).await;
+                handle_stream_update(context, partial, &event, emit).await?;
             }
         }
     }
@@ -702,7 +709,7 @@ async fn finish_assistant_message(
                 message: final_message.clone().into(),
             },
         )
-        .await;
+        .await?;
     }
     emit_event(
         emit,
@@ -710,7 +717,7 @@ async fn finish_assistant_message(
             message: final_message.clone().into(),
         },
     )
-    .await;
+    .await?;
     Ok(final_message)
 }
 
@@ -831,7 +838,7 @@ struct FinalizedToolCallOutcome {
 
 enum FinalizedEntry {
     Done(Box<FinalizedToolCallOutcome>),
-    Pending(pi_ai::request::BoxFuture<'static, FinalizedToolCallOutcome>),
+    Pending(pi_ai::request::BoxFuture<'static, Result<FinalizedToolCallOutcome, AgentError>>),
 }
 
 async fn execute_tool_calls(
@@ -868,7 +875,7 @@ async fn execute_tool_calls_sequential(
     for tool_call in tool_calls {
         let preparation = prepare_tool_call(current_context, assistant_message, tool_call, config, signal).await;
         let started_at = now_ms_f64();
-        emit_tool_execution_start(tool_call, &preparation, started_at, emit).await;
+        emit_tool_execution_start(tool_call, &preparation, started_at, emit).await?;
         let finalized = match preparation {
             Preparation::Immediate { result, is_error, .. } => FinalizedToolCallOutcome {
                 tool_call: tool_call.clone(),
@@ -876,15 +883,15 @@ async fn execute_tool_calls_sequential(
                 is_error,
             },
             Preparation::Prepared(prepared) => {
-                let executed = execute_prepared_tool_call(prepared.clone(), signal, emit, started_at).await;
+                let executed = execute_prepared_tool_call(prepared.clone(), signal, emit, started_at).await?;
                 finalize_executed_tool_call(current_context, assistant_message, prepared, executed, config, signal)
                     .await
             }
         };
         let finalized = cap_finalized_tool_call_outcome(finalized);
-        emit_tool_execution_end(&finalized, started_at, emit).await;
+        emit_tool_execution_end(&finalized, started_at, emit).await?;
         let tool_result_message = create_tool_result_message(&finalized);
-        emit_tool_result_message(&tool_result_message, emit).await;
+        emit_tool_result_message(&tool_result_message, emit).await?;
         finalized_calls.push(finalized);
         messages.push(tool_result_message);
         if is_aborted(signal) {
@@ -909,7 +916,7 @@ async fn execute_tool_calls_parallel(
     let mut entries: Vec<FinalizedEntry> = Vec::new();
 
     for tool_call in tool_calls {
-        entries.push(build_parallel_entry(current_context, assistant_message, tool_call, config, signal, emit).await);
+        entries.push(build_parallel_entry(current_context, assistant_message, tool_call, config, signal, emit).await?);
         if is_aborted(signal) {
             break;
         }
@@ -919,7 +926,7 @@ async fn execute_tool_calls_parallel(
     let mut messages: Vec<ToolResultMessage> = Vec::new();
     for finalized in &ordered_finalized_calls {
         let tool_result_message = create_tool_result_message(finalized);
-        emit_tool_result_message(&tool_result_message, emit).await;
+        emit_tool_result_message(&tool_result_message, emit).await?;
         messages.push(tool_result_message);
     }
 
@@ -936,10 +943,10 @@ async fn build_parallel_entry(
     config: &AgentLoopConfig,
     signal: &Option<CancellationToken>,
     emit: &AgentEventSink,
-) -> FinalizedEntry {
+) -> Result<FinalizedEntry, AgentError> {
     let preparation = prepare_tool_call(current_context, assistant_message, tool_call, config, signal).await;
     let started_at = now_ms_f64();
-    emit_tool_execution_start(tool_call, &preparation, started_at, emit).await;
+    emit_tool_execution_start(tool_call, &preparation, started_at, emit).await?;
 
     match preparation {
         Preparation::Immediate { result, is_error, .. } => {
@@ -948,8 +955,8 @@ async fn build_parallel_entry(
                 result,
                 is_error,
             });
-            emit_tool_execution_end(&finalized, started_at, emit).await;
-            FinalizedEntry::Done(Box::new(finalized))
+            emit_tool_execution_end(&finalized, started_at, emit).await?;
+            Ok(FinalizedEntry::Done(Box::new(finalized)))
         }
         Preparation::Prepared(prepared) => {
             let current_context = current_context.clone();
@@ -957,8 +964,8 @@ async fn build_parallel_entry(
             let config = config.clone();
             let signal = signal.clone();
             let emit = Arc::clone(emit);
-            FinalizedEntry::Pending(Box::pin(async move {
-                let executed = execute_prepared_tool_call(prepared.clone(), &signal, &emit, started_at).await;
+            Ok(FinalizedEntry::Pending(Box::pin(async move {
+                let executed = execute_prepared_tool_call(prepared.clone(), &signal, &emit, started_at).await?;
                 let finalized = cap_finalized_tool_call_outcome(
                     finalize_executed_tool_call(
                         &current_context,
@@ -970,9 +977,9 @@ async fn build_parallel_entry(
                     )
                     .await,
                 );
-                emit_tool_execution_end(&finalized, started_at, &emit).await;
-                finalized
-            }))
+                emit_tool_execution_end(&finalized, started_at, &emit).await?;
+                Ok(finalized)
+            })))
         }
     }
 }
@@ -990,7 +997,7 @@ async fn join_finalized_entries(entries: Vec<FinalizedEntry>) -> Result<Vec<Fina
     }
     while let Some(joined) = pending.join_next().await {
         let (index, finalized) = joined.map_err(|error| AgentError::new(error.to_string()))?;
-        slots[index] = Some(finalized);
+        slots[index] = Some(finalized?);
     }
     slots
         .into_iter()
@@ -1129,22 +1136,22 @@ async fn apply_before_tool_call(
     }))
 }
 
-type UpdateTasks = Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>;
+type UpdateTasks = Arc<Mutex<Vec<tokio::task::JoinHandle<Result<(), AgentError>>>>>;
 
 async fn execute_prepared_tool_call(
     prepared: PreparedToolCall,
     signal: &Option<CancellationToken>,
     emit: &AgentEventSink,
     started_at: f64,
-) -> ExecutedToolCallOutcome {
+) -> Result<ExecutedToolCallOutcome, AgentError> {
     let accepting_updates = Arc::new(AtomicBool::new(true));
     let update_tasks: UpdateTasks = Arc::new(Mutex::new(Vec::new()));
     let on_update = tool_update_callback(&prepared, emit, &accepting_updates, &update_tasks);
 
     let outcome = run_prepared_tool(prepared, signal, on_update, started_at).await;
     accepting_updates.store(false, Ordering::SeqCst);
-    await_update_tasks(&update_tasks).await;
-    outcome
+    await_update_tasks(&update_tasks).await?;
+    Ok(outcome)
 }
 
 fn tool_update_callback(
@@ -1170,9 +1177,7 @@ fn tool_update_callback(
             partial_result: cap_tool_result(partial_result),
         };
         let emit = Arc::clone(&emit);
-        let task = tokio::spawn(async move {
-            emit(event).await;
-        });
+        let task = tokio::spawn(async move { emit(event).await });
         update_tasks
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -1217,14 +1222,25 @@ async fn run_prepared_tool(
     }
 }
 
-async fn await_update_tasks(update_tasks: &UpdateTasks) {
-    let tasks: Vec<tokio::task::JoinHandle<()>> = update_tasks
+async fn await_update_tasks(update_tasks: &UpdateTasks) -> Result<(), AgentError> {
+    let tasks: Vec<tokio::task::JoinHandle<Result<(), AgentError>>> = update_tasks
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .drain(..)
         .collect();
+    let mut first_error = None;
     for task in tasks {
-        let _ = task.await;
+        let outcome = match task.await {
+            Ok(result) => result,
+            Err(error) => Err(AgentError::new(error.to_string())),
+        };
+        if let Err(error) = outcome {
+            first_error.get_or_insert(error);
+        }
+    }
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(()),
     }
 }
 
@@ -1391,7 +1407,7 @@ async fn emit_tool_execution_start(
     preparation: &Preparation,
     started_at: f64,
     emit: &AgentEventSink,
-) {
+) -> Result<(), AgentError> {
     emit_event(
         emit,
         AgentEvent::ToolExecutionStart {
@@ -1401,10 +1417,14 @@ async fn emit_tool_execution_start(
             started_at,
         },
     )
-    .await;
+    .await
 }
 
-async fn emit_tool_execution_end(finalized: &FinalizedToolCallOutcome, started_at: f64, emit: &AgentEventSink) {
+async fn emit_tool_execution_end(
+    finalized: &FinalizedToolCallOutcome,
+    started_at: f64,
+    emit: &AgentEventSink,
+) -> Result<(), AgentError> {
     emit_event(
         emit,
         AgentEvent::ToolExecutionEnd {
@@ -1416,7 +1436,7 @@ async fn emit_tool_execution_end(finalized: &FinalizedToolCallOutcome, started_a
             finished_at: now_ms_f64(),
         },
     )
-    .await;
+    .await
 }
 
 fn create_tool_result_message(finalized: &FinalizedToolCallOutcome) -> ToolResultMessage {
@@ -1433,25 +1453,28 @@ fn create_tool_result_message(finalized: &FinalizedToolCallOutcome) -> ToolResul
     }
 }
 
-async fn emit_tool_result_message(tool_result_message: &ToolResultMessage, emit: &AgentEventSink) {
+async fn emit_tool_result_message(
+    tool_result_message: &ToolResultMessage,
+    emit: &AgentEventSink,
+) -> Result<(), AgentError> {
     emit_event(
         emit,
         AgentEvent::MessageStart {
             message: tool_result_message.clone().into(),
         },
     )
-    .await;
+    .await?;
     emit_event(
         emit,
         AgentEvent::MessageEnd {
             message: tool_result_message.clone().into(),
         },
     )
-    .await;
+    .await
 }
 
-async fn emit_event(emit: &AgentEventSink, event: AgentEvent) {
-    emit(event).await;
+async fn emit_event(emit: &AgentEventSink, event: AgentEvent) -> Result<(), AgentError> {
+    emit(event).await
 }
 
 fn is_aborted(signal: &Option<CancellationToken>) -> bool {

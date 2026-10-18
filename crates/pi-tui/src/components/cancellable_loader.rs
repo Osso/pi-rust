@@ -1,0 +1,90 @@
+//! Ported from `packages/tui/src/components/cancellable-loader.ts`.
+//!
+//! The TypeScript `AbortSignal` maps to a `CancellationToken`; pressing the
+//! `tui.select.cancel` key cancels it and invokes `on_abort`.
+
+use std::rc::Rc;
+use std::time::Instant;
+
+use tokio_util::sync::CancellationToken;
+
+use super::loader::{Loader, LoaderIndicatorOptions};
+use super::text::StyleFn;
+use crate::keybindings::get_keybindings;
+use crate::tui::Component;
+
+pub struct CancellableLoader {
+    loader: Loader,
+    abort_controller: CancellationToken,
+    pub on_abort: Option<Rc<dyn Fn()>>,
+}
+
+impl CancellableLoader {
+    pub fn new(
+        request_render: Rc<dyn Fn()>,
+        spinner_color_fn: StyleFn,
+        message_color_fn: StyleFn,
+        message: impl Into<String>,
+        indicator: Option<LoaderIndicatorOptions>,
+    ) -> Self {
+        Self {
+            loader: Loader::new(request_render, spinner_color_fn, message_color_fn, message, indicator),
+            abort_controller: CancellationToken::new(),
+            on_abort: None,
+        }
+    }
+
+    /// Abort signal that fires when the user presses Escape.
+    pub fn signal(&self) -> CancellationToken {
+        self.abort_controller.clone()
+    }
+
+    pub fn is_aborted(&self) -> bool {
+        self.abort_controller.is_cancelled()
+    }
+
+    pub fn start(&mut self) {
+        self.loader.start();
+    }
+
+    pub fn stop(&mut self) {
+        self.loader.stop();
+    }
+
+    pub fn set_message(&mut self, message: impl Into<String>) {
+        self.loader.set_message(message);
+    }
+
+    pub fn set_indicator(&mut self, indicator: Option<LoaderIndicatorOptions>) {
+        self.loader.set_indicator(indicator);
+    }
+
+    pub fn poll(&mut self, now: Instant) -> bool {
+        self.loader.poll(now)
+    }
+
+    /// Stop the animation and release resources.
+    pub fn dispose(&mut self) {
+        self.loader.stop();
+    }
+}
+
+impl Component for CancellableLoader {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.loader.render(width)
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        let keybindings = get_keybindings();
+        if keybindings.matches(data, "tui.select.cancel") {
+            self.abort_controller.cancel();
+            if let Some(on_abort) = &self.on_abort {
+                on_abort();
+            }
+        }
+    }
+
+    fn invalidate(&mut self) {
+        self.loader.invalidate();
+    }
+}
