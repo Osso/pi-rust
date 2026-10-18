@@ -545,6 +545,10 @@ pub struct AssistantMessage {
     pub api: Api,
     pub provider: ProviderId,
     pub model: String,
+    pub usage: Usage,
+    pub stop_reason: StopReason,
+    /// Unix timestamp in milliseconds.
+    pub timestamp: i64,
     /// Concrete response model when it differs from the requested `model`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_model: Option<String>,
@@ -554,8 +558,6 @@ pub struct AssistantMessage {
     pub image_generation_result: Option<ImageContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<Vec<AssistantMessageDiagnostic>>,
-    pub usage: Usage,
-    pub stop_reason: StopReason,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deferred: Option<DeferredHandle>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -564,8 +566,6 @@ pub struct AssistantMessage {
     pub raw_stop_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_turn: Option<bool>,
-    /// Unix timestamp in milliseconds.
-    pub timestamp: i64,
 }
 
 impl AssistantMessage {

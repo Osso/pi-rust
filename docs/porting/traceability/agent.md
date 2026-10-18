@@ -38,6 +38,7 @@ Tests: `crates/pi-agent-core/tests/agent.rs`, `agent_abort.rs`, `agent_continue_
 | `handleRunFailure` (synthetic assistant message, full event sequence) | `build_failure_message` + event emission | `emits_full_lifecycle_events_for_run_failures` |
 | `finishRun` | `finish_run` | `wait_for_idle_*`, reset test |
 | `processEvents` state reduction + awaited listeners | `process_events` (listener errors propagate) | lifecycle/state tests; differential `listener_*_agent` |
+| `pendingToolCalls` `Set` | `IndexSet` (insertion order preserved) | `pending_tool_calls_preserve_insertion_order` |
 | `PendingMessageQueue` `all` / `one-at-a-time` | same | continue steering test, queue mode tests |
 
 ## Branches

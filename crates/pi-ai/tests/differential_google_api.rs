@@ -1,9 +1,11 @@
 #[path = "support/google_fetch.rs"]
 mod google_fetch;
+#[path = "support/json_compare.rs"]
+mod json_compare;
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use google_fetch::{RecordingFetch, ScriptedResponse};
@@ -239,14 +241,11 @@ fn normalize_jwt_body(body: &str) -> (String, Option<Value>) {
     let header = parts.next().unwrap_or_default();
     let claims = parts.next().unwrap_or_default();
     let signature = parts.next().unwrap_or_default();
-    let mut header: Value = serde_json::from_slice(&base64url_decode(header)).unwrap_or(Value::Null);
+    let header: Value = serde_json::from_slice(&base64url_decode(header)).unwrap_or(Value::Null);
     let mut claims: Value = serde_json::from_slice(&base64url_decode(claims)).unwrap_or(Value::Null);
     if let Some(claims) = claims.as_object_mut() {
         claims.insert("iat".to_owned(), json!(0));
         claims.insert("exp".to_owned(), json!(0));
-    }
-    if let Some(header) = header.as_object_mut() {
-        header.sort_keys();
     }
     let normalized = format!("{}<jwt>{}", &body[..start], &body[end..]);
     (
@@ -260,7 +259,9 @@ fn normalize_jwt_body(body: &str) -> (String, Option<Value>) {
 }
 
 fn request_value(request: &HttpRequest) -> Value {
-    let headers = request
+    // The oracle records `Headers`, whose iteration order the Fetch spec defines as
+    // lexicographic by name; `HttpRequest.headers` keeps construction order.
+    let mut header_entries = request
         .headers
         .iter()
         .map(|(name, value)| {
@@ -271,7 +272,9 @@ fn request_value(request: &HttpRequest) -> Value {
             };
             (name.clone(), Value::String(value.to_owned()))
         })
-        .collect::<serde_json::Map<_, _>>();
+        .collect::<Vec<_>>();
+    header_entries.sort_by(|left, right| left.0.cmp(&right.0));
+    let headers = header_entries.into_iter().collect::<serde_json::Map<_, _>>();
     let raw_body = request
         .body
         .as_deref()
@@ -281,8 +284,8 @@ fn request_value(request: &HttpRequest) -> Value {
         None => (String::new(), None),
     };
     let mut value = json!({
-        "url": request.url,
         "method": request.method,
+        "url": request.url,
         "headers": headers,
         "body": body
     });
@@ -305,8 +308,8 @@ fn assert_json_eq(actual: &Value, expected: &Value, path: &str) {
         }
         (Value::Object(actual), Value::Object(expected)) => {
             assert_eq!(
-                actual.keys().collect::<BTreeSet<_>>(),
-                expected.keys().collect::<BTreeSet<_>>(),
+                actual.keys().collect::<std::collections::BTreeSet<_>>(),
+                expected.keys().collect::<std::collections::BTreeSet<_>>(),
                 "object keys mismatch at {path}"
             );
             for (key, expected) in expected {
@@ -314,6 +317,25 @@ fn assert_json_eq(actual: &Value, expected: &Value, path: &str) {
             }
         }
         _ => assert_eq!(actual, expected, "value mismatch at {path}"),
+    }
+}
+
+/// The JWT assertion is base64url-encoded into the request body, so its header
+/// key order is part of the bytes sent on the wire.
+fn assert_jwt_header_order(actual: &Value, expected: &Value, path: &str) {
+    let actual_requests = actual["requests"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let expected_requests = expected["requests"].as_array().map(Vec::as_slice).unwrap_or_default();
+    for (index, (actual_request, expected_request)) in actual_requests.iter().zip(expected_requests).enumerate() {
+        if let (Some(actual_header), Some(expected_header)) = (
+            actual_request.pointer("/jwt/header"),
+            expected_request.pointer("/jwt/header"),
+        ) {
+            json_compare::assert_json_eq_ordered(
+                actual_header,
+                expected_header,
+                &format!("{path}.requests[{index}].jwt.header"),
+            );
+        }
     }
 }
 
@@ -563,6 +585,7 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
     let mut actual = json!({"requests": requests, "events": events, "result": result});
     normalize_events(&mut actual);
     assert_json_eq(&actual, expected, &format!("google scenario {}", scenario.id));
+    assert_jwt_header_order(&actual, expected, &format!("google scenario {}", scenario.id));
 }
 
 fn tool(name: &str, strict: bool) -> Value {
