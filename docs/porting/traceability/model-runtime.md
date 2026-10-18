@@ -4,7 +4,10 @@ Source: `packages/coding-agent/src/core/model-runtime.ts` (795 lines).
 Rust: `crates/pi-coding-agent/src/core/model_runtime.rs`.
 Tests: `crates/pi-coding-agent/tests/model_runtime.rs` (ports
 `test/model-runtime-{auth-options,cloudflare-compat,credential-sync,modify-models-compat}.test.ts`
-and runtime cases from `test/model-registry.test.ts`).
+and runtime cases from `test/model-registry.test.ts`) and
+`tests/differential_model_runtime.rs` (oracle `oracle/model-runtime-oracle.ts`:
+provider lists, model lists, composition errors, auth statuses, availability,
+resolved auth, and compatibility config from temp `models.json` + auth fixtures).
 
 ## Exports and branches
 
