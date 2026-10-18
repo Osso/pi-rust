@@ -33,6 +33,7 @@ All direct dependencies are exact-pinned.
 - `getrandom = 0.4.3` — fills UUIDv7 and retry-jitter random bytes from the OS.
 - `httpdate = 1.0.3` — parses HTTP-date `Retry-After` headers.
 - `sha2 = 0.10.9` — computes the PKCE S256 code challenge.
+- `url = 2.5.8` — parses and joins provider base URLs (`mistral-conversations`) and normalizes AI Gateway request paths (`cloudflare-gateway-binding`).
 
 ### `pi-agent-core`
 

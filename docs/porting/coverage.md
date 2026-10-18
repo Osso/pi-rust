@@ -56,13 +56,13 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/google-shared.ts` | 419 | 1 | todo |  |  |
 | `ai/src/api/google-vertex.ts` | 596 | 1 | todo |  |  |
 | `ai/src/api/lazy.ts` | 98 | 1 | done | `crates/pi-ai/src/api/lazy.rs` | lazy stream/api, setup errors, declared deferred capabilities; differential setup-error |
-| `ai/src/api/mistral-conversations.ts` | 931 | 1 | todo |  |  |
+| `ai/src/api/mistral-conversations.ts` | 931 | 1 | done | `crates/pi-ai/src/api/mistral_conversations.rs` | Native chat stream, wire remapping, SSE, reasoning modes, tool-call ID hashing; differential 48 scenarios (requests, events, messages). |
 | `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | todo |  |  |
 | `ai/src/api/openai-completions.ts` | 1577 | 1 | todo |  |  |
 | `ai/src/api/openai-responses-shared.ts` | 983 | 1 | todo |  |  |
 | `ai/src/api/openai-responses.ts` | 372 | 1 | todo |  |  |
 | `ai/src/api/pi-messages.ts` | 433 | 1 | todo |  |  |
-| `ai/src/api/simple-options.ts` | 97 | 1 | todo |  |  |
+| `ai/src/api/simple-options.ts` | 97 | 1 | partial | `crates/pi-ai/src/api/simple_options.rs` | `clampMaxTokensToContext` + `buildBaseOptions` only (required by Mistral `streamSimple`); thinking-budget helpers remain. |
 | `ai/src/api/transform-messages.ts` | 228 | 1 | done | `crates/pi-ai/src/api/transform_messages.rs` | Cross-model thinking/tool-call normalization, image downgrade, synthetic tool results; injected clock; differential 18 scenarios. |
 | `ai/src/auth/context.ts` | 45 | 1 | done | `crates/pi-ai/src/auth/context.rs` | default env/file context; env branch not unit-tested (process-global) |
 | `ai/src/auth/credential-store.ts` | 67 | 1 | done | `crates/pi-ai/src/auth/credential_store.rs` | serialized modify/delete, abort-before-run, insertion-order list |
@@ -83,7 +83,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/cloudflare-gateway-binding.ts` | 192 | 2 | todo |  |  |
 | `ai/src/api/google-generative-ai.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/google-vertex.lazy.ts` | 4 | 2 | todo |  |  |
-| `ai/src/api/mistral-conversations.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/mistral-conversations.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/mistral_conversations.rs` | `mistral_conversations_api()` wraps `MistralConversationsApi` in `LazyApi`. |
 | `ai/src/api/openai-codex-responses.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/openai-completions.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/openai-responses.lazy.ts` | 4 | 2 | todo |  |  |

@@ -1,0 +1,658 @@
+#[path = "support/oracle.rs"]
+mod oracle;
+
+use std::collections::{BTreeMap, VecDeque};
+use std::sync::{Arc, Mutex};
+
+use pi_ai::api::mistral_conversations::{MistralOptions, stream, stream_simple};
+use pi_ai::request::{
+    BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, SimpleStreamOptions, StreamOptions,
+};
+use pi_ai::types::{Context, Model, ProviderHeaders, ThinkingLevel};
+use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
+
+struct ScenarioFetch {
+    request: Arc<Mutex<Option<HttpRequest>>>,
+    chunks: Vec<Vec<u8>>,
+    status: u16,
+    status_text: String,
+    headers: Vec<(String, String)>,
+    hang: bool,
+    cancel: Option<CancellationToken>,
+}
+
+impl Fetch for ScenarioFetch {
+    fn fetch(
+        &self,
+        request: HttpRequest,
+        _signal: Option<CancellationToken>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        *self.request.lock().unwrap() = Some(request);
+        let body = ChunkBody {
+            chunks: self.chunks.iter().cloned().collect(),
+            hang: self.hang,
+        };
+        let status = self.status;
+        let status_text = self.status_text.clone();
+        let headers = self.headers.clone();
+        if let Some(cancel) = &self.cancel {
+            cancel.cancel();
+        }
+        Box::pin(async move {
+            Ok(HttpResponse {
+                status,
+                status_text,
+                headers,
+                body: Box::new(body),
+            })
+        })
+    }
+}
+
+struct ChunkBody {
+    chunks: VecDeque<Vec<u8>>,
+    hang: bool,
+}
+
+impl HttpBody for ChunkBody {
+    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
+        if self.hang {
+            return Box::pin(std::future::pending());
+        }
+        let chunk = self.chunks.pop_front();
+        Box::pin(async move { chunk.map(Ok) })
+    }
+}
+
+fn normalize(value: &mut Value) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                normalize(item);
+            }
+        }
+        Value::Object(object) => {
+            object.remove("partialArgs");
+            object.remove("stack");
+            for key in ["timestamp", "timestampMs"] {
+                if object.contains_key(key) {
+                    object.insert(key.to_owned(), json!(0));
+                }
+            }
+            for entry in object.values_mut() {
+                normalize(entry);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Sorts object keys: TypeScript property order reflects `Object.assign`
+/// mutation history, not the event contract.
+fn canonical(value: Value) -> Value {
+    match value {
+        Value::Array(items) => Value::Array(items.into_iter().map(canonical).collect()),
+        Value::Object(object) => {
+            let mut entries: Vec<(String, Value)> = object.into_iter().collect();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            Value::Object(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| {
+                        let value = canonical(value);
+                        let value = if key == "errorMessage" {
+                            normalize_parse_error(value)
+                        } else {
+                            value
+                        };
+                        (key, value)
+                    })
+                    .collect(),
+            )
+        }
+        Value::Number(number) => match number.as_f64() {
+            Some(float) if float.fract() == 0.0 && float.abs() < 1e21 => Value::from(float as i64),
+            _ => Value::Number(number),
+        },
+        other => other,
+    }
+}
+
+fn normalize_parse_error(value: Value) -> Value {
+    match &value {
+        Value::String(text) if text.contains("JSON") || text.contains("expected") || text.contains("line ") => {
+            json!("<json-parse-error>")
+        }
+        _ => value,
+    }
+}
+
+fn response_chunks(scenario: &Value) -> (Vec<Vec<u8>>, bool) {
+    let chunks = scenario["response"]["chunks"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|chunk| chunk.as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    let bytewise = scenario["response"]["chunking"].as_str() == Some("bytes");
+    if bytewise {
+        (
+            chunks
+                .into_iter()
+                .flat_map(String::into_bytes)
+                .map(|byte| vec![byte])
+                .collect(),
+            false,
+        )
+    } else {
+        let hang = scenario.get("abort").is_some();
+        (chunks.into_iter().map(String::into_bytes).collect(), hang)
+    }
+}
+
+fn parse_headers(value: &Value) -> Option<ProviderHeaders> {
+    let object = value.as_object()?;
+    let headers: BTreeMap<String, Option<String>> = object
+        .iter()
+        .map(|(name, value)| (name.clone(), value.as_str().map(str::to_owned)))
+        .collect();
+    Some(headers)
+}
+
+fn stream_options(scenario: &Value, fetch: Arc<ScenarioFetch>) -> StreamOptions {
+    let options = &scenario["options"];
+    let mut stream_options = StreamOptions::default();
+    stream_options.request.api_key = options["apiKey"].as_str().map(str::to_owned);
+    stream_options.request.fetch = Some(fetch);
+    stream_options.request.headers = parse_headers(&options["headers"]);
+    stream_options.temperature = options["temperature"].as_f64();
+    stream_options.max_tokens = options["maxTokens"].as_f64();
+    stream_options.session_id = options["sessionId"].as_str().map(str::to_owned);
+    stream_options.cache_retention = match options["cacheRetention"].as_str() {
+        Some("none") => Some(pi_ai::types::CacheRetention::None),
+        Some("short") => Some(pi_ai::types::CacheRetention::Short),
+        Some("long") => Some(pi_ai::types::CacheRetention::Long),
+        _ => None,
+    };
+    for field in ["toolChoice", "promptMode", "reasoningEffort"] {
+        if let Some(value) = options.get(field) {
+            stream_options.extra.insert(field.to_owned(), value.clone());
+        }
+    }
+    if options["onPayload"].as_str() == Some("augment") {
+        stream_options.request.on_payload = Some(Arc::new(|payload: Value, _model: Model| {
+            Box::pin(async move {
+                let mut payload = payload;
+                let object = payload.as_object_mut().expect("payload object");
+                object.insert("topP".to_owned(), json!(0.9));
+                object.insert("randomSeed".to_owned(), json!(42));
+                object.insert(
+                    "responseFormat".to_owned(),
+                    json!({
+                        "type": "json_schema",
+                        "jsonSchema": {
+                            "name": "result",
+                            "schemaDefinition": {
+                                "type": "object",
+                                "properties": {"maxTokens": {"type": "number"}},
+                            },
+                        },
+                    }),
+                );
+                object.insert("presencePenalty".to_owned(), json!(0.1));
+                object.insert("frequencyPenalty".to_owned(), json!(0.2));
+                object.insert("parallelToolCalls".to_owned(), json!(true));
+                object.insert("safePrompt".to_owned(), json!(true));
+                Ok(Some(payload))
+            })
+        }));
+    }
+    stream_options
+}
+
+async fn observe(scenario: &Value) -> Value {
+    let id = scenario["id"].clone();
+    let model: Model = serde_json::from_value(scenario["model"].clone()).expect("model");
+    let context: Context = serde_json::from_value(scenario["context"].clone()).expect("context");
+    let (chunks, hang) = response_chunks(scenario);
+    let request = Arc::new(Mutex::new(None));
+    let signal = CancellationToken::new();
+    let response_headers = scenario["response"]["headers"]
+        .as_object()
+        .map(|headers| {
+            headers
+                .iter()
+                .filter_map(|(name, value)| value.as_str().map(|value| (name.clone(), value.to_owned())))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut headers = vec![("content-type".to_owned(), "text/event-stream".to_owned())];
+    headers.extend(response_headers);
+    let fetch = Arc::new(ScenarioFetch {
+        request: Arc::clone(&request),
+        chunks,
+        status: scenario["response"]["status"].as_u64().unwrap_or(200) as u16,
+        status_text: scenario["response"]["statusText"].as_str().unwrap_or("OK").to_owned(),
+        headers,
+        hang,
+        cancel: scenario.get("abort").map(|_| signal.clone()),
+    });
+    let mut options = stream_options(scenario, fetch);
+    if scenario.get("abort").is_some() {
+        options.request.signal = Some(signal);
+    }
+
+    let observed = Arc::new(Mutex::new(None));
+    let observed_clone = Arc::clone(&observed);
+    options.request.on_response = Some(Arc::new(move |response, _model| {
+        let observed = Arc::clone(&observed_clone);
+        Box::pin(async move {
+            *observed.lock().unwrap() = Some(json!({
+                "status": response.status,
+                "headers": response.headers,
+            }));
+            Ok(())
+        })
+    }));
+
+    let api = scenario["api"].as_str().unwrap_or("stream");
+    let mut event_stream = if api == "streamSimple" {
+        let simple = SimpleStreamOptions {
+            stream: options,
+            reasoning: scenario["options"]["reasoning"].as_str().and_then(parse_thinking_level),
+            deferred: None,
+            thinking_budgets: None,
+        };
+        stream_simple(model, context, simple)
+    } else {
+        stream(model, context, MistralOptions::from_stream_options(options))
+    };
+
+    let mut events = Vec::new();
+    while let Some(event) = event_stream.next().await {
+        let event = event.expect("stream event");
+        events.push(serde_json::to_value(event).expect("event JSON"));
+    }
+    let message = event_stream.result().await.expect("stream result");
+    let mut message = serde_json::to_value(message).expect("message JSON");
+    normalize(&mut message);
+    for event in &mut events {
+        normalize(event);
+    }
+
+    let request = request.lock().unwrap().clone().map(|request| {
+        json!({
+            "url": request.url,
+            "method": request.method,
+            "headers": request.headers.iter().cloned().collect::<BTreeMap<_, _>>(),
+            "body": serde_json::from_slice::<Value>(&request.body.unwrap_or_default()).unwrap_or(Value::Null),
+        })
+    });
+
+    canonical(json!({
+        "id": id,
+        "ok": true,
+        "request": request,
+        "onResponse": observed.lock().unwrap().clone(),
+        "events": events,
+        "message": message,
+    }))
+}
+
+fn parse_thinking_level(value: &str) -> Option<ThinkingLevel> {
+    match value {
+        "minimal" => Some(ThinkingLevel::Minimal),
+        "low" => Some(ThinkingLevel::Low),
+        "medium" => Some(ThinkingLevel::Medium),
+        "high" => Some(ThinkingLevel::High),
+        "xhigh" => Some(ThinkingLevel::Xhigh),
+        "max" => Some(ThinkingLevel::Max),
+        "ultra" => Some(ThinkingLevel::Ultra),
+        _ => None,
+    }
+}
+
+fn model(id: &str, reasoning: bool) -> Value {
+    json!({
+        "id": id,
+        "name": "Test Model",
+        "api": "mistral-conversations",
+        "provider": "mistral",
+        "baseUrl": "https://api.mistral.ai",
+        "reasoning": reasoning,
+        "input": ["text", "image"],
+        "cost": {"input": 1, "output": 2, "cacheRead": 0.1, "cacheWrite": 0.2},
+        "contextWindow": 128000,
+        "maxTokens": 16384,
+    })
+}
+
+fn reasoning_model(id: &str) -> Value {
+    let mut model = model(id, true);
+    model["thinkingLevelMap"] = json!({
+        "xhigh": "high",
+        "max": "high",
+        "ultra": "high",
+    });
+    model
+}
+
+fn usage() -> Value {
+    json!({"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+           "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}})
+}
+
+fn assistant(content: Value) -> Value {
+    json!({
+        "role": "assistant",
+        "content": content,
+        "api": "mistral-conversations",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "usage": usage(),
+        "stopReason": "toolUse",
+        "timestamp": 1,
+    })
+}
+
+fn user(content: Value) -> Value {
+    json!({"role": "user", "content": content, "timestamp": 1})
+}
+
+fn terminal(finish_reason: Value) -> String {
+    json!({
+        "id": "mistral-response-id",
+        "choices": [{"index": 0, "finish_reason": finish_reason, "delta": {}}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    })
+    .to_string()
+}
+
+fn sse(events: &[String]) -> Vec<String> {
+    let body = events
+        .iter()
+        .map(|event| format!("data: {event}"))
+        .collect::<Vec<_>>()
+        .join("\r\n\r\n");
+    vec![format!("{body}\r\n\r\ndata: [DONE]\r\n\r\n")]
+}
+
+fn scenario(id: usize, model: Value, context: Value, options: Value, response: Value) -> Value {
+    json!({"id": id, "model": model, "context": context, "options": options, "response": response})
+}
+
+fn scenarios() -> Vec<Value> {
+    let mut scenarios = Vec::new();
+
+    let text = json!({
+        "id": "r1",
+        "choices": [{"index": 0, "finish_reason": null, "delta": {"content": "héllo 🌍"}}],
+    })
+    .to_string();
+    let finish = json!({
+        "id": "r1",
+        "choices": [{"index": 0, "finish_reason": "stop", "delta": {}}],
+        "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+    })
+    .to_string();
+    scenarios.push(scenario(
+        0,
+        model("mistral-large-latest", false),
+        json!({"messages": [user(json!("hello"))]}),
+        json!({"apiKey": "test"}),
+        json!({"chunks": sse(&[text, finish]), "chunking": "bytes"}),
+    ));
+
+    let thinking = json!({
+        "id": "r2",
+        "choices": [{"index": 0, "finish_reason": null,
+            "delta": {"content": [{"type": "thinking", "thinking": [{"type": "text", "text": "reason"}]}]}}],
+    })
+    .to_string();
+    let text_delta = json!({
+        "id": "r2",
+        "choices": [{"index": 0, "finish_reason": null,
+            "delta": {"content": [{"type": "text", "text": "answer"}]}}],
+    })
+    .to_string();
+    let tool_start = json!({
+        "id": "r2",
+        "choices": [{"index": 0, "finish_reason": null,
+            "delta": {"tool_calls": [{"index": 0, "function": {"name": "lookup", "arguments": "{\"query\":"}}]}}],
+    })
+    .to_string();
+    let tool_finish = json!({
+        "id": "r2",
+        "choices": [{"index": 0, "finish_reason": "tool_calls",
+            "delta": {"tool_calls": [{"index": 0, "function": {"name": "lookup", "arguments": "\"pi\"}"}}]}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14,
+            "prompt_tokens_details": {"cached_tokens": 3}},
+    })
+    .to_string();
+    scenarios.push(scenario(
+        1,
+        model("mistral-large-latest", false),
+        json!({"messages": [user(json!("hello"))]}),
+        json!({"apiKey": "test"}),
+        json!({"chunks": sse(&[thinking, text_delta, tool_start, tool_finish])}),
+    ));
+
+    let tool_id = json!({
+        "id": "r3",
+        "choices": [{"index": 0, "finish_reason": null,
+            "delta": {"tool_calls": [{"id": "abc123456", "index": 0,
+                "function": {"name": "lookup", "arguments": "{\"query\":\"pi\"}"}}]}}],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 0,
+            "num_cached_tokens": 9},
+    })
+    .to_string();
+    scenarios.push(scenario(
+        2,
+        model("mistral-large-latest", false),
+        json!({"messages": [user(json!("hello"))]}),
+        json!({"apiKey": "test"}),
+        json!({"chunks": sse(&[tool_id, terminal(json!("stop"))])}),
+    ));
+
+    for (index, finish_reason) in [
+        "stop",
+        "length",
+        "model_length",
+        "tool_calls",
+        "error",
+        "unmapped_error",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        scenarios.push(scenario(
+            10 + index,
+            model("devstral-medium-latest", false),
+            json!({"messages": [user(json!("hello"))]}),
+            json!({"apiKey": "test"}),
+            json!({"chunks": sse(&[terminal(json!(finish_reason))])}),
+        ));
+    }
+    scenarios.push(scenario(
+        16,
+        model("devstral-medium-latest", false),
+        json!({"messages": [user(json!("hello"))]}),
+        json!({"apiKey": "test"}),
+        json!({"chunks": sse(&[terminal(Value::Null)])}),
+    ));
+
+    scenarios.push(scenario(
+        20,
+        model("mistral-large-latest", false),
+        json!({"messages": [user(json!("hello"))]}),
+        json!({"apiKey": "test"}),
+        json!({"status": 403, "statusText": "Forbidden", "chunks": ["{\"message\":\"blocked by gateway\"}"]}),
+    ));
+    scenarios.push(scenario(
+        21,
+        model("mistral-large-latest", false),
+        json!({"messages": [user(json!("hello"))]}),
+        json!({"apiKey": "test"}),
+        json!({"status": 429, "statusText": "Too Many Requests", "headers": {"retry-after": "7"}, "chunks": ["{\"message\":\"slow down\"}"]}),
+    ));
+    scenarios.push(scenario(
+        22,
+        model("mistral-large-latest", false),
+        json!({"messages": [user(json!("hello"))]}),
+        json!({"apiKey": "test"}),
+        json!({"status": 500, "statusText": "", "chunks": []}),
+    ));
+
+    scenarios.push(scenario(
+        30,
+        model("mistral-large-latest", false),
+        json!({"messages": [user(json!("hello"))]}),
+        json!({"apiKey": "test"}),
+        json!({"chunks": ["data: {\"choices\": 3}\n\n"]}),
+    ));
+    scenarios.push(scenario(
+        31,
+        model("mistral-large-latest", false),
+        json!({"messages": [user(json!("hello"))]}),
+        json!({"apiKey": "test"}),
+        json!({"chunks": ["data: not-json\n\n"]}),
+    ));
+    scenarios.push(scenario(
+        32,
+        model("mistral-large-latest", false),
+        json!({"messages": [user(json!("hello"))]}),
+        json!({"apiKey": "test"}),
+        json!({"chunks": ["data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n"]}),
+    ));
+
+    scenarios.push(scenario(
+        40,
+        model("mistral-large-latest", false),
+        json!({"messages": [user(json!("hello"))]}),
+        json!({"apiKey": "test"}),
+        json!({"chunks": [], "chunking": "chunks"}),
+    ));
+    let mut abort = scenarios.pop().unwrap();
+    abort["abort"] = json!("before-read");
+    scenarios.push(abort);
+
+    scenarios.push(scenario(
+        50,
+        model("mistral-large-latest", false),
+        json!({
+            "systemPrompt": "Be precise",
+            "messages": [
+                user(json!([
+                    {"type": "text", "text": "describe"},
+                    {"type": "image", "data": "aGVsbG8=", "mimeType": "image/png"},
+                ])),
+                assistant(json!([
+                    {"type": "thinking", "thinking": "reason"},
+                    {"type": "text", "text": "answer"},
+                    {"type": "toolCall", "id": "call_1|fc_1", "name": "lookup", "arguments": {"query": "pi"}},
+                ])),
+                {"role": "toolResult", "toolCallId": "call_1|fc_1", "toolName": "lookup",
+                 "content": [{"type": "text", "text": "found"}, {"type": "image", "data": "aGVsbG8=", "mimeType": "image/png"}],
+                 "isError": false, "timestamp": 2},
+            ],
+            "tools": [{
+                "name": "lookup",
+                "description": "Look something up",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                    "additionalProperties": false,
+                },
+                "constrainedSampling": {"type": "json_schema", "strict": "require"},
+            }],
+        }),
+        json!({
+            "apiKey": "secret",
+            "maxTokens": 123,
+            "promptMode": "reasoning",
+            "reasoningEffort": "high",
+            "toolChoice": {"type": "function", "function": {"name": "lookup"}},
+            "sessionId": "session-1",
+            "headers": {"x-custom": "value"},
+            "onPayload": "augment",
+        }),
+        json!({"chunks": sse(&[terminal(json!("stop"))])}),
+    ));
+
+    let mut suppressed = scenario(
+        51,
+        {
+            let mut model = model("mistral-large-latest", false);
+            model["headers"] = json!({"Authorization": "Bearer model-key", "X-Affinity": "model-affinity"});
+            model
+        },
+        json!({"messages": [user(json!("hello"))]}),
+        json!({
+            "apiKey": "request-key",
+            "sessionId": "automatic-affinity",
+            "headers": {"authorization": null, "x-affinity": null},
+        }),
+        json!({"chunks": sse(&[terminal(json!("stop"))])}),
+    );
+    suppressed["id"] = json!(51);
+    scenarios.push(suppressed);
+
+    for (index, level) in ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
+        .into_iter()
+        .enumerate()
+    {
+        for (model_index, model_id) in ["magistral-medium-latest", "mistral-small-2603", "mistral-medium-3.5"]
+            .into_iter()
+            .enumerate()
+        {
+            scenarios.push(scenario(
+                100 + index * 10 + model_index,
+                reasoning_model(model_id),
+                json!({"messages": [user(json!("hello"))]}),
+                json!({"apiKey": "test", "reasoning": level}),
+                json!({"chunks": sse(&[terminal(json!("stop"))])}),
+            ));
+            let mut scenario = scenarios.pop().unwrap();
+            scenario["api"] = json!("streamSimple");
+            scenarios.push(scenario);
+        }
+    }
+
+    for (index, model_id) in ["mistral-small-2603", "magistral-medium-latest", "mistral-large-latest"]
+        .into_iter()
+        .enumerate()
+    {
+        scenarios.push(scenario(
+            200 + index,
+            model(model_id, false),
+            json!({"messages": [user(json!("hello"))]}),
+            json!({"apiKey": "test", "reasoning": "high"}),
+            json!({"chunks": sse(&[terminal(json!("stop"))])}),
+        ));
+        let mut scenario = scenarios.pop().unwrap();
+        scenario["api"] = json!("streamSimple");
+        scenarios.push(scenario);
+    }
+
+    scenarios
+}
+
+#[test]
+fn mistral_stream_matches_the_pinned_typescript_module() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "mistral-conversations-oracle.ts",
+        "packages/ai/src/api/mistral-conversations.ts",
+    );
+    for scenario in scenarios() {
+        let expected = canonical(oracle.request(&scenario));
+        let observed = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(observe(&scenario));
+        assert_eq!(observed, expected, "scenario {}", scenario["id"]);
+    }
+}
