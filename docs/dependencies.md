@@ -34,6 +34,7 @@ All direct dependencies are exact-pinned.
 - `httpdate = 1.0.3` — parses HTTP-date `Retry-After` headers.
 - `sha2 = 0.10.9` — computes the PKCE S256 code challenge.
 - The Anthropic Messages adapter adds no dependency: its private `@anthropic-ai/sdk` 0.91.1 request path (URL, headers, JSON body, status errors) is built with the existing `serde_json`, `tokio`, and `tokio-util` contracts.
+- `url = 2.5.8` — parses and joins provider base URLs (`mistral-conversations`) and normalizes AI Gateway request paths (`cloudflare-gateway-binding`).
 
 ### `pi-agent-core`
 
@@ -47,11 +48,13 @@ The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToolExecutionContext` slices
 
 ### `pi-tui`
 
-- `unicode-segmentation = 1.13.3` (exact) — Unicode 17.0 grapheme cluster segmentation for `utils`; matches the Unicode tables used by Node 26 `Intl.Segmenter`.
+- `unicode-segmentation = 1.13.3` (exact) — Unicode 17.0 grapheme cluster segmentation for `utils` and `components::input`; matches the Unicode tables used by Node 26 `Intl.Segmenter`.
 - `regex = 1.13.1` (exact) — compiles the Unicode-property and whitespace patterns ported verbatim from `latex` (`\p{L}`, `\p{N}`, script spacing, environment row splitting).
+- `fancy-regex = 0.16.2` (exact) — executes the marked 18.0.5 grammar ported into `components::markdown::lexer`, which needs lookaround and backreferences that `regex` rejects.
+- `serde = 1.0.229` (exact, `derive`) — serializes the ported marked token model for the markdown differential oracle; the model is also the component's internal token representation.
 - `icu_segmenter = 2.3.0` (exact, default `compiled_data`/`auto`) — dictionary/LSTM word segmentation behind `word_navigation`, chosen as the pure-Rust mapping of `Intl.Segmenter` (decision 2026-10-18; dictionary-word deviations documented in the traceability doc).
 - `tokio = 1.53.3` (`process`, `rt`, `sync`, `io-util`; dev adds `macros`, `rt`, `rt-multi-thread`) — spawns `fd` asynchronously and waits for its output in `autocomplete`.
-- `tokio-util = 0.7.20` (`rt`) — `CancellationToken` maps the `AbortSignal` passed to autocomplete suggestions and kills an in-flight `fd` child.
+- `tokio-util = 0.7.20` (`rt`) — `CancellationToken` maps the `AbortSignal` passed to autocomplete suggestions and kills an in-flight `fd` child, and maps `CancellableLoader`'s abort signal.
 - `tempfile = 3.27.0` (development) — creates isolated directory trees and symlinks for autocomplete tests.
 - No runtime Base64 dependency: `terminal_image` uses the crate-local `src/base64.rs` implementation of Node `Buffer` leniency and standard padded encoding.
 - `rustix = 1.1.5` (exact, `termios` feature) — safe termios raw-mode and window-size syscalls for `ProcessTerminal`; `unsafe_code = "forbid"` rules out `libc`/`nix` wrappers that need unsafe call sites.
@@ -60,6 +63,16 @@ The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToolExecutionContext` slices
 ### `pi-protocol`
 
 No runtime dependencies. CBOR encoding and decoding are hand-written against the pinned TypeScript subset so encoded bytes match the source byte-for-byte; a general-purpose CBOR crate would not guarantee that parity.
+
+### `pi-server`
+
+- `pi-protocol` (path, `=0.0.0`) — typed protocol messages, CBOR codec, framing, and schema validation are reused unchanged.
+- `pi-ai` (path, `=0.0.0`) — bridge input types (`Model`, messages, usage, tool calls) and the shared `uuidv7` generator for server, connection, and server-assigned session IDs.
+- `serde_json = 1.0.151` (`preserve_order`) — carries `pi-ai` tool arguments/details and JSON-shaped error details without reordering object keys.
+- `tokio = 1.53.3` (`io-util`, `macros`, `net`, `rt`, `sync`, `time`) — async server tasks, Unix-domain sockets, write serialization, timers, and handshake cancellation.
+- `sha2 = 0.10.9` — derives the private Unix bind path from the SHA-256 prefix, matching the TypeScript transport.
+- No `tokio-util` dependency: the server package contains no `AbortSignal`, so there is no `CancellationToken` mapping to perform.
+- Development: `tempfile = 3.27.0` for isolated socket paths; `tokio` adds `rt-multi-thread` and `test-util` for integration tests and the cross-implementation client run.
 
 ### `pi-telemetry`
 
