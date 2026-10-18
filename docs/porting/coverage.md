@@ -405,9 +405,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/tools/truncate.ts` | 276 | 0 | done | `crates/pi-coding-agent/src/core/tools/truncate.rs` | re-exports agent-core truncation (identical on valid Unicode); differential |
 | `coding-agent/src/extensions/llama/client.ts` | 332 | 0 | todo |  |  |
 | `coding-agent/src/extensions/llama/huggingface.ts` | 158 | 0 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/elapsed-time.ts` | 30 | 0 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/elapsed-time.ts` | 30 | 0 | done | `crates/pi-coding-agent/src/modes/interactive/components/elapsed_time.rs` | formatting branches; differential `interactive-components-oracle.ts` |
 | `coding-agent/src/modes/interactive/external-editor.ts` | 45 | 0 | todo |  |  |
-| `coding-agent/src/modes/interactive/model-search.ts` | 27 | 0 | todo |  |  |
+| `coding-agent/src/modes/interactive/model-search.ts` | 27 | 0 | done | `crates/pi-coding-agent/src/modes/interactive/model_search.rs` | candidate order + empty-name truthiness; differential |
 | `coding-agent/src/modes/rpc/jsonl.ts` | 58 | 0 | done | `crates/pi-coding-agent/src/modes/rpc/jsonl.rs` | all TS tests ported + differential |
 | `coding-agent/src/supervisor/project-resolver.ts` | 108 | 0 | done | `crates/pi-coding-agent/src/supervisor/project_resolver.rs` | Root/remote/basename resolution, config validation, `git remote -v` names; differential `27011`. |
 | `coding-agent/src/supervisor/request-wake.ts` | 149 | 0 | done | `crates/pi-coding-agent/src/supervisor/request_wake.rs` | Wake socket with stale recovery, generation watch, waiter cancellation; real-socket tests. |
@@ -471,8 +471,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/extensions/llama/provider.ts` | 150 | 7 | todo |  |  |
 | `coding-agent/src/core/keybindings.ts` | 434 | 8 | done | `crates/pi-coding-agent/src/core/keybindings.rs` | `KEYBINDINGS` layered on `pi-tui`, legacy-name migration/ordering, file load/reload; differential `coding-agent-keybindings-oracle.ts`. |
 | `coding-agent/src/core/model-runtime.ts` | 795 | 8 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/countdown-timer.ts` | 39 | 8 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/visual-truncate.ts` | 50 | 8 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/countdown-timer.ts` | 39 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/components/countdown_timer.rs` | poll-driven 1s schedule; behavioral test |
+| `coding-agent/src/modes/interactive/components/visual-truncate.ts` | 50 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/components/visual_truncate.rs` | wrap-aware tail truncation; differential; `slice(-0)` quirk preserved |
 | `coding-agent/src/modes/interactive/interactive-root-compositor.ts` | 40 | 8 | todo |  |  |
 | `coding-agent/src/modes/interactive/working-editor.ts` | 67 | 8 | todo |  |  |
 | `coding-agent/src/cli/list-models.ts` | 115 | 9 | todo |  |  |
@@ -529,40 +529,40 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/detached-bash-runner-entry.ts` | 13 | 18 | todo |  |  |
 | `coding-agent/src/core/detached-job-lifecycle.ts` | 214 | 18 | todo |  |  |
 | `coding-agent/src/core/tools/render-utils.ts` | 85 | 18 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/agent-selection-banner.ts` | 36 | 18 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/agent-selection-banner.ts` | 36 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/agent_selection_banner.rs` | selected-agent banner; behavioral test against the ported store |
 | `coding-agent/src/modes/interactive/components/armin.ts` | 382 | 18 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/daxnuts.ts` | 164 | 18 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/diff.ts` | 147 | 18 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/dynamic-border.ts` | 8 | 18 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/keybinding-hints.ts` | 48 | 18 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/dynamic-border.ts` | 8 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/dynamic_border.rs` | theme border wrapper; exercised by all component differentials |
+| `coding-agent/src/modes/interactive/components/keybinding-hints.ts` | 48 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/keybinding_hints.rs` | format/hint helpers; differential (darwin branch gap) |
 | `coding-agent/src/modes/interactive/theme/theme-controller.ts` | 139 | 18 | todo |  |  |
 | `coding-agent/extensions/pyrun/src/detached-runner-entry.ts` | 13 | 19 | todo |  |  |
 | `coding-agent/src/internal-runner.ts` | 19 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/agent-switcher.ts` | 269 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/approval-selector.ts` | 103 | 19 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/approval-selector.ts` | 103 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/approval_selector.rs` | presets, scope toggle, events; differential |
 | `coding-agent/src/modes/interactive/components/bash-execution.ts` | 278 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/bordered-loader.ts` | 70 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/branch-summary-message.ts` | 58 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/compaction-summary-message.ts` | 92 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/config-selector.ts` | 942 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/earendil-announcement.ts` | 53 | 19 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/earendil-announcement.ts` | 53 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/earendil_announcement.rs` | text/border branch tested; bundled-image branch is an asset gap |
 | `coding-agent/src/modes/interactive/components/extension-editor.ts` | 132 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/extension-input.ts` | 88 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/extension-selector.ts` | 112 | 19 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/extension-selector.ts` | 112 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/extension_selector.rs` | options/keys/events differential; countdown wiring code-mapped |
 | `coding-agent/src/modes/interactive/components/first-time-setup.ts` | 145 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/login-dialog.ts` | 233 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/model-selector.ts` | 373 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/oauth-selector.ts` | 214 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/sandbox-selector.ts` | 130 | 19 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/sandbox-selector.ts` | 130 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/sandbox_selector.rs` | profiles, scope cycle, session inherit; differential |
 | `coding-agent/src/modes/interactive/components/scoped-models-selector.ts` | 407 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/session-selector.ts` | 1119 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/settings-selector.ts` | 894 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/show-images-selector.ts` | 50 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/theme-selector.ts` | 67 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/thinking-selector.ts` | 76 | 19 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/show-images-selector.ts` | 50 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/show_images_selector.rs` | select list + borders; differential |
+| `coding-agent/src/modes/interactive/components/theme-selector.ts` | 67 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/theme_selector.rs` | available themes injected; differential |
+| `coding-agent/src/modes/interactive/components/thinking-selector.ts` | 76 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/thinking_selector.rs` | levels/descriptions; differential (3 of 8 levels rendered) |
 | `coding-agent/src/modes/interactive/components/tree-selector.ts` | 1464 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/trust-selector.ts` | 134 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/user-message-selector.ts` | 155 | 19 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/trust-selector.ts` | 134 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/trust_selector.rs` | options, saved decision, inherited label; differential + behavioral |
+| `coding-agent/src/modes/interactive/components/user-message-selector.ts` | 155 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/user_message_selector.rs` | render/keys differential; empty auto-cancel behavioral; >10 scroll gap |
 | `coding-agent/src/cli/config-selector.ts` | 56 | 20 | todo |  |  |
 | `coding-agent/src/cli/startup-ui.ts` | 239 | 20 | todo |  |  |
 | `coding-agent/src/cli/session-picker.ts` | 96 | 21 | todo |  |  |
@@ -690,7 +690,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/index.ts` | 38 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/markdown-transform.ts` | 29 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/mermaid.ts` | 89 | 22 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/skill-invocation-message.ts` | 55 | 22 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/skill-invocation-message.ts` | 55 | 22 | done | `crates/pi-coding-agent/src/modes/interactive/components/skill_invocation_message.rs` | collapsed/expanded; behavioral test |
 | `coding-agent/src/modes/interactive/components/tool-execution.ts` | 495 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/user-message.ts` | 70 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/interactive-mode.ts` | 8489 | 22 | todo |  |  |
