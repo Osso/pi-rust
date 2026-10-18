@@ -3,5 +3,15 @@
   "commit": "532f7d12cd19235081bd4d6e425bde185652d86f",
   "sourcePackage": "@earendil-works/pi-protocol",
   "sourceVersion": "0.84.1",
-  "lockedOn": "2026-08-12"
+  "lockedOn": "2026-08-12",
+  "modelCatalog": {
+    "path": "crates/pi-ai/data/providers",
+    "generatedAt": "2026-10-18T06:09:19.167Z",
+    "generator": "packages/ai/scripts/generate-models.ts at pinned commit (network sources)",
+    "sha256": "71637bb43050611dc17b254c5512a15e8782ff7c890384f2ff8a2fa2d1384d47",
+    "supplements": {
+      "kimi-coding.json": "absent upstream on 2026-10-18; copied from a 2026-08-20 generation (same schema) so the pinned kimi-coding.models.ts import resolves"
+    },
+    "installedInSourceWorktree": "packages/ai/src/providers/data (gitignored)"
+  }
 }
