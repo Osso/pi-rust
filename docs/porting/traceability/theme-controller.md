@@ -6,14 +6,14 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme-controller.ts` 
 
 | TypeScript export | Rust item | Tests |
 |---|---|---|
-| `class InteractiveThemeController` | `struct InteractiveThemeController` | gap: constructor requires a TUI + settings manager; exercised by the interactive-mode slice |
-| `constructor(ui, settingsManager, showError, onChanged)` | `new(Rc<dyn ThemeUi>, Rc<RefCell<SettingsManager>>, show_error, on_changed)` | traceability-only |
-| `rebindTui()` | `rebind_tui()` | traceability-only |
-| `applyFromSettings()` | `apply_from_settings()` | traceability-only |
-| `setThemeName(name, showError?)` | `set_theme_name(&str, bool)` | traceability-only |
+| `class InteractiveThemeController` | `struct InteractiveThemeController` | `tests/theme_controller.rs` (fake `ThemeUi` + real `SettingsManager`) |
+| `constructor(ui, settingsManager, showError, onChanged)` | `new(Rc<dyn ThemeUi>, Rc<RefCell<SettingsManager>>, show_error, on_changed)` | `applies_explicit_and_preview_themes` |
+| `rebindTui()` | `rebind_tui()` | `rebinds_tui_listeners` |
+| `applyFromSettings()` | `apply_from_settings()` | `auto_sync_follows_terminal_color_scheme`, `detects_and_persists_terminal_theme` |
+| `setThemeName(name, showError?)` | `set_theme_name(&str, bool)` | `applies_explicit_and_preview_themes` |
 | `setThemeInstance(theme)` | `set_theme_instance(Arc<Theme>)` | traceability-only |
-| `preview(settingOrName)` | `preview(&str)` | traceability-only |
-| `disableAutoSync()` | `disable_auto_sync()` | traceability-only |
+| `preview(settingOrName)` | `preview(&str)` | `applies_explicit_and_preview_themes` |
+| `disableAutoSync()` | `disable_auto_sync()` | `auto_sync_follows_terminal_color_scheme` |
 | `getTerminalTheme()` | `get_terminal_theme()` | traceability-only |
 
 ## Branches
@@ -36,4 +36,5 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme-controller.ts` 
 
 ## Gaps / exclusions
 
-- No test in this slice: the controller needs a TUI and a `SettingsManager` instance; the TypeScript package has no dedicated controller test either. Wiring is covered when `modes/interactive/interactive-mode.ts` is ported.
+- `setThemeInstance` and `getTerminalTheme` are exercised only through the shared fake-TUI probe; the TypeScript package has no dedicated controller test.
+- The `ThemeUi` implementation for the real TUI belongs to the interactive-mode slice.
