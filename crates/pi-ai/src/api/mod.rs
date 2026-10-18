@@ -1,6 +1,11 @@
+pub mod bedrock_converse_stream;
+pub mod bedrock_credentials;
+pub mod bedrock_eventstream;
+pub mod bedrock_sigv4;
 pub mod cloudflare;
 pub mod constrained_sampling;
 pub mod github_copilot_headers;
 pub mod lazy;
 pub mod openai_prompt_cache;
 pub mod transform_messages;
+pub mod simple_options;

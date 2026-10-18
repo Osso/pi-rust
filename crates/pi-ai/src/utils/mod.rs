@@ -1,4 +1,5 @@
 pub mod abort;
+pub mod base64;
 pub mod abort_signals;
 pub mod deferred_tools;
 pub mod diagnostics;
