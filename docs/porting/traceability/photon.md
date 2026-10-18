@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/utils/photon.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Differential proof: requests `27102`/`27103`/`27104`/`27106` (image pipeline oracle) decode and re-encode PNG, JPEG, WebP, GIF, and BMP fixtures through both implementations and compare base64 payloads and pixel buffers exactly. Focused tests: `crates/pi-coding-agent/tests/photon.rs`.
+Differential proof: requests `27100`-`27106` (image pipeline oracle) decode and re-encode PNG, JPEG, WebP, GIF, and BMP fixtures through both implementations and compare base64 payloads and pixel buffers exactly. Focused tests: `crates/pi-coding-agent/tests/photon.rs`.
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
