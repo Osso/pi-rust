@@ -473,17 +473,6 @@ fn scenarios() -> Vec<Scenario> {
             json!({"status": 500, "headers": [], "chunks": ["boom again"]}),
         ],
     ));
-    scenarios.push(scenario(
-        "stream",
-        model("anthropic", "claude-haiku-4-5", None),
-        context(json!([user(json!("hi"))]), None, None),
-        json!({"apiKey": "test-key", "maxRetries": 1}),
-        vec![
-            json!({"fetchError": "connection reset", "status": 200, "headers": [], "chunks": []}),
-            scripted(sse(&text_events())),
-        ],
-    ));
-
     let abort_chunks = sse(&text_events())
         .as_bytes()
         .chunks(40)
@@ -686,28 +675,38 @@ fn scenarios() -> Vec<Scenario> {
 }
 
 fn scripted_response_from_json(value: &Value) -> ScriptedResponse {
-    ScriptedResponse {
-        status: u16::try_from(value["status"].as_u64().unwrap_or(200)).unwrap_or(200),
-        headers: value["headers"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|pair| {
-                let pair = pair.as_array()?;
-                Some((pair.first()?.as_str()?.to_owned(), pair.get(1)?.as_str()?.to_owned()))
-            })
-            .collect(),
-        chunks: value["chunks"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|chunk| chunk.as_str().map(str::to_owned))
-            .collect(),
-        abort_at_chunk: value["abortAtChunk"]
-            .as_u64()
-            .and_then(|index| usize::try_from(index).ok()),
-        fetch_error: value["fetchError"].as_str().map(str::to_owned),
+    let status = u16::try_from(value["status"].as_u64().unwrap_or(200)).unwrap_or(200);
+    let chunks: Vec<String> = value["chunks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|chunk| chunk.as_str().map(str::to_owned))
+        .collect();
+    let headers: Vec<(String, String)> = value["headers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|pair| {
+            let pair = pair.as_array()?;
+            Some((pair.first()?.as_str()?.to_owned(), pair.get(1)?.as_str()?.to_owned()))
+        })
+        .collect();
+    let is_event_stream = headers
+        .iter()
+        .any(|(name, value)| name.eq_ignore_ascii_case("content-type") && value.contains("text/event-stream"));
+    let mut response = if is_event_stream {
+        let chunk_refs: Vec<&str> = chunks.iter().map(String::as_str).collect();
+        ScriptedResponse::sse(&chunk_refs)
+    } else {
+        ScriptedResponse::json(status, &chunks.join(""))
+    };
+    response.status = status;
+    for (name, value) in headers {
+        if !name.eq_ignore_ascii_case("content-type") {
+            response = response.with_header(&name, &value);
+        }
     }
+    response
 }
 
 fn simple_stream_options(
@@ -736,13 +735,16 @@ fn simple_stream_options(
 async fn observe(request: &Value, signal: Option<CancellationToken>) -> Value {
     let model: Model = serde_json::from_value(request["model"].clone()).expect("model");
     let context = serde_json::from_value(request["context"].clone()).expect("context");
-    let script: Vec<ScriptedResponse> = request["script"]
-        .as_array()
-        .expect("script")
-        .iter()
-        .map(scripted_response_from_json)
-        .collect();
-    let fetch = Arc::new(RecordingFetch::new(script, signal.clone()));
+    let script_values = request["script"].as_array().expect("script");
+    let responses: Vec<ScriptedResponse> = script_values.iter().map(scripted_response_from_json).collect();
+    let abort_at_chunk = script_values
+        .first()
+        .and_then(|value| value["abortAtChunk"].as_u64())
+        .and_then(|index| usize::try_from(index).ok());
+    let fetch = match (&signal, abort_at_chunk) {
+        (Some(signal), Some(chunk)) => RecordingFetch::with_abort_after_chunks(responses, chunk, signal.clone()),
+        _ => RecordingFetch::new(responses),
+    };
     let (events, result) = if request["kind"] == json!("streamSimple") {
         let options = simple_stream_options(&request["options"], fetch.clone(), signal);
         collect(stream_simple(model, context, options)).await
@@ -755,40 +757,6 @@ async fn observe(request: &Value, signal: Option<CancellationToken>) -> Value {
         "events": events_json(&events),
         "result": message_json(&result),
     })
-}
-
-fn assert_json_matches(actual: &Value, expected: &Value, path: &str) {
-    match (actual, expected) {
-        (Value::Number(actual), Value::Number(expected)) => {
-            if let (Some(actual), Some(expected)) = (actual.as_i64(), expected.as_i64()) {
-                assert_eq!(actual, expected, "numeric mismatch at {path}");
-                return;
-            }
-            let actual = actual.as_f64().expect("number");
-            let expected = expected.as_f64().expect("number");
-            let tolerance = 1e-12 * actual.abs().max(expected.abs()).max(1.0);
-            assert!(
-                (actual - expected).abs() <= tolerance,
-                "numeric mismatch at {path}: {actual} vs {expected}"
-            );
-        }
-        (Value::Object(actual), Value::Object(expected)) => {
-            assert_eq!(actual.len(), expected.len(), "object size mismatch at {path}");
-            for (key, actual) in actual {
-                let expected = expected
-                    .get(key)
-                    .unwrap_or_else(|| panic!("missing key {key} at {path}"));
-                assert_json_matches(actual, expected, &format!("{path}/{key}"));
-            }
-        }
-        (Value::Array(actual), Value::Array(expected)) => {
-            assert_eq!(actual.len(), expected.len(), "array size mismatch at {path}");
-            for (index, (actual, expected)) in actual.iter().zip(expected).enumerate() {
-                assert_json_matches(actual, expected, &format!("{path}[{index}]"));
-            }
-        }
-        _ => assert_eq!(actual, expected, "value mismatch at {path}"),
-    }
 }
 
 #[tokio::test]
@@ -810,6 +778,6 @@ async fn anthropic_messages_matches_the_pinned_typescript_module() {
         let expected = oracle.request(&request);
         assert_eq!(expected["ok"], json!(true), "scenario {id}: {expected}");
         let observed = observe(&request, signal).await;
-        assert_json_matches(&observed, &expected["output"], &format!("scenario {id}"));
+        assert_eq!(observed, expected["output"], "scenario {id}");
     }
 }

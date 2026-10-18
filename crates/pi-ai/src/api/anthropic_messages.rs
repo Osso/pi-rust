@@ -16,7 +16,9 @@ use tokio_util::sync::CancellationToken;
 use crate::api::anthropic_sdk::{self, Auth, SdkRequest};
 use crate::api::constrained_sampling::{get_json_schema_tool_parameters, resolve_json_schema_strict_sampling};
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
-use crate::api::simple_options::{adjust_max_tokens_for_thinking, build_base_options, clamp_max_tokens_to_context};
+use crate::api::simple_options::{
+    adjust_max_tokens_for_thinking, build_base_options, clamp_max_tokens_to_context, model_thinking_level,
+};
 use crate::api::transform_messages::transform_messages_with;
 use crate::http::default_fetch;
 use crate::models::calculate_cost;
@@ -1539,7 +1541,12 @@ impl AnthropicEventReader {
                         self.queue.push_back(event);
                     }
                 }
-                Some(Err(error)) => return Err(error.message),
+                Some(Err(error)) => {
+                    if self.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+                        return Err("Request was aborted".to_owned());
+                    }
+                    return Err(error.message);
+                }
                 Some(Ok(bytes)) => {
                     self.pending.extend_from_slice(&bytes);
                     let text = decode_available(&mut self.pending, false);
@@ -1696,7 +1703,7 @@ fn map_thinking_level_to_effort(model: &Model, level: ThinkingLevel) -> Anthropi
     let mapped = model
         .thinking_level_map
         .as_ref()
-        .and_then(|map| map.get(&model_level(level)))
+        .and_then(|map| map.get(&model_thinking_level(level)))
         .and_then(|mapped| mapped.as_deref());
     if let Some(mapped) = mapped
         && let Ok(effort) = serde_json::from_value::<AnthropicEffort>(Value::String(mapped.to_owned()))
@@ -1707,18 +1714,6 @@ fn map_thinking_level_to_effort(model: &Model, level: ThinkingLevel) -> Anthropi
         ThinkingLevel::Minimal | ThinkingLevel::Low => AnthropicEffort::Low,
         ThinkingLevel::Medium => AnthropicEffort::Medium,
         ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max | ThinkingLevel::Ultra => AnthropicEffort::High,
-    }
-}
-
-fn model_level(level: ThinkingLevel) -> ModelThinkingLevel {
-    match level {
-        ThinkingLevel::Minimal => ModelThinkingLevel::Minimal,
-        ThinkingLevel::Low => ModelThinkingLevel::Low,
-        ThinkingLevel::Medium => ModelThinkingLevel::Medium,
-        ThinkingLevel::High => ModelThinkingLevel::High,
-        ThinkingLevel::Xhigh => ModelThinkingLevel::Xhigh,
-        ThinkingLevel::Max => ModelThinkingLevel::Max,
-        ThinkingLevel::Ultra => ModelThinkingLevel::Ultra,
     }
 }
 
@@ -1745,14 +1740,14 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
         return stream(model, context, base);
     }
 
-    let adjusted = adjust_max_tokens_for_thinking(
+    let (adjusted_max_tokens, adjusted_budget) = adjust_max_tokens_for_thinking(
         base.max_tokens,
         model.max_tokens,
         reasoning,
         options.thinking_budgets.as_ref(),
     );
-    let max_tokens = clamp_max_tokens_to_context(&model, &context, adjusted.max_tokens);
-    let thinking_budget = adjusted.thinking_budget.min((max_tokens - 1024.0).max(0.0));
+    let max_tokens = clamp_max_tokens_to_context(&model, &context, adjusted_max_tokens);
+    let thinking_budget = adjusted_budget.min((max_tokens - 1024.0).max(0.0));
     let base = with_extra(base, "thinkingEnabled", Value::Bool(true));
     let mut base = with_extra(base, "thinkingBudgetTokens", js_number(thinking_budget));
     base.max_tokens = Some(max_tokens);

@@ -83,36 +83,17 @@ fn minimal_events(delta_usage: Option<Value>) -> Vec<(String, String)> {
 }
 
 fn sse_response(body: String) -> ScriptedResponse {
-    ScriptedResponse {
-        status: 200,
-        headers: vec![("content-type".to_owned(), "text/event-stream".to_owned())],
-        chunks: vec![body],
-        abort_at_chunk: None,
-        fetch_error: None,
-    }
-}
-
-fn chunks_response(chunks: Vec<String>, abort_at_chunk: Option<usize>) -> ScriptedResponse {
-    ScriptedResponse {
-        status: 200,
-        headers: vec![("content-type".to_owned(), "text/event-stream".to_owned())],
-        chunks,
-        abort_at_chunk,
-        fetch_error: None,
-    }
+    ScriptedResponse::sse(&[body.as_str()])
 }
 
 fn status_response(status: u16, headers: &[(&str, &str)], body: &str) -> ScriptedResponse {
-    ScriptedResponse {
-        status,
-        headers: headers
-            .iter()
-            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-            .collect(),
-        chunks: vec![body.to_owned()],
-        abort_at_chunk: None,
-        fetch_error: None,
+    let mut response = ScriptedResponse::json(status, body);
+    for (name, value) in headers {
+        if !name.eq_ignore_ascii_case("content-type") {
+            response = response.with_header(name, value);
+        }
     }
+    response
 }
 
 async fn run_stream(
@@ -122,7 +103,16 @@ async fn run_stream(
     script: Vec<ScriptedResponse>,
     signal: Option<CancellationToken>,
 ) -> (Vec<Value>, Value, Vec<Value>) {
-    let fetch = Arc::new(RecordingFetch::new(script, signal.clone()));
+    run_stream_with_fetch(model, context, options, RecordingFetch::new(script), signal).await
+}
+
+async fn run_stream_with_fetch(
+    model: Value,
+    context: Value,
+    options: Value,
+    fetch: Arc<RecordingFetch>,
+    signal: Option<CancellationToken>,
+) -> (Vec<Value>, Value, Vec<Value>) {
     let options = stream_options(&options, fetch.clone(), signal);
     let model: Model = serde_json::from_value(model).expect("model");
     let context = serde_json::from_value(context).expect("context");
@@ -772,12 +762,14 @@ async fn aborting_mid_stream_emits_an_aborted_error_event() {
         .chunks(40)
         .map(|chunk| String::from_utf8_lossy(chunk).into_owned())
         .collect();
-    let script = vec![chunks_response(chunks, Some(2))];
-    let (events, result, _requests) = run_stream(
+    let chunk_refs: Vec<&str> = chunks.iter().map(String::as_str).collect();
+    let response = ScriptedResponse::sse(&chunk_refs);
+    let fetch = RecordingFetch::with_abort_after_chunks(vec![response], 2, signal.clone());
+    let (events, result, _requests) = run_stream_with_fetch(
         model("anthropic", "claude-haiku-4-5", None),
         context(json!([user(json!("hi"))]), None, None),
         api_key(),
-        script,
+        fetch,
         Some(signal),
     )
     .await;
@@ -1021,18 +1013,37 @@ async fn lazy_api_wrapper_streams_without_deferred_capabilities() {
     assert!(!api.supports_fetch_deferred());
     assert!(!api.supports_cancel_deferred());
 
-    let fetch = Arc::new(RecordingFetch::new(
-        vec![sse_response(sse(&minimal_events(Some(json!({
-            "input_tokens": 1, "output_tokens": 1
-        })))))],
-        None,
-    ));
+    let fetch = RecordingFetch::new(vec![sse_response(sse(&minimal_events(Some(json!({
+        "input_tokens": 1, "output_tokens": 1
+    })))))]);
     let options = stream_options(&api_key(), fetch, None);
     let request_model: Model = serde_json::from_value(model("anthropic", "claude-haiku-4-5", None)).expect("model");
     let request_context: pi_ai::types::Context =
         serde_json::from_value(context(json!([user(json!("hi"))]), None, None)).expect("context");
     let (_events, result) = collect(api.stream(request_model, request_context, options)).await;
     assert_eq!(result.stop_reason, StopReason::Stop);
+}
+
+#[tokio::test]
+async fn unparseable_sse_event_reports_decoder_context() {
+    let events = vec![("message_start".to_owned(), "not json".to_owned())];
+    let (_events, result, _requests) = run_stream(
+        model("anthropic", "claude-haiku-4-5", None),
+        context(json!([user(json!("hi"))]), None, None),
+        api_key(),
+        vec![sse_response(sse(&events))],
+        None,
+    )
+    .await;
+    let message = result["errorMessage"].as_str().expect("error message");
+    assert!(
+        message.starts_with("Could not parse Anthropic SSE event message_start: "),
+        "{message}"
+    );
+    assert!(
+        message.contains("; data=not json; raw=event: message_start\\ndata: not json"),
+        "{message}"
+    );
 }
 
 #[tokio::test]

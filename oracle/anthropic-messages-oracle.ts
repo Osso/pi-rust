@@ -106,7 +106,11 @@ function createScriptedFetch(script: ScriptedResponse[], controller: AbortContro
 					streamController.close();
 					return;
 				}
-				if (step.abortAtChunk === index) controller.abort();
+				if (step.abortAtChunk === index) {
+					controller.abort();
+					streamController.error(new Error("This operation was aborted"));
+					return;
+				}
 				streamController.enqueue(new TextEncoder().encode(chunks[index]));
 				index += 1;
 			},

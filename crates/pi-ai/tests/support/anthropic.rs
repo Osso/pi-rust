@@ -1,12 +1,15 @@
-//! Shared recording/replaying `Fetch` and request/option helpers for the
-//! Anthropic Messages adapter tests.
+//! Request/option helpers and event normalization for the Anthropic Messages
+//! adapter tests. HTTP scripting reuses the shared `RecordingFetch`.
 
-use std::collections::{BTreeMap, VecDeque};
-use std::sync::{Arc, Mutex};
+#[path = "recording_fetch.rs"]
+mod recording_fetch;
 
-use pi_ai::request::{
-    BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, ProviderRequestOptions, StreamOptions,
-};
+pub use recording_fetch::{RecordingFetch, ScriptedResponse};
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use pi_ai::request::{Fetch, HttpRequest, ProviderRequestOptions, StreamOptions};
 use pi_ai::types::{
     AssistantMessage, AssistantMessageEvent, CacheRetention, JsonObject, ProviderEnv, ProviderHeaders, Transport,
 };
@@ -14,89 +17,6 @@ use pi_ai::utils::event_stream::AssistantMessageEventStream;
 use pi_ai::utils::headers::headers_to_record;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
-
-#[derive(Debug, Clone)]
-pub struct ScriptedResponse {
-    pub status: u16,
-    pub headers: Vec<(String, String)>,
-    pub chunks: Vec<String>,
-    pub abort_at_chunk: Option<usize>,
-    pub fetch_error: Option<String>,
-}
-
-struct ScriptedBody {
-    chunks: VecDeque<String>,
-    abort_at_chunk: Option<usize>,
-    delivered: usize,
-    signal: Option<CancellationToken>,
-}
-
-impl HttpBody for ScriptedBody {
-    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
-        Box::pin(async move {
-            if self.abort_at_chunk == Some(self.delivered)
-                && let Some(signal) = &self.signal
-            {
-                signal.cancel();
-            }
-            let chunk = self.chunks.pop_front()?;
-            self.delivered += 1;
-            Some(Ok(chunk.into_bytes()))
-        })
-    }
-}
-
-pub struct RecordingFetch {
-    script: Mutex<VecDeque<ScriptedResponse>>,
-    requests: Mutex<Vec<HttpRequest>>,
-    signal: Option<CancellationToken>,
-}
-
-impl RecordingFetch {
-    pub fn new(script: Vec<ScriptedResponse>, signal: Option<CancellationToken>) -> Self {
-        Self {
-            script: Mutex::new(script.into()),
-            requests: Mutex::new(Vec::new()),
-            signal,
-        }
-    }
-
-    pub fn requests(&self) -> Vec<HttpRequest> {
-        self.requests.lock().expect("requests").clone()
-    }
-}
-
-impl Fetch for RecordingFetch {
-    fn fetch(
-        &self,
-        request: HttpRequest,
-        _signal: Option<CancellationToken>,
-    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
-        Box::pin(async move {
-            self.requests.lock().expect("requests").push(request);
-            let response = self
-                .script
-                .lock()
-                .expect("script")
-                .pop_front()
-                .ok_or_else(|| CallbackError::new("no scripted response"))?;
-            if let Some(message) = response.fetch_error {
-                return Err(CallbackError::new(message));
-            }
-            let body = ScriptedBody {
-                chunks: response.chunks.into(),
-                abort_at_chunk: response.abort_at_chunk,
-                delivered: 0,
-                signal: self.signal.clone(),
-            };
-            Ok(HttpResponse {
-                status: response.status,
-                headers: response.headers,
-                body: Box::new(body),
-            })
-        })
-    }
-}
 
 pub fn json_options(options: &Value) -> JsonObject {
     options.as_object().cloned().unwrap_or_default()

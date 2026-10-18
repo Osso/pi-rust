@@ -159,6 +159,8 @@ pub(crate) async fn execute(
                 message: "Connection error.".to_owned(),
                 status: None,
                 headers: ProviderErrorHeaders::new(),
+                body: None,
+                inner_error: None,
             }));
         }
     };
@@ -168,6 +170,7 @@ pub(crate) async fn execute(
 
     let HttpResponse {
         status,
+        status_text: _,
         headers,
         mut body,
     } = response;
@@ -189,6 +192,7 @@ async fn read_text(body: &mut dyn HttpBody) -> String {
 
 fn status_error(status: u16, text: &str, headers: &[(String, String)]) -> ProviderError {
     let parsed = serde_json::from_str::<Value>(text).ok();
+    let inner_error = parsed.as_ref().and_then(|value| value.get("error")).cloned();
     let message = parsed
         .as_ref()
         .and_then(error_message)
@@ -198,6 +202,10 @@ fn status_error(status: u16, text: &str, headers: &[(String, String)]) -> Provid
     } else {
         format!("{status} {message}")
     };
+    let body = inner_error
+        .as_ref()
+        .filter(|error| matches!(error, Value::Object(object) if !object.is_empty()))
+        .map(Value::to_string);
     let mut error_headers = ProviderErrorHeaders::new();
     for (name, value) in headers_to_record(headers.iter().cloned()) {
         error_headers.insert(name, value);
@@ -206,6 +214,8 @@ fn status_error(status: u16, text: &str, headers: &[(String, String)]) -> Provid
         message,
         status: Some(f64::from(status)),
         headers: error_headers,
+        body,
+        inner_error: inner_error.map(Box::new),
     }
 }
 
