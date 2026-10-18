@@ -694,7 +694,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/tool-execution.ts` | 495 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/user-message.ts` | 70 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/interactive-mode.ts` | 8489 | 22 | todo |  |  |
-| `coding-agent/src/modes/json-event.ts` | 40 | 22 | todo |  |  |
+| `coding-agent/src/modes/json-event.ts` | 40 | 22 | done | `crates/pi-coding-agent/src/modes/json_event.rs` | `message_update` rebuilt as `{ type, assistantMessageEvent }` with `partial` dropped; 4 behavioral cases + 24-fixture differential ([traceability](traceability/json-event.md)). |
 | `coding-agent/src/modes/print-mode.ts` | 217 | 22 | todo |  |  |
 | `coding-agent/src/modes/rpc/rpc-client.ts` | 642 | 22 | partial | `crates/pi-coding-agent/src/modes/rpc/rpc_client.rs` | process/JSONL/correlation + 26 commands; `compact`/`bash`/`get_session_stats` blocked on in-flight payload types; see `rpc-client.md`. |
 | `coding-agent/src/modes/rpc/rpc-mode.ts` | 846 | 22 | todo |  |  |
