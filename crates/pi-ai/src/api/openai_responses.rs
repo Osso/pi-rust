@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/api/openai-responses.ts` (+ `.lazy.ts`).
 
+use indexmap::IndexMap;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -186,7 +187,7 @@ pub fn build_params(
     options: &OpenAIResponsesOptions,
     stream_options: &StreamOptions,
     compat: &ResolvedCompat,
-    grammar_tool_input_properties: &BTreeMap<String, String>,
+    grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> Result<Value, String> {
     let deferred_tools_mode = if compat.supports_additional_tools {
         Some(ResponsesDeferredToolsMode::AdditionalTools)
@@ -342,11 +343,11 @@ fn apply_service_tier_pricing(usage: &mut Usage, service_tier: Option<&str>, mod
 }
 
 fn merge_provider_headers(
-    base: Option<&BTreeMap<String, String>>,
-    dynamic: Option<BTreeMap<String, String>>,
+    base: Option<&IndexMap<String, String>>,
+    dynamic: Option<IndexMap<String, String>>,
     options_headers: Option<&ProviderHeaders>,
-) -> BTreeMap<String, Option<String>> {
-    let mut merged: BTreeMap<String, Option<String>> = BTreeMap::new();
+) -> IndexMap<String, Option<String>> {
+    let mut merged: IndexMap<String, Option<String>> = IndexMap::new();
     for (name, value) in base.into_iter().flatten() {
         merged.insert(name.clone(), Some(value.clone()));
     }

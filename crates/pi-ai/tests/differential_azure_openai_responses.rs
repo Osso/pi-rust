@@ -3,9 +3,10 @@ mod oracle;
 #[path = "support/recording_fetch.rs"]
 mod recording_fetch;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use oracle::TsOracle;
 use pi_ai::api::azure_openai_responses::{stream, stream_simple};
 use pi_ai::request::{Fetch, HttpRequest, ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
@@ -105,7 +106,7 @@ fn stream_options(
         request.env = Some(
             env.iter()
                 .map(|(key, value)| (key.clone(), value.as_str().unwrap_or("").to_owned()))
-                .collect::<BTreeMap<_, _>>(),
+                .collect::<IndexMap<_, _>>(),
         );
     }
     StreamOptions {
@@ -273,7 +274,7 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
         "extra": scenario.extra,
         "responses": scenario.responses.iter().map(|response| json!({
             "status": response.status,
-            "headers": response.headers.iter().cloned().collect::<BTreeMap<_, _>>(),
+            "headers": response.headers.iter().cloned().collect::<IndexMap<_, _>>(),
             "chunks": response.chunks.iter().map(|chunk| String::from_utf8_lossy(chunk).into_owned()).collect::<Vec<_>>()
         })).collect::<Vec<_>>(),
     });

@@ -4,6 +4,7 @@
 //! to `<baseUrl>/messages`, then an SSE stream of serialized assistant-message
 //! events plus a terminal `done`/`error` event.
 
+use indexmap::IndexMap;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -523,8 +524,8 @@ fn resolve_cache_retention(
     }
 }
 
-fn build_headers(api_key: &str, options: &PiMessagesOptions) -> BTreeMap<String, String> {
-    let mut headers = BTreeMap::from([
+fn build_headers(api_key: &str, options: &PiMessagesOptions) -> IndexMap<String, String> {
+    let mut headers = IndexMap::from([
         ("authorization".to_owned(), format!("Bearer {api_key}")),
         ("accept".to_owned(), "text/event-stream".to_owned()),
         ("content-type".to_owned(), "application/json".to_owned()),

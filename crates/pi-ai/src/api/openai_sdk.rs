@@ -2,6 +2,7 @@
 //! URL/header construction, JSON body encoding, HTTP error mapping, and SSE
 //! decoding. All provider modules send through [`SdkClient::create_stream`].
 
+use indexmap::IndexMap;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
@@ -26,7 +27,7 @@ pub struct SdkClientConfig {
     pub api_key: String,
     pub base_url: String,
     /// Merged model/options headers; `None` suppresses a default header.
-    pub default_headers: BTreeMap<String, Option<String>>,
+    pub default_headers: IndexMap<String, Option<String>>,
     pub timeout_ms: Option<f64>,
     pub fetch: Option<Arc<dyn Fetch>>,
     pub azure: Option<AzureClientConfig>,

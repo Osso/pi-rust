@@ -110,7 +110,7 @@ async fn login(interaction: &Arc<dyn AuthInteraction>) -> Result<ApiKeyCredentia
         None
     };
 
-    let mut env = std::collections::BTreeMap::from([
+    let mut env = indexmap::IndexMap::from([
         ("GOOGLE_CLOUD_PROJECT".to_owned(), project),
         ("GOOGLE_CLOUD_LOCATION".to_owned(), location),
     ]);

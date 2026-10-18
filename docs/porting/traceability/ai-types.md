@@ -10,7 +10,7 @@ Rust: `crates/pi-ai/src/types.rs`, `crates/pi-ai/src/utils/event_stream.rs`, `cr
 - `Model<TApi>.compat` → `ModelCompat`, parsed by `api` (`openai-completions`; `openai-responses|azure-openai-responses|openai-codex-responses`; `anthropic-messages`; `bedrock-converse-stream`); other APIs ignore `compat` (TS `never`).
 - `Tool.parameters: TSchema` → `serde_json::Value` (JSON Schema).
 - `constrainedSampling: false | Config` → `ConstrainedSampling::{Disabled, Config}`.
-- `ThinkingLevelMap`, headers, grammar variants, chat-template kwargs → `BTreeMap` (key order on output is sorted; TS insertion order is not preserved — semantic JSON equal). `serde_json` `preserve_order` keeps object order for `arguments`, `details`, `samplingParams`, `value`.
+- `ThinkingLevelMap` and grammar variants → `BTreeMap` (lookup-only; output order is not observable). `Model.headers`, `ProviderEnv`, `ProviderHeaders`, chat-template kwargs/args, and grammar-tool input properties → `IndexMap`, because TypeScript object insertion order reaches serialized payloads and HTTP request headers. `serde_json` `preserve_order` keeps object order for `arguments`, `details`, `samplingParams`, `value`. `ProviderResponse.headers` stays a `BTreeMap`: fetch `Headers` iteration is sorted.
 - `EventStream` is split into `EventSender` (push/end/fail) and `EventStream` (next/result). `fail(unknown)` → `StreamFailure { message }`.
 
 ## Symbols → proof

@@ -6,7 +6,8 @@
 //! [`AnthropicOptions`]. A caller-supplied `client` is not representable in the
 //! typed Rust contract.
 
-use std::collections::{BTreeMap, BTreeSet};
+use indexmap::IndexMap;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -299,7 +300,7 @@ fn assert_request_auth(provider: &str, api_key: Option<&str>, headers: Option<&P
     Err(format!("No API key for provider: {provider}"))
 }
 
-fn provider_headers(headers: &BTreeMap<String, String>) -> ProviderHeaders {
+fn provider_headers(headers: &IndexMap<String, String>) -> ProviderHeaders {
     headers
         .iter()
         .map(|(name, value)| (name.clone(), Some(value.clone())))

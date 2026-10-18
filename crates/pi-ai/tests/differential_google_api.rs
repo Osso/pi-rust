@@ -3,10 +3,11 @@ mod google_fetch;
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use google_fetch::{RecordingFetch, ScriptedResponse};
+use indexmap::IndexMap;
 use oracle::TsOracle;
 use pi_ai::api::google_generative_ai;
 use pi_ai::api::google_vertex;
@@ -175,7 +176,7 @@ fn stream_options(
         request.env = Some(
             env.iter()
                 .map(|(key, value)| (key.clone(), value.as_str().unwrap_or("").to_owned()))
-                .collect::<BTreeMap<_, _>>(),
+                .collect::<IndexMap<_, _>>(),
         );
     }
     let mut extra_map = extra.as_object().cloned().unwrap_or_default();
@@ -359,7 +360,7 @@ fn scenario_response(response: &ScriptedResponse) -> Value {
     let mut value = json!({
         "status": response.status,
         "statusText": "",
-        "headers": response.headers.iter().cloned().collect::<BTreeMap<_, _>>(),
+        "headers": response.headers.iter().cloned().collect::<IndexMap<_, _>>(),
         "chunks": response.chunks.iter().map(|chunk| json!({"base64": base64(chunk)})).collect::<Vec<_>>()
     });
     if let Some((name, message)) = &response.throw {

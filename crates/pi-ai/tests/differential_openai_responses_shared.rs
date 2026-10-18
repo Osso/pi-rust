@@ -3,6 +3,7 @@ mod oracle;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use indexmap::IndexMap;
 use oracle::TsOracle;
 use pi_ai::api::openai_responses_shared::{
     ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, ResponsesDeferredToolsMode, VecResponsesEventSource,
@@ -56,7 +57,7 @@ fn convert_options(value: &Value) -> ConvertResponsesMessagesOptions {
             properties
                 .iter()
                 .map(|(name, property)| (name.clone(), property.as_str().unwrap_or("").to_owned()))
-                .collect::<BTreeMap<_, _>>()
+                .collect::<IndexMap<_, _>>()
         });
     let deferred_tools = value.get("deferredTools").and_then(Value::as_object).map(|tools| {
         tools

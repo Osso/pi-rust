@@ -4,6 +4,7 @@
 //! machine: SSE with idle timeouts, WebSocket transports (including cached
 //! continuation), retries, and the session WebSocket cache.
 
+use indexmap::IndexMap;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -498,7 +499,7 @@ async fn execute_stream(
 fn codex_stream_options(
     model: &Model,
     options: &OpenAICodexResponsesOptions,
-    grammar_tool_input_properties: &BTreeMap<String, String>,
+    grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> OpenAIResponsesStreamOptions {
     let model_id = model.id.clone();
     OpenAIResponsesStreamOptions {
@@ -518,7 +519,7 @@ fn build_request_body(
     context: &Context,
     options: &OpenAICodexResponsesOptions,
     cache_session_id: Option<&str>,
-    grammar_tool_input_properties: &BTreeMap<String, String>,
+    grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> Result<Value, CodexStreamError> {
     let supports_strict = supports_strict_mode(model);
     let supports_grammar = supports_grammar_tools(model);
@@ -739,19 +740,19 @@ fn is_aborted(signal: Option<&CancellationToken>) -> bool {
     signal.is_some_and(CancellationToken::is_cancelled)
 }
 
-fn set_header(headers: &mut BTreeMap<String, String>, name: &str, value: impl Into<String>) {
+fn set_header(headers: &mut IndexMap<String, String>, name: &str, value: impl Into<String>) {
     headers.insert(name.to_ascii_lowercase(), value.into());
 }
 
-fn delete_header(headers: &mut BTreeMap<String, String>, name: &str) {
-    headers.remove(&name.to_ascii_lowercase());
+fn delete_header(headers: &mut IndexMap<String, String>, name: &str) {
+    headers.shift_remove(&name.to_ascii_lowercase());
 }
 
-fn header_value<'a>(headers: &'a BTreeMap<String, String>, name: &str) -> Option<&'a str> {
+fn header_value<'a>(headers: &'a IndexMap<String, String>, name: &str) -> Option<&'a str> {
     headers.get(&name.to_ascii_lowercase()).map(String::as_str)
 }
 
-fn apply_provider_headers(headers: &mut BTreeMap<String, String>, additional: Option<&crate::types::ProviderHeaders>) {
+fn apply_provider_headers(headers: &mut IndexMap<String, String>, additional: Option<&crate::types::ProviderHeaders>) {
     for (key, value) in additional.into_iter().flatten() {
         match value {
             None => delete_header(headers, key),
@@ -761,12 +762,12 @@ fn apply_provider_headers(headers: &mut BTreeMap<String, String>, additional: Op
 }
 
 fn build_base_codex_headers(
-    init_headers: Option<&BTreeMap<String, String>>,
+    init_headers: Option<&IndexMap<String, String>>,
     additional_headers: Option<&crate::types::ProviderHeaders>,
     account_id: &str,
     token: &str,
-) -> BTreeMap<String, String> {
-    let mut headers = BTreeMap::new();
+) -> IndexMap<String, String> {
+    let mut headers = IndexMap::new();
     for (name, value) in init_headers.into_iter().flatten() {
         set_header(&mut headers, name, value.clone());
     }
@@ -802,12 +803,12 @@ fn platform_release() -> String {
 }
 
 fn build_sse_headers(
-    init_headers: Option<&BTreeMap<String, String>>,
+    init_headers: Option<&IndexMap<String, String>>,
     additional_headers: Option<&crate::types::ProviderHeaders>,
     account_id: &str,
     token: &str,
     session_id: Option<&str>,
-) -> BTreeMap<String, String> {
+) -> IndexMap<String, String> {
     let mut headers = build_base_codex_headers(init_headers, additional_headers, account_id, token);
     set_header(&mut headers, "openai-beta", "responses=experimental");
     set_header(&mut headers, "accept", "text/event-stream");
@@ -820,12 +821,12 @@ fn build_sse_headers(
 }
 
 fn build_websocket_headers(
-    init_headers: Option<&BTreeMap<String, String>>,
+    init_headers: Option<&IndexMap<String, String>>,
     additional_headers: Option<&crate::types::ProviderHeaders>,
     account_id: &str,
     token: &str,
     request_id: &str,
-) -> BTreeMap<String, String> {
+) -> IndexMap<String, String> {
     let mut headers = build_base_codex_headers(init_headers, additional_headers, account_id, token);
     delete_header(&mut headers, "accept");
     delete_header(&mut headers, "content-type");
@@ -1015,7 +1016,7 @@ fn is_retryable_error(status: u16, error_text: &str) -> bool {
         .is_match(error_text)
 }
 
-fn get_retry_after_delay_ms(headers: &BTreeMap<String, String>) -> Option<f64> {
+fn get_retry_after_delay_ms(headers: &IndexMap<String, String>) -> Option<f64> {
     if let Some(retry_after_ms) = header_value(headers, "retry-after-ms") {
         let millis = parse_number(retry_after_ms);
         if millis.is_finite() {
@@ -1072,7 +1073,7 @@ async fn sleep_abortable(ms: f64, signal: Option<&CancellationToken>) -> Result<
 async fn fetch_sse_with_retries(
     model: &Model,
     options: &OpenAICodexResponsesOptions,
-    headers: &BTreeMap<String, String>,
+    headers: &IndexMap<String, String>,
     body: Vec<u8>,
     http_timeout_ms: Option<f64>,
 ) -> Result<(HttpResponse, CancellationToken), CodexStreamError> {
@@ -1148,7 +1149,7 @@ async fn fetch_sse_with_retries(
         let mut response = response;
         let error_text = read_all_text(response.body.as_mut()).await?;
         if attempt < max_retries && is_retryable_error(response.status, &error_text) {
-            let header_map: BTreeMap<String, String> = response.headers.iter().cloned().collect();
+            let header_map: IndexMap<String, String> = response.headers.iter().cloned().collect();
             let delay_ms = match get_retry_after_delay_ms(&header_map) {
                 Some(delay_ms) => validate_retry_delay_ms(delay_ms, options)?,
                 None => BASE_DELAY_MS * 2f64.powf(attempt),
@@ -1806,7 +1807,7 @@ async fn close_websocket(mut connection: WsConnection, code: u16, reason: &str) 
 
 async fn connect_websocket(
     url: &str,
-    headers: &BTreeMap<String, String>,
+    headers: &IndexMap<String, String>,
     signal: Option<CancellationToken>,
     connect_timeout_ms: Option<f64>,
 ) -> Result<WsConnection, CodexStreamError> {
@@ -1925,7 +1926,7 @@ fn take_cached_connection(session_id: &str, account_id: &str) -> AcquireDecision
 
 async fn acquire_websocket(
     url: &str,
-    headers: &BTreeMap<String, String>,
+    headers: &IndexMap<String, String>,
     session_id: Option<&str>,
     account_id: &str,
     signal: Option<CancellationToken>,
@@ -2091,12 +2092,12 @@ struct WebSocketExecution<'a> {
     options: &'a OpenAICodexResponsesOptions,
     body: Value,
     body_json: &'a str,
-    headers: BTreeMap<String, String>,
+    headers: IndexMap<String, String>,
     http_timeout_ms: Option<f64>,
     websocket_connect_timeout_ms: Option<f64>,
     cache_session_id: Option<&'a str>,
     account_id: &'a str,
-    grammar_tool_input_properties: &'a BTreeMap<String, String>,
+    grammar_tool_input_properties: &'a IndexMap<String, String>,
 }
 
 async fn execute_websocket(
@@ -2381,7 +2382,7 @@ fn convert_response_items(
     model: &Model,
     _context: &Context,
     output: &AssistantMessage,
-    grammar_tool_input_properties: &BTreeMap<String, String>,
+    grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> Vec<Value> {
     let response_context = Context {
         system_prompt: None,

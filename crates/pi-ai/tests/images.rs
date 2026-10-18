@@ -1,6 +1,6 @@
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use indexmap::IndexMap;
 use pi_ai::images::generate_images;
 use pi_ai::request::{
     BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, ImagesOptions, ImagesRequestOptions,
@@ -83,7 +83,7 @@ async fn dispatches_through_the_registered_builtin_api() {
         request: ImagesRequestOptions {
             api_key: Some("test".to_owned()),
             fetch: Some(fetch.clone()),
-            headers: Some(BTreeMap::new()),
+            headers: Some(IndexMap::new()),
             ..Default::default()
         },
         ..Default::default()

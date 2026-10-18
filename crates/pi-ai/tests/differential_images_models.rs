@@ -1,9 +1,9 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use indexmap::IndexMap;
 use pi_ai::auth::{ApiKeyAuth, ApiKeyResolveInput, AuthContext, AuthError, AuthResult, ModelAuth, ProviderAuth};
 use pi_ai::images_models::{
     CreateImagesProviderOptions, ImagesModels, MutableImagesModels, create_images_models, create_images_provider,
@@ -117,7 +117,7 @@ fn auth_from_request(value: &Value) -> Option<AuthResult> {
     })
 }
 
-fn headers_from_value(value: &Value) -> Option<BTreeMap<String, Option<String>>> {
+fn headers_from_value(value: &Value) -> Option<IndexMap<String, Option<String>>> {
     let object = value.as_object()?;
     Some(
         object
@@ -127,7 +127,7 @@ fn headers_from_value(value: &Value) -> Option<BTreeMap<String, Option<String>>>
     )
 }
 
-fn env_from_value(value: &Value) -> Option<BTreeMap<String, String>> {
+fn env_from_value(value: &Value) -> Option<IndexMap<String, String>> {
     let object = value.as_object()?;
     Some(
         object

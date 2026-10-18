@@ -8,6 +8,7 @@ mod recording_fetch;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use indexmap::IndexMap;
 use pi_ai::api::pi_messages::{PiMessagesOptions, stream, stream_simple};
 use pi_ai::request::{SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{Context, Model, ProviderEnv, ProviderHeaders, ThinkingLevel};
@@ -103,7 +104,7 @@ fn response_chunks(scenario: &Value) -> Vec<Vec<u8>> {
 
 fn parse_headers(value: &Value) -> Option<ProviderHeaders> {
     let object = value.as_object()?;
-    let headers: BTreeMap<String, Option<String>> = object
+    let headers: IndexMap<String, Option<String>> = object
         .iter()
         .map(|(name, value)| (name.clone(), value.as_str().map(str::to_owned)))
         .collect();

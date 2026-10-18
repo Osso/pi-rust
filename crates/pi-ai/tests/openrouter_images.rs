@@ -1,10 +1,10 @@
 #[path = "support/recording_fetch.rs"]
 mod recording_fetch;
 
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use indexmap::IndexMap;
 use pi_ai::api::openrouter_images::generate_images;
 use pi_ai::request::{
     BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, ImagesOptions, ImagesRequestOptions,
@@ -37,7 +37,7 @@ fn model() -> ImagesModel {
         },
         auto_compaction_threshold: None,
         sampling_params: None,
-        headers: Some(BTreeMap::from([(
+        headers: Some(IndexMap::from([(
             "HTTP-Referer".to_owned(),
             "https://example.com".to_owned(),
         )])),
@@ -110,7 +110,7 @@ async fn returns_text_and_images_and_builds_the_sdk_request() {
     let fetch = RecordingFetch::new(vec![ScriptedResponse::json(200, &success_body())]);
     let mut request_options = options("test").request;
     request_options.fetch = Some(fetch.clone());
-    request_options.headers = Some(BTreeMap::from([("X-Extra".to_owned(), Some("1".to_owned()))]));
+    request_options.headers = Some(IndexMap::from([("X-Extra".to_owned(), Some("1".to_owned()))]));
     let options = ImagesOptions {
         request: request_options,
         ..Default::default()

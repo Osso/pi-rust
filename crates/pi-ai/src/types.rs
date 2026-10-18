@@ -4,6 +4,7 @@
 //! Unix-millisecond timestamps are `i64`. Option/callback interfaces
 //! (`StreamOptions` and friends) live with the provider runtime.
 
+use indexmap::IndexMap;
 use std::collections::BTreeMap;
 
 use serde::de::Error as _;
@@ -187,10 +188,12 @@ pub enum SessionAffinityFormat {
     Openrouter,
 }
 
-/// `ProviderEnv`: provider-scoped environment overrides.
-pub type ProviderEnv = BTreeMap<String, String>;
+/// `ProviderEnv`: provider-scoped environment overrides in TypeScript object key order.
+pub type ProviderEnv = IndexMap<String, String>;
 /// `ProviderHeaders`: `None` suppresses a default header of the same name.
-pub type ProviderHeaders = BTreeMap<String, Option<String>>;
+///
+/// Insertion order is the send order TypeScript produces from object key order.
+pub type ProviderHeaders = IndexMap<String, Option<String>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProviderNativeFormat {
@@ -918,9 +921,9 @@ pub struct OpenAICompletionsCompat {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_format: Option<ThinkingFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub chat_template_kwargs: Option<BTreeMap<String, ChatTemplateKwargValue>>,
+    pub chat_template_kwargs: Option<IndexMap<String, ChatTemplateKwargValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub chat_template_args: Option<BTreeMap<String, ChatTemplateKwargValue>>,
+    pub chat_template_args: Option<IndexMap<String, ChatTemplateKwargValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub open_router_routing: Option<OpenRouterRouting>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1217,7 +1220,7 @@ pub struct Model {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sampling_params: Option<JsonObject>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub headers: Option<BTreeMap<String, String>>,
+    pub headers: Option<IndexMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compat: Option<ModelCompat>,
 }
@@ -1238,7 +1241,7 @@ struct ModelWire {
     auto_compaction_threshold: Option<f64>,
     max_tokens: f64,
     sampling_params: Option<JsonObject>,
-    headers: Option<BTreeMap<String, String>>,
+    headers: Option<IndexMap<String, String>>,
     compat: Option<Value>,
 }
 
@@ -1291,7 +1294,7 @@ pub struct ImagesModel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sampling_params: Option<JsonObject>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub headers: Option<BTreeMap<String, String>>,
+    pub headers: Option<IndexMap<String, String>>,
 }
 
 fn deserialize_present_nullable<'de, D: Deserializer<'de>>(

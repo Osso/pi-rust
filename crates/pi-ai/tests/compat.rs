@@ -1,8 +1,8 @@
 //! Behavioral tests for `packages/ai/src/compat.ts`.
 
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use indexmap::IndexMap;
 use pi_ai::compat::{
     ApiProvider, complete, get_api_provider, get_api_providers, register_api_provider, register_faux_provider,
     reset_api_providers, stream, unregister_api_providers,
@@ -111,7 +111,7 @@ fn stream_options() -> StreamOptions {
 }
 
 fn scoped_env(name: &str, value: &str) -> Option<ProviderEnv> {
-    Some(BTreeMap::from([(name.to_owned(), value.to_owned())]))
+    Some(IndexMap::from([(name.to_owned(), value.to_owned())]))
 }
 
 #[test]

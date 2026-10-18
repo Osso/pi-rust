@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 
 use pi_ai::api::openai_completions::{
     ConvertCompletionsMessagesOptions, OpenAICompletionsOptions, build_params, convert_messages, get_compat,
@@ -116,7 +116,7 @@ fn empty_tools_are_sent_when_the_transcript_has_tool_history() {
         &OpenAICompletionsOptions::default(),
         &compat,
         CacheRetention::Short,
-        &BTreeMap::new(),
+        &IndexMap::new(),
     );
     assert_eq!(params["tools"], json!([]));
 }
@@ -149,7 +149,7 @@ fn anthropic_cache_control_is_applied_to_system_tools_and_last_message() {
         &OpenAICompletionsOptions::default(),
         &compat,
         CacheRetention::Long,
-        &BTreeMap::new(),
+        &IndexMap::new(),
     );
     assert_eq!(
         params["messages"][0]["content"][0]["cache_control"]["type"],
@@ -179,7 +179,7 @@ fn max_tokens_field_and_prompt_cache_follow_compat() {
         &OpenAICompletionsOptions::default(),
         &compat,
         CacheRetention::Short,
-        &BTreeMap::new(),
+        &IndexMap::new(),
     );
     assert_eq!(params["max_tokens"].as_f64(), Some(123.0));
     assert_eq!(params.get("max_completion_tokens"), None);
@@ -215,7 +215,7 @@ fn thinking_token_budget_leaves_answer_room() {
         },
         &compat,
         CacheRetention::Short,
-        &BTreeMap::new(),
+        &IndexMap::new(),
     );
     assert_eq!(params["thinking_token_budget"].as_f64(), Some(976.0));
 }
@@ -251,7 +251,7 @@ fn grammar_tools_use_custom_shape() {
         &OpenAICompletionsOptions::default(),
         &compat,
         CacheRetention::Short,
-        &BTreeMap::new(),
+        &IndexMap::new(),
     );
     assert_eq!(params["tools"][0]["type"], "custom");
     assert_eq!(params["tools"][0]["custom"]["format"]["grammar"]["syntax"], "lark");
@@ -273,7 +273,7 @@ fn convert_options_grammar_map_produces_custom_tool_calls() {
         &context,
         &compat,
         Some(&ConvertCompletionsMessagesOptions {
-            grammar_tool_input_properties: Some(BTreeMap::from([("query".to_owned(), "input".to_owned())])),
+            grammar_tool_input_properties: Some(IndexMap::from([("query".to_owned(), "input".to_owned())])),
         }),
     );
     assert_eq!(messages[1]["tool_calls"][0]["type"], "custom");

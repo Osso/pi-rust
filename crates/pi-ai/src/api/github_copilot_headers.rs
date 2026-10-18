@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -37,8 +37,8 @@ fn blocks_have_image(blocks: &[TextOrImageContent]) -> bool {
     blocks.iter().any(|block| matches!(block, TextOrImageContent::Image(_)))
 }
 
-pub fn build_copilot_dynamic_headers(messages: &[Message], has_images: bool) -> BTreeMap<String, String> {
-    let mut headers = BTreeMap::new();
+pub fn build_copilot_dynamic_headers(messages: &[Message], has_images: bool) -> IndexMap<String, String> {
+    let mut headers = IndexMap::new();
     headers.insert(
         "X-Initiator".to_owned(),
         match infer_copilot_initiator(messages) {

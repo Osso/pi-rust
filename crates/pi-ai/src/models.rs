@@ -904,7 +904,7 @@ impl ModelsCollection {
 
 struct AuthRequestParts {
     api_key: Option<String>,
-    env: Option<BTreeMap<String, String>>,
+    env: Option<crate::types::ProviderEnv>,
     headers: Option<ProviderHeaders>,
     transform_headers: Option<HeaderTransform>,
     signal: Option<CancellationToken>,
@@ -914,7 +914,7 @@ struct AppliedAuth {
     model: Model,
     api_key: Option<String>,
     headers: Option<ProviderHeaders>,
-    env: Option<BTreeMap<String, String>>,
+    env: Option<crate::types::ProviderEnv>,
 }
 
 fn resolve_error_to_callback(error: ResolveError) -> CallbackError {

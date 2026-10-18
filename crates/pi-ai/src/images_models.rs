@@ -1,6 +1,5 @@
 //! Port of `packages/ai/src/images-models.ts`.
 
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::{Mutex as AsyncMutex, Notify};
@@ -331,7 +330,7 @@ fn merge_env(resolution_env: Option<ProviderEnv>, option_env: Option<ProviderEnv
     match (resolution_env, option_env) {
         (None, None) => None,
         (resolution_env, option_env) => {
-            let mut merged: BTreeMap<String, String> = resolution_env.unwrap_or_default();
+            let mut merged: ProviderEnv = resolution_env.unwrap_or_default();
             merged.extend(option_env.unwrap_or_default());
             Some(merged)
         }

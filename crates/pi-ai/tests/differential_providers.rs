@@ -21,6 +21,7 @@ mod oracle;
 #[path = "support/oauth.rs"]
 mod oauth_support;
 
+use indexmap::IndexMap;
 use oauth_support::PromptAnswer;
 use oauth_support::TestInteraction;
 use oauth_support::recording_fetch::{RecordingFetch, ScriptedResponse};
@@ -28,7 +29,7 @@ use oauth_support::recording_fetch::{RecordingFetch, ScriptedResponse};
 const SOURCE_MODULE: &str = "packages/ai/src/providers/all.ts";
 
 struct FakeAuthContext {
-    env: BTreeMap<String, String>,
+    env: IndexMap<String, String>,
     files: Vec<String>,
 }
 
@@ -44,7 +45,7 @@ impl AuthContext for FakeAuthContext {
     }
 }
 
-fn string_map(value: &Value) -> BTreeMap<String, String> {
+fn string_map(value: &Value) -> IndexMap<String, String> {
     value
         .as_object()
         .map(|object| {
@@ -68,7 +69,7 @@ fn string_list(value: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn auth_context(env: &BTreeMap<String, String>, files: &[String]) -> Arc<dyn AuthContext> {
+fn auth_context(env: &IndexMap<String, String>, files: &[String]) -> Arc<dyn AuthContext> {
     Arc::new(FakeAuthContext {
         env: env.clone(),
         files: files.to_vec(),
@@ -408,7 +409,7 @@ fn cloudflare_model_resolution_matches_ts() {
 
     for (case, ts_result) in cases.iter().zip(ts_results) {
         let model: Model = serde_json::from_value(case["model"].clone()).expect("model");
-        let env: Option<BTreeMap<String, String>> = case
+        let env: Option<IndexMap<String, String>> = case
             .get("env")
             .filter(|value| value.as_object().is_some_and(|object| !object.is_empty()))
             .map(string_map);
