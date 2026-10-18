@@ -40,7 +40,7 @@ fn oauth_name(provider: &dyn Provider) -> Option<String> {
 }
 
 #[test]
-fn builtin_provider_order_matches_all_ts_without_codex() {
+fn builtin_provider_order_matches_all_ts() {
     let ids: Vec<String> = builtin_providers()
         .iter()
         .map(|provider| provider.id().to_owned())
@@ -70,6 +70,8 @@ fn builtin_provider_order_matches_all_ts_without_codex() {
             "moonshotai-cn",
             "nvidia",
             "openai",
+            "openai-codex",
+            "openai-codex-gc",
             "opencode",
             "opencode-go",
             "openrouter",
@@ -409,6 +411,8 @@ fn oauth_subscription_flags_match_the_ts_factories() {
                 true,
                 Some("Sign in with Kimi Code".to_owned())
             ),
+            ("openai-codex".to_owned(), true, None),
+            ("openai-codex-gc".to_owned(), true, None),
             (
                 "openrouter".to_owned(),
                 false,
@@ -561,6 +565,10 @@ fn builtin_images_providers_and_models_register_openrouter() {
     assert!(!models.get_models(Some("openrouter")).is_empty());
 }
 
+/// Codex models require a JWT access token; the payload carries the account id.
+const CODEX_TEST_TOKEN: &str =
+    "eyJhbGciOiJub25lIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF90ZXN0In19.sig";
+
 /// Every provider factory must dispatch models of each catalog API to a real
 /// implementation, except the recorded `opencode-go` source discrepancy: its
 /// catalog carries a `google-generative-ai` model the factory does not map.
@@ -580,13 +588,19 @@ async fn every_catalog_api_dispatches_to_an_implementation() {
                 400,
                 &json!({"error": {"message": "recorded"}}).to_string(),
             )]);
+            let codex = provider.id().starts_with("openai-codex");
             let options = SimpleStreamOptions {
                 stream: StreamOptions {
                     request: pi_ai::request::ProviderRequestOptions {
-                        api_key: Some("test-key".to_owned()),
+                        api_key: Some(if codex {
+                            CODEX_TEST_TOKEN.to_owned()
+                        } else {
+                            "test-key".to_owned()
+                        }),
                         fetch: Some(fetch.clone() as Arc<dyn pi_ai::request::Fetch>),
                         ..Default::default()
                     },
+                    transport: codex.then_some(pi_ai::types::Transport::Sse),
                     ..Default::default()
                 },
                 ..Default::default()
