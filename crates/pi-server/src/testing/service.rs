@@ -165,6 +165,66 @@ impl TestSessionRuntime {
         drop(stored);
         self.emit_snapshot();
     }
+
+    fn begin_prompt(&self, text: &str) -> ServiceResult<Deferred<PromptOutcome>> {
+        if self.get_phase() != SessionPhase::Idle {
+            return Err(server_error(PiServerError::session_busy(
+                "A prompt is already running",
+                None,
+            )));
+        }
+        let done = Deferred::new();
+        *self.pending_prompt.lock().expect("pending prompt mutex poisoned") =
+            Some(PendingPrompt { done: done.clone() });
+        let revision = self.stored.snapshot.lock().expect("snapshot mutex poisoned").revision();
+        self.update(|snapshot| {
+            snapshot.phase = SessionPhase::Turn;
+            snapshot.transcript.push(TranscriptItem::User(
+                UserTranscriptItem::new(
+                    format!("user-{}", revision + 1),
+                    vec![UserContent::Text(TextContent::new(text.to_string()))],
+                    revision + 1,
+                )
+                .expect("generated user items are valid"),
+            ));
+        });
+        Ok(done)
+    }
+
+    fn finish_prompt_transcript(&self, outcome: PromptOutcome, prompt_text: &str) {
+        let revision = self.stored.snapshot.lock().expect("snapshot mutex poisoned").revision();
+        let (text, state) = match outcome {
+            PromptOutcome::Complete => (
+                format!("reply:{prompt_text}"),
+                AssistantTranscriptState::Complete {
+                    stop_reason: AssistantStopReason::Stop,
+                },
+            ),
+            PromptOutcome::Aborted => (String::new(), AssistantTranscriptState::Aborted { error_message: None }),
+        };
+        let model = self
+            .stored
+            .snapshot
+            .lock()
+            .expect("snapshot mutex poisoned")
+            .model()
+            .clone();
+        let assistant = AssistantTranscriptItem::new(pi_protocol::AssistantTranscriptItemInput {
+            id: format!("assistant-{}", revision + 1),
+            content: vec![AssistantContent::Text(TextContent::new(text))],
+            model,
+            response_model: None,
+            usage: None,
+            timestamp: revision + 1,
+            state,
+        })
+        .expect("generated assistant items are valid");
+        self.update(|snapshot| {
+            snapshot.phase = SessionPhase::Idle;
+            snapshot.transcript.push(TranscriptItem::Assistant(assistant));
+        });
+        *self.pending_prompt.lock().expect("pending prompt mutex poisoned") = None;
+    }
 }
 
 impl PiSessionRuntime for TestSessionRuntime {
@@ -178,64 +238,9 @@ impl PiSessionRuntime for TestSessionRuntime {
 
     fn prompt(&self, input: PromptInput) -> BoxFuture<'_, ServiceResult<()>> {
         Box::pin(async move {
-            if self.get_phase() != SessionPhase::Idle {
-                return Err(server_error(PiServerError::session_busy(
-                    "A prompt is already running",
-                    None,
-                )));
-            }
-            let done = Deferred::new();
-            *self.pending_prompt.lock().expect("pending prompt mutex poisoned") =
-                Some(PendingPrompt { done: done.clone() });
-            let revision = self.stored.snapshot.lock().expect("snapshot mutex poisoned").revision();
-            self.update(|snapshot| {
-                snapshot.phase = SessionPhase::Turn;
-                let mut transcript = snapshot.transcript.clone();
-                transcript.push(TranscriptItem::User(
-                    UserTranscriptItem::new(
-                        format!("user-{}", revision + 1),
-                        vec![UserContent::Text(TextContent::new(input.text.clone()))],
-                        revision + 1,
-                    )
-                    .expect("generated user items are valid"),
-                ));
-                snapshot.transcript = transcript;
-            });
+            let done = self.begin_prompt(&input.text)?;
             let outcome = done.wait().await;
-            let revision = self.stored.snapshot.lock().expect("snapshot mutex poisoned").revision();
-            let (text, state) = match outcome {
-                PromptOutcome::Complete => (
-                    format!("reply:{}", input.text),
-                    AssistantTranscriptState::Complete {
-                        stop_reason: AssistantStopReason::Stop,
-                    },
-                ),
-                PromptOutcome::Aborted => (String::new(), AssistantTranscriptState::Aborted { error_message: None }),
-            };
-            let model = self
-                .stored
-                .snapshot
-                .lock()
-                .expect("snapshot mutex poisoned")
-                .model()
-                .clone();
-            let assistant = AssistantTranscriptItem::new(pi_protocol::AssistantTranscriptItemInput {
-                id: format!("assistant-{}", revision + 1),
-                content: vec![AssistantContent::Text(TextContent::new(text))],
-                model,
-                response_model: None,
-                usage: None,
-                timestamp: revision + 1,
-                state,
-            })
-            .expect("generated assistant items are valid");
-            self.update(|snapshot| {
-                snapshot.phase = SessionPhase::Idle;
-                let mut transcript = snapshot.transcript.clone();
-                transcript.push(TranscriptItem::Assistant(assistant));
-                snapshot.transcript = transcript;
-            });
-            *self.pending_prompt.lock().expect("pending prompt mutex poisoned") = None;
+            self.finish_prompt_transcript(outcome, &input.text);
             Ok(())
         })
     }

@@ -100,24 +100,16 @@ impl LiveSessionManager {
                 };
                 let service = self.service.clone();
                 let runtime = Box::pin(async move { service.create_session(options).await });
-                let live = self.acquire(id, runtime).await?;
-                self.attach(&connection, &live).await?;
-                let snapshot = self.broadcast_snapshot(&live).await?;
-                let session = for_connection(&snapshot, &connection);
-                self.broadcast_server_snapshot();
-                Ok(CommandResult::Create(session))
+                let snapshot = self.acquire_and_attach(&connection, id, runtime).await?;
+                Ok(CommandResult::Create(for_connection(&snapshot, &connection)))
             }
             Command::Attach(command) => {
                 let session_id = command.session_id().to_string();
                 let service = self.service.clone();
                 let requested = session_id.clone();
                 let runtime = Box::pin(async move { service.open_session(requested).await });
-                let live = self.acquire(session_id, runtime).await?;
-                self.attach(&connection, &live).await?;
-                let snapshot = self.broadcast_snapshot(&live).await?;
-                let session = for_connection(&snapshot, &connection);
-                self.broadcast_server_snapshot();
-                Ok(CommandResult::Attach(session))
+                let snapshot = self.acquire_and_attach(&connection, session_id, runtime).await?;
+                Ok(CommandResult::Attach(for_connection(&snapshot, &connection)))
             }
             Command::Detach(command) => self.detach(&connection, command.session_id()).await,
             Command::Prompt(command) => {
@@ -158,6 +150,19 @@ impl LiveSessionManager {
                 Ok(CommandResult::SetThinking(for_connection(&snapshot, &connection)))
             }
         }
+    }
+
+    async fn acquire_and_attach(
+        &self,
+        connection: &Arc<ConnectionState>,
+        session_id: String,
+        runtime: BoxFuture<'static, ServiceResult<Arc<dyn PiSessionRuntime>>>,
+    ) -> ServiceResult<SessionSnapshot> {
+        let live = self.acquire(session_id, runtime).await?;
+        self.attach(connection, &live).await?;
+        let snapshot = self.broadcast_snapshot(&live).await?;
+        self.broadcast_server_snapshot();
+        Ok(snapshot)
     }
 
     async fn detach(

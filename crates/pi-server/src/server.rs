@@ -298,26 +298,14 @@ impl ServerCore {
                     });
                 }
                 ClientMessage::Request(_) => {
-                    let error = ProtocolError::new(
-                        ProtocolErrorCode::InvalidRequest,
-                        "The first client message must be hello".into(),
-                        None,
-                    );
-                    let core = self.clone();
-                    tokio::spawn(async move { core.fail_protocol(state, error).await });
+                    self.fail_with_message(state, "The first client message must be hello");
                 }
             }
             return;
         }
 
         if matches!(message, ClientMessage::Hello(_)) {
-            let error = ProtocolError::new(
-                ProtocolErrorCode::InvalidRequest,
-                "hello may only be sent as the first message".into(),
-                None,
-            );
-            let core = self.clone();
-            tokio::spawn(async move { core.fail_protocol(state, error).await });
+            self.fail_with_message(state, "hello may only be sent as the first message");
             return;
         }
 
@@ -342,6 +330,12 @@ impl ServerCore {
                 core.handle_request(state, envelope).await;
             }
         });
+    }
+
+    fn fail_with_message(self: &Arc<Self>, state: Arc<ConnectionState>, message: &str) {
+        let error = ProtocolError::new(ProtocolErrorCode::InvalidRequest, message.into(), None);
+        let core = self.clone();
+        tokio::spawn(async move { core.fail_protocol(state, error).await });
     }
 
     async fn finish_handshake(self: &Arc<Self>, state: Arc<ConnectionState>, hello: ClientHello) {
@@ -383,20 +377,25 @@ impl ServerCore {
             state.handshake_complete.store(true, Ordering::SeqCst);
             state.set_stage(ConnectionStage::Ready);
             state.clear_handshake_timeout();
-            if snapshot.revision() != self.snapshots.current_revision() {
-                match self.snapshots.get(None).await {
-                    Ok(current) => {
-                        self.send_message(
-                            state,
-                            ServerMessage::Event(EventEnvelope::new(ServerEvent::ServerSnapshot(current))),
-                        )
-                        .await;
-                    }
-                    Err(error) => {
-                        let protocol_error = self.to_protocol_error(error.as_ref());
-                        self.fail_protocol(state, protocol_error).await;
-                    }
-                }
+            self.send_stale_snapshot(state, snapshot.revision()).await;
+        }
+    }
+
+    async fn send_stale_snapshot(self: &Arc<Self>, state: Arc<ConnectionState>, revision: u64) {
+        if revision == self.snapshots.current_revision() {
+            return;
+        }
+        match self.snapshots.get(None).await {
+            Ok(current) => {
+                self.send_message(
+                    state,
+                    ServerMessage::Event(EventEnvelope::new(ServerEvent::ServerSnapshot(current))),
+                )
+                .await;
+            }
+            Err(error) => {
+                let protocol_error = self.to_protocol_error(error.as_ref());
+                self.fail_protocol(state, protocol_error).await;
             }
         }
     }
