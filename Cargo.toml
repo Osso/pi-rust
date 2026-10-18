@@ -6,6 +6,7 @@ members = [
     "crates/pi-agent-core",
     "crates/pi-tui",
     "crates/pi-coding-agent",
+    "crates/pi-server",
 ]
 resolver = "3"
 

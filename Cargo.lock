@@ -944,6 +944,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pi-server"
+version = "0.0.0"
+dependencies = [
+ "pi-ai",
+ "pi-protocol",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pi-telemetry"
 version = "0.0.0"
 dependencies = [
