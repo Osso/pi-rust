@@ -9,6 +9,7 @@ members = [
     "crates/pi-client",
     "crates/pi-server",
     "crates/pi-session-sqlite",
+    "crates/pi-js-compat",
 ]
 resolver = "3"
 
