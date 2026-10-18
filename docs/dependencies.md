@@ -15,6 +15,8 @@ All direct dependencies are exact-pinned.
 
 - `serde = 1.0.229` — derives the diagnostics wire records and diagnostic-code enum.
 - `serde_json = 1.0.151` — carries JSON-shaped thrown values, optional diagnostic details, and streaming-parse results; the `preserve_order` feature keeps TypeScript object insertion order (`indexmap` is its transitive implementation, not a direct dependency).
+- `tokio = 1.53.3` (`macros`, `rt`, `sync`, `time`) — async tests and timer/cancellation primitives for abort, retry, and OAuth polling.
+- `tokio-util = 0.7.20` — `CancellationToken`, the Rust mapping for `AbortSignal`.
 
 ### `pi-agent-core`
 
