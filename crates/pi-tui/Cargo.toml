@@ -7,5 +7,13 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+[dependencies]
+# Grapheme cluster segmentation matching the Unicode 17.0 tables used by Node's Intl.Segmenter.
+unicode-segmentation = "=1.13.3"
+
+[dev-dependencies]
+# Drives JSON-lines differential requests against the pinned TypeScript source.
+serde_json = "=1.0.151"
+
 [lints]
 workspace = true
