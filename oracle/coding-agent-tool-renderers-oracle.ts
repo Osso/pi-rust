@@ -33,9 +33,10 @@ async function loadTheme(sourcePath: string): Promise<unknown> {
 
 async function loadFactories(sourcePath: string): Promise<Record<string, (cwd: string) => Definition>> {
 	const load = async (name: string) => (await import(pathToFileURL(join(dirname(sourcePath), name)).href)) as Record<string, unknown>;
-	const [read, write, ls, grep, find, codeIndex, bash] = await Promise.all([
+	const [read, write, edit, ls, grep, find, codeIndex, bash] = await Promise.all([
 		load("read.ts"),
 		load("write.ts"),
+		load("edit.ts"),
 		load("ls.ts"),
 		load("grep.ts"),
 		load("find.ts"),
@@ -45,6 +46,7 @@ async function loadFactories(sourcePath: string): Promise<Record<string, (cwd: s
 	return {
 		read: read.createReadToolDefinition as (cwd: string) => Definition,
 		write: write.createWriteToolDefinition as (cwd: string) => Definition,
+		edit: edit.createEditToolDefinition as (cwd: string) => Definition,
 		ls: ls.createLsToolDefinition as (cwd: string) => Definition,
 		grep: grep.createGrepToolDefinition as (cwd: string) => Definition,
 		find: find.createFindToolDefinition as (cwd: string) => Definition,

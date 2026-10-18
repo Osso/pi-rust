@@ -8,6 +8,7 @@ use pi_coding_agent::core::tools::code_index::{
     CodeIndexToolOptions, create_outline_tool_definition, create_references_tool_definition,
     create_symbol_tool_definition,
 };
+use pi_coding_agent::core::tools::edit::{EditToolOptions, create_edit_tool_definition};
 use pi_coding_agent::core::tools::find::{FindToolOptions, create_find_tool_definition};
 use pi_coding_agent::core::tools::grep::{GrepToolOptions, create_grep_tool_definition};
 use pi_coding_agent::core::tools::ls::{LsToolOptions, create_ls_tool_definition};
@@ -99,6 +100,7 @@ fn tool_definitions_expose_renderers() {
     let definitions = vec![
         create_read_tool_definition("/repo", ReadToolOptions::default()),
         create_write_tool_definition("/repo", WriteToolOptions::default()),
+        create_edit_tool_definition("/repo", EditToolOptions::default()),
         create_ls_tool_definition("/repo", LsToolOptions::default()),
         create_grep_tool_definition("/repo", GrepToolOptions::default()),
         create_find_tool_definition("/repo", FindToolOptions::default()),
@@ -109,8 +111,6 @@ fn tool_definitions_expose_renderers() {
     ];
     for definition in definitions {
         assert!(definition.render_call.is_some(), "{}", definition.name);
-        if definition.name != "bash" {
-            assert!(definition.render_result.is_some(), "{}", definition.name);
-        }
+        assert!(definition.render_result.is_some(), "{}", definition.name);
     }
 }
