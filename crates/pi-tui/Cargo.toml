@@ -1,0 +1,11 @@
+[package]
+name = "pi-tui"
+version = "0.0.0"
+description = "Rust port of Pi's terminal UI library"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true

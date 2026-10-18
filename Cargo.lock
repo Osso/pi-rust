@@ -22,6 +22,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pi-ai"
+version = "0.0.0"
+
+[[package]]
 name = "pi-coding-agent"
 version = "0.0.0"
 dependencies = [
@@ -37,6 +41,14 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "pi-telemetry"
+version = "0.0.0"
+
+[[package]]
+name = "pi-tui"
+version = "0.0.0"
 
 [[package]]
 name = "proc-macro2"

@@ -1,5 +1,12 @@
 [workspace]
-members = ["crates/pi-protocol", "crates/pi-coding-agent", "crates/pi-agent-core"]
+members = [
+    "crates/pi-protocol",
+    "crates/pi-telemetry",
+    "crates/pi-ai",
+    "crates/pi-agent-core",
+    "crates/pi-tui",
+    "crates/pi-coding-agent",
+]
 resolver = "3"
 
 [workspace.package]
