@@ -45,6 +45,14 @@ pub struct Edit {
     pub new_text: String,
 }
 
+/// A replacement expressed in byte offsets of the base content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextReplacement {
+    pub match_index: usize,
+    pub match_length: usize,
+    pub new_text: String,
+}
+
 /// A direct-module result record from edit application.
 #[derive(Debug)]
 pub struct AppliedEditsResult {
@@ -59,7 +67,8 @@ pub struct EditError {
 }
 
 impl EditError {
-    fn new(message: impl Into<String>) -> Self {
+    /// Creates an edit failure with the source message text.
+    pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
         }
@@ -129,12 +138,33 @@ pub fn normalize_for_fuzzy_match(text: &str) -> String {
     let normalized = text.nfkc().collect::<String>();
     normalized
         .split('\n')
-        .map(str::trim_end)
+        .map(trim_end_javascript)
         .collect::<Vec<_>>()
         .join("\n")
         .chars()
         .map(normalize_fuzzy_character)
         .collect()
+}
+
+fn is_javascript_trim_character(character: char) -> bool {
+    matches!(
+        character,
+        '\u{0009}'..='\u{000D}'
+            | '\u{0020}'
+            | '\u{00A0}'
+            | '\u{1680}'
+            | '\u{2000}'..='\u{200A}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{202F}'
+            | '\u{205F}'
+            | '\u{3000}'
+            | '\u{FEFF}'
+    )
+}
+
+fn trim_end_javascript(value: &str) -> &str {
+    value.trim_end_matches(is_javascript_trim_character)
 }
 
 fn normalize_fuzzy_character(character: char) -> char {
@@ -226,10 +256,14 @@ pub fn apply_edits_to_normalized_content(
     };
 
     let matched_edits = match_edits(&normalized_edits, &replacement_base_content, path)?;
+    let replacements = matched_edits
+        .iter()
+        .map(|matched| matched.replacement.clone())
+        .collect::<Vec<_>>();
     let new_content = if used_fuzzy_match {
-        apply_replacements_preserving_unchanged_lines(normalized_content, &replacement_base_content, &matched_edits)?
+        apply_replacements_preserving_unchanged_lines(normalized_content, &replacement_base_content, &replacements)?
     } else {
-        apply_replacements(&replacement_base_content, &matched_edits, 0)
+        apply_replacements(&replacement_base_content, &replacements, 0)
     };
 
     if normalized_content == new_content {
@@ -263,9 +297,7 @@ fn ensure_nonempty_edits(edits: &[Edit], path: &str) -> Result<(), EditError> {
 #[derive(Clone)]
 struct MatchedEdit {
     edit_index: usize,
-    match_index: usize,
-    match_length: usize,
-    new_text: String,
+    replacement: TextReplacement,
 }
 
 fn match_edits(edits: &[Edit], replacement_base_content: &str, path: &str) -> Result<Vec<MatchedEdit>, EditError> {
@@ -280,17 +312,19 @@ fn match_edits(edits: &[Edit], replacement_base_content: &str, path: &str) -> Re
         }
         matched.push(MatchedEdit {
             edit_index: index,
-            match_index: found.byte_index,
-            match_length: found.byte_length,
-            new_text: edit.new_text.clone(),
+            replacement: TextReplacement {
+                match_index: found.byte_index,
+                match_length: found.byte_length,
+                new_text: edit.new_text.clone(),
+            },
         });
     }
 
-    matched.sort_by_key(|edit| edit.match_index);
+    matched.sort_by_key(|edit| edit.replacement.match_index);
     for pair in matched.windows(2) {
         let previous = &pair[0];
         let current = &pair[1];
-        if previous.match_index + previous.match_length > current.match_index {
+        if previous.replacement.match_index + previous.replacement.match_length > current.replacement.match_index {
             return Err(EditError::new(format!(
                 "edits[{}] and edits[{}] overlap in {path}. Merge them into one edit or target disjoint regions.",
                 previous.edit_index, current.edit_index
@@ -300,7 +334,7 @@ fn match_edits(edits: &[Edit], replacement_base_content: &str, path: &str) -> Re
     Ok(matched)
 }
 
-fn empty_old_text_error(path: &str, edit_index: usize, total_edits: usize) -> EditError {
+pub fn empty_old_text_error(path: &str, edit_index: usize, total_edits: usize) -> EditError {
     if total_edits == 1 {
         EditError::new(format!("oldText must not be empty in {path}."))
     } else {
@@ -308,7 +342,7 @@ fn empty_old_text_error(path: &str, edit_index: usize, total_edits: usize) -> Ed
     }
 }
 
-fn not_found_error(path: &str, edit_index: usize, total_edits: usize) -> EditError {
+pub fn not_found_error(path: &str, edit_index: usize, total_edits: usize) -> EditError {
     if total_edits == 1 {
         EditError::new(format!(
             "Could not find the exact text in {path}. The old text must match exactly including all whitespace and newlines."
@@ -332,7 +366,7 @@ fn duplicate_error(path: &str, edit_index: usize, total_edits: usize, occurrence
     }
 }
 
-fn no_change_error(path: &str, total_edits: usize) -> EditError {
+pub fn no_change_error(path: &str, total_edits: usize) -> EditError {
     if total_edits == 1 {
         EditError::new(format!(
             "No changes made to {path}. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected."
@@ -379,7 +413,7 @@ fn get_line_spans(content: &str) -> Vec<LineSpan> {
         .collect()
 }
 
-fn get_replacement_line_range(lines: &[LineSpan], replacement: &MatchedEdit) -> Result<(usize, usize), EditError> {
+fn get_replacement_line_range(lines: &[LineSpan], replacement: &TextReplacement) -> Result<(usize, usize), EditError> {
     let replacement_start = replacement.match_index;
     let replacement_end = replacement.match_index + replacement.match_length;
 
@@ -398,7 +432,7 @@ fn get_replacement_line_range(lines: &[LineSpan], replacement: &MatchedEdit) -> 
     Ok((start_line, end_line + 1))
 }
 
-fn apply_replacements(content: &str, replacements: &[MatchedEdit], offset: usize) -> String {
+pub fn apply_replacements(content: &str, replacements: &[TextReplacement], offset: usize) -> String {
     let mut result = content.to_owned();
     for replacement in replacements.iter().rev() {
         let start = replacement.match_index - offset;
@@ -409,10 +443,10 @@ fn apply_replacements(content: &str, replacements: &[MatchedEdit], offset: usize
 
 /// Applies replacements matched against `base_content` to `original_content`, preserving
 /// unchanged line blocks from the original.
-fn apply_replacements_preserving_unchanged_lines(
+pub fn apply_replacements_preserving_unchanged_lines(
     original_content: &str,
     base_content: &str,
-    replacements: &[MatchedEdit],
+    replacements: &[TextReplacement],
 ) -> Result<String, EditError> {
     let original_lines = split_lines_with_endings(original_content);
     let base_lines = get_line_spans(base_content);
@@ -433,12 +467,12 @@ fn apply_replacements_preserving_unchanged_lines(
 struct ReplacementGroup {
     start_line: usize,
     end_line: usize,
-    replacements: Vec<MatchedEdit>,
+    replacements: Vec<TextReplacement>,
 }
 
 fn group_replacements(
     base_lines: &[LineSpan],
-    replacements: &[MatchedEdit],
+    replacements: &[TextReplacement],
 ) -> Result<Vec<ReplacementGroup>, EditError> {
     let mut groups: Vec<ReplacementGroup> = Vec::new();
     let mut sorted = replacements.to_vec();

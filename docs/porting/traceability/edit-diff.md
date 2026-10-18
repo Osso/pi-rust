@@ -23,11 +23,11 @@ Rust: `crates/pi-agent-core/src/harness/tools/edit_diff.rs`. Behavioral proof: `
 | `edit-diff.ts:249-253` | Occurrence counting in fuzzy space | `count_occurrences`; duplicate tests |
 | `edit-diff.ts:255-290` | Exact not-found/duplicate/empty/no-change messages for single vs multiple edits | `not_found_error`/`duplicate_error`/`empty_old_text_error`/`no_change_error`; error tests and differential fixtures |
 | `edit-diff.ts:300-354` | Normalize edits, detect fuzzy mode, match all against the same base, reject overlaps, apply, reject no-op | `apply_edits_to_normalized_content`/`match_edits`; disjoint, overlap, duplicate, missing, no-change, empty tests and differential fixtures |
-| `edit-diff.ts:357-363` | Unified patch via jsdiff `createTwoFilesPatch` with file headers only and context 4 | `generate_unified_patch`/`structured_patch`; patch tests and differential edit fixtures |
+| `edit-diff.ts:357-363` | Unified patch via jsdiff `createTwoFilesPatch` with file headers only and context 4 | `generate_unified_patch` over `jsdiff::create_two_files_patch`; patch tests and differential edit fixtures |
 | `edit-diff.ts:369-499` | Display diff via jsdiff `diffLines`, line-number width, context skipping, first changed line | `generate_diff_string`; diff tests and differential edit fixtures |
-| jsdiff 8.0.4 `diff/base.js` | Myers edit-length search, path pruning, common extraction, component values | `diff_tokens`/`add_to_path`/`extract_common`/`build_values` |
-| jsdiff 8.0.4 `diff/line.js` | Line tokenization incl. CRLF and trailing-newline handling | `tokenize_lines` |
-| jsdiff 8.0.4 `patch/create.js` | Hunk construction, `\ No newline at end of file`, zero-line start quirk | `structured_patch`/`split_lines_for_patch` |
+| jsdiff 8.0.4 `diff/base.js` | Myers edit-length search, path pruning, common extraction, component values | `jsdiff::diff_lines` (shared with coding-agent) |
+| jsdiff 8.0.4 `diff/line.js` | Line tokenization incl. CRLF and trailing-newline handling | `jsdiff::tokenize` |
+| jsdiff 8.0.4 `patch/create.js` | Hunk construction, `\ No newline at end of file`, zero-line start quirk | `jsdiff::structured_patch` |
 
 ## Rust boundary and discrepancies
 
@@ -35,43 +35,38 @@ Rust: `crates/pi-agent-core/src/harness/tools/edit_diff.rs`. Behavioral proof: `
 - `generate_unified_patch`/`generate_diff_string` take an explicit context-line count; the tool passes 4, matching the source default.
 - Only the `diffLines`/`createTwoFilesPatch` paths used by the source are ported; callbacks, `maxEditLength`, timeout aborts, and other jsdiff diff variants are not.
 - NFKC uses `unicode-normalization` (`=0.1.26`); outputs match JavaScript for representable scalar values.
-- `apply_replacements_preserving_unchanged_lines` is private; the source exports it but no other pinned module imports it.
+
+## Shared jsdiff module
+
+`pi_agent_core::jsdiff` is the single port of `diff@8.0.4`: `tokenize` (line tokenization including CRLF), `diff_lines` (empty-token removal, Myers edit-length search with the source's diagonal pruning and tie-breaking, component flattening), `structured_patch` (hunk construction, context, `\ No newline at end of file`, zero-line start quirk), and `create_two_files_patch` (file headers only). Both edit-diff modules call it; neither keeps a second copy. Differential coverage: 700 seeded diff/patch cases over a duplication-heavy line alphabet plus targeted empty, append-only, deletion-only, CRLF, and no-newline cases (coding-agent), and the harness-tools edit fixtures (agent-core).
 
 ## Coding-agent `edit_diff`
 
 Pinned source: `packages/coding-agent/src/core/tools/edit-diff.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust: `pi_coding_agent::core::tools::edit_diff`. Line-ending, BOM, `Edit`, `AppliedEditsResult`, and `FuzzyMatchResult` values are reused from the already-ported `pi_agent_core::harness::tools::edit_diff` because those declarations are textually identical. Everything else is ported separately from the coding-agent source, including the duplicate-context argument the coding-agent version adds to `getDuplicateError`.
+Rust: `pi_coding_agent::core::tools::edit_diff`. Functions whose TypeScript body is identical to `packages/agent/src/harness/tools/edit-diff.ts` call the agent-core implementation directly: `detectLineEnding`, `normalizeToLF`, `restoreLineEndings`, `normalizeForFuzzyMatch`, `splitLinesWithEndings`, `getLineSpans`, `getReplacementLineRange`, `applyReplacements`, `applyReplacementsPreservingUnchangedLines`, `fuzzyFindText`, `stripBom`, `getNotFoundError`, `getEmptyOldTextError`, `getNoChangeError`, `generateUnifiedPatch`, `generateDiffString`, and the `Edit`/`AppliedEditsResult`/`FuzzyMatchResult`/`TextReplacement` records. `EditDiffResult` and the preview helpers are coding-agent-only; the remaining functions differ as follows.
+
+| TypeScript function | Differing lines (agent source -> coding-agent source) | Rust |
+|---|---|---|
+| `countOccurrences` | `return fuzzyContent.split(fuzzyOldText).length - 1;` -> `return findTextOccurrences(fuzzyContent, fuzzyOldText).length;` plus the new non-overlapping `findTextOccurrences` scan | `find_text_occurrences`/`count_occurrences` |
+| `getDuplicateError` | signature gains `content: string, oldText: string`; both messages append `${context}`; new constants `DEFAULT_DUPLICATE_CONTEXT_MATCHES`/`DEFAULT_DUPLICATE_CONTEXT_LINES`/`DEFAULT_CONTEXT_LINE_MAX_LENGTH`, `TextOccurrence`, `getLineNumberAtOffset`, `truncateContextLine`, `formatDuplicateMatchContexts` | `duplicate_error`/`format_duplicate_match_contexts`/`line_number_at_offset`/`truncate_context_line` |
+| `applyEditsToNormalizedContent` | duplicate call passes the extra arguments: `getDuplicateError(path, i, normalizedEdits.length, occurrences)` -> `getDuplicateError(path, i, normalizedEdits.length, occurrences, replacementBaseContent, edit.oldText)` | `apply_edits_to_normalized_content`; all other steps call the shared agent-core helpers |
+| `computeEditsDiff`, `computeEditDiff`, `EditDiffResult`, `EditDiffError` | coding-agent-only preview API appended after `generateDiffString`; reads the file, strips the BOM, normalizes, applies, and maps errors | `compute_edits_diff`/`compute_edit_diff`/`EditDiffResult`/`EditDiffOutcome` |
 
 | TypeScript source | Observable behavior | Rust proof |
 |---|---|---|
-| `edit-diff.ts:7-13` | `detectLineEnding` | Re-export of `detect_line_ending`; agent-core [edit-line-endings](edit-line-endings.md) proof plus differential request `27005` preview fixtures (CRLF file) |
-| `edit-diff.ts:15-21` | `normalizeToLF`, `restoreLineEndings` | Re-exports; same proof |
-| `edit-diff.ts:23-44` | `normalizeForFuzzyMatch`: NFKC, per-line `trimEnd`, quotes, dashes, spaces | `normalize_for_fuzzy_match` with `icu_normalizer` NFKC and the shared JavaScript trim set; focused test and differential normalize cases (ligature, fullwidth, combining mark, NEL, BOM) |
-| `edit-diff.ts:46-48` | `splitLinesWithEndings` (`/[^\n]*\n|[^\n]+/g`) | `split_lines_with_endings`; exercised by every fuzzy replacement case |
-| `edit-diff.ts:50-72` | `LineSpan`, `MatchedEdit`, `TextReplacement`, duplicate-context constants | `LineSpan`, private `MatchedEdit`, public `TextReplacement` (byte offsets), constants |
-| `edit-diff.ts:74-116` | Line spans and the replacement line range, including both out-of-range errors | `get_line_spans`, `replacement_line_range`; fuzzy differential cases cover grouped replacements |
-| `edit-diff.ts:118-131` | Reverse-order replacement application with an offset | `apply_replacements` |
-| `edit-diff.ts:133-193` | `applyReplacementsPreservingUnchangedLines`: line-count guard, grouping by sorted match index, original lines preserved | `apply_replacements_preserving_unchanged_lines`, `group_replacements`; focused `fuzzy_edits_preserve_unchanged_lines_from_the_original` and differential fuzzy apply case |
-| `edit-diff.ts:195-232` | `FuzzyMatchResult` and `fuzzyFindText` with exact-first and normalized fallback | `fuzzy_find_text`; offsets reported in UTF-16 units; focused astral-index test and differential fuzzyFind cases |
-| `edit-diff.ts:234-246` | `Edit`, `AppliedEditsResult`, `stripBom` | Re-exports; focused `strip_bom_is_reexported_for_the_coding_agent_module` |
-| `edit-diff.ts:248-267` | Non-overlapping occurrence scan and fuzzy occurrence count | `find_text_occurrences`, `count_occurrences` |
-| `edit-diff.ts:269-283` | Line number at offset; context line truncation to 160 units with `…` | `line_number_at_offset` (LF byte counting), `truncate_context_line` |
-| `edit-diff.ts:285-322` | Duplicate context blocks: up to 5 matches, 2 context lines, `>` markers, width padding, omission note | `format_duplicate_match_contexts`; ported `edit-tool-duplicate-context.test.ts` cases |
-| `edit-diff.ts:324-354` | Not-found, duplicate, empty, and no-change messages, single vs multi variants | `not_found_error`, `duplicate_error`, `empty_old_text_error`, `no_change_error`; focused message tests and differential apply cases |
-| `edit-diff.ts:356-418` | `applyEditsToNormalizedContent`: LF normalization, empty check, fuzzy base selection, duplicate check, overlap check, fuzzy preservation, no-change check | `apply_edits_to_normalized_content`; focused and differential cases |
-| `edit-diff.ts:420-427` | `generateUnifiedPatch` via `diff@8.0.4` `createTwoFilesPatch` with `FILE_HEADERS_ONLY` | `generate_unified_patch` over the private `jsdiff` port; focused patch tests and differential patch corpus |
-| `edit-diff.ts:429-521` | `generateDiffString` line-numbered output with context trimming and skip markers | `generate_diff_string`; focused tests and differential diff corpus |
-| `edit-diff.ts:523-645` | `EditDiffResult`, `EditDiffError`, `computeEditsDiff`, `computeEditDiff`: resolve, readability check, BOM strip, LF normalize, apply, diff, error mapping | `EditDiffResult`, `EditDiffOutcome`, `compute_edits_diff`, `compute_edit_diff`; focused ENOENT/EACCES/EISDIR tests and differential preview cases |
+| `edit-diff.ts:7-48` | Line endings, LF normalization, fuzzy normalization | Shared agent-core functions; focused `fuzzy_normalization_applies_nfkc_trim_end_quotes_dashes_and_spaces` and differential normalize cases |
+| `edit-diff.ts:50-232` | Line spans, replacement ranges, reverse replacement, fuzzy preservation, `fuzzyFindText` | Shared agent-core functions; focused `fuzzy_edits_preserve_unchanged_lines_from_the_original`, `fuzzy_find_prefers_exact_matches_and_reports_utf16_offsets`, and differential fuzzy apply/find cases |
+| `edit-diff.ts:234-267` | `Edit`, `AppliedEditsResult`, `stripBom`, occurrence scan | Shared records/strip; coding-agent `find_text_occurrences`/`count_occurrences` |
+| `edit-diff.ts:269-354` | Duplicate context, line numbers, truncation, single vs multi messages | `format_duplicate_match_contexts`/`line_number_at_offset`/`truncate_context_line`/`duplicate_error`; ported `edit-tool-duplicate-context.test.ts` cases and differential duplicate fixtures |
+| `edit-diff.ts:356-418` | `applyEditsToNormalizedContent` | `apply_edits_to_normalized_content`; focused and differential cases |
+| `edit-diff.ts:420-521` | Unified patch and display diff | Shared `generate_unified_patch` and `generate_diff_string` wrappers; focused patch/diff tests and differential corpus |
+| `edit-diff.ts:523-645` | Preview API | `EditDiffResult`/`EditDiffOutcome`/`compute_edits_diff`/`compute_edit_diff`; focused ENOENT/EACCES/EISDIR tests and differential preview cases |
 | `src/index.ts:293` | Package exports `EditDiffResult`, `generateDiffString`, `generateUnifiedPatch` | Crate-root re-exports; focused test imports through the crate root |
-
-## jsdiff port
-
-`src/core/tools/jsdiff.rs` ports `diffLines` (tokenize on `\n`/`\r\n`, empty-token removal, Myers with the source's diagonal pruning and tie-breaking, component flattening) and `structuredPatch`/`formatPatch` for the two-file, headers-only form. Differential coverage: 700 seeded diff/patch cases over a duplication-heavy line alphabet plus targeted empty, append-only, deletion-only, CRLF, and no-newline cases.
 
 ## Deviations and gaps
 
-- `TextReplacement` uses byte offsets; the source uses UTF-16 indices. `fuzzy_find_text` still reports UTF-16 units, matching the source record.
+- `TextReplacement` uses byte offsets; the source uses UTF-16 indices. `fuzzy_find_text` still reports UTF-16 units, matching the source record; the coding-agent match path converts those offsets to bytes.
 - `truncate_context_line` keeps whole scalars where the source can split a surrogate pair; the same approved class of deviation as `truncate_line`.
 - Error codes are mapped from `io::ErrorKind`; only `ENOENT`, `EACCES`, `EISDIR`, `ENOTDIR`, `EEXIST`, and `EINVAL` are named, other read failures fall back to the Rust error text.
 - `compute_edits_diff` is async (Tokio file I/O) and returns `Result<EditDiffOutcome, PathError>`; the path-resolution failure is the only `Err`, mirroring the source's uncaught throw from `resolveToCwd`.

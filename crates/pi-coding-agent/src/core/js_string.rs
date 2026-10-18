@@ -23,8 +23,3 @@ pub(crate) fn is_javascript_trim_character(character: char) -> bool {
 pub(crate) fn trim_javascript(value: &str) -> &str {
     value.trim_matches(is_javascript_trim_character)
 }
-
-/// JavaScript `trimEnd()`.
-pub(crate) fn trim_end_javascript(value: &str) -> &str {
-    value.trim_end_matches(is_javascript_trim_character)
-}

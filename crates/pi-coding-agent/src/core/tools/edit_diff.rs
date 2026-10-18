@@ -2,30 +2,23 @@
 
 use std::io;
 
-use icu_normalizer::ComposingNormalizerBorrowed;
 use tokio::io::AsyncReadExt;
 
 use super::path_utils::resolve_to_cwd;
-use crate::core::js_string::trim_end_javascript;
 use crate::utils::paths::PathError;
 
+use pi_agent_core::harness::tools::edit_diff::generate_diff_string as core_generate_diff_string;
 pub use pi_agent_core::harness::tools::edit_diff::{
-    AppliedEditsResult, Edit, FuzzyMatchResult, LineEnding, StripBomResult, detect_line_ending, normalize_to_lf,
-    restore_line_endings, strip_bom,
+    AppliedEditsResult, Edit, EditError, FuzzyMatchResult, LineEnding, StripBomResult, TextReplacement,
+    apply_replacements, apply_replacements_preserving_unchanged_lines, detect_line_ending, empty_old_text_error,
+    fuzzy_find_text, generate_unified_patch, no_change_error, normalize_for_fuzzy_match, normalize_to_lf,
+    not_found_error, restore_line_endings, strip_bom,
 };
 pub use pi_agent_core::jsdiff;
 
 const DEFAULT_DUPLICATE_CONTEXT_MATCHES: usize = 5;
 const DEFAULT_DUPLICATE_CONTEXT_LINES: usize = 2;
 const DEFAULT_CONTEXT_LINE_MAX_LENGTH: usize = 160;
-
-/// A replacement expressed in byte offsets of the base content.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TextReplacement {
-    pub match_index: usize,
-    pub match_length: usize,
-    pub new_text: String,
-}
 
 /// A diff with the first changed line in the new content.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,135 +32,6 @@ pub struct EditDiffResult {
 pub enum EditDiffOutcome {
     Diff(EditDiffResult),
     Error(String),
-}
-
-/// A message-compatible edit failure.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EditError {
-    message: String,
-}
-
-impl EditError {
-    fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
-    }
-}
-
-impl std::fmt::Display for EditError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for EditError {}
-
-/// Normalizes text for fuzzy matching: NFKC, per-line trailing-whitespace trim,
-/// smart quotes to ASCII, dashes to `-`, and special spaces to a regular space.
-pub fn normalize_for_fuzzy_match(text: &str) -> String {
-    let normalized = ComposingNormalizerBorrowed::new_nfkc().normalize(text).into_owned();
-    let trimmed = normalized
-        .split('\n')
-        .map(trim_end_javascript)
-        .collect::<Vec<_>>()
-        .join("\n");
-    trimmed.chars().map(normalize_fuzzy_character).collect()
-}
-
-fn normalize_fuzzy_character(character: char) -> char {
-    match character {
-        '\u{2018}'..='\u{201B}' => '\'',
-        '\u{201C}'..='\u{201F}' => '"',
-        '\u{2010}'..='\u{2015}' | '\u{2212}' => '-',
-        '\u{00A0}' | '\u{2002}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}' => ' ',
-        other => other,
-    }
-}
-
-/// Finds `old_text` in `content`, preferring an exact match and falling back to
-/// fuzzy-normalized matching.
-///
-/// Offsets are UTF-16 code units, matching the source's string indices.
-pub fn fuzzy_find_text(content: &str, old_text: &str) -> FuzzyMatchResult {
-    match find_text_bytes(content, old_text) {
-        Some(found) => FuzzyMatchResult {
-            found: true,
-            index: utf16_length(&found.content[..found.index]) as f64,
-            match_length: utf16_length(&found.content[found.index..found.index + found.match_length]) as f64,
-            used_fuzzy_match: found.used_fuzzy_match,
-            content_for_replacement: found.content,
-        },
-        None => FuzzyMatchResult {
-            found: false,
-            index: -1.0,
-            match_length: 0.0,
-            used_fuzzy_match: false,
-            content_for_replacement: content.to_owned(),
-        },
-    }
-}
-
-struct ByteMatch {
-    index: usize,
-    match_length: usize,
-    used_fuzzy_match: bool,
-    content: String,
-}
-
-fn find_text_bytes(content: &str, old_text: &str) -> Option<ByteMatch> {
-    if let Some(index) = content.find(old_text) {
-        return Some(ByteMatch {
-            index,
-            match_length: old_text.len(),
-            used_fuzzy_match: false,
-            content: content.to_owned(),
-        });
-    }
-
-    let fuzzy_content = normalize_for_fuzzy_match(content);
-    let fuzzy_old_text = normalize_for_fuzzy_match(old_text);
-    let index = fuzzy_content.find(&fuzzy_old_text)?;
-    Some(ByteMatch {
-        index,
-        match_length: fuzzy_old_text.len(),
-        used_fuzzy_match: true,
-        content: fuzzy_content,
-    })
-}
-
-/// Applies replacements matched against `base_content` to `original_content`,
-/// keeping unchanged line blocks from the original.
-pub fn apply_replacements_preserving_unchanged_lines(
-    original_content: &str,
-    base_content: &str,
-    replacements: &[TextReplacement],
-) -> Result<String, EditError> {
-    let original_lines = split_lines_with_endings(original_content);
-    let base_lines = get_line_spans(base_content);
-    if original_lines.len() != base_lines.len() {
-        return Err(EditError::new(
-            "Cannot preserve unchanged lines because the base content has a different line count.",
-        ));
-    }
-
-    let groups = group_replacements(&base_lines, replacements)?;
-
-    let mut original_line_index = 0;
-    let mut result = String::new();
-    for group in groups {
-        result.push_str(&original_lines[original_line_index..group.start_line].concat());
-        let group_start_offset = base_lines[group.start_line].start;
-        let group_end_offset = base_lines[group.end_line - 1].end;
-        result.push_str(&apply_replacements(
-            &base_content[group_start_offset..group_end_offset],
-            &group.replacements,
-            group_start_offset,
-        ));
-        original_line_index = group.end_line;
-    }
-    result.push_str(&original_lines[original_line_index..].concat());
-    Ok(result)
 }
 
 /// Applies one or more exact-text replacements to LF-normalized content.
@@ -221,110 +85,12 @@ pub fn apply_edits_to_normalized_content(
     })
 }
 
-/// Generates a standard unified patch with file headers only.
-pub fn generate_unified_patch(path: &str, old_content: &str, new_content: &str, context_lines: usize) -> String {
-    jsdiff::create_two_files_patch(path, old_content, new_content, context_lines)
-}
-
 /// Generates a display-oriented diff with line numbers and context.
 pub fn generate_diff_string(old_content: &str, new_content: &str, context_lines: usize) -> EditDiffResult {
-    let parts = jsdiff::diff_lines(old_content, new_content);
-    let old_lines = old_content.split('\n').collect::<Vec<_>>();
-    let new_lines = new_content.split('\n').collect::<Vec<_>>();
-    let line_num_width = old_lines.len().max(new_lines.len()).to_string().len();
-
-    let mut output = Vec::new();
-    let mut old_line_num = 1;
-    let mut new_line_num = 1;
-    let mut last_was_change = false;
-    let mut first_changed_line = None;
-
-    for (index, part) in parts.iter().enumerate() {
-        let mut raw = part.value.split('\n').collect::<Vec<_>>();
-        if raw.last() == Some(&"") {
-            raw.pop();
-        }
-
-        if part.added || part.removed {
-            first_changed_line.get_or_insert(new_line_num);
-            for line in raw {
-                if part.added {
-                    output.push(format!("+{} {line}", pad_left(new_line_num, line_num_width)));
-                    new_line_num += 1;
-                } else {
-                    output.push(format!("-{} {line}", pad_left(old_line_num, line_num_width)));
-                    old_line_num += 1;
-                }
-            }
-            last_was_change = true;
-            continue;
-        }
-
-        let next_is_change = parts.get(index + 1).is_some_and(|next| next.added || next.removed);
-        let has_leading_change = last_was_change;
-        let has_trailing_change = next_is_change;
-        if has_leading_change && has_trailing_change {
-            if raw.len() <= context_lines * 2 {
-                push_context(&mut output, &raw, &mut old_line_num, &mut new_line_num, line_num_width);
-            } else {
-                push_context(
-                    &mut output,
-                    &raw[..context_lines],
-                    &mut old_line_num,
-                    &mut new_line_num,
-                    line_num_width,
-                );
-                let skipped = raw.len() - context_lines * 2;
-                output.push(skip_marker(line_num_width));
-                old_line_num += skipped;
-                new_line_num += skipped;
-                push_context(
-                    &mut output,
-                    &raw[raw.len() - context_lines..],
-                    &mut old_line_num,
-                    &mut new_line_num,
-                    line_num_width,
-                );
-            }
-        } else if has_leading_change {
-            let shown = raw.len().min(context_lines);
-            push_context(
-                &mut output,
-                &raw[..shown],
-                &mut old_line_num,
-                &mut new_line_num,
-                line_num_width,
-            );
-            let skipped = raw.len() - shown;
-            if skipped > 0 {
-                output.push(skip_marker(line_num_width));
-                old_line_num += skipped;
-                new_line_num += skipped;
-            }
-        } else if has_trailing_change {
-            let skipped = raw.len().saturating_sub(context_lines);
-            if skipped > 0 {
-                output.push(skip_marker(line_num_width));
-                old_line_num += skipped;
-                new_line_num += skipped;
-            }
-            push_context(
-                &mut output,
-                &raw[skipped..],
-                &mut old_line_num,
-                &mut new_line_num,
-                line_num_width,
-            );
-        } else {
-            old_line_num += raw.len();
-            new_line_num += raw.len();
-        }
-        last_was_change = false;
-    }
-
+    let result = core_generate_diff_string(old_content, new_content, context_lines);
     EditDiffResult {
-        diff: output.join("\n"),
-        first_changed_line,
+        diff: result.diff,
+        first_changed_line: result.first_changed_line,
     }
 }
 
@@ -399,108 +165,6 @@ fn node_read_error_message(error: &io::Error, path: &str) -> String {
     format!("{}: {description}, read '{path}'", node_error_code(error))
 }
 
-fn utf16_length(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-fn split_lines_with_endings(content: &str) -> Vec<&str> {
-    let mut lines = Vec::new();
-    let mut start = 0;
-    for (index, byte) in content.bytes().enumerate() {
-        if byte == b'\n' {
-            lines.push(&content[start..=index]);
-            start = index + 1;
-        }
-    }
-    if start < content.len() {
-        lines.push(&content[start..]);
-    }
-    lines
-}
-
-#[derive(Debug, Clone, Copy)]
-struct LineSpan {
-    start: usize,
-    end: usize,
-}
-
-fn get_line_spans(content: &str) -> Vec<LineSpan> {
-    let mut offset = 0;
-    split_lines_with_endings(content)
-        .into_iter()
-        .map(|line| {
-            let span = LineSpan {
-                start: offset,
-                end: offset + line.len(),
-            };
-            offset = span.end;
-            span
-        })
-        .collect()
-}
-
-struct ReplacementGroup {
-    start_line: usize,
-    end_line: usize,
-    replacements: Vec<TextReplacement>,
-}
-
-fn group_replacements(
-    base_lines: &[LineSpan],
-    replacements: &[TextReplacement],
-) -> Result<Vec<ReplacementGroup>, EditError> {
-    let mut sorted = replacements.to_vec();
-    sorted.sort_by_key(|replacement| replacement.match_index);
-
-    let mut groups: Vec<ReplacementGroup> = Vec::new();
-    for replacement in sorted {
-        let (start_line, end_line) = replacement_line_range(base_lines, &replacement)?;
-        match groups.last_mut() {
-            Some(current) if start_line < current.end_line => {
-                current.end_line = current.end_line.max(end_line);
-                current.replacements.push(replacement);
-            }
-            _ => groups.push(ReplacementGroup {
-                start_line,
-                end_line,
-                replacements: vec![replacement],
-            }),
-        }
-    }
-    Ok(groups)
-}
-
-fn replacement_line_range(lines: &[LineSpan], replacement: &TextReplacement) -> Result<(usize, usize), EditError> {
-    let replacement_start = replacement.match_index;
-    let replacement_end = replacement.match_index + replacement.match_length;
-    let outside = || EditError::new("Replacement range is outside the base content.");
-
-    let start_line = lines
-        .iter()
-        .position(|line| replacement_start >= line.start && replacement_start < line.end)
-        .ok_or_else(outside)?;
-    let mut end_line = start_line;
-    while end_line < lines.len() && lines[end_line].end < replacement_end {
-        end_line += 1;
-    }
-    if end_line >= lines.len() {
-        return Err(outside());
-    }
-    Ok((start_line, end_line + 1))
-}
-
-fn apply_replacements(content: &str, replacements: &[TextReplacement], offset: usize) -> String {
-    let mut result = content.to_owned();
-    for replacement in replacements.iter().rev() {
-        let match_index = replacement.match_index - offset;
-        result.replace_range(
-            match_index..match_index + replacement.match_length,
-            &replacement.new_text,
-        );
-    }
-    result
-}
-
 struct MatchedEdit {
     edit_index: usize,
     replacement: TextReplacement,
@@ -513,9 +177,10 @@ fn match_edits(
 ) -> Result<Vec<MatchedEdit>, EditError> {
     let mut matched = Vec::new();
     for (index, edit) in normalized_edits.iter().enumerate() {
-        let Some(found) = find_text_bytes(replacement_base_content, &edit.old_text) else {
+        let found = fuzzy_find_text(replacement_base_content, &edit.old_text);
+        if !found.found {
             return Err(not_found_error(path, index, normalized_edits.len()));
-        };
+        }
         let occurrences = count_occurrences(replacement_base_content, &edit.old_text);
         if occurrences > 1 {
             return Err(duplicate_error(
@@ -527,11 +192,16 @@ fn match_edits(
                 &edit.old_text,
             ));
         }
+        let start = utf16_offset_to_byte(&found.content_for_replacement, found.index as usize);
+        let end = utf16_offset_to_byte(
+            &found.content_for_replacement,
+            found.index as usize + found.match_length as usize,
+        );
         matched.push(MatchedEdit {
             edit_index: index,
             replacement: TextReplacement {
-                match_index: found.index,
-                match_length: found.match_length,
+                match_index: start,
+                match_length: end - start,
                 new_text: edit.new_text.clone(),
             },
         });
@@ -649,17 +319,6 @@ fn format_duplicate_match_contexts(content: &str, old_text: &str) -> String {
     format!("\n\nDuplicate match context:\n{}{omitted}", blocks.join("\n\n"))
 }
 
-fn not_found_error(path: &str, edit_index: usize, total_edits: usize) -> EditError {
-    if total_edits == 1 {
-        return EditError::new(format!(
-            "Could not find the exact text in {path}. The old text must match exactly including all whitespace and newlines."
-        ));
-    }
-    EditError::new(format!(
-        "Could not find edits[{edit_index}] in {path}. The oldText must match exactly including all whitespace and newlines."
-    ))
-}
-
 fn duplicate_error(
     path: &str,
     edit_index: usize,
@@ -679,42 +338,21 @@ fn duplicate_error(
     ))
 }
 
-fn empty_old_text_error(path: &str, edit_index: usize, total_edits: usize) -> EditError {
-    if total_edits == 1 {
-        return EditError::new(format!("oldText must not be empty in {path}."));
-    }
-    EditError::new(format!("edits[{edit_index}].oldText must not be empty in {path}."))
-}
-
-fn no_change_error(path: &str, total_edits: usize) -> EditError {
-    if total_edits == 1 {
-        return EditError::new(format!(
-            "No changes made to {path}. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected."
-        ));
-    }
-    EditError::new(format!(
-        "No changes made to {path}. The replacements produced identical content."
-    ))
-}
-
 fn pad_left(value: usize, width: usize) -> String {
     format!("{value:>width$}")
 }
 
-fn skip_marker(line_num_width: usize) -> String {
-    format!(" {} ...", " ".repeat(line_num_width))
+fn utf16_length(text: &str) -> usize {
+    text.encode_utf16().count()
 }
 
-fn push_context(
-    output: &mut Vec<String>,
-    lines: &[&str],
-    old_line_num: &mut usize,
-    new_line_num: &mut usize,
-    line_num_width: usize,
-) {
-    for line in lines {
-        output.push(format!(" {} {line}", pad_left(*old_line_num, line_num_width)));
-        *old_line_num += 1;
-        *new_line_num += 1;
+fn utf16_offset_to_byte(text: &str, offset: usize) -> usize {
+    let mut units = 0;
+    for (byte, character) in text.char_indices() {
+        if units >= offset {
+            return byte;
+        }
+        units += character.len_utf16();
     }
+    text.len()
 }
