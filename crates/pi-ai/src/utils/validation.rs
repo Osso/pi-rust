@@ -658,6 +658,12 @@ fn coerce_into(schema: &Value, value: &mut Value) -> Conversion {
     let Some(object) = schema.as_object() else {
         return Conversion::InPlace;
     };
+    coerce_composition_keywords(schema, value);
+    coerce_typed(object, value);
+    Conversion::InPlace
+}
+
+fn coerce_composition_keywords(schema: &Value, value: &mut Value) {
     if let Some(all_of) = array_field(schema, "allOf") {
         for nested in all_of {
             coerce_in_place(value, nested);
@@ -671,25 +677,29 @@ fn coerce_into(schema: &Value, value: &mut Value) -> Conversion {
         let conversion = coerce_union(one_of, value);
         apply_conversion(value, conversion);
     }
+}
 
-    let types = schema_types(object);
+fn coerce_typed(schema: &Map<String, Value>, value: &mut Value) {
+    let types = schema_types(schema);
     let matches_union_member = types.len() > 1 && types.iter().any(|schema_type| matches_json_type(value, schema_type));
     if !types.is_empty() && !matches_union_member {
-        for schema_type in &types {
-            if let Some(candidate) = coerce_primitive_by_type(value, schema_type) {
-                *value = candidate;
-                break;
-            }
-        }
+        coerce_primitive(&types, value);
     }
-
     if types.iter().any(|schema_type| schema_type == "object") && value.is_object() {
-        apply_object_coercion(value, object);
+        apply_object_coercion(value, schema);
     }
     if types.iter().any(|schema_type| schema_type == "array") && value.is_array() {
-        apply_array_coercion(value, object);
+        apply_array_coercion(value, schema);
     }
-    Conversion::InPlace
+}
+
+fn coerce_primitive(types: &[String], value: &mut Value) {
+    for schema_type in types {
+        if let Some(candidate) = coerce_primitive_by_type(value, schema_type) {
+            *value = candidate;
+            break;
+        }
+    }
 }
 
 fn coerce_union(schemas: &[Value], value: &mut Value) -> Conversion {
@@ -911,6 +921,11 @@ fn check(schema: &Value, value: &Value) -> bool {
     collect_issues(schema, value).is_empty()
 }
 
+/// Validity check that keeps the caller's schema stack for `$ref` resolution.
+fn check_with(root: &Value, base: &Value, schema: &Value, value: &Value) -> bool {
+    scratch_issues(root, base, schema, "", value).is_empty()
+}
+
 fn scratch_issues(root: &Value, base: &Value, schema: &Value, instance_path: &str, value: &Value) -> Issues {
     let mut issues = Issues::scratch();
     collect_schema(root, base, schema, instance_path, value, &mut issues);
@@ -930,63 +945,156 @@ fn collect_schema(root: &Value, base: &Value, schema: &Value, instance_path: &st
     let Some(object) = schema.as_object() else {
         return;
     };
-
     collect_type(object, instance_path, value, issues);
+    collect_value_keywords(root, base, object, instance_path, value, issues);
+    collect_composition_keywords(root, base, schema, object, instance_path, value, issues);
+}
+
+fn collect_value_keywords(
+    root: &Value,
+    base: &Value,
+    schema: &Map<String, Value>,
+    instance_path: &str,
+    value: &Value,
+    issues: &mut Issues,
+) {
     if value.is_object() {
-        collect_object_keywords(root, base, object, instance_path, value, issues);
+        collect_object_keywords(root, base, schema, instance_path, value, issues);
     }
     if value.is_array() {
-        collect_array_keywords(root, base, object, instance_path, value, issues);
+        collect_array_keywords(root, base, schema, instance_path, value, issues);
     }
     if let Some(text) = value.as_str() {
-        collect_string_keywords(object, instance_path, text, issues);
+        collect_string_keywords(schema, instance_path, text, issues);
     }
     if let Some(number) = value.as_f64() {
-        collect_number_keywords(object, instance_path, number, issues);
+        collect_number_keywords(schema, instance_path, number, issues);
     }
+}
 
-    if let Some(reference) = object.get("$ref").and_then(Value::as_str) {
-        match resolve_ref(root, base, reference) {
-            Some(target) => collect_schema(root, base, target, instance_path, value, issues),
-            None => issues.message(instance_path, "schema is false".to_owned()),
-        }
+fn collect_composition_keywords(
+    root: &Value,
+    base: &Value,
+    schema: &Value,
+    object: &Map<String, Value>,
+    instance_path: &str,
+    value: &Value,
+    issues: &mut Issues,
+) {
+    collect_ref(root, base, object, instance_path, value, issues);
+    collect_const_and_enum(object, instance_path, value, issues);
+    collect_if_keyword(root, base, object, instance_path, value, issues);
+    collect_not_keyword(root, base, object, instance_path, value, issues);
+    collect_all_of(root, base, schema, instance_path, value, issues);
+    collect_any_of_keyword(root, base, schema, instance_path, value, issues);
+    collect_one_of_keyword(root, base, schema, instance_path, value, issues);
+}
+
+fn collect_ref(
+    root: &Value,
+    base: &Value,
+    schema: &Map<String, Value>,
+    instance_path: &str,
+    value: &Value,
+    issues: &mut Issues,
+) {
+    let Some(reference) = schema.get("$ref").and_then(Value::as_str) else {
+        return;
+    };
+    match resolve_ref(root, base, reference) {
+        Some(target) => collect_schema(root, base, target, instance_path, value, issues),
+        None => issues.message(instance_path, "schema is false".to_owned()),
     }
-    if let Some(constant) = object.get("const")
+}
+
+fn collect_const_and_enum(schema: &Map<String, Value>, instance_path: &str, value: &Value, issues: &mut Issues) {
+    if let Some(constant) = schema.get("const")
         && !js_equal(constant, value)
     {
         issues.message(instance_path, "must be equal to constant".to_owned());
     }
-    if let Some(values) = array_field(schema, "enum")
+    if let Some(values) = schema.get("enum").and_then(Value::as_array)
         && !values.iter().any(|option| js_equal(option, value))
     {
         issues.message(instance_path, "must be equal to one of the allowed values".to_owned());
     }
-    if let Some(if_schema) = object.get("if").filter(|schema| is_schema(schema)) {
-        collect_if(root, base, object, if_schema, instance_path, value, issues);
-    }
-    if let Some(not_schema) = object.get("not").filter(|schema| is_schema(schema))
-        && check(not_schema, value)
-    {
+}
+
+fn collect_if_keyword(
+    root: &Value,
+    base: &Value,
+    schema: &Map<String, Value>,
+    instance_path: &str,
+    value: &Value,
+    issues: &mut Issues,
+) {
+    let Some(if_schema) = schema.get("if").filter(|schema| is_schema(schema)) else {
+        return;
+    };
+    collect_if(root, base, schema, if_schema, instance_path, value, issues);
+}
+
+fn collect_not_keyword(
+    root: &Value,
+    base: &Value,
+    schema: &Map<String, Value>,
+    instance_path: &str,
+    value: &Value,
+    issues: &mut Issues,
+) {
+    let Some(not_schema) = schema.get("not").filter(|schema| is_schema(schema)) else {
+        return;
+    };
+    if check_with(root, base, not_schema, value) {
         issues.message(instance_path, "must not be valid".to_owned());
     }
-    if let Some(members) = array_field(schema, "allOf")
-        && members.iter().all(is_schema)
-    {
-        for member in members {
-            let failed = scratch_issues(root, base, member, instance_path, value);
-            issues.merge(failed);
-        }
+}
+
+fn collect_all_of(root: &Value, base: &Value, schema: &Value, instance_path: &str, value: &Value, issues: &mut Issues) {
+    let Some(members) = array_field(schema, "allOf") else {
+        return;
+    };
+    if !members.iter().all(is_schema) {
+        return;
     }
-    if let Some(members) = array_field(schema, "anyOf")
-        && members.iter().all(is_schema)
-    {
-        collect_any_of(root, base, members, instance_path, value, issues);
+    for member in members {
+        let failed = scratch_issues(root, base, member, instance_path, value);
+        issues.merge(failed);
     }
-    if let Some(members) = array_field(schema, "oneOf")
-        && members.iter().all(is_schema)
-    {
-        collect_one_of(root, base, members, instance_path, value, issues);
+}
+
+fn collect_any_of_keyword(
+    root: &Value,
+    base: &Value,
+    schema: &Value,
+    instance_path: &str,
+    value: &Value,
+    issues: &mut Issues,
+) {
+    let Some(members) = array_field(schema, "anyOf") else {
+        return;
+    };
+    if !members.iter().all(is_schema) {
+        return;
     }
+    collect_any_of(root, base, members, instance_path, value, issues);
+}
+
+fn collect_one_of_keyword(
+    root: &Value,
+    base: &Value,
+    schema: &Value,
+    instance_path: &str,
+    value: &Value,
+    issues: &mut Issues,
+) {
+    let Some(members) = array_field(schema, "oneOf") else {
+        return;
+    };
+    if !members.iter().all(is_schema) {
+        return;
+    }
+    collect_one_of(root, base, members, instance_path, value, issues);
 }
 
 fn collect_type(schema: &Map<String, Value>, instance_path: &str, value: &Value, issues: &mut Issues) {
@@ -1051,82 +1159,128 @@ fn collect_object_keywords(
     let Some(map) = value.as_object() else {
         return;
     };
-    if let Some(required) = object_array(schema, "required")
-        && required.iter().all(Value::is_string)
-    {
-        let missing: Vec<String> = required
-            .iter()
-            .filter_map(Value::as_str)
-            .filter(|key| !map.contains_key(*key))
-            .map(str::to_owned)
-            .collect();
-        if !missing.is_empty() {
-            let mut issue = Issue::new(
-                instance_path,
-                format!("must have required properties {}", missing.join(", ")),
-            );
-            issue.required_first = missing.first().cloned();
-            issues.add(issue);
-        }
-    }
+    collect_required(schema, instance_path, map, issues);
     if let Some(additional) = schema.get("additionalProperties").filter(|value| is_schema(value)) {
         collect_additional_properties(root, base, schema, additional, instance_path, map, issues);
     }
-    if let Some(dependencies) = schema.get("dependencies").and_then(Value::as_object)
-        && !map.is_empty()
-        && dependencies.values().all(|dependency| {
-            is_schema(dependency)
-                || dependency
-                    .as_array()
-                    .is_some_and(|names| names.iter().all(Value::is_string))
-        })
-    {
-        collect_dependencies(root, base, dependencies, instance_path, value, issues);
+    collect_dependencies_keyword(root, base, schema, instance_path, value, map, issues);
+    collect_dependent_required_keyword(schema, instance_path, map, issues);
+    collect_dependent_schemas(root, base, schema, instance_path, value, map, issues);
+    collect_pattern_properties(root, base, schema, instance_path, map, issues);
+    collect_properties(root, base, schema, instance_path, map, issues);
+    collect_property_names(root, base, schema, instance_path, map, issues);
+    collect_property_counts(schema, instance_path, map, issues);
+}
+
+fn collect_required(schema: &Map<String, Value>, instance_path: &str, map: &Map<String, Value>, issues: &mut Issues) {
+    let Some(required) = object_array(schema, "required") else {
+        return;
+    };
+    if !required.iter().all(Value::is_string) {
+        return;
     }
-    if let Some(dependencies) = schema.get("dependentRequired").and_then(Value::as_object)
-        && !map.is_empty()
-        && dependencies.values().all(|dependency| {
-            dependency
-                .as_array()
-                .is_some_and(|names| names.iter().all(Value::is_string))
-        })
-    {
-        collect_dependent_required(dependencies, instance_path, map, issues);
+    let missing: Vec<String> = required
+        .iter()
+        .filter_map(Value::as_str)
+        .filter(|key| !map.contains_key(*key))
+        .map(str::to_owned)
+        .collect();
+    if missing.is_empty() {
+        return;
     }
-    if let Some(dependencies) = schema.get("dependentSchemas").and_then(Value::as_object)
-        && !map.is_empty()
-        && dependencies.values().all(is_schema)
-    {
-        for (key, dependent) in dependencies {
-            if map.contains_key(key) {
-                collect_schema(root, base, dependent, instance_path, value, issues);
-            }
+    let mut issue = Issue::new(
+        instance_path,
+        format!("must have required properties {}", missing.join(", ")),
+    );
+    issue.required_first = missing.first().cloned();
+    issues.add(issue);
+}
+
+fn collect_dependencies_keyword(
+    root: &Value,
+    base: &Value,
+    schema: &Map<String, Value>,
+    instance_path: &str,
+    value: &Value,
+    map: &Map<String, Value>,
+    issues: &mut Issues,
+) {
+    let Some(dependencies) = schema.get("dependencies").and_then(Value::as_object) else {
+        return;
+    };
+    if map.is_empty() || !dependencies.values().all(is_dependency) {
+        return;
+    }
+    collect_dependencies(root, base, dependencies, instance_path, value, issues);
+}
+
+fn is_dependency(dependency: &Value) -> bool {
+    is_schema(dependency)
+        || dependency
+            .as_array()
+            .is_some_and(|names| names.iter().all(Value::is_string))
+}
+
+fn collect_dependent_required_keyword(
+    schema: &Map<String, Value>,
+    instance_path: &str,
+    map: &Map<String, Value>,
+    issues: &mut Issues,
+) {
+    let Some(dependencies) = schema.get("dependentRequired").and_then(Value::as_object) else {
+        return;
+    };
+    let all_name_arrays = dependencies.values().all(|dependency| {
+        dependency
+            .as_array()
+            .is_some_and(|names| names.iter().all(Value::is_string))
+    });
+    if map.is_empty() || !all_name_arrays {
+        return;
+    }
+    collect_dependent_required(dependencies, instance_path, map, issues);
+}
+
+fn collect_dependent_schemas(
+    root: &Value,
+    base: &Value,
+    schema: &Map<String, Value>,
+    instance_path: &str,
+    value: &Value,
+    map: &Map<String, Value>,
+    issues: &mut Issues,
+) {
+    let Some(dependencies) = schema.get("dependentSchemas").and_then(Value::as_object) else {
+        return;
+    };
+    if map.is_empty() || !dependencies.values().all(is_schema) {
+        return;
+    }
+    for (key, dependent) in dependencies {
+        if map.contains_key(key) {
+            collect_schema(root, base, dependent, instance_path, value, issues);
         }
     }
-    if let Some(patterns) = schema.get("patternProperties").and_then(Value::as_object)
-        && patterns.values().all(is_schema)
-    {
-        for (pattern, property_schema) in patterns {
-            let regex = Regex::new(pattern).ok();
-            for (key, property) in map {
-                if regex.as_ref().is_some_and(|regex| regex.is_match(key)) {
-                    collect_schema(
-                        root,
-                        base,
-                        property_schema,
-                        &child_path(instance_path, key),
-                        property,
-                        issues,
-                    );
-                }
-            }
-        }
+}
+
+fn collect_pattern_properties(
+    root: &Value,
+    base: &Value,
+    schema: &Map<String, Value>,
+    instance_path: &str,
+    map: &Map<String, Value>,
+    issues: &mut Issues,
+) {
+    let Some(patterns) = schema.get("patternProperties").and_then(Value::as_object) else {
+        return;
+    };
+    if !patterns.values().all(is_schema) {
+        return;
     }
-    if let Some(properties) = schema.get("properties").and_then(Value::as_object)
-        && properties.values().all(is_schema)
-    {
-        for (key, property_schema) in properties {
-            if let Some(property) = map.get(key) {
+    for (pattern, property_schema) in patterns {
+        let regex = Regex::new(pattern).ok();
+        for (key, property) in map {
+            if regex.as_ref().is_some_and(|regex| regex.is_match(key)) {
                 collect_schema(
                     root,
                     base,
@@ -1138,21 +1292,68 @@ fn collect_object_keywords(
             }
         }
     }
-    if let Some(property_names) = schema.get("propertyNames").filter(|value| is_schema(value)) {
-        let mut invalid = Vec::new();
-        for key in map.keys() {
-            let key_value = Value::String(key.clone());
-            if !scratch_issues(root, base, property_names, instance_path, &key_value).is_empty() {
-                invalid.push(key.clone());
-            }
-        }
-        if !invalid.is_empty() {
-            issues.message(
-                instance_path,
-                format!("property names {} are invalid", invalid.join(", ")),
+}
+
+fn collect_properties(
+    root: &Value,
+    base: &Value,
+    schema: &Map<String, Value>,
+    instance_path: &str,
+    map: &Map<String, Value>,
+    issues: &mut Issues,
+) {
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return;
+    };
+    if !properties.values().all(is_schema) {
+        return;
+    }
+    for (key, property_schema) in properties {
+        if let Some(property) = map.get(key) {
+            collect_schema(
+                root,
+                base,
+                property_schema,
+                &child_path(instance_path, key),
+                property,
+                issues,
             );
         }
     }
+}
+
+fn collect_property_names(
+    root: &Value,
+    base: &Value,
+    schema: &Map<String, Value>,
+    instance_path: &str,
+    map: &Map<String, Value>,
+    issues: &mut Issues,
+) {
+    let Some(property_names) = schema.get("propertyNames").filter(|value| is_schema(value)) else {
+        return;
+    };
+    let mut invalid = Vec::new();
+    for key in map.keys() {
+        let key_value = Value::String(key.clone());
+        if !scratch_issues(root, base, property_names, instance_path, &key_value).is_empty() {
+            invalid.push(key.clone());
+        }
+    }
+    if !invalid.is_empty() {
+        issues.message(
+            instance_path,
+            format!("property names {} are invalid", invalid.join(", ")),
+        );
+    }
+}
+
+fn collect_property_counts(
+    schema: &Map<String, Value>,
+    instance_path: &str,
+    map: &Map<String, Value>,
+    issues: &mut Issues,
+) {
     if let Some(minimum) = object_number(schema, "minProperties")
         && (map.len() as f64) < minimum
     {
@@ -1300,74 +1501,147 @@ fn collect_array_keywords(
         return;
     };
     let items = schema.get("items");
-    if let (Some(Value::Array(item_schemas)), Some(additional)) =
-        (items, schema.get("additionalItems").filter(|value| is_schema(value)))
-    {
-        for (index, item) in values.iter().enumerate() {
-            if index < item_schemas.len() {
-                continue;
+    collect_additional_items(root, base, schema, items, instance_path, values, issues);
+    collect_contains(root, base, schema, instance_path, values, issues);
+    collect_items(root, base, schema, items, instance_path, values, issues);
+    collect_contains_counts(root, base, schema, instance_path, values, issues);
+    collect_item_counts(schema, instance_path, values, issues);
+    collect_prefix_items(root, base, schema, instance_path, values, issues);
+    collect_unique_items(schema, instance_path, values, issues);
+}
+
+fn collect_additional_items(
+    root: &Value,
+    base: &Value,
+    schema: &Map<String, Value>,
+    items: Option<&Value>,
+    instance_path: &str,
+    values: &[Value],
+    issues: &mut Issues,
+) {
+    let Some(Value::Array(item_schemas)) = items else {
+        return;
+    };
+    let Some(additional) = schema.get("additionalItems").filter(|value| is_schema(value)) else {
+        return;
+    };
+    for (index, item) in values.iter().enumerate().skip(item_schemas.len()) {
+        collect_schema(
+            root,
+            base,
+            additional,
+            &child_path(instance_path, &index.to_string()),
+            item,
+            issues,
+        );
+    }
+}
+
+fn collect_contains(
+    root: &Value,
+    base: &Value,
+    schema: &Map<String, Value>,
+    instance_path: &str,
+    values: &[Value],
+    issues: &mut Issues,
+) {
+    let Some(contains) = schema.get("contains").filter(|value| is_schema(value)) else {
+        return;
+    };
+    if object_number(schema, "minContains") == Some(0.0) {
+        return;
+    }
+    let matched = values.iter().any(|item| check_with(root, base, contains, item));
+    if values.is_empty() || !matched {
+        issues.message(instance_path, "must contain at least 1 valid item".to_owned());
+    }
+}
+
+fn collect_items(
+    root: &Value,
+    base: &Value,
+    schema: &Map<String, Value>,
+    items: Option<&Value>,
+    instance_path: &str,
+    values: &[Value],
+    issues: &mut Issues,
+) {
+    match items {
+        Some(Value::Array(item_schemas)) => {
+            collect_sized_items(root, base, item_schemas, instance_path, values, issues);
+        }
+        Some(item_schema) if is_schema(item_schema) => {
+            let offset = object_array(schema, "prefixItems")
+                .map(|prefix| prefix.len())
+                .unwrap_or(0);
+            for (index, item) in values.iter().enumerate().skip(offset) {
+                collect_schema(
+                    root,
+                    base,
+                    item_schema,
+                    &child_path(instance_path, &index.to_string()),
+                    item,
+                    issues,
+                );
             }
-            collect_schema(
-                root,
-                base,
-                additional,
-                &child_path(instance_path, &index.to_string()),
-                item,
-                issues,
-            );
         }
+        _ => {}
     }
-    if let Some(contains) = schema.get("contains").filter(|value| is_schema(value))
-        && object_number(schema, "minContains") != Some(0.0)
-    {
-        let matched = values.iter().any(|item| check(contains, item));
-        if values.is_empty() || !matched {
-            issues.message(instance_path, "must contain at least 1 valid item".to_owned());
-        }
+}
+
+fn collect_sized_items(
+    root: &Value,
+    base: &Value,
+    item_schemas: &[Value],
+    instance_path: &str,
+    values: &[Value],
+    issues: &mut Issues,
+) {
+    for (index, item) in values.iter().enumerate() {
+        let Some(item_schema) = item_schemas.get(index) else {
+            break;
+        };
+        collect_schema(
+            root,
+            base,
+            item_schema,
+            &child_path(instance_path, &index.to_string()),
+            item,
+            issues,
+        );
     }
-    if let Some(Value::Array(item_schemas)) = items {
-        for (index, item) in values.iter().enumerate() {
-            let Some(item_schema) = item_schemas.get(index) else {
-                break;
-            };
-            collect_schema(
-                root,
-                base,
-                item_schema,
-                &child_path(instance_path, &index.to_string()),
-                item,
-                issues,
-            );
-        }
-    } else if let Some(item_schema) = items.filter(|value| is_schema(value)) {
-        let offset = object_array(schema, "prefixItems")
-            .map(|prefix| prefix.len())
-            .unwrap_or(0);
-        for (index, item) in values.iter().enumerate().skip(offset) {
-            collect_schema(
-                root,
-                base,
-                item_schema,
-                &child_path(instance_path, &index.to_string()),
-                item,
-                issues,
-            );
-        }
+}
+
+fn collect_contains_counts(
+    root: &Value,
+    base: &Value,
+    schema: &Map<String, Value>,
+    instance_path: &str,
+    values: &[Value],
+    issues: &mut Issues,
+) {
+    let Some(contains) = schema.get("contains").filter(|value| is_schema(value)) else {
+        return;
+    };
+    let maximum = object_number(schema, "maxContains");
+    let minimum = object_number(schema, "minContains");
+    if maximum.is_none() && minimum.is_none() {
+        return;
     }
-    if let Some(contains) = schema.get("contains").filter(|value| is_schema(value)) {
-        if let Some(maximum) = object_number(schema, "maxContains") {
-            let count = values.iter().filter(|item| check(contains, item)).count();
-            if (count as f64) > maximum {
-                issues.message(instance_path, "must contain at least 1 valid item".to_owned());
-            }
-        }
-        if let Some(minimum) = object_number(schema, "minContains") {
-            let count = values.iter().filter(|item| check(contains, item)).count();
-            if (count as f64) < minimum {
-                issues.message(instance_path, "must contain at least 1 valid item".to_owned());
-            }
-        }
+    let count = values
+        .iter()
+        .filter(|item| check_with(root, base, contains, item))
+        .count();
+    if maximum.is_some_and(|maximum| (count as f64) > maximum) {
+        // TypeBox reports both bounds with the `contains` keyword and message.
+        issues.message(instance_path, "must contain at least 1 valid item".to_owned());
     }
+    if minimum.is_some_and(|minimum| (count as f64) < minimum) {
+        issues.message(instance_path, "must contain at least 1 valid item".to_owned());
+    }
+}
+
+fn collect_item_counts(schema: &Map<String, Value>, instance_path: &str, values: &[Value], issues: &mut Issues) {
     if let Some(maximum) = object_number(schema, "maxItems")
         && (values.len() as f64) > maximum
     {
@@ -1384,32 +1658,47 @@ fn collect_array_keywords(
             format!("must not have fewer than {} items", js_number_to_string(minimum)),
         );
     }
-    if let Some(prefix_items) = object_array(schema, "prefixItems")
-        && prefix_items.iter().all(is_schema)
-        && !values.is_empty()
-    {
-        for (index, item_schema) in prefix_items.iter().enumerate() {
-            let Some(item) = values.get(index) else {
-                break;
-            };
-            collect_schema(
-                root,
-                base,
-                item_schema,
-                &child_path(instance_path, &index.to_string()),
-                item,
-                issues,
-            );
-        }
+}
+
+fn collect_prefix_items(
+    root: &Value,
+    base: &Value,
+    schema: &Map<String, Value>,
+    instance_path: &str,
+    values: &[Value],
+    issues: &mut Issues,
+) {
+    let Some(prefix_items) = object_array(schema, "prefixItems") else {
+        return;
+    };
+    if !prefix_items.iter().all(is_schema) || values.is_empty() {
+        return;
     }
-    if schema.get("uniqueItems").and_then(Value::as_bool) == Some(true) {
-        let has_duplicates = values
-            .iter()
-            .enumerate()
-            .any(|(index, item)| values.iter().skip(index + 1).any(|other| deep_equal(item, other)));
-        if has_duplicates {
-            issues.message(instance_path, "must not have duplicate items".to_owned());
-        }
+    for (index, item_schema) in prefix_items.iter().enumerate() {
+        let Some(item) = values.get(index) else {
+            break;
+        };
+        collect_schema(
+            root,
+            base,
+            item_schema,
+            &child_path(instance_path, &index.to_string()),
+            item,
+            issues,
+        );
+    }
+}
+
+fn collect_unique_items(schema: &Map<String, Value>, instance_path: &str, values: &[Value], issues: &mut Issues) {
+    if schema.get("uniqueItems").and_then(Value::as_bool) != Some(true) {
+        return;
+    }
+    let has_duplicates = values
+        .iter()
+        .enumerate()
+        .any(|(index, item)| values.iter().skip(index + 1).any(|other| deep_equal(item, other)));
+    if has_duplicates {
+        issues.message(instance_path, "must not have duplicate items".to_owned());
     }
 }
 
@@ -1799,43 +2088,47 @@ fn write_json(output: &mut String, value: &Value, indent: usize) {
         Value::Bool(boolean) => output.push_str(if *boolean { "true" } else { "false" }),
         Value::Number(number) => output.push_str(&js_number_to_string(number.as_f64().unwrap_or(f64::NAN))),
         Value::String(text) => write_json_string(output, text),
-        Value::Array(items) => {
-            if items.is_empty() {
-                output.push_str("[]");
-                return;
-            }
-            output.push_str("[\n");
-            for (index, item) in items.iter().enumerate() {
-                if index > 0 {
-                    output.push_str(",\n");
-                }
-                push_indent(output, indent + 1);
-                write_json(output, item, indent + 1);
-            }
-            output.push('\n');
-            push_indent(output, indent);
-            output.push(']');
-        }
-        Value::Object(map) => {
-            if map.is_empty() {
-                output.push_str("{}");
-                return;
-            }
-            output.push_str("{\n");
-            for (index, (key, item)) in map.iter().enumerate() {
-                if index > 0 {
-                    output.push_str(",\n");
-                }
-                push_indent(output, indent + 1);
-                write_json_string(output, key);
-                output.push_str(": ");
-                write_json(output, item, indent + 1);
-            }
-            output.push('\n');
-            push_indent(output, indent);
-            output.push('}');
-        }
+        Value::Array(items) => write_json_array(output, items, indent),
+        Value::Object(map) => write_json_object(output, map, indent),
     }
+}
+
+fn write_json_array(output: &mut String, items: &[Value], indent: usize) {
+    if items.is_empty() {
+        output.push_str("[]");
+        return;
+    }
+    output.push_str("[\n");
+    for (index, item) in items.iter().enumerate() {
+        if index > 0 {
+            output.push_str(",\n");
+        }
+        push_indent(output, indent + 1);
+        write_json(output, item, indent + 1);
+    }
+    output.push('\n');
+    push_indent(output, indent);
+    output.push(']');
+}
+
+fn write_json_object(output: &mut String, map: &Map<String, Value>, indent: usize) {
+    if map.is_empty() {
+        output.push_str("{}");
+        return;
+    }
+    output.push_str("{\n");
+    for (index, (key, item)) in map.iter().enumerate() {
+        if index > 0 {
+            output.push_str(",\n");
+        }
+        push_indent(output, indent + 1);
+        write_json_string(output, key);
+        output.push_str(": ");
+        write_json(output, item, indent + 1);
+    }
+    output.push('\n');
+    push_indent(output, indent);
+    output.push('}');
 }
 
 fn push_indent(output: &mut String, indent: usize) {

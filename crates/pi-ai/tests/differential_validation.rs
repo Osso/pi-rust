@@ -723,6 +723,75 @@ fn cases() -> Vec<Value> {
             json!({ "value": "👨‍👩‍👧‍👦" }),
         ),
         case(
+            "plain-contains-ref",
+            plain(json!({
+                "type": "object",
+                "properties": {
+                    "value": { "type": "array", "contains": { "$ref": "#/$defs/num" } }
+                },
+                "$defs": { "num": { "type": "number" } },
+                "required": ["value"]
+            })),
+            json!({ "value": ["x", "y"] }),
+        ),
+        case(
+            "plain-not-ref",
+            plain(json!({
+                "type": "object",
+                "properties": {
+                    "value": { "not": { "$ref": "#/$defs/num" } }
+                },
+                "$defs": { "num": { "type": "number" } },
+                "required": ["value"]
+            })),
+            json!({ "value": 5 }),
+        ),
+        case(
+            "plain-any-of-ref",
+            plain(json!({
+                "type": "object",
+                "properties": {
+                    "value": {
+                        "anyOf": [
+                            { "$ref": "#/$defs/num" },
+                            { "$ref": "#/$defs/text" }
+                        ]
+                    }
+                },
+                "$defs": {
+                    "num": { "type": "number" },
+                    "text": { "type": "string" }
+                },
+                "required": ["value"]
+            })),
+            json!({ "value": true }),
+        ),
+        case(
+            "plain-additional-properties-ref",
+            plain(json!({
+                "type": "object",
+                "properties": { "known": { "type": "string" } },
+                "additionalProperties": { "$ref": "#/$defs/num" },
+                "$defs": { "num": { "type": "number" } },
+                "required": ["known"]
+            })),
+            json!({ "known": "x", "extra": "nope" }),
+        ),
+        case(
+            "plain-dependencies-schema",
+            plain(json!({
+                "type": "object",
+                "properties": {
+                    "value": {
+                        "type": "object",
+                        "dependencies": { "a": { "required": ["b"], "properties": { "b": { "type": "number" } } } }
+                    }
+                },
+                "required": ["value"]
+            })),
+            json!({ "value": { "a": 1 } }),
+        ),
+        case(
             "plain-unknown-format-passes",
             plain(json!({
                 "type": "object",
