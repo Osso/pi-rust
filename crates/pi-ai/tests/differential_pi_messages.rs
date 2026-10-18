@@ -15,6 +15,8 @@ use pi_ai::types::{Context, Model, ProviderEnv, ProviderHeaders, ThinkingLevel};
 use recording_fetch::{RecordingFetch, ScriptedResponse};
 use serde_json::{Value, json};
 
+/// Rebuilds a value with the normalizations that only substitute
+/// environment-derived values. Key order is left untouched.
 fn canonical(value: Value) -> Value {
     match value {
         Value::Array(items) => Value::Array(items.into_iter().map(canonical).collect()),
@@ -23,14 +25,10 @@ fn canonical(value: Value) -> Value {
                 .get("type")
                 .and_then(Value::as_str)
                 .is_some_and(|kind| matches!(kind, "text_end" | "thinking_end") && object.contains_key("partial"));
-            let mut entries: Vec<(String, Value)> = object
-                .into_iter()
-                .filter(|(key, _)| !(is_end_event && matches!(key.as_str(), "contentSignature" | "redacted")))
-                .collect();
-            entries.sort_by(|left, right| left.0.cmp(&right.0));
             Value::Object(
-                entries
+                object
                     .into_iter()
+                    .filter(|(key, _)| !(is_end_event && matches!(key.as_str(), "contentSignature" | "redacted")))
                     .map(|(key, value)| {
                         let value = canonical(value);
                         let value = if key == "errorMessage" {
@@ -232,12 +230,20 @@ async fn observe(scenario: &Value) -> Value {
     }
 
     let request = fetch.requests().first().cloned().map(|request| {
-        json!({
-            "url": request.url,
-            "method": request.method,
-            "headers": request.headers.iter().cloned().collect::<BTreeMap<_, _>>(),
-            "body": serde_json::from_slice::<Value>(&request.body.unwrap_or_default()).unwrap_or(Value::Null),
-        })
+        let mut captured = serde_json::Map::new();
+        captured.insert("url".to_owned(), json!(request.url));
+        captured.insert("method".to_owned(), json!(request.method));
+        captured.insert(
+            "headers".to_owned(),
+            json!(request.headers.iter().cloned().collect::<BTreeMap<_, _>>()),
+        );
+        if let Some(body) = request.body {
+            captured.insert(
+                "body".to_owned(),
+                json!(String::from_utf8(body).expect("request body UTF-8")),
+            );
+        }
+        Value::Object(captured)
     });
 
     canonical(json!({

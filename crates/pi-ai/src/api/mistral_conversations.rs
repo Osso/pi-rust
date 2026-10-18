@@ -635,7 +635,9 @@ fn to_mistral_wire_content_chunk(chunk: &Value) -> Result<Value, MistralError> {
 }
 
 fn remap_mistral_property(record: &mut Map<String, Value>, source: &str, target: &str) {
-    let Some(value) = record.remove(source) else {
+    // TypeScript `delete` preserves the remaining insertion order; serde_json's
+    // `remove` is `swap_remove` and would move the last entry into the hole.
+    let Some(value) = record.shift_remove(source) else {
         return;
     };
     record.insert(target.to_owned(), value);
@@ -687,15 +689,12 @@ fn build_chat_payload(
 
     if let Some(system_prompt) = &context.system_prompt
         && !system_prompt.is_empty()
+        && let Some(Value::Array(entries)) = payload.get_mut("messages")
     {
-        let mut messages = payload.remove("messages").unwrap_or(Value::Array(Vec::new()));
-        if let Value::Array(entries) = &mut messages {
-            entries.insert(
-                0,
-                json!({"role": "system", "content": sanitize_surrogates(system_prompt)}),
-            );
-        }
-        payload.insert("messages".to_owned(), messages);
+        entries.insert(
+            0,
+            json!({"role": "system", "content": sanitize_surrogates(system_prompt)}),
+        );
     }
 
     Ok(Value::Object(payload))

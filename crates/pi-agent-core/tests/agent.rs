@@ -751,6 +751,65 @@ async fn keeps_legacy_prepare_next_turn_signal_callback_behavior() {
 }
 
 #[tokio::test]
+async fn pending_tool_calls_preserve_insertion_order() {
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    let blocking_tool = |name: &str| {
+        let barrier = Arc::clone(&barrier);
+        TestTool {
+            name: name.to_owned(),
+            label: name.to_owned(),
+            description: format!("{name} tool"),
+            parameters: json!({"type": "object", "properties": {}}),
+            execution_mode: None,
+            prepare_arguments: None,
+            prepare_execution: None,
+            execute: Arc::new(move |_id, _params, _signal, _on_update| {
+                let barrier = Arc::clone(&barrier);
+                Box::pin(async move {
+                    barrier.wait().await;
+                    Ok(text_result("ok"))
+                })
+            }),
+        }
+    };
+    let agent = Agent::new(AgentOptions {
+        initial_state: Some(pi_agent_core::agent::AgentInitialState {
+            tools: Some(vec![Arc::new(blocking_tool("noop"))]),
+            ..Default::default()
+        }),
+        stream_fn: Some(scripted_stream_fn(vec![
+            Script::message(tool_use(vec![
+                AssistantContent::ToolCall(tool_call("call-b", "noop", json!({}))),
+                AssistantContent::ToolCall(tool_call("call-a", "noop", json!({}))),
+            ])),
+            Script::message(text_assistant("done")),
+        ])),
+        ..Default::default()
+    })
+    .unwrap();
+    let observed = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
+    let observed_hook = Arc::clone(&observed);
+    let agent_hook = agent.clone();
+    agent.subscribe(Arc::new(move |event, _signal| {
+        if matches!(event, AgentEvent::ToolExecutionStart { .. }) {
+            observed_hook
+                .lock()
+                .unwrap()
+                .push(agent_hook.pending_tool_calls().iter().cloned().collect());
+        }
+        Box::pin(async { Ok(()) })
+    }));
+    agent.prompt("start").await.unwrap();
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![
+            vec!["call-b".to_owned()],
+            vec!["call-b".to_owned(), "call-a".to_owned()]
+        ]
+    );
+}
+
+#[tokio::test]
 async fn forwards_should_stop_after_turn_through_agent_options() {
     let tool = TestTool::no_args("noop", || text_result("tool complete"));
     let request_count = Arc::new(AtomicUsize::new(0));

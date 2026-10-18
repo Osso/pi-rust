@@ -21,9 +21,9 @@ rustix = { version = "=1.1.5", features = ["process"] }
 icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 tokio-util = { version = "=0.7.20", features = ["rt"] }
 ignore = "=0.4.23"
-serde_yaml_ng = "=0.10.0"
 # Preserves TypeScript object key order for harness headers and metadata patches.
 indexmap = { version = "=2.14.2", features = ["serde"] }
+serde_yaml_ng = "=0.10.0"
 
 [dev-dependencies]
 serde_json = { version = "=1.0.151", features = ["preserve_order"] }
