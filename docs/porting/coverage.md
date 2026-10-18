@@ -206,7 +206,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/bun-oauth.ts` | 21 | 5 | done | `crates/pi-ai/src/bun_oauth.rs` | Registers all ported flows, including GitHub Copilot. |
 | `ai/src/providers/all.ts` | 159 | 5 | partial | `crates/pi-ai/src/providers/all.rs` | All factories except the two `openai-codex` providers (api-codex slice); catalog/order/generatedAt/images differential. |
 | `ai/src/cli.ts` | 119 | 6 | todo |  |  |
-| `ai/src/compat.ts` | 299 | 6 | todo |  |  |
+| `ai/src/compat.ts` | 299 | 6 | done | `crates/pi-ai/src/compat/mod.rs` | Api registry, builtin registration/override identity, env-key injection, faux registration, legacy dispatch; 9 behavioral + 4 differential requests ([traceability](traceability/compat.md)). |
 | `ai/src/base.ts` | 6 | 7 | todo |  |  |
 
 ## agent (47 files, 12044 lines)
