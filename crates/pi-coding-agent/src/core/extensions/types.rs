@@ -15,11 +15,11 @@ use pi_agent_core::harness::types::ThinkingLevel;
 use pi_agent_core::harness::types::ToolExecutionMode;
 use pi_ai::models::Provider;
 use pi_ai::types::{
-    AssistantMessageEvent, ConstrainedSampling, ImageContent, Model, ProviderHeaders, ProviderNativeContext,
-    TextOrImageContent, ToolCallExecution, Usage,
+    AssistantMessageEvent, ConstrainedSampling, ImageContent, Model, ProviderHeaders, TextOrImageContent,
+    ToolCallExecution, Usage,
 };
 use pi_tui::keybindings::KeyId;
-use pi_tui::tui::Component;
+use pi_tui::tui::ComponentRef;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -90,79 +90,121 @@ impl From<&str> for HandlerError {
 }
 
 /// Typed handler for one event/result pair.
+///
+/// Events and contexts are passed by value (both are cheap `Clone` snapshots);
+/// handlers return result patches instead of mutating shared state.
 pub trait Handler<E, R>: Send + Sync {
-    fn call<'a>(
-        &'a self,
-        event: &'a mut E,
-        ctx: &'a ExtensionContext,
-    ) -> BoxFuture<'a, Result<Option<R>, HandlerError>>;
+    fn call(&self, event: E, ctx: ExtensionContext) -> BoxFuture<'static, Result<Option<R>, HandlerError>>;
 }
 
 impl<E, R, F> Handler<E, R> for F
 where
     E: Send + 'static,
     R: Send + 'static,
-    F: for<'a> Fn(&'a mut E, &'a ExtensionContext) -> BoxFuture<'a, Result<Option<R>, HandlerError>> + Send + Sync,
+    F: Fn(E, ExtensionContext) -> BoxFuture<'static, Result<Option<R>, HandlerError>> + Send + Sync,
 {
-    fn call<'a>(
-        &'a self,
-        event: &'a mut E,
-        ctx: &'a ExtensionContext,
-    ) -> BoxFuture<'a, Result<Option<R>, HandlerError>> {
+    fn call(&self, event: E, ctx: ExtensionContext) -> BoxFuture<'static, Result<Option<R>, HandlerError>> {
         self(event, ctx)
+    }
+}
+
+impl<E, R, T: Handler<E, R> + ?Sized> Handler<E, R> for Arc<T> {
+    fn call(&self, event: E, ctx: ExtensionContext) -> BoxFuture<'static, Result<Option<R>, HandlerError>> {
+        (**self).call(event, ctx)
     }
 }
 
 pub type HandlerHandle<E, R> = Arc<dyn Handler<E, R> + Send + Sync>;
 
+pub type CompactCompleteCallback = Arc<dyn Fn(&CompactionResult) + Send + Sync>;
+pub type StrCallback = Arc<dyn Fn(&str) + Send + Sync>;
+pub type SessionSetupCallback =
+    Arc<dyn Fn(&mut SessionManager) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
+pub type WithSessionCallback =
+    Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
+pub type RelocateCallback = Arc<dyn Fn(&str) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
+pub type RelocateAfterToolResultCallback = Arc<dyn Fn(&str, &str) -> Result<(), HandlerError> + Send + Sync>;
+pub type NewSessionCallback = Arc<
+    dyn Fn(Option<NewSessionOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
+        + Send
+        + Sync,
+>;
+pub type ForkCallback = Arc<
+    dyn Fn(String, Option<ForkOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
+        + Send
+        + Sync,
+>;
+pub type NavigateTreeCallback = Arc<
+    dyn Fn(String, Option<NavigateTreeOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
+        + Send
+        + Sync,
+>;
+pub type SwitchSessionCallback = Arc<
+    dyn Fn(String, Option<SwitchSessionOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
+        + Send
+        + Sync,
+>;
+pub type ReplacedSendMessageCallback = Arc<
+    dyn Fn(CustomMessagePayload, Option<SendMessageOptions>) -> BoxFuture<'static, Result<(), HandlerError>>
+        + Send
+        + Sync,
+>;
+pub type ReplacedSendUserMessageCallback = Arc<
+    dyn Fn(UserMessageContent, Option<SendUserMessageOptions>) -> BoxFuture<'static, Result<(), HandlerError>>
+        + Send
+        + Sync,
+>;
+pub type ContextShortcutHandler =
+    Arc<dyn Fn(ExtensionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
+pub type RegisterProviderCallback = Arc<dyn Fn(&str, &ProviderConfig) -> Result<(), String> + Send + Sync>;
+pub type UnregisterProviderCallback = Arc<dyn Fn(&str) + Send + Sync>;
+pub type NativeProviderCallback = Arc<dyn Fn(NativeProvider) + Send + Sync>;
+pub type RegisterProviderHandler = Arc<dyn Fn(&str, &ProviderConfig, Option<&str>) -> Result<(), String> + Send + Sync>;
+pub type RegisterNativeProviderCallback = Arc<dyn Fn(NativeProvider, Option<&str>) -> Result<(), String> + Send + Sync>;
+pub type UnregisterProviderRuntimeCallback = Arc<dyn Fn(&str, Option<&str>) -> Result<(), String> + Send + Sync>;
+
 pub trait ApprovalReviewer: Send + Sync {
-    fn call<'a>(
-        &'a self,
-        event: &'a mut ToolCallEvent,
-        ctx: &'a ExtensionContext,
-    ) -> BoxFuture<'a, Result<Option<ApprovalReviewerResult>, HandlerError>>;
+    fn call(
+        &self,
+        event: ToolCallEvent,
+        ctx: ExtensionContext,
+    ) -> BoxFuture<'static, Result<Option<ApprovalReviewerResult>, HandlerError>>;
 }
 
 impl<F> ApprovalReviewer for F
 where
-    F: for<'a> Fn(
-            &'a mut ToolCallEvent,
-            &'a ExtensionContext,
-        ) -> BoxFuture<'a, Result<Option<ApprovalReviewerResult>, HandlerError>>
+    F: Fn(ToolCallEvent, ExtensionContext) -> BoxFuture<'static, Result<Option<ApprovalReviewerResult>, HandlerError>>
         + Send
         + Sync,
 {
-    fn call<'a>(
-        &'a self,
-        event: &'a mut ToolCallEvent,
-        ctx: &'a ExtensionContext,
-    ) -> BoxFuture<'a, Result<Option<ApprovalReviewerResult>, HandlerError>> {
+    fn call(
+        &self,
+        event: ToolCallEvent,
+        ctx: ExtensionContext,
+    ) -> BoxFuture<'static, Result<Option<ApprovalReviewerResult>, HandlerError>> {
         self(event, ctx)
     }
 }
 
 pub trait ToolGate: Send + Sync {
-    fn call<'a>(
-        &'a self,
-        event: &'a mut ToolCallEvent,
-        ctx: &'a ExtensionContext,
-    ) -> BoxFuture<'a, Result<Option<ToolCallEventResult>, HandlerError>>;
+    fn call(
+        &self,
+        event: ToolCallEvent,
+        ctx: ExtensionContext,
+    ) -> BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>>;
 }
 
 impl<F> ToolGate for F
 where
-    F: for<'a> Fn(
-            &'a mut ToolCallEvent,
-            &'a ExtensionContext,
-        ) -> BoxFuture<'a, Result<Option<ToolCallEventResult>, HandlerError>>
+    F: Fn(ToolCallEvent, ExtensionContext) -> BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>>
         + Send
         + Sync,
 {
-    fn call<'a>(
-        &'a self,
-        event: &'a mut ToolCallEvent,
-        ctx: &'a ExtensionContext,
-    ) -> BoxFuture<'a, Result<Option<ToolCallEventResult>, HandlerError>> {
+    fn call(
+        &self,
+        event: ToolCallEvent,
+        ctx: ExtensionContext,
+    ) -> BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>> {
         self(event, ctx)
     }
 }
@@ -210,7 +252,10 @@ pub type TerminalInputHandler = Arc<dyn Fn(&str) -> Option<TerminalInputResult> 
 pub struct WorkingIndicatorOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frames: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "pi_js_compat::number::serialize_option"
+    )]
     pub interval_ms: Option<f64>,
 }
 
@@ -358,27 +403,20 @@ impl ExtensionUiContext for NoOpUiContext {}
 #[serde(rename_all = "camelCase")]
 pub struct ContextUsage {
     /// Estimated context tokens, or `None` when unknown.
+    #[serde(serialize_with = "pi_js_compat::number::serialize_option")]
     pub tokens: Option<f64>,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub context_window: f64,
     /// Context usage as percentage of the context window, or `None`.
+    #[serde(serialize_with = "pi_js_compat::number::serialize_option")]
     pub percent: Option<f64>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct CompactOptions {
     pub custom_instructions: Option<String>,
-    pub on_complete: Option<Arc<dyn Fn(&CompactionResult) + Send + Sync>>,
-    pub on_error: Option<Arc<dyn Fn(&str) + Send + Sync>>,
-}
-
-impl Default for CompactOptions {
-    fn default() -> Self {
-        Self {
-            custom_instructions: None,
-            on_complete: None,
-            on_error: None,
-        }
-    }
+    pub on_complete: Option<CompactCompleteCallback>,
+    pub on_error: Option<StrCallback>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -411,16 +449,14 @@ pub struct RestartOptions {
 #[derive(Clone, Default)]
 pub struct NewSessionOptions {
     pub parent_session: Option<String>,
-    pub setup: Option<Arc<dyn Fn(&mut SessionManager) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>>,
-    pub with_session:
-        Option<Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>>,
+    pub setup: Option<SessionSetupCallback>,
+    pub with_session: Option<WithSessionCallback>,
 }
 
 #[derive(Clone, Default)]
 pub struct ForkOptions {
     pub position: Option<ForkPosition>,
-    pub with_session:
-        Option<Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>>,
+    pub with_session: Option<WithSessionCallback>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -440,8 +476,7 @@ pub struct NavigateTreeOptions {
 
 #[derive(Clone, Default)]
 pub struct SwitchSessionOptions {
-    pub with_session:
-        Option<Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>>,
+    pub with_session: Option<WithSessionCallback>,
 }
 
 /// Read-only footer data available to extension contexts.
@@ -472,8 +507,8 @@ pub struct ExtensionContextCallbacks {
     pub compact: Arc<dyn Fn(Option<CompactOptions>) + Send + Sync>,
     pub get_system_prompt: Arc<dyn Fn() -> String + Send + Sync>,
     pub get_system_prompt_options: Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>,
-    pub relocate: Arc<dyn Fn(&str) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>,
-    pub relocate_after_tool_result: Arc<dyn Fn(&str, &str) -> Result<(), HandlerError> + Send + Sync>,
+    pub relocate: RelocateCallback,
+    pub relocate_after_tool_result: RelocateAfterToolResultCallback,
 }
 
 impl Default for ExtensionContextCallbacks {
@@ -688,29 +723,10 @@ pub struct ExtensionCommandContext {
     pub show_approval_selector: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub show_sandbox_selector: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub wait_for_idle: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
-    pub new_session: Arc<
-        dyn Fn(Option<NewSessionOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
-            + Send
-            + Sync,
-    >,
-    pub fork: Arc<
-        dyn Fn(String, Option<ForkOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
-            + Send
-            + Sync,
-    >,
-    pub navigate_tree: Arc<
-        dyn Fn(String, Option<NavigateTreeOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
-            + Send
-            + Sync,
-    >,
-    pub switch_session: Arc<
-        dyn Fn(
-                String,
-                Option<SwitchSessionOptions>,
-            ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
-            + Send
-            + Sync,
-    >,
+    pub new_session: NewSessionCallback,
+    pub fork: ForkCallback,
+    pub navigate_tree: NavigateTreeCallback,
+    pub switch_session: SwitchSessionCallback,
     pub reload: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     pub restart: Arc<dyn Fn(Option<RestartOptions>) -> BoxFuture<'static, ()> + Send + Sync>,
     pub get_system_prompt_options: Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>,
@@ -724,20 +740,69 @@ impl std::ops::Deref for ExtensionCommandContext {
     }
 }
 
+impl ExtensionCommandContext {
+    pub fn show_approval_selector(&self) -> Result<(), HandlerError> {
+        (self.show_approval_selector)()
+    }
+
+    pub fn show_sandbox_selector(&self) -> Result<(), HandlerError> {
+        (self.show_sandbox_selector)()
+    }
+
+    pub fn wait_for_idle(&self) -> BoxFuture<'static, ()> {
+        (self.wait_for_idle)()
+    }
+
+    pub fn new_session(
+        &self,
+        options: Option<NewSessionOptions>,
+    ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>> {
+        (self.new_session)(options)
+    }
+
+    pub fn fork(
+        &self,
+        entry_id: String,
+        options: Option<ForkOptions>,
+    ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>> {
+        (self.fork)(entry_id, options)
+    }
+
+    pub fn navigate_tree(
+        &self,
+        target_id: String,
+        options: Option<NavigateTreeOptions>,
+    ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>> {
+        (self.navigate_tree)(target_id, options)
+    }
+
+    pub fn switch_session(
+        &self,
+        session_path: String,
+        options: Option<SwitchSessionOptions>,
+    ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>> {
+        (self.switch_session)(session_path, options)
+    }
+
+    pub fn reload(&self) -> BoxFuture<'static, ()> {
+        (self.reload)()
+    }
+
+    pub fn restart(&self, options: Option<RestartOptions>) -> BoxFuture<'static, ()> {
+        (self.restart)(options)
+    }
+
+    pub fn get_system_prompt_options(&self) -> BuildSystemPromptOptions {
+        (self.get_system_prompt_options)()
+    }
+}
+
 /// Fresh command-capable context bound to the replacement session.
 #[derive(Clone)]
 pub struct ReplacedSessionContext {
     pub command: ExtensionCommandContext,
-    pub send_message: Arc<
-        dyn Fn(CustomMessagePayload, Option<SendMessageOptions>) -> BoxFuture<'static, Result<(), HandlerError>>
-            + Send
-            + Sync,
-    >,
-    pub send_user_message: Arc<
-        dyn Fn(UserMessageContent, Option<SendUserMessageOptions>) -> BoxFuture<'static, Result<(), HandlerError>>
-            + Send
-            + Sync,
-    >,
+    pub send_message: ReplacedSendMessageCallback,
+    pub send_user_message: ReplacedSendUserMessageCallback,
 }
 
 impl std::ops::Deref for ReplacedSessionContext {
@@ -764,7 +829,7 @@ pub struct ToolRenderContext {
     pub args: Value,
     pub tool_call_id: String,
     pub invalidate: Arc<dyn Fn() + Send + Sync>,
-    pub last_component: Option<Arc<dyn Component + Send + Sync>>,
+    pub last_component: Option<ComponentRef>,
     pub state: Value,
     pub cwd: String,
     pub execution_started: bool,
@@ -778,37 +843,31 @@ pub struct ToolRenderContext {
 pub type PrepareArguments = Arc<dyn Fn(&Value) -> Result<Value, HandlerError> + Send + Sync>;
 
 pub type PrepareExecution = Arc<
-    dyn for<'a> Fn(
-            &'a str,
+    dyn Fn(
+            String,
             Option<CancellationToken>,
-            &'a ExtensionContext,
-        ) -> BoxFuture<'a, Result<Option<ToolCallExecution>, HandlerError>>
+            ExtensionContext,
+        ) -> BoxFuture<'static, Result<Option<ToolCallExecution>, HandlerError>>
         + Send
         + Sync,
 >;
 
 pub type ToolExecute = Arc<
-    dyn for<'a> Fn(
-            &'a str,
+    dyn Fn(
+            String,
             Value,
             Option<CancellationToken>,
             Option<AgentToolUpdateCallback>,
-            &'a ExtensionContext,
-        ) -> BoxFuture<'a, Result<AgentToolResult, HandlerError>>
+            ExtensionContext,
+        ) -> BoxFuture<'static, Result<AgentToolResult, HandlerError>>
         + Send
         + Sync,
 >;
 
-pub type ToolRenderer =
-    Arc<dyn Fn(&Value, &dyn ExtensionTheme, &ToolRenderContext) -> Arc<dyn Component + Send + Sync> + Send + Sync>;
+pub type ToolRenderer = Arc<dyn Fn(&Value, &dyn ExtensionTheme, &ToolRenderContext) -> ComponentRef + Send + Sync>;
 
 pub type ToolResultRenderer = Arc<
-    dyn Fn(
-            &AgentToolResult,
-            &ToolRenderResultOptions,
-            &dyn ExtensionTheme,
-            &ToolRenderContext,
-        ) -> Arc<dyn Component + Send + Sync>
+    dyn Fn(&AgentToolResult, &ToolRenderResultOptions, &dyn ExtensionTheme, &ToolRenderContext) -> ComponentRef
         + Send
         + Sync,
 >;
@@ -889,27 +948,24 @@ pub struct ProjectTrustContext {
 }
 
 pub trait ProjectTrustHandler: Send + Sync {
-    fn call<'a>(
-        &'a self,
-        event: &'a ProjectTrustEvent,
-        ctx: &'a ProjectTrustContext,
-    ) -> BoxFuture<'a, Result<ProjectTrustEventResult, HandlerError>>;
+    fn call(
+        &self,
+        event: ProjectTrustEvent,
+        ctx: ProjectTrustContext,
+    ) -> BoxFuture<'static, Result<ProjectTrustEventResult, HandlerError>>;
 }
 
 impl<F> ProjectTrustHandler for F
 where
-    F: for<'a> Fn(
-            &'a ProjectTrustEvent,
-            &'a ProjectTrustContext,
-        ) -> BoxFuture<'a, Result<ProjectTrustEventResult, HandlerError>>
+    F: Fn(ProjectTrustEvent, ProjectTrustContext) -> BoxFuture<'static, Result<ProjectTrustEventResult, HandlerError>>
         + Send
         + Sync,
 {
-    fn call<'a>(
-        &'a self,
-        event: &'a ProjectTrustEvent,
-        ctx: &'a ProjectTrustContext,
-    ) -> BoxFuture<'a, Result<ProjectTrustEventResult, HandlerError>> {
+    fn call(
+        &self,
+        event: ProjectTrustEvent,
+        ctx: ProjectTrustContext,
+    ) -> BoxFuture<'static, Result<ProjectTrustEventResult, HandlerError>> {
         self(event, ctx)
     }
 }
@@ -1001,65 +1057,9 @@ pub enum CompactionReason {
     Overflow,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CompactionSourceType {
-    Local,
-    #[serde(rename = "openai_remote")]
-    OpenAiRemote,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CompactionSourceInfo {
-    pub r#type: CompactionSourceType,
-    pub provider: String,
-    pub model: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub endpoint: Option<String>,
-}
-
-/// Compaction preparation exposed to extensions.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CompactionPreparation {
-    pub first_kept_entry_id: String,
-    pub messages_to_summarize: Vec<AgentMessage>,
-    pub turn_prefix_messages: Vec<AgentMessage>,
-    pub is_split_turn: bool,
-    pub tokens_before: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_summary: Option<String>,
-    pub file_ops: pi_agent_core::FileOperations,
-    pub settings: pi_agent_core::CompactionSettings,
-}
-
-/// Result of `compact()`; the session manager adds ids when saving.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CompactionResult {
-    pub summary: String,
-    pub first_kept_entry_id: String,
-    pub tokens_before: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub duration_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub estimated_tokens_after: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub kept_from_previous_context_tokens: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub compacted_result_tokens: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub compacted_result_bytes: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<CompactionSourceInfo>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Usage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider_native: Option<ProviderNativeContext>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
-}
+pub use crate::core::compaction::{
+    CompactionPreparation, CompactionResult, CompactionSourceInfo, CompactionSourceType,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1225,13 +1225,16 @@ pub struct AgentSettledEvent {}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnStartEvent {
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub turn_index: f64,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub timestamp: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnEndEvent {
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub turn_index: f64,
     pub message: AgentMessage,
     pub tool_results: Vec<pi_ai::types::ToolResultMessage>,
@@ -1520,12 +1523,12 @@ pub enum ExtensionEvent {
     TurnStart(TurnStartEvent),
     TurnEnd(TurnEndEvent),
     MessageStart(MessageStartEvent),
-    MessageUpdate(MessageUpdateEvent),
+    MessageUpdate(Box<MessageUpdateEvent>),
     MessageEnd(MessageEndEvent),
     ToolExecutionStart(ToolExecutionStartEvent),
     ToolExecutionUpdate(ToolExecutionUpdateEvent),
     ToolExecutionEnd(ToolExecutionEndEvent),
-    ModelSelect(ModelSelectEvent),
+    ModelSelect(Box<ModelSelectEvent>),
     ThinkingLevelSelect(ThinkingLevelSelectEvent),
     UserBash(UserBashEvent),
     Input(InputEvent),
@@ -1598,6 +1601,9 @@ pub struct ContextEventResult {
 pub struct ToolCallEventResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block: Option<bool>,
+    /// Rust-native input patch; the source mutates `event.input` in place.
+    #[serde(skip)]
+    pub input: Option<serde_json::Map<String, Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1802,6 +1808,7 @@ pub enum InputEventResult {
 #[serde(rename_all = "camelCase")]
 pub struct MessageRenderOptions {
     pub expanded: bool,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub output_pad: f64,
 }
 
@@ -1810,6 +1817,7 @@ pub struct MessageRenderOptions {
 pub struct MarkdownTransformContext {
     pub message_type: MarkdownMessageType,
     pub is_streaming: bool,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub available_width: f64,
 }
 
@@ -1828,17 +1836,11 @@ pub struct EntryRenderOptions {
 
 pub type MarkdownTransformer = Arc<dyn Fn(&str, &MarkdownTransformContext) -> String + Send + Sync>;
 
-pub type MessageRenderer = Arc<
-    dyn Fn(&CustomMessageValue, &MessageRenderOptions, &dyn ExtensionTheme) -> Option<Arc<dyn Component + Send + Sync>>
-        + Send
-        + Sync,
->;
+pub type MessageRenderer =
+    Arc<dyn Fn(&CustomMessageValue, &MessageRenderOptions, &dyn ExtensionTheme) -> Option<ComponentRef> + Send + Sync>;
 
-pub type EntryRenderer = Arc<
-    dyn Fn(&CustomEntry, &EntryRenderOptions, &dyn ExtensionTheme) -> Option<Arc<dyn Component + Send + Sync>>
-        + Send
-        + Sync,
->;
+pub type EntryRenderer =
+    Arc<dyn Fn(&CustomEntry, &EntryRenderOptions, &dyn ExtensionTheme) -> Option<ComponentRef> + Send + Sync>;
 
 /// Custom message shape passed to renderers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1857,7 +1859,7 @@ pub struct CustomMessageValue {
 // ============================================================================
 
 pub type CommandHandler =
-    Arc<dyn for<'a> Fn(&'a str, &'a ExtensionCommandContext) -> BoxFuture<'a, Result<(), HandlerError>> + Send + Sync>;
+    Arc<dyn Fn(String, ExtensionCommandContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 
 pub type ArgumentCompletions = Arc<dyn Fn(&str) -> Option<Vec<Value>> + Send + Sync>;
 
@@ -1942,7 +1944,7 @@ pub enum FlagType {
 pub struct ExtensionShortcut {
     pub shortcut: KeyId,
     pub description: Option<String>,
-    pub handler: Arc<dyn for<'a> Fn(&'a ExtensionContext) -> BoxFuture<'a, Result<(), HandlerError>> + Send + Sync>,
+    pub handler: ContextShortcutHandler,
     pub extension_path: String,
 }
 
@@ -1970,7 +1972,7 @@ pub struct ExtensionHandlers {
     pub session_tree: Vec<HandlerHandle<SessionTreeEvent, ()>>,
     pub context: Vec<HandlerHandle<ContextEvent, ContextEventResult>>,
     pub before_provider_request: Vec<HandlerHandle<BeforeProviderRequestEvent, Value>>,
-    pub before_provider_headers: Vec<HandlerHandle<BeforeProviderHeadersEvent, ()>>,
+    pub before_provider_headers: Vec<HandlerHandle<BeforeProviderHeadersEvent, ProviderHeaders>>,
     pub after_provider_response: Vec<HandlerHandle<AfterProviderResponseEvent, ()>>,
     pub before_agent_start: Vec<HandlerHandle<BeforeAgentStartEvent, BeforeAgentStartEventResult>>,
     pub agent_start: Vec<HandlerHandle<AgentStartEvent, ()>>,
@@ -2139,29 +2141,10 @@ pub struct ExtensionCommandContextActions {
     pub show_approval_selector: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub show_sandbox_selector: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub wait_for_idle: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
-    pub new_session: Arc<
-        dyn Fn(Option<NewSessionOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
-            + Send
-            + Sync,
-    >,
-    pub fork: Arc<
-        dyn Fn(String, Option<ForkOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
-            + Send
-            + Sync,
-    >,
-    pub navigate_tree: Arc<
-        dyn Fn(String, Option<NavigateTreeOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
-            + Send
-            + Sync,
-    >,
-    pub switch_session: Arc<
-        dyn Fn(
-                String,
-                Option<SwitchSessionOptions>,
-            ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
-            + Send
-            + Sync,
-    >,
+    pub new_session: NewSessionCallback,
+    pub fork: ForkCallback,
+    pub navigate_tree: NavigateTreeCallback,
+    pub switch_session: SwitchSessionCallback,
     pub reload: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     pub restart: Arc<dyn Fn(Option<RestartOptions>) -> BoxFuture<'static, ()> + Send + Sync>,
 }
@@ -2169,14 +2152,14 @@ pub struct ExtensionCommandContextActions {
 /// Shared provider registration hooks.
 #[derive(Clone, Default)]
 pub struct ProviderActions {
-    pub register_provider: Option<Arc<dyn Fn(&str, &ProviderConfig) -> Result<(), String> + Send + Sync>>,
-    pub register_native_provider: Option<Arc<dyn Fn(NativeProvider) + Send + Sync>>,
-    pub unregister_provider: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    pub register_provider: Option<RegisterProviderCallback>,
+    pub register_native_provider: Option<NativeProviderCallback>,
+    pub unregister_provider: Option<StrCallback>,
 }
 
 /// Commands owned by the runtime, addressable like extension prompt commands.
 pub type InternalCommandHandler =
-    Arc<dyn for<'a> Fn(&'a str, &'a ExtensionCommandContext) -> BoxFuture<'a, Result<(), HandlerError>> + Send + Sync>;
+    Arc<dyn Fn(String, ExtensionCommandContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 
 /// Custom provider stream handler registered by `registerProvider`.
 pub type ProviderStreamSimple = crate::core::provider_composer::StreamSimpleFn;
@@ -2240,190 +2223,220 @@ impl ExtensionApi {
     fn push_handler<E, R>(
         &self,
         select: impl Fn(&mut ExtensionHandlers) -> &mut Vec<HandlerHandle<E, R>>,
-        handler: HandlerHandle<E, R>,
+        handler: impl Handler<E, R> + 'static,
     ) -> Result<(), String> {
         self.runtime.assert_active()?;
         let mut extension = self.extension_lock();
-        select(&mut extension.handlers).push(handler);
+        select(&mut extension.handlers).push(Arc::new(handler));
         Ok(())
     }
 
-    pub fn on_project_trust(&self, handler: ProjectTrustHandlerHandle) -> Result<(), String> {
+    pub fn on_project_trust(&self, handler: impl ProjectTrustHandler + 'static) -> Result<(), String> {
         self.runtime.assert_active()?;
-        self.extension_lock().handlers.project_trust.push(handler);
+        self.extension_lock().handlers.project_trust.push(Arc::new(handler));
         Ok(())
     }
 
     pub fn on_resources_discover(
         &self,
-        handler: HandlerHandle<ResourcesDiscoverEvent, ResourcesDiscoverResult>,
+        handler: impl Handler<ResourcesDiscoverEvent, ResourcesDiscoverResult> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.resources_discover, handler)
     }
 
-    pub fn on_session_start(&self, handler: HandlerHandle<SessionStartEvent, ()>) -> Result<(), String> {
+    pub fn on_session_start(&self, handler: impl Handler<SessionStartEvent, ()> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.session_start, handler)
     }
 
-    pub fn on_session_info_changed(&self, handler: HandlerHandle<SessionInfoChangedEvent, ()>) -> Result<(), String> {
+    pub fn on_session_info_changed(
+        &self,
+        handler: impl Handler<SessionInfoChangedEvent, ()> + 'static,
+    ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.session_info_changed, handler)
     }
 
     pub fn on_session_before_switch(
         &self,
-        handler: HandlerHandle<SessionBeforeSwitchEvent, SessionBeforeSwitchResult>,
+        handler: impl Handler<SessionBeforeSwitchEvent, SessionBeforeSwitchResult> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.session_before_switch, handler)
     }
 
     pub fn on_session_before_fork(
         &self,
-        handler: HandlerHandle<SessionBeforeForkEvent, SessionBeforeForkResult>,
+        handler: impl Handler<SessionBeforeForkEvent, SessionBeforeForkResult> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.session_before_fork, handler)
     }
 
     pub fn on_session_before_compact(
         &self,
-        handler: HandlerHandle<SessionBeforeCompactEvent, SessionBeforeCompactResult>,
+        handler: impl Handler<SessionBeforeCompactEvent, SessionBeforeCompactResult> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.session_before_compact, handler)
     }
 
-    pub fn on_compaction(&self, handler: HandlerHandle<CompactionEvent, CompactionEventResult>) -> Result<(), String> {
+    pub fn on_compaction(
+        &self,
+        handler: impl Handler<CompactionEvent, CompactionEventResult> + 'static,
+    ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.compaction, handler)
     }
 
     pub fn on_session_compaction_source(
         &self,
-        handler: HandlerHandle<SessionCompactionSourceEvent, SessionCompactionSourceResult>,
+        handler: impl Handler<SessionCompactionSourceEvent, SessionCompactionSourceResult> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.session_compaction_source, handler)
     }
 
-    pub fn on_session_compact(&self, handler: HandlerHandle<SessionCompactEvent, ()>) -> Result<(), String> {
+    pub fn on_session_compact(&self, handler: impl Handler<SessionCompactEvent, ()> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.session_compact, handler)
     }
 
-    pub fn on_session_shutdown(&self, handler: HandlerHandle<SessionShutdownEvent, ()>) -> Result<(), String> {
+    pub fn on_session_shutdown(&self, handler: impl Handler<SessionShutdownEvent, ()> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.session_shutdown, handler)
     }
 
     pub fn on_runtime_mailbox(
         &self,
-        handler: HandlerHandle<RuntimeMailboxEvent, RuntimeMailboxEventResult>,
+        handler: impl Handler<RuntimeMailboxEvent, RuntimeMailboxEventResult> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.runtime_mailbox, handler)
     }
 
     pub fn on_session_before_tree(
         &self,
-        handler: HandlerHandle<SessionBeforeTreeEvent, SessionBeforeTreeResult>,
+        handler: impl Handler<SessionBeforeTreeEvent, SessionBeforeTreeResult> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.session_before_tree, handler)
     }
 
-    pub fn on_session_tree(&self, handler: HandlerHandle<SessionTreeEvent, ()>) -> Result<(), String> {
+    pub fn on_session_tree(&self, handler: impl Handler<SessionTreeEvent, ()> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.session_tree, handler)
     }
 
-    pub fn on_context(&self, handler: HandlerHandle<ContextEvent, ContextEventResult>) -> Result<(), String> {
+    pub fn on_context(&self, handler: impl Handler<ContextEvent, ContextEventResult> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.context, handler)
     }
 
     pub fn on_before_provider_request(
         &self,
-        handler: HandlerHandle<BeforeProviderRequestEvent, Value>,
+        handler: impl Handler<BeforeProviderRequestEvent, Value> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.before_provider_request, handler)
     }
 
     pub fn on_before_provider_headers(
         &self,
-        handler: HandlerHandle<BeforeProviderHeadersEvent, ()>,
+        handler: impl Handler<BeforeProviderHeadersEvent, ProviderHeaders> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.before_provider_headers, handler)
     }
 
     pub fn on_after_provider_response(
         &self,
-        handler: HandlerHandle<AfterProviderResponseEvent, ()>,
+        handler: impl Handler<AfterProviderResponseEvent, ()> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.after_provider_response, handler)
     }
 
     pub fn on_before_agent_start(
         &self,
-        handler: HandlerHandle<BeforeAgentStartEvent, BeforeAgentStartEventResult>,
+        handler: impl Handler<BeforeAgentStartEvent, BeforeAgentStartEventResult> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.before_agent_start, handler)
     }
 
-    pub fn on_agent_start(&self, handler: HandlerHandle<AgentStartEvent, ()>) -> Result<(), String> {
+    pub fn on_agent_start(&self, handler: impl Handler<AgentStartEvent, ()> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.agent_start, handler)
     }
 
-    pub fn on_agent_end(&self, handler: HandlerHandle<AgentEndEvent, ()>) -> Result<(), String> {
+    pub fn on_agent_end(&self, handler: impl Handler<AgentEndEvent, ()> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.agent_end, handler)
     }
 
-    pub fn on_agent_settled(&self, handler: HandlerHandle<AgentSettledEvent, ()>) -> Result<(), String> {
+    pub fn on_agent_settled(&self, handler: impl Handler<AgentSettledEvent, ()> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.agent_settled, handler)
     }
 
-    pub fn on_turn_start(&self, handler: HandlerHandle<TurnStartEvent, ()>) -> Result<(), String> {
+    pub fn on_turn_start(&self, handler: impl Handler<TurnStartEvent, ()> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.turn_start, handler)
     }
 
-    pub fn on_turn_end(&self, handler: HandlerHandle<TurnEndEvent, ()>) -> Result<(), String> {
+    pub fn on_turn_end(&self, handler: impl Handler<TurnEndEvent, ()> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.turn_end, handler)
     }
 
-    pub fn on_message_start(&self, handler: HandlerHandle<MessageStartEvent, ()>) -> Result<(), String> {
+    pub fn on_message_start(&self, handler: impl Handler<MessageStartEvent, ()> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.message_start, handler)
     }
 
-    pub fn on_message_update(&self, handler: HandlerHandle<MessageUpdateEvent, ()>) -> Result<(), String> {
+    pub fn on_message_update(&self, handler: impl Handler<MessageUpdateEvent, ()> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.message_update, handler)
     }
 
-    pub fn on_message_end(&self, handler: HandlerHandle<MessageEndEvent, MessageEndEventResult>) -> Result<(), String> {
+    pub fn on_message_end(
+        &self,
+        handler: impl Handler<MessageEndEvent, MessageEndEventResult> + 'static,
+    ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.message_end, handler)
     }
 
-    pub fn on_tool_execution_start(&self, handler: HandlerHandle<ToolExecutionStartEvent, ()>) -> Result<(), String> {
+    pub fn on_tool_execution_start(
+        &self,
+        handler: impl Handler<ToolExecutionStartEvent, ()> + 'static,
+    ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.tool_execution_start, handler)
     }
 
-    pub fn on_tool_execution_update(&self, handler: HandlerHandle<ToolExecutionUpdateEvent, ()>) -> Result<(), String> {
+    pub fn on_tool_execution_update(
+        &self,
+        handler: impl Handler<ToolExecutionUpdateEvent, ()> + 'static,
+    ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.tool_execution_update, handler)
     }
 
-    pub fn on_tool_execution_end(&self, handler: HandlerHandle<ToolExecutionEndEvent, ()>) -> Result<(), String> {
+    pub fn on_tool_execution_end(
+        &self,
+        handler: impl Handler<ToolExecutionEndEvent, ()> + 'static,
+    ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.tool_execution_end, handler)
     }
 
-    pub fn on_model_select(&self, handler: HandlerHandle<ModelSelectEvent, ()>) -> Result<(), String> {
+    pub fn on_model_select(&self, handler: impl Handler<ModelSelectEvent, ()> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.model_select, handler)
     }
 
-    pub fn on_thinking_level_select(&self, handler: HandlerHandle<ThinkingLevelSelectEvent, ()>) -> Result<(), String> {
+    pub fn on_thinking_level_select(
+        &self,
+        handler: impl Handler<ThinkingLevelSelectEvent, ()> + 'static,
+    ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.thinking_level_select, handler)
     }
 
-    pub fn on_tool_call(&self, handler: HandlerHandle<ToolCallEvent, ToolCallEventResult>) -> Result<(), String> {
+    pub fn on_tool_call(
+        &self,
+        handler: impl Handler<ToolCallEvent, ToolCallEventResult> + 'static,
+    ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.tool_call, handler)
     }
 
-    pub fn on_tool_result(&self, handler: HandlerHandle<ToolResultEvent, ToolResultEventResult>) -> Result<(), String> {
+    pub fn on_tool_result(
+        &self,
+        handler: impl Handler<ToolResultEvent, ToolResultEventResult> + 'static,
+    ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.tool_result, handler)
     }
 
-    pub fn on_user_bash(&self, handler: HandlerHandle<UserBashEvent, UserBashEventResult>) -> Result<(), String> {
+    pub fn on_user_bash(
+        &self,
+        handler: impl Handler<UserBashEvent, UserBashEventResult> + 'static,
+    ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.user_bash, handler)
     }
 
-    pub fn on_input(&self, handler: HandlerHandle<InputEvent, InputEventResult>) -> Result<(), String> {
+    pub fn on_input(&self, handler: impl Handler<InputEvent, InputEventResult> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.input, handler)
     }
 
@@ -2482,7 +2495,7 @@ impl ExtensionApi {
         &self,
         shortcut: KeyId,
         description: Option<String>,
-        handler: Arc<dyn for<'a> Fn(&'a ExtensionContext) -> BoxFuture<'a, Result<(), HandlerError>> + Send + Sync>,
+        handler: ContextShortcutHandler,
     ) -> Result<(), String> {
         self.runtime.assert_active()?;
         let mut extension = self.extension_lock();

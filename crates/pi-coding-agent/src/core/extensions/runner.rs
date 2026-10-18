@@ -191,7 +191,7 @@ pub async fn emit_project_trust_event(
     let mut errors = Vec::new();
     for extension in &extensions_result.extensions {
         for handler in &extension.handlers.project_trust {
-            match handler.call(&event, ctx).await {
+            match handler.call(event.clone(), ctx.clone()).await {
                 Ok(result) if result.trusted == ProjectTrustEventDecision::Undecided => {}
                 Ok(result) => return (Some(result), errors),
                 Err(error) => errors.push(ExtensionError {
@@ -249,38 +249,18 @@ pub struct ExtensionRunner {
     compact_fn: Arc<dyn Fn(Option<CompactOptions>) + Send + Sync>,
     get_system_prompt_fn: Arc<dyn Fn() -> String + Send + Sync>,
     get_system_prompt_options_fn: Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>,
-    relocate_handler: Arc<dyn Fn(&str) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>,
-    prepare_tool_result_relocation_handler:
-        Arc<dyn Fn(&str) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>,
+    relocate_handler: RelocateCallback,
+    prepare_tool_result_relocation_handler: RelocateCallback,
     activate_tool_result_relocation_handler: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     pending_tool_result_relocations: Arc<Mutex<IndexMap<String, String>>>,
     is_tool_result_relocation_prepared: Arc<AtomicBool>,
     show_approval_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     show_sandbox_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     wait_for_idle_fn: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
-    new_session_handler: Arc<
-        dyn Fn(Option<NewSessionOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
-            + Send
-            + Sync,
-    >,
-    fork_handler: Arc<
-        dyn Fn(String, Option<ForkOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
-            + Send
-            + Sync,
-    >,
-    navigate_tree_handler: Arc<
-        dyn Fn(String, Option<NavigateTreeOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
-            + Send
-            + Sync,
-    >,
-    switch_session_handler: Arc<
-        dyn Fn(
-                String,
-                Option<SwitchSessionOptions>,
-            ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
-            + Send
-            + Sync,
-    >,
+    new_session_handler: NewSessionCallback,
+    fork_handler: ForkCallback,
+    navigate_tree_handler: NavigateTreeCallback,
+    switch_session_handler: SwitchSessionCallback,
     reload_handler: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     shortcut_diagnostics: Arc<Mutex<Vec<ResourceDiagnostic>>>,
     command_diagnostics: Arc<Mutex<Vec<ResourceDiagnostic>>>,
@@ -518,16 +498,13 @@ impl ExtensionRunner {
         });
     }
 
-    pub fn set_relocate_handler(
-        &mut self,
-        handler: Arc<dyn Fn(&str) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>,
-    ) {
+    pub fn set_relocate_handler(&mut self, handler: RelocateCallback) {
         self.relocate_handler = handler;
     }
 
     pub fn set_tool_result_relocation_handlers(
         &mut self,
-        prepare: Arc<dyn Fn(&str) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>,
+        prepare: RelocateCallback,
         activate: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     ) {
         self.prepare_tool_result_relocation_handler = prepare;
@@ -1154,7 +1131,7 @@ impl ExtensionRunner {
         let mut result = None;
         for extension in &self.extensions {
             for handler in &extension.handlers.session_before_switch {
-                match handler.call(event, ctx).await {
+                match handler.call(event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         if handler_result.cancel == Some(true) {
                             return EmitResult::SessionBeforeSwitch(handler_result);
@@ -1176,7 +1153,7 @@ impl ExtensionRunner {
         let mut result = None;
         for extension in &self.extensions {
             for handler in &extension.handlers.session_before_fork {
-                match handler.call(event, ctx).await {
+                match handler.call(event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         if handler_result.cancel == Some(true) {
                             return EmitResult::SessionBeforeFork(handler_result);
@@ -1202,7 +1179,7 @@ impl ExtensionRunner {
         let mut result = None;
         for extension in &self.extensions {
             for handler in &extension.handlers.session_before_compact {
-                match handler.call(event, ctx).await {
+                match handler.call(event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         if handler_result.cancel == Some(true) {
                             return EmitResult::SessionBeforeCompact(handler_result);
@@ -1224,7 +1201,7 @@ impl ExtensionRunner {
         let mut result = None;
         for extension in &self.extensions {
             for handler in &extension.handlers.session_before_tree {
-                match handler.call(event, ctx).await {
+                match handler.call(event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         if handler_result.cancel == Some(true) {
                             return EmitResult::SessionBeforeTree(handler_result);
@@ -1246,7 +1223,7 @@ impl ExtensionRunner {
         let mut result = None;
         for extension in &self.extensions {
             for handler in &extension.handlers.compaction {
-                match handler.call(event, ctx).await {
+                match handler.call(event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         if handler_result.cancel == Some(true) || handler_result.compaction.is_some() {
                             return EmitResult::Compaction(handler_result);
@@ -1292,11 +1269,25 @@ impl ExtensionRunner {
             ExtensionEvent::Compaction(event) => {
                 return self.emit_compaction(event, &ctx).await;
             }
+            ExtensionEvent::BeforeProviderHeaders(event) => {
+                for extension in &self.extensions {
+                    for handler in &extension.handlers.before_provider_headers {
+                        match handler.call(event.clone(), ctx.clone()).await {
+                            Ok(Some(headers)) => event.headers = headers,
+                            Ok(None) => {}
+                            Err(error) => {
+                                self.emit_handler_error(extension, "before_provider_headers", error);
+                            }
+                        }
+                    }
+                }
+                return EmitResult::None;
+            }
             ExtensionEvent::SessionCompactionSource(event) => {
                 let mut result = None;
                 for extension in &self.extensions {
                     for handler in &extension.handlers.session_compaction_source {
-                        match handler.call(event, &ctx).await {
+                        match handler.call(event.clone(), ctx.clone()).await {
                             Ok(Some(handler_result)) => result = Some(handler_result),
                             Ok(None) => {}
                             Err(error) => {
@@ -1321,7 +1312,7 @@ impl ExtensionRunner {
             ($payload:expr, $field:ident, $name:literal) => {{
                 for extension in &self.extensions {
                     for handler in &extension.handlers.$field {
-                        if let Err(error) = handler.call($payload, ctx).await {
+                        if let Err(error) = handler.call((*$payload).clone(), ctx.clone()).await {
                             self.emit_handler_error(extension, $name, error);
                         }
                     }
@@ -1336,9 +1327,6 @@ impl ExtensionRunner {
             ExtensionEvent::SessionCompact(event) => dispatch!(event, session_compact, "session_compact"),
             ExtensionEvent::SessionShutdown(event) => dispatch!(event, session_shutdown, "session_shutdown"),
             ExtensionEvent::SessionTree(event) => dispatch!(event, session_tree, "session_tree"),
-            ExtensionEvent::BeforeProviderHeaders(event) => {
-                dispatch!(event, before_provider_headers, "before_provider_headers")
-            }
             ExtensionEvent::AfterProviderResponse(event) => {
                 dispatch!(event, after_provider_response, "after_provider_response")
             }
@@ -1348,7 +1336,7 @@ impl ExtensionRunner {
             ExtensionEvent::TurnStart(event) => dispatch!(event, turn_start, "turn_start"),
             ExtensionEvent::TurnEnd(event) => dispatch!(event, turn_end, "turn_end"),
             ExtensionEvent::MessageStart(event) => dispatch!(event, message_start, "message_start"),
-            ExtensionEvent::MessageUpdate(event) => dispatch!(event, message_update, "message_update"),
+            ExtensionEvent::MessageUpdate(event) => dispatch!(event.as_mut(), message_update, "message_update"),
             ExtensionEvent::ToolExecutionStart(event) => {
                 dispatch!(event, tool_execution_start, "tool_execution_start")
             }
@@ -1358,12 +1346,13 @@ impl ExtensionRunner {
             ExtensionEvent::ToolExecutionEnd(event) => {
                 dispatch!(event, tool_execution_end, "tool_execution_end")
             }
-            ExtensionEvent::ModelSelect(event) => dispatch!(event, model_select, "model_select"),
+            ExtensionEvent::ModelSelect(event) => dispatch!(event.as_mut(), model_select, "model_select"),
             ExtensionEvent::ThinkingLevelSelect(event) => {
                 dispatch!(event, thinking_level_select, "thinking_level_select")
             }
             // Events with dedicated emit methods are not handled here.
             ExtensionEvent::ProjectTrust(_)
+            | ExtensionEvent::BeforeProviderHeaders(_)
             | ExtensionEvent::ResourcesDiscover(_)
             | ExtensionEvent::SessionBeforeSwitch(_)
             | ExtensionEvent::SessionBeforeFork(_)
@@ -1395,7 +1384,7 @@ impl ExtensionRunner {
             }
         }
         for (extension, handler) in registrations {
-            match handler.call(&mut event.clone(), &ctx).await {
+            match handler.call(event.clone(), ctx.clone()).await {
                 Ok(Some(result)) if result.handled => return Ok(result),
                 Ok(_) => {}
                 Err(error) => {
@@ -1429,10 +1418,10 @@ impl ExtensionRunner {
 
         for extension in &self.extensions {
             for handler in &extension.handlers.message_end {
-                let mut current_event = MessageEndEvent {
+                let current_event = MessageEndEvent {
                     message: current_message.clone(),
                 };
-                match handler.call(&mut current_event, &ctx).await {
+                match handler.call(current_event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         let Some(message) = handler_result.message else {
                             continue;
@@ -1465,7 +1454,7 @@ impl ExtensionRunner {
 
         for extension in &self.extensions {
             for handler in &extension.handlers.tool_result {
-                match handler.call(&mut current_event, &ctx).await {
+                match handler.call(current_event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         if let Some(content) = handler_result.content {
                             current_event.content = content;
@@ -1502,8 +1491,11 @@ impl ExtensionRunner {
         let mut result = None;
         for extension in &self.extensions {
             for handler in &extension.handlers.tool_call {
-                let handler_result = handler.call(event, &ctx).await?;
+                let handler_result = handler.call(event.clone(), ctx.clone()).await?;
                 if let Some(handler_result) = handler_result {
+                    if let Some(input) = &handler_result.input {
+                        event.input = input.clone();
+                    }
                     if handler_result.block == Some(true) {
                         return Ok(Some(handler_result));
                     }
@@ -1521,7 +1513,12 @@ impl ExtensionRunner {
         let ctx = self.create_context();
         for extension in &self.extensions {
             for gate in &extension.tool_gates {
-                let result = gate.call(event, &ctx).await?;
+                let result = gate.call(event.clone(), ctx.clone()).await?;
+                if let Some(result) = &result
+                    && let Some(input) = &result.input
+                {
+                    event.input = input.clone();
+                }
                 if result.as_ref().is_some_and(|result| result.block == Some(true)) {
                     return Ok(result);
                 }
@@ -1537,7 +1534,7 @@ impl ExtensionRunner {
         let ctx = self.create_context();
         for extension in &self.extensions {
             for reviewer in &extension.approval_reviewers {
-                let result = reviewer.call(event, &ctx).await?;
+                let result = reviewer.call(event.clone(), ctx.clone()).await?;
                 let decision = apply_approval_reviewer_result(event, result);
                 if decision.is_some() {
                     return Ok(decision);
@@ -1551,7 +1548,7 @@ impl ExtensionRunner {
         let ctx = self.create_context();
         for extension in &self.extensions {
             for handler in &extension.handlers.user_bash {
-                match handler.call(&mut event.clone(), &ctx).await {
+                match handler.call(event.clone(), ctx.clone()).await {
                     Ok(Some(handler_result)) => return Some(handler_result),
                     Ok(None) => {}
                     Err(error) => self.emit_handler_error(extension, "user_bash", error),
@@ -1571,15 +1568,14 @@ impl ExtensionRunner {
 
         for extension in &self.extensions {
             for handler in &extension.handlers.context {
-                let mut event = ContextEvent {
-                    messages: current_messages,
+                let event = ContextEvent {
+                    messages: current_messages.clone(),
                 };
-                let call = handler.call(&mut event, &ctx);
+                let call = handler.call(event, ctx.clone());
                 let result = match &signal {
                     Some(signal) => call_context_handler_abortable(call, signal).await,
                     None => call.await,
                 };
-                current_messages = event.messages;
                 match result {
                     Ok(Some(handler_result)) => {
                         if let Some(messages) = handler_result.messages {
@@ -1605,11 +1601,10 @@ impl ExtensionRunner {
         let mut current_payload = payload;
         for extension in &self.extensions {
             for handler in &extension.handlers.before_provider_request {
-                let mut event = BeforeProviderRequestEvent {
-                    payload: current_payload,
+                let event = BeforeProviderRequestEvent {
+                    payload: current_payload.clone(),
                 };
-                let result = handler.call(&mut event, &ctx).await;
-                current_payload = event.payload;
+                let result = handler.call(event, ctx.clone()).await;
                 match result {
                     Ok(Some(handler_result)) => current_payload = handler_result,
                     Ok(None) => {}
@@ -1652,7 +1647,7 @@ impl ExtensionRunner {
 
         for extension in &self.extensions {
             for handler in &extension.handlers.before_agent_start {
-                let mut event = BeforeAgentStartEvent {
+                let event = BeforeAgentStartEvent {
                     prompt: prompt.to_owned(),
                     images: images.clone(),
                     system_prompt: current_system_prompt
@@ -1661,7 +1656,7 @@ impl ExtensionRunner {
                         .clone(),
                     system_prompt_options: system_prompt_options.clone(),
                 };
-                match handler.call(&mut event, &ctx).await {
+                match handler.call(event, ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         if let Some(message) = handler_result.message {
                             messages.push(message);
@@ -1702,11 +1697,11 @@ impl ExtensionRunner {
         let mut result = ResourcesDiscoverPaths::default();
         for extension in &self.extensions {
             for handler in &extension.handlers.resources_discover {
-                let mut event = ResourcesDiscoverEvent {
+                let event = ResourcesDiscoverEvent {
                     cwd: cwd.to_owned(),
                     reason,
                 };
-                match handler.call(&mut event, &ctx).await {
+                match handler.call(event, ctx.clone()).await {
                     Ok(Some(handler_result)) => {
                         if let Some(paths) = handler_result.skill_paths.filter(|paths| !paths.is_empty()) {
                             result.skill_paths.extend(paths.into_iter().map(|path| DiscoveredPath {
@@ -1749,13 +1744,13 @@ impl ExtensionRunner {
 
         for extension in &self.extensions {
             for handler in &extension.handlers.input {
-                let mut event = InputEvent {
+                let event = InputEvent {
                     text: current_text.clone(),
                     images: current_images.clone(),
                     source,
                     streaming_behavior,
                 };
-                match handler.call(&mut event, &ctx).await {
+                match handler.call(event, ctx.clone()).await {
                     Ok(Some(InputEventResult::Handled)) => return InputEventResult::Handled,
                     Ok(Some(InputEventResult::Transform { text, images })) => {
                         current_text = text;

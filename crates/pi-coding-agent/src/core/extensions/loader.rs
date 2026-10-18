@@ -207,20 +207,19 @@ pub async fn load_extension_from_factory(
 /// Resolve extension entry points from a directory.
 fn resolve_extension_entries(dir: &str) -> Option<Vec<String>> {
     let package_json_path = Path::new(dir).join("package.json");
-    if package_json_path.exists() {
-        if let Some(manifest) = read_pi_manifest(&package_json_path) {
-            if let Some(declared) = manifest.extensions.filter(|entries| !entries.is_empty()) {
-                let mut entries = Vec::new();
-                for extension_path in declared {
-                    let resolved = Path::new(dir).join(&extension_path);
-                    if resolved.exists() {
-                        entries.push(resolved.to_string_lossy().into_owned());
-                    }
-                }
-                if !entries.is_empty() {
-                    return Some(entries);
-                }
+    if package_json_path.exists()
+        && let Some(manifest) = read_pi_manifest(&package_json_path)
+        && let Some(declared) = manifest.extensions.filter(|entries| !entries.is_empty())
+    {
+        let mut entries = Vec::new();
+        for extension_path in declared {
+            let resolved = Path::new(dir).join(&extension_path);
+            if resolved.exists() {
+                entries.push(resolved.to_string_lossy().into_owned());
             }
+        }
+        if !entries.is_empty() {
+            return Some(entries);
         }
     }
 
@@ -260,10 +259,10 @@ fn discover_extensions_in_dir(dir: &str) -> Vec<String> {
             discovered.push(entry_path.to_string_lossy().into_owned());
             continue;
         }
-        if file_type.is_dir() || is_symlink {
-            if let Some(entries) = resolve_extension_entries(&entry_path.to_string_lossy()) {
-                discovered.extend(entries);
-            }
+        if (file_type.is_dir() || is_symlink)
+            && let Some(entries) = resolve_extension_entries(&entry_path.to_string_lossy())
+        {
+            discovered.extend(entries);
         }
     }
     discovered
@@ -511,7 +510,7 @@ pub fn create_extension_api(
 /// Re-exported helper used by extension registries building commands.
 pub fn command_handler<F>(handler: F) -> CommandHandler
 where
-    F: for<'a> Fn(&'a str, &'a super::types::ExtensionCommandContext) -> BoxFuture<'a, Result<(), HandlerError>>
+    F: Fn(String, super::types::ExtensionCommandContext) -> BoxFuture<'static, Result<(), HandlerError>>
         + Send
         + Sync
         + 'static,
@@ -520,14 +519,9 @@ where
 }
 
 /// Re-exported helper used by extension registries building shortcuts.
-pub fn shortcut_handler<F>(
-    handler: F,
-) -> Arc<dyn for<'a> Fn(&'a super::types::ExtensionContext) -> BoxFuture<'a, Result<(), HandlerError>> + Send + Sync>
+pub fn shortcut_handler<F>(handler: F) -> crate::core::extensions::types::ContextShortcutHandler
 where
-    F: for<'a> Fn(&'a super::types::ExtensionContext) -> BoxFuture<'a, Result<(), HandlerError>>
-        + Send
-        + Sync
-        + 'static,
+    F: Fn(super::types::ExtensionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync + 'static,
 {
     Arc::new(handler)
 }
@@ -557,9 +551,7 @@ pub fn registered_command(
 pub fn extension_shortcut(
     shortcut: &str,
     description: Option<String>,
-    handler: Arc<
-        dyn for<'a> Fn(&'a super::types::ExtensionContext) -> BoxFuture<'a, Result<(), HandlerError>> + Send + Sync,
-    >,
+    handler: crate::core::extensions::types::ContextShortcutHandler,
     extension_path: &str,
 ) -> ExtensionShortcut {
     ExtensionShortcut {

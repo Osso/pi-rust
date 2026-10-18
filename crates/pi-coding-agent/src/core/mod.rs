@@ -4,6 +4,7 @@ pub mod agent_session_services;
 pub mod auth_guidance;
 pub mod auth_storage;
 pub mod cache_stats;
+pub mod compaction;
 mod config_value;
 pub mod defaults;
 pub mod desktop_notification;

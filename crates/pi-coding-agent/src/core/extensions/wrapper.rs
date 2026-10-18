@@ -54,7 +54,7 @@ impl AgentTool for WrappedExtensionTool {
             return Box::pin(async { None });
         };
         let ctx = self.runner.create_context();
-        Box::pin(async move { prepare(&tool_call_id, signal, &ctx).await.ok().flatten() })
+        Box::pin(async move { prepare(tool_call_id, signal, ctx).await.ok().flatten() })
     }
 
     fn execute(
@@ -77,7 +77,7 @@ impl AgentTool for WrappedExtensionTool {
             let active_before = runner
                 .get_active_tools()
                 .map_err(|error| ToolError::new(error.message))?;
-            let result = (definition.execute)(&tool_call_id, params, signal, Some(on_update), &context)
+            let result = (definition.execute)(tool_call_id, params, signal, Some(on_update), context)
                 .await
                 .map_err(|error| ToolError::new(error.message))?;
             let active_after = runner
