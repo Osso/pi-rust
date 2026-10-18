@@ -1998,6 +1998,7 @@ version = "0.0.0"
 dependencies = [
  "ignore",
  "pi-ai",
+ "pi-telemetry",
  "rustix",
  "serde",
  "serde_json",

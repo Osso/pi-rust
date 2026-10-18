@@ -218,7 +218,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/tools/edit-diff.ts` | 500 | 0 | done | `crates/pi-agent-core/src/harness/tools/edit_diff.rs` | Fuzzy matching, replacements, jsdiff line diff/unified patch; 8 behavioral + edit differential fixtures; see `edit-diff.md`. |
 | `agent/src/harness/tools/image.ts` | 104 | 0 | done | `crates/pi-agent-core/src/harness/tools/image.rs` | MIME detection + Base64; focused and differential proof; see `image-helpers.md`. |
 | `agent/src/harness/utils/truncate.ts` | 350 | 0 | done | `crates/pi-agent-core/src/harness/utils/truncate.rs` | Head/tail/line truncation and size formatting; focused and 34-request differential proof; see `truncation.md`. |
-| `agent/src/harness/telemetry.ts` | 615 | 1 | todo |  |  |
+| `agent/src/harness/telemetry.ts` | 615 | 1 | done | `crates/pi-agent-core/src/harness/telemetry.rs` | Both schemas and both starters; focused tests + full serialized-schema and recorded-span differential; conditional type helpers are an explicit gap; see `harness-telemetry.md`. |
 | `agent/src/proxy.ts` | 370 | 4 | done | `crates/pi-agent-core/src/agent/proxy.rs` | Proxy SSE reconstruction, error/abort paths, injectable `Fetch`; see `agent-proxy.md`. |
 | `agent/src/types.ts` | 470 | 4 | done | `crates/pi-agent-core/src/agent/types.rs` | Full export set; `AgentMessage` custom variant is a raw JSON object; see `agent-types.md`. |
 | `agent/src/harness/compaction/utils.ts` | 163 | 5 | done | `crates/pi-agent-core/src/harness/compaction/utils.rs` | File-op accumulation, sorted lists, conversation serialization with UTF-16 truncation and full-output markers; see `compaction-utils.md`. |
@@ -256,10 +256,10 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/session/jsonl/repo.ts` | 247 | 9 | done | `crates/pi-agent-core/src/harness/session/jsonl/repo.rs` | Directory/file naming, id validation, listing, create/fork claims; see `session-jsonl-repo.md`. |
 | `agent/src/harness/session/jsonl.ts` | 9 | 10 | done | `crates/pi-agent-core/src/harness/session/jsonl/mod.rs` | Barrel re-exports; see `session-index.md`. |
 | `agent/src/harness/session/index.ts` | 13 | 11 | done | `crates/pi-agent-core/src/harness/session/mod.rs` | Session package exports; see `session-index.md`. |
-| `agent/src/harness/agent-harness.ts` | 508 | 12 | todo |  |  |
+| `agent/src/harness/agent-harness.ts` | 508 | 12 | done | `crates/pi-agent-core/src/harness/agent_harness.rs` | Scaffold contract: create/restore rejection, defaults, defensive-copy config, all 22 unavailable/closed operations, hooks/events rejection; 8 focused + differential; see `agent-harness.md`. |
 | `agent/src/harness/compaction/branch-summarization.ts` | 282 | 12 | done | `crates/pi-agent-core/src/harness/compaction/branch_summarization.rs` | Branch collection, token-budgeted preparation, summary generation and errors; 13 behavioral tests + differential cases; see `branch-summarization.md`. |
-| `agent/src/index.ts` | 145 | 13 | partial |  |  |
-| `agent/src/node.ts` | 2 | 14 | todo |  |  |
+| `agent/src/index.ts` | 145 | 13 | partial | `crates/pi-agent-core/src/lib.rs` | Every runtime export re-exported at the crate root; JS `Result` idioms and telemetry conditional-type helpers are explicit typed-boundary gaps; see `agent-index.md`. |
+| `agent/src/node.ts` | 2 | 14 | done | `crates/pi-agent-core/src/node.rs` | Re-exports `NodeExecutionEnv` and the crate root; see `agent-node.md`. |
 
 ## tui (41 files, 18529 lines)
 

@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 pi-ai = { version = "=0.0.0", path = "../pi-ai" }
+pi-telemetry = { version = "=0.0.0", path = "../pi-telemetry" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["preserve_order"] }
 tokio = { version = "=1.53.3", features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
