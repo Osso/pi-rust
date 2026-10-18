@@ -1,0 +1,339 @@
+//! Port of `packages/coding-agent/src/utils/version-check.ts`.
+//!
+//! Version comparison follows `node-semver`'s strict parser and precedence rules; the release check
+//! goes through the injected `Fetch` contract.
+
+use pi_ai::request::{Fetch, HttpRequest};
+use serde_json::Value;
+
+use crate::config::package_config;
+use crate::utils::management_http::{FetchRetryOptions, fetch_with_retry};
+use crate::utils::pi_user_agent::get_pi_user_agent;
+
+const LATEST_VERSION_URL: &str = "https://pi.dev/api/latest-version";
+const DEFAULT_VERSION_CHECK_TIMEOUT_MS: u64 = 10_000;
+const MAX_SEMVER_LENGTH: usize = 256;
+const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
+/// One nested network failure cause.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ErrorCause {
+    pub message: Option<String>,
+    pub code: Option<String>,
+}
+
+/// The parts of a fetch failure that `formatVersionCheckError` reports.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VersionCheckError {
+    pub message: String,
+    pub causes: Vec<ErrorCause>,
+}
+
+/// `formatVersionCheckError`: include errno codes or the first cause message.
+pub fn format_version_check_error(error: &VersionCheckError) -> String {
+    let root_message = &error.message;
+    let mut codes: Vec<String> = Vec::new();
+    for cause in &error.causes {
+        if let Some(code) = &cause.code
+            && !codes.contains(code)
+        {
+            codes.push(code.clone());
+        }
+    }
+    if !codes.is_empty() {
+        return format!("{root_message} ({})", codes.join(", "));
+    }
+    match error
+        .causes
+        .iter()
+        .find_map(|cause| cause.message.as_ref().filter(|message| !message.is_empty()))
+    {
+        Some(cause_message) => format!("{root_message} (cause: {cause_message})"),
+        None => root_message.clone(),
+    }
+}
+
+/// A parsed strict semver version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Semver {
+    pub major: u64,
+    pub minor: u64,
+    pub patch: u64,
+    pub prerelease: Vec<String>,
+    pub build: Vec<String>,
+}
+
+impl Semver {
+    pub fn version(&self) -> String {
+        let mut version = format!("{}.{}.{}", self.major, self.minor, self.patch);
+        if !self.prerelease.is_empty() {
+            version.push('-');
+            version.push_str(&self.prerelease.join("."));
+        }
+        version
+    }
+}
+
+fn is_numeric_identifier(identifier: &str) -> bool {
+    !identifier.is_empty() && identifier.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn valid_numeric_identifier(identifier: &str) -> bool {
+    if !is_numeric_identifier(identifier) {
+        return false;
+    }
+    identifier == "0" || !identifier.starts_with('0')
+}
+
+fn valid_prerelease_identifier(identifier: &str) -> bool {
+    if identifier.is_empty() {
+        return false;
+    }
+    if is_numeric_identifier(identifier) {
+        return valid_numeric_identifier(identifier);
+    }
+    identifier
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+}
+
+fn valid_build_identifier(identifier: &str) -> bool {
+    !identifier.is_empty()
+        && identifier
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+}
+
+/// `semver.valid`: strict parse, `v` prefix allowed, leading zeros rejected.
+pub fn parse_semver(version: &str) -> Option<Semver> {
+    let trimmed = version.trim();
+    if trimmed.len() > MAX_SEMVER_LENGTH {
+        return None;
+    }
+    let body = trimmed.strip_prefix('v').unwrap_or(trimmed);
+    let (without_build, build) = match body.split_once('+') {
+        Some((main, build)) => (main, Some(build)),
+        None => (body, None),
+    };
+    let (core, prerelease) = match without_build.split_once('-') {
+        Some((core, prerelease)) => (core, Some(prerelease)),
+        None => (without_build, None),
+    };
+    let mut parts = core.split('.');
+    let major = parts.next()?;
+    let minor = parts.next()?;
+    let patch = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    if !valid_numeric_identifier(major) || !valid_numeric_identifier(minor) || !valid_numeric_identifier(patch) {
+        return None;
+    }
+    let major: u64 = major.parse().ok().filter(|value| *value <= MAX_SAFE_INTEGER)?;
+    let minor: u64 = minor.parse().ok().filter(|value| *value <= MAX_SAFE_INTEGER)?;
+    let patch: u64 = patch.parse().ok().filter(|value| *value <= MAX_SAFE_INTEGER)?;
+
+    let prerelease = match prerelease {
+        None => Vec::new(),
+        Some(prerelease) => {
+            let identifiers: Vec<String> = prerelease.split('.').map(str::to_owned).collect();
+            if identifiers
+                .iter()
+                .any(|identifier| !valid_prerelease_identifier(identifier))
+            {
+                return None;
+            }
+            identifiers
+        }
+    };
+    let build = match build {
+        None => Vec::new(),
+        Some(build) => {
+            let identifiers: Vec<String> = build.split('.').map(str::to_owned).collect();
+            if identifiers.iter().any(|identifier| !valid_build_identifier(identifier)) {
+                return None;
+            }
+            identifiers
+        }
+    };
+    Some(Semver {
+        major,
+        minor,
+        patch,
+        prerelease,
+        build,
+    })
+}
+
+fn compare_identifiers(left: &str, right: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let left_numeric = is_numeric_identifier(left);
+    let right_numeric = is_numeric_identifier(right);
+    match (left_numeric, right_numeric) {
+        (true, true) => {
+            let left: u64 = left.parse().unwrap_or(0);
+            let right: u64 = right.parse().unwrap_or(0);
+            left.cmp(&right)
+        }
+        (true, false) => Ordering::Less,
+        (false, true) => Ordering::Greater,
+        (false, false) => left.cmp(right),
+    }
+}
+
+/// `semver.compare`: version precedence.
+pub fn compare_semver(left: &Semver, right: &Semver) -> i32 {
+    use std::cmp::Ordering;
+    let main = (left.major, left.minor, left.patch).cmp(&(right.major, right.minor, right.patch));
+    if main != Ordering::Equal {
+        return if main == Ordering::Less { -1 } else { 1 };
+    }
+    match (left.prerelease.is_empty(), right.prerelease.is_empty()) {
+        (true, true) => 0,
+        (true, false) => 1,
+        (false, true) => -1,
+        (false, false) => {
+            for (left_identifier, right_identifier) in left.prerelease.iter().zip(right.prerelease.iter()) {
+                match compare_identifiers(left_identifier, right_identifier) {
+                    Ordering::Equal => {}
+                    Ordering::Less => return -1,
+                    Ordering::Greater => return 1,
+                }
+            }
+            match left.prerelease.len().cmp(&right.prerelease.len()) {
+                Ordering::Equal => 0,
+                Ordering::Less => -1,
+                Ordering::Greater => 1,
+            }
+        }
+    }
+}
+
+/// `comparePackageVersions`: `None` when either side is not a valid version.
+pub fn compare_package_versions(left_version: &str, right_version: &str) -> Option<i32> {
+    let left = parse_semver(left_version.trim())?;
+    let right = parse_semver(right_version.trim())?;
+    Some(compare_semver(&left, &right))
+}
+
+/// `isNewerPackageVersion`: semver comparison, falling back to trimmed string inequality.
+pub fn is_newer_package_version(candidate_version: &str, current_version: &str) -> bool {
+    match compare_package_versions(candidate_version, current_version) {
+        Some(comparison) => comparison > 0,
+        None => candidate_version.trim() != current_version.trim(),
+    }
+}
+
+/// `LatestPiRelease`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LatestPiRelease {
+    pub version: String,
+    pub package_name: Option<String>,
+    pub note: Option<String>,
+}
+
+/// Options for the release check.
+#[derive(Debug, Clone, Default)]
+pub struct LatestPiReleaseOptions {
+    pub timeout_ms: Option<u64>,
+    pub retry: bool,
+}
+
+fn offline_mode_enabled() -> bool {
+    std::env::var("PI_OFFLINE").is_ok_and(|value| !value.is_empty())
+}
+
+/// `getLatestPiRelease`: one request, optionally retried, `None` when offline or unusable.
+pub async fn get_latest_pi_release(
+    fetch: &dyn Fetch,
+    current_version: &str,
+    options: &LatestPiReleaseOptions,
+) -> Option<LatestPiRelease> {
+    if offline_mode_enabled() {
+        return None;
+    }
+    let response = fetch_with_retry(
+        fetch,
+        HttpRequest {
+            method: "GET".to_owned(),
+            url: LATEST_VERSION_URL.to_owned(),
+            headers: vec![
+                ("user-agent".to_owned(), get_pi_user_agent(current_version)),
+                ("accept".to_owned(), "application/json".to_owned()),
+            ],
+            body: None,
+        },
+        None,
+        &FetchRetryOptions {
+            max_retries: Some(if options.retry { 2 } else { 0 }),
+            retry_on_status: true,
+            timeout_ms: Some(options.timeout_ms.unwrap_or(DEFAULT_VERSION_CHECK_TIMEOUT_MS)),
+        },
+    )
+    .await
+    .ok()?;
+    if !(200..300).contains(&response.status) {
+        return None;
+    }
+    let body = read_body(response.body).await?;
+    let data: Value = serde_json::from_str(&body).ok()?;
+    let version = data.get("version").and_then(Value::as_str)?.trim().to_owned();
+    if version.is_empty() {
+        return None;
+    }
+    let package_name = data
+        .get("packageName")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    let note = data
+        .get("note")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    Some(LatestPiRelease {
+        version,
+        package_name,
+        note,
+    })
+}
+
+/// `getLatestPiVersion`.
+pub async fn get_latest_pi_version(
+    fetch: &dyn Fetch,
+    current_version: &str,
+    options: &LatestPiReleaseOptions,
+) -> Option<String> {
+    get_latest_pi_release(fetch, current_version, options)
+        .await
+        .map(|release| release.version)
+}
+
+/// `checkForNewPiVersion`: automatic check honoring `PI_SKIP_VERSION_CHECK`; errors are swallowed.
+pub async fn check_for_new_pi_version(fetch: &dyn Fetch, current_version: &str) -> Option<LatestPiRelease> {
+    if std::env::var("PI_SKIP_VERSION_CHECK").is_ok_and(|value| !value.is_empty()) {
+        return None;
+    }
+    let release = get_latest_pi_release(fetch, current_version, &LatestPiReleaseOptions::default()).await?;
+    is_newer_package_version(&release.version, current_version).then_some(release)
+}
+
+async fn read_body(mut body: Box<dyn pi_ai::request::HttpBody>) -> Option<String> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = body.next_chunk().await {
+        bytes.extend_from_slice(&chunk.ok()?);
+    }
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// User agent used for version checks.
+pub fn version_check_user_agent(current_version: &str) -> String {
+    get_pi_user_agent(current_version)
+}
+
+/// Package version used by default callers.
+pub fn current_package_version() -> String {
+    package_config().version.clone()
+}

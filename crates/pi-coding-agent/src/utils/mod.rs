@@ -1,6 +1,7 @@
 pub mod abort;
 pub mod ansi;
 pub mod chalk;
+pub mod changelog;
 pub mod child_process;
 pub mod clipboard_native;
 pub mod clipboard_temp_files;
@@ -23,3 +24,6 @@ pub mod pi_user_agent;
 pub mod shell;
 pub mod sleep;
 pub mod terminal_current_directory;
+pub mod tools_manager;
+pub mod version_check;
+pub mod windows_self_update;

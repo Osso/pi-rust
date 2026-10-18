@@ -440,23 +440,23 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/git-project.ts` | 13 | 1 | done | `crates/pi-coding-agent/src/utils/git_project.rs` | Real git repository tests |
 | `coding-agent/src/utils/paths.ts` | 139 | 1 | done | `crates/pi-coding-agent/src/utils/paths.rs` | Differential 26009 (76 cases); focused tests |
 | `coding-agent/src/utils/syntax-highlight.ts` | 146 | 1 | todo |  |  |
-| `coding-agent/src/utils/version-check.ts` | 109 | 1 | todo |  |  |
+| `coding-agent/src/utils/version-check.ts` | 109 | 1 | done | `crates/pi-coding-agent/src/utils/version_check.rs` | Differential 676 semver pairs + 676 newer checks + error fixtures; injected-Fetch release tests |
 | `coding-agent/src/config.ts` | 595 | 2 | done | `crates/pi-coding-agent/src/config.rs` | Compiled-binary runtime mapping (PI_PACKAGE_DIR/exe dir); install branches via injected context; differential config oracle (4 path + 13 install scenarios) |
 | `coding-agent/src/core/model-config.ts` | 298 | 2 | done | `crates/pi-coding-agent/src/core/model_config.rs` | TypeBox-equivalent schema via the shared validation engine; differential 21 fixtures (provider maps + exact error text) |
 | `coding-agent/src/core/tools/path-utils.ts` | 118 | 2 | todo |  |  |
 | `coding-agent/src/utils/clipboard.ts` | 175 | 2 | todo |  |  |
 | `coding-agent/src/utils/image-convert.ts` | 49 | 2 | todo |  |  |
 | `coding-agent/src/utils/image-resize-core.ts` | 164 | 2 | todo |  |  |
-| `coding-agent/src/utils/windows-self-update.ts` | 84 | 2 | todo |  |  |
+| `coding-agent/src/utils/windows-self-update.ts` | 84 | 2 | done | `crates/pi-coding-agent/src/utils/windows_self_update.rs` | Injected shared-object list; 6 behavioral cases (layout, dedupe, move/copy-back, cleanup) |
 | `coding-agent/src/core/auth-guidance.ts` | 25 | 3 | done | `crates/pi-coding-agent/src/core/auth_guidance.rs` | Differential oracle for all four messages |
 | `coding-agent/src/core/permissions/rule-store.ts` | 303 | 3 | done | `crates/pi-coding-agent/src/core/rule_store.rs` | In-place settings splice; differential 5 content + 30 write + 9 store steps |
 | `coding-agent/src/core/tools/edit-diff.ts` | 645 | 3 | todo |  |  |
 | `coding-agent/src/core/trust-manager.ts` | 254 | 3 | done | `crates/pi-coding-agent/src/core/trust_manager.rs` | trust.json bytes and 12-step sequence match; shared proper-lockfile protocol |
-| `coding-agent/src/utils/changelog.ts` | 201 | 3 | todo |  |  |
+| `coding-agent/src/utils/changelog.ts` | 201 | 3 | done | `crates/pi-coding-agent/src/utils/changelog.rs` | Differential 24 link cases, parse, 3 comparisons, 4 new-entry queries |
 | `coding-agent/src/utils/image-resize-worker.ts` | 42 | 3 | todo |  |  |
 | `coding-agent/src/utils/image-resize.ts` | 123 | 3 | todo |  |  |
 | `coding-agent/src/utils/shell.ts` | 225 | 3 | done | `crates/pi-coding-agent/src/utils/shell.rs` | Shell resolution, PATH env, output sanitization, tracked process-group kill; behavioral tests |
-| `coding-agent/src/utils/tools-manager.ts` | 365 | 3 | todo |  |  |
+| `coding-agent/src/utils/tools-manager.ts` | 365 | 3 | done | `crates/pi-coding-agent/src/utils/tools_manager.rs` | Injected Fetch + real tar.gz; 11 behavioral cases (assets, discovery, offline, install, failures) |
 | `coding-agent/src/core/remote-catalog-provider.ts` | 132 | 4 | done | `crates/pi-coding-agent/src/core/remote_catalog_provider.rs` | Injected Fetch; 9 behavioral cases (restore, freshness, 304/404/500, parse, abort) |
 | `coding-agent/src/core/resolve-config-value.ts` | 287 | 4 | done | `crates/pi-coding-agent/src/core/config_value.rs` | Full module: templates, commands, cache, or-throw, headers; differential 12050-12083 plus 27 resolve/throw/header requests |
 | `coding-agent/src/core/runtime-credentials.ts` | 58 | 4 | done | `crates/pi-coding-agent/src/core/runtime_credentials.rs` | Overlay masking, list merge, delete ordering |
