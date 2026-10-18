@@ -39,7 +39,7 @@ Tests: `crates/pi-ai/tests/images_models.rs` (8 behavioral, ports the TS suite),
 | unknown/static provider refresh is a no-op | early returns | same |
 
 ## Gaps
-- `builtinImagesModels` lives in `providers/all.ts`, outside this slice; it is covered when the OpenRouter provider module is ported.
+- `builtinImagesModels` lives in `providers/all.ts`, outside this slice; the OpenRouter provider function is ported, but the `all.ts` aggregate remains unported.
 - TypeScript's `getModels` catches providers whose `getModels()` throws. The typed Rust trait returns `Vec<ImagesModel>` and cannot throw, so no catch branch exists.
 - `ModelsError` instances thrown by a provider's own `refreshModels` are rethrown unchanged in TypeScript. The Rust refresh callback returns `CallbackError`, so every failure is wrapped as `model_source`; no current provider produces a `ModelsError` from refresh.
 - `getAuth(model)` in Rust takes `&ImagesModel`; TypeScript's `ImagesModel<ImagesApi>` generic is erased the same way.

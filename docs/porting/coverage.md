@@ -115,7 +115,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/openrouter-images.lazy.ts` | 10 | 3 | done | `crates/pi-ai/src/api/openrouter_images_lazy.rs` | Direct-link factory replacing the dynamic import. |
 | `ai/src/auth/oauth/radius.ts` | 403 | 3 | todo |  |  |
 | `ai/src/image-models.ts` | 42 | 3 | done | `crates/pi-ai/src/image_models.rs` | Lookup/list APIs; `undefined` modeled as `Option`/empty slice (see traceability). |
-| `ai/src/images.ts` | 21 | 3 | todo |  |  |
+| `ai/src/images.ts` | 21 | 3 | done | `crates/pi-ai/src/images.rs` | Builtin registration on first use, registry dispatch, unknown-api error. |
 | `ai/src/index.ts` | 47 | 3 | todo |  |  |
 | `ai/src/legacy-api-aliases.ts` | 108 | 3 | todo |  |  |
 | `ai/src/oauth.ts` | 10 | 3 | todo |  |  |
@@ -134,7 +134,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/providers/google.models.ts` | 8 | 3 | todo |  |  |
 | `ai/src/providers/groq.models.ts` | 8 | 3 | todo |  |  |
 | `ai/src/providers/huggingface.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/images/register-builtins.ts` | 50 | 3 | todo |  |  |
+| `ai/src/providers/images/register-builtins.ts` | 50 | 3 | done | `crates/pi-ai/src/providers/images/register_builtins.rs` | Direct link replaces lazy import; load-error branch is not representable (see traceability). |
 | `ai/src/providers/kimi-coding.models.ts` | 8 | 3 | todo |  |  |
 | `ai/src/providers/minimax-cn.models.ts` | 8 | 3 | todo |  |  |
 | `ai/src/providers/minimax.models.ts` | 8 | 3 | todo |  |  |
@@ -189,7 +189,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/providers/openai.ts` | 15 | 4 | todo |  |  |
 | `ai/src/providers/opencode-go.ts` | 20 | 4 | todo |  |  |
 | `ai/src/providers/opencode.ts` | 24 | 4 | todo |  |  |
-| `ai/src/providers/openrouter-images.ts` | 22 | 4 | todo |  |  |
+| `ai/src/providers/openrouter-images.ts` | 22 | 4 | done | `crates/pi-ai/src/providers/openrouter_images.rs` | Catalog, api-key auth, lazy OAuth surface; OAuth flow module remains an explicit gap (see traceability). |
 | `ai/src/providers/openrouter.ts` | 23 | 4 | todo |  |  |
 | `ai/src/providers/qwen-token-plan-cn.ts` | 15 | 4 | todo |  |  |
 | `ai/src/providers/qwen-token-plan-individual.ts` | 15 | 4 | todo |  |  |
