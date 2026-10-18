@@ -12,7 +12,8 @@ use pi_coding_agent::core::session_control_db::{
 use pi_coding_agent::core::session_manager::{SessionEntry, SessionManager};
 use pi_coding_agent::supervisor::approval_reviewer::review_tool_call_with_supervisor;
 use pi_coding_agent::supervisor::main::{
-    SupervisorSession, block_supervisor_file_access, process_supervisor_request, read_current_supervisor_response,
+    SUPERVISOR_EXCLUDED_TOOL_NAMES, SUPERVISOR_TOOL_NAMES, SupervisorSession, block_supervisor_file_access,
+    create_supervisor_settings_manager, process_supervisor_request, read_current_supervisor_response,
     validate_supervisor_extension_load,
 };
 use pi_coding_agent::supervisor::service::{
@@ -410,6 +411,36 @@ fn blocks_file_access_outside_the_kb_and_symlink_escapes() {
         )
         .is_none()
     );
+}
+
+#[test]
+fn supervisor_settings_and_tool_allowlists_match_the_source() {
+    use pi_coding_agent::core::permissions::policy::ApprovalPolicy;
+    use pi_coding_agent::core::permissions::presets::SandboxProfileName;
+
+    let settings = create_supervisor_settings_manager();
+    assert_eq!(
+        settings.get_explicit_sandbox_profile(),
+        Some(SandboxProfileName::FullAccess)
+    );
+    assert_eq!(settings.get_approval_policy(), ApprovalPolicy::AutoApprove);
+    assert_eq!(SUPERVISOR_TOOL_NAMES, ["read", "edit", "write"]);
+    for excluded in [
+        "ask_architect",
+        "attach_session_agent",
+        "bash",
+        "channel_post",
+        "contact_parent",
+        "loop",
+        "manage_goal",
+        "pyrun_eval",
+        "restart_self",
+        "resume_session",
+        "send_agent_message",
+        "spawn_agent",
+    ] {
+        assert!(SUPERVISOR_EXCLUDED_TOOL_NAMES.contains(&excluded), "{excluded}");
+    }
 }
 
 #[test]
