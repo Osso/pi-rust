@@ -44,7 +44,6 @@ pub fn component<T: Component + 'static>(value: T) -> ComponentRef {
 fn component_id(component: &ComponentRef) -> usize {
     Rc::as_ptr(component) as *const () as usize
 }
-
 fn same_component(left: &ComponentRef, right: &ComponentRef) -> bool {
     Rc::ptr_eq(left, right)
 }
@@ -72,6 +71,11 @@ pub trait Component {
     }
 
     fn as_container(&self) -> Option<&Container> {
+        None
+    }
+
+    /// Downcast hook for callers holding a trait-object component handle.
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
         None
     }
 }
