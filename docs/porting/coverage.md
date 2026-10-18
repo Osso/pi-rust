@@ -633,10 +633,10 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/architect/main.ts` | 308 | 22 | todo |  |  |
 | `coding-agent/src/architect/project-spec.ts` | 70 | 22 | todo |  |  |
 | `coding-agent/src/cli/args.ts` | 481 | 22 | done | `crates/pi-coding-agent/src/cli/args.rs` | `parseArgs`/`printHelp`/`isValidThinkingLevel` plus extension-flag help; 19 focused tests and 47 differential requests ([traceability](traceability/args.md)). |
-| `coding-agent/src/cli/auth-check.ts` | 73 | 22 | todo |  |  |
-| `coding-agent/src/cli/auth-command.ts` | 125 | 22 | partial |  |  |
-| `coding-agent/src/cli/credential-print.ts` | 87 | 22 | todo |  |  |
-| `coding-agent/src/cli/initial-message.ts` | 43 | 22 | todo |  |  |
+| `coding-agent/src/cli/auth-check.ts` | 73 | 22 | done | `crates/pi-coding-agent/src/cli/auth_check.rs` | Readiness results, credential reads, auth-check runtime; 9 boundary tests porting `auth-check.test.ts` ([traceability](traceability/auth-check.md)). |
+| `coding-agent/src/cli/auth-command.ts` | 125 | 22 | done | `crates/pi-coding-agent/src/cli/auth_command.rs` | Parsing plus validation, credential extraction, and help output; 50 differential requests + 14 focused tests ([traceability](traceability/auth-command.md)). |
+| `coding-agent/src/cli/credential-print.ts` | 87 | 22 | done | `crates/pi-coding-agent/src/cli/credential_print.rs` | Provider/model selection, credential-type filtering, exact error messages; 8 boundary tests ([traceability](traceability/credential-print.md)). |
+| `coding-agent/src/cli/initial-message.ts` | 43 | 22 | done | `crates/pi-coding-agent/src/cli/initial_message.rs` | stdin/@file/first-message assembly with message shift; 4 tests ([traceability](traceability/initial-message.md)). |
 | `coding-agent/src/cli/list-extensions.ts` | 113 | 22 | todo |  |  |
 | `coding-agent/src/cli/list-tools.ts` | 91 | 22 | todo |  |  |
 | `coding-agent/src/cli/project-trust.ts` | 62 | 22 | todo |  |  |
