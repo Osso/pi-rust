@@ -547,102 +547,131 @@ fn get_self_update_command_for_method(
     target: &SelfUpdatePackageTarget,
     npm_command: Option<&[String]>,
 ) -> Option<SelfUpdateCommand> {
-    let (package_name, install_spec) = target.resolved();
-    let renamed = package_name != installed_package_name;
     match method {
         InstallMethod::BunBinary | InstallMethod::Unknown => None,
-        InstallMethod::Pnpm => {
-            let resolved_root = read_command_output(context, "pnpm", &["root".to_owned(), "-g".to_owned()], false)
-                .ok()
-                .flatten();
-            let match_path = if resolved_root.is_some() {
-                None
-            } else {
-                pnpm_global_path(&context.package_dir_string())
-            };
-            let bin_dir_args = match match_path {
-                Some(path) => {
-                    let home = context
-                        .environment("PNPM_HOME")
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| host_dirname(&host_dirname(&path)));
-                    vec![format!("--config.global-bin-dir={home}")]
-                }
-                None => Vec::new(),
-            };
-            let mut install_args = vec![
-                "install".to_owned(),
-                "-g".to_owned(),
-                "--ignore-scripts".to_owned(),
-                "--config.minimumReleaseAge=0".to_owned(),
-            ];
-            install_args.extend(bin_dir_args.iter().cloned());
-            install_args.push(install_spec.clone());
-            let install_step = make_step_owned("pnpm", install_args);
-            let uninstall_step = renamed.then(|| {
-                let mut uninstall_args = vec!["remove".to_owned(), "-g".to_owned()];
-                uninstall_args.extend(bin_dir_args.iter().cloned());
-                uninstall_args.push(installed_package_name.to_owned());
-                make_step_owned("pnpm", uninstall_args)
-            });
-            Some(make_command(install_step, uninstall_step))
-        }
-        InstallMethod::Yarn => {
-            let install_step = make_step("yarn", vec!["global", "add", "--ignore-scripts", install_spec.as_str()]);
-            let uninstall_step = renamed.then(|| make_step("yarn", vec!["global", "remove", installed_package_name]));
-            Some(make_command(install_step, uninstall_step))
-        }
-        InstallMethod::Bun => {
-            let install_step = make_step(
-                "bun",
-                vec![
-                    "install",
-                    "-g",
-                    "--ignore-scripts",
-                    "--minimum-release-age=0",
-                    install_spec.as_str(),
-                ],
-            );
-            let uninstall_step = renamed.then(|| make_step("bun", vec!["uninstall", "-g", installed_package_name]));
-            Some(make_command(install_step, uninstall_step))
-        }
-        InstallMethod::Npm => {
-            let configured = npm_command.is_some_and(|args| !args.is_empty());
-            let (command, npm_args) = match npm_command.and_then(|args| args.split_first()) {
-                Some((command, rest)) => (command.clone(), rest.to_vec()),
-                None => ("npm".to_owned(), Vec::new()),
-            };
-            let inferred = if configured {
-                None
-            } else {
-                get_inferred_npm_install(context)
-            };
-            let mut prefix_args = npm_args;
-            if let Some((_, prefix)) = inferred {
-                prefix_args.push("--prefix".to_owned());
-                prefix_args.push(prefix);
-            }
-            let mut install_args = prefix_args.clone();
-            install_args.extend([
-                "install".to_owned(),
-                "-g".to_owned(),
-                "--ignore-scripts".to_owned(),
-                "--min-release-age=0".to_owned(),
-                install_spec.clone(),
-            ]);
-            let install_step = make_step_owned(&command, install_args);
-            let uninstall_step = renamed.then(|| {
-                let mut uninstall_args = prefix_args.clone();
-                uninstall_args.extend([
-                    "uninstall".to_owned(),
-                    "-g".to_owned(),
-                    installed_package_name.to_owned(),
-                ]);
-                make_step_owned(&command, uninstall_args)
-            });
-            Some(make_command(install_step, uninstall_step))
-        }
+        InstallMethod::Pnpm => pnpm_self_update_command(context, installed_package_name, target),
+        InstallMethod::Yarn => yarn_self_update_command(installed_package_name, target),
+        InstallMethod::Bun => bun_self_update_command(installed_package_name, target),
+        InstallMethod::Npm => npm_self_update_command(context, installed_package_name, target, npm_command),
     }
+}
+
+fn pnpm_self_update_command(
+    context: &InstallContext,
+    installed_package_name: &str,
+    target: &SelfUpdatePackageTarget,
+) -> Option<SelfUpdateCommand> {
+    let (package_name, install_spec) = target.resolved();
+    let renamed = package_name != installed_package_name;
+    let resolved_root = read_command_output(context, "pnpm", &["root".to_owned(), "-g".to_owned()], false)
+        .ok()
+        .flatten();
+    let match_path = if resolved_root.is_some() {
+        None
+    } else {
+        pnpm_global_path(&context.package_dir_string())
+    };
+    let bin_dir_args = match match_path {
+        Some(path) => {
+            let home = context
+                .environment("PNPM_HOME")
+                .map(str::to_owned)
+                .unwrap_or_else(|| host_dirname(&host_dirname(&path)));
+            vec![format!("--config.global-bin-dir={home}")]
+        }
+        None => Vec::new(),
+    };
+    let mut install_args = vec![
+        "install".to_owned(),
+        "-g".to_owned(),
+        "--ignore-scripts".to_owned(),
+        "--config.minimumReleaseAge=0".to_owned(),
+    ];
+    install_args.extend(bin_dir_args.iter().cloned());
+    install_args.push(install_spec.clone());
+    let install_step = make_step_owned("pnpm", install_args);
+    let uninstall_step = renamed.then(|| {
+        let mut uninstall_args = vec!["remove".to_owned(), "-g".to_owned()];
+        uninstall_args.extend(bin_dir_args.iter().cloned());
+        uninstall_args.push(installed_package_name.to_owned());
+        make_step_owned("pnpm", uninstall_args)
+    });
+    Some(make_command(install_step, uninstall_step))
+}
+
+fn yarn_self_update_command(
+    installed_package_name: &str,
+    target: &SelfUpdatePackageTarget,
+) -> Option<SelfUpdateCommand> {
+    let (package_name, install_spec) = target.resolved();
+    let renamed = package_name != installed_package_name;
+    let install_step = make_step("yarn", vec!["global", "add", "--ignore-scripts", install_spec.as_str()]);
+    let uninstall_step = renamed.then(|| make_step("yarn", vec!["global", "remove", installed_package_name]));
+    Some(make_command(install_step, uninstall_step))
+}
+
+fn bun_self_update_command(
+    installed_package_name: &str,
+    target: &SelfUpdatePackageTarget,
+) -> Option<SelfUpdateCommand> {
+    let (package_name, install_spec) = target.resolved();
+    let renamed = package_name != installed_package_name;
+    let install_step = make_step(
+        "bun",
+        vec![
+            "install",
+            "-g",
+            "--ignore-scripts",
+            "--minimum-release-age=0",
+            install_spec.as_str(),
+        ],
+    );
+    let uninstall_step = renamed.then(|| make_step("bun", vec!["uninstall", "-g", installed_package_name]));
+    Some(make_command(install_step, uninstall_step))
+}
+
+fn npm_self_update_command(
+    context: &InstallContext,
+    installed_package_name: &str,
+    target: &SelfUpdatePackageTarget,
+    npm_command: Option<&[String]>,
+) -> Option<SelfUpdateCommand> {
+    let (package_name, install_spec) = target.resolved();
+    let renamed = package_name != installed_package_name;
+    let configured = npm_command.is_some_and(|args| !args.is_empty());
+    let (command, npm_args) = match npm_command.and_then(|args| args.split_first()) {
+        Some((command, rest)) => (command.clone(), rest.to_vec()),
+        None => ("npm".to_owned(), Vec::new()),
+    };
+    let inferred = if configured {
+        None
+    } else {
+        get_inferred_npm_install(context)
+    };
+    let mut prefix_args = npm_args;
+    if let Some((_, prefix)) = inferred {
+        prefix_args.push("--prefix".to_owned());
+        prefix_args.push(prefix);
+    }
+    let mut install_args = prefix_args.clone();
+    install_args.extend([
+        "install".to_owned(),
+        "-g".to_owned(),
+        "--ignore-scripts".to_owned(),
+        "--min-release-age=0".to_owned(),
+        install_spec.clone(),
+    ]);
+    let install_step = make_step_owned(&command, install_args);
+    let uninstall_step = renamed.then(|| {
+        let mut uninstall_args = prefix_args.clone();
+        uninstall_args.extend([
+            "uninstall".to_owned(),
+            "-g".to_owned(),
+            installed_package_name.to_owned(),
+        ]);
+        make_step_owned(&command, uninstall_args)
+    });
+    Some(make_command(install_step, uninstall_step))
 }
 
 fn make_command(
@@ -700,49 +729,55 @@ fn read_command_output(
     if let Some(path) = &context.path_env {
         builder.env("PATH", path);
     }
-    let output = builder.output();
-    let result = match output {
+    let output = match builder.output() {
         Ok(output) => output,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            if require_success {
-                return Err(ConfigError::new(format!(
-                    "Failed to run {}: spawn {} ENOENT",
-                    display_command(command, args),
-                    command
-                )));
-            }
-            return Ok(None);
-        }
-        Err(error) => {
-            if require_success {
-                return Err(ConfigError::new(format!(
-                    "Failed to run {}: {error}",
-                    display_command(command, args)
-                )));
-            }
-            return Ok(None);
-        }
+        Err(error) => return spawn_failure(command, args, error, require_success),
     };
-    if result.status.success() {
-        let stdout = String::from_utf8_lossy(&result.stdout).trim().to_owned();
-        return Ok((!stdout.is_empty()).then_some(stdout));
+    if output.status.success() {
+        return Ok(non_empty_stdout(&output.stdout));
     }
     if require_success {
-        let stderr = String::from_utf8_lossy(&result.stderr).trim().to_owned();
-        let reason = if stderr.is_empty() {
-            match result.status.code() {
-                Some(code) => format!("exit code {code}"),
-                None => "exit code unknown".to_owned(),
-            }
-        } else {
-            stderr
-        };
-        return Err(ConfigError::new(format!(
-            "Failed to run {}: {reason}",
-            display_command(command, args)
-        )));
+        return Err(exit_failure(command, args, &output));
     }
     Ok(None)
+}
+
+fn spawn_failure(
+    command: &str,
+    args: &[String],
+    error: std::io::Error,
+    require_success: bool,
+) -> Result<Option<String>, ConfigError> {
+    if !require_success {
+        return Ok(None);
+    }
+    let reason = if error.kind() == std::io::ErrorKind::NotFound {
+        format!("spawn {command} ENOENT")
+    } else {
+        error.to_string()
+    };
+    Err(ConfigError::new(format!(
+        "Failed to run {}: {reason}",
+        display_command(command, args)
+    )))
+}
+
+fn non_empty_stdout(stdout: &[u8]) -> Option<String> {
+    let stdout = String::from_utf8_lossy(stdout).trim().to_owned();
+    (!stdout.is_empty()).then_some(stdout)
+}
+
+fn exit_failure(command: &str, args: &[String], output: &std::process::Output) -> ConfigError {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    let reason = if stderr.is_empty() {
+        match output.status.code() {
+            Some(code) => format!("exit code {code}"),
+            None => "exit code unknown".to_owned(),
+        }
+    } else {
+        stderr
+    };
+    ConfigError::new(format!("Failed to run {}: {reason}", display_command(command, args)))
 }
 
 fn display_command(command: &str, args: &[String]) -> String {
@@ -773,51 +808,60 @@ fn get_inferred_npm_install(context: &InstallContext) -> Option<(String, String)
     Some((root, flavor.dirname(&root_parent)))
 }
 
+fn npm_global_package_roots(
+    context: &InstallContext,
+    npm_command: Option<&[String]>,
+) -> Result<Vec<String>, ConfigError> {
+    let configured = npm_command.is_some_and(|args| !args.is_empty());
+    let (command, npm_args) = match npm_command.and_then(|args| args.split_first()) {
+        Some((command, rest)) => (command.clone(), rest.to_vec()),
+        None => ("npm".to_owned(), Vec::new()),
+    };
+    if configured && command == "bun" {
+        return bun_global_package_roots(context, &command, npm_args);
+    }
+    let root = read_command_output(
+        context,
+        &command,
+        &[npm_args, vec!["root".to_owned(), "-g".to_owned()]].concat(),
+        configured,
+    )?;
+    let inferred = if configured {
+        None
+    } else {
+        get_inferred_npm_install(context)
+    };
+    Ok([root, inferred.map(|(root, _)| root)].into_iter().flatten().collect())
+}
+
+fn bun_global_package_roots(
+    context: &InstallContext,
+    command: &str,
+    npm_args: Vec<String>,
+) -> Result<Vec<String>, ConfigError> {
+    let bun_bin = read_command_output(
+        context,
+        command,
+        &[npm_args, vec!["pm".to_owned(), "bin".to_owned(), "-g".to_owned()]].concat(),
+        true,
+    )?;
+    let mut roots = vec![join(
+        &context.home.display().to_string(),
+        ".bun/install/global/node_modules",
+    )];
+    if let Some(bun_bin) = bun_bin {
+        roots.push(join(&host_dirname(&bun_bin), "install/global/node_modules"));
+    }
+    Ok(roots)
+}
+
 fn get_global_package_roots(
     context: &InstallContext,
     method: InstallMethod,
     npm_command: Option<&[String]>,
 ) -> Result<Vec<String>, ConfigError> {
     match method {
-        InstallMethod::Npm => {
-            let configured = npm_command.is_some_and(|args| !args.is_empty());
-            let (command, npm_args) = match npm_command.and_then(|args| args.split_first()) {
-                Some((command, rest)) => (command.clone(), rest.to_vec()),
-                None => ("npm".to_owned(), Vec::new()),
-            };
-            if configured && command == "bun" {
-                let bun_bin = read_command_output(
-                    context,
-                    &command,
-                    &[
-                        npm_args.clone(),
-                        vec!["pm".to_owned(), "bin".to_owned(), "-g".to_owned()],
-                    ]
-                    .concat(),
-                    true,
-                )?;
-                let mut roots = vec![join(
-                    &context.home.display().to_string(),
-                    ".bun/install/global/node_modules",
-                )];
-                if let Some(bun_bin) = bun_bin {
-                    roots.push(join(&host_dirname(&bun_bin), "install/global/node_modules"));
-                }
-                return Ok(roots);
-            }
-            let root = read_command_output(
-                context,
-                &command,
-                &[npm_args, vec!["root".to_owned(), "-g".to_owned()]].concat(),
-                configured,
-            )?;
-            let inferred = if configured {
-                None
-            } else {
-                get_inferred_npm_install(context)
-            };
-            Ok([root, inferred.map(|(root, _)| root)].into_iter().flatten().collect())
-        }
+        InstallMethod::Npm => npm_global_package_roots(context, npm_command),
         InstallMethod::Pnpm => {
             let root = read_command_output(context, "pnpm", &["root".to_owned(), "-g".to_owned()], false)?;
             if let Some(root) = root {

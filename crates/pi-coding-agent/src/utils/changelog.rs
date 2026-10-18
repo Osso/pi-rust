@@ -145,52 +145,66 @@ fn replace_path_segment(haystack: &str, needle: &str, replacement: &str) -> Stri
 
 fn normalize_changelog_link_target(target: &str, tag: &str) -> String {
     let repo_url = format!("https://github.com/{GITHUB_REPO}");
-    let mut canonical_target = target.to_owned();
+    let canonical_target = rewrite_legacy_repo(target, &repo_url);
+    let canonical_target = rewrite_agent_package_path(canonical_target, &repo_url);
+    let canonical_target = pin_floating_ref(canonical_target, &repo_url, tag);
+    if is_external_target(&canonical_target) {
+        return canonical_target;
+    }
+    pin_local_target(&canonical_target, tag)
+}
+
+fn rewrite_legacy_repo(target: &str, repo_url: &str) -> String {
     for legacy_prefix in [
         "https://github.com/badlogic/pi-mono",
         "https://github.com/earendil-works/pi-mono",
     ] {
-        if let Some(remainder) = canonical_target.strip_prefix(legacy_prefix)
+        if let Some(remainder) = target.strip_prefix(legacy_prefix)
             && (remainder.is_empty() || remainder.starts_with('/'))
         {
-            canonical_target = format!("{repo_url}{remainder}");
-            break;
+            return format!("{repo_url}{remainder}");
         }
     }
+    target.to_owned()
+}
 
-    if canonical_target.starts_with(&format!("{repo_url}/blob/"))
-        || canonical_target.starts_with(&format!("{repo_url}/tree/"))
-    {
-        canonical_target = replace_path_segment(&canonical_target, "/packages/agent", "/packages/agent-core");
+fn rewrite_agent_package_path(target: String, repo_url: &str) -> String {
+    let is_repository_url =
+        target.starts_with(&format!("{repo_url}/blob/")) || target.starts_with(&format!("{repo_url}/tree/"));
+    if !is_repository_url {
+        return target;
     }
+    replace_path_segment(&target, "/packages/agent", "/packages/agent-core")
+}
 
+fn pin_floating_ref(target: String, repo_url: &str, tag: &str) -> String {
     for route in ["blob", "tree"] {
         for branch in ["main", "master"] {
             let floating_ref_prefix = format!("{repo_url}/{route}/{branch}/");
-            if let Some(remainder) = canonical_target.strip_prefix(&floating_ref_prefix) {
-                canonical_target = format!("{repo_url}/{route}/{tag}/{remainder}");
+            if let Some(remainder) = target.strip_prefix(&floating_ref_prefix) {
+                return format!("{repo_url}/{route}/{tag}/{remainder}");
             }
         }
     }
+    target
+}
 
+fn is_external_target(target: &str) -> bool {
     let scheme_regex = Regex::new(r"^[a-zA-Z][a-zA-Z0-9+.-]*:").expect("static regex");
-    if canonical_target.starts_with('#')
-        || canonical_target.starts_with("//")
-        || scheme_regex.is_match(&canonical_target)
-    {
-        return canonical_target;
-    }
+    target.starts_with('#') || target.starts_with("//") || scheme_regex.is_match(target)
+}
 
+fn pin_local_target(target: &str, tag: &str) -> String {
     let LocalTarget {
         fragment,
         path_part,
         query,
-    } = split_local_target(&canonical_target);
+    } = split_local_target(target);
     if path_part.is_empty() {
-        return canonical_target;
+        return target.to_owned();
     }
     let Some(repository_path) = resolve_repository_path(&path_part) else {
-        return canonical_target;
+        return target.to_owned();
     };
     let route = if is_directory_target(&path_part, &repository_path) {
         "tree"
@@ -227,15 +241,8 @@ pub fn normalize_changelog_links_for_entry(markdown: &str, version: &str) -> Str
 
 /// Parses `## x.y.z` entries from `CHANGELOG.md`.
 pub fn parse_changelog(changelog_path: &str) -> Vec<ChangelogEntry> {
-    if !Path::new(changelog_path).exists() {
+    let Some(content) = read_changelog_file(changelog_path) else {
         return Vec::new();
-    }
-    let content = match std::fs::read_to_string(changelog_path) {
-        Ok(content) => content,
-        Err(error) => {
-            eprintln!("Warning: Could not parse changelog: {error}");
-            return Vec::new();
-        }
     };
     let version_regex = Regex::new(r"##\s+\[?(\d+)\.(\d+)\.(\d+)\]?").expect("static regex");
     let mut entries = Vec::new();
@@ -244,16 +251,7 @@ pub fn parse_changelog(changelog_path: &str) -> Vec<ChangelogEntry> {
 
     for line in content.split('\n') {
         if line.starts_with("## ") {
-            if let Some((major, minor, patch)) = current_version
-                && !current_lines.is_empty()
-            {
-                entries.push(ChangelogEntry {
-                    major,
-                    minor,
-                    patch,
-                    content: current_lines.join("\n").trim().to_owned(),
-                });
-            }
+            push_entry(&mut entries, current_version, &current_lines);
             match version_regex.captures(line) {
                 Some(captures) => {
                     current_version = Some((
@@ -273,17 +271,36 @@ pub fn parse_changelog(changelog_path: &str) -> Vec<ChangelogEntry> {
         }
     }
 
-    if let Some((major, minor, patch)) = current_version
-        && !current_lines.is_empty()
-    {
-        entries.push(ChangelogEntry {
-            major,
-            minor,
-            patch,
-            content: current_lines.join("\n").trim().to_owned(),
-        });
-    }
+    push_entry(&mut entries, current_version, &current_lines);
     entries
+}
+
+fn read_changelog_file(changelog_path: &str) -> Option<String> {
+    if !Path::new(changelog_path).exists() {
+        return None;
+    }
+    match std::fs::read_to_string(changelog_path) {
+        Ok(content) => Some(content),
+        Err(error) => {
+            eprintln!("Warning: Could not parse changelog: {error}");
+            None
+        }
+    }
+}
+
+fn push_entry(entries: &mut Vec<ChangelogEntry>, version: Option<(u64, u64, u64)>, lines: &[String]) {
+    let Some((major, minor, patch)) = version else {
+        return;
+    };
+    if lines.is_empty() {
+        return;
+    }
+    entries.push(ChangelogEntry {
+        major,
+        minor,
+        patch,
+        content: lines.join("\n").trim().to_owned(),
+    });
 }
 
 /// Orders entries by version.

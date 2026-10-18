@@ -10,8 +10,8 @@ use pi_ai::auth::types::{Credential, ProviderAuth};
 use pi_ai::models::{ModelsPublication, PersistAction, Provider, RefreshModelsContext};
 use pi_ai::models_store::ModelsStoreEntry;
 use pi_ai::request::{
-    BoxFuture, CallbackError, DeferredCancelOptions, DeferredFetchOptions, Fetch, HeaderTransform, HttpRequest,
-    SimpleStreamOptions, StreamOptions,
+    BoxFuture, CallbackError, DeferredCancelOptions, DeferredFetchOptions, Fetch, HeaderTransform, HttpBody,
+    HttpRequest, HttpResponse, SimpleStreamOptions, StreamOptions,
 };
 use pi_ai::types::{Context, DeferredHandle, Model, ProviderHeaders};
 use serde_json::Value;
@@ -166,11 +166,7 @@ impl Provider for RemoteCatalogProvider {
         let publisher = Arc::clone(&self.dynamic_models);
 
         Some(Box::pin(async move {
-            let published = (context.publish)(ModelsPublication::new(PersistAction::Unchanged).with_update({
-                let dynamic_models = Arc::clone(&dynamic_models);
-                move || *lock(&dynamic_models) = restored.clone()
-            }))
-            .await?;
+            let published = publish_restored_models(&context, restored, &dynamic_models).await?;
             if !published {
                 return Ok(());
             }
@@ -178,33 +174,15 @@ impl Provider for RemoteCatalogProvider {
                 return Ok(());
             }
             let stored = context.stored.clone();
-            let checked_at_recent = stored.as_ref().is_some_and(|entry| {
-                entry.checked_at.is_some()
-                    && entry.last_modified.is_some()
-                    && now_ms() - entry.checked_at.unwrap_or_default() < REMOTE_CATALOG_REFRESH_INTERVAL_MS
-            });
-            if context.force != Some(true) && checked_at_recent {
+            if catalog_is_fresh(&context, stored.as_ref()) {
                 return Ok(());
-            }
-
-            // Only revalidate when a cached body backs the validator.
-            let validator = stored
-                .as_ref()
-                .filter(|entry| !entry.models.is_empty())
-                .and_then(|entry| entry.etag.clone());
-            let mut headers = vec![
-                ("accept".to_owned(), "application/json".to_owned()),
-                ("user-agent".to_owned(), get_pi_user_agent(&package_config().version)),
-            ];
-            if let Some(validator) = &validator {
-                headers.push(("if-none-match".to_owned(), validator.clone()));
             }
             let response = fetch_with_retry(
                 fetch.as_ref(),
                 HttpRequest {
                     method: "GET".to_owned(),
                     url,
-                    headers,
+                    headers: catalog_request_headers(stored.as_ref()),
                     body: None,
                 },
                 Some(context.signal.clone()),
@@ -215,43 +193,20 @@ impl Provider for RemoteCatalogProvider {
                 return Ok(());
             }
             let checked_at = now_ms();
-
-            if response.status == 304
-                && let Some(stored) = &stored
-            {
-                let mut entry = stored.clone();
-                entry.checked_at = Some(checked_at);
-                (context.publish)(ModelsPublication::new(PersistAction::Write(entry))).await?;
-                return Ok(());
-            }
-            if response.status == 404 || response.status == 501 {
-                let mut entry = stored.clone().unwrap_or_else(|| ModelsStoreEntry::new(Vec::new()));
-                entry.checked_at = Some(checked_at);
-                entry.last_modified = Some(0.0);
-                entry.etag = None;
-                (context.publish)(ModelsPublication::new(PersistAction::Write(entry))).await?;
-                return Ok(());
-            }
-            if !(200..300).contains(&response.status) {
-                // Transient failure: keep the cached body and its validator.
-                let mut entry = stored.clone().unwrap_or_else(|| ModelsStoreEntry::new(Vec::new()));
-                entry.checked_at = Some(checked_at);
-                (context.publish)(ModelsPublication::new(PersistAction::Write(entry))).await?;
-                return Err(CallbackError::new(format!(
-                    "Model catalog request failed for {provider_id}: {}",
-                    response.status
-                )));
-            }
-
-            let last_modified = header_value(&response.headers, "last-modified")
-                .and_then(|value| httpdate::parse_http_date(value).ok())
-                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|elapsed| elapsed.as_millis() as f64)
-                .unwrap_or(0.0);
-            let etag = header_value(&response.headers, "etag").map(str::to_owned);
-            let body = read_body_text(response.body).await?;
-            let parsed: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
-            let refreshed = parse_catalog(&provider_id, &parsed)?;
+            let (refreshed, last_modified, etag) =
+                match apply_catalog_response(&context, &provider_id, stored.as_ref(), response, checked_at).await? {
+                    CatalogResponse::Cached | CatalogResponse::Missing => return Ok(()),
+                    CatalogResponse::Transient(status) => {
+                        return Err(CallbackError::new(format!(
+                            "Model catalog request failed for {provider_id}: {status}"
+                        )));
+                    }
+                    CatalogResponse::Fresh {
+                        models,
+                        last_modified,
+                        etag,
+                    } => (models, last_modified, etag),
+                };
             if context.signal.is_cancelled() {
                 return Ok(());
             }
@@ -318,6 +273,127 @@ impl Provider for RemoteCatalogProvider {
     ) -> BoxFuture<'static, Result<(), CallbackError>> {
         self.inner.cancel_deferred(model, handle, options)
     }
+}
+
+enum CatalogResponse {
+    Cached,
+    Missing,
+    Transient(u16),
+    Fresh {
+        models: Vec<Model>,
+        last_modified: f64,
+        etag: Option<String>,
+    },
+}
+
+async fn apply_catalog_response(
+    context: &RefreshModelsContext,
+    provider_id: &str,
+    stored: Option<&ModelsStoreEntry>,
+    response: HttpResponse,
+    checked_at: f64,
+) -> Result<CatalogResponse, CallbackError> {
+    if response.status == 304
+        && let Some(stored) = stored
+    {
+        publish_entry(context, entry_with_check_time(stored, checked_at)).await?;
+        return Ok(CatalogResponse::Cached);
+    }
+    if response.status == 404 || response.status == 501 {
+        publish_entry(context, cleared_entry(stored, checked_at)).await?;
+        return Ok(CatalogResponse::Missing);
+    }
+    if !(200..300).contains(&response.status) {
+        // Transient failure: keep the cached body and its validator.
+        let entry = stored.map_or_else(
+            || entry_with_check_time(&ModelsStoreEntry::new(Vec::new()), checked_at),
+            |stored| entry_with_check_time(stored, checked_at),
+        );
+        publish_entry(context, entry).await?;
+        return Ok(CatalogResponse::Transient(response.status));
+    }
+    let last_modified = response_last_modified(&response.headers);
+    let etag = header_value(&response.headers, "etag").map(str::to_owned);
+    let models = parse_response_catalog(provider_id, response.body).await?;
+    Ok(CatalogResponse::Fresh {
+        models,
+        last_modified,
+        etag,
+    })
+}
+
+async fn publish_restored_models(
+    context: &RefreshModelsContext,
+    restored: Vec<Model>,
+    dynamic_models: &Arc<Mutex<Vec<Model>>>,
+) -> Result<bool, CallbackError> {
+    let dynamic_models = Arc::clone(dynamic_models);
+    (context.publish)(
+        ModelsPublication::new(PersistAction::Unchanged).with_update(move || *lock(&dynamic_models) = restored.clone()),
+    )
+    .await
+}
+
+fn catalog_is_fresh(context: &RefreshModelsContext, stored: Option<&ModelsStoreEntry>) -> bool {
+    if context.force == Some(true) {
+        return false;
+    }
+    let Some(stored) = stored else {
+        return false;
+    };
+    let (Some(checked_at), Some(_)) = (stored.checked_at, stored.last_modified) else {
+        return false;
+    };
+    now_ms() - checked_at < REMOTE_CATALOG_REFRESH_INTERVAL_MS
+}
+
+/// Only revalidate when a cached body backs the validator.
+fn catalog_request_headers(stored: Option<&ModelsStoreEntry>) -> Vec<(String, String)> {
+    let mut headers = vec![
+        ("accept".to_owned(), "application/json".to_owned()),
+        ("user-agent".to_owned(), get_pi_user_agent(&package_config().version)),
+    ];
+    let validator = stored
+        .filter(|entry| !entry.models.is_empty())
+        .and_then(|entry| entry.etag.clone());
+    if let Some(validator) = validator {
+        headers.push(("if-none-match".to_owned(), validator));
+    }
+    headers
+}
+
+async fn publish_entry(context: &RefreshModelsContext, entry: ModelsStoreEntry) -> Result<(), CallbackError> {
+    (context.publish)(ModelsPublication::new(PersistAction::Write(entry)))
+        .await
+        .map(|_| ())
+}
+
+fn entry_with_check_time(stored: &ModelsStoreEntry, checked_at: f64) -> ModelsStoreEntry {
+    let mut entry = stored.clone();
+    entry.checked_at = Some(checked_at);
+    entry
+}
+
+fn cleared_entry(stored: Option<&ModelsStoreEntry>, checked_at: f64) -> ModelsStoreEntry {
+    let mut entry = stored.cloned().unwrap_or_else(|| ModelsStoreEntry::new(Vec::new()));
+    entry.checked_at = Some(checked_at);
+    entry.last_modified = Some(0.0);
+    entry.etag = None;
+    entry
+}
+
+fn response_last_modified(headers: &[(String, String)]) -> f64 {
+    header_value(headers, "last-modified")
+        .and_then(|value| httpdate::parse_http_date(value).ok())
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|elapsed| elapsed.as_millis() as f64)
+        .unwrap_or(0.0)
+}
+
+async fn parse_response_catalog(provider_id: &str, body: Box<dyn HttpBody>) -> Result<Vec<Model>, CallbackError> {
+    let body = read_body_text(body).await?;
+    let parsed: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+    parse_catalog(provider_id, &parsed)
 }
 
 fn now_ms() -> f64 {

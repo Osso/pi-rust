@@ -111,14 +111,26 @@ pub fn parse_semver(version: &str) -> Option<Semver> {
         return None;
     }
     let body = trimmed.strip_prefix('v').unwrap_or(trimmed);
-    let (without_build, build) = match body.split_once('+') {
-        Some((main, build)) => (main, Some(build)),
-        None => (body, None),
-    };
-    let (core, prerelease) = match without_build.split_once('-') {
-        Some((core, prerelease)) => (core, Some(prerelease)),
-        None => (without_build, None),
-    };
+    let (without_build, build) = split_once_optional(body, '+');
+    let (core, prerelease) = split_once_optional(without_build, '-');
+    let (major, minor, patch) = parse_core_version(core)?;
+    Some(Semver {
+        major,
+        minor,
+        patch,
+        prerelease: parse_prerelease(prerelease)?,
+        build: parse_build_metadata(build)?,
+    })
+}
+
+fn split_once_optional(value: &str, separator: char) -> (&str, Option<&str>) {
+    match value.split_once(separator) {
+        Some((head, tail)) => (head, Some(tail)),
+        None => (value, None),
+    }
+}
+
+fn parse_core_version(core: &str) -> Option<(u64, u64, u64)> {
     let mut parts = core.split('.');
     let major = parts.next()?;
     let minor = parts.next()?;
@@ -129,40 +141,37 @@ pub fn parse_semver(version: &str) -> Option<Semver> {
     if !valid_numeric_identifier(major) || !valid_numeric_identifier(minor) || !valid_numeric_identifier(patch) {
         return None;
     }
-    let major: u64 = major.parse().ok().filter(|value| *value <= MAX_SAFE_INTEGER)?;
-    let minor: u64 = minor.parse().ok().filter(|value| *value <= MAX_SAFE_INTEGER)?;
-    let patch: u64 = patch.parse().ok().filter(|value| *value <= MAX_SAFE_INTEGER)?;
+    Some((
+        parse_safe_number(major)?,
+        parse_safe_number(minor)?,
+        parse_safe_number(patch)?,
+    ))
+}
 
-    let prerelease = match prerelease {
-        None => Vec::new(),
-        Some(prerelease) => {
-            let identifiers: Vec<String> = prerelease.split('.').map(str::to_owned).collect();
-            if identifiers
-                .iter()
-                .any(|identifier| !valid_prerelease_identifier(identifier))
-            {
-                return None;
-            }
-            identifiers
-        }
+fn parse_safe_number(value: &str) -> Option<u64> {
+    value.parse().ok().filter(|value| *value <= MAX_SAFE_INTEGER)
+}
+
+fn parse_prerelease(prerelease: Option<&str>) -> Option<Vec<String>> {
+    let Some(prerelease) = prerelease else {
+        return Some(Vec::new());
     };
-    let build = match build {
-        None => Vec::new(),
-        Some(build) => {
-            let identifiers: Vec<String> = build.split('.').map(str::to_owned).collect();
-            if identifiers.iter().any(|identifier| !valid_build_identifier(identifier)) {
-                return None;
-            }
-            identifiers
-        }
+    let identifiers: Vec<String> = prerelease.split('.').map(str::to_owned).collect();
+    identifiers
+        .iter()
+        .all(|identifier| valid_prerelease_identifier(identifier))
+        .then_some(identifiers)
+}
+
+fn parse_build_metadata(build: Option<&str>) -> Option<Vec<String>> {
+    let Some(build) = build else {
+        return Some(Vec::new());
     };
-    Some(Semver {
-        major,
-        minor,
-        patch,
-        prerelease,
-        build,
-    })
+    let identifiers: Vec<String> = build.split('.').map(str::to_owned).collect();
+    identifiers
+        .iter()
+        .all(|identifier| valid_build_identifier(identifier))
+        .then_some(identifiers)
 }
 
 fn compare_identifiers(left: &str, right: &str) -> std::cmp::Ordering {
@@ -276,28 +285,30 @@ pub async fn get_latest_pi_release(
         return None;
     }
     let body = read_body(response.body).await?;
-    let data: Value = serde_json::from_str(&body).ok()?;
+    parse_release_payload(&body)
+}
+
+fn parse_release_payload(body: &str) -> Option<LatestPiRelease> {
+    let data: Value = serde_json::from_str(body).ok()?;
     let version = data.get("version").and_then(Value::as_str)?.trim().to_owned();
     if version.is_empty() {
         return None;
     }
-    let package_name = data
-        .get("packageName")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned);
-    let note = data
-        .get("note")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned);
+    let package_name = trimmed_string_field(&data, "packageName");
+    let note = trimmed_string_field(&data, "note");
     Some(LatestPiRelease {
         version,
         package_name,
         note,
     })
+}
+
+fn trimmed_string_field(data: &Value, field: &str) -> Option<String> {
+    data.get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
 }
 
 /// `getLatestPiVersion`.

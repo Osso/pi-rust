@@ -349,70 +349,63 @@ impl ToolsManager {
     }
 
     fn extract_zip(&self, archive_path: &Path, extract_dir: &Path, asset: &str) -> Result<(), ToolsError> {
-        let mut failures = Vec::new();
-        if self.platform == "win32" {
-            let tar_command = self.windows_tar_command();
-            if let Some(failure) = self.run_extraction_command(
-                &tar_command,
-                &[
-                    "xf".to_owned(),
-                    archive_path.display().to_string(),
-                    "-C".to_owned(),
-                    extract_dir.display().to_string(),
-                ],
-            ) {
-                failures.push(failure);
-            } else {
-                return Ok(());
-            }
-            let script = "& { param($archive, $destination) $ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force }";
-            if let Some(failure) = self.run_extraction_command(
-                "powershell.exe",
-                &[
-                    "-NoLogo".to_owned(),
-                    "-NoProfile".to_owned(),
-                    "-NonInteractive".to_owned(),
-                    "-ExecutionPolicy".to_owned(),
-                    "Bypass".to_owned(),
-                    "-Command".to_owned(),
-                    script.to_owned(),
-                    archive_path.display().to_string(),
-                    extract_dir.display().to_string(),
-                ],
-            ) {
-                failures.push(failure);
-            } else {
-                return Ok(());
-            }
+        let failures = if self.platform == "win32" {
+            self.extract_zip_on_windows(archive_path, extract_dir)
         } else {
-            if let Some(failure) = self.run_extraction_command(
-                "unzip",
-                &[
-                    "-q".to_owned(),
-                    archive_path.display().to_string(),
-                    "-d".to_owned(),
-                    extract_dir.display().to_string(),
-                ],
-            ) {
-                failures.push(failure);
-            } else {
-                return Ok(());
-            }
-            if let Some(failure) = self.run_extraction_command(
-                "tar",
-                &[
-                    "xf".to_owned(),
-                    archive_path.display().to_string(),
-                    "-C".to_owned(),
-                    extract_dir.display().to_string(),
-                ],
-            ) {
-                failures.push(failure);
-            } else {
-                return Ok(());
-            }
+            self.extract_zip_on_unix(archive_path, extract_dir)
+        };
+        match failures {
+            None => Ok(()),
+            Some(failures) => Err(error(format!("Failed to extract {asset}: {failures}"))),
         }
-        Err(error(format!("Failed to extract {asset}: {}", failures.join("; "))))
+    }
+
+    fn extract_zip_on_windows(&self, archive_path: &Path, extract_dir: &Path) -> Option<String> {
+        let mut failures = Vec::new();
+        let tar_command = self.windows_tar_command();
+        let tar_failure = self.run_extraction_command(
+            &tar_command,
+            &[
+                "xf".to_owned(),
+                archive_path.display().to_string(),
+                "-C".to_owned(),
+                extract_dir.display().to_string(),
+            ],
+        );
+        failures.push(tar_failure?);
+
+        let powershell_failure = self.run_extraction_command(
+            "powershell.exe",
+            &powershell_expand_archive_args(archive_path, extract_dir),
+        );
+        failures.push(powershell_failure?);
+        Some(failures.join("; "))
+    }
+
+    fn extract_zip_on_unix(&self, archive_path: &Path, extract_dir: &Path) -> Option<String> {
+        let mut failures = Vec::new();
+        let unzip_failure = self.run_extraction_command(
+            "unzip",
+            &[
+                "-q".to_owned(),
+                archive_path.display().to_string(),
+                "-d".to_owned(),
+                extract_dir.display().to_string(),
+            ],
+        );
+        failures.push(unzip_failure?);
+
+        let tar_failure = self.run_extraction_command(
+            "tar",
+            &[
+                "xf".to_owned(),
+                archive_path.display().to_string(),
+                "-C".to_owned(),
+                extract_dir.display().to_string(),
+            ],
+        );
+        failures.push(tar_failure?);
+        Some(failures.join("; "))
     }
 
     fn windows_tar_command(&self) -> String {
@@ -535,6 +528,21 @@ async fn read_body(mut body: Box<dyn pi_ai::request::HttpBody>) -> Option<String
         bytes.extend_from_slice(&chunk.ok()?);
     }
     Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn powershell_expand_archive_args(archive_path: &Path, extract_dir: &Path) -> Vec<String> {
+    const SCRIPT: &str = "& { param($archive, $destination) $ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force }";
+    vec![
+        "-NoLogo".to_owned(),
+        "-NoProfile".to_owned(),
+        "-NonInteractive".to_owned(),
+        "-ExecutionPolicy".to_owned(),
+        "Bypass".to_owned(),
+        "-Command".to_owned(),
+        SCRIPT.to_owned(),
+        archive_path.display().to_string(),
+        extract_dir.display().to_string(),
+    ]
 }
 
 fn find_binary_recursively(root_dir: &Path, binary_file_name: &str) -> Option<PathBuf> {

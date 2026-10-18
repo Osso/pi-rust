@@ -89,40 +89,55 @@ fn find_bash_on_path() -> Option<String> {
 /// `getShellConfig`: explicit shell, then `/bin/bash`, then `bash` on `PATH`, then `sh`.
 pub fn get_shell_config(custom_shell_path: Option<&str>) -> Result<ShellConfig, ShellError> {
     if let Some(custom) = custom_shell_path {
-        if Path::new(custom).exists() {
-            return Ok(get_bash_shell_config(custom));
-        }
-        return Err(ShellError {
-            message: format!("Custom shell path not found: {custom}"),
-        });
+        return custom_shell_config(custom);
     }
-
     if cfg!(windows) {
-        let mut searched = Vec::new();
-        for variable in ["ProgramFiles", "ProgramFiles(x86)"] {
-            if let Some(program_files) = std::env::var(variable).ok().filter(|value| !value.is_empty()) {
-                let path = format!("{program_files}\\Git\\bin\\bash.exe");
-                if Path::new(&path).exists() {
-                    return Ok(get_bash_shell_config(&path));
-                }
-                searched.push(path);
-            }
-        }
-        if let Some(bash_on_path) = find_bash_on_path() {
-            return Ok(get_bash_shell_config(&bash_on_path));
-        }
-        let searched_paths = searched
-            .iter()
-            .map(|path| format!("  {path}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        return Err(ShellError {
-            message: format!(
-                "No bash shell found. Options:\n  1. Install Git for Windows: https://git-scm.com/download/win\n  2. Add your bash to PATH (Cygwin, MSYS2, etc.)\n  3. Set shellPath in settings.json\n\nSearched Git Bash in:\n{searched_paths}"
-            ),
-        });
+        return windows_shell_config();
     }
+    unix_shell_config()
+}
 
+fn custom_shell_config(custom: &str) -> Result<ShellConfig, ShellError> {
+    if Path::new(custom).exists() {
+        return Ok(get_bash_shell_config(custom));
+    }
+    Err(ShellError {
+        message: format!("Custom shell path not found: {custom}"),
+    })
+}
+
+fn windows_shell_config() -> Result<ShellConfig, ShellError> {
+    let mut searched = Vec::new();
+    for variable in ["ProgramFiles", "ProgramFiles(x86)"] {
+        let Some(program_files) = std::env::var(variable).ok().filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        let path = format!("{program_files}\\Git\\bin\\bash.exe");
+        if Path::new(&path).exists() {
+            return Ok(get_bash_shell_config(&path));
+        }
+        searched.push(path);
+    }
+    if let Some(bash_on_path) = find_bash_on_path() {
+        return Ok(get_bash_shell_config(&bash_on_path));
+    }
+    Err(missing_windows_bash_error(&searched))
+}
+
+fn missing_windows_bash_error(searched: &[String]) -> ShellError {
+    let searched_paths = searched
+        .iter()
+        .map(|path| format!("  {path}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    ShellError {
+        message: format!(
+            "No bash shell found. Options:\n  1. Install Git for Windows: https://git-scm.com/download/win\n  2. Add your bash to PATH (Cygwin, MSYS2, etc.)\n  3. Set shellPath in settings.json\n\nSearched Git Bash in:\n{searched_paths}"
+        ),
+    }
+}
+
+fn unix_shell_config() -> Result<ShellConfig, ShellError> {
     if Path::new("/bin/bash").exists() {
         return Ok(get_bash_shell_config("/bin/bash"));
     }
