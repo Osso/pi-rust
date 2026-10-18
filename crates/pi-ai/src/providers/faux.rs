@@ -943,8 +943,10 @@ async fn stream_with_deltas(
                     partial: partial.clone(),
                 });
                 let arguments = serde_json::to_string(&block.arguments).unwrap_or_default();
-                for chunk in split_string_by_token_size(&arguments, min_token_size, max_token_size) {
-                    schedule_chunk(&chunk, tokens_per_second).await;
+                let chunks = split_string_by_token_size(&arguments, min_token_size, max_token_size);
+                let last_chunk = chunks.len().saturating_sub(1);
+                for (chunk_index, chunk) in chunks.iter().enumerate() {
+                    schedule_chunk(chunk, tokens_per_second).await;
                     if signal.is_some_and(CancellationToken::is_cancelled) {
                         let aborted = create_aborted_message(&partial);
                         sender.push(AssistantMessageEvent::Error {
@@ -954,9 +956,16 @@ async fn stream_with_deltas(
                         sender.end(Some(aborted));
                         return Ok(());
                     }
+                    // TypeScript assigns the final arguments synchronously right after
+                    // the last delta; listeners observe them on that delta's partial.
+                    if chunk_index == last_chunk
+                        && let Some(AssistantContent::ToolCall(partial_call)) = partial.content.get_mut(index)
+                    {
+                        partial_call.arguments = block.arguments.clone();
+                    }
                     sender.push(AssistantMessageEvent::ToolCallDelta {
                         content_index: index,
-                        delta: chunk,
+                        delta: chunk.clone(),
                         partial: partial.clone(),
                     });
                 }

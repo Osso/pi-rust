@@ -7,14 +7,28 @@ Rust: `crates/pi-coding-agent/src/core/sdk.rs`.
 | `createAgentSession` | `create_agent_session` | `tests/sdk.rs` (4), `tests/differential_agent_session.rs` |
 | `createAgentSessionWithInternalOptions` | same | — |
 | `CreateAgentSessionOptions` | same | — |
-| `CreateAgentSessionResult` | same | — |
-| `rulesScopeForRuntimeRole` | gap (`DefaultResourceLoader`) | — |
+| `CreateAgentSessionResult` | same (`extensions_result: LoadExtensionsResult`) | export/runtime tests |
+| `rulesScopeForRuntimeRole` | `rules_scope_for_runtime_role` | DefaultResourceLoader tests |
+| `restorePersistedSessionSettings` | inline restore of sandbox profile | `create_agent_session_*` |
 | Re-exported tool factories / `withFileMutationQueue` | not re-exported here; callers use `core::tools` | — |
+
+## Behavior
+
+- Model resolution: explicit model, persisted session settings, session context, then
+  `find_initial_model`. A missing model yields `modelFallbackMessage` and an `unknown`
+  default model with `thinkingLevel: "off"`; prompting then fails on authentication,
+  matching TS (`create_agent_session_keeps_running_without_models`).
+- `DefaultResourceLoader` is created and reloaded when `resourceLoader` is omitted;
+  `extensionFactories` and `rulesScope` are forwarded.
+- Persisted sandbox profile, model, and thinking level are restored from control-db
+  metadata before model selection.
+- `streamFn` wires settings timeouts, provider retry, attribution headers, and the
+  provider-retry notifier; `convertToLlm` honors `images.blockImages`.
+- `extensions_result` comes from the resource loader.
 
 ## Gaps
 
-- `DefaultResourceLoader` and `createAllToolDefinitions` are not created by `sdk`; `resource_loader` is required and `base_tools` is the injected tool seam. Recorded deviation until `ca-cli` ports the loader.
-- Extension runner ref for `before_provider_headers` / `before_provider_request` / `after_provider_response` is not wired; `transform_context` is not wired.
-- `restorePersistedSessionSettings` (control-db metadata) is skipped.
-- `createAgentSession` returns `Err(formatNoModelsAvailableMessage())` when no model exists; TS returns a session with `model: undefined` (typed-core exclusion).
-- Block-images conversion is implemented; tool-result image normalization is not.
+- `createAllToolDefinitions` is not created here; `base_tools` remains the injected
+  tool seam (tool-definition slice).
+- Extension runner ref for `before_provider_headers` / `before_provider_request` /
+  `after_provider_response` and `transformContext` are not wired.
