@@ -371,9 +371,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `coding-agent/extensions/goal/src/goal-args.ts` | 34 | 0 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-objective.ts` | 14 | 0 | todo |  |  |
-| `coding-agent/extensions/goal/src/stale-context.ts` | 5 | 0 | todo |  |  |
+| `coding-agent/extensions/goal/src/goal-args.ts` | 34 | 0 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_args.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-objective.ts` | 14 | 0 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_objective.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/stale-context.ts` | 5 | 0 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/stale_context.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
 | `coding-agent/extensions/pyrun/src/runner.ts` | 311 | 0 | todo |  |  |
 | `coding-agent/src/bun/restore-sandbox-env.ts` | 36 | 0 | gap | — | Bun-only workaround for oven-sh/bun#27802 (empty `process.env` in sandboxes); Rust has no Bun runtime and no empty-env bug to repair. |
 | `coding-agent/src/cli/experimental/auth.ts` | 21 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/auth.rs` | Token/file auth source parsing; differential `27007`. |
@@ -598,25 +598,25 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/default-footer/src/index.ts` | 278 | 22 | todo |  |  |
 | `coding-agent/extensions/docs-tree-context/src/index.ts` | 101 | 22 | todo |  |  |
 | `coding-agent/extensions/effort/src/index.ts` | 234 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/completion-scheduling.ts` | 103 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/empty-response-scheduling.ts` | 60 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/error-status-scheduling.ts` | 72 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-agent-end-scheduling.ts` | 40 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-agent-end.ts` | 50 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-idle-selection.ts` | 42 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-parsing.ts` | 77 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-presentation.ts` | 34 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-review-evidence.ts` | 85 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-scheduling.ts` | 304 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-state.ts` | 117 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-tool.ts` | 43 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-turn.ts` | 24 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-types.ts` | 42 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/index.ts` | 741 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/rendering.ts` | 157 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/supervisor-review.ts` | 63 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/wait-countdown.ts` | 49 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/wait-status.ts` | 23 | 22 | todo |  |  |
+| `coding-agent/extensions/goal/src/completion-scheduling.ts` | 103 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/completion_scheduling.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/empty-response-scheduling.ts` | 60 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/empty_response_scheduling.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/error-status-scheduling.ts` | 72 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/error_status_scheduling.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-agent-end-scheduling.ts` | 40 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_agent_end_scheduling.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-agent-end.ts` | 50 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_agent_end.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-idle-selection.ts` | 42 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_idle_selection.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-parsing.ts` | 77 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_parsing.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-presentation.ts` | 34 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_presentation.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-review-evidence.ts` | 85 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_review_evidence.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-scheduling.ts` | 304 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_scheduling.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-state.ts` | 117 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_state.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-tool.ts` | 43 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_tool.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-turn.ts` | 24 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_turn.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-types.ts` | 42 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_types.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/index.ts` | 741 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/index.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/rendering.ts` | 157 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/rendering.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/supervisor-review.ts` | 63 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/supervisor_review.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/wait-countdown.ts` | 49 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/wait_countdown.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/wait-status.ts` | 23 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/wait_status.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
 | `coding-agent/extensions/loop/src/index.ts` | 189 | 22 | todo |  |  |
 | `coding-agent/extensions/openai-remote-compact/src/index.ts` | 673 | 22 | todo |  |  |
 | `coding-agent/extensions/pyrun/src/detached-evaluation.ts` | 695 | 22 | todo |  |  |

@@ -37,6 +37,20 @@ pub fn js_trim_end(value: &str) -> &str {
     value.trim_end_matches(is_js_whitespace_char)
 }
 
+/// JavaScript `encodeURIComponent` for valid UTF-8 input.
+pub fn encode_uri_component(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')' => {
+                encoded.push(char::from(byte))
+            }
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
+}
+
 /// JavaScript `String.prototype.length` for valid UTF-8 input.
 pub fn utf16_len(value: &str) -> usize {
     value.encode_utf16().count()
