@@ -385,7 +385,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/diagnostics.ts` | 15 | 0 | todo |  |  |
 | `coding-agent/src/core/event-bus.ts` | 33 | 0 | todo |  |  |
 | `coding-agent/src/core/experimental.ts` | 9 | 0 | todo |  |  |
-| `coding-agent/src/core/export-html/ansi-to-html.ts` | 258 | 0 | todo |  |  |
+| `coding-agent/src/core/export-html/ansi-to-html.ts` | 258 | 0 | done | `crates/pi-coding-agent/src/core/export_html/ansi_to_html.rs` | differential 47 cases incl. JS number formatting |
 | `coding-agent/src/core/http-dispatcher.ts` | 111 | 0 | todo |  |  |
 | `coding-agent/src/core/output-guard.ts` | 126 | 0 | todo |  |  |
 | `coding-agent/src/core/permissions/policy.ts` | 33 | 0 | todo |  |  |
