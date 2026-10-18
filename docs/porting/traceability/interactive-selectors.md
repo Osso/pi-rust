@@ -18,7 +18,7 @@ Sources (all under `packages/coding-agent/src/modes/interactive/components/`):
 | `session-selector-search.ts` | `components/session_selector_search.rs` | differential `coding-agent-session-search-oracle.ts`; `tests/components.rs` |
 
 Differential harness: `oracle/coding-agent-components-oracle.ts` + `tests/differential_components.rs`
-(8 components, 12 cases, every step renders at the scripted width and records callback events).
+(12 components, 27 cases, every step renders at the scripted width and records callback events).
 The Rust side runs in a probe child with `PI_PACKAGE_DIR`/`PI_CODING_AGENT_DIR` fixtures; both sides
 force `trueColor` capabilities and initialize the `dark` theme.
 
