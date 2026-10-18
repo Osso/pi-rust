@@ -602,7 +602,7 @@ async fn differential_openai_completions() {
             .stream(json!({"maxRetries": 1}))
             .responses(vec![
                 ScriptedResponse::json(429, r#"{"error":{"message":"rate limited"}}"#)
-                    .with_header("retry-after-ms", "1"),
+                    .with_header("retry-after", "0.001"),
                 ScriptedResponse::sse(&retry_chunks.iter().map(String::as_str).collect::<Vec<_>>()),
             ]),
     )
@@ -742,4 +742,15 @@ async fn differential_openai_completions() {
         compat(json!({"supportsUsageInStreaming": false, "supportsStore": false})),
     );
     run_scenario(&mut oracle, Scenario::new(33, no_usage, &text)).await;
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(34, model("openai", "gpt-5", "https://api.openai.com/v1", true), &text).responses(
+            vec![ScriptedResponse::json(
+                400,
+                r#"{"error":{"message":"This model's maximum context length is 128000 tokens.","code":"context_length_exceeded"}}"#,
+            )],
+        ),
+    )
+    .await;
 }

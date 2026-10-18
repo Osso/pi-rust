@@ -2,7 +2,7 @@
 
 Source: `packages/ai/src/api/openai-completions.ts` and `openai-completions.lazy.ts`.
 Rust: `crates/pi-ai/src/api/openai_completions.rs`.
-Tests: module unit tests, `crates/pi-ai/tests/openai_completions.rs` (9 behavioral), `crates/pi-ai/tests/differential_openai_completions.rs` (34 recorded-fetch scenarios).
+Tests: module unit tests, `crates/pi-ai/tests/openai_completions.rs` (9 behavioral), `crates/pi-ai/tests/differential_openai_completions.rs` (35 recorded-fetch scenarios).
 
 ## Symbols → proof
 | TS | Rust | Test |

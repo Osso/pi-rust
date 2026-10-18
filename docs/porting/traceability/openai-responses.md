@@ -2,7 +2,7 @@
 
 Source: `packages/ai/src/api/openai-responses.ts` and `openai-responses.lazy.ts`.
 Rust: `crates/pi-ai/src/api/openai_responses.rs`.
-Tests: module unit tests, `crates/pi-ai/tests/differential_openai_responses.rs` (19 recorded-fetch scenarios).
+Tests: module unit tests, `crates/pi-ai/tests/differential_openai_responses.rs` (20 recorded-fetch scenarios).
 
 ## Symbols → proof
 | TS | Rust | Test |

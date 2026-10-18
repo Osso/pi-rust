@@ -543,7 +543,7 @@ async fn differential_openai_responses_stream() {
             .stream(json!({"maxRetries": 1}))
             .responses(vec![
                 ScriptedResponse::json(429, r#"{"error":{"message":"rate limited"}}"#)
-                    .with_header("retry-after-ms", "1"),
+                    .with_header("retry-after", "0.001"),
                 ScriptedResponse::sse(&retry_chunks.iter().map(String::as_str).collect::<Vec<_>>()),
             ]),
     )
@@ -587,6 +587,17 @@ async fn differential_openai_responses_stream() {
     run_scenario(
         &mut oracle,
         Scenario::new(18, base_model("openai", "gpt-5.5", true), &text).context(image_context),
+    )
+    .await;
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(19, base_model("openai", "gpt-5.5", true), &text).responses(vec![
+            ScriptedResponse::json(
+                400,
+                r#"{"error":{"message":"This model's maximum context length is 128000 tokens.","code":"context_length_exceeded"}}"#,
+            ),
+        ]),
     )
     .await;
 
