@@ -23,8 +23,8 @@ use serde_json::{Map, Value};
 
 use crate::config::{get_agent_dir, get_sessions_dir};
 use crate::core::session_control_db::{
-    WritableSessionMetadata, read_session_metadata, read_session_sandbox_profile, write_session_metadata,
-    write_session_model, write_session_thinking_level,
+    WritableSessionMetadata, read_session_goal, read_session_metadata, read_session_sandbox_profile,
+    write_session_goal, write_session_metadata, write_session_model, write_session_thinking_level,
 };
 use crate::core::session_tool_output::serialize_session_entry_for_persistence;
 use crate::utils::iso_time;
@@ -2099,6 +2099,7 @@ pub struct SessionManager {
     subagent_name: Option<String>,
     metadata_control_db_path: Option<String>,
     index_message_text: bool,
+    in_memory_goal_json: Option<String>,
 }
 
 impl SessionManager {
@@ -2125,6 +2126,7 @@ impl SessionManager {
             subagent_name: None,
             metadata_control_db_path: None,
             index_message_text: true,
+            in_memory_goal_json: None,
         };
         if persist && !manager.session_dir.is_empty() && !Path::new(&manager.session_dir).exists() {
             fs::create_dir_all(&manager.session_dir).map_err(|error| SessionManagerError::new(error.to_string()))?;
@@ -2509,6 +2511,40 @@ impl SessionManager {
 
     pub fn get_metadata_control_db_path(&self) -> Option<&str> {
         self.metadata_control_db_path.as_deref()
+    }
+
+    /// `getSessionGoalJson`.
+    pub fn get_session_goal_json(&self) -> Option<String> {
+        let (Some(control_db_path), Some(session_file)) =
+            (self.metadata_control_db_path.as_deref(), self.session_file.as_deref())
+        else {
+            return self.in_memory_goal_json.clone();
+        };
+        read_session_goal(control_db_path, session_file).ok().flatten()
+    }
+
+    /// `setSessionGoalJson`.
+    pub fn set_session_goal_json(&mut self, goal_json: &str) {
+        let (Some(control_db_path), Some(session_file)) =
+            (self.metadata_control_db_path.as_deref(), self.session_file.as_deref())
+        else {
+            self.in_memory_goal_json = Some(goal_json.to_owned());
+            return;
+        };
+        self.write_metadata_snapshot();
+        let _ = write_session_goal(control_db_path, session_file, Some(goal_json));
+    }
+
+    /// `clearSessionGoalJson`.
+    pub fn clear_session_goal_json(&mut self) {
+        let (Some(control_db_path), Some(session_file)) =
+            (self.metadata_control_db_path.as_deref(), self.session_file.as_deref())
+        else {
+            self.in_memory_goal_json = None;
+            return;
+        };
+        self.write_metadata_snapshot();
+        let _ = write_session_goal(control_db_path, session_file, None);
     }
 
     /// `readPersistedSessionSettings`.

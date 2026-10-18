@@ -289,6 +289,7 @@ async fn export_agent_session_probe() {
         multi_agent_runtime_role: None,
         multi_agent_execution_capability: None,
         thinking_phase_timeout_ms: None,
+        supervisor_decision_requester: None,
         extension_runner_ref: None,
         session_start_event: None,
     })

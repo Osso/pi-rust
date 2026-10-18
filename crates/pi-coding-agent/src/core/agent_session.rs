@@ -35,7 +35,8 @@ use crate::core::defaults::DEFAULT_THINKING_LEVEL;
 use crate::core::model_registry::ModelRegistry;
 use crate::core::model_resolver::{ScopedModel, find_exact_model_reference_match, resolve_model_scope};
 use crate::core::model_runtime::ModelRuntime;
-use crate::core::permissions::policy::{ApprovalPolicy, evaluate_approval_policy};
+use crate::core::permissions::policy::ApprovalPolicy;
+use crate::core::permissions::presets::ApprovalPresetName;
 use crate::core::prompt_templates::expand_prompt_template;
 use crate::core::resource_loader::{LoadedPrompts, ResourceLoader};
 use crate::core::session_manager::{SessionEntry, SessionManager, SessionManagerError, get_latest_compaction_entry};
@@ -176,6 +177,25 @@ struct ToolDefinitionEntry {
     source_info: crate::core::source_info::SourceInfo,
 }
 
+/// Supervisor decision requester used by the LLM approval reviewer.
+pub type SupervisorDecisionRequester = Arc<
+    dyn Fn(
+            crate::supervisor::client::RequestSupervisorDecisionInput,
+        ) -> BoxFuture<'static, Result<crate::core::session_control_db::SupervisorResponse, String>>
+        + Send
+        + Sync,
+>;
+
+fn default_supervisor_decision_requester() -> SupervisorDecisionRequester {
+    Arc::new(|input| {
+        Box::pin(async move {
+            crate::supervisor::client::request_supervisor_decision(&input)
+                .await
+                .map_err(|error| error.to_string())
+        })
+    })
+}
+
 /// `AgentSessionConfig`.
 pub struct AgentSessionConfig {
     pub agent: Agent,
@@ -196,6 +216,7 @@ pub struct AgentSessionConfig {
     pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
     pub thinking_phase_timeout_ms: Option<u64>,
+    pub supervisor_decision_requester: Option<SupervisorDecisionRequester>,
     pub extension_runner_ref: Option<Arc<Mutex<Option<ExtensionRunner>>>>,
     pub session_start_event: Option<SessionStartEvent>,
 }
@@ -769,6 +790,7 @@ struct Inner {
     tool_prompt_guidelines: Mutex<HashMap<String, Vec<String>>>,
     tool_registry: Mutex<HashMap<String, Arc<dyn AgentTool>>>,
     initial_active_tool_names: Option<Vec<String>>,
+    permission_prompt_tool: Option<String>,
     allowed_tool_names: Option<HashSet<String>>,
     excluded_tool_names: Option<HashSet<String>>,
     base_system_prompt: Mutex<String>,
@@ -812,6 +834,8 @@ struct Inner {
     turn_index: AtomicU64,
     overflow_recovery_attempted: AtomicBool,
     length_recovery_attempted: AtomicBool,
+    permission_rule_store: Arc<Mutex<crate::core::rule_store::PermissionRuleStore>>,
+    supervisor_decision_requester: SupervisorDecisionRequester,
 }
 
 /// Core session abstraction shared by all run modes.
@@ -869,6 +893,23 @@ impl AgentSession {
             path
         };
 
+        let permission_prompt_tool = config.permission_prompt_tool.clone().or_else(|| {
+            lock(&config.settings_manager)
+                .get_permission_prompt_tool()
+                .map(str::to_owned)
+        });
+
+        let permission_rule_store = {
+            let settings = Value::Object(lock(&config.settings_manager).get_merged_settings());
+            let mut store = crate::core::rule_store::PermissionRuleStore::from_settings(Some(&settings));
+            store.set_locations(Some(config.cwd.clone()), Some(agent_dir.clone()));
+            store
+        };
+        let supervisor_decision_requester = config
+            .supervisor_decision_requester
+            .clone()
+            .unwrap_or_else(default_supervisor_decision_requester);
+
         let inner = Arc::new(Inner {
             agent: config.agent,
             session_manager: config.session_manager,
@@ -887,6 +928,7 @@ impl AgentSession {
             tool_prompt_guidelines: Mutex::new(HashMap::new()),
             tool_registry: Mutex::new(HashMap::new()),
             initial_active_tool_names: config.initial_active_tool_names,
+            permission_prompt_tool,
             allowed_tool_names: config.allowed_tool_names.map(|names| names.into_iter().collect()),
             excluded_tool_names: config.excluded_tool_names.map(|names| names.into_iter().collect()),
             base_system_prompt: Mutex::new(String::new()),
@@ -930,6 +972,8 @@ impl AgentSession {
             turn_index: AtomicU64::new(0),
             overflow_recovery_attempted: AtomicBool::new(false),
             length_recovery_attempted: AtomicBool::new(false),
+            permission_rule_store: Arc::new(Mutex::new(permission_rule_store)),
+            supervisor_decision_requester,
         });
 
         let session = Self { inner };
@@ -967,7 +1011,7 @@ impl AgentSession {
                         return Ok(None);
                     };
                     let session = AgentSession { inner };
-                    Ok(session.before_tool_call(context).await)
+                    session.before_tool_call(context).await
                 })
             },
         )));
@@ -1293,18 +1337,29 @@ impl AgentSession {
         prompt
     }
 
-    async fn before_tool_call(&self, context: BeforeToolCallContext) -> Option<BeforeToolCallResult> {
+    async fn before_tool_call(
+        &self,
+        context: BeforeToolCallContext,
+    ) -> Result<Option<BeforeToolCallResult>, AgentError> {
+        use crate::core::permissions::orchestrator::{ApprovalOrchestratorOptions, orchestrate_tool_approval};
+
         let runner = self.runner();
         let event = ToolCallEvent {
             tool_name: crate::core::extensions::types::ToolName::Custom(context.tool_call.name.clone()),
             tool_call_id: context.tool_call.id.clone(),
-            bypass_permissions: false,
+            bypass_permissions: crate::core::permissions::presets::approval_preset_to_bypass_permissions(
+                lock(&self.inner.settings_manager).get_approval_preset(),
+            ),
             input: context.args_snapshot().as_object().cloned().unwrap_or_default(),
         };
         if runner.has_tool_gates() {
             let mut gated = event.clone();
-            if let Ok(Some(result)) = runner.emit_tool_gates(&mut gated).await {
-                return Some(tool_call_result_to_before(result));
+            if let Some(result) = runner
+                .emit_tool_gates(&mut gated)
+                .await
+                .map_err(|error| AgentError::new(error.message))?
+            {
+                return Ok(Some(tool_call_result_to_before(result)));
             }
         }
 
@@ -1312,49 +1367,331 @@ impl AgentSession {
             .find_tool_definition(&context.tool_call.name)
             .is_none_or(|entry| entry.definition.approval_required);
         let policy = lock(&self.inner.settings_manager).get_approval_policy();
-        let decision = evaluate_approval_policy(
+        if policy == ApprovalPolicy::AutoApprove
+            && let Some(result) = self
+                .review_auto_approved_tool_call(&event, &runner, approval_required)
+                .await
+        {
+            return Ok(Some(tool_call_result_to_before(result)));
+        }
+
+        let current_user_request = find_last_user_text(&context.context.messages);
+        let result = orchestrate_tool_approval(&ApprovalOrchestratorOptions {
             policy,
-            crate::core::permissions::policy::ApprovalPolicyContext { approval_required },
-        );
-        match decision {
-            crate::core::permissions::policy::ApprovalPolicyDecision::Allow => None,
-            crate::core::permissions::policy::ApprovalPolicyDecision::Block { reason } => Some(BeforeToolCallResult {
-                block: Some(true),
-                reason: Some(reason),
-                terminate: None,
-            }),
-            crate::core::permissions::policy::ApprovalPolicyDecision::Review => {
-                if approval_required && runner.has_approval_reviewers() {
-                    let mut reviewed = event.clone();
-                    match runner.emit_approval_reviewers(&mut reviewed).await {
-                        Ok(Some(crate::core::extensions::types::ApprovalReviewerResult::Deny { reason })) => {
-                            return Some(BeforeToolCallResult {
-                                block: Some(true),
-                                reason: Some(reason),
-                                terminate: None,
-                            });
-                        }
-                        Ok(Some(crate::core::extensions::types::ApprovalReviewerResult::Allow { .. })) => {
-                            return None;
-                        }
-                        _ => {}
-                    }
+            approval_required,
+            hook_reviewer: self.create_tool_approval_hook_reviewer(&event, &runner, Arc::clone(&context.args)),
+            reviewer: self.create_tool_approval_human_reviewer(&event, &runner, None, false),
+            llm_reviewer: self.create_tool_approval_llm_reviewer(&event, current_user_request),
+        })
+        .await;
+        Ok(result.map(tool_call_result_to_before))
+    }
+
+    async fn review_auto_approved_tool_call(
+        &self,
+        event: &ToolCallEvent,
+        runner: &ExtensionRunner,
+        approval_required: bool,
+    ) -> Option<crate::core::extensions::types::ToolCallEventResult> {
+        if !approval_required || !runner.has_approval_reviewers() {
+            return None;
+        }
+        let mut reviewed = event.clone();
+        match runner.emit_approval_reviewers(&mut reviewed).await {
+            Ok(Some(crate::core::extensions::types::ApprovalReviewerResult::Deny { reason })) => {
+                Some(crate::core::extensions::types::ToolCallEventResult {
+                    block: Some(true),
+                    input: None,
+                    reason: Some(reason),
+                    terminate: None,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn resolve_permission_prompt_tool(&self) -> Option<String> {
+        if let Some(tool) = &self.inner.permission_prompt_tool {
+            return Some(tool.clone());
+        }
+        let discovered: Vec<String> = lock(&self.inner.tool_registry)
+            .iter()
+            .filter(|(name, tool)| is_permission_prompt_protocol_tool(name, tool.parameters()))
+            .map(|(name, _)| name.clone())
+            .collect();
+        (discovered.len() == 1).then(|| discovered[0].clone())
+    }
+
+    fn create_tool_approval_hook_reviewer(
+        &self,
+        event: &ToolCallEvent,
+        runner: &ExtensionRunner,
+        args: Arc<Mutex<Value>>,
+    ) -> Option<crate::core::permissions::orchestrator::ApprovalReviewer> {
+        let permission_prompt_tool = self.resolve_permission_prompt_tool();
+        if !runner.has_approval_reviewers() && permission_prompt_tool.is_none() && !runner.has_handlers("tool_call") {
+            return None;
+        }
+        let session = self.clone();
+        let runner = runner.clone();
+        let event = event.clone();
+        Some(Arc::new(move || {
+            let session = session.clone();
+            let runner = runner.clone();
+            let event = event.clone();
+            let args = Arc::clone(&args);
+            let permission_prompt_tool = permission_prompt_tool.clone();
+            Box::pin(async move {
+                if let Some(result) = session.review_registered_approval_reviewers(&event, &runner).await {
+                    return Some(result);
                 }
+                let tool_inner = Arc::downgrade(&session.inner);
+                let call_tool: crate::core::permissions::mcp_permission_prompt::PermissionPromptCaller =
+                    Arc::new(move |tool_name, input| {
+                        let tool_inner = tool_inner.clone();
+                        Box::pin(async move {
+                            let Some(inner) = tool_inner.upgrade() else {
+                                return Err("Session is disposed".to_owned());
+                            };
+                            let tool = lock(&inner.tool_registry)
+                                .get(tool_name)
+                                .cloned()
+                                .ok_or_else(|| format!("Permission prompt tool not found: {tool_name}"))?;
+                            let tool_use_id = input.tool_use_id.clone();
+                            let params = serde_json::to_value(&input).map_err(|error| error.to_string())?;
+                            let result = tool
+                                .execute(
+                                    format!("permission-prompt:{tool_use_id}"),
+                                    params,
+                                    None,
+                                    Arc::new(|_| {}),
+                                    None,
+                                )
+                                .await
+                                .map_err(|error| error.message)?;
+                            serde_json::to_value(result).map_err(|error| error.to_string())
+                        })
+                    });
+                let cwd = session.inner.cwd.clone();
+                let handler = crate::core::permissions::mcp_permission_prompt::create_permission_prompt_handler(
+                    crate::core::permissions::mcp_permission_prompt::PermissionPromptHandlerOptions {
+                        permission_prompt_tool,
+                        cwd,
+                        call_tool,
+                        desktop_notifier: None,
+                        rule_store: Some(Arc::clone(&session.inner.permission_rule_store)),
+                    },
+                );
+                let mut reviewed = event.clone();
+                if let Some(result) = handler(&mut reviewed).await {
+                    write_back_tool_input(&args, &reviewed.input);
+                    return Some(result);
+                }
+                write_back_tool_input(&args, &reviewed.input);
                 if !runner.has_handlers("tool_call") {
                     return None;
                 }
-                let mut called = event;
-                match runner.emit_tool_call(&mut called).await {
-                    Ok(Some(result)) => Some(tool_call_result_to_before(result)),
-                    Ok(None) => None,
-                    Err(error) => Some(BeforeToolCallResult {
+                match runner.emit_tool_call(&mut reviewed).await {
+                    Ok(result) => {
+                        write_back_tool_input(&args, &reviewed.input);
+                        result
+                    }
+                    Err(error) => Some(crate::core::extensions::types::ToolCallEventResult {
                         block: Some(true),
+                        input: None,
                         reason: Some(format!("Extension failed, blocking execution: {error}")),
+                        terminate: None,
+                    }),
+                }
+            })
+        }))
+    }
+
+    async fn review_registered_approval_reviewers(
+        &self,
+        event: &ToolCallEvent,
+        runner: &ExtensionRunner,
+    ) -> Option<crate::core::extensions::types::ToolCallEventResult> {
+        if !runner.has_approval_reviewers() {
+            return None;
+        }
+        let mut reviewed = event.clone();
+        let result = runner.emit_approval_reviewers(&mut reviewed).await.ok().flatten()?;
+        match result {
+            crate::core::extensions::types::ApprovalReviewerResult::Allow { .. } => {
+                Some(crate::core::extensions::types::ToolCallEventResult {
+                    block: Some(false),
+                    input: None,
+                    reason: None,
+                    terminate: None,
+                })
+            }
+            crate::core::extensions::types::ApprovalReviewerResult::Deny { reason } => {
+                Some(crate::core::extensions::types::ToolCallEventResult {
+                    block: Some(true),
+                    input: None,
+                    reason: Some(reason),
+                    terminate: None,
+                })
+            }
+            crate::core::extensions::types::ApprovalReviewerResult::Ask { reason } => {
+                let human = self.create_tool_approval_human_reviewer(event, runner, reason.clone(), false);
+                match human {
+                    Some(human) => (human)().await,
+                    None => Some(crate::core::extensions::types::ToolCallEventResult {
+                        block: Some(true),
+                        input: None,
+                        reason: Some(reason.unwrap_or_else(|| "Approval required".to_owned())),
                         terminate: None,
                     }),
                 }
             }
         }
+    }
+
+    fn create_tool_approval_human_reviewer(
+        &self,
+        event: &ToolCallEvent,
+        runner: &ExtensionRunner,
+        reason: Option<String>,
+        force: bool,
+    ) -> Option<crate::core::permissions::orchestrator::ApprovalReviewer> {
+        let approval_preset = lock(&self.inner.settings_manager).get_approval_preset();
+        if (!force
+            && approval_preset != ApprovalPresetName::AskMe
+            && approval_preset != ApprovalPresetName::LlmApprovedAsk)
+            || !runner.has_ui()
+        {
+            return None;
+        }
+        let event = event.clone();
+        let ui = runner.get_ui_context();
+        Some(Arc::new(move || {
+            let event = event.clone();
+            let ui = Arc::clone(&ui);
+            let reason = reason.clone();
+            Box::pin(async move {
+                let reason_text = reason
+                    .as_ref()
+                    .map(|reason| format!("\nReason: {reason}"))
+                    .unwrap_or_default();
+                let input = serde_json::to_string_pretty(&Value::Object(event.input.clone())).unwrap_or_default();
+                let title = format!("Approve {}?{reason_text}\n{input}", event.tool_name.as_str());
+                let selection = ui
+                    .select(
+                        &title,
+                        &["Allow once".to_owned(), "Allow always".to_owned(), "Deny".to_owned()],
+                        None,
+                    )
+                    .await
+                    .ok()
+                    .flatten();
+                match selection.as_deref() {
+                    Some("Allow once") => None,
+                    Some("Allow always") => None,
+                    _ => Some(crate::core::extensions::types::ToolCallEventResult {
+                        block: Some(true),
+                        input: None,
+                        reason: Some("Tool call rejected by user".to_owned()),
+                        terminate: None,
+                    }),
+                }
+            })
+        }))
+    }
+
+    fn create_tool_approval_llm_reviewer(
+        &self,
+        event: &ToolCallEvent,
+        current_user_request: Option<String>,
+    ) -> Option<crate::core::permissions::orchestrator::ApprovalReviewer> {
+        let approval_preset = lock(&self.inner.settings_manager).get_approval_preset();
+        if approval_preset != ApprovalPresetName::LlmApprovedDeny
+            && approval_preset != ApprovalPresetName::LlmApprovedAsk
+        {
+            return None;
+        }
+        let session = self.clone();
+        let event = event.clone();
+        Some(Arc::new(move || {
+            let session = session.clone();
+            let event = event.clone();
+            let current_user_request = current_user_request.clone();
+            Box::pin(async move {
+                let control_db_path = session.inner.control_db_path.clone().unwrap_or_default();
+                let kb_dir = std::env::var("PI_KB_DIR")
+                    .unwrap_or_else(|_| crate::supervisor::project_resolver::DEFAULT_SUPERVISOR_KB_DIR.to_owned());
+                let project_id = crate::supervisor::project_resolver::resolve_supervisor_project_for_cwd(
+                    &session.inner.cwd,
+                    &kb_dir,
+                )
+                .unwrap_or_default();
+                let active_goal = lock(&session.inner.session_manager).get_session_goal_json();
+                let mut payload = Map::new();
+                payload.insert(
+                    "activeGoal".to_owned(),
+                    active_goal.map(Value::String).unwrap_or(Value::Null),
+                );
+                payload.insert(
+                    "currentUserRequest".to_owned(),
+                    current_user_request.map(Value::String).unwrap_or(Value::Null),
+                );
+                payload.insert("input".to_owned(), Value::Object(event.input.clone()));
+                payload.insert("preset".to_owned(), Value::String(approval_preset.as_str().to_owned()));
+                payload.insert("toolCallId".to_owned(), Value::String(event.tool_call_id.clone()));
+                payload.insert(
+                    "toolName".to_owned(),
+                    Value::String(event.tool_name.as_str().to_owned()),
+                );
+                let request = crate::supervisor::client::RequestSupervisorDecisionInput {
+                    control_db_path,
+                    kind: crate::core::session_control_db::SupervisorRequestKind::ApprovalReview,
+                    payload,
+                    project_id,
+                    sender_session_id: session.session_id(),
+                    timeout_ms: 30_000,
+                    max_attempts: None,
+                    poll_interval_ms: None,
+                    retry_delay_ms: None,
+                    retry_jitter_ratio: None,
+                };
+                let requester = Arc::clone(&session.inner.supervisor_decision_requester);
+                let request_decision: crate::supervisor::approval_reviewer::SupervisorApprovalCall =
+                    Arc::new(move || {
+                        let requester = Arc::clone(&requester);
+                        let request = request.clone();
+                        Box::pin(async move { requester(request).await })
+                    });
+                let human_session = session.clone();
+                let human_event = event.clone();
+                let ask_human: Option<crate::supervisor::approval_reviewer::SupervisorHumanReviewer> =
+                    if human_session.runner().has_ui() {
+                        Some(Arc::new(move |reason: String| {
+                            let human_session = human_session.clone();
+                            let human_event = human_event.clone();
+                            Box::pin(async move {
+                                let reviewer = human_session.create_tool_approval_human_reviewer(
+                                    &human_event,
+                                    &human_session.runner(),
+                                    Some(reason),
+                                    true,
+                                )?;
+                                (reviewer)().await
+                            })
+                        }))
+                    } else {
+                        None
+                    };
+                crate::supervisor::approval_reviewer::review_tool_call_with_supervisor(
+                    request_decision,
+                    ask_human,
+                    approval_preset == ApprovalPresetName::LlmApprovedAsk,
+                )
+                .await
+                .ok()
+                .flatten()
+            })
+        }))
     }
 
     async fn after_tool_call(&self, context: AfterToolCallContext) -> Option<AfterToolCallResult> {
@@ -2857,6 +3194,31 @@ fn duplicate_fingerprint(message: &AssistantMessage) -> String {
     object.insert("text".to_owned(), Value::String(text));
     object.insert("stopReason".to_owned(), stop_reason);
     Value::Object(object).to_string()
+}
+
+fn write_back_tool_input(args: &Arc<Mutex<Value>>, input: &Map<String, Value>) {
+    *args.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Value::Object(input.clone());
+}
+
+fn is_permission_prompt_protocol_tool(name: &str, parameters: &Value) -> bool {
+    static PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let pattern =
+        PATTERN.get_or_init(|| regex::Regex::new(r"^mcp__[^_]+(?:_[^_]+)*__[^_]+(?:_[^_]+)*$").expect("valid pattern"));
+    if !pattern.is_match(name) {
+        return false;
+    }
+    let Some(tool_name) = name.split("__").nth(2) else {
+        return false;
+    };
+    if tool_name != "approval_prompt" {
+        return false;
+    }
+    let Some(properties) = parameters.get("properties").and_then(Value::as_object) else {
+        return false;
+    };
+    ["tool_name", "input", "tool_use_id", "cwd"]
+        .iter()
+        .all(|field| properties.contains_key(*field))
 }
 
 fn is_duplicate_turn_guard_message(message: &AgentMessage) -> bool {
@@ -5249,7 +5611,8 @@ impl AgentSession {
                     tools: Some(self.inner.agent.tools()),
                 },
             })
-            .await;
+            .await
+            .map_err(|error| crate::core::extensions::types::HandlerError::new(error.message()))?;
         if before.as_ref().and_then(|result| result.block) == Some(true) {
             let reason = before
                 .and_then(|result| result.reason)

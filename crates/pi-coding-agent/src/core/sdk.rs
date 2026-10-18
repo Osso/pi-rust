@@ -415,6 +415,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         multi_agent_runtime_role: options.multi_agent_runtime_role,
         multi_agent_execution_capability: options.multi_agent_execution_capability,
         thinking_phase_timeout_ms: None,
+        supervisor_decision_requester: None,
         extension_runner_ref: None,
         session_start_event: None,
     })

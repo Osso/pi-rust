@@ -121,6 +121,7 @@ async fn fixture_with(
         multi_agent_runtime_role: None,
         multi_agent_execution_capability: None,
         thinking_phase_timeout_ms: None,
+        supervisor_decision_requester: None,
         extension_runner_ref: None,
         session_start_event: None,
     })
@@ -808,6 +809,350 @@ impl pi_agent_core::agent::types::AgentTool for ScreenshotTool {
             Ok(result)
         })
     }
+}
+
+struct PermissionEchoTool {
+    executed: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl pi_agent_core::agent::types::AgentTool for PermissionEchoTool {
+    fn name(&self) -> &str {
+        "echo"
+    }
+
+    fn description(&self) -> &str {
+        "Echo text back"
+    }
+
+    fn parameters(&self) -> &serde_json::Value {
+        static PARAMETERS: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+        PARAMETERS.get_or_init(|| json!({"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}))
+    }
+
+    fn label(&self) -> &str {
+        "Echo"
+    }
+
+    fn execute(
+        &self,
+        _tool_call_id: String,
+        params: serde_json::Value,
+        _signal: Option<tokio_util::sync::CancellationToken>,
+        _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
+        _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
+    ) -> pi_ai::request::BoxFuture<
+        'static,
+        Result<pi_agent_core::agent::types::AgentToolResult, pi_agent_core::agent::types::ToolError>,
+    > {
+        let text = params
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        self.executed.lock().unwrap().push(text.clone());
+        Box::pin(async move { Ok(pi_agent_core::agent::types::AgentToolResult::text(text)) })
+    }
+}
+
+struct ApprovalPromptTool {
+    name: String,
+    calls: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    response: serde_json::Value,
+}
+
+impl pi_agent_core::agent::types::AgentTool for ApprovalPromptTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        "Approve tool calls"
+    }
+
+    fn parameters(&self) -> &serde_json::Value {
+        static PARAMETERS: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+        PARAMETERS.get_or_init(|| {
+            json!({
+                "type":"object",
+                "properties":{
+                    "tool_name":{"type":"string"},
+                    "input":{},
+                    "tool_use_id":{"type":"string"},
+                    "cwd":{"type":"string"}
+                },
+                "required":["tool_name","input","tool_use_id","cwd"]
+            })
+        })
+    }
+
+    fn label(&self) -> &str {
+        "Approval"
+    }
+
+    fn execute(
+        &self,
+        _tool_call_id: String,
+        params: serde_json::Value,
+        _signal: Option<tokio_util::sync::CancellationToken>,
+        _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
+        _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
+    ) -> pi_ai::request::BoxFuture<
+        'static,
+        Result<pi_agent_core::agent::types::AgentToolResult, pi_agent_core::agent::types::ToolError>,
+    > {
+        self.calls.lock().unwrap().push(params);
+        let text = self.response.to_string();
+        Box::pin(async move {
+            let mut result = pi_agent_core::agent::types::AgentToolResult::text(text);
+            result.is_error = Some(false);
+            Ok(result)
+        })
+    }
+}
+
+fn permission_tool_call(text: &str) -> pi_ai::providers::faux::FauxContent {
+    pi_ai::providers::faux::FauxContent::Blocks(vec![pi_ai::providers::faux::faux_tool_call(
+        "echo",
+        [("text".to_owned(), json!(text))].into_iter().collect(),
+        Some("call-1".to_owned()),
+    )])
+}
+
+async fn permission_fixture(
+    settings: pi_coding_agent::core::settings_manager::Settings,
+    tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
+) -> Fixture {
+    let fixture = fixture_with(
+        settings,
+        tools,
+        Some(vec![
+            "echo".to_owned(),
+            "mcp__approval__prompt".to_owned(),
+            "mcp__other__approval_prompt".to_owned(),
+        ]),
+    )
+    .await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message(
+            permission_tool_call("original"),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+    fixture
+}
+
+#[tokio::test]
+async fn permission_prompt_tool_updates_input_before_execution() {
+    let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let approval = Arc::new(ApprovalPromptTool {
+        name: "mcp__approval__prompt".to_owned(),
+        calls: Arc::clone(&calls),
+        response: json!({"behavior":"allow","updatedInput":{"text":"approved"}}),
+    });
+    let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
+    settings.insert("permissionPromptTool".to_owned(), json!("mcp__approval__prompt"));
+    let fixture = permission_fixture(
+        settings,
+        vec![
+            Arc::new(PermissionEchoTool {
+                executed: Arc::clone(&executed),
+            }),
+            approval,
+        ],
+    )
+    .await;
+
+    fixture
+        .session
+        .prompt("hi", PromptOptions::default())
+        .await
+        .expect("prompt");
+
+    assert_eq!(executed.lock().unwrap().as_slice(), ["approved".to_owned()]);
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0]["tool_name"], json!("echo"));
+    assert_eq!(calls[0]["input"]["text"], json!("original"));
+}
+
+#[tokio::test]
+async fn discovers_single_permission_prompt_protocol_tool() {
+    let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let approval = Arc::new(ApprovalPromptTool {
+        name: "mcp__project-approval__approval_prompt".to_owned(),
+        calls: Arc::clone(&calls),
+        response: json!({"behavior":"allow","updatedInput":{"text":"hook-approved"}}),
+    });
+    let fixture = fixture_with(
+        Default::default(),
+        vec![
+            Arc::new(PermissionEchoTool {
+                executed: Arc::clone(&executed),
+            }),
+            approval,
+        ],
+        Some(vec![
+            "echo".to_owned(),
+            "mcp__project-approval__approval_prompt".to_owned(),
+        ]),
+    )
+    .await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message(
+            permission_tool_call("original"),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    fixture
+        .session
+        .prompt("hi", PromptOptions::default())
+        .await
+        .expect("prompt");
+
+    assert_eq!(executed.lock().unwrap().as_slice(), ["hook-approved".to_owned()]);
+    assert_eq!(calls.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn ambiguous_permission_prompt_tools_fall_back_to_native_approval() {
+    let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let first_calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let second_calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let fixture = fixture_with(
+        Default::default(),
+        vec![
+            Arc::new(PermissionEchoTool {
+                executed: Arc::clone(&executed),
+            }),
+            Arc::new(ApprovalPromptTool {
+                name: "mcp__claude-bash-hook-approval__approval_prompt".to_owned(),
+                calls: Arc::clone(&first_calls),
+                response: json!({"behavior":"deny","message":"should not run"}),
+            }),
+            Arc::new(ApprovalPromptTool {
+                name: "mcp__other-approval__approval_prompt".to_owned(),
+                calls: Arc::clone(&second_calls),
+                response: json!({"behavior":"deny","message":"should not run"}),
+            }),
+        ],
+        Some(vec![
+            "echo".to_owned(),
+            "mcp__claude-bash-hook-approval__approval_prompt".to_owned(),
+            "mcp__other-approval__approval_prompt".to_owned(),
+        ]),
+    )
+    .await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message(
+            permission_tool_call("original"),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    fixture
+        .session
+        .prompt("hi", PromptOptions::default())
+        .await
+        .expect("prompt");
+
+    assert_eq!(executed.lock().unwrap().as_slice(), ["original".to_owned()]);
+    assert!(first_calls.lock().unwrap().is_empty());
+    assert!(second_calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn denied_permission_prompt_blocks_tool_execution() {
+    let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
+    settings.insert("permissionPromptTool".to_owned(), json!("mcp__approval__prompt"));
+    let fixture = permission_fixture(
+        settings,
+        vec![
+            Arc::new(PermissionEchoTool {
+                executed: Arc::clone(&executed),
+            }),
+            Arc::new(ApprovalPromptTool {
+                name: "mcp__approval__prompt".to_owned(),
+                calls: Arc::clone(&calls),
+                response: json!({"behavior":"deny","message":"blocked by policy"}),
+            }),
+        ],
+    )
+    .await;
+
+    fixture
+        .session
+        .prompt("hi", PromptOptions::default())
+        .await
+        .expect("prompt");
+
+    assert!(executed.lock().unwrap().is_empty());
+    let blocked = fixture.session.messages().iter().any(|message| {
+        match message {
+        AgentMessage::ToolResult(result) => {
+            result.is_error
+                && result.content.iter().any(|block| {
+                    matches!(block, pi_ai::types::TextOrImageContent::Text(text) if text.text == "blocked by policy")
+                })
+        }
+        _ => false,
+    }
+    });
+    assert!(blocked, "expected an error tool result with the denial reason");
+}
+
+#[tokio::test]
+async fn persisted_allow_rule_skips_permission_prompt_tool() {
+    let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
+    settings.insert("permissionPromptTool".to_owned(), json!("mcp__approval__prompt"));
+    settings.insert(
+        "permissionRules".to_owned(),
+        json!({"allow":{"echo":[json!({"text":"original"}).to_string()]}}),
+    );
+    let fixture = permission_fixture(
+        settings,
+        vec![
+            Arc::new(PermissionEchoTool {
+                executed: Arc::clone(&executed),
+            }),
+            Arc::new(ApprovalPromptTool {
+                name: "mcp__approval__prompt".to_owned(),
+                calls: Arc::clone(&calls),
+                response: json!({"behavior":"deny","message":"should not run"}),
+            }),
+        ],
+    )
+    .await;
+
+    fixture
+        .session
+        .prompt("hi", PromptOptions::default())
+        .await
+        .expect("prompt");
+
+    assert!(calls.lock().unwrap().is_empty());
+    assert_eq!(executed.lock().unwrap().as_slice(), ["original".to_owned()]);
 }
 
 #[tokio::test]
