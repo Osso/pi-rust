@@ -48,6 +48,9 @@ unless noted.
 | Terminal outbox | `claimMultiAgentTerminalOutbox`, `deliverMultiAgentTerminalOutbox`, `failMultiAgentTerminalOutbox`, `cleanupMultiAgentTerminalOutbox`, `MultiAgentTerminalOutboxRecord`, `ClaimMultiAgentTerminalOutboxOptions` | `agents.rs` | `outbox_claim_recovers_stale_claims_and_poisons_after_max_attempts`, `terminal_outbox_replay_is_idempotent` |
 | Detached artifacts / finalization | `listDetachedArtifactAgentsUpdatedAtOrBefore`, `finalizeDetachedJob`, `prepareControlDbForSelfRestart`, `FinalizeDetachedJob*`, `DetachedArtifactAgentRecord` | `agents.rs`, `lifecycle.rs` | `detached_artifact_listing_filters_by_label_and_lifecycle`, `finalize_detached_job_records_terminal_transport_and_artifacts` |
 
+The session-manager consumer contract (20 symbols) is compile-locked by
+`tests/control_db_public_api.rs::session_manager_contract_is_public`.
+
 ## Cross-implementation and differential proof
 
 `tests/cross_implementation_control_db.rs` (temp DBs only):
