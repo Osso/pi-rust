@@ -476,6 +476,30 @@ async function sessionEventsScenario(harness: Harness) {
 	return { steps: normalize(steps, tempDir), errors: harness.errors.map((error) => normalize(error, tempDir)) };
 }
 
+async function mutationsScenario(harness: Harness) {
+	const { runner, tempDir } = harness;
+	harness.bind();
+	const event = {
+		type: "tool_call" as const,
+		toolCallId: "call-mut",
+		toolName: "bash",
+		bypassPermissions: false,
+		input: {} as Record<string, unknown>,
+	};
+	const toolCall = await runner.emitToolCall(event);
+	const headers = await runner.emitBeforeProviderHeaders({ "User-Agent": "x" });
+	return {
+		steps: normalize(
+			[
+				{ toolCall, input: event.input },
+				{ headers },
+			],
+			tempDir,
+		),
+		errors: harness.errors.map((error) => normalize(error, tempDir)),
+	};
+}
+
 async function providerRequestScenario(harness: Harness) {
 	const { runner, tempDir } = harness;
 	harness.bind();
@@ -582,6 +606,14 @@ const SCENARIOS: Record<string, Array<[string, string]>> = {
 	pi.on("session_compaction_source", () => ({ source: { type: "openai_remote", provider: "p2", model: "m2", endpoint: "https://e" } }));
 }`],
 	],
+	mutations: [
+		["a.ts", `export default function(pi) {
+	pi.on("tool_call", (e) => { e.input.a = 1; });
+	pi.on("tool_call", (e) => { e.input.b = e.input.a + 1; return { reason: "mut" }; });
+	pi.on("before_provider_headers", (e) => { e.headers["X-1"] = "1"; });
+	pi.on("before_provider_headers", (e) => { e.headers["X-2"] = e.headers["X-1"] + "2"; });
+}`],
+	],
 	provider_request: [
 		["a.ts", `export default function(pi) {
 	pi.on("before_provider_request", (e) => ({ ...e.payload, a: 1 }));
@@ -617,6 +649,8 @@ async function executeScenario(name: string): Promise<unknown> {
 				return await mailboxScenario(harness);
 			case "session_events":
 				return await sessionEventsScenario(harness);
+			case "mutations":
+				return await mutationsScenario(harness);
 			case "provider_request":
 				return await providerRequestScenario(harness);
 			default:

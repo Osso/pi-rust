@@ -647,11 +647,11 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/bash-executor.ts` | 156 | 22 | todo |  |  |
 | `coding-agent/src/core/export-html/index.ts` | 316 | 22 | todo |  |  |
 | `coding-agent/src/core/export-html/tool-renderer.ts` | 172 | 22 | todo |  |  |
-| `coding-agent/src/core/extensions/index.ts` | 192 | 22 | todo |  |  |
-| `coding-agent/src/core/extensions/loader.ts` | 790 | 22 | todo |  |  |
-| `coding-agent/src/core/extensions/runner.ts` | 1552 | 22 | todo |  |  |
-| `coding-agent/src/core/extensions/types.ts` | 2001 | 22 | todo |  |  |
-| `coding-agent/src/core/extensions/wrapper.ts` | 46 | 22 | todo |  |  |
+| `coding-agent/src/core/extensions/index.ts` | 192 | 22 | done | `crates/pi-coding-agent/src/core/extensions/mod.rs` | Re-export map; TypeScript-only aliases omitted with types gaps. |
+| `coding-agent/src/core/extensions/loader.ts` | 790 | 22 | partial | `crates/pi-coding-agent/src/core/extensions/loader.rs` | Rust registry, discovery, package.json entries, disabled filtering, exact diagnostics; jiti/module loading is the approved deviation. |
+| `coding-agent/src/core/extensions/runner.ts` | 1552 | 22 | partial | `crates/pi-coding-agent/src/core/extensions/runner.rs` | Full dispatch/merge/error isolation, shortcuts/commands/flags/tools; 12-scenario differential. `setSandboxProfile` gap (session API). |
+| `coding-agent/src/core/extensions/types.ts` | 2001 | 22 | partial | `crates/pi-coding-agent/src/core/extensions/types.rs` | Event/result/API contracts; component-factory UI methods and per-tool input structs are documented gaps. |
+| `coding-agent/src/core/extensions/wrapper.ts` | 46 | 22 | partial | `crates/pi-coding-agent/src/core/extensions/wrapper.rs` | addedToolNames diff done; `wrapToolDefinition` truncation/prepareArguments gaps owned by ca-tools-core. |
 | `coding-agent/src/core/footer-data-provider.ts` | 450 | 22 | todo |  |  |
 | `coding-agent/src/core/model-resolver.ts` | 780 | 22 | todo |  |  |
 | `coding-agent/src/core/permissions/mcp-permission-prompt.ts` | 250 | 22 | todo |  |  |
@@ -710,7 +710,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/agents-core/src/parent-agent-journal.ts` | 110 | 23 | todo |  |  |
 | `coding-agent/src/cli.ts` | 25 | 23 | todo |  |  |
 | `coding-agent/src/cli/experimental/command-options.ts` | 38 | 23 | todo |  |  |
-| `coding-agent/src/core/extensions/extension-runtime.ts` | 103 | 23 | todo |  |  |
+| `coding-agent/src/core/extensions/extension-runtime.ts` | 103 | 23 | done | `crates/pi-coding-agent/src/core/extensions/extension_runtime.rs` | Runtime state, stale invalidation, flag values, provider queues; differential provider cases. |
 | `coding-agent/src/core/index.ts` | 101 | 23 | todo |  |  |
 | `coding-agent/src/extensions/multi-agent.ts` | 21 | 23 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/status-indicator.ts` | 114 | 23 | todo |  |  |

@@ -951,6 +951,68 @@ async fn session_events_scenario(temp_dir: &str) -> Value {
     json!({"steps": steps, "errors": []})
 }
 
+async fn mutations_scenario(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
+        api.on_tool_call(h!(ToolCallEvent, |e, _c| {
+            let mut input = e.input;
+            input.insert("a".to_owned(), json!(1));
+            Ok(Some(ToolCallEventResult {
+                input: Some(input),
+                ..Default::default()
+            }))
+        }))
+        .unwrap();
+        api.on_tool_call(h!(ToolCallEvent, |e, _c| {
+            let mut input = e.input;
+            let next = input.get("a").and_then(Value::as_i64).unwrap_or_default() + 1;
+            input.insert("b".to_owned(), json!(next));
+            Ok(Some(ToolCallEventResult {
+                reason: Some("mut".to_owned()),
+                input: Some(input),
+                ..Default::default()
+            }))
+        }))
+        .unwrap();
+        api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |e, _c| {
+            let mut headers = e.headers;
+            headers.insert("X-1".to_owned(), Some("1".to_owned()));
+            Ok(Some(headers))
+        }))
+        .unwrap();
+        api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |e, _c| {
+            let mut headers = e.headers;
+            let previous = headers.get("X-1").and_then(Clone::clone).unwrap_or_default();
+            headers.insert("X-2".to_owned(), Some(format!("{previous}2")));
+            Ok(Some(headers))
+        }))
+        .unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![a], temp_dir, runtime, support::model_registry().await);
+    support::bind(&mut runner);
+    let mut event = ToolCallEvent {
+        tool_name: ToolName::Bash,
+        tool_call_id: "call-mut".to_owned(),
+        bypass_permissions: false,
+        input: Map::new(),
+    };
+    let tool_call = runner.emit_tool_call(&mut event).await.unwrap();
+    let headers = runner
+        .emit_before_provider_headers(pi_ai::types::ProviderHeaders::from_iter([(
+            "User-Agent".to_owned(),
+            Some("x".to_owned()),
+        )]))
+        .await;
+    json!({
+        "steps": [
+            {"toolCall": tool_call, "input": event.input},
+            {"headers": headers},
+        ],
+        "errors": []
+    })
+}
+
 async fn provider_request_scenario(temp_dir: &str) -> Value {
     let runtime = support::runtime();
     let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
@@ -1034,6 +1096,11 @@ async fn extensions_match_the_pinned_typescript_runner() {
     let dir = temp_dir("session_events");
     let actual = support::normalize(&session_events_scenario(&dir).await, &dir);
     compare("session_events", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = temp_dir("mutations");
+    let actual = support::normalize(&mutations_scenario(&dir).await, &dir);
+    compare("mutations", &mut oracle, actual);
     std::fs::remove_dir_all(&dir).ok();
 
     let dir = temp_dir("provider_request");
