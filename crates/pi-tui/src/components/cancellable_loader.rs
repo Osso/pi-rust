@@ -87,4 +87,8 @@ impl Component for CancellableLoader {
     fn invalidate(&mut self) {
         self.loader.invalidate();
     }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
 }

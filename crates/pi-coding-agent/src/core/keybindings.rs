@@ -425,6 +425,11 @@ impl KeybindingsManager {
         self.inner.get_keys(keybinding)
     }
 
+    /// Whether `data` matches the keys bound to `keybinding`.
+    pub fn matches(&self, data: &str, keybinding: &str) -> bool {
+        self.inner.matches(data, keybinding)
+    }
+
     pub fn get_conflicts(&self) -> Vec<pi_tui::keybindings::KeybindingConflict> {
         self.inner.get_conflicts()
     }

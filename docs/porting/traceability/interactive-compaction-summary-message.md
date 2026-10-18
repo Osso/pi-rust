@@ -1,0 +1,28 @@
+# components/compaction-summary-message.ts
+
+Source: `coding-agent/src/modes/interactive/components/compaction-summary-message.ts`
+Rust: `crates/pi-coding-agent/src/modes/interactive/components/compaction_summary_message.rs`
+(+ `core::messages::CompactionSummaryMessage` value record)
+
+Tests: `interactive_components_c.rs::compaction_summary_*`,
+differential `compactionSummary` cases.
+
+| Symbol / branch | Rust item | Proof |
+|---|---|---|
+| `CompactionSummaryMessageComponent` | `CompactionSummaryMessageComponent` | behavioral + differential |
+| `setExpanded` | `set_expanded` | differential |
+| `formatCompactionTokenSummary` | `format_compaction_token_summary` | differential |
+| tokens after + kept suffix | `tokens_after` / `kept_from_previous_context_tokens` | `compaction_summary_shows_after_kept_and_remote_result` |
+| remote result suffix | `compacted_result_tokens` | differential |
+| `formatTokenCount` (`<1000` decimal, else `toFixed(1)k`) | `format_token_count` + `pi_js_compat::number::js_to_fixed` | differential |
+| `formatCompactionDuration` (`ms` / `toFixed(1)s`) | `format_compaction_duration` | differential |
+| collapsed hint with `app.tools.expand` | `key_text` | differential |
+
+## Gaps
+
+- `CompactionSummaryMessage` is defined in `core/messages.rs`; the agent-core module
+  keeps compaction messages as JSON objects, so no agent-core record exists to reuse.
+
+## Discrepancies
+
+None found.

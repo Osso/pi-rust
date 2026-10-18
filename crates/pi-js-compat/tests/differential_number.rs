@@ -3,7 +3,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use pi_js_compat::number::{js_number_to_string, parse_float, parse_int, parse_number};
+use pi_js_compat::number::{js_number_to_string, js_to_fixed, parse_float, parse_int, parse_number};
 use serde_json::json;
 
 const NUMBER_VALUES: &[&str] = &[
@@ -200,4 +200,60 @@ fn matches_node_number_conversions() {
         .map(|value| js_number_to_string(parse_number(value)))
         .collect();
     assert_eq!(actual_strings, expected_strings, "String(Number(string))");
+}
+
+const FIXED_CASES: &[(f64, usize)] = &[
+    (0.0, 1),
+    (-0.0, 1),
+    (1.0, 1),
+    (1.25, 1),
+    (1.15, 1),
+    (1.005, 2),
+    (2.5, 0),
+    (-2.5, 0),
+    (1.234, 1),
+    (4.567, 1),
+    (31.234, 1),
+    (286.705, 1),
+    (26.667, 1),
+    (999.0, 1),
+    (1234.0, 0),
+    (0.05, 1),
+    (0.15, 1),
+    (123456789.9876, 3),
+    (3.5, 0),
+    (0.5, 0),
+    (0.25, 1),
+    (99.95, 1),
+    (1e-7, 1),
+    (-0.0001, 2),
+    (123456789012345.0, 1),
+    (999.99, 0),
+    (0.000001, 3),
+];
+
+#[test]
+fn matches_node_to_fixed() {
+    let mut oracle = oracle::TsOracle::spawn("js-compat-oracle.ts", "packages/coding-agent/src/index.ts");
+    let cases: Vec<_> = FIXED_CASES
+        .iter()
+        .map(|(value, digits)| json!([value, digits]))
+        .collect();
+    let response = oracle.request(&json!({
+        "id": 11,
+        "operation": "to_fixed",
+        "cases": cases,
+    }));
+    assert_eq!(response["ok"], true, "oracle failed: {response}");
+    let expected: Vec<String> = response["output"]
+        .as_array()
+        .expect("fixed array")
+        .iter()
+        .map(|value| value.as_str().expect("string").to_owned())
+        .collect();
+    let actual: Vec<String> = FIXED_CASES
+        .iter()
+        .map(|(value, digits)| js_to_fixed(*value, *digits))
+        .collect();
+    assert_eq!(actual, expected, "Number.prototype.toFixed");
 }

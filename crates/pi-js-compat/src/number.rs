@@ -209,3 +209,60 @@ fn format_decimal_digits(digits: &str, point: i32, sign: &str) -> String {
         format!("{sign}{head}.{tail}e{exponent_sign}{}", exponent.abs())
     }
 }
+
+/// ECMA-262 `Number.prototype.toFixed(digits)`.
+///
+/// Rust formats the exact binary value with half-to-even rounding, which
+/// matches V8 except when the value sits exactly on a halfway point; V8 then
+/// rounds away from zero (so `(1.25).toFixed(1) == "1.3"` while Rust prints
+/// `1.2`). `(1.15).toFixed(1) == "1.1"` because the stored value is below
+/// `1.15`, so no tie adjustment applies.
+pub fn js_to_fixed(value: f64, digits: usize) -> String {
+    if value.is_nan() {
+        return "NaN".to_owned();
+    }
+    if value.is_infinite() {
+        return if value.is_sign_negative() {
+            "-Infinity"
+        } else {
+            "Infinity"
+        }
+        .to_owned();
+    }
+    if value.abs() >= 1e21 {
+        return js_number_to_string(value);
+    }
+
+    let sign = if value < 0.0 { "-" } else { "" };
+    if let Some(floor) = exact_decimal_tie(value.abs(), digits) {
+        return format!("{sign}{}", format_scaled_integer(floor + 1, digits));
+    }
+    format!("{sign}{:.*}", digits, value.abs())
+}
+
+/// Floor of the scaled value when the exact binary value ends exactly at a
+/// halfway digit for `digits` decimals (`1.25` at one digit). Printing 17
+/// extra decimals exposes the exact tail: a tie leaves only the halfway `5`,
+/// anything else has more nonzero digits.
+fn exact_decimal_tie(value: f64, digits: usize) -> Option<u64> {
+    let expanded = format!("{:.*}", digits + 17, value);
+    let (head, fraction) = expanded.split_once('.').unwrap_or((expanded.as_str(), ""));
+    let trimmed = fraction.trim_end_matches('0');
+    if trimmed.len() != digits + 1 || !trimmed.ends_with('5') {
+        return None;
+    }
+    format!("{head}{}", &trimmed[..digits]).parse().ok()
+}
+
+fn format_scaled_integer(value: u64, digits: usize) -> String {
+    let mut text = value.to_string();
+    if digits == 0 {
+        return text;
+    }
+    if text.len() <= digits {
+        text.insert_str(0, &"0".repeat(digits + 1 - text.len()));
+    }
+    let point = text.len() - digits;
+    let (head, tail) = text.split_at(point);
+    format!("{head}.{tail}")
+}

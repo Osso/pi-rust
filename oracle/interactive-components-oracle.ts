@@ -32,6 +32,134 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 	}),
 	modelSearch: (api, request) => request.items.map((item: any) => api.getModelSearchCandidates(item)),
 	renderDiff: (api, request) => request.cases.map((value: string) => api.renderDiff(value)),
+	branchSummary: (api, request) => {
+		const component = new api.BranchSummaryMessageComponent(
+			{ role: "branchSummary", summary: request.summary, fromId: request.fromId, timestamp: request.timestamp },
+			undefined,
+		);
+		component.setExpanded(request.expanded);
+		return component.render(request.width);
+	},
+	compactionSummary: (api, request) => {
+		const component = new api.CompactionSummaryMessageComponent(request.message, undefined);
+		component.setExpanded(request.expanded);
+		return component.render(request.width);
+	},
+	assistantMessage: (api, request) => {
+		const transformers = request.transformers.map((kind: any) => {
+			if (kind.kind === "upper") return (markdown: string) => markdown.toUpperCase();
+			if (kind.kind === "append") return (markdown: string) => `${markdown}${kind.text}`;
+			throw new Error(`unknown transformer ${kind.kind}`);
+		});
+		const component = new api.AssistantMessageComponent(
+			request.message,
+			request.hideThinkingBlock,
+			undefined,
+			request.hiddenThinkingLabel,
+			request.outputPad,
+			transformers,
+		);
+		if (request.isStreaming !== undefined) component.updateContent(request.message, request.isStreaming);
+		return component.render(request.width);
+	},
+	userMessage: (api, request) => {
+		const transformers = request.transformers.map((kind: any) => {
+			if (kind.kind === "upper") return (markdown: string) => markdown.toUpperCase();
+			if (kind.kind === "append") return (markdown: string) => `${markdown}${kind.text}`;
+			throw new Error(`unknown transformer ${kind.kind}`);
+		});
+		const component = new api.UserMessageComponent(request.text, undefined, request.outputPad, transformers);
+		return component.render(request.width);
+	},
+	borderedLoader: async (_api, request, sourceRoot) => {
+		const api = (await import(
+			pathToFileURL(`${sourceRoot}/modes/interactive/components/bordered-loader.ts`).href
+		)) as Api;
+		const themeModule = (await import(
+			pathToFileURL(`${sourceRoot}/modes/interactive/theme/theme.ts`).href
+		)) as Api;
+		const loader = new api.BorderedLoader(
+			{ requestComponentRender: () => false },
+			themeModule.theme,
+			request.message,
+			{ cancellable: request.cancellable },
+		);
+		const lines = loader.render(request.width);
+		loader.dispose();
+		return lines;
+	},
+	statusIndicator: (api, request) => {
+		const tui = { requestComponentRender: () => false };
+		let indicator;
+		if (request.kind === "working") {
+			indicator = new api.WorkingStatusIndicator(tui, request.message);
+		} else if (request.kind === "retry") {
+			indicator = new api.RetryStatusIndicator(tui, request.attempt, request.maxAttempts, request.delayMs);
+		} else if (request.kind === "compaction") {
+			indicator = new api.CompactionStatusIndicator(tui, request.reason);
+		} else if (request.kind === "branchSummary") {
+			indicator = new api.BranchSummaryStatusIndicator(tui);
+		} else if (request.kind === "idle") {
+			indicator = new api.IdleStatus();
+		} else {
+			throw new Error(`unknown status kind ${request.kind}`);
+		}
+		const lines = indicator.render(request.width);
+		indicator.dispose?.();
+		return lines;
+	},
+	extensionInput: (api, request) => {
+		const input = new api.ExtensionInputComponent(
+			request.title,
+			request.placeholder,
+			() => {},
+			() => {},
+			{},
+		);
+		for (const data of request.inputs) input.handleInput(data);
+		return input.render(request.width);
+	},
+	extensionEditor: async (api, request, sourceRoot) => {
+		const fixedCell = { place: () => {}, clear: () => {}, update: () => true };
+		const tui = {
+			terminal: { rows: 24 },
+			createFixedCell: () => fixedCell,
+			requestRender: () => {},
+			requestComponentRender: () => false,
+			stop: () => {},
+			start: () => {},
+		};
+		const keybindingsModule = (await import(
+			pathToFileURL(`${sourceRoot}/core/keybindings.ts`).href
+		)) as Api;
+		const editor = new api.ExtensionEditorComponent(
+			tui,
+			new keybindingsModule.KeybindingsManager({}),
+			request.title,
+			request.prefill,
+			() => {},
+			() => {},
+			{},
+			"nano",
+		);
+		return editor.render(request.width);
+	},
+	firstTimeSetup: (api, request) => {
+		const previews: string[] = [];
+		const submitted: unknown[] = [];
+		const component = new api.FirstTimeSetupComponent({
+			detectedTheme: request.detectedTheme,
+			onThemePreview: (theme: string) => previews.push(theme),
+			onSubmit: (result: unknown) => submitted.push(result),
+			onCancel: () => {},
+		});
+		const renders: string[][] = [component.render(request.width)];
+		for (const data of request.inputs) {
+			component.handleInput(data);
+			renders.push(component.render(request.width));
+		}
+		return { renders, previews, submitted };
+	},
 	configSelector: async (_api, request, sourceRoot) => {
 		const settingsModule = (await import(pathToFileURL(`${sourceRoot}/core/settings-manager.ts`).href)) as Api;
 		const selectorModule = (await import(

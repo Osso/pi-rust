@@ -38,6 +38,12 @@ type NumberRequest = {
 	number_strings: string[];
 };
 
+type ToFixedRequest = {
+	id: RequestId;
+	operation: "to_fixed";
+	cases: Array<[number, number]>;
+};
+
 type DateParseRequest = {
 	id: RequestId;
 	operation: "date_parse";
@@ -56,6 +62,7 @@ type Request =
 	| MinimatchRequest
 	| BraceExpandRequest
 	| NumberRequest
+	| ToFixedRequest
 	| DateParseRequest
 	| Base64Request;
 
@@ -129,6 +136,13 @@ async function execute(request: Request): Promise<Response> {
 				int: request.int_values.map(([value, radix]) => normalizeParsed(parseInt(value, radix))),
 				strings: request.number_strings.map((value) => String(Number(value))),
 			},
+		};
+	}
+	if (request.operation === "to_fixed") {
+		return {
+			id: request.id,
+			ok: true,
+			output: request.cases.map(([value, digits]) => value.toFixed(digits)),
 		};
 	}
 	if (request.operation === "date_parse") {
