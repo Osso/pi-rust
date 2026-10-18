@@ -2,6 +2,7 @@
 
 pub mod api;
 pub mod auth;
+pub mod bedrock_provider;
 pub mod env_api_keys;
 pub mod http;
 pub mod image_models;

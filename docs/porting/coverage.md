@@ -49,7 +49,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/uuid.ts` | 48 | 0 | done | `crates/pi-ai/src/utils/uuid.rs` | RFC 9562 UUIDv7 with monotonic sequence; TS vectors + structural differential. |
 | `ai/src/api/anthropic-messages.ts` | 1366 | 1 | todo |  |  |
 | `ai/src/api/azure-openai-responses.ts` | 330 | 1 | done | `crates/pi-ai/src/api/azure_openai_responses.rs` | Deployment/env/base-URL resolution, api-key auth, strict tools, reasoning; 9 recorded-fetch differential scenarios. |
-| `ai/src/api/bedrock-converse-stream.ts` | 1190 | 1 | todo |  |  |
+| `ai/src/api/bedrock-converse-stream.ts` | 1190 | 1 | done | `crates/pi-ai/src/api/bedrock_converse_stream.rs` | Full stream/streamSimple, SigV4, event-stream framing, credential/profile chain, retries, custom headers; 16 behavioral + 18-scenario differential oracle |
 | `ai/src/api/constrained-sampling.ts` | 277 | 1 | done | `crates/pi-ai/src/api/constrained_sampling.rs` | Strict-schema conversion, grammar sampling, append-only JSON deltas; differential 47 requests. |
 | `ai/src/api/github-copilot-headers.ts` | 37 | 1 | done | `crates/pi-ai/src/api/github_copilot_headers.rs` | Initiator/vision/header builders; differential 16 requests. |
 | `ai/src/api/google-generative-ai.ts` | 521 | 1 | todo |  |  |
@@ -79,7 +79,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/provider-env.ts` | 52 | 1 | partial | `crates/pi-ai/src/utils/provider_env.rs` | Scoped → process env precedence; Bun `/proc/self/environ` fallback not applicable to native Rust (see traceability). |
 | `ai/src/api/anthropic-messages.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/azure-openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/azure_openai_responses.rs` | `azure_open_ai_responses_api()` lazy adapter. |
-| `ai/src/api/bedrock-converse-stream.lazy.ts` | 30 | 2 | todo |  |  |
+| `ai/src/api/bedrock-converse-stream.lazy.ts` | 30 | 2 | done | `crates/pi-ai/src/bedrock_provider.rs` | `bedrock_converse_stream_api` + override seam; lazy test |
 | `ai/src/api/cloudflare-gateway-binding.ts` | 192 | 2 | done | `crates/pi-ai/src/api/cloudflare_gateway_binding.rs` | Workers AI binding transport: prefix normalization, provider/endpoint split, header stripping, signal passthrough; differential 11 scenarios. |
 | `ai/src/api/google-generative-ai.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/google-vertex.lazy.ts` | 4 | 2 | todo |  |  |
@@ -96,7 +96,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/auth/oauth/openai-codex.ts` | 544 | 2 | todo |  |  |
 | `ai/src/auth/oauth/openrouter.ts` | 311 | 2 | todo |  |  |
 | `ai/src/auth/oauth/xai.ts` | 239 | 2 | todo |  |  |
-| `ai/src/bedrock-provider.ts` | 6 | 2 | todo |  |  |
+| `ai/src/bedrock-provider.ts` | 6 | 2 | done | `crates/pi-ai/src/bedrock_provider.rs` | `bedrock_provider_module`; provider module test |
 | `ai/src/compat/extension-oauth-types.ts` | 45 | 2 | todo |  |  |
 | `ai/src/env-api-keys.ts` | 187 | 2 | done | `crates/pi-ai/src/env_api_keys.rs` | Provider env map, Anthropic token exclusion, Vertex ADC cache, and Bedrock ambient sources; differential over provider/env matrix (see traceability). |
 | `ai/src/image-models.generated.ts` | 639 | 2 | done | `crates/pi-ai/data/image-models.json`, `crates/pi-ai/src/image_models_generated.rs` | Embedded TS-generated JSON with identical values and order; differential full catalog. |

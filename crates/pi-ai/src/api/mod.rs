@@ -1,4 +1,9 @@
 pub mod azure_openai_responses;
+pub mod bedrock_converse_stream;
+pub mod bedrock_credentials;
+pub mod bedrock_eventstream;
+pub mod bedrock_sigv4;
+
 pub mod cloudflare;
 pub mod cloudflare_gateway_binding;
 pub mod constrained_sampling;
