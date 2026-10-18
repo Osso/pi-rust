@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 
 use pi_ai::model_catalog::flatten_model_catalog;
 use pi_ai::types::{Modality, Model, ModelCost, ModelCostTier};
@@ -43,11 +43,11 @@ fn model(id: &str, provider: &str, name: &str) -> Model {
 #[test]
 fn flattens_groups_and_keeps_the_last_value_for_duplicate_ids() {
     let groups = vec![
-        BTreeMap::from([
+        IndexMap::from([
             ("alpha".to_owned(), model("alpha", "provider", "Alpha")),
             ("shared".to_owned(), model("shared", "provider", "First")),
         ]),
-        BTreeMap::from([
+        IndexMap::from([
             ("beta".to_owned(), model("beta", "provider", "Beta")),
             ("shared".to_owned(), model("shared", "provider", "Second")),
         ]),
@@ -60,7 +60,7 @@ fn flattens_groups_and_keeps_the_last_value_for_duplicate_ids() {
 
 #[test]
 fn empty_catalog_flattens_to_an_empty_map() {
-    assert!(flatten_model_catalog(Vec::<BTreeMap<String, Model>>::new()).is_empty());
+    assert!(flatten_model_catalog(Vec::<IndexMap<String, Model>>::new()).is_empty());
 }
 
 #[test]

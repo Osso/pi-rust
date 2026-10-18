@@ -1,6 +1,8 @@
 //! Port of `packages/ai/src/api/openai-completions.ts` (+ `.lazy.ts`).
 
 use std::collections::{BTreeMap, BTreeSet};
+
+use indexmap::IndexMap;
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
@@ -67,7 +69,7 @@ impl OpenAICompletionsOptions {
 /// `ConvertCompletionsMessagesOptions`.
 #[derive(Debug, Clone, Default)]
 pub struct ConvertCompletionsMessagesOptions {
-    pub grammar_tool_input_properties: Option<BTreeMap<String, String>>,
+    pub grammar_tool_input_properties: Option<IndexMap<String, String>>,
 }
 
 /// Resolved `OpenAICompletionsCompat` after provider/URL detection.
@@ -84,8 +86,8 @@ pub struct ResolvedOpenAICompletionsCompat {
     pub requires_thinking_as_text: bool,
     pub requires_reasoning_content_on_assistant_messages: bool,
     pub thinking_format: ThinkingFormat,
-    pub chat_template_kwargs: BTreeMap<String, ChatTemplateKwargValue>,
-    pub chat_template_args: BTreeMap<String, ChatTemplateKwargValue>,
+    pub chat_template_kwargs: IndexMap<String, ChatTemplateKwargValue>,
+    pub chat_template_args: IndexMap<String, ChatTemplateKwargValue>,
     pub zai_tool_stream: bool,
     pub supports_thinking_token_budget: bool,
     pub supports_openai_grammar_tools: bool,
@@ -197,8 +199,8 @@ fn detect_compat(model: &Model) -> ResolvedOpenAICompletionsCompat {
         } else {
             ThinkingFormat::Openai
         },
-        chat_template_kwargs: BTreeMap::new(),
-        chat_template_args: BTreeMap::new(),
+        chat_template_kwargs: IndexMap::new(),
+        chat_template_args: IndexMap::new(),
         zai_tool_stream: false,
         supports_thinking_token_budget: false,
         supports_openai_grammar_tools: false,
@@ -971,7 +973,7 @@ fn resolve_chat_template_kwarg_value(
 fn build_chat_template_values(
     model: &Model,
     effort: Option<&str>,
-    values: &BTreeMap<String, ChatTemplateKwargValue>,
+    values: &IndexMap<String, ChatTemplateKwargValue>,
 ) -> Option<Value> {
     let mut resolved = Map::new();
     for (key, value) in values {
@@ -989,7 +991,7 @@ pub fn build_params(
     options: &OpenAICompletionsOptions,
     compat: &ResolvedOpenAICompletionsCompat,
     cache_retention: CacheRetention,
-    grammar_tool_input_properties: &BTreeMap<String, String>,
+    grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> Value {
     let messages = convert_messages(
         model,
@@ -1300,11 +1302,11 @@ fn number_value(value: f64) -> Value {
 // =============================================================================
 
 fn merge_headers(
-    model_headers: Option<&BTreeMap<String, String>>,
-    dynamic: Option<BTreeMap<String, String>>,
+    model_headers: Option<&IndexMap<String, String>>,
+    dynamic: Option<IndexMap<String, String>>,
     options_headers: Option<&ProviderHeaders>,
-) -> BTreeMap<String, Option<String>> {
-    let mut headers: BTreeMap<String, Option<String>> = BTreeMap::new();
+) -> IndexMap<String, Option<String>> {
+    let mut headers: IndexMap<String, Option<String>> = IndexMap::new();
     for (name, value) in model_headers.into_iter().flatten() {
         headers.insert(name.clone(), Some(value.clone()));
     }
@@ -1475,7 +1477,7 @@ fn ensure_tool_call_block(
     by_index: &mut BTreeMap<i64, usize>,
     by_id: &mut BTreeMap<String, usize>,
     tool_call: &Value,
-    grammar_tool_input_properties: &BTreeMap<String, String>,
+    grammar_tool_input_properties: &IndexMap<String, String>,
     pending: &mut BTreeMap<String, String>,
 ) -> (usize, bool) {
     let stream_index = tool_call.get("index").and_then(Value::as_i64);
@@ -1577,7 +1579,7 @@ pub async fn process_completions_stream(
     output: &mut AssistantMessage,
     sender: &AssistantMessageEventSender,
     model: &Model,
-    grammar_tool_input_properties: &BTreeMap<String, String>,
+    grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> Result<bool, CompletionsFailure> {
     let mut text_block: Option<usize> = None;
     let mut thinking_block: Option<usize> = None;

@@ -3,7 +3,7 @@ mod oracle;
 #[path = "support/recording_fetch.rs"]
 mod recording_fetch;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use oracle::TsOracle;
@@ -111,7 +111,7 @@ fn stream_options(
         request.env = Some(
             env.iter()
                 .map(|(key, value)| (key.clone(), value.as_str().unwrap_or("").to_owned()))
-                .collect::<BTreeMap<_, _>>(),
+                .collect::<indexmap::IndexMap<_, _>>(),
         );
     }
     let mut extra_map = extra.as_object().cloned().unwrap_or_default();
@@ -264,6 +264,7 @@ struct Scenario {
     simple: bool,
     abort_after_chunks: Option<usize>,
     normalize_json_error: bool,
+    ordered_body_keys: Vec<String>,
 }
 
 impl Scenario {
@@ -281,6 +282,7 @@ impl Scenario {
             simple: false,
             abort_after_chunks: None,
             normalize_json_error: false,
+            ordered_body_keys: Vec::new(),
         }
     }
 
@@ -319,6 +321,11 @@ impl Scenario {
         self.normalize_json_error = true;
         self
     }
+
+    fn ordered_body_keys(mut self, keys: &[&str]) -> Self {
+        self.ordered_body_keys = keys.iter().map(|key| (*key).to_owned()).collect();
+        self
+    }
 }
 
 async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
@@ -331,7 +338,7 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
         "extra": scenario.extra,
         "responses": scenario.responses.iter().map(|response| json!({
             "status": response.status,
-            "headers": response.headers.iter().cloned().collect::<BTreeMap<_, _>>(),
+            "headers": response.headers.iter().cloned().collect::<indexmap::IndexMap<_, _>>(),
             "chunks": response.chunks.iter().map(|chunk| String::from_utf8_lossy(chunk).into_owned()).collect::<Vec<_>>()
         })).collect::<Vec<_>>(),
     });
@@ -388,6 +395,21 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
         expected,
         &format!("openai-completions scenario {}", scenario.id),
     );
+    for key in &scenario.ordered_body_keys {
+        let actual_field = actual["requests"][0]["body"].get(key);
+        let expected_field = expected["requests"][0]["body"].get(key);
+        assert!(
+            actual_field.is_some(),
+            "scenario {} body.{key} must be present",
+            scenario.id
+        );
+        assert_eq!(
+            actual_field.map(Value::to_string),
+            expected_field.map(Value::to_string),
+            "openai-completions scenario {} body.{key} order",
+            scenario.id
+        );
+    }
 }
 
 fn compat(value: Value) -> Value {
@@ -448,6 +470,21 @@ async fn differential_openai_completions() {
     run_scenario(
         &mut oracle,
         Scenario::new(8, baseten, &text).extra(json!({"reasoningEffort": "high"})),
+    )
+    .await;
+
+    let chat_template = with_compat(
+        model("chat-template", "chat-template-1", "https://example.invalid/v1", true),
+        compat(
+            json!({"thinkingFormat": "chat-template", "supportsReasoningEffort": true,
+            "chatTemplateKwargs": {"zeta": "Z", "alpha": true, "middle": 3}}),
+        ),
+    );
+    run_scenario(
+        &mut oracle,
+        Scenario::new(40, chat_template, &text)
+            .extra(json!({"reasoningEffort": "high"}))
+            .ordered_body_keys(&["chat_template_kwargs"]),
     )
     .await;
 

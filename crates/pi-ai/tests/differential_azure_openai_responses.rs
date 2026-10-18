@@ -105,7 +105,7 @@ fn stream_options(
         request.env = Some(
             env.iter()
                 .map(|(key, value)| (key.clone(), value.as_str().unwrap_or("").to_owned()))
-                .collect::<BTreeMap<_, _>>(),
+                .collect::<indexmap::IndexMap<_, _>>(),
         );
     }
     StreamOptions {
