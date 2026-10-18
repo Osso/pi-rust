@@ -1,4 +1,5 @@
 pub mod file_mutation_queue;
+pub mod output_accumulator;
 pub mod path_utils;
 pub mod truncate;
 

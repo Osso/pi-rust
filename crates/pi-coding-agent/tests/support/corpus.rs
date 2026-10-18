@@ -18,9 +18,4 @@ impl Corpus {
     pub(crate) fn below(&mut self, bound: usize) -> usize {
         (self.next() % bound as u64) as usize
     }
-
-    /// Picks `length` items from `alphabet` and concatenates them.
-    pub(crate) fn text(&mut self, alphabet: &[&str], length: usize) -> String {
-        (0..length).map(|_| alphabet[self.below(alphabet.len())]).collect()
-    }
 }

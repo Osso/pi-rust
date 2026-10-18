@@ -45,12 +45,16 @@ fn coding_agent_truncate_matches_the_pinned_typescript_source() {
     }
 }
 
+fn text(corpus: &mut Corpus, alphabet: &[&str], length: usize) -> String {
+    (0..length).map(|_| alphabet[corpus.below(alphabet.len())]).collect()
+}
+
 fn cases() -> Vec<Case> {
     let mut cases = targeted_cases();
     let mut corpus = Corpus::new(0x7275_6e63);
     for _ in 0..1_500 {
         let length = corpus.below(40);
-        let content = corpus.text(ALPHABET, length);
+        let content = text(&mut corpus, ALPHABET, length);
         let limits = TruncationOptions {
             max_lines: corpus.below(8),
             max_bytes: corpus.below(48),
@@ -63,7 +67,7 @@ fn cases() -> Vec<Case> {
     }
     for _ in 0..200 {
         let length = corpus.below(12);
-        let line = corpus.text(&["a", "é", "€", "\n", " "], length);
+        let line = text(&mut corpus, &["a", "é", "€", "\n", " "], length);
         cases.push(Case::Line(line, Some(corpus.below(10))));
     }
     cases

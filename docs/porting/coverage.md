@@ -434,7 +434,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/detached-job-bootstrap.ts` | 113 | 1 | todo |  |  |
 | `coding-agent/src/core/exec.ts` | 107 | 1 | todo |  |  |
 | `coding-agent/src/core/permissions/presets.ts` | 62 | 1 | todo |  |  |
-| `coding-agent/src/core/tools/output-accumulator.ts` | 224 | 1 | todo |  |  |
+| `coding-agent/src/core/tools/output-accumulator.ts` | 224 | 1 | done | `crates/pi-coding-agent/src/core/tools/output_accumulator.rs` | differential 139 cases (incl. TextDecoder semantics) |
 | `coding-agent/src/utils/clipboard-image.ts` | 300 | 1 | todo |  |  |
 | `coding-agent/src/utils/exif-orientation.ts` | 183 | 1 | todo |  |  |
 | `coding-agent/src/utils/git-project.ts` | 13 | 1 | done | `crates/pi-coding-agent/src/utils/git_project.rs` | Real git repository tests |
