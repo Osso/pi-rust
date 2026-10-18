@@ -31,22 +31,22 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `ai/src/api/cloudflare.ts` | 15 | 0 | todo |  |  |
-| `ai/src/api/openai-prompt-cache.ts` | 8 | 0 | todo |  |  |
-| `ai/src/auth/oauth/device-code.ts` | 98 | 0 | todo |  |  |
-| `ai/src/auth/oauth/oauth-page.ts` | 109 | 0 | todo |  |  |
-| `ai/src/auth/oauth/pkce.ts` | 34 | 0 | todo |  |  |
-| `ai/src/session-resources.ts` | 24 | 0 | todo |  |  |
-| `ai/src/utils/abort-signals.ts` | 41 | 0 | todo |  |  |
-| `ai/src/utils/abort.ts` | 50 | 0 | todo |  |  |
+| `ai/src/api/cloudflare.ts` | 15 | 0 | done | `crates/pi-ai/src/api/cloudflare.rs` | Four endpoint constants; exact differential. |
+| `ai/src/api/openai-prompt-cache.ts` | 8 | 0 | done | `crates/pi-ai/src/api/openai_prompt_cache.rs` | Code-point clamp at 64; differential. |
+| `ai/src/auth/oauth/device-code.ts` | 98 | 0 | done | `crates/pi-ai/src/auth/oauth/device_code.rs` | RFC 8628 polling with deadline, slow_down and cancellation; Tokio tests. |
+| `ai/src/auth/oauth/oauth-page.ts` | 109 | 0 | done | `crates/pi-ai/src/auth/oauth/oauth_page.rs` | Success/error HTML rendering with escaping; byte-exact differential. |
+| `ai/src/auth/oauth/pkce.ts` | 34 | 0 | done | `crates/pi-ai/src/auth/oauth/pkce.rs` | Base64url verifier and SHA-256 challenge; differential challenge check. |
+| `ai/src/session-resources.ts` | 24 | 0 | done | `crates/pi-ai/src/session_resources.rs` | Global cleanup registry with unregister and aggregated errors; marker-isolated tests. |
+| `ai/src/utils/abort-signals.ts` | 41 | 0 | done | `crates/pi-ai/src/utils/abort_signals.rs` | Child-token combination with bridge tasks; Tokio tests. |
+| `ai/src/utils/abort.ts` | 50 | 0 | done | `crates/pi-ai/src/utils/abort.rs` | Abort race and operation signal over `CancellationToken`; Tokio tests. |
 | `ai/src/utils/diagnostics.ts` | 45 | 0 | done | `crates/pi-ai/src/utils/diagnostics.rs` | Thrown-value formatting, error extraction, diagnostic creation/append, serde wire shape. |
-| `ai/src/utils/error-body.ts` | 149 | 0 | todo |  |  |
-| `ai/src/utils/hash.ts` | 13 | 0 | todo |  |  |
-| `ai/src/utils/json-parse.ts` | 124 | 0 | todo |  |  |
-| `ai/src/utils/provider-retry.ts` | 125 | 0 | todo |  |  |
-| `ai/src/utils/sanitize-unicode.ts` | 25 | 0 | todo |  |  |
-| `ai/src/utils/typebox-helpers.ts` | 24 | 0 | todo |  |  |
-| `ai/src/utils/uuid.ts` | 48 | 0 | todo |  |  |
+| `ai/src/utils/error-body.ts` | 149 | 0 | done | `crates/pi-ai/src/utils/error_body.rs` | Provider error status/body normalization, formatting, truncation; differential. |
+| `ai/src/utils/hash.ts` | 13 | 0 | done | `crates/pi-ai/src/utils/hash.rs` | UTF-16 code-unit short hash, bit-for-bit differential. |
+| `ai/src/utils/json-parse.ts` | 124 | 0 | done | `crates/pi-ai/src/utils/json_parse.rs` | JSON repair + `partial-json@0.1.7` streaming parser; prefix/malformed differential corpus. |
+| `ai/src/utils/provider-retry.ts` | 125 | 0 | done | `crates/pi-ai/src/utils/provider_retry.rs` | SDK retry policy, server delays, abortable sleep; Tokio tests. |
+| `ai/src/utils/sanitize-unicode.ts` | 25 | 0 | done | `crates/pi-ai/src/utils/sanitize_unicode.rs` | Surrogate repair over UTF-16 units plus typed identity API; differential. |
+| `ai/src/utils/typebox-helpers.ts` | 24 | 0 | gap |  | Adapts the TypeBox JSON-schema builder; deferred pending the JSON-schema design decision ([traceability](traceability/typebox-helpers.md)). |
+| `ai/src/utils/uuid.ts` | 48 | 0 | done | `crates/pi-ai/src/utils/uuid.rs` | RFC 9562 UUIDv7 with monotonic sequence; TS vectors + structural differential. |
 | `ai/src/api/anthropic-messages.ts` | 1366 | 1 | todo |  |  |
 | `ai/src/api/azure-openai-responses.ts` | 330 | 1 | todo |  |  |
 | `ai/src/api/bedrock-converse-stream.ts` | 1190 | 1 | todo |  |  |

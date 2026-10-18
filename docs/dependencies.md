@@ -14,11 +14,13 @@ All direct dependencies are exact-pinned.
 ### `pi-ai`
 
 - `serde = 1.0.229` — derives the diagnostics wire records and diagnostic-code enum.
-- `serde_json = 1.0.151` — carries JSON-shaped thrown values and optional diagnostic details.
-- `serde_json` feature `preserve_order` — keeps JS object key order for tool arguments, details, and provider-native values (workspace-wide via feature unification).
+- `serde_json = 1.0.151` — carries JSON-shaped thrown values, optional diagnostic details, and streaming-parse results; the `preserve_order` feature keeps TypeScript object insertion order (`indexmap` is its transitive implementation, not a direct dependency).
+- `tokio = 1.53.3` (`macros`, `rt`, `sync`, `time`; dev adds `io-util`, `net`, `rt-multi-thread`, `test-util`) — `Notify` for `EventStream`, timers/cancellation for abort, retry, and OAuth polling.
 - `reqwest = 0.13.5` (default features: rustls/aws-lc TLS, HTTP/2) — default `Fetch` implementation replacing `globalThis.fetch`.
-- `tokio-util = 0.7.20` — `CancellationToken` maps `AbortSignal`.
-- `tokio = 1.53.3` (`sync`, `macros`) — `Notify` for the async `EventStream`; dev: `macros`, `rt-multi-thread`, `time` for async tests.
+- `tokio-util = 0.7.20` — `CancellationToken`, the Rust mapping for `AbortSignal`.
+- `getrandom = 0.4.3` — fills UUIDv7 and retry-jitter random bytes from the OS.
+- `httpdate = 1.0.3` — parses HTTP-date `Retry-After` headers.
+- `sha2 = 0.10.9` — computes the PKCE S256 code challenge.
 
 ### `pi-agent-core`
 
