@@ -271,6 +271,22 @@ async fn main() {
     let handle = faux_handle(&responses);
     pi_coding_agent::modes::interactive::theme::init_theme(None, false);
     let runtime = build_runtime(&handle, &cwd, &agent_dir, &session_dir).await;
+    if std::env::var("PI_HARNESS_RESUME").as_deref() == Ok("1") {
+        runtime
+            .session()
+            .agent()
+            .set_messages(vec![pi_agent_core::agent::types::AgentMessage::User(
+                pi_ai::types::UserMessage {
+                    role: pi_ai::types::UserRole::Tag,
+                    content: pi_ai::types::UserContent::Blocks(vec![pi_ai::types::TextOrImageContent::Text(
+                        pi_ai::types::TextContent::new("resume me"),
+                    )]),
+                    input_source: None,
+                    provider_native: None,
+                    timestamp: 1,
+                },
+            )]);
+    }
     if std::env::var("PI_HARNESS_DEBUG").is_ok() {
         eprintln!(
             "debug: tools={:?} pending={} prompt={:?}",

@@ -24,6 +24,10 @@ struct Session {
 
 impl Session {
     fn start() -> (Self, TempDir) {
+        Self::start_with(&[])
+    }
+
+    fn start_with(extra_env: &[(&'static str, &'static str)]) -> (Self, TempDir) {
         let root = tempfile::tempdir().expect("temp dir");
         let cwd = root.path().join("cwd");
         for directory in [
@@ -57,7 +61,7 @@ impl Session {
                 ("PI_CODING_AGENT_STATE_DIR", state),
             ]
         };
-        let ts_env = common(
+        let mut ts_env = common(
             root.path().join("ts/agent").display().to_string(),
             root.path().join("ts/sessions").display().to_string(),
             root.path().join("ts/state").display().to_string(),
@@ -68,6 +72,10 @@ impl Session {
             root.path().join("rust/state").display().to_string(),
         );
         rust_env.push(("PI_PACKAGE_DIR", package_dir.display().to_string()));
+        for (name, value) in extra_env {
+            ts_env.push((name, (*value).to_owned()));
+            rust_env.push((name, (*value).to_owned()));
+        }
 
         let ts = ModeHarness::spawn_typescript(&lock, RPC_MODE_MODULE, &ts_env, Path::new(&cwd_string));
         let rust = ModeHarness::spawn_rust(&rust_env, Path::new(&cwd_string));
@@ -205,6 +213,28 @@ fn rpc_mode_matches_the_pinned_typescript_source() {
     let (_, ts_code, ts_stderr) = session.ts.finish();
     let (_, rust_code, rust_stderr) = session.rust.finish();
     assert_eq!(ts_code, rust_code, "exit codes differ");
+    assert_eq!(normalizer.normalize(&ts_stderr), normalizer.normalize(&rust_stderr));
+}
+
+#[test]
+fn rpc_mode_continues_an_interrupted_restored_session() {
+    let (mut session, _root) = Session::start_with(&[("PI_HARNESS_RESUME", "1")]);
+
+    let ts = session.ts.wait_for(|line| line.contains("\"type\":\"agent_settled\""));
+    let rust = session
+        .rust
+        .wait_for(|line| line.contains("\"type\":\"agent_settled\""));
+    session.assert_same(&ts, &rust);
+
+    let (ts, rust) = session.command(json!({"id": "s1", "type": "get_state"}));
+    session.assert_same(&ts, &rust);
+    let (ts, rust) = session.command(json!({"id": "m1", "type": "get_messages"}));
+    session.assert_same(&ts, &rust);
+
+    let normalizer = session.normalizer.clone();
+    let (_, ts_code, ts_stderr) = session.ts.finish();
+    let (_, rust_code, rust_stderr) = session.rust.finish();
+    assert_eq!(ts_code, rust_code);
     assert_eq!(normalizer.normalize(&ts_stderr), normalizer.normalize(&rust_stderr));
 }
 

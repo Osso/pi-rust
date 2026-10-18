@@ -94,12 +94,7 @@ impl Fixture {
         env
     }
 
-    fn run(
-        &self,
-        mode: &str,
-        prompts: &[&str],
-        responses: serde_json::Value,
-    ) -> (ModeOutcome, ModeOutcome) {
+    fn run(&self, mode: &str, prompts: &[&str], responses: serde_json::Value) -> (ModeOutcome, ModeOutcome) {
         let lock = read_source_lock();
         verify_source_head(&lock);
         let ts = ModeHarness::spawn_typescript(

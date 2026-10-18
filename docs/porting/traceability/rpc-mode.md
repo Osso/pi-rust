@@ -35,7 +35,13 @@ in `modes/rpc/rpc_mode.rs` cover the extension UI dialog broker.
 | `agent_settled` → `checkShutdownRequested` | Shutdown after the extension shutdown handler ran | listener spawn + `check_shutdown_requested` |
 | `shutdown` | Cleanup, dispose, detach input, flush unless SIGTERM, `process.exit` | `shutdown` |
 | Input end | `shutdown(0)` | channel close → `shutdown`; differential exit code |
-| `consumeResumeContinuationRequest` / `shouldContinueInterruptedSession` | Continue a restored session, logging failures to stderr | **gap**: not wired; the harness never restores an interrupted session. Reported for the agent-session slice. |
+| `consumeResumeContinuationRequest` / `shouldContinueInterruptedSession` | Continue a restored session, logging failures to stderr | `resume_interrupted_session`; differential scenario `rpc_mode_continues_an_interrupted_restored_session`, plus 6 predicate tests in `tests/session_continuation.rs` |
+
+## Fixed while porting
+
+- `should_continue_interrupted_session(&[])` panicked (`..=usize::MAX` slice) in the agent-session
+  port; the source returns `false`. Fixed to `..(last_index + 1).max(0)` and pinned by
+  `empty_message_list_does_not_continue`; RPC startup on a fresh session exercises it.
 
 ## Source discrepancies
 

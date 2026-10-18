@@ -692,7 +692,7 @@ pub fn should_continue_interrupted_session(messages: &[AgentMessage]) -> bool {
         }
         last_message_index -= 1;
     }
-    let relevant = &messages[..=last_message_index.max(-1) as usize];
+    let relevant = &messages[..(last_message_index + 1).max(0) as usize];
     let Some(last) = relevant.last() else {
         return false;
     };

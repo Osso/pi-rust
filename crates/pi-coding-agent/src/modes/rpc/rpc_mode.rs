@@ -143,6 +143,7 @@ pub async fn run_rpc_mode(runtime_host: AgentSessionRuntime) {
     let local = LocalSet::new();
     local
         .run_until(async {
+            resume_interrupted_session(&state);
             while let Some(line) = receiver.recv().await {
                 let state = Arc::clone(&state);
                 tokio::task::spawn_local(async move {
@@ -157,6 +158,20 @@ pub async fn run_rpc_mode(runtime_host: AgentSessionRuntime) {
     for task in signal_tasks {
         task.abort();
     }
+}
+
+/// Continues a restored session that was interrupted or asked for a continuation.
+fn resume_interrupted_session(state: &Arc<RpcState>) {
+    let session = state.current_session();
+    let extension_requested = session.consume_resume_continuation_request();
+    if !extension_requested && !crate::core::agent_session::should_continue_interrupted_session(&session.messages()) {
+        return;
+    }
+    tokio::task::spawn_local(async move {
+        if let Err(error) = session.continue_run().await {
+            eprintln!("Failed to continue restored session: {}", error.message());
+        }
+    });
 }
 
 async fn handle_input_line(state: &Arc<RpcState>, line: String) {
@@ -180,7 +195,11 @@ async fn handle_input_line(state: &Arc<RpcState>, line: String) {
 
     let command = match deserialize_command(state, &parsed) {
         Some(command) => command,
-        None => return,
+        None => {
+            wait_for_raw_stdout_backpressure().await;
+            check_shutdown_requested(state).await;
+            return;
+        }
     };
 
     match handle_command(state, &command).await {
@@ -433,9 +452,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
         RpcCommandBody::SwitchSession { session_path } => {
             let result = {
                 let mut runtime = state.runtime.lock().await;
-                runtime
-                    .switch_session(session_path, None, None)
-                    .await?
+                runtime.switch_session(session_path, None, None).await?
             };
             if !result.cancelled {
                 rebind_session(state).await;
@@ -449,9 +466,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
         RpcCommandBody::Fork { entry_id } => {
             let result = {
                 let mut runtime = state.runtime.lock().await;
-                runtime
-                    .fork(entry_id, ForkPosition::Before, None)
-                    .await?
+                runtime.fork(entry_id, ForkPosition::Before, None).await?
             };
             if !result.cancelled {
                 rebind_session(state).await;
@@ -473,9 +488,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             };
             let result = {
                 let mut runtime = state.runtime.lock().await;
-                runtime
-                    .fork(&leaf_id, ForkPosition::At, None)
-                    .await?
+                runtime.fork(&leaf_id, ForkPosition::At, None).await?
             };
             if !result.cancelled {
                 rebind_session(state).await;

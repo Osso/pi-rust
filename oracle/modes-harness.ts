@@ -192,6 +192,11 @@ async function main(): Promise<void> {
 		return { ...nextSession, services: nextServices, diagnostics: [] };
 	};
 
+	if (process.env.PI_HARNESS_RESUME === "1") {
+		created.session.agent.state.messages = [
+			{ role: "user", content: [{ type: "text", text: "resume me" }], timestamp: 1 },
+		];
+	}
 	const runtime = new runtimeModule.AgentSessionRuntime(created.session, services, createRuntime);
 	if (process.env.PI_HARNESS_DEBUG) {
 		process.stderr.write(
