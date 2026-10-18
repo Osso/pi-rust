@@ -7,10 +7,9 @@
 //! typed Rust contract.
 
 use std::collections::BTreeSet;
-
-use indexmap::IndexMap;
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;

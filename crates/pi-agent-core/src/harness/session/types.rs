@@ -4,9 +4,10 @@
 //! storage record, which reproduces the TypeScript key order: the discriminant
 //! first, the variant fields next, and storage-assigned fields last.
 
-use indexmap::IndexMap;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
+
+use indexmap::IndexMap;
 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{JsonObject, Usage};

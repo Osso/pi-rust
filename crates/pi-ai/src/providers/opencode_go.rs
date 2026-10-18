@@ -1,7 +1,8 @@
 //! Port of `packages/ai/src/providers/opencode-go.ts`.
 
-use indexmap::IndexMap;
 use std::sync::Arc;
+
+use indexmap::IndexMap;
 
 use crate::api::anthropic_messages_lazy::anthropic_messages_api;
 use crate::api::openai_completions::open_ai_completions_api;

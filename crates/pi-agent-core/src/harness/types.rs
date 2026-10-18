@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-
-use indexmap::IndexMap;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
+
+use indexmap::IndexMap;
 
 use pi_ai::request::BoxFuture;
 use pi_ai::request::OnRetry;

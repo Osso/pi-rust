@@ -1,7 +1,8 @@
 //! Port of `packages/ai/src/providers/xai.ts`.
 
-use indexmap::IndexMap;
 use std::sync::Arc;
+
+use indexmap::IndexMap;
 
 use crate::api::openai_completions::open_ai_completions_api;
 use crate::api::openai_responses::open_ai_responses_api;

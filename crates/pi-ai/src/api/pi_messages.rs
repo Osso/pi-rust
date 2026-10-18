@@ -5,10 +5,9 @@
 //! events plus a terminal `done`/`error` event.
 
 use std::collections::BTreeMap;
-
-use indexmap::IndexMap;
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;

@@ -1,6 +1,6 @@
-use indexmap::IndexMap;
 use std::fmt;
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 

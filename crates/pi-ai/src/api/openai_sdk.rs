@@ -3,10 +3,9 @@
 //! decoding. All provider modules send through [`SdkClient::create_stream`].
 
 use std::collections::{BTreeMap, VecDeque};
-
-use indexmap::IndexMap;
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 

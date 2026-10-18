@@ -4,10 +4,9 @@
 //! serialized model publication. Providers own stream behavior.
 
 use std::collections::{HashMap, HashSet};
-
-use indexmap::IndexMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use indexmap::IndexMap;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 

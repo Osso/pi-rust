@@ -7,7 +7,6 @@
 use std::collections::BTreeMap;
 
 use indexmap::IndexMap;
-
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};

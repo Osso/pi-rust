@@ -6,10 +6,10 @@
 //! `ApiError`-shaped HTTP failures, and ADC service-account/authorized-user
 //! access-token exchange.
 
-use indexmap::IndexMap;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use indexmap::IndexMap;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs1v15::SigningKey;
 use rsa::pkcs8::DecodePrivateKey;

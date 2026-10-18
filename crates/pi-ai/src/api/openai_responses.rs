@@ -1,10 +1,9 @@
 //! Port of `packages/ai/src/api/openai-responses.ts` (+ `.lazy.ts`).
 
 use std::collections::BTreeMap;
-
-use indexmap::IndexMap;
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 

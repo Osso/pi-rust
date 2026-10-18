@@ -4,10 +4,9 @@
 //! are built as JSON values to preserve the exact TypeScript wire shape.
 
 use std::collections::{BTreeMap, BTreeSet};
-
-use indexmap::IndexMap;
 use std::sync::{Arc, OnceLock};
 
+use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 

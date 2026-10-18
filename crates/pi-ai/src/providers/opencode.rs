@@ -1,7 +1,8 @@
 //! Port of `packages/ai/src/providers/opencode.ts`.
 
-use indexmap::IndexMap;
 use std::sync::Arc;
+
+use indexmap::IndexMap;
 
 use crate::api::anthropic_messages_lazy::anthropic_messages_api;
 use crate::api::google_generative_ai::google_generative_ai_api;

@@ -1,10 +1,9 @@
 //! Port of `packages/ai/src/providers/github-copilot.ts`.
 
 use std::collections::BTreeSet;
-
-use indexmap::IndexMap;
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use serde_json::Value;
 
 use crate::api::anthropic_messages_lazy::anthropic_messages_api;

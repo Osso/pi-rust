@@ -6,12 +6,11 @@
 //! identical camelCase-to-snake_case remapping.
 
 use std::collections::BTreeMap;
-
-use indexmap::IndexMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use indexmap::IndexMap;
 use serde_json::{Map, Value, json};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;

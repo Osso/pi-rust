@@ -1,8 +1,8 @@
 //! Port of `packages/agent/src/harness/session/memory.ts`.
 
-use indexmap::IndexMap;
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use tokio::sync::Mutex;
 
 use pi_ai::request::BoxFuture;

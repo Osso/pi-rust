@@ -5,14 +5,13 @@
 //! continuation), retries, and the session WebSocket cache.
 
 use std::collections::{BTreeMap, VecDeque};
-
-use indexmap::IndexMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
+use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
