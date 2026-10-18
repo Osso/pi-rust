@@ -26,3 +26,8 @@ pub(crate) fn is_js_whitespace_char(ch: char) -> bool {
 pub(crate) fn js_trim(value: &str) -> &str {
     value.trim_matches(is_js_whitespace_char)
 }
+
+/// ECMAScript `String.prototype.trimEnd`.
+pub(crate) fn js_trim_end(value: &str) -> &str {
+    value.trim_end_matches(is_js_whitespace_char)
+}

@@ -273,7 +273,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/terminal-colors.ts` | 73 | 0 | done | `crates/pi-tui/src/terminal_colors.rs` | differential parse matrix; TUI query method out of leaf scope |
 | `tui/src/terminal-image.ts` | 657 | 0 | todo |  |  |
 | `tui/src/undo-stack.ts` | 28 | 0 | done | `crates/pi-tui/src/undo_stack.rs` | clone-on-push; differential N/A (structuredClone) |
-| `tui/src/utils.ts` | 1326 | 0 | todo |  |  |
+| `tui/src/utils.ts` | 1326 | 0 | done | `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs` | Unicode 17.0 tables; differential corpus + ~11k codepoint samples |
 | `tui/src/autocomplete.ts` | 793 | 1 | todo |  |  |
 | `tui/src/keybindings.ts` | 325 | 1 | todo |  |  |
 | `tui/src/latex.ts` | 1373 | 1 | todo |  |  |

@@ -82,6 +82,43 @@ type TerminalColorsApi = {
 	parseTerminalColorSchemeReport(data: string): "dark" | "light" | undefined;
 };
 
+type UtilsApi = {
+	visibleWidth(value: string): number;
+	stripTerminalSequences(value: string): string;
+	normalizeTerminalOutput(value: string): string;
+	truncateToWidth(text: string, maxWidth: number, ellipsis: string, pad: boolean): string;
+	wrapTextWithAnsi(text: string, width: number): string[];
+	sliceWithWidth(line: string, startCol: number, length: number, strict: boolean): { text: string; width: number };
+	extractSegments(
+		line: string,
+		beforeEnd: number,
+		afterStart: number,
+		afterLen: number,
+		strictAfter: boolean,
+	): { before: string; beforeWidth: number; after: string; afterWidth: number };
+	getGraphemeCellRange(line: string, column: number): { start: number; end: number } | undefined;
+	getOsc8LinkAtColumn(line: string, column: number): string | undefined;
+	extractAnsiCode(value: string, pos: number): { code: string; length: number } | null;
+	applyBackgroundToLine(line: string, width: number, bgFn: (text: string) => string): string;
+	isWhitespaceChar(value: string): boolean;
+	isPunctuationChar(value: string): boolean;
+};
+
+function scanAnsiCodes(api: UtilsApi, value: string): string[] {
+	const codes: string[] = [];
+	let index = 0;
+	while (index < value.length) {
+		const ansi = api.extractAnsiCode(value, index);
+		if (ansi) {
+			codes.push(ansi.code);
+			index += ansi.length;
+		} else {
+			index++;
+		}
+	}
+	return codes;
+}
+
 async function loadApi(sourceDirectory: string, moduleName: string): Promise<unknown> {
 	return import(pathToFileURL(path.join(sourceDirectory, moduleName)).href);
 }
@@ -120,6 +157,105 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 					rgb: api.parseOsc11BackgroundColor(data) ?? null,
 					isResponse: api.isOsc11BackgroundColorResponse(data),
 					scheme: api.parseTerminalColorSchemeReport(data) ?? null,
+				})),
+			};
+		}
+		case "utils_visible_width": {
+			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
+			const cases = requireArray<string>(request, "cases");
+			return { results: cases.map((value) => api.visibleWidth(value)) };
+		}
+		case "utils_strip": {
+			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
+			const cases = requireArray<string>(request, "cases");
+			return { results: cases.map((value) => api.stripTerminalSequences(value)) };
+		}
+		case "utils_normalize": {
+			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
+			const cases = requireArray<string>(request, "cases");
+			return { results: cases.map((value) => api.normalizeTerminalOutput(value)) };
+		}
+		case "utils_extract_ansi": {
+			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
+			const cases = requireArray<string>(request, "cases");
+			return { results: cases.map((value) => scanAnsiCodes(api, value)) };
+		}
+		case "utils_truncate": {
+			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
+			const cases = requireArray<{ text: string; maxWidth: number; ellipsis: string; pad: boolean }>(
+				request,
+				"cases",
+			);
+			return {
+				results: cases.map((testCase) =>
+					api.truncateToWidth(testCase.text, testCase.maxWidth, testCase.ellipsis, testCase.pad),
+				),
+			};
+		}
+		case "utils_wrap": {
+			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
+			const cases = requireArray<{ text: string; width: number }>(request, "cases");
+			return { results: cases.map((testCase) => api.wrapTextWithAnsi(testCase.text, testCase.width)) };
+		}
+		case "utils_slice": {
+			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
+			const cases = requireArray<{ line: string; start: number; length: number; strict: boolean }>(
+				request,
+				"cases",
+			);
+			return {
+				results: cases.map((testCase) =>
+					api.sliceWithWidth(testCase.line, testCase.start, testCase.length, testCase.strict),
+				),
+			};
+		}
+		case "utils_extract_segments": {
+			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
+			const cases = requireArray<{
+				line: string;
+				beforeEnd: number;
+				afterStart: number;
+				afterLen: number;
+				strictAfter: boolean;
+			}>(request, "cases");
+			return {
+				results: cases.map((testCase) =>
+					api.extractSegments(
+						testCase.line,
+						testCase.beforeEnd,
+						testCase.afterStart,
+						testCase.afterLen,
+						testCase.strictAfter,
+					),
+				),
+			};
+		}
+		case "utils_cell_range": {
+			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
+			const cases = requireArray<{ line: string; column: number }>(request, "cases");
+			return { results: cases.map((testCase) => api.getGraphemeCellRange(testCase.line, testCase.column) ?? null) };
+		}
+		case "utils_osc8_link": {
+			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
+			const cases = requireArray<{ line: string; column: number }>(request, "cases");
+			return { results: cases.map((testCase) => api.getOsc8LinkAtColumn(testCase.line, testCase.column) ?? null) };
+		}
+		case "utils_background": {
+			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
+			const cases = requireArray<{ line: string; width: number }>(request, "cases");
+			return {
+				results: cases.map((testCase) =>
+					api.applyBackgroundToLine(testCase.line, testCase.width, (text) => `[${text}]`),
+				),
+			};
+		}
+		case "utils_char_classes": {
+			const api = (await loadApi(sourceDirectory, "utils.ts")) as UtilsApi;
+			const cases = requireArray<string>(request, "cases");
+			return {
+				results: cases.map((value) => ({
+					whitespace: api.isWhitespaceChar(value),
+					punctuation: api.isPunctuationChar(value),
 				})),
 			};
 		}
