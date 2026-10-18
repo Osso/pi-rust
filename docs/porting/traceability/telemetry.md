@@ -1,6 +1,6 @@
 # Telemetry traceability
 
-Pinned source: `packages/telemetry/src/{index,memory,noop}.ts` at commit `532f7d12cd19235081bd4d6e425bde185652d86f`. Rust code: `crates/pi-telemetry/src/{lib,memory,noop}.rs`.
+Pinned source: `packages/telemetry/src/{index,memory,noop}.ts` at commit `532f7d12cd19235081bd4d6e425bde185652d86f`. Rust code: `crates/pi-telemetry/src/{lib,memory,noop}.rs`. Rust code/proof commit: `0b222a5673351c2b870ce21f3a8ccb687533dbfc`.
 
 ## Public exports
 
