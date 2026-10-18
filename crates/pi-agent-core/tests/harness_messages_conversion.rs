@@ -1,0 +1,264 @@
+//! Behavioral port of `packages/agent/src/harness/messages.ts` conversion helpers.
+
+use pi_agent_core::agent::AgentMessage;
+use pi_agent_core::harness::messages::{
+    BashExecutionMessage, BashExecutionRole, CustomMessageContent, bash_execution_to_text, convert_to_llm,
+    create_custom_message,
+};
+use pi_ai::types::{Message, TextContent, TextOrImageContent, UserContent};
+use serde_json::json;
+
+fn custom(value: serde_json::Value) -> AgentMessage {
+    AgentMessage::Custom(value.as_object().unwrap().clone())
+}
+
+fn bash_message(command: &str, output: &str) -> BashExecutionMessage {
+    BashExecutionMessage {
+        role: BashExecutionRole::BashExecution,
+        command: command.to_owned(),
+        output: output.to_owned(),
+        exit_code: None,
+        cancelled: false,
+        truncated: false,
+        full_output_path: None,
+        timestamp: 1000.0,
+        exclude_from_context: None,
+    }
+}
+
+#[test]
+fn bash_execution_to_text_formats_command_output_and_terminal_notes() {
+    assert_eq!(
+        bash_execution_to_text(&bash_message("echo hi", "hi\n")),
+        "Ran `echo hi`\n```\nhi\n\n```"
+    );
+    assert_eq!(
+        bash_execution_to_text(&bash_message("true", "")),
+        "Ran `true`\n(no output)"
+    );
+
+    let cancelled = BashExecutionMessage {
+        cancelled: true,
+        exit_code: Some(130.0),
+        ..bash_message("sleep 10", "partial")
+    };
+    assert_eq!(
+        bash_execution_to_text(&cancelled),
+        "Ran `sleep 10`\n```\npartial\n```\n\n(command cancelled)"
+    );
+
+    let failed = BashExecutionMessage {
+        exit_code: Some(17.0),
+        ..bash_message("false", "")
+    };
+    assert_eq!(
+        bash_execution_to_text(&failed),
+        "Ran `false`\n(no output)\n\nCommand exited with code 17"
+    );
+
+    let success = BashExecutionMessage {
+        exit_code: Some(0.0),
+        ..bash_message("true", "")
+    };
+    assert_eq!(bash_execution_to_text(&success), "Ran `true`\n(no output)");
+
+    let truncated = BashExecutionMessage {
+        truncated: true,
+        full_output_path: Some("/tmp/full.log".to_owned()),
+        ..bash_message("seq 100", "1\n2\n")
+    };
+    assert_eq!(
+        bash_execution_to_text(&truncated),
+        "Ran `seq 100`\n```\n1\n2\n\n```\n\n[Output truncated. Full output: /tmp/full.log]"
+    );
+
+    let missing_path = BashExecutionMessage {
+        truncated: true,
+        full_output_path: None,
+        ..bash_message("seq 100", "")
+    };
+    assert_eq!(bash_execution_to_text(&missing_path), "Ran `seq 100`\n(no output)");
+
+    let empty_path = BashExecutionMessage {
+        truncated: true,
+        full_output_path: Some(String::new()),
+        ..bash_message("seq 100", "")
+    };
+    assert_eq!(bash_execution_to_text(&empty_path), "Ran `seq 100`\n(no output)");
+}
+
+#[test]
+fn convert_to_llm_skips_excluded_bash_messages_and_maps_custom_roles() {
+    let excluded = custom(json!({
+        "role": "bashExecution",
+        "command": "echo excluded",
+        "output": "excluded",
+        "exitCode": null,
+        "cancelled": false,
+        "truncated": false,
+        "timestamp": 7,
+        "excludeFromContext": true
+    }));
+    let included = custom(json!({
+        "role": "bashExecution",
+        "command": "echo kept",
+        "output": "kept",
+        "exitCode": 0,
+        "cancelled": false,
+        "truncated": false,
+        "timestamp": 8
+    }));
+    let custom_text = custom(json!({
+        "role": "custom",
+        "customType": "note",
+        "content": "plain note",
+        "display": false,
+        "timestamp": 9
+    }));
+    let custom_blocks = custom(json!({
+        "role": "custom",
+        "customType": "note",
+        "content": [{"type": "text", "text": "block note"}],
+        "display": true,
+        "timestamp": 10
+    }));
+    let branch = custom(json!({
+        "role": "branchSummary",
+        "summary": "branch text",
+        "fromId": "entry-1",
+        "timestamp": 11
+    }));
+    let compaction = custom(json!({
+        "role": "compactionSummary",
+        "summary": "compacted text",
+        "tokensBefore": 12,
+        "providerNative": {"provider": "openai", "api": "openai-responses", "format": "openai.responses.input", "value": {"id": "x"}},
+        "timestamp": 13
+    }));
+    let unknown = custom(json!({"role": "mystery", "timestamp": 14}));
+
+    let converted = convert_to_llm(&[
+        excluded,
+        included,
+        custom_text,
+        custom_blocks,
+        branch,
+        compaction,
+        unknown,
+    ])
+    .unwrap();
+
+    let json: Vec<_> = converted
+        .iter()
+        .map(|message| serde_json::to_value(message).unwrap())
+        .collect();
+    assert_eq!(
+        json,
+        vec![
+            json!({
+                "role": "user",
+                "content": [{"type": "text", "text": "Ran `echo kept`\n```\nkept\n```"}],
+                "timestamp": 8
+            }),
+            json!({
+                "role": "user",
+                "content": [{"type": "text", "text": "plain note"}],
+                "timestamp": 9
+            }),
+            json!({
+                "role": "user",
+                "content": [{"type": "text", "text": "block note"}],
+                "timestamp": 10
+            }),
+            json!({
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "The following is a summary of a branch that this conversation came back from:\n\n<summary>\nbranch text</summary>"
+                }],
+                "timestamp": 11
+            }),
+            json!({
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "The conversation history before this point was compacted into the following summary:\n\n<summary>\ncompacted text\n</summary>"
+                }],
+                "providerNative": {"provider": "openai", "api": "openai-responses", "format": "openai.responses.input", "value": {"id": "x"}},
+                "timestamp": 13
+            }),
+        ]
+    );
+}
+
+#[test]
+fn convert_to_llm_passes_typed_messages_through_unchanged() {
+    let user = AgentMessage::User(pi_ai::types::UserMessage {
+        role: pi_ai::types::UserRole::Tag,
+        content: UserContent::Text("hello".to_owned()),
+        input_source: None,
+        provider_native: None,
+        timestamp: 21,
+    });
+    let converted = convert_to_llm(std::slice::from_ref(&user)).unwrap();
+    assert_eq!(
+        converted,
+        vec![Message::User(match user {
+            AgentMessage::User(message) => message,
+            _ => unreachable!(),
+        })]
+    );
+}
+
+#[test]
+fn convert_to_llm_rejects_invalid_custom_payloads() {
+    let broken = custom(json!({"role": "branchSummary", "timestamp": 1}));
+    assert!(convert_to_llm(&[broken]).is_err());
+}
+
+#[test]
+fn create_custom_message_emits_role_custom_type_and_optional_details() {
+    assert_eq!(
+        create_custom_message(
+            "note",
+            CustomMessageContent::Blocks(vec![TextOrImageContent::Text(TextContent::new("hello"))]),
+            true,
+            Some(json!({"level": 2})),
+            1234,
+        ),
+        AgentMessage::Custom(
+            json!({
+                "role": "custom",
+                "customType": "note",
+                "content": [{"type": "text", "text": "hello"}],
+                "display": true,
+                "details": {"level": 2},
+                "timestamp": 1234
+            })
+            .as_object()
+            .unwrap()
+            .clone()
+        )
+    );
+    assert_eq!(
+        create_custom_message(
+            "note",
+            CustomMessageContent::Text("plain".to_owned()),
+            false,
+            None,
+            1235
+        ),
+        AgentMessage::Custom(
+            json!({
+                "role": "custom",
+                "customType": "note",
+                "content": "plain",
+                "display": false,
+                "timestamp": 1235
+            })
+            .as_object()
+            .unwrap()
+            .clone()
+        )
+    );
+}

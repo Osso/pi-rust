@@ -1,10 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
 use pi_ai::request::BoxFuture;
+use pi_ai::request::OnRetry;
+use pi_ai::types::{CacheRetention, Transport};
+use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
+
+use crate::agent::{AgentToolResult, AgentToolUpdateCallback, ToolError};
 
 /// Skill loaded from a `SKILL.md` file or provided by an application.
 #[derive(Debug)]
@@ -29,6 +34,87 @@ pub struct PromptTemplate {
 pub struct AgentHarnessResources {
     pub prompt_templates: Option<Vec<PromptTemplate>>,
     pub skills: Option<Vec<Skill>>,
+}
+
+/// Static tool context or zero-argument provider resolved for each turn snapshot.
+pub enum AgentHarnessToolContextSource<TContext> {
+    Static(TContext),
+    Provider(Arc<dyn Fn() -> BoxFuture<'static, TContext> + Send + Sync>),
+}
+
+/// Tool definition executed by a harness with an application-defined context.
+pub trait AgentHarnessTool<TContext>: Send + Sync {
+    fn name(&self) -> &str;
+    fn description(&self) -> &str;
+    /// JSON Schema for the tool arguments.
+    fn parameters(&self) -> &Value;
+    /// Human-readable label for UI display.
+    fn label(&self) -> &str;
+    /// Per-tool execution mode override.
+    fn execution_mode(&self) -> Option<ToolExecutionMode> {
+        None
+    }
+    /// Compatibility shim for raw tool-call arguments before schema validation.
+    fn prepare_arguments(&self, args: Value) -> Value {
+        args
+    }
+    /// Prepare durable execution metadata before the assistant tool call is persisted.
+    fn prepare_execution(
+        &self,
+        _tool_call_id: String,
+        _signal: Option<CancellationToken>,
+    ) -> BoxFuture<'static, Option<pi_ai::types::ToolCallExecution>> {
+        Box::pin(async { None })
+    }
+    /// Execute the tool call with the context resolved for the current turn snapshot.
+    fn execute(
+        &self,
+        tool_call_id: String,
+        params: Value,
+        signal: Option<CancellationToken>,
+        on_update: Option<AgentToolUpdateCallback>,
+        context: TContext,
+        execution: Option<AgentToolExecutionContext>,
+    ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>>;
+}
+
+/// Curated provider request options owned by the harness and snapshotted per turn.
+#[derive(Clone, Default)]
+pub struct AgentHarnessStreamOptions {
+    pub transport: Option<Transport>,
+    pub timeout_ms: Option<f64>,
+    pub websocket_connect_timeout_ms: Option<f64>,
+    pub max_retries: Option<f64>,
+    pub max_retry_delay_ms: Option<f64>,
+    pub headers: Option<BTreeMap<String, String>>,
+    pub metadata: Option<Map<String, Value>>,
+    pub cache_retention: Option<CacheRetention>,
+    pub on_retry: Option<OnRetry>,
+}
+
+/// Per-request option patch: `Unchanged` keeps the current value, `Clear` removes it entirely.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum OptionalPatch<T> {
+    #[default]
+    Unchanged,
+    Clear,
+    Set(T),
+}
+
+/// Per-request stream option patch returned by provider hooks.
+///
+/// Header and metadata patches delete keys mapped to `None`; `Clear` removes all entries.
+#[derive(Clone, Default)]
+pub struct AgentHarnessStreamOptionsPatch {
+    pub transport: Option<Transport>,
+    pub timeout_ms: Option<f64>,
+    pub websocket_connect_timeout_ms: Option<f64>,
+    pub max_retries: Option<f64>,
+    pub max_retry_delay_ms: Option<f64>,
+    pub headers: OptionalPatch<BTreeMap<String, Option<String>>>,
+    pub metadata: OptionalPatch<BTreeMap<String, Option<Value>>>,
+    pub cache_retention: Option<CacheRetention>,
+    pub on_retry: Option<OnRetry>,
 }
 
 /// Controls how tool calls from one assistant message are executed.

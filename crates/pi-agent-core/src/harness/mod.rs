@@ -1,5 +1,6 @@
 pub mod compaction;
 pub mod env;
+pub mod events;
 pub mod messages;
 
 pub use compaction::{CompactionSettings, should_compact};
@@ -13,14 +14,21 @@ pub mod types;
 pub mod utils;
 
 pub use env::{NodeExecutionEnv, NodeExecutionEnvOptions};
+pub use events::{
+    EventSubscription, HarnessEvent, HarnessEventBus, HarnessEventListener, HarnessEventType, RunEndOutcome,
+    RunStartEvent, WatchHandle,
+};
 pub use messages::{
     BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX, BashExecutionMessage, BashExecutionRole, BranchSummaryMessage,
-    BranchSummaryRole, COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX,
+    BranchSummaryRole, COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX, CompactionSummaryOptions,
+    CustomMessageContent, bash_execution_to_text, convert_to_llm, create_branch_summary_message,
+    create_compaction_summary_message, create_custom_message,
 };
 pub use types::{
-    AgentHarnessResources, AgentToolExecutionContext, BeforeToolCallResult, BranchSummaryError, BranchSummaryErrorCode,
-    CompactionError, CompactionErrorCode, CreateDirOptions, CreateTempFileOptions, ExecutionEnv, ExecutionError,
-    ExecutionErrorCode, FileContent, FileError, FileErrorCode, FileInfo, FileKind, FileSystem, PromptTemplate,
-    QueueMode, ReadTextLinesOptions, RemoveOptions, Shell, ShellExecOptions, ShellExecResult, Skill, ThinkingLevel,
-    ToolExecutionMode,
+    AgentHarnessResources, AgentHarnessStreamOptions, AgentHarnessStreamOptionsPatch, AgentHarnessTool,
+    AgentHarnessToolContextSource, AgentToolExecutionContext, BeforeToolCallResult, BranchSummaryError,
+    BranchSummaryErrorCode, CompactionError, CompactionErrorCode, CreateDirOptions, CreateTempFileOptions,
+    ExecutionEnv, ExecutionError, ExecutionErrorCode, FileContent, FileError, FileErrorCode, FileInfo, FileKind,
+    FileSystem, OptionalPatch, PromptTemplate, QueueMode, ReadTextLinesOptions, RemoveOptions, Shell, ShellExecOptions,
+    ShellExecResult, Skill, ThinkingLevel, ToolExecutionMode,
 };
