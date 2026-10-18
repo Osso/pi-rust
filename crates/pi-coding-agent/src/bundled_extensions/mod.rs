@@ -4,11 +4,13 @@
 //! Each extension is registered under the same `<first-party:<name>>` id that
 //! the TypeScript `main.ts` registers.
 
+pub mod bwrap;
 pub mod goal;
 
 use crate::core::extensions::ExtensionRegistry;
 
 /// Registers every bundled first-party extension.
 pub fn register_bundled_extensions(registry: &mut ExtensionRegistry) {
+    bwrap::register(registry);
     goal::register(registry);
 }

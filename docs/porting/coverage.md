@@ -585,8 +585,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/approval-controls/src/index.ts` | 60 | 22 | todo |  |  |
 | `coding-agent/extensions/ask-secret/src/index.ts` | 169 | 22 | todo |  |  |
 | `coding-agent/extensions/browser-cli/src/index.ts` | 169 | 22 | todo |  |  |
-| `coding-agent/extensions/bwrap/src/backend.ts` | 394 | 22 | todo |  |  |
-| `coding-agent/extensions/bwrap/src/index.ts` | 466 | 22 | todo |  |  |
+| `coding-agent/extensions/bwrap/src/backend.ts` | 394 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/bwrap/backend.rs` | Differential `differential_bwrap` (profiles, runner env, invocation); traceability `bwrap-extension.md`. |
+| `coding-agent/extensions/bwrap/src/index.ts` | 466 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/bwrap/index.rs` | Behavioral registration/full-access; `fs-worker.cjs` replaced by `--internal-bwrap-fs-worker`; traceability `bwrap-extension.md`. |
 | `coding-agent/extensions/claude-bash-hook/src/index.ts` | 194 | 22 | todo |  |  |
 | `coding-agent/extensions/claude-memory-enrich/src/index.ts` | 162 | 22 | todo |  |  |
 | `coding-agent/extensions/claude-memory-session-end/src/index.ts` | 61 | 22 | todo |  |  |
