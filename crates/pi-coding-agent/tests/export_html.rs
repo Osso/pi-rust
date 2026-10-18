@@ -196,6 +196,124 @@ async fn export_in_memory_probe() {
     assert_eq!(error.message(), "Cannot export in-memory session to HTML");
 }
 
+#[test]
+fn exports_agent_sessions_through_session_api() {
+    let package = export_fixture::fixture_package_dir();
+    export_fixture::run_export_probe("export_agent_session_probe", package.path());
+}
+
+#[tokio::test]
+#[ignore = "child process probe"]
+async fn export_agent_session_probe() {
+    if !env_probe::in_probe() {
+        return;
+    }
+    use std::sync::Arc;
+
+    use pi_agent_core::agent::{Agent, AgentInitialState, AgentOptions};
+    use pi_agent_core::harness::types::ThinkingLevel;
+    use pi_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions, faux_provider};
+    use pi_coding_agent::core::agent_session::{AgentSession, AgentSessionConfig};
+    use pi_coding_agent::core::auth_storage::AuthStorage;
+    use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_coding_agent::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
+
+    pi_coding_agent::modes::interactive::theme::init_theme(Some("dark"), false);
+
+    let faux = faux_provider(RegisterFauxProviderOptions {
+        provider: Some("faux".to_owned()),
+        models: Some(vec![FauxModelDefinition {
+            id: "faux-1".to_owned(),
+            name: Some("Faux Model".to_owned()),
+            reasoning: Some(true),
+            input: None,
+            cost: None,
+            context_window: Some(100_000.0),
+            max_tokens: Some(4096.0),
+        }]),
+        ..Default::default()
+    });
+    let mut credentials = serde_json::Map::new();
+    credentials.insert(
+        "faux".to_owned(),
+        serde_json::json!({"type": "api_key", "key": "faux-key"}),
+    );
+    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+        credentials: Some(Arc::new(AuthStorage::in_memory(credentials))),
+        models_path: Some(None),
+        refresh_on_create: Some(false),
+        ..Default::default()
+    })
+    .await
+    .expect("runtime");
+    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let model = faux.get_model(None).expect("faux model");
+    let stream_runtime = runtime.clone();
+    let agent = Agent::new(AgentOptions {
+        initial_state: Some(AgentInitialState {
+            model: Some(model),
+            system_prompt: Some(String::new()),
+            thinking_level: Some(ThinkingLevel::Off),
+            tools: Some(Vec::new()),
+            messages: None,
+        }),
+        stream_fn: Some(Arc::new(move |model, context, options| {
+            let runtime = stream_runtime.clone();
+            Box::pin(async move { runtime.stream_simple(model, context, options) })
+        })),
+        ..Default::default()
+    })
+    .expect("agent");
+    let session_manager = SessionManager::open(&fixture_path(), None, None).expect("open session");
+    let mut settings = Settings::new();
+    settings.insert("theme".to_owned(), serde_json::json!("dark"));
+    let settings_manager = SettingsManager::in_memory(settings, SettingsManagerCreateOptions::default());
+    let dir = tempfile::tempdir().expect("temp dir");
+    let session = AgentSession::new(AgentSessionConfig {
+        agent,
+        session_manager: Arc::new(std::sync::Mutex::new(session_manager)),
+        settings_manager: Arc::new(std::sync::Mutex::new(settings_manager)),
+        cwd: "/tmp".to_owned(),
+        scoped_models: Vec::new(),
+        resource_loader: pi_coding_agent::core::resource_loader::StaticResourceLoader::new(),
+        model_runtime: runtime,
+        initial_active_tool_names: None,
+        allowed_tool_names: None,
+        excluded_tool_names: None,
+        permission_prompt_tool: None,
+        agent_dir: Some("/tmp".to_owned()),
+        control_db_path: Some(dir.path().join("control.db").display().to_string()),
+        base_tools: Vec::new(),
+        custom_tools: Vec::new(),
+        multi_agent_runtime_role: None,
+        multi_agent_execution_capability: None,
+        thinking_phase_timeout_ms: None,
+        supervisor_decision_requester: None,
+        multi_agent_store: None,
+        multi_agent_agent_id: None,
+        multi_agent_parent_session_id: None,
+        disable_runtime_coordination_inbound: false,
+        on_shared_channel_message_delivered: None,
+        extension_runner_ref: None,
+        session_start_event: None,
+    })
+    .expect("session");
+    assert!(!session.extension_runner().has_handlers("session_start"));
+
+    let output = dir.path().join("session.html");
+    let written = session
+        .export_to_html(Some(&output.display().to_string()))
+        .await
+        .expect("export succeeds");
+    assert_eq!(written, output.display().to_string());
+    let html = std::fs::read_to_string(&written).expect("read html");
+    assert!(html.contains("--exportPageBg: #18181e;"));
+    let session_data = decode_session_data(&html);
+    assert_eq!(session_data["header"]["id"], "export-fixture");
+    assert_eq!(session_data["entries"].as_array().expect("entries").len(), 13);
+}
+
 fn decode_session_data(html: &str) -> serde_json::Value {
     let marker = "<script id=\"session-data\" type=\"application/json\">";
     let start = html.find(marker).expect("session data script") + marker.len();

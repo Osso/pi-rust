@@ -81,6 +81,7 @@ impl pi_agent_core::agent::types::AgentTool for EndTurnTool {
 fn faux() -> pi_ai::providers::faux::FauxProviderHandle {
     faux_provider(RegisterFauxProviderOptions {
         provider: Some("faux".to_owned()),
+        api: Some("faux".to_owned()),
         models: Some(vec![FauxModelDefinition {
             id: "faux-1".to_owned(),
             name: Some("Faux Model".to_owned()),
@@ -90,6 +91,11 @@ fn faux() -> pi_ai::providers::faux::FauxProviderHandle {
             context_window: Some(100_000.0),
             max_tokens: Some(4096.0),
         }]),
+        token_size: Some(pi_ai::providers::faux::FauxTokenSize {
+            min: Some(1.0),
+            max: Some(1.0),
+        }),
+        tokens_per_second: Some(1_000_000.0),
         ..Default::default()
     })
 }
@@ -155,6 +161,7 @@ async fn run_rust(dir: &str) -> Value {
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
         settings_manager: Some(Arc::new(std::sync::Mutex::new(settings_manager))),
+        control_db_path: Some(std::path::Path::new(dir).join("control.db").display().to_string()),
         base_tools: vec![Arc::new(EndTurnTool)],
         ..Default::default()
     })
@@ -187,6 +194,61 @@ async fn run_rust(dir: &str) -> Value {
         .await
         .expect("prompt 2");
     session.set_session_name("Named session");
+    let cycle = session
+        .cycle_model(pi_coding_agent::core::agent_session::CycleDirection::Forward)
+        .await
+        .expect("cycle");
+    let context_usage = session.get_context_usage();
+    let forking = session.get_user_messages_for_forking();
+    session.record_bash_result(
+        "echo hi",
+        &pi_coding_agent::core::bash_executor::BashResult {
+            output: "hi".to_owned(),
+            exit_code: Some(0),
+            cancelled: false,
+            truncated: false,
+            full_output_path: None,
+        },
+        None,
+    );
+    let stats_after_bash = session.get_session_stats();
+    let export_path = session
+        .export_to_jsonl(Some(
+            &std::path::Path::new(dir).join("export.jsonl").display().to_string(),
+        ))
+        .expect("export jsonl");
+    let export_lines: Vec<Value> = std::fs::read_to_string(&export_path)
+        .expect("export file")
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str(line).expect("export jsonl line"))
+        .collect();
+    let first_user_entry = session
+        .session_manager()
+        .get_entries()
+        .into_iter()
+        .find(|entry| {
+            entry.as_message().is_some_and(|message| {
+                matches!(
+                    message.message.as_ref(),
+                    pi_agent_core::agent::types::AgentMessage::User(_)
+                )
+            })
+        })
+        .and_then(|entry| entry.id().map(str::to_owned))
+        .expect("first user entry");
+    let navigation = session
+        .navigate_tree(
+            &first_user_entry,
+            pi_coding_agent::core::agent_session::NavigateTreeOptions {
+                summarize: Some(false),
+                custom_instructions: None,
+                replace_instructions: None,
+                label: None,
+            },
+        )
+        .await
+        .expect("navigate");
     let stats = session.get_session_stats();
     let session_file = session.session_file().expect("session file");
     let lines: Vec<Value> = std::fs::read_to_string(&session_file)
@@ -201,6 +263,18 @@ async fn run_rust(dir: &str) -> Value {
     let events = events.lock().unwrap().clone();
     json!({
         "events": events,
+        "cycle": cycle,
+        "contextUsage": context_usage,
+        "forking": forking,
+        "navigation": navigation,
+        "exportLines": export_lines,
+        "statsAfterBash": {
+            "userMessages": stats_after_bash.user_messages,
+            "assistantMessages": stats_after_bash.assistant_messages,
+            "toolCalls": stats_after_bash.tool_calls,
+            "toolResults": stats_after_bash.tool_results,
+            "totalMessages": stats_after_bash.total_messages,
+        },
         "stats": {
             "userMessages": stats.user_messages,
             "assistantMessages": stats.assistant_messages,
@@ -216,34 +290,49 @@ async fn run_rust(dir: &str) -> Value {
 
 fn event_name_and_value(event: &pi_coding_agent::core::agent_session::AgentSessionEvent) -> (String, Option<Value>) {
     use pi_coding_agent::core::agent_session::AgentSessionEvent;
-    if matches!(
-        event,
-        AgentSessionEvent::Agent(pi_agent_core::agent::types::AgentEvent::MessageUpdate { .. })
-    ) {
-        return (String::new(), None);
+    let (agent_event, runtime_message_marker) = match event {
+        AgentSessionEvent::Agent(agent_event) => (Some(agent_event), None),
+        AgentSessionEvent::Message(message_event) => (Some(&message_event.event), message_event.runtime_message_marker),
+        _ => (None, None),
+    };
+    if let Some(agent_event) = agent_event {
+        use pi_agent_core::agent::types::AgentEvent;
+        return match agent_event {
+            AgentEvent::MessageUpdate {
+                message,
+                assistant_message_event,
+            } => (
+                "message_update".to_owned(),
+                Some(json!({
+                    "message": message_summary(message),
+                    "assistantMessageEvent": assistant_message_event,
+                })),
+            ),
+            AgentEvent::MessageStart { message } | AgentEvent::MessageEnd { message } => {
+                let mut value = json!({"message": message_summary(message)});
+                if let (Some(marker), Value::Object(object)) = (runtime_message_marker, &mut value) {
+                    object.insert("runtimeMessageMarker".to_owned(), json!(marker));
+                }
+                let name = if matches!(agent_event, AgentEvent::MessageStart { .. }) {
+                    "message_start"
+                } else {
+                    "message_end"
+                };
+                (name.to_owned(), Some(value))
+            }
+            other => {
+                let value = serde_json::to_value(other).ok();
+                let name = value
+                    .as_ref()
+                    .and_then(|value| value.get("type"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("agent")
+                    .to_owned();
+                (name, None)
+            }
+        };
     }
     match event {
-        AgentSessionEvent::Agent(agent_event) => {
-            let value = serde_json::to_value(agent_event).ok();
-            let name = value
-                .as_ref()
-                .and_then(|value| value.get("type"))
-                .and_then(Value::as_str)
-                .unwrap_or("agent")
-                .to_owned();
-            if matches!(
-                agent_event,
-                pi_agent_core::agent::types::AgentEvent::MessageStart { .. }
-                    | pi_agent_core::agent::types::AgentEvent::MessageEnd { .. }
-            ) {
-                let message = value.as_ref().and_then(|value| value.get("message")).cloned();
-                return (
-                    name,
-                    message.map(|message| json!({"message": message_summary_value(&message)})),
-                );
-            }
-            (name, None)
-        }
         AgentSessionEvent::AgentEnd(event) => ("agent_end".to_owned(), Some(json!({"willRetry": event.will_retry}))),
         AgentSessionEvent::ThinkingLevelChanged(event) => (
             "thinking_level_changed".to_owned(),
@@ -320,15 +409,17 @@ fn normalize(value: &Value, ids: &mut std::collections::HashMap<String, String>,
         Value::Array(items) => Value::Array(items.iter().map(|item| normalize(item, ids, dir)).collect()),
         Value::Object(object) => {
             let is_usage = object.contains_key("totalTokens");
+            let is_context_usage = object.contains_key("contextWindow") && object.contains_key("tokens");
             Value::Object(
                 object
                     .iter()
                     .map(|(key, value)| {
-                        if is_usage
+                        if (is_usage
                             && matches!(
                                 key.as_str(),
                                 "input" | "output" | "cacheRead" | "cacheWrite" | "totalTokens"
-                            )
+                            ))
+                            || (is_context_usage && matches!(key.as_str(), "tokens" | "percent"))
                         {
                             return (key.clone(), Value::String("<n>".to_owned()));
                         }
@@ -405,8 +496,29 @@ fn agent_session_multi_turn_matches_typescript() {
     let expected = normalize(expected, &mut ids, &dir_path);
     let mut actual_ids = std::collections::HashMap::new();
     let actual = normalize(&actual, &mut actual_ids, &dir_path);
-    assert_eq!(actual["events"], expected["events"], "event stream mismatch");
+    assert_json_seq(&actual["events"], &expected["events"], "event stream");
+    assert_eq!(actual["cycle"], expected["cycle"], "cycle mismatch");
+    assert_eq!(
+        actual["contextUsage"], expected["contextUsage"],
+        "context usage mismatch"
+    );
+    assert_eq!(actual["forking"], expected["forking"], "forking mismatch");
+    assert_eq!(actual["navigation"], expected["navigation"], "navigation mismatch");
+    assert_json_seq(&actual["exportLines"], &expected["exportLines"], "export JSONL");
+    assert_eq!(
+        actual["statsAfterBash"], expected["statsAfterBash"],
+        "stats after bash mismatch"
+    );
     assert_eq!(actual["stats"], expected["stats"], "stats mismatch");
     assert_eq!(actual["messages"], expected["messages"], "message mismatch");
     assert_eq!(actual["lines"], expected["lines"], "session JSONL mismatch");
+}
+
+fn assert_json_seq(actual: &Value, expected: &Value, label: &str) {
+    let actual = actual.as_array().expect("actual array");
+    let expected = expected.as_array().expect("expected array");
+    assert_eq!(actual.len(), expected.len(), "{label} length mismatch");
+    for (index, (actual, expected)) in actual.iter().zip(expected).enumerate() {
+        assert_eq!(actual, expected, "{label} mismatch at index {index}");
+    }
 }

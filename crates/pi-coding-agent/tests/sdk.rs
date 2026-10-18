@@ -91,7 +91,7 @@ async fn create_agent_session_uses_explicit_model_and_persists_prompt() {
 }
 
 #[tokio::test]
-async fn create_agent_session_reports_no_models_when_none_available() {
+async fn create_agent_session_keeps_running_without_models() {
     let temp = tempfile::tempdir().expect("temp dir");
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(Arc::new(AuthStorage::in_memory(serde_json::Map::new()))),
@@ -104,7 +104,7 @@ async fn create_agent_session_reports_no_models_when_none_available() {
     let session_dir = temp.path().join("sessions").display().to_string();
     let session_manager =
         SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
-    let error = match pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+    let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(temp.path().display().to_string()),
         agent_dir: Some(temp.path().display().to_string()),
         model_runtime: Some(runtime),
@@ -113,13 +113,25 @@ async fn create_agent_session_reports_no_models_when_none_available() {
         ..Default::default()
     })
     .await
-    {
-        Ok(_) => panic!("expected no-model error"),
-        Err(error) => error,
-    };
+    .expect("session without a model");
     assert_eq!(
-        error,
-        pi_coding_agent::core::auth_guidance::format_no_models_available_message()
+        result.model_fallback_message.as_deref(),
+        Some(pi_coding_agent::core::auth_guidance::format_no_models_available_message().as_str())
+    );
+    assert_eq!(result.session.model().id, "unknown");
+    assert_eq!(
+        result.session.thinking_level(),
+        pi_agent_core::harness::types::ThinkingLevel::Off
+    );
+    let error = result
+        .session
+        .prompt("hi", PromptOptions::default())
+        .await
+        .expect_err("prompt requires auth");
+    assert!(
+        error.message().starts_with("No API key found for the selected model."),
+        "error: {}",
+        error.message()
     );
 }
 
