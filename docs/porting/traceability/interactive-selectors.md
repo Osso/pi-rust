@@ -76,3 +76,66 @@ force `trueColor` capabilities and initialize the `dark` theme.
 
 - Timer-driven renders (`CountdownTimer`, empty-list auto-cancel) are behavioral tests only; the
   differential harness renders synchronously.
+
+---
+
+# Additional interactive components (second group)
+
+Sources (all under `packages/coding-agent/src/modes/interactive/`):
+
+| TypeScript module | Rust module | Tests |
+|---|---|---|
+| `model-search.ts` | `model_search.rs` | exercised through scoped-models search differential |
+| `components/agent-switcher.ts` | `components/agent_switcher.rs` | differential `agent-switcher-*` |
+| `components/oauth-selector.ts` | `components/oauth_selector.rs` | differential `oauth-*` |
+| `components/login-dialog.ts` | `components/login_dialog.rs` | differential `login-*` |
+| `components/scoped-models-selector.ts` | `components/scoped_models_selector.rs` | differential `scoped-*` |
+
+## Exported symbols
+
+| TypeScript export | Rust item |
+|---|---|
+| `getModelSearchCandidates(item)` | `get_model_search_candidates(&ModelSearchItem) -> Vec<String>` |
+| `AgentSwitcherComponent` | `AgentSwitcherComponent::{new, get_list}` |
+| `AuthSelectorProvider`, `formatAuthSelectorProviderType` | `AuthSelectorProvider` (+ `with_api_key_auth`/`with_oauth_auth`), `format_auth_selector_provider_type(AuthType)` |
+| `OAuthSelectorComponent` | `OAuthSelectorComponent::{new, get_search_input}`; `AuthSelectorMode` |
+| `LoginDialogComponent` | `LoginDialogComponent::{new, signal, show_auth, show_device_code, show_manual_input, show_prompt, show_details, show_info, show_waiting, show_progress, get_input}`; `LoginError` |
+| `ScopedModelsSelectorComponent` | `ScopedModelsSelectorComponent::{new, update_models, set_refresh_status, get_search_input}`; `ModelsConfig`, `ModelsCallbacks`, `EnabledIds`, `RefreshStatusKind` |
+
+## Branches
+
+| TypeScript branch | Rust branch | Tests |
+|---|---|---|
+| Agent tree prefix build (`├─`/`└─`/`│  `) and root detection | `build_agent_rows` | differential `agent-switcher-tree` |
+| Closed agents hidden/toggled, hidden-count footer | `agents()`, `show_closed_agents` | differential `agent-switcher-closed` |
+| Agent scrolling window and page up/down | `render_visible_rows` | differential `agent-switcher-scroll` |
+| Inactive selection callback | `confirm_selection` | differential `agent-switcher-closed` |
+| OAuth status indicator variants (unconfigured, type mismatch, OAuth/stored, env list, raw source) | `format_status_indicator`, `is_env_source_list` | differential `oauth-mixed` |
+| OAuth fuzzy search and backspace re-filter | `filter_providers` | differential `oauth-search` |
+| OAuth empty/no-match messages | `update_list` | differential `oauth-logout-empty`, `oauth-no-match` |
+| Login dialog content builders and prompt resolution | `show_*`, `oneshot` resolver | differential `login-*` |
+| Login cancel (escape) | `cancel` | differential `login-*` |
+| Scoped model enable/disable/clear/provider/reorder/save | `toggle`, `enable_all`, `clear_all`, `toggle_provider`, `reorder` | differential `scoped-*` |
+| Scoped footer counts incl. unavailable ids and dirty marker | `get_footer_text` | differential `scoped-subset` |
+| Ctrl+C clears search, then cancels | `handle_input` | differential `scoped-search` |
+
+## Behavioral notes / deviations
+
+- `AuthSelectorProvider.method` is reduced to `method_name` (the only field the source reads).
+- `LoginDialogComponent` prompt promises are `tokio::sync::oneshot::Receiver<Result<String, LoginError>>`;
+  `signal()` returns a `CancellationToken`. The dialog exposes `show_auth` but the differential test avoids
+  it because both sides would launch a browser.
+- `ScopedModelsSelectorComponent` callbacks are synchronous `Rc<dyn Fn(EnabledIds)>`; the source allows
+  async callbacks, so callers must spawn work themselves.
+- `ModelsCallbacks`/`ModelSelector` timer + `AbortController` refresh flow belongs to the model-runtime
+  integration and is not ported here.
+- Added `pi_tui::components::input::Input::as_any_mut` so containers can read/update the embedded input
+  (mirrors the `Text` downcast hook); needed by the login dialog and both search selectors.
+
+## Gaps / exclusions
+
+- `ModelSelectorComponent` (`model-selector.ts`), `SettingsSelectorComponent`, `ConfigSelectorComponent`,
+  `TreeSelectorComponent`, and `SessionSelectorComponent` are not ported in this slice; they depend on the
+  model runtime, settings mutation surface, and session tree APIs. Tracked as `todo` in `coverage.md`.
+- `updateModels`/`setRefreshStatus` on the scoped-models selector and `showAuth` on the login dialog are
+  implemented but not covered by the differential harness.

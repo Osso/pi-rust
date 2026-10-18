@@ -6,12 +6,23 @@ type RequestId = string | number | null;
 
 type Step = { key?: string; width?: number };
 
+type Action = {
+	kind: string;
+	message?: string;
+	placeholder?: string;
+	lines?: string[];
+	links?: Array<{ url: string; label?: string }>;
+	showCloseHint?: boolean;
+	info?: Record<string, unknown>;
+};
+
 type ComponentCase = {
 	name: string;
 	component: string;
 	props: Record<string, unknown>;
 	width: number;
 	steps: Step[];
+	actions?: Action[];
 };
 
 type Request = { id: RequestId; operation: "render"; cases: ComponentCase[] };
@@ -36,7 +47,11 @@ function instantiate(
 	component: string,
 	props: Record<string, unknown>,
 	events: string[],
-): { component: { render(width: number): string[]; handleInput?(data: string): void }; selectList?: { handleInput(data: string): void } } {
+): {
+	component: { render(width: number): string[]; handleInput?(data: string): void };
+	selectList?: { handleInput(data: string): void };
+	applyAction?: (action: Action) => void;
+} {
 	const push = (event: string) => events.push(event);
 	switch (component) {
 		case "thinking": {
@@ -133,6 +148,111 @@ function instantiate(
 			});
 			return { component: instance };
 		}
+		case "scoped_models": {
+			const { ScopedModelsSelectorComponent } = modules.scoped_models;
+			const models = (props.models as Array<Record<string, unknown>>).map((model) => ({
+				id: model.id,
+				name: model.name,
+				provider: model.provider,
+			}));
+			const instance = new (ScopedModelsSelectorComponent as new (...args: unknown[]) => {
+				render(width: number): string[];
+				handleInput(data: string): void;
+			})(
+				{
+					allModels: models,
+					enabledModelIds: props.enabledModelIds,
+					refreshStatus: props.refreshStatus,
+				},
+				{
+					onChange: (enabled: string[] | null) => push(`change:${JSON.stringify(enabled)}`),
+					onPersist: (enabled: string[] | null) => push(`persist:${JSON.stringify(enabled)}`),
+					onCancel: () => push("cancel"),
+				},
+			);
+			return { component: instance };
+		}
+		case "oauth_selector": {
+			const { OAuthSelectorComponent } = modules.oauth_selector;
+			const providers = (props.providers as Array<Record<string, unknown>>).map((provider) => ({
+				id: provider.id,
+				name: provider.name,
+				authType: provider.authType,
+				method: provider.methodName ? { name: provider.methodName } : undefined,
+				status: provider.status,
+			}));
+			const instance = new (OAuthSelectorComponent as new (...args: unknown[]) => {
+				render(width: number): string[];
+				handleInput(data: string): void;
+			})(
+				props.mode,
+				providers,
+				(id: string, authType: string) => push(`select:${id}:${authType}`),
+				() => push("cancel"),
+				props.initialSearchInput,
+			);
+			return { component: instance };
+		}
+		case "login_dialog": {
+			const { LoginDialogComponent } = modules.login_dialog;
+			const instance = new (LoginDialogComponent as new (...args: unknown[]) => {
+				render(width: number): string[];
+				handleInput(data: string): void;
+				showDeviceCode(info: unknown): void;
+				showDetails(lines: string[]): void;
+				showInfo(message: string, links: unknown[], showCloseHint: boolean): void;
+				showWaiting(message: string): void;
+				showProgress(message: string): void;
+				showPrompt(message: string, placeholder?: string): Promise<string>;
+			})(
+				{ requestRender: () => push("render"), invalidate: () => {} },
+				props.providerId,
+				(success: boolean, message?: string) => push(`complete:${success}:${message ?? ""}`),
+				props.providerNameOverride,
+				props.titleOverride,
+			);
+			return {
+				component: instance,
+				applyAction: (action: Action) => {
+					switch (action.kind) {
+						case "show_device_code":
+							instance.showDeviceCode(action.info);
+							return;
+						case "show_details":
+							instance.showDetails(action.lines ?? []);
+							return;
+						case "show_info":
+							instance.showInfo(action.message ?? "", action.links ?? [], action.showCloseHint ?? false);
+							return;
+						case "show_waiting":
+							instance.showWaiting(action.message ?? "");
+							return;
+						case "show_progress":
+							instance.showProgress(action.message ?? "");
+							return;
+						case "show_prompt":
+							void instance.showPrompt(action.message ?? "", action.placeholder);
+							return;
+						default:
+							throw new Error(`unknown action ${action.kind}`);
+					}
+				},
+			};
+		}
+		case "agent_switcher": {
+			const { AgentSwitcherComponent } = modules.agent_switcher;
+			const instance = new (AgentSwitcherComponent as new (...args: unknown[]) => {
+				render(width: number): string[];
+				handleInput(data: string): void;
+			})(
+				props.agents,
+				props.selectedAgentId,
+				(agentId: string) => push(`select:${agentId}`),
+				() => push("cancel"),
+				(agent: { id: string }) => push(`inactive:${agent.id}`),
+			);
+			return { component: instance };
+		}
 		case "user_message": {
 			const { UserMessageSelectorComponent } = modules.user_message;
 			const instance = new (UserMessageSelectorComponent as new (...args: unknown[]) => {
@@ -154,6 +274,9 @@ function instantiate(
 function runCase(modules: Record<string, ComponentModule>, componentCase: ComponentCase): unknown {
 	const events: string[] = [];
 	const instance = instantiate(modules, componentCase.component, componentCase.props, events);
+	for (const action of componentCase.actions ?? []) {
+		instance.applyAction?.(action);
+	}
 	const input = (key: string) => {
 		if (instance.selectList) {
 			instance.selectList.handleInput(key);
@@ -220,6 +343,13 @@ async function main(): Promise<void> {
 		setCapabilities(capabilities: { images: null; trueColor: boolean; hyperlinks: boolean }): void;
 	};
 	tui.setCapabilities({ images: null, trueColor: true, hyperlinks: false });
+	const keybindingsModule = (await import(
+		pathToFileURL(join(dirname(dirname(dirname(directory))), "core", "keybindings.ts")).href
+	)) as { KeybindingsManager: new () => unknown };
+	const tuiModule = (await import("@earendil-works/pi-tui")) as {
+		setKeybindings(keybindings: unknown): void;
+	};
+	tuiModule.setKeybindings(new keybindingsModule.KeybindingsManager());
 	const themeModule = await importModule(dirname(directory), join("theme", "theme.ts"));
 	(themeModule.initTheme as (name: string) => void)("dark");
 	const modules: Record<string, ComponentModule> = {
@@ -231,6 +361,10 @@ async function main(): Promise<void> {
 		trust: await importModule(directory, "trust-selector.ts"),
 		sandbox: await importModule(directory, "sandbox-selector.ts"),
 		user_message: await importModule(directory, "user-message-selector.ts"),
+		agent_switcher: await importModule(directory, "agent-switcher.ts"),
+		login_dialog: await importModule(directory, "login-dialog.ts"),
+		oauth_selector: await importModule(directory, "oauth-selector.ts"),
+		scoped_models: await importModule(directory, "scoped-models-selector.ts"),
 	};
 	serveRequests(modules);
 }

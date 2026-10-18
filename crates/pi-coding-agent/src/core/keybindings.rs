@@ -399,6 +399,12 @@ impl KeybindingsManager {
         Self::new(user_bindings, Some(config_path.to_string_lossy().into_owned()))
     }
 
+    /// Install this manager as the process-wide TUI keybinding registry
+    /// (`setKeybindings` in `interactive-mode.ts`).
+    pub fn install(self) {
+        pi_tui::keybindings::set_keybindings(self.inner);
+    }
+
     pub fn reload(&mut self) {
         let Some(config_path) = &self.config_path else {
             return;

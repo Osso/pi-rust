@@ -206,6 +206,365 @@ fn user_message_cases() -> Vec<Value> {
     ]
 }
 
+fn agent_node(id: &str, parent_id: Option<&str>, display_name: &str, lifecycle: &str, slot: Option<i64>) -> Value {
+    json!({
+        "id": id,
+        "parentId": parent_id,
+        "displayName": display_name,
+        "agentType": "general",
+        "lifecycle": lifecycle,
+        "revision": 1,
+        "createdAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:01.000Z",
+        "cwd": "/tmp",
+        "permission": {"policy": "on-request", "narrowed": false},
+        "slot": slot.map(|index| json!({"index": index, "pinned": false})),
+    })
+}
+
+fn agent_switcher_cases() -> Vec<Value> {
+    let tree = vec![
+        agent_node("root-a", None, "Root A", "running", Some(1)),
+        agent_node("child-a1", Some("root-a"), "Child A1", "running", Some(2)),
+        agent_node("child-a2", Some("root-a"), "Child A2", "waiting_for_input", None),
+        agent_node("root-b", None, "Root B", "running", Some(3)),
+        agent_node("child-b1", Some("root-b"), "Child B1", "steering_pending", None),
+    ];
+    let mut many = Vec::new();
+    many.push(agent_node("root", None, "Root", "running", Some(1)));
+    for index in 1..=12 {
+        many.push(agent_node(
+            &format!("agent-{index:02}"),
+            Some("root"),
+            &format!("Agent {index}"),
+            "running",
+            None,
+        ));
+    }
+    let with_closed = vec![
+        agent_node("root", None, "Root", "running", Some(1)),
+        agent_node("done", Some("root"), "Completed agent", "completed", Some(2)),
+        agent_node("failed", Some("root"), "Failed agent", "failed", None),
+        agent_node("active", Some("root"), "Active agent", "running", None),
+        agent_node("aborted", Some("root"), "Aborted agent", "aborted", None),
+        agent_node(
+            "a-very-long-agent-identifier",
+            Some("root"),
+            "Long identifier agent",
+            "running",
+            None,
+        ),
+    ];
+    vec![
+        json!({
+            "name": "agent-switcher-tree",
+            "component": "agent_switcher",
+            "props": {"agents": tree, "selectedAgentId": "child-a1"},
+            "width": 100,
+            "steps": [
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[A"},
+                {"key": "\r"},
+                {"key": "\u{1b}"},
+            ],
+        }),
+        json!({
+            "name": "agent-switcher-closed",
+            "component": "agent_switcher",
+            "props": {"agents": with_closed, "selectedAgentId": "active"},
+            "width": 100,
+            "steps": [
+                {"key": "\u{8}"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\r"},
+                {"key": "\u{8}"},
+                {"key": "\u{1b}"},
+            ],
+        }),
+        json!({
+            "name": "agent-switcher-scroll",
+            "component": "agent_switcher",
+            "props": {"agents": many, "selectedAgentId": "agent-01"},
+            "width": 60,
+            "steps": [
+                {"key": "\u{1b}[6~"},
+                {"key": "\u{1b}[6~"},
+                {"key": "\u{1b}[5~"},
+                {"key": "\u{1b}[B"},
+            ],
+        }),
+    ]
+}
+
+fn oauth_provider(id: &str, name: &str, auth_type: &str, method: Option<&str>, status: Option<Value>) -> Value {
+    json!({
+        "id": id,
+        "name": name,
+        "authType": auth_type,
+        "methodName": method,
+        "status": status,
+    })
+}
+
+fn oauth_selector_cases() -> Vec<Value> {
+    let mixed = vec![
+        oauth_provider(
+            "anthropic",
+            "Anthropic",
+            "oauth",
+            Some("Claude Pro"),
+            Some(json!({"type": "oauth", "source": "OAuth"})),
+        ),
+        oauth_provider(
+            "github",
+            "GitHub",
+            "api_key",
+            Some("GitHub token"),
+            Some(json!({"type": "api_key", "source": "GITHUB_TOKEN"})),
+        ),
+        oauth_provider(
+            "openai",
+            "OpenAI",
+            "api_key",
+            None,
+            Some(json!({"type": "api_key", "source": "stored credential"})),
+        ),
+        oauth_provider(
+            "google",
+            "Google",
+            "oauth",
+            Some("Google"),
+            Some(json!({"type": "api_key", "source": "GOOGLE_KEY"})),
+        ),
+        oauth_provider(
+            "custom",
+            "Custom Provider",
+            "api_key",
+            Some("Custom"),
+            Some(json!({"type": "api_key", "source": "FOO, BAR_2"})),
+        ),
+        oauth_provider(
+            "plain",
+            "Plain Provider",
+            "api_key",
+            None,
+            Some(json!({"type": "api_key", "source": "weird source"})),
+        ),
+        oauth_provider("noconfig", "Unconfigured", "api_key", None, None),
+    ];
+    let many: Vec<Value> = (1..=12)
+        .map(|index| {
+            oauth_provider(
+                &format!("provider-{index:02}"),
+                &format!("Provider {index}"),
+                "api_key",
+                None,
+                None,
+            )
+        })
+        .collect();
+    vec![
+        json!({
+            "name": "oauth-mixed",
+            "component": "oauth_selector",
+            "props": {"mode": "login", "providers": mixed, "initialSearchInput": null},
+            "width": 100,
+            "steps": [
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[A"},
+                {"key": "\r"},
+                {"key": "\u{1b}"},
+            ],
+        }),
+        json!({
+            "name": "oauth-search",
+            "component": "oauth_selector",
+            "props": {"mode": "login", "providers": mixed, "initialSearchInput": null},
+            "width": 100,
+            "steps": [
+                {"key": "g"},
+                {"key": "i"},
+                {"key": "t"},
+                {"key": "\u{7f}"},
+                {"key": "\r"},
+                {"key": "\u{1b}"},
+            ],
+        }),
+        json!({
+            "name": "oauth-logout-empty",
+            "component": "oauth_selector",
+            "props": {"mode": "logout", "providers": [], "initialSearchInput": null},
+            "width": 80,
+            "steps": [{"key": "\u{1b}[B"}, {"key": "\r"}],
+        }),
+        json!({
+            "name": "oauth-no-match",
+            "component": "oauth_selector",
+            "props": {"mode": "login", "providers": mixed, "initialSearchInput": "zzz"},
+            "width": 80,
+            "steps": [{"key": "\r"}, {"key": "\u{1b}[B"}],
+        }),
+        json!({
+            "name": "oauth-scroll",
+            "component": "oauth_selector",
+            "props": {"mode": "login", "providers": many, "initialSearchInput": null},
+            "width": 60,
+            "steps": [
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+            ],
+        }),
+    ]
+}
+
+fn login_dialog_cases() -> Vec<Value> {
+    let device_code = json!({
+        "userCode": "ABCD-1234",
+        "verificationUri": "https://example.com/device",
+        "intervalSeconds": 5,
+        "expiresInSeconds": 900,
+    });
+    vec![
+        json!({
+            "name": "login-device-code",
+            "component": "login_dialog",
+            "props": {"providerId": "github-copilot", "providerNameOverride": "GitHub Copilot", "titleOverride": null},
+            "width": 90,
+            "actions": [{"kind": "show_device_code", "info": device_code}],
+            "steps": [{"width": 60}, {"key": "\u{1b}"}],
+        }),
+        json!({
+            "name": "login-details-info-waiting",
+            "component": "login_dialog",
+            "props": {"providerId": "anthropic", "providerNameOverride": null, "titleOverride": "Custom Title"},
+            "width": 90,
+            "actions": [
+                {"kind": "show_details", "lines": ["First detail", "Second detail"]},
+                {"kind": "show_info", "message": "Provider info", "links": [
+                    {"url": "https://example.com/a", "label": "Docs"},
+                    {"url": "https://example.com/b"},
+                ], "showCloseHint": true},
+                {"kind": "show_waiting", "message": "Waiting for authorization..."},
+                {"kind": "show_progress", "message": "Step 1 of 2"},
+            ],
+            "steps": [{"key": "\u{1b}"}],
+        }),
+        json!({
+            "name": "login-prompt-submit",
+            "component": "login_dialog",
+            "props": {"providerId": "anthropic", "providerNameOverride": null, "titleOverride": null},
+            "width": 90,
+            "actions": [
+                {"kind": "show_details", "lines": ["Enter your key"]},
+                {"kind": "show_prompt", "message": "API key:", "placeholder": "sk-..."},
+            ],
+            "steps": [
+                {"key": "s"},
+                {"key": "k"},
+                {"key": "-"},
+                {"key": "1"},
+                {"key": "\r"},
+                {"width": 50},
+                {"key": "\u{1b}"},
+            ],
+        }),
+    ]
+}
+
+fn model_fixture(id: &str, name: &str, provider: &str) -> Value {
+    json!({"id": id, "name": name, "provider": provider})
+}
+
+fn scoped_models_cases() -> Vec<Value> {
+    let models = vec![
+        model_fixture("gpt-5", "GPT-5", "openai"),
+        model_fixture("gpt-5-mini", "GPT-5 mini", "openai"),
+        model_fixture("claude-sonnet-4", "Claude Sonnet 4", "anthropic"),
+        model_fixture("gemini-2.5-pro", "Gemini 2.5 Pro", "google"),
+        model_fixture("grok-4", "Grok 4", "xai"),
+    ];
+    let many: Vec<Value> = (1..=12)
+        .map(|index| model_fixture(&format!("model-{index:02}"), &format!("Model {index}"), "test"))
+        .collect();
+    vec![
+        json!({
+            "name": "scoped-all",
+            "component": "scoped_models",
+            "props": {"models": models, "enabledModelIds": null, "refreshStatus": null},
+            "width": 100,
+            "steps": [
+                {"key": "\u{1b}[B"},
+                {"key": "\r"},
+                {"key": "\r"},
+                {"key": "\u{01}"},
+                {"key": "\u{18}"},
+                {"key": "\u{13}"},
+                {"key": "\u{1b}"},
+            ],
+        }),
+        json!({
+            "name": "scoped-subset",
+            "component": "scoped_models",
+            "props": {
+                "models": models,
+                "enabledModelIds": ["claude-sonnet-4/anthropic", "missing/model", "gpt-5/openai"],
+                "refreshStatus": "Refreshing model catalogs…",
+            },
+            "width": 100,
+            "steps": [
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[1;3A"},
+                {"key": "\u{1b}[1;3B"},
+                {"key": "\u{10}"},
+                {"key": "\u{13}"},
+                {"key": "\u{1b}"},
+            ],
+        }),
+        json!({
+            "name": "scoped-search",
+            "component": "scoped_models",
+            "props": {"models": models, "enabledModelIds": null, "refreshStatus": null},
+            "width": 80,
+            "steps": [
+                {"key": "g"},
+                {"key": "p"},
+                {"key": "t"},
+                {"key": "\r"},
+                {"key": "\u{18}"},
+                {"key": "\u{03}"},
+                {"key": "\u{03}"},
+            ],
+        }),
+        json!({
+            "name": "scoped-scroll",
+            "component": "scoped_models",
+            "props": {"models": many, "enabledModelIds": null, "refreshStatus": null},
+            "width": 60,
+            "steps": [
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+                {"key": "\u{1b}[B"},
+            ],
+        }),
+    ]
+}
+
 fn cases_for(component: &str) -> Vec<Value> {
     match component {
         "thinking" => thinking_cases(),
@@ -216,6 +575,10 @@ fn cases_for(component: &str) -> Vec<Value> {
         "trust" => trust_cases(),
         "sandbox" => sandbox_cases(),
         "user_message" => user_message_cases(),
+        "agent_switcher" => agent_switcher_cases(),
+        "oauth_selector" => oauth_selector_cases(),
+        "login_dialog" => login_dialog_cases(),
+        "scoped_models" => scoped_models_cases(),
         other => panic!("unknown component {other}"),
     }
 }
@@ -295,6 +658,26 @@ fn user_message_selector_matches_typescript() {
     compare_component("user_message");
 }
 
+#[test]
+fn agent_switcher_matches_typescript() {
+    compare_component("agent_switcher");
+}
+
+#[test]
+fn oauth_selector_matches_typescript() {
+    compare_component("oauth_selector");
+}
+
+#[test]
+fn login_dialog_matches_typescript() {
+    compare_component("login_dialog");
+}
+
+#[test]
+fn scoped_models_selector_matches_typescript() {
+    compare_component("scoped_models");
+}
+
 // ============================================================================
 // Probe child: renders the Rust components for the same case list.
 // ============================================================================
@@ -308,6 +691,7 @@ fn components_probe_child() {
     let component = std::env::var(PROBE_NAME).expect("COMPONENT_PROBE_NAME");
     let output_path = std::env::var(PROBE_OUT).expect("COMPONENT_PROBE_OUT");
 
+    pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None).install();
     pi_tui::terminal_image::set_capabilities(pi_tui::terminal_image::TerminalCapabilities {
         images: None,
         true_color: true,
@@ -566,6 +950,233 @@ fn run_component_case(case: &Value) -> Value {
                 }),
                 on_cancel: Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
             });
+            renders.push(selector.render(width));
+            let mut current_width = width;
+            for step in &steps {
+                apply_step(&mut renders, &mut selector, None, step, &mut current_width);
+            }
+        }
+        "scoped_models" => {
+            use pi_ai::types::{Modality, Model, ModelCost};
+            use pi_tui::tui::Component;
+
+            use pi_coding_agent::modes::interactive::components::scoped_models_selector::{
+                ModelsCallbacks, ModelsConfig, ScopedModelsSelectorComponent,
+            };
+
+            let models: Vec<Model> = props["models"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|model| Model {
+                    id: model["id"].as_str().unwrap().to_owned(),
+                    name: model["name"].as_str().unwrap().to_owned(),
+                    api: "openai-completions".to_owned(),
+                    provider: model["provider"].as_str().unwrap().to_owned(),
+                    base_url: String::new(),
+                    reasoning: false,
+                    thinking_level_map: None,
+                    input: vec![Modality::Text],
+                    cost: ModelCost::default(),
+                    context_window: 128000.0,
+                    auto_compaction_threshold: None,
+                    max_tokens: 4096.0,
+                    sampling_params: None,
+                    headers: None,
+                    compat: None,
+                })
+                .collect();
+            let enabled_model_ids = match props.get("enabledModelIds") {
+                Some(Value::Array(ids)) => {
+                    Some(ids.iter().map(|id| id.as_str().unwrap().to_owned()).collect::<Vec<_>>())
+                }
+                _ => None,
+            };
+            let change_sink = Rc::clone(&events);
+            let persist_sink = Rc::clone(&events);
+            let cancel_sink = Rc::clone(&events);
+            let mut selector = ScopedModelsSelectorComponent::new(
+                ModelsConfig {
+                    all_models: models,
+                    enabled_model_ids,
+                    refresh_status: props["refreshStatus"].as_str().map(str::to_owned),
+                },
+                ModelsCallbacks {
+                    on_change: Rc::new(move |enabled| {
+                        change_sink
+                            .borrow_mut()
+                            .push(format!("change:{}", serde_json::to_string(&enabled).unwrap()));
+                    }),
+                    on_persist: Rc::new(move |enabled| {
+                        persist_sink
+                            .borrow_mut()
+                            .push(format!("persist:{}", serde_json::to_string(&enabled).unwrap()));
+                    }),
+                    on_cancel: Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
+                },
+            );
+            renders.push(selector.render(width));
+            let mut current_width = width;
+            for step in &steps {
+                apply_step(&mut renders, &mut selector, None, step, &mut current_width);
+            }
+        }
+        "oauth_selector" => {
+            use pi_ai::auth::types::{AuthCheck, AuthType};
+            use pi_tui::tui::Component;
+
+            use pi_coding_agent::modes::interactive::components::oauth_selector::{
+                AuthSelectorMode, AuthSelectorProvider, OAuthSelectorComponent,
+            };
+
+            let providers: Vec<AuthSelectorProvider> = props["providers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|provider| {
+                    let auth_type = match provider["authType"].as_str().unwrap() {
+                        "oauth" => AuthType::Oauth,
+                        _ => AuthType::ApiKey,
+                    };
+                    let status = provider["status"].as_object().map(|status| AuthCheck {
+                        source: status.get("source").and_then(Value::as_str).map(str::to_owned),
+                        auth_type: match status.get("type").and_then(Value::as_str) {
+                            Some("oauth") => AuthType::Oauth,
+                            _ => AuthType::ApiKey,
+                        },
+                    });
+                    AuthSelectorProvider {
+                        id: provider["id"].as_str().unwrap().to_owned(),
+                        name: provider["name"].as_str().unwrap().to_owned(),
+                        auth_type,
+                        method_name: provider["methodName"].as_str().map(str::to_owned),
+                        status,
+                    }
+                })
+                .collect();
+            let mode = match props["mode"].as_str().unwrap() {
+                "logout" => AuthSelectorMode::Logout,
+                _ => AuthSelectorMode::Login,
+            };
+            let event_sink = Rc::clone(&events);
+            let cancel_sink = Rc::clone(&events);
+            let mut selector = OAuthSelectorComponent::new(
+                mode,
+                providers,
+                Rc::new(move |id, auth_type| {
+                    event_sink.borrow_mut().push(format!(
+                        "select:{id}:{}",
+                        match auth_type {
+                            AuthType::Oauth => "oauth",
+                            AuthType::ApiKey => "api_key",
+                        }
+                    ));
+                }),
+                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
+                props["initialSearchInput"].as_str(),
+            );
+            renders.push(selector.render(width));
+            let mut current_width = width;
+            for step in &steps {
+                apply_step(&mut renders, &mut selector, None, step, &mut current_width);
+            }
+        }
+        "login_dialog" => {
+            use pi_tui::tui::Component;
+
+            use pi_coding_agent::modes::interactive::components::login_dialog::LoginDialogComponent;
+
+            let event_sink = Rc::clone(&events);
+            let render_sink = Rc::clone(&events);
+            let mut dialog = LoginDialogComponent::new(
+                Rc::new(move || render_sink.borrow_mut().push("render".to_owned())),
+                props["providerId"].as_str().unwrap(),
+                Rc::new(move |success, message| {
+                    event_sink
+                        .borrow_mut()
+                        .push(format!("complete:{success}:{}", message.unwrap_or_default()));
+                }),
+                props["providerNameOverride"].as_str(),
+                props["titleOverride"].as_str(),
+            );
+            for action in case["actions"].as_array().cloned().unwrap_or_default() {
+                match action["kind"].as_str().unwrap() {
+                    "show_device_code" => {
+                        let info = pi_ai::OAuthDeviceCodeInfo {
+                            user_code: action["info"]["userCode"].as_str().unwrap().to_owned(),
+                            verification_uri: action["info"]["verificationUri"].as_str().unwrap().to_owned(),
+                            interval_seconds: action["info"]["intervalSeconds"].as_f64(),
+                            expires_in_seconds: action["info"]["expiresInSeconds"].as_f64(),
+                        };
+                        dialog.show_device_code(&info);
+                    }
+                    "show_details" => {
+                        let lines: Vec<String> = action["lines"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|line| line.as_str().unwrap().to_owned())
+                            .collect();
+                        dialog.show_details(&lines);
+                    }
+                    "show_info" => {
+                        let links: Vec<pi_ai::auth::types::AuthInfoLink> = action["links"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default()
+                            .iter()
+                            .map(|link| pi_ai::auth::types::AuthInfoLink {
+                                url: link["url"].as_str().unwrap().to_owned(),
+                                label: link["label"].as_str().map(str::to_owned),
+                            })
+                            .collect();
+                        dialog.show_info(
+                            action["message"].as_str().unwrap_or_default(),
+                            &links,
+                            action["showCloseHint"].as_bool().unwrap_or(false),
+                        );
+                    }
+                    "show_waiting" => dialog.show_waiting(action["message"].as_str().unwrap_or_default()),
+                    "show_progress" => dialog.show_progress(action["message"].as_str().unwrap_or_default()),
+                    "show_prompt" => {
+                        let _receiver = dialog.show_prompt(
+                            action["message"].as_str().unwrap_or_default(),
+                            action["placeholder"].as_str(),
+                        );
+                    }
+                    other => panic!("unknown action {other}"),
+                }
+            }
+            renders.push(dialog.render(width));
+            let mut current_width = width;
+            for step in &steps {
+                apply_step(&mut renders, &mut dialog, None, step, &mut current_width);
+            }
+        }
+        "agent_switcher" => {
+            use pi_tui::tui::Component;
+
+            use pi_coding_agent::core::multi_agent_store::AgentSnapshot;
+            use pi_coding_agent::modes::interactive::components::agent_switcher::AgentSwitcherComponent;
+
+            let agents: Vec<AgentSnapshot> = props["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|agent| serde_json::from_value(agent.clone()).expect("valid agent snapshot"))
+                .collect();
+            let event_sink = Rc::clone(&events);
+            let inactive_sink = Rc::clone(&events);
+            let cancel_sink = Rc::clone(&events);
+            let mut selector = AgentSwitcherComponent::new(
+                agents,
+                props["selectedAgentId"].as_str().map(str::to_owned),
+                Rc::new(move |agent_id| event_sink.borrow_mut().push(format!("select:{agent_id}"))),
+                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
+                Rc::new(move |agent: AgentSnapshot| {
+                    inactive_sink.borrow_mut().push(format!("inactive:{}", agent.id));
+                }),
+            );
             renders.push(selector.render(width));
             let mut current_width = width;
             for step in &steps {
