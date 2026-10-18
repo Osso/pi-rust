@@ -67,6 +67,15 @@ pub fn uuidv7() -> String {
     generator.generate(now_millis(), random)
 }
 
+/// `crypto.randomUUID()`: RFC 9562 version 4 from OS randomness.
+pub fn random_uuid() -> String {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes).expect("OS random source must be available for UUIDv4");
+    bytes[6] = 0x40 | (bytes[6] & 0x0f);
+    bytes[8] = 0x80 | (bytes[8] & 0x3f);
+    format_uuid(&bytes)
+}
+
 fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

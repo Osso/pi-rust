@@ -39,7 +39,8 @@ pub type PrepareNextTurnContextHook = Arc<
 >;
 
 /// Event listener registered through [`Agent::subscribe`].
-pub type AgentListener = Arc<dyn Fn(AgentEvent, CancellationToken) -> BoxFuture<'static, ()> + Send + Sync>;
+pub type AgentListener =
+    Arc<dyn Fn(AgentEvent, CancellationToken) -> BoxFuture<'static, Result<(), AgentError>> + Send + Sync>;
 
 /// Prompt input accepted by [`Agent::prompt`].
 #[derive(Debug, Clone)]
@@ -762,9 +763,7 @@ impl Agent {
         let agent = self.clone();
         Arc::new(move |event| {
             let agent = agent.clone();
-            Box::pin(async move {
-                let _ = agent.process_events(event).await;
-            })
+            Box::pin(async move { agent.process_events(event).await })
         })
     }
 
@@ -809,7 +808,7 @@ impl Agent {
             .map(|(_, listener)| Arc::clone(listener))
             .collect();
         for listener in listeners {
-            listener(event.clone(), signal.clone()).await;
+            listener(event.clone(), signal.clone()).await?;
         }
         Ok(())
     }

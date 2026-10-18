@@ -1,0 +1,68 @@
+# components/input.ts traceability
+
+Source: `packages/tui/src/components/input.ts` (465 lines). Rust:
+`crates/pi-tui/src/components/input.rs`.
+
+Tests: `crates/pi-tui/tests/input.rs` (every listed TS test ported),
+`crates/pi-tui/tests/differential_input.rs` (13 scripted edit/render scenarios
+against the pinned TypeScript component).
+
+## Exported symbols
+
+| TypeScript export | Rust item | Tests |
+|---|---|---|
+| `interface InputOptions` | `InputOptions { mask }` | mask test, differential |
+| `class Input implements Component, Focusable` | `struct Input` | all |
+| `constructor(options?)` | `Input::new(InputOptions)` | all |
+| `onSubmit` / `onEscape` | public `Option<InputSubmitFn>` / `Option<InputEscapeFn>` | submit/escape paths, differential |
+| `focused` | `Focusable::focused` / `set_focused` | CJK/mask render tests |
+| `getValue` | `get_value` | all |
+| `setValue` | `set_value` | all |
+| `handleInput` | `Component::handle_input` | all |
+| `invalidate` | `Component::invalidate` (no-op) | source has no cached state |
+| `render(width)` | `Component::render` | render tests, differential |
+
+## Branches
+
+| TypeScript branch | Rust branch | Tests |
+|---|---|---|
+| bracketed paste start marker resets buffer | `handle_paste_chunk` | `undoes_paste_atomically`, differential |
+| paste end marker extracts content + reprocesses remainder | same | paste differential |
+| `tui.select.cancel` → `onEscape` | `handle_input` | differential escape case |
+| undo keybinding | `undo` | undo tests, differential |
+| submit keybinding or `"\n"` | `handle_input` | submit test |
+| backspace / forward delete by grapheme | `previous_grapheme_start`, `next_grapheme_end` | undo tests, differential |
+| delete word backward/forward with kill-ring accumulation | `delete_word_backwards`, `delete_word_forward` | kill-ring tests |
+| delete to line start/end (prepend/append) | `delete_to_line_start`, `delete_to_line_end` | kill-ring tests |
+| yank / yank-pop rotation | `yank`, `yank_pop` | kill-ring tests, differential |
+| cursor left/right by grapheme | `handle_input` | differential CJK case |
+| cursor line start/end | `handle_input` | differential |
+| cursor word left/right | `find_word_backward` / `find_word_forward` | unicode word tests |
+| Kitty CSI-u printable decode | `decode_kitty_printable` | differential `\x1b[97u` |
+| control-character rejection (C0, DEL, C1) | `has_control_characters` | differential `\u{1}` |
+| word-character undo coalescing | `last_action == TypeWord` | undo tests |
+| whitespace starts a new undo unit | `is_whitespace_char` | `undoes_spaces_one_at_a_time` |
+| masked value/cursor rendering | `get_masked_value`, `get_masked_cursor` | mask test, differential |
+| horizontal scrolling (near start/end/middle, end-of-value reservation) | `render` window calculation | CJK render tests, differential |
+| fake cursor + hardware cursor marker | `CURSOR_MARKER` when focused | CJK render tests |
+| prompt-width guard (`availableWidth <= 0`) | `checked_sub` early return | not reachable with the listed widths |
+
+## Behavioral notes
+
+- The TypeScript cursor is a UTF-16 code-unit index; Rust uses byte indices.
+  All movements are grapheme-cluster aligned, so rendered lines and edit
+  boundaries match. Differential cases include astral/CJK text.
+- The masked display maps each grapheme to `•` (3 UTF-8 bytes) but cursor
+  columns are recomputed through `slice_by_column`, matching the source's
+  one-cell-per-bullet behavior.
+- `Number.isFinite`/negative-width callers are excluded by the typed API.
+
+## Gaps / exclusions
+
+- `render` widths smaller than the prompt are typed as `usize`; the
+  `availableWidth <= 0` guard exists but the listed tests never reach it.
+
+## Discrepancies
+
+None found. All 34 ported behavioral tests and the differential scenario matrix
+pass unchanged against the pinned source.
