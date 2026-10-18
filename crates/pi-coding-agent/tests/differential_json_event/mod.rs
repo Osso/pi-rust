@@ -1,0 +1,142 @@
+#[path = "../support/oracle.rs"]
+mod oracle;
+
+use pi_coding_agent::modes::json_event::to_json_event;
+use serde_json::{Value, json};
+
+fn partial() -> Value {
+    json!({
+        "role": "assistant",
+        "content": [{"type": "text", "text": "Hi"}],
+        "api": "anthropic-messages",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5",
+        "usage": {
+            "input": 1,
+            "output": 2,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 3,
+            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}
+        },
+        "stopReason": "stop",
+        "timestamp": 123
+    })
+}
+
+fn events() -> Vec<Value> {
+    vec![
+        json!({"type": "agent_start"}),
+        json!({"type": "agent_end", "messages": [], "willRetry": false}),
+        json!({"type": "agent_settled"}),
+        json!({"type": "queue_update", "steering": ["a"], "followUp": ["b"]}),
+        json!({"type": "steering_message_queued"}),
+        json!({"type": "session_info_changed", "name": "x"}),
+        json!({"type": "session_info_changed", "name": null}),
+        json!({"type": "thinking_level_changed", "level": "high"}),
+        json!({"type": "auto_retry_start", "attempt": 1, "maxAttempts": 3, "delayMs": 100, "errorMessage": "boom"}),
+        json!({"type": "auto_retry_end", "success": false, "attempt": 3, "finalError": "boom"}),
+        json!({"type": "bash_execution_update", "id": "b1", "delta": "out"}),
+        json!({"type": "bash_execution_update", "delta": "out"}),
+        json!({"type": "message_start", "message": partial()}),
+        json!({"type": "message_end", "message": partial()}),
+        json!({
+            "type": "message_update",
+            "message": partial(),
+            "assistantMessageEvent": {"type": "start", "partial": partial()}
+        }),
+        json!({
+            "type": "message_update",
+            "message": partial(),
+            "assistantMessageEvent": {
+                "type": "text_start",
+                "contentIndex": 0,
+                "partial": partial()
+            }
+        }),
+        json!({
+            "type": "message_update",
+            "message": partial(),
+            "assistantMessageEvent": {
+                "type": "text_delta",
+                "contentIndex": 0,
+                "delta": "Hi",
+                "partial": partial()
+            }
+        }),
+        json!({
+            "type": "message_update",
+            "message": partial(),
+            "assistantMessageEvent": {
+                "type": "text_end",
+                "contentIndex": 0,
+                "content": "Hi",
+                "partial": partial()
+            }
+        }),
+        json!({
+            "type": "message_update",
+            "message": partial(),
+            "assistantMessageEvent": {
+                "type": "thinking_delta",
+                "contentIndex": 1,
+                "delta": "hm",
+                "partial": partial()
+            }
+        }),
+        json!({
+            "type": "message_update",
+            "message": partial(),
+            "assistantMessageEvent": {
+                "type": "toolcall_delta",
+                "contentIndex": 2,
+                "delta": "{}",
+                "partial": partial()
+            }
+        }),
+        json!({
+            "type": "message_update",
+            "message": partial(),
+            "assistantMessageEvent": {
+                "type": "toolcall_end",
+                "contentIndex": 2,
+                "toolCall": {"type": "toolCall", "id": "t1", "name": "read", "arguments": {}},
+                "partial": partial()
+            }
+        }),
+        json!({
+            "type": "message_update",
+            "message": partial(),
+            "assistantMessageEvent": {"type": "done", "reason": "stop", "message": partial()}
+        }),
+        json!({
+            "type": "message_update",
+            "message": partial(),
+            "assistantMessageEvent": {
+                "type": "error",
+                "reason": "error",
+                "error": partial()
+            }
+        }),
+    ]
+}
+
+pub(crate) fn run() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-json-event-oracle.ts",
+        "packages/coding-agent/src/modes/json-event.ts",
+    );
+    let fixtures = events();
+    let response = oracle.request(&json!({"id": 1, "events": fixtures}));
+    assert_eq!(response["ok"], true, "oracle failed: {response}");
+
+    let expected = response["output"]["events"]
+        .as_array()
+        .expect("oracle events must be an array");
+    assert_eq!(expected.len(), fixtures.len());
+
+    for (index, event) in fixtures.iter().enumerate() {
+        let actual = to_json_event(event);
+        assert_eq!(&actual, &expected[index], "event {index} differs");
+    }
+}

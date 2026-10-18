@@ -5,6 +5,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 use pi_agent_core::agent::ToolError;
 use tokio_util::sync::CancellationToken;
 
@@ -26,15 +28,18 @@ pub struct BashExecutorOptions {
 }
 
 /// `BashResult`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BashResult {
     /// Combined stdout + stderr output (sanitized, possibly truncated).
     pub output: String,
     /// Process exit code; `None` when killed or cancelled.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
     pub cancelled: bool,
     pub truncated: bool,
     /// Temp file containing the full output when it exceeded the truncation threshold.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub full_output_path: Option<String>,
 }
 

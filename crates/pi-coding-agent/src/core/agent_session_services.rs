@@ -46,6 +46,7 @@ pub struct CreateAgentSessionFromServicesOptions {
 }
 
 /// Coherent cwd-bound runtime services for one effective session cwd.
+#[derive(Clone)]
 pub struct AgentSessionServices {
     pub cwd: String,
     pub agent_dir: String,
