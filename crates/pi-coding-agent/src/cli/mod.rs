@@ -8,6 +8,7 @@ pub mod credential_print;
 pub mod debug_command;
 pub mod file_processor;
 pub mod initial_message;
+pub mod list_extensions;
 pub mod list_models;
 pub mod list_tools;
 pub mod login_command;

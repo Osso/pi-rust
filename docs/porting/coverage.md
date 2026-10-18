@@ -637,7 +637,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/cli/auth-command.ts` | 125 | 22 | done | `crates/pi-coding-agent/src/cli/auth_command.rs` | Parsing plus validation, credential extraction, and help output; 50 differential requests + 14 focused tests ([traceability](traceability/auth-command.md)). |
 | `coding-agent/src/cli/credential-print.ts` | 87 | 22 | done | `crates/pi-coding-agent/src/cli/credential_print.rs` | Provider/model selection, credential-type filtering, exact error messages; 8 boundary tests ([traceability](traceability/credential-print.md)). |
 | `coding-agent/src/cli/initial-message.ts` | 43 | 22 | done | `crates/pi-coding-agent/src/cli/initial_message.rs` | stdin/@file/first-message assembly with message shift; 4 tests ([traceability](traceability/initial-message.md)). |
-| `coding-agent/src/cli/list-extensions.ts` | 113 | 22 | todo |  |  |
+| `coding-agent/src/cli/list-extensions.ts` | 113 | 22 | done | `crates/pi-coding-agent/src/cli/list_extensions.rs` | First-party labels, scope/source derivation, UTF-16 column layout, locale path sort; 4-case byte-level differential ([traceability](traceability/list-extensions.md)). |
 | `coding-agent/src/cli/list-tools.ts` | 91 | 22 | done | `crates/pi-coding-agent/src/cli/list_tools.rs` | Source labels, UTF-16 truncation, sorted table; 4-case byte-level differential ([traceability](traceability/list-tools.md)). |
 | `coding-agent/src/cli/project-trust.ts` | 62 | 22 | done | `crates/pi-coding-agent/src/cli/project_trust.rs` | Mode mapping, hasUI gating, Yes/No confirm, notify coloring; startup-ui seam documented ([traceability](traceability/project-trust.md)). |
 | `coding-agent/src/cli/resident-console-command.ts` | 200 | 22 | todo |  |  |
