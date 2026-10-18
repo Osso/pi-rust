@@ -15,8 +15,9 @@ use crate::agent::agent_loop::{AgentEventSink, run_agent_loop, run_agent_loop_co
 use crate::agent::stream_fn::get_default_stream_fn;
 use crate::agent::types::{
     AfterToolCallHook, AgentContext, AgentError, AgentEvent, AgentLoopConfig, AgentLoopTurnUpdate, AgentMessage,
-    AgentState, AgentTool, BeforeToolCallHook, ConvertToLlm, GetApiKey, PrepareNextTurnContext, PrepareNextTurnHook,
-    ShouldStopAfterTurnContext, ShouldStopAfterTurnHook, StreamFn, TransformContext, reasoning_for,
+    AgentState, AgentTool, BeforeToolCallHook, ConvertToLlm, GetApiKey, MessageQueueHook, PrepareNextTurnContext,
+    PrepareNextTurnHook, ShouldStopAfterTurnContext, ShouldStopAfterTurnHook, StreamFn, TransformContext,
+    reasoning_for,
 };
 use crate::harness::types::{QueueMode, ThinkingLevel, ToolExecutionMode};
 
@@ -646,76 +647,39 @@ impl Agent {
     }
 
     fn create_loop_config(&self, skip_initial_steering_poll: bool) -> AgentLoopConfig {
-        let skip_initial_steering_poll = Arc::new(AtomicBool::new(skip_initial_steering_poll));
-        let steering_queue = Arc::clone(&self.steering_queue_arc());
-        let follow_up_queue = Arc::clone(&self.follow_up_queue_arc());
         let run_signal = self.signal();
-
-        let should_stop_after_turn = self.inner.should_stop_after_turn.clone().map(|hook| {
-            let run_signal = run_signal.clone();
-            Arc::new(
-                move |context: ShouldStopAfterTurnContext, _: Option<CancellationToken>| {
-                    hook(context, run_signal.clone())
-                },
-            ) as ShouldStopAfterTurnHook
-        });
-
-        let prepare_next_turn = match (
-            &self.inner.prepare_next_turn_with_context,
-            &self.inner.prepare_next_turn,
-        ) {
-            (Some(with_context), _) => {
-                let with_context = Arc::clone(with_context);
-                let run_signal = run_signal.clone();
-                Some(
-                    Arc::new(move |context: PrepareNextTurnContext| with_context(context, run_signal.clone()))
-                        as PrepareNextTurnHook,
-                )
-            }
-            (None, Some(signal_only)) => {
-                let signal_only = Arc::clone(signal_only);
-                let run_signal = run_signal.clone();
-                Some(Arc::new(move |_: PrepareNextTurnContext| signal_only(run_signal.clone())) as PrepareNextTurnHook)
-            }
-            (None, None) => None,
-        };
-
-        let get_steering_messages = {
-            let skip_initial_steering_poll = Arc::clone(&skip_initial_steering_poll);
-            Some(Arc::new(move || {
-                let steering_queue = Arc::clone(&steering_queue);
-                let skip_initial_steering_poll = Arc::clone(&skip_initial_steering_poll);
-                Box::pin(async move {
-                    if skip_initial_steering_poll.swap(false, Ordering::SeqCst) {
-                        return Vec::new();
-                    }
-                    queue_drain(&steering_queue)
-                }) as pi_ai::request::BoxFuture<'static, Vec<AgentMessage>>
-            }) as crate::agent::types::MessageQueueHook)
-        };
-        let get_follow_up_messages = {
-            let follow_up_queue = Arc::clone(&follow_up_queue);
-            Some(Arc::new(move || {
-                let follow_up_queue = Arc::clone(&follow_up_queue);
-                Box::pin(async move { queue_drain(&follow_up_queue) })
-                    as pi_ai::request::BoxFuture<'static, Vec<AgentMessage>>
-            }) as crate::agent::types::MessageQueueHook)
-        };
-
+        let (get_steering_messages, get_follow_up_messages) = self.build_queue_hooks(skip_initial_steering_poll);
         let state = self.state_lock();
+
+        AgentLoopConfig {
+            model: state.model.clone(),
+            stream_options: self.build_stream_options(state.thinking_level),
+            convert_to_llm: Arc::clone(&self.inner.convert_to_llm),
+            transform_context: self.inner.transform_context.clone(),
+            get_api_key: self.inner.get_api_key.clone(),
+            should_stop_after_turn: self.build_should_stop_hook(run_signal.clone()),
+            prepare_next_turn: self.build_prepare_next_turn_hook(run_signal),
+            get_steering_messages,
+            get_follow_up_messages,
+            tool_execution: *self
+                .inner
+                .tool_execution
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            before_tool_call: self.inner.before_tool_call.clone(),
+            after_tool_call: self.inner.after_tool_call.clone(),
+        }
+    }
+
+    fn build_stream_options(&self, thinking_level: ThinkingLevel) -> SimpleStreamOptions {
         let mut stream_options = self
             .inner
             .stream_options
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
-        stream_options.reasoning = reasoning_for(state.thinking_level);
-        stream_options.stream.session_id = self
-            .inner
-            .session_id
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone();
+        stream_options.reasoning = reasoning_for(thinking_level);
+        stream_options.stream.session_id = self.session_id();
         stream_options.stream.transport = Some(
             *self
                 .inner
@@ -734,33 +698,64 @@ impl Agent {
             .max_retry_delay_ms
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        stream_options
+    }
 
-        AgentLoopConfig {
-            model: state.model.clone(),
-            stream_options,
-            convert_to_llm: Arc::clone(&self.inner.convert_to_llm),
-            transform_context: self.inner.transform_context.clone(),
-            get_api_key: self.inner.get_api_key.clone(),
-            should_stop_after_turn,
-            prepare_next_turn,
-            get_steering_messages,
-            get_follow_up_messages,
-            tool_execution: *self
-                .inner
-                .tool_execution
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()),
-            before_tool_call: self.inner.before_tool_call.clone(),
-            after_tool_call: self.inner.after_tool_call.clone(),
+    fn build_should_stop_hook(&self, run_signal: Option<CancellationToken>) -> Option<ShouldStopAfterTurnHook> {
+        self.inner.should_stop_after_turn.clone().map(|hook| {
+            Arc::new(
+                move |context: ShouldStopAfterTurnContext, _: Option<CancellationToken>| {
+                    hook(context, run_signal.clone())
+                },
+            ) as ShouldStopAfterTurnHook
+        })
+    }
+
+    fn build_prepare_next_turn_hook(&self, run_signal: Option<CancellationToken>) -> Option<PrepareNextTurnHook> {
+        match (
+            &self.inner.prepare_next_turn_with_context,
+            &self.inner.prepare_next_turn,
+        ) {
+            (Some(with_context), _) => {
+                let with_context = Arc::clone(with_context);
+                Some(
+                    Arc::new(move |context: PrepareNextTurnContext| with_context(context, run_signal.clone()))
+                        as PrepareNextTurnHook,
+                )
+            }
+            (None, Some(signal_only)) => {
+                let signal_only = Arc::clone(signal_only);
+                Some(Arc::new(move |_: PrepareNextTurnContext| signal_only(run_signal.clone())) as PrepareNextTurnHook)
+            }
+            (None, None) => None,
         }
     }
 
-    fn steering_queue_arc(&self) -> Arc<Mutex<PendingMessageQueue>> {
-        Arc::clone(&self.inner.steering_queue)
-    }
+    fn build_queue_hooks(
+        &self,
+        skip_initial_steering_poll: bool,
+    ) -> (Option<MessageQueueHook>, Option<MessageQueueHook>) {
+        let skip_initial_steering_poll = Arc::new(AtomicBool::new(skip_initial_steering_poll));
+        let steering_queue = Arc::clone(&self.inner.steering_queue);
+        let follow_up_queue = Arc::clone(&self.inner.follow_up_queue);
 
-    fn follow_up_queue_arc(&self) -> Arc<Mutex<PendingMessageQueue>> {
-        Arc::clone(&self.inner.follow_up_queue)
+        let get_steering_messages = Some(Arc::new(move || {
+            let steering_queue = Arc::clone(&steering_queue);
+            let skip_initial_steering_poll = Arc::clone(&skip_initial_steering_poll);
+            Box::pin(async move {
+                if skip_initial_steering_poll.swap(false, Ordering::SeqCst) {
+                    return Vec::new();
+                }
+                queue_drain(&steering_queue)
+            }) as pi_ai::request::BoxFuture<'static, Vec<AgentMessage>>
+        }) as MessageQueueHook);
+        let get_follow_up_messages = Some(Arc::new(move || {
+            let follow_up_queue = Arc::clone(&follow_up_queue);
+            Box::pin(async move { queue_drain(&follow_up_queue) })
+                as pi_ai::request::BoxFuture<'static, Vec<AgentMessage>>
+        }) as MessageQueueHook);
+
+        (get_steering_messages, get_follow_up_messages)
     }
 
     fn event_sink(&self) -> AgentEventSink {

@@ -242,161 +242,224 @@ fn process_proxy_event(
     proxy_event: ProxyAssistantMessageEvent,
     state: &mut PartialState,
 ) -> Result<Option<AssistantMessageEvent>, String> {
-    let event = match proxy_event {
-        ProxyAssistantMessageEvent::Start => Some(AssistantMessageEvent::Start {
+    match proxy_event {
+        ProxyAssistantMessageEvent::Start => Ok(Some(AssistantMessageEvent::Start {
             partial: state.message.clone(),
-        }),
-        ProxyAssistantMessageEvent::TextStart { content_index } => {
-            set_slot(
-                &mut state.content,
-                content_index,
-                Some(AssistantContent::Text(TextContent::new(""))),
-            )?;
-            state.sync();
-            Some(AssistantMessageEvent::TextStart {
-                content_index,
-                partial: state.message.clone(),
-            })
-        }
+        })),
+        ProxyAssistantMessageEvent::TextStart { content_index } => process_text_start(state, content_index).map(Some),
         ProxyAssistantMessageEvent::TextDelta { content_index, delta } => {
-            text_mut(&mut state.content, content_index, "text_delta")?
-                .text
-                .push_str(&delta);
-            state.sync();
-            Some(AssistantMessageEvent::TextDelta {
-                content_index,
-                delta,
-                partial: state.message.clone(),
-            })
+            process_text_delta(state, content_index, delta).map(Some)
         }
         ProxyAssistantMessageEvent::TextEnd {
             content_index,
             content_signature,
-        } => {
-            let text = text_mut(&mut state.content, content_index, "text_end")?;
-            text.text_signature = content_signature;
-            let content = text.text.clone();
-            state.sync();
-            Some(AssistantMessageEvent::TextEnd {
-                content_index,
-                content,
-                partial: state.message.clone(),
-            })
-        }
+        } => process_text_end(state, content_index, content_signature).map(Some),
         ProxyAssistantMessageEvent::ThinkingStart { content_index } => {
-            set_slot(
-                &mut state.content,
-                content_index,
-                Some(AssistantContent::Thinking(ThinkingContent::new(""))),
-            )?;
-            state.sync();
-            Some(AssistantMessageEvent::ThinkingStart {
-                content_index,
-                partial: state.message.clone(),
-            })
+            process_thinking_start(state, content_index).map(Some)
         }
         ProxyAssistantMessageEvent::ThinkingDelta { content_index, delta } => {
-            thinking_mut(&mut state.content, content_index, "thinking_delta")?
-                .thinking
-                .push_str(&delta);
-            state.sync();
-            Some(AssistantMessageEvent::ThinkingDelta {
-                content_index,
-                delta,
-                partial: state.message.clone(),
-            })
+            process_thinking_delta(state, content_index, delta).map(Some)
         }
         ProxyAssistantMessageEvent::ThinkingEnd {
             content_index,
             content_signature,
-        } => {
-            let thinking = thinking_mut(&mut state.content, content_index, "thinking_end")?;
-            thinking.thinking_signature = content_signature;
-            let content = thinking.thinking.clone();
-            state.sync();
-            Some(AssistantMessageEvent::ThinkingEnd {
-                content_index,
-                content,
-                partial: state.message.clone(),
-            })
-        }
+        } => process_thinking_end(state, content_index, content_signature).map(Some),
         ProxyAssistantMessageEvent::ToolcallStart {
             content_index,
             id,
             tool_name,
-        } => {
-            set_slot(
-                &mut state.content,
-                content_index,
-                Some(AssistantContent::ToolCall(ToolCall::new(id, tool_name, Map::new()))),
-            )?;
-            state.partial_json.insert(content_index, String::new());
-            state.sync();
-            Some(AssistantMessageEvent::ToolCallStart {
-                content_index,
-                partial: state.message.clone(),
-            })
-        }
+        } => process_toolcall_start(state, content_index, id, tool_name).map(Some),
         ProxyAssistantMessageEvent::ToolcallDelta { content_index, delta } => {
-            let partial_json = state.partial_json.entry(content_index).or_default();
-            partial_json.push_str(&delta);
-            let arguments = streaming_arguments(partial_json);
-            tool_call_mut(&mut state.content, content_index, "toolcall_delta")?.arguments = arguments;
-            state.sync();
-            Some(AssistantMessageEvent::ToolCallDelta {
-                content_index,
-                delta,
-                partial: state.message.clone(),
-            })
+            process_toolcall_delta(state, content_index, delta).map(Some)
         }
         ProxyAssistantMessageEvent::ToolcallEnd {
             content_index,
             tool_call,
-        } => {
-            if matches!(
-                state.content.get(content_index),
-                Some(Some(AssistantContent::ToolCall(_)))
-            ) {
-                set_slot(
-                    &mut state.content,
-                    content_index,
-                    Some(AssistantContent::ToolCall(tool_call.clone())),
-                )?;
-                state.partial_json.remove(&content_index);
-                state.sync();
-                Some(AssistantMessageEvent::ToolCallEnd {
-                    content_index,
-                    tool_call,
-                    partial: state.message.clone(),
-                })
-            } else {
-                None
-            }
-        }
-        ProxyAssistantMessageEvent::Done { reason, usage } => {
-            state.message.stop_reason = stop_reason_for_done(reason);
-            state.message.usage = usage;
-            Some(AssistantMessageEvent::Done {
-                reason,
-                message: state.message.clone(),
-            })
-        }
+        } => process_toolcall_end(state, content_index, tool_call),
+        ProxyAssistantMessageEvent::Done { reason, usage } => process_done(state, reason, usage).map(Some),
         ProxyAssistantMessageEvent::Error {
             reason,
             error_message,
             usage,
-        } => {
-            state.message.stop_reason = stop_reason_for_error(reason);
-            state.message.error_message = error_message;
-            state.message.usage = usage;
-            Some(AssistantMessageEvent::Error {
-                reason,
-                error: state.message.clone(),
-            })
-        }
-        ProxyAssistantMessageEvent::Unknown => None,
-    };
-    Ok(event)
+        } => process_error(state, reason, error_message, usage).map(Some),
+        ProxyAssistantMessageEvent::Unknown => Ok(None),
+    }
+}
+
+fn process_text_start(state: &mut PartialState, content_index: usize) -> Result<AssistantMessageEvent, String> {
+    set_slot(
+        &mut state.content,
+        content_index,
+        Some(AssistantContent::Text(TextContent::new(""))),
+    )?;
+    state.sync();
+    Ok(AssistantMessageEvent::TextStart {
+        content_index,
+        partial: state.message.clone(),
+    })
+}
+
+fn process_text_delta(
+    state: &mut PartialState,
+    content_index: usize,
+    delta: String,
+) -> Result<AssistantMessageEvent, String> {
+    text_mut(&mut state.content, content_index, "text_delta")?
+        .text
+        .push_str(&delta);
+    state.sync();
+    Ok(AssistantMessageEvent::TextDelta {
+        content_index,
+        delta,
+        partial: state.message.clone(),
+    })
+}
+
+fn process_text_end(
+    state: &mut PartialState,
+    content_index: usize,
+    content_signature: Option<String>,
+) -> Result<AssistantMessageEvent, String> {
+    let text = text_mut(&mut state.content, content_index, "text_end")?;
+    text.text_signature = content_signature;
+    let content = text.text.clone();
+    state.sync();
+    Ok(AssistantMessageEvent::TextEnd {
+        content_index,
+        content,
+        partial: state.message.clone(),
+    })
+}
+
+fn process_thinking_start(state: &mut PartialState, content_index: usize) -> Result<AssistantMessageEvent, String> {
+    set_slot(
+        &mut state.content,
+        content_index,
+        Some(AssistantContent::Thinking(ThinkingContent::new(""))),
+    )?;
+    state.sync();
+    Ok(AssistantMessageEvent::ThinkingStart {
+        content_index,
+        partial: state.message.clone(),
+    })
+}
+
+fn process_thinking_delta(
+    state: &mut PartialState,
+    content_index: usize,
+    delta: String,
+) -> Result<AssistantMessageEvent, String> {
+    thinking_mut(&mut state.content, content_index, "thinking_delta")?
+        .thinking
+        .push_str(&delta);
+    state.sync();
+    Ok(AssistantMessageEvent::ThinkingDelta {
+        content_index,
+        delta,
+        partial: state.message.clone(),
+    })
+}
+
+fn process_thinking_end(
+    state: &mut PartialState,
+    content_index: usize,
+    content_signature: Option<String>,
+) -> Result<AssistantMessageEvent, String> {
+    let thinking = thinking_mut(&mut state.content, content_index, "thinking_end")?;
+    thinking.thinking_signature = content_signature;
+    let content = thinking.thinking.clone();
+    state.sync();
+    Ok(AssistantMessageEvent::ThinkingEnd {
+        content_index,
+        content,
+        partial: state.message.clone(),
+    })
+}
+
+fn process_toolcall_start(
+    state: &mut PartialState,
+    content_index: usize,
+    id: String,
+    tool_name: String,
+) -> Result<AssistantMessageEvent, String> {
+    set_slot(
+        &mut state.content,
+        content_index,
+        Some(AssistantContent::ToolCall(ToolCall::new(id, tool_name, Map::new()))),
+    )?;
+    state.partial_json.insert(content_index, String::new());
+    state.sync();
+    Ok(AssistantMessageEvent::ToolCallStart {
+        content_index,
+        partial: state.message.clone(),
+    })
+}
+
+fn process_toolcall_delta(
+    state: &mut PartialState,
+    content_index: usize,
+    delta: String,
+) -> Result<AssistantMessageEvent, String> {
+    let partial_json = state.partial_json.entry(content_index).or_default();
+    partial_json.push_str(&delta);
+    let arguments = streaming_arguments(partial_json);
+    tool_call_mut(&mut state.content, content_index, "toolcall_delta")?.arguments = arguments;
+    state.sync();
+    Ok(AssistantMessageEvent::ToolCallDelta {
+        content_index,
+        delta,
+        partial: state.message.clone(),
+    })
+}
+
+fn process_toolcall_end(
+    state: &mut PartialState,
+    content_index: usize,
+    tool_call: ToolCall,
+) -> Result<Option<AssistantMessageEvent>, String> {
+    let is_tool_call = matches!(
+        state.content.get(content_index),
+        Some(Some(AssistantContent::ToolCall(_)))
+    );
+    if !is_tool_call {
+        return Ok(None);
+    }
+    set_slot(
+        &mut state.content,
+        content_index,
+        Some(AssistantContent::ToolCall(tool_call.clone())),
+    )?;
+    state.partial_json.remove(&content_index);
+    state.sync();
+    Ok(Some(AssistantMessageEvent::ToolCallEnd {
+        content_index,
+        tool_call,
+        partial: state.message.clone(),
+    }))
+}
+
+fn process_done(state: &mut PartialState, reason: DoneReason, usage: Usage) -> Result<AssistantMessageEvent, String> {
+    state.message.stop_reason = stop_reason_for_done(reason);
+    state.message.usage = usage;
+    Ok(AssistantMessageEvent::Done {
+        reason,
+        message: state.message.clone(),
+    })
+}
+
+fn process_error(
+    state: &mut PartialState,
+    reason: ErrorReason,
+    error_message: Option<String>,
+    usage: Usage,
+) -> Result<AssistantMessageEvent, String> {
+    state.message.stop_reason = stop_reason_for_error(reason);
+    state.message.error_message = error_message;
+    state.message.usage = usage;
+    Ok(AssistantMessageEvent::Error {
+        reason,
+        error: state.message.clone(),
+    })
 }
 
 fn streaming_arguments(partial_json: &str) -> Map<String, Value> {

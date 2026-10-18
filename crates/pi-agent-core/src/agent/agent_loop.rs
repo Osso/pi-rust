@@ -17,8 +17,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::agent::stream_fn::get_default_stream_fn;
 use crate::agent::types::{
-    AfterToolCallContext, AgentContext, AgentError, AgentEvent, AgentLoopConfig, AgentMessage, AgentTool,
-    AgentToolResult, AgentToolUpdateCallback, BeforeToolCallContext, PrepareNextTurnContext,
+    AfterToolCallContext, AfterToolCallHook, AgentContext, AgentError, AgentEvent, AgentLoopConfig, AgentMessage,
+    AgentTool, AgentToolResult, AgentToolUpdateCallback, BeforeToolCallContext, PrepareNextTurnContext,
     ShouldStopAfterTurnContext, StreamFn,
 };
 
@@ -151,58 +151,17 @@ pub async fn run_agent_loop_continue(
     emit_event(&emit, AgentEvent::AgentStart).await;
     emit_event(&emit, AgentEvent::TurnStart).await;
 
-    if let Some(pending_tool_message) = restored_pending_tool_message(&current_context.messages) {
-        let batch = execute_tool_calls(
-            &current_context,
-            &pending_tool_message,
-            &continuation_config,
+    if restored_pending_tool_message(&current_context.messages).is_some()
+        && let ResumeOutcome::Stop(messages) = resume_pending_tool_batch(
+            &mut current_context,
+            &mut new_messages,
+            &mut continuation_config,
             &signal,
             &emit,
         )
-        .await?;
-        for result in &batch.messages {
-            current_context.messages.push(result.clone().into());
-            new_messages.push(result.clone().into());
-        }
-        emit_event(
-            &emit,
-            AgentEvent::TurnEnd {
-                message: pending_tool_message.clone().into(),
-                tool_results: batch.messages.clone(),
-            },
-        )
-        .await;
-        throw_if_aborted(&signal)?;
-        if batch.terminate {
-            emit_event(
-                &emit,
-                AgentEvent::AgentEnd {
-                    messages: new_messages.clone(),
-                },
-            )
-            .await;
-            return Ok(new_messages);
-        }
-        let next_turn_context = ShouldStopAfterTurnContext {
-            message: pending_tool_message.clone(),
-            tool_results: batch.messages.clone(),
-            context: current_context.clone(),
-            new_messages: new_messages.clone(),
-        };
-        if let Some(update) = prepare_next_turn(&continuation_config, next_turn_context.clone()).await? {
-            current_context = update.context.clone().unwrap_or(current_context);
-            apply_config_update(&mut continuation_config, &update);
-        }
-        if should_stop_after_turn(&continuation_config, next_turn_context).await? {
-            emit_event(
-                &emit,
-                AgentEvent::AgentEnd {
-                    messages: new_messages.clone(),
-                },
-            )
-            .await;
-            return Ok(new_messages);
-        }
+        .await?
+    {
+        return Ok(messages);
     }
 
     let stream_fn = resolve_stream_fn(stream_fn)?;
@@ -215,6 +174,59 @@ pub async fn run_agent_loop_continue(
         stream_fn,
     )
     .await
+}
+
+enum ResumeOutcome {
+    Continue,
+    Stop(Vec<AgentMessage>),
+}
+
+async fn resume_pending_tool_batch(
+    current_context: &mut AgentContext,
+    new_messages: &mut Vec<AgentMessage>,
+    config: &mut AgentLoopConfig,
+    signal: &Option<CancellationToken>,
+    emit: &AgentEventSink,
+) -> Result<ResumeOutcome, AgentError> {
+    let Some(pending_tool_message) = restored_pending_tool_message(&current_context.messages) else {
+        return Ok(ResumeOutcome::Continue);
+    };
+    let batch = execute_tool_calls(current_context, &pending_tool_message, config, signal, emit).await?;
+    for result in &batch.messages {
+        current_context.messages.push(result.clone().into());
+        new_messages.push(result.clone().into());
+    }
+    emit_event(
+        emit,
+        AgentEvent::TurnEnd {
+            message: pending_tool_message.clone().into(),
+            tool_results: batch.messages.clone(),
+        },
+    )
+    .await;
+    throw_if_aborted(signal)?;
+    if batch.terminate {
+        let messages = finish_agent(new_messages.clone(), emit).await?;
+        return Ok(ResumeOutcome::Stop(messages));
+    }
+
+    let next_turn_context = ShouldStopAfterTurnContext {
+        message: pending_tool_message,
+        tool_results: batch.messages,
+        context: current_context.clone(),
+        new_messages: new_messages.clone(),
+    };
+    if let Some(update) = prepare_next_turn(config, next_turn_context.clone()).await? {
+        if let Some(context) = update.context.clone() {
+            *current_context = context;
+        }
+        apply_config_update(config, &update);
+    }
+    if should_stop_after_turn(config, next_turn_context).await? {
+        let messages = finish_agent(new_messages.clone(), emit).await?;
+        return Ok(ResumeOutcome::Stop(messages));
+    }
+    Ok(ResumeOutcome::Continue)
 }
 
 fn resolve_stream_fn(stream_fn: Option<StreamFn>) -> Result<StreamFn, AgentError> {
@@ -259,81 +271,49 @@ fn restored_pending_tool_message(messages: &[AgentMessage]) -> Option<AssistantM
     None
 }
 
+struct LoopState {
+    current_context: AgentContext,
+    config: AgentLoopConfig,
+    first_turn: bool,
+    continuation_instruction_pending: bool,
+    new_messages: Vec<AgentMessage>,
+}
+
+struct TurnToolOutcome {
+    results: Vec<ToolResultMessage>,
+    has_more: bool,
+    continuation_pending: bool,
+}
+
 async fn run_loop(
     initial_context: AgentContext,
-    mut new_messages: Vec<AgentMessage>,
+    new_messages: Vec<AgentMessage>,
     initial_config: AgentLoopConfig,
     signal: Option<CancellationToken>,
     emit: &AgentEventSink,
     stream_fn: StreamFn,
 ) -> Result<Vec<AgentMessage>, AgentError> {
-    let mut current_context = initial_context;
-    let mut config = initial_config;
-    let mut first_turn = true;
-    let mut continuation_instruction_pending = false;
-    let mut pending_messages = poll_steering(&config).await;
+    let mut state = LoopState {
+        current_context: initial_context,
+        config: initial_config,
+        first_turn: true,
+        continuation_instruction_pending: false,
+        new_messages,
+    };
+    let mut pending_messages = poll_steering(&state.config).await;
 
     loop {
         let mut has_more_tool_calls = true;
 
         while has_more_tool_calls || !pending_messages.is_empty() {
             throw_if_aborted(&signal)?;
-            if first_turn {
-                first_turn = false;
-            } else {
-                emit_event(emit, AgentEvent::TurnStart).await;
-            }
+            start_turn(&mut state, emit).await;
+            inject_pending_messages(&mut state, &mut pending_messages, emit).await;
 
-            for message in pending_messages.drain(..) {
-                emit_event(
-                    emit,
-                    AgentEvent::MessageStart {
-                        message: message.clone(),
-                    },
-                )
-                .await;
-                emit_event(
-                    emit,
-                    AgentEvent::MessageEnd {
-                        message: message.clone(),
-                    },
-                )
-                .await;
-                current_context.messages.push(message.clone());
-                new_messages.push(message);
-            }
+            let message = request_assistant_message(&mut state, &signal, emit, &stream_fn).await?;
+            state.new_messages.push(message.clone().into());
 
-            let runtime_continuation_message = if continuation_instruction_pending {
-                Some(UserMessage {
-                    role: UserRole::Tag,
-                    content: pi_ai::types::UserContent::Text(END_TURN_CONTINUATION_INSTRUCTION.to_owned()),
-                    input_source: None,
-                    provider_native: None,
-                    timestamp: pi_ai::request::now_millis(),
-                })
-            } else {
-                None
-            };
-            continuation_instruction_pending = false;
-
-            emit_event(emit, AgentEvent::ModelRequestStart).await;
-            let streamed = stream_assistant_response(
-                &mut current_context,
-                &config,
-                &signal,
-                emit,
-                &stream_fn,
-                runtime_continuation_message,
-            )
-            .await;
-            emit_event(emit, AgentEvent::ModelRequestEnd).await;
-            let message = streamed?;
-            new_messages.push(message.clone().into());
-
-            if matches!(
-                message.stop_reason,
-                StopReason::Error | StopReason::Aborted | StopReason::Length
-            ) {
+            if is_terminal_stop(&message) {
                 emit_event(
                     emit,
                     AgentEvent::TurnEnd {
@@ -342,81 +322,181 @@ async fn run_loop(
                     },
                 )
                 .await;
-                emit_event(
-                    emit,
-                    AgentEvent::AgentEnd {
-                        messages: new_messages.clone(),
-                    },
-                )
-                .await;
-                return Ok(new_messages);
+                return finish_agent(state.new_messages, emit).await;
             }
 
-            let tool_calls = tool_calls_of(&message);
-            let mut tool_results: Vec<ToolResultMessage> = Vec::new();
-            has_more_tool_calls = false;
-            if !tool_calls.is_empty() {
-                let batch = execute_tool_calls(&current_context, &message, &config, &signal, emit).await?;
-                tool_results.extend(batch.messages.iter().cloned());
-                has_more_tool_calls = !batch.terminate;
-                for result in &tool_results {
-                    current_context.messages.push(result.clone().into());
-                    new_messages.push(result.clone().into());
-                }
-            } else if has_end_turn_tool(&current_context) {
-                has_more_tool_calls = true;
-                continuation_instruction_pending = true;
+            let turn_tools = run_turn_tools(&state.current_context, &message, &state.config, &signal, emit).await?;
+            has_more_tool_calls = turn_tools.has_more;
+            state.continuation_instruction_pending = turn_tools.continuation_pending;
+            append_tool_results(&mut state, &turn_tools.results);
+
+            if let Some(messages) = finish_turn(&mut state, &message, &turn_tools.results, &signal, emit).await? {
+                return Ok(messages);
             }
 
-            emit_event(
-                emit,
-                AgentEvent::TurnEnd {
-                    message: message.clone().into(),
-                    tool_results: tool_results.clone(),
-                },
-            )
-            .await;
-            throw_if_aborted(&signal)?;
-
-            let next_turn_context = ShouldStopAfterTurnContext {
-                message: message.clone(),
-                tool_results: tool_results.clone(),
-                context: current_context.clone(),
-                new_messages: new_messages.clone(),
-            };
-            if let Some(update) = prepare_next_turn(&config, next_turn_context.clone()).await? {
-                current_context = update.context.clone().unwrap_or(current_context);
-                apply_config_update(&mut config, &update);
-            }
-            if should_stop_after_turn(&config, next_turn_context).await? {
-                emit_event(
-                    emit,
-                    AgentEvent::AgentEnd {
-                        messages: new_messages.clone(),
-                    },
-                )
-                .await;
-                return Ok(new_messages);
-            }
-
-            pending_messages = poll_steering(&config).await;
+            pending_messages = poll_steering(&state.config).await;
         }
 
-        let follow_up_messages = poll_follow_up(&config).await;
+        let follow_up_messages = poll_follow_up(&state.config).await;
         if follow_up_messages.is_empty() {
             break;
         }
         pending_messages = follow_up_messages;
     }
 
+    finish_agent(state.new_messages, emit).await
+}
+
+async fn finish_agent(messages: Vec<AgentMessage>, emit: &AgentEventSink) -> Result<Vec<AgentMessage>, AgentError> {
     emit_event(
         emit,
         AgentEvent::AgentEnd {
-            messages: new_messages.clone(),
+            messages: messages.clone(),
         },
     )
     .await;
-    Ok(new_messages)
+    Ok(messages)
+}
+
+async fn start_turn(state: &mut LoopState, emit: &AgentEventSink) {
+    if state.first_turn {
+        state.first_turn = false;
+    } else {
+        emit_event(emit, AgentEvent::TurnStart).await;
+    }
+}
+
+async fn inject_pending_messages(
+    state: &mut LoopState,
+    pending_messages: &mut Vec<AgentMessage>,
+    emit: &AgentEventSink,
+) {
+    for message in pending_messages.drain(..) {
+        emit_event(
+            emit,
+            AgentEvent::MessageStart {
+                message: message.clone(),
+            },
+        )
+        .await;
+        emit_event(
+            emit,
+            AgentEvent::MessageEnd {
+                message: message.clone(),
+            },
+        )
+        .await;
+        state.current_context.messages.push(message.clone());
+        state.new_messages.push(message);
+    }
+}
+
+async fn request_assistant_message(
+    state: &mut LoopState,
+    signal: &Option<CancellationToken>,
+    emit: &AgentEventSink,
+    stream_fn: &StreamFn,
+) -> Result<AssistantMessage, AgentError> {
+    let runtime_continuation_message = state.continuation_instruction_pending.then(|| UserMessage {
+        role: UserRole::Tag,
+        content: pi_ai::types::UserContent::Text(END_TURN_CONTINUATION_INSTRUCTION.to_owned()),
+        input_source: None,
+        provider_native: None,
+        timestamp: pi_ai::request::now_millis(),
+    });
+    state.continuation_instruction_pending = false;
+
+    emit_event(emit, AgentEvent::ModelRequestStart).await;
+    let streamed = stream_assistant_response(
+        &mut state.current_context,
+        &state.config,
+        signal,
+        emit,
+        stream_fn,
+        runtime_continuation_message,
+    )
+    .await;
+    emit_event(emit, AgentEvent::ModelRequestEnd).await;
+    streamed
+}
+
+async fn run_turn_tools(
+    context: &AgentContext,
+    message: &AssistantMessage,
+    config: &AgentLoopConfig,
+    signal: &Option<CancellationToken>,
+    emit: &AgentEventSink,
+) -> Result<TurnToolOutcome, AgentError> {
+    if tool_calls_of(message).is_empty() {
+        let has_end_turn = has_end_turn_tool(context);
+        return Ok(TurnToolOutcome {
+            results: Vec::new(),
+            has_more: has_end_turn,
+            continuation_pending: has_end_turn,
+        });
+    }
+
+    let batch = execute_tool_calls(context, message, config, signal, emit).await?;
+    Ok(TurnToolOutcome {
+        results: batch.messages,
+        has_more: !batch.terminate,
+        continuation_pending: false,
+    })
+}
+
+fn append_tool_results(state: &mut LoopState, results: &[ToolResultMessage]) {
+    for result in results {
+        state.current_context.messages.push(result.clone().into());
+        state.new_messages.push(result.clone().into());
+    }
+}
+
+async fn finish_turn(
+    state: &mut LoopState,
+    message: &AssistantMessage,
+    tool_results: &[ToolResultMessage],
+    signal: &Option<CancellationToken>,
+    emit: &AgentEventSink,
+) -> Result<Option<Vec<AgentMessage>>, AgentError> {
+    emit_event(
+        emit,
+        AgentEvent::TurnEnd {
+            message: message.clone().into(),
+            tool_results: tool_results.to_vec(),
+        },
+    )
+    .await;
+    throw_if_aborted(signal)?;
+
+    let next_turn_context = ShouldStopAfterTurnContext {
+        message: message.clone(),
+        tool_results: tool_results.to_vec(),
+        context: state.current_context.clone(),
+        new_messages: state.new_messages.clone(),
+    };
+    apply_next_turn(state, next_turn_context.clone()).await?;
+    if should_stop_after_turn(&state.config, next_turn_context).await? {
+        return Ok(Some(finish_agent(state.new_messages.clone(), emit).await?));
+    }
+    Ok(None)
+}
+
+async fn apply_next_turn(state: &mut LoopState, context: ShouldStopAfterTurnContext) -> Result<(), AgentError> {
+    let Some(update) = prepare_next_turn(&state.config, context).await? else {
+        return Ok(());
+    };
+    if let Some(context) = update.context.clone() {
+        state.current_context = context;
+    }
+    apply_config_update(&mut state.config, &update);
+    Ok(())
+}
+
+fn is_terminal_stop(message: &AssistantMessage) -> bool {
+    matches!(
+        message.stop_reason,
+        StopReason::Error | StopReason::Aborted | StopReason::Length
+    )
 }
 
 fn apply_config_update(config: &mut AgentLoopConfig, update: &crate::agent::types::AgentLoopTurnUpdate) {
@@ -502,7 +582,66 @@ async fn stream_assistant_response(
     options.stream.request.signal = signal.clone();
 
     let mut response = await_with_abort(stream_fn(config.model.clone(), llm_context, options), signal).await?;
+    let streamed = consume_assistant_stream(&mut response, context, signal, emit).await?;
+    finish_assistant_message(context, signal, emit, streamed.message, streamed.added_partial).await
+}
 
+struct StreamedAssistant {
+    message: AssistantMessage,
+    added_partial: bool,
+}
+
+async fn handle_stream_start(context: &mut AgentContext, partial: &AssistantMessage, emit: &AgentEventSink) {
+    context.messages.push(partial.clone().into());
+    emit_event(
+        emit,
+        AgentEvent::MessageStart {
+            message: partial.clone().into(),
+        },
+    )
+    .await;
+}
+
+async fn handle_stream_update(
+    context: &mut AgentContext,
+    partial: &AssistantMessage,
+    event: &AssistantMessageEvent,
+    emit: &AgentEventSink,
+) {
+    if let Some(last) = context.messages.last_mut() {
+        *last = partial.clone().into();
+    }
+    emit_event(
+        emit,
+        AgentEvent::MessageUpdate {
+            message: partial.clone().into(),
+            assistant_message_event: Box::new(event.clone()),
+        },
+    )
+    .await;
+}
+
+fn assistant_event_partial(event: &AssistantMessageEvent) -> Option<&AssistantMessage> {
+    match event {
+        AssistantMessageEvent::TextStart { partial, .. }
+        | AssistantMessageEvent::TextDelta { partial, .. }
+        | AssistantMessageEvent::TextEnd { partial, .. }
+        | AssistantMessageEvent::ThinkingStart { partial, .. }
+        | AssistantMessageEvent::ThinkingDelta { partial, .. }
+        | AssistantMessageEvent::ThinkingEnd { partial, .. }
+        | AssistantMessageEvent::ToolCallStart { partial, .. }
+        | AssistantMessageEvent::ToolCallDelta { partial, .. }
+        | AssistantMessageEvent::ToolCallEnd { partial, .. } => Some(partial),
+        _ => None,
+    }
+}
+
+async fn consume_assistant_stream(
+    response: &mut AssistantMessageEventStream,
+    context: &mut AgentContext,
+    signal: &Option<CancellationToken>,
+    emit: &AgentEventSink,
+) -> Result<StreamedAssistant, AgentError> {
     let mut partial_message: Option<AssistantMessage> = None;
     let mut added_partial = false;
 
@@ -515,53 +654,32 @@ async fn stream_assistant_response(
         match &event {
             AssistantMessageEvent::Start { partial } => {
                 partial_message = Some(partial.clone());
-                context.messages.push(partial.clone().into());
                 added_partial = true;
-                emit_event(
-                    emit,
-                    AgentEvent::MessageStart {
-                        message: partial.clone().into(),
-                    },
-                )
-                .await;
-            }
-            AssistantMessageEvent::TextStart { partial, .. }
-            | AssistantMessageEvent::TextDelta { partial, .. }
-            | AssistantMessageEvent::TextEnd { partial, .. }
-            | AssistantMessageEvent::ThinkingStart { partial, .. }
-            | AssistantMessageEvent::ThinkingDelta { partial, .. }
-            | AssistantMessageEvent::ThinkingEnd { partial, .. }
-            | AssistantMessageEvent::ToolCallStart { partial, .. }
-            | AssistantMessageEvent::ToolCallDelta { partial, .. }
-            | AssistantMessageEvent::ToolCallEnd { partial, .. } => {
-                if partial_message.is_some() {
-                    partial_message = Some(partial.clone());
-                    if let Some(last) = context.messages.last_mut() {
-                        *last = partial.clone().into();
-                    }
-                    emit_event(
-                        emit,
-                        AgentEvent::MessageUpdate {
-                            message: partial.clone().into(),
-                            assistant_message_event: Box::new(event.clone()),
-                        },
-                    )
-                    .await;
-                }
+                handle_stream_start(context, partial, emit).await;
             }
             AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. } => {
-                let provider_message = await_with_abort(response.result(), signal)
+                let message = await_with_abort(response.result(), signal)
                     .await?
                     .map_err(|failure| AgentError::new(failure.message()))?;
-                return finish_assistant_message(context, signal, emit, provider_message, added_partial).await;
+                return Ok(StreamedAssistant { message, added_partial });
+            }
+            _ => {
+                let Some(partial) = assistant_event_partial(&event) else {
+                    continue;
+                };
+                if partial_message.is_none() {
+                    continue;
+                }
+                partial_message = Some(partial.clone());
+                handle_stream_update(context, partial, &event, emit).await;
             }
         }
     }
 
-    let provider_message = await_with_abort(response.result(), signal)
+    let message = await_with_abort(response.result(), signal)
         .await?
         .map_err(|failure| AgentError::new(failure.message()))?;
-    finish_assistant_message(context, signal, emit, provider_message, added_partial).await
+    Ok(StreamedAssistant { message, added_partial })
 }
 
 async fn finish_assistant_message(
@@ -791,43 +909,7 @@ async fn execute_tool_calls_parallel(
     let mut entries: Vec<FinalizedEntry> = Vec::new();
 
     for tool_call in tool_calls {
-        let preparation = prepare_tool_call(current_context, assistant_message, tool_call, config, signal).await;
-        let started_at = now_ms_f64();
-        emit_tool_execution_start(tool_call, &preparation, started_at, emit).await;
-        match preparation {
-            Preparation::Immediate { result, is_error, .. } => {
-                let finalized = cap_finalized_tool_call_outcome(FinalizedToolCallOutcome {
-                    tool_call: tool_call.clone(),
-                    result,
-                    is_error,
-                });
-                emit_tool_execution_end(&finalized, started_at, emit).await;
-                entries.push(FinalizedEntry::Done(Box::new(finalized)));
-            }
-            Preparation::Prepared(prepared) => {
-                let current_context = current_context.clone();
-                let assistant_message = assistant_message.clone();
-                let config = config.clone();
-                let signal = signal.clone();
-                let emit = Arc::clone(emit);
-                entries.push(FinalizedEntry::Pending(Box::pin(async move {
-                    let executed = execute_prepared_tool_call(prepared.clone(), &signal, &emit, started_at).await;
-                    let finalized = cap_finalized_tool_call_outcome(
-                        finalize_executed_tool_call(
-                            &current_context,
-                            &assistant_message,
-                            prepared,
-                            executed,
-                            &config,
-                            &signal,
-                        )
-                        .await,
-                    );
-                    emit_tool_execution_end(&finalized, started_at, &emit).await;
-                    finalized
-                })));
-            }
-        }
+        entries.push(build_parallel_entry(current_context, assistant_message, tool_call, config, signal, emit).await);
         if is_aborted(signal) {
             break;
         }
@@ -845,6 +927,54 @@ async fn execute_tool_calls_parallel(
         messages,
         terminate: should_terminate_tool_batch(&ordered_finalized_calls),
     })
+}
+
+async fn build_parallel_entry(
+    current_context: &AgentContext,
+    assistant_message: &AssistantMessage,
+    tool_call: &ToolCall,
+    config: &AgentLoopConfig,
+    signal: &Option<CancellationToken>,
+    emit: &AgentEventSink,
+) -> FinalizedEntry {
+    let preparation = prepare_tool_call(current_context, assistant_message, tool_call, config, signal).await;
+    let started_at = now_ms_f64();
+    emit_tool_execution_start(tool_call, &preparation, started_at, emit).await;
+
+    match preparation {
+        Preparation::Immediate { result, is_error, .. } => {
+            let finalized = cap_finalized_tool_call_outcome(FinalizedToolCallOutcome {
+                tool_call: tool_call.clone(),
+                result,
+                is_error,
+            });
+            emit_tool_execution_end(&finalized, started_at, emit).await;
+            FinalizedEntry::Done(Box::new(finalized))
+        }
+        Preparation::Prepared(prepared) => {
+            let current_context = current_context.clone();
+            let assistant_message = assistant_message.clone();
+            let config = config.clone();
+            let signal = signal.clone();
+            let emit = Arc::clone(emit);
+            FinalizedEntry::Pending(Box::pin(async move {
+                let executed = execute_prepared_tool_call(prepared.clone(), &signal, &emit, started_at).await;
+                let finalized = cap_finalized_tool_call_outcome(
+                    finalize_executed_tool_call(
+                        &current_context,
+                        &assistant_message,
+                        prepared,
+                        executed,
+                        &config,
+                        &signal,
+                    )
+                    .await,
+                );
+                emit_tool_execution_end(&finalized, started_at, &emit).await;
+                finalized
+            }))
+        }
+    }
 }
 
 async fn join_finalized_entries(entries: Vec<FinalizedEntry>) -> Result<Vec<FinalizedToolCallOutcome>, AgentError> {
@@ -890,6 +1020,18 @@ fn prepare_tool_call_arguments(tool: &Arc<dyn AgentTool>, tool_call: &ToolCall) 
     Ok(tool_call)
 }
 
+fn immediate_error(message: impl Into<String>, args: Value) -> Preparation {
+    Preparation::Immediate {
+        result: create_error_tool_result(message),
+        is_error: true,
+        args,
+    }
+}
+
+fn original_arguments(tool_call: &ToolCall) -> Value {
+    Value::Object(tool_call.arguments.clone())
+}
+
 async fn prepare_tool_call(
     current_context: &AgentContext,
     assistant_message: &AssistantMessage,
@@ -898,83 +1040,36 @@ async fn prepare_tool_call(
     signal: &Option<CancellationToken>,
 ) -> Preparation {
     let Some(tool) = current_context.find_tool(&tool_call.name) else {
-        return Preparation::Immediate {
-            result: create_error_tool_result(format!("Tool {} not found", tool_call.name)),
-            is_error: true,
-            args: Value::Object(tool_call.arguments.clone()),
-        };
+        return immediate_error(
+            format!("Tool {} not found", tool_call.name),
+            original_arguments(tool_call),
+        );
     };
 
     let prepared_tool_call = match prepare_tool_call_arguments(&tool, tool_call) {
         Ok(prepared) => prepared,
-        Err(error) => {
-            return Preparation::Immediate {
-                result: create_error_tool_result(error.to_string()),
-                is_error: true,
-                args: Value::Object(tool_call.arguments.clone()),
-            };
-        }
+        Err(error) => return immediate_error(error.to_string(), original_arguments(tool_call)),
     };
-    let mut validated_args = match validate_tool_arguments(&llm_tool(&tool), &prepared_tool_call) {
+    let validated_args = match validate_tool_arguments(&llm_tool(&tool), &prepared_tool_call) {
         Ok(args) => args,
-        Err(error) => {
-            return Preparation::Immediate {
-                result: create_error_tool_result(error.to_string()),
-                is_error: true,
-                args: Value::Object(tool_call.arguments.clone()),
-            };
-        }
+        Err(error) => return immediate_error(error.to_string(), original_arguments(tool_call)),
+    };
+    let validated_args = match apply_before_tool_call(
+        config,
+        assistant_message,
+        tool_call,
+        current_context,
+        validated_args,
+        signal,
+    )
+    .await
+    {
+        Ok(args) => args,
+        Err(immediate) => return *immediate,
     };
 
-    if let Some(before_tool_call) = &config.before_tool_call {
-        let args_cell = Arc::new(Mutex::new(validated_args));
-        let before_context = BeforeToolCallContext {
-            assistant_message: assistant_message.clone(),
-            tool_call: tool_call.clone(),
-            args: Arc::clone(&args_cell),
-            context: current_context.clone(),
-        };
-        let before_result = match before_tool_call(before_context, signal.clone()).await {
-            Ok(result) => result,
-            Err(error) => {
-                return Preparation::Immediate {
-                    result: create_error_tool_result(error.to_string()),
-                    is_error: true,
-                    args: Value::Object(tool_call.arguments.clone()),
-                };
-            }
-        };
-        validated_args = args_cell
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone();
-        if is_aborted(signal) {
-            return Preparation::Immediate {
-                result: create_error_tool_result("Operation aborted"),
-                is_error: true,
-                args: validated_args,
-            };
-        }
-        if before_result.as_ref().is_some_and(|result| result.block == Some(true)) {
-            let result = before_result.expect("checked above");
-            let mut tool_result =
-                create_error_tool_result(result.reason.unwrap_or_else(|| "Tool execution was blocked".to_owned()));
-            if result.terminate == Some(true) {
-                tool_result.terminate = Some(true);
-            }
-            return Preparation::Immediate {
-                result: tool_result,
-                is_error: true,
-                args: validated_args,
-            };
-        }
-    }
     if is_aborted(signal) {
-        return Preparation::Immediate {
-            result: create_error_tool_result("Operation aborted"),
-            is_error: true,
-            args: validated_args,
-        };
+        return immediate_error("Operation aborted", validated_args);
     }
     Preparation::Prepared(PreparedToolCall {
         tool_call: prepared_tool_call,
@@ -983,6 +1078,59 @@ async fn prepare_tool_call(
     })
 }
 
+async fn apply_before_tool_call(
+    config: &AgentLoopConfig,
+    assistant_message: &AssistantMessage,
+    tool_call: &ToolCall,
+    current_context: &AgentContext,
+    validated_args: Value,
+    signal: &Option<CancellationToken>,
+) -> Result<Value, Box<Preparation>> {
+    let Some(before_tool_call) = &config.before_tool_call else {
+        return Ok(validated_args);
+    };
+
+    let args_cell = Arc::new(Mutex::new(validated_args));
+    let before_context = BeforeToolCallContext {
+        assistant_message: assistant_message.clone(),
+        tool_call: tool_call.clone(),
+        args: Arc::clone(&args_cell),
+        context: current_context.clone(),
+    };
+    let before_result = before_tool_call(before_context, signal.clone())
+        .await
+        .map_err(|error| Box::new(immediate_error(error.to_string(), original_arguments(tool_call))))?;
+    let validated_args = args_cell
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+
+    if is_aborted(signal) {
+        return Err(Box::new(immediate_error("Operation aborted", validated_args)));
+    }
+    let Some(before_result) = before_result else {
+        return Ok(validated_args);
+    };
+    if before_result.block != Some(true) {
+        return Ok(validated_args);
+    }
+    let mut tool_result = create_error_tool_result(
+        before_result
+            .reason
+            .unwrap_or_else(|| "Tool execution was blocked".to_owned()),
+    );
+    if before_result.terminate == Some(true) {
+        tool_result.terminate = Some(true);
+    }
+    Err(Box::new(Preparation::Immediate {
+        result: tool_result,
+        is_error: true,
+        args: validated_args,
+    }))
+}
+
+type UpdateTasks = Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>;
+
 async fn execute_prepared_tool_call(
     prepared: PreparedToolCall,
     signal: &Option<CancellationToken>,
@@ -990,36 +1138,54 @@ async fn execute_prepared_tool_call(
     started_at: f64,
 ) -> ExecutedToolCallOutcome {
     let accepting_updates = Arc::new(AtomicBool::new(true));
-    let update_tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>> = Arc::new(Mutex::new(Vec::new()));
+    let update_tasks: UpdateTasks = Arc::new(Mutex::new(Vec::new()));
+    let on_update = tool_update_callback(&prepared, emit, &accepting_updates, &update_tasks);
 
-    let on_update: AgentToolUpdateCallback = {
-        let accepting_updates = Arc::clone(&accepting_updates);
-        let update_tasks = Arc::clone(&update_tasks);
-        let emit = Arc::clone(emit);
-        let tool_call_id = prepared.tool_call.id.clone();
-        let tool_name = prepared.tool_call.name.clone();
-        let args = prepared.args.clone();
-        Arc::new(move |partial_result: AgentToolResult| {
-            if !accepting_updates.load(Ordering::SeqCst) {
-                return;
-            }
-            let event = AgentEvent::ToolExecutionUpdate {
-                tool_call_id: tool_call_id.clone(),
-                tool_name: tool_name.clone(),
-                args: args.clone(),
-                partial_result: cap_tool_result(partial_result),
-            };
-            let emit = Arc::clone(&emit);
-            let task = tokio::spawn(async move {
-                emit(event).await;
-            });
-            update_tasks
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .push(task);
-        })
-    };
+    let outcome = run_prepared_tool(prepared, signal, on_update, started_at).await;
+    accepting_updates.store(false, Ordering::SeqCst);
+    await_update_tasks(&update_tasks).await;
+    outcome
+}
 
+fn tool_update_callback(
+    prepared: &PreparedToolCall,
+    emit: &AgentEventSink,
+    accepting_updates: &Arc<AtomicBool>,
+    update_tasks: &UpdateTasks,
+) -> AgentToolUpdateCallback {
+    let accepting_updates = Arc::clone(accepting_updates);
+    let update_tasks = Arc::clone(update_tasks);
+    let emit = Arc::clone(emit);
+    let tool_call_id = prepared.tool_call.id.clone();
+    let tool_name = prepared.tool_call.name.clone();
+    let args = prepared.args.clone();
+    Arc::new(move |partial_result: AgentToolResult| {
+        if !accepting_updates.load(Ordering::SeqCst) {
+            return;
+        }
+        let event = AgentEvent::ToolExecutionUpdate {
+            tool_call_id: tool_call_id.clone(),
+            tool_name: tool_name.clone(),
+            args: args.clone(),
+            partial_result: cap_tool_result(partial_result),
+        };
+        let emit = Arc::clone(&emit);
+        let task = tokio::spawn(async move {
+            emit(event).await;
+        });
+        update_tasks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(task);
+    })
+}
+
+async fn run_prepared_tool(
+    prepared: PreparedToolCall,
+    signal: &Option<CancellationToken>,
+    on_update: AgentToolUpdateCallback,
+    started_at: f64,
+) -> ExecutedToolCallOutcome {
     let execution = crate::harness::types::AgentToolExecutionContext {
         started_at,
         agent_id: prepared
@@ -1035,7 +1201,7 @@ async fn execute_prepared_tool_call(
         on_update,
         Some(execution),
     );
-    let outcome = match await_with_abort(execution_future, signal).await {
+    match await_with_abort(execution_future, signal).await {
         Ok(Ok(result)) => ExecutedToolCallOutcome {
             is_error: result.is_error.unwrap_or(false),
             result,
@@ -1048,8 +1214,10 @@ async fn execute_prepared_tool_call(
             result: create_error_tool_result(error.to_string()),
             is_error: true,
         },
-    };
-    accepting_updates.store(false, Ordering::SeqCst);
+    }
+}
+
+async fn await_update_tasks(update_tasks: &UpdateTasks) {
     let tasks: Vec<tokio::task::JoinHandle<()>> = update_tasks
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -1058,7 +1226,6 @@ async fn execute_prepared_tool_call(
     for task in tasks {
         let _ = task.await;
     }
-    outcome
 }
 
 async fn finalize_executed_tool_call(
@@ -1069,49 +1236,73 @@ async fn finalize_executed_tool_call(
     config: &AgentLoopConfig,
     signal: &Option<CancellationToken>,
 ) -> FinalizedToolCallOutcome {
-    let mut result = executed.result;
-    let mut is_error = executed.is_error;
-
-    if let Some(after_tool_call) = &config.after_tool_call {
-        let after_context = AfterToolCallContext {
-            assistant_message: assistant_message.clone(),
-            tool_call: prepared.tool_call.clone(),
-            args: prepared.args.clone(),
-            result: result.clone(),
-            is_error,
-            context: current_context.clone(),
-        };
-        match after_tool_call(after_context, signal.clone()).await {
-            Ok(Some(after_result)) => {
-                if let Some(content) = after_result.content {
-                    result.content = content;
-                }
-                if let Some(details) = after_result.details {
-                    result.details = Some(details);
-                }
-                if let Some(usage) = after_result.usage {
-                    result.usage = Some(usage);
-                }
-                if let Some(terminate) = after_result.terminate {
-                    result.terminate = Some(terminate);
-                }
-                if let Some(after_is_error) = after_result.is_error {
-                    is_error = after_is_error;
-                }
-            }
-            Ok(None) => {}
-            Err(error) => {
-                result = create_error_tool_result(error.to_string());
-                is_error = true;
-            }
+    let (result, is_error) = match &config.after_tool_call {
+        Some(after_tool_call) => {
+            apply_after_tool_call(
+                after_tool_call,
+                current_context,
+                assistant_message,
+                &prepared,
+                executed,
+                signal,
+            )
+            .await
         }
-    }
+        None => (executed.result, executed.is_error),
+    };
 
     FinalizedToolCallOutcome {
         tool_call: prepared.tool_call,
         result,
         is_error,
     }
+}
+
+async fn apply_after_tool_call(
+    after_tool_call: &AfterToolCallHook,
+    current_context: &AgentContext,
+    assistant_message: &AssistantMessage,
+    prepared: &PreparedToolCall,
+    executed: ExecutedToolCallOutcome,
+    signal: &Option<CancellationToken>,
+) -> (AgentToolResult, bool) {
+    let after_context = AfterToolCallContext {
+        assistant_message: assistant_message.clone(),
+        tool_call: prepared.tool_call.clone(),
+        args: prepared.args.clone(),
+        result: executed.result.clone(),
+        is_error: executed.is_error,
+        context: current_context.clone(),
+    };
+    match after_tool_call(after_context, signal.clone()).await {
+        Ok(Some(after_result)) => apply_after_tool_call_result(executed, after_result),
+        Ok(None) => (executed.result, executed.is_error),
+        Err(error) => (create_error_tool_result(error.to_string()), true),
+    }
+}
+
+fn apply_after_tool_call_result(
+    executed: ExecutedToolCallOutcome,
+    after_result: crate::agent::types::AfterToolCallResult,
+) -> (AgentToolResult, bool) {
+    let mut result = executed.result;
+    let mut is_error = executed.is_error;
+    if let Some(content) = after_result.content {
+        result.content = content;
+    }
+    if let Some(details) = after_result.details {
+        result.details = Some(details);
+    }
+    if let Some(usage) = after_result.usage {
+        result.usage = Some(usage);
+    }
+    if let Some(terminate) = after_result.terminate {
+        result.terminate = Some(terminate);
+    }
+    if let Some(after_is_error) = after_result.is_error {
+        is_error = after_is_error;
+    }
+    (result, is_error)
 }
 
 fn create_error_tool_result(message: impl Into<String>) -> AgentToolResult {
