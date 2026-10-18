@@ -1,0 +1,1045 @@
+//! Shared control SQLite database (`core/session-control-db.ts`).
+//!
+//! Every Pi runtime on the machine opens the same `control.sqlite`. The TypeScript and Rust
+//! runtimes must agree on schema, migrations, PRAGMAs, SQL text, and transaction boundaries,
+//! so this module keeps the SQL statements verbatim and performs all writes inside
+//! `BEGIN IMMEDIATE` transactions.
+
+mod agents;
+mod channel;
+mod health;
+mod incoming;
+mod lifecycle;
+mod mailbox;
+mod requests;
+mod schema;
+mod sessions;
+
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::{Arc, Mutex, OnceLock};
+
+use rusqlite::{Connection, Row, params};
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+
+use crate::core::runtime_process::{
+    ProcessIdentity, is_pi_runtime_process_alive, is_process_identity_alive, read_process_identity,
+};
+use crate::core::session_health::SessionHealthRecord;
+use crate::core::sqlite::{
+    ControlDbError, DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS, configure_shared_sqlite_database, create_sqlite_database,
+};
+use crate::utils::js_json;
+
+pub use agents::{
+    AcquireAttachedRuntimeOwnershipInput, AcquireAttachedRuntimeOwnershipResult, ClaimMultiAgentTerminalOutboxOptions,
+    CommitMultiAgentDetachMarkInput, CommitMultiAgentDetachMarkResult, CommitMultiAgentLifecycleMutationInput,
+    CommitMultiAgentLifecycleMutationResult, CommitMultiAgentSteeringDeliveryInput,
+    CommitMultiAgentSteeringDeliveryResult, CommitMultiAgentSteeringMutationInput,
+    CommitMultiAgentSteeringMutationResult, CommitMultiAgentTerminalMutationInput,
+    CommitMultiAgentTerminalMutationResult, CreateFailedMultiAgentChildInput, CreateFailedMultiAgentChildResult,
+    CreateMultiAgentAttachmentInput, CreateMultiAgentAttachmentResult, CreateMultiAgentChildWithRuntimeOwnershipInput,
+    CreateMultiAgentChildWithRuntimeOwnershipResult, DetachedArtifactAgentRecord, MultiAgentCounterName,
+    MultiAgentCounters, MultiAgentPersistedState, MultiAgentTerminalOutboxRecord, RecoverDeadMultiAgentRuntimeInput,
+    RecoverDeadMultiAgentRuntimeResult, SupervisorRuntimeOwnership, acquire_attached_runtime_ownership,
+    allocate_multi_agent_counter, bootstrap_multi_agent_agent, claim_multi_agent_terminal_outbox,
+    cleanup_multi_agent_terminal_outbox, commit_multi_agent_detach_mark, commit_multi_agent_lifecycle_mutation,
+    commit_multi_agent_steering_delivery, commit_multi_agent_steering_mutation, commit_multi_agent_terminal_mutation,
+    create_failed_multi_agent_child, create_multi_agent_attachment, create_multi_agent_child_with_runtime_ownership,
+    deliver_multi_agent_terminal_outbox, fail_multi_agent_terminal_outbox, get_multi_agent_mailbox_message_status,
+    list_detached_artifact_agents_updated_at_or_before, mark_multi_agent_mailbox_message_delivered,
+    mark_multi_agent_mailbox_message_failed, read_multi_agent_agent, read_multi_agent_agents,
+    read_multi_agent_runtime_ownership, read_multi_agent_state, reconcile_dead_detached_agent_runtimes,
+    recover_dead_multi_agent_runtime, update_multi_agent_agent_activity, update_multi_agent_agent_current_activity,
+    update_multi_agent_agent_slot, update_multi_agent_agent_transcript, upsert_multi_agent_mailbox_message,
+    write_multi_agent_counters,
+};
+pub use channel::{
+    advance_shared_channel_cursor, has_pending_runtime_coordination_message, initialize_shared_channel_cursor_at_tail,
+    is_runtime_coordination_mailbox_message, list_shared_channel_messages_after, post_shared_channel_message,
+    read_shared_channel_cursor, read_shared_channel_tail,
+};
+pub use health::{list_session_health, read_session_health, write_session_health};
+pub use incoming::{
+    claim_latest_incoming_message, complete_incoming_message, enqueue_incoming_message, fail_incoming_message,
+    read_incoming_message_status,
+};
+pub use lifecycle::{
+    DetachedJobOutcome, DetachedJobOwnershipIdentity, DetachedJobTerminalInput, DetachedJobTerminalOutput,
+    FinalizeDetachedJobInput, FinalizeDetachedJobResult, finalize_detached_job, prepare_control_db_for_self_restart,
+};
+pub use mailbox::{
+    assert_main_session_runtime_available, claim_runtime_mailbox_messages, consume_runtime_mailbox_message,
+    consume_runtime_mailbox_message_by_store_ref, deliver_runtime_mailbox_message, enqueue_runtime_mailbox_message,
+    enqueue_stored_runtime_mailbox_message, fail_runtime_mailbox_message, list_runtime_mailbox_listeners,
+    list_runtime_mailbox_messages, mark_runtime_mailbox_message_delivered, read_runtime_mailbox_listener,
+    read_runtime_mailbox_message, read_runtime_mailbox_message_for_delivery, recover_dead_runtime_mailbox_claims,
+    register_runtime_mailbox_listener, release_runtime_mailbox_message_claim,
+    resolve_own_main_runtime_coordination_recipient, retire_runtime_mailbox_listener,
+    take_runtime_mailbox_messages_for_delivery,
+};
+pub use requests::{
+    ArchitectRequest, ArchitectRequestStatus, PostArchitectRequestInput, PostSupervisorRequestInput, SupervisorRequest,
+    SupervisorRequestKind, SupervisorRequestStatus, SupervisorResponse, claim_next_supervisor_request,
+    claim_pending_architect_requests, complete_architect_request, complete_supervisor_request,
+    has_pending_supervisor_approval_request, list_pending_architect_requests, post_architect_request,
+    post_supervisor_request, read_supervisor_request, recover_supervisor_requests, renew_architect_request_claims,
+    requeue_supervisor_request,
+};
+pub use sessions::{
+    LastControlMessage, NamedSession, SessionMetadata, WritableSessionMetadata, archive_session,
+    archive_sessions_older_than, clear_session_sandbox_profile, find_active_session_metadata_by_id,
+    find_active_session_metadata_by_name, list_active_session_metadata, list_archived_session_metadata,
+    list_named_sessions, list_session_metadata, read_last_message, read_or_migrate_prompt_history, read_prompt_history,
+    read_session_goal, read_session_metadata, read_session_sandbox_profile, record_prompt_history_entry,
+    relocate_session_control_data, remove_named_session, remove_session_metadata, set_named_session, unarchive_session,
+    write_last_message, write_session_goal, write_session_metadata, write_session_model, write_session_sandbox_profile,
+    write_session_thinking_level,
+};
+
+pub use schema::{CONTROL_DB_SCHEMA_VERSION, initialize_schema};
+
+use crate::core::multi_agent_store::{AgentFileReference, AgentSnapshot, SteeringCheckpoint};
+
+pub const RUNTIME_MAILBOX_ROUTING_MAX_ATTEMPTS: usize = 3;
+const RUNTIME_MAILBOX_REGISTRATION_MAX_ATTEMPTS: usize = 3;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IncomingControlMessage {
+    pub id: i64,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeMailboxMessageKind {
+    Message,
+    Ask,
+    Reply,
+    Steer,
+    ParentRequest,
+    System,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeMailboxMessageStatus {
+    Pending,
+    Claimed,
+    Delivered,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeMailboxAddress {
+    pub session_id: String,
+    pub agent_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeMailboxMessage {
+    pub id: i64,
+    pub recipient: RuntimeMailboxAddress,
+    pub sender: RuntimeMailboxAddress,
+    pub kind: RuntimeMailboxMessageKind,
+    pub body: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_refs: Option<Vec<AgentFileReference>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_checkpoint: Option<SteeringCheckpoint>,
+    pub store_ref: RuntimeMailboxStoreRef,
+    pub status: RuntimeMailboxMessageStatus,
+    pub created_at: String,
+    pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claimed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivered_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeMailboxStoreRef {
+    pub session_path: String,
+    pub message_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedChannelMessage {
+    pub id: i64,
+    pub sender: RuntimeMailboxAddress,
+    pub body: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostSharedChannelMessageInput {
+    pub sender: RuntimeMailboxAddress,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnqueueRuntimeMailboxMessageInput {
+    pub recipient: RuntimeMailboxAddress,
+    pub sender: RuntimeMailboxAddress,
+    pub kind: RuntimeMailboxMessageKind,
+    /// Canonical mailbox row receiving runtime routing and delivery state.
+    pub store_ref: RuntimeMailboxStoreRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnqueueStoredRuntimeMailboxMessageInput {
+    pub recipient: RuntimeMailboxAddress,
+    pub sender: RuntimeMailboxAddress,
+    pub kind: RuntimeMailboxMessageKind,
+    pub store_ref: RuntimeMailboxStoreRef,
+    pub message: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeMailboxListener {
+    pub session_id: String,
+    pub agent_id: Option<String>,
+    pub pid: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_path: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Default)]
+pub struct RuntimeMailboxRegistrationOptions {
+    pub is_runtime_process_alive: Option<Arc<dyn Fn(u32) -> bool + Send + Sync>>,
+    pub reconcile_runtime_replacement: Option<bool>,
+    pub runtime_instance_id: Option<String>,
+}
+
+pub(crate) struct RuntimeMailboxListenerRow {
+    pub pid: u32,
+    pub runtime_instance_id: Option<String>,
+    pub session_path: Option<String>,
+    pub session_path_asserted_at: Option<String>,
+    pub updated_at: String,
+}
+
+pub(crate) struct RuntimeMailboxRow {
+    pub id: i64,
+    pub session_path: String,
+    pub message_id: String,
+    pub data: String,
+    pub updated_at: String,
+}
+
+pub(crate) struct MultiAgentRuntimeOwnershipRow {
+    pub session_path: String,
+    pub agent_id: String,
+    pub process_identity: Option<String>,
+    pub owner_session_id: Option<String>,
+    pub owner_agent_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiAgentRuntimeOwnership {
+    pub session_path: String,
+    pub agent_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_identity: Option<ProcessIdentity>,
+    pub owner: MultiAgentRuntimeOwner,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiAgentRuntimeOwner {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub agent_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiAgentRuntimeOwnerIdentity {
+    pub session_id: String,
+    pub agent_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiAgentRuntimeOwnershipIdentity {
+    pub session_path: String,
+    pub agent_id: String,
+    pub process_identity: ProcessIdentity,
+    pub owner: MultiAgentRuntimeOwnerIdentity,
+}
+
+/// `getControlDbPath(directory = getUserStateRoot())`.
+pub fn get_control_db_path(directory: &Path) -> String {
+    directory.join("control.sqlite").display().to_string()
+}
+
+pub(crate) fn runtime_mailbox_agent_id_key(agent_id: Option<&str>) -> &str {
+    agent_id.unwrap_or("")
+}
+
+pub(crate) fn optional_row<T>(result: rusqlite::Result<T>) -> Result<Option<T>, ControlDbError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub(crate) fn with_immediate_transaction<T>(
+    db: &Connection,
+    operation: impl FnOnce(&Connection) -> Result<T, ControlDbError>,
+) -> Result<T, ControlDbError> {
+    db.execute_batch("BEGIN IMMEDIATE")?;
+    match operation(db) {
+        Ok(value) => {
+            db.execute_batch("COMMIT")?;
+            Ok(value)
+        }
+        Err(error) => {
+            let _ = db.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
+}
+
+struct RetainedControlDb {
+    connection: Mutex<Option<Connection>>,
+    active_calls: Mutex<usize>,
+    retain_count: Mutex<usize>,
+}
+
+fn retained_control_dbs() -> &'static Mutex<HashMap<String, Arc<RetainedControlDb>>> {
+    static RETAINED: OnceLock<Mutex<HashMap<String, Arc<RetainedControlDb>>>> = OnceLock::new();
+    RETAINED.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub(crate) fn with_control_db<T>(
+    control_db_path: &str,
+    callback: impl FnOnce(&Connection) -> Result<T, ControlDbError>,
+) -> Result<T, ControlDbError> {
+    let retained = retained_control_dbs()
+        .lock()
+        .expect("retained control db mutex")
+        .get(control_db_path)
+        .cloned();
+    if let Some(retained) = retained {
+        *retained.active_calls.lock().expect("retained call mutex") += 1;
+        let result = {
+            let guard = retained.connection.lock().expect("retained connection mutex");
+            match guard.as_ref() {
+                Some(connection) => callback(connection),
+                None => Err(ControlDbError::new("SQLite database is closed")),
+            }
+        };
+        let mut active_calls = retained.active_calls.lock().expect("retained call mutex");
+        *active_calls -= 1;
+        let close = *active_calls == 0 && *retained.retain_count.lock().expect("retained count mutex") == 0;
+        drop(active_calls);
+        if close {
+            close_released_control_db(control_db_path, &retained);
+        }
+        return result;
+    }
+
+    let db = create_writable_control_db(control_db_path)?;
+    let result = (|| {
+        configure_shared_sqlite_database(&db, DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS)?;
+        initialize_schema(&db, None)?;
+        callback(&db)
+    })();
+    drop(db);
+    result
+}
+
+fn close_released_control_db(control_db_path: &str, retained: &Arc<RetainedControlDb>) {
+    retained_control_dbs()
+        .lock()
+        .expect("retained control db mutex")
+        .remove(control_db_path);
+    retained.connection.lock().expect("retained connection mutex").take();
+}
+
+fn create_writable_control_db(control_db_path: &str) -> Result<Connection, ControlDbError> {
+    if let Some(parent) = Path::new(control_db_path).parent() {
+        create_private_directory(parent)?;
+    }
+    create_sqlite_database(control_db_path)
+}
+
+fn create_private_directory(directory: &Path) -> Result<(), ControlDbError> {
+    use std::os::unix::fs::DirBuilderExt;
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true).mode(0o700);
+    builder
+        .create(directory)
+        .map_err(|error| ControlDbError::new(error.to_string()))
+}
+
+fn open_retained_control_db(control_db_path: &str) -> Result<Arc<RetainedControlDb>, ControlDbError> {
+    let db = create_writable_control_db(control_db_path)?;
+    let result = (|| {
+        configure_shared_sqlite_database(&db, DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS)?;
+        initialize_schema(&db, None)
+    })();
+    result?;
+    let retained = Arc::new(RetainedControlDb {
+        connection: Mutex::new(Some(db)),
+        active_calls: Mutex::new(0),
+        retain_count: Mutex::new(0),
+    });
+    retained_control_dbs()
+        .lock()
+        .expect("retained control db mutex")
+        .insert(control_db_path.to_owned(), retained.clone());
+    Ok(retained)
+}
+
+/// `retainControlDbConnection`; dropping the returned guard releases the connection.
+pub fn retain_control_db_connection(control_db_path: &str) -> Result<RetainedControlDbGuard, ControlDbError> {
+    let retained = {
+        let existing = retained_control_dbs()
+            .lock()
+            .expect("retained control db mutex")
+            .get(control_db_path)
+            .cloned();
+        match existing {
+            Some(retained) => retained,
+            None => open_retained_control_db(control_db_path)?,
+        }
+    };
+    *retained.retain_count.lock().expect("retained count mutex") += 1;
+    Ok(RetainedControlDbGuard {
+        control_db_path: control_db_path.to_owned(),
+        retained,
+        released: false,
+    })
+}
+
+/// Guard for a retained control-db connection.
+pub struct RetainedControlDbGuard {
+    control_db_path: String,
+    retained: Arc<RetainedControlDb>,
+    released: bool,
+}
+
+impl RetainedControlDbGuard {
+    pub fn release(mut self) {
+        self.release_inner();
+    }
+
+    fn release_inner(&mut self) {
+        if self.released {
+            return;
+        }
+        self.released = true;
+        let mut retain_count = self.retained.retain_count.lock().expect("retained count mutex");
+        *retain_count -= 1;
+        let close = *retain_count == 0 && *self.retained.active_calls.lock().expect("retained call mutex") == 0;
+        drop(retain_count);
+        if close {
+            close_released_control_db(&self.control_db_path, &self.retained);
+        }
+    }
+}
+
+impl Drop for RetainedControlDbGuard {
+    fn drop(&mut self) {
+        self.release_inner();
+    }
+}
+
+pub(crate) fn parse_stored_json_object(value: &str, context: &str) -> Result<Map<String, Value>, ControlDbError> {
+    let parsed =
+        js_json::parse(value).map_err(|_| ControlDbError::new(format!("Invalid persisted JSON at {context}")))?;
+    match parsed {
+        Value::Object(object) => Ok(object),
+        _ => Err(ControlDbError::new(format!("Invalid persisted object at {context}"))),
+    }
+}
+
+pub(crate) fn parse_json_object(value: &str) -> Option<Map<String, Value>> {
+    match js_json::parse(value).ok()? {
+        Value::Object(object) => Some(object),
+        _ => None,
+    }
+}
+
+pub(crate) fn require_string_field(
+    data: &Map<String, Value>,
+    field: &str,
+    context: &str,
+) -> Result<String, ControlDbError> {
+    match data.get(field) {
+        Some(Value::String(value)) => Ok(value.clone()),
+        _ => Err(ControlDbError::new(format!(
+            "Invalid persisted {field} at {context}: expected a string"
+        ))),
+    }
+}
+
+pub(crate) fn validate_mailbox_payload(data: &Value, context: &str) -> Result<(), ControlDbError> {
+    let Value::Object(payload) = data else {
+        return Err(ControlDbError::new(format!(
+            "Invalid persisted mailbox payload at {context}"
+        )));
+    };
+    if payload.is_empty() {
+        return Err(ControlDbError::new(format!(
+            "Invalid persisted mailbox payload at {context}: expected fields"
+        )));
+    }
+    reject_legacy_artifact_fields(data, context)?;
+    for field in [
+        "id",
+        "fromAgentId",
+        "toAgentId",
+        "kind",
+        "status",
+        "createdAt",
+        "updatedAt",
+    ] {
+        if payload.get(field).is_some() {
+            require_string_field(payload, field, context)?;
+        }
+    }
+    if payload.get("body").is_some() {
+        require_string_field(payload, "body", context)?;
+    }
+    parse_file_refs(payload.get("fileRefs"), context)?;
+    parse_steering_checkpoint(payload.get("targetCheckpoint"), context)?;
+    Ok(())
+}
+
+pub(crate) fn validate_persisted_agent_payload(data: &Map<String, Value>, context: &str) -> Result<(), ControlDbError> {
+    if data.is_empty() {
+        return Err(ControlDbError::new(format!(
+            "Invalid persisted agent payload at {context}: expected fields"
+        )));
+    }
+    reject_legacy_artifact_fields(&Value::Object(data.clone()), context)?;
+    if let Some(revision) = data.get("revision") {
+        let valid = revision
+            .as_f64()
+            .is_some_and(|value| value >= 0.0 && value.fract() == 0.0);
+        if !valid {
+            return Err(ControlDbError::new(format!(
+                "Invalid persisted revision at {context}: expected a non-negative integer"
+            )));
+        }
+    }
+    if let Some(permission) = data.get("permission") {
+        let Value::Object(permission) = permission else {
+            return Err(ControlDbError::new(format!(
+                "Invalid persisted permission at {context}"
+            )));
+        };
+        require_string_field(permission, "policy", &format!("{context}.permission"))?;
+        if !permission.get("narrowed").is_some_and(Value::is_boolean) {
+            return Err(ControlDbError::new(format!(
+                "Invalid persisted narrowed at {context}.permission: expected a boolean"
+            )));
+        }
+    }
+    if let Some(result) = data.get("result") {
+        let Value::Object(result) = result else {
+            return Err(ControlDbError::new(format!(
+                "Invalid persisted agent result at {context}"
+            )));
+        };
+        parse_file_refs(result.get("fileRefs"), &format!("{context}.result"))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn reject_legacy_artifact_fields(value: &Value, context: &str) -> Result<(), ControlDbError> {
+    match value {
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                reject_legacy_artifact_fields(item, &format!("{context}[{index}]"))?;
+            }
+            Ok(())
+        }
+        Value::Object(object) => {
+            for (key, nested) in object {
+                if key == "artifactIds" || key == "artifactRefs" {
+                    return Err(ControlDbError::new(format!(
+                        "Legacy artifact fields are not supported at {context}.{key}"
+                    )));
+                }
+                reject_legacy_artifact_fields(nested, &format!("{context}.{key}"))?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+pub(crate) fn parse_file_refs(
+    value: Option<&Value>,
+    context: &str,
+) -> Result<Option<Vec<AgentFileReference>>, ControlDbError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let Value::Array(items) = value else {
+        return Err(ControlDbError::new(format!(
+            "Invalid file references at {context}: expected an array"
+        )));
+    };
+    let mut refs = Vec::with_capacity(items.len());
+    for (index, item) in items.iter().enumerate() {
+        let Value::Object(reference) = item else {
+            return Err(ControlDbError::new(format!(
+                "Invalid file reference at {context}[{index}]"
+            )));
+        };
+        let Some(Value::String(path)) = reference.get("path") else {
+            return Err(ControlDbError::new(format!(
+                "Invalid file reference at {context}[{index}]: path must be absolute"
+            )));
+        };
+        if !Path::new(path).is_absolute() {
+            return Err(ControlDbError::new(format!(
+                "Invalid file reference at {context}[{index}]: path must be absolute"
+            )));
+        }
+        let label = match reference.get("label") {
+            None => None,
+            Some(Value::String(label)) => Some(label.clone()),
+            Some(_) => {
+                return Err(ControlDbError::new(format!(
+                    "Invalid file reference at {context}[{index}]: label must be a string"
+                )));
+            }
+        };
+        refs.push(AgentFileReference {
+            path: path.clone(),
+            label,
+        });
+    }
+    Ok(Some(refs))
+}
+
+pub(crate) fn parse_steering_checkpoint(
+    value: Option<&Value>,
+    context: &str,
+) -> Result<Option<SteeringCheckpoint>, ControlDbError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    match value {
+        Value::String(value) => match value.as_str() {
+            "next_model_call" => Ok(Some(SteeringCheckpoint::NextModelCall)),
+            "after_tool_result" => Ok(Some(SteeringCheckpoint::AfterToolResult)),
+            "when_waiting" => Ok(Some(SteeringCheckpoint::WhenWaiting)),
+            _ => Err(ControlDbError::new(format!("Invalid steering checkpoint at {context}"))),
+        },
+        _ => Err(ControlDbError::new(format!("Invalid steering checkpoint at {context}"))),
+    }
+}
+
+pub(crate) fn to_runtime_mailbox_message_kind(value: &str) -> RuntimeMailboxMessageKind {
+    match value {
+        "message" => RuntimeMailboxMessageKind::Message,
+        "ask" => RuntimeMailboxMessageKind::Ask,
+        "reply" => RuntimeMailboxMessageKind::Reply,
+        "steer" => RuntimeMailboxMessageKind::Steer,
+        "parent_request" => RuntimeMailboxMessageKind::ParentRequest,
+        "system" => RuntimeMailboxMessageKind::System,
+        _ => RuntimeMailboxMessageKind::Message,
+    }
+}
+
+pub(crate) fn to_runtime_mailbox_message_status(value: &str) -> RuntimeMailboxMessageStatus {
+    match value {
+        "pending" => RuntimeMailboxMessageStatus::Pending,
+        "claimed" => RuntimeMailboxMessageStatus::Claimed,
+        "delivered" => RuntimeMailboxMessageStatus::Delivered,
+        "failed" => RuntimeMailboxMessageStatus::Failed,
+        _ => RuntimeMailboxMessageStatus::Failed,
+    }
+}
+
+pub(crate) fn nullable_string_field(
+    data: &Map<String, Value>,
+    field: &str,
+    context: &str,
+) -> Result<Option<String>, ControlDbError> {
+    match data.get(field) {
+        Some(Value::Null) | None => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(ControlDbError::new(format!("Invalid {field} at {context}"))),
+    }
+}
+
+pub(crate) fn optional_string_field(
+    data: &Map<String, Value>,
+    field: &str,
+    context: &str,
+) -> Result<Option<String>, ControlDbError> {
+    match data.get(field) {
+        None => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(ControlDbError::new(format!("Invalid {field} at {context}"))),
+    }
+}
+
+pub(crate) fn runtime_process_instance_id() -> &'static str {
+    static INSTANCE: OnceLock<String> = OnceLock::new();
+    INSTANCE.get_or_init(|| {
+        let identity = read_process_identity(std::process::id()).unwrap_or(ProcessIdentity {
+            pid: std::process::id(),
+            start_time_ticks: 0,
+            incarnation: None,
+        });
+        let value = serde_json::json!({
+            "pid": identity.pid,
+            "startTimeTicks": identity.start_time_ticks,
+            "incarnation": pi_ai::utils::uuid::uuidv7(),
+        });
+        js_json::stringify(&value)
+    })
+}
+
+pub(crate) fn serialize_process_identity(identity: &ProcessIdentity) -> String {
+    let mut object = Map::new();
+    object.insert("pid".to_owned(), Value::from(identity.pid));
+    object.insert("startTimeTicks".to_owned(), Value::from(identity.start_time_ticks));
+    if let Some(incarnation) = &identity.incarnation {
+        object.insert("incarnation".to_owned(), Value::String(incarnation.clone()));
+    }
+    js_json::stringify(&Value::Object(object))
+}
+
+pub(crate) fn parse_process_identity(value: &str) -> Result<ProcessIdentity, ControlDbError> {
+    let parsed = js_json::parse(value).map_err(|_| ControlDbError::new("Persisted process identity is invalid"))?;
+    let Value::Object(parsed) = parsed else {
+        return Err(ControlDbError::new("Persisted process identity is invalid"));
+    };
+    let pid = parsed
+        .get("pid")
+        .and_then(Value::as_f64)
+        .filter(|value| value.fract() == 0.0 && *value >= 0.0 && *value <= 9_007_199_254_740_991.0)
+        .map(|value| value as u32);
+    let start_time_ticks = parsed
+        .get("startTimeTicks")
+        .and_then(Value::as_f64)
+        .filter(|value| value.fract() == 0.0 && *value >= 0.0 && *value <= 9_007_199_254_740_991.0)
+        .map(|value| value as u64);
+    let (Some(pid), Some(start_time_ticks)) = (pid, start_time_ticks) else {
+        return Err(ControlDbError::new("Persisted process identity is invalid"));
+    };
+    let incarnation = match parsed.get("incarnation") {
+        None => None,
+        Some(Value::String(value)) => Some(value.clone()),
+        Some(_) => {
+            return Err(ControlDbError::new("Persisted process incarnation is invalid"));
+        }
+    };
+    Ok(ProcessIdentity {
+        pid,
+        start_time_ticks,
+        incarnation,
+    })
+}
+
+pub(crate) fn trusted_runtime_mailbox_session_path(row: &RuntimeMailboxListenerRow) -> Option<String> {
+    match (&row.session_path, &row.session_path_asserted_at) {
+        (Some(path), Some(asserted_at)) if asserted_at == &row.updated_at => Some(path.clone()),
+        _ => None,
+    }
+}
+
+pub(crate) fn is_process_alive(pid: u32) -> bool {
+    is_pi_runtime_process_alive(pid)
+}
+
+pub(crate) fn process_identity_is_alive(identity: &ProcessIdentity) -> bool {
+    is_process_identity_alive(identity)
+}
+
+pub(crate) fn runtime_owner_matches(
+    ownership: Option<&MultiAgentRuntimeOwnershipRow>,
+    input: &MultiAgentRuntimeOwnershipIdentity,
+) -> bool {
+    let Some(ownership) = ownership else {
+        return false;
+    };
+    ownership.session_path == input.session_path
+        && ownership.agent_id == input.agent_id
+        && ownership.process_identity.as_deref() == Some(serialize_process_identity(&input.process_identity).as_str())
+        && ownership.owner_session_id.as_deref() == Some(input.owner.session_id.as_str())
+        && ownership.owner_agent_id == input.owner.agent_id
+}
+
+pub(crate) fn multi_agent_runtime_ownership_rows_equal(
+    expected: Option<&MultiAgentRuntimeOwnershipRow>,
+    current: Option<&MultiAgentRuntimeOwnershipRow>,
+) -> bool {
+    match (expected, current) {
+        (None, None) => true,
+        (Some(expected), Some(current)) => {
+            expected.session_path == current.session_path
+                && expected.agent_id == current.agent_id
+                && expected.process_identity == current.process_identity
+                && expected.owner_session_id == current.owner_session_id
+                && expected.owner_agent_id == current.owner_agent_id
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn runtime_mailbox_listener_rows_equal(
+    expected: Option<&RuntimeMailboxListenerRow>,
+    current: Option<&RuntimeMailboxListenerRow>,
+) -> bool {
+    match (expected, current) {
+        (None, None) => true,
+        (Some(expected), Some(current)) => {
+            expected.pid == current.pid
+                && expected.runtime_instance_id == current.runtime_instance_id
+                && expected.session_path == current.session_path
+                && expected.session_path_asserted_at == current.session_path_asserted_at
+                && expected.updated_at == current.updated_at
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn session_health_rows_equal(
+    expected: Option<&SessionHealthRecord>,
+    current: Option<&SessionHealthRecord>,
+) -> bool {
+    match (expected, current) {
+        (None, None) => true,
+        (Some(expected), Some(current)) => expected == current,
+        _ => false,
+    }
+}
+
+pub(crate) fn read_runtime_mailbox_listener_row(
+    db: &Connection,
+    recipient: &RuntimeMailboxAddress,
+) -> Result<Option<RuntimeMailboxListenerRow>, ControlDbError> {
+    optional_row(db.query_row(
+        "
+			SELECT pid, runtime_instance_id, session_path, session_path_asserted_at, updated_at
+			FROM runtime_mailbox_listeners
+			WHERE recipient_session_id = ? AND recipient_agent_id_key = ?
+			",
+        params![
+            &recipient.session_id,
+            runtime_mailbox_agent_id_key(recipient.agent_id.as_deref())
+        ],
+        |row| {
+            Ok(RuntimeMailboxListenerRow {
+                pid: row.get(0)?,
+                runtime_instance_id: row.get(1)?,
+                session_path: row.get(2)?,
+                session_path_asserted_at: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        },
+    ))
+}
+
+pub(crate) fn read_multi_agent_runtime_ownership_row(
+    db: &Connection,
+    session_path: &str,
+    agent_id: &str,
+) -> Result<Option<MultiAgentRuntimeOwnershipRow>, ControlDbError> {
+    optional_row(db.query_row(
+        "SELECT * FROM multi_agent_runtime_owners WHERE session_path = ? AND agent_id = ?",
+        params![session_path, agent_id],
+        |row| {
+            Ok(MultiAgentRuntimeOwnershipRow {
+                session_path: row.get("session_path")?,
+                agent_id: row.get("agent_id")?,
+                process_identity: row.get("process_identity")?,
+                owner_session_id: row.get("owner_session_id")?,
+                owner_agent_id: row.get("owner_agent_id")?,
+            })
+        },
+    ))
+}
+
+pub(crate) fn multi_agent_runtime_ownership_from_row(
+    row: &MultiAgentRuntimeOwnershipRow,
+) -> Result<MultiAgentRuntimeOwnership, ControlDbError> {
+    Ok(MultiAgentRuntimeOwnership {
+        agent_id: row.agent_id.clone(),
+        owner: MultiAgentRuntimeOwner {
+            agent_id: row.owner_agent_id.clone(),
+            session_id: row.owner_session_id.clone(),
+        },
+        process_identity: row
+            .process_identity
+            .as_deref()
+            .map(parse_process_identity)
+            .transpose()?,
+        session_path: row.session_path.clone(),
+    })
+}
+
+pub(crate) fn read_canonical_mailbox_row_by_store_ref(
+    db: &Connection,
+    store_ref: &RuntimeMailboxStoreRef,
+) -> Result<Option<RuntimeMailboxRow>, ControlDbError> {
+    optional_row(db.query_row(
+        "SELECT rowid AS id, session_path, message_id, data, updated_at
+			 FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
+        params![&store_ref.session_path, &store_ref.message_id],
+        mailbox_row_from_row,
+    ))
+}
+
+pub(crate) fn read_canonical_mailbox_row_by_id(
+    db: &Connection,
+    id: i64,
+) -> Result<Option<RuntimeMailboxRow>, ControlDbError> {
+    optional_row(db.query_row(
+        "SELECT rowid AS id, session_path, message_id, data, updated_at
+			 FROM multi_agent_mailbox_messages WHERE rowid = ?",
+        params![id],
+        mailbox_row_from_row,
+    ))
+}
+
+fn mailbox_row_from_row(row: &Row<'_>) -> rusqlite::Result<RuntimeMailboxRow> {
+    Ok(RuntimeMailboxRow {
+        id: row.get(0)?,
+        session_path: row.get(1)?,
+        message_id: row.get(2)?,
+        data: row.get(3)?,
+        updated_at: row.get(4)?,
+    })
+}
+
+pub(crate) fn parse_canonical_mailbox_payload(row: &RuntimeMailboxRow) -> Result<Map<String, Value>, ControlDbError> {
+    let context = format!("multi_agent_mailbox_messages:{}#{}", row.session_path, row.message_id);
+    let message = parse_stored_json_object(&row.data, &context)?;
+    validate_mailbox_payload(&Value::Object(message.clone()), &context)?;
+    Ok(message)
+}
+
+pub(crate) fn write_canonical_mailbox_payload(
+    db: &Connection,
+    id: i64,
+    message: &Map<String, Value>,
+    updated_at: &str,
+) -> Result<(), ControlDbError> {
+    let updated = db.execute(
+        "UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ? WHERE rowid = ?",
+        params![js_json::stringify(&Value::Object(message.clone())), updated_at, id],
+    )?;
+    if updated != 1 {
+        return Err(ControlDbError::new(format!("Canonical mailbox mutation lost row {id}")));
+    }
+    Ok(())
+}
+
+pub(crate) fn compare_and_write_canonical_mailbox_payload(
+    db: &Connection,
+    row: &RuntimeMailboxRow,
+    message: &Map<String, Value>,
+    updated_at: &str,
+) -> Result<bool, ControlDbError> {
+    compare_and_write_serialized_canonical_mailbox_payload(
+        db,
+        row,
+        &js_json::stringify(&Value::Object(message.clone())),
+        updated_at,
+    )
+}
+
+pub(crate) fn compare_and_write_serialized_canonical_mailbox_payload(
+    db: &Connection,
+    row: &RuntimeMailboxRow,
+    serialized: &str,
+    updated_at: &str,
+) -> Result<bool, ControlDbError> {
+    let updated = db.execute(
+        "UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
+			 WHERE rowid = ? AND session_path = ? AND message_id = ? AND data = ? AND updated_at = ?",
+        params![
+            serialized,
+            updated_at,
+            row.id,
+            &row.session_path,
+            &row.message_id,
+            &row.data,
+            &row.updated_at
+        ],
+    )?;
+    Ok(updated == 1)
+}
+
+pub(crate) fn runtime_mailbox_message_from_canonical_row(
+    row: &RuntimeMailboxRow,
+    message: &Map<String, Value>,
+) -> Result<RuntimeMailboxMessage, ControlDbError> {
+    let context = format!("multi_agent_mailbox_messages:{}#{}", row.session_path, row.message_id);
+    Ok(RuntimeMailboxMessage {
+        id: row.id,
+        recipient: RuntimeMailboxAddress {
+            agent_id: nullable_string_field(message, "recipientAgentId", &context)?,
+            session_id: require_string_field(message, "recipientSessionId", &context)?,
+        },
+        sender: RuntimeMailboxAddress {
+            agent_id: nullable_string_field(message, "senderAgentId", &context)?,
+            session_id: require_string_field(message, "senderSessionId", &context)?,
+        },
+        kind: to_runtime_mailbox_message_kind(&require_string_field(message, "kind", &context)?),
+        body: require_string_field(message, "body", &context)?,
+        file_refs: parse_file_refs(message.get("fileRefs"), &context)?,
+        target_checkpoint: parse_steering_checkpoint(message.get("targetCheckpoint"), &context)?,
+        store_ref: RuntimeMailboxStoreRef {
+            message_id: row.message_id.clone(),
+            session_path: row.session_path.clone(),
+        },
+        status: to_runtime_mailbox_message_status(&require_string_field(message, "status", &context)?),
+        created_at: match message.get("createdAt") {
+            Some(Value::String(value)) => value.clone(),
+            _ => row.updated_at.clone(),
+        },
+        updated_at: match message.get("updatedAt") {
+            Some(Value::String(value)) => value.clone(),
+            _ => row.updated_at.clone(),
+        },
+        claimed_at: optional_string_field(message, "claimedAt", &context)?,
+        delivered_at: optional_string_field(message, "deliveredAt", &context)?,
+        error: optional_string_field(message, "error", &context)?,
+    })
+}
+
+pub(crate) fn parse_agent_snapshot(data: &Map<String, Value>, context: &str) -> Result<AgentSnapshot, ControlDbError> {
+    validate_persisted_agent_payload(data, context)?;
+    serde_json::from_value(Value::Object(data.clone()))
+        .map_err(|error| ControlDbError::new(format!("Invalid persisted agent payload at {context}: {error}")))
+}
+
+pub(crate) fn serialize_agent(agent: &AgentSnapshot) -> Result<String, ControlDbError> {
+    serde_json::to_value(agent)
+        .map(|value| js_json::stringify(&value))
+        .map_err(|error| ControlDbError::new(error.to_string()))
+}
+
+pub(crate) fn agent_value(agent: &AgentSnapshot) -> Result<Value, ControlDbError> {
+    serde_json::to_value(agent).map_err(|error| ControlDbError::new(error.to_string()))
+}

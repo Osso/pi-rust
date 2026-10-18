@@ -12,10 +12,12 @@ const PI_RUNTIME_ENTRYPOINT_SUFFIXES: [&str; 3] = [
     "packages/coding-agent/dist/cli.js",
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProcessIdentity {
     pub pid: u32,
     pub start_time_ticks: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub incarnation: Option<String>,
 }
 

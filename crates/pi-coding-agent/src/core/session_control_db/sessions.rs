@@ -1,0 +1,1091 @@
+//! Session metadata, names, prompt history, and last-message storage.
+
+use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use super::{ControlDbError, with_control_db, with_immediate_transaction};
+use crate::core::permissions::presets::SandboxProfileName;
+use crate::utils::js_json;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastControlMessage {
+    pub role: String,
+    pub content: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NamedSession {
+    pub session_path: String,
+    pub name: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMetadata {
+    pub session_path: String,
+    pub id: String,
+    pub cwd: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_session_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_archived: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal_json: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_subagent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_level: Option<String>,
+    pub created_at: String,
+    pub modified_at: String,
+    pub message_count: i64,
+    pub first_message: String,
+    pub all_messages_text: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WritableSessionMetadata {
+    pub session_path: String,
+    pub id: String,
+    pub cwd: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_session_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_archived: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_subagent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_level: Option<String>,
+    pub created_at: String,
+    pub modified_at: String,
+    pub message_count: i64,
+    pub first_message: String,
+    pub all_messages_text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index_message_text: Option<bool>,
+}
+
+/// `setNamedSession`.
+pub fn set_named_session(control_db_path: &str, session_path: &str, name: &str) -> Result<(), ControlDbError> {
+    let trimmed_name = name.trim();
+    if trimmed_name.is_empty() {
+        return remove_named_session(control_db_path, session_path);
+    }
+    with_control_db(control_db_path, |db| {
+        let now = crate::utils::iso_time::now_iso_string();
+        db.execute(
+            "
+			INSERT INTO named_sessions (session_path, name, updated_at)
+			VALUES (?, ?, ?)
+			ON CONFLICT(session_path) DO UPDATE SET
+				name = excluded.name,
+				updated_at = excluded.updated_at
+			",
+            params![session_path, trimmed_name, now],
+        )?;
+        db.execute(
+            "
+			UPDATE session_metadata
+			SET name = ?, updated_at = ?
+			WHERE session_path = ?
+			",
+            params![trimmed_name, now, session_path],
+        )?;
+        Ok(())
+    })
+}
+
+/// `removeNamedSession`.
+pub fn remove_named_session(control_db_path: &str, session_path: &str) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        let now = crate::utils::iso_time::now_iso_string();
+        db.execute(
+            "DELETE FROM named_sessions WHERE session_path = ?",
+            params![session_path],
+        )?;
+        db.execute(
+            "
+			UPDATE session_metadata
+			SET name = NULL, updated_at = ?
+			WHERE session_path = ?
+			",
+            params![now, session_path],
+        )?;
+        Ok(())
+    })
+}
+
+/// `removeSessionMetadata`.
+pub fn remove_session_metadata(control_db_path: &str, session_path: &str) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        with_immediate_transaction(db, |db| {
+            db.execute(
+                "DELETE FROM named_sessions WHERE session_path = ?",
+                params![session_path],
+            )?;
+            db.execute(
+                "DELETE FROM session_sandbox_profiles WHERE session_path = ?",
+                params![session_path],
+            )?;
+            db.execute(
+                "DELETE FROM session_metadata WHERE session_path = ?",
+                params![session_path],
+            )?;
+            Ok(())
+        })
+    })
+}
+
+/// `listNamedSessions`.
+pub fn list_named_sessions(control_db_path: &str) -> Result<Vec<NamedSession>, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        let mut statement = db.prepare(
+            "
+				SELECT session_path, name, updated_at
+				FROM named_sessions
+				ORDER BY updated_at DESC
+				",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(NamedSession {
+                    session_path: row.get(0)?,
+                    name: row.get(1)?,
+                    updated_at: row.get(2)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    })
+}
+
+/// `relocateSessionControlData`.
+pub fn relocate_session_control_data(
+    control_db_path: &str,
+    old_session_path: &str,
+    new_session_path: &str,
+) -> Result<(), ControlDbError> {
+    if old_session_path == new_session_path {
+        return Ok(());
+    }
+    with_control_db(control_db_path, |db| {
+        let now = crate::utils::iso_time::now_iso_string();
+        with_immediate_transaction(db, |db| {
+            relocate_session_path_primary_key(db, "session_metadata", old_session_path, new_session_path, &now)?;
+            relocate_session_path_primary_key(db, "named_sessions", old_session_path, new_session_path, &now)?;
+            relocate_session_path_primary_key(
+                db,
+                "session_sandbox_profiles",
+                old_session_path,
+                new_session_path,
+                &now,
+            )?;
+            relocate_multi_agent_session_rows(db, "multi_agent_agents", old_session_path, new_session_path, &now)?;
+            relocate_multi_agent_runtime_owners(db, old_session_path, new_session_path)?;
+            relocate_multi_agent_session_rows(
+                db,
+                "multi_agent_terminal_outbox",
+                old_session_path,
+                new_session_path,
+                &now,
+            )?;
+            relocate_multi_agent_session_rows(
+                db,
+                "multi_agent_mailbox_messages",
+                old_session_path,
+                new_session_path,
+                &now,
+            )?;
+            relocate_multi_agent_counters(db, old_session_path, new_session_path, &now)?;
+            db.execute(
+                "UPDATE runtime_mailbox_listeners SET session_path = ? WHERE session_path = ?",
+                params![new_session_path, old_session_path],
+            )?;
+            Ok(())
+        })
+    })
+}
+
+fn relocate_session_path_primary_key(
+    db: &Connection,
+    table: &str,
+    old_session_path: &str,
+    new_session_path: &str,
+    now: &str,
+) -> Result<(), ControlDbError> {
+    db.execute(
+        &format!("DELETE FROM {table} WHERE session_path = ?"),
+        params![new_session_path],
+    )?;
+    db.execute(
+        &format!("UPDATE {table} SET session_path = ?, updated_at = ? WHERE session_path = ?"),
+        params![new_session_path, now, old_session_path],
+    )?;
+    Ok(())
+}
+
+fn relocate_multi_agent_counters(
+    db: &Connection,
+    old_session_path: &str,
+    new_session_path: &str,
+    now: &str,
+) -> Result<(), ControlDbError> {
+    let old_counters: Option<(i64, i64)> = db
+        .query_row(
+            "SELECT next_agent_number, next_message_number FROM multi_agent_counters_v2 WHERE session_path = ?",
+            params![old_session_path],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((old_agent, old_message)) = old_counters else {
+        return Ok(());
+    };
+    let new_counters: Option<(i64, i64)> = db
+        .query_row(
+            "SELECT next_agent_number, next_message_number FROM multi_agent_counters_v2 WHERE session_path = ?",
+            params![new_session_path],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let (new_agent, new_message) = new_counters.unwrap_or((1, 1));
+    db.execute(
+        "DELETE FROM multi_agent_counters_v2 WHERE session_path = ?",
+        params![new_session_path],
+    )?;
+    db.execute(
+        "UPDATE multi_agent_counters_v2
+		 SET session_path = ?, next_agent_number = ?, next_message_number = ?, updated_at = ?
+		 WHERE session_path = ?",
+        params![
+            new_session_path,
+            old_agent.max(new_agent),
+            old_message.max(new_message),
+            now,
+            old_session_path
+        ],
+    )?;
+    Ok(())
+}
+
+fn relocate_multi_agent_runtime_owners(
+    db: &Connection,
+    old_session_path: &str,
+    new_session_path: &str,
+) -> Result<(), ControlDbError> {
+    db.execute(
+        "DELETE FROM multi_agent_runtime_owners WHERE session_path = ?",
+        params![new_session_path],
+    )?;
+    db.execute(
+        "UPDATE multi_agent_runtime_owners SET session_path = ? WHERE session_path = ?",
+        params![new_session_path, old_session_path],
+    )?;
+    Ok(())
+}
+
+fn relocate_multi_agent_session_rows(
+    db: &Connection,
+    table: &str,
+    old_session_path: &str,
+    new_session_path: &str,
+    now: &str,
+) -> Result<(), ControlDbError> {
+    db.execute(
+        &format!("DELETE FROM {table} WHERE session_path = ?"),
+        params![new_session_path],
+    )?;
+    db.execute(
+        &format!("UPDATE {table} SET session_path = ?, updated_at = ? WHERE session_path = ?"),
+        params![new_session_path, now, old_session_path],
+    )?;
+    Ok(())
+}
+
+struct SessionMetadataWriteValues {
+    name: Option<String>,
+    archived_at: Option<String>,
+    is_subagent: bool,
+    subagent_name: Option<String>,
+    model_provider: Option<String>,
+    model_id: Option<String>,
+    thinking_level: Option<String>,
+}
+
+const UPSERT_SESSION_METADATA_SQL: &str = "
+	INSERT INTO session_metadata (
+		session_path,
+		id,
+		cwd,
+		name,
+		parent_session_path,
+		archived_at,
+		goal_json,
+		is_subagent,
+		subagent_name,
+		model_provider,
+		model_id,
+		thinking_level,
+		created_at,
+		modified_at,
+		message_count,
+		first_message,
+		all_messages_text,
+		updated_at
+	)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(session_path) DO UPDATE SET
+		id = excluded.id,
+		cwd = excluded.cwd,
+		name = excluded.name,
+		parent_session_path = excluded.parent_session_path,
+		archived_at = excluded.archived_at,
+		is_subagent = excluded.is_subagent,
+		subagent_name = excluded.subagent_name,
+		model_provider = excluded.model_provider,
+		model_id = excluded.model_id,
+		thinking_level = excluded.thinking_level,
+		created_at = excluded.created_at,
+		modified_at = excluded.modified_at,
+		message_count = excluded.message_count,
+		first_message = excluded.first_message,
+		all_messages_text = excluded.all_messages_text,
+		updated_at = excluded.updated_at
+";
+
+/// `writeSessionMetadata`.
+pub fn write_session_metadata(control_db_path: &str, metadata: &WritableSessionMetadata) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        let values = read_session_metadata_write_values(db, metadata)?;
+        write_session_metadata_row(db, metadata, &values)
+    })
+}
+
+fn read_session_metadata_write_values(
+    db: &Connection,
+    metadata: &WritableSessionMetadata,
+) -> Result<SessionMetadataWriteValues, ControlDbError> {
+    type PreservedSessionMetadataRow = (
+        Option<String>,
+        Option<String>,
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+    let preserved: Option<PreservedSessionMetadataRow> = db
+        .query_row(
+            "SELECT archived_at, goal_json, is_subagent, subagent_name, model_provider, model_id, thinking_level
+			 FROM session_metadata WHERE session_path = ?",
+            params![metadata.session_path],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
+        )
+        .optional()?;
+    let preserved_is_subagent = preserved.as_ref().is_some_and(|values| values.2 == 1);
+    Ok(SessionMetadataWriteValues {
+        name: metadata
+            .name
+            .clone()
+            .or_else(|| read_named_session_name(db, &metadata.session_path).ok().flatten()),
+        archived_at: metadata
+            .archived_at
+            .clone()
+            .or_else(|| preserved.as_ref().and_then(|values| values.0.clone())),
+        is_subagent: metadata.is_subagent.unwrap_or(preserved_is_subagent),
+        subagent_name: metadata
+            .subagent_name
+            .clone()
+            .or_else(|| preserved.as_ref().and_then(|values| values.3.clone())),
+        model_provider: metadata
+            .model_provider
+            .clone()
+            .or_else(|| preserved.as_ref().and_then(|values| values.4.clone())),
+        model_id: metadata
+            .model_id
+            .clone()
+            .or_else(|| preserved.as_ref().and_then(|values| values.5.clone())),
+        thinking_level: metadata
+            .thinking_level
+            .clone()
+            .or_else(|| preserved.as_ref().and_then(|values| values.6.clone())),
+    })
+}
+
+fn write_session_metadata_row(
+    db: &Connection,
+    metadata: &WritableSessionMetadata,
+    values: &SessionMetadataWriteValues,
+) -> Result<(), ControlDbError> {
+    let all_messages_text = if metadata.index_message_text == Some(false) {
+        ""
+    } else {
+        &metadata.all_messages_text
+    };
+    db.execute(
+        UPSERT_SESSION_METADATA_SQL,
+        params![
+            metadata.session_path,
+            metadata.id,
+            metadata.cwd,
+            values.name,
+            metadata.parent_session_path,
+            values.archived_at,
+            Option::<String>::None,
+            if values.is_subagent { 1 } else { 0 },
+            values.subagent_name,
+            values.model_provider,
+            values.model_id,
+            values.thinking_level,
+            metadata.created_at,
+            metadata.modified_at,
+            metadata.message_count,
+            metadata.first_message,
+            all_messages_text,
+            crate::utils::iso_time::now_iso_string()
+        ],
+    )?;
+    Ok(())
+}
+
+/// `writeSessionModel`.
+pub fn write_session_model(
+    control_db_path: &str,
+    session_path: &str,
+    provider: &str,
+    model_id: &str,
+) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        db.execute(
+            "
+			UPDATE session_metadata
+			SET model_provider = ?, model_id = ?, updated_at = ?
+			WHERE session_path = ?
+			",
+            params![
+                provider,
+                model_id,
+                crate::utils::iso_time::now_iso_string(),
+                session_path
+            ],
+        )?;
+        Ok(())
+    })
+}
+
+/// `writeSessionThinkingLevel`.
+pub fn write_session_thinking_level(
+    control_db_path: &str,
+    session_path: &str,
+    thinking_level: &str,
+) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        db.execute(
+            "
+			UPDATE session_metadata
+			SET thinking_level = ?, updated_at = ?
+			WHERE session_path = ?
+			",
+            params![thinking_level, crate::utils::iso_time::now_iso_string(), session_path],
+        )?;
+        Ok(())
+    })
+}
+
+fn assert_session_metadata_identity(
+    db: &Connection,
+    session_path: &str,
+    session_id: &str,
+) -> Result<(), ControlDbError> {
+    let row: Option<String> = db
+        .query_row(
+            "SELECT id FROM session_metadata WHERE session_path = ?",
+            params![session_path],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(row) = row else {
+        return Err(ControlDbError::new(format!(
+            "Session metadata is missing for {session_path}"
+        )));
+    };
+    if row != session_id {
+        return Err(ControlDbError::new(format!(
+            "Session identity mismatch for {session_path}: expected {row}, received {session_id}"
+        )));
+    }
+    Ok(())
+}
+
+/// `writeSessionSandboxProfile`.
+pub fn write_session_sandbox_profile(
+    control_db_path: &str,
+    session_path: &str,
+    session_id: &str,
+    profile: SandboxProfileName,
+) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        assert_session_metadata_identity(db, session_path, session_id)?;
+        db.execute(
+            "INSERT INTO session_sandbox_profiles (session_path, session_id, profile, updated_at)
+			 VALUES (?, ?, ?, ?)
+			 ON CONFLICT(session_path) DO UPDATE SET
+				session_id = excluded.session_id,
+				profile = excluded.profile,
+				updated_at = excluded.updated_at",
+            params![
+                session_path,
+                session_id,
+                profile.as_str(),
+                crate::utils::iso_time::now_iso_string()
+            ],
+        )?;
+        Ok(())
+    })
+}
+
+/// `clearSessionSandboxProfile`.
+pub fn clear_session_sandbox_profile(
+    control_db_path: &str,
+    session_path: &str,
+    session_id: &str,
+) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        assert_session_metadata_identity(db, session_path, session_id)?;
+        db.execute(
+            "DELETE FROM session_sandbox_profiles WHERE session_path = ? AND session_id = ?",
+            params![session_path, session_id],
+        )?;
+        Ok(())
+    })
+}
+
+/// `readSessionSandboxProfile`.
+pub fn read_session_sandbox_profile(
+    control_db_path: &str,
+    session_path: &str,
+    session_id: &str,
+) -> Result<Option<SandboxProfileName>, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        let row: Option<(String, String)> = db
+            .query_row(
+                "SELECT session_id, profile FROM session_sandbox_profiles WHERE session_path = ?",
+                params![session_path],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((stored_session_id, profile)) = row else {
+            return Ok(None);
+        };
+        assert_session_metadata_identity(db, session_path, session_id)?;
+        if stored_session_id != session_id {
+            return Err(ControlDbError::new(format!(
+                "Session identity mismatch for {session_path}: stored {stored_session_id}, received {session_id}"
+            )));
+        }
+        let Some(profile) = SandboxProfileName::parse(&profile) else {
+            return Err(ControlDbError::new(format!(
+                "Invalid sandbox profile '{profile}' for session {session_id}"
+            )));
+        };
+        Ok(Some(profile))
+    })
+}
+
+/// `writeSessionGoal`.
+pub fn write_session_goal(
+    control_db_path: &str,
+    session_path: &str,
+    goal_json: Option<&str>,
+) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        db.execute(
+            "
+			UPDATE session_metadata
+			SET goal_json = ?, updated_at = ?
+			WHERE session_path = ?
+			",
+            params![goal_json, crate::utils::iso_time::now_iso_string(), session_path],
+        )?;
+        Ok(())
+    })
+}
+
+/// `readSessionGoal`.
+pub fn read_session_goal(control_db_path: &str, session_path: &str) -> Result<Option<String>, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        Ok(db
+            .query_row(
+                "
+				SELECT goal_json
+				FROM session_metadata
+				WHERE session_path = ?
+				",
+                params![session_path],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten())
+    })
+}
+
+fn read_named_session_name(db: &Connection, session_path: &str) -> Result<Option<String>, ControlDbError> {
+    Ok(db
+        .query_row(
+            "SELECT name FROM named_sessions WHERE session_path = ?",
+            params![session_path],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten())
+}
+
+type SessionMetadataRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    i64,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+    i64,
+    String,
+    String,
+    String,
+);
+
+const SESSION_METADATA_SELECT: &str = "
+	SELECT
+		session_path,
+		id,
+		cwd,
+		name,
+		parent_session_path,
+		archived_at,
+		goal_json,
+		is_subagent,
+		subagent_name,
+		model_provider,
+		model_id,
+		thinking_level,
+		created_at,
+		modified_at,
+		message_count,
+		first_message,
+		all_messages_text,
+		updated_at
+	FROM session_metadata
+";
+
+fn session_metadata_from_row(row: SessionMetadataRow) -> SessionMetadata {
+    SessionMetadata {
+        session_path: row.0,
+        id: row.1,
+        cwd: row.2,
+        name: row.3,
+        parent_session_path: row.4,
+        is_archived: Some(row.5.is_some()),
+        archived_at: row.5,
+        goal_json: row.6,
+        is_subagent: Some(row.7 == 1),
+        subagent_name: row.8,
+        model_provider: row.9,
+        model_id: row.10,
+        thinking_level: row.11,
+        created_at: row.12,
+        modified_at: row.13,
+        message_count: row.14,
+        first_message: row.15,
+        all_messages_text: row.16,
+        updated_at: row.17,
+    }
+}
+
+fn query_session_metadata_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionMetadataRow> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
+        row.get(8)?,
+        row.get(9)?,
+        row.get(10)?,
+        row.get(11)?,
+        row.get(12)?,
+        row.get(13)?,
+        row.get(14)?,
+        row.get(15)?,
+        row.get(16)?,
+        row.get(17)?,
+    ))
+}
+
+/// `readSessionMetadata`.
+pub fn read_session_metadata(
+    control_db_path: &str,
+    session_path: &str,
+) -> Result<Option<SessionMetadata>, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        let row = db
+            .query_row(
+                &format!("{SESSION_METADATA_SELECT} WHERE session_path = ?"),
+                params![session_path],
+                query_session_metadata_row,
+            )
+            .optional()?;
+        Ok(row.map(session_metadata_from_row))
+    })
+}
+
+/// `listSessionMetadata`.
+pub fn list_session_metadata(control_db_path: &str) -> Result<Vec<SessionMetadata>, ControlDbError> {
+    list_session_metadata_by_archive_state(control_db_path, None)
+}
+
+/// `listActiveSessionMetadata`.
+pub fn list_active_session_metadata(control_db_path: &str) -> Result<Vec<SessionMetadata>, ControlDbError> {
+    list_session_metadata_by_archive_state(control_db_path, Some(false))
+}
+
+/// `listArchivedSessionMetadata`.
+pub fn list_archived_session_metadata(control_db_path: &str) -> Result<Vec<SessionMetadata>, ControlDbError> {
+    list_session_metadata_by_archive_state(control_db_path, Some(true))
+}
+
+fn list_session_metadata_by_archive_state(
+    control_db_path: &str,
+    archived: Option<bool>,
+) -> Result<Vec<SessionMetadata>, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        let archive_clause = match archived {
+            None => "",
+            Some(true) => "WHERE archived_at IS NOT NULL",
+            Some(false) => "WHERE archived_at IS NULL",
+        };
+        let mut statement = db.prepare(&format!(
+            "{SESSION_METADATA_SELECT}
+				{archive_clause}
+				ORDER BY modified_at DESC, updated_at DESC, session_path DESC"
+        ))?;
+        let rows = statement
+            .query_map([], query_session_metadata_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows.into_iter().map(session_metadata_from_row).collect())
+    })
+}
+
+/// `findActiveSessionMetadataById`.
+pub fn find_active_session_metadata_by_id(
+    control_db_path: &str,
+    id: &str,
+) -> Result<Vec<SessionMetadata>, ControlDbError> {
+    find_active_session_metadata(control_db_path, "id", id)
+}
+
+/// `findActiveSessionMetadataByName`.
+pub fn find_active_session_metadata_by_name(
+    control_db_path: &str,
+    name: &str,
+) -> Result<Vec<SessionMetadata>, ControlDbError> {
+    find_active_session_metadata(control_db_path, "name", name)
+}
+
+fn find_active_session_metadata(
+    control_db_path: &str,
+    field: &str,
+    value: &str,
+) -> Result<Vec<SessionMetadata>, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        let (match_clause, values): (&str, Vec<String>) = if field == "id" {
+            ("id >= ? AND id < ?", vec![value.to_owned(), format!("{value}\u{ffff}")])
+        } else {
+            ("name = ?", vec![value.to_owned()])
+        };
+        let mut statement = db.prepare(&format!(
+            "{SESSION_METADATA_SELECT}
+				WHERE archived_at IS NULL AND is_subagent = 0 AND {match_clause}
+				ORDER BY modified_at DESC, updated_at DESC, session_path DESC"
+        ))?;
+        let rows = statement
+            .query_map(rusqlite::params_from_iter(values.iter()), query_session_metadata_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows.into_iter().map(session_metadata_from_row).collect())
+    })
+}
+
+/// `archiveSession`.
+pub fn archive_session(control_db_path: &str, session_path: &str) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        let now = crate::utils::iso_time::now_iso_string();
+        db.execute(
+            "UPDATE session_metadata SET archived_at = ?, updated_at = ? WHERE session_path = ?",
+            params![now, now, session_path],
+        )?;
+        Ok(())
+    })
+}
+
+/// `unarchiveSession`.
+pub fn unarchive_session(control_db_path: &str, session_path: &str) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        db.execute(
+            "UPDATE session_metadata SET archived_at = NULL, updated_at = ? WHERE session_path = ?",
+            params![crate::utils::iso_time::now_iso_string(), session_path],
+        )?;
+        Ok(())
+    })
+}
+
+/// `archiveSessionsOlderThan`; `cutoff_iso` is the already-formatted cutoff timestamp.
+pub fn archive_sessions_older_than(control_db_path: &str, cutoff_iso: &str) -> Result<Vec<String>, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        let has_eligible: Option<i64> = db
+            .query_row(
+                "SELECT 1 FROM session_metadata
+				 WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?
+				 LIMIT 1",
+                params![cutoff_iso],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if has_eligible.is_none() {
+            return Ok(Vec::new());
+        }
+        let archived_at = crate::utils::iso_time::now_iso_string();
+        let mut statement = db.prepare(
+            "UPDATE session_metadata
+				 SET archived_at = ?, updated_at = ?
+				 WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?
+				 RETURNING session_path, modified_at",
+        )?;
+        let mut rows = statement
+            .query_map(params![archived_at, archived_at, cutoff_iso], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
+        Ok(rows.into_iter().map(|(session_path, _)| session_path).collect())
+    })
+}
+
+/// `writeLastMessage`.
+pub fn write_last_message(control_db_path: &str, role: &str, content: &str) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        db.execute(
+            "
+			INSERT INTO last_message (id, role, content, updated_at)
+			VALUES (1, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET
+				role = excluded.role,
+				content = excluded.content,
+				updated_at = excluded.updated_at
+			",
+            params![role, content, crate::utils::iso_time::now_iso_string()],
+        )?;
+        Ok(())
+    })
+}
+
+/// `readLastMessage`.
+pub fn read_last_message(control_db_path: &str) -> Result<Option<LastControlMessage>, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        let row: Option<(String, String, String)> = db
+            .query_row(
+                "
+				SELECT role, content, updated_at
+				FROM last_message
+				WHERE id = 1
+				",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let Some((role, content, updated_at)) = row else {
+            return Ok(None);
+        };
+        if role != "assistant" {
+            return Ok(None);
+        }
+        Ok(Some(LastControlMessage {
+            role,
+            content,
+            updated_at,
+        }))
+    })
+}
+
+/// `recordPromptHistoryEntry`.
+pub fn record_prompt_history_entry(control_db_path: &str, content: &str) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| insert_prompt_history_entry(db, content))
+}
+
+/// `readPromptHistory`.
+pub fn read_prompt_history(control_db_path: &str, limit: i64) -> Result<Vec<String>, ControlDbError> {
+    with_control_db(control_db_path, |db| read_prompt_history_rows(db, limit))
+}
+
+/// `readOrMigratePromptHistory`.
+pub fn read_or_migrate_prompt_history(
+    control_db_path: &str,
+    legacy_entries: &[String],
+    limit: i64,
+) -> Result<Vec<String>, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        let existing_entries = read_prompt_history_rows(db, limit)?;
+        if !existing_entries.is_empty() {
+            return Ok(existing_entries);
+        }
+        if legacy_entries.is_empty() {
+            return Ok(Vec::new());
+        }
+        let prepared_rows = prepare_prompt_history_migration_rows(legacy_entries);
+        if prepared_rows.is_empty() {
+            return Ok(legacy_entries
+                .iter()
+                .take(usize::try_from(limit).unwrap_or(usize::MAX))
+                .cloned()
+                .collect());
+        }
+        let inserted = insert_prompt_history_migration_rows(db, &prepared_rows)?;
+        if inserted == prepared_rows.len() as i64 {
+            return Ok(legacy_entries
+                .iter()
+                .take(usize::try_from(limit).unwrap_or(usize::MAX))
+                .cloned()
+                .collect());
+        }
+        if inserted == 0 {
+            return read_prompt_history_rows(db, limit);
+        }
+        Err(ControlDbError::new(format!(
+            "Prompt history migration inserted {inserted} of {} prepared rows",
+            prepared_rows.len()
+        )))
+    })
+}
+
+fn prepare_prompt_history_migration_rows(legacy_entries: &[String]) -> Vec<(String, String)> {
+    let created_at = crate::utils::iso_time::now_iso_string();
+    let mut rows = Vec::new();
+    let mut previous_content: Option<String> = None;
+    for content in legacy_entries.iter().rev() {
+        let content = content.trim();
+        if content.is_empty() || previous_content.as_deref() == Some(content) {
+            continue;
+        }
+        rows.push((content.to_owned(), created_at.clone()));
+        previous_content = Some(content.to_owned());
+    }
+    rows
+}
+
+fn insert_prompt_history_migration_rows(db: &Connection, rows: &[(String, String)]) -> Result<i64, ControlDbError> {
+    let value = Value::Array(
+        rows.iter()
+            .map(|(content, created_at)| serde_json::json!({ "content": content, "createdAt": created_at }))
+            .collect(),
+    );
+    let inserted = db.execute(
+        "INSERT INTO prompt_history (content, created_at)
+			 SELECT json_extract(value, '$.content'), json_extract(value, '$.createdAt')
+			 FROM json_each(?)
+			 WHERE NOT EXISTS (SELECT 1 FROM prompt_history)
+			 ORDER BY CAST(key AS INTEGER)",
+        params![js_json::stringify(&value)],
+    )?;
+    Ok(inserted as i64)
+}
+
+fn read_prompt_history_rows(db: &Connection, limit: i64) -> Result<Vec<String>, ControlDbError> {
+    let mut statement = db.prepare(
+        "
+			SELECT content
+			FROM prompt_history
+			ORDER BY id DESC
+			LIMIT ?
+			",
+    )?;
+    let rows = statement
+        .query_map(params![limit], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+fn insert_prompt_history_entry(db: &Connection, content: &str) -> Result<(), ControlDbError> {
+    let trimmed_content = content.trim();
+    if trimmed_content.is_empty() {
+        return Ok(());
+    }
+    if read_latest_prompt_history_entry(db)?.as_deref() == Some(trimmed_content) {
+        return Ok(());
+    }
+    db.execute(
+        "
+		INSERT INTO prompt_history (content, created_at)
+		VALUES (?, ?)
+		",
+        params![trimmed_content, crate::utils::iso_time::now_iso_string()],
+    )?;
+    Ok(())
+}
+
+fn read_latest_prompt_history_entry(db: &Connection) -> Result<Option<String>, ControlDbError> {
+    Ok(db
+        .query_row(
+            "
+			SELECT content
+			FROM prompt_history
+			ORDER BY id DESC
+			LIMIT 1
+			",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?)
+}

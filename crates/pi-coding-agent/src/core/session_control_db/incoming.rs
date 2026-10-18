@@ -1,0 +1,126 @@
+//! Incoming control messages (`incoming_messages` table).
+
+use rusqlite::{OptionalExtension, params};
+
+use super::{ControlDbError, IncomingControlMessage, with_control_db, with_immediate_transaction};
+
+/// `enqueueIncomingMessage`.
+pub fn enqueue_incoming_message(control_db_path: &str, content: &str) -> Result<i64, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        db.execute(
+            "
+				INSERT INTO incoming_messages (content, status, created_at)
+				VALUES (?, 'pending', ?)
+				",
+            params![content, crate::utils::iso_time::now_iso_string()],
+        )?;
+        Ok(db.last_insert_rowid())
+    })
+}
+
+/// `claimLatestIncomingMessage`.
+pub fn claim_latest_incoming_message(control_db_path: &str) -> Result<Option<IncomingControlMessage>, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        if read_latest_pending_incoming_message(db)?.is_none() {
+            return Ok(None);
+        }
+        let now_iso = crate::utils::iso_time::now_iso_string();
+        with_immediate_transaction(db, |db| claim_latest_incoming_message_in_transaction(db, &now_iso))
+    })
+}
+
+fn claim_latest_incoming_message_in_transaction(
+    db: &rusqlite::Connection,
+    now: &str,
+) -> Result<Option<IncomingControlMessage>, ControlDbError> {
+    let Some(row) = read_latest_pending_incoming_message(db)? else {
+        return Ok(None);
+    };
+    db.execute(
+        "
+		UPDATE incoming_messages
+		SET status = 'superseded', completed_at = ?
+		WHERE status = 'pending' AND id <> ?
+		",
+        params![now, row.id],
+    )?;
+    db.execute(
+        "
+		UPDATE incoming_messages
+		SET status = 'claimed', claimed_at = ?
+		WHERE id = ?
+		",
+        params![now, row.id],
+    )?;
+    Ok(Some(row))
+}
+
+fn read_latest_pending_incoming_message(
+    db: &rusqlite::Connection,
+) -> Result<Option<IncomingControlMessage>, ControlDbError> {
+    Ok(db
+        .query_row(
+            "
+			SELECT id, content
+			FROM incoming_messages
+			WHERE status = 'pending'
+			ORDER BY id DESC
+			LIMIT 1
+			",
+            [],
+            |row| {
+                Ok(IncomingControlMessage {
+                    id: row.get(0)?,
+                    content: row.get(1)?,
+                })
+            },
+        )
+        .optional()?)
+}
+
+/// `completeIncomingMessage`.
+pub fn complete_incoming_message(control_db_path: &str, id: i64) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        db.execute(
+            "
+			UPDATE incoming_messages
+			SET status = 'completed', completed_at = ?
+			WHERE id = ?
+			",
+            params![crate::utils::iso_time::now_iso_string(), id],
+        )?;
+        Ok(())
+    })
+}
+
+/// `failIncomingMessage`.
+pub fn fail_incoming_message(control_db_path: &str, id: i64, error_message: &str) -> Result<(), ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        db.execute(
+            "
+			UPDATE incoming_messages
+			SET status = 'failed', error = ?, completed_at = ?
+			WHERE id = ?
+			",
+            params![error_message, crate::utils::iso_time::now_iso_string(), id],
+        )?;
+        Ok(())
+    })
+}
+
+/// `readIncomingMessageStatus`.
+pub fn read_incoming_message_status(control_db_path: &str, id: i64) -> Result<Option<String>, ControlDbError> {
+    with_control_db(control_db_path, |db| {
+        Ok(db
+            .query_row(
+                "
+				SELECT status
+				FROM incoming_messages
+				WHERE id = ?
+				",
+                params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?)
+    })
+}

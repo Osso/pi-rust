@@ -50,6 +50,8 @@ httpdate = "=1.0.3"
 jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-system"] }
 icu_collator = { version = "=2.3.1", features = ["compiled_data"] }
 icu_locale_core = "=2.3.0"
+# Shared control.sqlite access; same pinned rusqlite release as pi-session-sqlite.
+rusqlite = { version = "=0.37.0", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "=3.27.0"
