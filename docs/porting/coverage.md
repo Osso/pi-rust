@@ -471,10 +471,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/tool-result-images.ts` | 62 | 5 | done | `crates/pi-coding-agent/src/utils/tool_result_images.rs` | Differential 27107 (7 fixtures); Cow preserves the unchanged-reference contract |
 | `coding-agent/src/core/models-store.ts` | 146 | 6 | done | `crates/pi-coding-agent/src/core/models_store.rs` | Coalesced reloads, canonical entry order documented |
 | `coding-agent/src/bun/register-bedrock.ts` | 4 | 7 | done | `crates/pi-coding-agent/src/bun/register_bedrock.rs` | `set_bedrock_provider_module(bedrock_provider_module())`; idempotence test ([traceability](traceability/bun-entry.md)). |
-| `coding-agent/src/core/provider-composer.ts` | 572 | 7 | todo |  |  |
 | `coding-agent/src/extensions/llama/provider.ts` | 150 | 7 | todo |  |  |
 | `coding-agent/src/core/keybindings.ts` | 434 | 8 | done | `crates/pi-coding-agent/src/core/keybindings.rs` | `KEYBINDINGS` layered on `pi-tui`, legacy-name migration/ordering, file load/reload; differential `coding-agent-keybindings-oracle.ts`. |
-| `coding-agent/src/core/model-runtime.ts` | 795 | 8 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/countdown-timer.ts` | 39 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/components/countdown_timer.rs` | `setInterval` mapped to `poll(now)`/`next_deadline`; tick/expire/request-render covered by `tests/components.rs`. |
 | `coding-agent/src/modes/interactive/components/visual-truncate.ts` | 50 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/components/visual_truncate.rs` | wrap-aware tail truncation; differential; `slice(-0)` quirk preserved |
 | `coding-agent/src/modes/interactive/interactive-root-compositor.ts` | 40 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/interactive_root_compositor.rs` | flow/bottom order + layout callbacks; behavioral test |
@@ -652,8 +650,6 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/extensions/runner.ts` | 1552 | 22 | partial | `crates/pi-coding-agent/src/core/extensions/runner.rs` | Full dispatch/merge/error isolation, shortcuts/commands/flags/tools; 13-scenario differential; contexts read live shared runner state. `setSandboxProfile` gap (session API). |
 | `coding-agent/src/core/extensions/types.ts` | 2001 | 22 | partial | `crates/pi-coding-agent/src/core/extensions/types.rs` | Event/result/API contracts; live `ExtensionContextState` backing method-based context members; concrete `Theme`; component-factory UI methods and per-tool input structs are documented gaps. |
 | `coding-agent/src/core/extensions/wrapper.ts` | 46 | 22 | partial | `crates/pi-coding-agent/src/core/extensions/wrapper.rs` | addedToolNames diff done; `wrapToolDefinition` truncation/prepareArguments gaps owned by ca-tools-core. |
-| `coding-agent/src/core/footer-data-provider.ts` | 450 | 22 | todo |  |  |
-| `coding-agent/src/core/model-resolver.ts` | 780 | 22 | todo |  |  |
 | `coding-agent/src/core/permissions/mcp-permission-prompt.ts` | 250 | 22 | done | `crates/pi-coding-agent/src/core/permissions/mcp_permission_prompt.rs` | Decision parsing, desktop notification, rule-store skip/apply, in-place input replacement; 15 tests. See `coding-agent-mcp-permission-prompt.md`. |
 | `coding-agent/src/core/permissions/orchestrator.ts` | 39 | 22 | done | `crates/pi-coding-agent/src/core/permissions/orchestrator.rs` | Policy → hook → LLM → generic reviewer ordering; 7 tests. See `coding-agent-permissions-orchestrator.md`. |
 | `coding-agent/src/core/project-trust.ts` | 96 | 22 | done | `crates/pi-coding-agent/src/core/project_trust.rs` | Override, resource gate, extension `project_trust` event, stored/default decisions, UI selection and persistence; 19 behavioral tests ([traceability](traceability/project-trust.md)). |
