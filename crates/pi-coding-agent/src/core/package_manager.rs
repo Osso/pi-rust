@@ -1229,6 +1229,11 @@ fn highest_version(versions: &[String]) -> Option<String> {
 fn glob_sync(pattern: &str, root: &str) -> Vec<String> {
     use globset::GlobBuilder;
 
+    // `glob` normalizes a leading `./` before matching.
+    let pattern = pattern
+        .strip_prefix("./")
+        .or_else(|| pattern.strip_prefix(".\\"))
+        .unwrap_or(pattern);
     let Ok(glob) = GlobBuilder::new(pattern)
         .literal_separator(true)
         .backslash_escape(false)

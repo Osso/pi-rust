@@ -82,7 +82,7 @@ must be shared with the settings-manager port; they are defined here because
   Node's `spawn ... ENOENT` message.
 - `glob` is replaced by a `globset` walk over the package root. Dot entries are
   skipped globally (Node's `dot:false` only excludes them for wildcard segments),
-  and matches keep filesystem order. Directory walks use `read_dir` order, the
+  matches keep filesystem order, and a leading `./` in a manifest entry is normalized like `glob` does. Directory walks use `read_dir` order, the
   same getdents order Node sees for the same directory.
 - `minimatch` comes from `pi_js_compat` with default options, matching the
   TypeScript call sites.

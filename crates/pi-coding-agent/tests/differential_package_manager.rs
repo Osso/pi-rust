@@ -158,6 +158,21 @@ fn build_fixture(root: &Path) {
         r#"{"name":"pkg","pi":{"extensions":["extensions/*.ts","!extensions/c.ts"]}}"#,
     );
     write(&cwd, "pkg/.gitignore", "extensions/b.ts\n");
+    write(
+        &cwd,
+        "pkg2/package.json",
+        r#"{"name":"pkg2","pi":{"skills":["./plugins/*/skills"]}}"#,
+    );
+    write(
+        &cwd,
+        "pkg2/plugins/one/skills/alpha-skill/SKILL.md",
+        "---\nname: alpha-skill\n---\n",
+    );
+    write(
+        &cwd,
+        "pkg2/plugins/two/skills/beta-skill/SKILL.md",
+        "---\nname: beta-skill\n---\n",
+    );
     write(&agent, "npm/node_modules/my-pkg/extensions/index.ts", "x");
     write(
         &agent,
@@ -336,6 +351,7 @@ fn differential_resolve_packages_and_filters() {
             global: json!({
                 "packages": [
                     "./pkg",
+                    "./pkg2",
                     {"source": "npm:my-pkg", "extensions": ["!extensions/index.ts"]}
                 ]
             }),
