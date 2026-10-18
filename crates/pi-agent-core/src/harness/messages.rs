@@ -1,3 +1,8 @@
+use pi_ai::types::ProviderNativeContext;
+use serde_json::{Map, Value};
+
+use crate::agent::AgentMessage;
+
 /// Role tag for shell-command execution messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BashExecutionRole {
@@ -64,3 +69,78 @@ pub const BRANCH_SUMMARY_PREFIX: &str =
 
 /// Suffix framing a summary returned from a conversation branch.
 pub const BRANCH_SUMMARY_SUFFIX: &str = "</summary>";
+
+/// Options recorded on a compaction summary message.
+#[derive(Debug, Clone, Default)]
+pub struct CompactionSummaryOptions {
+    pub duration_ms: Option<f64>,
+    pub tokens_after: Option<f64>,
+    pub kept_from_previous_context_tokens: Option<f64>,
+    pub compacted_result_tokens: Option<f64>,
+    pub provider_native: Option<ProviderNativeContext>,
+}
+
+fn json_number(value: f64) -> Value {
+    if !value.is_finite() {
+        return Value::Null;
+    }
+    if value.fract() == 0.0 && value.abs() < 1e21 {
+        return serde_json::Number::from_i128(value as i128)
+            .map(Value::Number)
+            .unwrap_or(Value::Null);
+    }
+    serde_json::Number::from_f64(value)
+        .map(Value::Number)
+        .unwrap_or(Value::Null)
+}
+
+fn insert_optional(map: &mut Map<String, Value>, key: &str, value: Option<Value>) {
+    if let Some(value) = value {
+        map.insert(key.to_owned(), value);
+    }
+}
+
+/// Build the custom `branchSummary` message for a branch summary entry.
+pub fn create_branch_summary_message(summary: &str, from_id: &str, timestamp: i64) -> AgentMessage {
+    let mut message = Map::new();
+    message.insert("role".to_owned(), Value::String("branchSummary".to_owned()));
+    message.insert("summary".to_owned(), Value::String(summary.to_owned()));
+    message.insert("fromId".to_owned(), Value::String(from_id.to_owned()));
+    message.insert("timestamp".to_owned(), json_number(timestamp as f64));
+    AgentMessage::Custom(message)
+}
+
+/// Build the custom `compactionSummary` message for a compaction entry.
+pub fn create_compaction_summary_message(
+    summary: &str,
+    tokens_before: f64,
+    timestamp: i64,
+    options: &CompactionSummaryOptions,
+) -> AgentMessage {
+    let mut message = Map::new();
+    message.insert("role".to_owned(), Value::String("compactionSummary".to_owned()));
+    message.insert("summary".to_owned(), Value::String(summary.to_owned()));
+    message.insert("tokensBefore".to_owned(), json_number(tokens_before));
+    insert_optional(&mut message, "tokensAfter", options.tokens_after.map(json_number));
+    insert_optional(
+        &mut message,
+        "keptFromPreviousContextTokens",
+        options.kept_from_previous_context_tokens.map(json_number),
+    );
+    insert_optional(
+        &mut message,
+        "compactedResultTokens",
+        options.compacted_result_tokens.map(json_number),
+    );
+    insert_optional(&mut message, "durationMs", options.duration_ms.map(json_number));
+    insert_optional(
+        &mut message,
+        "providerNative",
+        options
+            .provider_native
+            .as_ref()
+            .and_then(|value| serde_json::to_value(value).ok()),
+    );
+    message.insert("timestamp".to_owned(), json_number(timestamp as f64));
+    AgentMessage::Custom(message)
+}

@@ -4,6 +4,7 @@ pub mod messages;
 
 pub use compaction::{CompactionSettings, should_compact};
 pub mod prompt_templates;
+pub mod session;
 pub use prompt_templates::{PromptTemplateDiagnostic, PromptTemplateDiagnosticCode, PromptTemplateDiagnosticType};
 pub mod skills;
 pub mod system_prompt;
