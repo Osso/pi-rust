@@ -2072,6 +2072,7 @@ dependencies = [
 name = "pi-js-compat"
 version = "0.0.0"
 dependencies = [
+ "fancy-regex",
  "icu_collator",
  "icu_locale_core",
  "serde_json",
