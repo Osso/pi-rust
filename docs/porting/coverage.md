@@ -479,7 +479,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/visual-truncate.ts` | 50 | 8 | todo |  |  |
 | `coding-agent/src/modes/interactive/interactive-root-compositor.ts` | 40 | 8 | todo |  |  |
 | `coding-agent/src/modes/interactive/working-editor.ts` | 67 | 8 | todo |  |  |
-| `coding-agent/src/cli/list-models.ts` | 115 | 9 | todo |  |  |
+| `coding-agent/src/cli/list-models.ts` | 115 | 9 | done | `crates/pi-coding-agent/src/cli/list_models.rs` | Token-count formatting, fuzzy filter, sorted table; 9-case byte-level differential ([traceability](traceability/list-models.md)). |
 | `coding-agent/src/cli/login-command.ts` | 278 | 9 | todo |  |  |
 | `coding-agent/src/client/remote-session.ts` | 420 | 9 | todo |  |  |
 | `coding-agent/src/core/model-registry.ts` | 158 | 9 | done | `crates/pi-coding-agent/src/core/model_registry.rs` | Facade over ModelRuntime: resolved auth/compatibility fallback, statuses, display names, registration; registry tests. Overloads split into two methods. |
