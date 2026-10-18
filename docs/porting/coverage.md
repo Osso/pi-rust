@@ -381,7 +381,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/cli/experimental/transport-address.ts` | 48 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/transport_address.rs` | Unix transport address validation; differential `27009`. |
 | `coding-agent/src/core/debug-repl.ts` | 292 | 0 | gap | — | `node:vm` JS evaluation; no JS engine in the Rust port (user decision 2026-10-18). |
 | `coding-agent/src/core/desktop-notification.ts` | 116 | 0 | done | `crates/pi-coding-agent/src/core/desktop_notification.rs` | notify-send argv, deferred close, busctl close; fake-binary child probes. |
-| `coding-agent/src/core/detached-job-retention.ts` | 76 | 0 | todo |  |  |
+| `coding-agent/src/core/detached-job-retention.ts` | 76 | 0 | done | `crates/pi-coding-agent/src/core/detached_job_retention.rs` | Age/over-cap selection with ICU-collated path tie-break; differential `27014`. |
 | `coding-agent/src/core/diagnostics.ts` | 15 | 0 | done | `crates/pi-coding-agent/src/core/diagnostics.rs` | `ResourceCollision`/`ResourceDiagnostic` wire records. |
 | `coding-agent/src/core/event-bus.ts` | 33 | 0 | done | `crates/pi-coding-agent/src/core/event_bus.rs` | Channel bus with subscriptions, clear, and failure isolation; handlers are typed `Fn(&Value) -> Result`. |
 | `coding-agent/src/core/experimental.ts` | 9 | 0 | done | `crates/pi-coding-agent/src/core/experimental.rs` | `PI_EXPERIMENTAL` gate + strict tool sampling config; child-process env probes. |

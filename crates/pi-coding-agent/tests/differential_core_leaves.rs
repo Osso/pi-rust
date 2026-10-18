@@ -10,6 +10,9 @@ use pi_coding_agent::cli::experimental::command::{
     Command, CommandOption, CommandParseResult, NamedCommandInvocation, string_option, value_option,
 };
 use pi_coding_agent::cli::experimental::transport_address::parse_transport_address;
+use pi_coding_agent::core::detached_job_retention::{
+    DetachedArtifactRetentionCandidate, DetachedArtifactRetentionPolicy, select_detached_artifact_directories_to_delete,
+};
 use pi_coding_agent::core::http_dispatcher::{
     HttpIdleTimeout, format_http_idle_timeout_ms, parse_http_idle_timeout_ms,
 };
@@ -744,4 +747,87 @@ fn http_dispatcher_parsing_and_formatting_match_typescript() {
         parse_http_idle_timeout_ms(HttpIdleTimeout::Number(1e21)),
         Some(u64::MAX)
     );
+}
+
+#[test]
+fn detached_job_retention_matches_typescript() {
+    let candidate = |path: &str, size: f64, terminal_at: f64, protected: bool| json!({"directoryPath": path, "byteSize": size, "terminalAt": terminal_at, "protectedByLiveReference": protected});
+    let cases = json!([
+        {
+            "candidates": [
+                candidate("/jobs/recent", 10.0, 9_001.0, false),
+                candidate("/jobs/boundary", 20.0, 9_000.0, false),
+                candidate("/jobs/old", 30.0, 8_000.0, false),
+                candidate("/jobs/protected-old", 40.0, 8_000.0, true),
+            ],
+            "policy": {"now": 10_000.0, "maxAge": 1_000.0, "maxBytes": 1_000.0},
+        },
+        {
+            "candidates": [
+                candidate("/jobs/newest", 30.0, 9_900.0, false),
+                candidate("/jobs/oldest", 30.0, 9_700.0, false),
+                candidate("/jobs/middle", 30.0, 9_800.0, false),
+                candidate("/jobs/protected", 50.0, 9_600.0, true),
+            ],
+            "policy": {"now": 10_000.0, "maxAge": 10_000.0, "maxBytes": 90.0},
+        },
+        {
+            "candidates": [candidate("/jobs/z", 10.0, 9_500.0, false), candidate("/jobs/a", 10.0, 9_500.0, false)],
+            "policy": {"now": 10_000.0, "maxAge": 10_000.0, "maxBytes": 10.0},
+        },
+        {
+            "candidates": [candidate("/jobs/A", 10.0, 9_500.0, false), candidate("/jobs/a", 10.0, 9_500.0, false)],
+            "policy": {"now": 10_000.0, "maxAge": 10_000.0, "maxBytes": 10.0},
+        },
+        {
+            "candidates": [candidate("/jobs/B", 10.0, 9_500.0, false), candidate("/jobs/z", 10.0, 9_500.0, false)],
+            "policy": {"now": 10_000.0, "maxAge": 10_000.0, "maxBytes": 10.0},
+        },
+        {
+            "candidates": [candidate("/jobs/protected", 200.0, 0.0, true), candidate("/jobs/keep", 10.0, 9_900.0, false)],
+            "policy": {"now": 10_000.0, "maxAge": 1_000.0, "maxBytes": 100.0},
+        },
+        {"candidates": [], "policy": {"now": 10_000.0, "maxAge": 1.0, "maxBytes": 1.0}},
+        {
+            "candidates": [candidate("/jobs/a", 10.0, 9_999.0, false)],
+            "policy": {"now": 10_000.0, "maxAge": 10_000.0, "maxBytes": 100.0},
+        },
+        {
+            "candidates": [candidate("/jobs/a", -1.0, 0.0, false)],
+            "policy": {"now": 10_000.0, "maxAge": 1.0, "maxBytes": 1.0},
+        },
+        {"candidates": [], "policy": {"now": -1.0, "maxAge": 1.0, "maxBytes": 1.0}},
+        {"candidates": [], "policy": {"now": 10_000.0, "maxAge": 1.0, "maxBytes": -1.0}},
+    ]);
+    let mut oracle = Oracle::spawn();
+    let expected = oracle.call("core/detached-job-retention.ts", "detachedJobRetention", cases.clone());
+
+    let actual: Vec<Value> = cases
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| {
+            let candidates: Vec<DetachedArtifactRetentionCandidate> = case["candidates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|candidate| DetachedArtifactRetentionCandidate {
+                    directory_path: candidate["directoryPath"].as_str().unwrap().to_owned(),
+                    byte_size: candidate["byteSize"].as_f64().unwrap(),
+                    terminal_at: candidate["terminalAt"].as_f64().unwrap(),
+                    protected_by_live_reference: candidate["protectedByLiveReference"].as_bool().unwrap(),
+                })
+                .collect();
+            let policy = DetachedArtifactRetentionPolicy {
+                now: case["policy"]["now"].as_f64().unwrap(),
+                max_age: case["policy"]["maxAge"].as_f64().unwrap(),
+                max_bytes: case["policy"]["maxBytes"].as_f64().unwrap(),
+            };
+            match select_detached_artifact_directories_to_delete(&candidates, &policy) {
+                Ok(paths) => json!({"ok": true, "paths": paths}),
+                Err(error) => json!({"ok": false, "error": error}),
+            }
+        })
+        .collect();
+    assert_eq!(json!(actual), expected);
 }

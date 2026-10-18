@@ -21,6 +21,7 @@ All direct dependencies are exact-pinned.
 - `notify = 8.2.0` — provides the platform file watcher behind `utils::fs_watch`.
 - `jiff = 0.2.38` (`std`, `tz-system`) — resolves the system UTC offset for offset-less timestamps in `utils::iso_time`, replacing V8's local-time `Date.parse` resolution.
 - `rustix = 1.1.5` (`process`) — sends `SIGTERM`/`SIGKILL` for `core::exec` termination and performs the `kill(pid, 0)` existence check in `core::runtime_process`.
+- `icu_collator = 2.3.1` (`compiled_data`) and `icu_locale_core = 2.3.0` — reproduce `String.prototype.localeCompare` ordering for `core::detached_job_retention` tie-breaks, using the host locale like Node's ICU collation.
 - `core::http_dispatcher` adds no dependency: it configures the shared `pi-ai` client through `pi_ai::http::fetch_with_options` (`http1_only`, `read_timeout`), keeping one HTTP stack.
 - `pi-ai` (path) — `utils::management_http` uses the shared `Fetch` contract and default reqwest client (one HTTP stack).
 - `tempfile = 3.27.0` (development) — creates isolated temporary files, symlinks, and git repositories for path and process tests.

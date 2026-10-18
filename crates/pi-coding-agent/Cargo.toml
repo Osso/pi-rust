@@ -24,6 +24,8 @@ tokio-util = "=0.7.20"
 notify = "=8.2.0"
 jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-system"] }
 rustix = { version = "=1.1.5", features = ["process"] }
+icu_collator = { version = "=2.3.1", features = ["compiled_data"] }
+icu_locale_core = "=2.3.0"
 
 [dev-dependencies]
 tempfile = "=3.27.0"

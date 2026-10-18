@@ -2,6 +2,7 @@ mod config_value;
 pub mod defaults;
 pub mod desktop_notification;
 pub mod detached_job_bootstrap;
+pub mod detached_job_retention;
 pub mod diagnostics;
 pub mod event_bus;
 pub mod exec;

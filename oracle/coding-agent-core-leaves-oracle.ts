@@ -56,6 +56,18 @@ const handlers: Record<string, Handler> = {
 		}),
 	piManifest: (api, request) => cases(request).map((path) => api.readPiManifest(path)),
 	auth: (api, request) => cases(request).map((options) => api.parseAuthInput(options)),
+	detachedJobRetention: (api, request) =>
+		cases(request).map((value) => {
+			const input = value as { candidates: unknown[]; policy: unknown };
+			try {
+				return {
+					ok: true,
+					paths: api.selectDetachedArtifactDirectoriesToDelete(input.candidates, input.policy),
+				};
+			} catch (error) {
+				return { ok: false, error: errorOf(error).message };
+			}
+		}),
 	httpDispatcher: (api, request) => ({
 		parsed: cases(request).map((value) => {
 			const parsed = api.parseHttpIdleTimeoutMs(value);
