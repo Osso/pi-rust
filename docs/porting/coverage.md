@@ -10,9 +10,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `telemetry/src/index.ts` | 357 | 0 | todo |  |  |
-| `telemetry/src/memory.ts` | 219 | 0 | todo |  |  |
-| `telemetry/src/noop.ts` | 20 | 0 | todo |  |  |
+| `telemetry/src/index.ts` | 357 | 0 | done | `crates/pi-telemetry/src/lib.rs` | Runtime contracts, schema data, and typed starter ported; TypeScript conditional type inference helpers are an explicit gap (see traceability). |
+| `telemetry/src/memory.ts` | 219 | 0 | done | `crates/pi-telemetry/src/memory.rs` | In-memory recording ported with detached snapshots; JavaScript proxy/allocation passivity branches are not representable (see traceability). |
+| `telemetry/src/noop.ts` | 20 | 0 | done | `crates/pi-telemetry/src/noop.rs` | Inert context ported; JavaScript object freezing is not applicable. |
 
 ## protocol (8 files, 1236 lines)
 
@@ -265,15 +265,15 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `tui/src/fuzzy.ts` | 161 | 0 | todo |  |  |
-| `tui/src/keys.ts` | 1404 | 0 | todo |  |  |
-| `tui/src/kill-ring.ts` | 46 | 0 | todo |  |  |
-| `tui/src/native-modifiers.ts` | 66 | 0 | todo |  |  |
-| `tui/src/stdin-buffer.ts` | 444 | 0 | todo |  |  |
-| `tui/src/terminal-colors.ts` | 73 | 0 | todo |  |  |
-| `tui/src/terminal-image.ts` | 657 | 0 | todo |  |  |
-| `tui/src/undo-stack.ts` | 28 | 0 | todo |  |  |
-| `tui/src/utils.ts` | 1326 | 0 | todo |  |  |
+| `tui/src/fuzzy.ts` | 161 | 0 | done | `crates/pi-tui/src/fuzzy.rs` | exact score-bit differential |
+| `tui/src/keys.ts` | 1404 | 0 | done | `crates/pi-tui/src/keys.rs` | differential legacy/Kitty/modifyOther matrix; Key helper gap |
+| `tui/src/kill-ring.ts` | 46 | 0 | done | `crates/pi-tui/src/kill_ring.rs` | differential ring operations |
+| `tui/src/native-modifiers.ts` | 66 | 0 | partial | `crates/pi-tui/src/native_modifiers.rs` | constant false; Node N-API addon path unported (gap) |
+| `tui/src/stdin-buffer.ts` | 444 | 0 | done | `crates/pi-tui/src/stdin_buffer.rs` | differential chunk/paste matrix; driver-owned timer API |
+| `tui/src/terminal-colors.ts` | 73 | 0 | done | `crates/pi-tui/src/terminal_colors.rs` | differential parse matrix; TUI query method out of leaf scope |
+| `tui/src/terminal-image.ts` | 657 | 0 | done | `crates/pi-tui/src/terminal_image.rs` + internal `base64.rs` | differential encode/detect/render/placement/dimensions; WebP <30 source bug preserved |
+| `tui/src/undo-stack.ts` | 28 | 0 | done | `crates/pi-tui/src/undo_stack.rs` | clone-on-push; differential N/A (structuredClone) |
+| `tui/src/utils.ts` | 1326 | 0 | done | `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs` | Unicode 17.0 tables; differential corpus + ~11k codepoint samples |
 | `tui/src/autocomplete.ts` | 793 | 1 | todo |  |  |
 | `tui/src/keybindings.ts` | 325 | 1 | todo |  |  |
 | `tui/src/latex.ts` | 1373 | 1 | todo |  |  |
@@ -412,7 +412,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/child-process.ts` | 137 | 0 | done | `crates/pi-coding-agent/src/utils/child_process.rs` | Focused process tests; collects stdout/stderr |
 | `coding-agent/src/utils/clipboard-native.ts` | 33 | 0 | partial | `crates/pi-coding-agent/src/utils/clipboard_native.rs` | Loader/display ported; native npm binding gap |
 | `coding-agent/src/utils/clipboard-temp-files.ts` | 42 | 0 | done | `crates/pi-coding-agent/src/utils/clipboard_temp_files.rs` | Focused tracker tests |
-| `coding-agent/src/utils/deprecation.ts` | 14 | 0 | done | `crates/pi-coding-agent/src/utils/deprecation.rs` | Focused dedupe test; chalk color not ported |
+| `coding-agent/src/utils/deprecation.ts` | 14 | 0 | done | `crates/pi-coding-agent/src/utils/deprecation.rs` | Focused dedupe/yellow tests; chalk dependency port `utils::chalk` (see `traceability/chalk.md`) |
 | `coding-agent/src/utils/footer-status.ts` | 20 | 0 | done | `crates/pi-coding-agent/src/utils/footer_status.rs` | Differential 26004; focused tests |
 | `coding-agent/src/utils/frontmatter.ts` | 39 | 0 | done | `crates/pi-coding-agent/src/utils/frontmatter.rs` | Differential 26007; focused tests |
 | `coding-agent/src/utils/fs-watch.ts` | 30 | 0 | done | `crates/pi-coding-agent/src/utils/fs_watch.rs` | Focused notify-backed tests |

@@ -1,5 +1,6 @@
 pub mod abort;
 pub mod ansi;
+pub mod chalk;
 pub mod child_process;
 pub mod clipboard_native;
 pub mod clipboard_temp_files;
