@@ -9,12 +9,14 @@ use crate::core::session_control_db::{list_session_metadata, read_multi_agent_st
 
 use super::tool_results::tool_result;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListAgentsParams {
     pub parent_id: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentViewerParams {
     pub agent_id: String,
     pub session_id: Option<String>,
@@ -293,11 +295,13 @@ fn view_status(agent: &AgentSnapshot) -> Value {
 
 fn view_transcript(agent: &AgentSnapshot) -> Option<Value> {
     let transcript = agent.transcript.as_ref()?;
-    Some(json!({
-        "agentId": agent.id,
-        "path": transcript.path,
-        "sessionId": transcript.session_id,
-    }))
+    let mut details = Map::new();
+    details.insert("agentId".to_owned(), json!(agent.id));
+    if let Some(path) = transcript.path.as_ref() {
+        details.insert("path".to_owned(), json!(path));
+    }
+    details.insert("sessionId".to_owned(), json!(transcript.session_id));
+    Some(Value::Object(details))
 }
 
 fn list_viewer_commands(agent: &AgentSnapshot) -> Value {

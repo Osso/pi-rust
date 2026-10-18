@@ -64,6 +64,55 @@ impl WaitAgentsWakeUp {
 
 pub type WaitWakeListener = Arc<dyn Fn(&WaitAgentsWakeUp) + Send + Sync>;
 
+/// `Set<(wakeUp) => void>` for wait wake listeners.
+#[derive(Clone, Default)]
+pub struct WaitWakeListeners {
+    inner: Arc<std::sync::Mutex<Vec<(u64, WaitWakeListener)>>>,
+    next_id: Arc<std::sync::Mutex<u64>>,
+}
+
+pub struct WaitWakeUnsubscribe {
+    listeners: WaitWakeListeners,
+    id: u64,
+}
+
+impl Drop for WaitWakeUnsubscribe {
+    fn drop(&mut self) {
+        self.listeners
+            .inner
+            .lock()
+            .expect("wait wake listeners")
+            .retain(|(id, _)| *id != self.id);
+    }
+}
+
+impl WaitWakeListeners {
+    pub fn add(&self, listener: WaitWakeListener) -> WaitWakeUnsubscribe {
+        let mut next_id = self.next_id.lock().expect("wait wake next id");
+        let id = *next_id;
+        *next_id += 1;
+        drop(next_id);
+        self.inner.lock().expect("wait wake listeners").push((id, listener));
+        WaitWakeUnsubscribe {
+            listeners: self.clone(),
+            id,
+        }
+    }
+
+    pub fn emit(&self, wake_up: &WaitAgentsWakeUp) {
+        let listeners: Vec<WaitWakeListener> = self
+            .inner
+            .lock()
+            .expect("wait wake listeners")
+            .iter()
+            .map(|(_, listener)| Arc::clone(listener))
+            .collect();
+        for listener in listeners {
+            listener(wake_up);
+        }
+    }
+}
+
 pub fn empty_agent(agent_id: &str) -> AgentSnapshot {
     let timestamp = "1970-01-01T00:00:00.000Z".to_owned();
     AgentSnapshot {

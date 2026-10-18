@@ -1,0 +1,839 @@
+//! Mailbox tools and runtime lifecycle mirroring
+//! (`extensions/agents-core/src/mailbox-runtime.ts`).
+
+use std::sync::{Arc, Mutex};
+
+use pi_agent_core::AgentToolResult;
+use pi_agent_core::agent::types::AgentToolUpdateCallback;
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+use crate::core::extensions::types::{ExtensionApi, ExtensionContext, HandlerError, ToolDefinition};
+use crate::core::multi_agent_store::{
+    AgentLifecycle, AgentMailboxMessage, AgentSnapshot, ContactParentInput, MailboxMessageKindValue,
+    MailboxMessageStatusValue, MultiAgentStore, RecordOutboundSessionMessageInput, SendMailboxMessageInput,
+};
+use crate::core::session_control_db::{
+    EnqueueRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessage, RuntimeMailboxMessageKind,
+    RuntimeMailboxStoreRef, enqueue_runtime_mailbox_message, list_runtime_mailbox_messages, read_session_metadata,
+};
+use tokio_util::sync::CancellationToken;
+
+use super::runtime_utils::create_failed_mailbox_message;
+use super::shared::{empty_agent, file_reference_schema};
+use super::tool_results::tool_result;
+
+const MAIN_THREAD_AGENT_ID: &str = "main";
+
+pub type OnSessionMessageSent = Arc<dyn Fn(&AgentMailboxMessage, &str) + Send + Sync>;
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendAgentMessageParams {
+    pub file_refs: Option<Vec<crate::core::multi_agent_store::AgentFileReference>>,
+    pub message: String,
+    pub thread_id: Option<String>,
+    pub to_agent_id: String,
+    pub to_session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactParentParams {
+    pub file_refs: Option<Vec<crate::core::multi_agent_store::AgentFileReference>>,
+    pub message: String,
+    pub thread_id: Option<String>,
+}
+
+pub fn contact_parent_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+            "fileRefs": {
+                "type": "array",
+                "items": file_reference_schema()
+            },
+            "message": {"type": "string"},
+            "threadId": {"type": "string"}
+        }
+    })
+}
+
+pub fn send_agent_message_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["message", "toAgentId"],
+        "properties": {
+            "fileRefs": {
+                "type": "array",
+                "items": file_reference_schema()
+            },
+            "message": {"type": "string"},
+            "threadId": {"type": "string"},
+            "toAgentId": {"type": "string"},
+            "toSessionId": {"type": "string"}
+        }
+    })
+}
+
+fn mailbox_kind(kind: MailboxMessageKindValue) -> RuntimeMailboxMessageKind {
+    match kind {
+        MailboxMessageKindValue::Message => RuntimeMailboxMessageKind::Message,
+        MailboxMessageKindValue::Ask => RuntimeMailboxMessageKind::Ask,
+        MailboxMessageKindValue::Reply => RuntimeMailboxMessageKind::Reply,
+        MailboxMessageKindValue::Steer => RuntimeMailboxMessageKind::Steer,
+        MailboxMessageKindValue::ParentRequest => RuntimeMailboxMessageKind::ParentRequest,
+        MailboxMessageKindValue::System => RuntimeMailboxMessageKind::System,
+    }
+}
+
+pub fn send_agent_message(
+    store: &Arc<MultiAgentStore>,
+    params: &SendAgentMessageParams,
+    ctx: Option<&ExtensionContext>,
+    on_session_message_sent: Option<&OnSessionMessageSent>,
+) -> Result<AgentToolResult, HandlerError> {
+    if params.to_session_id.is_some() && is_main_runtime_target(&params.to_agent_id) {
+        return send_main_runtime_session_message(store, params, ctx, on_session_message_sent);
+    }
+    if let Some(target_error) = validate_explicit_runtime_target(store, params, ctx)? {
+        return Ok(target_error);
+    }
+    send_agent_message_from_current_sender(store, params, ctx, on_session_message_sent)
+}
+
+fn send_agent_message_from_current_sender(
+    store: &Arc<MultiAgentStore>,
+    params: &SendAgentMessageParams,
+    ctx: Option<&ExtensionContext>,
+    on_session_message_sent: Option<&OnSessionMessageSent>,
+) -> Result<AgentToolResult, HandlerError> {
+    let Some(sender_id) = current_message_sender_id(ctx)? else {
+        return Ok(tool_result(
+            "Could not send agent message: subagent runtime identity is unavailable.",
+            json!({
+                "agent": empty_agent("unknown_subagent"),
+                "message": empty_direct_message("unknown_subagent", &params.to_agent_id, &params.message),
+            }),
+        ));
+    };
+    let sender = store.get_agent(&sender_id);
+    let message_input = SendMailboxMessageInput {
+        file_refs: params.file_refs.clone(),
+        body: params.message.clone(),
+        thread_id: params.thread_id.clone(),
+        to_agent_id: params.to_agent_id.clone(),
+    };
+    let sent = match &sender {
+        Some(sender) => store
+            .send_mailbox_message(&sender.id, sender.revision, &message_input)
+            .map_err(|error| HandlerError::new(error.message))?,
+        None => store
+            .send_main_thread_mailbox_message(&message_input)
+            .map_err(|error| HandlerError::new(error.message))?,
+    };
+    match sent {
+        crate::core::multi_agent_store::MailboxMessageCommandResult::Ok { agent, message } => {
+            deliver_sent_agent_message(store, &agent, &message, params, ctx, on_session_message_sent)
+        }
+        other => {
+            let error = mailbox_error_name(&other);
+            let current = mailbox_error_current(&other).unwrap_or_else(|| empty_agent(&sender_id));
+            Ok(tool_result(
+                format!("Could not send agent message from {sender_id}: {error}"),
+                json!({
+                    "agent": current,
+                    "message": empty_direct_message(&sender_id, &params.to_agent_id, &params.message),
+                }),
+            ))
+        }
+    }
+}
+
+fn mailbox_error_name(result: &crate::core::multi_agent_store::MailboxMessageCommandResult) -> &'static str {
+    use crate::core::multi_agent_store::MailboxMessageCommandResult as Result;
+    match result {
+        Result::Ok { .. } => "",
+        Result::NotFound { .. } => "not_found",
+        Result::TargetNotFound { .. } => "target_not_found",
+        Result::StaleRevision { .. } => "stale_revision",
+        Result::ForbiddenTarget { .. } => "forbidden_target",
+    }
+}
+
+fn mailbox_error_current(
+    result: &crate::core::multi_agent_store::MailboxMessageCommandResult,
+) -> Option<AgentSnapshot> {
+    use crate::core::multi_agent_store::MailboxMessageCommandResult as Result;
+    match result {
+        Result::Ok { .. } | Result::NotFound { .. } => None,
+        Result::TargetNotFound { current, .. }
+        | Result::StaleRevision { current }
+        | Result::ForbiddenTarget { current, .. } => Some((**current).clone()),
+    }
+}
+
+fn validate_explicit_runtime_target(
+    store: &MultiAgentStore,
+    params: &SendAgentMessageParams,
+    ctx: Option<&ExtensionContext>,
+) -> Result<Option<AgentToolResult>, HandlerError> {
+    let Some(to_session_id) = params.to_session_id.as_deref() else {
+        return Ok(None);
+    };
+    if is_main_runtime_target(&params.to_agent_id) {
+        return Ok(None);
+    }
+    let target_session_id = resolve_agent_runtime_session_id(store, &params.to_agent_id);
+    let target_matches = match target_session_id {
+        None => true,
+        Some(None) => false,
+        Some(Some(target_session_id)) => target_session_id == to_session_id,
+    };
+    if target_matches {
+        return Ok(None);
+    }
+    let sender_id = current_message_sender_id(ctx)?.unwrap_or_else(|| "unknown_subagent".to_owned());
+    Ok(Some(tool_result(
+        format!(
+            "Could not send agent message to {}: target session does not match {to_session_id}.",
+            params.to_agent_id
+        ),
+        json!({
+            "agent": current_message_sender_agent(store, ctx)?,
+            "message": empty_direct_message(&sender_id, &params.to_agent_id, &params.message),
+        }),
+    )))
+}
+
+fn deliver_sent_agent_message(
+    store: &Arc<MultiAgentStore>,
+    agent: &AgentSnapshot,
+    message: &AgentMailboxMessage,
+    params: &SendAgentMessageParams,
+    ctx: Option<&ExtensionContext>,
+    on_session_message_sent: Option<&OnSessionMessageSent>,
+) -> Result<AgentToolResult, HandlerError> {
+    let delivered = match params.to_session_id.as_deref() {
+        Some(to_session_id) => enqueue_runtime_session_message(
+            store,
+            message,
+            to_session_id,
+            ctx,
+            (!is_main_runtime_target(&params.to_agent_id)).then(|| params.to_agent_id.clone()),
+        )?,
+        None => enqueue_runtime_mailbox_store_message(store, message, ctx)?,
+    };
+    if !delivered {
+        let failed_message = mark_failed_mailbox_transport_message(store, message);
+        let error = if params.to_session_id.is_some() {
+            "Could not send runtime session message: runtime mailbox transport is unavailable."
+        } else {
+            "Could not send agent message: runtime mailbox transport is unavailable."
+        };
+        return Ok(tool_result(error, json!({"agent": agent, "message": failed_message})));
+    }
+    if let (Some(to_session_id), Some(callback)) = (params.to_session_id.as_deref(), on_session_message_sent) {
+        callback(message, to_session_id);
+    }
+    Ok(tool_result(
+        format!(
+            "Sent message to {}.",
+            format_sent_message_target(message, params.to_session_id.as_deref())
+        ),
+        json!({"agent": agent, "message": message}),
+    ))
+}
+
+fn send_main_runtime_session_message(
+    store: &Arc<MultiAgentStore>,
+    params: &SendAgentMessageParams,
+    ctx: Option<&ExtensionContext>,
+    on_session_message_sent: Option<&OnSessionMessageSent>,
+) -> Result<AgentToolResult, HandlerError> {
+    let sender = current_message_sender_agent(store, ctx)?;
+    let sender_id = current_message_sender_id(ctx)?;
+    let Some(to_session_id) = params.to_session_id.clone() else {
+        return Ok(tool_result(
+            "Could not send runtime session message: target session unavailable.",
+            json!({
+                "agent": sender,
+                "message": empty_direct_message(
+                    sender_id.as_deref().unwrap_or("unknown_subagent"),
+                    &params.to_agent_id,
+                    &params.message,
+                ),
+            }),
+        ));
+    };
+    let Some(sender_id) = sender_id else {
+        return Ok(tool_result(
+            "Could not send runtime session message: subagent runtime identity is unavailable.",
+            json!({
+                "agent": sender,
+                "message": empty_direct_message("unknown_subagent", &params.to_agent_id, &params.message),
+            }),
+        ));
+    };
+
+    let message = store
+        .record_outbound_session_message(&RecordOutboundSessionMessageInput {
+            file_refs: params.file_refs.clone(),
+            body: params.message.clone(),
+            from_agent_id: sender_id,
+            thread_id: params.thread_id.clone(),
+            to_agent_id: params.to_agent_id.clone(),
+        })
+        .map_err(|error| HandlerError::new(error.message))?;
+    if !enqueue_runtime_session_message(store, &message, &to_session_id, ctx, None)? {
+        let failed_message = mark_failed_mailbox_transport_message(store, &message);
+        return Ok(tool_result(
+            "Could not send runtime session message: runtime mailbox transport is unavailable.",
+            json!({"agent": sender, "message": failed_message}),
+        ));
+    }
+    if let Some(callback) = on_session_message_sent {
+        callback(&message, &to_session_id);
+    }
+    Ok(tool_result(
+        format!("Sent message to session {to_session_id}."),
+        json!({"agent": sender, "message": message}),
+    ))
+}
+
+pub fn contact_parent(
+    store: &Arc<MultiAgentStore>,
+    params: &ContactParentParams,
+    ctx: Option<&ExtensionContext>,
+) -> Result<AgentToolResult, HandlerError> {
+    let current_agent_id = match ctx {
+        Some(ctx) => ctx.multi_agent_agent_id()?,
+        None => None,
+    };
+    let Some(current_agent_id) = current_agent_id else {
+        return Ok(tool_result(
+            "Could not contact parent: agent runtime identity is unavailable.",
+            json!({
+                "agent": empty_agent(""),
+                "message": empty_parent_request("", &params.message),
+            }),
+        ));
+    };
+
+    let contacted = store
+        .contact_parent(
+            &current_agent_id,
+            &ContactParentInput {
+                file_refs: params.file_refs.clone(),
+                body: params.message.clone(),
+                thread_id: params.thread_id.clone(),
+            },
+        )
+        .map_err(|error| HandlerError::new(error.message))?;
+    match contacted {
+        crate::core::multi_agent_store::ParentContactResult::Ok { agent, message } => {
+            deliver_parent_contact(store, &agent, &message, ctx)
+        }
+        other => {
+            let (error, current) = parent_contact_error(&other, &current_agent_id);
+            Ok(tool_result(
+                format!("Could not contact parent for {current_agent_id}: {error}"),
+                json!({
+                    "agent": current,
+                    "message": empty_parent_request(&current_agent_id, &params.message),
+                }),
+            ))
+        }
+    }
+}
+
+fn parent_contact_error(
+    result: &crate::core::multi_agent_store::ParentContactResult,
+    agent_id: &str,
+) -> (&'static str, AgentSnapshot) {
+    use crate::core::multi_agent_store::ParentContactResult as Result;
+    match result {
+        Result::Ok { .. } => ("", empty_agent(agent_id)),
+        Result::NotFound { .. } => ("not_found", empty_agent(agent_id)),
+        Result::ParentNotFound { current } => ("parent_not_found", (**current).clone()),
+        Result::StaleRevision { current } => ("stale_revision", (**current).clone()),
+    }
+}
+
+fn deliver_parent_contact(
+    store: &Arc<MultiAgentStore>,
+    agent: &AgentSnapshot,
+    message: &AgentMailboxMessage,
+    ctx: Option<&ExtensionContext>,
+) -> Result<AgentToolResult, HandlerError> {
+    if !enqueue_runtime_mailbox_store_message(store, message, ctx)? {
+        let failed_message = mark_failed_mailbox_transport_message(store, message);
+        return Ok(tool_result(
+            "Could not contact parent: runtime mailbox transport is unavailable.",
+            json!({"agent": agent, "message": failed_message}),
+        ));
+    }
+    Ok(tool_result(
+        format!("Contacted parent for {}.", agent.display_name),
+        json!({"agent": agent, "message": message}),
+    ))
+}
+
+struct MirrorState {
+    bound_ctx: Option<ExtensionContext>,
+    bound_session_id: Option<String>,
+    unsubscribe: Option<crate::core::multi_agent_store::AgentSubscription>,
+}
+
+/// `createRuntimeLifecycleMirror`.
+#[derive(Clone)]
+pub struct RuntimeLifecycleMirror {
+    store: Arc<MultiAgentStore>,
+    state: Arc<Mutex<MirrorState>>,
+}
+
+impl RuntimeLifecycleMirror {
+    pub fn new(store: Arc<MultiAgentStore>) -> Self {
+        Self {
+            store,
+            state: Arc::new(Mutex::new(MirrorState {
+                bound_ctx: None,
+                bound_session_id: None,
+                unsubscribe: None,
+            })),
+        }
+    }
+
+    pub fn bind(&self, ctx: &ExtensionContext) -> Result<(), HandlerError> {
+        let session_manager = ctx.session_manager()?;
+        let session_id = session_manager.get_session_id().to_owned();
+        let mut state = self.state.lock().expect("mirror state");
+        state.bound_ctx = Some(ctx.clone());
+        if state.bound_session_id.as_deref() == Some(session_id.as_str()) && state.unsubscribe.is_some() {
+            return Ok(());
+        }
+        state.unsubscribe = None;
+        state.bound_session_id = Some(session_id);
+        let store = Arc::clone(&self.store);
+        let listener_store = Arc::clone(&store);
+        let bound = Arc::clone(&self.state);
+        let subscription = store.subscribe_lifecycle_notifications(move |message| {
+            let ctx = bound.lock().expect("mirror state").bound_ctx.clone();
+            let Some(ctx) = ctx else {
+                return;
+            };
+            if let Err(error) = enqueue_lifecycle_runtime_mailbox_message(&listener_store, message, &ctx) {
+                eprintln!("Failed to mirror lifecycle notification {}: {error}", message.id);
+            }
+        });
+        state.unsubscribe = Some(subscription);
+        drop(state);
+        mirror_pending_lifecycle_runtime_mailbox_messages(&self.store, ctx)
+    }
+
+    pub fn dispose(&self) {
+        let mut state = self.state.lock().expect("mirror state");
+        state.unsubscribe = None;
+        state.bound_ctx = None;
+        state.bound_session_id = None;
+    }
+}
+
+pub fn mirror_pending_lifecycle_runtime_mailbox_messages(
+    store: &MultiAgentStore,
+    ctx: &ExtensionContext,
+) -> Result<(), HandlerError> {
+    for agent in store.list_agents() {
+        if !is_runtime_mirrored_lifecycle(agent.lifecycle) {
+            continue;
+        }
+        let lifecycle = match agent.lifecycle {
+            AgentLifecycle::Completed => crate::core::multi_agent_store::LifecycleNotificationLifecycle::Completed,
+            AgentLifecycle::Failed => crate::core::multi_agent_store::LifecycleNotificationLifecycle::Failed,
+            AgentLifecycle::WaitingForInput => {
+                crate::core::multi_agent_store::LifecycleNotificationLifecycle::WaitingForInput
+            }
+            _ => continue,
+        };
+        for message in store.list_pending_lifecycle_notifications_for_agent(&agent.id, lifecycle) {
+            enqueue_lifecycle_runtime_mailbox_message(store, &message, ctx)?;
+        }
+    }
+    Ok(())
+}
+
+fn mark_failed_mailbox_transport_message(
+    store: &MultiAgentStore,
+    message: &AgentMailboxMessage,
+) -> AgentMailboxMessage {
+    let error = "Runtime mailbox transport is unavailable.";
+    match store.mark_mailbox_message_failed(&message.id, error) {
+        Some(failed) => failed,
+        None => {
+            let mut failed = message.clone();
+            failed.error = Some(error.to_owned());
+            failed.status = MailboxMessageStatusValue::Failed;
+            failed
+        }
+    }
+}
+
+fn enqueue_runtime_session_message(
+    store: &MultiAgentStore,
+    message: &AgentMailboxMessage,
+    to_session_id: &str,
+    ctx: Option<&ExtensionContext>,
+    recipient_agent_id: Option<String>,
+) -> Result<bool, HandlerError> {
+    let Some(ctx) = ctx else {
+        return Ok(false);
+    };
+    let Some(control_db_path) = ctx.control_db_path()? else {
+        return Ok(false);
+    };
+    let Some(store_ref) = read_runtime_mailbox_store_ref(store, message, Some(ctx))? else {
+        eprintln!(
+            "Runtime mailbox requires a store persisted to the control DB; dropped session message {}.",
+            message.id
+        );
+        return Ok(false);
+    };
+    let session_manager = ctx.session_manager()?;
+    let input = EnqueueRuntimeMailboxMessageInput {
+        kind: mailbox_kind(message.kind),
+        recipient: RuntimeMailboxAddress {
+            agent_id: recipient_agent_id,
+            session_id: to_session_id.to_owned(),
+        },
+        sender: RuntimeMailboxAddress {
+            agent_id: (message.from_agent_id != MAIN_THREAD_AGENT_ID).then(|| message.from_agent_id.clone()),
+            session_id: session_manager.get_session_id().to_owned(),
+        },
+        store_ref,
+    };
+    match enqueue_runtime_mailbox_message(&control_db_path, &input) {
+        Ok(_) => Ok(true),
+        Err(error) => {
+            eprintln!("Failed to enqueue runtime session message {}: {error}", message.id);
+            Ok(false)
+        }
+    }
+}
+
+fn read_runtime_mailbox_store_ref(
+    store: &MultiAgentStore,
+    message: &AgentMailboxMessage,
+    ctx: Option<&ExtensionContext>,
+) -> Result<Option<RuntimeMailboxStoreRef>, HandlerError> {
+    let Some(persistence) = store.get_persistence_target() else {
+        return Ok(None);
+    };
+    if message.id.is_empty() {
+        return Ok(None);
+    }
+    let ctx_control_db_path = match ctx {
+        Some(ctx) => ctx.control_db_path()?,
+        None => None,
+    };
+    if Some(&persistence.control_db_path) != ctx_control_db_path.as_ref() {
+        return Ok(None);
+    }
+    Ok(Some(RuntimeMailboxStoreRef {
+        message_id: message.id.clone(),
+        session_path: persistence.session_path,
+    }))
+}
+
+fn enqueue_lifecycle_runtime_mailbox_message(
+    store: &MultiAgentStore,
+    notification: &AgentMailboxMessage,
+    ctx: &ExtensionContext,
+) -> Result<(), HandlerError> {
+    let Some(control_db_path) = ctx.control_db_path()? else {
+        return Ok(());
+    };
+    let Some(store_ref) = read_runtime_mailbox_store_ref(store, notification, Some(ctx))? else {
+        eprintln!(
+            "Runtime mailbox requires a store persisted to the control DB; dropped lifecycle notification {}.",
+            notification.id
+        );
+        return Ok(());
+    };
+    let agent = store.get_agent(&notification.from_agent_id);
+    let already_enqueued = match agent.as_ref() {
+        Some(agent) => list_runtime_mailbox_messages(&control_db_path)
+            .map_err(|error| HandlerError::new(error.message()))?
+            .iter()
+            .any(|message| {
+                message.store_ref.session_path == store_ref.session_path
+                    && is_detached_terminal_transport(message, agent)
+            }),
+        None => false,
+    };
+    if already_enqueued {
+        return Ok(());
+    }
+    let Some(recipient) = resolve_runtime_recipient(store, notification, ctx)? else {
+        return Ok(());
+    };
+    let session_manager = ctx.session_manager()?;
+    let current_session_id = session_manager.get_session_id().to_owned();
+    let sender_session_id = agent
+        .as_ref()
+        .and_then(|agent| agent.transcript.as_ref())
+        .map(|transcript| transcript.session_id.clone())
+        .unwrap_or(current_session_id);
+    enqueue_runtime_mailbox_message(
+        &control_db_path,
+        &EnqueueRuntimeMailboxMessageInput {
+            kind: mailbox_kind(notification.kind),
+            recipient,
+            sender: RuntimeMailboxAddress {
+                agent_id: Some(notification.from_agent_id.clone()),
+                session_id: sender_session_id,
+            },
+            store_ref,
+        },
+    )
+    .map_err(|error| HandlerError::new(error.message()))?;
+    Ok(())
+}
+
+fn is_detached_terminal_transport(message: &RuntimeMailboxMessage, agent: &AgentSnapshot) -> bool {
+    if message.sender.agent_id.as_deref() != Some(agent.id.as_str())
+        || message.kind != RuntimeMailboxMessageKind::System
+    {
+        return false;
+    }
+    let Ok(body) = serde_json::from_str::<Value>(&message.body) else {
+        return false;
+    };
+    body.get("type").and_then(Value::as_str) == Some("multi_agent_terminal")
+        && body.get("agentId").and_then(Value::as_str) == Some(agent.id.as_str())
+        && body.get("terminalRevision").and_then(Value::as_i64) == Some(agent.revision)
+}
+
+fn is_runtime_mirrored_lifecycle(lifecycle: AgentLifecycle) -> bool {
+    matches!(
+        lifecycle,
+        AgentLifecycle::Completed | AgentLifecycle::Failed | AgentLifecycle::WaitingForInput
+    )
+}
+
+fn enqueue_runtime_mailbox_store_message(
+    store: &MultiAgentStore,
+    message: &AgentMailboxMessage,
+    ctx: Option<&ExtensionContext>,
+) -> Result<bool, HandlerError> {
+    let Some(ctx) = ctx else {
+        return Ok(false);
+    };
+    let Some(control_db_path) = ctx.control_db_path()? else {
+        return Ok(false);
+    };
+    let Some(recipient) = resolve_runtime_recipient(store, message, ctx)? else {
+        return Ok(false);
+    };
+    let Some(store_ref) = read_runtime_mailbox_store_ref(store, message, Some(ctx))? else {
+        eprintln!(
+            "Runtime mailbox requires a store persisted to the control DB; dropped mailbox message {}.",
+            message.id
+        );
+        return Ok(false);
+    };
+    let session_manager = ctx.session_manager()?;
+    let input = EnqueueRuntimeMailboxMessageInput {
+        kind: mailbox_kind(message.kind),
+        recipient,
+        sender: RuntimeMailboxAddress {
+            agent_id: Some(message.from_agent_id.clone()),
+            session_id: session_manager.get_session_id().to_owned(),
+        },
+        store_ref,
+    };
+    match enqueue_runtime_mailbox_message(&control_db_path, &input) {
+        Ok(_) => Ok(true),
+        Err(error) => {
+            eprintln!("Failed to enqueue runtime mailbox message {}: {error}", message.id);
+            Ok(false)
+        }
+    }
+}
+
+fn resolve_runtime_recipient(
+    store: &MultiAgentStore,
+    message: &AgentMailboxMessage,
+    ctx: &ExtensionContext,
+) -> Result<Option<RuntimeMailboxAddress>, HandlerError> {
+    if let Some(target) = store.get_agent(&message.to_agent_id)
+        && let Some(transcript) = target.transcript.as_ref()
+    {
+        return Ok(Some(RuntimeMailboxAddress {
+            agent_id: Some(target.id),
+            session_id: transcript.session_id.clone(),
+        }));
+    }
+    if !is_main_runtime_target(&message.to_agent_id) {
+        let session_manager = ctx.session_manager()?;
+        return Ok(Some(RuntimeMailboxAddress {
+            agent_id: Some(message.to_agent_id.clone()),
+            session_id: session_manager.get_session_id().to_owned(),
+        }));
+    }
+    let session_manager = ctx.session_manager()?;
+    let current_session_id = session_manager.get_session_id().to_owned();
+    let session_id = read_parent_runtime_session_id(ctx)?.unwrap_or(current_session_id);
+    Ok(Some(RuntimeMailboxAddress {
+        agent_id: None,
+        session_id,
+    }))
+}
+
+fn read_parent_runtime_session_id(ctx: &ExtensionContext) -> Result<Option<String>, HandlerError> {
+    if let Some(parent_session_id) = ctx.multi_agent_parent_session_id()? {
+        return Ok(Some(parent_session_id));
+    }
+    let session_manager = ctx.session_manager()?;
+    if !session_manager.is_subagent_session() {
+        return Ok(None);
+    }
+    let Some(parent_session) = session_manager
+        .get_header()
+        .and_then(|header| header.parent_session.clone())
+    else {
+        return Ok(None);
+    };
+    let Some(control_db_path) = ctx.control_db_path()? else {
+        return Ok(Some(parent_session));
+    };
+    Ok(Some(
+        read_session_metadata(&control_db_path, &parent_session)
+            .map_err(|error| HandlerError::new(error.message()))?
+            .map(|metadata| metadata.id)
+            .unwrap_or(parent_session),
+    ))
+}
+
+pub fn current_message_sender_id(ctx: Option<&ExtensionContext>) -> Result<Option<String>, HandlerError> {
+    let Some(ctx) = ctx else {
+        return Ok(Some(MAIN_THREAD_AGENT_ID.to_owned()));
+    };
+    if let Some(agent_id) = ctx.multi_agent_agent_id()? {
+        return Ok(Some(agent_id));
+    }
+    if ctx.multi_agent_requires_agent_id()? {
+        return Ok(None);
+    }
+    Ok(Some(MAIN_THREAD_AGENT_ID.to_owned()))
+}
+
+fn current_message_sender_agent(
+    store: &MultiAgentStore,
+    ctx: Option<&ExtensionContext>,
+) -> Result<AgentSnapshot, HandlerError> {
+    let sender_id = current_message_sender_id(ctx)?.unwrap_or_else(|| "unknown_subagent".to_owned());
+    Ok(store.get_agent(&sender_id).unwrap_or_else(|| empty_agent(&sender_id)))
+}
+
+fn resolve_agent_runtime_session_id(store: &MultiAgentStore, to_agent_id: &str) -> Option<Option<String>> {
+    store.get_agent(to_agent_id).map(|target| {
+        target
+            .transcript
+            .as_ref()
+            .map(|transcript| transcript.session_id.clone())
+    })
+}
+
+fn is_main_runtime_target(to_agent_id: &str) -> bool {
+    to_agent_id == MAIN_THREAD_AGENT_ID || to_agent_id == "supervisor"
+}
+
+fn format_sent_message_target(message: &AgentMailboxMessage, to_session_id: Option<&str>) -> String {
+    match to_session_id {
+        Some(to_session_id) => format!("{} in session {to_session_id}", message.to_agent_id),
+        None => message.to_agent_id.clone(),
+    }
+}
+
+fn empty_parent_request(agent_id: &str, body: &str) -> AgentMailboxMessage {
+    create_failed_mailbox_message(body, agent_id, MailboxMessageKindValue::ParentRequest, "")
+}
+
+fn empty_direct_message(from_agent_id: &str, to_agent_id: &str, body: &str) -> AgentMailboxMessage {
+    create_failed_mailbox_message(body, from_agent_id, MailboxMessageKindValue::Message, to_agent_id)
+}
+
+pub fn register_mailbox_tools(
+    pi: &ExtensionApi,
+    store: Arc<MultiAgentStore>,
+    on_session_message_sent: Option<OnSessionMessageSent>,
+) -> Result<(), String> {
+    let send_store = Arc::clone(&store);
+    let send_callback = on_session_message_sent.clone();
+    pi.register_tool(ToolDefinition {
+        name: "send_agent_message".to_owned(),
+        label: "Send Agent Message".to_owned(),
+        description: "Send a sibling-safe direct mailbox message across a parent-child agent relationship.".to_owned(),
+        prompt_snippet: None,
+        prompt_guidelines: None,
+        approval_required: Some(false),
+        approval_kind: None,
+        parameters: send_agent_message_schema(),
+        constrained_sampling: None,
+        render_shell: None,
+        prepare_arguments: None,
+        prepare_execution: None,
+        execution_mode: None,
+        execute: Arc::new(
+            move |_tool_call_id: String,
+                  params: Value,
+                  _signal: Option<CancellationToken>,
+                  _on_update: Option<AgentToolUpdateCallback>,
+                  ctx: ExtensionContext| {
+                let store = Arc::clone(&send_store);
+                let callback = send_callback.clone();
+                Box::pin(async move {
+                    let params: SendAgentMessageParams =
+                        serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                    send_agent_message(&store, &params, Some(&ctx), callback.as_ref())
+                })
+            },
+        ),
+        render_call: None,
+        render_result: None,
+    })?;
+
+    pi.register_tool(ToolDefinition {
+        name: "contact_parent".to_owned(),
+        label: "Contact Parent".to_owned(),
+        description: "Send a child-agent mailbox request to its direct parent.".to_owned(),
+        prompt_snippet: None,
+        prompt_guidelines: None,
+        approval_required: Some(false),
+        approval_kind: None,
+        parameters: contact_parent_schema(),
+        constrained_sampling: None,
+        render_shell: None,
+        prepare_arguments: None,
+        prepare_execution: None,
+        execution_mode: None,
+        execute: Arc::new(
+            move |_tool_call_id: String,
+                  params: Value,
+                  _signal: Option<CancellationToken>,
+                  _on_update: Option<AgentToolUpdateCallback>,
+                  ctx: ExtensionContext| {
+                let store = Arc::clone(&store);
+                Box::pin(async move {
+                    let params: ContactParentParams =
+                        serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                    contact_parent(&store, &params, Some(&ctx))
+                })
+            },
+        ),
+        render_call: None,
+        render_result: None,
+    })?;
+    Ok(())
+}

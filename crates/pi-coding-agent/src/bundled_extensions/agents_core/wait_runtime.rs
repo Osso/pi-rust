@@ -1,0 +1,505 @@
+//! Wait tool runtime (`extensions/agents-core/src/wait-runtime.ts`).
+
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use pi_agent_core::AgentToolResult;
+use serde_json::json;
+
+use crate::core::extensions::types::{ExtensionContext, HandlerError};
+use crate::core::lifecycle_coordinator::LifecycleCoordinator;
+use crate::core::multi_agent_store::{AgentMailboxMessage, AgentSnapshot, MultiAgentStore, is_active_lifecycle};
+use crate::core::runtime_coordination_format::{format_runtime_mailbox_prompt, format_shared_channel_prompt};
+use crate::core::session_control_db::{
+    RuntimeMailboxAddress, RuntimeMailboxMessage, SharedChannelMessage, advance_shared_channel_cursor,
+    has_pending_runtime_coordination_message, is_runtime_coordination_mailbox_message,
+    list_shared_channel_messages_after, read_multi_agent_agents, read_multi_agent_state, read_shared_channel_cursor,
+    read_shared_channel_tail, resolve_own_main_runtime_coordination_recipient,
+    take_runtime_mailbox_messages_for_delivery,
+};
+use crate::core::terminal_outbox_delivery::{DeliverTerminalOutboxOptions, deliver_terminal_outbox_projections};
+
+use super::mailbox_runtime::mirror_pending_lifecycle_runtime_mailbox_messages;
+use super::shared::{
+    CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, WaitAgentsWakeUp, WaitWakeListeners, is_child_agent_runtime,
+};
+use super::tool_results::{empty_tool_result, tool_result};
+
+const RUNTIME_COORDINATION_POLL_INTERVAL_MS: u64 = 3_000;
+const SHARED_CHANNEL_PAGE_LIMIT: i64 = 20;
+
+#[derive(Debug, Clone)]
+pub enum WaitNotificationsWake {
+    Agent { agent: Box<AgentSnapshot> },
+    Cancelled,
+    Coordination,
+    Error { message: String },
+    None,
+    Unavailable { message: String },
+    WakeUp { wake_up: WaitAgentsWakeUp },
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeCoordinationRecipient {
+    address: RuntimeMailboxAddress,
+    control_db_path: String,
+}
+
+struct WaitAgentsWakeWatcherOptions {
+    active_agents: Vec<AgentSnapshot>,
+    control_db_path: String,
+    recipient: Option<RuntimeCoordinationRecipient>,
+    session_path: String,
+    signal: Option<tokio_util::sync::CancellationToken>,
+    store: Arc<MultiAgentStore>,
+    wait_wake_listeners: WaitWakeListeners,
+}
+
+struct WaitAgentsWakeWatcher {
+    control_db_path: String,
+    recipient: Option<RuntimeCoordinationRecipient>,
+    session_path: String,
+    signal: Option<tokio_util::sync::CancellationToken>,
+    store: Arc<MultiAgentStore>,
+    tracked_agent_ids: HashSet<String>,
+    wait_wake_listeners: WaitWakeListeners,
+}
+
+impl WaitAgentsWakeWatcher {
+    fn new(options: WaitAgentsWakeWatcherOptions) -> Self {
+        Self {
+            control_db_path: options.control_db_path,
+            recipient: options.recipient,
+            session_path: options.session_path,
+            signal: options.signal,
+            store: options.store,
+            tracked_agent_ids: options.active_agents.into_iter().map(|agent| agent.id).collect(),
+            wait_wake_listeners: options.wait_wake_listeners,
+        }
+    }
+
+    async fn wait(self) -> WaitNotificationsWake {
+        if self.signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+            return WaitNotificationsWake::Cancelled;
+        }
+        if self.tracked_agent_ids.is_empty() {
+            return match self.check_coordination() {
+                Some(wake) => wake,
+                None => WaitNotificationsWake::None,
+            };
+        }
+
+        let notify = Arc::new(tokio::sync::Notify::new());
+        let transition_notify = Arc::clone(&notify);
+        let _transition_subscription = self.store.subscribe_agent_transitions(move |_previous, _current| {
+            transition_notify.notify_waiters();
+        });
+        let wake_up: Arc<Mutex<Option<WaitAgentsWakeUp>>> = Arc::new(Mutex::new(None));
+        let listener_notify = Arc::clone(&notify);
+        let listener_wake_up = Arc::clone(&wake_up);
+        let _wake_subscription = self.wait_wake_listeners.add(Arc::new(move |wake| {
+            *listener_wake_up.lock().expect("wait wake up") = Some(wake.clone());
+            listener_notify.notify_waiters();
+        }));
+        if let Some(wake) = self.settle_for_terminal_agent_or_check_coordination() {
+            return wake;
+        }
+
+        loop {
+            let sleep = tokio::time::sleep(Duration::from_millis(RUNTIME_COORDINATION_POLL_INTERVAL_MS));
+            let notified = notify.notified();
+            tokio::pin!(sleep);
+            tokio::pin!(notified);
+            let cancelled = async {
+                match self.signal.as_ref() {
+                    Some(signal) => signal.cancelled().await,
+                    None => std::future::pending().await,
+                }
+            };
+            tokio::pin!(cancelled);
+            tokio::select! {
+                () = &mut cancelled => return WaitNotificationsWake::Cancelled,
+                () = &mut sleep => {
+                    if let Some(wake) = self.on_poll() {
+                        return wake;
+                    }
+                }
+                () = &mut notified => {
+                    if let Some(wake) = self.on_notified(&wake_up) {
+                        return wake;
+                    }
+                }
+            }
+        }
+    }
+
+    fn on_notified(&self, wake_up: &Mutex<Option<WaitAgentsWakeUp>>) -> Option<WaitNotificationsWake> {
+        if let Some(terminal_agent) = self.read_tracked_terminal_agent() {
+            return Some(WaitNotificationsWake::Agent {
+                agent: Box::new(terminal_agent),
+            });
+        }
+        if let Some(wake_up) = wake_up.lock().expect("wait wake up").take() {
+            if let Some(agent_id) = wake_up.agent_id.as_deref()
+                && !self.tracked_agent_ids.contains(agent_id)
+            {
+                return None;
+            }
+            return Some(WaitNotificationsWake::WakeUp { wake_up });
+        }
+        self.check_coordination()
+    }
+
+    fn on_poll(&self) -> Option<WaitNotificationsWake> {
+        if let Some(wake) = self.reconcile_dead_detached_runtimes() {
+            return Some(wake);
+        }
+        self.settle_for_terminal_agent_or_check_coordination()
+    }
+
+    fn settle_for_terminal_agent_or_check_coordination(&self) -> Option<WaitNotificationsWake> {
+        if let Some(terminal_agent) = self.read_tracked_terminal_agent() {
+            return Some(WaitNotificationsWake::Agent {
+                agent: Box::new(terminal_agent),
+            });
+        }
+        self.check_coordination()
+    }
+
+    fn read_tracked_terminal_agent(&self) -> Option<AgentSnapshot> {
+        let agent_ids: Vec<String> = self.tracked_agent_ids.iter().cloned().collect();
+        let agents = read_multi_agent_agents(&self.control_db_path, &self.session_path, &agent_ids).ok()?;
+        agents.into_iter().find(|agent| !is_active_lifecycle(agent.lifecycle))
+    }
+
+    fn reconcile_dead_detached_runtimes(&self) -> Option<WaitNotificationsWake> {
+        let now_iso = crate::utils::iso_time::now_iso_string();
+        match LifecycleCoordinator::reconcile_dead_detached_runtimes(&self.control_db_path, &now_iso) {
+            Ok(0) => None,
+            Ok(_) => {
+                if let Err(error) = deliver_terminal_outbox_projections(&DeliverTerminalOutboxOptions {
+                    artifact_root: None,
+                    claim_id: pi_ai::utils::uuid::random_uuid(),
+                    control_db_path: self.control_db_path.clone(),
+                    now: Arc::new(crate::utils::iso_time::now_iso_string),
+                    store: Arc::clone(&self.store),
+                }) {
+                    return Some(WaitNotificationsWake::Error {
+                        message: error.message().to_owned(),
+                    });
+                }
+                None
+            }
+            Err(error) => Some(WaitNotificationsWake::Error {
+                message: error.message().to_owned(),
+            }),
+        }
+    }
+
+    fn check_coordination(&self) -> Option<WaitNotificationsWake> {
+        let recipient = self.recipient.as_ref()?;
+        match has_pending_runtime_coordination_message(&recipient.control_db_path, &recipient.address) {
+            Ok(true) => Some(WaitNotificationsWake::Coordination),
+            Ok(false) => None,
+            Err(error) => Some(WaitNotificationsWake::Error {
+                message: error.message().to_owned(),
+            }),
+        }
+    }
+}
+
+pub async fn wait_notifications_runtime(
+    store: &Arc<MultiAgentStore>,
+    wait_wake_listeners: &WaitWakeListeners,
+    signal: Option<tokio_util::sync::CancellationToken>,
+    ctx: Option<&ExtensionContext>,
+) -> Result<WaitNotificationsWake, HandlerError> {
+    if let Some(ctx) = ctx
+        && is_child_agent_runtime(ctx)?
+    {
+        return Ok(WaitNotificationsWake::Unavailable {
+            message: CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE.to_owned(),
+        });
+    }
+    if let Some(ctx) = ctx {
+        mirror_pending_lifecycle_runtime_mailbox_messages(store, ctx)?;
+    }
+    let Some(persistence) = store.get_persistence_target() else {
+        return Ok(WaitNotificationsWake::Unavailable {
+            message: "wait_agent requires a persisted supervisor session.".to_owned(),
+        });
+    };
+    let pending = list_pending_terminal_notifications(store, &persistence.control_db_path, &persistence.session_path)?;
+    if let Some(first) = pending.first() {
+        return Ok(WaitNotificationsWake::Agent {
+            agent: Box::new(first.0.clone()),
+        });
+    }
+    let recipient = runtime_coordination_recipient(ctx)?;
+    let agents = read_multi_agent_state(&persistence.control_db_path, &persistence.session_path)
+        .map_err(|error| HandlerError::new(error.message()))?
+        .map(|state| {
+            state
+                .agents
+                .into_iter()
+                .filter_map(|value| serde_json::from_value::<AgentSnapshot>(value).ok())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    Ok(WaitAgentsWakeWatcher::new(WaitAgentsWakeWatcherOptions {
+        active_agents: agents
+            .into_iter()
+            .filter(|agent| is_active_lifecycle(agent.lifecycle))
+            .collect(),
+        control_db_path: persistence.control_db_path,
+        recipient,
+        session_path: persistence.session_path,
+        signal,
+        store: Arc::clone(store),
+        wait_wake_listeners: wait_wake_listeners.clone(),
+    })
+    .wait()
+    .await)
+}
+
+pub fn consume_notifications_runtime(
+    store: &Arc<MultiAgentStore>,
+    wake: &WaitNotificationsWake,
+    ctx: Option<&ExtensionContext>,
+    format_agent_status: &dyn Fn(&AgentSnapshot) -> String,
+) -> Result<AgentToolResult, HandlerError> {
+    match wake {
+        WaitNotificationsWake::Agent { agent } => consume_agent_wake(store, agent, format_agent_status),
+        other => consume_non_agent_wake(store, other, ctx),
+    }
+}
+
+fn consume_non_agent_wake(
+    store: &Arc<MultiAgentStore>,
+    wake: &WaitNotificationsWake,
+    ctx: Option<&ExtensionContext>,
+) -> Result<AgentToolResult, HandlerError> {
+    match wake {
+        WaitNotificationsWake::Agent { .. } => unreachable!("agent wakes are handled separately"),
+        WaitNotificationsWake::Cancelled => Ok(tool_result("Wait cancelled.", json!({}))),
+        WaitNotificationsWake::Coordination => {
+            let coordination = take_pending_wait_coordination(store, runtime_coordination_recipient(ctx)?)?;
+            Ok(match coordination {
+                Some(coordination) => tool_result(coordination, json!({})),
+                None => tool_result("Coordination input changed before delivery.", json!({})),
+            })
+        }
+        WaitNotificationsWake::Error { message } => Ok(tool_result(format!("Wait failed: {message}"), json!({}))),
+        WaitNotificationsWake::None => Ok(empty_tool_result()),
+        WaitNotificationsWake::Unavailable { message } => Ok(tool_result(message.clone(), json!({}))),
+        WaitNotificationsWake::WakeUp { wake_up } => {
+            let agent = wake_up
+                .agent_id
+                .as_deref()
+                .and_then(|agent_id| store.get_agent(agent_id));
+            let text = match agent {
+                Some(agent) => format!("Woken after steering {}.", agent.display_name),
+                None => "Woken after supervisor steering.".to_owned(),
+            };
+            Ok(tool_result(text, json!({"wakeUp": wake_up})))
+        }
+    }
+}
+
+fn consume_agent_wake(
+    store: &Arc<MultiAgentStore>,
+    agent: &AgentSnapshot,
+    format_agent_status: &dyn Fn(&AgentSnapshot) -> String,
+) -> Result<AgentToolResult, HandlerError> {
+    if let Some(persistence) = store.get_persistence_target()
+        && let Some(pending) = consume_pending_terminal_notifications(
+            store,
+            &persistence.control_db_path,
+            &persistence.session_path,
+            format_agent_status,
+        )?
+    {
+        return Ok(pending);
+    }
+    Ok(tool_result(format_agent_status(agent), json!({"agent": agent})))
+}
+
+fn runtime_coordination_recipient(
+    ctx: Option<&ExtensionContext>,
+) -> Result<Option<RuntimeCoordinationRecipient>, HandlerError> {
+    let Some(ctx) = ctx else {
+        return Ok(None);
+    };
+    let Some(control_db_path) = ctx.control_db_path()? else {
+        return Ok(None);
+    };
+    let address = resolve_own_main_runtime_coordination_recipient(&control_db_path)
+        .map_err(|error| HandlerError::new(error.message()))?;
+    Ok(address.map(|address| RuntimeCoordinationRecipient {
+        address,
+        control_db_path,
+    }))
+}
+
+fn take_pending_wait_coordination(
+    store: &Arc<MultiAgentStore>,
+    recipient: Option<RuntimeCoordinationRecipient>,
+) -> Result<Option<String>, HandlerError> {
+    let Some(recipient) = recipient else {
+        return Ok(None);
+    };
+    let mailbox_messages = take_runtime_mailbox_messages_for_delivery(
+        &recipient.control_db_path,
+        &recipient.address,
+        is_runtime_coordination_mailbox_message,
+        usize::MAX,
+    )
+    .map_err(|error| HandlerError::new(error.message()))?;
+    for message in &mailbox_messages {
+        mark_wait_mailbox_store_message_delivered(store, message);
+    }
+    let channel_messages = take_pending_wait_shared_channel_messages(&recipient)?;
+    let mut sections: Vec<String> = mailbox_messages
+        .iter()
+        .map(|message| format_runtime_mailbox_prompt(message, &recipient.address.session_id))
+        .collect();
+    if !channel_messages.is_empty() {
+        sections.push(format_shared_channel_prompt(
+            &channel_messages,
+            &recipient.address.session_id,
+        ));
+    }
+    Ok((!sections.is_empty()).then(|| sections.join("\n\n")))
+}
+
+fn mark_wait_mailbox_store_message_delivered(store: &MultiAgentStore, message: &RuntimeMailboxMessage) {
+    if store
+        .get_persistence_target()
+        .map(|persistence| persistence.session_path)
+        != Some(message.store_ref.session_path.clone())
+    {
+        return;
+    }
+    store.mark_mailbox_message_delivered(&message.store_ref.message_id);
+}
+
+fn take_pending_wait_shared_channel_messages(
+    recipient: &RuntimeCoordinationRecipient,
+) -> Result<Vec<SharedChannelMessage>, HandlerError> {
+    if recipient.address.agent_id.is_some() {
+        return Ok(Vec::new());
+    }
+    let Some(cursor) = read_shared_channel_cursor(&recipient.control_db_path, &recipient.address)
+        .map_err(|error| HandlerError::new(error.message()))?
+    else {
+        return Ok(Vec::new());
+    };
+    let last_message_id =
+        read_shared_channel_tail(&recipient.control_db_path).map_err(|error| HandlerError::new(error.message()))?;
+    let messages = read_shared_channel_messages_through(&recipient.control_db_path, cursor, last_message_id)?;
+    advance_shared_channel_cursor(&recipient.control_db_path, &recipient.address, last_message_id)
+        .map_err(|error| HandlerError::new(error.message()))?;
+    Ok(messages
+        .into_iter()
+        .filter(|message| {
+            message.sender.agent_id.is_none() && message.sender.session_id != recipient.address.session_id
+        })
+        .collect())
+}
+
+fn read_shared_channel_messages_through(
+    control_db_path: &str,
+    cursor: i64,
+    last_message_id: i64,
+) -> Result<Vec<SharedChannelMessage>, HandlerError> {
+    let mut messages = Vec::new();
+    let mut cursor = cursor;
+    while cursor < last_message_id {
+        let page =
+            list_shared_channel_messages_after(control_db_path, cursor, SHARED_CHANNEL_PAGE_LIMIT, last_message_id)
+                .map_err(|error| HandlerError::new(error.message()))?;
+        let Some(last_page_message) = page.last() else {
+            break;
+        };
+        cursor = last_page_message.id;
+        messages.extend(page);
+    }
+    Ok(messages)
+}
+
+fn terminal_notification_lifecycle(
+    agent: &AgentSnapshot,
+) -> Option<crate::core::multi_agent_store::LifecycleNotificationLifecycle> {
+    match agent.lifecycle {
+        crate::core::multi_agent_store::AgentLifecycle::Completed => {
+            Some(crate::core::multi_agent_store::LifecycleNotificationLifecycle::Completed)
+        }
+        crate::core::multi_agent_store::AgentLifecycle::Failed => {
+            Some(crate::core::multi_agent_store::LifecycleNotificationLifecycle::Failed)
+        }
+        _ => None,
+    }
+}
+
+fn list_pending_terminal_notifications(
+    store: &MultiAgentStore,
+    control_db_path: &str,
+    session_path: &str,
+) -> Result<Vec<(AgentSnapshot, AgentMailboxMessage)>, HandlerError> {
+    let persisted_agents: Vec<AgentSnapshot> = read_multi_agent_state(control_db_path, session_path)
+        .map_err(|error| HandlerError::new(error.message()))?
+        .map(|state| {
+            state
+                .agents
+                .into_iter()
+                .filter_map(|value| serde_json::from_value(value).ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut pending = Vec::new();
+    for agent in persisted_agents {
+        let Some(lifecycle) = terminal_notification_lifecycle(&agent) else {
+            continue;
+        };
+        if let Some(message) = store
+            .list_pending_lifecycle_notifications_for_agent(&agent.id, lifecycle)
+            .into_iter()
+            .next()
+        {
+            pending.push((agent, message));
+        }
+    }
+    Ok(pending)
+}
+
+fn consume_pending_terminal_notifications(
+    store: &MultiAgentStore,
+    control_db_path: &str,
+    session_path: &str,
+    format_agent_status: &dyn Fn(&AgentSnapshot) -> String,
+) -> Result<Option<AgentToolResult>, HandlerError> {
+    let pending = list_pending_terminal_notifications(store, control_db_path, session_path)?;
+    if pending.is_empty() {
+        return Ok(None);
+    }
+    for (_, message) in &pending {
+        store.mark_mailbox_message_delivered(&message.id);
+    }
+    let agents: Vec<AgentSnapshot> = pending.iter().map(|(agent, _)| agent.clone()).collect();
+    let messages: Vec<AgentMailboxMessage> = pending.iter().map(|(_, message)| message.clone()).collect();
+    let text = pending
+        .iter()
+        .map(|(agent, message)| message.body.clone().unwrap_or_else(|| format_agent_status(agent)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(Some(tool_result(
+        text,
+        json!({
+            "agent": agents.first(),
+            "agents": agents,
+            "message": messages.first(),
+            "messages": messages,
+        }),
+    )))
+}

@@ -24,11 +24,24 @@ impl ParentAgentJournalWriter for ExtensionApi {
 }
 
 /// Send-able writer used by event handlers that cannot capture [`ExtensionApi`].
-struct JournalActions {
+#[derive(Clone)]
+pub struct JournalWriter {
     append_entry: crate::core::extensions::types::AppendEntryHandler,
 }
 
-impl ParentAgentJournalWriter for JournalActions {
+impl JournalWriter {
+    pub fn from_api(pi: &ExtensionApi) -> Self {
+        Self {
+            append_entry: pi.runtime.actions().append_entry,
+        }
+    }
+
+    pub fn from_handler(append_entry: crate::core::extensions::types::AppendEntryHandler) -> Self {
+        Self { append_entry }
+    }
+}
+
+impl ParentAgentJournalWriter for JournalWriter {
     fn append_entry(&self, custom_type: &str, data: Option<Value>) -> Result<(), HandlerError> {
         (self.append_entry)(custom_type, data)
     }
@@ -52,13 +65,19 @@ pub fn append_parent_agent_record(
             agent.id
         )));
     };
+    let Some(transcript_path) = transcript.path.as_ref() else {
+        return Err(HandlerError::new(format!(
+            "Cannot persist {custom_type} for {} without transcript identity",
+            agent.id
+        )));
+    };
     pi.append_entry(
         custom_type,
         Some(json!({
             "agentId": agent.id,
             "childSessionId": transcript.session_id,
             "lifecycle": lifecycle_name(agent.lifecycle),
-            "transcriptPath": transcript.path,
+            "transcriptPath": transcript_path,
         })),
     )
 }
@@ -164,9 +183,7 @@ fn refresh_active_parent_agent_records_after_compaction(
 }
 
 pub fn register_parent_agent_compaction_refresh(pi: &ExtensionApi, store: Arc<MultiAgentStore>) -> Result<(), String> {
-    let journal = Arc::new(JournalActions {
-        append_entry: pi.runtime.actions().append_entry,
-    });
+    let journal = Arc::new(JournalWriter::from_api(pi));
     pi.on_session_compact(move |_event, ctx| {
         let store = Arc::clone(&store);
         let journal = Arc::clone(&journal);
@@ -207,10 +224,11 @@ pub fn restore_compacted_parent_agent_records(
 /// Data shape shared with the dispatch-runtime journal writer.
 pub fn parent_agent_record_data(agent: &AgentSnapshot) -> Option<Map<String, Value>> {
     let transcript = agent.transcript.as_ref()?;
+    let transcript_path = transcript.path.as_ref()?;
     let mut data = Map::new();
     data.insert("agentId".to_owned(), json!(agent.id));
     data.insert("childSessionId".to_owned(), json!(transcript.session_id));
     data.insert("lifecycle".to_owned(), json!(lifecycle_name(agent.lifecycle)));
-    data.insert("transcriptPath".to_owned(), json!(transcript.path));
+    data.insert("transcriptPath".to_owned(), json!(transcript_path));
     Some(data)
 }
