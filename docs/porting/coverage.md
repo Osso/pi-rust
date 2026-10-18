@@ -33,9 +33,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 |---|---:|---:|---|---|---|
 | `ai/src/api/cloudflare.ts` | 15 | 0 | todo |  |  |
 | `ai/src/api/openai-prompt-cache.ts` | 8 | 0 | todo |  |  |
-| `ai/src/auth/oauth/device-code.ts` | 98 | 0 | todo |  |  |
-| `ai/src/auth/oauth/oauth-page.ts` | 109 | 0 | todo |  |  |
-| `ai/src/auth/oauth/pkce.ts` | 34 | 0 | todo |  |  |
+| `ai/src/auth/oauth/device-code.ts` | 98 | 0 | done | `crates/pi-ai/src/auth/oauth/device_code.rs` | RFC 8628 polling with deadline, slow_down and cancellation; Tokio tests. |
+| `ai/src/auth/oauth/oauth-page.ts` | 109 | 0 | done | `crates/pi-ai/src/auth/oauth/oauth_page.rs` | Success/error HTML rendering with escaping; byte-exact differential. |
+| `ai/src/auth/oauth/pkce.ts` | 34 | 0 | done | `crates/pi-ai/src/auth/oauth/pkce.rs` | Base64url verifier and SHA-256 challenge; differential challenge check. |
 | `ai/src/session-resources.ts` | 24 | 0 | todo |  |  |
 | `ai/src/utils/abort-signals.ts` | 41 | 0 | done | `crates/pi-ai/src/utils/abort_signals.rs` | Child-token combination with bridge tasks; Tokio tests. |
 | `ai/src/utils/abort.ts` | 50 | 0 | done | `crates/pi-ai/src/utils/abort.rs` | Abort race and operation signal over `CancellationToken`; Tokio tests. |

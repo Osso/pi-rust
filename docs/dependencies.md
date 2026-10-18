@@ -19,6 +19,7 @@ All direct dependencies are exact-pinned.
 - `tokio-util = 0.7.20` — `CancellationToken`, the Rust mapping for `AbortSignal`.
 - `getrandom = 0.4.3` — fills UUIDv7 and retry-jitter random bytes from the OS.
 - `httpdate = 1.0.3` — parses HTTP-date `Retry-After` headers.
+- `sha2 = 0.10.9` — computes the PKCE S256 code challenge.
 
 ### `pi-agent-core`
 
