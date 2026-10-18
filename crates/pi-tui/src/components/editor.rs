@@ -1049,7 +1049,7 @@ impl Editor {
         }
 
         let pasted_lines: Vec<&str> = filtered.split('\n').collect();
-        let total_chars = filtered.len();
+        let total_chars = filtered.encode_utf16().count();
         if pasted_lines.len() > 10 || total_chars > 1000 {
             self.paste_counter += 1;
             let paste_id = self.paste_counter;
@@ -1685,11 +1685,14 @@ impl Editor {
             let line = &lines[line_index as usize];
             let is_current = line_index as usize == self.state.cursor_line;
             let index = if forward {
-                let start = if is_current {
+                let mut start = if is_current {
                     (self.state.cursor_col + 1).min(line.len())
                 } else {
                     0
                 };
+                while start < line.len() && !line.is_char_boundary(start) {
+                    start += 1;
+                }
                 line.get(start..)
                     .and_then(|rest| rest.find(character))
                     .map(|found| start + found)
@@ -1699,7 +1702,11 @@ impl Editor {
                 } else {
                     line.len()
                 };
-                line.get(..start).and_then(|rest| rest.rfind(character))
+                if line.get(start..).is_some_and(|rest| rest.starts_with(character)) {
+                    Some(start)
+                } else {
+                    line.get(..start).and_then(|rest| rest.rfind(character))
+                }
             };
             if let Some(index) = index {
                 self.state.cursor_line = line_index as usize;
@@ -1943,7 +1950,7 @@ impl Editor {
             .map(|value| (*value).to_string())
             .collect();
         for character in trigger_characters {
-            if character.chars().count() != 1
+            if character.encode_utf16().count() != 1
                 || character == "/"
                 || is_whitespace_char(&character)
                 || next.contains(&character)
@@ -2042,25 +2049,8 @@ impl Editor {
     }
 
     fn word_segments(&self, text: &str) -> Vec<WordSegment> {
-        let base: Vec<TextSegment> = crate::word_navigation::word_segments(text)
-            .into_iter()
-            .scan(0, |index, segment| {
-                let start = *index;
-                *index += segment.segment.len();
-                Some(TextSegment {
-                    text: segment.segment,
-                    index: start,
-                })
-            })
-            .collect();
-        let merged = merge_paste_markers(text, base, &self.valid_paste_ids());
-        merged
-            .into_iter()
-            .map(|segment| WordSegment {
-                is_word_like: segment.text.chars().any(|character| character.is_alphanumeric()),
-                segment: segment.text,
-            })
-            .collect()
+        let base = crate::word_navigation::word_segments(text);
+        merge_word_paste_markers(text, base, &self.valid_paste_ids())
     }
 
     fn valid_paste_ids(&self) -> BTreeSet<i64> {
@@ -2133,10 +2123,7 @@ impl Component for Editor {
 
         let terminal_rows = self.tui.terminal_rows();
         let max_visible_lines = 5.max(terminal_rows * 3 / 10);
-        let mut cursor_line_index = layout_lines.iter().position(|line| line.has_cursor).unwrap_or(0);
-        if cursor_line_index == usize::MAX {
-            cursor_line_index = 0;
-        }
+        let cursor_line_index = layout_lines.iter().position(|line| line.has_cursor).unwrap_or(0);
         if cursor_line_index < self.scroll_offset {
             self.scroll_offset = cursor_line_index;
         } else if cursor_line_index >= self.scroll_offset + max_visible_lines {
@@ -2572,8 +2559,7 @@ fn build_debounce_pattern(trigger_characters: &[String]) -> Regex {
 fn is_word_character(character: &str) -> bool {
     character
         .chars()
-        .all(|value| value.is_ascii_alphanumeric() || matches!(value, '.' | '-' | '_'))
-        && !character.is_empty()
+        .any(|value| value.is_ascii_alphanumeric() || matches!(value, '.' | '-' | '_'))
 }
 
 fn is_paste_marker(segment: &str) -> bool {
@@ -2604,7 +2590,11 @@ fn renumber_paste_markers(line: &str, target_id: i64) -> String {
                 return captures[0].to_string();
             }
             let suffix = captures.get(2).map_or("", |value| value.as_str());
-            format!("[paste #{} {}]", id - 1, suffix.trim_start())
+            if suffix.is_empty() {
+                format!("[paste #{}]", id - 1)
+            } else {
+                format!("[paste #{} {}]", id - 1, suffix.trim_start())
+            }
         })
         .into_owned()
 }
@@ -2625,17 +2615,7 @@ fn merge_paste_markers(text: &str, base: Vec<TextSegment>, valid_ids: &BTreeSet<
     if valid_ids.is_empty() || !text.contains("[paste #") {
         return base;
     }
-    let markers: Vec<(usize, usize)> = PASTE_MARKER_REGEX
-        .captures_iter(text)
-        .filter_map(|captures| {
-            let id: i64 = captures[1].parse().ok()?;
-            if !valid_ids.contains(&id) {
-                return None;
-            }
-            let matched = captures.get(0)?;
-            Some((matched.start(), matched.end()))
-        })
-        .collect();
+    let markers = paste_marker_spans(text, valid_ids);
     if markers.is_empty() {
         return base;
     }
@@ -2661,6 +2641,55 @@ fn merge_paste_markers(text: &str, base: Vec<TextSegment>, valid_ids: &BTreeSet<
         result.push(segment);
     }
     result
+}
+
+fn merge_word_paste_markers(text: &str, base: Vec<WordSegment>, valid_ids: &BTreeSet<i64>) -> Vec<WordSegment> {
+    if valid_ids.is_empty() || !text.contains("[paste #") {
+        return base;
+    }
+    let markers = paste_marker_spans(text, valid_ids);
+    if markers.is_empty() {
+        return base;
+    }
+    let mut result = Vec::new();
+    let mut marker_index = 0;
+    let mut index = 0;
+    for segment in base {
+        let start = index;
+        index += segment.segment.len();
+        while marker_index < markers.len() && markers[marker_index].1 <= start {
+            marker_index += 1;
+        }
+        let marker = markers.get(marker_index).copied();
+        if let Some((marker_start, marker_end)) = marker
+            && start >= marker_start
+            && start < marker_end
+        {
+            if start == marker_start {
+                result.push(WordSegment {
+                    segment: text[marker_start..marker_end].to_string(),
+                    is_word_like: false,
+                });
+            }
+            continue;
+        }
+        result.push(segment);
+    }
+    result
+}
+
+fn paste_marker_spans(text: &str, valid_ids: &BTreeSet<i64>) -> Vec<(usize, usize)> {
+    PASTE_MARKER_REGEX
+        .captures_iter(text)
+        .filter_map(|captures| {
+            let id: i64 = captures[1].parse().ok()?;
+            if !valid_ids.contains(&id) {
+                return None;
+            }
+            let matched = captures.get(0)?;
+            Some((matched.start(), matched.end()))
+        })
+        .collect()
 }
 
 /// Split a line into word-wrapped chunks.
