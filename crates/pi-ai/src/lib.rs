@@ -13,6 +13,7 @@ pub mod images;
 pub mod images_api_registry;
 pub mod images_models;
 pub mod js_number;
+pub mod legacy_api_aliases;
 pub mod model_catalog;
 pub mod models;
 pub mod models_store;

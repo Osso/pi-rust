@@ -117,7 +117,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/image-models.ts` | 42 | 3 | done | `crates/pi-ai/src/image_models.rs` | Lookup/list APIs; `undefined` modeled as `Option`/empty slice (see traceability). |
 | `ai/src/images.ts` | 21 | 3 | done | `crates/pi-ai/src/images.rs` | Builtin registration on first use, registry dispatch, unknown-api error. |
 | `ai/src/index.ts` | 47 | 3 | todo |  |  |
-| `ai/src/legacy-api-aliases.ts` | 108 | 3 | todo |  |  |
+| `ai/src/legacy-api-aliases.ts` | 108 | 3 | done | `crates/pi-ai/src/legacy_api_aliases.rs` | 16 deprecated stream aliases delegating to the lazy api wrappers; 16-case differential ([traceability](traceability/legacy-api-aliases.md)). |
 | `ai/src/oauth.ts` | 10 | 3 | done | `crates/pi-ai/src/oauth.rs` | Type-only compatibility re-exports. |
 | `ai/src/providers/amazon-bedrock.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
 | `ai/src/providers/ant-ling.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
