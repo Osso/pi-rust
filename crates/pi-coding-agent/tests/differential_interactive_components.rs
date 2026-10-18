@@ -1,3 +1,5 @@
+#[path = "support/agent_session_fixture.rs"]
+mod agent_session_fixture;
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -111,6 +113,8 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(bash_execution_cases());
     cases.extend(tree_selector_cases());
     cases.extend(session_selector_cases());
+    cases.extend(footer_helper_cases());
+    cases.extend(footer_cases());
     cases
 }
 
@@ -1534,6 +1538,175 @@ fn session_selector_cases() -> Vec<(Value, Value)> {
             json!({"renders": renders, "selected": selected})
         });
         cases.push((request, output));
+    }
+    cases
+}
+
+fn footer_helper_cases() -> Vec<(Value, Value)> {
+    use pi_coding_agent::modes::interactive::components::footer::{format_cwd_for_footer, format_tokens};
+
+    let tokens = [
+        0.0,
+        999.0,
+        1000.0,
+        1500.0,
+        9999.0,
+        10_000.0,
+        12_345.0,
+        999_999.0,
+        1_000_000.0,
+        1_500_000.0,
+        9_999_999.0,
+        10_000_000.0,
+        12_345_678.0,
+    ];
+    let cwd_cases = [
+        ("/home/tester", Some("/home/tester")),
+        ("/home/tester/projects/pi", Some("/home/tester")),
+        ("/home/tester", None),
+        ("/opt/other", Some("/home/tester")),
+        ("/opt/other", Some("")),
+    ];
+    let request = json!({
+        "id": 200,
+        "module": "modes/interactive/components/footer.ts",
+        "operation": "footerHelpers",
+        "tokens": tokens,
+        "cwdCases": cwd_cases.iter().map(|(cwd, home)| json!({"cwd": cwd, "home": home})).collect::<Vec<_>>(),
+    });
+    let output = json!({
+        "tokens": tokens.iter().map(|count| format_tokens(*count)).collect::<Vec<_>>(),
+        "cwd": cwd_cases
+            .iter()
+            .map(|(cwd, home)| format_cwd_for_footer(cwd, *home))
+            .collect::<Vec<_>>(),
+    });
+    vec![(request, output)]
+}
+
+fn footer_model(id: &str, provider: &str, reasoning: bool, context_window: f64) -> Value {
+    json!({
+        "id": id,
+        "name": id,
+        "api": "faux",
+        "provider": provider,
+        "baseUrl": "",
+        "reasoning": reasoning,
+        "input": ["text"],
+        "cost": {"input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0},
+        "contextWindow": context_window,
+        "maxTokens": 4096.0,
+    })
+}
+
+fn footer_cases() -> Vec<(Value, Value)> {
+    use pi_coding_agent::core::footer_data_provider::{ContextUsage, FooterDataProvider, FooterSessionOverride};
+    use pi_coding_agent::modes::interactive::components::footer::FooterComponent;
+
+    let variants: Vec<(u64, f64, f64, f64, f64, f64)> = vec![
+        (210, 10_000.0, 2_000.0, 3_000.0, 4_000.0, 0.1234),
+        (211, 0.0, 0.0, 0.0, 0.0, 0.0),
+    ];
+    let mut cases = Vec::new();
+    for (index, (id, input, output, cache_read, cache_write, cost)) in variants.into_iter().enumerate() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let _runtime_guard = runtime.enter();
+        let directory = tempfile::tempdir().expect("temp dir");
+        let (session, entries) = runtime.block_on(async {
+            let fixture = crate::agent_session_fixture::fixture(
+                directory.path(),
+                pi_agent_core::harness::types::ThinkingLevel::High,
+            )
+            .await;
+            let session = std::sync::Arc::new(fixture.session);
+            let entries = {
+                let mut manager = session.session_manager();
+                manager.append_session_info("Test Session").expect("session name");
+                let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0);
+                assistant.usage.input = input;
+                assistant.usage.output = output;
+                assistant.usage.cache_read = cache_read;
+                assistant.usage.cache_write = cache_write;
+                assistant.usage.cost.total = cost;
+                assistant.stop_reason = StopReason::Stop;
+                manager
+                    .append_message(pi_agent_core::agent::AgentMessage::Assistant(Box::new(assistant)))
+                    .expect("assistant");
+                manager
+                    .append_message(pi_agent_core::agent::AgentMessage::ToolResult(
+                        pi_ai::types::ToolResultMessage {
+                            role: pi_ai::types::ToolResultRole::Tag,
+                            tool_call_id: "tool".to_owned(),
+                            tool_name: "read".to_owned(),
+                            content: vec![],
+                            details: None,
+                            usage: Some(pi_ai::types::Usage {
+                                input: 500.0,
+                                output: 100.0,
+                                ..Default::default()
+                            }),
+                            added_tool_names: None,
+                            is_error: false,
+                            timestamp: 0,
+                        },
+                    ))
+                    .expect("tool result");
+                serde_json::to_value(manager.get_entries()).expect("entries")
+            };
+            (session, entries)
+        });
+
+        let model = footer_model("gpt-x", "openai", true, 200_000.0);
+        let override_model: pi_ai::types::Model = serde_json::from_value(model.clone()).expect("model deserializes");
+        let width = if index == 0 { 120 } else { 40 };
+        let request = json!({
+            "id": id,
+            "module": "modes/interactive/components/footer.ts",
+            "operation": "footer",
+            "model": model,
+            "thinkingLevel": "high",
+            "sessionName": "Test Session",
+            "sessionCwd": directory.path().display().to_string(),
+            "entries": entries,
+            "usingSubscription": false,
+            "contextUsage": null,
+            "gitBranch": null,
+            "executableName": null,
+            "statuses": {"goal": "working on the port"},
+            "providerCount": 0,
+            "autoCompact": index == 0,
+            "override": {
+                "cwd": "/repo",
+                "model": model,
+                "thinkingLevel": "high",
+                "contextUsage": {
+                    "tokens": 50_000.0,
+                    "contextWindow": 200_000.0,
+                    "percent": 25.0
+                }
+            },
+            "width": width,
+        });
+
+        let footer_data = std::sync::Arc::new(FooterDataProvider::new(directory.path()));
+        footer_data.set_extension_status("goal", Some("working on the port"));
+        let mut footer = FooterComponent::new(session, footer_data);
+        footer.set_auto_compact_enabled(index == 0);
+        footer.set_session_override(FooterSessionOverride {
+            cwd: "/repo".to_owned(),
+            session_manager: None,
+            model: Some(override_model),
+            thinking_level: "high".to_owned(),
+            context_usage: Some(ContextUsage {
+                tokens: Some(50_000.0),
+                context_window: 200_000.0,
+                percent: Some(25.0),
+            }),
+        });
+        cases.push((request, json!(footer.render(width))));
     }
     cases
 }

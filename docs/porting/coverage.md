@@ -690,7 +690,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/assistant-message.ts` | 197 | 22 | done | `crates/pi-coding-agent/src/modes/interactive/components/assistant_message.rs` | Content runs, thinking coalescing, OSC 133, stop reasons, transformers; differential 9 cases. |
 | `coding-agent/src/modes/interactive/components/custom-entry.ts` | 62 | 22 | done | `crates/pi-coding-agent/src/modes/interactive/components/custom_entry.rs` | EntryRenderer output + expansion; differential 3 cases. |
 | `coding-agent/src/modes/interactive/components/custom-message.ts` | 113 | 22 | done | `crates/pi-coding-agent/src/modes/interactive/components/custom_message.rs` | Custom renderer + default box/Markdown; differential 3 cases. |
-| `coding-agent/src/modes/interactive/components/footer.ts` | 279 | 22 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/footer.ts` | 279 | 22 | done | `crates/pi-coding-agent/src/modes/interactive/components/footer.rs` | Token/cwd helpers + pwd/stats/context/model/status render; differential helper and full-render cases. |
 | `coding-agent/src/modes/interactive/components/index.ts` | 38 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/markdown-transform.ts` | 29 | 22 | done | `crates/pi-coding-agent/src/modes/interactive/components/markdown_transform.rs` | shared extension types; differential transformer chain |
 | `coding-agent/src/modes/interactive/components/mermaid.ts` | 89 | 22 | todo |  |  |

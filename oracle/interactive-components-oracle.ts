@@ -294,6 +294,44 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return { renders, selected };
 	},
+	footerHelpers: (api, request) => ({
+		tokens: request.tokens.map((count: number) => api.formatTokens(count)),
+		cwd: request.cwdCases.map((value: any) => api.formatCwdForFooter(value.cwd, value.home)),
+	}),
+	footer: (api, request) => {
+		const session = {
+			state: {
+				model: request.model,
+				thinkingLevel: request.thinkingLevel,
+			},
+			sessionManager: {
+				getSessionName: () => request.sessionName ?? undefined,
+				getCwd: () => request.sessionCwd,
+				getEntries: () => request.entries,
+			},
+			modelRuntime: { isUsingSubscription: () => request.usingSubscription ?? false },
+			getContextUsage: () => request.contextUsage ?? undefined,
+		};
+		const statuses = new Map<string, string>(Object.entries(request.statuses ?? {}));
+		const footerData = {
+			getGitBranch: () => request.gitBranch ?? null,
+			getExecutableName: () => request.executableName ?? undefined,
+			getExtensionStatuses: () => statuses,
+			getAvailableProviderCount: () => request.providerCount ?? 0,
+		};
+		const footer = new api.FooterComponent(session, footerData);
+		footer.setAutoCompactEnabled(request.autoCompact);
+		if (request.override) {
+			footer.setSessionOverride({
+				cwd: request.override.cwd,
+				sessionManager: session.sessionManager,
+				model: request.override.model,
+				thinkingLevel: request.override.thinkingLevel,
+				contextUsage: request.override.contextUsage,
+			});
+		}
+		return footer.render(request.width);
+	},
 	configSelector: async (_api, request, sourceRoot) => {
 		const settingsModule = (await import(pathToFileURL(`${sourceRoot}/core/settings-manager.ts`).href)) as Api;
 		const selectorModule = (await import(

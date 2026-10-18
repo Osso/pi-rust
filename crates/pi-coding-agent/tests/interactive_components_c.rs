@@ -36,6 +36,11 @@ use pi_coding_agent::modes::interactive::components::extension_input::{
 use pi_coding_agent::modes::interactive::components::first_time_setup::{
     FirstTimeSetupComponent, FirstTimeSetupOptions, FirstTimeSetupResult,
 };
+#[path = "support/agent_session_fixture.rs"]
+mod agent_session_fixture;
+
+use pi_coding_agent::core::footer_data_provider::{FooterDataProvider, FooterSessionOverride};
+use pi_coding_agent::modes::interactive::components::footer::{FooterComponent, format_cwd_for_footer, format_tokens};
 use pi_coding_agent::modes::interactive::components::session_selector::{SessionListLoader, SessionSelectorComponent};
 use pi_coding_agent::modes::interactive::components::status_indicator::{
     CompactionStatusIndicator, CompactionStatusReason, IdleStatus, RetryStatusIndicator, WorkingStatusIndicator,
@@ -1882,4 +1887,142 @@ async fn session_selector_rename_mode_trims_and_submits() {
     selector.handle_input("\r");
     selector.run_pending_action().await;
     assert_eq!(renamed.lock().unwrap().last().unwrap().1, None);
+}
+
+#[test]
+fn footer_formats_tokens_like_the_source() {
+    let cases = [
+        (0.0, "0"),
+        (999.0, "999"),
+        (1000.0, "1.0k"),
+        (1500.0, "1.5k"),
+        (9999.0, "10.0k"),
+        (10_000.0, "10k"),
+        (12_345.0, "12k"),
+        (999_999.0, "1000k"),
+        (1_000_000.0, "1.0M"),
+        (1_500_000.0, "1.5M"),
+        (9_999_999.0, "10.0M"),
+        (10_000_000.0, "10M"),
+        (12_345_678.0, "12M"),
+    ];
+    for (count, expected) in cases {
+        assert_eq!(format_tokens(count), expected, "count {count}");
+    }
+}
+
+#[test]
+fn footer_formats_cwd_relative_to_home() {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/home/tester".to_owned());
+    assert_eq!(format_cwd_for_footer(&home, Some(&home)), "~");
+    assert_eq!(
+        format_cwd_for_footer(&format!("{home}/projects/pi"), Some(&home)),
+        format!("~{}projects{}pi", std::path::MAIN_SEPARATOR, std::path::MAIN_SEPARATOR)
+    );
+    assert_eq!(format_cwd_for_footer("/opt/other", Some(&home)), "/opt/other");
+    assert_eq!(format_cwd_for_footer("/opt/other", None), "/opt/other");
+}
+
+fn assistant_with_usage(
+    input: f64,
+    output: f64,
+    cache_read: f64,
+    cache_write: f64,
+    cost: f64,
+) -> pi_ai::types::AssistantMessage {
+    let mut message = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0);
+    message.usage.input = input;
+    message.usage.output = output;
+    message.usage.cache_read = cache_read;
+    message.usage.cache_write = cache_write;
+    message.usage.cost.total = cost;
+    message.stop_reason = StopReason::Stop;
+    message
+}
+
+#[tokio::test]
+async fn footer_renders_override_stats_context_and_model() {
+    theme();
+    let directory = tempfile::tempdir().expect("temp dir");
+    let fixture =
+        agent_session_fixture::fixture(directory.path(), pi_agent_core::harness::types::ThinkingLevel::High).await;
+    let session = std::sync::Arc::new(fixture.session);
+    {
+        let mut manager = session.session_manager();
+        manager.append_session_info("Test Session").expect("session name");
+        manager
+            .append_message(AgentMessage::Assistant(Box::new(assistant_with_usage(
+                10_000.0, 2000.0, 3000.0, 4000.0, 0.1234,
+            ))))
+            .expect("append assistant");
+        manager
+            .append_message(AgentMessage::ToolResult(pi_ai::types::ToolResultMessage {
+                role: pi_ai::types::ToolResultRole::Tag,
+                tool_call_id: "tool".to_owned(),
+                tool_name: "read".to_owned(),
+                content: vec![],
+                details: None,
+                usage: Some(pi_ai::types::Usage {
+                    input: 500.0,
+                    output: 100.0,
+                    ..Default::default()
+                }),
+                added_tool_names: None,
+                is_error: false,
+                timestamp: 0,
+            }))
+            .expect("append tool result");
+    }
+
+    let footer_data = std::sync::Arc::new(FooterDataProvider::new(directory.path()));
+    let mut footer = FooterComponent::new(std::sync::Arc::clone(&session), footer_data);
+    let model = pi_ai::types::Model {
+        id: "gpt-x".to_owned(),
+        provider: "openai".to_owned(),
+        reasoning: true,
+        context_window: 200_000.0,
+        ..session.model()
+    };
+    footer.set_session_override(FooterSessionOverride {
+        cwd: "/repo".to_owned(),
+        session_manager: None,
+        model: Some(model),
+        thinking_level: "high".to_owned(),
+        context_usage: Some(pi_coding_agent::core::footer_data_provider::ContextUsage {
+            tokens: Some(50_000.0),
+            context_window: 200_000.0,
+            percent: Some(25.0),
+        }),
+    });
+    let rendered = plain(&footer.render(120));
+    assert!(rendered.contains("/repo • Test Session"), "{rendered}");
+    assert!(rendered.contains("↑11k"), "{rendered}");
+    assert!(rendered.contains("↓2.1k"), "{rendered}");
+    assert!(rendered.contains("R3.0k"), "{rendered}");
+    assert!(rendered.contains("W4.0k"), "{rendered}");
+    assert!(rendered.contains("CH17.6%"), "{rendered}");
+    assert!(rendered.contains("$0.123"), "{rendered}");
+    assert!(rendered.contains("25.0%/200k (auto)"), "{rendered}");
+    assert!(rendered.contains("gpt-x • effort high"), "{rendered}");
+
+    footer.set_auto_compact_enabled(false);
+    let rendered = plain(&footer.render(120));
+    assert!(!rendered.contains("(auto)"), "{rendered}");
+}
+
+#[tokio::test]
+async fn footer_truncates_to_width_and_appends_extension_status() {
+    theme();
+    let directory = tempfile::tempdir().expect("temp dir");
+    let fixture =
+        agent_session_fixture::fixture(directory.path(), pi_agent_core::harness::types::ThinkingLevel::Off).await;
+    let session = std::sync::Arc::new(fixture.session);
+    let footer_data = std::sync::Arc::new(FooterDataProvider::new(directory.path()));
+    footer_data.set_extension_status("goal", Some("working on the port"));
+    let mut footer = FooterComponent::new(session, footer_data);
+    let lines = footer.render(16);
+    assert!(lines.iter().all(|line| pi_tui::visible_width(line) <= 16), "{lines:?}");
+    assert!(lines.len() >= 3, "{lines:?}");
+    let rendered = plain(&lines);
+    assert!(rendered.contains("working on th"), "{rendered}");
 }
