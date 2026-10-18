@@ -1,7 +1,14 @@
+use std::io;
 use std::mem;
 use std::str;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Serialize;
+use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::task::JoinHandle;
+
+const READ_CHUNK_BYTES: usize = 64 * 1024;
 
 /// Serializes one compact JSON value followed by exactly one line feed.
 pub fn serialize_json_line<T>(value: &T) -> Result<String, serde_json::Error>
@@ -106,6 +113,66 @@ impl JsonlLineDecoder {
             .map(str::to_owned)
             .map(strip_one_carriage_return)
             .collect()
+    }
+}
+
+/// Background LF-only JSONL reader returned by [`attach_jsonl_line_reader`].
+pub struct JsonlLineReader {
+    detached: Arc<AtomicBool>,
+    task: JoinHandle<io::Result<()>>,
+}
+
+impl JsonlLineReader {
+    /// Stops reading; lines from chunks read after this call and the final unterminated line are not delivered.
+    pub fn detach(&self) {
+        self.detached.store(true, Ordering::SeqCst);
+        self.task.abort();
+    }
+
+    /// Waits until the stream ends, a read fails, or the reader is detached.
+    pub async fn finished(self) -> io::Result<()> {
+        match self.task.await {
+            Ok(result) => result,
+            Err(error) if error.is_cancelled() => Ok(()),
+            Err(error) => std::panic::resume_unwind(error.into_panic()),
+        }
+    }
+}
+
+/// Reads LF-delimited records from `stream` on a Tokio task and passes each one to `on_line`.
+///
+/// Unlike line readers that also split on U+2028/U+2029, framing is strict JSONL.
+pub fn attach_jsonl_line_reader<R, F>(stream: R, on_line: F) -> JsonlLineReader
+where
+    R: AsyncRead + Unpin + Send + 'static,
+    F: FnMut(String) + Send + 'static,
+{
+    let detached = Arc::new(AtomicBool::new(false));
+    let task = tokio::spawn(read_lines(stream, on_line, Arc::clone(&detached)));
+    JsonlLineReader { detached, task }
+}
+
+async fn read_lines<R, F>(mut stream: R, mut on_line: F, detached: Arc<AtomicBool>) -> io::Result<()>
+where
+    R: AsyncRead + Unpin,
+    F: FnMut(String),
+{
+    let mut decoder = JsonlLineDecoder::new();
+    let mut chunk = vec![0; READ_CHUNK_BYTES];
+    loop {
+        let length = stream.read(&mut chunk).await?;
+        if detached.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        let lines = if length == 0 {
+            mem::take(&mut decoder).end()
+        } else {
+            decoder.push_bytes(&chunk[..length])
+        };
+        lines.into_iter().for_each(&mut on_line);
+        if length == 0 {
+            return Ok(());
+        }
     }
 }
 

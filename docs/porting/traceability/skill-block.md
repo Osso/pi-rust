@@ -9,6 +9,10 @@ Pinned source: `packages/coding-agent/src/core/skill-block.ts:1-22` at commit `5
 | `skill-block.ts:12-19` | The optional message requires `\n\n` plus at least one code unit, then uses JavaScript `.trim()` and maps empty output to `undefined`. | Rust requires a nonempty double-LF suffix, applies the ECMAScript trim set including U+FEFF/U+2028/U+2029, preserves U+001C, and maps empty output to `None`; focused tests and differential fixtures cover trimmed, empty, and nonempty suffixes. |
 | `coding-agent/src/index.ts:281` | The package exports both `ParsedSkillBlock` and `parseSkillBlock`. | The Rust crate root re-exports `ParsedSkillBlock` and `parse_skill_block`; focused tests import the crate-root API, and the persistent runtime oracle imports the pinned package index. |
 
+## Ported TypeScript tests
+
+Both cases of `packages/coding-agent/test/skill-block.test.ts` are ported in `tests/skill_block.rs` (`parses_a_skill_block_with_trailing_user_message`, `returns_none_for_normal_message_text`).
+
 ## Rust boundary
 
 Rust `&str` accepts only valid UTF-8 scalar strings, so JavaScript lone UTF-16 surrogates remain excluded. For representable strings, all parser delimiters are ASCII and the scalar boundary preserves the source's observable slices. No validation, normalization, serialization, constructor, or dependency behavior is claimed.

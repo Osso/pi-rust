@@ -8,5 +8,8 @@ pub use core::{
     session_manager::CURRENT_SESSION_VERSION,
     session_tool_output::{MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES, TOOL_RESULT_TRUNCATION_MARKER},
     source_info::{SourceInfo, create_synthetic_source_info},
-    tools::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size},
+    tools::{
+        DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncationOptions, TruncationResult, format_size, truncate_head,
+        truncate_line, truncate_tail,
+    },
 };

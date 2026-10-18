@@ -396,19 +396,19 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/runtime-process.ts` | 103 | 0 | todo |  |  |
 | `coding-agent/src/core/session-errors.ts` | 12 | 0 | todo |  |  |
 | `coding-agent/src/core/session-health.ts` | 135 | 0 | todo |  |  |
-| `coding-agent/src/core/skill-block.ts` | 22 | 0 | partial |  |  |
+| `coding-agent/src/core/skill-block.ts` | 22 | 0 | done | `crates/pi-coding-agent/src/core/skill_block.rs` | all TS tests ported + differential |
 | `coding-agent/src/core/sqlite.ts` | 145 | 0 | todo |  |  |
 | `coding-agent/src/core/timings.ts` | 50 | 0 | todo |  |  |
 | `coding-agent/src/core/tool-capabilities.ts` | 11 | 0 | todo |  |  |
 | `coding-agent/src/core/tool-detach-registry.ts` | 58 | 0 | todo |  |  |
 | `coding-agent/src/core/tools/file-mutation-queue.ts` | 61 | 0 | todo |  |  |
-| `coding-agent/src/core/tools/truncate.ts` | 276 | 0 | partial |  |  |
+| `coding-agent/src/core/tools/truncate.ts` | 276 | 0 | done | `crates/pi-coding-agent/src/core/tools/truncate.rs` | re-exports agent-core truncation (identical on valid Unicode); differential |
 | `coding-agent/src/extensions/llama/client.ts` | 332 | 0 | todo |  |  |
 | `coding-agent/src/extensions/llama/huggingface.ts` | 158 | 0 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/elapsed-time.ts` | 30 | 0 | todo |  |  |
 | `coding-agent/src/modes/interactive/external-editor.ts` | 45 | 0 | todo |  |  |
 | `coding-agent/src/modes/interactive/model-search.ts` | 27 | 0 | todo |  |  |
-| `coding-agent/src/modes/rpc/jsonl.ts` | 58 | 0 | partial |  |  |
+| `coding-agent/src/modes/rpc/jsonl.ts` | 58 | 0 | done | `crates/pi-coding-agent/src/modes/rpc/jsonl.rs` | all TS tests ported + differential |
 | `coding-agent/src/supervisor/project-resolver.ts` | 108 | 0 | todo |  |  |
 | `coding-agent/src/supervisor/request-wake.ts` | 149 | 0 | todo |  |  |
 | `coding-agent/src/utils/abort.ts` | 48 | 0 | done | `crates/pi-coding-agent/src/utils/abort.rs` | Focused tests; no custom abort reasons |
