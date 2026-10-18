@@ -19,6 +19,7 @@ All direct dependencies are exact-pinned.
 - `tokio = 1.53.3` — provides async sleep, cancellation, and process I/O for `utils::{sleep, abort, child_process}`.
 - `tokio-util = 0.7.20` — supplies `CancellationToken` as the Rust `AbortSignal` mapping.
 - `notify = 8.2.0` — provides the platform file watcher behind `utils::fs_watch`.
+- `httpdate = 1.0.3` — parses the remote catalog's `Last-Modified` header into the millisecond timestamp stored in `models-store.json` (Node `Date.parse`).
 - `rustix = 1.1.5` — supplies `fs::access(WRITE_OK)` for the install-path writability check (`fs.accessSync` parity) and `process::kill_process_group` for `utils::shell::kill_process_tree` (`process.kill(-pid)` parity); the crate is already pinned in the workspace by `pi-tui`.
 - `pi-ai` (path) — `utils::management_http` uses the shared `Fetch` contract and default reqwest client (one HTTP stack).
 - `tempfile = 3.27.0` (development) — creates isolated temporary files, symlinks, and git repositories for path and process tests.
@@ -57,6 +58,7 @@ The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToolExecutionContext` slices
 - `tokio-util = 0.7.20` (`rt`) — `CancellationToken` maps the `AbortSignal` passed to autocomplete suggestions and kills an in-flight `fd` child; the editor aborts superseded requests and `CancellableLoader` maps its abort signal.
 - `tempfile = 3.27.0` (development) — creates isolated directory trees and symlinks for autocomplete tests.
 - No runtime Base64 dependency: `terminal_image` uses the crate-local `src/base64.rs` implementation of Node `Buffer` leniency and standard padded encoding.
+- `httpdate = 1.0.3` — parses the remote catalog's `Last-Modified` header into the millisecond timestamp stored in `models-store.json` (Node `Date.parse`).
 - `rustix = 1.1.5` (exact, `termios` feature) — safe termios raw-mode and window-size syscalls for `ProcessTerminal`; `unsafe_code = "forbid"` rules out `libc`/`nix` wrappers that need unsafe call sites.
 - `src/unicode_tables.rs` is generated data, not a dependency: Unicode 17.0 emoji sequences, character-property ranges, and `get-east-asian-width` 1.6.0 width ranges (see `docs/porting/traceability/utils.md`).
 - The editor adds no dependency: it reuses `unicode-segmentation`, `regex`, `tokio`, and `tokio-util`.

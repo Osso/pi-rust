@@ -442,7 +442,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/syntax-highlight.ts` | 146 | 1 | todo |  |  |
 | `coding-agent/src/utils/version-check.ts` | 109 | 1 | todo |  |  |
 | `coding-agent/src/config.ts` | 595 | 2 | done | `crates/pi-coding-agent/src/config.rs` | Compiled-binary runtime mapping (PI_PACKAGE_DIR/exe dir); install branches via injected context; differential config oracle (4 path + 13 install scenarios) |
-| `coding-agent/src/core/model-config.ts` | 298 | 2 | todo |  |  |
+| `coding-agent/src/core/model-config.ts` | 298 | 2 | done | `crates/pi-coding-agent/src/core/model_config.rs` | TypeBox-equivalent schema via the shared validation engine; differential 21 fixtures (provider maps + exact error text) |
 | `coding-agent/src/core/tools/path-utils.ts` | 118 | 2 | todo |  |  |
 | `coding-agent/src/utils/clipboard.ts` | 175 | 2 | todo |  |  |
 | `coding-agent/src/utils/image-convert.ts` | 49 | 2 | todo |  |  |
@@ -457,7 +457,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/image-resize.ts` | 123 | 3 | todo |  |  |
 | `coding-agent/src/utils/shell.ts` | 225 | 3 | done | `crates/pi-coding-agent/src/utils/shell.rs` | Shell resolution, PATH env, output sanitization, tracked process-group kill; behavioral tests |
 | `coding-agent/src/utils/tools-manager.ts` | 365 | 3 | todo |  |  |
-| `coding-agent/src/core/remote-catalog-provider.ts` | 132 | 4 | todo |  |  |
+| `coding-agent/src/core/remote-catalog-provider.ts` | 132 | 4 | done | `crates/pi-coding-agent/src/core/remote_catalog_provider.rs` | Injected Fetch; 9 behavioral cases (restore, freshness, 304/404/500, parse, abort) |
 | `coding-agent/src/core/resolve-config-value.ts` | 287 | 4 | done | `crates/pi-coding-agent/src/core/config_value.rs` | Full module: templates, commands, cache, or-throw, headers; differential 12050-12083 plus 27 resolve/throw/header requests |
 | `coding-agent/src/core/runtime-credentials.ts` | 58 | 4 | done | `crates/pi-coding-agent/src/core/runtime_credentials.rs` | Overlay masking, list merge, delete ordering |
 | `coding-agent/src/utils/image-process.ts` | 119 | 4 | todo |  |  |

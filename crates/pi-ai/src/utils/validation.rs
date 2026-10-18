@@ -917,6 +917,15 @@ fn collect_issues(schema: &Value, value: &Value) -> Issues {
     issues
 }
 
+/// TypeBox-style validation lines (`  - path: message`) for a schema compiled by `Compile(...).Errors`.
+pub fn schema_error_lines(schema: &Value, value: &Value) -> Vec<String> {
+    collect_issues(schema, value)
+        .items
+        .iter()
+        .map(|issue| format!("  - {}: {}", issue.path(), issue.message))
+        .collect()
+}
+
 fn check(schema: &Value, value: &Value) -> bool {
     collect_issues(schema, value).is_empty()
 }
