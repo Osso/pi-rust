@@ -33,21 +33,24 @@ use crate::core::sqlite::{
 use crate::utils::js_json;
 
 pub use agents::{
-    AcquireAttachedRuntimeOwnershipInput, AcquireAttachedRuntimeOwnershipResult, ClaimMultiAgentTerminalOutboxOptions,
-    CommitMultiAgentDetachMarkInput, CommitMultiAgentDetachMarkResult, CommitMultiAgentLifecycleMutationInput,
-    CommitMultiAgentLifecycleMutationResult, CommitMultiAgentSteeringDeliveryInput,
-    CommitMultiAgentSteeringDeliveryResult, CommitMultiAgentSteeringMutationInput,
-    CommitMultiAgentSteeringMutationResult, CommitMultiAgentTerminalMutationInput,
-    CommitMultiAgentTerminalMutationResult, CreateFailedMultiAgentChildInput, CreateFailedMultiAgentChildResult,
+    AcquireAttachedError, AcquireAttachedRuntimeOwnershipInput, AcquireAttachedRuntimeOwnershipResult, AgentDetails,
+    ClaimMultiAgentTerminalOutboxOptions, CommitMultiAgentDetachMarkInput, CommitMultiAgentDetachMarkResult,
+    CommitMultiAgentLifecycleMutationInput, CommitMultiAgentLifecycleMutationResult,
+    CommitMultiAgentSteeringDeliveryInput, CommitMultiAgentSteeringDeliveryResult,
+    CommitMultiAgentSteeringMutationInput, CommitMultiAgentSteeringMutationResult,
+    CommitMultiAgentTerminalMutationInput, CommitMultiAgentTerminalMutationResult, CreateAttachmentError,
+    CreateChildError, CreateFailedMultiAgentChildInput, CreateFailedMultiAgentChildResult,
     CreateMultiAgentAttachmentInput, CreateMultiAgentAttachmentResult, CreateMultiAgentChildWithRuntimeOwnershipInput,
-    CreateMultiAgentChildWithRuntimeOwnershipResult, DetachedArtifactAgentRecord, MultiAgentCounterName,
-    MultiAgentCounters, MultiAgentPersistedState, MultiAgentTerminalOutboxRecord, RecoverDeadMultiAgentRuntimeInput,
-    RecoverDeadMultiAgentRuntimeResult, SupervisorRuntimeOwnership, acquire_attached_runtime_ownership,
-    allocate_multi_agent_counter, bootstrap_multi_agent_agent, claim_multi_agent_terminal_outbox,
-    cleanup_multi_agent_terminal_outbox, commit_multi_agent_detach_mark, commit_multi_agent_lifecycle_mutation,
-    commit_multi_agent_steering_delivery, commit_multi_agent_steering_mutation, commit_multi_agent_terminal_mutation,
-    create_failed_multi_agent_child, create_multi_agent_attachment, create_multi_agent_child_with_runtime_ownership,
-    deliver_multi_agent_terminal_outbox, fail_multi_agent_terminal_outbox, get_multi_agent_mailbox_message_status,
+    CreateMultiAgentChildWithRuntimeOwnershipResult, DetachedArtifactAgentRecord, DetachedCancellation,
+    LifecycleCommandError, MultiAgentCounterName, MultiAgentCounters, MultiAgentPersistedState,
+    MultiAgentTerminalOutboxRecord, RecoverDeadMultiAgentRuntimeInput, RecoverDeadMultiAgentRuntimeResult,
+    RecoverDeadRuntimeError, SteeringCommandError, SupervisorRuntimeOwnership, TerminalOutboxStatus,
+    acquire_attached_runtime_ownership, allocate_multi_agent_counter, bootstrap_multi_agent_agent,
+    claim_multi_agent_terminal_outbox, cleanup_multi_agent_terminal_outbox, commit_multi_agent_detach_mark,
+    commit_multi_agent_lifecycle_mutation, commit_multi_agent_steering_delivery, commit_multi_agent_steering_mutation,
+    commit_multi_agent_terminal_mutation, create_failed_multi_agent_child, create_multi_agent_attachment,
+    create_multi_agent_child_with_runtime_ownership, deliver_multi_agent_terminal_outbox,
+    fail_multi_agent_terminal_outbox, get_multi_agent_mailbox_message_status,
     list_detached_artifact_agents_updated_at_or_before, mark_multi_agent_mailbox_message_delivered,
     mark_multi_agent_mailbox_message_failed, read_multi_agent_agent, read_multi_agent_agents,
     read_multi_agent_runtime_ownership, read_multi_agent_state, reconcile_dead_detached_agent_runtimes,
@@ -61,6 +64,7 @@ pub use channel::{
     read_shared_channel_cursor, read_shared_channel_tail,
 };
 pub use health::{list_session_health, read_session_health, write_session_health};
+
 pub use incoming::{
     claim_latest_incoming_message, complete_incoming_message, enqueue_incoming_message, fail_incoming_message,
     read_incoming_message_status,
@@ -358,14 +362,34 @@ pub(crate) fn with_control_db<T>(
         return result;
     }
 
-    let db = create_writable_control_db(control_db_path)?;
-    let result = (|| {
-        configure_shared_sqlite_database(&db, DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS)?;
-        initialize_schema(&db, None)?;
-        callback(&db)
-    })();
+    let setup_lock = setup_lock(control_db_path);
+    let db = {
+        let _guard = setup_lock.lock().expect("control db setup mutex");
+        let db = create_writable_control_db(control_db_path)?;
+        let result = (|| {
+            configure_shared_sqlite_database(&db, DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS)?;
+            initialize_schema(&db, None)
+        })();
+        if let Err(error) = result {
+            return Err(error);
+        }
+        db
+    };
+    let result = callback(&db);
     drop(db);
     result
+}
+
+fn setup_lock(control_db_path: &str) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    let mut locks = LOCKS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .expect("control db setup lock map");
+    locks
+        .entry(control_db_path.to_owned())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
 }
 
 fn close_released_control_db(control_db_path: &str, retained: &Arc<RetainedControlDb>) {
