@@ -27,21 +27,33 @@ All direct dependencies are exact-pinned.
 - `regex = 1.13.1` — case-insensitive (`(?i)`) provider error classification for `utils/overflow.ts` and `utils/retry.ts`, replacing JavaScript `RegExp(..., "i")`.
 - `serde = 1.0.229` — derives the diagnostics wire records and diagnostic-code enum.
 - `serde_json = 1.0.151` — carries JSON-shaped thrown values, optional diagnostic details, and streaming-parse results; the `preserve_order` feature keeps TypeScript object insertion order (`indexmap` is its transitive implementation, not a direct dependency) and `float_roundtrip` parses decimal JSON floats with the same correctly-rounded result as JavaScript `JSON.parse`.
-- `tokio = 1.53.3` (`macros`, `rt`, `sync`, `time`; dev adds `io-util`, `net`, `rt-multi-thread`, `test-util`) — `Notify` for `EventStream`, timers/cancellation for abort, retry, and OAuth polling.
+- `tokio = 1.53.3` (`io-util`, `macros`, `net`, `rt`, `sync`, `time`; dev adds `io-util`, `net`, `rt-multi-thread`, `test-util`) — `Notify` for `EventStream`, timers/cancellation for abort, retry, and OAuth polling, and TCP/WebSocket transport for Codex.
 - `reqwest = 0.13.5` (default features: rustls/aws-lc TLS, HTTP/2) — default `Fetch` implementation replacing `globalThis.fetch`.
 - `tokio-util = 0.7.20` (`rt`) — `CancellationToken`, the Rust mapping for `AbortSignal`.
+- `tokio-tungstenite = 0.30.0` (`rustls-tls-webpki-roots`) — Codex WebSocket transport, including header-carrying handshakes and ping/close control frames.
+- `futures-util = 0.3.34` (`sink`) — `SinkExt`/`StreamExt` over the split WebSocket stream.
+- `zstd = 0.14.3` — compresses Codex SSE request bodies at the source's level 3.
+- `base64 = 0.23.1` — decodes the JWT payload used for the Codex `chatgpt-account-id` header.
 - `getrandom = 0.4.3` — fills UUIDv7 and retry-jitter random bytes from the OS.
 - `httpdate = 1.0.3` — parses HTTP-date `Retry-After` headers.
 - `sha2 = 0.10.9` — computes the PKCE S256 code challenge.
 
 ### `pi-agent-core`
 
-No runtime dependencies. The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToolExecutionContext` slices add no runtime or development dependency; `ThinkingLevel` does not depend on the distinct protocol schema. Existing public-index typeproofs use the pinned TypeScript toolchain. Typed filesystem/execution, compaction and branch-summary errors, `QueueMode`, `ToolExecutionMode`, and `ThinkingLevel` enum/literal mappings, `CompactionSettings`/`should_compact`, module-local `SUMMARIZATION_SYSTEM_PROMPT` (not exported from the harness root or package index), module-local `CutPointResult`/`ContextUsageEstimate` (not exported from the harness root or package index), `Skill`/`PromptTemplate`/`PromptTemplateDiagnostic`/`AgentHarnessResources` values, prompt-template argument helpers, Skill system-prompt/invocation formatting, summary marker constants and value-only `BashExecutionMessage`/`BranchSummaryMessage` records, compaction file-operation formatting, image MIME/Base64 helpers, edit line-ending/BOM helpers, `FileKind`/`FileInfo` metadata values, output truncation, and binary-output sanitization use only the Rust standard library.
+- `pi-ai` (path, `=0.0.0`) — supplies the message/model/context/event-stream contracts, JSON streaming parser, and (for the agent loop) tool-argument validation shared with the provider layer.
+- `serde = 1.0.229` — derives the agent event, message, and tool-result wire records.
+- `serde_json = 1.0.151` (`preserve_order`) — carries JSON-shaped tool arguments/details and preserves TypeScript object insertion order in proxy request bodies.
+- `tokio = 1.53.3` (`macros`, `rt`, `sync`, `time`) — runs the agent loop, event stream notifications, and scripted-stream tests.
+- `tokio-util = 0.7.20` (`rt`) — `CancellationToken` as the `AbortSignal` mapping.
+
+The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToolExecutionContext` slices add no runtime or development dependency; `ThinkingLevel` does not depend on the distinct protocol schema. Existing public-index typeproofs use the pinned TypeScript toolchain. Typed filesystem/execution, compaction and branch-summary errors, `QueueMode`, `ToolExecutionMode`, and `ThinkingLevel` enum/literal mappings, `CompactionSettings`/`should_compact`, module-local `SUMMARIZATION_SYSTEM_PROMPT` (not exported from the harness root or package index), module-local `CutPointResult`/`ContextUsageEstimate` (not exported from the harness root or package index), `Skill`/`PromptTemplate`/`PromptTemplateDiagnostic`/`AgentHarnessResources` values, prompt-template argument helpers, Skill system-prompt/invocation formatting, summary marker constants and value-only `BashExecutionMessage`/`BranchSummaryMessage` records, compaction file-operation formatting, image MIME/Base64 helpers, edit line-ending/BOM helpers, `FileKind`/`FileInfo` metadata values, output truncation, and binary-output sanitization use only the Rust standard library.
 
 ### `pi-tui`
 
 - `unicode-segmentation = 1.13.3` (exact) — Unicode 17.0 grapheme cluster segmentation for `utils`; matches the Unicode tables used by Node 26 `Intl.Segmenter`.
 - `regex = 1.13.1` (exact) — compiles the Unicode-property and whitespace patterns ported verbatim from `latex` (`\p{L}`, `\p{N}`, script spacing, environment row splitting).
+- `fancy-regex = 0.16.2` (exact) — executes the marked 18.0.5 grammar ported into `components::markdown::lexer`, which needs lookaround and backreferences that `regex` rejects.
+- `serde = 1.0.229` (exact, `derive`) — serializes the ported marked token model for the markdown differential oracle; the model is also the component's internal token representation.
 - `icu_segmenter = 2.3.0` (exact, default `compiled_data`/`auto`) — dictionary/LSTM word segmentation behind `word_navigation`, chosen as the pure-Rust mapping of `Intl.Segmenter` (decision 2026-10-18; dictionary-word deviations documented in the traceability doc).
 - `tokio = 1.53.3` (`process`, `rt`, `sync`, `io-util`; dev adds `macros`, `rt`, `rt-multi-thread`) — spawns `fd` asynchronously and waits for its output in `autocomplete`.
 - `tokio-util = 0.7.20` (`rt`) — `CancellationToken` maps the `AbortSignal` passed to autocomplete suggestions and kills an in-flight `fd` child.

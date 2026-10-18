@@ -7,8 +7,16 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+[dependencies]
+pi-ai = { version = "=0.0.0", path = "../pi-ai" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.151", features = ["preserve_order"] }
+tokio = { version = "=1.53.3", features = ["macros", "rt", "sync", "time"] }
+tokio-util = { version = "=0.7.20", features = ["rt"] }
+
 [dev-dependencies]
-serde_json = "=1.0.151"
+serde_json = { version = "=1.0.151", features = ["preserve_order"] }
+tokio = { version = "=1.53.3", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [lints]
 workspace = true

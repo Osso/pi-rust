@@ -48,7 +48,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/typebox-helpers.ts` | 24 | 0 | done | `crates/pi-ai/src/utils/typebox_helpers.rs` | `StringEnum` builder plus explicit TypeBox-origin newtype ([traceability](traceability/typebox-helpers.md)). |
 | `ai/src/utils/uuid.ts` | 48 | 0 | done | `crates/pi-ai/src/utils/uuid.rs` | RFC 9562 UUIDv7 with monotonic sequence; TS vectors + structural differential. |
 | `ai/src/api/anthropic-messages.ts` | 1366 | 1 | todo |  |  |
-| `ai/src/api/azure-openai-responses.ts` | 330 | 1 | todo |  |  |
+| `ai/src/api/azure-openai-responses.ts` | 330 | 1 | done | `crates/pi-ai/src/api/azure_openai_responses.rs` | Deployment/env/base-URL resolution, api-key auth, strict tools, reasoning; 9 recorded-fetch differential scenarios. |
 | `ai/src/api/bedrock-converse-stream.ts` | 1190 | 1 | todo |  |  |
 | `ai/src/api/constrained-sampling.ts` | 277 | 1 | done | `crates/pi-ai/src/api/constrained_sampling.rs` | Strict-schema conversion, grammar sampling, append-only JSON deltas; differential 47 requests. |
 | `ai/src/api/github-copilot-headers.ts` | 37 | 1 | done | `crates/pi-ai/src/api/github_copilot_headers.rs` | Initiator/vision/header builders; differential 16 requests. |
@@ -57,12 +57,12 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/google-vertex.ts` | 596 | 1 | todo |  |  |
 | `ai/src/api/lazy.ts` | 98 | 1 | done | `crates/pi-ai/src/api/lazy.rs` | lazy stream/api, setup errors, declared deferred capabilities; differential setup-error |
 | `ai/src/api/mistral-conversations.ts` | 931 | 1 | todo |  |  |
-| `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | todo |  |  |
-| `ai/src/api/openai-completions.ts` | 1577 | 1 | todo |  |  |
+| `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | done | `crates/pi-ai/src/api/openai_codex_responses.rs` | SSE/WebSocket transports, zstd bodies, retries, cached continuation, session cache, debug stats; 30 behavioral + 5 differential suites (SSE events/requests, cached WS, idle, connect timeout). |
+| `ai/src/api/openai-completions.ts` | 1577 | 1 | done | `crates/pi-ai/src/api/openai_completions.rs` | Compat detection, message/tool conversion, all thinking formats, cache control, routing; 9 behavioral + 35 recorded-fetch differential scenarios. |
 | `ai/src/api/openai-responses-shared.ts` | 983 | 1 | done | `crates/pi-ai/src/api/openai_responses_shared.rs` | Message/tool conversion, citation normalization, Responses SSE state machine; 19 behavioral + 31 differential scenarios. |
-| `ai/src/api/openai-responses.ts` | 372 | 1 | todo |  |  |
+| `ai/src/api/openai-responses.ts` | 372 | 1 | done | `crates/pi-ai/src/api/openai_responses.rs` | Params, compat, cache/session affinity, service-tier pricing; 20 recorded-fetch differential scenarios. |
 | `ai/src/api/pi-messages.ts` | 433 | 1 | todo |  |  |
-| `ai/src/api/simple-options.ts` | 97 | 1 | todo |  |  |
+| `ai/src/api/simple-options.ts` | 97 | 1 | done | `crates/pi-ai/src/api/simple_options.rs` | Context clamp, base options, reasoning clamps, thinking budgets; unit + streamSimple differential. |
 | `ai/src/api/transform-messages.ts` | 228 | 1 | done | `crates/pi-ai/src/api/transform_messages.rs` | Cross-model thinking/tool-call normalization, image downgrade, synthetic tool results; injected clock; differential 18 scenarios. |
 | `ai/src/auth/context.ts` | 45 | 1 | done | `crates/pi-ai/src/auth/context.rs` | default env/file context; env branch not unit-tested (process-global) |
 | `ai/src/auth/credential-store.ts` | 67 | 1 | done | `crates/pi-ai/src/auth/credential_store.rs` | serialized modify/delete, abort-before-run, insertion-order list |
@@ -78,15 +78,15 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/node-http-proxy.ts` | 112 | 1 | todo |  |  |
 | `ai/src/utils/provider-env.ts` | 52 | 1 | partial | `crates/pi-ai/src/utils/provider_env.rs` | Scoped → process env precedence; Bun `/proc/self/environ` fallback not applicable to native Rust (see traceability). |
 | `ai/src/api/anthropic-messages.lazy.ts` | 4 | 2 | todo |  |  |
-| `ai/src/api/azure-openai-responses.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/azure-openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/azure_openai_responses.rs` | `azure_open_ai_responses_api()` lazy adapter. |
 | `ai/src/api/bedrock-converse-stream.lazy.ts` | 30 | 2 | todo |  |  |
 | `ai/src/api/cloudflare-gateway-binding.ts` | 192 | 2 | todo |  |  |
 | `ai/src/api/google-generative-ai.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/google-vertex.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/mistral-conversations.lazy.ts` | 4 | 2 | todo |  |  |
-| `ai/src/api/openai-codex-responses.lazy.ts` | 4 | 2 | todo |  |  |
-| `ai/src/api/openai-completions.lazy.ts` | 4 | 2 | todo |  |  |
-| `ai/src/api/openai-responses.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/openai-codex-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_codex_responses.rs` | `openai_codex_responses_api()` lazy adapter. |
+| `ai/src/api/openai-completions.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_completions.rs` | `open_ai_completions_api()` lazy adapter. |
+| `ai/src/api/openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_responses.rs` | `open_ai_responses_api()` lazy adapter. |
 | `ai/src/api/openrouter-images.ts` | 196 | 2 | todo |  |  |
 | `ai/src/api/pi-messages.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/auth/helpers.ts` | 59 | 2 | done | `crates/pi-ai/src/auth/helpers.rs` | env api-key auth and lazy OAuth loading |
@@ -219,15 +219,15 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/tools/image.ts` | 104 | 0 | partial |  |  |
 | `agent/src/harness/utils/truncate.ts` | 350 | 0 | partial |  |  |
 | `agent/src/harness/telemetry.ts` | 615 | 1 | todo |  |  |
-| `agent/src/proxy.ts` | 370 | 4 | todo |  |  |
-| `agent/src/types.ts` | 470 | 4 | partial |  |  |
+| `agent/src/proxy.ts` | 370 | 4 | done | `crates/pi-agent-core/src/agent/proxy.rs` | Proxy SSE reconstruction, error/abort paths, injectable `Fetch`; see `agent-proxy.md`. |
+| `agent/src/types.ts` | 470 | 4 | done | `crates/pi-agent-core/src/agent/types.rs` | Full export set; `AgentMessage` custom variant is a raw JSON object; see `agent-types.md`. |
 | `agent/src/harness/compaction/utils.ts` | 163 | 5 | partial |  |  |
 | `agent/src/harness/messages.ts` | 188 | 5 | partial |  |  |
 | `agent/src/harness/session/session.ts` | 340 | 5 | todo |  |  |
 | `agent/src/harness/session/types.ts` | 406 | 5 | todo |  |  |
 | `agent/src/harness/types.ts` | 320 | 5 | partial |  |  |
-| `agent/src/stream-fn.ts` | 20 | 5 | todo |  |  |
-| `agent/src/agent-loop.ts` | 1028 | 6 | todo |  |  |
+| `agent/src/stream-fn.ts` | 20 | 5 | done | `crates/pi-agent-core/src/agent/stream_fn.rs` | Process-global default stream fn; exact missing-default error; see `agent-stream-fn.md`. |
+| `agent/src/agent-loop.ts` | 1028 | 6 | done | `crates/pi-agent-core/src/agent/agent_loop.rs` | Event ordering, tool modes, steering/follow-up, termination, abort races, restored tool calls; 32 behavioral tests + 27 differential scenarios; see `agent-loop.md`. |
 | `agent/src/harness/env/nodejs.ts` | 695 | 6 | todo |  |  |
 | `agent/src/harness/prompt-templates.ts` | 262 | 6 | partial |  |  |
 | `agent/src/harness/reducer.ts` | 667 | 6 | todo |  |  |
@@ -243,7 +243,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/utils/shell-output.ts` | 199 | 6 | partial |  |  |
 | `agent/src/search/index.ts` | 32 | 6 | todo |  |  |
 | `agent/src/search/scanning.ts` | 176 | 6 | todo |  |  |
-| `agent/src/agent.ts` | 626 | 7 | todo |  |  |
+| `agent/src/agent.ts` | 626 | 7 | done | `crates/pi-agent-core/src/agent/agent.rs` | Stateful wrapper, queues, lifecycle, listener settlement, continue/reset; 23 tests + 3 differential scenarios; see `agent.md`. |
 | `agent/src/harness/compaction/compaction.ts` | 910 | 7 | partial |  |  |
 | `agent/src/harness/session/jsonl/codec.ts` | 240 | 7 | todo |  |  |
 | `agent/src/harness/session/memory.ts` | 192 | 7 | todo |  |  |
@@ -285,7 +285,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/components/dynamic-border.ts` | 15 | 3 | todo |  |  |
 | `tui/src/components/image.ts` | 127 | 3 | todo |  |  |
 | `tui/src/components/input.ts` | 465 | 3 | todo |  |  |
-| `tui/src/components/markdown.ts` | 1027 | 3 | todo |  |  |
+| `tui/src/components/markdown.ts` | 1027 | 3 | done | `crates/pi-tui/src/components/markdown/` | marked 18.0.5 lexer port (fancy-regex) + component; token-stream and ANSI render differential; all TS tests ported |
 | `tui/src/components/select-list.ts` | 229 | 3 | todo |  |  |
 | `tui/src/components/spacer.ts` | 28 | 3 | todo |  |  |
 | `tui/src/components/text.ts` | 106 | 3 | todo |  |  |

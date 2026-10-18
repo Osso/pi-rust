@@ -1169,7 +1169,7 @@ async fn fetch_sse_with_retries(
             continue;
         }
 
-        let info = parse_error_response(response.status, &error_text);
+        let info = parse_error_response(response.status, &response.status_text, &error_text);
         return Err(CodexStreamError::Transport(
             info.friendly_message.unwrap_or(info.message),
         ));
@@ -1282,9 +1282,13 @@ struct ParsedErrorResponse {
     friendly_message: Option<String>,
 }
 
-fn parse_error_response(status: u16, raw: &str) -> ParsedErrorResponse {
+fn parse_error_response(status: u16, status_text: &str, raw: &str) -> ParsedErrorResponse {
     let mut message = if raw.is_empty() {
-        "Request failed".to_owned()
+        if status_text.is_empty() {
+            "Request failed".to_owned()
+        } else {
+            status_text.to_owned()
+        }
     } else {
         raw.to_owned()
     };
@@ -1487,11 +1491,16 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 struct CodexMappedSource<S> {
     inner: S,
     end_turn: Arc<Mutex<Option<bool>>>,
+    finished: bool,
 }
 
 impl<S> CodexMappedSource<S> {
     fn new(inner: S, end_turn: Arc<Mutex<Option<bool>>>) -> Self {
-        Self { inner, end_turn }
+        Self {
+            inner,
+            end_turn,
+            finished: false,
+        }
     }
 }
 
@@ -1503,12 +1512,23 @@ where
 
     fn next_event(&mut self) -> BoxFuture<'_, Result<Option<Value>, Self::Error>> {
         Box::pin(async move {
+            if self.finished {
+                return Ok(None);
+            }
             loop {
                 let Some(event) = self.inner.next_event().await? else {
                     return Ok(None);
                 };
                 match map_codex_event(event, &self.end_turn)? {
-                    Some(event) => return Ok(Some(event)),
+                    Some(event) => {
+                        if matches!(
+                            event.get("type").and_then(Value::as_str),
+                            Some("response.completed" | "response.incomplete")
+                        ) {
+                            self.finished = true;
+                        }
+                        return Ok(Some(event));
+                    }
                     None => continue,
                 }
             }
@@ -2489,6 +2509,7 @@ struct WsEventSource {
     start_emitted: Arc<AtomicBool>,
     end_turn: Arc<Mutex<Option<bool>>>,
     ping_interval: tokio::time::Interval,
+    idle_deadline: Option<tokio::time::Instant>,
 }
 
 impl WsEventSource {
@@ -2513,6 +2534,7 @@ impl WsEventSource {
                 tokio::time::Instant::now() + Duration::from_millis(WEBSOCKET_PING_INTERVAL_MS),
                 Duration::from_millis(WEBSOCKET_PING_INTERVAL_MS),
             ),
+            idle_deadline: None,
         }
     }
 
@@ -2588,22 +2610,23 @@ impl WsEventSource {
                 None => std::future::pending().await,
             }
         };
-        match self.idle_timeout_ms.filter(|timeout| *timeout > 0.0) {
-            Some(idle_timeout_ms) => {
-                tokio::select! {
-                    message = self.stream.next() => WsWait::Message(message),
-                    _ = self.ping_interval.tick() => WsWait::Ping,
-                    () = tokio::time::sleep(Duration::from_secs_f64(idle_timeout_ms / 1000.0)) => WsWait::Idle,
-                    () = abort => WsWait::Aborted,
+        let idle_sleep = self.idle_timeout_ms.filter(|timeout| *timeout > 0.0).map(|timeout_ms| {
+            let deadline = *self
+                .idle_deadline
+                .get_or_insert_with(|| tokio::time::Instant::now() + Duration::from_secs_f64(timeout_ms / 1000.0));
+            tokio::time::sleep_until(deadline)
+        });
+        tokio::select! {
+            biased;
+            _ = self.ping_interval.tick() => WsWait::Ping,
+            message = self.stream.next() => WsWait::Message(message),
+            () = async {
+                match idle_sleep {
+                    Some(sleep) => sleep.await,
+                    None => std::future::pending().await,
                 }
-            }
-            None => {
-                tokio::select! {
-                    message = self.stream.next() => WsWait::Message(message),
-                    _ = self.ping_interval.tick() => WsWait::Ping,
-                    () = abort => WsWait::Aborted,
-                }
-            }
+            } => WsWait::Idle,
+            () = abort => WsWait::Aborted,
         }
     }
 
@@ -2638,7 +2661,11 @@ impl ResponsesEventSource for WsEventSource {
                     };
                 }
 
-                match self.wait().await {
+                let outcome = self.wait().await;
+                if matches!(outcome, WsWait::Message(_)) {
+                    self.idle_deadline = None;
+                }
+                match outcome {
                     WsWait::Message(Some(Ok(Message::Text(text)))) => {
                         self.handle_text(text.as_str());
                     }

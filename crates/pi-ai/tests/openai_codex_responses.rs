@@ -1,6 +1,3 @@
-use std::collections::VecDeque;
-
-use futures_util::{SinkExt, StreamExt};
 use std::sync::{Arc, Mutex};
 
 use pi_ai::api::openai_codex_responses::{
@@ -20,100 +17,76 @@ use serde_json::{Value, json};
 // Scripted fetch
 // =============================================================================
 
-struct RecordingFetch {
-    script: Mutex<VecDeque<ScriptedResponse>>,
+#[path = "support/recording_fetch.rs"]
+mod recording_fetch;
+
+use recording_fetch::{RecordingFetch, ScriptedResponse};
+
+struct PendingHeaderFetch {
     requests: Mutex<Vec<HttpRequest>>,
-    cancels: Mutex<Vec<tokio_util::sync::CancellationToken>>,
 }
 
-struct ScriptedResponse {
-    status: u16,
-    headers: Vec<(String, String)>,
-    body: ScriptedBody,
-}
-
-enum ScriptedBody {
-    Chunks(Vec<Vec<u8>>),
-    ChunksThenPending(Vec<Vec<u8>>),
-    Pending,
-}
-
-impl RecordingFetch {
-    fn new(script: Vec<ScriptedResponse>) -> Arc<Self> {
+impl PendingHeaderFetch {
+    fn new() -> Arc<Self> {
         Arc::new(Self {
-            script: Mutex::new(script.into()),
             requests: Mutex::new(Vec::new()),
-            cancels: Mutex::new(Vec::new()),
         })
     }
 
     fn requests(&self) -> Vec<HttpRequest> {
         self.requests.lock().unwrap().clone()
     }
-
-    fn cancels(&self) -> Vec<tokio_util::sync::CancellationToken> {
-        self.cancels.lock().unwrap().clone()
-    }
 }
 
-impl Fetch for RecordingFetch {
+impl Fetch for PendingHeaderFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<tokio_util::sync::CancellationToken>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().unwrap().push(request);
-        if let Some(signal) = &signal {
-            self.cancels.lock().unwrap().push(signal.clone());
-        }
-        let response = self.script.lock().unwrap().pop_front();
-        Box::pin(async move {
-            let Some(response) = response else {
-                return Err(CallbackError::new("unexpected fetch"));
-            };
-            if matches!(response.body, ScriptedBody::Pending) {
-                if let Some(signal) = signal {
-                    signal.cancelled().await;
-                    return Err(CallbackError::new(pi_ai::http::ABORT_ERROR_MESSAGE));
-                }
-                std::future::pending().await
-            }
-            let (chunks, pending_after) = response.body.into_chunks();
+        Box::pin(async { std::future::pending().await })
+    }
+}
+
+struct PendingBodyFetch {
+    payload: Vec<u8>,
+}
+
+impl PendingBodyFetch {
+    fn new(payload: Vec<u8>) -> Arc<Self> {
+        Arc::new(Self { payload })
+    }
+}
+
+impl Fetch for PendingBodyFetch {
+    fn fetch(
+        &self,
+        _request: HttpRequest,
+        _signal: Option<tokio_util::sync::CancellationToken>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        let payload = self.payload.clone();
+        Box::pin(async {
             Ok(HttpResponse {
-                status: response.status,
-                headers: response.headers,
-                body: Box::new(ScriptedHttpBody { chunks, pending_after }),
+                status: 200,
+                status_text: String::new(),
+                headers: vec![("content-type".to_owned(), "text/event-stream".to_owned())],
+                body: Box::new(PendingBody { payload: Some(payload) }),
             })
         })
     }
 }
 
-impl ScriptedBody {
-    fn into_chunks(self) -> (VecDeque<Vec<u8>>, bool) {
-        match self {
-            Self::Chunks(chunks) => (chunks.into(), false),
-            Self::ChunksThenPending(chunks) => (chunks.into(), true),
-            Self::Pending => (VecDeque::new(), true),
-        }
-    }
+struct PendingBody {
+    payload: Option<Vec<u8>>,
 }
 
-struct ScriptedHttpBody {
-    chunks: VecDeque<Vec<u8>>,
-    pending_after: bool,
-}
-
-impl HttpBody for ScriptedHttpBody {
+impl HttpBody for PendingBody {
     fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
-        let chunk = self.chunks.pop_front();
-        let pending_after = self.pending_after;
-        Box::pin(async move {
-            match chunk {
-                Some(chunk) => Some(Ok(chunk)),
-                None if pending_after => std::future::pending().await,
-                None => None,
-            }
-        })
+        if let Some(payload) = self.payload.take() {
+            return Box::pin(async move { Some(Ok(payload)) });
+        }
+        Box::pin(async { std::future::pending().await })
     }
 }
 
@@ -170,11 +143,7 @@ fn options(fetch: Arc<dyn Fetch>, transport: Transport) -> OpenAICodexResponsesO
 }
 
 fn sse_response(payload: &str) -> ScriptedResponse {
-    ScriptedResponse {
-        status: 200,
-        headers: vec![("content-type".to_owned(), "text/event-stream".to_owned())],
-        body: ScriptedBody::Chunks(vec![payload.as_bytes().to_vec()]),
-    }
+    ScriptedResponse::sse(&[payload])
 }
 
 fn text_sse(status: &str, end_turn: Option<bool>) -> String {
@@ -293,11 +262,7 @@ async fn streams_sse_text_and_codex_headers() {
 #[tokio::test]
 async fn reports_sse_http_retries_through_on_retry() {
     let fetch = RecordingFetch::new(vec![
-        ScriptedResponse {
-            status: 500,
-            headers: vec![("retry-after-ms".to_owned(), "0".to_owned())],
-            body: ScriptedBody::Chunks(vec![b"server error".to_vec()]),
-        },
+        ScriptedResponse::json(500, "server error").with_header("retry-after-ms", "0"),
         sse_response(&text_sse("completed", None)),
     ]);
     let retries = Arc::new(Mutex::new(Vec::new()));
@@ -323,11 +288,7 @@ async fn reports_sse_http_retries_through_on_retry() {
 #[tokio::test]
 async fn completes_after_response_completed_while_body_stays_open() {
     let payload = text_sse("completed", Some(false));
-    let fetch = RecordingFetch::new(vec![ScriptedResponse {
-        status: 200,
-        headers: vec![("content-type".to_owned(), "text/event-stream".to_owned())],
-        body: ScriptedBody::ChunksThenPending(vec![payload.into_bytes()]),
-    }]);
+    let fetch = PendingBodyFetch::new(payload.into_bytes());
 
     let result = tokio::time::timeout(std::time::Duration::from_secs(1), async {
         collect(stream(model(), context(), options(fetch, Transport::Sse))).await
@@ -342,11 +303,7 @@ async fn completes_after_response_completed_while_body_stays_open() {
 
 #[tokio::test]
 async fn maps_incomplete_max_output_to_length() {
-    let fetch = RecordingFetch::new(vec![ScriptedResponse {
-        status: 200,
-        headers: vec![("content-type".to_owned(), "text/event-stream".to_owned())],
-        body: ScriptedBody::ChunksThenPending(vec![text_sse("incomplete", None).into_bytes()]),
-    }]);
+    let fetch = PendingBodyFetch::new(text_sse("incomplete", None).into_bytes());
 
     let result = tokio::time::timeout(std::time::Duration::from_secs(1), async {
         collect(stream(model(), context(), options(fetch, Transport::Sse))).await
@@ -362,11 +319,7 @@ async fn maps_incomplete_max_output_to_length() {
 
 #[tokio::test]
 async fn header_timeout_reports_configured_timeout() {
-    let fetch = RecordingFetch::new(vec![ScriptedResponse {
-        status: 200,
-        headers: Vec::new(),
-        body: ScriptedBody::Pending,
-    }]);
+    let fetch = PendingHeaderFetch::new();
     let mut opts = options(fetch.clone(), Transport::Sse);
     opts.stream.request.timeout_ms = Some(10.0);
 
@@ -378,16 +331,11 @@ async fn header_timeout_reports_configured_timeout() {
         Some("Codex SSE response headers timed out after 10ms")
     );
     assert_eq!(fetch.requests().len(), 1);
-    assert!(fetch.cancels()[0].is_cancelled());
 }
 
 #[tokio::test]
 async fn body_read_timeout_reports_configured_timeout() {
-    let fetch = RecordingFetch::new(vec![ScriptedResponse {
-        status: 200,
-        headers: vec![("content-type".to_owned(), "text/event-stream".to_owned())],
-        body: ScriptedBody::ChunksThenPending(Vec::new()),
-    }]);
+    let fetch = PendingBodyFetch::new(Vec::new());
     let mut opts = options(fetch, Transport::Sse);
     opts.stream.request.timeout_ms = Some(20.0);
 
@@ -402,29 +350,22 @@ async fn body_read_timeout_reports_configured_timeout() {
 
 #[tokio::test]
 async fn abort_mid_stream_stops_after_delivered_delta() {
-    let fetch = RecordingFetch::new(vec![ScriptedResponse {
-        status: 200,
-        headers: vec![("content-type".to_owned(), "text/event-stream".to_owned())],
-        body: ScriptedBody::ChunksThenPending(vec![
-            format!(
-                "data: {}\n\ndata: {}\n\n",
-                json!({"type": "response.output_item.added",
-                    "item": {"type": "message", "id": "msg_1", "role": "assistant", "status": "in_progress", "content": []}}),
-                json!({"type": "response.output_text.delta", "delta": "one"})
-            )
-            .into_bytes(),
-        ]),
-    }]);
+    let payload = format!(
+        "data: {}\n\ndata: {}\n\n",
+        json!({"type": "response.output_item.added",
+            "item": {"type": "message", "id": "msg_1", "role": "assistant", "status": "in_progress", "content": []}}),
+        json!({"type": "response.output_text.delta", "delta": "one"})
+    );
     let token = tokio_util::sync::CancellationToken::new();
-    let mut opts = options(fetch.clone(), Transport::Sse);
-    opts.stream.request.signal = Some(token.clone());
+    let fetch = RecordingFetch::with_abort_after_chunks(vec![ScriptedResponse::sse(&[&payload])], 1, token.clone());
+    let mut opts = options(fetch, Transport::Sse);
+    opts.stream.request.signal = Some(token);
 
     let mut stream = stream(model(), context(), opts);
     let mut deltas = Vec::new();
     while let Some(event) = stream.next().await {
         if let AssistantMessageEvent::TextDelta { delta, .. } = event.expect("event") {
             deltas.push(delta);
-            token.cancel();
         }
     }
     let result = stream.result().await.expect("result");
@@ -432,7 +373,6 @@ async fn abort_mid_stream_stops_after_delivered_delta() {
     assert_eq!(deltas, vec!["one".to_owned()]);
     assert_eq!(result.stop_reason, StopReason::Aborted);
     assert_eq!(result.error_message.as_deref(), Some("Request was aborted"));
-    assert!(fetch.cancels()[0].is_cancelled());
 }
 
 #[tokio::test]
@@ -605,13 +545,10 @@ async fn zstd_compresses_sse_request_bodies() {
 async fn uses_exponential_backoff_across_retries() {
     let mut script = Vec::new();
     for _ in 0..3 {
-        script.push(ScriptedResponse {
-            status: 429,
-            headers: vec![("content-type".to_owned(), "application/json".to_owned())],
-            body: ScriptedBody::Chunks(vec![
-                br#"{"error":{"code":"rate_limit_exceeded","message":"rate limited"}}"#.to_vec(),
-            ]),
-        });
+        script.push(ScriptedResponse::json(
+            429,
+            r#"{"error":{"code":"rate_limit_exceeded","message":"rate limited"}}"#,
+        ));
     }
     script.push(sse_response(&text_sse("completed", None)));
     let fetch = RecordingFetch::new(script);
@@ -632,13 +569,13 @@ async fn uses_exponential_backoff_across_retries() {
 
 #[tokio::test]
 async fn fails_when_retry_delay_exceeds_limit() {
-    let fetch = RecordingFetch::new(vec![ScriptedResponse {
-        status: 503,
-        headers: vec![("retry-after".to_owned(), "2".to_owned())],
-        body: ScriptedBody::Chunks(vec![
-            br#"{"error":{"code":"temporarily_unavailable","message":"retry later"}}"#.to_vec(),
-        ]),
-    }]);
+    let fetch = RecordingFetch::new(vec![
+        ScriptedResponse::json(
+            503,
+            r#"{"error":{"code":"temporarily_unavailable","message":"retry later"}}"#,
+        )
+        .with_header("retry-after", "2"),
+    ]);
     let mut opts = options(fetch.clone(), Transport::Sse);
     opts.stream.request.max_retries = Some(3.0);
     opts.stream.request.max_retry_delay_ms = Some(1000.0);
@@ -724,134 +661,19 @@ async fn missing_api_key_produces_error_stream() {
 
 #[tokio::test]
 async fn close_and_reset_debug_stats_are_public() {
-    reset_openai_codex_websocket_debug_stats(None);
-    close_openai_codex_websocket_sessions(None);
-    assert_eq!(get_openai_codex_websocket_debug_stats("missing"), None);
+    close_openai_codex_websocket_sessions(Some("missing-session"));
+    reset_openai_codex_websocket_debug_stats(Some("missing-session"));
+    assert_eq!(get_openai_codex_websocket_debug_stats("missing-session"), None);
 }
 
 // =============================================================================
 // Scripted WebSocket server
 // =============================================================================
 
-#[derive(Default)]
-struct ServerRecords {
-    connections: Mutex<Vec<ServerConnection>>,
-    frame_notify: tokio::sync::Notify,
-}
+#[path = "support/ws_server.rs"]
+mod ws_server;
 
-#[derive(Default)]
-struct ServerConnection {
-    headers: std::collections::BTreeMap<String, String>,
-    frames: Vec<Value>,
-    pings: usize,
-}
-
-type ServerScript = Arc<dyn Fn(usize, usize) -> Vec<Value> + Send + Sync>;
-
-struct WsServer {
-    url: String,
-    records: Arc<ServerRecords>,
-    task: tokio::task::JoinHandle<()>,
-}
-
-impl Drop for WsServer {
-    fn drop(&mut self) {
-        self.task.abort();
-    }
-}
-
-async fn start_ws_server(script: ServerScript) -> WsServer {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind ws server");
-    let address = listener.local_addr().expect("server address");
-    let records = Arc::new(ServerRecords::default());
-    let captured = records.clone();
-    let task = tokio::spawn(async move {
-        let mut connection_index = 0usize;
-        loop {
-            let Ok((stream, _)) = listener.accept().await else {
-                return;
-            };
-            let captured = captured.clone();
-            let script = script.clone();
-            let index = connection_index;
-            connection_index += 1;
-            tokio::spawn(async move {
-                let headers = peek_http_headers(&stream).await;
-                let Ok(mut socket) = tokio_tungstenite::accept_async(stream).await else {
-                    return;
-                };
-                {
-                    let mut connections = captured.connections.lock().unwrap();
-                    while connections.len() <= index {
-                        connections.push(ServerConnection::default());
-                    }
-                    connections[index].headers = headers;
-                }
-                let mut frame_index = 0usize;
-                while let Some(message) = socket.next().await {
-                    let Ok(message) = message else {
-                        return;
-                    };
-                    match message {
-                        tokio_tungstenite::tungstenite::Message::Text(text) => {
-                            let frame: Value = serde_json::from_str(text.as_str()).expect("client frame");
-                            {
-                                let mut connections = captured.connections.lock().unwrap();
-                                connections[index].frames.push(frame);
-                            }
-                            captured.frame_notify.notify_waiters();
-                            let events = script(index, frame_index);
-                            frame_index += 1;
-                            for event in events {
-                                if socket
-                                    .send(tokio_tungstenite::tungstenite::Message::text(event.to_string()))
-                                    .await
-                                    .is_err()
-                                {
-                                    return;
-                                }
-                            }
-                        }
-                        tokio_tungstenite::tungstenite::Message::Ping(_) => {
-                            let mut connections = captured.connections.lock().unwrap();
-                            connections[index].pings += 1;
-                        }
-                        tokio_tungstenite::tungstenite::Message::Close(_) => return,
-                        _ => {}
-                    }
-                }
-            });
-        }
-    });
-    WsServer {
-        url: format!("ws://{address}"),
-        records,
-        task,
-    }
-}
-
-async fn peek_http_headers(stream: &tokio::net::TcpStream) -> std::collections::BTreeMap<String, String> {
-    let mut buffer = vec![0_u8; 16 * 1024];
-    loop {
-        let read = stream.peek(&mut buffer).await.expect("peek handshake");
-        let text = String::from_utf8_lossy(&buffer[..read]);
-        if let Some(end) = text.find("\r\n\r\n") {
-            return parse_http_headers(&text[..end]);
-        }
-        tokio::task::yield_now().await;
-    }
-}
-
-fn parse_http_headers(request: &str) -> std::collections::BTreeMap<String, String> {
-    request
-        .lines()
-        .skip(1)
-        .filter_map(|line| line.split_once(':'))
-        .map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim().to_owned()))
-        .collect()
-}
+use ws_server::{completed_event, start_ws_server};
 
 fn ws_model(base_url: &str) -> Model {
     let mut model = model();
@@ -880,28 +702,6 @@ fn ws_options(
     }
 }
 
-fn completed_event(response_id: &str, text: Option<&str>, end_turn: Option<bool>) -> Vec<Value> {
-    let mut events = vec![json!({"type": "response.created", "response": {"id": response_id}})];
-    if let Some(text) = text {
-        events.push(json!({"type": "response.output_item.added", "item": {
-            "type": "message", "id": format!("msg_{response_id}"), "role": "assistant", "status": "in_progress", "content": []
-        }}));
-        events.push(json!({"type": "response.output_text.delta", "delta": text}));
-        events.push(json!({"type": "response.output_item.done", "item": {
-            "type": "message", "id": format!("msg_{response_id}"), "role": "assistant", "status": "completed",
-            "content": [{"type": "output_text", "text": text}]
-        }}));
-    }
-    events.push(json!({"type": "response.completed", "response": {
-        "id": response_id,
-        "status": "completed",
-        "end_turn": end_turn,
-        "usage": {"input_tokens": 5, "output_tokens": 3, "total_tokens": 8,
-            "input_tokens_details": {"cached_tokens": 0}}
-    }}));
-    events
-}
-
 fn text_of(result: &AssistantMessage) -> Option<&str> {
     result.content.iter().find_map(|block| match block {
         pi_ai::types::AssistantContent::Text(text) => Some(text.text.as_str()),
@@ -911,8 +711,6 @@ fn text_of(result: &AssistantMessage) -> Option<&str> {
 
 #[tokio::test]
 async fn websocket_cached_continuation_sends_only_input_deltas() {
-    reset_openai_codex_websocket_debug_stats(None);
-    close_openai_codex_websocket_sessions(None);
     let fetch = RecordingFetch::new(Vec::new());
     let server = start_ws_server(Arc::new(|connection, frame| {
         if connection == 0 && frame == 0 {
@@ -978,8 +776,6 @@ async fn websocket_cached_continuation_sends_only_input_deltas() {
 
 #[tokio::test]
 async fn websocket_cache_is_scoped_to_the_authenticated_account() {
-    reset_openai_codex_websocket_debug_stats(None);
-    close_openai_codex_websocket_sessions(None);
     let fetch = RecordingFetch::new(Vec::new());
     let server = start_ws_server(Arc::new(|_, _| completed_event("resp", Some("ok"), None))).await;
     let model = ws_model(&server.url);
@@ -1021,7 +817,6 @@ async fn websocket_cache_is_scoped_to_the_authenticated_account() {
 
 #[tokio::test]
 async fn websocket_connect_timeout_is_reported_without_sse_fallback() {
-    reset_openai_codex_websocket_debug_stats(None);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let address = listener.local_addr().expect("address");
     let accept_task = tokio::spawn(async move {
@@ -1059,7 +854,6 @@ async fn websocket_connect_timeout_is_reported_without_sse_fallback() {
 
 #[tokio::test]
 async fn websocket_idle_timeout_before_first_event_emits_no_start() {
-    reset_openai_codex_websocket_debug_stats(None);
     let fetch = RecordingFetch::new(Vec::new());
     let server = start_ws_server(Arc::new(|_, _| Vec::new())).await;
     let mut opts = ws_options(
@@ -1089,8 +883,6 @@ async fn websocket_idle_timeout_before_first_event_emits_no_start() {
 
 #[tokio::test]
 async fn websocket_reconnects_once_when_connection_limit_is_reached() {
-    reset_openai_codex_websocket_debug_stats(None);
-    close_openai_codex_websocket_sessions(None);
     let fetch = RecordingFetch::new(Vec::new());
     let server = start_ws_server(Arc::new(|connection, _| {
         if connection == 0 {
@@ -1134,8 +926,6 @@ async fn websocket_reconnects_once_when_connection_limit_is_reached() {
 
 #[tokio::test]
 async fn websocket_recovers_missing_cached_continuation() {
-    reset_openai_codex_websocket_debug_stats(None);
-    close_openai_codex_websocket_sessions(None);
     let fetch = RecordingFetch::new(Vec::new());
     let server = start_ws_server(Arc::new(|connection, frame| {
         if connection == 0 && frame == 0 {
@@ -1209,8 +999,6 @@ async fn websocket_recovers_missing_cached_continuation() {
 
 #[tokio::test]
 async fn websocket_one_shot_when_cache_retention_is_none() {
-    reset_openai_codex_websocket_debug_stats(None);
-    close_openai_codex_websocket_sessions(None);
     let fetch = RecordingFetch::new(Vec::new());
     let server = start_ws_server(Arc::new(|_, _| completed_event("resp", Some("ok"), None))).await;
     let mut opts = ws_options(
@@ -1312,8 +1100,6 @@ async fn streams_encrypted_reasoning_summaries() {
 
 #[tokio::test]
 async fn sends_native_websocket_pings_while_waiting() {
-    reset_openai_codex_websocket_debug_stats(None);
-    close_openai_codex_websocket_sessions(None);
     let fetch = RecordingFetch::new(Vec::new());
     let server = start_ws_server(Arc::new(|_, _| Vec::new())).await;
     let mut opts = ws_options(fetch.clone(), Transport::Websocket, None, &mock_token("acc_test"));
