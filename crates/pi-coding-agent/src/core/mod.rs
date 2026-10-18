@@ -33,6 +33,7 @@ mod skill_block;
 pub mod skills;
 pub mod slash_commands;
 pub mod source_info;
+pub mod system_prompt;
 pub mod timings;
 pub mod tool_capabilities;
 pub mod tool_detach_registry;
