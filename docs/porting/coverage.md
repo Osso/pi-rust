@@ -56,12 +56,12 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/google-shared.ts` | 419 | 1 | todo |  |  |
 | `ai/src/api/google-vertex.ts` | 596 | 1 | todo |  |  |
 | `ai/src/api/lazy.ts` | 98 | 1 | done | `crates/pi-ai/src/api/lazy.rs` | lazy stream/api, setup errors, declared deferred capabilities; differential setup-error |
-| `ai/src/api/mistral-conversations.ts` | 931 | 1 | todo |  |  |
+| `ai/src/api/mistral-conversations.ts` | 931 | 1 | done | `crates/pi-ai/src/api/mistral_conversations.rs` | Native chat stream, wire remapping, SSE, reasoning modes, tool-call ID hashing; differential 43 scenarios (requests, events, messages). |
 | `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | todo |  |  |
 | `ai/src/api/openai-completions.ts` | 1577 | 1 | done | `crates/pi-ai/src/api/openai_completions.rs` | Compat detection, message/tool conversion, all thinking formats, cache control, routing; 9 behavioral + 35 recorded-fetch differential scenarios. |
 | `ai/src/api/openai-responses-shared.ts` | 983 | 1 | done | `crates/pi-ai/src/api/openai_responses_shared.rs` | Message/tool conversion, citation normalization, Responses SSE state machine; 19 behavioral + 31 differential scenarios. |
 | `ai/src/api/openai-responses.ts` | 372 | 1 | done | `crates/pi-ai/src/api/openai_responses.rs` | Params, compat, cache/session affinity, service-tier pricing; 20 recorded-fetch differential scenarios. |
-| `ai/src/api/pi-messages.ts` | 433 | 1 | todo |  |  |
+| `ai/src/api/pi-messages.ts` | 433 | 1 | done | `crates/pi-ai/src/api/pi_messages.rs` | SSE assistant-event protocol, rewrite diagnostics, response errors; differential 13 scenarios. |
 | `ai/src/api/simple-options.ts` | 97 | 1 | done | `crates/pi-ai/src/api/simple_options.rs` | Context clamp, base options, reasoning clamps, thinking budgets; unit + streamSimple differential. |
 | `ai/src/api/transform-messages.ts` | 228 | 1 | done | `crates/pi-ai/src/api/transform_messages.rs` | Cross-model thinking/tool-call normalization, image downgrade, synthetic tool results; injected clock; differential 18 scenarios. |
 | `ai/src/auth/context.ts` | 45 | 1 | done | `crates/pi-ai/src/auth/context.rs` | default env/file context; env branch not unit-tested (process-global) |
@@ -80,15 +80,15 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/anthropic-messages.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/azure-openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/azure_openai_responses.rs` | `azure_open_ai_responses_api()` lazy adapter. |
 | `ai/src/api/bedrock-converse-stream.lazy.ts` | 30 | 2 | todo |  |  |
-| `ai/src/api/cloudflare-gateway-binding.ts` | 192 | 2 | todo |  |  |
+| `ai/src/api/cloudflare-gateway-binding.ts` | 192 | 2 | done | `crates/pi-ai/src/api/cloudflare_gateway_binding.rs` | Workers AI binding transport: prefix normalization, provider/endpoint split, header stripping, signal passthrough; differential 11 scenarios. |
 | `ai/src/api/google-generative-ai.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/google-vertex.lazy.ts` | 4 | 2 | todo |  |  |
-| `ai/src/api/mistral-conversations.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/mistral-conversations.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/mistral_conversations.rs` | `mistral_conversations_api()` wraps `MistralConversationsApi` in `LazyApi`. |
 | `ai/src/api/openai-codex-responses.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/openai-completions.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_completions.rs` | `open_ai_completions_api()` lazy adapter. |
 | `ai/src/api/openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_responses.rs` | `open_ai_responses_api()` lazy adapter. |
 | `ai/src/api/openrouter-images.ts` | 196 | 2 | todo |  |  |
-| `ai/src/api/pi-messages.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/pi-messages.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/pi_messages.rs` | `pi_messages_api()` wraps `PiMessagesApi` in `LazyApi`. |
 | `ai/src/auth/helpers.ts` | 59 | 2 | done | `crates/pi-ai/src/auth/helpers.rs` | env api-key auth and lazy OAuth loading |
 | `ai/src/auth/oauth/anthropic.ts` | 364 | 2 | todo |  |  |
 | `ai/src/auth/oauth/kimi-coding.ts` | 310 | 2 | todo |  |  |
