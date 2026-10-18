@@ -5,7 +5,6 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use pi_agent_core::AgentToolResult;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::process::Command;
@@ -13,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::core::detached_bash_runner::{
     append_artifact_record, finalize_detached_job_with_retry, hash_json, is_process_identity_alive, read_json_lines,
-    retain_control_db_connection, terminate_foreground_runner,
+    retain_control_db_connection,
 };
 use crate::core::detached_job_control::{
     DetachedJobCancelCommand, DetachedJobResponseCommand, DetachedJobRuntimeCommand,
@@ -22,14 +21,12 @@ use crate::core::detached_job_control::{
 use crate::core::detached_job_runner::{
     DetachedJobArtifacts, DetachedJobOwnershipIdentity, create_detached_job_terminal_input,
 };
-use crate::core::runtime_process::read_process_identity;
 use crate::core::session_control_db::{
     DetachedJobOutcome, FinalizeDetachedJobInput, FinalizeDetachedJobResult, RuntimeMailboxAddress,
-    SupervisorRequestKind, finalize_detached_job,
+    finalize_detached_job,
 };
 
 use super::detached_bridge::{EnqueueDetachedPyrunBridgeRequestInput, enqueue_detached_pyrun_bridge_request};
-use super::eval_tool::format_canonical_pyrun_eval_result;
 use super::runner::{
     CanonicalPyrunEvalParams, CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate, PyrunRunnerClient,
     PyrunRunnerOptions,
@@ -597,22 +594,4 @@ fn now_millis() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
         .unwrap_or(0)
-}
-
-#[allow(dead_code)]
-fn _unused_agent_result(_result: AgentToolResult, _kind: SupervisorRequestKind) {}
-
-#[allow(dead_code)]
-fn _unused_format(params: &super::eval_tool::PyrunEvalParams, result: CanonicalPyrunEvalResult) -> AgentToolResult {
-    format_canonical_pyrun_eval_result(params, result)
-}
-
-#[allow(dead_code)]
-fn _unused_process_identity(pid: u32) -> Option<crate::core::runtime_process::ProcessIdentity> {
-    read_process_identity(pid).ok()
-}
-
-#[allow(dead_code)]
-fn _unused_terminate(pid: u32) {
-    let _ = terminate_foreground_runner(pid, rustix::process::Signal::TERM);
 }
