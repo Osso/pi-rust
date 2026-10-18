@@ -31,8 +31,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `ai/src/api/cloudflare.ts` | 15 | 0 | todo |  |  |
-| `ai/src/api/openai-prompt-cache.ts` | 8 | 0 | todo |  |  |
+| `ai/src/api/cloudflare.ts` | 15 | 0 | done | `crates/pi-ai/src/api/cloudflare.rs` | Four endpoint constants; exact differential. |
+| `ai/src/api/openai-prompt-cache.ts` | 8 | 0 | done | `crates/pi-ai/src/api/openai_prompt_cache.rs` | Code-point clamp at 64; differential. |
 | `ai/src/auth/oauth/device-code.ts` | 98 | 0 | done | `crates/pi-ai/src/auth/oauth/device_code.rs` | RFC 8628 polling with deadline, slow_down and cancellation; Tokio tests. |
 | `ai/src/auth/oauth/oauth-page.ts` | 109 | 0 | done | `crates/pi-ai/src/auth/oauth/oauth_page.rs` | Success/error HTML rendering with escaping; byte-exact differential. |
 | `ai/src/auth/oauth/pkce.ts` | 34 | 0 | done | `crates/pi-ai/src/auth/oauth/pkce.rs` | Base64url verifier and SHA-256 challenge; differential challenge check. |
