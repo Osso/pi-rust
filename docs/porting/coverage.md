@@ -377,8 +377,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/pyrun/src/runner.ts` | 311 | 0 | todo |  |  |
 | `coding-agent/src/bun/restore-sandbox-env.ts` | 36 | 0 | gap | — | Bun-only workaround for oven-sh/bun#27802 (empty `process.env` in sandboxes); Rust has no Bun runtime and no empty-env bug to repair. |
 | `coding-agent/src/cli/experimental/auth.ts` | 21 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/auth.rs` | Token/file auth source parsing; differential `27007`. |
-| `coding-agent/src/cli/experimental/command.ts` | 205 | 0 | todo |  |  |
-| `coding-agent/src/cli/experimental/transport-address.ts` | 48 | 0 | todo |  |  |
+| `coding-agent/src/cli/experimental/command.ts` | 205 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/command.rs` | Typed command/option/subcommand parser; differential `27010`. |
+| `coding-agent/src/cli/experimental/transport-address.ts` | 48 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/transport_address.rs` | Unix transport address validation; differential `27009`. |
 | `coding-agent/src/core/debug-repl.ts` | 292 | 0 | todo |  |  |
 | `coding-agent/src/core/desktop-notification.ts` | 116 | 0 | todo |  |  |
 | `coding-agent/src/core/detached-job-retention.ts` | 76 | 0 | todo |  |  |
@@ -409,7 +409,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/external-editor.ts` | 45 | 0 | todo |  |  |
 | `coding-agent/src/modes/interactive/model-search.ts` | 27 | 0 | todo |  |  |
 | `coding-agent/src/modes/rpc/jsonl.ts` | 58 | 0 | partial |  |  |
-| `coding-agent/src/supervisor/project-resolver.ts` | 108 | 0 | todo |  |  |
+| `coding-agent/src/supervisor/project-resolver.ts` | 108 | 0 | done | `crates/pi-coding-agent/src/supervisor/project_resolver.rs` | Root/remote/basename resolution, config validation, `git remote -v` names; differential `27011`. |
 | `coding-agent/src/supervisor/request-wake.ts` | 149 | 0 | todo |  |  |
 | `coding-agent/src/utils/abort.ts` | 48 | 0 | done | `crates/pi-coding-agent/src/utils/abort.rs` | Focused tests; no custom abort reasons |
 | `coding-agent/src/utils/ansi.ts` | 60 | 0 | done | `crates/pi-coding-agent/src/utils/ansi.rs` | Differential 26001 (237 inputs); focused tests |

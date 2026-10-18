@@ -6,6 +6,10 @@ mod oracle;
 use std::fs;
 
 use pi_coding_agent::cli::experimental::auth::{RawAuthOptions, parse_auth_input};
+use pi_coding_agent::cli::experimental::command::{
+    Command, CommandOption, CommandParseResult, NamedCommandInvocation, string_option, value_option,
+};
+use pi_coding_agent::cli::experimental::transport_address::parse_transport_address;
 use pi_coding_agent::core::permissions::policy::{
     APPROVAL_POLICIES, ApprovalPolicyContext, evaluate_approval_policy, is_approval_policy, normalize_approval_policy,
 };
@@ -22,6 +26,10 @@ use pi_coding_agent::core::session_health::{
     empty_session_health, end_session_health, is_session_eligible_to_receive, is_sticky_dead, parse_goal_objective,
 };
 use pi_coding_agent::core::tool_capabilities::{CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES};
+use pi_coding_agent::supervisor::project_resolver::{
+    SupervisorProjectConfig, extract_remote_repository_identity, extract_remote_repository_name,
+    read_supervisor_project_config, resolve_supervisor_project,
+};
 use serde_json::{Value, json};
 
 const NAME_CASES: [&str; 12] = [
@@ -376,5 +384,264 @@ fn session_health_matches_typescript() {
         serde_json::to_value(SessionLiveStatus::Ended).unwrap(),
         json!("ended"),
         "wire name"
+    );
+}
+
+#[test]
+fn transport_address_matches_typescript() {
+    let values = [
+        "unix:///tmp/pi.sock",
+        "unix:///",
+        "unix:///tmp/pi.sock/",
+        "unix:///tmp/a%20b",
+        "unix:///tmp/a%2Fb",
+        "unix:///tmp/%C3%BC",
+        "unix:///tmp/%zz",
+        "unix:///tmp/%2",
+        "unix:///tmp/%00pi.sock",
+        "unix:///tmp/%2E%2E/pi.sock",
+        "unix:///tmp/../etc/passwd",
+        "unix:////tmp/pi.sock",
+        "unix:/tmp/pi.sock",
+        "/tmp/pi.sock",
+        "",
+        "unix://relative.sock",
+        "unix://user@host/tmp/x",
+        "unix://host:1234/tmp/x",
+        "unix:///tmp/pi.sock?x=1",
+        "unix:///tmp/pi.sock#frag",
+        "unix:///tmp/pi sock",
+        "UNIX:///tmp/pi.sock",
+        "ws://localhost:8080",
+        "http://localhost/pi.sock",
+        "file:///tmp/pi.sock",
+    ];
+    let cases: Vec<Value> = values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let option = if index % 2 == 0 { "--listen" } else { "--connect" };
+            json!({"value": value, "option": option})
+        })
+        .collect();
+    let mut oracle = Oracle::spawn();
+    let expected = oracle.call(
+        "cli/experimental/transport-address.ts",
+        "transportAddress",
+        json!(cases),
+    );
+    let actual: Vec<Value> = cases
+        .iter()
+        .map(|case| {
+            let value = case["value"].as_str().unwrap();
+            let option = case["option"].as_str().unwrap();
+            match parse_transport_address(value, option) {
+                Ok(address) => json!({"ok": true, "address": address}),
+                Err(error) => json!({"ok": false, "error": error}),
+            }
+        })
+        .collect();
+    assert_eq!(json!(actual), expected);
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CliInvocation {
+    command: String,
+    name: Option<String>,
+    count: Option<i64>,
+    remaining: Vec<String>,
+}
+
+impl NamedCommandInvocation for CliInvocation {
+    fn command(&self) -> &str {
+        &self.command
+    }
+}
+
+fn cli_invocation(
+    command: &str,
+    input: &pi_coding_agent::cli::experimental::command::ParsedCommandInput<'_>,
+    name: &CommandOption<String>,
+    count: &CommandOption<i64>,
+) -> CliInvocation {
+    CliInvocation {
+        command: command.to_owned(),
+        name: input.value(name),
+        count: input.value(count),
+        remaining: input.remaining_args.to_vec(),
+    }
+}
+
+fn build_cli_command() -> Command<CliInvocation, Vec<String>> {
+    let name = string_option("--name");
+    let count = value_option("--count", |value| {
+        value
+            .parse::<i64>()
+            .map_err(|_| format!("--count must be a number, got \"{value}\""))
+    });
+    let mut root: Command<CliInvocation, Vec<String>> = Command::new("pi");
+    root.option(name.clone());
+    root.option(count.clone());
+    root.build(move |input| CommandParseResult::Ok(cli_invocation("pi", input, &name, &count)));
+    root.action(|_, context| context.push("pi".into()));
+
+    let listen = string_option("--listen");
+    let mut child: Command<CliInvocation, Vec<String>> = Command::new("server");
+    child.option(listen.clone());
+    child.build(move |input| {
+        CommandParseResult::Ok(CliInvocation {
+            command: "server".into(),
+            name: input.value(&listen),
+            count: None,
+            remaining: input.remaining_args.to_vec(),
+        })
+    });
+    child.action(|_, context| context.push("server".into()));
+    root.command(child, |invocation| invocation);
+    root
+}
+
+const CLI_ARGV: [&[&str]; 18] = [
+    &[],
+    &["--name", "demo"],
+    &["--name=demo"],
+    &["--name", "demo", "--count", "3", "inspect", "the project"],
+    &["--name"],
+    &["--name="],
+    &["--name", "--count", "2"],
+    &["--name", "a", "--name=b"],
+    &["--count", "many", "--name", "demo"],
+    &["--count", "-3"],
+    &["--", "--name", "demo"],
+    &["--unknown", "--name", "demo"],
+    &["server", "--listen", "unix:///tmp/pi.sock"],
+    &["server", "--name", "demo"],
+    &["--name", "server"],
+    &["server"],
+    &["server", "--listen"],
+    &["-x", "--name", "demo"],
+];
+
+#[test]
+fn command_parsing_matches_typescript() {
+    let argv_cases: Vec<Value> = CLI_ARGV
+        .iter()
+        .map(|argv| json!(argv.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>()))
+        .collect();
+    let mut oracle = Oracle::spawn();
+    let expected = oracle.call_raw(json!({
+        "module": "cli/experimental/command.ts",
+        "operation": "command",
+        "cases": [],
+        "argvCases": argv_cases,
+    }));
+    let command = build_cli_command();
+    let actual: Vec<Value> = CLI_ARGV
+        .iter()
+        .map(|argv| {
+            let argv: Vec<String> = argv.iter().map(|value| (*value).to_owned()).collect();
+            match command.parse(&argv) {
+                CommandParseResult::Ok(invocation) => json!({
+                    "ok": true,
+                    "command": {
+                        "command": invocation.command,
+                        "name": invocation.name,
+                        "count": invocation.count,
+                        "remaining": invocation.remaining,
+                    }
+                }),
+                CommandParseResult::Errors(errors) => json!({"ok": false, "errors": errors}),
+            }
+        })
+        .collect();
+    assert_eq!(json!(actual), expected);
+}
+
+#[test]
+fn project_resolver_matches_typescript() {
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("projects.json");
+    fs::write(
+        &config_path,
+        r#"{"globalcomix":{"remotes":["globalcomix","globalcomix-api"],"roots":["/syncthing/Sync/Projects/globalcomix"]},"mangahelpers":{"remotes":["mangahelpers","mangahelpers-worker"],"roots":["/syncthing/Sync/Projects/mangahelpers"]},"2":{"roots":["/work"]},"1":{"roots":["/work/one"]},"world-of-osso":{"remotes":["sentinel"]}}"#,
+    )
+    .unwrap();
+    let empty_path = directory.path().join("empty.json");
+    fs::write(&empty_path, "{}").unwrap();
+    let config_path = config_path.to_string_lossy().into_owned();
+    let empty_path = empty_path.to_string_lossy().into_owned();
+    let resolve_cases = json!([
+        {"configPath": config_path, "cwd": "/syncthing/Sync/Projects/globalcomix/services/api", "remotes": ["unmapped-service"]},
+        {"configPath": config_path, "cwd": "/worktrees/manga-worker", "remotes": ["mangahelpers-worker"]},
+        {"configPath": config_path, "cwd": "/worktrees/sentinel", "remotes": ["SENTINEL"]},
+        {"configPath": config_path, "cwd": "/work/project", "remotes": []},
+        {"configPath": config_path, "cwd": "/work/one/child", "remotes": []},
+        {"configPath": config_path, "cwd": "/syncthing/Sync/Projects/globalcomix2", "remotes": ["globalcomix2"]},
+        {"configPath": empty_path, "cwd": "/repos/pi", "remotes": ["owner/Pi-Mono"]},
+        {"configPath": empty_path, "cwd": "/repos/pi/", "remotes": []},
+        {"configPath": empty_path, "cwd": "/", "remotes": []},
+        {"configPath": empty_path, "cwd": "/repos/pi", "remotes": [""]},
+    ]);
+    let urls = [
+        "git@github.com:earendil-works/pi-mono.git",
+        "https://github.com/earendil-works/pi-mono.git",
+        "ssh://git@github.com/earendil-works/pi-mono",
+        "git@github.com:pi-mono.git",
+        "  https://example.com/a/b/c.git  ",
+        "https://example.com/a/b/c/",
+        "",
+        "///",
+        "a/b/c/d",
+    ];
+    let mut oracle = Oracle::spawn();
+    let expected = oracle.call_raw(json!({
+        "module": "supervisor/project-resolver.ts",
+        "operation": "projectResolver",
+        "cases": [],
+        "resolveCases": resolve_cases.clone(),
+        "urls": urls,
+        "configPaths": [config_path.clone(), empty_path.clone(), directory.path().join("missing.json").to_string_lossy()],
+    }));
+
+    let config = read_supervisor_project_config(std::path::Path::new(&config_path)).unwrap();
+    let empty = SupervisorProjectConfig::new();
+    let resolved: Vec<Value> = resolve_cases
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| {
+            let path = case["configPath"].as_str().unwrap();
+            let config = if path == config_path { &config } else { &empty };
+            let remotes: Vec<String> = case["remotes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|remote| remote.as_str().unwrap().to_owned())
+                .collect();
+            json!(resolve_supervisor_project(
+                config,
+                case["cwd"].as_str().unwrap(),
+                &remotes
+            ))
+        })
+        .collect();
+    let identities: Vec<Value> = urls
+        .iter()
+        .map(|url| {
+            json!({
+                "identity": extract_remote_repository_identity(url),
+                "name": extract_remote_repository_name(url),
+            })
+        })
+        .collect();
+    let missing = directory.path().join("missing.json");
+    let configs = vec![
+        json!({"ok": true, "config": read_supervisor_project_config(std::path::Path::new(&config_path)).unwrap()}),
+        json!({"ok": true, "config": read_supervisor_project_config(std::path::Path::new(&empty_path)).unwrap()}),
+        json!({"ok": true, "config": read_supervisor_project_config(&missing).unwrap()}),
+    ];
+    assert_eq!(
+        json!({"resolved": resolved, "identities": identities, "configs": configs}),
+        expected
     );
 }
