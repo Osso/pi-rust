@@ -91,8 +91,9 @@ impl From<&str> for HandlerError {
 
 /// Typed handler for one event/result pair.
 ///
-/// Events and contexts are passed by value (both are cheap `Clone` snapshots);
-/// handlers return result patches instead of mutating shared state.
+/// Events are passed by value (a cheap `Clone` snapshot); contexts are cheap
+/// clones of the runner's shared live state. Handlers return result patches
+/// instead of mutating shared state.
 pub trait Handler<E, R>: Send + Sync {
     fn call(&self, event: E, ctx: ExtensionContext) -> BoxFuture<'static, Result<Option<R>, HandlerError>>;
 }
@@ -123,7 +124,6 @@ pub type SessionSetupCallback =
 pub type WithSessionCallback =
     Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type RelocateCallback = Arc<dyn Fn(&str) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
-pub type RelocateAfterToolResultCallback = Arc<dyn Fn(&str, &str) -> Result<(), HandlerError> + Send + Sync>;
 pub type NewSessionCallback = Arc<
     dyn Fn(Option<NewSessionOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
         + Send
@@ -288,6 +288,16 @@ pub struct ThemeSetResult {
 pub trait ExtensionTheme: Send + Sync {
     /// Style `text` with the named theme color.
     fn fg(&self, color: &str, text: &str) -> String;
+
+    /// Style `text` with the named theme background color.
+    fn bg(&self, _color: &str, text: &str) -> String {
+        text.to_owned()
+    }
+
+    /// Bold `text`.
+    fn bold(&self, text: &str) -> String {
+        text.to_owned()
+    }
 }
 
 /// Identity theme used when no UI is bound.
@@ -482,149 +492,166 @@ pub struct SwitchSessionOptions {
 /// Read-only footer data available to extension contexts.
 pub type ExtensionFooterDataProvider = FooterDataProvider;
 
-/// Callbacks backing every [`ExtensionContext`] accessor.
-#[derive(Clone)]
-pub struct ExtensionContextCallbacks {
-    pub get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync>,
-    pub get_thinking_level: Arc<dyn Fn() -> ThinkingLevel + Send + Sync>,
-    pub get_scoped_models: Arc<dyn Fn() -> Vec<ScopedModel> + Send + Sync>,
-    pub get_footer_data: Arc<dyn Fn() -> Option<Arc<FooterDataProvider>> + Send + Sync>,
-    pub is_idle: Arc<dyn Fn() -> bool + Send + Sync>,
-    pub has_active_retry: Arc<dyn Fn() -> bool + Send + Sync>,
-    pub is_project_trusted: Arc<dyn Fn() -> bool + Send + Sync>,
-    pub get_signal: Arc<dyn Fn() -> Option<CancellationToken> + Send + Sync>,
-    pub abort: Arc<dyn Fn() + Send + Sync>,
-    pub has_pending_messages: Arc<dyn Fn() -> bool + Send + Sync>,
-    pub shutdown: Arc<dyn Fn() + Send + Sync>,
-    pub restart: Arc<dyn Fn(Option<RestartOptions>) -> BoxFuture<'static, ()> + Send + Sync>,
-    pub get_control_db_path: Arc<dyn Fn() -> Option<String> + Send + Sync>,
-    pub get_context_usage: Arc<dyn Fn() -> Option<ContextUsage> + Send + Sync>,
-    pub get_multi_agent_agent_id: Arc<dyn Fn() -> Option<String> + Send + Sync>,
-    pub get_multi_agent_parent_session_id: Arc<dyn Fn() -> Option<String> + Send + Sync>,
-    pub get_multi_agent_requires_agent_id: Arc<dyn Fn() -> bool + Send + Sync>,
-    pub get_multi_agent_store: Arc<dyn Fn() -> Option<Arc<MultiAgentStore>> + Send + Sync>,
-    pub get_tool_detach_registry: Arc<dyn Fn() -> Option<Arc<ToolDetachRegistry>> + Send + Sync>,
-    pub compact: Arc<dyn Fn(Option<CompactOptions>) + Send + Sync>,
-    pub get_system_prompt: Arc<dyn Fn() -> String + Send + Sync>,
-    pub get_system_prompt_options: Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>,
-    pub relocate: RelocateCallback,
-    pub relocate_after_tool_result: RelocateAfterToolResultCallback,
+/// Live runner state backing every [`ExtensionContext`] member.
+///
+/// TypeScript's `createContext()` returns getters that call
+/// `runner.assertActive()` and then read current runner fields. Rust contexts
+/// hold this shared state and expose the same members as fallible methods.
+pub struct ExtensionContextState {
+    pub(super) stale_message: Option<String>,
+    pub(super) ui_context: Arc<dyn ExtensionUiContext>,
+    pub(super) has_ui: bool,
+    pub(super) mode: ExtensionMode,
+    pub(super) cwd: String,
+    pub(super) session_manager: Arc<SessionManager>,
+    pub(super) model_registry: Arc<ModelRegistry>,
+    pub(super) settings_manager: Option<Arc<Mutex<SettingsManager>>>,
+    pub(super) get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync>,
+    pub(super) get_thinking_level_fn: Arc<dyn Fn() -> ThinkingLevel + Send + Sync>,
+    pub(super) get_scoped_models: Arc<dyn Fn() -> Vec<ScopedModel> + Send + Sync>,
+    pub(super) get_footer_data: Arc<dyn Fn() -> Option<Arc<FooterDataProvider>> + Send + Sync>,
+    pub(super) is_idle_fn: Arc<dyn Fn() -> bool + Send + Sync>,
+    pub(super) has_active_retry_fn: Arc<dyn Fn() -> bool + Send + Sync>,
+    pub(super) is_project_trusted_fn: Arc<dyn Fn() -> bool + Send + Sync>,
+    pub(super) get_signal_fn: Arc<dyn Fn() -> Option<CancellationToken> + Send + Sync>,
+    pub(super) abort_fn: Arc<dyn Fn() + Send + Sync>,
+    pub(super) has_pending_messages_fn: Arc<dyn Fn() -> bool + Send + Sync>,
+    pub(super) shutdown_handler: Arc<dyn Fn() + Send + Sync>,
+    pub(super) restart_fn: Arc<dyn Fn(Option<RestartOptions>) -> BoxFuture<'static, ()> + Send + Sync>,
+    pub(super) get_control_db_path_fn: Arc<dyn Fn() -> Option<String> + Send + Sync>,
+    pub(super) get_context_usage_fn: Arc<dyn Fn() -> Option<ContextUsage> + Send + Sync>,
+    pub(super) get_multi_agent_agent_id_fn: Arc<dyn Fn() -> Option<String> + Send + Sync>,
+    pub(super) get_multi_agent_parent_session_id_fn: Arc<dyn Fn() -> Option<String> + Send + Sync>,
+    pub(super) get_multi_agent_requires_agent_id_fn: Arc<dyn Fn() -> bool + Send + Sync>,
+    pub(super) get_multi_agent_store_fn: Arc<dyn Fn() -> Option<Arc<MultiAgentStore>> + Send + Sync>,
+    pub(super) get_tool_detach_registry_fn: Arc<dyn Fn() -> Option<Arc<ToolDetachRegistry>> + Send + Sync>,
+    pub(super) compact_fn: Arc<dyn Fn(Option<CompactOptions>) + Send + Sync>,
+    pub(super) get_system_prompt_fn: Arc<dyn Fn() -> String + Send + Sync>,
+    pub(super) get_system_prompt_options_fn: Option<Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>>,
+    pub(super) relocate_handler: RelocateCallback,
+    pub(super) prepare_tool_result_relocation_handler: RelocateCallback,
+    pub(super) activate_tool_result_relocation_handler: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
+    pub(super) pending_tool_result_relocations: IndexMap<String, String>,
+    pub(super) show_approval_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
+    pub(super) show_sandbox_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
+    pub(super) wait_for_idle_fn: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
+    pub(super) new_session_handler: NewSessionCallback,
+    pub(super) fork_handler: ForkCallback,
+    pub(super) navigate_tree_handler: NavigateTreeCallback,
+    pub(super) switch_session_handler: SwitchSessionCallback,
+    pub(super) reload_handler: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
 }
 
-impl Default for ExtensionContextCallbacks {
-    fn default() -> Self {
+impl ExtensionContextState {
+    pub(super) fn new(
+        cwd: impl Into<String>,
+        session_manager: Arc<SessionManager>,
+        model_registry: Arc<ModelRegistry>,
+        settings_manager: Option<Arc<Mutex<SettingsManager>>>,
+    ) -> Self {
         Self {
+            stale_message: None,
+            ui_context: Arc::new(NoOpUiContext),
+            has_ui: false,
+            mode: ExtensionMode::Print,
+            cwd: cwd.into(),
+            session_manager,
+            model_registry,
+            settings_manager,
             get_model: Arc::new(|| None),
-            get_thinking_level: Arc::new(|| ThinkingLevel::Off),
+            get_thinking_level_fn: Arc::new(|| ThinkingLevel::Off),
             get_scoped_models: Arc::new(Vec::new),
             get_footer_data: Arc::new(|| None),
-            is_idle: Arc::new(|| true),
-            has_active_retry: Arc::new(|| false),
-            is_project_trusted: Arc::new(|| true),
-            get_signal: Arc::new(|| None),
-            abort: Arc::new(|| {}),
-            has_pending_messages: Arc::new(|| false),
-            shutdown: Arc::new(|| {}),
-            restart: Arc::new(|_| Box::pin(async {})),
-            get_control_db_path: Arc::new(|| None),
-            get_context_usage: Arc::new(|| None),
-            get_multi_agent_agent_id: Arc::new(|| None),
-            get_multi_agent_parent_session_id: Arc::new(|| None),
-            get_multi_agent_requires_agent_id: Arc::new(|| false),
-            get_multi_agent_store: Arc::new(|| None),
-            get_tool_detach_registry: Arc::new(|| None),
-            compact: Arc::new(|_| {}),
-            get_system_prompt: Arc::new(String::new),
-            get_system_prompt_options: Arc::new(|| BuildSystemPromptOptions {
-                cwd: String::new(),
-                ..BuildSystemPromptOptions::default()
-            }),
-            relocate: Arc::new(|_| {
+            is_idle_fn: Arc::new(|| true),
+            has_active_retry_fn: Arc::new(|| false),
+            is_project_trusted_fn: Arc::new(|| true),
+            get_signal_fn: Arc::new(|| None),
+            abort_fn: Arc::new(|| {}),
+            has_pending_messages_fn: Arc::new(|| false),
+            shutdown_handler: Arc::new(|| {}),
+            restart_fn: Arc::new(|_| Box::pin(async {})),
+            get_control_db_path_fn: Arc::new(|| None),
+            get_context_usage_fn: Arc::new(|| None),
+            get_multi_agent_agent_id_fn: Arc::new(|| None),
+            get_multi_agent_parent_session_id_fn: Arc::new(|| None),
+            get_multi_agent_requires_agent_id_fn: Arc::new(|| false),
+            get_multi_agent_store_fn: Arc::new(|| None),
+            get_tool_detach_registry_fn: Arc::new(|| None),
+            compact_fn: Arc::new(|_| {}),
+            get_system_prompt_fn: Arc::new(String::new),
+            get_system_prompt_options_fn: None,
+            relocate_handler: Arc::new(|_| {
                 Box::pin(async {
                     Err(HandlerError::new(
                         "Working-directory changes are not available in this session mode",
                     ))
                 })
             }),
-            relocate_after_tool_result: Arc::new(|_, _| {
-                Err(HandlerError::new(
-                    "Tool-result working-directory changes are not available in this session mode",
-                ))
+            prepare_tool_result_relocation_handler: Arc::new(|_| {
+                Box::pin(async {
+                    Err(HandlerError::new(
+                        "Tool-result working-directory changes are not available in this session mode",
+                    ))
+                })
             }),
+            activate_tool_result_relocation_handler: Arc::new(|| Box::pin(async {})),
+            pending_tool_result_relocations: IndexMap::new(),
+            show_approval_selector_handler: Arc::new(|| Ok(())),
+            show_sandbox_selector_handler: Arc::new(|| Ok(())),
+            wait_for_idle_fn: Arc::new(|| Box::pin(async {})),
+            new_session_handler: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+            fork_handler: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+            navigate_tree_handler: Arc::new(|_, _| {
+                Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })
+            }),
+            switch_session_handler: Arc::new(|_, _| {
+                Box::pin(async {
+                    Err(HandlerError::new(
+                        "Session resume is not available in this session mode",
+                    ))
+                })
+            }),
+            reload_handler: Arc::new(|| Box::pin(async {})),
         }
+    }
+
+    pub(super) fn assert_active(&self) -> Result<(), HandlerError> {
+        match &self.stale_message {
+            Some(message) => Err(HandlerError::new(message.clone())),
+            None => Ok(()),
+        }
+    }
+
+    fn schedule_tool_result_relocation(&mut self, tool_call_id: &str, target_cwd: &str) -> Result<(), HandlerError> {
+        if self.pending_tool_result_relocations.contains_key(tool_call_id) {
+            return Err(HandlerError::new(format!(
+                "Working-directory relocation already scheduled for tool call {tool_call_id}"
+            )));
+        }
+        self.pending_tool_result_relocations
+            .insert(tool_call_id.to_owned(), target_cwd.to_owned());
+        Ok(())
     }
 }
 
 /// Context passed to extension event handlers and tools.
+///
+/// Every runner-backed member is a method that asserts the runner is still
+/// active and reads the current shared state, matching the TypeScript getters.
 #[derive(Clone)]
 pub struct ExtensionContext {
-    pub ui: Arc<dyn ExtensionUiContext>,
-    pub mode: ExtensionMode,
-    pub has_ui: bool,
-    pub cwd: String,
     pub tool_execution_started_at: Option<f64>,
     pub tool_execution_agent_id: Option<String>,
-    pub session_manager: Arc<SessionManager>,
-    pub model_registry: Arc<ModelRegistry>,
-    pub settings_manager: Option<Arc<Mutex<SettingsManager>>>,
-    pub control_db_path: Option<String>,
-    pub multi_agent_agent_id: Option<String>,
-    pub multi_agent_parent_session_id: Option<String>,
-    pub multi_agent_requires_agent_id: Option<bool>,
-    pub multi_agent_store: Option<Arc<MultiAgentStore>>,
-    pub tool_detach_registry: Option<Arc<ToolDetachRegistry>>,
-    pub model: Option<Model>,
-    pub scoped_models: Vec<ScopedModel>,
-    pub thinking_level: Option<ThinkingLevel>,
-    pub signal: Option<CancellationToken>,
-    pub footer_data: Option<Arc<FooterDataProvider>>,
-    callbacks: Arc<ExtensionContextCallbacks>,
+    state: Arc<Mutex<ExtensionContextState>>,
     system_prompt_override: Option<Arc<dyn Fn() -> String + Send + Sync>>,
 }
 
 impl ExtensionContext {
-    pub fn new(
-        ui: Arc<dyn ExtensionUiContext>,
-        mode: ExtensionMode,
-        has_ui: bool,
-        cwd: impl Into<String>,
-        session_manager: Arc<SessionManager>,
-        model_registry: Arc<ModelRegistry>,
-        callbacks: Arc<ExtensionContextCallbacks>,
-    ) -> Self {
-        let footer_data = (callbacks.get_footer_data)();
-        let model = (callbacks.get_model)();
-        let scoped_models = (callbacks.get_scoped_models)();
-        let thinking_level = (callbacks.get_thinking_level)();
-        let signal = (callbacks.get_signal)();
-        let control_db_path = (callbacks.get_control_db_path)();
-        let multi_agent_agent_id = (callbacks.get_multi_agent_agent_id)();
-        let multi_agent_parent_session_id = (callbacks.get_multi_agent_parent_session_id)();
-        let multi_agent_requires_agent_id = (callbacks.get_multi_agent_requires_agent_id)();
-        let multi_agent_store = (callbacks.get_multi_agent_store)();
-        let tool_detach_registry = (callbacks.get_tool_detach_registry)();
+    pub(super) fn new(state: Arc<Mutex<ExtensionContextState>>) -> Self {
         Self {
-            ui,
-            mode,
-            has_ui,
-            cwd: cwd.into(),
             tool_execution_started_at: None,
             tool_execution_agent_id: None,
-            session_manager,
-            model_registry,
-            settings_manager: None,
-            control_db_path,
-            multi_agent_agent_id,
-            multi_agent_parent_session_id,
-            multi_agent_requires_agent_id: Some(multi_agent_requires_agent_id),
-            multi_agent_store,
-            tool_detach_registry,
-            model,
-            scoped_models,
-            thinking_level: Some(thinking_level),
-            signal,
-            footer_data,
-            callbacks,
+            state,
             system_prompt_override: None,
         }
     }
@@ -635,101 +662,174 @@ impl ExtensionContext {
         self
     }
 
-    pub fn set_has_ui(&mut self, has_ui: bool) {
-        self.has_ui = has_ui;
+    fn assert_active(&self) -> Result<(), HandlerError> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .assert_active()
     }
 
-    pub fn set_settings_manager(&mut self, settings_manager: Option<Arc<Mutex<SettingsManager>>>) {
-        self.settings_manager = settings_manager;
+    fn read<T>(&self, read: impl FnOnce(&ExtensionContextState) -> T) -> Result<T, HandlerError> {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.assert_active()?;
+        Ok(read(&state))
     }
 
-    pub fn callbacks(&self) -> &Arc<ExtensionContextCallbacks> {
-        &self.callbacks
+    /// Reads a callback from shared state, then invokes it outside the lock.
+    fn callback<T>(
+        &self,
+        pick: impl FnOnce(&ExtensionContextState) -> Arc<dyn Fn() -> T + Send + Sync>,
+    ) -> Result<T, HandlerError> {
+        let callback = self.read(pick)?;
+        Ok(callback())
     }
 
-    pub fn get_thinking_level(&self) -> ThinkingLevel {
-        self.thinking_level
-            .unwrap_or_else(|| (self.callbacks.get_thinking_level)())
+    pub fn ui(&self) -> Result<Arc<dyn ExtensionUiContext>, HandlerError> {
+        self.read(|state| Arc::clone(&state.ui_context))
     }
 
-    pub fn get_scoped_models(&self) -> Vec<ScopedModel> {
-        (self.callbacks.get_scoped_models)()
+    pub fn footer_data(&self) -> Result<Option<Arc<FooterDataProvider>>, HandlerError> {
+        self.callback(|state| Arc::clone(&state.get_footer_data))
     }
 
-    pub fn is_idle(&self) -> bool {
-        (self.callbacks.is_idle)()
+    pub fn mode(&self) -> Result<ExtensionMode, HandlerError> {
+        self.read(|state| state.mode)
     }
 
-    pub fn has_active_retry(&self) -> bool {
-        (self.callbacks.has_active_retry)()
+    pub fn has_ui(&self) -> Result<bool, HandlerError> {
+        self.read(|state| state.has_ui)
     }
 
-    pub fn is_project_trusted(&self) -> bool {
-        (self.callbacks.is_project_trusted)()
+    pub fn cwd(&self) -> Result<String, HandlerError> {
+        self.read(|state| state.cwd.clone())
     }
 
-    pub fn signal(&self) -> Option<CancellationToken> {
-        (self.callbacks.get_signal)()
+    pub fn session_manager(&self) -> Result<Arc<SessionManager>, HandlerError> {
+        self.read(|state| Arc::clone(&state.session_manager))
     }
 
-    pub fn abort(&self) {
-        (self.callbacks.abort)();
+    pub fn model_registry(&self) -> Result<Arc<ModelRegistry>, HandlerError> {
+        self.read(|state| Arc::clone(&state.model_registry))
     }
 
-    pub fn has_pending_messages(&self) -> bool {
-        (self.callbacks.has_pending_messages)()
+    pub fn settings_manager(&self) -> Result<Option<Arc<Mutex<SettingsManager>>>, HandlerError> {
+        self.read(|state| state.settings_manager.clone())
     }
 
-    pub fn shutdown(&self) {
-        (self.callbacks.shutdown)();
+    pub fn control_db_path(&self) -> Result<Option<String>, HandlerError> {
+        self.callback(|state| Arc::clone(&state.get_control_db_path_fn))
     }
 
-    pub fn restart(&self, options: Option<RestartOptions>) -> BoxFuture<'static, ()> {
-        (self.callbacks.restart)(options)
+    pub fn multi_agent_agent_id(&self) -> Result<Option<String>, HandlerError> {
+        self.callback(|state| Arc::clone(&state.get_multi_agent_agent_id_fn))
     }
 
-    pub fn get_context_usage(&self) -> Option<ContextUsage> {
-        (self.callbacks.get_context_usage)()
+    pub fn multi_agent_parent_session_id(&self) -> Result<Option<String>, HandlerError> {
+        self.callback(|state| Arc::clone(&state.get_multi_agent_parent_session_id_fn))
     }
 
-    pub fn compact(&self, options: Option<CompactOptions>) {
-        (self.callbacks.compact)(options);
+    pub fn multi_agent_requires_agent_id(&self) -> Result<bool, HandlerError> {
+        self.callback(|state| Arc::clone(&state.get_multi_agent_requires_agent_id_fn))
     }
 
-    pub fn get_system_prompt(&self) -> String {
-        match &self.system_prompt_override {
-            Some(getter) => getter(),
-            None => (self.callbacks.get_system_prompt)(),
+    pub fn multi_agent_store(&self) -> Result<Option<Arc<MultiAgentStore>>, HandlerError> {
+        self.callback(|state| Arc::clone(&state.get_multi_agent_store_fn))
+    }
+
+    pub fn tool_detach_registry(&self) -> Result<Option<Arc<ToolDetachRegistry>>, HandlerError> {
+        self.callback(|state| Arc::clone(&state.get_tool_detach_registry_fn))
+    }
+
+    pub fn model(&self) -> Result<Option<Model>, HandlerError> {
+        self.callback(|state| Arc::clone(&state.get_model))
+    }
+
+    pub fn scoped_models(&self) -> Result<Vec<ScopedModel>, HandlerError> {
+        self.callback(|state| Arc::clone(&state.get_scoped_models))
+    }
+
+    pub fn thinking_level(&self) -> Result<ThinkingLevel, HandlerError> {
+        self.callback(|state| Arc::clone(&state.get_thinking_level_fn))
+    }
+
+    pub fn get_thinking_level(&self) -> Result<ThinkingLevel, HandlerError> {
+        self.thinking_level()
+    }
+
+    pub fn get_scoped_models(&self) -> Result<Vec<ScopedModel>, HandlerError> {
+        self.scoped_models()
+    }
+
+    pub fn is_idle(&self) -> Result<bool, HandlerError> {
+        self.callback(|state| Arc::clone(&state.is_idle_fn))
+    }
+
+    pub fn has_active_retry(&self) -> Result<bool, HandlerError> {
+        self.callback(|state| Arc::clone(&state.has_active_retry_fn))
+    }
+
+    pub fn is_project_trusted(&self) -> Result<bool, HandlerError> {
+        self.callback(|state| Arc::clone(&state.is_project_trusted_fn))
+    }
+
+    pub fn signal(&self) -> Result<Option<CancellationToken>, HandlerError> {
+        self.callback(|state| Arc::clone(&state.get_signal_fn))
+    }
+
+    pub fn abort(&self) -> Result<(), HandlerError> {
+        self.callback(|state| Arc::clone(&state.abort_fn))
+    }
+
+    pub fn has_pending_messages(&self) -> Result<bool, HandlerError> {
+        self.callback(|state| Arc::clone(&state.has_pending_messages_fn))
+    }
+
+    pub fn shutdown(&self) -> Result<(), HandlerError> {
+        self.callback(|state| Arc::clone(&state.shutdown_handler))
+    }
+
+    pub fn restart(&self, options: Option<RestartOptions>) -> Result<BoxFuture<'static, ()>, HandlerError> {
+        let restart = self.read(|state| Arc::clone(&state.restart_fn))?;
+        Ok(restart(options))
+    }
+
+    pub fn get_context_usage(&self) -> Result<Option<ContextUsage>, HandlerError> {
+        self.callback(|state| Arc::clone(&state.get_context_usage_fn))
+    }
+
+    pub fn compact(&self, options: Option<CompactOptions>) -> Result<(), HandlerError> {
+        let compact = self.read(|state| Arc::clone(&state.compact_fn))?;
+        compact(options);
+        Ok(())
+    }
+
+    pub fn get_system_prompt(&self) -> Result<String, HandlerError> {
+        self.assert_active()?;
+        if let Some(getter) = &self.system_prompt_override {
+            return Ok(getter());
         }
+        self.callback(|state| Arc::clone(&state.get_system_prompt_fn))
     }
 
-    pub fn get_system_prompt_options(&self) -> BuildSystemPromptOptions {
-        (self.callbacks.get_system_prompt_options)()
-    }
-
-    pub fn relocate(&self, target_cwd: &str) -> BoxFuture<'static, Result<(), HandlerError>> {
-        (self.callbacks.relocate)(target_cwd)
+    pub fn relocate(&self, target_cwd: &str) -> Result<BoxFuture<'static, Result<(), HandlerError>>, HandlerError> {
+        let handler = self.read(|state| Arc::clone(&state.relocate_handler))?;
+        Ok(handler(target_cwd))
     }
 
     pub fn relocate_after_tool_result(&self, tool_call_id: &str, target_cwd: &str) -> Result<(), HandlerError> {
-        (self.callbacks.relocate_after_tool_result)(tool_call_id, target_cwd)
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.assert_active()?;
+        state.schedule_tool_result_relocation(tool_call_id, target_cwd)
     }
 }
 
 /// `ctx` passed to command handlers.
+///
+/// Inherits the live [`ExtensionContext`] members and reads command handlers
+/// from the same shared runner state on every call.
 #[derive(Clone)]
 pub struct ExtensionCommandContext {
     pub context: ExtensionContext,
-    pub show_approval_selector: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
-    pub show_sandbox_selector: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
-    pub wait_for_idle: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
-    pub new_session: NewSessionCallback,
-    pub fork: ForkCallback,
-    pub navigate_tree: NavigateTreeCallback,
-    pub switch_session: SwitchSessionCallback,
-    pub reload: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
-    pub restart: Arc<dyn Fn(Option<RestartOptions>) -> BoxFuture<'static, ()> + Send + Sync>,
-    pub get_system_prompt_options: Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>,
 }
 
 impl std::ops::Deref for ExtensionCommandContext {
@@ -742,22 +842,34 @@ impl std::ops::Deref for ExtensionCommandContext {
 
 impl ExtensionCommandContext {
     pub fn show_approval_selector(&self) -> Result<(), HandlerError> {
-        (self.show_approval_selector)()
+        let handler = self
+            .context
+            .read(|state| Arc::clone(&state.show_approval_selector_handler))?;
+        handler()
     }
 
     pub fn show_sandbox_selector(&self) -> Result<(), HandlerError> {
-        (self.show_sandbox_selector)()
+        let handler = self
+            .context
+            .read(|state| Arc::clone(&state.show_sandbox_selector_handler))?;
+        handler()
     }
 
     pub fn wait_for_idle(&self) -> BoxFuture<'static, ()> {
-        (self.wait_for_idle)()
+        match self.context.read(|state| Arc::clone(&state.wait_for_idle_fn)) {
+            Ok(handler) => handler(),
+            Err(_) => Box::pin(async {}),
+        }
     }
 
     pub fn new_session(
         &self,
         options: Option<NewSessionOptions>,
     ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>> {
-        (self.new_session)(options)
+        match self.context.read(|state| Arc::clone(&state.new_session_handler)) {
+            Ok(handler) => handler(options),
+            Err(error) => Box::pin(async move { Err(error) }),
+        }
     }
 
     pub fn fork(
@@ -765,7 +877,10 @@ impl ExtensionCommandContext {
         entry_id: String,
         options: Option<ForkOptions>,
     ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>> {
-        (self.fork)(entry_id, options)
+        match self.context.read(|state| Arc::clone(&state.fork_handler)) {
+            Ok(handler) => handler(entry_id, options),
+            Err(error) => Box::pin(async move { Err(error) }),
+        }
     }
 
     pub fn navigate_tree(
@@ -773,7 +888,10 @@ impl ExtensionCommandContext {
         target_id: String,
         options: Option<NavigateTreeOptions>,
     ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>> {
-        (self.navigate_tree)(target_id, options)
+        match self.context.read(|state| Arc::clone(&state.navigate_tree_handler)) {
+            Ok(handler) => handler(target_id, options),
+            Err(error) => Box::pin(async move { Err(error) }),
+        }
     }
 
     pub fn switch_session(
@@ -781,19 +899,30 @@ impl ExtensionCommandContext {
         session_path: String,
         options: Option<SwitchSessionOptions>,
     ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>> {
-        (self.switch_session)(session_path, options)
+        match self.context.read(|state| Arc::clone(&state.switch_session_handler)) {
+            Ok(handler) => handler(session_path, options),
+            Err(error) => Box::pin(async move { Err(error) }),
+        }
     }
 
     pub fn reload(&self) -> BoxFuture<'static, ()> {
-        (self.reload)()
+        match self.context.read(|state| Arc::clone(&state.reload_handler)) {
+            Ok(handler) => handler(),
+            Err(_) => Box::pin(async {}),
+        }
     }
 
-    pub fn restart(&self, options: Option<RestartOptions>) -> BoxFuture<'static, ()> {
-        (self.restart)(options)
-    }
-
-    pub fn get_system_prompt_options(&self) -> BuildSystemPromptOptions {
-        (self.get_system_prompt_options)()
+    pub fn get_system_prompt_options(&self) -> Result<BuildSystemPromptOptions, HandlerError> {
+        let (custom, cwd) = self
+            .context
+            .read(|state| (state.get_system_prompt_options_fn.clone(), state.cwd.clone()))?;
+        Ok(match custom {
+            Some(build) => build(),
+            None => BuildSystemPromptOptions {
+                cwd,
+                ..BuildSystemPromptOptions::default()
+            },
+        })
     }
 }
 
@@ -1992,6 +2121,59 @@ pub struct ExtensionHandlers {
     pub tool_result: Vec<HandlerHandle<ToolResultEvent, ToolResultEventResult>>,
     pub user_bash: Vec<HandlerHandle<UserBashEvent, UserBashEventResult>>,
     pub input: Vec<HandlerHandle<InputEvent, InputEventResult>>,
+}
+
+impl ExtensionHandlers {
+    /// Number of events with at least one handler: TS `handlers.size`, since
+    /// `on()` creates a map entry only when it pushes a handler.
+    pub fn len(&self) -> usize {
+        self.event_lists_empty().iter().filter(|empty| !**empty).count()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn event_lists_empty(&self) -> [bool; 36] {
+        [
+            self.project_trust.is_empty(),
+            self.resources_discover.is_empty(),
+            self.session_start.is_empty(),
+            self.session_info_changed.is_empty(),
+            self.session_before_switch.is_empty(),
+            self.session_before_fork.is_empty(),
+            self.session_before_compact.is_empty(),
+            self.compaction.is_empty(),
+            self.session_compaction_source.is_empty(),
+            self.session_compact.is_empty(),
+            self.session_shutdown.is_empty(),
+            self.runtime_mailbox.is_empty(),
+            self.session_before_tree.is_empty(),
+            self.session_tree.is_empty(),
+            self.context.is_empty(),
+            self.before_provider_request.is_empty(),
+            self.before_provider_headers.is_empty(),
+            self.after_provider_response.is_empty(),
+            self.before_agent_start.is_empty(),
+            self.agent_start.is_empty(),
+            self.agent_end.is_empty(),
+            self.agent_settled.is_empty(),
+            self.turn_start.is_empty(),
+            self.turn_end.is_empty(),
+            self.message_start.is_empty(),
+            self.message_update.is_empty(),
+            self.message_end.is_empty(),
+            self.tool_execution_start.is_empty(),
+            self.tool_execution_update.is_empty(),
+            self.tool_execution_end.is_empty(),
+            self.model_select.is_empty(),
+            self.thinking_level_select.is_empty(),
+            self.tool_call.is_empty(),
+            self.tool_result.is_empty(),
+            self.user_bash.is_empty(),
+            self.input.is_empty(),
+        ]
+    }
 }
 
 /// Loaded extension with all registered items.
