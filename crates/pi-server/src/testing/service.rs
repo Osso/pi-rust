@@ -350,7 +350,7 @@ pub struct ListDelay {
 
 #[derive(Default)]
 struct ServiceState {
-    sessions: Mutex<BTreeMap<String, Arc<StoredSession>>>,
+    sessions: Mutex<Vec<(String, Arc<StoredSession>)>>,
     runtimes: Mutex<BTreeMap<String, Vec<Arc<TestSessionRuntime>>>>,
     locked: Mutex<BTreeSet<String>>,
     last_created_id: Mutex<Option<String>>,
@@ -457,11 +457,12 @@ impl TestServerService {
             queued_steer_count: 0,
         })
         .expect("seeded snapshots are valid");
-        self.inner
-            .sessions
-            .lock()
-            .expect("sessions mutex poisoned")
-            .insert(id.to_string(), StoredSession::new(snapshot));
+        let mut sessions = self.inner.sessions.lock().expect("sessions mutex poisoned");
+        let stored = StoredSession::new(snapshot);
+        match sessions.iter_mut().find(|(session_id, _)| session_id == id) {
+            Some((_, existing)) => *existing = stored,
+            None => sessions.push((id.to_string(), stored)),
+        }
     }
 
     fn acquire(&self, id: &str) -> ServiceResult<Arc<TestSessionRuntime>> {
@@ -470,8 +471,9 @@ impl TestServerService {
             .sessions
             .lock()
             .expect("sessions mutex poisoned")
-            .get(id)
-            .cloned()
+            .iter()
+            .find(|(session_id, _)| session_id == id)
+            .map(|(_, stored)| stored.clone())
             .ok_or_else(|| {
                 Box::new(std::io::Error::other(format!("Unknown session: {id}"))) as crate::types::ServiceError
             })?;
@@ -518,8 +520,8 @@ impl PiServerService for TestServerService {
             }
             let sessions = self.inner.sessions.lock().expect("sessions mutex poisoned");
             Ok(sessions
-                .values()
-                .map(|stored| metadata_from_snapshot(&stored.snapshot.lock().expect("snapshot mutex poisoned")))
+                .iter()
+                .map(|(_, stored)| metadata_from_snapshot(&stored.snapshot.lock().expect("snapshot mutex poisoned")))
                 .collect())
         })
     }
@@ -540,7 +542,8 @@ impl PiServerService for TestServerService {
                 .sessions
                 .lock()
                 .expect("sessions mutex poisoned")
-                .contains_key(&options.id)
+                .iter()
+                .any(|(session_id, _)| session_id == &options.id)
             {
                 return Err(server_error(PiServerError::session_locked(
                     "Session already exists",
@@ -566,7 +569,8 @@ impl PiServerService for TestServerService {
                 .sessions
                 .lock()
                 .expect("sessions mutex poisoned")
-                .contains_key(&session_id)
+                .iter()
+                .any(|(existing, _)| existing == &session_id)
             {
                 return Err(server_error(PiServerError::session_not_found(
                     format!("Unknown session: {session_id}"),

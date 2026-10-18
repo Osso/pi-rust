@@ -58,7 +58,7 @@ impl LiveSession {
 pub(crate) struct LiveSessionManager {
     core: Weak<ServerCore>,
     service: Arc<dyn PiServerService>,
-    live_sessions: Mutex<BTreeMap<String, Arc<LiveSession>>>,
+    live_sessions: Mutex<Vec<(String, Arc<LiveSession>)>>,
     acquire_lock: tokio::sync::Mutex<()>,
 }
 
@@ -67,7 +67,7 @@ impl LiveSessionManager {
         Self {
             core,
             service,
-            live_sessions: Mutex::new(BTreeMap::new()),
+            live_sessions: Mutex::new(Vec::new()),
             acquire_lock: tokio::sync::Mutex::new(()),
         }
     }
@@ -175,8 +175,9 @@ impl LiveSessionManager {
                 .live_sessions
                 .lock()
                 .expect("live session mutex poisoned")
-                .get(session_id)
-                .cloned();
+                .iter()
+                .find(|(id, _)| id == session_id)
+                .map(|(_, live)| live.clone());
             if let Some(live) = live {
                 live.connections
                     .lock()
@@ -222,8 +223,9 @@ impl LiveSessionManager {
                 .live_sessions
                 .lock()
                 .expect("live session mutex poisoned")
-                .get(&id)
-                .cloned();
+                .iter()
+                .find(|(session_id, _)| session_id == &id)
+                .map(|(_, live)| live.clone());
             if let Some(existing) = existing {
                 if existing.is_terminal() {
                     return Err(Box::new(PiServerError::session_locked(
@@ -285,7 +287,7 @@ impl LiveSessionManager {
         self.live_sessions
             .lock()
             .expect("live session mutex poisoned")
-            .insert(id, live.clone());
+            .push((id, live.clone()));
         live.ready.store(true, Ordering::SeqCst);
         Ok(live)
     }
@@ -447,8 +449,9 @@ impl LiveSessionManager {
             .live_sessions
             .lock()
             .expect("live session mutex poisoned")
-            .get(session_id)
-            .cloned();
+            .iter()
+            .find(|(id, _)| id == session_id)
+            .map(|(_, live)| live.clone());
         match live {
             Some(live) if !live.is_terminal() && !live.is_disposing() => Ok(live),
             _ => Err(Box::new(PiServerError::session_not_found(
@@ -485,7 +488,7 @@ impl LiveSessionManager {
         self.live_sessions
             .lock()
             .expect("live session mutex poisoned")
-            .remove(&live.id);
+            .retain(|(id, _)| id != &live.id);
         drop(guard);
         if let Some(core) = self.core.upgrade()
             && !core.is_closing()
@@ -513,8 +516,9 @@ impl LiveSessionManager {
                     .live_sessions
                     .lock()
                     .expect("live session mutex poisoned")
-                    .get(&session_id)
-                    .cloned();
+                    .iter()
+                    .find(|(id, _)| id == &session_id)
+                    .map(|(_, live)| live.clone());
                 if let Some(live) = live {
                     live.connections
                         .lock()
@@ -545,9 +549,9 @@ impl LiveSessionManager {
             .live_sessions
             .lock()
             .expect("live session mutex poisoned")
-            .values()
-            .filter(|live| !live.is_disposing())
-            .cloned()
+            .iter()
+            .filter(|(_, live)| !live.is_disposing())
+            .map(|(_, live)| live.clone())
             .collect();
         let mut live_by_id = BTreeMap::new();
         for session in live_sessions {
@@ -571,7 +575,7 @@ impl LiveSessionManager {
             let _guard = self.acquire_lock.lock().await;
             let sessions: Vec<Arc<LiveSession>> = {
                 let mut map = self.live_sessions.lock().expect("live session mutex poisoned");
-                std::mem::take(&mut *map).into_values().collect()
+                std::mem::take(&mut *map).into_iter().map(|(_, live)| live).collect()
             };
             for live in sessions {
                 if live.is_disposing() {
