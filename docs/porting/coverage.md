@@ -703,7 +703,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/rpc/rpc-client.ts` | 642 | 22 | todo |  |  |
 | `coding-agent/src/modes/rpc/rpc-mode.ts` | 846 | 22 | todo |  |  |
 | `coding-agent/src/modes/rpc/rpc-types.ts` | 291 | 22 | todo |  |  |
-| `coding-agent/src/package-manager-cli.ts` | 889 | 22 | partial | `crates/pi-coding-agent/src/package_manager_cli.rs` | Argv parsing, help/usage, validation output/exit codes, list formatting (differential). Execution half returns `PackageAction`; blocked on settings/resource-loader/model-runtime/TUI wiring. |
+| `coding-agent/src/package-manager-cli.ts` | 889 | 22 | done | `crates/pi-coding-agent/src/package_manager_cli.rs` | Parsing/help/validation (byte differential) plus the execution half over `PackageCommandEffects`: settings/trust creation, install/remove/list/update, model refresh, self-update plan/commands/note, config scope; 31 behavioral tests. Loader/config-TUI/startup-UI seams documented ([traceability](traceability/package-manager-cli.md)). |
 | `coding-agent/src/supervisor/approval-reviewer.ts` | 19 | 22 | todo |  |  |
 | `coding-agent/src/supervisor/main.ts` | 436 | 22 | todo |  |  |
 | `coding-agent/src/supervisor/response-tool.ts` | 48 | 22 | done | `crates/pi-coding-agent/src/supervisor/response_tool.rs` | Tool metadata/schema and advisory text; 8-case differential ([traceability](traceability/supervisor-response-tool.md)). |
