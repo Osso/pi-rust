@@ -26,13 +26,13 @@ Source: `packages/coding-agent/src/core/system-prompt.ts` (218 lines, pinned rev
 
 ## Gaps
 
-- `getReadmePath`/`getDocsPath`/`getExamplesPath` come from the Rust package-dir resolution
-  (`PI_PACKAGE_DIR`/executable dir) versus the TypeScript module location. The differential normalizes
-  only those three absolute path lines; everything else is byte-compared.
 - Tool snippets are a `HashMap`; only lookup order is observable, and the source uses an object lookup.
 
 ## Proof
 
 - Focused: `cargo test -p pi-coding-agent --test system_prompt` (6 passed).
 - Differential: `cargo test -p pi-coding-agent --test differential_system_prompt` (1 passed) via
-  `oracle/coding-agent-system-prompt-oracle.ts`.
+  `oracle/coding-agent-system-prompt-oracle.ts`. The Rust prompt is produced by an ignored child probe
+  (`system_prompt_probe_child`) run with `PI_PACKAGE_DIR` set to the pinned `packages/coding-agent`, so both
+  implementations resolve identical README/docs/examples paths and the full prompt is byte-compared with no
+  path substitution.

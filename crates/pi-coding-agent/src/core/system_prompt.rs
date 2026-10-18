@@ -15,7 +15,8 @@ pub struct ContextFile {
     pub content: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase")]
 pub struct BuildSystemPromptOptions {
     /// Custom system prompt (replaces default).
     pub custom_prompt: Option<String>,

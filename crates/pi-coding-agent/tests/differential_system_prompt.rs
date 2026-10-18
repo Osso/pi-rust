@@ -5,3 +5,9 @@ mod system_prompt_oracle;
 fn system_prompt_matches_the_pinned_typescript_source() {
     system_prompt_oracle::run();
 }
+
+#[test]
+#[ignore = "child probe entry point"]
+fn system_prompt_probe_child() {
+    system_prompt_oracle::run_probe();
+}

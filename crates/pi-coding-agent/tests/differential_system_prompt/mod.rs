@@ -1,12 +1,18 @@
 #[path = "../support/oracle.rs"]
 mod oracle;
+#[path = "../support/system_prompt_probe.rs"]
+mod probe;
 
 use std::collections::HashMap;
 
 use pi_coding_agent::core::skills::Skill;
 use pi_coding_agent::core::source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info};
-use pi_coding_agent::core::system_prompt::{BuildSystemPromptOptions, ContextFile, build_system_prompt};
+use pi_coding_agent::core::system_prompt::{BuildSystemPromptOptions, ContextFile};
 use serde_json::{Value, json};
+
+pub(crate) fn run_probe() {
+    probe::run_child_probe();
+}
 
 pub(crate) fn run() {
     let mut oracle = oracle::TsOracle::spawn(
@@ -15,32 +21,25 @@ pub(crate) fn run() {
     );
 
     for (index, options) in cases().into_iter().enumerate() {
-        let response = oracle.request(&json!({"id": index, "options": options_json(&options)}));
+        let request = options_json(&options);
+        let response = oracle.request(&json!({"id": index, "options": request}));
         assert_eq!(response["ok"], true, "oracle failed: {response}");
 
-        let actual = normalize_paths(&build_system_prompt(&options));
-        let expected = normalize_paths(response["output"]["prompt"].as_str().expect("prompt string"));
+        let actual = probe::spawn_child_probe(&package_dir(), &request);
+        let expected = response["output"]["prompt"].as_str().expect("prompt string");
         assert_eq!(actual, expected, "case {index}");
     }
 }
 
-fn normalize_paths(prompt: &str) -> String {
-    prompt
-        .lines()
-        .map(|line| {
-            for (prefix, placeholder) in [
-                ("- Main documentation: ", "- Main documentation: <readme>"),
-                ("- Additional docs: ", "- Additional docs: <docs>"),
-                ("- Examples: ", "- Examples: <examples>"),
-            ] {
-                if line.starts_with(prefix) {
-                    return placeholder.to_owned();
-                }
-            }
-            line.to_owned()
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+/// The pinned package directory both implementations resolve their docs paths from.
+fn package_dir() -> String {
+    let lock: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/porting/source-lock.json"
+    )))
+    .expect("source lock is valid JSON");
+    let worktree = lock["worktree"].as_str().expect("source lock worktree");
+    format!("{worktree}/packages/coding-agent")
 }
 
 fn options_json(options: &BuildSystemPromptOptions) -> Value {
