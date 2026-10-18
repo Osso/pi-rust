@@ -1140,9 +1140,7 @@ impl Models for ModelsCollection {
                 })?;
                 Ok(credential)
             };
-            race_with_abort_signal(operation, &signal)
-                .await
-                .map_err(|_| ResolveError::Aborted)?
+            operation.await
         })
     }
 
