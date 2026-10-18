@@ -178,6 +178,12 @@ type ImageHelpersRequest = {
 	cases: ImageCaseRequest[];
 };
 
+type Base64DecodeRequest = {
+	id: RequestId;
+	operation: "base64_decode";
+	values: string[];
+};
+
 type EditTextCaseRequest = {
 	name: string;
 	detectionInput: string;
@@ -644,6 +650,7 @@ type Request =
 	| PromptTemplateRequest
 	| SkillFormattingRequest
 	| ImageHelpersRequest
+	| Base64DecodeRequest
 	| EditTextHelpersRequest
 	| FileOperationsFormatRequest
 	| SummaryMarkersRequest
@@ -1406,6 +1413,10 @@ function executeUtilityRequest(
 			return executeSkillFormattingRequest(request, skillFormatting, systemPrompt);
 		case "image_helpers":
 			return executeImageHelpers(request, image);
+		case "base64_decode":
+			return successfulResponse(request.id, {
+				results: request.values.map((value) => Buffer.from(value, "base64").toString("hex")),
+			});
 		case "edit_text_helpers":
 			return executeEditTextHelpers(request, editDiff);
 		case "file_operations_format":

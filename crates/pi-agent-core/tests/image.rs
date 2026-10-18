@@ -1,4 +1,23 @@
-use pi_agent_core::harness::tools::image::{detect_supported_image_mime_type, encode_base64};
+use pi_agent_core::harness::tools::image::{decode_base64, detect_supported_image_mime_type, encode_base64};
+
+#[test]
+fn decodes_base64_with_node_buffer_semantics() {
+    for (value, expected) in [
+        ("", &[][..]),
+        ("QQ==", b"A"),
+        ("QUI=", b"AB"),
+        ("QUJD", b"ABC"),
+        ("A", &[][..]),
+        ("AAAAA", &[0, 0, 0][..]),
+        ("AA==AAAA", &[0][..]),
+        ("A A A A", &[0, 0, 0][..]),
+        ("!!!!", &[][..]),
+        ("A-_A", &[0x03, 0xef, 0xc0][..]),
+        ("-_+/AQ==", &[0xfb, 0xff, 0xbf, 0x01][..]),
+    ] {
+        assert_eq!(decode_base64(value), expected, "{value:?}");
+    }
+}
 
 const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
