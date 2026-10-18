@@ -18,7 +18,7 @@ type KeybindingsApi = {
 
 type Request =
 	| { id: RequestId; operation: "migrate"; config: Record<string, unknown> }
-	| { id: RequestId; operation: "load"; agentDir: string; keys: string[] };
+	| { id: RequestId; operation: "load"; agentDir: string };
 
 type Response =
 	| { id: RequestId; ok: true; output: unknown }
@@ -31,19 +31,16 @@ function normalizeError(error: unknown): { name: string; message: string } {
 	return { name: "UnknownError", message: String(error) };
 }
 
-function entries(value: Record<string, string | string[]>): Array<[string, string[]]> {
-	return Object.entries(value).map(([key, keys]) => [key, Array.isArray(keys) ? keys : [keys]]);
-}
-
 function execute(request: Request, api: KeybindingsApi): unknown {
 	if (request.operation === "migrate") {
 		const result = api.migrateKeybindingsConfig(request.config);
 		return { config: Object.entries(result.config), migrated: result.migrated };
 	}
 	const manager = api.KeybindingsManager.create(request.agentDir);
+	const ids = Object.keys(manager.getEffectiveConfig());
 	return {
-		effective: entries(manager.getEffectiveConfig()),
-		keys: request.keys.map((keybinding) => manager.getKeys(keybinding)),
+		ids,
+		keys: ids.map((keybinding) => manager.getKeys(keybinding)),
 	};
 }
 

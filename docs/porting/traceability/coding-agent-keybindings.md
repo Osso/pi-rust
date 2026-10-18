@@ -40,6 +40,6 @@ The TUI registry itself is `packages/tui/src/keybindings.ts` → `crates/pi-tui/
 
 - Focused: `cargo test -p pi-coding-agent --test keybindings` (3 passed).
 - Differential: `cargo test -p pi-coding-agent --test differential_keybindings` (1 passed) via
-  `oracle/coding-agent-keybindings-oracle.ts`, comparing migrated config entries, effective bindings, and
-  resolved keys in source order. `getUserBindings` keeps the Rust `Vec<(id, Vec<KeyId>)>` shape and is
+  `oracle/coding-agent-keybindings-oracle.ts`, comparing migrated config entries, the ordered resolved
+  binding ids, and each id's resolved keys in source order. `getUserBindings` keeps the Rust `Vec<(id, Vec<KeyId>)>` shape and is
   covered by the focused tests instead of a shape-normalizing oracle comparison.

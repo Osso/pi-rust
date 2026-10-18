@@ -98,13 +98,16 @@ fn run_scenario(oracle: &mut oracle::TsOracle, index: usize, scenario: &Scenario
 fn diff_values(left: &Value, right: &Value, path: &str, out: &mut Vec<String>) {
     match (left, right) {
         (Value::Object(left), Value::Object(right)) => {
-            for key in left.keys().chain(right.keys().filter(|key| !left.contains_key(*key))) {
-                diff_values(
-                    left.get(key).unwrap_or(&Value::Null),
-                    right.get(key).unwrap_or(&Value::Null),
-                    &format!("{path}.{key}"),
-                    out,
-                );
+            for (key, value) in left {
+                match right.get(key) {
+                    Some(right_value) => diff_values(value, right_value, &format!("{path}.{key}"), out),
+                    None => out.push(format!("{path}.{key}: missing on right")),
+                }
+            }
+            for key in right.keys() {
+                if !left.contains_key(key) {
+                    out.push(format!("{path}.{key}: missing on left"));
+                }
             }
         }
         (Value::Array(left), Value::Array(right)) => {
