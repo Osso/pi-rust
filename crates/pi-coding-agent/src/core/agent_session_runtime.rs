@@ -644,7 +644,11 @@ pub fn default_runtime_factory(options: DefaultRuntimeFactoryOptions) -> CreateA
                     agent_dir: Some(request.agent_dir.clone()),
                     settings_manager: None,
                     model_runtime: None,
+                    model_runtime_signal: None,
+                    extension_flag_values: None,
+                    resource_loader_options: None,
                     resource_loader: Some(options.resource_loader),
+                    resource_loader_reload_options: None,
                 })
                 .await?;
             let result: CreateAgentSessionResult = create_agent_session_from_services(
@@ -665,6 +669,8 @@ pub fn default_runtime_factory(options: DefaultRuntimeFactoryOptions) -> CreateA
                     exclude_tools: options.exclude_tools.clone(),
                     no_tools: options.no_tools,
                     permission_prompt_tool: options.permission_prompt_tool.clone(),
+                    multi_agent_runtime_role: None,
+                    multi_agent_execution_capability: None,
                     custom_tools: options.custom_tools.clone(),
                     base_tools: options.base_tools.clone(),
                 },

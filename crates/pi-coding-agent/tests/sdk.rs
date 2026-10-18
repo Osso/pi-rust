@@ -137,7 +137,11 @@ async fn services_and_from_services_create_a_working_session() {
         agent_dir: Some(temp.path().display().to_string()),
         settings_manager: None,
         model_runtime: Some(runtime),
+        model_runtime_signal: None,
+        extension_flag_values: None,
+        resource_loader_options: None,
         resource_loader: Some(StaticResourceLoader::new()),
+        resource_loader_reload_options: None,
     })
     .await
     .expect("services");
@@ -154,6 +158,8 @@ async fn services_and_from_services_create_a_working_session() {
         exclude_tools: None,
         no_tools: None,
         permission_prompt_tool: None,
+        multi_agent_runtime_role: None,
+        multi_agent_execution_capability: None,
         custom_tools: Vec::new(),
         base_tools: Vec::new(),
     })
