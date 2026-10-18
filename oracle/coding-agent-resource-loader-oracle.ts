@@ -5,6 +5,10 @@ type RequestId = string | number | null;
 type ResourceLoaderApi = {
 	loadRulesFilesFromDir(dirPath: string): Array<{ path: string; content: string }>;
 	loadRulesFromDir(dirPath: string): string | undefined;
+	loadProjectContextFiles(options: {
+		cwd: string;
+		agentDir: string;
+	}): Array<{ path: string; content: string }>;
 };
 
 type Response =
@@ -21,19 +25,26 @@ function normalizeError(error: unknown): { name: string; message: string } {
 function executeRequestLine(line: string, api: ResourceLoaderApi): void {
 	let id: RequestId = null;
 	try {
-		const request = JSON.parse(line) as { id: RequestId; operation: "rules"; dir: string };
+		const request = JSON.parse(line) as {
+			id: RequestId;
+			operation: "rules" | "context_files";
+			dir: string;
+			cwd: string;
+			agentDir: string;
+		};
 		id = request.id;
-		if (request.operation !== "rules") {
-			throw new Error(`unknown operation: ${String(request.operation)}`);
-		}
-		const response: Response = {
-			id,
-			ok: true,
-			output: {
+		let output: unknown;
+		if (request.operation === "rules") {
+			output = {
 				files: api.loadRulesFilesFromDir(request.dir),
 				content: api.loadRulesFromDir(request.dir) ?? null,
-			},
-		};
+			};
+		} else if (request.operation === "context_files") {
+			output = { files: api.loadProjectContextFiles({ cwd: request.cwd, agentDir: request.agentDir }) };
+		} else {
+			throw new Error(`unknown operation: ${String(request.operation)}`);
+		}
+		const response: Response = { id, ok: true, output };
 		process.stdout.write(`${JSON.stringify(response)}\n`);
 	} catch (error) {
 		const response: Response = { id, ok: false, error: normalizeError(error) };

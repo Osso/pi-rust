@@ -75,3 +75,41 @@ pub use config_value::{
 pub use skill_block::{ParsedSkillBlock, parse_skill_block};
 pub mod project_trust;
 pub mod runtime_message_markers;
+
+// `core/index.ts` barrel: the public core surface re-exported from one place.
+pub use agent_session::{
+    AgentSession, AgentSessionConfig, AgentSessionEvent, AgentSessionEventListener, ModelCycleResult, PromptOptions,
+    SessionStats,
+};
+pub use agent_session_runtime::{
+    AgentSessionRuntime, CreateAgentSessionRuntimeFactory, CreateAgentSessionRuntimeResult,
+    create_agent_session_runtime,
+};
+pub use agent_session_services::{
+    AgentSessionRuntimeDiagnostic, AgentSessionServices, CreateAgentSessionFromServicesOptions,
+    CreateAgentSessionServicesOptions, create_agent_session_from_services, create_agent_session_services,
+};
+pub use compaction::CompactionResult;
+pub use event_bus::{EventBus, EventBusController, create_event_bus};
+pub use experimental::are_experimental_features_enabled;
+pub use extensions::{
+    AgentEndEvent, AgentSettledEvent, AgentStartEvent, BeforeAgentStartEvent, BeforeAgentStartEventResult,
+    ContextEvent, Extension, ExtensionApi, ExtensionCommandContext, ExtensionContext, ExtensionError, ExtensionEvent,
+    ExtensionFactory, ExtensionFlag, ExtensionRunner, ExtensionShortcut, ExtensionUiContext, LoadExtensionsResult,
+    MessageRenderer, RegisteredCommand, SessionBeforeCompactEvent, SessionBeforeForkEvent, SessionBeforeSwitchEvent,
+    SessionBeforeTreeEvent, SessionCompactEvent, SessionShutdownEvent, SessionStartEvent, SessionTreeEvent,
+    ToolCallEvent, ToolCallEventResult, ToolDefinition, ToolRenderResultOptions, ToolResultEvent, TurnEndEvent,
+    TurnStartEvent, WorkingIndicatorOptions, define_tool, discover_and_load_extensions,
+};
+pub use multi_agent_store::{
+    AgentActivity, AgentCurrentActivity, AgentCurrentActivityOwner, AgentFileReference, AgentLifecycleState,
+    AgentMailboxMessage, AgentNode, AgentResult, AgentSnapshot, MailboxMessageKind, MailboxMessageStatus,
+    MultiAgentStore, MultiAgentStoreOptions, SendSteeringInput, SpawnAgentInput, SteeringCheckpoint,
+    TerminalAgentLifecycleState, is_active_lifecycle,
+};
+pub use resource_loader::{
+    DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader, load_project_context_files,
+    load_rules_files_from_dir, load_rules_from_dir,
+};
+pub use source_info::{create_source_info, create_synthetic_source_info};
+pub use system_prompt::BuildSystemPromptOptions;

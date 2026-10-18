@@ -248,7 +248,7 @@ async fn steering_and_follow_up_messages_are_tracked_and_queued() {
     fixture.session.follow_up("follow up", &[]).await.expect("follow up");
     assert_eq!(fixture.session.get_steering_messages(), vec!["steer me"]);
     assert_eq!(fixture.session.get_follow_up_messages(), vec!["follow up"]);
-    gate.notify_waiters();
+    gate.notify_one();
     prompt_task.await.expect("prompt task");
 
     let types = event_types(&events);
@@ -297,7 +297,7 @@ async fn prompt_while_streaming_requires_streaming_behavior() {
         error.message(),
         "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message."
     );
-    gate.notify_waiters();
+    gate.notify_one();
     prompt_task.await.expect("prompt task");
 }
 
@@ -334,7 +334,7 @@ async fn clear_queue_returns_pending_messages() {
     assert_eq!(steering, vec!["one"]);
     assert_eq!(follow_up, vec!["two"]);
     assert_eq!(fixture.session.pending_message_count(), 0);
-    gate.notify_waiters();
+    gate.notify_one();
     prompt_task.await.expect("prompt task");
 }
 
@@ -392,7 +392,7 @@ async fn abort_clears_queues_and_reports_idle() {
     fixture.session.abort().await.expect("abort");
     assert!(!fixture.session.is_streaming());
     assert_eq!(fixture.session.pending_message_count(), 0);
-    gate.notify_waiters();
+    gate.notify_one();
     let _ = prompt_task.await;
 }
 
@@ -536,7 +536,7 @@ async fn prompt_with_streaming_steer_queues_instead_of_failing() {
         .await
         .expect("steer prompt");
     assert_eq!(fixture.session.get_steering_messages(), vec!["steered"]);
-    gate.notify_waiters();
+    gate.notify_one();
     prompt_task.await.expect("prompt task");
     assert!(fixture.session.get_steering_messages().is_empty());
 }

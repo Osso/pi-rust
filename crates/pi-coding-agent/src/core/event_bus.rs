@@ -14,7 +14,7 @@ pub struct HandlerError {
     pub message: String,
 }
 
-pub trait EventBus {
+pub trait EventBus: Send + Sync {
     fn emit(&self, channel: &str, data: Value) -> Vec<HandlerError>;
     fn on(&self, channel: &str, handler: Arc<Handler>) -> Subscription;
 }

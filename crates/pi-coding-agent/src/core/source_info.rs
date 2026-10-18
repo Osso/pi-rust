@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::core::package_manager::{MetadataOrigin, PathMetadata};
+
 /// Scope of a source path in the coding-agent metadata model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -49,6 +51,36 @@ pub struct SourceInfo {
     pub origin: SourceOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_dir: Option<String>,
+}
+
+impl From<crate::core::package_manager::SourceScope> for SourceScope {
+    fn from(scope: crate::core::package_manager::SourceScope) -> Self {
+        match scope {
+            crate::core::package_manager::SourceScope::User => Self::User,
+            crate::core::package_manager::SourceScope::Project => Self::Project,
+            crate::core::package_manager::SourceScope::Temporary => Self::Temporary,
+        }
+    }
+}
+
+impl From<MetadataOrigin> for SourceOrigin {
+    fn from(origin: MetadataOrigin) -> Self {
+        match origin {
+            MetadataOrigin::Package => Self::Package,
+            MetadataOrigin::TopLevel => Self::TopLevel,
+        }
+    }
+}
+
+/// Creates source metadata from package-manager path metadata (`createSourceInfo`).
+pub fn create_source_info(path: &str, metadata: &PathMetadata) -> SourceInfo {
+    SourceInfo {
+        path: path.to_owned(),
+        source: metadata.source.clone(),
+        scope: metadata.scope.into(),
+        origin: metadata.origin.into(),
+        base_dir: metadata.base_dir.clone(),
+    }
 }
 
 /// Approved Rust carrier for the anonymous TypeScript synthetic-source options shape.
