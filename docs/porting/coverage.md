@@ -392,7 +392,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/pi-manifest.ts` | 34 | 0 | done | `crates/pi-coding-agent/src/core/pi_manifest.rs` | `package.json` `pi` manifest; differential `27006` over 16 fixtures. |
 | `coding-agent/src/core/provider-display-names.ts` | 34 | 0 | done | `crates/pi-coding-agent/src/core/provider_display_names.rs` | 32 built-in display names; differential `27004`. |
 | `coding-agent/src/core/radius.ts` | 1 | 0 | done | `crates/pi-coding-agent/src/core/radius.rs` | `RADIUS_PROVIDER_ID`; differential `27004`. |
-| `coding-agent/src/core/resident-console-transport.ts` | 414 | 0 | todo |  |  |
+| `coding-agent/src/core/resident-console-transport.ts` | 414 | 0 | done | `crates/pi-coding-agent/src/core/resident_console_transport.rs` | Server + client protocol; cross-language wire tests `27020`-`27024` both directions. |
 | `coding-agent/src/core/runtime-process.ts` | 103 | 0 | done | `crates/pi-coding-agent/src/core/runtime_process.rs` | `/proc` identity/state, Pi-runtime command-line detection; differential `27012`. macOS `ps` cmdline fallback is a documented gap. |
 | `coding-agent/src/core/session-errors.ts` | 12 | 0 | done | `crates/pi-coding-agent/src/core/session_errors.rs` | `SessionImportFileNotFoundError`; differential `27004`. |
 | `coding-agent/src/core/session-health.ts` | 135 | 0 | done | `crates/pi-coding-agent/src/core/session_health.rs` | Records, sticky-death/eligibility, live-status derivation, goal parsing; differential `27008`. `Date.parse` subset lives in `utils::iso_time` (RFC 2822/free-form gap documented). |
@@ -410,7 +410,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/model-search.ts` | 27 | 0 | todo |  |  |
 | `coding-agent/src/modes/rpc/jsonl.ts` | 58 | 0 | partial |  |  |
 | `coding-agent/src/supervisor/project-resolver.ts` | 108 | 0 | done | `crates/pi-coding-agent/src/supervisor/project_resolver.rs` | Root/remote/basename resolution, config validation, `git remote -v` names; differential `27011`. |
-| `coding-agent/src/supervisor/request-wake.ts` | 149 | 0 | todo |  |  |
+| `coding-agent/src/supervisor/request-wake.ts` | 149 | 0 | done | `crates/pi-coding-agent/src/supervisor/request_wake.rs` | Wake socket with stale recovery, generation watch, waiter cancellation; real-socket tests. |
 | `coding-agent/src/utils/abort.ts` | 48 | 0 | done | `crates/pi-coding-agent/src/utils/abort.rs` | Focused tests; no custom abort reasons |
 | `coding-agent/src/utils/ansi.ts` | 60 | 0 | done | `crates/pi-coding-agent/src/utils/ansi.rs` | Differential 26001 (237 inputs); focused tests |
 | `coding-agent/src/utils/child-process.ts` | 137 | 0 | done | `crates/pi-coding-agent/src/utils/child_process.rs` | Focused process tests; collects stdout/stderr |

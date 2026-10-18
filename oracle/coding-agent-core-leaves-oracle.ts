@@ -181,6 +181,95 @@ const handlers: Record<string, Handler> = {
 	},
 };
 
+type ResidentServerState = {
+	server: any;
+	prompts: Array<{ id: string; text: string }>;
+	listeners: Set<(event: unknown) => void>;
+	unsubscribers: number;
+};
+
+let residentServer: ResidentServerState | undefined;
+
+const residentHandlers: Record<string, Handler> = {
+	residentConsoleServer: async (api, request) => {
+		const options = request as unknown as {
+			socketPath: string;
+			snapshot: unknown;
+			rejectPrompt?: string;
+		};
+		const state: ResidentServerState = {
+			server: undefined,
+			prompts: [],
+			listeners: new Set(),
+			unsubscribers: 0,
+		};
+		const Server = api.ResidentConsoleServer as unknown as new (options: unknown) => any;
+		const server = new Server({
+			socketPath: options.socketPath,
+			service: "supervisor",
+			getSnapshot: () => options.snapshot,
+			enqueuePrompt: async (text: string, id: string) => {
+				state.prompts.push({ id, text });
+				if (options.rejectPrompt) throw new Error(options.rejectPrompt);
+			},
+			subscribe: (listener: (event: unknown) => void) => {
+				state.listeners.add(listener);
+				return () => {
+					state.unsubscribers += 1;
+					state.listeners.delete(listener);
+				};
+			},
+		});
+		await server.start();
+		state.server = server;
+		residentServer = state;
+		return { started: true, socketPath: options.socketPath };
+	},
+	residentConsoleReceived: () => ({
+		prompts: residentServer?.prompts ?? [],
+		listeners: residentServer?.listeners.size ?? 0,
+		unsubscribers: residentServer?.unsubscribers ?? 0,
+	}),
+	residentConsolePublish: (api, request) => {
+		const event = (request as unknown as { event: unknown }).event;
+		for (const listener of residentServer?.listeners ?? []) listener(event);
+		return { published: residentServer?.listeners.size ?? 0 };
+	},
+	residentConsoleStop: async () => {
+		await residentServer?.server?.close();
+		residentServer = undefined;
+		return { stopped: true };
+	},
+	residentConsoleClient: async (api, request) => {
+		const input = request as unknown as {
+			socketPath: string;
+			prompt?: { id: string; text: string };
+			eventCount: number;
+		};
+		const Client = api.ResidentConsoleClient as unknown as {
+			connect(options: { socketPath: string; service: string }): Promise<any>;
+		};
+		const client = await Client.connect({ socketPath: input.socketPath, service: "supervisor" });
+		const events: unknown[] = [];
+		client.onEvent((event: unknown) => events.push(event));
+		let promptError: string | null = null;
+		if (input.prompt) {
+			try {
+				await client.prompt(input.prompt.id, input.prompt.text);
+			} catch (error) {
+				promptError = errorOf(error).message;
+			}
+		}
+		const deadline = Date.now() + 3000;
+		while (events.length < input.eventCount && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+		const snapshot = client.snapshot;
+		await client.close();
+		return { snapshot, events, promptError };
+	},
+};
+
 async function main(): Promise<void> {
 	const sourceRoot = process.argv[2];
 	if (!sourceRoot) throw new Error("core leaves oracle requires the coding-agent src directory");
@@ -198,7 +287,7 @@ async function main(): Promise<void> {
 		try {
 			const request = JSON.parse(line) as Request;
 			id = request.id;
-			const handler = handlers[request.operation];
+			const handler = handlers[request.operation] ?? residentHandlers[request.operation];
 			if (!handler) throw new Error(`unknown operation ${request.operation}`);
 			const output = await handler(await load(request.module), request);
 			process.stdout.write(`${JSON.stringify({ id, ok: true, output })}\n`);

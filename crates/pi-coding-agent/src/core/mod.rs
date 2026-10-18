@@ -10,6 +10,7 @@ pub mod permissions;
 pub mod pi_manifest;
 pub mod provider_display_names;
 pub mod radius;
+pub mod resident_console_transport;
 pub mod runtime_process;
 pub mod session_errors;
 pub mod session_health;
