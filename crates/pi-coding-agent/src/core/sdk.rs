@@ -203,19 +203,18 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         }
     }
 
-    let Some(model) = model else {
-        return Err(format_no_models_available_message());
-    };
-
     let default_thinking_level = lock(&settings_manager).get_default_thinking_level();
     let mut thinking_level = options
         .thinking_level
         .or(default_thinking_level)
         .unwrap_or(DEFAULT_THINKING_LEVEL);
-    thinking_level = thinking_level_from_model(pi_ai::models::clamp_thinking_level(
-        &model,
-        model_thinking_level(thinking_level),
-    ));
+    thinking_level = match &model {
+        Some(model) => thinking_level_from_model(pi_ai::models::clamp_thinking_level(
+            model,
+            model_thinking_level(thinking_level),
+        )),
+        None => ThinkingLevel::Off,
+    };
 
     let allowed_tool_names = options
         .tools
@@ -354,7 +353,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {
             system_prompt: Some(String::new()),
-            model: Some(model),
+            model: model.clone(),
             thinking_level: Some(thinking_level),
             tools: Some(Vec::new()),
             messages: None,
