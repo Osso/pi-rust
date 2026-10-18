@@ -285,7 +285,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/components/dynamic-border.ts` | 15 | 3 | todo |  |  |
 | `tui/src/components/image.ts` | 127 | 3 | todo |  |  |
 | `tui/src/components/input.ts` | 465 | 3 | todo |  |  |
-| `tui/src/components/markdown.ts` | 1027 | 3 | todo |  |  |
+| `tui/src/components/markdown.ts` | 1027 | 3 | done | `crates/pi-tui/src/components/markdown/` | marked 18.0.5 lexer port (fancy-regex) + component; token-stream and ANSI render differential; all TS tests ported |
 | `tui/src/components/select-list.ts` | 229 | 3 | todo |  |  |
 | `tui/src/components/spacer.ts` | 28 | 3 | todo |  |  |
 | `tui/src/components/text.ts` | 106 | 3 | todo |  |  |
