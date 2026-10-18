@@ -1,4 +1,6 @@
+pub(crate) mod cbor;
 pub(crate) mod client_hello;
+pub(crate) mod codec;
 pub(crate) mod commands;
 pub(crate) mod content_leaves;
 pub(crate) mod framing;
@@ -16,7 +18,11 @@ pub(crate) fn run() {
         "packages/protocol/src/framing.ts",
         "packages/protocol/src/schemas.ts",
         "node_modules/typebox/build/value/index.mjs",
+        "packages/protocol/src/cbor/index.ts",
+        "packages/protocol/src/codec.ts",
     ]);
+    cbor::compare_all_fixtures(&mut oracle);
+    codec::compare_all_fixtures(&mut oracle);
     commands::compare_all_fixtures(&mut oracle);
     client_hello::compare_all_fixtures(&mut oracle);
     content_leaves::compare_all_fixtures(&mut oracle);

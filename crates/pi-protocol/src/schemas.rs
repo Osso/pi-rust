@@ -5,8 +5,14 @@ use std::str::FromStr;
 mod client_hello;
 mod client_message;
 mod commands;
+mod json_value;
+mod protocol_error;
 mod protocol_error_code;
+mod results;
+mod server_message;
 mod session_metadata;
+mod snapshot;
+mod transcript;
 
 pub use client_hello::{ClientHello, PROTOCOL_VERSION};
 pub use client_message::{ClientMessage, RequestEnvelope, RequestEnvelopeError};
@@ -14,8 +20,59 @@ pub use commands::{
     AbortCommand, AttachCommand, Command, CommandError, CreateCommand, CreateCommandInput, DetachCommand, ListCommand,
     PromptCommand, SetModelCommand, SetThinkingCommand, SteerCommand,
 };
+pub use json_value::JsonValue;
+pub use protocol_error::ProtocolError;
 pub use protocol_error_code::{ParseProtocolErrorCodeError, ProtocolErrorCode};
+pub use results::{CommandResult, DetachResult, ListResult};
+pub use server_message::{
+    ErrorResponse, EventEnvelope, ResponseEnvelope, ServerEvent, ServerHello, ServerHelloError, ServerMessage,
+    SessionProgress, SessionRemoved, SuccessResponse,
+};
 pub use session_metadata::{SessionMetadata, SessionMetadataError, SessionMetadataInput};
+pub use snapshot::{ServerSnapshot, SessionSnapshot, SessionSnapshotInput};
+pub use transcript::{
+    AssistantContent, AssistantStopReason, AssistantTranscriptItem, AssistantTranscriptItemInput,
+    AssistantTranscriptState, FinishedTranscriptItem, ToolCallContent, ToolContent, ToolTranscriptItem,
+    ToolTranscriptItemInput, ToolTranscriptState, TranscriptDeltaKind, TranscriptItem, TranscriptProgress,
+    UpdatedTranscriptItem, UserContent, UserTranscriptItem,
+};
+
+/// Returned when a typed protocol record violates a source schema constraint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaValueError {
+    EmptyId,
+    EmptySessionId,
+    EmptyServerId,
+    EmptyConnectionId,
+    EmptyCwd,
+    EmptyToolCallId,
+    EmptyToolName,
+    EmptyResponseModel,
+    EmptyErrorMessage,
+    InvalidUpdatedItem,
+    InvalidFinishedItem,
+}
+
+impl Display for SchemaValueError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            Self::EmptyId => "Protocol record field id must not be empty",
+            Self::EmptySessionId => "Protocol record field sessionId must not be empty",
+            Self::EmptyServerId => "Protocol record field serverId must not be empty",
+            Self::EmptyConnectionId => "Protocol record field connectionId must not be empty",
+            Self::EmptyCwd => "Protocol record field cwd must not be empty",
+            Self::EmptyToolCallId => "Protocol record field toolCallId must not be empty",
+            Self::EmptyToolName => "Protocol record field toolName must not be empty",
+            Self::EmptyResponseModel => "Protocol record field responseModel must not be empty",
+            Self::EmptyErrorMessage => "Protocol record field errorMessage must not be empty",
+            Self::InvalidUpdatedItem => "Protocol item updates must contain assistant or tool items",
+            Self::InvalidFinishedItem => "Protocol finished items must contain terminal assistant or tool items",
+        };
+        formatter.write_str(message)
+    }
+}
+
+impl Error for SchemaValueError {}
 
 /// Thinking levels exposed by the protocol schema.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

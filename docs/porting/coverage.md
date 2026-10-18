@@ -18,14 +18,14 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `protocol/src/cbor/options.ts` | 52 | 0 | todo |  |  |
-| `protocol/src/framing.ts` | 165 | 0 | partial |  |  |
-| `protocol/src/schemas.ts` | 450 | 0 | partial |  |  |
-| `protocol/src/cbor/decoder.ts` | 168 | 1 | todo |  |  |
-| `protocol/src/cbor/encoder.ts` | 216 | 1 | todo |  |  |
-| `protocol/src/cbor/index.ts` | 9 | 2 | todo |  |  |
-| `protocol/src/codec.ts` | 172 | 3 | todo |  |  |
-| `protocol/src/index.ts` | 4 | 4 | todo |  |  |
+| `protocol/src/cbor/options.ts` | 52 | 0 | done | `crates/pi-protocol/src/cbor/options.rs` | Limits/defaults/error types; differential limit fixtures |
+| `protocol/src/framing.ts` | 165 | 0 | done | `crates/pi-protocol/src/framing.rs` | Behavioral and differential proof |
+| `protocol/src/schemas.ts` | 450 | 0 | done | `crates/pi-protocol/src/schemas.rs` + `src/schemas/*` | All exports, including transcripts, snapshots, results, server messages |
+| `protocol/src/cbor/decoder.ts` | 168 | 1 | done | `crates/pi-protocol/src/cbor/decoder.rs` | TS test port + byte-level differential vectors |
+| `protocol/src/cbor/encoder.ts` | 216 | 1 | done | `crates/pi-protocol/src/cbor/encoder.rs` | TS test port + byte-level differential vectors |
+| `protocol/src/cbor/index.ts` | 9 | 2 | done | `crates/pi-protocol/src/cbor/mod.rs` | Public re-exports |
+| `protocol/src/codec.ts` | 172 | 3 | done | `crates/pi-protocol/src/codec.rs` + `src/codec/*` | TS protocol test port; parse/serialize round-trips |
+| `protocol/src/index.ts` | 4 | 4 | done | `crates/pi-protocol/src/lib.rs` | Package-root re-exports |
 
 ## ai (177 files, 23710 lines)
 

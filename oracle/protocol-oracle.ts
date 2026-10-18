@@ -22,6 +22,33 @@ type FrameDecoderOptions = {
 	maxFrameLength?: number;
 };
 
+type CborOptionsRequest = {
+	maxByteLength?: number;
+	maxContainerLength?: number;
+	maxDepth?: number;
+};
+
+type TaggedValue =
+	| { t: "null" }
+	| { t: "bool"; v: boolean }
+	| { t: "number"; bits: string }
+	| { t: "string"; v: string }
+	| { t: "bytes"; hex: string }
+	| { t: "array"; v: TaggedValue[] }
+	| { t: "object"; v: [string, TaggedValue][] };
+
+type CborApi = {
+	encodeCbor(value: unknown, options?: CborOptionsRequest): Uint8Array;
+	decodeCbor(bytes: Uint8Array, options?: CborOptionsRequest): unknown;
+};
+
+type CodecApi = {
+	encodeClientMessage(message: unknown, options?: FrameDecoderOptions): Uint8Array;
+	encodeServerMessage(message: unknown, options?: FrameDecoderOptions): Uint8Array;
+	parseClientMessage(value: unknown): unknown;
+	parseServerMessage(value: unknown): unknown;
+};
+
 type FrameDecoderInstance = {
 	push(chunk: Uint8Array): Uint8Array[];
 	end(): void;
@@ -200,6 +227,40 @@ type Request =
 			operation: "validate_protocol_error_code";
 			value: string;
 		}
+	| {
+			id: RequestId;
+			operation: "encode_cbor";
+			value: TaggedValue;
+			options?: CborOptionsRequest;
+		}
+	| {
+			id: RequestId;
+			operation: "decode_cbor";
+			encoded_hex: string;
+			options?: CborOptionsRequest;
+		}
+	| {
+			id: RequestId;
+			operation: "encode_client_message";
+			value: TaggedValue;
+			max_frame_length?: number;
+		}
+	| {
+			id: RequestId;
+			operation: "encode_server_message";
+			value: TaggedValue;
+			max_frame_length?: number;
+		}
+	| {
+			id: RequestId;
+			operation: "parse_client_message";
+			value: TaggedValue;
+		}
+	| {
+			id: RequestId;
+			operation: "parse_server_message";
+			value: TaggedValue;
+		}
 	| MessageValidationRequest;
 
 type DecoderStepResponse =
@@ -227,6 +288,9 @@ type Response =
 			| { frame_hex: string }
 			| null
 			| { results: DecoderStepResponse[] }
+			| { encoded_hex: string }
+			| { value: TaggedValue }
+			| { message_hex: string }
 			| ModelCostResponse
 			| SchemaValidationResponse
 			| ContentValidationResponse;
@@ -611,6 +675,105 @@ function executeFrameAssertion(
 	return { id: request.id, ok: true, output: null };
 }
 
+function decodeTaggedValue(value: TaggedValue): unknown {
+	switch (value.t) {
+		case "null":
+			return null;
+		case "bool":
+			return value.v;
+		case "number":
+			return decodeFloat64Bits(value.bits);
+		case "string":
+			return value.v;
+		case "bytes":
+			return decodeHex(value.hex);
+		case "array":
+			return value.v.map(decodeTaggedValue);
+		case "object": {
+			const result: Record<string, unknown> = {};
+			for (const [key, entry] of value.v) {
+				Object.defineProperty(result, key, {
+					configurable: true,
+					enumerable: true,
+					value: decodeTaggedValue(entry),
+					writable: true,
+				});
+			}
+			return result;
+		}
+	}
+}
+
+function encodeTaggedValue(value: unknown): TaggedValue {
+	if (value === null) return { t: "null" };
+	if (typeof value === "boolean") return { t: "bool", v: value };
+	if (typeof value === "number") return { t: "number", bits: float64Bits(value) };
+	if (typeof value === "string") return { t: "string", v: value };
+	if (value instanceof Uint8Array) return { t: "bytes", hex: encodeHex(value) };
+	if (Array.isArray(value)) return { t: "array", v: value.map(encodeTaggedValue) };
+	if (typeof value === "object") {
+		return {
+			t: "object",
+			v: Object.keys(value).map((key) => [key, encodeTaggedValue((value as Record<string, unknown>)[key])]),
+		};
+	}
+	throw new Error("Unsupported tagged value");
+}
+
+function decodeFloat64Bits(bits: string): number {
+	const buffer = new ArrayBuffer(8);
+	const view = new DataView(buffer);
+	view.setBigUint64(0, BigInt(`0x${bits}`), false);
+	return view.getFloat64(0, false);
+}
+
+function executeCborEncoding(
+	request: Extract<Request, { operation: "encode_cbor" }>,
+	cbor: CborApi,
+): Response {
+	const encoded = cbor.encodeCbor(decodeTaggedValue(request.value), request.options);
+	return { id: request.id, ok: true, output: { encoded_hex: encodeHex(encoded) } };
+}
+
+function executeCborDecoding(
+	request: Extract<Request, { operation: "decode_cbor" }>,
+	cbor: CborApi,
+): Response {
+	const value = cbor.decodeCbor(decodeHex(request.encoded_hex), request.options);
+	return { id: request.id, ok: true, output: { value: encodeTaggedValue(value) } };
+}
+
+function executeCodecRequest(request: Request, codec: CodecApi): Response | undefined {
+	switch (request.operation) {
+		case "encode_client_message": {
+			const options =
+				request.max_frame_length === undefined ? undefined : { maxFrameLength: request.max_frame_length };
+			const message = codec.encodeClientMessage(decodeTaggedValue(request.value), options);
+			return { id: request.id, ok: true, output: { message_hex: encodeHex(message) } };
+		}
+		case "encode_server_message": {
+			const options =
+				request.max_frame_length === undefined ? undefined : { maxFrameLength: request.max_frame_length };
+			const message = codec.encodeServerMessage(decodeTaggedValue(request.value), options);
+			return { id: request.id, ok: true, output: { message_hex: encodeHex(message) } };
+		}
+		case "parse_client_message":
+			return {
+				id: request.id,
+				ok: true,
+				output: { value: encodeTaggedValue(codec.parseClientMessage(decodeTaggedValue(request.value))) },
+			};
+		case "parse_server_message":
+			return {
+				id: request.id,
+				ok: true,
+				output: { value: encodeTaggedValue(codec.parseServerMessage(decodeTaggedValue(request.value))) },
+			};
+		default:
+			return undefined;
+	}
+}
+
 function executeStringSchemaRequest(request: Request, schema: SchemaApi, typebox: TypeboxApi): Response | undefined {
 	switch (request.operation) {
 		case "validate_thinking_level":
@@ -624,11 +787,25 @@ function executeStringSchemaRequest(request: Request, schema: SchemaApi, typebox
 	}
 }
 
-function executeRequest(request: Request, framing: FramingApi, schema: SchemaApi, typebox: TypeboxApi): Response {
+function executeRequest(
+	request: Request,
+	framing: FramingApi,
+	schema: SchemaApi,
+	typebox: TypeboxApi,
+	cbor: CborApi,
+	codec: CodecApi,
+): Response {
 	const stringSchemaResponse = executeStringSchemaRequest(request, schema, typebox);
 	if (stringSchemaResponse !== undefined) return stringSchemaResponse;
 
+	const codecResponse = executeCodecRequest(request, codec);
+	if (codecResponse !== undefined) return codecResponse;
+
 	switch (request.operation) {
+		case "encode_cbor":
+			return executeCborEncoding(request, cbor);
+		case "decode_cbor":
+			return executeCborDecoding(request, cbor);
 		case "encode_frame":
 			return executeFrameEncoding(request, framing);
 		case "assert_complete_frame":
@@ -660,40 +837,72 @@ function executeRequest(request: Request, framing: FramingApi, schema: SchemaApi
 	throw new Error("Unsupported protocol oracle operation");
 }
 
-function execute(request: Request, framing: FramingApi, schema: SchemaApi, typebox: TypeboxApi): Response {
+function execute(
+	request: Request,
+	framing: FramingApi,
+	schema: SchemaApi,
+	typebox: TypeboxApi,
+	cbor: CborApi,
+	codec: CodecApi,
+): Response {
 	try {
-		return executeRequest(request, framing, schema, typebox);
+		return executeRequest(request, framing, schema, typebox, cbor, codec);
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };
 	}
 }
 
-function readModulePaths(): [string, string, string] {
+function readModulePaths(): [string, string, string, string, string] {
 	const framingModulePath = process.argv[2];
 	const schemaModulePath = process.argv[3];
 	const typeboxModulePath = process.argv[4];
-	if (framingModulePath === undefined || schemaModulePath === undefined || typeboxModulePath === undefined) {
-		throw new Error("protocol oracle requires framing, schema, and typebox module paths");
+	const cborModulePath = process.argv[5];
+	const codecModulePath = process.argv[6];
+	if (
+		framingModulePath === undefined ||
+		schemaModulePath === undefined ||
+		typeboxModulePath === undefined ||
+		cborModulePath === undefined ||
+		codecModulePath === undefined
+	) {
+		throw new Error("protocol oracle requires framing, schema, typebox, cbor, and codec module paths");
 	}
-	return [framingModulePath, schemaModulePath, typeboxModulePath];
+	return [framingModulePath, schemaModulePath, typeboxModulePath, cborModulePath, codecModulePath];
 }
 
-async function loadApis(): Promise<{ framing: FramingApi; schema: SchemaApi; typebox: TypeboxApi }> {
-	const [framingModulePath, schemaModulePath, typeboxModulePath] = readModulePaths();
+async function loadApis(): Promise<{
+	framing: FramingApi;
+	schema: SchemaApi;
+	typebox: TypeboxApi;
+	cbor: CborApi;
+	codec: CodecApi;
+}> {
+	const [framingModulePath, schemaModulePath, typeboxModulePath, cborModulePath, codecModulePath] =
+		readModulePaths();
 	const framing = (await import(pathToFileURL(framingModulePath).href)) as FramingApi;
 	const schema = (await import(pathToFileURL(schemaModulePath).href)) as SchemaApi;
 	const typebox = (await import(pathToFileURL(typeboxModulePath).href)) as TypeboxApi;
-	return { framing, schema, typebox };
+	const cbor = (await import(pathToFileURL(cborModulePath).href)) as CborApi;
+	const codec = (await import(pathToFileURL(codecModulePath).href)) as CodecApi;
+	return { framing, schema, typebox, cbor, codec };
 }
 
-function serveRequests(apis: { framing: FramingApi; schema: SchemaApi; typebox: TypeboxApi }): void {
+function serveRequests(apis: {
+	framing: FramingApi;
+	schema: SchemaApi;
+	typebox: TypeboxApi;
+	cbor: CborApi;
+	codec: CodecApi;
+}): void {
 	const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 	input.on("line", (line) => {
 		let id: RequestId = null;
 		try {
 			const request = JSON.parse(line) as Request;
 			id = request.id;
-			process.stdout.write(`${JSON.stringify(execute(request, apis.framing, apis.schema, apis.typebox))}\n`);
+			process.stdout.write(
+				`${JSON.stringify(execute(request, apis.framing, apis.schema, apis.typebox, apis.cbor, apis.codec))}\n`,
+			);
 		} catch (error) {
 			const response: Response = { id, ok: false, error: normalizeError(error) };
 			process.stdout.write(`${JSON.stringify(response)}\n`);
