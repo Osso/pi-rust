@@ -343,7 +343,20 @@ pub(crate) fn corruption_cases() -> Vec<CorruptionCase> {
         .remove("compactionReason");
     let mut deferred_without_handle = assistant_message(json!([]), "deferred");
     deferred_without_handle.as_object_mut().unwrap().remove("deferred");
-    let second_deferred_without_handle = deferred_without_handle.clone();
+    let ordered_deferred_entries: Vec<Value> = [
+        "zeta", "alpha", "middle", "beta", "omega", "delta", "gamma", "epsilon", "kappa", "iota", "theta", "eta",
+        "lambda", "mu", "nu", "xi",
+    ]
+    .iter()
+    .enumerate()
+    .map(|(offset, id)| {
+        persisted_entry(
+            message_target(&format!("{id}-deferred"), deferred_without_handle.clone()),
+            offset as i64 + 2,
+            None,
+        )
+    })
+    .collect();
     let mut duplicate = tool_started(5, json!({"resultEntryId": "tool-result-2"}));
     duplicate["id"] = json!("tool-start-duplicate");
 
@@ -503,21 +516,12 @@ pub(crate) fn corruption_cases() -> Vec<CorruptionCase> {
             ),
         },
         // The first invalid entry in source order must be reported. Entries are
-        // inserted zeta then alpha, so lexicographic map iteration would name alpha.
+        // inserted with `zeta` first, so lexicographic or hash map iteration
+        // would name a different entry.
         CorruptionCase {
             reason: RecordLogCorruptionReason::InvalidDeferredHandle,
             message: "Deferred assistant entry zeta-deferred does not carry a handle",
-            slice: recovery_slice(
-                &[run_started(1, "run-1", vec![])],
-                &[
-                    persisted_entry(message_target("zeta-deferred", deferred_without_handle), 2, None),
-                    persisted_entry(
-                        message_target("alpha-deferred", second_deferred_without_handle),
-                        3,
-                        None,
-                    ),
-                ],
-            ),
+            slice: recovery_slice(&[run_started(1, "run-1", vec![])], &ordered_deferred_entries),
         },
     ]
 }

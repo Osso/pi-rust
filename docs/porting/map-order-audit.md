@@ -112,7 +112,7 @@ call-site type fixes required by the public type changes.
 | `src/harness/types.rs:517` `ShellExecOptions.env` | `harness/types.ts` `env?: Record<string,string>` | no (process environment is unordered) | keep `HashMap` | `bash_execution_message`, `harness_env` |
 | `src/harness/session/types.rs:311` `resumeData` | `harness/session/types.ts` `resumeData?: { [id]: JsonValue }` | yes (serialized into session JSONL) | `IndexMap` | `session_jsonl::resume_data_serializes_in_source_key_order` |
 | `src/harness/session/memory.rs:216,238` `sessions` | `harness/session/memory.ts` `sessions` Map; `list()` uses `values()` | yes (session listing order) | `IndexMap`, `shift_remove` on delete | `session_memory::lists_sessions_in_creation_order` |
-| `src/harness/reducer.rs:275` deferred-handle validation | `harness/reducer.ts` `validateDeferredHandles(entriesById.values())` | yes (first error message) | iterate ordered `&[Entry]` | `harness_reducer` new corruption case (also in `differential_harness_core`) |
+| `src/harness/reducer.rs:275` deferred-handle validation | `harness/reducer.ts` `validateDeferredHandles(entriesById.values())` | yes (first error message) | iterate ordered `&[Entry]` | `harness_reducer` 16-entry non-alphabetical case (also in `differential_harness_core`); reverting to `HashMap` iteration reports `xi-deferred` |
 | `src/harness/reducer.rs:1,276,277,278,279,280,286,320,348,378,399,426,508,520,521,535,538,542,574,586,597,630,650,668,725,729,751,769,809,879,915,916,1006,1040,1109,1130,1189,1190,1260,1261,1282,1285,1286,1309` entries-by-id, starts, attempts, queue maps, invocation sets | `harness/reducer.ts` corresponding `Map`/`Set`s | no (lookups; ordered results are built from `Vec`/sequence sorts) | lookup-only `HashMap`/`HashSet` | `harness_reducer`, `differential_harness_core` |
 | `src/harness/events.rs:112,150` listener registry | `harness/events.ts` `listeners` Map of Sets | no (emit uses `get`; removal scans all buckets) | lookup-only `HashMap` | `harness_events` |
 | `src/harness/session/state.rs:52,54,56,61,74,76,78,83,515` used ids, entries-by-id, open ops by lane, lanes, labels | `harness/session/state.ts` | no (lookups; lane/open-operation order is the ordered `Vec`) | lookup-only `HashMap`/`HashSet` | `session_memory` state tests |
@@ -170,7 +170,7 @@ No `indexmap` dependency was needed in `pi-tui`.
 | `differential_openai_completions` scenario 40 | `chat_template_kwargs` body key order against the TS oracle. |
 | `models::refresh_reports_errors_in_completion_order` | `ModelsRefreshResult.errors` follows completion/insertion order, not provider-id sort. |
 | `images_models::merges_provider_resolved_env_into_image_options` | Provider env then request env spread order, including overwrite position. |
-| `harness_reducer` new corruption case + `differential_harness_core` | The first invalid deferred entry in input order names the error. |
+| `harness_reducer` 16-entry corruption case + `differential_harness_core` | The first invalid deferred entry in input order names the error (falsified: `HashMap` iteration names `xi-deferred`). |
 | `session_memory::lists_sessions_in_creation_order` | `InMemorySessionRepo::list` returns creation order. |
 | `session_jsonl::resume_data_serializes_in_source_key_order` | `resumeData` JSONL keys keep source order. |
 | `pi-ai/tests/model_catalog.rs` updated expectation | `Object.assign` overwrite keeps the original key position. |
