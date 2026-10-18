@@ -290,7 +290,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/components/spacer.ts` | 28 | 3 | done | `crates/pi-tui/src/components/spacer.rs` | differential line counts + setLines |
 | `tui/src/components/text.ts` | 106 | 3 | done | `crates/pi-tui/src/components/text.rs` | TS differential wrapping/padding/background/cache |
 | `tui/src/components/truncated-text.ts` | 65 | 3 | done | `crates/pi-tui/src/components/truncated_text.rs` | all TS tests ported + differential |
-| `tui/src/editor-component.ts` | 74 | 3 | todo |  |  |
+| `tui/src/editor-component.ts` | 74 | 3 | done | `crates/pi-tui/src/editor_component.rs` | Optional members mapped to default trait methods; typed callback fields ([traceability](traceability/editor-component.md)). |
 | `tui/src/layout-node.ts` | 51 | 3 | done | `crates/pi-tui/src/layout_node.rs` | `Component::layout_node` replaces the `LAYOUT_NODE` symbol |
 | `tui/src/root-compositor.ts` | 91 | 3 | done | `crates/pi-tui/src/root_compositor.rs` | flow/bottom layout callbacks covered by render-region tests |
 | `tui/src/tui-main-screen.ts` | 586 | 3 | done | `crates/pi-tui/src/tui_main_screen.rs` | differential byte stream; capture/restore implemented (no listed test) |
@@ -300,7 +300,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/components/settings-list.ts` | 249 | 4 | done | `crates/pi-tui/src/components/settings_list.rs` | TS tests ported + differential search/cycle/submenu/scroll matrix |
 | `tui/src/components/stack.ts` | 154 | 4 | done | `crates/pi-tui/src/components/stack.rs` | size allocation covered by layout tests + differential |
 | `tui/src/components/cancellable-loader.ts` | 40 | 5 | done | `crates/pi-tui/src/components/cancellable_loader.rs` | differential escape abort + render; AbortSignal mapped to CancellationToken |
-| `tui/src/components/editor.ts` | 2687 | 5 | todo |  |  |
+| `tui/src/components/editor.ts` | 2687 | 5 | done | `crates/pi-tui/src/components/editor.rs` | Full TS test port (202 cases) + 28-scenario differential against real TS editor; timer/async requests driver-owned ([traceability](traceability/editor.md)). |
 | `tui/src/components/h-stack.ts` | 44 | 5 | done | `crates/pi-tui/src/components/h_stack.rs` | TS layout tests + differential composition/alignment |
 | `tui/src/components/v-stack.ts` | 33 | 5 | done | `crates/pi-tui/src/components/v_stack.rs` | TS layout tests + differential sizes/gaps |
 | `tui/src/layout.ts` | 410 | 5 | done | `crates/pi-tui/src/layout.rs` | TS layout tests ported; differential frame geometry, scrollbar, kitty crop |
