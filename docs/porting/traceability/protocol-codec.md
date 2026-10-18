@@ -45,7 +45,9 @@ Each TypeScript `Check(Schema, value)` call maps to one strict Rust parser. Pars
 
 ## Serialization mapping (`src/codec/serialize.rs`)
 
-Every typed record serializes to a `CborValue::Map` in schema declaration order. Optional `None` fields are omitted; `Some` values are emitted. Rust always emits canonical schema order, while TypeScript preserves the caller's object insertion order; byte parity is defined for objects constructed in schema order, which the differential and round-trip fixtures use.
+Every typed record serializes to a `CborValue::Map`. Optional `None` fields are omitted; `Some` values are emitted. Map key order is the pinned TypeScript producer's insertion order, because the CBOR encoder preserves it. Every record except `AssistantTranscriptItem` has a single producer whose order equals the schema declaration order. `AssistantTranscriptItem` records which producer created it (`AssistantTranscriptOrder::Bridge` for `toProtocolAssistantMessage`, `Runtime` for `TestSessionRuntime.prompt`) because those two pinned producers order assistant fields differently. `tests/differential_protocol.rs` and `tests/differential_stream.rs` compare raw frame bytes, including map order.
+
+Parsing a received frame collapses assistant wire order to `AssistantTranscriptOrder::Bridge`; no Rust path re-encodes a parsed message, so this is unobservable.
 
 ## Approved typed-core exclusions
 

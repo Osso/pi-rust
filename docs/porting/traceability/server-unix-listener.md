@@ -21,7 +21,7 @@ Source: `packages/server/src/transports/unix/listener.ts`. Rust: `crates/pi-serv
 - Non-socket path is never unlinked; live socket is never unlinked; stale socket is renamed, identity-checked, and removed.
 - Replacement inode is preserved during shutdown.
 - Nested parent directories are created with mode 0o700; socket mode is applied to the public path.
-- Pending-byte limit rejects oversized queues; writes serialize; final chunk queues behind pending writes; graceful timeout forces closure (`queues_a_final_protocol_error_behind_pending_output_before_closing`).
+- Pending-byte limit rejects oversized queues; `send` reserves its write slot synchronously so concurrent callers keep call order, and one writer task drains the queue; the final chunk queues behind pending writes; graceful timeout forces closure (`queues_a_final_protocol_error_behind_pending_output_before_closing`). This mirrors the TS `writeTail` promise chain and is required for byte-identical frame order.
 - Read EOF half-closes the write side (Node `allowHalfOpen=false` behavior), so server shutdown does not wait for the graceful timeout.
 
 ## Deviations

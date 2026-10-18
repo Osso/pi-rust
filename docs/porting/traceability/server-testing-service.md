@@ -16,3 +16,5 @@ Source: `packages/server/src/testing/service.ts`. Rust: `crates/pi-server/src/te
 - Stored snapshots are shared through `Arc<StoredSession>` so runtime updates persist for lazy reopen/restart tests, matching the TS shared object.
 - Stored session ordering is insertion order (vector), matching `Map`.
 - `disposed` is a single-resolution async value; `dispose_count` is an atomic counter.
+- `finish_prompt_transcript` builds assistant items with `AssistantTranscriptItem::new_runtime`, preserving the TS literal's `status`-before-`model` insertion order on the wire. `tests/differential_stream.rs` compares the raw frames produced by this path against the pinned runtime.
+- `tests/differential_stream.rs` also emits tool running/complete/error and assistant streaming/error/aborted progress items. The pinned packages contain no runtime producer for those objects, so both sides construct them in schema declaration order.

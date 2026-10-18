@@ -2,12 +2,12 @@
 mod oracle;
 
 use pi_protocol::{
-    EventEnvelope, JsonValue, PROTOCOL_VERSION, ServerEvent, ServerHello, ServerMessage, ServerSnapshot,
-    SessionSnapshot, SessionSnapshotInput, TranscriptItem, encode_server_message,
+    EventEnvelope, PROTOCOL_VERSION, ServerEvent, ServerHello, ServerMessage, ServerSnapshot, SessionSnapshot,
+    SessionSnapshotInput, TranscriptItem, encode_server_message,
 };
 use pi_server::protocol::{
-    sanitize_protocol_details, to_protocol_assistant_message, to_protocol_model_metadata,
-    to_protocol_tool_result_message, to_protocol_user_message,
+    to_protocol_assistant_message, to_protocol_model_metadata, to_protocol_tool_result_message,
+    to_protocol_user_message,
 };
 use serde_json::{Value, json};
 
@@ -22,28 +22,15 @@ fn decode_hex(value: &str) -> Vec<u8> {
         .collect()
 }
 
-fn canonical_value(value: &pi_protocol::CborValue) -> pi_protocol::CborValue {
-    use pi_protocol::CborValue;
-    match value {
-        CborValue::Array(values) => CborValue::Array(values.iter().map(canonical_value).collect()),
-        CborValue::Map(entries) => {
-            let mut entries: Vec<(String, CborValue)> = entries
-                .iter()
-                .map(|(key, value)| (key.clone(), canonical_value(value)))
-                .collect();
-            entries.sort_by(|left, right| left.0.cmp(&right.0));
-            CborValue::Map(entries)
-        }
-        value => value.clone(),
-    }
-}
-
-/// Canonicalizes CBOR map order so the comparison covers bridge values rather than serializer key order.
-fn canonical_frame(frame_hex: &str) -> String {
+/// Compares the complete frame bytes, including the length prefix and map key order.
+fn frame_hex(frame_hex: &str) -> String {
     let frame = decode_hex(frame_hex);
-    let payload = &frame[4..];
-    let value = pi_protocol::decode_cbor(payload, None).expect("oracle frame must decode");
-    hex(&pi_protocol::encode_cbor(&canonical_value(&value), None).expect("canonical frame must encode"))
+    assert_eq!(
+        &frame[..4],
+        &(frame.len() as u32 - 4).to_be_bytes(),
+        "oracle frame prefix must describe its payload"
+    );
+    hex(&frame)
 }
 
 fn snapshot_frame(item: TranscriptItem) -> String {
@@ -118,8 +105,8 @@ fn compare_ok(ts_oracle: &mut oracle::TsOracle, request: Value, rust_frame: Stri
     let response = ts_oracle.request(&request);
     assert_eq!(response["ok"], true, "oracle failed: {response}");
     assert_eq!(
-        canonical_frame(response["output"]["frameHex"].as_str().expect("frame hex")),
-        canonical_frame(&rust_frame),
+        frame_hex(response["output"]["frameHex"].as_str().expect("frame hex")),
+        frame_hex(&rust_frame),
         "request {request}"
     );
 }
@@ -254,24 +241,80 @@ fn protocol_bridge_matches_the_typescript_source() {
     );
 
     let details = json!({ "text": "value", "nested": [1, true, null, { "key": "entry" }] });
-    let mapped: JsonValue = sanitize_protocol_details(&details).expect("details must map");
-    let item = pi_protocol::ToolTranscriptItem::new(pi_protocol::ToolTranscriptItemInput {
-        id: "tool-1".into(),
-        tool_call_id: "call-1".into(),
-        tool_name: "read".into(),
-        input: JsonValue::Object(Vec::new()),
-        content: Vec::new(),
-        details: Some(mapped),
-        usage: None,
-        timestamp: 1,
-        state: pi_protocol::ToolTranscriptState::Complete,
-    })
-    .expect("tool item");
+    let details_tool_json = json!({
+        "role": "toolResult",
+        "toolCallId": "call-1",
+        "toolName": "read",
+        "content": [],
+        "details": details,
+        "isError": false,
+        "timestamp": 1
+    });
+    let tool: pi_ai::types::ToolResultMessage =
+        serde_json::from_value(details_tool_json.clone()).expect("details tool fixture");
+    let item = to_protocol_tool_result_message(&tool, "tool-1", &call).expect("details tool must map");
     compare_ok(
         &mut ts_oracle,
         json!({ "id": 7, "operation": "sanitize_details", "value": details }),
         snapshot_frame(TranscriptItem::Tool(item)),
     );
+
+    let error_tool_json = json!({
+        "role": "toolResult",
+        "toolCallId": "call-1",
+        "toolName": "read",
+        "content": [{ "type": "image", "data": "AAAA", "mimeType": "image/png" }],
+        "details": { "lines": [1, 2, 3] },
+        "usage": {
+            "input": 4,
+            "output": 5,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 1,
+            "totalTokens": 9,
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+        },
+        "isError": true,
+        "timestamp": 3
+    });
+    let tool: pi_ai::types::ToolResultMessage =
+        serde_json::from_value(error_tool_json.clone()).expect("error tool fixture");
+    let item = to_protocol_tool_result_message(&tool, "tool-2", &call).expect("error tool must map");
+    compare_ok(
+        &mut ts_oracle,
+        json!({ "id": 8, "operation": "tool_result", "itemId": "tool-2", "call": call_json, "message": error_tool_json }),
+        snapshot_frame(TranscriptItem::Tool(item)),
+    );
+
+    for (id, state, content, extra) in [
+        (9, "pending", json!([{ "type": "text", "text": "partial" }]), json!({})),
+        (
+            10,
+            "error",
+            json!([{ "type": "thinking", "thinking": "hmm", "redacted": true }]),
+            json!({ "errorMessage": "provider failed" }),
+        ),
+        (11, "aborted", json!([]), json!({ "errorMessage": "cancelled" })),
+        (
+            12,
+            "stop",
+            json!([{ "type": "toolCall", "id": "call-1", "name": "read", "arguments": {} }]),
+            json!({ "responseModel": "model-2", "usage": zero_usage() }),
+        ),
+    ] {
+        let mut assistant_json = assistant_fixture(content, state);
+        for (key, value) in extra.as_object().expect("extra object") {
+            assistant_json[key] = value.clone();
+        }
+        let message: pi_ai::types::AssistantMessage =
+            serde_json::from_value(assistant_json.clone()).expect("assistant state fixture");
+        let item = to_protocol_assistant_message(&message, "assistant-state").expect("assistant state must map");
+        compare_ok(
+            &mut ts_oracle,
+            json!({ "id": id, "operation": "assistant_message", "itemId": "assistant-state", "message": assistant_json }),
+            snapshot_frame(TranscriptItem::Assistant(item)),
+        );
+    }
 }
 
 #[test]
@@ -292,7 +335,7 @@ fn protocol_bridge_errors_match_the_typescript_source() {
     let error = to_protocol_tool_result_message(&tool, "tool-1", &call).expect_err("mismatch must fail");
     compare_error(
         &mut ts_oracle,
-        json!({ "id": 8, "operation": "tool_result", "itemId": "tool-1", "call": call_json, "message": mismatched_call }),
+        json!({ "id": 20, "operation": "tool_result", "itemId": "tool-1", "call": call_json, "message": mismatched_call }),
         &error.to_string(),
     );
 
@@ -305,7 +348,7 @@ fn protocol_bridge_errors_match_the_typescript_source() {
     let error = to_protocol_assistant_message(&message, "assistant-1").expect_err("empty call must fail");
     compare_error(
         &mut ts_oracle,
-        json!({ "id": 9, "operation": "assistant_message", "itemId": "assistant-1", "message": empty_call }),
+        json!({ "id": 21, "operation": "assistant_message", "itemId": "assistant-1", "message": empty_call }),
         &error.to_string(),
     );
 
@@ -315,7 +358,7 @@ fn protocol_bridge_errors_match_the_typescript_source() {
     let error = to_protocol_user_message(&user, "user-1").expect_err("negative timestamp must fail");
     compare_error(
         &mut ts_oracle,
-        json!({ "id": 10, "operation": "user_message", "itemId": "user-1", "message": negative_timestamp }),
+        json!({ "id": 22, "operation": "user_message", "itemId": "user-1", "message": negative_timestamp }),
         &error.to_string(),
     );
 
@@ -324,7 +367,7 @@ fn protocol_bridge_errors_match_the_typescript_source() {
     let error = to_protocol_assistant_message(&message, "assistant-1").expect_err("deferred must fail");
     compare_error(
         &mut ts_oracle,
-        json!({ "id": 11, "operation": "assistant_message", "itemId": "assistant-1", "message": deferred }),
+        json!({ "id": 23, "operation": "assistant_message", "itemId": "assistant-1", "message": deferred }),
         &error.to_string(),
     );
 
@@ -335,7 +378,7 @@ fn protocol_bridge_errors_match_the_typescript_source() {
     let error = to_protocol_assistant_message(&message, "assistant-1").expect_err("empty error must fail");
     compare_error(
         &mut ts_oracle,
-        json!({ "id": 12, "operation": "assistant_message", "itemId": "assistant-1", "message": empty_error }),
+        json!({ "id": 24, "operation": "assistant_message", "itemId": "assistant-1", "message": empty_error }),
         &error.to_string(),
     );
 }

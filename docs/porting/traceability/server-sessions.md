@@ -13,7 +13,7 @@ Source: `packages/server/src/sessions.ts`. Rust: `crates/pi-server/src/sessions.
 | `runOperation` | `run_operation` | prompt/steer/abort/model/thinking tests |
 | `attach`/`requireAttached`/`forConnection` | `attach`/`require_attached`/`for_connection` | attachment-state and unattached-control tests |
 | `maybeDispose`/`terminate` | `maybe_dispose`/`terminate` | disconnect/terminal-error tests |
-| `normalizedSnapshot`/`broadcastSnapshot` | same names | progress/snapshot broadcast tests |
+| `normalizedSnapshot`/`broadcastSnapshot` | `normalized_snapshot`/`broadcast_snapshot`/`broadcast_snapshot_now`/`broadcast_loop` | progress/snapshot broadcast tests; strict stream differential |
 | `toMetadata` | `metadata_from_snapshot` | list tests |
 
 ## Branches
@@ -22,6 +22,7 @@ Source: `packages/server/src/sessions.ts`. Rust: `crates/pi-server/src/sessions.
 - Detach is idempotent; unrelated attachments stay live (`creates_server_assigned_durable_ids...`, `keeps_multiple_attachments...`).
 - Runtime ID change → `invalid_request`; runtime terminal error closes attached connections (`disconnects_attached_clients...`).
 - Stored metadata order is preserved by `TestServerService` (insertion-order vector) and live-only metadata is appended; merged metadata keeps backend `parentSessionId` while refreshing live fields (`preserves_backend_metadata...`).
+- Snapshot broadcasts are queued per live session in call order (`broadcast_loop`), reproducing the TS microtask order in which a runtime-event snapshot is enqueued before the operation's own snapshot and response. `tests/differential_stream.rs` compares the resulting raw frame order.
 
 ## Gaps / deviations
 - TS stores an `openingSessions` promise map for per-ID concurrent opens; Rust serializes acquisition through one `acquire_lock`. Observable behavior (single live runtime, waiting for disposal, lock errors) is covered; different IDs acquire sequentially rather than concurrently.

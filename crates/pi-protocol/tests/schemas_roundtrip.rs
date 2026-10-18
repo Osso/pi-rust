@@ -1,15 +1,16 @@
 use pi_protocol::{
     AbortCommand, AssistantContent, AssistantStopReason, AssistantTranscriptItem, AssistantTranscriptItemInput,
-    AssistantTranscriptState, AttachCommand, ClientHello, ClientMessage, Command, CommandResult, CreateCommand,
-    CreateCommandInput, DetachCommand, DetachResult, ErrorResponse, EventEnvelope, FinishedTranscriptItem,
-    ImageContent, JsonValue, ListCommand, ListResult, ModelCost, ModelMetadata, ModelMetadataInput, ModelRef,
-    PROTOCOL_VERSION, PromptCommand, ProtocolError, ProtocolErrorCode, RequestEnvelope, ResponseEnvelope, ServerEvent,
-    ServerHello, ServerHelloError, ServerMessage, ServerSnapshot, SessionMetadata, SessionMetadataInput, SessionPhase,
-    SessionProgress, SessionRemoved, SessionSnapshot, SessionSnapshotInput, SetModelCommand, SetThinkingCommand,
-    SteerCommand, SuccessResponse, TextContent, ThinkingContent, ThinkingLevel, ToolCallContent, ToolContent,
-    ToolTranscriptItem, ToolTranscriptItemInput, ToolTranscriptState, TranscriptDeltaKind, TranscriptProgress,
-    UpdatedTranscriptItem, Usage, UsageCost, UsageInput, UserContent, UserTranscriptItem, decode_cbor,
-    encode_client_message, encode_server_message, parse_client_message, parse_server_message,
+    AssistantTranscriptState, AttachCommand, CborValue, ClientHello, ClientMessage, Command, CommandResult,
+    CreateCommand, CreateCommandInput, DetachCommand, DetachResult, ErrorResponse, EventEnvelope,
+    FinishedTranscriptItem, ImageContent, JsonValue, ListCommand, ListResult, ModelCost, ModelMetadata,
+    ModelMetadataInput, ModelRef, PROTOCOL_VERSION, PromptCommand, ProtocolError, ProtocolErrorCode, RequestEnvelope,
+    ResponseEnvelope, ServerEvent, ServerHello, ServerHelloError, ServerMessage, ServerSnapshot, SessionMetadata,
+    SessionMetadataInput, SessionPhase, SessionProgress, SessionRemoved, SessionSnapshot, SessionSnapshotInput,
+    SetModelCommand, SetThinkingCommand, SteerCommand, SuccessResponse, TextContent, ThinkingContent, ThinkingLevel,
+    ToolCallContent, ToolContent, ToolTranscriptItem, ToolTranscriptItemInput, ToolTranscriptState,
+    TranscriptDeltaKind, TranscriptItem, TranscriptProgress, UpdatedTranscriptItem, Usage, UsageCost, UsageInput,
+    UserContent, UserTranscriptItem, decode_cbor, encode_client_message, encode_server_message, parse_client_message,
+    parse_server_message,
 };
 
 fn model_ref() -> ModelRef {
@@ -473,5 +474,124 @@ fn updated_items_reject_user_items_and_empty_delta_ids() {
             AssistantTranscriptState::Streaming,
         )))
         .is_ok()
+    );
+}
+
+fn lookup<'a>(entries: &'a [(String, CborValue)], key: &str) -> &'a CborValue {
+    &entries
+        .iter()
+        .find(|(entry_key, _)| entry_key == key)
+        .expect("key must be present")
+        .1
+}
+
+fn first_transcript_item_keys(item: TranscriptItem) -> Vec<String> {
+    let snapshot = SessionSnapshot::new(SessionSnapshotInput {
+        id: "session-1".to_string(),
+        name: None,
+        cwd: "/workspace".to_string(),
+        created_at: 1,
+        updated_at: 1,
+        phase: SessionPhase::Idle,
+        model: model_ref(),
+        thinking_level: ThinkingLevel::Off,
+        attached: false,
+        locked: false,
+        revision: 0,
+        transcript: vec![item],
+        queued_steer: Vec::new(),
+        queued_steer_count: 0,
+    })
+    .expect("snapshot must be valid");
+    let message = ServerMessage::Event(EventEnvelope::new(ServerEvent::SessionSnapshot(snapshot)));
+    let frame = encode_server_message(&message, None).expect("frame must encode");
+    let value = decode_cbor(&frame[4..], None).expect("payload must decode");
+    let CborValue::Map(entries) = value else {
+        panic!("frame must be a map");
+    };
+    let CborValue::Map(event) = lookup(&entries, "event") else {
+        panic!("event must be a map");
+    };
+    let CborValue::Map(snapshot) = lookup(event, "snapshot") else {
+        panic!("snapshot must be a map");
+    };
+    let CborValue::Array(items) = lookup(snapshot, "transcript") else {
+        panic!("transcript must be an array");
+    };
+    let CborValue::Map(item) = &items[0] else {
+        panic!("transcript item must be a map");
+    };
+    item.iter().map(|(key, _)| key.clone()).collect()
+}
+
+#[test]
+fn transcript_item_wire_orders_match_their_typescript_producers() {
+    let state = AssistantTranscriptState::Complete {
+        stop_reason: AssistantStopReason::Stop,
+    };
+    let bridge = assistant_item("assistant-1", state.clone());
+    let runtime = AssistantTranscriptItem::new_runtime(AssistantTranscriptItemInput {
+        id: bridge.id().to_string(),
+        content: bridge.content().to_vec(),
+        model: bridge.model().clone(),
+        response_model: bridge.response_model().map(str::to_string),
+        usage: bridge.usage(),
+        timestamp: bridge.timestamp(),
+        state,
+    })
+    .expect("runtime assistant item must be valid");
+
+    assert_eq!(
+        first_transcript_item_keys(TranscriptItem::Assistant(bridge))
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        [
+            "id",
+            "role",
+            "content",
+            "model",
+            "responseModel",
+            "usage",
+            "timestamp",
+            "status",
+            "stopReason"
+        ]
+    );
+    assert_eq!(
+        first_transcript_item_keys(TranscriptItem::Assistant(runtime))
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        [
+            "id",
+            "role",
+            "content",
+            "status",
+            "model",
+            "responseModel",
+            "usage",
+            "stopReason",
+            "timestamp"
+        ]
+    );
+    assert_eq!(
+        first_transcript_item_keys(TranscriptItem::Tool(tool_item("tool-1", ToolTranscriptState::Complete)))
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        [
+            "id",
+            "role",
+            "toolCallId",
+            "toolName",
+            "input",
+            "content",
+            "details",
+            "usage",
+            "timestamp",
+            "status",
+            "isError"
+        ]
     );
 }
