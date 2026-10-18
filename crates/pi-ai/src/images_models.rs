@@ -208,52 +208,65 @@ impl ImagesModels for ImagesModelsCollection {
         let auth_context = Arc::clone(&self.inner.auth_context);
         Box::pin(async move {
             let Some(provider) = provider else {
-                return error_result(
-                    &model,
-                    ModelsError::new(
-                        ModelsErrorCode::Provider,
-                        format!("Unknown provider: {}", model.provider),
-                    )
-                    .to_string(),
-                );
+                return unknown_provider_result(&model);
             };
-
-            let resolution = resolve_provider_auth(
-                provider.id(),
-                provider.auth(),
-                credentials,
-                auth_context,
-                AuthResolutionOverrides {
-                    api_key: options.request.api_key.clone(),
-                    env: options.request.env.clone(),
-                    signal: options.request.signal.clone(),
-                    ..Default::default()
-                },
-            )
-            .await;
+            let resolution = resolve_auth_for_request(&provider, credentials, auth_context, &options).await;
             let resolution = match resolution {
                 Ok(resolution) => resolution,
                 Err(error) => return error_result(&model, error.to_string()),
             };
-
-            let mut request_model = model.clone();
-            let mut request_options = options.clone();
-            if let Some(resolution) = resolution {
-                let AuthResult { auth, env, .. } = resolution;
-                if let Some(base_url) = auth.base_url {
-                    request_model.base_url = base_url;
-                }
-                request_options.request.api_key = options.request.api_key.clone().or(auth.api_key);
-                request_options.request.headers = merge_headers(auth.headers, options.request.headers);
-                request_options.request.env = merge_env(env, options.request.env);
-            }
-
+            let (request_model, request_options) = request_with_resolution(&model, &options, resolution);
             match provider.generate_images(request_model, context, request_options).await {
                 Ok(result) => result,
                 Err(error) => error_result(&model, error.message),
             }
         })
     }
+}
+
+fn unknown_provider_result(model: &ImagesModel) -> AssistantImages {
+    error_result(
+        model,
+        ModelsError::new(
+            ModelsErrorCode::Provider,
+            format!("Unknown provider: {}", model.provider),
+        )
+        .to_string(),
+    )
+}
+
+async fn resolve_auth_for_request(
+    provider: &Arc<dyn ImagesProvider>,
+    credentials: Arc<dyn CredentialStore>,
+    auth_context: Arc<dyn AuthContext>,
+    options: &ImagesOptions,
+) -> Result<Option<AuthResult>, ResolveError> {
+    resolve_provider_auth(
+        provider.id(),
+        provider.auth(),
+        credentials,
+        auth_context,
+        AuthResolutionOverrides {
+            api_key: options.request.api_key.clone(),
+            env: options.request.env.clone(),
+            signal: options.request.signal.clone(),
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+fn request_with_resolution(
+    model: &ImagesModel,
+    options: &ImagesOptions,
+    resolution: Option<AuthResult>,
+) -> (ImagesModel, ImagesOptions) {
+    let mut request_model = model.clone();
+    let mut request_options = options.clone();
+    if let Some(resolution) = resolution {
+        apply_resolution(&mut request_model, &mut request_options, resolution);
+    }
+    (request_model, request_options)
 }
 
 impl MutableImagesModels for ImagesModelsCollection {
@@ -288,6 +301,16 @@ async fn refresh_all(providers: Vec<Arc<dyn ImagesProvider>>) {
         });
     }
     while tasks.join_next().await.is_some() {}
+}
+
+fn apply_resolution(request_model: &mut ImagesModel, request_options: &mut ImagesOptions, resolution: AuthResult) {
+    let AuthResult { auth, env, .. } = resolution;
+    if let Some(base_url) = auth.base_url {
+        request_model.base_url = base_url;
+    }
+    request_options.request.api_key = request_options.request.api_key.clone().or(auth.api_key);
+    request_options.request.headers = merge_headers(auth.headers, request_options.request.headers.clone());
+    request_options.request.env = merge_env(env, request_options.request.env.clone());
 }
 
 fn merge_headers(
@@ -401,37 +424,7 @@ impl ImagesProvider for ConfiguredImagesProvider {
         let refresh = Arc::clone(self.refresh_models.as_ref()?);
         let models = Arc::clone(&self.models);
         let inflight = Arc::clone(&self.inflight);
-        Some(Box::pin(async move {
-            let existing = {
-                let mut current = inflight.lock().await;
-                match current.as_ref() {
-                    Some(state) => Some(Arc::clone(state)),
-                    None => {
-                        let state = Arc::new(RefreshState::default());
-                        *current = Some(Arc::clone(&state));
-                        None
-                    }
-                }
-            };
-            if let Some(state) = existing {
-                return state.wait().await;
-            }
-
-            let outcome = match refresh().await {
-                Ok(refreshed) => {
-                    *lock(&models) = refreshed;
-                    Ok(())
-                }
-                Err(error) => Err(error),
-            };
-            {
-                let state = inflight.lock().await.take();
-                if let Some(state) = state {
-                    state.finish(outcome.clone());
-                }
-            }
-            outcome
-        }))
+        Some(Box::pin(refresh_once(refresh, models, inflight)))
     }
 
     fn generate_images(
@@ -442,6 +435,45 @@ impl ImagesProvider for ConfiguredImagesProvider {
     ) -> BoxFuture<'static, Result<AssistantImages, CallbackError>> {
         let api = Arc::clone(&self.api);
         Box::pin(async move { api.generate_images(model, context, options).await })
+    }
+}
+
+async fn refresh_once(
+    refresh: ImagesRefreshModels,
+    models: Arc<Mutex<Vec<ImagesModel>>>,
+    inflight: Arc<AsyncMutex<Option<Arc<RefreshState>>>>,
+) -> Result<(), CallbackError> {
+    let existing = join_or_start_refresh(&inflight).await;
+    if let Some(state) = existing {
+        return state.wait().await;
+    }
+
+    let outcome = run_refresh(refresh, &models).await;
+    let state = inflight.lock().await.take();
+    if let Some(state) = state {
+        state.finish(outcome.clone());
+    }
+    outcome
+}
+
+async fn join_or_start_refresh(inflight: &AsyncMutex<Option<Arc<RefreshState>>>) -> Option<Arc<RefreshState>> {
+    let mut current = inflight.lock().await;
+    match current.as_ref() {
+        Some(state) => Some(Arc::clone(state)),
+        None => {
+            *current = Some(Arc::new(RefreshState::default()));
+            None
+        }
+    }
+}
+
+async fn run_refresh(refresh: ImagesRefreshModels, models: &Mutex<Vec<ImagesModel>>) -> Result<(), CallbackError> {
+    match refresh().await {
+        Ok(refreshed) => {
+            *lock(models) = refreshed;
+            Ok(())
+        }
+        Err(error) => Err(error),
     }
 }
 

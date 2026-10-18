@@ -97,17 +97,7 @@ fn get_proxy_for_url(
 ) -> Option<String> {
     let parsed = Url::parse(target_url).ok()?;
     let protocol = parsed.scheme().to_owned();
-    let host = parsed.host()?;
-    let host_with_port = match parsed.port() {
-        Some(port) => format!("{host}:{port}"),
-        None => host.to_string(),
-    };
-    let hostname = strip_port_suffix(&host_with_port);
-    let port = parsed
-        .port()
-        .map(f64::from)
-        .or_else(|| default_proxy_port(&protocol))
-        .unwrap_or(0.0);
+    let (hostname, port) = target_host_and_port(&parsed)?;
     if !should_proxy_hostname(&hostname, port, env, process_env) {
         return None;
     }
@@ -123,6 +113,21 @@ fn get_proxy_for_url(
         proxy = format!("{protocol}://{proxy}");
     }
     Some(proxy)
+}
+
+fn target_host_and_port(parsed: &Url) -> Option<(String, f64)> {
+    let host = parsed.host()?;
+    let host_with_port = match parsed.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    };
+    let hostname = strip_port_suffix(&host_with_port);
+    let port = parsed
+        .port()
+        .map(f64::from)
+        .or_else(|| default_proxy_port(parsed.scheme()))
+        .unwrap_or(0.0);
+    Some((hostname, port))
 }
 
 fn strip_port_suffix(host: &str) -> String {

@@ -291,7 +291,7 @@ async fn read_success_body(
         }
         match body.next_chunk().await {
             Some(Ok(chunk)) => bytes.extend_from_slice(&chunk),
-            Some(Err(_error)) if signal.is_some_and(CancellationToken::is_cancelled) => {
+            Some(Err(_)) if signal.is_some_and(CancellationToken::is_cancelled) => {
                 return Err(ProviderRequestError::Abort(crate::utils::abort::AbortError::new()));
             }
             Some(Err(error)) => return Err(ProviderRequestError::Other(error)),

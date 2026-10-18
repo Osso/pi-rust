@@ -98,67 +98,85 @@ async fn request_images(
         .api_key
         .as_deref()
         .ok_or_else(|| format!("No API key for provider: {}", model.provider))?;
+    let params = build_effective_params(model, context, options).await?;
+    let client = build_client(model, api_key, options);
+    let response = send_with_retries(&client, params, options).await?;
+    Ok(provider_response(response))
+}
 
-    let mut params = build_params(model, context);
-    if let Some(on_payload) = &options.request.on_payload
-        && let Some(next_params) = on_payload(params.clone(), model.clone())
-            .await
-            .map_err(|error| error.message)?
-    {
-        params = next_params;
-    }
+async fn build_effective_params(
+    model: &ImagesModel,
+    context: &ImagesContext,
+    options: &ImagesOptions,
+) -> Result<Value, String> {
+    let params = build_params(model, context);
+    let Some(on_payload) = &options.request.on_payload else {
+        return Ok(params);
+    };
+    let next_params = on_payload(params.clone(), model.clone())
+        .await
+        .map_err(|error| error.message)?;
+    Ok(next_params.unwrap_or(params))
+}
 
-    let client = SdkClient::new(SdkClientConfig {
+fn build_client(model: &ImagesModel, api_key: &str, options: &ImagesOptions) -> SdkClient {
+    SdkClient::new(SdkClientConfig {
         api_key: api_key.to_owned(),
         base_url: model.base_url.clone(),
         default_headers: merged_headers(model, options),
         timeout_ms: options.request.timeout_ms,
         fetch: options.request.fetch.clone(),
         azure: None,
-    });
+    })
+}
+
+async fn send_with_retries(
+    client: &SdkClient,
+    params: Value,
+    options: &ImagesOptions,
+) -> Result<SdkJsonResponse, String> {
+    let signal = options.request.signal.clone();
+    let timeout = timeout_duration(options.request.timeout_ms);
     let retry_options = ProviderRetryOptions {
         max_retries: options
             .request
             .max_retries
             .map_or(0, |retries| retries.max(0.0) as usize),
         max_retry_delay_ms: options.request.max_retry_delay_ms,
-        signal: options.request.signal.clone(),
+        signal: signal.clone(),
     };
-    let signal = options.request.signal.clone();
-    let timeout = timeout_duration(options.request.timeout_ms);
-    let result = retry_provider_request(
-        || {
-            let params = params.clone();
-            let client = &client;
-            let signal = signal.clone();
-            async move {
-                match timeout {
-                    Some(timeout) => {
-                        tokio::select! {
-                            biased;
-                            () = tokio::time::sleep(timeout) => Err(timeout_error()),
-                            result = client.create_chat_completion(params, signal) => result,
-                        }
-                    }
-                    None => client.create_chat_completion(params, signal).await,
-                }
-            }
-        },
+    retry_provider_request(
+        || send_once(client, params.clone(), signal.clone(), timeout),
         retry_options,
     )
-    .await;
+    .await
+    .map_err(|error| format_request_error(&error, None))
+}
 
-    result
-        .map(|response: SdkJsonResponse| {
-            (
-                response.data,
-                ProviderResponse {
-                    status: f64::from(response.status),
-                    headers: headers_to_record(response.headers),
-                },
-            )
-        })
-        .map_err(|error| format_request_error(&error, None))
+async fn send_once(
+    client: &SdkClient,
+    params: Value,
+    signal: Option<CancellationToken>,
+    timeout: Option<std::time::Duration>,
+) -> Result<SdkJsonResponse, ProviderRequestError<CallbackError>> {
+    let Some(timeout) = timeout else {
+        return client.create_chat_completion(params, signal).await;
+    };
+    tokio::select! {
+        biased;
+        () = tokio::time::sleep(timeout) => Err(timeout_error()),
+        result = client.create_chat_completion(params, signal) => result,
+    }
+}
+
+fn provider_response(response: SdkJsonResponse) -> (Value, ProviderResponse) {
+    (
+        response.data,
+        ProviderResponse {
+            status: f64::from(response.status),
+            headers: headers_to_record(response.headers),
+        },
+    )
 }
 
 fn timeout_duration(timeout_ms: Option<f64>) -> Option<std::time::Duration> {
@@ -197,42 +215,13 @@ fn merged_headers(model: &ImagesModel, options: &ImagesOptions) -> BTreeMap<Stri
 }
 
 fn build_params(model: &ImagesModel, context: &ImagesContext) -> Value {
-    let content: Vec<Value> = context
-        .input
-        .iter()
-        .map(|item| match item {
-            TextOrImageContent::Text(text) => {
-                let mut part = Map::new();
-                part.insert("type".to_owned(), Value::String("text".to_owned()));
-                part.insert(
-                    "text".to_owned(),
-                    Value::String(sanitize_surrogates(&text.text).to_owned()),
-                );
-                Value::Object(part)
-            }
-            TextOrImageContent::Image(image) => {
-                let mut image_url = Map::new();
-                image_url.insert(
-                    "url".to_owned(),
-                    Value::String(format!("data:{};base64,{}", image.mime_type, image.data)),
-                );
-                let mut part = Map::new();
-                part.insert("type".to_owned(), Value::String("image_url".to_owned()));
-                part.insert("image_url".to_owned(), Value::Object(image_url));
-                Value::Object(part)
-            }
-        })
-        .collect();
+    let content: Vec<Value> = context.input.iter().map(content_part).collect();
 
     let mut message = Map::new();
     message.insert("role".to_owned(), Value::String("user".to_owned()));
     message.insert("content".to_owned(), Value::Array(content));
 
-    let modalities = if model.output.contains(&Modality::Text) {
-        vec!["image", "text"]
-    } else {
-        vec!["image"]
-    };
+    let modalities = request_modalities(model);
 
     let mut params = Map::new();
     params.insert("model".to_owned(), Value::String(model.id.clone()));
@@ -250,46 +239,88 @@ fn build_params(model: &ImagesModel, context: &ImagesContext) -> Value {
     Value::Object(params)
 }
 
+fn content_part(item: &TextOrImageContent) -> Value {
+    match item {
+        TextOrImageContent::Text(text) => {
+            let mut part = Map::new();
+            part.insert("type".to_owned(), Value::String("text".to_owned()));
+            part.insert(
+                "text".to_owned(),
+                Value::String(sanitize_surrogates(&text.text).to_owned()),
+            );
+            Value::Object(part)
+        }
+        TextOrImageContent::Image(image) => {
+            let mut image_url = Map::new();
+            image_url.insert(
+                "url".to_owned(),
+                Value::String(format!("data:{};base64,{}", image.mime_type, image.data)),
+            );
+            let mut part = Map::new();
+            part.insert("type".to_owned(), Value::String("image_url".to_owned()));
+            part.insert("image_url".to_owned(), Value::Object(image_url));
+            Value::Object(part)
+        }
+    }
+}
+
+fn request_modalities(model: &ImagesModel) -> Vec<&'static str> {
+    if model.output.contains(&Modality::Text) {
+        vec!["image", "text"]
+    } else {
+        vec!["image"]
+    }
+}
+
 fn apply_response(output: &mut AssistantImages, data: &Value, model: &ImagesModel) {
     output.response_id = data.get("id").and_then(Value::as_str).map(str::to_owned);
     if let Some(usage) = data.get("usage").filter(|usage| !usage.is_null()) {
         output.usage = Some(parse_usage(usage, model));
     }
 
-    let Some(choice) = data
-        .get("choices")
+    let Some(message) = first_choice_message(data) else {
+        return;
+    };
+    push_text(output, message);
+    push_images(output, message);
+}
+
+fn first_choice_message(data: &Value) -> Option<&Value> {
+    data.get("choices")
         .and_then(Value::as_array)
         .and_then(|choices| choices.first())
-    else {
-        return;
-    };
-    let Some(message) = choice.get("message") else {
-        return;
-    };
+        .and_then(|choice| choice.get("message"))
+}
 
+fn push_text(output: &mut AssistantImages, message: &Value) {
     if let Some(content) = message.get("content").and_then(Value::as_str)
         && !content.is_empty()
     {
         output.output.push(TextOrImageContent::Text(TextContent::new(content)));
     }
+}
 
+fn push_images(output: &mut AssistantImages, message: &Value) {
     let images = message
         .get("images")
         .and_then(Value::as_array)
         .map(Vec::as_slice)
         .unwrap_or_default();
     for image in images {
-        let image_url = match image.get("image_url") {
-            Some(Value::String(url)) => Some(url.as_str()),
-            Some(Value::Object(object)) => object.get("url").and_then(Value::as_str),
-            _ => None,
-        };
-        let Some((mime_type, data)) = image_url.and_then(parse_data_url) else {
+        let Some((mime_type, data)) = image_url(image).and_then(parse_data_url) else {
             continue;
         };
         output
             .output
             .push(TextOrImageContent::Image(ImageContent::new(data, mime_type)));
+    }
+}
+
+fn image_url(image: &Value) -> Option<&str> {
+    match image.get("image_url") {
+        Some(Value::String(url)) => Some(url.as_str()),
+        Some(Value::Object(object)) => object.get("url").and_then(Value::as_str),
+        _ => None,
     }
 }
 
@@ -306,7 +337,28 @@ fn parse_data_url(url: &str) -> Option<(&str, &str)> {
     Some((mime_type, data))
 }
 
+struct TokenCounts {
+    input: f64,
+    output: f64,
+    cache_read: f64,
+    cache_write: f64,
+}
+
 fn parse_usage(raw: &Value, model: &ImagesModel) -> Usage {
+    let tokens = token_counts(raw);
+    Usage {
+        input: tokens.input,
+        output: tokens.output,
+        cache_read: tokens.cache_read,
+        cache_write: tokens.cache_write,
+        cache_write_1h: None,
+        reasoning: None,
+        total_tokens: tokens.input + tokens.output + tokens.cache_read + tokens.cache_write,
+        cost: usage_cost(model, &tokens),
+    }
+}
+
+fn token_counts(raw: &Value) -> TokenCounts {
     let number = |name: &str| raw.get(name).and_then(Value::as_f64).unwrap_or(0.0);
     let details = raw.get("prompt_tokens_details");
     let detail = |name: &str| {
@@ -318,31 +370,31 @@ fn parse_usage(raw: &Value, model: &ImagesModel) -> Usage {
 
     let prompt_tokens = number("prompt_tokens");
     let reported_cached_tokens = detail("cached_tokens");
-    let cache_write_tokens = detail("cache_write_tokens");
-    let cache_read_tokens = if cache_write_tokens > 0.0 {
-        (reported_cached_tokens - cache_write_tokens).max(0.0)
+    let cache_write = detail("cache_write_tokens");
+    let cache_read = if cache_write > 0.0 {
+        (reported_cached_tokens - cache_write).max(0.0)
     } else {
         reported_cached_tokens
     };
-    let input = (prompt_tokens - cache_read_tokens - cache_write_tokens).max(0.0);
-    let output = number("completion_tokens");
+    TokenCounts {
+        input: (prompt_tokens - cache_read - cache_write).max(0.0),
+        output: number("completion_tokens"),
+        cache_read,
+        cache_write,
+    }
+}
+
+fn usage_cost(model: &ImagesModel, tokens: &TokenCounts) -> UsageCost {
     let rates = &model.cost.rates;
-    let mut cost = UsageCost {
-        input: (rates.input / 1_000_000.0) * input,
-        output: (rates.output / 1_000_000.0) * output,
-        cache_read: (rates.cache_read / 1_000_000.0) * cache_read_tokens,
-        cache_write: (rates.cache_write / 1_000_000.0) * cache_write_tokens,
-        total: 0.0,
-    };
-    cost.total = cost.input + cost.output + cost.cache_read + cost.cache_write;
-    Usage {
+    let input = (rates.input / 1_000_000.0) * tokens.input;
+    let output = (rates.output / 1_000_000.0) * tokens.output;
+    let cache_read = (rates.cache_read / 1_000_000.0) * tokens.cache_read;
+    let cache_write = (rates.cache_write / 1_000_000.0) * tokens.cache_write;
+    UsageCost {
         input,
         output,
-        cache_read: cache_read_tokens,
-        cache_write: cache_write_tokens,
-        cache_write_1h: None,
-        reasoning: None,
-        total_tokens: input + output + cache_read_tokens + cache_write_tokens,
-        cost,
+        cache_read,
+        cache_write,
+        total: input + output + cache_read + cache_write,
     }
 }
