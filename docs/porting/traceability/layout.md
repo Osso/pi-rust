@@ -4,7 +4,7 @@ Source: `packages/tui/src/layout.ts` (410 lines). Rust:
 `crates/pi-tui/src/layout.rs`.
 
 Tests: `crates/pi-tui/tests/layout.rs` (every listed TS layout test ported),
-`crates/pi-tui/tests/differential_layout.rs` (15 scenarios comparing rendered
+`crates/pi-tui/tests/differential_layout.rs` (14 scenarios comparing rendered
 lines, box rects/clips, scroll state, and render-request counts),
 `crates/pi-tui/tests/tab_width.rs` (tab overlay row accounting).
 

@@ -280,16 +280,16 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/terminal.ts` | 594 | 1 | done | `crates/pi-tui/src/terminal.rs` | differential negotiation/timeout/normalization; ProcessTerminal event-queue seam; resize polling |
 | `tui/src/word-navigation.ts` | 117 | 1 | done | `crates/pi-tui/src/word_navigation.rs` | TS tests + boundary differential; ICU4X dictionary-word mismatches pinned as approved deviation |
 | `tui/src/tui.ts` | 2534 | 2 | partial | `crates/pi-tui/src/tui.rs` | differential byte stream (main+renderer), overlays/focus/fixed cells/render regions; viewport fullscreen helpers deferred to alt-screen slice |
-| `tui/src/components/alt-screen-flash.ts` | 51 | 3 | todo |  |  |
-| `tui/src/components/box.ts` | 137 | 3 | todo |  |  |
-| `tui/src/components/dynamic-border.ts` | 15 | 3 | todo |  |  |
-| `tui/src/components/image.ts` | 127 | 3 | todo |  |  |
+| `tui/src/components/alt-screen-flash.ts` | 51 | 3 | done | `crates/pi-tui/src/components/alt_screen_flash.rs` | differential flash/render/dispose; expiry timer driver-owned |
+| `tui/src/components/box.ts` | 137 | 3 | done | `crates/pi-tui/src/components/box.rs` | differential padding/background/cache-sample matrix |
+| `tui/src/components/dynamic-border.ts` | 15 | 3 | done | `crates/pi-tui/src/components/dynamic_border.rs` | TS tests ported + differential |
+| `tui/src/components/image.ts` | 127 | 3 | done | `crates/pi-tui/src/components/image.rs` | differential kitty/iterm2/fallback renders; kitty ids explicit |
 | `tui/src/components/input.ts` | 465 | 3 | done | `crates/pi-tui/src/components/input.rs` | TS tests ported + scripted differential edits/renders |
 | `tui/src/components/markdown.ts` | 1027 | 3 | todo |  |  |
 | `tui/src/components/select-list.ts` | 229 | 3 | done | `crates/pi-tui/src/components/select_list.rs` | TS tests ported; differential render/callback matrix |
-| `tui/src/components/spacer.ts` | 28 | 3 | todo |  |  |
+| `tui/src/components/spacer.ts` | 28 | 3 | done | `crates/pi-tui/src/components/spacer.rs` | differential line counts + setLines |
 | `tui/src/components/text.ts` | 106 | 3 | done | `crates/pi-tui/src/components/text.rs` | TS differential wrapping/padding/background/cache |
-| `tui/src/components/truncated-text.ts` | 65 | 3 | todo |  |  |
+| `tui/src/components/truncated-text.ts` | 65 | 3 | done | `crates/pi-tui/src/components/truncated_text.rs` | all TS tests ported + differential |
 | `tui/src/editor-component.ts` | 74 | 3 | todo |  |  |
 | `tui/src/layout-node.ts` | 51 | 3 | done | `crates/pi-tui/src/layout_node.rs` | `Component::layout_node` replaces the `LAYOUT_NODE` symbol |
 | `tui/src/root-compositor.ts` | 91 | 3 | done | `crates/pi-tui/src/root_compositor.rs` | flow/bottom layout callbacks covered by render-region tests |
@@ -297,9 +297,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/alt-screen-search.ts` | 157 | 4 | todo |  |  |
 | `tui/src/components/loader.ts` | 94 | 4 | done | `crates/pi-tui/src/components/loader.rs` | TS test port + differential; frame timer is driver-owned (`poll`) |
 | `tui/src/components/scroll-view.ts` | 216 | 4 | done | `crates/pi-tui/src/components/scroll_view.rs` | TS layout tests ported; differential geometry/scroll state; scrollbar timer driver-owned |
-| `tui/src/components/settings-list.ts` | 249 | 4 | todo |  |  |
+| `tui/src/components/settings-list.ts` | 249 | 4 | done | `crates/pi-tui/src/components/settings_list.rs` | TS tests ported + differential search/cycle/submenu/scroll matrix |
 | `tui/src/components/stack.ts` | 154 | 4 | done | `crates/pi-tui/src/components/stack.rs` | size allocation covered by layout tests + differential |
-| `tui/src/components/cancellable-loader.ts` | 40 | 5 | todo |  |  |
+| `tui/src/components/cancellable-loader.ts` | 40 | 5 | done | `crates/pi-tui/src/components/cancellable_loader.rs` | differential escape abort + render; AbortSignal mapped to CancellationToken |
 | `tui/src/components/editor.ts` | 2687 | 5 | todo |  |  |
 | `tui/src/components/h-stack.ts` | 44 | 5 | done | `crates/pi-tui/src/components/h_stack.rs` | TS layout tests + differential composition/alignment |
 | `tui/src/components/v-stack.ts` | 33 | 5 | done | `crates/pi-tui/src/components/v_stack.rs` | TS layout tests + differential sizes/gaps |

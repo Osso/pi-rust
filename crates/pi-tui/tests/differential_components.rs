@@ -1,16 +1,28 @@
+#[path = "support/components.rs"]
+mod components;
 #[path = "support/oracle.rs"]
 mod oracle;
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
+use components::test_component;
 use oracle::TsOracle;
 use pi_tui::components::StyleFn;
+use pi_tui::components::alt_screen_flash::AltScreenFlashContainer;
+use pi_tui::components::r#box::BoxComponent;
+use pi_tui::components::cancellable_loader::CancellableLoader;
+use pi_tui::components::dynamic_border::DynamicBorder;
+use pi_tui::components::image::{Image, ImageOptions, ImageTheme};
 use pi_tui::components::loader::{Loader, LoaderIndicatorOptions};
 use pi_tui::components::select_list::{
     SelectItem, SelectList, SelectListLayoutOptions, SelectListTheme, SelectListTruncatePrimaryContext,
 };
+use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
+use pi_tui::components::truncated_text::TruncatedText;
+use pi_tui::terminal_image::ImageDimensions;
 use pi_tui::tui::Component;
 use serde_json::{Value, json};
 
@@ -321,6 +333,304 @@ fn select_list_render_and_callbacks_match_typescript() {
             "log": log.borrow().clone(),
             "selected": list.get_selected_item().map(|item| item.value.clone()),
         }));
+    }
+    assert_eq!(output["results"], json!(expected));
+}
+
+#[test]
+fn box_render_matches_typescript() {
+    let cases = json!([
+        {"paddingX": 1, "paddingY": 1, "background": false, "childLines": ["a", "bb"], "width": 8, "setBackgroundAfterFirstRender": false},
+        {"paddingX": 0, "paddingY": 2, "background": true, "childLines": ["alpha"], "width": 6, "setBackgroundAfterFirstRender": false},
+        {"paddingX": 1, "paddingY": 0, "background": true, "childLines": ["x"], "width": 5, "setBackgroundAfterFirstRender": true},
+        {"paddingX": 1, "paddingY": 1, "background": false, "childLines": [], "width": 5, "setBackgroundAfterFirstRender": false}
+    ]);
+    let mut oracle = TsOracle::spawn("tui-components-oracle.ts", SOURCE_DIRECTORY);
+    let output = run(&mut oracle, "box", cases.clone());
+
+    let mut expected = Vec::new();
+    for case in cases.as_array().unwrap() {
+        let background: Option<StyleFn> = case["background"]
+            .as_bool()
+            .unwrap()
+            .then(|| Rc::new(|text: &str| format!("[{text}]")) as StyleFn);
+        let mut box_component = BoxComponent::new(
+            case["paddingX"].as_u64().unwrap() as usize,
+            case["paddingY"].as_u64().unwrap() as usize,
+            background,
+        );
+        let lines: Vec<&str> = case["childLines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| line.as_str().unwrap())
+            .collect();
+        let (child, _) = test_component(&lines);
+        box_component.add_child(child);
+        let width = case["width"].as_u64().unwrap() as usize;
+        let mut snapshots = vec![box_component.render(width)];
+        if case["setBackgroundAfterFirstRender"].as_bool().unwrap() {
+            box_component.set_bg_fn(Some(Rc::new(|text: &str| format!("<{text}>"))));
+            snapshots.push(box_component.render(width));
+        }
+        expected.push(json!({"snapshots": snapshots}));
+    }
+    assert_eq!(output["results"], json!(expected));
+}
+
+#[test]
+fn spacer_dynamic_border_and_truncated_text_match_typescript() {
+    let mut oracle = TsOracle::spawn("tui-components-oracle.ts", SOURCE_DIRECTORY);
+
+    let spacer_cases = json!([
+        {"lines": 2, "width": 4, "setLines": null},
+        {"lines": 0, "width": 4, "setLines": 1}
+    ]);
+    let spacer_output = run(&mut oracle, "spacer", spacer_cases.clone());
+    let mut spacer_expected = Vec::new();
+    for case in spacer_cases.as_array().unwrap() {
+        let mut spacer = Spacer::new(case["lines"].as_u64().unwrap() as usize);
+        let width = case["width"].as_u64().unwrap() as usize;
+        let mut snapshots = vec![spacer.render(width)];
+        if let Some(lines) = case["setLines"].as_u64() {
+            spacer.set_lines(lines as usize);
+            snapshots.push(spacer.render(width));
+        }
+        spacer_expected.push(json!({"snapshots": snapshots}));
+    }
+    assert_eq!(spacer_output["results"], json!(spacer_expected));
+
+    let border_cases = json!([
+        {"width": 4, "markers": false},
+        {"width": 3, "markers": true},
+        {"width": 0, "markers": false}
+    ]);
+    let border_output = run(&mut oracle, "dynamic_border", border_cases.clone());
+    let border_expected: Vec<Vec<String>> = border_cases
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| {
+            let mut border = if case["markers"].as_bool().unwrap() {
+                DynamicBorder::new(Rc::new(|line: &str| format!("[{line}]")))
+            } else {
+                DynamicBorder::default()
+            };
+            border.render(case["width"].as_u64().unwrap() as usize)
+        })
+        .collect();
+    assert_eq!(border_output["results"], json!(border_expected));
+
+    let truncated_cases = json!([
+        {"text": "Hello world", "paddingX": 1, "paddingY": 0, "width": 50},
+        {"text": "Hello", "paddingX": 0, "paddingY": 2, "width": 40},
+        {"text": "This is a very long piece of text that will definitely exceed the available width", "paddingX": 1, "paddingY": 0, "width": 30},
+        {"text": "First line\nSecond line\nThird line", "paddingX": 1, "paddingY": 0, "width": 40},
+        {"text": "", "paddingX": 1, "paddingY": 0, "width": 30}
+    ]);
+    let truncated_output = run(&mut oracle, "truncated_text", truncated_cases.clone());
+    let truncated_expected: Vec<Vec<String>> = truncated_cases
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| {
+            let mut text = TruncatedText::new(
+                case["text"].as_str().unwrap(),
+                case["paddingX"].as_u64().unwrap() as usize,
+                case["paddingY"].as_u64().unwrap() as usize,
+            );
+            text.render(case["width"].as_u64().unwrap() as usize)
+        })
+        .collect();
+    assert_eq!(truncated_output["results"], json!(truncated_expected));
+}
+
+#[test]
+fn alt_screen_flash_matches_typescript() {
+    let cases = json!([
+        {"steps": [
+            {"kind": "render", "width": 20},
+            {"kind": "flash", "message": "saved", "durationMs": 1000},
+            {"kind": "render", "width": 20},
+            {"kind": "flash", "message": "a much longer flash message", "durationMs": 0},
+            {"kind": "render", "width": 12},
+            {"kind": "dispose"},
+            {"kind": "render", "width": 20}
+        ]}
+    ]);
+    let mut oracle = TsOracle::spawn("tui-components-oracle.ts", SOURCE_DIRECTORY);
+    let output = run(&mut oracle, "alt_screen_flash", cases.clone());
+
+    let mut expected = Vec::new();
+    for case in cases.as_array().unwrap() {
+        let renders = Rc::new(RefCell::new(0usize));
+        let counter = Rc::clone(&renders);
+        let mut container = AltScreenFlashContainer::new(Rc::new(move || *counter.borrow_mut() += 1));
+        let mut snapshots = Vec::new();
+        for step in case["steps"].as_array().unwrap() {
+            match step["kind"].as_str().unwrap() {
+                "flash" => container.flash(
+                    step["message"].as_str().unwrap(),
+                    Duration::from_millis(step["durationMs"].as_u64().unwrap()),
+                ),
+                "render" => snapshots.push(container.render(step["width"].as_u64().unwrap() as usize)),
+                "dispose" => container.dispose(),
+                other => panic!("unsupported flash step: {other}"),
+            }
+        }
+        expected.push(json!({"snapshots": snapshots, "renderCount": *renders.borrow()}));
+    }
+    assert_eq!(output["results"], json!(expected));
+}
+
+#[test]
+fn cancellable_loader_matches_typescript() {
+    let cases = json!([
+        {
+            "message": "Working",
+            "frames": null,
+            "steps": [
+                {"kind": "render", "width": 20},
+                {"kind": "key", "data": "\u{001b}"},
+                {"kind": "key", "data": "\u{0003}"},
+                {"kind": "setMessage", "message": "Still going"},
+                {"kind": "render", "width": 20}
+            ]
+        },
+        {
+            "message": "No indicator",
+            "frames": [],
+            "steps": [{"kind": "render", "width": 12}]
+        }
+    ]);
+    let mut oracle = TsOracle::spawn("tui-components-oracle.ts", SOURCE_DIRECTORY);
+    let output = run(&mut oracle, "cancellable_loader", cases.clone());
+
+    let mut expected = Vec::new();
+    for case in cases.as_array().unwrap() {
+        let renders = Rc::new(RefCell::new(0usize));
+        let counter = Rc::clone(&renders);
+        let indicator = case["frames"].as_array().map(|frames| LoaderIndicatorOptions {
+            frames: Some(frames.iter().map(|frame| frame.as_str().unwrap().to_string()).collect()),
+            interval_ms: Some(250),
+        });
+        let mut loader = CancellableLoader::new(
+            Rc::new(move || *counter.borrow_mut() += 1),
+            identity(),
+            identity(),
+            case["message"].as_str().unwrap(),
+            indicator,
+        );
+        let log = Rc::new(RefCell::new(Vec::new()));
+        let abort_log = Rc::clone(&log);
+        loader.on_abort = Some(Rc::new(move || abort_log.borrow_mut().push("abort".to_string())));
+        let mut snapshots = Vec::new();
+        for step in case["steps"].as_array().unwrap() {
+            match step["kind"].as_str().unwrap() {
+                "key" => loader.handle_input(step["data"].as_str().unwrap()),
+                "render" => snapshots.push(loader.render(step["width"].as_u64().unwrap() as usize)),
+                "setMessage" => loader.set_message(step["message"].as_str().unwrap()),
+                other => panic!("unsupported cancellable-loader step: {other}"),
+            }
+        }
+        let aborted = loader.is_aborted();
+        loader.stop();
+        expected.push(json!({
+            "snapshots": snapshots,
+            "log": log.borrow().clone(),
+            "aborted": aborted,
+            "renderCount": *renders.borrow(),
+        }));
+    }
+    assert_eq!(output["results"], json!(expected));
+}
+
+static CAPS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[test]
+fn image_render_matches_typescript() {
+    let _guard = CAPS_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let cases = json!([
+        {
+            "images": "kitty",
+            "cellWidthPx": 10,
+            "cellHeightPx": 20,
+            "base64Data": "AAAA",
+            "mimeType": "image/png",
+            "dimensions": {"widthPx": 100, "heightPx": 100},
+            "options": {"maxWidthCells": 20, "maxHeightCells": null, "filename": "cat.png", "imageId": 7},
+            "width": 30
+        },
+        {
+            "images": "iterm2",
+            "cellWidthPx": 10,
+            "cellHeightPx": 20,
+            "base64Data": "AAAA",
+            "mimeType": "image/png",
+            "dimensions": {"widthPx": 40, "heightPx": 80},
+            "options": {"maxWidthCells": 10, "maxHeightCells": 3, "filename": null, "imageId": null},
+            "width": 20
+        },
+        {
+            "images": null,
+            "cellWidthPx": 10,
+            "cellHeightPx": 20,
+            "base64Data": "AAAA",
+            "mimeType": "image/png",
+            "dimensions": {"widthPx": 800, "heightPx": 600},
+            "options": {"maxWidthCells": null, "maxHeightCells": null, "filename": "photo.png", "imageId": null},
+            "width": 40
+        },
+        {
+            "images": null,
+            "cellWidthPx": 10,
+            "cellHeightPx": 20,
+            "base64Data": "AAAA",
+            "mimeType": "image/webp",
+            "dimensions": {"widthPx": 800, "heightPx": 600},
+            "options": {"maxWidthCells": null, "maxHeightCells": null, "filename": null, "imageId": null},
+            "width": 60
+        }
+    ]);
+    let mut oracle = TsOracle::spawn("tui-components-oracle.ts", SOURCE_DIRECTORY);
+    let output = run(&mut oracle, "image", cases.clone());
+
+    let mut expected = Vec::new();
+    for case in cases.as_array().unwrap() {
+        let images = match case["images"].as_str() {
+            Some("kitty") => Some(pi_tui::terminal_image::ImageProtocol::Kitty),
+            Some("iterm2") => Some(pi_tui::terminal_image::ImageProtocol::Iterm2),
+            _ => None,
+        };
+        pi_tui::terminal_image::set_capabilities(pi_tui::terminal_image::TerminalCapabilities {
+            images,
+            true_color: true,
+            hyperlinks: true,
+        });
+        pi_tui::terminal_image::set_cell_dimensions(pi_tui::terminal_image::CellDimensions {
+            width_px: case["cellWidthPx"].as_u64().unwrap() as u32,
+            height_px: case["cellHeightPx"].as_u64().unwrap() as u32,
+        });
+        let mut image = Image::new(
+            case["base64Data"].as_str().unwrap(),
+            case["mimeType"].as_str().unwrap(),
+            Rc::new(ImageTheme {
+                fallback_color: Rc::new(|text: &str| format!("<{text}>")),
+            }),
+            ImageOptions {
+                max_width_cells: case["options"]["maxWidthCells"].as_u64().map(|value| value as usize),
+                max_height_cells: case["options"]["maxHeightCells"].as_u64().map(|value| value as usize),
+                filename: case["options"]["filename"].as_str().map(str::to_string),
+                image_id: case["options"]["imageId"].as_u64().map(|value| value as u32),
+            },
+            Some(ImageDimensions {
+                width_px: case["dimensions"]["widthPx"].as_u64().unwrap() as u32,
+                height_px: case["dimensions"]["heightPx"].as_u64().unwrap() as u32,
+            }),
+        );
+        let lines = image.render(case["width"].as_u64().unwrap() as usize);
+        expected.push(json!({"lines": lines, "imageId": image.image_id()}));
+        pi_tui::terminal_image::reset_capabilities_cache();
     }
     assert_eq!(output["results"], json!(expected));
 }
