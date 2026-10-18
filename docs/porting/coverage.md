@@ -481,7 +481,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/model-registry.ts` | 158 | 9 | todo |  |  |
 | `coding-agent/src/migrations.ts` | 365 | 9 | done | `crates/pi-coding-agent/src/migrations.rs` | Auth/session/tools/keybindings/commands migrations, deprecation warnings, `runMigrations`; differential over fixture agent dirs. TTY keypress wait deferred. |
 | `coding-agent/src/client/index.ts` | 15 | 10 | todo |  |  |
-| `coding-agent/src/core/compaction/utils.ts` | 198 | 14 | todo |  |  |
+| `coding-agent/src/core/compaction/utils.ts` | 198 | 14 | done | `crates/pi-coding-agent/src/core/compaction/utils.rs` | Reuses agent-core file ops + system prompt; coding-agent 1000-char tool-argument truncation; 7 tests + differential. See `coding-agent-compaction-utils.md`. |
 | `coding-agent/src/core/defaults.ts` | 3 | 14 | done | `crates/pi-coding-agent/src/core/defaults.rs` | `DEFAULT_THINKING_LEVEL = medium` reuses `pi-agent-core` `ThinkingLevel`. |
 | `coding-agent/src/core/messages.ts` | 212 | 14 | done | `crates/pi-coding-agent/src/core/messages.rs` | Re-exports `pi-agent-core` harness messages and adds `is_cut_point_message`; `tests/messages.rs` |
 | `coding-agent/src/core/runtime-message-markers.ts` | 36 | 14 | todo |  |  |
@@ -500,7 +500,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/cli/debug-command.ts` | 77 | 16 | todo |  |  |
 | `coding-agent/src/cli/sessions-command.ts` | 106 | 16 | todo |  |  |
 | `coding-agent/src/core/cache-stats.ts` | 164 | 16 | done | `crates/pi-coding-agent/src/core/cache_stats.rs` | Cache-waste scan and miss detection; `tests/cache_stats.rs` |
-| `coding-agent/src/core/compaction/compaction.ts` | 1179 | 16 | todo |  |  |
+| `coding-agent/src/core/compaction/compaction.ts` | 1179 | 16 | done | `crates/pi-coding-agent/src/core/compaction.rs` | Session-entry cut points (budget + protected suffix), goal-reminder filtering, materialization, split-turn summaries, `compact`; 40 tests + differential. See `coding-agent-compaction.md`. |
 | `coding-agent/src/core/detached-job-cleanup.ts` | 351 | 16 | todo |  |  |
 | `coding-agent/src/core/detached-job-control.ts` | 213 | 16 | todo |  |  |
 | `coding-agent/src/core/external-session-importer.ts` | 310 | 16 | done | `crates/pi-coding-agent/src/core/external_session_importer.rs` | Codex/Claude fixture imports; `tests/external_session_importer.rs` |
@@ -515,7 +515,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/supervisor/client.ts` | 63 | 16 | todo |  |  |
 | `coding-agent/src/supervisor/service.ts` | 210 | 16 | todo |  |  |
 | `coding-agent/src/architect/prompt.ts` | 12 | 17 | todo |  |  |
-| `coding-agent/src/core/compaction/branch-summarization.ts` | 378 | 17 | todo |  |  |
+| `coding-agent/src/core/compaction/branch-summarization.ts` | 378 | 17 | done | `crates/pi-coding-agent/src/core/compaction/branch_summarization.rs` | Collection, budgeted preparation, summary generation; 14 tests + differential. See `coding-agent-branch-summarization.md`. |
 | `coding-agent/src/core/detached-bash-runner.ts` | 294 | 17 | todo |  |  |
 | `coding-agent/src/core/lifecycle-coordinator.ts` | 448 | 17 | done | `crates/pi-coding-agent/src/core/lifecycle_coordinator.rs` | Command surface over control-db lifecycle mutations; 23 behavioral tests. |
 | `coding-agent/src/core/prompt-templates.ts` | 285 | 17 | done | `crates/pi-coding-agent/src/core/prompt_templates.rs` | Argument parsing/substitution, discovery, expansion, source metadata; differential `coding-agent-prompt-templates-oracle.ts`. |
@@ -525,7 +525,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/theme/theme.ts` | 1337 | 17 | todo |  |  |
 | `coding-agent/extensions/agents-core/src/lifecycle-runtime.ts` | 42 | 18 | todo |  |  |
 | `coding-agent/extensions/pyrun/src/detached-runner.ts` | 411 | 18 | todo |  |  |
-| `coding-agent/src/core/compaction/index.ts` | 7 | 18 | todo |  |  |
+| `coding-agent/src/core/compaction/index.ts` | 7 | 18 | done | `crates/pi-coding-agent/src/core/compaction.rs` (module re-exports) | Re-exports the three modules; exercised by every compaction test. |
 | `coding-agent/src/core/detached-bash-runner-entry.ts` | 13 | 18 | todo |  |  |
 | `coding-agent/src/core/detached-job-lifecycle.ts` | 214 | 18 | todo |  |  |
 | `coding-agent/src/core/tools/render-utils.ts` | 85 | 18 | todo |  |  |

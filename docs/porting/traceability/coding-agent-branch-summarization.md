@@ -1,0 +1,48 @@
+# Traceability: `packages/coding-agent/src/core/compaction/branch-summarization.ts`
+
+Rust: `crates/pi-coding-agent/src/core/compaction/branch_summarization.rs`. Tests:
+`tests/branch_summarization.rs`, `tests/differential_compaction.rs`.
+
+Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
+
+Compared with `packages/agent/src/harness/compaction/branch-summarization.ts`
+([agent branch summarization](branch-summarization.md)), this copy reads
+`SessionEntry`/`ReadonlySessionManager`, returns a plain result object instead of
+`Result`, handles `custom_message` entries, filters `fromHook` details, and calls
+`completeSummarization` with coding-agent auth options.
+
+## Exported surface
+
+| TypeScript | Rust | Tests |
+|---|---|---|
+| `BranchSummaryResult` | `BranchSummaryResult` (all-optional fields, serde camelCase) | 6 generation tests |
+| `BranchSummaryDetails` | `BranchSummaryDetails` | preparation tests |
+| `FileOperations` re-export | module re-export | preparation differential |
+| `BranchPreparation` | `BranchPreparation` | 5 preparation tests; differential (4 fixtures) |
+| `CollectEntriesResult` | `CollectEntriesResult` | 2 collection tests; differential on a real session file |
+| `GenerateBranchSummaryOptions` | `GenerateBranchSummaryOptions<'a>` | all generation tests |
+| `collectEntriesForBranchSummary` | `collect_entries_for_branch_summary` | collection tests; differential |
+| `prepareBranchEntries` | `prepare_branch_entries` | preparation tests; differential |
+| `generateBranchSummary` | `generate_branch_summary` (+ `generate_branch_summary_default`) | generation tests |
+
+## Internal branches
+
+| TypeScript | Rust | Notes |
+|---|---|---|
+| `getMessageFromEntry` | `get_message_from_entry` | Skips `toolResult`; converts custom/branch/compaction entries; ignores settings/metadata entries. |
+| first pass over entries | inline in `prepare_branch_entries` | Cumulative `readFiles`/`modifiedFiles` from non-hook branch summaries. |
+| newest-to-oldest budget walk | inline in `prepare_branch_entries` | `tokenBudget == 0` means unlimited; summary entries may exceed the budget only below 90 %. |
+| `BRANCH_SUMMARY_PREAMBLE` / `BRANCH_SUMMARY_PROMPT` | same constants | Asserted by the preambled-summary and custom-instruction tests. |
+| instruction selection | `match (replace_instructions, custom_instructions)` | Replace / append / default. |
+| request construction | inline | System prompt, `<conversation>` block, `maxTokens: 2048`, cache retention `none` via `complete_summarization`. |
+| aborted / error handling | inline | `{aborted:true}` and `{error: …}` results. |
+| file-list suffix | `compute_file_lists` + `format_file_operations` | Asserted in the preambled-summary test. |
+
+## Gaps / discrepancies
+
+- `generateBranchSummary` is not differential: it performs network I/O. The
+  scripted `StreamFn` tests assert the captured system prompt, prompt text,
+  `maxTokens`, cache retention, usage, preamble, and file-list suffix.
+- `BranchSummaryResult` uses `Option` fields with `skip_serializing_if`, so an
+  aborted result serializes as `{"aborted":true}` exactly like the source.
+- No source bugs found.
