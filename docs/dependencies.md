@@ -63,6 +63,16 @@ The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToolExecutionContext` slices
 
 No runtime dependencies. CBOR encoding and decoding are hand-written against the pinned TypeScript subset so encoded bytes match the source byte-for-byte; a general-purpose CBOR crate would not guarantee that parity.
 
+### `pi-server`
+
+- `pi-protocol` (path, `=0.0.0`) — typed protocol messages, CBOR codec, framing, and schema validation are reused unchanged.
+- `pi-ai` (path, `=0.0.0`) — bridge input types (`Model`, messages, usage, tool calls) and the shared `uuidv7` generator for server, connection, and server-assigned session IDs.
+- `serde_json = 1.0.151` (`preserve_order`) — carries `pi-ai` tool arguments/details and JSON-shaped error details without reordering object keys.
+- `tokio = 1.53.3` (`io-util`, `macros`, `net`, `rt`, `sync`, `time`) — async server tasks, Unix-domain sockets, write serialization, timers, and handshake cancellation.
+- `sha2 = 0.10.9` — derives the private Unix bind path from the SHA-256 prefix, matching the TypeScript transport.
+- No `tokio-util` dependency: the server package contains no `AbortSignal`, so there is no `CancellationToken` mapping to perform.
+- Development: `tempfile = 3.27.0` for isolated socket paths; `tokio` adds `rt-multi-thread` and `test-util` for integration tests and the cross-implementation client run.
+
 ### `pi-telemetry`
 
 - `serde = 1.0.229` — derives the camelCase wire shape for schema definitions and recorded spans/events, including the internally tagged status and parent definitions.

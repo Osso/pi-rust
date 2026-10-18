@@ -322,23 +322,27 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `client/src/client.ts` | 432 | 7 | done | `crates/pi-client/src/client.rs` | Requests, leases, attachment serialization |
 | `client/src/index.ts` | 18 | 8 | done | `crates/pi-client/src/lib.rs` | Public re-exports; static connect renamed `connect_new` |
 
-## server (13 files, 1839 lines)
+## server (17 files, 2305 lines)
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `server/src/errors.ts` | 58 | 5 | todo |  |  |
-| `server/src/protocol.ts` | 388 | 5 | todo |  |  |
-| `server/src/connection.ts` | 36 | 6 | todo |  |  |
-| `server/src/listener.ts` | 10 | 6 | todo |  |  |
-| `server/src/types.ts` | 63 | 6 | todo |  |  |
-| `server/src/sessions.ts` | 346 | 7 | todo |  |  |
-| `server/src/snapshots.ts` | 62 | 7 | todo |  |  |
-| `server/src/transports/unix/types.ts` | 15 | 7 | todo |  |  |
-| `server/src/server.ts` | 396 | 8 | todo |  |  |
-| `server/src/transports/unix/listener.ts` | 434 | 8 | todo |  |  |
-| `server/src/index.ts` | 5 | 9 | todo |  |  |
-| `server/src/transports/unix/preset.ts` | 23 | 9 | todo |  |  |
-| `server/src/transports/unix/index.ts` | 3 | 10 | todo |  |  |
+| `server/src/errors.ts` | 58 | 5 | done | `crates/pi-server/src/errors.rs` | Typed operation codes, cause-retaining internal error |
+| `server/src/protocol.ts` | 388 | 5 | done | `crates/pi-server/src/protocol.rs` | pi-ai → protocol bridge; differential oracle |
+| `server/src/connection.ts` | 36 | 6 | done | `crates/pi-server/src/connection.rs` | Byte connection/handler contracts, stage state |
+| `server/src/listener.ts` | 10 | 6 | done | `crates/pi-server/src/listener.rs` | Listener trait |
+| `server/src/types.ts` | 63 | 6 | done | `crates/pi-server/src/types.rs` | Service/runtime traits and option records |
+| `server/src/sessions.ts` | 346 | 7 | done | `crates/pi-server/src/sessions.rs` | Live session manager, disposal, metadata merge |
+| `server/src/snapshots.ts` | 62 | 7 | done | `crates/pi-server/src/snapshots.rs` | Serialized revision publisher |
+| `server/src/transports/unix/types.ts` | 15 | 7 | done | `crates/pi-server/src/transports/unix/types.rs` | Listener/server options |
+| `server/src/server.ts` | 396 | 8 | done | `crates/pi-server/src/server.rs` | Handshake, dispatch, close, error mapping |
+| `server/src/transports/unix/listener.ts` | 434 | 8 | done | `crates/pi-server/src/transports/unix/listener.rs` | Stale sockets, hard-link bind, pending-byte writes |
+| `server/src/index.ts` | 5 | 9 | done | `crates/pi-server/src/lib.rs` | Re-exports |
+| `server/src/transports/unix/preset.ts` | 23 | 9 | done | `crates/pi-server/src/transports/unix/preset.rs` | Unix server composition |
+| `server/src/transports/unix/index.ts` | 3 | 10 | done | `crates/pi-server/src/transports/unix/mod.rs` | Transport re-exports |
+| `server/src/testing/client.ts` | 147 | 6 | done | `crates/pi-server/src/testing/client.rs` | Wire client used by all integration tests |
+| `server/src/testing/index.ts` | 5 | 6 | done | `crates/pi-server/src/testing/mod.rs` | Testing re-exports |
+| `server/src/testing/server.ts` | 27 | 6 | done | `crates/pi-server/src/testing/server.rs` | Deterministic test server factory |
+| `server/src/testing/service.ts` | 287 | 6 | done | `crates/pi-server/src/testing/service.rs` | In-memory service/runtime with shared snapshots |
 
 ## session-backends (18 files, 2389 lines)
 
