@@ -2620,16 +2620,14 @@ pub enum CycleDirection {
     Backward,
 }
 
-/// Fields recorded by [`AgentSession::record_bash_result`].
-#[derive(Debug, Clone)]
-pub struct BashResultRecord<'a> {
-    pub command: &'a str,
-    pub output: &'a str,
-    pub exit_code: Option<f64>,
-    pub cancelled: bool,
-    pub truncated: bool,
-    pub full_output_path: Option<String>,
+/// Options for [`AgentSession::execute_bash`].
+#[derive(Clone, Default)]
+pub struct ExecuteBashOptions {
     pub exclude_from_context: Option<bool>,
+    /// Identifier included in `bash_execution_update` events.
+    pub id: Option<String>,
+    /// Custom operations for remote execution.
+    pub operations: Option<Arc<dyn crate::core::tools::bash::BashOperations>>,
 }
 
 /// Release handle returned by [`AgentSession::reserve_external_user_input`].
@@ -3510,25 +3508,77 @@ impl AgentSession {
     // Bash execution
     // =========================================================================
 
+    /// Executes a bash command, records the result, and streams output.
+    pub async fn execute_bash(
+        &self,
+        command: &str,
+        on_chunk: Option<crate::core::bash_executor::BashChunkCallback>,
+        options: ExecuteBashOptions,
+    ) -> Result<crate::core::bash_executor::BashResult, AgentSessionError> {
+        use crate::core::bash_executor::{BashExecutorOptions, execute_bash_with_operations};
+
+        let abort = CancellationToken::new();
+        lock(&self.inner.bash_abort_controllers).push(abort.clone());
+        let (prefix, shell_path) = {
+            let settings = lock(&self.inner.settings_manager);
+            (
+                settings.get_shell_command_prefix().map(str::to_owned),
+                settings.get_shell_path(),
+            )
+        };
+        let resolved_command = match prefix {
+            Some(prefix) => format!("{prefix}\n{command}"),
+            None => command.to_owned(),
+        };
+        let operations = options.operations.clone().unwrap_or_else(|| {
+            Arc::new(crate::core::tools::bash::create_local_bash_operations(
+                shell_path.as_deref(),
+            ))
+        });
+        let event_id = options.id.clone();
+        let session = self.clone();
+        let stream_chunk: crate::core::bash_executor::BashChunkCallback = Arc::new(move |delta: &str| {
+            if let Some(on_chunk) = &on_chunk {
+                on_chunk(delta);
+            }
+            session.emit(AgentSessionEvent::BashExecutionUpdate(BashExecutionUpdateEvent {
+                event_type: "bash_execution_update",
+                id: event_id.clone(),
+                delta: delta.to_owned(),
+            }));
+        });
+        let cwd = lock(&self.inner.session_manager).get_cwd().to_owned();
+        let result = execute_bash_with_operations(
+            &resolved_command,
+            &cwd,
+            operations,
+            &BashExecutorOptions {
+                on_chunk: Some(stream_chunk),
+                signal: Some(abort.clone()),
+            },
+        )
+        .await;
+        lock(&self.inner.bash_abort_controllers).retain(|token| token != &abort);
+        let result = result.map_err(|bash_error| error(bash_error.message))?;
+        self.record_bash_result(command, &result, options.exclude_from_context);
+        Ok(result)
+    }
+
     /// Records a bash execution result in session history.
-    pub fn record_bash_result(&self, record: BashResultRecord<'_>) {
-        let BashResultRecord {
-            command,
-            output,
-            exit_code,
-            cancelled,
-            truncated,
-            full_output_path,
-            exclude_from_context,
-        } = record;
+    pub fn record_bash_result(
+        &self,
+        command: &str,
+        result: &crate::core::bash_executor::BashResult,
+        exclude_from_context: Option<bool>,
+    ) {
         let bash_message = BashExecutionMessage {
             role: BashExecutionRole::BashExecution,
             command: command.to_owned(),
-            output: output.to_owned(),
-            exit_code,
-            cancelled,
-            truncated,
-            full_output_path,
+            output: result.output.clone(),
+            exit_code: result.exit_code.map(f64::from),
+            cancelled: result.cancelled,
+            truncated: result.truncated,
+            full_output_path: result.full_output_path.clone(),
             timestamp: now_millis() as f64,
             exclude_from_context,
         };
@@ -3973,6 +4023,47 @@ impl AgentSession {
         Ok(file_path)
     }
 
+    /// Exports the current session branch to an HTML file.
+    pub async fn export_to_html(&self, output_path: Option<&str>) -> Result<String, AgentSessionError> {
+        use crate::core::export_html::{
+            ExportOptions, ToolHtmlRendererDeps, create_tool_html_renderer, export_session_to_html,
+        };
+        use crate::modes::interactive::theme::{current_theme_if_initialized, get_theme_by_name};
+
+        let configured_theme_name = lock(&self.inner.settings_manager).get_theme().map(str::to_owned);
+        let theme_name = configured_theme_name.filter(|name| get_theme_by_name(name).is_some());
+        let Some(theme) = current_theme_if_initialized() else {
+            return Err(error("Theme not initialized. Call initTheme() first."));
+        };
+        let weak = Arc::downgrade(&self.inner);
+        let get_tool_definition = Arc::new(move |name: &str| {
+            let inner = weak.upgrade()?;
+            AgentSession { inner }
+                .get_tool_definition(name)
+                .map(extension_tool_definition_for_html)
+        });
+        let cwd = lock(&self.inner.session_manager).get_cwd().to_owned();
+        let tool_renderer = create_tool_html_renderer(ToolHtmlRendererDeps {
+            get_tool_definition,
+            theme,
+            cwd,
+            width: None,
+        });
+        let state = self.state();
+        let session_manager = self.session_manager().clone();
+        export_session_to_html(
+            &session_manager,
+            Some(&state),
+            Some(ExportOptions {
+                output_path: output_path.map(str::to_owned),
+                theme_name,
+                tool_renderer: Some(tool_renderer),
+            }),
+        )
+        .await
+        .map_err(|export_error| error(export_error.to_string()))
+    }
+
     /// Text content of the last assistant message.
     pub fn get_last_assistant_text(&self) -> Option<String> {
         let last_assistant = self.messages().into_iter().rev().find(|message| {
@@ -4016,6 +4107,35 @@ struct BashExecutionWire<'a> {
     timestamp: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     exclude_from_context: Option<bool>,
+}
+
+fn extension_tool_definition_for_html(definition: ToolDefinition) -> crate::core::extensions::types::ToolDefinition {
+    // Session tool definitions do not carry extension TUI renderers yet; the
+    // HTML exporter falls back to structured rendering for those tools.
+    crate::core::extensions::types::ToolDefinition {
+        name: definition.name.clone(),
+        label: definition.name,
+        description: definition.description,
+        prompt_snippet: definition.prompt_snippet,
+        prompt_guidelines: Some(definition.prompt_guidelines),
+        approval_required: Some(definition.approval_required),
+        approval_kind: None,
+        parameters: definition.parameters,
+        constrained_sampling: None,
+        render_shell: None,
+        prepare_arguments: None,
+        prepare_execution: None,
+        execution_mode: None,
+        execute: Arc::new(|_, _, _, _, _| {
+            Box::pin(async {
+                Err(crate::core::extensions::types::HandlerError::new(
+                    "Tool execution is unavailable during HTML export",
+                ))
+            })
+        }),
+        render_call: None,
+        render_result: None,
+    }
 }
 
 fn bash_message_to_agent_message(message: &BashExecutionMessage) -> AgentMessage {
@@ -4096,6 +4216,11 @@ pub struct ExtensionBindings {
 impl AgentSession {
     fn runner(&self) -> ExtensionRunner {
         lock(&self.inner.extension_runner).clone()
+    }
+
+    /// The extension runner bound to this session (`session.extensionRunner`).
+    pub fn extension_runner(&self) -> ExtensionRunner {
+        self.runner()
     }
 
     /// Binds extension host callbacks and emits `session_start`.

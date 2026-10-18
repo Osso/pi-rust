@@ -1390,6 +1390,12 @@ pub fn current_theme() -> Arc<Theme> {
         .unwrap_or_else(|| panic!("Theme not initialized. Call initTheme() first."))
 }
 
+/// Non-panicking [`current_theme`] for callers that surface the error.
+pub fn current_theme_if_initialized() -> Option<Arc<Theme>> {
+    apply_pending_reload();
+    with_state(|state| state.global_theme.clone())
+}
+
 /// Apply a watcher reload parsed on another thread, then fire the change callback.
 fn apply_pending_reload() {
     let pending = PENDING_RELOAD.lock().unwrap_or_else(PoisonError::into_inner).take();

@@ -498,6 +498,118 @@ async fn cycle_model_without_narrow_scope_returns_none() {
 }
 
 #[tokio::test]
+async fn execute_bash_records_streams_and_commits() {
+    use pi_coding_agent::core::agent_session::ExecuteBashOptions;
+
+    let fixture = fixture().await;
+    let updates = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = Arc::clone(&updates);
+    let committed = Arc::new(AtomicUsize::new(0));
+    let committed_sink = Arc::clone(&committed);
+    fixture.session.subscribe(Arc::new(move |event| match event {
+        AgentSessionEvent::BashExecutionUpdate(update) => sink.lock().unwrap().push(update.delta.clone()),
+        AgentSessionEvent::BashMessagesCommitted(_) => {
+            committed_sink.fetch_add(1, Ordering::SeqCst);
+        }
+        _ => {}
+    }));
+
+    let result = fixture
+        .session
+        .execute_bash("printf 'hello'", None, ExecuteBashOptions::default())
+        .await
+        .expect("bash succeeds");
+
+    assert!(result.output.contains("hello"), "output: {:?}", result.output);
+    assert_eq!(result.exit_code, Some(0));
+    assert!(!fixture.session.is_bash_running());
+    assert!(!updates.lock().unwrap().is_empty());
+    assert_eq!(committed.load(Ordering::SeqCst), 1);
+    let messages = fixture.session.messages();
+    assert_eq!(messages.last().expect("bash message").role(), "bashExecution");
+}
+
+#[tokio::test]
+async fn record_bash_result_commits_immediately_without_message_end() {
+    use pi_coding_agent::core::bash_executor::BashResult;
+
+    let fixture = fixture().await;
+    let message_end_roles = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = Arc::clone(&message_end_roles);
+    fixture.session.subscribe(Arc::new(move |event| {
+        if let AgentSessionEvent::Agent(pi_agent_core::agent::types::AgentEvent::MessageEnd { message }) = event {
+            sink.lock().unwrap().push(message.role().to_owned());
+        }
+    }));
+
+    fixture.session.record_bash_result(
+        "echo hi",
+        &BashResult {
+            output: "hi".to_owned(),
+            exit_code: Some(0),
+            cancelled: false,
+            truncated: false,
+            full_output_path: None,
+        },
+        None,
+    );
+
+    assert!(!fixture.session.has_pending_bash_messages());
+    let messages = fixture.session.messages();
+    assert_eq!(messages.last().expect("bash message").role(), "bashExecution");
+    assert!(message_end_roles.lock().unwrap().is_empty());
+}
+
+struct BlockingBashOperations;
+
+impl pi_coding_agent::core::tools::bash::BashOperations for BlockingBashOperations {
+    fn exec<'a>(
+        &'a self,
+        _command: &'a str,
+        _cwd: &'a str,
+        options: pi_coding_agent::core::tools::bash::BashExecOptions,
+    ) -> pi_ai::request::BoxFuture<
+        'a,
+        Result<pi_coding_agent::core::tools::bash::BashExecResult, pi_agent_core::agent::ToolError>,
+    > {
+        Box::pin(async move {
+            if let Some(signal) = options.signal {
+                signal.cancelled().await;
+            }
+            Err(pi_agent_core::agent::ToolError::new("aborted"))
+        })
+    }
+}
+
+#[tokio::test]
+async fn abort_bash_cancels_running_execution() {
+    use pi_coding_agent::core::agent_session::ExecuteBashOptions;
+
+    let fixture = fixture().await;
+    let operations = Arc::new(BlockingBashOperations);
+    let session = fixture.session.clone();
+    let task = tokio::spawn(async move {
+        session
+            .execute_bash(
+                "sleep",
+                None,
+                ExecuteBashOptions {
+                    operations: Some(operations),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("bash returns a cancelled result")
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    assert!(fixture.session.is_bash_running());
+    fixture.session.abort_bash();
+    let result = task.await.expect("bash task");
+    assert!(result.cancelled);
+    assert!(!fixture.session.is_bash_running());
+}
+
+#[tokio::test]
 async fn prompt_with_streaming_steer_queues_instead_of_failing() {
     let fixture = fixture().await;
     let gate = Arc::new(tokio::sync::Notify::new());
