@@ -57,7 +57,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/google-vertex.ts` | 596 | 1 | todo |  |  |
 | `ai/src/api/lazy.ts` | 98 | 1 | done | `crates/pi-ai/src/api/lazy.rs` | lazy stream/api, setup errors, declared deferred capabilities; differential setup-error |
 | `ai/src/api/mistral-conversations.ts` | 931 | 1 | todo |  |  |
-| `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | done | `crates/pi-ai/src/api/openai_codex_responses.rs` | SSE/WebSocket transports, zstd bodies, retries, cached continuation, session cache, debug stats; 30 behavioral + 5 differential suites (SSE events/requests, cached WS, idle, connect timeout). |
+| `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | done | `crates/pi-ai/src/api/openai_codex_responses.rs` | SSE/WebSocket transports, zstd bodies, retries, cached continuation, session cache, debug stats; 31 behavioral + 5 differential suites (SSE events/requests, cached WS, idle, connect timeout). |
 | `ai/src/api/openai-completions.ts` | 1577 | 1 | done | `crates/pi-ai/src/api/openai_completions.rs` | Compat detection, message/tool conversion, all thinking formats, cache control, routing; 9 behavioral + 35 recorded-fetch differential scenarios. |
 | `ai/src/api/openai-responses-shared.ts` | 983 | 1 | done | `crates/pi-ai/src/api/openai_responses_shared.rs` | Message/tool conversion, citation normalization, Responses SSE state machine; 19 behavioral + 31 differential scenarios. |
 | `ai/src/api/openai-responses.ts` | 372 | 1 | done | `crates/pi-ai/src/api/openai_responses.rs` | Params, compat, cache/session affinity, service-tier pricing; 20 recorded-fetch differential scenarios. |
