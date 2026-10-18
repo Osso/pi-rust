@@ -1,7 +1,10 @@
 pub mod auth_guidance;
+pub mod auth_storage;
 mod config_value;
 pub mod defaults;
+pub mod models_store;
 pub mod rule_store;
+pub mod runtime_credentials;
 pub mod session_manager;
 pub mod session_tool_output;
 mod skill_block;

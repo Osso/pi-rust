@@ -459,13 +459,13 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/tools-manager.ts` | 365 | 3 | todo |  |  |
 | `coding-agent/src/core/remote-catalog-provider.ts` | 132 | 4 | todo |  |  |
 | `coding-agent/src/core/resolve-config-value.ts` | 287 | 4 | done | `crates/pi-coding-agent/src/core/config_value.rs` | Full module: templates, commands, cache, or-throw, headers; differential 12050-12083 plus 27 resolve/throw/header requests |
-| `coding-agent/src/core/runtime-credentials.ts` | 58 | 4 | todo |  |  |
+| `coding-agent/src/core/runtime-credentials.ts` | 58 | 4 | done | `crates/pi-coding-agent/src/core/runtime_credentials.rs` | Overlay masking, list merge, delete ordering |
 | `coding-agent/src/utils/image-process.ts` | 119 | 4 | todo |  |  |
 | `coding-agent/src/cli/file-processor.ts` | 87 | 5 | todo |  |  |
 | `coding-agent/src/client/transcript.ts` | 101 | 5 | todo |  |  |
-| `coding-agent/src/core/auth-storage.ts` | 507 | 5 | todo |  |  |
+| `coding-agent/src/core/auth-storage.ts` | 507 | 5 | done | `crates/pi-coding-agent/src/core/auth_storage.rs` | Cross-process byte parity and both lock directions; 16 focused cases |
 | `coding-agent/src/utils/tool-result-images.ts` | 62 | 5 | todo |  |  |
-| `coding-agent/src/core/models-store.ts` | 146 | 6 | todo |  |  |
+| `coding-agent/src/core/models-store.ts` | 146 | 6 | done | `crates/pi-coding-agent/src/core/models_store.rs` | Coalesced reloads, canonical entry order documented |
 | `coding-agent/src/bun/register-bedrock.ts` | 4 | 7 | todo |  |  |
 | `coding-agent/src/core/provider-composer.ts` | 572 | 7 | todo |  |  |
 | `coding-agent/src/extensions/llama/provider.ts` | 150 | 7 | todo |  |  |
