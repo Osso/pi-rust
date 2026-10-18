@@ -266,7 +266,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
 | `tui/src/fuzzy.ts` | 161 | 0 | done | `crates/pi-tui/src/fuzzy.rs` | exact score-bit differential |
-| `tui/src/keys.ts` | 1404 | 0 | todo |  |  |
+| `tui/src/keys.ts` | 1404 | 0 | done | `crates/pi-tui/src/keys.rs` | differential legacy/Kitty/modifyOther matrix; Key helper gap |
 | `tui/src/kill-ring.ts` | 46 | 0 | done | `crates/pi-tui/src/kill_ring.rs` | differential ring operations |
 | `tui/src/native-modifiers.ts` | 66 | 0 | partial | `crates/pi-tui/src/native_modifiers.rs` | constant false; Node N-API addon path unported (gap) |
 | `tui/src/stdin-buffer.ts` | 444 | 0 | todo |  |  |

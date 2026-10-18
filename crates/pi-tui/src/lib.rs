@@ -4,6 +4,7 @@ mod js_compat;
 mod unicode_tables;
 
 pub mod fuzzy;
+pub mod keys;
 pub mod kill_ring;
 pub mod native_modifiers;
 pub mod terminal_colors;

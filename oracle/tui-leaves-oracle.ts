@@ -119,6 +119,16 @@ function scanAnsiCodes(api: UtilsApi, value: string): string[] {
 	return codes;
 }
 
+type KeysApi = {
+	setKittyProtocolActive(active: boolean): void;
+	parseKey(data: string): string | undefined;
+	matchesKey(data: string, keyId: string): boolean;
+	decodeKittyPrintable(data: string): string | undefined;
+	decodePrintableKey(data: string): string | undefined;
+	isKeyRelease(data: string): boolean;
+	isKeyRepeat(data: string): boolean;
+};
+
 async function loadApi(sourceDirectory: string, moduleName: string): Promise<unknown> {
 	return import(pathToFileURL(path.join(sourceDirectory, moduleName)).href);
 }
@@ -256,6 +266,46 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 				results: cases.map((value) => ({
 					whitespace: api.isWhitespaceChar(value),
 					punctuation: api.isPunctuationChar(value),
+				})),
+			};
+		}
+		case "keys_parse": {
+			const api = (await loadApi(sourceDirectory, "keys.ts")) as KeysApi;
+			const cases = requireArray<{ data: string; kitty: boolean }>(request, "cases");
+			return {
+				results: cases.map((testCase) => {
+					api.setKittyProtocolActive(testCase.kitty);
+					try {
+						return api.parseKey(testCase.data) ?? null;
+					} finally {
+						api.setKittyProtocolActive(false);
+					}
+				}),
+			};
+		}
+		case "keys_match": {
+			const api = (await loadApi(sourceDirectory, "keys.ts")) as KeysApi;
+			const cases = requireArray<{ data: string; keyId: string; kitty: boolean }>(request, "cases");
+			return {
+				results: cases.map((testCase) => {
+					api.setKittyProtocolActive(testCase.kitty);
+					try {
+						return api.matchesKey(testCase.data, testCase.keyId);
+					} finally {
+						api.setKittyProtocolActive(false);
+					}
+				}),
+			};
+		}
+		case "keys_decode": {
+			const api = (await loadApi(sourceDirectory, "keys.ts")) as KeysApi;
+			const cases = requireArray<string>(request, "cases");
+			return {
+				results: cases.map((data) => ({
+					kitty: api.decodeKittyPrintable(data) ?? null,
+					printable: api.decodePrintableKey(data) ?? null,
+					release: api.isKeyRelease(data),
+					repeat: api.isKeyRepeat(data),
 				})),
 			};
 		}

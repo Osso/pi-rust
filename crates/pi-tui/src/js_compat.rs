@@ -31,3 +31,8 @@ pub(crate) fn js_trim(value: &str) -> &str {
 pub(crate) fn js_trim_end(value: &str) -> &str {
     value.trim_end_matches(is_js_whitespace_char)
 }
+
+/// JavaScript `String.prototype.length` for valid UTF-8 input.
+pub(crate) fn utf16_len(value: &str) -> usize {
+    value.encode_utf16().count()
+}
