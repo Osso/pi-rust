@@ -7,6 +7,7 @@ pub mod fuzzy;
 pub mod keys;
 pub mod kill_ring;
 pub mod native_modifiers;
+pub mod stdin_buffer;
 pub mod terminal_colors;
 pub mod undo_stack;
 pub mod utils;

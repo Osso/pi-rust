@@ -129,6 +129,16 @@ type KeysApi = {
 	isKeyRepeat(data: string): boolean;
 };
 
+type StdinBufferApi = {
+	StdinBuffer: new (options?: { timeout?: number; escapeTimeout?: number }) => {
+		process(data: string | Buffer): void;
+		flush(): string[];
+		getBuffer(): string;
+		destroy(): void;
+		on(event: "data" | "paste", handler: (data: string) => void): void;
+	};
+};
+
 async function loadApi(sourceDirectory: string, moduleName: string): Promise<unknown> {
 	return import(pathToFileURL(path.join(sourceDirectory, moduleName)).href);
 }
@@ -308,6 +318,29 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 					repeat: api.isKeyRepeat(data),
 				})),
 			};
+		}
+		case "stdin_buffer": {
+			const api = (await loadApi(sourceDirectory, "stdin-buffer.ts")) as StdinBufferApi;
+			const cases = requireArray<{ chunks: string[] }>(request, "cases");
+			const results: Array<{ events: unknown[]; bufferAfterProcess: string }> = [];
+			const buffers: Array<InstanceType<StdinBufferApi["StdinBuffer"]>> = [];
+			for (const testCase of cases) {
+				const events: unknown[] = [];
+				const buffer = new api.StdinBuffer({ timeout: 10, escapeTimeout: 10 });
+				buffer.on("data", (value) => events.push({ kind: "data", value }));
+				buffer.on("paste", (value) => events.push({ kind: "paste", value }));
+				for (const chunk of testCase.chunks) buffer.process(chunk);
+				buffers.push(buffer);
+				results.push({ events, bufferAfterProcess: buffer.getBuffer() });
+			}
+			await new Promise((resolve) => setTimeout(resolve, 30));
+			const output = results.map((result, index) => ({
+				events: result.events,
+				bufferAfterProcess: result.bufferAfterProcess,
+				bufferAfterTimeout: buffers[index]?.getBuffer() ?? "",
+			}));
+			for (const buffer of buffers) buffer.destroy();
+			return { results: output };
 		}
 		default:
 			throw new Error(`unsupported operation: ${request.operation}`);

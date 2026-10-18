@@ -269,7 +269,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/keys.ts` | 1404 | 0 | done | `crates/pi-tui/src/keys.rs` | differential legacy/Kitty/modifyOther matrix; Key helper gap |
 | `tui/src/kill-ring.ts` | 46 | 0 | done | `crates/pi-tui/src/kill_ring.rs` | differential ring operations |
 | `tui/src/native-modifiers.ts` | 66 | 0 | partial | `crates/pi-tui/src/native_modifiers.rs` | constant false; Node N-API addon path unported (gap) |
-| `tui/src/stdin-buffer.ts` | 444 | 0 | todo |  |  |
+| `tui/src/stdin-buffer.ts` | 444 | 0 | done | `crates/pi-tui/src/stdin_buffer.rs` | differential chunk/paste matrix; driver-owned timer API |
 | `tui/src/terminal-colors.ts` | 73 | 0 | done | `crates/pi-tui/src/terminal_colors.rs` | differential parse matrix; TUI query method out of leaf scope |
 | `tui/src/terminal-image.ts` | 657 | 0 | todo |  |  |
 | `tui/src/undo-stack.ts` | 28 | 0 | done | `crates/pi-tui/src/undo_stack.rs` | clone-on-push; differential N/A (structuredClone) |
