@@ -348,24 +348,24 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `session-backends/sqlite-node/src/sqlite/types.ts` | 52 | 14 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/sql.ts` | 66 | 15 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/migrations.ts` | 49 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/branch-entries.ts` | 174 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/branch-tips.ts` | 35 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/entries.ts` | 78 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/facts.ts` | 64 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/lanes.ts` | 124 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/records.ts` | 95 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/session-sequences.ts` | 29 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/session-stats.ts` | 54 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/sessions.ts` | 131 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/writer-leases.ts` | 58 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/branch-cache.ts` | 101 | 17 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/search-backend.ts` | 194 | 17 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/repo.ts` | 953 | 18 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/index.ts` | 18 | 19 | todo |  |  |
-| `session-backends/sqlite-node/src/index.ts` | 114 | 20 | todo |  |  |
+| `session-backends/sqlite-node/src/sqlite/types.ts` | 52 | 14 | done | `crates/pi-session-sqlite/src/sqlite/types.rs + src/error.rs` | Metadata/options types and the error boundary; `SqliteDatabase`/`SqliteStatement`/`SqliteDatabaseFactory` capability interfaces collapse into rusqlite (see traceability). |
+| `session-backends/sqlite-node/src/sqlite/sql.ts` | 66 | 15 | done | `crates/pi-session-sqlite/src/sqlite/sql.rs` | `SqlQuery` + `join_sql_fragments`; template literal becomes explicit text/params. |
+| `session-backends/sqlite-node/src/sqlite/migrations.ts` | 49 | 16 | done | `crates/pi-session-sqlite/src/sqlite/migrations.rs + migrations/001_initial.sql` | Embedded schema; identical `sqlite_master` dump vs TS. |
+| `session-backends/sqlite-node/src/sqlite/storage/branch-entries.ts` | 174 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/branch_entries.rs` | Full branch cache reads/writes; bounded-window validation tests. |
+| `session-backends/sqlite-node/src/sqlite/storage/branch-tips.ts` | 35 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/branch_tips.rs` | Tip insert/update/delete and reads. |
+| `session-backends/sqlite-node/src/sqlite/storage/entries.ts` | 78 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/entries.rs` | Row queries plus facade-order payload serialization (byte-identical for facade entries). |
+| `session-backends/sqlite-node/src/sqlite/storage/facts.ts` | 64 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/facts.rs` | Latest fact/label projections with `IS` semantics. |
+| `session-backends/sqlite-node/src/sqlite/storage/lanes.ts` | 124 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/lanes.rs` | Lane lifecycle, open-operation enforcement, lane moves. |
+| `session-backends/sqlite-node/src/sqlite/storage/records.ts` | 95 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/records.rs` | Record rows and open-operation lookup. |
+| `session-backends/sqlite-node/src/sqlite/storage/session-sequences.ts` | 29 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/session_sequences.rs` | Sequence row lifecycle. |
+| `session-backends/sqlite-node/src/sqlite/storage/session-stats.ts` | 54 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/session_stats.rs` | Stats rows and usage accumulation. |
+| `session-backends/sqlite-node/src/sqlite/storage/sessions.ts` | 131 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/sessions.rs` | Session rows, metadata/name decoding errors. |
+| `session-backends/sqlite-node/src/sqlite/storage/writer-leases.ts` | 58 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/writer_leases.rs` | Fenced lease acquire/renew/release; two-connection tests. |
+| `session-backends/sqlite-node/src/sqlite/branch-cache.ts` | 101 | 17 | done | `crates/pi-session-sqlite/src/sqlite/branch_cache.rs` | Cache build/repair/append with savepoint rollback. |
+| `session-backends/sqlite-node/src/sqlite/search-backend.ts` | 194 | 17 | done | `crates/pi-session-sqlite/src/sqlite/search_backend.rs` | FTS5 trigram schema, triggers, bm25 search; eager Vec behind the async contract. |
+| `session-backends/sqlite-node/src/sqlite/repo.ts` | 953 | 18 | done | `crates/pi-session-sqlite/src/sqlite/repo.rs` | Repository + `SessionStorage` impl, writer leases/heartbeat, forks; raw SQLite errors surface as `storage`. |
+| `session-backends/sqlite-node/src/sqlite/index.ts` | 18 | 19 | done | `crates/pi-session-sqlite/src/sqlite/mod.rs` | Re-exports. |
+| `session-backends/sqlite-node/src/index.ts` | 114 | 20 | done | `crates/pi-session-sqlite/src/sqlite/connection.rs + src/lib.rs` | node:sqlite adapter becomes rusqlite connection/transaction; async-callback and factory-injection cases are documented gaps. |
 
 ## coding-agent (346 files, 101231 lines)
 
