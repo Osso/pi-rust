@@ -291,7 +291,7 @@ fn get_client_api_key(
     api_key: Option<&str>,
     headers: Option<&ProviderHeaders>,
 ) -> Result<String, String> {
-    if let Some(api_key) = api_key {
+    if let Some(api_key) = api_key.filter(|api_key| !api_key.is_empty()) {
         return Ok(api_key.to_owned());
     }
     if has_header(headers, "authorization") || has_header(headers, "cf-aig-authorization") {
@@ -311,19 +311,22 @@ fn has_tool_history(messages: &[Message]) -> bool {
     })
 }
 
-fn get_deferred_tool_names(messages: &[Message]) -> BTreeSet<String> {
-    let mut names = BTreeSet::new();
+fn get_deferred_tool_names(messages: &[Message]) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut seen = BTreeSet::new();
     for message in messages {
         if let Message::ToolResult(result) = message {
             for name in result.added_tool_names.iter().flatten() {
-                names.insert(name.clone());
+                if seen.insert(name.clone()) {
+                    names.push(name.clone());
+                }
             }
         }
     }
     names
 }
 
-fn get_tools_by_name(tools: Option<&[Tool]>, names: &BTreeSet<String>) -> Vec<Tool> {
+fn get_tools_by_name(tools: Option<&[Tool]>, names: &[String]) -> Vec<Tool> {
     let Some(tools) = tools else {
         return Vec::new();
     };
@@ -605,6 +608,7 @@ pub fn convert_messages(
                         .iter()
                         .filter_map(|tool_call| tool_call.thought_signature.as_deref())
                         .filter_map(|signature| serde_json::from_str::<Value>(signature).ok())
+                        .filter(is_truthy_value)
                         .collect::<Vec<_>>();
                     if !reasoning_details.is_empty() {
                         assistant_message.insert("reasoning_details".to_owned(), Value::Array(reasoning_details));
@@ -631,7 +635,8 @@ pub fn convert_messages(
             }
             Message::ToolResult(_) => {
                 let mut image_blocks = Vec::new();
-                let mut deferred_tool_names = BTreeSet::new();
+                let mut deferred_tool_names = Vec::new();
+                let mut deferred_tool_name_set = BTreeSet::new();
                 let mut next = index;
                 while next < transformed_messages.len() {
                     let Message::ToolResult(tool_result) = &transformed_messages[next] else {
@@ -675,7 +680,9 @@ pub fn convert_messages(
 
                     if compat.deferred_tools_mode == Some(crate::types::DeferredToolsMode::Kimi) {
                         for name in tool_result.added_tool_names.iter().flatten() {
-                            deferred_tool_names.insert(name.clone());
+                            if deferred_tool_name_set.insert(name.clone()) {
+                                deferred_tool_names.push(name.clone());
+                            }
                         }
                     }
 
@@ -740,6 +747,16 @@ pub fn convert_messages(
         index += 1;
     }
     params
+}
+
+fn is_truthy_value(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(value) => *value,
+        Value::Number(number) => number.as_f64().is_some_and(|value| value != 0.0),
+        Value::String(text) => !text.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    }
 }
 
 fn convert_tools(tools: &[Tool], compat: &ResolvedOpenAICompletionsCompat) -> Value {
@@ -1020,12 +1037,13 @@ pub fn build_params(
     let deferred_tool_names = if compat.deferred_tools_mode == Some(crate::types::DeferredToolsMode::Kimi) {
         get_deferred_tool_names(&context.messages)
     } else {
-        BTreeSet::new()
+        Vec::new()
     };
+    let deferred_names_set = deferred_tool_names.iter().cloned().collect::<BTreeSet<_>>();
     let active_tools = context.tools.as_deref().map(|tools| {
         tools
             .iter()
-            .filter(|tool| !deferred_tool_names.contains(&tool.name))
+            .filter(|tool| !deferred_names_set.contains(&tool.name))
             .cloned()
             .collect::<Vec<_>>()
     });

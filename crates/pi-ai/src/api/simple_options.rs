@@ -29,7 +29,10 @@ pub fn build_base_options(
     StreamOptions {
         request: crate::request::ProviderRequestOptions {
             signal: stream.request.signal.clone(),
-            api_key: api_key.map(str::to_owned).or_else(|| stream.request.api_key.clone()),
+            api_key: api_key
+                .filter(|key| !key.is_empty())
+                .map(str::to_owned)
+                .or_else(|| stream.request.api_key.clone().filter(|key| !key.is_empty())),
             fetch: stream.request.fetch.clone(),
             env: stream.request.env.clone(),
             on_payload: stream.request.on_payload.clone(),

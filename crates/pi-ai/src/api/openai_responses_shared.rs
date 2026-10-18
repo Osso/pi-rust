@@ -30,7 +30,7 @@ const RAW_ANNOTATION_START: char = '\u{e200}';
 const RAW_ANNOTATION_END: char = '\u{e201}';
 const RAW_ANNOTATION_SEPARATOR: char = '\u{e202}';
 const RAW_CITATION_PREFIX: &str = "\u{e200}cite\u{e202}";
-const NO_SPACE_BEFORE: [char; 8] = ['.', ',', ';', ':', '!', '?', ')', ']'];
+const NO_SPACE_BEFORE: [char; 9] = ['.', ',', ';', ':', '!', '?', ')', ']', '}'];
 const NO_SPACE_AFTER: [char; 3] = ['(', '[', '{'];
 
 pub type ResolveServiceTier = Arc<dyn Fn(Option<&str>, Option<&str>) -> Option<String> + Send + Sync>;
@@ -263,7 +263,7 @@ fn is_raw_hosted_search_citation(marker: &str) -> bool {
 fn is_citation_reference(reference: &str) -> bool {
     static PATTERN: OnceLock<regex::Regex> = OnceLock::new();
     PATTERN
-        .get_or_init(|| regex::Regex::new(r"^turn\d+[A-Za-z][A-Za-z0-9_-]*\d+$").expect("citation regex"))
+        .get_or_init(|| regex::Regex::new(r"^turn[0-9]+[A-Za-z][A-Za-z0-9_-]*[0-9]+$").expect("citation regex"))
         .is_match(reference)
 }
 
@@ -1194,10 +1194,12 @@ fn finalize_response(
         .get("incomplete_details")
         .and_then(|details| details.get("reason"))
         .and_then(Value::as_str);
-    output.raw_stop_reason = Some(match incomplete_reason {
-        Some(reason) => format!("{}.{}", status.unwrap_or("undefined"), reason),
-        None => status.unwrap_or("undefined").to_owned(),
-    });
+    output.raw_stop_reason = match (status, incomplete_reason) {
+        (Some(status), Some(reason)) => Some(format!("{status}.{reason}")),
+        (Some(status), None) => Some(status.to_owned()),
+        (None, Some(reason)) => Some(format!("undefined.{reason}")),
+        (None, None) => None,
+    };
     let mapped = map_stop_reason(status, incomplete_reason)?;
     output.stop_reason = mapped.stop_reason;
     output.error_message = mapped.error_message;

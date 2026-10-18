@@ -119,7 +119,7 @@ fn get_client_api_key(
     api_key: Option<&str>,
     headers: Option<&ProviderHeaders>,
 ) -> Result<String, String> {
-    if let Some(api_key) = api_key {
+    if let Some(api_key) = api_key.filter(|api_key| !api_key.is_empty()) {
         return Ok(api_key.to_owned());
     }
     if has_header(headers, "authorization") || has_header(headers, "cf-aig-authorization") {
@@ -238,7 +238,10 @@ pub fn build_params(
     }
     params.insert("store".to_owned(), Value::Bool(false));
 
-    if let Some(max_tokens) = stream_options.max_tokens.filter(|max_tokens| *max_tokens != 0.0) {
+    if let Some(max_tokens) = stream_options
+        .max_tokens
+        .filter(|max_tokens| *max_tokens != 0.0 && max_tokens.is_finite())
+    {
         params.insert(
             "max_output_tokens".to_owned(),
             number_value(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)),

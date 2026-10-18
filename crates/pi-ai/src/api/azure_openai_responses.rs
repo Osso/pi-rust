@@ -217,7 +217,10 @@ pub fn build_params(
     }
     params.insert("store".to_owned(), Value::Bool(false));
 
-    if let Some(max_tokens) = stream_options.max_tokens.filter(|max_tokens| *max_tokens != 0.0) {
+    if let Some(max_tokens) = stream_options
+        .max_tokens
+        .filter(|max_tokens| *max_tokens != 0.0 && max_tokens.is_finite())
+    {
         params.insert(
             "max_output_tokens".to_owned(),
             number_value(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)),
@@ -362,6 +365,7 @@ async fn run_stream(
         .request
         .api_key
         .clone()
+        .filter(|api_key| !api_key.is_empty())
         .ok_or_else(|| Failure::Message(format!("No API key for provider: {}", model.provider)))?;
     let client = create_client(model, &api_key, options, stream_options).map_err(Failure::Message)?;
     let supports_grammar = match &model.compat {
@@ -500,7 +504,13 @@ pub fn stream_simple(
     context: Context,
     options: SimpleStreamOptions,
 ) -> crate::utils::event_stream::AssistantMessageEventStream {
-    let Some(api_key) = options.stream.request.api_key.clone() else {
+    let Some(api_key) = options
+        .stream
+        .request
+        .api_key
+        .clone()
+        .filter(|api_key| !api_key.is_empty())
+    else {
         return crate::request::error_stream(&model, &format!("No API key for provider: {}", model.provider));
     };
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
