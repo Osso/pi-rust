@@ -439,7 +439,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/exif-orientation.ts` | 183 | 1 | todo |  |  |
 | `coding-agent/src/utils/git-project.ts` | 13 | 1 | done | `crates/pi-coding-agent/src/utils/git_project.rs` | Real git repository tests |
 | `coding-agent/src/utils/paths.ts` | 139 | 1 | done | `crates/pi-coding-agent/src/utils/paths.rs` | Differential 26009 (76 cases); focused tests |
-| `coding-agent/src/utils/syntax-highlight.ts` | 146 | 1 | todo |  |  |
+| `coding-agent/src/utils/syntax-highlight.ts` | 146 | 1 | partial | `crates/pi-coding-agent/src/utils/syntax_highlight/` | render + engine done; 7 grammars verified, others gaps |
 | `coding-agent/src/utils/version-check.ts` | 109 | 1 | todo |  |  |
 | `coding-agent/src/config.ts` | 595 | 2 | todo |  |  |
 | `coding-agent/src/core/model-config.ts` | 298 | 2 | todo |  |  |

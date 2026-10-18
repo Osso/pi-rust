@@ -19,4 +19,5 @@ pub mod open_browser;
 pub mod paths;
 pub mod pi_user_agent;
 pub mod sleep;
+pub mod syntax_highlight;
 pub mod terminal_current_directory;
