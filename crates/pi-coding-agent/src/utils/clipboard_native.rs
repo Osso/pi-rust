@@ -1,8 +1,18 @@
+//! Native clipboard access.
+//!
+//! The pinned source loads `@mariozechner/clipboard`, a napi wrapper that
+//! vendors `clipboard-rs`. The Rust port depends on the same `clipboard-rs`
+//! release directly, so the platform backends (X11/Wayland/macOS/Windows) are
+//! the code the Node addon runs.
+
+use clipboard_rs::common::RustImage;
+use clipboard_rs::{Clipboard, ClipboardContext, ContentFormat};
+
 /// A native clipboard implementation.
 pub trait ClipboardModule: Send + Sync {
     fn get_text(&self) -> Result<String, ClipboardError>;
     fn set_text(&self, text: &str) -> Result<(), ClipboardError>;
-    fn has_image(&self) -> bool;
+    fn has_image(&self) -> Result<bool, ClipboardError>;
     fn get_image_binary(&self) -> Result<Vec<u8>, ClipboardError>;
 }
 
@@ -27,6 +37,40 @@ impl std::fmt::Display for ClipboardError {
 
 impl std::error::Error for ClipboardError {}
 
+/// The system clipboard backed by `clipboard-rs`.
+///
+/// Like the napi wrapper, every call opens a fresh `ClipboardContext`; the
+/// X11 backend needs that to re-read the current selection owner.
+pub struct SystemClipboard;
+
+impl ClipboardModule for SystemClipboard {
+    fn get_text(&self) -> Result<String, ClipboardError> {
+        context()?.get_text().map_err(clipboard_error)
+    }
+
+    fn set_text(&self, text: &str) -> Result<(), ClipboardError> {
+        context()?.set_text(text.to_owned()).map_err(clipboard_error)
+    }
+
+    fn has_image(&self) -> Result<bool, ClipboardError> {
+        Ok(context()?.has(ContentFormat::Image))
+    }
+
+    fn get_image_binary(&self) -> Result<Vec<u8>, ClipboardError> {
+        let image = context()?.get_image().map_err(clipboard_error)?;
+        let png = image.to_png().map_err(clipboard_error)?;
+        Ok(png.get_bytes().to_vec())
+    }
+}
+
+fn context() -> Result<ClipboardContext, ClipboardError> {
+    ClipboardContext::new().map_err(clipboard_error)
+}
+
+fn clipboard_error(error: impl ToString) -> ClipboardError {
+    ClipboardError::new(error.to_string())
+}
+
 /// Return the first clipboard loaded by the supplied resolution roots.
 pub fn load_clipboard_native(
     loaders: &[&dyn Fn() -> Option<Box<dyn ClipboardModule>>],
@@ -50,14 +94,13 @@ pub fn has_display() -> bool {
 
 /// The process-wide native clipboard.
 ///
-/// The pinned source loads the `@mariozechner/clipboard` native module. The
-/// Rust port has no equivalent binding, so this returns `None`; callers can
-/// supply a `ClipboardModule` through `load_clipboard_native`.
+/// Disabled under Termux or without a display, matching the source's module
+/// initialization guard.
 pub fn clipboard() -> Option<Box<dyn ClipboardModule>> {
     if std::env::var_os("TERMUX_VERSION").is_some() || !has_display() {
         return None;
     }
-    load_clipboard_native(&[])
+    Some(Box::new(SystemClipboard))
 }
 
 fn non_empty(value: Option<&str>) -> bool {
