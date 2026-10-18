@@ -53,7 +53,11 @@ fn flattens_groups_and_keeps_the_last_value_for_duplicate_ids() {
         ]),
     ];
     let catalog = flatten_model_catalog(groups);
-    assert_eq!(catalog.keys().cloned().collect::<Vec<_>>(), ["alpha", "beta", "shared"]);
+    assert_eq!(
+        catalog.keys().cloned().collect::<Vec<_>>(),
+        ["alpha", "shared", "beta"],
+        "later duplicates replace values without moving the original key"
+    );
     assert_eq!(catalog["shared"].name, "Second");
     assert_eq!(catalog["beta"].id, "beta");
 }
