@@ -1,7 +1,19 @@
+pub mod ask_architect;
+pub mod ask_questions;
+pub mod ask_supervisor;
+pub mod broadcast;
+pub mod change_working_directory;
+pub mod channel_post;
+pub mod context;
 pub mod edit_diff;
+pub mod end_turn;
 pub mod file_mutation_queue;
+pub mod list_sessions;
 pub mod output_accumulator;
 pub mod path_utils;
+pub mod result;
+pub mod resume_session;
+pub mod search_current_session_history;
 pub mod truncate;
 
 pub use truncate::{

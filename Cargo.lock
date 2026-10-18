@@ -2053,6 +2053,7 @@ dependencies = [
  "fancy-regex",
  "futures-util",
  "gethostname",
+ "getrandom 0.4.3",
  "globset",
  "ignore",
  "image 0.24.9",

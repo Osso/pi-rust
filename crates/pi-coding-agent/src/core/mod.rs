@@ -35,6 +35,7 @@ pub mod runtime_credentials;
 pub mod runtime_process;
 pub mod session_control_db;
 pub mod session_cwd;
+pub mod session_directory;
 pub mod session_errors;
 pub mod session_health;
 pub mod session_manager;
