@@ -285,25 +285,45 @@ pub async fn generate_branch_summary_with_callbacks<C: RetryCallbacks + ?Sized>(
     options: &GenerateBranchSummaryOptions<'_>,
     callbacks: Option<&mut C>,
 ) -> Result<BranchSummaryResult, BranchSummaryError> {
+    let BranchPreparation { messages, file_ops, .. } = prepare_branch_entries(entries, branch_token_budget(options));
+
+    if messages.is_empty() {
+        return Ok(no_content_branch_summary());
+    }
+
+    let response = complete_simple_with_retries(
+        options.models,
+        options.model,
+        branch_summary_context(&messages, options),
+        branch_summary_completion_options(options),
+        options.retry,
+        callbacks,
+    )
+    .await;
+    let (text, usage) = summarize_branch_response(&response)?;
+    Ok(finish_branch_summary(text, usage, &file_ops))
+}
+
+fn branch_token_budget(options: &GenerateBranchSummaryOptions<'_>) -> f64 {
     let context_window = if options.model.context_window == 0.0 {
         128000.0
     } else {
         options.model.context_window
     };
-    let token_budget = context_window - options.reserve_tokens.unwrap_or(16384.0);
+    context_window - options.reserve_tokens.unwrap_or(16384.0)
+}
 
-    let BranchPreparation { messages, file_ops, .. } = prepare_branch_entries(entries, token_budget);
-
-    if messages.is_empty() {
-        return Ok(BranchSummaryResult {
-            summary: "No content to summarize".to_owned(),
-            usage: None,
-            read_files: Vec::new(),
-            modified_files: Vec::new(),
-        });
+fn no_content_branch_summary() -> BranchSummaryResult {
+    BranchSummaryResult {
+        summary: "No content to summarize".to_owned(),
+        usage: None,
+        read_files: Vec::new(),
+        modified_files: Vec::new(),
     }
+}
 
-    let conversation_text = serialize_conversation(&convert_to_llm(&messages));
+fn branch_summary_context(messages: &[AgentMessage], options: &GenerateBranchSummaryOptions<'_>) -> Context {
+    let conversation_text = serialize_conversation(&convert_to_llm(messages));
     let prompt_text = format!(
         "<conversation>\n{conversation_text}\n</conversation>\n\n{}",
         branch_instructions(options)
@@ -315,7 +335,15 @@ pub async fn generate_branch_summary_with_callbacks<C: RetryCallbacks + ?Sized>(
         provider_native: None,
         timestamp: now_ms(),
     });
-    let completion_options = SimpleStreamOptions {
+    Context {
+        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_owned()),
+        messages: vec![summarization_message],
+        tools: None,
+    }
+}
+
+fn branch_summary_completion_options(options: &GenerateBranchSummaryOptions<'_>) -> SimpleStreamOptions {
+    SimpleStreamOptions {
         stream: StreamOptions {
             request: ProviderRequestOptions {
                 signal: options.signal.cloned(),
@@ -325,22 +353,10 @@ pub async fn generate_branch_summary_with_callbacks<C: RetryCallbacks + ?Sized>(
             ..Default::default()
         },
         ..Default::default()
-    };
-    let context = Context {
-        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_owned()),
-        messages: vec![summarization_message],
-        tools: None,
-    };
-    let response = complete_simple_with_retries(
-        options.models,
-        options.model,
-        context,
-        completion_options,
-        options.retry,
-        callbacks,
-    )
-    .await;
+    }
+}
 
+fn summarize_branch_response(response: &pi_ai::types::AssistantMessage) -> Result<(String, Usage), BranchSummaryError> {
     if response.stop_reason == StopReason::Aborted {
         return Err(BranchSummaryError::new(
             BranchSummaryErrorCode::Aborted,
@@ -362,25 +378,28 @@ pub async fn generate_branch_summary_with_callbacks<C: RetryCallbacks + ?Sized>(
             None,
         ));
     }
+    Ok((
+        content_text(ContentText::Assistant(&response.content), ""),
+        response.usage.clone(),
+    ))
+}
 
-    let summary = format!(
-        "{BRANCH_SUMMARY_PREAMBLE}{}",
-        content_text(ContentText::Assistant(&response.content), "")
-    );
+fn finish_branch_summary(text: String, usage: Usage, file_ops: &FileOperations) -> BranchSummaryResult {
+    let summary = format!("{BRANCH_SUMMARY_PREAMBLE}{text}");
     let FileLists {
         read_files,
         modified_files,
-    } = compute_file_lists(&file_ops);
+    } = compute_file_lists(file_ops);
     let summary = format!("{summary}{}", format_file_operations(&read_files, &modified_files));
 
-    Ok(BranchSummaryResult {
+    BranchSummaryResult {
         summary: if summary.is_empty() {
             "No summary generated".to_owned()
         } else {
             summary
         },
-        usage: Some(response.usage.clone()),
+        usage: Some(usage),
         read_files,
         modified_files,
-    })
+    }
 }

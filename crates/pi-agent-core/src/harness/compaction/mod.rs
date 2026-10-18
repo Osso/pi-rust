@@ -573,34 +573,78 @@ pub fn prepare_compaction(
     path_entries: &[Entry],
     settings: &CompactionSettings,
 ) -> Result<Option<CompactionPreparation>, CompactionError> {
-    if path_entries.is_empty() || path_entries[path_entries.len() - 1].entry_type() == EntryType::Compaction {
+    if !is_compactable(path_entries) {
         return Ok(None);
     }
 
-    let previous_compaction_index = path_entries
-        .iter()
-        .rposition(|entry| entry.entry_type() == EntryType::Compaction);
-
-    let previous_summary = previous_compaction_index.and_then(|index| match &path_entries[index].body {
-        EntryBody::Compaction { summary, .. } => Some(summary.clone()),
-        _ => None,
-    });
-
-    let compactable_entries = match previous_compaction_index {
-        Some(index) => {
-            let mut entries = virtual_retained_entries(&path_entries[index]);
-            entries.extend_from_slice(&path_entries[index + 1..]);
-            entries
-        }
-        None => path_entries.to_vec(),
-    };
+    let previous_compaction_index = previous_compaction_index(path_entries);
+    let previous_summary = previous_summary(path_entries, previous_compaction_index);
+    let compactable_entries = compactable_entries(path_entries, previous_compaction_index);
     let boundary_end = compactable_entries.len();
 
     let tokens_before =
         estimate_context_tokens(&build_session_context(path_entries, &SessionContextBuildOptions::default()).messages)
             .tokens;
-
     let cut_point = find_cut_point(&compactable_entries, 0, boundary_end, settings.keep_recent_tokens);
+    let (messages_to_summarize, turn_prefix_messages, retained_tail) =
+        split_at_cut_point(&compactable_entries, &cut_point, boundary_end);
+
+    if messages_to_summarize.is_empty() && turn_prefix_messages.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(CompactionPreparation {
+        file_ops: collect_file_operations(
+            &messages_to_summarize,
+            &turn_prefix_messages,
+            path_entries,
+            previous_compaction_index,
+            cut_point.is_split_turn,
+        ),
+        messages_to_summarize,
+        turn_prefix_messages,
+        retained_tail,
+        is_split_turn: cut_point.is_split_turn,
+        tokens_before,
+        previous_summary,
+        settings: *settings,
+    }))
+}
+
+fn is_compactable(path_entries: &[Entry]) -> bool {
+    path_entries
+        .last()
+        .is_some_and(|entry| entry.entry_type() != EntryType::Compaction)
+}
+
+fn previous_compaction_index(path_entries: &[Entry]) -> Option<usize> {
+    path_entries
+        .iter()
+        .rposition(|entry| entry.entry_type() == EntryType::Compaction)
+}
+
+fn previous_summary(path_entries: &[Entry], previous_compaction_index: Option<usize>) -> Option<String> {
+    let index = previous_compaction_index?;
+    match &path_entries[index].body {
+        EntryBody::Compaction { summary, .. } => Some(summary.clone()),
+        _ => None,
+    }
+}
+
+fn compactable_entries(path_entries: &[Entry], previous_compaction_index: Option<usize>) -> Vec<Entry> {
+    let Some(index) = previous_compaction_index else {
+        return path_entries.to_vec();
+    };
+    let mut entries = virtual_retained_entries(&path_entries[index]);
+    entries.extend_from_slice(&path_entries[index + 1..]);
+    entries
+}
+
+fn split_at_cut_point(
+    entries: &[Entry],
+    cut_point: &CutPointResult,
+    boundary_end: usize,
+) -> (Vec<AgentMessage>, Vec<AgentMessage>, Vec<AgentMessage>) {
     let first_kept_entry_index = cut_point.first_kept_entry_index as usize;
     let history_end = if cut_point.is_split_turn {
         cut_point.turn_start_index as usize
@@ -608,35 +652,30 @@ pub fn prepare_compaction(
         first_kept_entry_index
     };
 
-    let messages_to_summarize = collect_messages(&compactable_entries[..history_end]);
+    let messages_to_summarize = collect_messages(&entries[..history_end]);
     let turn_prefix_messages = if cut_point.is_split_turn {
-        collect_messages(&compactable_entries[history_end..first_kept_entry_index])
+        collect_messages(&entries[history_end..first_kept_entry_index])
     } else {
         Vec::new()
     };
-    let retained_tail = collect_messages(&compactable_entries[first_kept_entry_index..boundary_end]);
+    let retained_tail = collect_messages(&entries[first_kept_entry_index..boundary_end]);
+    (messages_to_summarize, turn_prefix_messages, retained_tail)
+}
 
-    let mut file_ops = extract_file_operations(&messages_to_summarize, path_entries, previous_compaction_index);
-    if cut_point.is_split_turn {
-        for message in &turn_prefix_messages {
+fn collect_file_operations(
+    messages_to_summarize: &[AgentMessage],
+    turn_prefix_messages: &[AgentMessage],
+    path_entries: &[Entry],
+    previous_compaction_index: Option<usize>,
+    is_split_turn: bool,
+) -> FileOperations {
+    let mut file_ops = extract_file_operations(messages_to_summarize, path_entries, previous_compaction_index);
+    if is_split_turn {
+        for message in turn_prefix_messages {
             extract_file_ops_from_message(message, &mut file_ops);
         }
     }
-
-    if messages_to_summarize.is_empty() && turn_prefix_messages.is_empty() {
-        return Ok(None);
-    }
-
-    Ok(Some(CompactionPreparation {
-        messages_to_summarize,
-        turn_prefix_messages,
-        retained_tail,
-        is_split_turn: cut_point.is_split_turn,
-        tokens_before,
-        previous_summary,
-        file_ops,
-        settings: *settings,
-    }))
+    file_ops
 }
 
 fn collect_messages(entries: &[Entry]) -> Vec<AgentMessage> {
@@ -935,24 +974,7 @@ pub async fn compact_with_callbacks<C: RetryCallbacks + ?Sized>(
     callbacks: Option<&mut C>,
 ) -> Result<CompactResult, CompactionError> {
     let started_at = now_ms();
-
-    let (summary, summary_usage) = if preparation.is_split_turn && !preparation.turn_prefix_messages.is_empty() {
-        split_turn_summary(preparation, models, model, options, callbacks).await?
-    } else {
-        let history_options = GenerateSummaryOptions {
-            current_messages: &preparation.messages_to_summarize,
-            models,
-            model,
-            reserve_tokens: preparation.settings.reserve_tokens,
-            signal: options.signal,
-            custom_instructions: options.custom_instructions,
-            previous_summary: preparation.previous_summary.as_deref(),
-            thinking_level: options.thinking_level,
-            retry: options.retry,
-        };
-        let summary = generate_summary_with_options(&history_options, callbacks).await?;
-        (summary.text, summary.usage)
-    };
+    let (summary, summary_usage) = summarize_preparation(preparation, models, model, options, callbacks).await?;
 
     let FileLists {
         read_files,
@@ -973,6 +995,40 @@ pub async fn compact_with_callbacks<C: RetryCallbacks + ?Sized>(
     })
 }
 
+fn preparation_summary_options<'a>(
+    preparation: &'a CompactionPreparation,
+    models: &'a dyn Models,
+    model: &'a Model,
+    options: &'a CompactOptions<'a>,
+) -> GenerateSummaryOptions<'a> {
+    GenerateSummaryOptions {
+        current_messages: &preparation.messages_to_summarize,
+        models,
+        model,
+        reserve_tokens: preparation.settings.reserve_tokens,
+        signal: options.signal,
+        custom_instructions: options.custom_instructions,
+        previous_summary: preparation.previous_summary.as_deref(),
+        thinking_level: options.thinking_level,
+        retry: options.retry,
+    }
+}
+
+async fn summarize_preparation<C: RetryCallbacks + ?Sized>(
+    preparation: &CompactionPreparation,
+    models: &dyn Models,
+    model: &Model,
+    options: &CompactOptions<'_>,
+    callbacks: Option<&mut C>,
+) -> Result<(String, Usage), CompactionError> {
+    if preparation.is_split_turn && !preparation.turn_prefix_messages.is_empty() {
+        return split_turn_summary(preparation, models, model, options, callbacks).await;
+    }
+    let history_options = preparation_summary_options(preparation, models, model, options);
+    let summary = generate_summary_with_options(&history_options, callbacks).await?;
+    Ok((summary.text, summary.usage))
+}
+
 async fn split_turn_summary<C: RetryCallbacks + ?Sized>(
     preparation: &CompactionPreparation,
     models: &dyn Models,
@@ -983,17 +1039,7 @@ async fn split_turn_summary<C: RetryCallbacks + ?Sized>(
     let mut history_text = "No prior history.".to_owned();
     let mut history_usage = None;
     if !preparation.messages_to_summarize.is_empty() {
-        let history_options = GenerateSummaryOptions {
-            current_messages: &preparation.messages_to_summarize,
-            models,
-            model,
-            reserve_tokens: preparation.settings.reserve_tokens,
-            signal: options.signal,
-            custom_instructions: options.custom_instructions,
-            previous_summary: preparation.previous_summary.as_deref(),
-            thinking_level: options.thinking_level,
-            retry: options.retry,
-        };
+        let history_options = preparation_summary_options(preparation, models, model, options);
         let summary = generate_summary_with_options(&history_options, callbacks.as_deref_mut()).await?;
         history_text = summary.text;
         history_usage = Some(summary.usage);
