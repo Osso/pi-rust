@@ -275,7 +275,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/undo-stack.ts` | 28 | 0 | done | `crates/pi-tui/src/undo_stack.rs` | clone-on-push; differential N/A (structuredClone) |
 | `tui/src/utils.ts` | 1326 | 0 | done | `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs` | Unicode 17.0 tables; differential corpus + ~11k codepoint samples |
 | `tui/src/autocomplete.ts` | 793 | 1 | todo |  |  |
-| `tui/src/keybindings.ts` | 325 | 1 | todo |  |  |
+| `tui/src/keybindings.ts` | 325 | 1 | done | `crates/pi-tui/src/keybindings.rs` | differential resolved keys/conflicts; ordered config pairs |
 | `tui/src/latex.ts` | 1373 | 1 | todo |  |  |
 | `tui/src/terminal.ts` | 594 | 1 | todo |  |  |
 | `tui/src/word-navigation.ts` | 117 | 1 | todo |  |  |
