@@ -3709,9 +3709,8 @@ impl AgentSession {
     fn create_internal_commands(&self) -> indexmap::IndexMap<String, crate::core::extensions::types::InternalCommandHandler> {
         let weak = Arc::downgrade(&self.inner);
         let handler: crate::core::extensions::types::InternalCommandHandler =
-            Arc::new(move |args: &str, ctx: &ExtensionCommandContext| {
+            Arc::new(move |args: String, ctx: ExtensionCommandContext| {
                 let model_reference = args.trim().to_owned();
-                let ctx = ctx.clone();
                 let weak = weak.clone();
                 Box::pin(async move {
                     if model_reference.is_empty() {
@@ -3804,10 +3803,10 @@ impl AgentSession {
                 message,
                 assistant_message_event,
             } => {
-                let mut extension_event = ExtensionEvent::MessageUpdate(MessageUpdateEvent {
+                let mut extension_event = ExtensionEvent::MessageUpdate(Box::new(MessageUpdateEvent {
                     message: message.clone(),
                     assistant_message_event: (**assistant_message_event).clone(),
-                });
+                }));
                 runner.emit(&mut extension_event).await;
                 None
             }
@@ -3877,11 +3876,11 @@ impl AgentSession {
         if pi_ai::models::models_are_equal(previous_model, Some(next_model)) {
             return;
         }
-        let mut event = ExtensionEvent::ModelSelect(ModelSelectEvent {
+        let mut event = ExtensionEvent::ModelSelect(Box::new(ModelSelectEvent {
             model: next_model.clone(),
             previous_model: previous_model.cloned(),
             source,
-        });
+        }));
         self.runner().emit(&mut event).await;
     }
 
@@ -3915,7 +3914,7 @@ impl AgentSession {
             return false;
         };
         let context = self.create_command_context();
-        if let Err(error) = (command.handler)(args, &context).await {
+        if let Err(error) = (command.handler)(args.to_owned(), context).await {
             runner.emit_error(crate::core::extensions::types::ExtensionError {
                 extension_path: format!("command:{command_name}"),
                 event: "command".to_owned(),
@@ -4211,7 +4210,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
                     )));
                 };
                 let context = session.create_command_context();
-                (command.handler)(&args.unwrap_or_default(), &context)
+                (command.handler)(args.unwrap_or_default(), context)
                     .await
                     .map(|()| Value::Null)
             })
