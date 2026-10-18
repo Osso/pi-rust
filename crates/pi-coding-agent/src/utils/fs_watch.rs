@@ -27,6 +27,9 @@ where
 {
     let error_handler = on_error.clone();
     let mut watcher = match notify::recommended_watcher(move |result: notify::Result<Event>| match result {
+        Ok(event) if matches!(event.kind, EventKind::Access(_)) => {
+            // `fs.watch` reports renames and content changes, not reads (atime).
+        }
         Ok(event) => listener(watch_event_kind(&event.kind), event.paths.first().cloned()),
         Err(_) => error_handler(),
     }) {

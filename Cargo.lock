@@ -2058,6 +2058,7 @@ dependencies = [
  "globset",
  "ignore",
  "image 0.24.9",
+ "indexmap",
  "notify",
  "percent-encoding",
  "photon-rs",

@@ -1,0 +1,1625 @@
+//! Differential coverage for the extension runner and registry.
+//!
+//! The oracle loads equivalent scripted TypeScript extensions through the real
+//! `discoverAndLoadExtensions`/`ExtensionRunner`; the Rust side registers the
+//! same handlers through the Rust extension API.
+
+#[path = "support/oracle.rs"]
+mod oracle;
+#[path = "support/extensions.rs"]
+mod support;
+
+use std::sync::{Arc, Mutex};
+
+use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_coding_agent::core::extensions::*;
+use pi_coding_agent::core::keybindings::KeybindingsManager;
+use pi_coding_agent::core::provider_composer::ProviderConfigInput;
+use pi_coding_agent::core::session_control_db::RuntimeMailboxMessage;
+use pi_coding_agent::core::session_manager::SessionEntry;
+use serde_json::{Map, Value, json};
+
+macro_rules! h {
+    ($ty:ty, [$($cap:ident),+], |$event:ident, $ctx:ident| $body:expr) => {{
+        $(let $cap = std::sync::Arc::clone(&$cap);)+
+        move |$event: $ty, $ctx: pi_coding_agent::core::extensions::ExtensionContext| {
+            $(let $cap = std::sync::Arc::clone(&$cap);)+
+            Box::pin(async move { $body })
+                as pi_coding_agent::core::extensions::BoxFuture<
+                    'static,
+                    Result<Option<_>, pi_coding_agent::core::extensions::HandlerError>,
+                >
+        }
+    }};
+    ($ty:ty, |$event:ident, $ctx:ident| $body:expr) => {
+        move |$event: $ty, $ctx: pi_coding_agent::core::extensions::ExtensionContext| {
+            Box::pin(async move { $body })
+                as pi_coding_agent::core::extensions::BoxFuture<
+                    'static,
+                    Result<Option<_>, pi_coding_agent::core::extensions::HandlerError>,
+                >
+        }
+    };
+}
+
+fn temp_dir(name: &str) -> String {
+    let dir = std::env::temp_dir().join(format!(
+        "pi-ext-diff-{name}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.to_string_lossy().into_owned()
+}
+
+fn path_in(temp_dir: &str, name: &str) -> String {
+    format!("{temp_dir}/extensions/bundle/{name}")
+}
+
+fn optional_entry(key: &str, value: Option<Value>) -> Value {
+    match value {
+        Some(value) => json!({ key: value }),
+        None => json!({}),
+    }
+}
+
+fn error_log(runner: &ExtensionRunner) -> Arc<Mutex<Vec<Value>>> {
+    let errors = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&errors);
+    runner.on_error(Arc::new(move |error| {
+        sink.lock().unwrap().push(serde_json::to_value(error).unwrap());
+    }));
+    errors
+}
+
+fn errors_value(errors: &Arc<Mutex<Vec<Value>>>) -> Value {
+    Value::Array(errors.lock().unwrap().clone())
+}
+
+fn oracle_for() -> oracle::TsOracle {
+    oracle::TsOracle::spawn(
+        "extensions-runner-oracle.ts",
+        "packages/coding-agent/src/core/extensions/runner.ts",
+    )
+}
+
+async fn dispatch(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let logs = Arc::new(Mutex::new(Vec::new()));
+    let l = Arc::clone(&logs);
+    let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), move |api| {
+        let l1 = Arc::clone(&l);
+        api.on_agent_start(h!(AgentStartEvent, [l1], |_e, _c| {
+            support::log(&l1, "e1:agent_start");
+            Ok(None)
+        }))
+        .unwrap();
+        let l2 = Arc::clone(&l1);
+        api.on_agent_end(h!(AgentEndEvent, [l2], |e, _c| {
+            support::log(&l2, format!("e1:agent_end:{}", e.messages.len()));
+            Ok(None)
+        }))
+        .unwrap();
+        let l3 = Arc::clone(&l1);
+        api.on_context(h!(ContextEvent, [l3], |e, _c| {
+            support::log(&l3, format!("e1:context:{}", e.messages.len()));
+            let mut messages = e.messages.clone();
+            messages.push(support::custom_message_with("custom", "e1", "x", 1));
+            Ok(Some(ContextEventResult {
+                messages: Some(messages),
+            }))
+        }))
+        .unwrap();
+        let l4 = Arc::clone(&l1);
+        api.on_tool_result(h!(ToolResultEvent, [l4], |e, _c| {
+            support::log(&l4, format!("e1:tool_result:{}", e.content.len()));
+            let mut content = e.content.clone();
+            content.push(TextOrImageContent::Text(TextContent::new("e1")));
+            Ok(Some(ToolResultEventResult {
+                content: Some(content),
+                details: Some(json!({"e1": true})),
+                is_error: None,
+                usage: None,
+            }))
+        }))
+        .unwrap();
+        let l5 = Arc::clone(&l1);
+        api.on_before_agent_start(h!(BeforeAgentStartEvent, [l5], |_e, ctx| {
+            support::log(&l5, format!("e1:before_agent_start:{}", ctx.get_system_prompt()));
+            Ok(Some(BeforeAgentStartEventResult {
+                system_prompt: Some(format!("{}|e1", ctx.get_system_prompt())),
+                message: None,
+            }))
+        }))
+        .unwrap();
+        api.on_input(h!(InputEvent, |e, _c| {
+            Ok(Some(InputEventResult::Transform {
+                text: format!("{}[e1]", e.text),
+                images: None,
+            }))
+        }))
+        .unwrap();
+        api.on_tool_call(h!(ToolCallEvent, |_e, _c| {
+            Ok(Some(ToolCallEventResult {
+                reason: Some("e1".to_owned()),
+                ..Default::default()
+            }))
+        }))
+        .unwrap();
+        api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |e, _c| {
+            let mut headers = e.headers;
+            headers.insert("X-E1".to_owned(), Some("1".to_owned()));
+            Ok(Some(headers))
+        }))
+        .unwrap();
+        api.on_resources_discover(h!(ResourcesDiscoverEvent, |_e, _c| {
+            Ok(Some(ResourcesDiscoverResult {
+                skill_paths: Some(vec!["s1".to_owned()]),
+                prompt_paths: Some(vec!["p1".to_owned()]),
+                theme_paths: None,
+            }))
+        }))
+        .unwrap();
+        let l6 = Arc::clone(&l1);
+        api.on_user_bash(h!(UserBashEvent, [l6], |e, _c| {
+            support::log(&l6, format!("e1:user_bash:{}", e.command));
+            Ok(Some(UserBashEventResult {
+                operations: None,
+                result: Some(json!({"output": "r1", "exitCode": 0, "cancelled": false, "truncated": false})),
+            }))
+        }))
+        .unwrap();
+        let l7 = Arc::clone(&l1);
+        api.on_message_end(h!(MessageEndEvent, [l7], |e, _c| {
+            support::log(&l7, format!("e1:message_end:{}", e.message.role()));
+            Ok(Some(MessageEndEventResult {
+                message: Some(e.message.clone()),
+            }))
+        }))
+        .unwrap();
+    })
+    .await;
+
+    let l = Arc::clone(&logs);
+    let b = support::extension(&runtime, temp_dir, &path_in(temp_dir, "b.ts"), move |api| {
+        let l1 = Arc::clone(&l);
+        api.on_agent_start(h!(AgentStartEvent, [l1], |_e, _c| {
+            support::log(&l1, "e2:agent_start");
+            Ok(None)
+        }))
+        .unwrap();
+        let l2 = Arc::clone(&l);
+        api.on_context(h!(ContextEvent, [l2], |e, _c| {
+            support::log(&l2, format!("e2:context:{}", e.messages.len()));
+            let mut messages = e.messages.clone();
+            messages.push(support::custom_message_with("custom", "e2", "y", 2));
+            Ok(Some(ContextEventResult {
+                messages: Some(messages),
+            }))
+        }))
+        .unwrap();
+        api.on_tool_result(h!(ToolResultEvent, |e, _c| {
+            let mut content = e.content.clone();
+            content.push(TextOrImageContent::Text(TextContent::new("e2")));
+            Ok(Some(ToolResultEventResult {
+                content: Some(content),
+                details: None,
+                is_error: None,
+                usage: None,
+            }))
+        }))
+        .unwrap();
+        api.on_before_agent_start(h!(BeforeAgentStartEvent, |_e, ctx| {
+            Ok(Some(BeforeAgentStartEventResult {
+                system_prompt: Some(format!("{}|e2", ctx.get_system_prompt())),
+                message: None,
+            }))
+        }))
+        .unwrap();
+        api.on_input(h!(InputEvent, |e, _c| {
+            Ok(Some(InputEventResult::Transform {
+                text: format!("{}[e2]", e.text),
+                images: None,
+            }))
+        }))
+        .unwrap();
+        api.on_tool_call(h!(ToolCallEvent, |_e, _c| Ok(None))).unwrap();
+        api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |e, _c| {
+            let mut headers = e.headers;
+            headers.insert("X-E2".to_owned(), Some("2".to_owned()));
+            Ok(Some(headers))
+        }))
+        .unwrap();
+        api.on_resources_discover(h!(ResourcesDiscoverEvent, |_e, _c| {
+            Ok(Some(ResourcesDiscoverResult {
+                skill_paths: None,
+                prompt_paths: None,
+                theme_paths: Some(vec!["t2".to_owned()]),
+            }))
+        }))
+        .unwrap();
+        api.on_message_end(h!(MessageEndEvent, |_e, _c| Ok(None))).unwrap();
+    })
+    .await;
+
+    let mut runner = support::runner_for(vec![a, b], temp_dir, runtime.clone(), support::model_registry().await);
+    let errors = error_log(&runner);
+    support::bind(&mut runner);
+    let mut steps = Vec::new();
+
+    runner.emit(&mut ExtensionEvent::AgentStart(AgentStartEvent {})).await;
+    steps.push(json!({"log": logs.lock().unwrap().clone()}));
+
+    let context = runner.emit_context(Vec::new()).await.unwrap();
+    steps.push(json!({"messages": context}));
+
+    let tool_result = runner
+        .emit_tool_result(ToolResultEvent {
+            tool_name: ToolName::Custom("my_tool".to_owned()),
+            tool_call_id: "call-1".to_owned(),
+            input: Map::new(),
+            content: vec![TextOrImageContent::Text(TextContent::new("base"))],
+            details: Some(json!({"initial": true})),
+            is_error: false,
+            usage: None,
+        })
+        .await;
+    steps.push(json!({"toolResult": tool_result}));
+
+    let before_agent_start = runner
+        .emit_before_agent_start(
+            "p",
+            None,
+            "base",
+            pi_coding_agent::core::system_prompt::BuildSystemPromptOptions {
+                cwd: temp_dir.to_owned(),
+                ..Default::default()
+            },
+        )
+        .await;
+    steps.push(json!({"beforeAgentStart": before_agent_start}));
+
+    let input = runner.emit_input("x", None, InputSource::Interactive, None).await;
+    steps.push(json!({"input": input}));
+
+    let mut tool_call = ToolCallEvent {
+        tool_name: ToolName::Bash,
+        tool_call_id: "call-2".to_owned(),
+        bypass_permissions: false,
+        input: Map::from_iter([("command".to_owned(), json!("pwd"))]),
+    };
+    let tool_call_result = runner.emit_tool_call(&mut tool_call).await.unwrap();
+    steps.push(json!({"toolCall": tool_call_result}));
+
+    let headers = runner
+        .emit_before_provider_headers(pi_ai::types::ProviderHeaders::from_iter([(
+            "User-Agent".to_owned(),
+            Some("x".to_owned()),
+        )]))
+        .await;
+    steps.push(json!({"headers": headers}));
+
+    let resources = runner
+        .emit_resources_discover(temp_dir, ResourcesDiscoverReason::Startup)
+        .await;
+    steps.push(json!({"resources": resources}));
+
+    let user_bash = runner
+        .emit_user_bash(&UserBashEvent {
+            command: "ls".to_owned(),
+            exclude_from_context: false,
+            cwd: temp_dir.to_owned(),
+        })
+        .await;
+    steps.push(json!({"userBash": user_bash}));
+
+    let message_end = runner
+        .emit_message_end(MessageEndEvent {
+            message: support::custom_message_with("custom", "m", "c", 1),
+        })
+        .await;
+    steps.push(json!({"messageEnd": message_end}));
+
+    runner
+        .emit(&mut ExtensionEvent::AgentEnd(AgentEndEvent {
+            messages: Vec::new(),
+            session_continuation: None,
+        }))
+        .await;
+    steps.push(json!({"log": logs.lock().unwrap().clone()}));
+
+    json!({"steps": steps, "errors": errors_value(&errors)})
+}
+
+async fn errors_scenario(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
+        api.on_context(h!(ContextEvent, |_e, _c| Err(HandlerError::new("boom"))))
+            .unwrap();
+        api.on_tool_call(h!(ToolCallEvent, |_e, _c| Err(HandlerError::new("call boom"))))
+            .unwrap();
+        api.on_message_end(h!(MessageEndEvent, |_e, _c| {
+            Ok(Some(MessageEndEventResult {
+                message: Some(support::custom_message_with("custom", "x", "c", 1)),
+            }))
+        }))
+        .unwrap();
+        api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |_e, _c| Err(HandlerError::new(
+            "header boom"
+        ))))
+        .unwrap();
+    })
+    .await;
+
+    let mut runner = support::runner_for(vec![a], temp_dir, runtime, support::model_registry().await);
+    let errors = error_log(&runner);
+    support::bind(&mut runner);
+    let mut steps = Vec::new();
+
+    let context = runner.emit_context(Vec::new()).await.unwrap();
+    steps.push(json!({"context": context}));
+
+    let mut tool_call = ToolCallEvent {
+        tool_name: ToolName::Bash,
+        tool_call_id: "call-1".to_owned(),
+        bypass_permissions: false,
+        input: Map::from_iter([("command".to_owned(), json!("pwd"))]),
+    };
+    match runner.emit_tool_call(&mut tool_call).await {
+        Ok(_) => steps.push(json!({"toolCall": "no-error"})),
+        Err(error) => steps.push(json!({"toolCallError": error.message})),
+    }
+
+    let message_end = runner
+        .emit_message_end(MessageEndEvent {
+            message: support::custom_message_with("user", "m", "c", 1),
+        })
+        .await;
+    steps.push(optional_entry(
+        "messageEnd",
+        message_end.map(|message| serde_json::to_value(message).unwrap()),
+    ));
+
+    let headers = runner
+        .emit_before_provider_headers(pi_ai::types::ProviderHeaders::from_iter([(
+            "User-Agent".to_owned(),
+            Some("x".to_owned()),
+        )]))
+        .await;
+    steps.push(json!({"headers": headers}));
+
+    json!({"steps": steps, "errors": errors_value(&errors)})
+}
+
+async fn shortcuts_scenario(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let specs = [
+        ("a.ts", "ctrl+c"),
+        ("b.ts", "ctrl+p"),
+        ("c.ts", "ctrl+v"),
+        ("d.ts", "ctrl+shift+x"),
+        ("e.ts", "ctrl+shift+x"),
+    ];
+    let mut extensions = Vec::new();
+    for (name, shortcut) in specs {
+        let shortcut = shortcut.to_owned();
+        extensions.push(
+            support::extension(&runtime, temp_dir, &path_in(temp_dir, name), move |api| {
+                api.register_shortcut(
+                    shortcut.clone(),
+                    None,
+                    Arc::new(|_ctx: ExtensionContext| {
+                        Box::pin(async { Ok(()) })
+                            as pi_coding_agent::core::extensions::BoxFuture<'static, Result<(), HandlerError>>
+                    }),
+                )
+                .unwrap();
+            })
+            .await,
+        );
+    }
+    let runner = support::runner_for(extensions, temp_dir, runtime, support::model_registry().await);
+    let default_keybindings = KeybindingsManager::new(Vec::new(), None).get_effective_config();
+    let shortcuts = runner.get_shortcuts(&default_keybindings);
+    let first = json!({
+        "keys": shortcuts.keys().cloned().collect::<Vec<_>>(),
+        "diagnostics": runner.get_shortcut_diagnostics(),
+    });
+
+    let mut rebound = default_keybindings.clone();
+    for (keybinding, keys) in &mut rebound {
+        if keybinding == "app.interrupt" {
+            *keys = vec!["ctrl+x".to_owned()];
+        }
+    }
+    let rebound_shortcuts = runner.get_shortcuts(&rebound);
+    let second = json!({
+        "keys": rebound_shortcuts.keys().cloned().collect::<Vec<_>>(),
+        "diagnostics": runner.get_shortcut_diagnostics(),
+    });
+
+    json!({"steps": [first, second], "errors": []})
+}
+
+async fn commands_scenario(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
+        api.register_command(
+            "shared-cmd",
+            Some("First command".to_owned()),
+            None,
+            Arc::new(|_args: String, _ctx: ExtensionCommandContext| {
+                Box::pin(async { Ok(()) })
+                    as pi_coding_agent::core::extensions::BoxFuture<'static, Result<(), HandlerError>>
+            }),
+        )
+        .unwrap();
+    })
+    .await;
+    let b = support::extension(&runtime, temp_dir, &path_in(temp_dir, "b.ts"), |api| {
+        api.register_command(
+            "shared-cmd",
+            Some("Second command".to_owned()),
+            None,
+            Arc::new(|_args: String, _ctx: ExtensionCommandContext| {
+                Box::pin(async { Ok(()) })
+                    as pi_coding_agent::core::extensions::BoxFuture<'static, Result<(), HandlerError>>
+            }),
+        )
+        .unwrap();
+        api.register_command(
+            "solo",
+            Some("Solo".to_owned()),
+            None,
+            Arc::new(|_args: String, _ctx: ExtensionCommandContext| {
+                Box::pin(async { Ok(()) })
+                    as pi_coding_agent::core::extensions::BoxFuture<'static, Result<(), HandlerError>>
+            }),
+        )
+        .unwrap();
+    })
+    .await;
+    let runner = support::runner_for(vec![a, b], temp_dir, runtime, support::model_registry().await);
+    let commands = runner.get_registered_commands();
+    let step = json!({
+        "commands": commands.iter().map(|command| json!({
+            "name": command.name,
+            "invocationName": command.invocation_name,
+            "description": command.description,
+        })).collect::<Vec<_>>(),
+        "diagnostics": runner.get_command_diagnostics(),
+    });
+    json!({
+        "steps": [
+            step,
+            {"byInvocation": runner.get_command("shared-cmd:2").and_then(|command| command.description)},
+            {"missing": runner.get_command("not-exists").is_none()},
+        ],
+        "errors": []
+    })
+}
+
+async fn flags_scenario(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
+        api.register_flag(
+            "shared-flag",
+            Some("first".to_owned()),
+            FlagType::Boolean,
+            Some(FlagValue::Boolean(true)),
+        )
+        .unwrap();
+    })
+    .await;
+    let b = support::extension(&runtime, temp_dir, &path_in(temp_dir, "b.ts"), |api| {
+        api.register_flag(
+            "shared-flag",
+            Some("second".to_owned()),
+            FlagType::Boolean,
+            Some(FlagValue::Boolean(false)),
+        )
+        .unwrap();
+        api.register_flag("test-flag", Some("Test flag".to_owned()), FlagType::Boolean, None)
+            .unwrap();
+    })
+    .await;
+    let runner = support::runner_for(vec![a, b], temp_dir, runtime, support::model_registry().await);
+    let flags = runner
+        .get_flags()
+        .into_iter()
+        .map(|(name, flag)| {
+            json!({
+                "name": name,
+                "description": flag.description,
+                "type": flag.flag_type,
+                "default": flag.default,
+            })
+        })
+        .collect::<Vec<_>>();
+    let values = runner
+        .get_flag_values()
+        .into_iter()
+        .map(|(name, value)| json!([name, value]))
+        .collect::<Vec<_>>();
+    runner.set_flag_value("--test-flag", FlagValue::Boolean(true));
+    let values_after = runner
+        .get_flag_values()
+        .into_iter()
+        .map(|(name, value)| json!([name, value]))
+        .collect::<Vec<_>>();
+    json!({
+        "steps": [
+            {"flags": flags},
+            {"values": values},
+            {"values": values_after},
+        ],
+        "errors": []
+    })
+}
+
+async fn input_scenario(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
+        api.on_input(h!(InputEvent, |e, _c| {
+            if e.text == "h" {
+                Ok(Some(InputEventResult::Handled))
+            } else {
+                Ok(Some(InputEventResult::Transform {
+                    text: format!("{}[1]", e.text),
+                    images: None,
+                }))
+            }
+        }))
+        .unwrap();
+    })
+    .await;
+    let b = support::extension(&runtime, temp_dir, &path_in(temp_dir, "b.ts"), |api| {
+        api.on_input(h!(InputEvent, |e, _c| {
+            Ok(Some(InputEventResult::Transform {
+                text: format!("{}[2]", e.text),
+                images: None,
+            }))
+        }))
+        .unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![a, b], temp_dir, runtime, support::model_registry().await);
+    support::bind(&mut runner);
+    let images = vec![pi_ai::types::ImageContent::new("orig", "image/png")];
+    json!({
+        "steps": [
+            {"continue": runner.emit_input("x", None, InputSource::Interactive, None).await},
+            {"transform": runner.emit_input("hi", Some(images), InputSource::Interactive, None).await},
+            {"handled": runner.emit_input("h", None, InputSource::Interactive, None).await},
+        ],
+        "errors": []
+    })
+}
+
+async fn project_trust_scenario(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
+        api.on_project_trust(|_event: ProjectTrustEvent, _ctx: ProjectTrustContext| {
+            Box::pin(async {
+                Ok(ProjectTrustEventResult {
+                    trusted: ProjectTrustEventDecision::Undecided,
+                    remember: Some(true),
+                })
+            })
+                as pi_coding_agent::core::extensions::BoxFuture<'static, Result<ProjectTrustEventResult, HandlerError>>
+        })
+        .unwrap();
+    })
+    .await;
+    let b = support::extension(&runtime, temp_dir, &path_in(temp_dir, "b.ts"), |api| {
+        api.on_project_trust(|_event: ProjectTrustEvent, _ctx: ProjectTrustContext| {
+            Box::pin(async {
+                Ok(ProjectTrustEventResult {
+                    trusted: ProjectTrustEventDecision::No,
+                    remember: Some(true),
+                })
+            })
+                as pi_coding_agent::core::extensions::BoxFuture<'static, Result<ProjectTrustEventResult, HandlerError>>
+        })
+        .unwrap();
+    })
+    .await;
+    let result = LoadExtensionsResult {
+        extensions: vec![a, b],
+        errors: Vec::new(),
+        runtime,
+    };
+    let ctx = ProjectTrustContext {
+        cwd: temp_dir.to_owned(),
+        mode: ExtensionMode::Tui,
+        has_ui: false,
+        ui: Arc::new(NoOpUiContext),
+    };
+    let (decision, errors) = emit_project_trust_event(
+        &result,
+        ProjectTrustEvent {
+            cwd: temp_dir.to_owned(),
+        },
+        &ctx,
+    )
+    .await;
+    json!({
+        "steps": [{
+            "result": decision,
+            "errors": errors,
+        }],
+        "errors": []
+    })
+}
+
+fn provider_config() -> ProviderConfigInput {
+    let model: pi_ai::types::Model = serde_json::from_value(json!({
+        "id": "instant-model",
+        "name": "Instant Model",
+        "api": "openai-completions",
+        "provider": "placeholder",
+        "baseUrl": "https://provider.test/v1",
+        "reasoning": false,
+        "input": ["text"],
+        "cost": {"input": 1, "output": 2, "cacheRead": 0.1, "cacheWrite": 1.25},
+        "contextWindow": 128000,
+        "maxTokens": 4096,
+    }))
+    .unwrap();
+    ProviderConfigInput {
+        base_url: Some("https://provider.test/v1".to_owned()),
+        api_key: Some("provider-test-key".to_owned()),
+        api: Some("openai-completions".to_owned()),
+        models: Some(vec![model]),
+        ..Default::default()
+    }
+}
+
+fn provider_record(op: &str, name: &str, config: Option<&ProviderConfigInput>) -> Value {
+    match config {
+        Some(config) => json!({
+            "op": op,
+            "name": name,
+            "baseUrl": config.base_url,
+            "api": config.api,
+            "apiKey": config.api_key,
+            "authHeader": config.auth_header,
+            "modelIds": config.models.as_ref().map(|models| models.iter().map(|model| model.id.clone()).collect::<Vec<_>>()),
+        }),
+        None => json!({"op": op, "name": name}),
+    }
+}
+
+async fn providers_scenario(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
+        let config = ProviderConfigInput {
+            base_url: Some("https://queued.test".to_owned()),
+            api_key: Some("k".to_owned()),
+            api: Some("openai-completions".to_owned()),
+            models: Some(vec![
+                serde_json::from_value(json!({
+                    "id": "queued-model",
+                    "name": "Queued",
+                    "api": "openai-completions",
+                    "provider": "placeholder",
+                    "baseUrl": "https://queued.test",
+                    "reasoning": false,
+                    "input": ["text"],
+                    "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                    "contextWindow": 1000,
+                    "maxTokens": 100,
+                }))
+                .unwrap(),
+            ]),
+            ..Default::default()
+        };
+        api.register_provider("queued", config).unwrap();
+    })
+    .await;
+    let calls = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let register_calls = Arc::clone(&calls);
+    let native_calls = Arc::clone(&calls);
+    let unregister_calls = Arc::clone(&calls);
+    let provider_actions = ProviderActions {
+        register_provider: Some(Arc::new(move |name, config| {
+            register_calls
+                .lock()
+                .unwrap()
+                .push(provider_record("register", name, Some(config)));
+            Ok(())
+        })),
+        register_native_provider: Some(Arc::new(move |provider| {
+            native_calls
+                .lock()
+                .unwrap()
+                .push(json!({"op": "native", "name": provider.id()}));
+        })),
+        unregister_provider: Some(Arc::new(move |name| {
+            unregister_calls
+                .lock()
+                .unwrap()
+                .push(provider_record("unregister", name, None));
+        })),
+    };
+    let mut runner = support::runner_for(vec![a], temp_dir, runtime.clone(), support::model_registry().await);
+    runner.bind_core(support::actions(), support::context_actions(), Some(provider_actions));
+    let mut steps = vec![
+        json!({"calls": calls.lock().unwrap().clone()}),
+        json!({"pending": runtime.pending_provider_registrations().len()}),
+    ];
+    let _ = runtime.register_provider("instant-provider", provider_config(), Some("<inline:test>"));
+    steps.push(json!({"calls": calls.lock().unwrap().clone()}));
+    runtime
+        .unregister_provider("instant-provider", Some("<inline:test>"))
+        .unwrap();
+    steps.push(json!({"calls": calls.lock().unwrap().clone()}));
+    json!({"steps": steps, "errors": []})
+}
+
+async fn mailbox_scenario(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
+        api.on_runtime_mailbox(h!(RuntimeMailboxEvent, |_e, _c| {
+            Ok(Some(RuntimeMailboxEventResult { handled: true }))
+        }))
+        .unwrap();
+    })
+    .await;
+    let b = support::extension(&runtime, temp_dir, &path_in(temp_dir, "b.ts"), |api| {
+        api.on_runtime_mailbox(h!(RuntimeMailboxEvent, |_e, _c| Err(HandlerError::new("mailbox boom"))))
+            .unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![a, b], temp_dir, runtime, support::model_registry().await);
+    let errors = error_log(&runner);
+    support::bind(&mut runner);
+    let message: RuntimeMailboxMessage = serde_json::from_value(json!({
+        "id": 1,
+        "recipient": {"sessionId": "r"},
+        "sender": {"sessionId": "s"},
+        "kind": "message",
+        "body": "hi",
+        "storeRef": {"messageId": "1", "sessionPath": "/tmp/s.jsonl"},
+        "status": "claimed",
+        "createdAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:00.000Z",
+    }))
+    .unwrap();
+    let step = match runner.emit_runtime_mailbox(RuntimeMailboxEvent { message }).await {
+        Ok(result) => json!({"result": result}),
+        Err(error) => json!({"error": error.message}),
+    };
+    json!({"steps": [step], "errors": errors_value(&errors)})
+}
+
+fn compaction_preparation() -> CompactionPreparation {
+    CompactionPreparation {
+        first_kept_entry_id: "e1".to_owned(),
+        messages_to_summarize: Vec::new(),
+        turn_prefix_messages: Vec::new(),
+        is_split_turn: false,
+        tokens_before: 10.0,
+        previous_summary: None,
+        file_ops: pi_agent_core::FileOperations::default(),
+        settings: pi_agent_core::CompactionSettings {
+            enabled: true,
+            reserve_tokens: 1.0,
+            keep_recent_tokens: 2.0,
+        },
+    }
+}
+
+async fn session_events_scenario(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let logs = Arc::new(Mutex::new(Vec::new()));
+    let l = Arc::clone(&logs);
+    let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), move |api| {
+        let l1 = Arc::clone(&l);
+        api.on_session_before_switch(h!(SessionBeforeSwitchEvent, [l1], |_e, _c| {
+            support::log(&l1, "switch:a");
+            Ok(None)
+        }))
+        .unwrap();
+        api.on_session_before_switch(h!(SessionBeforeSwitchEvent, |_e, _c| {
+            Ok(Some(SessionBeforeSwitchResult { cancel: Some(true) }))
+        }))
+        .unwrap();
+        let l2 = Arc::clone(&l);
+        api.on_session_before_switch(h!(SessionBeforeSwitchEvent, [l2], |_e, _c| {
+            support::log(&l2, "switch:c");
+            Ok(None)
+        }))
+        .unwrap();
+        api.on_session_before_fork(h!(SessionBeforeForkEvent, |_e, _c| {
+            Ok(Some(SessionBeforeForkResult {
+                cancel: None,
+                skip_conversation_restore: Some(true),
+            }))
+        }))
+        .unwrap();
+        api.on_session_before_compact(h!(SessionBeforeCompactEvent, |_e, _c| {
+            Ok(Some(SessionBeforeCompactResult {
+                cancel: Some(true),
+                compaction: None,
+            }))
+        }))
+        .unwrap();
+        let l3 = Arc::clone(&l);
+        api.on_session_before_compact(h!(SessionBeforeCompactEvent, [l3], |_e, _c| {
+            support::log(&l3, "compact:b");
+            Ok(None)
+        }))
+        .unwrap();
+        api.on_compaction(h!(CompactionEvent, |_e, _c| {
+            Ok(Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(CompactionResult {
+                    summary: "s".to_owned(),
+                    first_kept_entry_id: "e1".to_owned(),
+                    tokens_before: 3.0,
+                    duration_ms: None,
+                    estimated_tokens_after: None,
+                    kept_from_previous_context_tokens: None,
+                    compacted_result_tokens: None,
+                    compacted_result_bytes: None,
+                    source: None,
+                    usage: None,
+                    provider_native: None,
+                    details: None,
+                }),
+            }))
+        }))
+        .unwrap();
+        let l4 = Arc::clone(&l);
+        api.on_compaction(h!(CompactionEvent, [l4], |_e, _c| {
+            support::log(&l4, "compaction:b");
+            Ok(None)
+        }))
+        .unwrap();
+        api.on_session_compaction_source(h!(SessionCompactionSourceEvent, |_e, _c| {
+            Ok(Some(SessionCompactionSourceResult {
+                source: Some(CompactionSourceInfo {
+                    r#type: CompactionSourceType::Local,
+                    provider: "p".to_owned(),
+                    model: "m".to_owned(),
+                    endpoint: None,
+                }),
+            }))
+        }))
+        .unwrap();
+        api.on_session_compaction_source(h!(SessionCompactionSourceEvent, |_e, _c| {
+            Ok(Some(SessionCompactionSourceResult {
+                source: Some(CompactionSourceInfo {
+                    r#type: CompactionSourceType::OpenAiRemote,
+                    provider: "p2".to_owned(),
+                    model: "m2".to_owned(),
+                    endpoint: Some("https://e".to_owned()),
+                }),
+            }))
+        }))
+        .unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![a], temp_dir, runtime, support::model_registry().await);
+    support::bind(&mut runner);
+    let mut steps = Vec::new();
+
+    let mut switch = ExtensionEvent::SessionBeforeSwitch(SessionBeforeSwitchEvent {
+        reason: SessionSwitchReason::New,
+        target_session_file: Some("/tmp/s.jsonl".to_owned()),
+    });
+    steps.push(json!({"switch": runner.emit(&mut switch).await.session_before_switch()}));
+
+    let mut fork = ExtensionEvent::SessionBeforeFork(SessionBeforeForkEvent {
+        entry_id: "e".to_owned(),
+        position: ForkPosition::At,
+    });
+    steps.push(json!({"fork": runner.emit(&mut fork).await.session_before_fork()}));
+
+    let preparation = compaction_preparation();
+    let mut before_compact = ExtensionEvent::SessionBeforeCompact(SessionBeforeCompactEvent {
+        preparation: preparation.clone(),
+        branch_entries: Vec::<SessionEntry>::new(),
+        custom_instructions: None,
+        reason: CompactionReason::Manual,
+        will_retry: false,
+        signal: None,
+    });
+    steps.push(json!({"beforeCompact": runner.emit(&mut before_compact).await.session_before_compact()}));
+
+    let mut compaction = ExtensionEvent::Compaction(CompactionEvent {
+        preparation,
+        branch_entries: Vec::new(),
+        custom_instructions: None,
+        reason: CompactionReason::Manual,
+        will_retry: false,
+        signal: None,
+    });
+    steps.push(json!({"compaction": runner.emit(&mut compaction).await.compaction()}));
+
+    let mut source = ExtensionEvent::SessionCompactionSource(SessionCompactionSourceEvent {
+        reason: CompactionReason::Manual,
+        will_retry: false,
+    });
+    steps.push(json!({"source": runner.emit(&mut source).await.session_compaction_source()}));
+
+    steps.push(json!({"log": logs.lock().unwrap().clone()}));
+    json!({"steps": steps, "errors": []})
+}
+
+async fn provider_request_scenario(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
+        api.on_before_provider_request(h!(BeforeProviderRequestEvent, |e, _c| {
+            let mut payload = e.payload.clone();
+            payload["a"] = json!(1);
+            Ok(Some(payload))
+        }))
+        .unwrap();
+        api.on_before_provider_request(h!(BeforeProviderRequestEvent, |e, _c| {
+            let mut payload = e.payload;
+            payload["b"] = json!(2);
+            Ok(Some(payload))
+        }))
+        .unwrap();
+        api.on_before_provider_request(h!(BeforeProviderRequestEvent, |_e, _c| Ok(Some(Value::Null))))
+            .unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![a], temp_dir, runtime, support::model_registry().await);
+    support::bind(&mut runner);
+    let payload = runner.emit_before_provider_request(json!({"base": true})).await;
+    json!({"steps": [{"payload": payload}, {"log": []}], "errors": []})
+}
+
+fn compare(name: &str, oracle: &mut oracle::TsOracle, actual: Value) {
+    let expected = oracle.request(&json!({"id": name, "operation": "run", "scenario": name}));
+    assert_eq!(expected["ok"], true, "{name}: {expected}");
+    assert_eq!(actual, expected["output"], "scenario {name}");
+}
+
+#[tokio::test]
+async fn extensions_match_the_pinned_typescript_runner() {
+    let mut oracle = oracle_for();
+
+    let dir = temp_dir("dispatch");
+    let actual = support::normalize(&dispatch(&dir).await, &dir);
+    compare("dispatch", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = temp_dir("errors");
+    let actual = support::normalize(&errors_scenario(&dir).await, &dir);
+    compare("errors", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = temp_dir("shortcuts");
+    let actual = support::normalize(&shortcuts_scenario(&dir).await, &dir);
+    compare("shortcuts", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = temp_dir("commands");
+    let actual = support::normalize(&commands_scenario(&dir).await, &dir);
+    compare("commands", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = temp_dir("flags");
+    let actual = support::normalize(&flags_scenario(&dir).await, &dir);
+    compare("flags", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = temp_dir("input");
+    let actual = support::normalize(&input_scenario(&dir).await, &dir);
+    compare("input", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = temp_dir("project_trust");
+    let actual = support::normalize(&project_trust_scenario(&dir).await, &dir);
+    compare("project_trust", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = temp_dir("providers");
+    let actual = support::normalize(&providers_scenario(&dir).await, &dir);
+    compare("providers", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = temp_dir("mailbox");
+    let actual = support::normalize(&mailbox_scenario(&dir).await, &dir);
+    compare("mailbox", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = temp_dir("session_events");
+    let actual = support::normalize(&session_events_scenario(&dir).await, &dir);
+    compare("session_events", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = temp_dir("provider_request");
+    let actual = support::normalize(&provider_request_scenario(&dir).await, &dir);
+    compare("provider_request", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+// ===== Behavioral runner cases =====
+
+use tokio_util::sync::CancellationToken;
+
+fn tool_definition(name: &str, description: &str) -> ToolDefinition {
+    ToolDefinition {
+        name: name.to_owned(),
+        label: name.to_owned(),
+        description: description.to_owned(),
+        prompt_snippet: None,
+        prompt_guidelines: None,
+        approval_required: None,
+        approval_kind: None,
+        parameters: json!({"type": "object"}),
+        constrained_sampling: None,
+        render_shell: None,
+        prepare_arguments: None,
+        prepare_execution: None,
+        execution_mode: None,
+        execute: Arc::new(|_id, _params, _signal, _on_update, _ctx| {
+            Box::pin(async {
+                Ok(pi_agent_core::AgentToolResult {
+                    content: Vec::new(),
+                    details: None,
+                    usage: None,
+                    added_tool_names: None,
+                    is_error: None,
+                    terminate: None,
+                })
+            })
+        }),
+        render_call: None,
+        render_result: None,
+    }
+}
+
+#[tokio::test]
+async fn keeps_the_first_registered_tool_and_definition() {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, "/tmp", "/tmp/a.ts", |api| {
+        api.register_tool(tool_definition("shared", "first")).unwrap();
+        api.register_tool(tool_definition("only_a", "a")).unwrap();
+    })
+    .await;
+    let b = support::extension(&runtime, "/tmp", "/tmp/b.ts", |api| {
+        api.register_tool(tool_definition("shared", "second")).unwrap();
+    })
+    .await;
+    let runner = support::runner_for(vec![a, b], "/tmp", runtime, support::model_registry().await);
+
+    let tools = runner.get_all_registered_tools();
+    assert_eq!(tools.len(), 2);
+    assert_eq!(tools[0].definition.description, "first");
+    assert_eq!(tools[1].definition.name, "only_a");
+    assert_eq!(runner.get_tool_definition("shared").unwrap().description, "first");
+    assert!(runner.get_tool_definition("missing").is_none());
+}
+
+#[tokio::test]
+async fn collects_renderers_and_transformers_in_load_order() {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, "/tmp", "/tmp/a.ts", |api| {
+        api.register_markdown_transformer(Arc::new(|markdown, _| format!("{markdown}a")))
+            .unwrap();
+        api.register_message_renderer("my-type", Arc::new(|_, _, _| None))
+            .unwrap();
+        api.register_entry_renderer("my-entry", Arc::new(|_, _, _| None))
+            .unwrap();
+    })
+    .await;
+    let b = support::extension(&runtime, "/tmp", "/tmp/b.ts", |api| {
+        api.register_markdown_transformer(Arc::new(|markdown, _| format!("{markdown}b")))
+            .unwrap();
+    })
+    .await;
+    let runner = support::runner_for(vec![a, b], "/tmp", runtime, support::model_registry().await);
+
+    assert_eq!(runner.get_markdown_transformers().len(), 2);
+    assert!(runner.get_message_renderer("my-type").is_some());
+    assert!(runner.get_message_renderer("missing").is_none());
+    assert!(runner.get_entry_renderer("my-entry").is_some());
+    assert!(runner.get_entry_renderer("missing").is_none());
+}
+
+#[tokio::test]
+async fn command_context_passes_fork_options_through() {
+    let runtime = support::runtime();
+    let runner = support::runner_for(Vec::new(), "/tmp", runtime, support::model_registry().await);
+    let calls = Arc::new(Mutex::new(Vec::<(String, Option<ForkOptions>)>::new()));
+    let fork_calls = Arc::clone(&calls);
+    let mut runner = runner;
+    runner.bind_command_context(Some(ExtensionCommandContextActions {
+        show_approval_selector: Arc::new(|| Ok(())),
+        show_sandbox_selector: Arc::new(|| Ok(())),
+        wait_for_idle: Arc::new(|| Box::pin(async {})),
+        new_session: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+        fork: Arc::new(move |entry_id, options| {
+            fork_calls.lock().unwrap().push((entry_id, options.clone()));
+            Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })
+        }),
+        navigate_tree: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+        switch_session: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+        reload: Arc::new(|| Box::pin(async {})),
+        restart: Arc::new(|_| Box::pin(async {})),
+    }));
+
+    let context = runner.create_command_context();
+    context.fork("entry-1".to_owned(), None).await.unwrap();
+    let options = ForkOptions {
+        position: Some(ForkPosition::At),
+        with_session: None,
+    };
+    context.fork("entry-2".to_owned(), Some(options)).await.unwrap();
+
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls[0].0, "entry-1");
+    assert!(calls[0].1.is_none());
+    assert_eq!(calls[1].0, "entry-2");
+    assert_eq!(calls[1].1.as_ref().unwrap().position, Some(ForkPosition::At));
+}
+
+#[tokio::test]
+async fn stale_contexts_reject_actions() {
+    let runtime = support::runtime();
+    let runner = support::runner_for(Vec::new(), "/tmp", runtime, support::model_registry().await);
+    runner.invalidate(Some("stale ctx"));
+    assert_eq!(runner.get_active_tools().unwrap_err().message, "stale ctx");
+    let error = runner.create_command_context().new_session(None).await.unwrap_err();
+    assert_eq!(error.message, "stale ctx");
+}
+
+#[tokio::test]
+async fn gates_and_reviewers_patch_tool_input() {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, "/tmp", "/tmp/a.ts", |api| {
+        api.register_tool_gate(Arc::new(|event: ToolCallEvent, _ctx: ExtensionContext| {
+            Box::pin(async move {
+                let mut input = event.input.clone();
+                input.insert("gate".to_owned(), json!(true));
+                Ok(Some(ToolCallEventResult {
+                    input: Some(input),
+                    ..Default::default()
+                }))
+            }) as BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>>
+        }))
+        .unwrap();
+        api.register_approval_reviewer(Arc::new(|_event: ToolCallEvent, _ctx: ExtensionContext| {
+            Box::pin(async {
+                Ok(Some(ApprovalReviewerResult::Allow {
+                    updated_input: Some(Map::from_iter([("approved".to_owned(), json!(true))])),
+                }))
+            }) as BoxFuture<'static, Result<Option<ApprovalReviewerResult>, HandlerError>>
+        }))
+        .unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![a], "/tmp", runtime, support::model_registry().await);
+    support::bind(&mut runner);
+
+    let mut event = ToolCallEvent {
+        tool_name: ToolName::Bash,
+        tool_call_id: "call".to_owned(),
+        bypass_permissions: false,
+        input: Map::from_iter([("command".to_owned(), json!("pwd"))]),
+    };
+    runner.emit_tool_gates(&mut event).await.unwrap();
+    assert_eq!(event.input.get("gate"), Some(&json!(true)));
+
+    runner.emit_approval_reviewers(&mut event).await.unwrap();
+    assert_eq!(event.input.get("approved"), Some(&json!(true)));
+    assert!(event.input.get("command").is_none());
+}
+
+#[tokio::test]
+async fn wrapper_reports_tools_added_during_execution() {
+    let runtime = support::runtime();
+    let active_tools = Arc::new(Mutex::new(vec!["existing".to_owned()]));
+    let tool_active = Arc::clone(&active_tools);
+    let mut definition = tool_definition("ext", "ext");
+    definition.execute = Arc::new(move |_id, _params, _signal, _on_update, _ctx| {
+        let active = Arc::clone(&tool_active);
+        Box::pin(async move {
+            active.lock().unwrap().push("added".to_owned());
+            Ok(pi_agent_core::AgentToolResult {
+                content: Vec::new(),
+                details: None,
+                usage: None,
+                added_tool_names: Some(vec!["existing-added".to_owned()]),
+                is_error: None,
+                terminate: None,
+            })
+        })
+    });
+    let a = support::extension(&runtime, "/tmp", "/tmp/a.ts", move |api| {
+        api.register_tool(definition).unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![a], "/tmp", runtime, support::model_registry().await);
+    let mut actions = support::actions();
+    let get_active = Arc::clone(&active_tools);
+    actions.get_active_tools = Arc::new(move || Ok(get_active.lock().unwrap().clone()));
+    runner.bind_core(actions, support::context_actions(), None);
+
+    let registered = runner.get_all_registered_tools();
+    let tools = wrap_registered_tools(registered, &runner);
+    let result = tools[0]
+        .execute("call".to_owned(), json!({}), None, Arc::new(|_| {}), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        result.added_tool_names,
+        Some(vec!["existing-added".to_owned(), "added".to_owned()])
+    );
+}
+
+#[tokio::test]
+async fn session_shutdown_helper_reports_handler_presence() {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, "/tmp", "/tmp/a.ts", |api| {
+        api.on_session_shutdown(|_event: SessionShutdownEvent, _ctx: ExtensionContext| {
+            Box::pin(async { Ok(None) }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
+        })
+        .unwrap();
+    })
+    .await;
+    let runner = support::runner_for(vec![a], "/tmp", runtime, support::model_registry().await);
+    assert!(runner.has_handlers("session_shutdown"));
+    assert!(
+        emit_session_shutdown_event(
+            &runner,
+            SessionShutdownEvent {
+                reason: SessionShutdownReason::Quit,
+                target_session_file: None,
+            }
+        )
+        .await
+    );
+    assert!(
+        !emit_session_shutdown_event(
+            &support::runner_for(Vec::new(), "/tmp", support::runtime(), support::model_registry().await),
+            SessionShutdownEvent {
+                reason: SessionShutdownReason::Quit,
+                target_session_file: None,
+            }
+        )
+        .await
+    );
+}
+
+#[tokio::test]
+async fn cancelled_context_signal_aborts_dispatch() {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, "/tmp", "/tmp/a.ts", |api| {
+        api.on_context(|_event: ContextEvent, _ctx: ExtensionContext| {
+            Box::pin(async { Ok(None) }) as BoxFuture<'static, Result<Option<ContextEventResult>, HandlerError>>
+        })
+        .unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![a], "/tmp", runtime, support::model_registry().await);
+    let token = CancellationToken::new();
+    token.cancel();
+    let mut actions = support::context_actions();
+    let signal = token.clone();
+    actions.get_signal = Arc::new(move || Some(signal.clone()));
+    runner.bind_core(support::actions(), actions, None);
+
+    let error = runner.emit_context(Vec::new()).await.unwrap_err();
+    assert_eq!(error.message, "Agent run aborted");
+}
+
+#[tokio::test]
+async fn reports_invalid_queued_provider_registration() {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, "/tmp", "/tmp/a.ts", |api| {
+        api.register_provider(
+            "broken-provider",
+            ProviderConfig {
+                stream_simple: Some(Arc::new(|_model, _context, _options| panic!("should not run"))),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![a], "/tmp", runtime, support::model_registry().await);
+    let errors = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&errors);
+    runner.on_error(Arc::new(move |error| sink.lock().unwrap().push(error.clone())));
+    runner.bind_core(support::actions(), support::context_actions(), None);
+    let errors = errors.lock().unwrap();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].event, "register_provider");
+    assert_eq!(
+        errors[0].error,
+        "Provider broken-provider: \"api\" is required when registering streamSimple."
+    );
+}
+
+#[tokio::test]
+async fn project_trust_collects_handler_errors_and_keeps_scanning() {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, "/tmp", "/tmp/a.ts", |api| {
+        api.on_project_trust(|_event: ProjectTrustEvent, _ctx: ProjectTrustContext| {
+            Box::pin(async { Err(HandlerError::new("trust boom")) })
+                as BoxFuture<'static, Result<ProjectTrustEventResult, HandlerError>>
+        })
+        .unwrap();
+    })
+    .await;
+    let b = support::extension(&runtime, "/tmp", "/tmp/b.ts", |api| {
+        api.on_project_trust(|_event: ProjectTrustEvent, _ctx: ProjectTrustContext| {
+            Box::pin(async {
+                Ok(ProjectTrustEventResult {
+                    trusted: ProjectTrustEventDecision::Yes,
+                    remember: None,
+                })
+            }) as BoxFuture<'static, Result<ProjectTrustEventResult, HandlerError>>
+        })
+        .unwrap();
+    })
+    .await;
+    let result = LoadExtensionsResult {
+        extensions: vec![a, b],
+        errors: Vec::new(),
+        runtime,
+    };
+    let ctx = ProjectTrustContext {
+        cwd: "/tmp".to_owned(),
+        mode: ExtensionMode::Print,
+        has_ui: false,
+        ui: Arc::new(NoOpUiContext),
+    };
+    let (decision, errors) =
+        emit_project_trust_event(&result, ProjectTrustEvent { cwd: "/tmp".to_owned() }, &ctx).await;
+    assert_eq!(decision.unwrap().trusted, ProjectTrustEventDecision::Yes);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].error, "trust boom");
+}
+
+#[tokio::test]
+async fn tool_result_usage_is_not_forwarded() {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, "/tmp", "/tmp/a.ts", |api| {
+        api.on_tool_result(|_event: ToolResultEvent, _ctx: ExtensionContext| {
+            Box::pin(async {
+                Ok(Some(ToolResultEventResult {
+                    is_error: Some(true),
+                    ..Default::default()
+                }))
+            }) as BoxFuture<'static, Result<Option<ToolResultEventResult>, HandlerError>>
+        })
+        .unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![a], "/tmp", runtime, support::model_registry().await);
+    support::bind(&mut runner);
+    let result = runner
+        .emit_tool_result(ToolResultEvent {
+            tool_name: ToolName::Custom("x".to_owned()),
+            tool_call_id: "c".to_owned(),
+            input: Map::new(),
+            content: Vec::new(),
+            details: None,
+            is_error: false,
+            usage: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(result.is_error, Some(true));
+    assert!(result.usage.is_none());
+}
+
+// ===== Discovery cases =====
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+fn discovery_temp_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "pi-ext-discovery-{name}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn write(path: &Path, content: &str) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(path, content).unwrap();
+}
+
+fn factory() -> ExtensionFactory {
+    Arc::new(|_api| Box::pin(async { Ok(()) }))
+}
+
+#[test]
+fn discovers_direct_files_and_index_entries() {
+    let dir = discovery_temp_dir("direct");
+    let extensions = dir.join(".pi").join("extensions");
+    write(&extensions.join("foo.ts"), "export default function() {}");
+    write(&extensions.join("bar.js"), "export default function() {}");
+    write(
+        &extensions.join("my-extension").join("index.ts"),
+        "export default function() {}",
+    );
+    write(
+        &extensions.join("my-package").join("index.js"),
+        "export default function() {}",
+    );
+
+    let paths = discover_extension_paths(&[], dir.to_str().unwrap(), dir.to_str().unwrap());
+    let names: Vec<String> = paths
+        .iter()
+        .map(|path| {
+            Path::new(path)
+                .strip_prefix(&dir)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(
+        sorted,
+        vec![
+            ".pi/extensions/bar.js",
+            ".pi/extensions/foo.ts",
+            ".pi/extensions/my-extension/index.ts",
+            ".pi/extensions/my-package/index.js",
+        ]
+    );
+    assert_eq!(names.len(), 4);
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn package_manifest_entries_keep_declared_order() {
+    let dir = discovery_temp_dir("manifest");
+    let package = dir.join(".pi").join("extensions").join("bundle");
+    write(
+        &package.join("package.json"),
+        r#"{"pi":{"extensions":["second.ts","first.ts","missing.ts"]}}"#,
+    );
+    write(&package.join("first.ts"), "export default function() {}");
+    write(&package.join("second.ts"), "export default function() {}");
+
+    let paths = discover_extension_paths(&[], dir.to_str().unwrap(), dir.to_str().unwrap());
+    let names: Vec<String> = paths
+        .iter()
+        .map(|path| Path::new(path).file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, vec!["second.ts", "first.ts"]);
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn configured_directories_use_manifest_or_index() {
+    let dir = discovery_temp_dir("configured");
+    let configured = dir.join("external");
+    write(&configured.join("index.js"), "export default function() {}");
+    let other = dir.join("other");
+    write(&other.join("a.ts"), "export default function() {}");
+
+    let paths = discover_extension_paths(
+        &[
+            configured.to_string_lossy().into_owned(),
+            other.to_string_lossy().into_owned(),
+        ],
+        dir.to_str().unwrap(),
+        dir.to_str().unwrap(),
+    );
+    let names: Vec<String> = paths
+        .iter()
+        .map(|path| {
+            Path::new(path)
+                .strip_prefix(&dir)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    assert_eq!(names, vec!["external/index.js", "other/a.ts"]);
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn disabled_extension_names_filter_paths_and_inline_ids() {
+    let disabled = vec![" foo.ts ".to_owned(), "<first-party:goal>".to_owned(), String::new()];
+    assert!(is_extension_path_disabled(&disabled, "/tmp/foo.ts", "/tmp/foo.ts"));
+    assert!(is_extension_path_disabled(&disabled, "foo.ts", "/tmp/foo.ts"));
+    assert!(!is_extension_path_disabled(&disabled, "/tmp/bar.ts", "/tmp/bar.ts"));
+    assert!(is_extension_factory_disabled(&disabled, "<first-party:goal>"));
+    assert!(!is_extension_factory_disabled(&disabled, "<first-party:loop>"));
+    assert_eq!(inline_extension_name("<first-party:goal>"), Some("goal".to_owned()));
+    assert_eq!(inline_extension_name("<inline:1>"), Some("inline:1".to_owned()));
+    assert_eq!(inline_extension_name("/tmp/a.ts"), None);
+}
+
+#[tokio::test]
+async fn registry_loads_enabled_factories_in_registration_order() {
+    let dir = discovery_temp_dir("registry");
+    let extensions = dir.join(".pi").join("extensions");
+    write(&extensions.join("a.ts"), "export default function() {}");
+    write(&extensions.join("b.ts"), "export default function() {}");
+    let paths = discover_extension_paths(&[], dir.to_str().unwrap(), dir.to_str().unwrap());
+    assert_eq!(paths.len(), 2);
+
+    let mut registry = ExtensionRegistry::new();
+    for path in &paths {
+        registry.register(path.clone(), factory());
+    }
+    let result = registry
+        .discover_and_load_extensions(
+            &[],
+            dir.to_str().unwrap(),
+            dir.to_str().unwrap(),
+            None,
+            &[Path::new(&paths[1]).file_name().unwrap().to_string_lossy().into_owned()],
+        )
+        .await;
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert_eq!(result.extensions.len(), 1);
+    assert_eq!(
+        Path::new(&result.extensions[0].path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy(),
+        "a.ts"
+    );
+    fs::remove_dir_all(dir).ok();
+}
+
+#[tokio::test]
+async fn registry_reports_missing_and_failing_factories() {
+    let dir = discovery_temp_dir("errors");
+    let mut registry = ExtensionRegistry::new();
+    let missing = format!("{}/missing.ts", dir.to_string_lossy());
+    let result = registry
+        .load_extensions(std::slice::from_ref(&missing), dir.to_str().unwrap(), None, None)
+        .await;
+    assert_eq!(result.extensions.len(), 0);
+    assert_eq!(
+        result.errors[0].error,
+        format!("Extension does not export a valid factory function: {missing}")
+    );
+
+    let failing_path = dir.join("failing.ts").to_string_lossy().into_owned();
+    registry.register(
+        failing_path.clone(),
+        Arc::new(|_api| Box::pin(async { Err(HandlerError::new("boom")) })),
+    );
+    let result = registry
+        .load_extensions(&[failing_path], dir.to_str().unwrap(), None, None)
+        .await;
+    assert_eq!(result.errors[0].error, "Failed to load extension: boom");
+    fs::remove_dir_all(dir).ok();
+}
+
+#[tokio::test]
+async fn registered_extensions_honor_hidden_and_disabled_ids() {
+    let mut registry = ExtensionRegistry::new();
+    registry.register("<first-party:a>", factory());
+    registry.register_hidden("<first-party:b>", factory());
+    let runtime = support::runtime();
+    let (extensions, errors) = registry
+        .load_registered(&["<first-party:b>".to_owned()], "/tmp", support::event_bus(), runtime)
+        .await;
+    assert!(errors.is_empty());
+    assert_eq!(extensions.len(), 1);
+    assert_eq!(extensions[0].path, "<first-party:a>");
+    assert_eq!(extensions[0].hidden, Some(false));
+    assert_eq!(extensions[0].source_info.source, "first-party");
+}
