@@ -6,6 +6,7 @@ mod unicode_tables;
 
 pub mod autocomplete;
 pub mod components;
+pub mod editor_component;
 pub mod fuzzy;
 pub mod keybindings;
 pub mod keys;

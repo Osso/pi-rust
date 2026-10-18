@@ -6,8 +6,11 @@
 //! normalization, and fd is invoked with the same argument order as the source.
 
 use std::fs;
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
 use std::process::Stdio;
+use std::rc::Rc;
 
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -94,6 +97,49 @@ pub struct CompletionResult {
     pub lines: Vec<String>,
     pub cursor_line: usize,
     pub cursor_col: usize,
+}
+
+/// Future returned by [`AutocompleteProvider::get_suggestions`].
+pub type AutocompleteFuture = Pin<Box<dyn Future<Output = Option<AutocompleteSuggestions>>>>;
+
+/// Options passed to a provider request.
+#[derive(Clone, Debug)]
+pub struct AutocompleteOptions {
+    pub signal: CancellationToken,
+    pub force: bool,
+}
+
+/// Pluggable completion provider, mapping the source's `AutocompleteProvider`.
+pub trait AutocompleteProvider {
+    fn trigger_characters(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn should_trigger_file_completion(
+        &self,
+        _lines: &[String],
+        _cursor_line: usize,
+        _cursor_col: usize,
+    ) -> Option<bool> {
+        None
+    }
+
+    fn get_suggestions(
+        self: Rc<Self>,
+        lines: Vec<String>,
+        cursor_line: usize,
+        cursor_col: usize,
+        options: AutocompleteOptions,
+    ) -> AutocompleteFuture;
+
+    fn apply_completion(
+        &self,
+        lines: &[String],
+        cursor_line: usize,
+        cursor_col: usize,
+        item: &AutocompleteItem,
+        prefix: &str,
+    ) -> CompletionResult;
 }
 
 /// Combined provider handling both slash commands and file paths.
@@ -979,4 +1025,48 @@ async fn walk_directory_with_fd(
         });
     }
     results
+}
+
+impl AutocompleteProvider for CombinedAutocompleteProvider {
+    fn get_suggestions(
+        self: Rc<Self>,
+        lines: Vec<String>,
+        cursor_line: usize,
+        cursor_col: usize,
+        options: AutocompleteOptions,
+    ) -> AutocompleteFuture {
+        Box::pin(async move {
+            CombinedAutocompleteProvider::get_suggestions(
+                &self,
+                &lines,
+                cursor_line,
+                cursor_col,
+                SuggestionsOptions {
+                    signal: Some(&options.signal),
+                    force: options.force,
+                },
+            )
+            .await
+        })
+    }
+
+    fn should_trigger_file_completion(&self, lines: &[String], cursor_line: usize, cursor_col: usize) -> Option<bool> {
+        Some(CombinedAutocompleteProvider::should_trigger_file_completion(
+            self,
+            lines,
+            cursor_line,
+            cursor_col,
+        ))
+    }
+
+    fn apply_completion(
+        &self,
+        lines: &[String],
+        cursor_line: usize,
+        cursor_col: usize,
+        item: &AutocompleteItem,
+        prefix: &str,
+    ) -> CompletionResult {
+        CombinedAutocompleteProvider::apply_completion(self, lines, cursor_line, cursor_col, item, prefix)
+    }
 }

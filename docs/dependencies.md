@@ -41,14 +41,15 @@ No runtime dependencies. The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToo
 ### `pi-tui`
 
 - `unicode-segmentation = 1.13.3` (exact) — Unicode 17.0 grapheme cluster segmentation for `utils`; matches the Unicode tables used by Node 26 `Intl.Segmenter`.
-- `regex = 1.13.1` (exact) — compiles the Unicode-property and whitespace patterns ported verbatim from `latex` (`\p{L}`, `\p{N}`, script spacing, environment row splitting).
+- `regex = 1.13.1` (exact) — compiles the Unicode-property and whitespace patterns ported verbatim from `latex` (`\p{L}`, `\p{N}`, script spacing, environment row splitting), plus the editor paste-marker and autocomplete trigger/debounce patterns.
 - `icu_segmenter = 2.3.0` (exact, default `compiled_data`/`auto`) — dictionary/LSTM word segmentation behind `word_navigation`, chosen as the pure-Rust mapping of `Intl.Segmenter` (decision 2026-10-18; dictionary-word deviations documented in the traceability doc).
-- `tokio = 1.53.3` (`process`, `rt`, `sync`, `io-util`; dev adds `macros`, `rt`, `rt-multi-thread`) — spawns `fd` asynchronously and waits for its output in `autocomplete`.
-- `tokio-util = 0.7.20` (`rt`) — `CancellationToken` maps the `AbortSignal` passed to autocomplete suggestions and kills an in-flight `fd` child.
+- `tokio = 1.53.3` (`process`, `rt`, `sync`, `io-util`, `macros`; dev adds `rt-multi-thread`, `time`) — spawns `fd` asynchronously, drives autocomplete cancellation/select branches, and runs editor autocomplete futures and debounce timers in tests.
+- `tokio-util = 0.7.20` (`rt`) — `CancellationToken` maps the `AbortSignal` passed to autocomplete suggestions and kills an in-flight `fd` child; the editor also uses it to abort superseded requests.
 - `tempfile = 3.27.0` (development) — creates isolated directory trees and symlinks for autocomplete tests.
 - No runtime Base64 dependency: `terminal_image` uses the crate-local `src/base64.rs` implementation of Node `Buffer` leniency and standard padded encoding.
 - `rustix = 1.1.5` (exact, `termios` feature) — safe termios raw-mode and window-size syscalls for `ProcessTerminal`; `unsafe_code = "forbid"` rules out `libc`/`nix` wrappers that need unsafe call sites.
 - `src/unicode_tables.rs` is generated data, not a dependency: Unicode 17.0 emoji sequences, character-property ranges, and `get-east-asian-width` 1.6.0 width ranges (see `docs/porting/traceability/utils.md`).
+- The editor adds no dependency: it reuses `unicode-segmentation`, `regex`, `tokio`, and `tokio-util`.
 
 ### `pi-protocol`
 
