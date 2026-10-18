@@ -12,6 +12,8 @@ publish = false
 pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }
 # Supplies the shared HTTP `Fetch` contract and default client.
 pi-ai = { version = "=0.0.0", path = "../pi-ai" }
+# Shared JS-semantics helpers (ICU locale collation, minimatch).
+pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 regex = "=1.13.1"

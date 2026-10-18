@@ -9,6 +9,7 @@ pub mod diagnostics;
 pub mod event_bus;
 pub mod exec;
 pub mod experimental;
+pub mod footer_data_provider;
 pub mod http_dispatcher;
 pub mod model_config;
 pub mod models_store;
