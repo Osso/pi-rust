@@ -2,6 +2,7 @@
 
 mod base64;
 mod js_compat;
+mod js_number;
 mod unicode_tables;
 
 pub mod alt_screen_search;
