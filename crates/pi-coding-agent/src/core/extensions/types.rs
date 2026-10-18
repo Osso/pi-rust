@@ -15,8 +15,8 @@ use pi_agent_core::harness::types::ThinkingLevel;
 use pi_agent_core::harness::types::ToolExecutionMode;
 use pi_ai::models::Provider;
 use pi_ai::types::{
-    AssistantMessageEvent, ConstrainedSampling, ImageContent, Model, ProviderHeaders, ProviderNativeContext,
-    TextOrImageContent, ToolCallExecution, Usage,
+    AssistantMessageEvent, ConstrainedSampling, ImageContent, Model, ProviderHeaders, TextOrImageContent,
+    ToolCallExecution, Usage,
 };
 use pi_tui::keybindings::KeyId;
 use pi_tui::tui::Component;
@@ -1001,65 +1001,9 @@ pub enum CompactionReason {
     Overflow,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CompactionSourceType {
-    Local,
-    #[serde(rename = "openai_remote")]
-    OpenAiRemote,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CompactionSourceInfo {
-    pub r#type: CompactionSourceType,
-    pub provider: String,
-    pub model: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub endpoint: Option<String>,
-}
-
-/// Compaction preparation exposed to extensions.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CompactionPreparation {
-    pub first_kept_entry_id: String,
-    pub messages_to_summarize: Vec<AgentMessage>,
-    pub turn_prefix_messages: Vec<AgentMessage>,
-    pub is_split_turn: bool,
-    pub tokens_before: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_summary: Option<String>,
-    pub file_ops: pi_agent_core::FileOperations,
-    pub settings: pi_agent_core::CompactionSettings,
-}
-
-/// Result of `compact()`; the session manager adds ids when saving.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CompactionResult {
-    pub summary: String,
-    pub first_kept_entry_id: String,
-    pub tokens_before: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub duration_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub estimated_tokens_after: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub kept_from_previous_context_tokens: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub compacted_result_tokens: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub compacted_result_bytes: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<CompactionSourceInfo>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Usage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider_native: Option<ProviderNativeContext>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
-}
+pub use crate::core::compaction::{
+    CompactionPreparation, CompactionResult, CompactionSourceInfo, CompactionSourceType,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

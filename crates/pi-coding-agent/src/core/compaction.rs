@@ -69,19 +69,30 @@ pub struct CompactionSourceInfo {
 }
 
 /// Result from [`compact`] — the session manager adds uuid/parentUuid when saving.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(bound(serialize = "T: Serialize", deserialize = "T: Deserialize<'de>"))]
 pub struct CompactionResult<T = Value> {
     pub summary: String,
     pub first_kept_entry_id: String,
     pub tokens_before: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub estimated_tokens_after: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub kept_from_previous_context_tokens: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub compacted_result_tokens: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub compacted_result_bytes: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<CompactionSourceInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_native: Option<ProviderNativeContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<T>,
 }
 
@@ -883,7 +894,8 @@ pub async fn generate_summary_with_usage(
 }
 
 /// Data prepared for compaction, before any LLM call.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompactionPreparation {
     /// UUID of the first entry to keep.
     pub first_kept_entry_id: String,
@@ -894,6 +906,7 @@ pub struct CompactionPreparation {
     pub is_split_turn: bool,
     pub tokens_before: f64,
     /// Summary from the previous compaction, for iterative update.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_summary: Option<String>,
     /// File operations extracted from `messages_to_summarize`.
     pub file_ops: FileOperations,
