@@ -19,6 +19,9 @@ All direct dependencies are exact-pinned.
 - `tokio = 1.53.3` — provides async sleep, cancellation, and process I/O for `utils::{sleep, abort, child_process}`.
 - `tokio-util = 0.7.20` — supplies `CancellationToken` as the Rust `AbortSignal` mapping.
 - `notify = 8.2.0` — provides the platform file watcher behind `utils::fs_watch`.
+- `photon-rs = 0.3.3` (exact, `default-features = false`) — the Rust image library compiled to the `@silvia-odwyer/photon-node` 0.3.4 WASM used by `utils::{photon, exif_orientation, image_convert, image_resize_core}`. Resize (Lanczos3), flips, and `PhotonImage` come from this crate so output bytes match.
+- `image = 0.24.9` (exact, `default-features = false`, codec features mirroring photon-rs) — supplies the fallible `load_from_memory`/`DynamicImage::write_to` calls behind `utils::photon`, replacing photon-rs' panicking wrappers; pinned with the `png 0.17.14`, `jpeg-decoder 0.3.1`, `gif 0.13.1`, `tiff 0.9.1`, `flate2 1.0.34`, `miniz_oxide 0.8.0`, `fdeflate 0.3.6`, `weezl 0.1.8` versions embedded in that WASM build (see `docs/porting/traceability/photon.md`).
+- `clipboard-rs = 0.3.4` (exact) — the release vendored by `@mariozechner/clipboard` 0.3.9, providing the native X11/Wayland/macOS/Windows clipboard behind `utils::clipboard_native`.
 - `pi-ai` (path) — `utils::management_http` uses the shared `Fetch` contract and default reqwest client (one HTTP stack).
 - `tempfile = 3.27.0` (development) — creates isolated temporary files, symlinks, and git repositories for path and process tests.
 

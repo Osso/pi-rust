@@ -18,8 +18,8 @@ impl ClipboardModule for FakeClipboard {
         Ok(())
     }
 
-    fn has_image(&self) -> bool {
-        true
+    fn has_image(&self) -> Result<bool, ClipboardError> {
+        Ok(true)
     }
 
     fn get_image_binary(&self) -> Result<Vec<u8>, ClipboardError> {
@@ -45,7 +45,7 @@ fn falls_back_to_the_next_loader_root() {
 
     let clipboard = load_clipboard_native(&[&first, &second]).expect("fallback clipboard");
     assert_eq!(clipboard.get_text().unwrap(), "text from fallback");
-    assert!(clipboard.has_image());
+    assert!(clipboard.has_image().unwrap());
     assert_eq!(clipboard.get_image_binary().unwrap(), vec![1, 2, 3]);
     assert!(first_called.get());
     assert!(second_called.get());

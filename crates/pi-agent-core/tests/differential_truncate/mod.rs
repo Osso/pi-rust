@@ -1,5 +1,6 @@
 mod agent_tool_execution_context;
 mod applied_edits_result;
+mod base64_decode;
 mod bash_execution_message;
 mod before_tool_call_result;
 mod branch_summary_message;
@@ -61,6 +62,7 @@ pub(crate) fn run() {
     prompt_templates::compare_all_fixtures(&mut oracle);
     skill_formatting::compare_all_fixtures(&mut oracle);
     image::compare_all_fixtures(&mut oracle);
+    base64_decode::compare(&mut oracle);
     edit_line_endings::compare_all_fixtures(&mut oracle);
     file_operations::compare_all_fixtures(&mut oracle);
     summary_markers::compare(&mut oracle);

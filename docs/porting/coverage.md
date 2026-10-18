@@ -414,7 +414,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/abort.ts` | 48 | 0 | done | `crates/pi-coding-agent/src/utils/abort.rs` | Focused tests; no custom abort reasons |
 | `coding-agent/src/utils/ansi.ts` | 60 | 0 | done | `crates/pi-coding-agent/src/utils/ansi.rs` | Differential 26001 (237 inputs); focused tests |
 | `coding-agent/src/utils/child-process.ts` | 137 | 0 | done | `crates/pi-coding-agent/src/utils/child_process.rs` | Focused process tests; collects stdout/stderr |
-| `coding-agent/src/utils/clipboard-native.ts` | 33 | 0 | partial | `crates/pi-coding-agent/src/utils/clipboard_native.rs` | Loader/display ported; native npm binding gap |
+| `coding-agent/src/utils/clipboard-native.ts` | 33 | 0 | done | `crates/pi-coding-agent/src/utils/clipboard_native.rs` | clipboard-rs =0.3.4 is the vendored release behind @mariozechner/clipboard 0.3.9; live display calls untested |
 | `coding-agent/src/utils/clipboard-temp-files.ts` | 42 | 0 | done | `crates/pi-coding-agent/src/utils/clipboard_temp_files.rs` | Focused tracker tests |
 | `coding-agent/src/utils/deprecation.ts` | 14 | 0 | done | `crates/pi-coding-agent/src/utils/deprecation.rs` | Focused dedupe/yellow tests; chalk dependency port `utils::chalk` (see `traceability/chalk.md`) |
 | `coding-agent/src/utils/footer-status.ts` | 20 | 0 | done | `crates/pi-coding-agent/src/utils/footer_status.rs` | Differential 26004; focused tests |
@@ -427,7 +427,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/management-http.ts` | 68 | 0 | done | `crates/pi-coding-agent/src/utils/management_http.rs` | Mock retry matrix plus real local server |
 | `coding-agent/src/utils/mime.ts` | 116 | 0 | done | `crates/pi-coding-agent/src/utils/mime.rs` | Differential 26010 (33 buffers); focused tests |
 | `coding-agent/src/utils/open-browser.ts` | 24 | 0 | done | `crates/pi-coding-agent/src/utils/open_browser.rs` | Pure launcher mapping and failure tests |
-| `coding-agent/src/utils/photon.ts` | 139 | 0 | todo |  |  |
+| `coding-agent/src/utils/photon.ts` | 139 | 0 | done | `crates/pi-coding-agent/src/utils/photon.rs` | photon-rs =0.3.3 pinned; differential 27102-27106; WASM loader/patch is an explicit gap |
 | `coding-agent/src/utils/pi-user-agent.ts` | 4 | 0 | done | `crates/pi-coding-agent/src/utils/pi_user_agent.rs` | Differential 26005; runtime token is `rust` |
 | `coding-agent/src/utils/sleep.ts` | 18 | 0 | done | `crates/pi-coding-agent/src/utils/sleep.rs` | Focused timing/abort tests |
 | `coding-agent/src/utils/terminal-current-directory.ts` | 13 | 0 | done | `crates/pi-coding-agent/src/utils/terminal_current_directory.rs` | Differential 26006; focused tests |
@@ -435,8 +435,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/exec.ts` | 107 | 1 | todo |  |  |
 | `coding-agent/src/core/permissions/presets.ts` | 62 | 1 | todo |  |  |
 | `coding-agent/src/core/tools/output-accumulator.ts` | 224 | 1 | todo |  |  |
-| `coding-agent/src/utils/clipboard-image.ts` | 300 | 1 | todo |  |  |
-| `coding-agent/src/utils/exif-orientation.ts` | 183 | 1 | todo |  |  |
+| `coding-agent/src/utils/clipboard-image.ts` | 300 | 1 | done | `crates/pi-coding-agent/src/utils/clipboard_image.rs` | Fake-tool PATH scenarios assert exact argv; native clipboard injected; no differential (process/OS module) |
+| `coding-agent/src/utils/exif-orientation.ts` | 183 | 1 | done | `crates/pi-coding-agent/src/utils/exif_orientation.rs` | Differential 27100 (25 fixtures, orientations 1-8 LE/BE JPEG + WebP); matches upstream 098356ef6 bounds fix |
 | `coding-agent/src/utils/git-project.ts` | 13 | 1 | done | `crates/pi-coding-agent/src/utils/git_project.rs` | Real git repository tests |
 | `coding-agent/src/utils/paths.ts` | 139 | 1 | done | `crates/pi-coding-agent/src/utils/paths.rs` | Differential 26009 (76 cases); focused tests |
 | `coding-agent/src/utils/syntax-highlight.ts` | 146 | 1 | todo |  |  |
@@ -444,27 +444,27 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/config.ts` | 595 | 2 | todo |  |  |
 | `coding-agent/src/core/model-config.ts` | 298 | 2 | todo |  |  |
 | `coding-agent/src/core/tools/path-utils.ts` | 118 | 2 | todo |  |  |
-| `coding-agent/src/utils/clipboard.ts` | 175 | 2 | todo |  |  |
-| `coding-agent/src/utils/image-convert.ts` | 49 | 2 | todo |  |  |
-| `coding-agent/src/utils/image-resize-core.ts` | 164 | 2 | todo |  |  |
+| `coding-agent/src/utils/clipboard.ts` | 175 | 2 | done | `crates/pi-coding-agent/src/utils/clipboard.rs` | Fake-tool PATH scenarios plus captured OSC 52 output; no differential (process/OS module) |
+| `coding-agent/src/utils/image-convert.ts` | 49 | 2 | done | `crates/pi-coding-agent/src/utils/image_convert.rs` | Differential 27101/27102; synchronous (no loadPhoton) |
+| `coding-agent/src/utils/image-resize-core.ts` | 164 | 2 | done | `crates/pi-coding-agent/src/utils/image_resize_core.rs` | Differential 27103 (15 fixtures: limits, quality steps, degenerate targets) |
 | `coding-agent/src/utils/windows-self-update.ts` | 84 | 2 | todo |  |  |
 | `coding-agent/src/core/auth-guidance.ts` | 25 | 3 | todo |  |  |
 | `coding-agent/src/core/permissions/rule-store.ts` | 303 | 3 | todo |  |  |
 | `coding-agent/src/core/tools/edit-diff.ts` | 645 | 3 | todo |  |  |
 | `coding-agent/src/core/trust-manager.ts` | 254 | 3 | todo |  |  |
 | `coding-agent/src/utils/changelog.ts` | 201 | 3 | todo |  |  |
-| `coding-agent/src/utils/image-resize-worker.ts` | 42 | 3 | todo |  |  |
-| `coding-agent/src/utils/image-resize.ts` | 123 | 3 | todo |  |  |
+| `coding-agent/src/utils/image-resize-worker.ts` | 42 | 3 | done | `crates/pi-coding-agent/src/utils/image_resize.rs` | Worker entrypoint maps to the spawn_blocking closure; no message protocol (gap) |
+| `coding-agent/src/utils/image-resize.ts` | 123 | 3 | done | `crates/pi-coding-agent/src/utils/image_resize.rs` | Differential 27104/27105; spawn_blocking replaces worker_threads |
 | `coding-agent/src/utils/shell.ts` | 225 | 3 | todo |  |  |
 | `coding-agent/src/utils/tools-manager.ts` | 365 | 3 | todo |  |  |
 | `coding-agent/src/core/remote-catalog-provider.ts` | 132 | 4 | todo |  |  |
 | `coding-agent/src/core/resolve-config-value.ts` | 287 | 4 | partial |  |  |
 | `coding-agent/src/core/runtime-credentials.ts` | 58 | 4 | todo |  |  |
-| `coding-agent/src/utils/image-process.ts` | 119 | 4 | todo |  |  |
+| `coding-agent/src/utils/image-process.ts` | 119 | 4 | done | `crates/pi-coding-agent/src/utils/image_process.rs` | Differential 27106 (8 fixtures incl. BMP conversion and omission messages) |
 | `coding-agent/src/cli/file-processor.ts` | 87 | 5 | todo |  |  |
 | `coding-agent/src/client/transcript.ts` | 101 | 5 | todo |  |  |
 | `coding-agent/src/core/auth-storage.ts` | 507 | 5 | todo |  |  |
-| `coding-agent/src/utils/tool-result-images.ts` | 62 | 5 | todo |  |  |
+| `coding-agent/src/utils/tool-result-images.ts` | 62 | 5 | done | `crates/pi-coding-agent/src/utils/tool_result_images.rs` | Differential 27107 (7 fixtures); Cow preserves the unchanged-reference contract |
 | `coding-agent/src/core/models-store.ts` | 146 | 6 | todo |  |  |
 | `coding-agent/src/bun/register-bedrock.ts` | 4 | 7 | todo |  |  |
 | `coding-agent/src/core/provider-composer.ts` | 572 | 7 | todo |  |  |
