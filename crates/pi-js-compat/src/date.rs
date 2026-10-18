@@ -43,85 +43,161 @@ fn system_time_millis(time: SystemTime) -> Option<i64> {
     i64::try_from(elapsed.as_millis()).ok().map(|millis| -millis)
 }
 
+struct DatePrefix {
+    year: i64,
+    month: i64,
+    day: i64,
+    padded_month: bool,
+    padded_day: bool,
+    has_month: bool,
+    has_day: bool,
+}
+
+struct TimeSuffix {
+    hour: i64,
+    minute: i64,
+    second: i64,
+    millis: i64,
+    offset_minutes: Option<i64>,
+}
+
 fn parse_iso8601_millis(text: &str, zone: &TimeZone) -> Option<i64> {
     let bytes = text.as_bytes();
     let mut index = 0usize;
-    let year = parse_year(bytes, &mut index)?;
-    let mut month = 1i64;
-    let mut day = 1i64;
-    let mut padded_month = false;
-    let mut padded_day = false;
-    let mut has_month = false;
-    let mut has_day = false;
-    if bytes.get(index) == Some(&b'-') {
-        index += 1;
-        let (value, digits) = parse_variable_digits(bytes, &mut index)?;
-        month = value;
-        padded_month = digits == 2;
-        has_month = true;
-        if bytes.get(index) == Some(&b'-') {
-            index += 1;
-            let (value, digits) = parse_variable_digits(bytes, &mut index)?;
-            day = value;
-            padded_day = digits == 2;
-            has_day = true;
-        }
-    }
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+    let prefix = parse_date_prefix(bytes, &mut index)?;
+    if !(1..=12).contains(&prefix.month) || !(1..=31).contains(&prefix.day) {
         return None;
     }
-    let (year, month, day) = normalize_day(year, month, day)?;
+    let (year, month, day) = normalize_day(prefix.year, prefix.month, prefix.day)?;
     let days = days_from_civil(year, month, day);
     if index == bytes.len() {
-        let utc = !has_month || (padded_month && (!has_day || padded_day));
+        let utc = !prefix.has_month || (prefix.padded_month && (!prefix.has_day || prefix.padded_day));
         return finish_date(days, 0, 0, 0, 0, if utc { Some(0) } else { None }, zone);
     }
-    if matches!(bytes.get(index), Some(b'Z' | b'z')) && index + 1 == bytes.len() {
+    if is_zulu_suffix(bytes, index) {
         return finish_date(days, 0, 0, 0, 0, Some(0), zone);
     }
-    // A time requires the strict `YYYY-MM-DD` (or signed extended-year) form.
-    if !(has_month && has_day && padded_month && padded_day) {
+    if !prefix.is_strict_date() {
         return None;
     }
-    let whitespace_separator = match bytes.get(index) {
+    let time = parse_time_suffix(bytes, &mut index)?;
+    if index != bytes.len() || !time.is_valid() {
+        return None;
+    }
+    finish_date(
+        days,
+        time.hour,
+        time.minute,
+        time.second,
+        time.millis,
+        time.offset_minutes,
+        zone,
+    )
+}
+
+impl DatePrefix {
+    fn is_strict_date(&self) -> bool {
+        self.has_month && self.has_day && self.padded_month && self.padded_day
+    }
+}
+
+impl TimeSuffix {
+    fn is_valid(&self) -> bool {
+        self.hour <= 24
+            && self.minute <= 59
+            && self.second <= 59
+            && (self.hour != 24 || (self.minute == 0 && self.second == 0 && self.millis == 0))
+    }
+}
+
+fn parse_date_prefix(bytes: &[u8], index: &mut usize) -> Option<DatePrefix> {
+    let year = parse_year(bytes, index)?;
+    let mut prefix = DatePrefix {
+        year,
+        month: 1,
+        day: 1,
+        padded_month: false,
+        padded_day: false,
+        has_month: false,
+        has_day: false,
+    };
+    if bytes.get(*index) != Some(&b'-') {
+        return Some(prefix);
+    }
+    *index += 1;
+    let (month, month_digits) = parse_variable_digits(bytes, index)?;
+    prefix.month = month;
+    prefix.padded_month = month_digits == 2;
+    prefix.has_month = true;
+    if bytes.get(*index) != Some(&b'-') {
+        return Some(prefix);
+    }
+    *index += 1;
+    let (day, day_digits) = parse_variable_digits(bytes, index)?;
+    prefix.day = day;
+    prefix.padded_day = day_digits == 2;
+    prefix.has_day = true;
+    Some(prefix)
+}
+
+fn is_zulu_suffix(bytes: &[u8], index: usize) -> bool {
+    matches!(bytes.get(index), Some(b'Z' | b'z')) && index + 1 == bytes.len()
+}
+
+fn parse_time_suffix(bytes: &[u8], index: &mut usize) -> Option<TimeSuffix> {
+    let whitespace_separator = parse_time_separator(bytes, index)?;
+    let hour = parse_two_digits(bytes, index)?;
+    expect_byte(bytes, index, b':')?;
+    let minute = parse_two_digits(bytes, index)?;
+    let second = parse_optional_seconds(bytes, index)?;
+    let millis = parse_optional_fraction(bytes, index)?;
+    if whitespace_separator {
+        skip_whitespace(bytes, index);
+    }
+    let offset_minutes = parse_zone(bytes, index)?;
+    Some(TimeSuffix {
+        hour,
+        minute,
+        second,
+        millis,
+        offset_minutes,
+    })
+}
+
+fn parse_time_separator(bytes: &[u8], index: &mut usize) -> Option<bool> {
+    match bytes.get(*index) {
         Some(b'T' | b't') => {
-            index += 1;
-            false
+            *index += 1;
+            Some(false)
         }
         Some(byte) if is_ascii_whitespace(*byte) => {
-            while bytes.get(index).is_some_and(|byte| is_ascii_whitespace(*byte)) {
-                index += 1;
-            }
-            true
+            skip_whitespace(bytes, index);
+            Some(true)
         }
-        _ => return None,
-    };
-    let hour = parse_two_digits(bytes, &mut index)?;
-    expect_byte(bytes, &mut index, b':')?;
-    let minute = parse_two_digits(bytes, &mut index)?;
-    let mut second = 0;
-    let mut millis = 0;
-    if bytes.get(index) == Some(&b':') {
-        index += 1;
-        second = parse_two_digits(bytes, &mut index)?;
+        _ => None,
     }
-    if bytes.get(index) == Some(&b'.') {
-        index += 1;
-        millis = parse_fraction_millis(bytes, &mut index)?;
+}
+
+fn skip_whitespace(bytes: &[u8], index: &mut usize) {
+    while bytes.get(*index).is_some_and(|byte| is_ascii_whitespace(*byte)) {
+        *index += 1;
     }
-    if whitespace_separator {
-        while bytes.get(index).is_some_and(|byte| is_ascii_whitespace(*byte)) {
-            index += 1;
-        }
+}
+
+fn parse_optional_seconds(bytes: &[u8], index: &mut usize) -> Option<i64> {
+    if bytes.get(*index) != Some(&b':') {
+        return Some(0);
     }
-    let offset_minutes = parse_zone(bytes, &mut index)?;
-    if index != bytes.len() {
-        return None;
+    *index += 1;
+    parse_two_digits(bytes, index)
+}
+
+fn parse_optional_fraction(bytes: &[u8], index: &mut usize) -> Option<i64> {
+    if bytes.get(*index) != Some(&b'.') {
+        return Some(0);
     }
-    if hour > 24 || minute > 59 || second > 59 || (hour == 24 && (minute != 0 || second != 0 || millis != 0)) {
-        return None;
-    }
-    finish_date(days, hour, minute, second, millis, offset_minutes, zone)
+    *index += 1;
+    parse_fraction_millis(bytes, index)
 }
 
 fn is_ascii_whitespace(byte: u8) -> bool {
