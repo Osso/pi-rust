@@ -65,10 +65,34 @@ Pinned source: `packages/agent/src/harness/messages.ts:4-17,19-29,40-45` and pac
 
 ## Exclusions
 
-`bashExecutionToText`, `createBranchSummaryMessage`, Date or timestamp-string parsing, conversion, message unions, session/events, compaction/UI/RPC behavior, invalid runtime shapes, constructors, serde, validation, normalization, dynamic formatting, fallbacks, and dependencies remain deferred.
+`createCustomMessage`, Date or timestamp-string parsing, message unions, session/events, compaction/UI/RPC behavior, invalid runtime shapes, constructors, serde, validation, normalization, dynamic formatting, fallbacks, and dependencies remain deferred.
 
 ## Session-context constructor extension
 
 `session/context.ts` needs `createBranchSummaryMessage` and `createCompactionSummaryMessage`. The Rust port adds both to
 `harness/messages.rs` as `AgentMessage::Custom` builders using the same field order and JS-number formatting.
 String timestamps (`new Date(value).getTime()`) are excluded by the typed boundary; callers pass `i64` milliseconds.
+
+## Conversion helpers (`convertToLlm` / `bashExecutionToText`)
+
+Added for `harness/compaction`; tested by `messages_convert.rs` and the
+`serialize_conversation` differential cases.
+
+| TypeScript source | Observable contract | Rust mapping and proof |
+|---|---|---|
+| `messages.ts:68-84` | `bashExecutionToText` renders `Ran \`cmd\``, fenced output or `(no output)`, then cancelled / non-zero exit / truncated-output markers | `bash_execution_to_text`; exact-output cases for all branches in `messages_convert.rs` |
+| `messages.ts:150-187` | `convertToLlm` maps bash execution (skipped when `excludeFromContext` is truthy), custom string/block content, branch and compaction summaries to user messages; passes standard roles through; drops unknown roles | `convert_to_llm`; conversion cases in `messages_convert.rs`; differential `serialize_conversation` covers custom, bash, branch, and compaction messages |
+| `messages.ts:130-136` | Compaction summary conversion carries `providerNative` | `compaction_summary_message` deserializes `ProviderNativeContext` |
+
+### Conversion boundary
+
+- Custom messages are raw JSON objects. `excludeFromContext` uses JavaScript truthiness; unknown block types and malformed payloads are dropped by the typed `UserContent` boundary.
+- Bash execution `exitCode` uses `Option<f64>`; a missing value suppresses the exit marker, matching `null`/`undefined` in the source.
+- Custom/branch/compaction timestamps are read as JS numbers and narrowed to `i64` milliseconds; string timestamps stay excluded.
+- Numeric `bashExecutionToText` exit codes use `f64` display, which matches JS integer rendering for real exit codes.
+
+### Conversion proof status
+
+- Focused: `messages_convert.rs` 7 passed, 0 failed.
+- Differential: `differential_compaction.rs` compares `serializeConversation(convertToLlm(...))` output for custom, bash, branch, compaction, and tool-result messages against the pinned source.
+- Gates: `cargo fmt --check`, targeted `cargo test -p pi-agent-core`, and `cargo clippy -p pi-agent-core --all-targets -- -D warnings` pass on branch `port/harness-compaction`.
