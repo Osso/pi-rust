@@ -53,6 +53,11 @@ fn read_entry_row_from_row(row: &Row<'_>) -> rusqlite::Result<EntryRow> {
 }
 
 /// Builds the stored payload: every type-specific field, without storage-assigned fields.
+///
+/// Keys are emitted in the order the source `Session` facade provisions each entry so the JSON
+/// text matches the TypeScript backend byte-for-byte for facade-produced entries. Provisioned
+/// objects supplied directly by a caller keep their own insertion order in TypeScript, so only
+/// JSON value equality is guaranteed for those.
 pub fn entry_payload(entry: &EntryBody) -> serde_json::Map<String, Value> {
     let value = serde_json::to_value(entry).expect("entry bodies serialize");
     let Value::Object(mut object) = value else {
@@ -60,7 +65,32 @@ pub fn entry_payload(entry: &EntryBody) -> serde_json::Map<String, Value> {
     };
     object.remove("type");
     object.remove("id");
-    object
+    let order: &[&str] = match entry {
+        EntryBody::Message { .. } => &["message", "terminate"],
+        EntryBody::ModelChange { .. } => &["provider", "modelId"],
+        EntryBody::ThinkingLevelChange { .. } => &["thinkingLevel"],
+        EntryBody::ActiveToolsChange { .. } => &["activeToolNames"],
+        EntryBody::Compaction { .. } => &[
+            "summary",
+            "tokensBefore",
+            "retainedTail",
+            "durationMs",
+            "details",
+            "usage",
+        ],
+        EntryBody::BranchSummary { .. } => &["fromId", "summary", "details", "usage"],
+        EntryBody::Custom { .. } => &["customType", "data"],
+    };
+    let mut ordered = serde_json::Map::new();
+    for key in order {
+        if let Some(value) = object.shift_remove(*key) {
+            ordered.insert((*key).to_owned(), value);
+        }
+    }
+    for (key, value) in object {
+        ordered.insert(key, value);
+    }
+    ordered
 }
 
 pub fn insert_entry_row(db: &rusqlite::Connection, session_id: &str, entry: &NewEntryRow) -> Result<(), SqliteError> {
