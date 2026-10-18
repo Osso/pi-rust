@@ -29,11 +29,11 @@ use crate::sqlite::storage::entries::{
     read_entry_row, read_entry_rows,
 };
 use crate::sqlite::storage::facts::{
-    append_fact, delete_fact_rows, read_fact_rows, read_latest_fact, read_latest_label_facts,
+    FactRow, append_fact, delete_fact_rows, read_fact_rows, read_latest_fact, read_latest_label_facts,
 };
 use crate::sqlite::storage::lanes::{
-    create_initial_lane, create_lane, delete_lane_rows, finish_lane_operation, move_lane, read_lane, read_lane_head,
-    read_lane_move_rows, read_lanes, set_lane_leaf, start_lane_operation,
+    LaneMoveRow, create_initial_lane, create_lane, delete_lane_rows, finish_lane_operation, move_lane, read_lane,
+    read_lane_head, read_lane_move_rows, read_lanes, set_lane_leaf, start_lane_operation,
 };
 use crate::sqlite::storage::records::{
     NewRecordRow, RecordRow, RecordRowsQuery, append_record_row, delete_record_rows, id_exists_in_records,
@@ -402,6 +402,46 @@ fn parse_json_string(value: Option<&str>, session_id: &str, field: &str) -> Resu
             format!("Invalid SQLite session {session_id}: {field} must be a string"),
         ))
     })
+}
+
+enum PendingLogRow {
+    Entry(EntryRow),
+    Record(RecordRow),
+    Lane(LaneMoveRow),
+    Fact(FactRow),
+}
+
+impl PendingLogRow {
+    fn decode(self, session_id: &str) -> Result<LogItem, SqliteError> {
+        match self {
+            Self::Entry(row) => Ok(LogItem::Entry {
+                seq: row.seq,
+                entry: decode_entry(&row)?,
+            }),
+            Self::Record(row) => Ok(LogItem::Record {
+                seq: row.seq,
+                record: decode_record(&row)?,
+            }),
+            Self::Lane(row) => Ok(LogItem::Lane {
+                seq: row.seq,
+                lane: row.lane,
+                leaf_id: row.leaf_id,
+            }),
+            Self::Fact(row) => {
+                let fact = if row.kind == "name" {
+                    FactItem::Name {
+                        name: parse_json_string(row.value.as_deref(), session_id, "name")?,
+                    }
+                } else {
+                    FactItem::Label {
+                        target_id: row.key.unwrap_or_default(),
+                        label: parse_json_string(row.value.as_deref(), session_id, "label")?,
+                    }
+                };
+                Ok(LogItem::Fact { seq: row.seq, fact })
+            }
+        }
+    }
 }
 
 /// One claimed session writer.
@@ -922,56 +962,24 @@ impl SessionStorage<SqliteSessionMetadata> for SqliteSessionStorage {
                     let lane_rows = read_lane_move_rows(connection, &self.metadata.id, Some(after_seq), limit)?;
                     let fact_rows = read_fact_rows(connection, &self.metadata.id, Some(after_seq), limit)?;
 
-                    let mut items: Vec<(i64, LogItem)> = Vec::new();
-                    for row in &entry_rows {
-                        items.push((
-                            row.seq,
-                            LogItem::Entry {
-                                seq: row.seq,
-                                entry: decode_entry(row)?,
-                            },
-                        ));
-                    }
-                    for row in &record_rows {
-                        items.push((
-                            row.seq,
-                            LogItem::Record {
-                                seq: row.seq,
-                                record: decode_record(row)?,
-                            },
-                        ));
-                    }
-                    for row in &lane_rows {
-                        items.push((
-                            row.seq,
-                            LogItem::Lane {
-                                seq: row.seq,
-                                lane: row.lane.clone(),
-                                leaf_id: row.leaf_id.clone(),
-                            },
-                        ));
-                    }
-                    for row in &fact_rows {
-                        let fact = if row.kind == "name" {
-                            FactItem::Name {
-                                name: parse_json_string(row.value.as_deref(), &self.metadata.id, "name")?,
-                            }
-                        } else {
-                            FactItem::Label {
-                                target_id: row.key.clone().unwrap_or_default(),
-                                label: parse_json_string(row.value.as_deref(), &self.metadata.id, "label")?,
-                            }
-                        };
-                        items.push((row.seq, LogItem::Fact { seq: row.seq, fact }));
-                    }
+                    // Rows are decoded only after the combined log is truncated, like the source's
+                    // lazy `decode` closures.
+                    let mut items: Vec<(i64, PendingLogRow)> = Vec::new();
+                    items.extend(entry_rows.into_iter().map(|row| (row.seq, PendingLogRow::Entry(row))));
+                    items.extend(record_rows.into_iter().map(|row| (row.seq, PendingLogRow::Record(row))));
+                    items.extend(lane_rows.into_iter().map(|row| (row.seq, PendingLogRow::Lane(row))));
+                    items.extend(fact_rows.into_iter().map(|row| (row.seq, PendingLogRow::Fact(row))));
                     items.sort_by_key(|(seq, _)| *seq);
-                    Ok(items.into_iter().map(|(_, item)| item).collect::<Vec<_>>())
+                    if let Some(limit) = limit {
+                        items.truncate(limit);
+                    }
+                    items
+                        .into_iter()
+                        .map(|(_, row)| row.decode(&self.metadata.id))
+                        .collect::<Result<Vec<_>, _>>()
                 })
                 .map_err(SqliteError::into_session)?;
-            Ok(match options.limit {
-                Some(limit) => items.into_iter().take(limit).collect(),
-                None => items,
-            })
+            Ok(items)
         })
     }
 
