@@ -2306,6 +2306,9 @@ fn merges_headers_case_insensitively_and_compares_models() {
     assert_eq!(merged.get("x-a").unwrap().as_deref(), Some("a"));
     assert!(merged.contains_key("x-b"));
     assert!(!merged.contains_key("Authorization"));
+    // Deleting a case-insensitive duplicate and re-inserting moves it to the end.
+    let keys: Vec<&str> = merged.keys().map(String::as_str).collect();
+    assert_eq!(keys, vec!["x-a", "authorization", "x-b"]);
     assert_eq!(merge_headers(None, None), None);
 
     let a = test_model("p", "m");

@@ -45,6 +45,7 @@ call-site type fixes required by the public type changes.
 | `src/models.rs:105,764,858,862` `ModelsRefreshResult.errors` | `models.ts` `errors = new Map<string, Error>()`; joined in `package-manager-cli.ts` | yes (joined error text, callback consumers) | `IndexMap` | `models::refresh_reports_errors_in_completion_order`; `pi-coding-agent` `package_command_execution` |
 | `src/models.rs:909,919` auth env | `models.ts` `env` spread (`Record`) | yes (returned auth env) | `IndexMap` | `models::applies_resolved_env_to_stream_options` |
 | `src/models.rs:1392` `ProviderApi::Map` | `providers/*.ts` `api: { ... }` record | yes (public variant; iteration reaches stream selection) | `IndexMap` | `models::create_provider_dispatches_on_model_api_and_reports_missing_implementations` |
+| `src/models.rs:270-284` `merge_headers` | `models.ts` `mergeHeaders` (delete case-insensitive duplicate, then assign) | yes (public auth headers) | `IndexMap` `retain` + `insert` moves re-inserted names to the end | `models::merges_headers_case_insensitively_and_compares_models` |
 | `src/models.rs:289,290,344,376,385,386,398,405,418` generations/tails/controllers | `models.ts` internal `Map`s | no (lookup only) | keep `HashMap` | — |
 | `src/models.rs:865,1373` selected provider ids, provider id list | `models.ts` `Set` membership / ordered provider list | no (membership; provider order comes from the provider vector) | keep `HashSet` | — |
 | `src/model_catalog.rs:6,9,15` `ModelGroups`, `ModelCatalog`, `flatten_model_catalog` | `model-catalog.ts` `flattenModelCatalog` (`Object.assign({}, ...Object.values(groups))`) | yes (returned catalog order; later duplicates keep position) | `IndexMap` | `differential_model_catalog::model_catalog_preserves_source_key_order` |
@@ -173,6 +174,7 @@ No `indexmap` dependency was needed in `pi-tui`.
 | `harness_reducer` 16-entry corruption case + `differential_harness_core` | The first invalid deferred entry in input order names the error (falsified: `HashMap` iteration names `xi-deferred`). |
 | `session_memory::lists_sessions_in_creation_order` | `InMemorySessionRepo::list` returns creation order. |
 | `session_jsonl::resume_data_serializes_in_source_key_order` | `resumeData` JSONL keys keep source order. |
+| `models::merges_headers_case_insensitively_and_compares_models` (updated) | Case-insensitive delete + re-insert moves the header to the end, matching `Object` delete/assign. |
 | `pi-ai/tests/model_catalog.rs` updated expectation | `Object.assign` overwrite keeps the original key position. |
 | `pi-coding-agent/tests/package_command_execution.rs` updated expectation | Refresh errors are joined in map insertion order (`openai` before `anthropic`). |
 
