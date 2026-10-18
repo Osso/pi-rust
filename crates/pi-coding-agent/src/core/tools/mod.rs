@@ -2,6 +2,8 @@ pub mod edit_diff;
 pub mod file_mutation_queue;
 pub mod output_accumulator;
 pub mod path_utils;
+pub mod render_utils;
+pub mod tool_definition_wrapper;
 pub mod truncate;
 
 pub use truncate::{
