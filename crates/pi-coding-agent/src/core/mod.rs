@@ -1,3 +1,6 @@
+pub mod agent_session;
+pub mod agent_session_runtime;
+pub mod agent_session_services;
 pub mod auth_guidance;
 pub mod auth_storage;
 pub mod cache_stats;
@@ -41,6 +44,7 @@ pub mod resource_loader;
 pub mod rule_store;
 pub mod runtime_credentials;
 pub mod runtime_process;
+pub mod sdk;
 pub mod session_control_db;
 pub mod session_cwd;
 pub mod session_directory;

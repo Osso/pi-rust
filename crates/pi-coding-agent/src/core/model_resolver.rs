@@ -633,7 +633,7 @@ fn split_fallback_thinking(pattern: &str, allow_suffix: bool) -> (&str, Option<T
 }
 
 /// Runtime capabilities needed by scope, initial, and restore selection.
-pub trait ModelResolverRuntime {
+pub trait ModelResolverRuntime: Send + Sync {
     fn get_models(&self) -> Vec<Model>;
     fn get_available_snapshot(&self) -> Vec<Model>;
     fn get_model(&self, provider: &str, model_id: &str) -> Option<Model>;
