@@ -248,14 +248,19 @@ pub type MissingSourceHandler<'a> =
 /// The settings manager owns mutable state; the package manager only needs
 /// `&self` access, so the adapter serializes access through a mutex.
 pub struct SettingsManagerStore {
-    manager: Mutex<SettingsManager>,
+    manager: Arc<Mutex<SettingsManager>>,
 }
 
 impl SettingsManagerStore {
     pub fn new(manager: SettingsManager) -> Self {
         Self {
-            manager: Mutex::new(manager),
+            manager: Arc::new(Mutex::new(manager)),
         }
+    }
+
+    /// Shares an existing settings manager, so reloads stay visible to its owner.
+    pub fn from_shared(manager: Arc<Mutex<SettingsManager>>) -> Self {
+        Self { manager }
     }
 
     pub fn with<T>(&self, operation: impl FnOnce(&mut SettingsManager) -> T) -> T {

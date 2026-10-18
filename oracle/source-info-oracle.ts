@@ -42,8 +42,26 @@ type SyntheticSourceInfoOptions = {
 	baseDir?: string;
 };
 
+type PathMetadata = {
+	source: string;
+	scope: SourceScope;
+	origin: SourceOrigin;
+	baseDir?: string;
+};
+
+type PathMetadataCaseRequest = {
+	name: string;
+	path: string;
+	source: string;
+	scope: SourceScope;
+	origin: SourceOrigin;
+	baseDirState: OptionalState;
+	baseDir: string;
+};
+
 type SourceInfoApi = {
 	createSyntheticSourceInfo(path: string, options: SyntheticSourceInfoOptions): SourceInfo;
+	createSourceInfo(path: string, metadata: PathMetadata): SourceInfo;
 };
 
 type Response =
@@ -64,11 +82,41 @@ function normalizeError(error: unknown): { name: string; message: string } {
 }
 
 function execute(request: Request, api: SourceInfoApi): Response {
-	if (request.operation !== "source_info" || request.cases === undefined) {
-		throw new Error(`unsupported operation: ${request.operation}`);
+	if (request.operation === "source_info" && request.cases !== undefined) {
+		const results = request.cases.map((input) => normalizeCase(input, api));
+		return { id: request.id, ok: true, output: { results } };
 	}
-	const results = request.cases.map((input) => normalizeCase(input, api));
-	return { id: request.id, ok: true, output: { results } };
+	if (request.operation === "create_source_info") {
+		const cases = (request as { metadataCases?: PathMetadataCaseRequest[] }).metadataCases ?? [];
+		const results = cases.map((input) => normalizeMetadataCase(input, api));
+		return { id: request.id, ok: true, output: { results } };
+	}
+	throw new Error(`unsupported operation: ${request.operation}`);
+}
+
+function normalizeMetadataCase(input: PathMetadataCaseRequest, api: SourceInfoApi): unknown {
+	const metadata: PathMetadata = {
+		source: input.source,
+		scope: input.scope,
+		origin: input.origin,
+	};
+	if (input.baseDirState === "present") metadata.baseDir = input.baseDir;
+	const result = api.createSourceInfo(input.path, metadata);
+	return {
+		name: input.name,
+		result: normalizeSourceInfo(result),
+		metadataAfter: normalizeMetadata(metadata),
+	};
+}
+
+function normalizeMetadata(metadata: PathMetadata): Record<string, unknown> {
+	const value: Record<string, unknown> = {
+		source: metadata.source,
+		scope: metadata.scope,
+		origin: metadata.origin,
+	};
+	if (metadata.baseDir !== undefined) value.baseDir = metadata.baseDir;
+	return value;
 }
 
 function normalizeCase(input: SourceInfoCaseRequest, api: SourceInfoApi): unknown {
