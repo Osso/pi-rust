@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 # Serializes JavaScript numbers without serde_json's trailing `.0`.
-serde = { version = "=1.0.229", features = ["derive"] }
+serde = "=1.0.229"
 # Parses HTTP-date forms accepted by `Date.parse`.
 httpdate = "=1.0.3"
 # Resolves the system UTC offset for zone-less `Date.parse` values.
