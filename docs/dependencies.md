@@ -16,7 +16,9 @@ All direct dependencies are exact-pinned.
 - `serde = 1.0.229` — derives the diagnostics wire records and diagnostic-code enum.
 - `serde_json = 1.0.151` — carries JSON-shaped thrown values and optional diagnostic details.
 - `serde_json` feature `preserve_order` — keeps JS object key order for tool arguments, details, and provider-native values (workspace-wide via feature unification).
-- `tokio = 1.53.3` (`sync`) — `Notify` for the async `EventStream`; dev: `macros`, `rt-multi-thread`, `time` for async tests.
+- `reqwest = 0.13.5` (default features: rustls/aws-lc TLS, HTTP/2) — default `Fetch` implementation replacing `globalThis.fetch`.
+- `tokio-util = 0.7.20` — `CancellationToken` maps `AbortSignal`.
+- `tokio = 1.53.3` (`sync`, `macros`) — `Notify` for the async `EventStream`; dev: `macros`, `rt-multi-thread`, `time` for async tests.
 
 ### `pi-agent-core`
 
