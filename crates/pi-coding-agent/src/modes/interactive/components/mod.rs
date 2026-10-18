@@ -11,6 +11,7 @@ pub mod extension_selector;
 pub mod keybinding_hints;
 pub mod login_dialog;
 pub mod markdown_transform;
+pub mod model_selector;
 pub mod oauth_selector;
 pub mod sandbox_selector;
 pub mod session_selector_search;

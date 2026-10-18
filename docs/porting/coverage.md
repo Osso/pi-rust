@@ -555,7 +555,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/extension-selector.ts` | 112 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/extension_selector.rs` | options/keys/events differential; countdown wiring code-mapped |
 | `coding-agent/src/modes/interactive/components/first-time-setup.ts` | 145 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/login-dialog.ts` | 233 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/login_dialog.rs` | OAuth prompt/regression cases ported; promise→callback and injected browser opener |
-| `coding-agent/src/modes/interactive/components/model-selector.ts` | 373 | 19 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/model-selector.ts` | 373 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/model_selector.rs` | snapshot/sort/scope/search/select/cancel tests; refresh path + error-list order are gaps |
 | `coding-agent/src/modes/interactive/components/oauth-selector.ts` | 214 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/oauth_selector.rs` | status/search tests + differential; >8 scroll and empty-list gaps |
 | `coding-agent/src/modes/interactive/components/sandbox-selector.ts` | 130 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/sandbox_selector.rs` | profiles, scope cycle, session inherit; differential |
 | `coding-agent/src/modes/interactive/components/scoped-models-selector.ts` | 407 | 19 | todo |  |  |
