@@ -2,25 +2,7 @@
 
 use std::rc::Rc;
 
-/// `MarkdownTransformContext.messageType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MarkdownMessageType {
-    User,
-    Assistant,
-    AssistantThinking,
-}
-
-/// Context passed to every registered markdown transformer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MarkdownTransformContext {
-    pub message_type: MarkdownMessageType,
-    pub is_streaming: bool,
-    pub available_width: usize,
-}
-
-/// A registered transformer. `None` covers both `void` and a thrown error: the
-/// source keeps the current markdown in either case.
-pub type MarkdownTransformer = Rc<dyn Fn(&str, &MarkdownTransformContext) -> Option<String>>;
+use crate::core::extensions::types::{MarkdownMessageType, MarkdownTransformContext, MarkdownTransformer};
 
 /// `(markdown, availableWidth) => string`.
 pub type MarkdownTransformFn = Rc<dyn Fn(&str, usize) -> String>;
@@ -38,7 +20,7 @@ pub fn create_markdown_transform(
             &MarkdownTransformContext {
                 message_type,
                 is_streaming,
-                available_width,
+                available_width: available_width as f64,
             },
             &transformers,
         )
@@ -52,9 +34,7 @@ fn apply_markdown_transformers(
 ) -> String {
     let mut transformed_markdown = markdown.to_string();
     for transformer in transformers {
-        if let Some(transformed) = transformer(&transformed_markdown, context) {
-            transformed_markdown = transformed;
-        }
+        transformed_markdown = transformer(&transformed_markdown, context);
     }
     transformed_markdown
 }

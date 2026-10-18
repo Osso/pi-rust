@@ -3,8 +3,10 @@ mod oracle;
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use pi_agent_core::harness::types::ThinkingLevel;
+use pi_coding_agent::core::extensions::types::{MarkdownMessageType, MarkdownTransformer};
 use pi_coding_agent::core::permissions::presets::{ApprovalPresetName, SandboxProfileName, SandboxProfileScope};
 use pi_coding_agent::core::trust_manager::{ProjectTrustDecision, ProjectTrustStoreEntry};
 use pi_coding_agent::modes::interactive::components::approval_selector::{
@@ -17,9 +19,7 @@ use pi_coding_agent::modes::interactive::components::extension_selector::{
 use pi_coding_agent::modes::interactive::components::keybinding_hints::{
     KeyTextFormatOptions, format_key_text, key_display_text, key_hint, key_text, raw_key_hint,
 };
-use pi_coding_agent::modes::interactive::components::markdown_transform::{
-    MarkdownMessageType, MarkdownTransformer, create_markdown_transform,
-};
+use pi_coding_agent::modes::interactive::components::markdown_transform::create_markdown_transform;
 use pi_coding_agent::modes::interactive::components::sandbox_selector::{
     SandboxSelectorComponent, SandboxSelectorOptions, SandboxSelectorSelection,
 };
@@ -193,17 +193,13 @@ fn markdown_transform_cases() -> Vec<(Value, Value)> {
     let transformers = json!([
         {"kind": "upper"},
         {"kind": "append", "text": "!"},
-        {"kind": "drop"},
-        {"kind": "throw"},
         {"kind": "append", "text": "?"},
     ]);
     let inputs = ["hello", "", "a\nb"];
     let rust_transformers: Vec<MarkdownTransformer> = vec![
-        Rc::new(|markdown: &str, _context| Some(markdown.to_uppercase())),
-        Rc::new(|markdown: &str, _context| Some(format!("{markdown}!"))),
-        Rc::new(|_markdown: &str, _context| None),
-        Rc::new(|_markdown: &str, _context| None),
-        Rc::new(|markdown: &str, _context| Some(format!("{markdown}?"))),
+        Arc::new(|markdown: &str, _context| markdown.to_uppercase()),
+        Arc::new(|markdown: &str, _context| format!("{markdown}!")),
+        Arc::new(|markdown: &str, _context| format!("{markdown}?")),
     ];
     let transform = create_markdown_transform(MarkdownMessageType::Assistant, true, rust_transformers);
     let output: Vec<String> = inputs.iter().map(|input| transform(input, 80)).collect();

@@ -5,11 +5,9 @@ Rust: `crates/pi-coding-agent/src/modes/interactive/components/markdown_transfor
 
 | Symbol / branch | Rust item | Proof |
 |---|---|---|
-| `MarkdownTransformContext` | `MarkdownTransformContext`, `MarkdownMessageType` | differential (`markdownTransform`) |
-| `MarkdownTransformer` | `MarkdownTransformer` (`Rc<dyn Fn(..) -> Option<String>>`) | differential transformer chain |
+| `MarkdownTransformContext` | `core::extensions::types::MarkdownTransformContext` | differential (`markdownTransform`) |
+| `MarkdownTransformer` | `core::extensions::types::MarkdownTransformer` (`Arc<dyn Fn(..) -> String>`) | differential transformer chain |
 | `createMarkdownTransform` closure | `create_markdown_transform` / `MarkdownTransformFn` | differential inputs |
-| transformer returns string | `Some(value)` replaces markdown | differential `upper`, `append` |
-| transformer returns void | `None` keeps markdown | differential `drop` |
-| transformer throws | `None` keeps markdown (caught in TS) | differential `throw` |
+| transformer returns string | replaces markdown | differential `upper`, `append` |
 
-Adaptation: a throwing transformer and a `void` transformer are observationally identical in the source (both keep the current markdown), so the Rust callback returns `Option<String>` for both. The context/transformer types are local until the extensions slice publishes its shared types.
+Gap: the source tolerates a transformer returning `void` or throwing (it keeps the current markdown). The shared `MarkdownTransformer` type returns `String`, so those runtime-only cases are not representable and are excluded from the differential.
