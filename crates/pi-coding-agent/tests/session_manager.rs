@@ -1138,6 +1138,28 @@ fn tree_entry_ids_helper_matches_tree_order() {
 }
 
 #[test]
+fn control_db_metadata_persists_model_and_thinking_level() {
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().display().to_string();
+    let sessions = dir.path().join("sessions").display().to_string();
+    let control_db = dir.path().join("control.db").display().to_string();
+    let mut session = SessionManager::create(&cwd, Some(&sessions), None).unwrap();
+    session.set_metadata_control_db_path(Some(&control_db), Default::default());
+    session
+        .append_message(user_message("hello", 1_700_000_000_000))
+        .unwrap();
+
+    session.set_session_model("faux", "faux-1");
+    session.set_session_thinking_level("high");
+
+    let settings = session.read_persisted_session_settings().expect("persisted settings");
+    let model = settings.model.expect("persisted model");
+    assert_eq!(model.provider, "faux");
+    assert_eq!(model.model_id, "faux-1");
+    assert_eq!(settings.thinking_level.as_deref(), Some("high"));
+}
+
+#[test]
 fn custom_session_ids_round_trip() {
     let mut session = SessionManager::in_memory(None, None).unwrap();
     session

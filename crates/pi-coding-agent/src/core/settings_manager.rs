@@ -703,6 +703,7 @@ impl SettingsManager {
         self.session_sandbox_profile
     }
 
+    /// `setSessionSandboxProfile` on the live settings snapshot.
     pub fn set_session_sandbox_profile(&mut self, profile: Option<SandboxProfileName>) {
         self.session_sandbox_profile = profile;
     }
