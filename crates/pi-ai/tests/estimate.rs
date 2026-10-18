@@ -140,6 +140,7 @@ fn context_prefix_adds_system_prompt_and_tool_definitions() {
         description: "The late_tool tool".to_owned(),
         parameters: json!({"type": "object"}),
         constrained_sampling: None,
+        typebox_kind: false,
     };
     let context = Context {
         system_prompt: Some("abcd".to_owned()),
@@ -160,6 +161,7 @@ fn tools_added_after_the_usage_message_are_counted() {
         description: "late".to_owned(),
         parameters: json!({"type": "object"}),
         constrained_sampling: None,
+        typebox_kind: false,
     };
     let context = Context {
         system_prompt: Some("ignored after usage".to_owned()),

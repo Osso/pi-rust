@@ -45,7 +45,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/json-parse.ts` | 124 | 0 | done | `crates/pi-ai/src/utils/json_parse.rs` | JSON repair + `partial-json@0.1.7` streaming parser; prefix/malformed differential corpus. |
 | `ai/src/utils/provider-retry.ts` | 125 | 0 | done | `crates/pi-ai/src/utils/provider_retry.rs` | SDK retry policy, server delays, abortable sleep; Tokio tests. |
 | `ai/src/utils/sanitize-unicode.ts` | 25 | 0 | done | `crates/pi-ai/src/utils/sanitize_unicode.rs` | Surrogate repair over UTF-16 units plus typed identity API; differential. |
-| `ai/src/utils/typebox-helpers.ts` | 24 | 0 | gap |  | Adapts the TypeBox JSON-schema builder; deferred pending the JSON-schema design decision ([traceability](traceability/typebox-helpers.md)). |
+| `ai/src/utils/typebox-helpers.ts` | 24 | 0 | done | `crates/pi-ai/src/utils/typebox_helpers.rs` | `StringEnum` builder plus explicit TypeBox-origin newtype ([traceability](traceability/typebox-helpers.md)). |
 | `ai/src/utils/uuid.ts` | 48 | 0 | done | `crates/pi-ai/src/utils/uuid.rs` | RFC 9562 UUIDv7 with monotonic sequence; TS vectors + structural differential. |
 | `ai/src/api/anthropic-messages.ts` | 1366 | 1 | todo |  |  |
 | `ai/src/api/azure-openai-responses.ts` | 330 | 1 | todo |  |  |
@@ -111,7 +111,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/overflow.ts` | 181 | 2 | done | `crates/pi-ai/src/utils/overflow.rs` | 26 overflow patterns, non-overflow exclusions, silent and length-stop overflow; differential 40 checks + pattern matrix. |
 | `ai/src/utils/retry.ts` | 253 | 2 | done | `crates/pi-ai/src/utils/retry.rs` | Exact classifier plus async backoff/cancellation/callbacks; differential 45 classifications + 10 scripted loops. |
 | `ai/src/utils/text.ts` | 12 | 2 | done | `crates/pi-ai/src/utils/text.rs` | `contentText` over assistant and tool-result blocks; differential 6 requests. |
-| `ai/src/utils/validation.ts` | 350 | 2 | todo |  |  |
+| `ai/src/utils/validation.ts` | 350 | 2 | done | `crates/pi-ai/src/utils/validation.rs` | Full hand-written TypeBox-compatible validator, coercions, error messages; 25 behavioral + 67 differential cases ([traceability](traceability/validation.md)). |
 | `ai/src/api/openrouter-images.lazy.ts` | 10 | 3 | todo |  |  |
 | `ai/src/auth/oauth/radius.ts` | 403 | 3 | todo |  |  |
 | `ai/src/image-models.ts` | 42 | 3 | todo |  |  |
@@ -274,12 +274,12 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/terminal-image.ts` | 657 | 0 | done | `crates/pi-tui/src/terminal_image.rs` + internal `base64.rs` | differential encode/detect/render/placement/dimensions; WebP <30 source bug preserved |
 | `tui/src/undo-stack.ts` | 28 | 0 | done | `crates/pi-tui/src/undo_stack.rs` | clone-on-push; differential N/A (structuredClone) |
 | `tui/src/utils.ts` | 1326 | 0 | done | `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs` | Unicode 17.0 tables; differential corpus + ~11k codepoint samples |
-| `tui/src/autocomplete.ts` | 793 | 1 | todo |  |  |
-| `tui/src/keybindings.ts` | 325 | 1 | todo |  |  |
-| `tui/src/latex.ts` | 1373 | 1 | todo |  |  |
-| `tui/src/terminal.ts` | 594 | 1 | todo |  |  |
-| `tui/src/word-navigation.ts` | 117 | 1 | todo |  |  |
-| `tui/src/tui.ts` | 2534 | 2 | todo |  |  |
+| `tui/src/autocomplete.ts` | 793 | 1 | done | `crates/pi-tui/src/autocomplete.rs` | TS test port + real-fd differential; async argument-completion callback and locale collation documented as gaps |
+| `tui/src/keybindings.ts` | 325 | 1 | done | `crates/pi-tui/src/keybindings.rs` | differential resolved keys/conflicts; ordered config pairs |
+| `tui/src/latex.ts` | 1373 | 1 | done | `crates/pi-tui/src/latex.rs` | TS test suite + generated differential corpus; byte-identical output incl. layout markers |
+| `tui/src/terminal.ts` | 594 | 1 | done | `crates/pi-tui/src/terminal.rs` | differential negotiation/timeout/normalization; ProcessTerminal event-queue seam; resize polling |
+| `tui/src/word-navigation.ts` | 117 | 1 | done | `crates/pi-tui/src/word_navigation.rs` | TS tests + boundary differential; ICU4X dictionary-word mismatches pinned as approved deviation |
+| `tui/src/tui.ts` | 2534 | 2 | partial | `crates/pi-tui/src/tui.rs` | differential byte stream (main+renderer), overlays/focus/fixed cells/render regions; viewport fullscreen helpers deferred to alt-screen slice |
 | `tui/src/components/alt-screen-flash.ts` | 51 | 3 | todo |  |  |
 | `tui/src/components/box.ts` | 137 | 3 | todo |  |  |
 | `tui/src/components/dynamic-border.ts` | 15 | 3 | todo |  |  |
@@ -292,8 +292,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/components/truncated-text.ts` | 65 | 3 | todo |  |  |
 | `tui/src/editor-component.ts` | 74 | 3 | todo |  |  |
 | `tui/src/layout-node.ts` | 51 | 3 | todo |  |  |
-| `tui/src/root-compositor.ts` | 91 | 3 | todo |  |  |
-| `tui/src/tui-main-screen.ts` | 586 | 3 | todo |  |  |
+| `tui/src/root-compositor.ts` | 91 | 3 | done | `crates/pi-tui/src/root_compositor.rs` | flow/bottom layout callbacks covered by render-region tests |
+| `tui/src/tui-main-screen.ts` | 586 | 3 | done | `crates/pi-tui/src/tui_main_screen.rs` | differential byte stream; capture/restore implemented (no listed test) |
 | `tui/src/alt-screen-search.ts` | 157 | 4 | todo |  |  |
 | `tui/src/components/loader.ts` | 94 | 4 | todo |  |  |
 | `tui/src/components/scroll-view.ts` | 216 | 4 | todo |  |  |
@@ -311,16 +311,16 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `client/src/promise.ts` | 16 | 0 | todo |  |  |
-| `client/src/transport.ts` | 18 | 0 | todo |  |  |
-| `client/src/errors.ts` | 56 | 5 | todo |  |  |
-| `client/src/types.ts` | 26 | 5 | todo |  |  |
-| `client/src/unix.ts` | 156 | 5 | todo |  |  |
-| `client/src/connection.ts` | 236 | 6 | todo |  |  |
-| `client/src/session-handle.ts` | 111 | 6 | todo |  |  |
-| `client/src/state.ts` | 156 | 6 | todo |  |  |
-| `client/src/client.ts` | 432 | 7 | todo |  |  |
-| `client/src/index.ts` | 18 | 8 | todo |  |  |
+| `client/src/promise.ts` | 16 | 0 | done | `crates/pi-client/src/promise.rs` | One-shot promise resolver over `tokio::sync::oneshot` |
+| `client/src/transport.ts` | 18 | 0 | done | `crates/pi-client/src/transport.rs` | Eager `send` method returning completion future; trait factory |
+| `client/src/errors.ts` | 56 | 5 | done | `crates/pi-client/src/errors.rs` | Typed error enum; `PiError::message` gap documented |
+| `client/src/types.ts` | 26 | 5 | done | `crates/pi-client/src/types.rs` | Enums and listener aliases |
+| `client/src/unix.ts` | 156 | 5 | done | `crates/pi-client/src/unix.rs` | Tokio Unix socket transport; real-socket tests |
+| `client/src/connection.ts` | 236 | 6 | done | `crates/pi-client/src/connection.rs` | Full lifecycle, reentrant callbacks; connection test port |
+| `client/src/session-handle.ts` | 111 | 6 | done | `crates/pi-client/src/session_handle.rs` | Lease callbacks trait; command futures |
+| `client/src/state.ts` | 156 | 6 | done | `crates/pi-client/src/state.rs` | Snapshot reduction, listener isolation |
+| `client/src/client.ts` | 432 | 7 | done | `crates/pi-client/src/client.rs` | Requests, leases, attachment serialization |
+| `client/src/index.ts` | 18 | 8 | done | `crates/pi-client/src/lib.rs` | Public re-exports; static connect renamed `connect_new` |
 
 ## server (13 files, 1839 lines)
 
