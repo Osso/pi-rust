@@ -478,6 +478,7 @@ pub struct CompactionEndEvent {
     #[serde(rename = "type")]
     pub event_type: &'static str,
     pub reason: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
     pub aborted: bool,
     pub will_retry: bool,

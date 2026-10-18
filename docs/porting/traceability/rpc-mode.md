@@ -28,7 +28,7 @@ dialog broker.
 | `set_model`, `cycle_model`, `get_available_models` | Model runtime snapshot and `Model not found: <provider>/<id>` | `handle_command`; differential |
 | `set_thinking_level`, `cycle_thinking_level` | `null` data when cycling is unsupported | `handle_command`; differential |
 | `set_steering_mode`, `set_follow_up_mode` | Persisted queue modes | `handle_command`; differential |
-| `compact`, `set_auto_compaction`, `set_auto_retry` | Compaction result / settings writes | `handle_command`; `compact` not in the differential (requires a summarization model response); mode wiring is a direct call to `AgentSession::compact` |
+| `compact`, `set_auto_compaction`, `set_auto_retry` | Compaction result / settings writes; manual-compaction failures surface as an error response | `handle_command`; differential scenario `rpc_mode_reports_manual_compaction_failures` |
 | `bash` | `user_bash` extension event first, then `executeBash` | `run_bash`; differential (`echo hello`) |
 | `get_session_stats`, `export_html`, `get_entries`, `get_tree`, `get_last_assistant_text`, `get_messages`, `get_commands`, `get_fork_messages`, `set_session_name` | Exact data shapes; `leafId: null` for empty sessions; `text` omitted when absent; `Entry not found: <id>`; `Session name cannot be empty` | `handle_command`; differential |
 | `handleInputLine` parse failure | `Failed to parse command: <V8 message>` | `js_json::parse`; differential malformed line |
@@ -41,6 +41,8 @@ dialog broker.
 
 ## Fixed while porting
 
+- `CompactionEndEvent.result` serialized as `null` when absent; the source omits `undefined`.
+  `result` now skips serialization when `None` (pinned by the compaction differential scenario).
 - `should_continue_interrupted_session(&[])` panicked (`..=usize::MAX` slice) in the agent-session
   port; the source returns `false`. Fixed to `..(last_index + 1).max(0)` and pinned by
   `empty_message_list_does_not_continue`; RPC startup on a fresh session exercises it.
