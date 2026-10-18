@@ -2,7 +2,7 @@
 
 Pinned source: `packages/agent/src/harness/env/nodejs.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust: `crates/pi-agent-core/src/harness/env/nodejs.rs` (`NodeExecutionEnv`). Behavioral proof: `crates/pi-agent-core/tests/harness_env.rs` (23 tests). Differential proof: the 10 read/write/edit/bash fixtures in `crates/pi-agent-core/tests/differential_harness_tools/` execute through the real TS `NodeExecutionEnv`.
+Rust: `crates/pi-agent-core/src/harness/env/nodejs.rs` (`NodeExecutionEnv`). Behavioral proof: `crates/pi-agent-core/tests/harness_env.rs` (23 tests). Differential proof: the 7 bash fixtures in `crates/pi-agent-core/tests/differential_harness_tools/` execute through the real TS `NodeExecutionEnv`.
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|

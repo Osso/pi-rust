@@ -247,9 +247,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/compaction/compaction.ts` | 910 | 7 | partial |  |  |
 | `agent/src/harness/session/jsonl/codec.ts` | 240 | 7 | todo |  |  |
 | `agent/src/harness/session/memory.ts` | 192 | 7 | todo |  |  |
-| `agent/src/harness/tools/bash.ts` | 161 | 7 | done | `crates/pi-agent-core/src/harness/tools/bash.rs` | Schema, prepare/prefix, throttled updates, truncation/error/abort mapping; 10 tests + 7 differential fixtures; see `harness-tools-bash.md`. |
-| `agent/src/harness/tools/edit.ts` | 127 | 7 | done | `crates/pi-agent-core/src/harness/tools/edit.rs` | Legacy argument preparation, queued edits, diff/patch details; 7 tests + 9 differential fixtures; see `harness-tools-edit.md`. |
-| `agent/src/harness/tools/read.ts` | 144 | 7 | done | `crates/pi-agent-core/src/harness/tools/read.rs` | Text offsets/limits/truncation, image detection and processor; 7 tests + 9 differential fixtures; see `harness-tools-read.md`. |
+| `agent/src/harness/tools/bash.ts` | 161 | 7 | done | `crates/pi-agent-core/src/harness/tools/bash.rs` | Schema, prepare/prefix, throttled updates, truncation/error/abort mapping; 8 behavioral + 7 differential fixtures; see `harness-tools-bash.md`. |
+| `agent/src/harness/tools/edit.ts` | 127 | 7 | done | `crates/pi-agent-core/src/harness/tools/edit.rs` | Legacy argument preparation, queued edits, diff/patch details; 8 behavioral + 11 differential fixtures; see `harness-tools-edit.md`. |
+| `agent/src/harness/tools/read.ts` | 144 | 7 | done | `crates/pi-agent-core/src/harness/tools/read.rs` | Text offsets/limits/truncation, image detection and processor; 5 behavioral + 9 differential fixtures; see `harness-tools-read.md`. |
 | `agent/src/harness/tools/write.ts` | 39 | 7 | done | `crates/pi-agent-core/src/harness/tools/write.rs` | Queued writes, abort checks, UTF-16 byte count; 2 tests + 3 differential fixtures; see `harness-tools-write.md`. |
 | `agent/src/harness/session/jsonl/storage.ts` | 277 | 8 | todo |  |  |
 | `agent/src/harness/tools/index.ts` | 23 | 8 | done | `crates/pi-agent-core/src/harness/tools/mod.rs` | Tool module re-exports; input/details are JSON values; see `harness-tools-index.md`. |

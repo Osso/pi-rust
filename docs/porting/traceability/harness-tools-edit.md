@@ -2,7 +2,7 @@
 
 Pinned source: `packages/agent/src/harness/tools/edit.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust: `crates/pi-agent-core/src/harness/tools/edit.rs`. Behavioral proof: `tests/harness_tools.rs` edit tests. Differential: 9 edit fixtures in `tests/differential_harness_tools/`. The replacement algorithm is documented in [edit-diff](edit-diff.md).
+Rust: `crates/pi-agent-core/src/harness/tools/edit.rs`. Behavioral proof: `tests/harness_tools.rs` edit tests. Differential: 11 edit fixtures in `tests/differential_harness_tools/`. The replacement algorithm is documented in [edit-diff](edit-diff.md).
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|

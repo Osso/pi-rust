@@ -5,7 +5,7 @@ Pinned source: `packages/agent/src/harness/types.ts` at `532f7d12cd19235081bd4d6
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
 | `types.ts:250-263` | `ShellExecOptions` optional cwd/env/inheritEnv/timeout/abortSignal plus stdout/stderr chunk callbacks | `ShellExecOptions` with owned fields and `Arc<ShellOutputHandler>` callbacks (`Err` = thrown callback message); `harness_env` streams/callback/abort/timeout tests |
-| `types.ts:265-272` | `Shell.exec` resolves to `{stdout, stderr, exitCode}` or `ExecutionError` | `Shell::exec` returns `Result<ShellExecResult, ExecutionError>`; `harness_env` exec tests and 10 bash differential cases |
+| `types.ts:265-272` | `Shell.exec` resolves to `{stdout, stderr, exitCode}` or `ExecutionError` | `Shell::exec` returns `Result<ShellExecResult, ExecutionError>`; `harness_env` exec tests and 7 bash differential cases |
 | `types.ts:213-224` | `FileInfo` name/path/kind/size/mtimeMs | Existing `FileInfo` plus `NodeExecutionEnv` producers; `harness_env` metadata tests and edit/read differential fixtures |
 | `types.ts:226-295` | `FileSystem` interface: absolute/join/read text+lines+binary/write/append/rename/fileInfo/listDir/canonicalPath/exists/createDir/remove/temp dir/temp file/cleanup | `FileSystem` trait with the same operations and `Option<&CancellationToken>` abort mapping; `NodeExecutionEnv` implementation and `harness_env` tests |
 | `types.ts:272` | `ExecutionEnv extends FileSystem, Shell` | Blanket `impl<T: FileSystem + Shell> ExecutionEnv for T`; tools consume `Arc<dyn ExecutionEnv>` |
