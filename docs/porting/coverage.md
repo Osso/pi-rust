@@ -57,7 +57,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/google-vertex.ts` | 596 | 1 | done | `crates/pi-ai/src/api/google_vertex.rs` | stream/streamSimple, Vertex URL/project/location rules, API-key vs ADC, service-account JWT + authorized-user token exchange; 21 differential scenarios + behavioral tests. |
 | `ai/src/api/lazy.ts` | 98 | 1 | done | `crates/pi-ai/src/api/lazy.rs` | lazy stream/api, setup errors, declared deferred capabilities; differential setup-error |
 | `ai/src/api/mistral-conversations.ts` | 931 | 1 | done | `crates/pi-ai/src/api/mistral_conversations.rs` | Native chat stream, wire remapping, SSE, reasoning modes, tool-call ID hashing; differential 43 scenarios (requests, events, messages). |
-| `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | todo |  |  |
+| `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | done | `crates/pi-ai/src/api/openai_codex_responses.rs` | SSE/WebSocket transports, zstd bodies, retries, cached continuation, session cache, debug stats; 31 behavioral + 5 differential suites (SSE events/requests, cached WS, idle, connect timeout). |
 | `ai/src/api/openai-completions.ts` | 1577 | 1 | done | `crates/pi-ai/src/api/openai_completions.rs` | Compat detection, message/tool conversion, all thinking formats, cache control, routing; 9 behavioral + 35 recorded-fetch differential scenarios. |
 | `ai/src/api/openai-responses-shared.ts` | 983 | 1 | done | `crates/pi-ai/src/api/openai_responses_shared.rs` | Message/tool conversion, citation normalization, Responses SSE state machine; 19 behavioral + 31 differential scenarios. |
 | `ai/src/api/openai-responses.ts` | 372 | 1 | done | `crates/pi-ai/src/api/openai_responses.rs` | Params, compat, cache/session affinity, service-tier pricing; 20 recorded-fetch differential scenarios. |
@@ -84,7 +84,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/google-generative-ai.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/google_generative_ai.rs` | `google_generative_ai_api()` lazy wrapper. |
 | `ai/src/api/google-vertex.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/google_vertex.rs` | `google_vertex_api()` lazy wrapper. |
 | `ai/src/api/mistral-conversations.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/mistral_conversations.rs` | `mistral_conversations_api()` wraps `MistralConversationsApi` in `LazyApi`. |
-| `ai/src/api/openai-codex-responses.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/openai-codex-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_codex_responses.rs` | `openai_codex_responses_api()` lazy adapter. |
 | `ai/src/api/openai-completions.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_completions.rs` | `open_ai_completions_api()` lazy adapter. |
 | `ai/src/api/openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_responses.rs` | `open_ai_responses_api()` lazy adapter. |
 | `ai/src/api/openrouter-images.ts` | 196 | 2 | done | `crates/pi-ai/src/api/openrouter_images.rs` | Request building, usage/image parsing, SDK error mapping, timeout; recorded-fixture differential (see traceability). |

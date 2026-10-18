@@ -6,7 +6,6 @@ pub mod bedrock_converse_stream;
 pub mod bedrock_credentials;
 pub mod bedrock_eventstream;
 pub mod bedrock_sigv4;
-
 pub mod cloudflare;
 pub mod cloudflare_gateway_binding;
 pub mod constrained_sampling;
@@ -17,6 +16,7 @@ pub mod google_shared;
 pub mod google_vertex;
 pub mod lazy;
 pub mod mistral_conversations;
+pub mod openai_codex_responses;
 pub mod openai_completions;
 pub mod openai_prompt_cache;
 pub mod openai_responses;
