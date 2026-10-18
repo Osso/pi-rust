@@ -200,6 +200,16 @@ pub struct AgentSessionConfig {
     pub session_start_event: Option<SessionStartEvent>,
 }
 
+/// `onUserMessagePrepared` callback.
+pub type UserMessagePreparedCallback = Arc<dyn Fn(&AgentMessage) + Send + Sync>;
+/// `preflightResult` callback.
+pub type PromptPreflightCallback = Arc<dyn Fn(bool) + Send + Sync>;
+/// Provider registration action types.
+pub type RegisterProviderAction =
+    Arc<dyn Fn(&str, &crate::core::provider_composer::ProviderConfigInput) -> Result<(), String> + Send + Sync>;
+pub type RegisterNativeProviderAction = Arc<dyn Fn(Arc<dyn pi_ai::models::Provider>) + Send + Sync>;
+pub type UnregisterProviderAction = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// `PromptOptions`.
 #[derive(Default)]
 pub struct PromptOptions {
@@ -207,8 +217,8 @@ pub struct PromptOptions {
     pub images: Vec<ImageContent>,
     pub streaming_behavior: Option<StreamingBehavior>,
     pub source: Option<InputSource>,
-    pub preflight_result: Option<Arc<dyn Fn(bool) + Send + Sync>>,
-    pub on_user_message_prepared: Option<Arc<dyn Fn(&AgentMessage) + Send + Sync>>,
+    pub preflight_result: Option<PromptPreflightCallback>,
+    pub on_user_message_prepared: Option<UserMessagePreparedCallback>,
 }
 
 /// `ModelCycleResult`.
@@ -1441,10 +1451,9 @@ impl AgentSession {
 
     async fn handle_agent_event(&self, mut event: AgentEvent) {
         let original_tool_call_id = match &event {
-            AgentEvent::MessageEnd { message } => match message {
-                AgentMessage::ToolResult(result) => Some(result.tool_call_id.clone()),
-                _ => None,
-            },
+            AgentEvent::MessageEnd {
+                message: AgentMessage::ToolResult(result),
+            } => Some(result.tool_call_id.clone()),
             _ => None,
         };
         if matches!(event, AgentEvent::ToolExecutionStart { .. }) {
@@ -2598,6 +2607,18 @@ pub enum CycleDirection {
     Backward,
 }
 
+/// Fields recorded by [`AgentSession::record_bash_result`].
+#[derive(Debug, Clone)]
+pub struct BashResultRecord<'a> {
+    pub command: &'a str,
+    pub output: &'a str,
+    pub exit_code: Option<f64>,
+    pub cancelled: bool,
+    pub truncated: bool,
+    pub full_output_path: Option<String>,
+    pub exclude_from_context: Option<bool>,
+}
+
 /// Release handle returned by [`AgentSession::reserve_external_user_input`].
 pub struct ExternalUserInputReservation {
     inner: Weak<Inner>,
@@ -2851,6 +2872,10 @@ impl AgentSession {
 
     pub fn session_manager(&self) -> MutexGuard<'_, SessionManager> {
         lock(&self.inner.session_manager)
+    }
+
+    pub fn session_manager_handle(&self) -> Arc<Mutex<SessionManager>> {
+        Arc::clone(&self.inner.session_manager)
     }
 
     pub fn settings_manager(&self) -> MutexGuard<'_, SettingsManager> {
@@ -3473,16 +3498,16 @@ impl AgentSession {
     // =========================================================================
 
     /// Records a bash execution result in session history.
-    pub fn record_bash_result(
-        &self,
-        command: &str,
-        output: &str,
-        exit_code: Option<f64>,
-        cancelled: bool,
-        truncated: bool,
-        full_output_path: Option<String>,
-        exclude_from_context: Option<bool>,
-    ) {
+    pub fn record_bash_result(&self, record: BashResultRecord<'_>) {
+        let BashResultRecord {
+            command,
+            output,
+            exit_code,
+            cancelled,
+            truncated,
+            full_output_path,
+            exclude_from_context,
+        } = record;
         let bash_message = BashExecutionMessage {
             role: BashExecutionRole::BashExecution,
             command: command.to_owned(),
@@ -4889,9 +4914,7 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
 
 fn extension_provider_actions(weak: Weak<Inner>) -> ProviderActions {
     let register_weak = weak.clone();
-    let register_provider: Option<
-        Arc<dyn Fn(&str, &crate::core::provider_composer::ProviderConfigInput) -> Result<(), String> + Send + Sync>,
-    > = Some(Arc::new(
+    let register_provider: Option<RegisterProviderAction> = Some(Arc::new(
         move |name: &str, config: &crate::core::provider_composer::ProviderConfigInput| {
             let Some(inner) = register_weak.upgrade() else {
                 return Err("Session is disposed".to_owned());
@@ -4905,15 +4928,14 @@ fn extension_provider_actions(weak: Weak<Inner>) -> ProviderActions {
         },
     ));
     let native_weak = weak.clone();
-    let register_native_provider: Option<Arc<dyn Fn(Arc<dyn pi_ai::models::Provider>) + Send + Sync>> =
-        Some(Arc::new(move |provider| {
-            if let Some(inner) = native_weak.upgrade() {
-                inner.model_runtime.register_native_provider(provider);
-                refresh_current_model_from_registry(&inner);
-            }
-        }));
+    let register_native_provider: Option<RegisterNativeProviderAction> = Some(Arc::new(move |provider| {
+        if let Some(inner) = native_weak.upgrade() {
+            inner.model_runtime.register_native_provider(provider);
+            refresh_current_model_from_registry(&inner);
+        }
+    }));
     let unregister_weak = weak;
-    let unregister_provider: Option<Arc<dyn Fn(&str) + Send + Sync>> = Some(Arc::new(move |name: &str| {
+    let unregister_provider: Option<UnregisterProviderAction> = Some(Arc::new(move |name: &str| {
         if let Some(inner) = unregister_weak.upgrade() {
             inner.model_runtime.unregister_provider(name);
             refresh_current_model_from_registry(&inner);

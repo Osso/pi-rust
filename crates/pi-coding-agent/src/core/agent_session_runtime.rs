@@ -81,10 +81,13 @@ pub struct ForkResult {
     pub selected_text: Option<String>,
 }
 
+/// Session setup callback used by `newSession`.
+pub type SessionSetupCallback = Arc<dyn Fn(&mut SessionManager) -> BoxFuture<'static, ()> + Send + Sync>;
+
 /// Options for `newSession`.
 pub struct NewSessionOptions {
     pub parent_session: Option<String>,
-    pub setup: Option<Arc<dyn Fn(&mut SessionManager) -> BoxFuture<'static, ()> + Send + Sync>>,
+    pub setup: Option<SessionSetupCallback>,
     pub with_session: Option<Arc<dyn Fn(AgentSession) -> BoxFuture<'static, ()> + Send + Sync>>,
 }
 
@@ -339,8 +342,7 @@ impl AgentSessionRuntime {
         let current_session_file = self.session.session_file();
         let is_persisted = self.session.session_manager().is_persisted();
 
-        if process && is_persisted && current_session_file.is_some() {
-            let session_file = current_session_file.expect("checked session file");
+        if let (true, true, Some(session_file)) = (process, is_persisted, current_session_file.clone()) {
             self.session
                 .session_manager()
                 .persist_for_recovery()
@@ -417,9 +419,14 @@ impl AgentSessionRuntime {
             .await?;
         self.apply(result);
         if let Some(setup) = options.setup {
-            let mut manager = self.session.session_manager();
+            let handle = self.session.session_manager_handle();
+            let mut manager = {
+                let guard = handle.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                guard.clone()
+            };
             setup(&mut manager).await;
             let messages = manager.build_session_context().messages;
+            *handle.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = manager;
             self.session.agent().set_messages(messages);
         }
         self.finish_session_replacement(options.with_session).await;

@@ -38,7 +38,11 @@ pub enum NoTools {
     Builtin,
 }
 
+/// Provider retry notifier captured by the stream wrapper.
+type RetryNotifier = Arc<dyn Fn(pi_ai::types::ProviderRetryEvent) + Send + Sync>;
+
 /// `CreateAgentSessionOptions`.
+#[derive(Default)]
 pub struct CreateAgentSessionOptions {
     pub cwd: Option<String>,
     pub agent_dir: Option<String>,
@@ -59,31 +63,6 @@ pub struct CreateAgentSessionOptions {
     pub control_db_path: Option<String>,
     pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
-}
-
-impl Default for CreateAgentSessionOptions {
-    fn default() -> Self {
-        Self {
-            cwd: None,
-            agent_dir: None,
-            model_runtime: None,
-            model: None,
-            thinking_level: None,
-            scoped_models: Vec::new(),
-            no_tools: None,
-            tools: None,
-            exclude_tools: None,
-            permission_prompt_tool: None,
-            custom_tools: Vec::new(),
-            base_tools: Vec::new(),
-            resource_loader: None,
-            session_manager: None,
-            settings_manager: None,
-            control_db_path: None,
-            multi_agent_runtime_role: None,
-            multi_agent_execution_capability: None,
-        }
-    }
 }
 
 /// `CreateAgentSessionResult`.
@@ -183,20 +162,20 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
     let mut model = options.model.clone();
     let mut model_fallback_message: Option<String> = None;
 
-    if model.is_none() {
-        if let Some(saved_model) = existing_session.model.as_ref() {
-            let restored = model_runtime.get_model(&saved_model.provider, &saved_model.model_id);
-            if let Some(restored) = restored {
-                if model_runtime.has_configured_auth(&restored.provider) {
-                    model = Some(restored);
-                }
-            }
-            if model.is_none() {
-                model_fallback_message = Some(format!(
-                    "Could not restore model {}/{}",
-                    saved_model.provider, saved_model.model_id
-                ));
-            }
+    if model.is_none()
+        && let Some(saved_model) = existing_session.model.as_ref()
+    {
+        let restored = model_runtime.get_model(&saved_model.provider, &saved_model.model_id);
+        if let Some(restored) = restored
+            && model_runtime.has_configured_auth(&restored.provider)
+        {
+            model = Some(restored);
+        }
+        if model.is_none() {
+            model_fallback_message = Some(format!(
+                "Could not restore model {}/{}",
+                saved_model.provider, saved_model.model_id
+            ));
         }
     }
 
@@ -260,8 +239,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
 
     let settings = Arc::clone(&settings_manager);
     let session_manager = Arc::new(Mutex::new(session_manager));
-    let session_ref: Arc<Mutex<Option<Arc<dyn Fn(pi_ai::types::ProviderRetryEvent) + Send + Sync>>>> =
-        Arc::new(Mutex::new(None));
+    let session_ref: Arc<Mutex<Option<RetryNotifier>>> = Arc::new(Mutex::new(None));
     let session_id = lock(&session_manager).get_session_id().to_owned();
 
     let convert_to_llm_with_block_images: ConvertToLlm = {
