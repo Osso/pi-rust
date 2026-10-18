@@ -35,6 +35,10 @@ pub struct ProviderError {
     pub message: String,
     pub status: Option<f64>,
     pub headers: ProviderErrorHeaders,
+    /// SDK-parsed body object text (`normalizeProviderError`'s `error` field).
+    pub body: Option<String>,
+    /// SDK-parsed inner `error` object, retained for provider-specific metadata.
+    pub inner_error: Option<Box<serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -259,6 +263,8 @@ mod tests {
             message: "boom".to_owned(),
             status: Some(429.0),
             headers: values,
+            body: None,
+            inner_error: None,
         }
     }
 
@@ -280,6 +286,8 @@ mod tests {
             message: "boom".to_owned(),
             status: Some(500.0),
             headers: ProviderErrorHeaders::new(),
+            body: None,
+            inner_error: None,
         };
         for retry_index in 0..10 {
             let delay = get_retry_delay_ms(&error, retry_index, None).unwrap();

@@ -19,6 +19,8 @@ fn provider_error(status: Option<f64>, headers: &[(&str, &str)]) -> ProviderErro
         message: format!("Provider error: {status:?}"),
         status,
         headers: error_headers,
+        body: None,
+        inner_error: None,
     }
 }
 

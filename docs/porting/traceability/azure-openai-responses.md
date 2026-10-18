@@ -1,0 +1,34 @@
+# azure-openai-responses traceability
+
+Source: `packages/ai/src/api/azure-openai-responses.ts` and `azure-openai-responses.lazy.ts`.
+Rust: `crates/pi-ai/src/api/azure_openai_responses.rs`.
+Tests: module unit tests, `crates/pi-ai/tests/differential_azure_openai_responses.rs` (9 recorded-fetch scenarios).
+
+## Symbols → proof
+| TS | Rust | Test |
+|---|---|---|
+| `DEFAULT_AZURE_API_VERSION` | constant | 0 |
+| `AZURE_TOOL_CALL_PROVIDERS` | constant | conversion |
+| `OPENAI_RESPONSES_MIN_OUTPUT_TOKENS` | constant | 0 |
+| `parseDeploymentNameMap` | `parse_deployment_name_map` | 2; unit test |
+| `resolveDeploymentName` | `resolve_deployment_name` | 0-2 |
+| `formatAzureOpenAIError` | `format_sdk_error`/`format_request_error` with `"Azure OpenAI API error"` | 6 |
+| `AzureOpenAIResponsesOptions` | `AzureOpenAIResponsesOptions` | 1, 4 |
+| `stream` / `streamSimple` | same + `AzureOpenAIResponsesApi` | all |
+| `normalizeAzureBaseUrl` | `normalize_azure_base_url` | 0-2; unit test |
+| `buildDefaultBaseUrl` | `build_default_base_url` | unit test |
+| `resolveAzureConfig` | `resolve_azure_config` | 1-2 |
+| `createClient` (api-key, api-version, headers) | `create_client` | all request comparisons |
+| `buildParams` | `build_params` | 0-5 |
+| strict mode default `true` | `build_params` | 3 |
+| lazy wrapper | `azure_open_ai_responses_api` | `LazyApi` covered by `api_lazy` tests |
+
+## Differential normalization
+Same as `openai-responses`: timestamps, environment identity headers, and malformed-JSON text.
+
+## Gaps
+- `streamSimple` API-key failure is an error stream instead of a synchronous throw.
+- The pinned Azure SDK does not add `/deployments/{model}` for `/responses`; the URL is `/openai/v1/responses?api-version=...` and the deployment name is only `body.model`.
+
+## Discrepancies
+- None.
