@@ -219,7 +219,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/tools/image.ts` | 104 | 0 | partial |  |  |
 | `agent/src/harness/utils/truncate.ts` | 350 | 0 | partial |  |  |
 | `agent/src/harness/telemetry.ts` | 615 | 1 | todo |  |  |
-| `agent/src/proxy.ts` | 370 | 4 | todo |  |  |
+| `agent/src/proxy.ts` | 370 | 4 | done | `crates/pi-agent-core/src/agent/proxy.rs` | Proxy SSE reconstruction, error/abort paths, injectable `Fetch`; see `agent-proxy.md`. |
 | `agent/src/types.ts` | 470 | 4 | done | `crates/pi-agent-core/src/agent/types.rs` | Full export set; `AgentMessage` custom variant is a raw JSON object; see `agent-types.md`. |
 | `agent/src/harness/compaction/utils.ts` | 163 | 5 | partial |  |  |
 | `agent/src/harness/messages.ts` | 188 | 5 | partial |  |  |

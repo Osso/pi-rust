@@ -1,8 +1,10 @@
 //! Port of the core of `packages/agent`.
 
+pub mod proxy;
 pub mod stream_fn;
 pub mod types;
 
+pub use proxy::{ProxyAssistantMessageEvent, ProxyStreamOptions, stream_proxy};
 pub use stream_fn::{get_default_stream_fn, set_default_stream_fn};
 pub use types::{
     AfterToolCallContext, AfterToolCallHook, AfterToolCallResult, AgentContext, AgentError, AgentEvent,
