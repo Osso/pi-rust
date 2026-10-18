@@ -44,7 +44,15 @@ Tests: `crates/pi-ai/tests/pi_messages.rs`,
 
 - `timestamp`/`timestampMs` → `0` (clock-derived).
 - `stack` removed (environment-derived).
-- object key order sorted (TypeScript property order follows mutation history).
+- Object key order is preserved by the oracle and the Rust `canonical` pass; request
+  bodies are compared as the exact captured `JSON.stringify` text.
+- Event/message object key order is not asserted: TypeScript builds the message with
+  the object literal `{role, content, api, provider, model, usage, stopReason,
+  timestamp}` and then appends optional fields in code-path order. `AssistantMessage`
+  serializes the base fields in that literal order; the `done` and SSE `error` paths
+  match. `createErrorEvent` places `errorMessage` before `timestamp`, which a single
+  struct order cannot reproduce; that path's key order is a residual gap. The port's
+  protocol layer models producer-specific order explicitly.
 - JSON parser error text for malformed `data:` payloads → `<json-parse-error>`.
 - integral numbers canonicalized to integers.
 - extra fields the converter spreads into events but that are not part of

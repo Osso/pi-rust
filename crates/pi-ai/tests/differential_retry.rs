@@ -1,3 +1,5 @@
+#[path = "support/json_compare.rs"]
+mod json_compare;
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -224,6 +226,10 @@ async fn retry_classification_and_loops_match_the_pinned_typescript_module() {
             observe_retry(&request).await
         };
         let expected = oracle.request(&request);
-        assert_eq!(canonical(observed), canonical(expected), "request {request}");
+        json_compare::assert_json_eq_ordered(
+            &canonical(observed),
+            &canonical(expected),
+            &format!("request {request}"),
+        );
     }
 }
