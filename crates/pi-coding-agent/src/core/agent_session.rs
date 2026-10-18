@@ -290,6 +290,14 @@ pub struct SessionTokenStats {
     pub total: f64,
 }
 
+/// One user message in the fork selector.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserMessageForForking {
+    pub entry_id: String,
+    pub text: String,
+}
+
 /// `ContextUsage`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -4434,7 +4442,7 @@ impl AgentSession {
     }
 
     /// All user messages from the session, for the fork selector.
-    pub fn get_user_messages_for_forking(&self) -> Vec<(String, String)> {
+    pub fn get_user_messages_for_forking(&self) -> Vec<UserMessageForForking> {
         let entries = lock(&self.inner.session_manager).get_entries();
         let mut result = Vec::new();
         for entry in entries {
@@ -4446,7 +4454,10 @@ impl AgentSession {
             };
             let text = user_message_text(&user.content);
             if !text.is_empty() {
-                result.push((message.id.clone(), text));
+                result.push(UserMessageForForking {
+                    entry_id: message.id.clone(),
+                    text,
+                });
             }
         }
         result
@@ -4558,7 +4569,7 @@ impl AgentSession {
         header.insert("type".to_owned(), Value::String("session".to_owned()));
         header.insert(
             "version".to_owned(),
-            serde_json::json!(crate::core::session_manager::CURRENT_SESSION_VERSION),
+            serde_json::json!(crate::core::session_manager::CURRENT_SESSION_VERSION as i64),
         );
         header.insert("id".to_owned(), Value::String(session_id));
         header.insert(

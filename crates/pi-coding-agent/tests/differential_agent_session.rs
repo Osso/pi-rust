@@ -194,6 +194,61 @@ async fn run_rust(dir: &str) -> Value {
         .await
         .expect("prompt 2");
     session.set_session_name("Named session");
+    let cycle = session
+        .cycle_model(pi_coding_agent::core::agent_session::CycleDirection::Forward)
+        .await
+        .expect("cycle");
+    let context_usage = session.get_context_usage();
+    let forking = session.get_user_messages_for_forking();
+    session.record_bash_result(
+        "echo hi",
+        &pi_coding_agent::core::bash_executor::BashResult {
+            output: "hi".to_owned(),
+            exit_code: Some(0),
+            cancelled: false,
+            truncated: false,
+            full_output_path: None,
+        },
+        None,
+    );
+    let stats_after_bash = session.get_session_stats();
+    let export_path = session
+        .export_to_jsonl(Some(
+            &std::path::Path::new(dir).join("export.jsonl").display().to_string(),
+        ))
+        .expect("export jsonl");
+    let export_lines: Vec<Value> = std::fs::read_to_string(&export_path)
+        .expect("export file")
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str(line).expect("export jsonl line"))
+        .collect();
+    let first_user_entry = session
+        .session_manager()
+        .get_entries()
+        .into_iter()
+        .find(|entry| {
+            entry.as_message().is_some_and(|message| {
+                matches!(
+                    message.message.as_ref(),
+                    pi_agent_core::agent::types::AgentMessage::User(_)
+                )
+            })
+        })
+        .and_then(|entry| entry.id().map(str::to_owned))
+        .expect("first user entry");
+    let navigation = session
+        .navigate_tree(
+            &first_user_entry,
+            pi_coding_agent::core::agent_session::NavigateTreeOptions {
+                summarize: Some(false),
+                custom_instructions: None,
+                replace_instructions: None,
+                label: None,
+            },
+        )
+        .await
+        .expect("navigate");
     let stats = session.get_session_stats();
     let session_file = session.session_file().expect("session file");
     let lines: Vec<Value> = std::fs::read_to_string(&session_file)
@@ -208,6 +263,18 @@ async fn run_rust(dir: &str) -> Value {
     let events = events.lock().unwrap().clone();
     json!({
         "events": events,
+        "cycle": cycle,
+        "contextUsage": context_usage,
+        "forking": forking,
+        "navigation": navigation,
+        "exportLines": export_lines,
+        "statsAfterBash": {
+            "userMessages": stats_after_bash.user_messages,
+            "assistantMessages": stats_after_bash.assistant_messages,
+            "toolCalls": stats_after_bash.tool_calls,
+            "toolResults": stats_after_bash.tool_results,
+            "totalMessages": stats_after_bash.total_messages,
+        },
         "stats": {
             "userMessages": stats.user_messages,
             "assistantMessages": stats.assistant_messages,
@@ -342,15 +409,17 @@ fn normalize(value: &Value, ids: &mut std::collections::HashMap<String, String>,
         Value::Array(items) => Value::Array(items.iter().map(|item| normalize(item, ids, dir)).collect()),
         Value::Object(object) => {
             let is_usage = object.contains_key("totalTokens");
+            let is_context_usage = object.contains_key("contextWindow") && object.contains_key("tokens");
             Value::Object(
                 object
                     .iter()
                     .map(|(key, value)| {
-                        if is_usage
+                        if (is_usage
                             && matches!(
                                 key.as_str(),
                                 "input" | "output" | "cacheRead" | "cacheWrite" | "totalTokens"
-                            )
+                            ))
+                            || (is_context_usage && matches!(key.as_str(), "tokens" | "percent"))
                         {
                             return (key.clone(), Value::String("<n>".to_owned()));
                         }
@@ -428,6 +497,18 @@ fn agent_session_multi_turn_matches_typescript() {
     let mut actual_ids = std::collections::HashMap::new();
     let actual = normalize(&actual, &mut actual_ids, &dir_path);
     assert_json_seq(&actual["events"], &expected["events"], "event stream");
+    assert_eq!(actual["cycle"], expected["cycle"], "cycle mismatch");
+    assert_eq!(
+        actual["contextUsage"], expected["contextUsage"],
+        "context usage mismatch"
+    );
+    assert_eq!(actual["forking"], expected["forking"], "forking mismatch");
+    assert_eq!(actual["navigation"], expected["navigation"], "navigation mismatch");
+    assert_json_seq(&actual["exportLines"], &expected["exportLines"], "export JSONL");
+    assert_eq!(
+        actual["statsAfterBash"], expected["statsAfterBash"],
+        "stats after bash mismatch"
+    );
     assert_eq!(actual["stats"], expected["stats"], "stats mismatch");
     assert_eq!(actual["messages"], expected["messages"], "message mismatch");
     assert_eq!(actual["lines"], expected["lines"], "session JSONL mismatch");
