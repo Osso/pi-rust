@@ -1,5 +1,4 @@
-use std::collections::BTreeSet;
-
+use indexmap::IndexSet;
 use pi_agent_core::agent::AgentMessage;
 use pi_agent_core::harness::compaction::utils::{
     FileOperations, compute_file_lists, create_file_ops, extract_file_ops_from_message, format_file_operations,
@@ -69,9 +68,9 @@ fn extracts_read_write_and_edit_paths_from_tool_calls() {
     extract_file_ops_from_message(&tool_call("write", json!({"path": "b.ts"})), &mut file_ops);
     extract_file_ops_from_message(&tool_call("edit", json!({"path": "c.ts"})), &mut file_ops);
 
-    assert_eq!(file_ops.read, BTreeSet::from(["a.ts".to_owned()]));
-    assert_eq!(file_ops.written, BTreeSet::from(["b.ts".to_owned()]));
-    assert_eq!(file_ops.edited, BTreeSet::from(["c.ts".to_owned()]));
+    assert_eq!(file_ops.read, IndexSet::from(["a.ts".to_owned()]));
+    assert_eq!(file_ops.written, IndexSet::from(["b.ts".to_owned()]));
+    assert_eq!(file_ops.edited, IndexSet::from(["c.ts".to_owned()]));
 }
 
 #[test]
@@ -107,7 +106,7 @@ fn accumulates_multiple_tool_calls_in_one_message() {
     let mut file_ops = create_file_ops();
     extract_file_ops_from_message(&AgentMessage::Assistant(Box::new(message)), &mut file_ops);
 
-    assert_eq!(file_ops.read, BTreeSet::from(["a.ts".to_owned(), "b.ts".to_owned()]));
+    assert_eq!(file_ops.read, IndexSet::from(["a.ts".to_owned(), "b.ts".to_owned()]));
 }
 
 #[test]
@@ -122,6 +121,15 @@ fn computes_sorted_read_only_and_modified_lists() {
     let lists = compute_file_lists(&file_ops);
     assert_eq!(lists.read_files, ["a.ts", "z.ts"]);
     assert_eq!(lists.modified_files, ["b.ts", "m.ts", "shared.ts"]);
+}
+
+#[test]
+fn sorts_file_lists_by_utf16_code_unit_order() {
+    let mut file_ops = FileOperations::default();
+    file_ops.read.extend(["\u{e000}.ts".to_owned(), "😀.ts".to_owned()]);
+
+    let lists = compute_file_lists(&file_ops);
+    assert_eq!(lists.read_files, ["😀.ts", "\u{e000}.ts"]);
 }
 
 #[test]

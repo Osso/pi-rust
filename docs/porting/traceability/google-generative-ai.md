@@ -34,6 +34,15 @@ Tests: `crates/pi-ai/tests/differential_google_api.rs` (45 recorded-fixture scen
 - Stop reasons: pending → error, aborted/error → `Provider stopped with: <raw>`; unknown finish reasons throw `Unhandled stop reason: <reason>`.
 - `onPayload` receives the `GenerateContentParameters` object before the SDK wire transform and may replace it.
 
+## Differential comparison
+- Request bodies are compared as captured text with only the JWT assertion replaced by
+  `<jwt>` (signature and `iat`/`exp` are nondeterministic). The decoded JWT header is
+  compared in insertion order because its key order is part of the base64url-encoded bytes.
+- Request header names are compared in Fetch `Headers` iteration order (lexicographic);
+  the oracle records a `Headers` object, which normalizes order per the Fetch spec.
+- Event/message objects are compared without asserting object key order; TypeScript's
+  provider message key order follows `Object.assign` mutation history.
+
 ## Gaps
 - `@google/genai`'s `GOOGLE_GEMINI_BASE_URL` process-env fallback is implemented in `GoogleClient::generative_ai` but not exercised differentially (setting process env per scenario is not isolated).
 - The TypeScript adapter rejects `options.fetch !== globalThis.fetch`; Rust always routes through `options.request.fetch` or `http::default_fetch()` per the port's `Fetch` contract (approved deviation, required by the differential harness).

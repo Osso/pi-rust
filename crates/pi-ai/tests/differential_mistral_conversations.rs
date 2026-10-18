@@ -38,29 +38,25 @@ fn normalize(value: &mut Value) {
     }
 }
 
-/// Sorts object keys: TypeScript property order reflects `Object.assign`
-/// mutation history, not the event contract.
+/// Rebuilds a value with the normalizations that only substitute
+/// environment-derived values. Key order is left untouched.
 fn canonical(value: Value) -> Value {
     match value {
         Value::Array(items) => Value::Array(items.into_iter().map(canonical).collect()),
-        Value::Object(object) => {
-            let mut entries: Vec<(String, Value)> = object.into_iter().collect();
-            entries.sort_by(|left, right| left.0.cmp(&right.0));
-            Value::Object(
-                entries
-                    .into_iter()
-                    .map(|(key, value)| {
-                        let value = canonical(value);
-                        let value = if key == "errorMessage" {
-                            normalize_parse_error(value)
-                        } else {
-                            value
-                        };
-                        (key, value)
-                    })
-                    .collect(),
-            )
-        }
+        Value::Object(object) => Value::Object(
+            object
+                .into_iter()
+                .map(|(key, value)| {
+                    let value = canonical(value);
+                    let value = if key == "errorMessage" {
+                        normalize_parse_error(value)
+                    } else {
+                        value
+                    };
+                    (key, value)
+                })
+                .collect(),
+        ),
         Value::Number(number) => match number.as_f64() {
             Some(float) if float.fract() == 0.0 && float.abs() < 1e21 => Value::from(float as i64),
             _ => Value::Number(number),
@@ -228,12 +224,20 @@ async fn observe(scenario: &Value) -> Value {
     }
 
     let request = fetch.requests().first().cloned().map(|request| {
-        json!({
-            "url": request.url,
-            "method": request.method,
-            "headers": request.headers.iter().cloned().collect::<BTreeMap<_, _>>(),
-            "body": serde_json::from_slice::<Value>(&request.body.unwrap_or_default()).unwrap_or(Value::Null),
-        })
+        let mut captured = serde_json::Map::new();
+        captured.insert("url".to_owned(), json!(request.url));
+        captured.insert("method".to_owned(), json!(request.method));
+        captured.insert(
+            "headers".to_owned(),
+            json!(request.headers.iter().cloned().collect::<BTreeMap<_, _>>()),
+        );
+        if let Some(body) = request.body {
+            captured.insert(
+                "body".to_owned(),
+                json!(String::from_utf8(body).expect("request body UTF-8")),
+            );
+        }
+        Value::Object(captured)
     });
 
     canonical(json!({

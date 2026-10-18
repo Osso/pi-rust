@@ -20,12 +20,11 @@ rust-version = "1.96"
 
 # Disk budget: ~460 integration-test binaries each link every dependency.
 # Full debuginfo plus incremental state grew target/ to ~680 GB.
+# Incremental is disabled in .cargo/config.toml (overrides ~/.cargo).
 [profile.dev]
 debug = "line-tables-only"
-incremental = false
 
 [profile.dev.package."*"]
 debug = false
-
 [workspace.lints.rust]
 unsafe_code = "forbid"
