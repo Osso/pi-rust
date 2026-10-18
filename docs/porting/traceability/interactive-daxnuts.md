@@ -1,0 +1,28 @@
+# components/daxnuts.ts
+
+Source: `coding-agent/src/modes/interactive/components/daxnuts.ts`
+Rust: `crates/pi-coding-agent/src/modes/interactive/components/daxnuts.rs`
+
+Tests: `interactive_components_c.rs::daxnuts_reveals_image_and_text_over_time`.
+
+| Symbol / branch | Rust item | Proof |
+|---|---|---|
+| 32x32 RGB hex decode | `parse_image` | rendered image |
+| half-block image build (`▄`, fg/bg RGB) | `build_image` | rendered image |
+| `DaxnutsComponent` | `DaxnutsComponent` | behavioral |
+| 80ms ticks, 25 max | `poll`/`next_deadline` | tick assertion |
+| scanline reveal progress | `revealed_rows` | initial/final render |
+| scanline highlight row | render branch | render path |
+| text phases (accent/success/muted/dim/mdLink) | render branches | final render assertions |
+| centering by visible width | `center` + `strip_terminal_sequences` | final render |
+| render cache keyed by width + tick | `cached_*` | render path |
+| `dispose` stops the timer | `dispose` | behavioral |
+
+## Gaps
+
+- No differential: tick progression is driven by `setInterval` wall-clock time in the
+  source; the port exposes `poll(now)` so tests step it deterministically.
+
+## Discrepancies
+
+None found.

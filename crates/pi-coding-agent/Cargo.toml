@@ -23,12 +23,13 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
 regex = "=1.13.1"
 gethostname = "=1.1.0"
+# Local-time label timestamps in the session tree selector.
 # `Math.random()` jitter between Supervisor request attempts.
 getrandom = "=0.4.3"
 serde_yaml_ng = "=0.10.0"
 url = "=2.5.8"
 percent-encoding = "=2.3.2"
-tokio = { version = "=1.53.3", features = ["rt", "macros", "time", "sync", "process", "io-util", "fs"] }
+tokio = { version = "=1.53.3", features = ["rt", "macros", "time", "sync", "process", "io-util", "io-std", "fs", "signal"] }
 tokio-util = "=0.7.20"
 notify = "=8.2.0"
 # Compiles highlight.js grammar patterns for `utils::syntax_highlight`.
@@ -70,6 +71,14 @@ futures-util = "=0.3.34"
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
 # `mkdtempSync`-style private directory for the external editor prompt.
 tempfile = "=3.27.0"
+
+[[bin]]
+# Deterministic mode harness for the print/RPC differential tests.
+name = "pi-mode-harness"
+path = "tests/bin/pi_mode_harness.rs"
+test = false
+bench = false
+doc = false
 
 [dev-dependencies]
 tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs"] }

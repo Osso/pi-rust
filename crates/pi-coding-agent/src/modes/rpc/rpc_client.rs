@@ -1,0 +1,1189 @@
+//! RPC client (`modes/rpc/rpc-client.ts`).
+//!
+//! Spawns a `pi --mode rpc` child, writes command lines to its stdin, and
+//! correlates response lines with pending requests. Events that are not
+//! responses are delivered to subscribers in wire order.
+
+use std::collections::{BTreeMap, HashMap};
+use std::fmt;
+use std::io::Write as _;
+use std::path::PathBuf;
+use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use pi_agent_core::harness::ThinkingLevel;
+use pi_ai::types::{ImageContent, Model};
+use rustix::process::Signal;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use serde_json::Value;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::process::{ChildStdin, Command};
+use tokio::sync::{mpsc, oneshot, watch};
+
+use crate::core::agent_session::SessionStats;
+use crate::core::bash_executor::BashResult;
+use crate::core::compaction::CompactionResult;
+use crate::core::session_manager::{SessionEntry, SessionTreeNode};
+use crate::modes::rpc::jsonl::{JsonlLineReader, attach_jsonl_line_reader, serialize_json_line};
+use crate::modes::rpc::rpc_types::{
+    QueueMode, RpcCommand, RpcCommandBody, RpcResponse, RpcSessionState, RpcSlashCommand,
+};
+
+/// Default wait used by `waitForIdle` and `collectEvents` in TypeScript.
+pub const DEFAULT_EVENT_TIMEOUT: Duration = Duration::from_secs(60);
+const STARTUP_DELAY: Duration = Duration::from_millis(100);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const TERMINATE_TIMEOUT: Duration = Duration::from_secs(1);
+const KILL_TIMEOUT: Duration = Duration::from_secs(1);
+const STDERR_CHUNK_BYTES: usize = 8192;
+
+/// Options for [`RpcClient::start`].
+#[derive(Debug, Clone, Default)]
+pub struct RpcClientOptions {
+    /// Path to the CLI entry point (default: `dist/cli.js`).
+    pub cli_path: Option<PathBuf>,
+    /// Working directory for the agent.
+    pub cwd: Option<PathBuf>,
+    /// Environment overrides merged over the inherited environment.
+    pub env: BTreeMap<String, String>,
+    /// Provider passed as `--provider`.
+    pub provider: Option<String>,
+    /// Model passed as `--model`.
+    pub model: Option<String>,
+    /// Additional arguments passed to Node before the CLI entry point.
+    pub node_args: Vec<String>,
+    /// Additional CLI arguments.
+    pub args: Vec<String>,
+}
+
+/// `{ cancelled }` returned by `new_session`, `switch_session`, and `clone`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelledResult {
+    pub cancelled: bool,
+}
+
+/// `cycle_model` data.
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CycleModelResult {
+    pub model: Model,
+    pub thinking_level: ThinkingLevel,
+    pub is_scoped: bool,
+}
+
+/// `cycle_thinking_level` data.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct CycleThinkingLevelResult {
+    pub level: ThinkingLevel,
+}
+
+/// `export_html` data.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct ExportHtmlResult {
+    pub path: String,
+}
+
+/// `fork` data.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct ForkResult {
+    pub text: String,
+    pub cancelled: bool,
+}
+
+/// One `get_fork_messages` entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkMessage {
+    pub entry_id: String,
+    pub text: String,
+}
+
+/// `get_entries` data.
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntriesResult {
+    pub entries: Vec<SessionEntry>,
+    pub leaf_id: Option<String>,
+}
+
+/// `get_tree` data.
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeResult {
+    pub tree: Vec<SessionTreeNode>,
+    pub leaf_id: Option<String>,
+}
+
+/// An RPC client error. `Display` matches the TypeScript `Error.message`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RpcClientError {
+    AlreadyStartedOrStopping,
+    StoppedDuringStartup {
+        stderr: String,
+    },
+    ProcessExited {
+        code: Option<i32>,
+        signal: Option<i32>,
+        stderr: String,
+    },
+    ProcessError {
+        message: String,
+        stderr: String,
+    },
+    StdinError {
+        message: String,
+        stderr: String,
+    },
+    NotStarted,
+    Stopping {
+        stderr: String,
+    },
+    PreviousStopFailed {
+        message: String,
+    },
+    Stopped {
+        stderr: String,
+    },
+    RequestTimeout {
+        command: String,
+        stderr: String,
+    },
+    StopFailed {
+        stderr: String,
+    },
+    IdleTimeout {
+        stderr: String,
+    },
+    CollectTimeout {
+        stderr: String,
+    },
+    CommandFailed {
+        message: String,
+    },
+    MissingData {
+        command: String,
+    },
+    InvalidData {
+        command: String,
+        message: String,
+    },
+    MalformedResponse {
+        message: String,
+    },
+    Serialize {
+        message: String,
+    },
+}
+
+impl fmt::Display for RpcClientError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::AlreadyStartedOrStopping => formatter.write_str("Client already started or stopping"),
+            Self::StoppedDuringStartup { stderr } => {
+                write!(formatter, "RPC client stopped during startup. Stderr: {stderr}")
+            }
+            Self::ProcessExited { code, signal, stderr } => write!(
+                formatter,
+                "Agent process exited (code={} signal={}). Stderr: {stderr}",
+                optional_code(*code),
+                optional_signal(*signal)
+            ),
+            Self::ProcessError { message, stderr } => {
+                write!(formatter, "Agent process error: {message}. Stderr: {stderr}")
+            }
+            Self::StdinError { message, stderr } => {
+                write!(formatter, "Agent process stdin error: {message}. Stderr: {stderr}")
+            }
+            Self::NotStarted => formatter.write_str("Client not started"),
+            Self::Stopping { stderr } => write!(formatter, "RPC client is stopping. Stderr: {stderr}"),
+            Self::PreviousStopFailed { message } => {
+                write!(formatter, "Previous RPC stop failed: {message}")
+            }
+            Self::Stopped { stderr } => write!(formatter, "RPC client stopped. Stderr: {stderr}"),
+            Self::RequestTimeout { command, stderr } => {
+                write!(formatter, "Timeout waiting for response to {command}. Stderr: {stderr}")
+            }
+            Self::StopFailed { stderr } => {
+                write!(formatter, "RPC child did not exit after SIGKILL. Stderr: {stderr}")
+            }
+            Self::IdleTimeout { stderr } => {
+                write!(formatter, "Timeout waiting for agent to become idle. Stderr: {stderr}")
+            }
+            Self::CollectTimeout { stderr } => {
+                write!(formatter, "Timeout collecting events. Stderr: {stderr}")
+            }
+            Self::CommandFailed { message } => formatter.write_str(message),
+            Self::MissingData { command } => {
+                write!(formatter, "Missing response data for {command}")
+            }
+            Self::InvalidData { command, message } => {
+                write!(formatter, "Invalid response data for {command}: {message}")
+            }
+            Self::MalformedResponse { message } => {
+                write!(formatter, "Malformed response: {message}")
+            }
+            Self::Serialize { message } => write!(formatter, "Failed to serialize command: {message}"),
+        }
+    }
+}
+
+impl std::error::Error for RpcClientError {}
+
+fn optional_code(code: Option<i32>) -> String {
+    code.map_or_else(|| "null".to_owned(), |code| code.to_string())
+}
+
+fn optional_signal(signal: Option<i32>) -> String {
+    signal.map_or_else(|| "null".to_owned(), crate::utils::child_process::signal_name)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ExitInfo {
+    code: Option<i32>,
+    signal: Option<i32>,
+}
+
+fn exit_info(status: &std::process::ExitStatus) -> ExitInfo {
+    #[cfg(unix)]
+    let signal = {
+        use std::os::unix::process::ExitStatusExt;
+        status.signal()
+    };
+    #[cfg(not(unix))]
+    let signal = None;
+
+    ExitInfo {
+        code: status.code(),
+        signal,
+    }
+}
+
+type KillFn = Arc<dyn Fn(u32, Signal) -> std::io::Result<()> + Send + Sync>;
+
+fn kill_process(pid: u32, signal: Signal) -> std::io::Result<()> {
+    let Some(pid) = rustix::process::Pid::from_raw(pid as i32) else {
+        return Ok(());
+    };
+    rustix::process::kill_process(pid, signal).map_err(std::io::Error::from)
+}
+
+#[derive(Clone)]
+struct Listener {
+    id: u64,
+    callback: Arc<dyn Fn(&Value) + Send + Sync>,
+}
+
+struct SyncState {
+    stderr: String,
+    exit: Option<ExitInfo>,
+    exit_error: Option<RpcClientError>,
+    active_generation: Option<u64>,
+    stopping: bool,
+    stop_error: Option<RpcClientError>,
+    next_request_id: u64,
+    pending: HashMap<String, oneshot::Sender<Result<RpcResponse, RpcClientError>>>,
+    listeners: Vec<Listener>,
+    next_listener_id: u64,
+}
+
+struct ProcessHandle {
+    pid: u32,
+    exit: watch::Receiver<Option<ExitInfo>>,
+}
+
+struct PendingRequest {
+    id: String,
+    line: String,
+    receiver: oneshot::Receiver<Result<RpcResponse, RpcClientError>>,
+}
+
+#[derive(Default)]
+struct ProcessState {
+    child: Option<ProcessHandle>,
+    stdin: Option<ChildStdin>,
+    reader: Option<JsonlLineReader>,
+}
+
+struct ClientInner {
+    options: RpcClientOptions,
+    sync: Mutex<SyncState>,
+    process: tokio::sync::Mutex<ProcessState>,
+    kill: KillFn,
+    next_generation: AtomicU64,
+}
+
+impl ClientInner {
+    fn handle_line(&self, line: &str) {
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            return;
+        };
+
+        if let Some(id) = response_id(&value) {
+            let sender = self.sync.lock().expect("sync state poisoned").pending.remove(id);
+            if let Some(sender) = sender {
+                let response =
+                    serde_json::from_value::<RpcResponse>(value).map_err(|error| RpcClientError::MalformedResponse {
+                        message: error.to_string(),
+                    });
+                let _ = sender.send(response);
+                return;
+            }
+        }
+
+        let listeners = self.sync.lock().expect("sync state poisoned").listeners.clone();
+        for listener in listeners {
+            (listener.callback)(&value);
+        }
+    }
+
+    fn stderr(&self) -> String {
+        self.sync.lock().expect("sync state poisoned").stderr.clone()
+    }
+}
+
+fn response_id(value: &Value) -> Option<&str> {
+    if value.get("type").and_then(Value::as_str) != Some("response") {
+        return None;
+    }
+    value.get("id").and_then(Value::as_str).filter(|id| !id.is_empty())
+}
+
+fn reject_pending(state: &mut SyncState, error: RpcClientError) {
+    for (_, sender) in state.pending.drain() {
+        let _ = sender.send(Err(error.clone()));
+    }
+}
+
+/// RPC client driving one `pi --mode rpc` child process.
+pub struct RpcClient {
+    inner: Arc<ClientInner>,
+    stop_gate: tokio::sync::Mutex<()>,
+}
+
+impl Default for RpcClient {
+    fn default() -> Self {
+        Self::new(RpcClientOptions::default())
+    }
+}
+
+impl RpcClient {
+    pub fn new(options: RpcClientOptions) -> Self {
+        Self::with_kill(options, Arc::new(kill_process))
+    }
+
+    fn with_kill(options: RpcClientOptions, kill: KillFn) -> Self {
+        Self {
+            inner: Arc::new(ClientInner {
+                options,
+                sync: Mutex::new(SyncState {
+                    stderr: String::new(),
+                    exit: None,
+                    exit_error: None,
+                    active_generation: None,
+                    stopping: false,
+                    stop_error: None,
+                    next_request_id: 0,
+                    pending: HashMap::new(),
+                    listeners: Vec::new(),
+                    next_listener_id: 0,
+                }),
+                process: tokio::sync::Mutex::new(ProcessState::default()),
+                kill,
+                next_generation: AtomicU64::new(0),
+            }),
+            stop_gate: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    /// Starts the RPC agent process.
+    pub async fn start(&self) -> Result<(), RpcClientError> {
+        let mut process = self.inner.process.lock().await;
+        let generation = self.begin_start(&process)?;
+        let spawned = spawn_process(&self.inner.options, self.inner.stderr())?;
+        install_process(&self.inner, generation, spawned, &mut process);
+        drop(process);
+
+        tokio::time::sleep(STARTUP_DELAY).await;
+        self.verify_started(generation)
+    }
+
+    fn begin_start(&self, process: &ProcessState) -> Result<u64, RpcClientError> {
+        let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+        if process.child.is_some() || sync.stopping {
+            return Err(RpcClientError::AlreadyStartedOrStopping);
+        }
+        sync.exit = None;
+        sync.exit_error = None;
+        Ok(self.inner.next_generation.fetch_add(1, Ordering::SeqCst) + 1)
+    }
+
+    fn verify_started(&self, generation: u64) -> Result<(), RpcClientError> {
+        let sync = self.inner.sync.lock().expect("sync state poisoned");
+        if sync.stopping || sync.active_generation != Some(generation) {
+            return Err(RpcClientError::StoppedDuringStartup {
+                stderr: sync.stderr.clone(),
+            });
+        }
+        match sync.exit {
+            Some(exit) => Err(process_exit_error(exit, &sync.stderr)),
+            None => Ok(()),
+        }
+    }
+
+    /// Stops the RPC agent process.
+    pub async fn stop(&self) -> Result<(), RpcClientError> {
+        let _gate = self.stop_gate.lock().await;
+        {
+            let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+            if sync.active_generation.is_none() {
+                return Ok(());
+            }
+            sync.stopping = true;
+        }
+
+        let result = self.stop_process().await;
+
+        let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+        sync.stopping = false;
+        match &result {
+            Ok(()) => sync.stop_error = None,
+            Err(error) => sync.stop_error = Some(error.clone()),
+        }
+        result
+    }
+
+    async fn stop_process(&self) -> Result<(), RpcClientError> {
+        let mut process = self.inner.process.lock().await;
+        if let Some(reader) = process.reader.take() {
+            reader.detach();
+        }
+        {
+            let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+            let error = RpcClientError::Stopped {
+                stderr: sync.stderr.clone(),
+            };
+            reject_pending(&mut sync, error);
+        }
+
+        let result = self.terminate(&mut process).await;
+        if result.is_ok() {
+            process.stdin = None;
+            process.child = None;
+            self.inner.sync.lock().expect("sync state poisoned").active_generation = None;
+        }
+        result
+    }
+
+    async fn terminate(&self, process: &mut ProcessState) -> Result<(), RpcClientError> {
+        let Some(handle) = process.child.as_mut() else {
+            return Ok(());
+        };
+        if handle.exit.borrow().is_some() {
+            return Ok(());
+        }
+
+        let pid = handle.pid;
+        let _ = (self.inner.kill)(pid, Signal::TERM);
+        if wait_for_exit(&mut handle.exit, TERMINATE_TIMEOUT).await {
+            return Ok(());
+        }
+        let _ = (self.inner.kill)(pid, Signal::KILL);
+        if wait_for_exit(&mut handle.exit, KILL_TIMEOUT).await {
+            return Ok(());
+        }
+        Err(RpcClientError::StopFailed {
+            stderr: self.inner.stderr(),
+        })
+    }
+
+    /// Subscribes to agent events. Dropping the subscription unsubscribes.
+    pub fn on_event<F>(&self, listener: F) -> RpcEventSubscription
+    where
+        F: Fn(&Value) + Send + Sync + 'static,
+    {
+        let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+        sync.next_listener_id += 1;
+        let id = sync.next_listener_id;
+        sync.listeners.push(Listener {
+            id,
+            callback: Arc::new(listener),
+        });
+        RpcEventSubscription {
+            inner: Arc::clone(&self.inner),
+            id,
+        }
+    }
+
+    /// Collected stderr output.
+    pub fn stderr(&self) -> String {
+        self.inner.stderr()
+    }
+
+    /// Sends a command and waits for its response.
+    pub async fn send(&self, body: RpcCommandBody) -> Result<RpcResponse, RpcClientError> {
+        let command_type = body.command_type();
+        let request = self.begin_request(body)?;
+        self.write_request_line(&request).await?;
+        self.await_request_response(request, command_type).await
+    }
+
+    fn begin_request(&self, body: RpcCommandBody) -> Result<PendingRequest, RpcClientError> {
+        let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+        if sync.stopping {
+            return Err(RpcClientError::Stopping {
+                stderr: sync.stderr.clone(),
+            });
+        }
+        if let Some(error) = &sync.stop_error {
+            return Err(RpcClientError::PreviousStopFailed {
+                message: error.to_string(),
+            });
+        }
+        if sync.active_generation.is_none() {
+            return Err(RpcClientError::NotStarted);
+        }
+        if let Some(error) = &sync.exit_error {
+            return Err(error.clone());
+        }
+        if let Some(exit) = sync.exit {
+            let error = process_exit_error(exit, &sync.stderr);
+            sync.exit_error = Some(error.clone());
+            return Err(error);
+        }
+
+        sync.next_request_id += 1;
+        let id = format!("req_{}", sync.next_request_id);
+        let command = RpcCommand::new(body, Some(id.clone()));
+        let line = serialize_json_line(&command).map_err(|error| RpcClientError::Serialize {
+            message: error.to_string(),
+        })?;
+        let (sender, receiver) = oneshot::channel();
+        sync.pending.insert(id.clone(), sender);
+        Ok(PendingRequest { id, line, receiver })
+    }
+
+    async fn write_request_line(&self, request: &PendingRequest) -> Result<(), RpcClientError> {
+        let write_result = {
+            let mut process = self.inner.process.lock().await;
+            match process.stdin.as_mut() {
+                Some(stdin) => stdin.write_all(request.line.as_bytes()).await,
+                None => Err(std::io::Error::new(
+                    std::io::ErrorKind::NotConnected,
+                    "stdin is not available",
+                )),
+            }
+        };
+        let Err(error) = write_result else {
+            return Ok(());
+        };
+
+        let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+        sync.pending.remove(&request.id);
+        let error = RpcClientError::StdinError {
+            message: error.to_string(),
+            stderr: sync.stderr.clone(),
+        };
+        sync.exit_error = Some(error.clone());
+        Err(error)
+    }
+
+    async fn await_request_response(
+        &self,
+        request: PendingRequest,
+        command_type: &str,
+    ) -> Result<RpcResponse, RpcClientError> {
+        match tokio::time::timeout(REQUEST_TIMEOUT, request.receiver).await {
+            Ok(Ok(response)) => response,
+            Ok(Err(_)) => Err(RpcClientError::Stopped {
+                stderr: self.inner.stderr(),
+            }),
+            Err(_) => {
+                self.inner
+                    .sync
+                    .lock()
+                    .expect("sync state poisoned")
+                    .pending
+                    .remove(&request.id);
+                Err(RpcClientError::RequestTimeout {
+                    command: command_type.to_owned(),
+                    stderr: self.inner.stderr(),
+                })
+            }
+        }
+    }
+
+    // =========================================================================
+    // Command methods
+    // =========================================================================
+
+    pub async fn prompt(
+        &self,
+        message: impl Into<String>,
+        images: Option<Vec<ImageContent>>,
+    ) -> Result<(), RpcClientError> {
+        self.send(RpcCommandBody::Prompt {
+            message: message.into(),
+            images,
+            streaming_behavior: None,
+        })
+        .await?;
+        Ok(())
+    }
+
+    pub async fn steer(
+        &self,
+        message: impl Into<String>,
+        images: Option<Vec<ImageContent>>,
+    ) -> Result<(), RpcClientError> {
+        self.send(RpcCommandBody::Steer {
+            message: message.into(),
+            images,
+        })
+        .await?;
+        Ok(())
+    }
+
+    pub async fn follow_up(
+        &self,
+        message: impl Into<String>,
+        images: Option<Vec<ImageContent>>,
+    ) -> Result<(), RpcClientError> {
+        self.send(RpcCommandBody::FollowUp {
+            message: message.into(),
+            images,
+        })
+        .await?;
+        Ok(())
+    }
+
+    pub async fn abort(&self) -> Result<(), RpcClientError> {
+        self.send(RpcCommandBody::Abort).await?;
+        Ok(())
+    }
+
+    pub async fn interrupt(&self) -> Result<(), RpcClientError> {
+        self.send(RpcCommandBody::Interrupt).await?;
+        Ok(())
+    }
+
+    pub async fn new_session(&self, parent_session: Option<String>) -> Result<CancelledResult, RpcClientError> {
+        let response = self.send(RpcCommandBody::NewSession { parent_session }).await?;
+        response_data(response, "new_session")
+    }
+
+    pub async fn get_state(&self) -> Result<RpcSessionState, RpcClientError> {
+        let response = self.send(RpcCommandBody::GetState).await?;
+        response_data(response, "get_state")
+    }
+
+    pub async fn set_model(
+        &self,
+        provider: impl Into<String>,
+        model_id: impl Into<String>,
+    ) -> Result<Model, RpcClientError> {
+        let response = self
+            .send(RpcCommandBody::SetModel {
+                provider: provider.into(),
+                model_id: model_id.into(),
+            })
+            .await?;
+        response_data(response, "set_model")
+    }
+
+    pub async fn cycle_model(&self) -> Result<Option<CycleModelResult>, RpcClientError> {
+        let response = self.send(RpcCommandBody::CycleModel).await?;
+        response_data(response, "cycle_model")
+    }
+
+    pub async fn get_available_models(&self) -> Result<Vec<Model>, RpcClientError> {
+        let response = self.send(RpcCommandBody::GetAvailableModels).await?;
+        let data: AvailableModels = response_data(response, "get_available_models")?;
+        Ok(data.models)
+    }
+
+    pub async fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), RpcClientError> {
+        self.send(RpcCommandBody::SetThinkingLevel { level }).await?;
+        Ok(())
+    }
+
+    pub async fn cycle_thinking_level(&self) -> Result<Option<CycleThinkingLevelResult>, RpcClientError> {
+        let response = self.send(RpcCommandBody::CycleThinkingLevel).await?;
+        response_data(response, "cycle_thinking_level")
+    }
+
+    pub async fn get_available_thinking_levels(&self) -> Result<Vec<ThinkingLevel>, RpcClientError> {
+        let response = self.send(RpcCommandBody::GetAvailableThinkingLevels).await?;
+        let data: AvailableThinkingLevels = response_data(response, "get_available_thinking_levels")?;
+        Ok(data.levels)
+    }
+
+    pub async fn set_steering_mode(&self, mode: QueueMode) -> Result<(), RpcClientError> {
+        self.send(RpcCommandBody::SetSteeringMode { mode }).await?;
+        Ok(())
+    }
+
+    pub async fn set_follow_up_mode(&self, mode: QueueMode) -> Result<(), RpcClientError> {
+        self.send(RpcCommandBody::SetFollowUpMode { mode }).await?;
+        Ok(())
+    }
+
+    pub async fn set_auto_compaction(&self, enabled: bool) -> Result<(), RpcClientError> {
+        self.send(RpcCommandBody::SetAutoCompaction { enabled }).await?;
+        Ok(())
+    }
+
+    pub async fn compact(&self, custom_instructions: Option<String>) -> Result<CompactionResult, RpcClientError> {
+        let response = self.send(RpcCommandBody::Compact { custom_instructions }).await?;
+        response_data(response, "compact")
+    }
+
+    pub async fn set_auto_retry(&self, enabled: bool) -> Result<(), RpcClientError> {
+        self.send(RpcCommandBody::SetAutoRetry { enabled }).await?;
+        Ok(())
+    }
+
+    pub async fn abort_retry(&self) -> Result<(), RpcClientError> {
+        self.send(RpcCommandBody::AbortRetry).await?;
+        Ok(())
+    }
+
+    pub async fn bash(&self, command: impl Into<String>) -> Result<BashResult, RpcClientError> {
+        let response = self
+            .send(RpcCommandBody::Bash {
+                command: command.into(),
+                exclude_from_context: None,
+            })
+            .await?;
+        response_data(response, "bash")
+    }
+
+    pub async fn abort_bash(&self) -> Result<(), RpcClientError> {
+        self.send(RpcCommandBody::AbortBash).await?;
+        Ok(())
+    }
+
+    pub async fn get_session_stats(&self) -> Result<SessionStats, RpcClientError> {
+        let response = self.send(RpcCommandBody::GetSessionStats).await?;
+        response_data(response, "get_session_stats")
+    }
+
+    pub async fn export_html(&self, output_path: Option<String>) -> Result<ExportHtmlResult, RpcClientError> {
+        let response = self.send(RpcCommandBody::ExportHtml { output_path }).await?;
+        response_data(response, "export_html")
+    }
+
+    pub async fn switch_session(&self, session_path: impl Into<String>) -> Result<CancelledResult, RpcClientError> {
+        let response = self
+            .send(RpcCommandBody::SwitchSession {
+                session_path: session_path.into(),
+            })
+            .await?;
+        response_data(response, "switch_session")
+    }
+
+    pub async fn fork(&self, entry_id: impl Into<String>) -> Result<ForkResult, RpcClientError> {
+        let response = self
+            .send(RpcCommandBody::Fork {
+                entry_id: entry_id.into(),
+            })
+            .await?;
+        response_data(response, "fork")
+    }
+
+    pub async fn clone_session(&self) -> Result<CancelledResult, RpcClientError> {
+        let response = self.send(RpcCommandBody::Clone).await?;
+        response_data(response, "clone")
+    }
+
+    pub async fn get_fork_messages(&self) -> Result<Vec<ForkMessage>, RpcClientError> {
+        let response = self.send(RpcCommandBody::GetForkMessages).await?;
+        let data: ForkMessages = response_data(response, "get_fork_messages")?;
+        Ok(data.messages)
+    }
+
+    pub async fn get_entries(&self, since: Option<String>) -> Result<EntriesResult, RpcClientError> {
+        let response = self.send(RpcCommandBody::GetEntries { since }).await?;
+        response_data(response, "get_entries")
+    }
+
+    pub async fn get_tree(&self) -> Result<TreeResult, RpcClientError> {
+        let response = self.send(RpcCommandBody::GetTree).await?;
+        response_data(response, "get_tree")
+    }
+
+    pub async fn get_last_assistant_text(&self) -> Result<Option<String>, RpcClientError> {
+        let response = self.send(RpcCommandBody::GetLastAssistantText).await?;
+        let data: LastAssistantText = response_data(response, "get_last_assistant_text")?;
+        Ok(data.text)
+    }
+
+    pub async fn set_session_name(&self, name: impl Into<String>) -> Result<(), RpcClientError> {
+        self.send(RpcCommandBody::SetSessionName { name: name.into() }).await?;
+        Ok(())
+    }
+
+    pub async fn get_messages(&self) -> Result<Vec<pi_agent_core::agent::AgentMessage>, RpcClientError> {
+        let response = self.send(RpcCommandBody::GetMessages).await?;
+        let data: Messages = response_data(response, "get_messages")?;
+        Ok(data.messages)
+    }
+
+    pub async fn get_commands(&self) -> Result<Vec<RpcSlashCommand>, RpcClientError> {
+        let response = self.send(RpcCommandBody::GetCommands).await?;
+        let data: Commands = response_data(response, "get_commands")?;
+        Ok(data.commands)
+    }
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    /// Waits for the final agent end after any automatic retry.
+    pub async fn wait_for_idle(&self, timeout: Duration) -> Result<(), RpcClientError> {
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let _subscription = self.subscribe_sender(sender);
+        let outcome = tokio::time::timeout(timeout, async {
+            while let Some(event) = receiver.recv().await {
+                if is_final_agent_end(&event) {
+                    return;
+                }
+            }
+        })
+        .await;
+        outcome.map_err(|_| RpcClientError::IdleTimeout {
+            stderr: self.inner.stderr(),
+        })
+    }
+
+    /// Collects events until the agent becomes idle.
+    pub async fn collect_events(&self, timeout: Duration) -> Result<Vec<Value>, RpcClientError> {
+        self.start_collector().finish(timeout).await
+    }
+
+    /// Sends a prompt and waits for completion, returning all events.
+    pub async fn prompt_and_wait(
+        &self,
+        message: impl Into<String>,
+        images: Option<Vec<ImageContent>>,
+        timeout: Duration,
+    ) -> Result<Vec<Value>, RpcClientError> {
+        let collector = self.start_collector();
+        self.prompt(message, images).await?;
+        collector.finish(timeout).await
+    }
+
+    fn start_collector(&self) -> EventCollector {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        let subscription = self.subscribe_sender(sender);
+        EventCollector {
+            receiver,
+            subscription,
+            inner: Arc::clone(&self.inner),
+        }
+    }
+
+    fn subscribe_sender(&self, sender: mpsc::UnboundedSender<Value>) -> RpcEventSubscription {
+        self.on_event(move |event| {
+            let _ = sender.send(event.clone());
+        })
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct AvailableModels {
+    models: Vec<Model>,
+}
+
+#[derive(serde::Deserialize)]
+struct AvailableThinkingLevels {
+    levels: Vec<ThinkingLevel>,
+}
+
+#[derive(serde::Deserialize)]
+struct ForkMessages {
+    messages: Vec<ForkMessage>,
+}
+
+#[derive(serde::Deserialize)]
+struct LastAssistantText {
+    #[serde(default)]
+    text: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct Messages {
+    messages: Vec<pi_agent_core::agent::AgentMessage>,
+}
+
+#[derive(serde::Deserialize)]
+struct Commands {
+    commands: Vec<RpcSlashCommand>,
+}
+
+struct EventCollector {
+    receiver: mpsc::UnboundedReceiver<Value>,
+    subscription: RpcEventSubscription,
+    inner: Arc<ClientInner>,
+}
+
+impl EventCollector {
+    async fn finish(mut self, timeout: Duration) -> Result<Vec<Value>, RpcClientError> {
+        let mut events = Vec::new();
+        let outcome = tokio::time::timeout(timeout, async {
+            while let Some(event) = self.receiver.recv().await {
+                let done = is_final_agent_end(&event);
+                events.push(event);
+                if done {
+                    return;
+                }
+            }
+        })
+        .await;
+        drop(self.subscription);
+        outcome.map_err(|_| RpcClientError::CollectTimeout {
+            stderr: self.inner.stderr(),
+        })?;
+        Ok(events)
+    }
+}
+
+/// Handle for one [`RpcClient::on_event`] subscription.
+pub struct RpcEventSubscription {
+    inner: Arc<ClientInner>,
+    id: u64,
+}
+
+impl RpcEventSubscription {
+    /// Removes the listener before the handle is dropped.
+    pub fn unsubscribe(self) {}
+}
+
+impl Drop for RpcEventSubscription {
+    fn drop(&mut self) {
+        if let Ok(mut sync) = self.inner.sync.lock() {
+            sync.listeners.retain(|listener| listener.id != self.id);
+        }
+    }
+}
+
+fn is_final_agent_end(event: &Value) -> bool {
+    event.get("type").and_then(Value::as_str) == Some("agent_end")
+        && !event.get("willRetry").and_then(Value::as_bool).unwrap_or(false)
+}
+
+fn response_data<T: DeserializeOwned>(response: RpcResponse, command: &str) -> Result<T, RpcClientError> {
+    if !response.success {
+        return Err(RpcClientError::CommandFailed {
+            message: response.error.unwrap_or_default(),
+        });
+    }
+    let data = response.data.ok_or_else(|| RpcClientError::MissingData {
+        command: command.to_owned(),
+    })?;
+    serde_json::from_value(data).map_err(|error| RpcClientError::InvalidData {
+        command: command.to_owned(),
+        message: error.to_string(),
+    })
+}
+
+fn process_exit_error(exit: ExitInfo, stderr: &str) -> RpcClientError {
+    RpcClientError::ProcessExited {
+        code: exit.code,
+        signal: exit.signal,
+        stderr: stderr.to_owned(),
+    }
+}
+
+struct SpawnedProcess {
+    child: tokio::process::Child,
+    stdin: ChildStdin,
+    stdout: tokio::process::ChildStdout,
+    stderr: tokio::process::ChildStderr,
+    pid: u32,
+}
+
+fn spawn_process(options: &RpcClientOptions, stderr: String) -> Result<SpawnedProcess, RpcClientError> {
+    let cli_path = options.cli_path.clone().unwrap_or_else(|| PathBuf::from("dist/cli.js"));
+    let mut command = Command::new("node");
+    command.args(&options.node_args);
+    command.arg(&cli_path);
+    command.args(["--mode", "rpc"]);
+    if let Some(provider) = &options.provider {
+        command.args(["--provider", provider]);
+    }
+    if let Some(model) = &options.model {
+        command.args(["--model", model]);
+    }
+    command.args(&options.args);
+    if let Some(cwd) = &options.cwd {
+        command.current_dir(cwd);
+    }
+    command.envs(&options.env);
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = command.spawn().map_err(|error| RpcClientError::ProcessError {
+        message: spawn_error_message(&error),
+        stderr,
+    })?;
+    let stdin = child.stdin.take().expect("piped child stdin must exist");
+    let stdout = child.stdout.take().expect("piped child stdout must exist");
+    let stderr = child.stderr.take().expect("piped child stderr must exist");
+    let pid = child.id().expect("spawned child must have a pid");
+    Ok(SpawnedProcess {
+        child,
+        stdin,
+        stdout,
+        stderr,
+        pid,
+    })
+}
+
+fn install_process(inner: &Arc<ClientInner>, generation: u64, spawned: SpawnedProcess, process: &mut ProcessState) {
+    let (exit_sender, exit_receiver) = watch::channel(None);
+
+    let stderr_inner = Arc::clone(inner);
+    tokio::spawn(async move {
+        read_stderr(stderr_inner, spawned.stderr).await;
+    });
+
+    let reader_inner = Arc::clone(inner);
+    let reader = attach_jsonl_line_reader(spawned.stdout, move |line| reader_inner.handle_line(&line));
+
+    let wait_inner = Arc::clone(inner);
+    tokio::spawn(async move {
+        let mut child = spawned.child;
+        let status = child.wait().await;
+        publish_exit(wait_inner, generation, exit_sender, status);
+    });
+
+    process.child = Some(ProcessHandle {
+        pid: spawned.pid,
+        exit: exit_receiver,
+    });
+    process.stdin = Some(spawned.stdin);
+    process.reader = Some(reader);
+    inner.sync.lock().expect("sync state poisoned").active_generation = Some(generation);
+}
+
+fn spawn_error_message(error: &std::io::Error) -> String {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => "spawn node ENOENT".to_owned(),
+        std::io::ErrorKind::PermissionDenied => "spawn node EACCES".to_owned(),
+        _ => format!("spawn node {}", error),
+    }
+}
+
+async fn read_stderr(inner: Arc<ClientInner>, mut reader: impl AsyncRead + Unpin) {
+    let mut buffer = vec![0_u8; STDERR_CHUNK_BYTES];
+    loop {
+        match reader.read(&mut buffer).await {
+            Ok(0) | Err(_) => return,
+            Ok(bytes_read) => {
+                let chunk = &buffer[..bytes_read];
+                inner
+                    .sync
+                    .lock()
+                    .expect("sync state poisoned")
+                    .stderr
+                    .push_str(&String::from_utf8_lossy(chunk));
+                let _ = std::io::stderr().write_all(chunk);
+            }
+        }
+    }
+}
+
+fn publish_exit(
+    inner: Arc<ClientInner>,
+    generation: u64,
+    sender: watch::Sender<Option<ExitInfo>>,
+    status: std::io::Result<std::process::ExitStatus>,
+) {
+    let Ok(status) = status else {
+        return;
+    };
+    let info = exit_info(&status);
+    let _ = sender.send(Some(info));
+
+    let mut sync = inner.sync.lock().expect("sync state poisoned");
+    if sync.active_generation == Some(generation) {
+        sync.exit = Some(info);
+        let error = process_exit_error(info, &sync.stderr);
+        sync.exit_error = Some(error.clone());
+        reject_pending(&mut sync, error);
+    }
+}
+
+async fn wait_for_exit(receiver: &mut watch::Receiver<Option<ExitInfo>>, timeout: Duration) -> bool {
+    matches!(
+        tokio::time::timeout(timeout, receiver.wait_for(Option::is_some)).await,
+        Ok(Ok(_))
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
+
+    use super::*;
+
+    fn temp_script(name: &str, contents: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().expect("temp dir must be created");
+        let path = dir.path().join(name);
+        std::fs::write(&path, contents).expect("child script must be written");
+        (dir, path)
+    }
+
+    #[tokio::test]
+    async fn stop_failure_retains_the_process_handle_and_reports_previous_failure() {
+        let (_dir, script) = temp_script(
+            "child.mjs",
+            r#"process.on("SIGTERM", () => {});
+process.stdin.resume();
+setInterval(() => {}, 1000);
+"#,
+        );
+        let fail_kill = Arc::new(AtomicBool::new(true));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let kill_flag = Arc::clone(&fail_kill);
+        let kill_calls = Arc::clone(&calls);
+        let client = RpcClient::with_kill(
+            RpcClientOptions {
+                cli_path: Some(script),
+                ..RpcClientOptions::default()
+            },
+            Arc::new(move |pid, signal| {
+                kill_calls.fetch_add(1, Ordering::SeqCst);
+                if kill_flag.load(Ordering::SeqCst) {
+                    return Ok(());
+                }
+                kill_process(pid, signal)
+            }),
+        );
+
+        client.start().await.expect("client must start");
+        let error = client.stop().await.expect_err("stop must fail");
+        assert_eq!(error.to_string(), "RPC child did not exit after SIGKILL. Stderr: ");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+        let error = client.start().await.expect_err("start must be rejected");
+        assert_eq!(error.to_string(), "Client already started or stopping");
+        let error = client
+            .send(RpcCommandBody::GetCommands)
+            .await
+            .expect_err("send must be rejected");
+        assert_eq!(
+            error.to_string(),
+            "Previous RPC stop failed: RPC child did not exit after SIGKILL. Stderr: "
+        );
+
+        fail_kill.store(false, Ordering::SeqCst);
+        client.stop().await.expect("retry must stop the child");
+    }
+}

@@ -221,7 +221,8 @@ pub fn to_fixed(value: f64, fraction_digits: u32) -> String {
     if !value.is_finite() || value.abs() >= 1e21 {
         return js_number_to_string(value);
     }
-    let sign = if value.is_sign_negative() { "-" } else { "" };
+    // V8 keeps the sign only for values below zero; `(-0).toFixed(1)` is `"0.0"`.
+    let sign = if value < 0.0 { "-" } else { "" };
     let magnitude = value.abs();
     let scale = 10_u128
         .checked_pow(fraction_digits)

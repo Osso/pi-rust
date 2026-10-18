@@ -26,7 +26,11 @@ missing path, both targets, no target, blank name, cancelled switch).
 
 ## Gaps
 
-- `renderCall`/`renderResult` are not ported yet.
+- None.
+
+## Renderers
+
+Renderers ported: `render_call` (target + starter marker), `render_result` (tool output). Covered by `differential_interactive_components.rs::tool_renderer_cases`.
 - `SessionManager.list`/`listAll` metadata integration is still partial in the port
   (`control_db_path` is accepted but the scan is used). `resume_session` therefore resolves
   metadata-only sessions through `findActiveSessionMetadata*` and file scans; differential

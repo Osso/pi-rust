@@ -1,19 +1,21 @@
 //! `list_sessions` tool (`core/tools/list-sessions.ts`).
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
+use pi_tui::tui::ComponentRef;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::result::text_result;
-use crate::core::extensions::types::ExtensionContext;
+use crate::core::extensions::types::{ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::core::session_directory::{SessionDirectoryOptions, list_sessions};
 use crate::core::session_health::SessionDirectoryEntry;
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 pub const NAME: &str = "list_sessions";
 pub const LABEL: &str = "list_sessions";
@@ -146,4 +148,33 @@ impl AgentHarnessTool<ExtensionContext> for ListSessionsTool {
             Ok(text_result(lines.join("\n"), details))
         })
     }
+}
+
+fn format_call(theme: &Theme) -> String {
+    theme.fg(ThemeColor::ToolTitle, &theme.bold("list_sessions"))
+}
+
+/// `renderCall` for the list_sessions tool.
+pub fn render_call(_args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+    super::render_text_component(context, format_call(theme))
+}
+
+/// `renderResult` for the list_sessions tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    _options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    super::render_text_component(context, super::render_tool_output(result, theme))
+}
+
+/// `create_list_sessions_tool_definition()`.
+pub fn create_list_sessions_tool_definition() -> ToolDefinition {
+    let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(ListSessionsTool::new()));
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
+    definition
 }

@@ -21,7 +21,11 @@ Differential: `tests/differential_session_tools.rs::change_working_directory_too
 
 ## Gaps
 
-- `renderCall`/`renderResult` are not ported yet.
+- None.
+
+## Renderers
+
+Renderers ported: `render_call` (path/session target), `render_result` (tool output). Covered by `differential_interactive_components.rs::tool_renderer_cases`.
 - Real runtime relocation/restart lifecycle tests (`suite/change-working-directory-tool.test.ts`
   process cases) belong to the agent-session/runtime slices; this slice ports the tool's own
   validation, resolution, and relocation call.

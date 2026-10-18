@@ -133,4 +133,8 @@ impl Component for BoxComponent {
             child.borrow_mut().invalidate();
         }
     }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
 }

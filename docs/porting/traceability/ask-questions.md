@@ -24,7 +24,11 @@ duplicate options, duplicate questions).
 
 ## Gaps
 
-- `renderCall`/`renderResult` are not ported yet.
+- None.
+
+## Renderers
+
+Renderers ported: `render_call` (question count), `render_result` (answered/cancelled/empty). Covered by `differential_interactive_components.rs::tool_renderer_cases`.
 - The source wraps `sendDesktopNotification` in `try/catch` and logs to `console.error`; the Rust
   `DesktopNotifier` trait has no error channel, so a throwing host notifier cannot be represented.
   Notification content/close behavior is identical.

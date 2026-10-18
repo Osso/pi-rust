@@ -1,22 +1,24 @@
 //! `broadcast` tool (`core/tools/broadcast.ts`).
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
+use pi_tui::tui::ComponentRef;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::result::text_result;
-use crate::core::extensions::types::ExtensionContext;
+use crate::core::extensions::types::{ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::core::session_directory::{
     BroadcastSessionFilters, BroadcastSessionsInput, SessionDirectoryOptions, broadcast_to_sessions,
 };
 use crate::core::session_health::{SessionBroadcastOutcome, SessionBroadcastResult, SessionLiveStatus};
 use crate::core::session_manager::lock_session_manager;
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 pub const NAME: &str = "broadcast";
 pub const LABEL: &str = "broadcast";
@@ -217,4 +219,67 @@ impl AgentHarnessTool<ExtensionContext> for BroadcastTool {
             Ok(text_result(lines.join("\n"), details))
         })
     }
+}
+
+fn format_call(args: &Value, theme: &Theme) -> String {
+    let mut filters = Vec::new();
+    if let Some(ids) = args
+        .get("session_ids")
+        .and_then(Value::as_array)
+        .filter(|ids| !ids.is_empty())
+    {
+        filters.push(format!("ids={}", ids.len()));
+    }
+    if let Some(cwd) = args.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty()) {
+        filters.push(format!("cwd={cwd}"));
+    }
+    if let Some(name) = args.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) {
+        filters.push(format!("name={name}"));
+    }
+    if let Some(status) = args
+        .get("status")
+        .and_then(Value::as_array)
+        .filter(|status| !status.is_empty())
+    {
+        let status = status
+            .iter()
+            .map(|value| value.as_str().map_or_else(|| value.to_string(), str::to_owned))
+            .collect::<Vec<_>>()
+            .join(",");
+        filters.push(format!("status={status}"));
+    }
+    let filter_text = if filters.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", theme.fg(ThemeColor::Dim, &filters.join(" ")))
+    };
+    format!(
+        "{}{filter_text}",
+        theme.fg(ThemeColor::ToolTitle, &theme.bold("broadcast"))
+    )
+}
+
+/// `renderCall` for the broadcast tool.
+pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+    super::render_text_component(context, format_call(args, theme))
+}
+
+/// `renderResult` for the broadcast tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    _options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    super::render_text_component(context, super::render_tool_output(result, theme))
+}
+
+/// `createBroadcastToolDefinition()`.
+pub fn create_broadcast_tool_definition() -> ToolDefinition {
+    let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(BroadcastTool::new()));
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
+    definition
 }

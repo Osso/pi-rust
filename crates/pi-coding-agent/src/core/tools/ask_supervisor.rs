@@ -1,19 +1,21 @@
 //! `ask_supervisor` tool (`core/tools/ask-supervisor.ts`).
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
+use pi_tui::tui::ComponentRef;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::result::text_result;
-use crate::core::extensions::types::ExtensionContext;
+use crate::core::extensions::types::{ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::core::session_control_db::{SupervisorRequestKind, SupervisorResponse};
 use crate::core::session_manager::lock_session_manager;
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::supervisor::client::{RequestSupervisorDecisionInput, advisory_payload, request_supervisor_decision};
 use crate::supervisor::project_resolver::{DEFAULT_SUPERVISOR_KB_DIR, resolve_supervisor_project_for_cwd};
 
@@ -163,4 +165,33 @@ fn require_control_db_path(context: &ExtensionContext, tool_name: &str) -> Resul
         .control_db_path()
         .map_err(|error| ToolError::new(error.message))?
         .ok_or_else(|| ToolError::new(format!("{tool_name} requires a control database path")))
+}
+
+fn format_call(theme: &Theme) -> String {
+    theme.fg(ThemeColor::ToolTitle, &theme.bold("ask_supervisor"))
+}
+
+/// `renderCall` for the ask_supervisor tool.
+pub fn render_call(_args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+    super::render_text_component(context, format_call(theme))
+}
+
+/// `renderResult` for the ask_supervisor tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    _options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    super::render_text_component(context, super::render_tool_output(result, theme))
+}
+
+/// `create_ask_supervisor_tool_definition()`.
+pub fn create_ask_supervisor_tool_definition() -> ToolDefinition {
+    let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(AskSupervisorTool::new()));
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
+    definition
 }
