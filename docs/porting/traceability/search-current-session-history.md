@@ -22,7 +22,11 @@ Differential: `tests/differential_session_tools.rs::search_current_session_histo
 
 ## Gaps
 
-- `renderCall`/`renderResult` need `Theme`.
+- None.
+
+## Renderers
+
+Renderers ported: `render_call` (title + `JSON.stringify(query ?? "")`), `render_result` (tool output). Covered by `differential_interactive_components.rs::tool_renderer_cases`.
 - `String.prototype.toLocaleLowerCase` is ported as `str::to_lowercase` (Unicode default case
   mapping). Node's default locale on the pinned host is `en-US`; locale-specific case folding
   (e.g. Turkish `İ`) is an approved deviation already used by `pi-agent-core::search`.

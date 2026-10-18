@@ -294,6 +294,98 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return { renders, selected };
 	},
+	toolExecution: async (api, request, sourceRoot) => {
+		const tui = (await import(pathToFileURL(`${sourceRoot}/../../tui/src/index.ts`).href)) as Api;
+		const tools = (await import(pathToFileURL(`${sourceRoot}/core/tools/index.ts`).href)) as Api;
+		const definition = request.definition
+			? {
+					name: request.definition.name,
+					label: request.definition.name,
+					description: "",
+					parameters: { type: "object", properties: {} },
+					execute: async () => ({ content: [] }),
+					renderShell: request.definition.shell,
+					renderCall: (_args: any, _theme: any, context: any) => {
+						const text = context.lastComponent ?? new tui.Text("", 0, 0);
+						text.setText(request.definition.call);
+						return text;
+					},
+					renderResult: (_result: any, options: any, _theme: any, context: any) => {
+						const text = context.lastComponent ?? new tui.Text("", 0, 0);
+						text.setText(`${request.definition.result} expanded=${options.expanded}`);
+						return text;
+					},
+				}
+			: undefined;
+		const ui = { requestRender() {} };
+		const component = new api.ToolExecutionComponent(
+			request.toolName,
+			request.toolCallId,
+			request.args,
+			request.options ?? {},
+			definition,
+			ui,
+			request.cwd,
+		);
+		const renders: string[][] = [];
+		for (const event of request.events) {
+			if (event.type === "args") component.updateArgs(event.args);
+			if (event.type === "argsComplete") component.setArgsComplete();
+			if (event.type === "expanded") component.setExpanded(event.expanded);
+			if (event.type === "result") {
+				component.updateResult(event.result, event.isPartial ?? false, event.finishedAt);
+			}
+			renders.push(component.render(request.width));
+		}
+		component.dispose();
+		return renders;
+	},
+	toolRenderers: async (_api, request, sourceRoot) => {
+		const themeModule = (await import(
+			pathToFileURL(`${sourceRoot}/modes/interactive/theme/theme.ts`).href
+		)) as Api;
+		const theme = themeModule.theme;
+		const files: Record<string, string> = {
+			change_working_directory: "change-working-directory",
+			resume_session: "resume-session",
+			search_current_session_history: "search-current-session-history",
+			broadcast: "broadcast",
+			channel_post: "channel-post",
+			ask_questions: "ask-questions",
+			ask_supervisor: "ask-supervisor",
+			list_sessions: "list-sessions",
+		};
+		const modules = new Map<string, Api>();
+		const definitionFor = async (tool: string): Promise<any> => {
+			let api = modules.get(tool);
+			if (!api) {
+				api = (await import(
+					pathToFileURL(`${sourceRoot}/core/tools/${files[tool]}.ts`).href
+				)) as Api;
+				modules.set(tool, api);
+			}
+			const pascal = tool
+				.split("_")
+				.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+				.join("");
+			return api[`create${pascal}ToolDefinition`]();
+		};
+		const renders: string[][] = [];
+		for (const item of request.cases) {
+			const definition = await definitionFor(item.tool);
+			const component =
+				item.kind === "call"
+					? definition.renderCall(item.args, theme, { lastComponent: undefined })
+					: definition.renderResult(
+							{ content: item.content, details: item.details, isError: item.isError ?? false },
+							{ expanded: false, isPartial: false },
+							theme,
+							{ lastComponent: undefined },
+						);
+			renders.push(component.render(request.width));
+		}
+		return renders;
+	},
 	footerHelpers: (api, request) => ({
 		tokens: request.tokens.map((count: number) => api.formatTokens(count)),
 		cwd: request.cwdCases.map((value: any) => api.formatCwdForFooter(value.cwd, value.home)),

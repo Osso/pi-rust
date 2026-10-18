@@ -9,17 +9,22 @@ use pi_agent_core::{
 };
 use pi_ai::request::BoxFuture;
 use pi_js_compat::string::js_trim;
+use pi_tui::tui::ComponentRef;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use std::sync::Arc;
 
 use super::result::terminating_text_result;
-use crate::core::extensions::types::{ExtensionContext, SwitchSessionOptions, UserMessageContent};
+use crate::core::extensions::types::{
+    ExtensionContext, SwitchSessionOptions, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
+    UserMessageContent,
+};
 use crate::core::session_control_db::{
     SessionMetadata, find_active_session_metadata_by_id, find_active_session_metadata_by_name,
 };
 use crate::core::session_manager::{SessionInfo, SessionManager};
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::paths::{PathInputOptions, resolve_path};
 
 pub const NAME: &str = "resume_session";
@@ -433,4 +438,56 @@ impl AgentHarnessTool<ExtensionContext> for ResumeSessionTool {
             ))
         })
     }
+}
+
+fn format_resume_target(args: &Value) -> String {
+    if let Some(path) = args.get("path").and_then(Value::as_str).filter(|path| !path.is_empty()) {
+        return format!("path {path}");
+    }
+    if let Some(id) = args.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+        return format!("id {id}");
+    }
+    if let Some(name) = args.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) {
+        return format!("name {name}");
+    }
+    "target".to_owned()
+}
+
+fn format_resume_session_call(args: &Value, theme: &Theme) -> String {
+    let target = format_resume_target(args);
+    let starter = args
+        .get("starter_prompt")
+        .and_then(Value::as_str)
+        .filter(|prompt| !prompt.is_empty())
+        .map_or_else(String::new, |_| theme.fg(ThemeColor::Warning, " + instructions"));
+    format!(
+        "{} {}{starter}",
+        theme.fg(ThemeColor::ToolTitle, &theme.bold("resume_session")),
+        theme.fg(ThemeColor::Accent, &target)
+    )
+}
+
+/// `renderCall` for the resume_session tool.
+pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+    super::render_text_component(context, format_resume_session_call(args, theme))
+}
+
+/// `renderResult` for the resume_session tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    _options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    super::render_text_component(context, super::render_tool_output(result, theme))
+}
+
+/// `createResumeSessionToolDefinition()`.
+pub fn create_resume_session_tool_definition() -> ToolDefinition {
+    let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(ResumeSessionTool::new()));
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
+    definition
 }

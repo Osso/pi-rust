@@ -2026,3 +2026,70 @@ async fn footer_truncates_to_width_and_appends_extension_status() {
     let rendered = plain(&lines);
     assert!(rendered.contains("working on th"), "{rendered}");
 }
+
+#[test]
+fn tool_execution_timer_advances_and_stops_on_completion() {
+    use pi_coding_agent::modes::interactive::components::tool_execution::{
+        ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
+    };
+    use std::time::{Duration, Instant};
+
+    theme();
+    let mut component = ToolExecutionComponent::new(
+        "mystery",
+        "call-1",
+        serde_json::json!({"answer": 42}),
+        ToolExecutionOptions::default(),
+        None,
+        std::sync::Arc::new(|| {}),
+        "/tmp",
+    );
+    assert!(!component.has_elapsed_timing());
+    let start = Instant::now();
+    component.mark_execution_started(start);
+    assert!(component.has_elapsed_timing());
+
+    component.poll(start + Duration::from_millis(1500));
+    let rendered = plain(&component.render(40));
+    assert!(rendered.contains("Elapsed: 1s"), "{rendered}");
+
+    component.update_result(
+        ToolExecutionResult {
+            content: vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
+                "done",
+            ))],
+            details: None,
+            is_error: false,
+        },
+        false,
+        Some(start + Duration::from_millis(2500)),
+    );
+    let rendered = plain(&component.render(40));
+    assert!(rendered.contains("Elapsed: 2s"), "{rendered}");
+    assert!(rendered.contains("done"), "{rendered}");
+    assert!(component.next_deadline().is_none());
+}
+
+#[test]
+fn tool_execution_limits_long_text_blocks() {
+    use pi_coding_agent::modes::interactive::components::tool_execution::limit_tool_result_content;
+
+    theme();
+
+    let text = (0..150)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let content = vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
+        text,
+    ))];
+    let limited = limit_tool_result_content(&content);
+    let rendered = match &limited[0] {
+        pi_ai::types::TextOrImageContent::Text(text) => text.text.clone(),
+        pi_ai::types::TextOrImageContent::Image(_) => panic!("expected text"),
+    };
+    let lines = rendered.split('\n').collect::<Vec<_>>();
+    assert_eq!(lines.len(), 101, "{lines:?}");
+    assert_eq!(lines[50], "... (50 more lines hidden)");
+    assert_eq!(lines[51], "line 100");
+}

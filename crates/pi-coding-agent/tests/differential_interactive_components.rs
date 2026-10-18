@@ -13,7 +13,7 @@ use pi_ai::types::{
 };
 use pi_coding_agent::core::extensions::types::{
     CustomMessageContent, CustomMessageValue, MarkdownMessageType, MarkdownTransformContext, MarkdownTransformer,
-    MessageRenderOptions,
+    MessageRenderOptions, RenderShell, ToolDefinition,
 };
 use pi_coding_agent::core::keybindings::KeybindingsManager;
 use pi_coding_agent::core::messages::{CompactionSummaryMessage, CompactionSummaryRole};
@@ -56,7 +56,7 @@ use pi_coding_agent::modes::interactive::model_search::{ModelSearchItem, get_mod
 use pi_coding_agent::modes::interactive::theme::{
     ColorMode, ColorValue, REQUIRED_COLORS, TerminalTheme, Theme, set_theme_instance,
 };
-use pi_tui::Component;
+use pi_tui::{Component, Text};
 use serde_json::{Value, json};
 
 fn install_theme() -> Arc<Theme> {
@@ -115,6 +115,8 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(session_selector_cases());
     cases.extend(footer_helper_cases());
     cases.extend(footer_cases());
+    cases.extend(tool_execution_cases());
+    cases.extend(tool_renderer_cases());
     cases
 }
 
@@ -1540,6 +1542,301 @@ fn session_selector_cases() -> Vec<(Value, Value)> {
         cases.push((request, output));
     }
     cases
+}
+
+fn tool_content(value: &Value) -> Vec<pi_ai::types::TextOrImageContent> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| item.get("type").and_then(Value::as_str) == Some("text"))
+                .map(|item| {
+                    pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
+                        item.get("text").and_then(Value::as_str).unwrap_or(""),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn custom_tool_definition(call: &'static str, result: &'static str, shell: RenderShell) -> ToolDefinition {
+    use pi_agent_core::agent::types::AgentToolResult;
+    ToolDefinition {
+        name: "custom_tool".to_owned(),
+        label: "custom_tool".to_owned(),
+        description: String::new(),
+        prompt_snippet: None,
+        prompt_guidelines: None,
+        approval_required: None,
+        approval_kind: None,
+        parameters: json!({"type": "object", "properties": {}}),
+        constrained_sampling: None,
+        render_shell: Some(shell),
+        prepare_arguments: None,
+        prepare_execution: None,
+        execution_mode: None,
+        execute: Arc::new(|_tool_call_id, _params, _signal, _on_update, _context| {
+            Box::pin(async move {
+                Ok(AgentToolResult {
+                    content: vec![],
+                    details: None,
+                    usage: None,
+                    added_tool_names: None,
+                    is_error: None,
+                    terminate: None,
+                })
+            })
+        }),
+        render_call: Some(Arc::new(move |_args, _theme, _context| {
+            Rc::new(RefCell::new(Text::new(call, 0, 0)))
+        })),
+        render_result: Some(Arc::new(move |_result, options, _theme, _context| {
+            Rc::new(RefCell::new(Text::new(
+                format!("{result} expanded={}", options.expanded),
+                0,
+                0,
+            )))
+        })),
+    }
+}
+
+fn tool_execution_case(
+    id: u64,
+    tool_name: &str,
+    definition: Option<ToolDefinition>,
+    definition_json: Value,
+    args: Value,
+    events: Vec<Value>,
+    width: usize,
+) -> (Value, Value) {
+    use pi_coding_agent::modes::interactive::components::tool_execution::{
+        ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
+    };
+
+    let request = json!({
+        "id": id,
+        "module": "modes/interactive/components/tool-execution.ts",
+        "operation": "toolExecution",
+        "toolName": tool_name,
+        "toolCallId": "call-1",
+        "args": args,
+        "options": {},
+        "definition": definition_json,
+        "events": events,
+        "width": width,
+        "cwd": "/tmp/pi-tool-execution",
+    });
+
+    let request_render = Arc::new(|| {});
+    let mut component = ToolExecutionComponent::new(
+        tool_name,
+        "call-1",
+        args,
+        ToolExecutionOptions::default(),
+        definition,
+        request_render,
+        "/tmp/pi-tool-execution",
+    );
+    let mut renders = Vec::new();
+    for event in events {
+        match event.get("type").and_then(Value::as_str) {
+            Some("args") => component.update_args(event.get("args").cloned().unwrap_or(Value::Null)),
+            Some("argsComplete") => component.set_args_complete(),
+            Some("expanded") => component.set_expanded(event.get("expanded").and_then(Value::as_bool) == Some(true)),
+            Some("result") => {
+                let result = event.get("result").cloned().unwrap_or(Value::Null);
+                component.update_result(
+                    ToolExecutionResult {
+                        content: tool_content(result.get("content").unwrap_or(&Value::Null)),
+                        details: result.get("details").cloned(),
+                        is_error: result.get("isError").and_then(Value::as_bool) == Some(true),
+                    },
+                    event.get("isPartial").and_then(Value::as_bool) == Some(true),
+                    None,
+                );
+            }
+            _ => {}
+        }
+        renders.push(json!(component.render(width)));
+    }
+    (request, json!(renders))
+}
+
+fn tool_execution_cases() -> Vec<(Value, Value)> {
+    let mut cases = Vec::new();
+    cases.push(tool_execution_case(
+        300,
+        "mystery",
+        None,
+        Value::Null,
+        json!({"answer": 42}),
+        vec![
+            json!({"type": "args", "args": {"answer": 43}}),
+            json!({"type": "argsComplete"}),
+            json!({"type": "result", "result": {"content": [{"type": "text", "text": "hello"}], "isError": false}}),
+        ],
+        60,
+    ));
+    cases.push(tool_execution_case(
+        301,
+        "list_sessions",
+        None,
+        Value::Null,
+        json!({}),
+        vec![
+            json!({"type": "argsComplete"}),
+            json!({"type": "result", "result": {"content": [{"type": "text", "text": "line1\nline2"}], "isError": false}}),
+        ],
+        80,
+    ));
+    cases.push(tool_execution_case(
+        302,
+        "list_sessions",
+        None,
+        Value::Null,
+        json!({}),
+        vec![
+            json!({"type": "argsComplete"}),
+            json!({"type": "result", "result": {"content": [], "isError": true}}),
+        ],
+        80,
+    ));
+    let long_text = (0..150)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    cases.push(tool_execution_case(
+        303,
+        "list_sessions",
+        None,
+        Value::Null,
+        json!({}),
+        vec![
+            json!({"type": "argsComplete"}),
+            json!({"type": "result", "result": {"content": [{"type": "text", "text": long_text}], "isError": false}}),
+        ],
+        80,
+    ));
+    let definition_json = json!({"name": "custom_tool", "shell": "self", "call": "CALL", "result": "RES"});
+    cases.push(tool_execution_case(
+        304,
+        "custom_tool",
+        Some(custom_tool_definition("CALL", "RES", RenderShell::SelfRender)),
+        definition_json,
+        json!({"x": 1}),
+        vec![
+            json!({"type": "result", "result": {"content": [{"type": "text", "text": "ignored"}], "isError": false}}),
+            json!({"type": "expanded", "expanded": true}),
+        ],
+        70,
+    ));
+    let definition_json = json!({"name": "custom_tool", "shell": "default", "call": "CALL", "result": "RES"});
+    cases.push(tool_execution_case(
+        305,
+        "custom_tool",
+        Some(custom_tool_definition("CALL", "RES", RenderShell::Default)),
+        definition_json,
+        json!({}),
+        vec![json!({"type": "result", "result": {"content": [], "isError": false}})],
+        70,
+    ));
+    cases.push(tool_execution_case(
+        306,
+        "end_turn",
+        None,
+        Value::Null,
+        json!({"reason": "done"}),
+        vec![json!({"type": "result", "result": {"content": [{"type": "text", "text": "Turn ended: done"}], "isError": false}})],
+        70,
+    ));
+    cases
+}
+
+fn tool_renderer_cases() -> Vec<(Value, Value)> {
+    use pi_agent_core::agent::types::AgentToolResult;
+    use pi_coding_agent::core::extensions::types::{ToolRenderContext, ToolRenderResultOptions};
+    use pi_coding_agent::core::tools::{ToolsOptions, create_all_tool_definitions};
+
+    let cases = vec![
+        json!({"tool": "change_working_directory", "kind": "call", "args": {"path": "/repo/x"}}),
+        json!({"tool": "change_working_directory", "kind": "call", "args": {"id": "abc"}}),
+        json!({"tool": "change_working_directory", "kind": "result", "content": [{"type": "text", "text": "Changed working directory to /repo/x"}], "isError": false}),
+        json!({"tool": "resume_session", "kind": "call", "args": {"path": "/s.jsonl", "starter_prompt": "go"}}),
+        json!({"tool": "resume_session", "kind": "call", "args": {"name": "named"}}),
+        json!({"tool": "resume_session", "kind": "result", "content": [{"type": "text", "text": "Resume cancelled"}], "isError": true}),
+        json!({"tool": "search_current_session_history", "kind": "call", "args": {"query": "needle"}}),
+        json!({"tool": "search_current_session_history", "kind": "call", "args": {}}),
+        json!({"tool": "search_current_session_history", "kind": "result", "content": [{"type": "text", "text": "{\"x\":1}"}], "isError": false}),
+        json!({"tool": "broadcast", "kind": "call", "args": {"session_ids": ["a", "b"], "cwd": "/repo", "name": "worker", "status": ["running", "idle"]}}),
+        json!({"tool": "broadcast", "kind": "call", "args": {}}),
+        json!({"tool": "broadcast", "kind": "result", "content": [{"type": "text", "text": "id outcome=ok check=alive"}], "isError": false}),
+        json!({"tool": "channel_post", "kind": "call", "args": {"message": "hi"}}),
+        json!({"tool": "channel_post", "kind": "result", "content": [], "isError": false}),
+        json!({"tool": "ask_questions", "kind": "call", "args": {"questions": [{"question": "A?", "options": []}, {"question": "B?", "options": []}]}}),
+        json!({"tool": "ask_questions", "kind": "result", "content": [], "details": {"questions": [], "answers": {"Which?": "Alpha", "Other?": ""}, "cancelled": false}}),
+        json!({"tool": "ask_questions", "kind": "result", "content": [], "details": {"questions": [], "answers": {}, "cancelled": true}}),
+        json!({"tool": "ask_questions", "kind": "result", "content": [], "details": null}),
+        json!({"tool": "ask_supervisor", "kind": "call", "args": {"question": "help"}}),
+        json!({"tool": "ask_supervisor", "kind": "result", "content": [{"type": "text", "text": "advice"}], "isError": false}),
+        json!({"tool": "list_sessions", "kind": "call", "args": {}}),
+        json!({"tool": "list_sessions", "kind": "result", "content": [{"type": "text", "text": "line1\nline2"}], "isError": false}),
+    ];
+    let width = 80;
+    let definitions = create_all_tool_definitions("/tmp/pi-tool-renderers", ToolsOptions::default());
+    let theme = pi_coding_agent::modes::interactive::theme::with_theme(std::clone::Clone::clone);
+    let mut renders = Vec::new();
+    for case in &cases {
+        let tool = case.get("tool").and_then(Value::as_str).expect("tool name");
+        let definition = definitions
+            .iter()
+            .find(|(name, _)| *name == tool)
+            .map(|(_, definition)| definition)
+            .expect("definition");
+        let context = ToolRenderContext {
+            args: case.get("args").cloned().unwrap_or(Value::Null),
+            tool_call_id: "call-1".to_owned(),
+            invalidate: Arc::new(|| {}),
+            last_component: None,
+            state: Value::Null,
+            cwd: "/tmp/pi-tool-renderers".to_owned(),
+            execution_started: false,
+            args_complete: true,
+            is_partial: false,
+            expanded: false,
+            show_images: true,
+            is_error: false,
+        };
+        let component = if case.get("kind").and_then(Value::as_str) == Some("call") {
+            let renderer = definition.render_call.as_ref().expect("call renderer");
+            renderer(&context.args, &theme, &context)
+        } else {
+            let renderer = definition.render_result.as_ref().expect("result renderer");
+            let result = AgentToolResult {
+                content: tool_content(case.get("content").unwrap_or(&Value::Null)),
+                details: case.get("details").cloned().filter(|details| !details.is_null()),
+                usage: None,
+                added_tool_names: None,
+                is_error: case.get("isError").and_then(Value::as_bool),
+                terminate: None,
+            };
+            let options = ToolRenderResultOptions {
+                expanded: false,
+                is_partial: false,
+            };
+            renderer(&result, &options, &theme, &context)
+        };
+        renders.push(json!(component.borrow_mut().render(width)));
+    }
+    let request = json!({
+        "id": 320,
+        "module": "modes/interactive/components/tool-execution.ts",
+        "operation": "toolRenderers",
+        "cases": cases,
+        "width": width,
+    });
+    vec![(request, json!(renders))]
 }
 
 fn footer_helper_cases() -> Vec<(Value, Value)> {

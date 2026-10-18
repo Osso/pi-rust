@@ -8,6 +8,7 @@ use pi_agent_core::{
 };
 use pi_ai::request::BoxFuture;
 use pi_js_compat::string::js_trim;
+use pi_tui::tui::ComponentRef;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
@@ -17,7 +18,10 @@ use crate::core::desktop_notification::{
     DesktopNotification, DesktopNotificationHandle, DesktopNotificationUrgency, DesktopNotifier,
     PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS, send_desktop_notification,
 };
-use crate::core::extensions::types::{ExtensionContext, ExtensionMode, ExtensionUiContext};
+use crate::core::extensions::types::{
+    ExtensionContext, ExtensionMode, ExtensionUiContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
+};
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 const MIN_OPTIONS: usize = 2;
 const MAX_OPTIONS: usize = 4;
@@ -472,4 +476,74 @@ async fn ask_all_questions(
         answers.push((question.question.clone(), answer));
     }
     Ok(answered_result(params, questions, &answers))
+}
+
+fn format_ask_questions_call(args: &Value, theme: &Theme) -> String {
+    let count = args.get("questions").and_then(Value::as_array).map_or(0, Vec::len);
+    let label = if count == 1 {
+        "1 question".to_owned()
+    } else {
+        format!("{count} questions")
+    };
+    format!(
+        "{} {}",
+        theme.fg(ThemeColor::ToolTitle, &theme.bold("ask_questions")),
+        theme.fg(ThemeColor::Accent, &label)
+    )
+}
+
+fn format_details_answers(answers: &Map<String, Value>) -> String {
+    answers
+        .iter()
+        .map(|(question, answer)| {
+            let answer = answer.as_str().unwrap_or("");
+            let answer = if answer.is_empty() { "(no selection)" } else { answer };
+            format!("- {question} → {answer}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn format_ask_questions_result(details: Option<&Value>, theme: &Theme) -> String {
+    let Some(details) = details.filter(|details| !details.is_null()) else {
+        return String::new();
+    };
+    if details.get("cancelled").and_then(Value::as_bool) == Some(true) {
+        return theme.fg(ThemeColor::Warning, "Questions cancelled");
+    }
+    let answers = details
+        .get("answers")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    theme.fg(
+        ThemeColor::ToolOutput,
+        &format!("User answered:\n{}", format_details_answers(&answers)),
+    )
+}
+
+/// `renderCall` for the ask_questions tool.
+pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+    super::render_text_component(context, format_ask_questions_call(args, theme))
+}
+
+/// `renderResult` for the ask_questions tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    _options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    super::render_text_component(context, format_ask_questions_result(result.details.as_ref(), theme))
+}
+
+/// `createAskQuestionsToolDefinition()`.
+pub fn create_ask_questions_tool_definition() -> ToolDefinition {
+    let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(AskQuestionsTool::new()));
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition.approval_required = Some(false);
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
+    definition
 }
