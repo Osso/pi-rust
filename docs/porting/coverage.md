@@ -696,9 +696,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/interactive-mode.ts` | 8489 | 22 | todo |  |  |
 | `coding-agent/src/modes/json-event.ts` | 40 | 22 | todo |  |  |
 | `coding-agent/src/modes/print-mode.ts` | 217 | 22 | todo |  |  |
-| `coding-agent/src/modes/rpc/rpc-client.ts` | 642 | 22 | todo |  |  |
+| `coding-agent/src/modes/rpc/rpc-client.ts` | 642 | 22 | partial | `crates/pi-coding-agent/src/modes/rpc/rpc_client.rs` | process/JSONL/correlation + 26 commands; `compact`/`bash`/`get_session_stats` blocked on in-flight payload types; see `rpc-client.md`. |
 | `coding-agent/src/modes/rpc/rpc-mode.ts` | 846 | 22 | todo |  |  |
-| `coding-agent/src/modes/rpc/rpc-types.ts` | 291 | 22 | todo |  |  |
+| `coding-agent/src/modes/rpc/rpc-types.ts` | 291 | 22 | done | `crates/pi-coding-agent/src/modes/rpc/rpc_types.rs` | every command/UI variant parsed and serialized in TS field order; see `rpc-types.md`. |
 | `coding-agent/src/package-manager-cli.ts` | 889 | 22 | partial | `crates/pi-coding-agent/src/package_manager_cli.rs` | Argv parsing, help/usage, validation output/exit codes, list formatting (differential). Execution half returns `PackageAction`; blocked on settings/resource-loader/model-runtime/TUI wiring. |
 | `coding-agent/src/supervisor/approval-reviewer.ts` | 19 | 22 | todo |  |  |
 | `coding-agent/src/supervisor/main.ts` | 436 | 22 | todo |  |  |

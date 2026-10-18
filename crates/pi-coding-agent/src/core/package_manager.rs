@@ -3529,7 +3529,7 @@ impl DefaultPackageManager {
         }
         let exit_status = match status.code() {
             Some(code) => format!("code {code}"),
-            None => format!("signal {}", exit_signal(&status)),
+            None => format!("signal {}", crate::utils::child_process::exit_signal_name(&status)),
         };
         let detail = if stderr.is_empty() { stdout } else { stderr };
         Err(PackageManagerError::new(format!(
@@ -3726,38 +3726,6 @@ fn stderr_redirect_stdout() -> Result<std::process::Stdio, PackageManagerError> 
 #[cfg(not(unix))]
 fn stderr_redirect_stdout() -> Result<std::process::Stdio, PackageManagerError> {
     Ok(std::process::Stdio::inherit())
-}
-
-#[cfg(unix)]
-fn exit_signal(status: &std::process::ExitStatus) -> String {
-    use std::os::unix::process::ExitStatusExt;
-
-    status.signal().map_or_else(|| "unknown".to_owned(), signal_name)
-}
-
-/// Node reports signal names (`SIGTERM`), not numbers.
-#[cfg(unix)]
-fn signal_name(signal: i32) -> String {
-    match signal {
-        1 => "SIGHUP",
-        2 => "SIGINT",
-        3 => "SIGQUIT",
-        4 => "SIGILL",
-        6 => "SIGABRT",
-        8 => "SIGFPE",
-        9 => "SIGKILL",
-        11 => "SIGSEGV",
-        13 => "SIGPIPE",
-        14 => "SIGALRM",
-        15 => "SIGTERM",
-        other => return format!("SIG{other}"),
-    }
-    .to_owned()
-}
-
-#[cfg(not(unix))]
-fn exit_signal(_status: &std::process::ExitStatus) -> String {
-    "unknown".to_owned()
 }
 
 fn terminate_child(child: &mut Child) {
