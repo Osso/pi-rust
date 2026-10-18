@@ -148,7 +148,7 @@ function createResponse(scenario: Scenario, captured: { abort?: () => void }): R
 	});
 	return new Response(body, {
 		status: response.status ?? 200,
-		statusText: response.statusText ?? "OK",
+		statusText: response.statusText ?? "",
 		headers: { "content-type": "text/event-stream", ...(response.headers ?? {}) },
 	});
 }

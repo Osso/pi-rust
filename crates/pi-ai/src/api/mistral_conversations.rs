@@ -17,15 +17,15 @@ use url::Url;
 
 use crate::api::constrained_sampling::{get_json_schema_tool_parameters, resolve_json_schema_strict_sampling};
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
-use crate::api::simple_options::build_base_options;
+use crate::api::simple_options::{build_base_options, model_thinking_level};
 use crate::api::transform_messages::transform_messages_with;
 use crate::http::ABORT_ERROR_MESSAGE;
 use crate::models::{calculate_cost, clamp_thinking_level};
 use crate::request::{HttpRequest, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis};
 use crate::types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, DoneReason, ErrorReason,
-    ImageContent, Message, Modality, Model, ModelThinkingLevel, StopReason, TextContent, ThinkingContent,
-    ThinkingLevel, Tool, ToolCall, ToolResultContent, UserContent,
+    ImageContent, Message, Modality, Model, ModelThinkingLevel, StopReason, TextContent, ThinkingContent, Tool,
+    ToolCall, ToolResultContent, UserContent,
 };
 use crate::utils::event_stream::{
     AssistantMessageEventSender, AssistantMessageEventStream, create_assistant_message_event_stream,
@@ -267,7 +267,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
 
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
     let reasoning = options.reasoning.and_then(|level| {
-        let clamped = clamp_thinking_level(&model, to_model_thinking_level(level));
+        let clamped = clamp_thinking_level(&model, model_thinking_level(level));
         (clamped != ModelThinkingLevel::Off).then_some(clamped)
     });
     let should_use_reasoning = model.reasoning && reasoning.is_some();
@@ -284,18 +284,6 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
                 .then(|| map_reasoning_effort(&model, reasoning.unwrap_or(ModelThinkingLevel::High))),
         },
     )
-}
-
-fn to_model_thinking_level(level: ThinkingLevel) -> ModelThinkingLevel {
-    match level {
-        ThinkingLevel::Minimal => ModelThinkingLevel::Minimal,
-        ThinkingLevel::Low => ModelThinkingLevel::Low,
-        ThinkingLevel::Medium => ModelThinkingLevel::Medium,
-        ThinkingLevel::High => ModelThinkingLevel::High,
-        ThinkingLevel::Xhigh => ModelThinkingLevel::Xhigh,
-        ThinkingLevel::Max => ModelThinkingLevel::Max,
-        ThinkingLevel::Ultra => ModelThinkingLevel::Ultra,
-    }
 }
 
 fn uses_reasoning_effort(model: &Model) -> bool {
@@ -510,16 +498,8 @@ fn build_mistral_headers(model: &Model, api_key: &str, options: &MistralOptions)
     ]);
     apply_model_header_overrides(&mut headers, model.headers.as_ref());
     apply_mistral_header_overrides(&mut headers, options.stream.request.headers.as_ref());
-    let has_explicit_affinity = model
-        .headers
-        .as_ref()
-        .is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case("x-affinity")))
-        || options
-            .stream
-            .request
-            .headers
-            .as_ref()
-            .is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case("x-affinity")));
+    let has_explicit_affinity = model_has_header_override(model.headers.as_ref(), "x-affinity")
+        || provider_has_header_override(options.stream.request.headers.as_ref(), "x-affinity");
     if should_use_prompt_caching(options) && !has_explicit_affinity {
         headers.insert(
             "x-affinity".to_owned(),
@@ -527,6 +507,14 @@ fn build_mistral_headers(model: &Model, api_key: &str, options: &MistralOptions)
         );
     }
     headers
+}
+
+fn model_has_header_override(headers: Option<&BTreeMap<String, String>>, target: &str) -> bool {
+    headers.is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case(target)))
+}
+
+fn provider_has_header_override(headers: Option<&crate::types::ProviderHeaders>, target: &str) -> bool {
+    headers.is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case(target)))
 }
 
 fn apply_model_header_overrides(headers: &mut BTreeMap<String, String>, overrides: Option<&BTreeMap<String, String>>) {

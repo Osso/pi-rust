@@ -13,7 +13,7 @@ Tests: `crates/pi-ai/tests/pi_messages.rs`,
 | `PiMessagesRewriteImpact` | `PiMessagesRewriteImpact` | rewrite-diagnostic test, differential scenarios 2/3 |
 | `PiMessagesEvent` | `PiMessagesEvent` (tagged enum, `toolcall_*` wire tags) | all behavioral tests, differential |
 | `PiMessagesResponseError` | `PiMessagesResponseError` | backend-error test, differential scenarios 4/5 |
-| `stream` | `stream` + `PiMessagesApi::stream` (`ProviderStreams`) | behavioral tests, differential 14 scenarios |
+| `stream` | `stream` + `PiMessagesApi::stream` (`ProviderStreams`) | behavioral tests, differential 13 scenarios |
 | `streamSimple` | `stream_simple` + `PiMessagesApi::stream_simple` | debug/onResponse test, differential scenario 11 |
 | `piMessagesApi` (lazy wrapper) | `pi_messages_api()` returning `LazyApi` | compile-time `ProviderStreams` use |
 
@@ -36,7 +36,7 @@ Tests: `crates/pi-ai/tests/pi_messages.rs`,
 | rewrite diagnostic append | `append_rewrite_diagnostic` | rewrite test, differential 2/3 |
 | response-failure diagnostic append | `create_error_event` | backend-error test |
 | no terminal event | `produce_stream` end check | end-without-terminal test, differential 6 |
-| abort signal | `cancelled` select + `create_error_event` | abort test, differential 10 |
+| abort signal | `cancelled` select + `create_error_event` | abort test |
 | text/thinking/tool-call conversion (start/delta/end, streaming JSON) | `EventConverter` methods | text/tool test, thinking differential scenario 1 |
 | content index assignment | `set_block` (ordered indices) | differential scenario 0 |
 

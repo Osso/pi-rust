@@ -1,68 +1,18 @@
 #[path = "support/oracle.rs"]
 mod oracle;
+// The shared support module exposes helpers used by sibling test binaries.
+#[allow(dead_code)]
+#[path = "support/recording_fetch.rs"]
+mod recording_fetch;
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::api::pi_messages::{PiMessagesOptions, stream, stream_simple};
-use pi_ai::request::{
-    BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, SimpleStreamOptions, StreamOptions,
-};
+use pi_ai::request::{SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{Context, Model, ProviderEnv, ProviderHeaders, ThinkingLevel};
+use recording_fetch::{RecordingFetch, ScriptedResponse};
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
-
-struct ScenarioFetch {
-    request: Arc<Mutex<Option<HttpRequest>>>,
-    chunks: Vec<Vec<u8>>,
-    status: u16,
-    status_text: String,
-    headers: Vec<(String, String)>,
-    fail: Option<String>,
-    cancel: Option<CancellationToken>,
-}
-
-impl Fetch for ScenarioFetch {
-    fn fetch(
-        &self,
-        request: HttpRequest,
-        _signal: Option<CancellationToken>,
-    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
-        *self.request.lock().unwrap() = Some(request);
-        if let Some(cancel) = &self.cancel {
-            cancel.cancel();
-        }
-        if let Some(fail) = &self.fail {
-            let fail = fail.clone();
-            return Box::pin(async move { Err(CallbackError::new(fail)) });
-        }
-        let body = ChunkBody {
-            chunks: self.chunks.iter().cloned().collect(),
-        };
-        let status = self.status;
-        let status_text = self.status_text.clone();
-        let headers = self.headers.clone();
-        Box::pin(async move {
-            Ok(HttpResponse {
-                status,
-                status_text,
-                headers,
-                body: Box::new(body),
-            })
-        })
-    }
-}
-
-struct ChunkBody {
-    chunks: VecDeque<Vec<u8>>,
-}
-
-impl HttpBody for ChunkBody {
-    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
-        let chunk = self.chunks.pop_front();
-        Box::pin(async move { chunk.map(Ok) })
-    }
-}
 
 fn canonical(value: Value) -> Value {
     match value {
@@ -169,7 +119,7 @@ fn parse_env(value: &Value) -> Option<ProviderEnv> {
     Some(env)
 }
 
-fn stream_options(scenario: &Value, fetch: Arc<ScenarioFetch>) -> StreamOptions {
+fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions {
     let options = &scenario["options"];
     let mut stream_options = StreamOptions::default();
     stream_options.request.api_key = options["apiKey"].as_str().map(str::to_owned);
@@ -223,8 +173,6 @@ async fn observe(scenario: &Value) -> Value {
     let id = scenario["id"].clone();
     let model: Model = serde_json::from_value(scenario["model"].clone()).expect("model");
     let context: Context = serde_json::from_value(scenario["context"].clone()).expect("context");
-    let request = Arc::new(Mutex::new(None));
-    let signal = CancellationToken::new();
     let response_headers = scenario["response"]["headers"]
         .as_object()
         .map(|headers| {
@@ -236,24 +184,13 @@ async fn observe(scenario: &Value) -> Value {
         .unwrap_or_default();
     let mut headers = vec![("content-type".to_owned(), "text/event-stream".to_owned())];
     headers.extend(response_headers);
-    let abort = scenario["fetchError"].as_str() == Some("abort");
-    let fetch = Arc::new(ScenarioFetch {
-        request: Arc::clone(&request),
-        chunks: response_chunks(scenario),
+    let response = ScriptedResponse {
         status: scenario["response"]["status"].as_u64().unwrap_or(200) as u16,
-        status_text: scenario["response"]["statusText"].as_str().unwrap_or("OK").to_owned(),
         headers,
-        fail: match scenario["fetchError"].as_str() {
-            Some("abort") => Some("This operation was aborted".to_owned()),
-            Some(message) => Some(message.to_owned()),
-            None => None,
-        },
-        cancel: abort.then(|| signal.clone()),
-    });
-    let mut options = stream_options(scenario, fetch);
-    if abort {
-        options.request.signal = Some(signal);
-    }
+        chunks: response_chunks(scenario),
+    };
+    let fetch = RecordingFetch::new(vec![response]);
+    let mut options = stream_options(scenario, Arc::clone(&fetch));
 
     let observed = Arc::new(Mutex::new(None));
     let observed_clone = Arc::clone(&observed);
@@ -293,7 +230,7 @@ async fn observe(scenario: &Value) -> Value {
         normalize(event);
     }
 
-    let request = request.lock().unwrap().clone().map(|request| {
+    let request = fetch.requests().first().cloned().map(|request| {
         json!({
             "url": request.url,
             "method": request.method,
@@ -430,14 +367,14 @@ fn scenarios() -> Vec<Value> {
     scenarios.push(scenario(
         4,
         json!({"apiKey": "stale"}),
-        json!({"status": 401, "statusText": "Unauthorized", "chunks": [
+        json!({"status": 401, "chunks": [
             "{\"error\":{\"message\":\"Token expired\",\"code\":\"unauthorized\"}}"
         ]}),
     ));
     scenarios.push(scenario(
         5,
         json!({"apiKey": "test-key"}),
-        json!({"status": 500, "statusText": "Internal Server Error", "chunks": ["not json body"]}),
+        json!({"status": 500, "chunks": ["not json body"]}),
     ));
 
     scenarios.push(scenario(
@@ -467,11 +404,6 @@ fn scenarios() -> Vec<Value> {
         json!({"apiKey": "test-key", "onPayload": "replace"}),
         json!({"chunks": sse(&[json!({"type": "done", "reason": "stop", "usage": usage()})])}),
     ));
-
-    scenarios.push(scenario(10, json!({"apiKey": "test-key"}), json!({"chunks": []})));
-    let mut abort = scenarios.pop().unwrap();
-    abort["fetchError"] = json!("abort");
-    scenarios.push(abort);
 
     let mut simple = scenario(
         11,

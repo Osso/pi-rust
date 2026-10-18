@@ -258,24 +258,30 @@ async fn produce_stream(
     options: &PiMessagesOptions,
     sender: &AssistantMessageEventSender,
 ) -> Result<(), PiMessagesError> {
-    let api_key = options
+    let api_key = require_api_key(model, options)?;
+    let url = messages_url(model, options)?;
+    let body = send_messages_request(model, context, options, api_key, &url).await?;
+    consume_events(model, options, body, sender).await
+}
+
+fn require_api_key<'a>(model: &Model, options: &'a PiMessagesOptions) -> Result<&'a str, PiMessagesError> {
+    options
         .stream
         .request
         .api_key
         .as_deref()
         .filter(|key| !key.is_empty())
-        .ok_or_else(|| PiMessagesError::Message(format!("No API key provided for provider \"{}\"", model.provider)))?;
+        .ok_or_else(|| PiMessagesError::Message(format!("No API key provided for provider \"{}\"", model.provider)))
+}
 
-    let url = messages_url(model, options)?;
-    let mut payload = build_payload(model, context, options);
-    if let Some(on_payload) = &options.stream.request.on_payload
-        && let Some(next_payload) = on_payload(payload.clone(), model.clone())
-            .await
-            .map_err(|error| PiMessagesError::Message(error.message))?
-    {
-        payload = next_payload;
-    }
-
+async fn send_messages_request(
+    model: &Model,
+    context: &Context,
+    options: &PiMessagesOptions,
+    api_key: &str,
+    url: &Url,
+) -> Result<Box<dyn crate::request::HttpBody>, PiMessagesError> {
+    let payload = resolve_payload(model, context, options).await?;
     let body = serde_json::to_vec(&payload).map_err(|error| PiMessagesError::Message(error.to_string()))?;
     let headers = build_headers(api_key, options);
     let fetch = options
@@ -316,33 +322,46 @@ async fn produce_stream(
         let body = read_body_text(response.body).await?;
         return Err(PiMessagesError::Response(create_response_error(
             model,
-            &url,
+            url,
             response.status,
             &response.status_text,
             &body,
         )));
     }
+    Ok(response.body)
+}
 
+async fn resolve_payload(
+    model: &Model,
+    context: &Context,
+    options: &PiMessagesOptions,
+) -> Result<Value, PiMessagesError> {
+    let payload = build_payload(model, context, options);
+    let Some(on_payload) = &options.stream.request.on_payload else {
+        return Ok(payload);
+    };
+    let next_payload = on_payload(payload.clone(), model.clone())
+        .await
+        .map_err(|error| PiMessagesError::Message(error.message))?;
+    Ok(next_payload.unwrap_or(payload))
+}
+
+async fn consume_events(
+    model: &Model,
+    options: &PiMessagesOptions,
+    mut body: Box<dyn crate::request::HttpBody>,
+    sender: &AssistantMessageEventSender,
+) -> Result<(), PiMessagesError> {
     let mut converter = EventConverter::new(model);
-    let mut body = response.body;
     let mut decoder = Utf8StreamDecoder::new();
     let mut buffer = String::new();
     let mut finished = false;
-    let mut terminal = false;
     while !finished {
-        if options
-            .stream
-            .request
-            .signal
-            .as_ref()
-            .is_some_and(CancellationToken::is_cancelled)
-        {
-            return Err(PiMessagesError::Message(crate::http::ABORT_ERROR_MESSAGE.to_owned()));
+        if user_aborted(options) {
+            return Err(aborted_error());
         }
         let chunk = tokio::select! {
-            () = cancelled(&options.stream.request.signal) => {
-                return Err(PiMessagesError::Message(crate::http::ABORT_ERROR_MESSAGE.to_owned()));
-            }
+            () = cancelled(&options.stream.request.signal) => return Err(aborted_error()),
             chunk = body.next_chunk() => chunk,
         };
         match chunk {
@@ -354,50 +373,67 @@ async fn produce_stream(
             }
         }
         buffer = buffer.replace("\r\n", "\n");
-        let mut split = buffer.find("\n\n");
-        while let Some(index) = split {
-            let raw = buffer[..index].to_owned();
-            buffer = buffer[index + 2..].to_owned();
-            if let Some(pi_event) = parse_event(&raw)? {
-                let event = converter.convert(pi_event)?;
-                let is_terminal = matches!(
-                    event,
-                    AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. }
-                );
-                sender.push(event);
-                if is_terminal {
-                    terminal = true;
-                    break;
-                }
-            }
-            split = buffer.find("\n\n");
-        }
-        if terminal {
+        if dispatch_frames(&mut buffer, &mut converter, sender)? {
             return Ok(());
         }
     }
 
     if buffer.trim().is_empty() {
-        return Err(PiMessagesError::Message(format!(
-            "{} stream ended without a terminal event",
-            model.provider
-        )));
+        return Err(no_terminal_error(model));
     }
-    if let Some(pi_event) = parse_event(&buffer)? {
-        let event = converter.convert(pi_event)?;
-        let is_terminal = matches!(
-            event,
-            AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. }
-        );
-        sender.push(event);
-        if is_terminal {
-            return Ok(());
+    if dispatch_frame(&buffer, &mut converter, sender)? {
+        return Ok(());
+    }
+    Err(no_terminal_error(model))
+}
+
+fn user_aborted(options: &PiMessagesOptions) -> bool {
+    options
+        .stream
+        .request
+        .signal
+        .as_ref()
+        .is_some_and(CancellationToken::is_cancelled)
+}
+
+fn aborted_error() -> PiMessagesError {
+    PiMessagesError::Message(crate::http::ABORT_ERROR_MESSAGE.to_owned())
+}
+
+fn no_terminal_error(model: &Model) -> PiMessagesError {
+    PiMessagesError::Message(format!("{} stream ended without a terminal event", model.provider))
+}
+
+fn dispatch_frames(
+    buffer: &mut String,
+    converter: &mut EventConverter,
+    sender: &AssistantMessageEventSender,
+) -> Result<bool, PiMessagesError> {
+    while let Some(index) = buffer.find("\n\n") {
+        let raw = buffer[..index].to_owned();
+        buffer.drain(..index + 2);
+        if dispatch_frame(&raw, converter, sender)? {
+            return Ok(true);
         }
     }
-    Err(PiMessagesError::Message(format!(
-        "{} stream ended without a terminal event",
-        model.provider
-    )))
+    Ok(false)
+}
+
+fn dispatch_frame(
+    raw: &str,
+    converter: &mut EventConverter,
+    sender: &AssistantMessageEventSender,
+) -> Result<bool, PiMessagesError> {
+    let Some(pi_event) = parse_event(raw)? else {
+        return Ok(false);
+    };
+    let event = converter.convert(pi_event)?;
+    let terminal = matches!(
+        event,
+        AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. }
+    );
+    sender.push(event);
+    Ok(terminal)
 }
 
 /// Maps provider-agnostic `SimpleStreamOptions` to pi-messages options.

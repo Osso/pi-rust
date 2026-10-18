@@ -1,69 +1,19 @@
 #[path = "support/oracle.rs"]
 mod oracle;
+// The shared support module exposes helpers used by sibling test binaries.
+#[allow(dead_code)]
+#[path = "support/recording_fetch.rs"]
+mod recording_fetch;
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::api::mistral_conversations::{MistralOptions, stream, stream_simple};
-use pi_ai::request::{
-    BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, SimpleStreamOptions, StreamOptions,
-};
+use pi_ai::request::{SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{Context, Model, ProviderHeaders, ThinkingLevel};
+use recording_fetch::{RecordingFetch, ScriptedResponse};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
-
-struct ScenarioFetch {
-    request: Arc<Mutex<Option<HttpRequest>>>,
-    chunks: Vec<Vec<u8>>,
-    status: u16,
-    status_text: String,
-    headers: Vec<(String, String)>,
-    hang: bool,
-    cancel: Option<CancellationToken>,
-}
-
-impl Fetch for ScenarioFetch {
-    fn fetch(
-        &self,
-        request: HttpRequest,
-        _signal: Option<CancellationToken>,
-    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
-        *self.request.lock().unwrap() = Some(request);
-        let body = ChunkBody {
-            chunks: self.chunks.iter().cloned().collect(),
-            hang: self.hang,
-        };
-        let status = self.status;
-        let status_text = self.status_text.clone();
-        let headers = self.headers.clone();
-        if let Some(cancel) = &self.cancel {
-            cancel.cancel();
-        }
-        Box::pin(async move {
-            Ok(HttpResponse {
-                status,
-                status_text,
-                headers,
-                body: Box::new(body),
-            })
-        })
-    }
-}
-
-struct ChunkBody {
-    chunks: VecDeque<Vec<u8>>,
-    hang: bool,
-}
-
-impl HttpBody for ChunkBody {
-    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
-        if self.hang {
-            return Box::pin(std::future::pending());
-        }
-        let chunk = self.chunks.pop_front();
-        Box::pin(async move { chunk.map(Ok) })
-    }
-}
 
 fn normalize(value: &mut Value) {
     match value {
@@ -128,7 +78,7 @@ fn normalize_parse_error(value: Value) -> Value {
     }
 }
 
-fn response_chunks(scenario: &Value) -> (Vec<Vec<u8>>, bool) {
+fn response_chunks(scenario: &Value) -> Vec<Vec<u8>> {
     let chunks = scenario["response"]["chunks"]
         .as_array()
         .cloned()
@@ -136,19 +86,14 @@ fn response_chunks(scenario: &Value) -> (Vec<Vec<u8>>, bool) {
         .into_iter()
         .filter_map(|chunk| chunk.as_str().map(str::to_owned))
         .collect::<Vec<_>>();
-    let bytewise = scenario["response"]["chunking"].as_str() == Some("bytes");
-    if bytewise {
-        (
-            chunks
-                .into_iter()
-                .flat_map(String::into_bytes)
-                .map(|byte| vec![byte])
-                .collect(),
-            false,
-        )
+    if scenario["response"]["chunking"].as_str() == Some("bytes") {
+        chunks
+            .into_iter()
+            .flat_map(String::into_bytes)
+            .map(|byte| vec![byte])
+            .collect()
     } else {
-        let hang = scenario.get("abort").is_some();
-        (chunks.into_iter().map(String::into_bytes).collect(), hang)
+        chunks.into_iter().map(String::into_bytes).collect()
     }
 }
 
@@ -161,7 +106,7 @@ fn parse_headers(value: &Value) -> Option<ProviderHeaders> {
     Some(headers)
 }
 
-fn stream_options(scenario: &Value, fetch: Arc<ScenarioFetch>) -> StreamOptions {
+fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions {
     let options = &scenario["options"];
     let mut stream_options = StreamOptions::default();
     stream_options.request.api_key = options["apiKey"].as_str().map(str::to_owned);
@@ -216,8 +161,7 @@ async fn observe(scenario: &Value) -> Value {
     let id = scenario["id"].clone();
     let model: Model = serde_json::from_value(scenario["model"].clone()).expect("model");
     let context: Context = serde_json::from_value(scenario["context"].clone()).expect("context");
-    let (chunks, hang) = response_chunks(scenario);
-    let request = Arc::new(Mutex::new(None));
+    let chunks = response_chunks(scenario);
     let signal = CancellationToken::new();
     let response_headers = scenario["response"]["headers"]
         .as_object()
@@ -230,16 +174,17 @@ async fn observe(scenario: &Value) -> Value {
         .unwrap_or_default();
     let mut headers = vec![("content-type".to_owned(), "text/event-stream".to_owned())];
     headers.extend(response_headers);
-    let fetch = Arc::new(ScenarioFetch {
-        request: Arc::clone(&request),
-        chunks,
+    let response = ScriptedResponse {
         status: scenario["response"]["status"].as_u64().unwrap_or(200) as u16,
-        status_text: scenario["response"]["statusText"].as_str().unwrap_or("OK").to_owned(),
         headers,
-        hang,
-        cancel: scenario.get("abort").map(|_| signal.clone()),
-    });
-    let mut options = stream_options(scenario, fetch);
+        chunks,
+    };
+    let fetch = if scenario.get("abort").is_some() {
+        RecordingFetch::with_abort_after_chunks(vec![response], 0, signal.clone())
+    } else {
+        RecordingFetch::new(vec![response])
+    };
+    let mut options = stream_options(scenario, Arc::clone(&fetch));
     if scenario.get("abort").is_some() {
         options.request.signal = Some(signal);
     }
@@ -282,7 +227,7 @@ async fn observe(scenario: &Value) -> Value {
         normalize(event);
     }
 
-    let request = request.lock().unwrap().clone().map(|request| {
+    let request = fetch.requests().first().cloned().map(|request| {
         json!({
             "url": request.url,
             "method": request.method,
@@ -488,21 +433,21 @@ fn scenarios() -> Vec<Value> {
         model("mistral-large-latest", false),
         json!({"messages": [user(json!("hello"))]}),
         json!({"apiKey": "test"}),
-        json!({"status": 403, "statusText": "Forbidden", "chunks": ["{\"message\":\"blocked by gateway\"}"]}),
+        json!({"status": 403, "chunks": ["{\"message\":\"blocked by gateway\"}"]}),
     ));
     scenarios.push(scenario(
         21,
         model("mistral-large-latest", false),
         json!({"messages": [user(json!("hello"))]}),
         json!({"apiKey": "test"}),
-        json!({"status": 429, "statusText": "Too Many Requests", "headers": {"retry-after": "7"}, "chunks": ["{\"message\":\"slow down\"}"]}),
+        json!({"status": 429, "headers": {"retry-after": "7"}, "chunks": ["{\"message\":\"slow down\"}"]}),
     ));
     scenarios.push(scenario(
         22,
         model("mistral-large-latest", false),
         json!({"messages": [user(json!("hello"))]}),
         json!({"apiKey": "test"}),
-        json!({"status": 500, "statusText": "", "chunks": []}),
+        json!({"status": 500, "chunks": []}),
     ));
 
     scenarios.push(scenario(

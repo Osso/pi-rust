@@ -84,6 +84,38 @@ impl GatewayBindingFetch {
     fn prefix(&self) -> String {
         format!("{}{}", self.base_origin.ascii_serialization(), self.base_path)
     }
+
+    fn parse_target(&self, request: &HttpRequest) -> Result<AiGatewayUniversalRequest, CallbackError> {
+        let method = request.method.to_uppercase();
+        let parsed = self.parse_gateway_url(request, &method)?;
+        if method != "POST" {
+            return Err(unexpressible_error(&method, &request.url, "only POST is supported"));
+        }
+        let (provider, endpoint) = split_provider_endpoint(&parsed, &self.base_path)
+            .ok_or_else(|| unexpressible_error(&method, &request.url, "missing provider/endpoint path"))?;
+        let query = parse_body_query(request, &method)?;
+        Ok(AiGatewayUniversalRequest {
+            provider,
+            endpoint,
+            headers: collect_headers(&request.headers),
+            query,
+        })
+    }
+
+    fn parse_gateway_url(&self, request: &HttpRequest, method: &str) -> Result<Url, CallbackError> {
+        let parsed = Url::parse(&request.url).ok();
+        let in_prefix = parsed
+            .as_ref()
+            .is_some_and(|parsed| parsed.origin() == self.base_origin && parsed.path().starts_with(&self.base_path));
+        if !in_prefix {
+            return Err(CallbackError::new(format!(
+                "createGatewayBindingFetch: {method} {} is outside the configured gateway prefix ({}); this fetch only serves its gateway-bound client",
+                request.url,
+                self.prefix(),
+            )));
+        }
+        parsed.ok_or_else(|| CallbackError::new("createGatewayBindingFetch: request URL was lost"))
+    }
 }
 
 impl Fetch for GatewayBindingFetch {
@@ -93,59 +125,37 @@ impl Fetch for GatewayBindingFetch {
         signal: Option<CancellationToken>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async move {
-            let method = request.method.to_uppercase();
-            let parsed = Url::parse(&request.url).ok();
-            let outside = parsed.as_ref().is_none_or(|parsed| {
-                parsed.origin() != self.base_origin || !parsed.path().starts_with(&self.base_path)
-            });
-            if outside {
-                return Err(CallbackError::new(format!(
-                    "createGatewayBindingFetch: {method} {} is outside the configured gateway prefix ({}); this fetch only serves its gateway-bound client",
-                    request.url,
-                    self.prefix(),
-                )));
-            }
-            let parsed = parsed.expect("outside check admits only parsed URLs");
-            let unexpressible = |reason: &str| {
-                CallbackError::new(format!(
-                    "createGatewayBindingFetch: cannot express {method} {} as a universal gateway request ({reason}); route it over HTTPS with gateway auth instead",
-                    request.url,
-                ))
-            };
-            if method != "POST" {
-                return Err(unexpressible("only POST is supported"));
-            }
-
-            let rest = &parsed.path()[self.base_path.len()..];
-            let Some(slash) = rest.find('/').filter(|slash| *slash > 0) else {
-                return Err(unexpressible("missing provider/endpoint path"));
-            };
-            let provider = rest[..slash].to_owned();
-            let endpoint = format!(
-                "{}{}",
-                &rest[slash + 1..],
-                parsed.query().map(|query| format!("?{query}")).unwrap_or_default()
-            );
-
-            let body = request.body.as_deref().ok_or_else(|| unexpressible("missing body"))?;
-            let body_text = String::from_utf8_lossy(body);
-            let query: Value = serde_json::from_str(&body_text).map_err(|_| unexpressible("non-JSON body"))?;
-
-            let headers = collect_headers(&request.headers);
-            self.binding
-                .gateway(&self.gateway)
-                .run(
-                    AiGatewayUniversalRequest {
-                        provider,
-                        endpoint,
-                        headers,
-                        query,
-                    },
-                    signal,
-                )
-                .await
+            let target = self.parse_target(&request)?;
+            self.binding.gateway(&self.gateway).run(target, signal).await
         })
     }
+}
+
+fn unexpressible_error(method: &str, url: &str, reason: &str) -> CallbackError {
+    CallbackError::new(format!(
+        "createGatewayBindingFetch: cannot express {method} {url} as a universal gateway request ({reason}); route it over HTTPS with gateway auth instead"
+    ))
+}
+
+fn split_provider_endpoint(parsed: &Url, base_path: &str) -> Option<(String, String)> {
+    let rest = &parsed.path()[base_path.len()..];
+    let slash = rest.find('/').filter(|slash| *slash > 0)?;
+    let provider = rest[..slash].to_owned();
+    let endpoint = format!(
+        "{}{}",
+        &rest[slash + 1..],
+        parsed.query().map(|query| format!("?{query}")).unwrap_or_default()
+    );
+    Some((provider, endpoint))
+}
+
+fn parse_body_query(request: &HttpRequest, method: &str) -> Result<Value, CallbackError> {
+    let body = request
+        .body
+        .as_deref()
+        .ok_or_else(|| unexpressible_error(method, &request.url, "missing body"))?;
+    let body_text = String::from_utf8_lossy(body);
+    serde_json::from_str(&body_text).map_err(|_| unexpressible_error(method, &request.url, "non-JSON body"))
 }
 
 // Entry header names are lowercased so case-variant duplicates collapse and
