@@ -285,6 +285,25 @@ impl RustRunner {
         let op = operation.get("op").and_then(Value::as_str).expect("op name");
         match op {
             "init" => Ok(Value::Null),
+            "create" | "open" | "open_by_id" => self.run_open_op(operation).await,
+            "fork" | "list" => self.run_fork_op(operation).await,
+            "repair_branch_cache" | "delete" | "close" => self.run_lifecycle_op(operation).await,
+            "append_message" | "append_entry" | "append_record" | "create_lane" | "move_lane" | "set_name"
+            | "set_label" => self.run_session_write_op(operation).await,
+            "get_metadata" | "get_lanes" | "get_name" | "get_label" | "get_stats" | "get_entry" => {
+                self.run_session_read_op(operation).await
+            }
+            "find_entries" | "find_entries_on_branch" | "find_records" | "find_open_operations" | "get_log" => {
+                self.run_query_op(operation).await
+            }
+            "search" => self.run_search_op(operation).await,
+            other => panic!("unknown op {other}"),
+        }
+    }
+
+    async fn run_open_op(&mut self, operation: &Value) -> Result<Value, SessionError> {
+        let op = operation.get("op").and_then(Value::as_str).expect("op name");
+        match op {
             "create" => {
                 let id = operation.get("id").and_then(Value::as_str).expect("create id");
                 let session = self
@@ -328,6 +347,71 @@ impl RustRunner {
                 self.metadata.insert(id.to_owned(), metadata.clone());
                 Ok(serde_json::to_value(metadata).expect("metadata serializes"))
             }
+            other => panic!("unknown op {other}"),
+        }
+    }
+
+    async fn run_fork_op(&mut self, operation: &Value) -> Result<Value, SessionError> {
+        let op = operation.get("op").and_then(Value::as_str).expect("op name");
+        match op {
+            "fork" => {
+                let id = operation.get("session").and_then(Value::as_str).expect("session");
+                let fork_id = operation.get("id").and_then(Value::as_str).expect("fork id");
+                let options = fork_options(operation.get("options").unwrap_or(&Value::Null));
+                let session = self
+                    .repo
+                    .fork(
+                        &self.stored_metadata(id),
+                        options,
+                        SqliteSessionCreateOptions {
+                            id: Some(fork_id.to_owned()),
+                            cwd: self.cwd(),
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
+                let metadata = session.get_metadata().await?;
+                self.sessions.insert(fork_id.to_owned(), session);
+                self.metadata.insert(fork_id.to_owned(), metadata.clone());
+                Ok(serde_json::to_value(metadata).expect("metadata serializes"))
+            }
+            "list" => {
+                let cwd = if operation.get("cwd").and_then(Value::as_bool) == Some(true) {
+                    Some(self.cwd())
+                } else {
+                    None
+                };
+                let listed = self.repo.list(SqliteSessionListOptions { cwd }).await?;
+                Ok(serde_json::to_value(listed).expect("metadata serializes"))
+            }
+            other => panic!("unknown op {other}"),
+        }
+    }
+
+    async fn run_lifecycle_op(&mut self, operation: &Value) -> Result<Value, SessionError> {
+        let op = operation.get("op").and_then(Value::as_str).expect("op name");
+        match op {
+            "repair_branch_cache" => {
+                let id = operation.get("session").and_then(Value::as_str).expect("session");
+                self.repo.repair_branch_cache(&self.stored_metadata(id)).await?;
+                Ok(Value::Null)
+            }
+            "delete" => {
+                let id = operation.get("session").and_then(Value::as_str).expect("session");
+                self.repo.delete(&self.stored_metadata(id)).await?;
+                Ok(Value::Null)
+            }
+            "close" => {
+                self.repo.close().await?;
+                Ok(Value::Null)
+            }
+            other => panic!("unknown op {other}"),
+        }
+    }
+
+    async fn run_session_write_op(&mut self, operation: &Value) -> Result<Value, SessionError> {
+        let op = operation.get("op").and_then(Value::as_str).expect("op name");
+        match op {
             "append_message" => {
                 let id = operation.get("session").and_then(Value::as_str).expect("session");
                 let text = operation.get("text").and_then(Value::as_str).expect("text");
@@ -379,6 +463,13 @@ impl RustRunner {
                     .await?;
                 Ok(Value::Null)
             }
+            other => panic!("unknown op {other}"),
+        }
+    }
+
+    async fn run_session_read_op(&mut self, operation: &Value) -> Result<Value, SessionError> {
+        let op = operation.get("op").and_then(Value::as_str).expect("op name");
+        match op {
             "get_metadata" => {
                 let id = operation.get("session").and_then(Value::as_str).expect("session");
                 let metadata = self.session(id)?.get_metadata().await?;
@@ -413,6 +504,13 @@ impl RustRunner {
                     .map(|entry| serde_json::to_value(entry).expect("entry serializes"))
                     .unwrap_or(Value::Null))
             }
+            other => panic!("unknown op {other}"),
+        }
+    }
+
+    async fn run_query_op(&mut self, operation: &Value) -> Result<Value, SessionError> {
+        let op = operation.get("op").and_then(Value::as_str).expect("op name");
+        match op {
             "find_entries" => {
                 let id = operation.get("session").and_then(Value::as_str).expect("session");
                 let query = entry_query(operation.get("query").unwrap_or(&Value::Null));
@@ -466,46 +564,13 @@ impl RustRunner {
                     .await?;
                 Ok(serde_json::to_value(items).expect("log serializes"))
             }
-            "list" => {
-                let cwd = if operation.get("cwd").and_then(Value::as_bool) == Some(true) {
-                    Some(self.cwd())
-                } else {
-                    None
-                };
-                let listed = self.repo.list(SqliteSessionListOptions { cwd }).await?;
-                Ok(serde_json::to_value(listed).expect("metadata serializes"))
-            }
-            "fork" => {
-                let id = operation.get("session").and_then(Value::as_str).expect("session");
-                let fork_id = operation.get("id").and_then(Value::as_str).expect("fork id");
-                let options = fork_options(operation.get("options").unwrap_or(&Value::Null));
-                let session = self
-                    .repo
-                    .fork(
-                        &self.stored_metadata(id),
-                        options,
-                        SqliteSessionCreateOptions {
-                            id: Some(fork_id.to_owned()),
-                            cwd: self.cwd(),
-                            ..Default::default()
-                        },
-                    )
-                    .await?;
-                let metadata = session.get_metadata().await?;
-                self.sessions.insert(fork_id.to_owned(), session);
-                self.metadata.insert(fork_id.to_owned(), metadata.clone());
-                Ok(serde_json::to_value(metadata).expect("metadata serializes"))
-            }
-            "repair_branch_cache" => {
-                let id = operation.get("session").and_then(Value::as_str).expect("session");
-                self.repo.repair_branch_cache(&self.stored_metadata(id)).await?;
-                Ok(Value::Null)
-            }
-            "delete" => {
-                let id = operation.get("session").and_then(Value::as_str).expect("session");
-                self.repo.delete(&self.stored_metadata(id)).await?;
-                Ok(Value::Null)
-            }
+            other => panic!("unknown op {other}"),
+        }
+    }
+
+    async fn run_search_op(&mut self, operation: &Value) -> Result<Value, SessionError> {
+        let op = operation.get("op").and_then(Value::as_str).expect("op name");
+        match op {
             "search" => {
                 let text = operation.get("text").and_then(Value::as_str).expect("text");
                 let options = operation.get("options").unwrap_or(&Value::Null);
@@ -545,10 +610,6 @@ impl RustRunner {
                     })
                     .collect();
                 Ok(Value::Array(hits))
-            }
-            "close" => {
-                self.repo.close().await?;
-                Ok(Value::Null)
             }
             other => panic!("unknown op {other}"),
         }

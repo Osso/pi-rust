@@ -1,6 +1,6 @@
 # Traceability: `packages/session-backends/sqlite-node/src/sqlite/repo.ts`
 
-Rust: `crates/pi-session-sqlite/src/sqlite/repo.rs`. Tests: `conformance.rs`, `repository.rs`,
+Rust: `crates/pi-session-sqlite/src/sqlite/repo/{mod,storage,decode,fork}.rs`. Tests: `conformance.rs`, `repository.rs`,
 `branch_cache.rs`, `branch_query.rs`, `log_query.rs`, `writer_leases.rs`,
 `differential_session_sqlite.rs`, `cross_implementation.rs`.
 
@@ -18,7 +18,7 @@ Rust: `crates/pi-session-sqlite/src/sqlite/repo.rs`. Tests: `conformance.rs`, `r
 | `getParentPath` | `get_parent_path` | cross (db creation) | Trailing separators, `/` and `\`, root and no-separator cases. |
 | `configureSqliteDatabase` | `configure_sqlite_database` | migrations, cross | `journal_mode=WAL`, `synchronous=FULL`, `busy_timeout=5000`. |
 | `entryRowFromCached` | `entry_row_from_cached` | branch-query | |
-| `decodeEntry` | `decode_entry` | repository, branch-query, log-query | Per-type validation with `Invalid SQLite session entry {id}: failed to decode entry {id}`. |
+| `decodeEntry` | `decode_entry` (`repo/decode.rs`) | repository, branch-query, log-query | Per-type validation with `Invalid SQLite session entry {id}: failed to decode entry {id}`. |
 | `readObjectPayload` | inline object check | repository | Non-object payload → `invalid_entry`. |
 | `recordRunId`/`recordOpKind` | same | conformance | `operation_started` uses the record id and intent kind. |
 | `decodeRecord` | `decode_record` | repository | Payload + stored `seq`/`timestamp`; failure → `storage` `... failed to decode payload`. |
@@ -26,7 +26,7 @@ Rust: `crates/pi-session-sqlite/src/sqlite/repo.rs`. Tests: `conformance.rs`, `r
 | `matchesEntryQuery` | `matches_entry_query` | conformance | |
 | `assertUnusedId` | `assert_unused_id` | conformance | |
 | `requireSessionRow` | `require_session_row` | repository | |
-| `SqliteSessionStorage` | `SqliteSessionStorage` | all | Implements `SessionStorage<SqliteSessionMetadata>`. |
+| `SqliteSessionStorage` | `SqliteSessionStorage` (`repo/storage.rs`) | all | Implements `SessionStorage<SqliteSessionMetadata>`. |
 | `claimWriterLease`/`claimStorage`/`sessionFromLease` | `claim_writer_lease`/`claim_storage`/`build_storage` | writer-leases | |
 | `create` | `create` | conformance, repository, differential | Insert + sequence + stats + initial lane + lease in one transaction. |
 | `open` | `open` | writer-leases, conformance | Reuses the active storage (no second lease) or claims one. |

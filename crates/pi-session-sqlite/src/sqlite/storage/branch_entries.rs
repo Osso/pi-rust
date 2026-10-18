@@ -2,6 +2,7 @@
 
 use pi_agent_core::harness::session::{EntryOrder, SessionError, SessionErrorCode};
 use rusqlite::Row;
+use rusqlite::types::Value as SqlValue;
 use serde_json::Value;
 
 use crate::error::SqliteError;
@@ -74,22 +75,6 @@ pub fn query_cached_branch_rows(
     query: &CachedBranchQuery,
 ) -> Result<Vec<CachedBranchEntryRow>, SqliteError> {
     let oldest_first = query.order == Some(EntryOrder::OldestFirst);
-    let mut stop_predicates = Vec::new();
-    let mut stop_params = Vec::new();
-    if let Some(stop_at_type) = query.stop_at_type.as_deref() {
-        stop_predicates.push("stop.entry_type = ?");
-        stop_params.push(text_param(stop_at_type));
-    }
-    if let Some(stop_at_id) = query.stop_at_id.as_deref() {
-        stop_predicates.push("stop.entry_id = ?");
-        stop_params.push(text_param(stop_at_id));
-    }
-
-    let aggregate = if oldest_first { "MIN" } else { "MAX" };
-    let boundary_comparison = if oldest_first { "<=" } else { ">=" };
-    let cursor_comparison = if oldest_first { ">" } else { "<" };
-    let direction = if oldest_first { "ASC" } else { "DESC" };
-
     let mut predicates = vec![
         "b.session_id = ?".to_owned(),
         "b.branch_id = ?".to_owned(),
@@ -100,38 +85,13 @@ pub fn query_cached_branch_rows(
         text_param(branch.branch_id.clone()),
         int_param(branch.leaf_seq),
     ];
-    if !stop_predicates.is_empty() {
-        let boundary = format!(
-            "SELECT {aggregate}(stop.entry_seq)
-				FROM branch_entries AS stop
-				WHERE stop.session_id = ?
-					AND stop.branch_id = ?
-					AND stop.entry_seq <= ?
-					AND ({})",
-            stop_predicates.join(" OR ")
-        );
-        predicates.push(format!(
-            "b.entry_seq {boundary_comparison} COALESCE(({boundary}), {})",
-            if oldest_first { branch.leaf_seq } else { 0 }
-        ));
-        params.push(text_param(session_id));
-        params.push(text_param(branch.branch_id.clone()));
-        params.push(int_param(branch.leaf_seq));
-        params.extend(stop_params);
+    if let Some(boundary) = stop_boundary(query, session_id, &branch, oldest_first) {
+        predicates.push(boundary.predicate);
+        params.extend(boundary.params);
     }
-    if let Some(cursor) = query.cursor_after_seq {
-        predicates.push(format!("b.entry_seq {cursor_comparison} ?"));
-        params.push(int_param(cursor));
-    }
-    if let Some(entry_type) = query.entry_type.as_deref() {
-        predicates.push("b.entry_type = ?".to_owned());
-        params.push(text_param(entry_type));
-    }
-    if let Some(custom_type) = query.custom_type.as_deref() {
-        predicates.push("b.custom_type = ?".to_owned());
-        params.push(text_param(custom_type));
-    }
+    append_branch_filters(query, &mut predicates, &mut params);
 
+    let direction = if oldest_first { "ASC" } else { "DESC" };
     let mut query_text = format!(
         "SELECT e.session_id, e.id, e.seq AS entry_seq, e.parent_id, e.type, e.timestamp, e.payload
 		FROM branch_entries AS b
@@ -145,6 +105,71 @@ pub fn query_cached_branch_rows(
         params.push(int_param(limit as i64));
     }
     SqlQuery::new(query_text, params).all(db, read_cached_branch_entry_row)
+}
+
+struct StopBoundary {
+    predicate: String,
+    params: Vec<SqlValue>,
+}
+
+fn stop_boundary(
+    query: &CachedBranchQuery,
+    session_id: &str,
+    branch: &CachedBranch,
+    oldest_first: bool,
+) -> Option<StopBoundary> {
+    let mut stop_predicates = Vec::new();
+    let mut stop_params = Vec::new();
+    if let Some(stop_at_type) = query.stop_at_type.as_deref() {
+        stop_predicates.push("stop.entry_type = ?");
+        stop_params.push(text_param(stop_at_type));
+    }
+    if let Some(stop_at_id) = query.stop_at_id.as_deref() {
+        stop_predicates.push("stop.entry_id = ?");
+        stop_params.push(text_param(stop_at_id));
+    }
+    if stop_predicates.is_empty() {
+        return None;
+    }
+    let aggregate = if oldest_first { "MIN" } else { "MAX" };
+    let comparison = if oldest_first { "<=" } else { ">=" };
+    let fallback = if oldest_first { branch.leaf_seq } else { 0 };
+    let predicate = format!(
+        "b.entry_seq {comparison} COALESCE((SELECT {aggregate}(stop.entry_seq)
+				FROM branch_entries AS stop
+				WHERE stop.session_id = ?
+					AND stop.branch_id = ?
+					AND stop.entry_seq <= ?
+					AND ({})), {fallback})",
+        stop_predicates.join(" OR ")
+    );
+    let mut params = vec![
+        text_param(session_id),
+        text_param(branch.branch_id.clone()),
+        int_param(branch.leaf_seq),
+    ];
+    params.extend(stop_params);
+    Some(StopBoundary { predicate, params })
+}
+
+fn append_branch_filters(query: &CachedBranchQuery, predicates: &mut Vec<String>, params: &mut Vec<SqlValue>) {
+    if let Some(cursor) = query.cursor_after_seq {
+        let comparison = if query.order == Some(EntryOrder::OldestFirst) {
+            ">"
+        } else {
+            "<"
+        };
+        predicates.push(format!("b.entry_seq {comparison} ?"));
+        params.push(int_param(cursor));
+    }
+    if let Some(entry_type) = query.entry_type.as_deref() {
+        predicates.push("b.entry_type = ?".to_owned());
+        params.push(text_param(entry_type));
+    }
+    if let Some(custom_type) = query.custom_type.as_deref() {
+        predicates.push("b.custom_type = ?".to_owned());
+        params.push(text_param(custom_type));
+    }
 }
 
 pub fn delete_branch_entries(db: &rusqlite::Connection, session_id: &str) -> Result<(), SqliteError> {
@@ -222,43 +247,7 @@ pub fn insert_branch_entries_for_path(
     branch_id: &str,
     leaf_id: &str,
 ) -> Result<(), SqliteError> {
-    let mut path: Vec<BranchPathEntryRow> = Vec::new();
-    let mut seen: Vec<String> = Vec::new();
-    let mut entry_id: Option<String> = Some(leaf_id.to_owned());
-
-    while let Some(current) = entry_id {
-        if seen.contains(&current) {
-            return Err(SqliteError::Session(SessionError::new(
-                SessionErrorCode::InvalidEntry,
-                format!("Entry parent cycle at {current}"),
-            )));
-        }
-        seen.push(current.clone());
-        let row = SqlQuery::new(
-            "SELECT id, seq, parent_id, type, payload
-			FROM entries
-			WHERE session_id = ? AND id = ?",
-            vec![text_param(session_id), text_param(current.clone())],
-        )
-        .get(db, |row| {
-            Ok(BranchPathEntryRow {
-                id: row.get(0)?,
-                seq: row.get(1)?,
-                parent_id: row.get(2)?,
-                entry_type: row.get(3)?,
-                payload: row.get(4)?,
-            })
-        })?;
-        let Some(row) = row else {
-            return Err(SqliteError::Session(SessionError::new(
-                SessionErrorCode::InvalidEntry,
-                format!("Entry {current} not found"),
-            )));
-        };
-        entry_id = row.parent_id.clone();
-        path.push(row);
-    }
-
+    let path = read_branch_path(db, session_id, leaf_id)?;
     for row in path.iter().rev() {
         let custom_type = custom_type_from_payload(row)?;
         insert_branch_entry(
@@ -272,6 +261,58 @@ pub fn insert_branch_entries_for_path(
         )?;
     }
     Ok(())
+}
+
+fn read_branch_path(
+    db: &rusqlite::Connection,
+    session_id: &str,
+    leaf_id: &str,
+) -> Result<Vec<BranchPathEntryRow>, SqliteError> {
+    let mut path: Vec<BranchPathEntryRow> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    let mut entry_id: Option<String> = Some(leaf_id.to_owned());
+
+    while let Some(current) = entry_id {
+        if seen.contains(&current) {
+            return Err(SqliteError::Session(SessionError::new(
+                SessionErrorCode::InvalidEntry,
+                format!("Entry parent cycle at {current}"),
+            )));
+        }
+        seen.push(current.clone());
+        let row = read_branch_path_row(db, session_id, &current)?;
+        let Some(row) = row else {
+            return Err(SqliteError::Session(SessionError::new(
+                SessionErrorCode::InvalidEntry,
+                format!("Entry {current} not found"),
+            )));
+        };
+        entry_id = row.parent_id.clone();
+        path.push(row);
+    }
+    Ok(path)
+}
+
+fn read_branch_path_row(
+    db: &rusqlite::Connection,
+    session_id: &str,
+    entry_id: &str,
+) -> Result<Option<BranchPathEntryRow>, SqliteError> {
+    SqlQuery::new(
+        "SELECT id, seq, parent_id, type, payload
+			FROM entries
+			WHERE session_id = ? AND id = ?",
+        vec![text_param(session_id), text_param(entry_id)],
+    )
+    .get(db, |row| {
+        Ok(BranchPathEntryRow {
+            id: row.get(0)?,
+            seq: row.get(1)?,
+            parent_id: row.get(2)?,
+            entry_type: row.get(3)?,
+            payload: row.get(4)?,
+        })
+    })
 }
 
 pub fn read_branch_containing_entry(

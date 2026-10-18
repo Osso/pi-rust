@@ -11,6 +11,7 @@ use rusqlite::types::Value;
 use crate::error::SqliteError;
 use crate::sqlite::connection::{configure_sqlite_database, open_database, transaction};
 use crate::sqlite::migrations::apply_migrations;
+use crate::sqlite::path::get_parent_path;
 use crate::sqlite::sql::{SqlQuery, int_param, text_param};
 use crate::sqlite::storage::sessions::{SessionRow, decode_session_metadata};
 use crate::sqlite::types::SqliteSessionMetadata;
@@ -53,15 +54,6 @@ fn get_file_system_result_or_throw<T>(result: Result<T, FileError>, message: &st
             };
             Err(SessionError::new(code, format!("{message}: {}", error.message)))
         }
-    }
-}
-
-fn get_parent_path(path: &str) -> String {
-    let normalized = path.trim_end_matches(['/', '\\']);
-    match normalized.rfind(['/', '\\']) {
-        None => ".".to_owned(),
-        Some(0) => normalized[..1].to_owned(),
-        Some(index) => normalized[..index].to_owned(),
     }
 }
 
@@ -170,40 +162,34 @@ impl SqliteSessionSearch {
     }
 }
 
-impl SessionSearch<SqliteSessionSearchHit> for SqliteSessionSearch {
-    fn search<'a>(
-        &'a self,
-        text: &'a str,
-        options: SessionSearchOptions,
-    ) -> BoxFuture<'a, Result<Vec<SqliteSessionSearchHit>, SearchError>> {
-        Box::pin(async move {
-            let query_text = text.trim();
-            if query_text.is_empty()
-                || options.limit == Some(0)
-                || options
-                    .entry_types
-                    .as_ref()
-                    .is_some_and(|entry_types| entry_types.is_empty())
-            {
-                return Ok(Vec::new());
-            }
-            throw_if_aborted(&options)?;
-            let db = self.open_database().await?;
+type SearchRow = (SessionRow, String, i64, f64);
 
-            let query = format!("\"{}\"", query_text.replace('"', "\"\""));
-            let mut predicates = vec!["session_search_fts MATCH ?".to_owned()];
-            let mut params: Vec<Value> = vec![text_param(query)];
-            if let Some(entry_types) = options.entry_types.as_ref() {
-                let placeholders = entry_types.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-                predicates.push(format!("se.type IN ({placeholders})"));
-                for entry_type in entry_types {
-                    params.push(text_param(entry_type.as_str()));
-                }
-            }
-            params.push(int_param(options.limit.map_or(-1, |limit| limit as i64)));
+fn is_empty_search(text: &str, options: &SessionSearchOptions) -> bool {
+    text.trim().is_empty()
+        || options.limit == Some(0)
+        || options
+            .entry_types
+            .as_ref()
+            .is_some_and(|entry_types| entry_types.is_empty())
+}
 
-            let query_text = format!(
-                "SELECT s.id, s.created_at, s.metadata, s.cwd, s.parent_session_id,
+fn placeholders(count: usize) -> String {
+    std::iter::repeat_n("?", count).collect::<Vec<_>>().join(", ")
+}
+
+fn build_search_query(text: &str, options: &SessionSearchOptions) -> SqlQuery {
+    let query = format!("\"{}\"", text.trim().replace('"', "\"\""));
+    let mut predicates = vec!["session_search_fts MATCH ?".to_owned()];
+    let mut params: Vec<Value> = vec![text_param(query)];
+    if let Some(entry_types) = options.entry_types.as_ref() {
+        predicates.push(format!("se.type IN ({})", placeholders(entry_types.len())));
+        for entry_type in entry_types {
+            params.push(text_param(entry_type.as_str()));
+        }
+    }
+    params.push(int_param(options.limit.map_or(-1, |limit| limit as i64)));
+    let query_text = format!(
+        "SELECT s.id, s.created_at, s.metadata, s.cwd, s.parent_session_id,
 						name_fact.seq IS NOT NULL AS has_session_name,
 						name_fact.value AS session_name,
 						se.id AS entry_id, se.timestamp, bm25(session_search_fts) AS score
@@ -222,40 +208,60 @@ impl SessionSearch<SqliteSessionSearchHit> for SqliteSessionSearch {
 					WHERE {}
 					ORDER BY score
 					LIMIT ?",
-                predicates.join(" AND ")
-            );
-            let rows = SqlQuery::new(query_text, params)
-                .all(&db, |row| {
-                    Ok((
-                        SessionRow {
-                            id: row.get(0)?,
-                            created_at: row.get(1)?,
-                            metadata: row.get(2)?,
-                            cwd: row.get(3)?,
-                            parent_session_id: row.get(4)?,
-                            has_session_name: row.get(5)?,
-                            session_name: row.get(6)?,
-                        },
-                        row.get::<_, String>(7)?,
-                        row.get::<_, i64>(8)?,
-                        row.get::<_, f64>(9)?,
-                    ))
-                })
-                .map_err(|error| SearchError::Session(error.into_session()))?;
+        predicates.join(" AND ")
+    );
+    SqlQuery::new(query_text, params)
+}
 
+fn read_search_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SearchRow> {
+    Ok((
+        SessionRow {
+            id: row.get(0)?,
+            created_at: row.get(1)?,
+            metadata: row.get(2)?,
+            cwd: row.get(3)?,
+            parent_session_id: row.get(4)?,
+            has_session_name: row.get(5)?,
+            session_name: row.get(6)?,
+        },
+        row.get(7)?,
+        row.get(8)?,
+        row.get(9)?,
+    ))
+}
+
+fn build_hit(row: SearchRow, path: &str) -> Result<SqliteSessionSearchHit, SessionError> {
+    let (session, entry_id, timestamp, score) = row;
+    let metadata = decode_session_metadata(&session, path).map_err(SqliteError::into_session)?;
+    Ok(SqliteSessionSearchHit {
+        session_id: session.id,
+        metadata,
+        entry_id,
+        timestamp,
+        score,
+    })
+}
+
+impl SessionSearch<SqliteSessionSearchHit> for SqliteSessionSearch {
+    fn search<'a>(
+        &'a self,
+        text: &'a str,
+        options: SessionSearchOptions,
+    ) -> BoxFuture<'a, Result<Vec<SqliteSessionSearchHit>, SearchError>> {
+        Box::pin(async move {
+            if is_empty_search(text, &options) {
+                return Ok(Vec::new());
+            }
+            throw_if_aborted(&options)?;
+            let db = self.open_database().await?;
+            let rows = build_search_query(text, &options)
+                .all(&db, read_search_row)
+                .map_err(|error| SearchError::Session(error.into_session()))?;
             let path = self.get_database_path().await?;
             let mut hits = Vec::with_capacity(rows.len());
-            for (row, entry_id, timestamp, score) in rows {
+            for row in rows {
                 throw_if_aborted(&options)?;
-                let metadata =
-                    decode_session_metadata(&row, &path).map_err(|error| SearchError::Session(error.into_session()))?;
-                hits.push(SqliteSessionSearchHit {
-                    session_id: row.id.clone(),
-                    metadata,
-                    entry_id,
-                    timestamp,
-                    score,
-                });
+                hits.push(build_hit(row, &path)?);
             }
             Ok(hits)
         })

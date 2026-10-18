@@ -2,6 +2,7 @@
 
 use pi_agent_core::harness::session::{EntryOrder, SessionError, SessionErrorCode};
 use rusqlite::Row;
+use rusqlite::types::Value;
 
 use crate::error::SqliteError;
 use crate::sqlite::sql::{SqlQuery, int_param, optional_text_param, text_param};
@@ -98,11 +99,7 @@ pub fn delete_record_rows(db: &rusqlite::Connection, session_id: &str) -> Result
     Ok(())
 }
 
-pub fn read_record_rows(
-    db: &rusqlite::Connection,
-    session_id: &str,
-    query: &RecordRowsQuery,
-) -> Result<Vec<RecordRow>, SqliteError> {
+fn record_predicates(session_id: &str, query: &RecordRowsQuery) -> (Vec<String>, Vec<Value>) {
     let mut predicates = vec!["session_id = ?".to_owned()];
     let mut params = vec![text_param(session_id)];
     if let Some(lane) = query.lane.as_deref() {
@@ -125,6 +122,15 @@ pub fn read_record_rows(
         predicates.push("seq > ?".to_owned());
         params.push(int_param(after_seq));
     }
+    (predicates, params)
+}
+
+pub fn read_record_rows(
+    db: &rusqlite::Connection,
+    session_id: &str,
+    query: &RecordRowsQuery,
+) -> Result<Vec<RecordRow>, SqliteError> {
+    let (predicates, mut params) = record_predicates(session_id, query);
     let direction = if query.order == Some(EntryOrder::OldestFirst) {
         "ASC"
     } else {

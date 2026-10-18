@@ -78,14 +78,7 @@ impl Fixture {
     }
 
     pub async fn create(&self, id: &str) -> Session<SqliteSessionMetadata> {
-        self.repo
-            .create(SqliteSessionCreateOptions {
-                id: Some(id.to_owned()),
-                cwd: self.cwd(),
-                ..SqliteSessionCreateOptions::default()
-            })
-            .await
-            .expect("session created")
+        self.create_session(id, None).await
     }
 
     pub async fn create_with_metadata(
@@ -93,11 +86,19 @@ impl Fixture {
         id: &str,
         metadata: serde_json::Map<String, serde_json::Value>,
     ) -> Session<SqliteSessionMetadata> {
+        self.create_session(id, Some(metadata)).await
+    }
+
+    async fn create_session(
+        &self,
+        id: &str,
+        metadata: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> Session<SqliteSessionMetadata> {
         self.repo
             .create(SqliteSessionCreateOptions {
                 id: Some(id.to_owned()),
                 cwd: self.cwd(),
-                metadata: Some(metadata),
+                metadata,
                 ..SqliteSessionCreateOptions::default()
             })
             .await

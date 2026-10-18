@@ -363,7 +363,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `session-backends/sqlite-node/src/sqlite/storage/writer-leases.ts` | 58 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/writer_leases.rs` | Fenced lease acquire/renew/release; two-connection tests. |
 | `session-backends/sqlite-node/src/sqlite/branch-cache.ts` | 101 | 17 | done | `crates/pi-session-sqlite/src/sqlite/branch_cache.rs` | Cache build/repair/append with savepoint rollback. |
 | `session-backends/sqlite-node/src/sqlite/search-backend.ts` | 194 | 17 | done | `crates/pi-session-sqlite/src/sqlite/search_backend.rs` | FTS5 trigram schema, triggers, bm25 search; eager Vec behind the async contract. |
-| `session-backends/sqlite-node/src/sqlite/repo.ts` | 953 | 18 | done | `crates/pi-session-sqlite/src/sqlite/repo.rs` | Repository + `SessionStorage` impl, writer leases/heartbeat, forks; raw SQLite errors surface as `storage`. |
+| `session-backends/sqlite-node/src/sqlite/repo.ts` | 953 | 18 | done | `crates/pi-session-sqlite/src/sqlite/repo/{mod,storage,decode,fork}.rs` | Repository + `SessionStorage` impl, writer leases/heartbeat, forks; raw SQLite errors surface as `storage`. |
 | `session-backends/sqlite-node/src/sqlite/index.ts` | 18 | 19 | done | `crates/pi-session-sqlite/src/sqlite/mod.rs` | Re-exports. |
 | `session-backends/sqlite-node/src/index.ts` | 114 | 20 | done | `crates/pi-session-sqlite/src/sqlite/connection.rs + src/lib.rs` | node:sqlite adapter becomes rusqlite connection/transaction; async-callback and factory-injection cases are documented gaps. |
 
