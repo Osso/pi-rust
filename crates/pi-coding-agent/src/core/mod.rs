@@ -13,6 +13,7 @@ pub mod footer_data_provider;
 pub mod http_dispatcher;
 pub mod model_config;
 pub mod model_resolver;
+pub mod model_runtime;
 pub mod models_store;
 pub mod output_guard;
 pub mod permissions;
