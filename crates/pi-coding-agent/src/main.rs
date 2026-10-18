@@ -5,10 +5,11 @@
 //! land on `master`; see `docs/porting/traceability/main.md` for the current
 //! mapping and the explicit gaps.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::io::Write;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::types::{AuthOperationOptions, CredentialStore};
 use pi_ai::models::models_are_equal;
@@ -22,27 +23,37 @@ use crate::cli::auth_check::{
 use crate::cli::credential_print::{CredentialPrintKind, resolve_credential_for_print};
 use crate::cli::file_processor::{ProcessFileOptions, process_file_arguments};
 use crate::cli::initial_message::{InitialMessageInput, InitialMessageResult, build_initial_message};
+use crate::cli::project_trust::{CreateProjectTrustContextOptions, create_project_trust_context};
 use crate::cli::{
     AuthCommand, AuthCommandError, AuthCommandKind, AuthCommandTarget, get_auth_command_name, get_auth_command_usage,
     is_auth_command_help, parse_auth_command, print_auth_command_help, validate_auth_command_args,
 };
-use crate::config::{get_agent_dir, package_config};
-use crate::core::agent_session_services::AgentSessionRuntimeDiagnostic;
+use crate::config::{get_agent_dir, get_user_state_root, package_config};
+use crate::core::agent_session::{MultiAgentRuntimeRole, create_multi_agent_execution_capability};
+use crate::core::agent_session_runtime::{
+    CreateAgentSessionRuntimeFactory, CreateAgentSessionRuntimeOptions, CreateAgentSessionRuntimeResult,
+};
+use crate::core::agent_session_services::{
+    AgentSessionRuntimeDiagnostic, AgentSessionServices, CreateAgentSessionFromServicesOptions,
+    CreateAgentSessionServicesOptions, create_agent_session_from_services, create_agent_session_services,
+};
 use crate::core::auth_storage::{AuthStorage, ReadOnlyAuthStorage};
 use crate::core::extensions::loader::ExtensionFactory;
 use crate::core::external_session_importer::{
     ExternalSessionImportOptions, import_external_session_alias, is_external_session_alias,
 };
-use crate::core::model_resolver::{ResolveCliModelOptions, ScopedModel, resolve_cli_model};
+use crate::core::model_resolver::{ResolveCliModelOptions, ScopedModel, resolve_cli_model, resolve_model_scope};
 use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use crate::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
-use crate::core::project_trust::AppMode;
-use crate::core::resource_loader::InlineExtension;
+use crate::core::project_trust::{AppMode, ResolveProjectTrustedOptions, resolve_project_trusted};
+use crate::core::resource_loader::{DefaultResourceLoaderOptions, InlineExtension};
 use crate::core::sdk::{CreateAgentSessionOptions, NoTools};
+use crate::core::session_control_db::get_control_db_path;
 use crate::core::session_manager::{
     NewSessionOptions, SessionInfo, SessionManager, assert_valid_session_id, get_default_session_dir,
 };
-use crate::core::settings_manager::SettingsManager;
+use crate::core::settings_manager::{DefaultProjectTrust, SettingsManager, SettingsManagerCreateOptions};
+use crate::core::trust_manager::{ProjectTrustDecision, ProjectTrustStore, has_trust_requiring_project_resources};
 use crate::utils::chalk::Chalk;
 use crate::utils::git_project::read_git_common_directory;
 use crate::utils::paths::{PathInputOptions, is_local_path, normalize_path, resolve_path};
@@ -152,6 +163,296 @@ pub fn create_first_party_extension_factories(
 /// `new MultiAgentStore()` as created at module load in the source.
 pub fn create_first_party_multi_agent_store() -> Arc<MultiAgentStore> {
     Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()))
+}
+
+// =============================================================================
+// Runtime factory (`createRuntime` in the source)
+// =============================================================================
+
+/// Captured state for the `createRuntime` closure in `main.ts`.
+#[derive(Clone)]
+pub struct RuntimeFactoryOptions {
+    pub parsed: Args,
+    pub agent_dir: String,
+    pub startup_default_project_trust: DefaultProjectTrust,
+    pub trust_store: Arc<ProjectTrustStore>,
+    pub trust_prompt_mode: AppMode,
+    pub app_mode: AppMode,
+    pub project_trust_by_cwd: Arc<Mutex<HashMap<String, bool>>>,
+    pub additional_extension_paths: Vec<String>,
+    pub additional_skill_paths: Vec<String>,
+    pub additional_prompt_template_paths: Vec<String>,
+    pub additional_theme_paths: Vec<String>,
+    pub extension_factories: Vec<InlineExtension>,
+}
+
+fn trust_decision_is_trusted(store: &ProjectTrustStore, cwd: &str) -> bool {
+    store.get(cwd) == Ok(ProjectTrustDecision::Trusted)
+}
+
+fn project_trust_context(
+    cwd: &str,
+    mode: AppMode,
+    has_ui: bool,
+) -> crate::core::extensions::types::ProjectTrustContext {
+    create_project_trust_context(CreateProjectTrustContextOptions {
+        cwd: cwd.to_owned(),
+        mode,
+        has_ui,
+        startup_ui: None,
+    })
+}
+
+async fn create_runtime(
+    options: &RuntimeFactoryOptions,
+    request: CreateAgentSessionRuntimeOptions,
+) -> Result<CreateAgentSessionRuntimeResult, String> {
+    let mut session_manager = request.session_manager;
+    let parsed = &options.parsed;
+    session_manager.set_metadata_control_db_path(
+        Some(&get_control_db_path(&get_user_state_root())),
+        crate::core::session_manager::SetMetadataControlDbPathOptions {
+            index_message_text: None,
+            cwd_override: None,
+        },
+    );
+
+    let is_initial_runtime = request.session_start_reason == "startup";
+    let project_trust_diagnostics = Arc::new(Mutex::new(Vec::new()));
+    let cwd = request.cwd.clone();
+    let cached_project_trust = options
+        .project_trust_by_cwd
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&cwd)
+        .copied();
+    let has_trust_requiring_resources = has_trust_requiring_project_resources(&cwd);
+    let should_resolve_project_trust =
+        parsed.project_trust_override.is_none() && cached_project_trust.is_none() && has_trust_requiring_resources;
+    let project_trusted = if should_resolve_project_trust {
+        false
+    } else {
+        cached_project_trust
+            .or(parsed.project_trust_override)
+            .unwrap_or(!has_trust_requiring_resources || trust_decision_is_trusted(&options.trust_store, &cwd))
+    };
+
+    let runtime_settings_manager = SettingsManager::create(
+        &cwd,
+        Some(Path::new(&options.agent_dir)),
+        SettingsManagerCreateOptions {
+            project_trusted: Some(project_trusted),
+        },
+    )
+    .map_err(|error| error.to_string())?;
+
+    let timeout = TimeoutSignal::new(15_000);
+    let reload_options = if should_resolve_project_trust {
+        let trust_store = Arc::clone(&options.trust_store);
+        let project_trust_by_cwd = Arc::clone(&options.project_trust_by_cwd);
+        let diagnostics = Arc::clone(&project_trust_diagnostics);
+        let trust_override = parsed.project_trust_override;
+        let default_project_trust = options.startup_default_project_trust;
+        let trust_prompt_mode = options.trust_prompt_mode;
+        let app_mode = options.app_mode;
+        let resolver_cwd = cwd.clone();
+        Some(Arc::new(
+            move |extensions_result: crate::core::extensions::types::LoadExtensionsResult| {
+                let trust_store = Arc::clone(&trust_store);
+                let project_trust_by_cwd = Arc::clone(&project_trust_by_cwd);
+                let diagnostics = Arc::clone(&diagnostics);
+                let cwd = resolver_cwd.clone();
+                Box::pin(async move {
+                    let mode = if is_initial_runtime {
+                        trust_prompt_mode
+                    } else {
+                        app_mode
+                    };
+                    let context = project_trust_context(
+                        &cwd,
+                        mode,
+                        is_initial_runtime && trust_prompt_mode == AppMode::Interactive,
+                    );
+                    let on_extension_error = |message: String| {
+                        diagnostics
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .push(AgentSessionRuntimeDiagnostic {
+                                diagnostic_type: "warning".to_owned(),
+                                message,
+                            });
+                    };
+                    let trusted = resolve_project_trusted(ResolveProjectTrustedOptions {
+                        cwd: &cwd,
+                        trust_store: &trust_store,
+                        trust_override,
+                        default_project_trust: Some(default_project_trust),
+                        extensions_result: Some(&extensions_result),
+                        project_trust_context: &context,
+                        on_extension_error: Some(&on_extension_error),
+                    })
+                    .await
+                    .map_err(|error| error.to_string())?;
+                    project_trust_by_cwd
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .insert(cwd, trusted);
+                    Ok(trusted)
+                }) as pi_ai::request::BoxFuture<'static, Result<bool, String>>
+            },
+        ) as crate::core::resource_loader::ResolveProjectTrust)
+    } else {
+        None
+    };
+
+    let resource_loader_options = DefaultResourceLoaderOptions {
+        additional_extension_paths: options.additional_extension_paths.clone(),
+        additional_skill_paths: options.additional_skill_paths.clone(),
+        additional_prompt_template_paths: options.additional_prompt_template_paths.clone(),
+        additional_theme_paths: options.additional_theme_paths.clone(),
+        extension_factories: options.extension_factories.clone(),
+        no_extensions: parsed.no_extensions.is_some_and(|value| value),
+        no_skills: parsed.no_skills.is_some_and(|value| value),
+        no_prompt_templates: parsed.no_prompt_templates.is_some_and(|value| value),
+        no_themes: parsed.no_themes.is_some_and(|value| value),
+        no_context_files: parsed.no_context_files.is_some_and(|value| value),
+        system_prompt: parsed.system_prompt.clone(),
+        append_system_prompt: parsed.append_system_prompt.clone(),
+        ..Default::default()
+    };
+
+    let services = create_agent_session_services(CreateAgentSessionServicesOptions {
+        cwd: cwd.clone(),
+        agent_dir: Some(options.agent_dir.clone()),
+        settings_manager: Some(runtime_settings_manager),
+        model_runtime: None,
+        model_runtime_signal: Some(timeout.token()),
+        extension_flag_values: Some(parsed.unknown_flags.clone()),
+        resource_loader_options: Some(resource_loader_options),
+        resource_loader: None,
+        resource_loader_reload_options: reload_options,
+    })
+    .await?;
+
+    let settings_manager = Arc::clone(&services.settings_manager);
+    let resource_loader = Arc::clone(&services.resource_loader);
+    let model_runtime = services.model_runtime.clone();
+    let mut diagnostics = project_trust_diagnostics
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    diagnostics.extend(services.diagnostics.clone());
+    diagnostics.extend(collect_settings_diagnostics(
+        &mut settings_manager.lock().unwrap_or_else(|poisoned| poisoned.into_inner()),
+        "runtime creation",
+    ));
+    diagnostics.extend(resource_loader.get_extensions().errors.into_iter().map(|error| {
+        AgentSessionRuntimeDiagnostic {
+            diagnostic_type: "error".to_owned(),
+            message: format!("Failed to load extension \"{}\": {}", error.path, error.error),
+        }
+    }));
+
+    let model_patterns = parsed.models.clone().or_else(|| {
+        settings_manager
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get_enabled_models()
+    });
+    let scoped_models = match model_patterns.filter(|patterns| !patterns.is_empty()) {
+        Some(patterns) => {
+            resolve_model_scope(
+                &patterns,
+                &model_runtime,
+                AuthOperationOptions::new(Some(timeout.token())),
+            )
+            .await
+        }
+        None => Vec::new(),
+    };
+
+    let has_existing_session = !session_manager.build_session_context().messages.is_empty();
+    let (session_options, cli_thinking_from_model, option_diagnostics) = {
+        let settings_guard = settings_manager.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let built = build_session_options(
+            parsed,
+            &scoped_models,
+            has_existing_session,
+            &model_runtime,
+            &settings_guard,
+        );
+        (built.options, built.cli_thinking_from_model, built.diagnostics)
+    };
+    diagnostics.extend(option_diagnostics);
+
+    if let Some(api_key) = parsed.api_key.as_deref() {
+        match session_options.model.as_ref() {
+            None => diagnostics.push(AgentSessionRuntimeDiagnostic {
+                diagnostic_type: "error".to_owned(),
+                message: "--api-key requires a model to be specified via --model, --provider/--model, or --models"
+                    .to_owned(),
+            }),
+            Some(model) => {
+                let provider = model.provider.clone();
+                model_runtime
+                    .set_runtime_api_key(&provider, api_key, AuthOperationOptions::default())
+                    .await
+                    .map_err(|error| error.to_string())?;
+                model_runtime
+                    .refresh(pi_ai::models::ModelsRefreshOptions {
+                        allow_network: Some(false),
+                        providers: Some(vec![provider]),
+                        ..Default::default()
+                    })
+                    .await
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+    }
+
+    let result = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
+        services: AgentSessionServices {
+            cwd: services.cwd.clone(),
+            agent_dir: services.agent_dir.clone(),
+            model_runtime: services.model_runtime.clone(),
+            settings_manager: Arc::clone(&services.settings_manager),
+            resource_loader: Arc::clone(&services.resource_loader),
+            diagnostics: services.diagnostics.clone(),
+        },
+        session_manager,
+        model: session_options.model,
+        thinking_level: session_options.thinking_level,
+        scoped_models: session_options.scoped_models,
+        tools: session_options.tools,
+        exclude_tools: session_options.exclude_tools,
+        no_tools: session_options.no_tools,
+        permission_prompt_tool: session_options.permission_prompt_tool,
+        multi_agent_runtime_role: Some(MultiAgentRuntimeRole::Orchestrator),
+        multi_agent_execution_capability: Some(create_multi_agent_execution_capability()),
+        custom_tools: Vec::new(),
+        base_tools: Vec::new(),
+    })
+    .await?;
+
+    let cli_thinking_override = parsed.thinking.is_some() || cli_thinking_from_model;
+    if cli_thinking_override {
+        result.session.set_thinking_level(result.session.thinking_level());
+    }
+
+    Ok(CreateAgentSessionRuntimeResult {
+        session: result.session,
+        services,
+        diagnostics,
+        model_fallback_message: result.model_fallback_message,
+    })
+}
+
+/// Builds the `createRuntime` factory captured by `main`.
+pub fn create_runtime_factory(options: RuntimeFactoryOptions) -> CreateAgentSessionRuntimeFactory {
+    Arc::new(move |request| {
+        let options = options.clone();
+        Box::pin(async move { create_runtime(&options, request).await })
+    })
 }
 
 // =============================================================================

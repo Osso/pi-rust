@@ -1,6 +1,8 @@
 //! Behavioral tests for the `main.ts` startup helpers.
 
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::AgentMessage;
 use pi_agent_core::harness::types::ThinkingLevel;
@@ -11,7 +13,9 @@ use pi_ai::types::{
 };
 use pi_coding_agent::cli::args::{ListModels, Mode, parse_args};
 use pi_coding_agent::core::ResourceLoader;
+use pi_coding_agent::core::agent_session_runtime::CreateAgentSessionRuntimeOptions;
 use pi_coding_agent::core::agent_session_services::AgentSessionRuntimeDiagnostic;
+use pi_coding_agent::core::auth_guidance::format_no_models_available_message;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::model_resolver::ScopedModel;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
@@ -19,12 +23,14 @@ use pi_coding_agent::core::project_trust::AppMode;
 use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension};
 use pi_coding_agent::core::sdk::NoTools;
 use pi_coding_agent::core::session_manager::SessionManager;
-use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
+use pi_coding_agent::core::settings_manager::{DefaultProjectTrust, SettingsManager, SettingsManagerCreateOptions};
+use pi_coding_agent::core::trust_manager::ProjectTrustStore;
 use pi_coding_agent::main_runner::{
-    FIRST_PARTY_EXTENSION_NAMES, MainExit, PENDING_FIRST_PARTY_EXTENSIONS, ResolvedSession, build_session_options,
-    collect_settings_diagnostics, create_first_party_extension_factories, create_first_party_multi_agent_store,
-    create_session_manager, fork_flag_conflict, is_plain_runtime_metadata_command, is_truthy_env_flag,
-    prepare_initial_message, resolve_app_mode, resolve_cli_paths, resolve_session_path, run_cli_action_or_report_error,
+    FIRST_PARTY_EXTENSION_NAMES, MainExit, PENDING_FIRST_PARTY_EXTENSIONS, ResolvedSession, RuntimeFactoryOptions,
+    build_session_options, collect_settings_diagnostics, create_first_party_extension_factories,
+    create_first_party_multi_agent_store, create_runtime_factory, create_session_manager, fork_flag_conflict,
+    is_plain_runtime_metadata_command, is_truthy_env_flag, prepare_initial_message, resolve_app_mode,
+    resolve_cli_paths, resolve_session_path, run_cli_action_or_report_error,
     run_interactive_action_or_report_terminal_error, session_belongs_to_project, session_id_flag_conflict,
     to_print_output_mode, validate_fork_flags, validate_session_id_flags,
 };
@@ -556,4 +562,54 @@ async fn first_party_factories_load_and_register_agent_tools() {
     let mailbox = &result.extensions[2];
     assert!(mailbox.tools.contains_key("send_agent_message"));
     assert!(mailbox.tools.contains_key("contact_parent"));
+}
+
+#[tokio::test]
+async fn runtime_factory_creates_services_and_reports_missing_models() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let cwd = root.path().join("project");
+    let agent_dir = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).expect("project");
+    std::fs::create_dir_all(&agent_dir).expect("agent");
+    std::fs::create_dir_all(cwd.join(".pi")).expect("project config");
+    std::fs::write(cwd.join(".pi/settings.json"), "{}").expect("project settings");
+    let cwd_string = cwd.display().to_string();
+    let agent_dir_string = agent_dir.display().to_string();
+
+    let parsed = parse_args(&args(&["--no-session"]));
+    let session_manager = SessionManager::in_memory(Some(&cwd_string), None).expect("session manager");
+    let trust_store = Arc::new(ProjectTrustStore::new(&agent_dir_string));
+    let project_trust_by_cwd = Arc::new(Mutex::new(HashMap::new()));
+    let factory = create_runtime_factory(RuntimeFactoryOptions {
+        parsed,
+        agent_dir: agent_dir_string.clone(),
+        startup_default_project_trust: DefaultProjectTrust::Ask,
+        trust_store,
+        trust_prompt_mode: AppMode::Print,
+        app_mode: AppMode::Print,
+        project_trust_by_cwd: Arc::clone(&project_trust_by_cwd),
+        additional_extension_paths: Vec::new(),
+        additional_skill_paths: Vec::new(),
+        additional_prompt_template_paths: Vec::new(),
+        additional_theme_paths: Vec::new(),
+        extension_factories: Vec::new(),
+    });
+    let result = factory(CreateAgentSessionRuntimeOptions {
+        cwd: cwd_string.clone(),
+        agent_dir: agent_dir_string,
+        session_manager,
+        session_start_reason: "startup".to_owned(),
+        previous_session_file: None,
+    })
+    .await
+    .expect("runtime");
+
+    assert_eq!(
+        result.model_fallback_message.as_deref(),
+        Some(format_no_models_available_message().as_str())
+    );
+    assert_eq!(result.services.cwd, cwd_string);
+    assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+    assert!(result.session.messages().is_empty());
+    assert_eq!(project_trust_by_cwd.lock().unwrap().get(&cwd_string), Some(&false));
 }

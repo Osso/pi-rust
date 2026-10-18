@@ -44,6 +44,7 @@ the `pi` binary target, and process-level differentials land with the consolidat
 | `firstPartyExtensionFactory` | `first_party_extension_factory` | `first_party_factory_list_partitions_the_source_names`, `first_party_factories_load_and_register_agent_tools` |
 | `runtimeExtensionFactory` | pending (bundled extension registry) | pending |
 | `createFirstPartyExtensionFactories` | `create_first_party_extension_factories` (bundled modules present on master) | `first_party_factory_list_partitions_the_source_names`, `first_party_factories_load_and_register_agent_tools` |
+| `createRuntime` (closure in `main`) | `create_runtime_factory` / `create_runtime` | `runtime_factory_creates_services_and_reports_missing_models` |
 | `readPipedStdin` | pending (orchestration commit) | pending process differential |
 
 ## Explicit gaps
@@ -74,12 +75,16 @@ the `pi` binary target, and process-level differentials land with the consolidat
   docs-tree-context, effort, goal, bwrap, pyrun, loop, openai-remote-compact,
   run-plan, safe, spec-validation, session-archive, self-restart, session-id).
   A test enforces that the registered and pending lists partition the source list.
-- Production child/attached agent session factories are blocked on agent-session
-  multi-agent identity options; the registered agents extensions therefore expose
-  the documented "child orchestration unavailable" path.
-- `MultiAgentStore::restore_from_session_manager` needs a `SessionPersistence`
-  implementation for `SessionManager` (in flight with session metadata); until it
-  lands the store is created empty.
+- `createRuntime` is ported as `create_runtime_factory`: per-cwd settings and
+  services, project-trust resolution with `projectTrustByCwd` caching, loader
+  options, scoped-model resolution, CLI model/thinking/tools options, runtime API
+  key refresh, and orchestrator session creation. `sessionStartEvent === undefined`
+  maps to `session_start_reason == "startup"`.
+- `bindAgentSessionMutationTargetResolver` and `MultiAgentStore` persistence are
+  not ported yet; the store is created empty and mutation-target binding is skipped.
+  `onSharedChannelMessageDelivered` is likewise not carried by the Rust SDK options.
+- Production child/attached session factories remain unavailable (documented
+  "child orchestration unavailable" path).
 
 ## Source-port discrepancies
 

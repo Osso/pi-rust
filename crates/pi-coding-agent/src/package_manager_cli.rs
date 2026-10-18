@@ -746,7 +746,7 @@ pub async fn create_command_settings_manager(
         )
         .map_err(|error| error.to_string())?,
     ));
-    let project_trust_warnings: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let project_trust_warnings: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let trust_store = ProjectTrustStore::new(&options.agent_dir);
 
     if options.use_saved_project_trust_only {
@@ -758,7 +758,7 @@ pub async fn create_command_settings_manager(
             .set_project_trusted(options.project_trust_override.unwrap_or(saved_project_trusted));
         return Ok(CommandSettings {
             store: Arc::new(SettingsManagerStore::from_shared(settings_manager)),
-            project_trust_warnings: project_trust_warnings.into_inner().unwrap(),
+            project_trust_warnings: project_trust_warnings.lock().unwrap().clone(),
         });
     }
 
@@ -794,6 +794,10 @@ pub async fn create_command_settings_manager(
         },
     );
     let default_project_trust = settings_manager.lock().unwrap().get_default_project_trust();
+    let warnings_for_trust = Arc::clone(&project_trust_warnings);
+    let on_extension_error = move |message: String| {
+        warnings_for_trust.lock().unwrap().push(message);
+    };
     let project_trusted = resolve_project_trusted(ResolveProjectTrustedOptions {
         cwd: &options.cwd,
         trust_store: &trust_store,
@@ -801,16 +805,14 @@ pub async fn create_command_settings_manager(
         default_project_trust: Some(default_project_trust),
         extensions_result: extensions_result.as_ref(),
         project_trust_context: &trust_context,
-        on_extension_error: Some(&|message: String| {
-            project_trust_warnings.lock().unwrap().push(message);
-        }),
+        on_extension_error: Some(&on_extension_error),
     })
     .await
     .map_err(|error| error.to_string())?;
     settings_manager.lock().unwrap().set_project_trusted(project_trusted);
     Ok(CommandSettings {
         store: Arc::new(SettingsManagerStore::from_shared(settings_manager)),
-        project_trust_warnings: project_trust_warnings.into_inner().unwrap(),
+        project_trust_warnings: project_trust_warnings.lock().unwrap().clone(),
     })
 }
 
