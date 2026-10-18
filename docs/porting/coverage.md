@@ -43,7 +43,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/error-body.ts` | 149 | 0 | done | `crates/pi-ai/src/utils/error_body.rs` | Provider error status/body normalization, formatting, truncation; differential. |
 | `ai/src/utils/hash.ts` | 13 | 0 | done | `crates/pi-ai/src/utils/hash.rs` | UTF-16 code-unit short hash, bit-for-bit differential. |
 | `ai/src/utils/json-parse.ts` | 124 | 0 | done | `crates/pi-ai/src/utils/json_parse.rs` | JSON repair + `partial-json@0.1.7` streaming parser; prefix/malformed differential corpus. |
-| `ai/src/utils/provider-retry.ts` | 125 | 0 | todo |  |  |
+| `ai/src/utils/provider-retry.ts` | 125 | 0 | done | `crates/pi-ai/src/utils/provider_retry.rs` | SDK retry policy, server delays, abortable sleep; Tokio tests. |
 | `ai/src/utils/sanitize-unicode.ts` | 25 | 0 | done | `crates/pi-ai/src/utils/sanitize_unicode.rs` | Surrogate repair over UTF-16 units plus typed identity API; differential. |
 | `ai/src/utils/typebox-helpers.ts` | 24 | 0 | todo |  |  |
 | `ai/src/utils/uuid.ts` | 48 | 0 | todo |  |  |

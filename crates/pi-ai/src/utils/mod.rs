@@ -5,4 +5,5 @@ pub mod error_body;
 pub mod hash;
 mod js_number;
 pub mod json_parse;
+pub mod provider_retry;
 pub mod sanitize_unicode;

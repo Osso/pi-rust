@@ -8,9 +8,11 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+getrandom = "=0.4.3"
+httpdate = "=1.0.3"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["preserve_order"] }
-tokio = { version = "=1.53.3", features = ["macros", "rt", "sync", "time"] }
+tokio = { version = "=1.53.3", features = ["macros", "rt", "sync", "test-util", "time"] }
 tokio-util = "=0.7.20"
 
 [lints]
