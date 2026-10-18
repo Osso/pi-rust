@@ -55,7 +55,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/google-generative-ai.ts` | 521 | 1 | todo |  |  |
 | `ai/src/api/google-shared.ts` | 419 | 1 | todo |  |  |
 | `ai/src/api/google-vertex.ts` | 596 | 1 | todo |  |  |
-| `ai/src/api/lazy.ts` | 98 | 1 | todo |  |  |
+| `ai/src/api/lazy.ts` | 98 | 1 | done | `crates/pi-ai/src/api/lazy.rs` | lazy stream/api, setup errors, declared deferred capabilities; differential setup-error |
 | `ai/src/api/mistral-conversations.ts` | 931 | 1 | todo |  |  |
 | `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | todo |  |  |
 | `ai/src/api/openai-completions.ts` | 1577 | 1 | todo |  |  |
@@ -64,12 +64,12 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/pi-messages.ts` | 433 | 1 | todo |  |  |
 | `ai/src/api/simple-options.ts` | 97 | 1 | todo |  |  |
 | `ai/src/api/transform-messages.ts` | 228 | 1 | done | `crates/pi-ai/src/api/transform_messages.rs` | Cross-model thinking/tool-call normalization, image downgrade, synthetic tool results; injected clock; differential 18 scenarios. |
-| `ai/src/auth/context.ts` | 45 | 1 | todo |  |  |
-| `ai/src/auth/credential-store.ts` | 67 | 1 | todo |  |  |
-| `ai/src/auth/resolve.ts` | 205 | 1 | todo |  |  |
-| `ai/src/auth/types.ts` | 240 | 1 | todo |  |  |
-| `ai/src/models-store.ts` | 45 | 1 | todo |  |  |
-| `ai/src/models.ts` | 953 | 1 | todo |  |  |
+| `ai/src/auth/context.ts` | 45 | 1 | done | `crates/pi-ai/src/auth/context.rs` | default env/file context; env branch not unit-tested (process-global) |
+| `ai/src/auth/credential-store.ts` | 67 | 1 | done | `crates/pi-ai/src/auth/credential_store.rs` | serialized modify/delete, abort-before-run, insertion-order list |
+| `ai/src/auth/resolve.ts` | 205 | 1 | done | `crates/pi-ai/src/auth/resolve.rs` | stored/ambient resolution, locked OAuth refresh, ModelsError codes; differential auth cases |
+| `ai/src/auth/types.ts` | 240 | 1 | done | `crates/pi-ai/src/auth/types.rs` | credentials, traits, prompts/events; OAuth extra keys preserved |
+| `ai/src/models-store.ts` | 45 | 1 | done | `crates/pi-ai/src/models_store.rs` | clone semantics, cancellation, timestamp wire shape |
+| `ai/src/models.ts` | 953 | 1 | done | `crates/pi-ai/src/models.rs` | providers/models, refresh generations+publication chains, auth application, login/logout, deferred, cost/thinking helpers; differential cost/thinking/refresh/apply-auth |
 | `ai/src/types.ts` | 846 | 1 | partial | `pi-ai/src/types.rs` | data contracts done; option/callback interfaces → provider runtime slice |
 | `ai/src/utils/deferred-tools.ts` | 39 | 1 | done | `crates/pi-ai/src/utils/deferred_tools.rs` | Immediate/deferred split with insertion order; differential 6 requests. |
 | `ai/src/utils/estimate.ts` | 143 | 1 | done | `crates/pi-ai/src/utils/estimate.rs` | Context/message/tool estimation, UTF-16 lengths, added-tool accounting; differential 10 requests. |
@@ -89,7 +89,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/openai-responses.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/openrouter-images.ts` | 196 | 2 | todo |  |  |
 | `ai/src/api/pi-messages.lazy.ts` | 4 | 2 | todo |  |  |
-| `ai/src/auth/helpers.ts` | 59 | 2 | todo |  |  |
+| `ai/src/auth/helpers.ts` | 59 | 2 | done | `crates/pi-ai/src/auth/helpers.rs` | env api-key auth and lazy OAuth loading |
 | `ai/src/auth/oauth/anthropic.ts` | 364 | 2 | todo |  |  |
 | `ai/src/auth/oauth/kimi-coding.ts` | 310 | 2 | todo |  |  |
 | `ai/src/auth/oauth/load.ts` | 68 | 2 | todo |  |  |
@@ -106,7 +106,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/model-types.ts` | 273 | 2 | done | `crates/pi-ai/src/types.rs` | Type-only module; all interfaces mapped to existing `types.rs` items, no new code. |
 | `ai/src/providers/cloudflare-auth.ts` | 103 | 2 | todo |  |  |
 | `ai/src/providers/cloudflare-stream.ts` | 28 | 2 | todo |  |  |
-| `ai/src/providers/faux.ts` | 708 | 2 | todo |  |  |
+| `ai/src/providers/faux.ts` | 708 | 2 | done | `crates/pi-ai/src/providers/faux.rs` | deterministic faux streams, usage/cache estimation, abort, deferred; differential fixed-chunk scenarios |
 | `ai/src/providers/radius-config.ts` | 96 | 2 | todo |  |  |
 | `ai/src/utils/overflow.ts` | 181 | 2 | done | `crates/pi-ai/src/utils/overflow.rs` | 26 overflow patterns, non-overflow exclusions, silent and length-stop overflow; differential 40 checks + pattern matrix. |
 | `ai/src/utils/retry.ts` | 253 | 2 | done | `crates/pi-ai/src/utils/retry.rs` | Exact classifier plus async backoff/cancellation/callbacks; differential 45 classifications + 10 scripted loops. |
@@ -274,12 +274,12 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/terminal-image.ts` | 657 | 0 | done | `crates/pi-tui/src/terminal_image.rs` + internal `base64.rs` | differential encode/detect/render/placement/dimensions; WebP <30 source bug preserved |
 | `tui/src/undo-stack.ts` | 28 | 0 | done | `crates/pi-tui/src/undo_stack.rs` | clone-on-push; differential N/A (structuredClone) |
 | `tui/src/utils.ts` | 1326 | 0 | done | `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs` | Unicode 17.0 tables; differential corpus + ~11k codepoint samples |
-| `tui/src/autocomplete.ts` | 793 | 1 | todo |  |  |
-| `tui/src/keybindings.ts` | 325 | 1 | todo |  |  |
-| `tui/src/latex.ts` | 1373 | 1 | todo |  |  |
-| `tui/src/terminal.ts` | 594 | 1 | todo |  |  |
-| `tui/src/word-navigation.ts` | 117 | 1 | todo |  |  |
-| `tui/src/tui.ts` | 2534 | 2 | todo |  |  |
+| `tui/src/autocomplete.ts` | 793 | 1 | done | `crates/pi-tui/src/autocomplete.rs` | TS test port + real-fd differential; async argument-completion callback and locale collation documented as gaps |
+| `tui/src/keybindings.ts` | 325 | 1 | done | `crates/pi-tui/src/keybindings.rs` | differential resolved keys/conflicts; ordered config pairs |
+| `tui/src/latex.ts` | 1373 | 1 | done | `crates/pi-tui/src/latex.rs` | TS test suite + generated differential corpus; byte-identical output incl. layout markers |
+| `tui/src/terminal.ts` | 594 | 1 | done | `crates/pi-tui/src/terminal.rs` | differential negotiation/timeout/normalization; ProcessTerminal event-queue seam; resize polling |
+| `tui/src/word-navigation.ts` | 117 | 1 | done | `crates/pi-tui/src/word_navigation.rs` | TS tests + boundary differential; ICU4X dictionary-word mismatches pinned as approved deviation |
+| `tui/src/tui.ts` | 2534 | 2 | partial | `crates/pi-tui/src/tui.rs` | differential byte stream (main+renderer), overlays/focus/fixed cells/render regions; viewport fullscreen helpers deferred to alt-screen slice |
 | `tui/src/components/alt-screen-flash.ts` | 51 | 3 | todo |  |  |
 | `tui/src/components/box.ts` | 137 | 3 | todo |  |  |
 | `tui/src/components/dynamic-border.ts` | 15 | 3 | todo |  |  |
@@ -292,8 +292,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/components/truncated-text.ts` | 65 | 3 | todo |  |  |
 | `tui/src/editor-component.ts` | 74 | 3 | todo |  |  |
 | `tui/src/layout-node.ts` | 51 | 3 | todo |  |  |
-| `tui/src/root-compositor.ts` | 91 | 3 | todo |  |  |
-| `tui/src/tui-main-screen.ts` | 586 | 3 | todo |  |  |
+| `tui/src/root-compositor.ts` | 91 | 3 | done | `crates/pi-tui/src/root_compositor.rs` | flow/bottom layout callbacks covered by render-region tests |
+| `tui/src/tui-main-screen.ts` | 586 | 3 | done | `crates/pi-tui/src/tui_main_screen.rs` | differential byte stream; capture/restore implemented (no listed test) |
 | `tui/src/alt-screen-search.ts` | 157 | 4 | todo |  |  |
 | `tui/src/components/loader.ts` | 94 | 4 | todo |  |  |
 | `tui/src/components/scroll-view.ts` | 216 | 4 | todo |  |  |
@@ -311,16 +311,16 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `client/src/promise.ts` | 16 | 0 | todo |  |  |
-| `client/src/transport.ts` | 18 | 0 | todo |  |  |
-| `client/src/errors.ts` | 56 | 5 | todo |  |  |
-| `client/src/types.ts` | 26 | 5 | todo |  |  |
-| `client/src/unix.ts` | 156 | 5 | todo |  |  |
-| `client/src/connection.ts` | 236 | 6 | todo |  |  |
-| `client/src/session-handle.ts` | 111 | 6 | todo |  |  |
-| `client/src/state.ts` | 156 | 6 | todo |  |  |
-| `client/src/client.ts` | 432 | 7 | todo |  |  |
-| `client/src/index.ts` | 18 | 8 | todo |  |  |
+| `client/src/promise.ts` | 16 | 0 | done | `crates/pi-client/src/promise.rs` | One-shot promise resolver over `tokio::sync::oneshot` |
+| `client/src/transport.ts` | 18 | 0 | done | `crates/pi-client/src/transport.rs` | Eager `send` method returning completion future; trait factory |
+| `client/src/errors.ts` | 56 | 5 | done | `crates/pi-client/src/errors.rs` | Typed error enum; `PiError::message` gap documented |
+| `client/src/types.ts` | 26 | 5 | done | `crates/pi-client/src/types.rs` | Enums and listener aliases |
+| `client/src/unix.ts` | 156 | 5 | done | `crates/pi-client/src/unix.rs` | Tokio Unix socket transport; real-socket tests |
+| `client/src/connection.ts` | 236 | 6 | done | `crates/pi-client/src/connection.rs` | Full lifecycle, reentrant callbacks; connection test port |
+| `client/src/session-handle.ts` | 111 | 6 | done | `crates/pi-client/src/session_handle.rs` | Lease callbacks trait; command futures |
+| `client/src/state.ts` | 156 | 6 | done | `crates/pi-client/src/state.rs` | Snapshot reduction, listener isolation |
+| `client/src/client.ts` | 432 | 7 | done | `crates/pi-client/src/client.rs` | Requests, leases, attachment serialization |
+| `client/src/index.ts` | 18 | 8 | done | `crates/pi-client/src/lib.rs` | Public re-exports; static connect renamed `connect_new` |
 
 ## server (13 files, 1839 lines)
 

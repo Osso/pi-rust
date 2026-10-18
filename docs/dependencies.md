@@ -47,7 +47,13 @@ The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToolExecutionContext` slices
 ### `pi-tui`
 
 - `unicode-segmentation = 1.13.3` (exact) — Unicode 17.0 grapheme cluster segmentation for `utils`; matches the Unicode tables used by Node 26 `Intl.Segmenter`.
+- `regex = 1.13.1` (exact) — compiles the Unicode-property and whitespace patterns ported verbatim from `latex` (`\p{L}`, `\p{N}`, script spacing, environment row splitting).
+- `icu_segmenter = 2.3.0` (exact, default `compiled_data`/`auto`) — dictionary/LSTM word segmentation behind `word_navigation`, chosen as the pure-Rust mapping of `Intl.Segmenter` (decision 2026-10-18; dictionary-word deviations documented in the traceability doc).
+- `tokio = 1.53.3` (`process`, `rt`, `sync`, `io-util`; dev adds `macros`, `rt`, `rt-multi-thread`) — spawns `fd` asynchronously and waits for its output in `autocomplete`.
+- `tokio-util = 0.7.20` (`rt`) — `CancellationToken` maps the `AbortSignal` passed to autocomplete suggestions and kills an in-flight `fd` child.
+- `tempfile = 3.27.0` (development) — creates isolated directory trees and symlinks for autocomplete tests.
 - No runtime Base64 dependency: `terminal_image` uses the crate-local `src/base64.rs` implementation of Node `Buffer` leniency and standard padded encoding.
+- `rustix = 1.1.5` (exact, `termios` feature) — safe termios raw-mode and window-size syscalls for `ProcessTerminal`; `unsafe_code = "forbid"` rules out `libc`/`nix` wrappers that need unsafe call sites.
 - `src/unicode_tables.rs` is generated data, not a dependency: Unicode 17.0 emoji sequences, character-property ranges, and `get-east-asian-width` 1.6.0 width ranges (see `docs/porting/traceability/utils.md`).
 
 ### `pi-protocol`
@@ -57,6 +63,13 @@ No runtime dependencies. CBOR encoding and decoding are hand-written against the
 ### `pi-telemetry`
 
 - `serde = 1.0.229` — derives the camelCase wire shape for schema definitions and recorded spans/events, including the internally tagged status and parent definitions.
+
+### `pi-client`
+
+- `pi-protocol = { version = "=0.0.0", path = "../pi-protocol" }` — framing, CBOR message codecs, typed commands/results, snapshots, and protocol validation errors.
+- `tokio = 1.53.3` (`io-util`, `net`, `rt`, `sync`) — one-shot request/handshake resolvers, spawned transport/read/write tasks, `UnixStream`, and async I/O. Dev targets add `macros` and `rt-multi-thread` for `#[tokio::test]`.
+- `tokio-util = 0.7.20` — `CancellationToken` stops the Unix read loop on local close. The source package has no `AbortSignal`; the dependency is not an `AbortSignal` mapping.
+- Dev-only `serde_json = 1.0.151` — compares Rust client frames, state transitions, and snapshots with the TypeScript differential oracle.
 
 ## Development
 
