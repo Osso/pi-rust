@@ -17,6 +17,8 @@ icu_segmenter = "=2.3.0"
 # Async process I/O for fd-backed file suggestions and AbortSignal cancellation.
 tokio = { version = "=1.53.3", features = ["process", "rt", "sync", "io-util"] }
 tokio-util = { version = "=0.7.20", features = ["rt"] }
+# Safe termios/tty access for ProcessTerminal raw mode and window size (no libc/unsafe).
+rustix = { version = "=1.1.5", features = ["termios"] }
 
 [dev-dependencies]
 # Drives JSON-lines differential requests against the pinned TypeScript source.

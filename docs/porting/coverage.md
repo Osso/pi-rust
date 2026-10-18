@@ -275,11 +275,11 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/undo-stack.ts` | 28 | 0 | done | `crates/pi-tui/src/undo_stack.rs` | clone-on-push; differential N/A (structuredClone) |
 | `tui/src/utils.ts` | 1326 | 0 | done | `crates/pi-tui/src/utils.rs` + generated `unicode_tables.rs` | Unicode 17.0 tables; differential corpus + ~11k codepoint samples |
 | `tui/src/autocomplete.ts` | 793 | 1 | done | `crates/pi-tui/src/autocomplete.rs` | TS test port + real-fd differential; async argument-completion callback and locale collation documented as gaps |
-| `tui/src/keybindings.ts` | 325 | 1 | todo |  |  |
+| `tui/src/keybindings.ts` | 325 | 1 | done | `crates/pi-tui/src/keybindings.rs` | differential resolved keys/conflicts; ordered config pairs |
 | `tui/src/latex.ts` | 1373 | 1 | done | `crates/pi-tui/src/latex.rs` | TS test suite + generated differential corpus; byte-identical output incl. layout markers |
-| `tui/src/terminal.ts` | 594 | 1 | todo |  |  |
+| `tui/src/terminal.ts` | 594 | 1 | done | `crates/pi-tui/src/terminal.rs` | differential negotiation/timeout/normalization; ProcessTerminal event-queue seam; resize polling |
 | `tui/src/word-navigation.ts` | 117 | 1 | done | `crates/pi-tui/src/word_navigation.rs` | TS tests + boundary differential; ICU4X dictionary-word mismatches pinned as approved deviation |
-| `tui/src/tui.ts` | 2534 | 2 | todo |  |  |
+| `tui/src/tui.ts` | 2534 | 2 | partial | `crates/pi-tui/src/tui.rs` | differential byte stream (main+renderer), overlays/focus/fixed cells/render regions; viewport fullscreen helpers deferred to alt-screen slice |
 | `tui/src/components/alt-screen-flash.ts` | 51 | 3 | todo |  |  |
 | `tui/src/components/box.ts` | 137 | 3 | todo |  |  |
 | `tui/src/components/dynamic-border.ts` | 15 | 3 | todo |  |  |
@@ -292,8 +292,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/components/truncated-text.ts` | 65 | 3 | todo |  |  |
 | `tui/src/editor-component.ts` | 74 | 3 | todo |  |  |
 | `tui/src/layout-node.ts` | 51 | 3 | todo |  |  |
-| `tui/src/root-compositor.ts` | 91 | 3 | todo |  |  |
-| `tui/src/tui-main-screen.ts` | 586 | 3 | todo |  |  |
+| `tui/src/root-compositor.ts` | 91 | 3 | done | `crates/pi-tui/src/root_compositor.rs` | flow/bottom layout callbacks covered by render-region tests |
+| `tui/src/tui-main-screen.ts` | 586 | 3 | done | `crates/pi-tui/src/tui_main_screen.rs` | differential byte stream; capture/restore implemented (no listed test) |
 | `tui/src/alt-screen-search.ts` | 157 | 4 | todo |  |  |
 | `tui/src/components/loader.ts` | 94 | 4 | todo |  |  |
 | `tui/src/components/scroll-view.ts` | 216 | 4 | todo |  |  |

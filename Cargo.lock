@@ -1029,6 +1029,7 @@ version = "0.0.0"
 dependencies = [
  "icu_segmenter",
  "regex",
+ "rustix",
  "serde_json",
  "tempfile",
  "tokio",
