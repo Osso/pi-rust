@@ -12,6 +12,48 @@ pub use pi_agent_core::harness::messages::{
 };
 
 use pi_agent_core::agent::AgentMessage;
+use pi_ai::types::ProviderNativeContext;
+use serde::{Deserialize, Serialize};
+
+/// Role tag for compaction-summary messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompactionSummaryRole {
+    CompactionSummary,
+}
+
+impl CompactionSummaryRole {
+    /// Returns the exact source role literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CompactionSummary => "compactionSummary",
+        }
+    }
+}
+
+/// Value-only record for a compaction summary message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactionSummaryMessage {
+    #[serde(skip, default = "compaction_summary_role")]
+    pub role: CompactionSummaryRole,
+    pub summary: String,
+    pub tokens_before: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_after: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kept_from_previous_context_tokens: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compacted_result_tokens: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_native: Option<ProviderNativeContext>,
+    pub timestamp: f64,
+}
+
+fn compaction_summary_role() -> CompactionSummaryRole {
+    CompactionSummaryRole::CompactionSummary
+}
 
 /// `isCutPointMessage`: user and assistant messages are conversational boundaries.
 pub fn is_cut_point_message(message: &AgentMessage) -> bool {

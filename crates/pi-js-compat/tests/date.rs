@@ -1,7 +1,7 @@
 //! `Date.parse` parity for the ECMAScript ISO 8601 and HTTP-date forms.
 
 use jiff::tz::TimeZone;
-use pi_js_compat::date::{date_parse_with_time_zone, days_from_civil};
+use pi_js_compat::date::{LocalDateFields, date_parse_with_time_zone, days_from_civil, local_date_fields_in};
 
 fn utc(value: &str) -> f64 {
     date_parse_with_time_zone(value, &TimeZone::UTC)
@@ -128,4 +128,31 @@ fn days_from_civil_matches_known_dates() {
     assert_eq!(days_from_civil(2000, 2, 29), 11_016);
     assert_eq!(days_from_civil(2020, 1, 1), 18_262);
     assert_eq!(days_from_civil(0, 1, 1), -719_528);
+}
+
+#[test]
+fn reads_local_date_fields_like_date_getters() {
+    let zone = TimeZone::get("America/Chicago").expect("tzdb");
+    // 2026-01-01T05:30:00Z is 2025-12-31 23:30 in Chicago (UTC-6).
+    assert_eq!(
+        local_date_fields_in(1_767_245_400_000, &zone),
+        Some(LocalDateFields {
+            year: 2025,
+            month: 11,
+            day: 31,
+            hours: 23,
+            minutes: 30,
+        })
+    );
+    assert_eq!(
+        local_date_fields_in(0, &TimeZone::UTC),
+        Some(LocalDateFields {
+            year: 1970,
+            month: 0,
+            day: 1,
+            hours: 0,
+            minutes: 0,
+        })
+    );
+    assert_eq!(local_date_fields_in(8_640_000_000_000_001, &TimeZone::UTC), None);
 }

@@ -1,21 +1,23 @@
 //! `channel_post` tool (`core/tools/channel-post.ts`).
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
 use pi_js_compat::string::js_trim;
+use pi_tui::tui::ComponentRef;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::result::text_result;
-use crate::core::extensions::types::ExtensionContext;
+use crate::core::extensions::types::{ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::core::session_control_db::{
     PostSharedChannelMessageInput, RuntimeMailboxAddress, advance_shared_channel_cursor, post_shared_channel_message,
 };
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 pub const NAME: &str = "channel_post";
 pub const LABEL: &str = "channel_post";
@@ -130,4 +132,33 @@ impl AgentHarnessTool<ExtensionContext> for ChannelPostTool {
             ))
         })
     }
+}
+
+fn format_call(theme: &Theme) -> String {
+    theme.fg(ThemeColor::ToolTitle, &theme.bold("channel_post"))
+}
+
+/// `renderCall` for the channel_post tool.
+pub fn render_call(_args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+    super::render_text_component(context, format_call(theme))
+}
+
+/// `renderResult` for the channel_post tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    _options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    super::render_text_component(context, super::render_tool_output(result, theme))
+}
+
+/// `create_channel_post_tool_definition()`.
+pub fn create_channel_post_tool_definition() -> ToolDefinition {
+    let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(ChannelPostTool::new()));
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
+    definition
 }

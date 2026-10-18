@@ -17,4 +17,8 @@ Differential: `tests/differential_session_tools.rs::list_sessions_tool_different
 
 ## Gaps
 
-- `renderCall`/`renderResult` need `Theme`.
+- None.
+
+## Renderers
+
+Renderers ported: `render_call` (title), `render_result` (tool output). Covered by `differential_interactive_components.rs::tool_renderer_cases`.

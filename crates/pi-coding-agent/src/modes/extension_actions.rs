@@ -13,8 +13,8 @@ use crate::core::agent_session_runtime::{
     SessionSetupCallback as RuntimeSessionSetupCallback,
 };
 use crate::core::extensions::types::{
-    ExtensionCommandContextActions, ForkOptions, HandlerError, NavigateTreeOptions, NewSessionOptions,
-    ReplacedSessionContext, RestartOptions, SessionTransitionResult, SwitchSessionOptions, WithSessionCallback,
+    ExtensionCommandContextActions, ForkOptions, HandlerError, NavigateTreeOptions, NewSessionOptions, RestartOptions,
+    SessionTransitionResult, SwitchSessionOptions, WithSessionCallback,
 };
 use crate::core::session_manager::SessionManager;
 
@@ -127,7 +127,9 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
             let session = Arc::clone(&reload_session);
             Box::pin(async move {
                 let session = lock(&session).clone();
-                session.reload(None).await;
+                if let Err(error) = session.reload(None).await {
+                    eprintln!("{}", error.message());
+                }
             })
         }),
         restart: Arc::new(move |options: Option<RestartOptions>| {
@@ -180,7 +182,7 @@ impl CallbackErrors {
 
     fn adapt_with_session(&self, with_session: WithSessionCallback) -> ReplacedSessionCallback {
         let errors = self.clone();
-        Arc::new(move |context: ReplacedSessionContext| {
+        Arc::new(move |context| {
             let future = with_session(context);
             let errors = errors.clone();
             Box::pin(async move {

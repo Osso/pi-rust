@@ -174,6 +174,10 @@ impl Component for Container {
     fn as_container(&self) -> Option<&Container> {
         Some(self)
     }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
 }
 
 type InputListener = Rc<dyn Fn(&str) -> TuiInputListenerResult>;

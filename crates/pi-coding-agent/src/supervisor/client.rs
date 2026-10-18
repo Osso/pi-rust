@@ -59,7 +59,7 @@ fn retry_delay(input: &RequestSupervisorDecisionInput, attempt: u32) -> u64 {
     let base_delay_ms = input.retry_delay_ms.unwrap_or(1_000.0);
     let jitter_ratio = input.retry_jitter_ratio.unwrap_or(0.2);
     let exponential_delay_ms = base_delay_ms * 2f64.powi(i32::try_from(attempt.saturating_sub(1)).unwrap_or(0));
-    let delay = exponential_delay_ms * (1.0 - jitter_ratio + random_f64() * jitter_ratio * 2.0);
+    let delay = exponential_delay_ms * (1.0 - jitter_ratio + crate::utils::random::random_f64() * jitter_ratio * 2.0);
     if delay.is_finite() && delay > 0.0 {
         delay as u64
     } else {
@@ -105,11 +105,4 @@ fn now_millis() -> i64 {
         .duration_since(UNIX_EPOCH)
         .expect("system clock is after the Unix epoch");
     i64::try_from(elapsed.as_millis()).expect("timestamp fits in i64")
-}
-
-fn random_f64() -> f64 {
-    let mut bytes = [0u8; 8];
-    getrandom::fill(&mut bytes).expect("OS random source must be available");
-    let value = u64::from_le_bytes(bytes) >> 11;
-    value as f64 / (1u64 << 53) as f64
 }

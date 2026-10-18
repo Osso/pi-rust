@@ -1,20 +1,22 @@
 //! `change_working_directory` tool (`core/tools/change-working-directory.ts`).
 
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
 use pi_js_compat::string::js_trim;
+use pi_tui::tui::ComponentRef;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::result::terminating_text_result;
 use super::resume_session::{find_session_file_by_id, resolve_session_path};
-use crate::core::extensions::types::ExtensionContext;
+use crate::core::extensions::types::{ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::core::session_manager::{SessionManager, read_session_header};
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::paths::{PathInputOptions, resolve_path};
 
 pub const NAME: &str = "change_working_directory";
@@ -215,4 +217,50 @@ impl AgentHarnessTool<ExtensionContext> for ChangeWorkingDirectoryTool {
             ))
         })
     }
+}
+
+fn format_call(args: &Value, theme: &Theme) -> String {
+    let target = args
+        .get("path")
+        .and_then(Value::as_str)
+        .filter(|path| !path.is_empty())
+        .map(|path| format!("path {path}"))
+        .or_else(|| {
+            args.get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(|id| format!("session {id}"))
+        })
+        .unwrap_or_else(|| "target".to_owned());
+    format!(
+        "{} {}",
+        theme.fg(ThemeColor::ToolTitle, &theme.bold("change_working_directory")),
+        theme.fg(ThemeColor::Accent, &target)
+    )
+}
+
+/// `renderCall` for the change_working_directory tool.
+pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+    super::render_text_component(context, format_call(args, theme))
+}
+
+/// `renderResult` for the change_working_directory tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    _options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    super::render_text_component(context, super::render_tool_output(result, theme))
+}
+
+/// `createChangeWorkingDirectoryToolDefinition()`.
+pub fn create_change_working_directory_tool_definition() -> ToolDefinition {
+    let mut definition =
+        crate::core::extensions::wrapper::harness_tool_definition(Arc::new(ChangeWorkingDirectoryTool::new()));
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
+    definition
 }

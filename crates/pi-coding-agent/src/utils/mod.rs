@@ -31,6 +31,7 @@ pub mod paths;
 pub mod photon;
 pub mod pi_user_agent;
 pub(crate) mod private_paths;
+pub mod random;
 pub mod shell;
 pub mod sleep;
 pub mod syntax_highlight;

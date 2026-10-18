@@ -18,4 +18,8 @@ result and the channel rows/cursor on identical control DBs.
 
 ## Gaps
 
-- `renderCall`/`renderResult` need the interactive `Theme`, which is not ported.
+- None.
+
+## Renderers
+
+Renderers ported: `render_call` (title), `render_result` (tool output). Covered by `differential_interactive_components.rs::tool_renderer_cases`.

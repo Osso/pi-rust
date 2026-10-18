@@ -24,6 +24,38 @@ pub fn date_parse_with_time_zone(input: &str, zone: &TimeZone) -> f64 {
     parse_date(input, zone).map_or(f64::NAN, |millis| millis as f64)
 }
 
+/// Local-time fields of a JavaScript `Date`: `getFullYear()`, `getMonth()`
+/// (0-based), `getDate()`, `getHours()` and `getMinutes()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocalDateFields {
+    pub year: i64,
+    pub month: i64,
+    pub day: i64,
+    pub hours: i64,
+    pub minutes: i64,
+}
+
+/// Local-time fields for epoch milliseconds in the process time zone; `None`
+/// for an invalid date (where every JavaScript getter returns `NaN`).
+pub fn local_date_fields(millis: i64) -> Option<LocalDateFields> {
+    local_date_fields_in(millis, &TimeZone::system())
+}
+
+/// [`local_date_fields`] resolved against an explicit time zone.
+pub fn local_date_fields_in(millis: i64, zone: &TimeZone) -> Option<LocalDateFields> {
+    if !(-MAX_DATE_MILLIS..=MAX_DATE_MILLIS).contains(&millis) {
+        return None;
+    }
+    let zoned = jiff::Timestamp::from_millisecond(millis).ok()?.to_zoned(zone.clone());
+    Some(LocalDateFields {
+        year: i64::from(zoned.year()),
+        month: i64::from(zoned.month()) - 1,
+        day: i64::from(zoned.day()),
+        hours: i64::from(zoned.hour()),
+        minutes: i64::from(zoned.minute()),
+    })
+}
+
 fn parse_date(input: &str, zone: &TimeZone) -> Option<i64> {
     if let Some(millis) = parse_http_date(input, zone) {
         return Some(millis);

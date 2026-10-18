@@ -16,7 +16,11 @@ Rust: `crates/pi-coding-agent/src/core/tools/ask_supervisor.rs` (`AskSupervisorT
 
 ## Gaps
 
-- `renderCall`/`renderResult` need `Theme`.
+- None.
+
+## Renderers
+
+Renderers ported: `render_call` (title), `render_result` (tool output). Covered by `differential_interactive_components.rs::tool_renderer_cases`.
 - Differential is behavioral only: the request/response loop is timing-dependent
   (`setTimeout` polling); `tests/supervisor_client.rs` reproduces the source test cases at the
   real control-DB boundary.
