@@ -660,18 +660,18 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/tools/ask-architect.ts` | 95 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/ask-questions.ts` | 309 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/ask-supervisor.ts` | 89 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/bash.ts` | 864 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/bash.ts` | 864 | 22 | partial | `crates/pi-coding-agent/src/core/tools/bash.rs` | Local execution, streaming/throttle, truncation, timeout/abort; renderers pending theme.ts; runner-owned detach pending detached-job-runner; differential 7 cases |
 | `coding-agent/src/core/tools/broadcast.ts` | 115 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/change-working-directory.ts` | 145 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/channel-post.ts` | 72 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/code-index.ts` | 329 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/code-index.ts` | 329 | 22 | partial | `crates/pi-coding-agent/src/core/tools/code_index.rs` | outline/symbol/references over the external CLI; renderers pending theme.ts; differential 9 cases |
 | `coding-agent/src/core/tools/edit.ts` | 443 | 22 | partial | `crates/pi-coding-agent/src/core/tools/edit.rs` | Execution, arg preparation, diff/patch details; renderers pending theme.ts; differential 4 cases |
 | `coding-agent/src/core/tools/end-turn.ts` | 37 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/find.ts` | 381 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/grep.ts` | 400 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/find.ts` | 381 | 22 | partial | `crates/pi-coding-agent/src/core/tools/find.rs` | fd argv, gitignore detection, relativization, limits; renderers pending theme.ts; differential 9 cases |
+| `coding-agent/src/core/tools/grep.ts` | 400 | 22 | partial | `crates/pi-coding-agent/src/core/tools/grep.rs` | rg JSON streaming, context, limits, truncation; renderers pending theme.ts; differential 13 cases + fake/missing rg |
 | `coding-agent/src/core/tools/index.ts` | 420 | 22 | partial | `crates/pi-coding-agent/src/core/tools/mod.rs` | Only `DEFAULT_ACTIVE_TOOL_NAMES` (needed by system-prompt); tool definitions/factories remain for ca-tools-text. |
 | `coding-agent/src/core/tools/list-sessions.ts` | 81 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/ls.ts` | 326 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/ls.ts` | 326 | 22 | partial | `crates/pi-coding-agent/src/core/tools/ls.rs` | rtk fast path, fs listing, limits; renderers pending theme.ts; differential 7 cases |
 | `coding-agent/src/core/tools/read.ts` | 468 | 22 | partial | `crates/pi-coding-agent/src/core/tools/read.rs` | Text offsets/limits, range reads, images; renderers pending theme.ts; differential 11 cases |
 | `coding-agent/src/core/tools/resume-session.ts` | 294 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/search-current-session-history.ts` | 196 | 22 | todo |  |  |

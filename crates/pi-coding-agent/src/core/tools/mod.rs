@@ -1,6 +1,11 @@
+pub mod bash;
+pub mod code_index;
 pub mod edit;
 pub mod edit_diff;
 pub mod file_mutation_queue;
+pub mod find;
+pub mod grep;
+pub mod ls;
 pub mod node_fs;
 pub mod output_accumulator;
 pub mod path_utils;
