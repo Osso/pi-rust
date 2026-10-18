@@ -401,7 +401,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/timings.ts` | 50 | 0 | todo |  |  |
 | `coding-agent/src/core/tool-capabilities.ts` | 11 | 0 | todo |  |  |
 | `coding-agent/src/core/tool-detach-registry.ts` | 58 | 0 | todo |  |  |
-| `coding-agent/src/core/tools/file-mutation-queue.ts` | 61 | 0 | todo |  |  |
+| `coding-agent/src/core/tools/file-mutation-queue.ts` | 61 | 0 | done | `crates/pi-coding-agent/src/core/tools/file_mutation_queue.rs` | TS queue tests ported; no oracle (ordering contract) |
 | `coding-agent/src/core/tools/truncate.ts` | 276 | 0 | done | `crates/pi-coding-agent/src/core/tools/truncate.rs` | re-exports agent-core truncation (identical on valid Unicode); differential |
 | `coding-agent/src/extensions/llama/client.ts` | 332 | 0 | todo |  |  |
 | `coding-agent/src/extensions/llama/huggingface.ts` | 158 | 0 | todo |  |  |
