@@ -15,6 +15,8 @@ All direct dependencies are exact-pinned.
 
 - `serde = 1.0.229` — derives the diagnostics wire records and diagnostic-code enum.
 - `serde_json = 1.0.151` — carries JSON-shaped thrown values and optional diagnostic details.
+- `serde_json` feature `preserve_order` — keeps JS object key order for tool arguments, details, and provider-native values (workspace-wide via feature unification).
+- `tokio = 1.53.3` (`sync`) — `Notify` for the async `EventStream`; dev: `macros`, `rt-multi-thread`, `time` for async tests.
 
 ### `pi-agent-core`
 

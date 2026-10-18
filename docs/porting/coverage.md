@@ -70,10 +70,10 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/auth/types.ts` | 240 | 1 | todo |  |  |
 | `ai/src/models-store.ts` | 45 | 1 | todo |  |  |
 | `ai/src/models.ts` | 953 | 1 | todo |  |  |
-| `ai/src/types.ts` | 846 | 1 | todo |  |  |
+| `ai/src/types.ts` | 846 | 1 | partial | `pi-ai/src/types.rs` | data contracts done; option/callback interfaces → provider runtime slice |
 | `ai/src/utils/deferred-tools.ts` | 39 | 1 | todo |  |  |
 | `ai/src/utils/estimate.ts` | 143 | 1 | todo |  |  |
-| `ai/src/utils/event-stream.ts` | 110 | 1 | todo |  |  |
+| `ai/src/utils/event-stream.ts` | 110 | 1 | done | `pi-ai/src/utils/event_stream.rs` | differential |
 | `ai/src/utils/headers.ts` | 18 | 1 | todo |  |  |
 | `ai/src/utils/node-http-proxy.ts` | 112 | 1 | todo |  |  |
 | `ai/src/utils/provider-env.ts` | 52 | 1 | todo |  |  |
