@@ -1,5 +1,6 @@
 //! Ported `packages/tui/src/components/*` modules.
 
+pub mod input;
 pub mod loader;
 pub mod select_list;
 pub mod text;
