@@ -131,6 +131,7 @@ fn record_events(session: &AgentSession) -> Arc<std::sync::Mutex<Vec<String>>> {
     session.subscribe(Arc::new(move |event| {
         let name = match event {
             AgentSessionEvent::Agent(agent_event) => agent_event_name(agent_event),
+            AgentSessionEvent::Message(message_event) => agent_event_name(&message_event.event),
             AgentSessionEvent::AgentEnd(_) => "agent_end",
             AgentSessionEvent::QueueUpdate(_) => "queue_update",
             AgentSessionEvent::SteeringMessageQueued(_) => "steering_message_queued",
@@ -607,6 +608,64 @@ async fn abort_bash_cancels_running_execution() {
     let result = task.await.expect("bash task");
     assert!(result.cancelled);
     assert!(!fixture.session.is_bash_running());
+}
+
+#[tokio::test]
+async fn duplicate_turn_guard_marks_events_and_skips_persistence() {
+    use pi_coding_agent::core::runtime_message_markers::RuntimeMessageMarker;
+
+    let fixture = fixture().await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message("same", FauxAssistantMessageOptions::default()).into(),
+        faux_assistant_message("same", FauxAssistantMessageOptions::default()).into(),
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+    let markers = Arc::new(std::sync::Mutex::new(
+        Vec::<(String, Option<RuntimeMessageMarker>)>::new(),
+    ));
+    let sink = Arc::clone(&markers);
+    fixture.session.subscribe(Arc::new(move |event| {
+        if let AgentSessionEvent::Message(message_event) = event {
+            let name = match &message_event.event {
+                pi_agent_core::agent::types::AgentEvent::MessageStart { .. } => "message_start",
+                pi_agent_core::agent::types::AgentEvent::MessageEnd { .. } => "message_end",
+                _ => return,
+            };
+            sink.lock()
+                .unwrap()
+                .push((name.to_owned(), message_event.runtime_message_marker));
+        }
+    }));
+
+    fixture
+        .session
+        .prompt("hi", PromptOptions::default())
+        .await
+        .expect("prompt");
+    fixture.session.continue_run().await.expect("continue");
+
+    let markers = markers.lock().unwrap().clone();
+    assert!(
+        markers.contains(&(
+            "message_end".to_owned(),
+            Some(RuntimeMessageMarker::DuplicateTurnAssistant)
+        )),
+        "markers: {markers:?}"
+    );
+    assert!(
+        markers.contains(&(
+            "message_start".to_owned(),
+            Some(RuntimeMessageMarker::DuplicateTurnGuard)
+        )),
+        "markers: {markers:?}"
+    );
+    let entries = fixture.session.session_manager().get_entries();
+    let guard_persisted = entries.iter().any(|entry| {
+        entry.as_message().is_some_and(|entry| entry.message.role() == "user")
+            && serde_json::to_string(entry)
+                .is_ok_and(|json| json.contains("You repeated the same response. Stop looping."))
+    });
+    assert!(!guard_persisted, "guard message must not be persisted");
 }
 
 #[tokio::test]

@@ -352,6 +352,7 @@ fn branch_summary_usage(entry: &SessionEntry) -> Option<Usage> {
 #[serde(untagged)]
 pub enum AgentSessionEvent {
     Agent(AgentEvent),
+    Message(AgentMessageEvent),
     AgentEnd(AgentEndEvent),
     QueueUpdate(QueueUpdateEvent),
     SteeringMessageQueued(SteeringMessageQueuedEvent),
@@ -366,6 +367,25 @@ pub enum AgentSessionEvent {
     AutoRetryEnd(AutoRetryEndEvent),
     ProviderStreamRetry(ProviderStreamRetryEvent),
     BashExecutionUpdate(BashExecutionUpdateEvent),
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentMessageEvent {
+    pub event: AgentEvent,
+    pub runtime_message_marker: Option<crate::core::runtime_message_markers::RuntimeMessageMarker>,
+}
+
+impl Serialize for AgentMessageEvent {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut value = serde_json::to_value(&self.event).map_err(serde::ser::Error::custom)?;
+        if let (Some(marker), Value::Object(object)) = (self.runtime_message_marker, &mut value) {
+            object.insert(
+                "runtimeMessageMarker".to_owned(),
+                serde_json::to_value(marker).map_err(serde::ser::Error::custom)?,
+            );
+        }
+        value.serialize(serializer)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1386,21 +1406,19 @@ impl AgentSession {
         self.inner.duplicate_turn_loop_detected.store(false, Ordering::SeqCst);
     }
 
-    fn mark_duplicate_assistant_message_for_presentation(&self, message: &mut AssistantMessage) {
+    fn mark_duplicate_assistant_message_for_presentation(&self, message: &AssistantMessage) -> bool {
         if message.stop_reason == StopReason::Aborted || message.stop_reason == StopReason::Error {
-            return;
+            return false;
         }
         if message
             .content
             .iter()
             .any(|content| matches!(content, AssistantContent::ToolCall(_)))
         {
-            return;
+            return false;
         }
         let fingerprint = duplicate_fingerprint(message);
-        if lock(&self.inner.last_assistant_turn_fingerprint).as_deref() == Some(fingerprint.as_str()) {
-            mark_duplicate_turn_assistant_message(message);
-        }
+        lock(&self.inner.last_assistant_turn_fingerprint).as_deref() == Some(fingerprint.as_str())
     }
 
     fn track_duplicate_assistant_turn(&self, message: &mut AssistantMessage) {
@@ -1433,15 +1451,15 @@ impl AgentSession {
             return;
         }
         self.inner.duplicate_turn_guard_injected.store(true, Ordering::SeqCst);
-        let guard = create_custom_message(
-            "duplicate_turn_guard",
-            CustomMessageContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(
+        let guard = AgentMessage::User(UserMessage {
+            role: UserRole::Tag,
+            content: UserContent::Blocks(vec![pi_ai::types::UserContentBlock::Text(TextContent::new(
                 DUPLICATE_TURN_GUARD_PROMPT,
             ))]),
-            true,
-            None,
-            now_millis(),
-        );
+            input_source: Some(InputSource::Extension),
+            provider_native: None,
+            timestamp: now_millis(),
+        });
         self.steer_agent(guard);
     }
 
@@ -1450,6 +1468,8 @@ impl AgentSession {
     }
 
     async fn handle_agent_event(&self, mut event: AgentEvent) {
+        use crate::core::runtime_message_markers::RuntimeMessageMarker;
+
         let original_tool_call_id = match &event {
             AgentEvent::MessageEnd {
                 message: AgentMessage::ToolResult(result),
@@ -1459,22 +1479,42 @@ impl AgentSession {
         if matches!(event, AgentEvent::ToolExecutionStart { .. }) {
             self.reset_duplicate_turn_guard();
         }
-        if let AgentEvent::MessageEnd { message } = &event
-            && let AgentMessage::Assistant(assistant) = message
-        {
-            let mut assistant = (**assistant).clone();
-            self.mark_duplicate_assistant_message_for_presentation(&mut assistant);
+        let mut runtime_message_marker = None;
+        if let AgentEvent::MessageEnd { message } = &event {
+            match message {
+                AgentMessage::Assistant(assistant)
+                    if self.mark_duplicate_assistant_message_for_presentation(assistant) =>
+                {
+                    runtime_message_marker = Some(RuntimeMessageMarker::DuplicateTurnAssistant);
+                }
+                AgentMessage::User(_) if is_duplicate_turn_guard_message(message) => {
+                    runtime_message_marker = Some(RuntimeMessageMarker::DuplicateTurnGuard);
+                }
+                _ => {}
+            }
         }
         self.remove_started_message_from_queue(&event);
         let replacement = self.emit_extension_event(&mut event).await;
         if let (Some(replacement), AgentEvent::MessageEnd { message }) = (replacement, &mut event) {
             *message = replacement;
+            runtime_message_marker = None;
+        }
+        if let AgentEvent::MessageStart { message } = &event
+            && is_duplicate_turn_guard_message(message)
+        {
+            runtime_message_marker = Some(RuntimeMessageMarker::DuplicateTurnGuard);
         }
         let listener_event = match &event {
             AgentEvent::AgentEnd { messages } => AgentSessionEvent::AgentEnd(AgentEndEvent::new(
                 messages.clone(),
                 self.will_retry_after_agent_end(messages),
             )),
+            AgentEvent::MessageStart { .. } | AgentEvent::MessageUpdate { .. } | AgentEvent::MessageEnd { .. } => {
+                AgentSessionEvent::Message(AgentMessageEvent {
+                    event: event.clone(),
+                    runtime_message_marker,
+                })
+            }
             other => AgentSessionEvent::Agent(other.clone()),
         };
         self.emit(listener_event);
@@ -2147,11 +2187,17 @@ impl AgentSession {
                 eprintln!("Failed to persist custom message: {error}");
             }
         }
-        self.emit(AgentSessionEvent::Agent(AgentEvent::MessageStart {
-            message: app_message.clone(),
+        self.emit(AgentSessionEvent::Message(AgentMessageEvent {
+            event: AgentEvent::MessageStart {
+                message: app_message.clone(),
+            },
+            runtime_message_marker: None,
         }));
-        self.emit(AgentSessionEvent::Agent(AgentEvent::MessageEnd {
-            message: app_message.clone(),
+        self.emit(AgentSessionEvent::Message(AgentMessageEvent {
+            event: AgentEvent::MessageEnd {
+                message: app_message.clone(),
+            },
+            runtime_message_marker: None,
         }));
     }
 
@@ -2778,11 +2824,13 @@ fn duplicate_fingerprint(message: &AssistantMessage) -> String {
 }
 
 fn is_duplicate_turn_guard_message(message: &AgentMessage) -> bool {
-    matches!(
-        message,
-        AgentMessage::Custom(object)
-            if object.get("customType").and_then(Value::as_str) == Some("duplicate_turn_guard")
-    )
+    match message {
+        AgentMessage::User(user) => {
+            user.input_source == Some(InputSource::Extension)
+                && user_message_text(&user.content) == DUPLICATE_TURN_GUARD_PROMPT
+        }
+        _ => false,
+    }
 }
 
 fn mark_duplicate_turn_assistant_message(message: &mut AssistantMessage) {

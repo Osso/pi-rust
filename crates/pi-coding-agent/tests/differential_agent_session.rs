@@ -222,47 +222,49 @@ async fn run_rust(dir: &str) -> Value {
 
 fn event_name_and_value(event: &pi_coding_agent::core::agent_session::AgentSessionEvent) -> (String, Option<Value>) {
     use pi_coding_agent::core::agent_session::AgentSessionEvent;
-    if matches!(
-        event,
-        AgentSessionEvent::Agent(pi_agent_core::agent::types::AgentEvent::MessageUpdate { .. })
-    ) {
-        let AgentSessionEvent::Agent(pi_agent_core::agent::types::AgentEvent::MessageUpdate {
-            message,
-            assistant_message_event,
-        }) = event
-        else {
-            unreachable!()
+    let (agent_event, runtime_message_marker) = match event {
+        AgentSessionEvent::Agent(agent_event) => (Some(agent_event), None),
+        AgentSessionEvent::Message(message_event) => (Some(&message_event.event), message_event.runtime_message_marker),
+        _ => (None, None),
+    };
+    if let Some(agent_event) = agent_event {
+        use pi_agent_core::agent::types::AgentEvent;
+        return match agent_event {
+            AgentEvent::MessageUpdate {
+                message,
+                assistant_message_event,
+            } => (
+                "message_update".to_owned(),
+                Some(json!({
+                    "message": message_summary(message),
+                    "assistantMessageEvent": assistant_message_event,
+                })),
+            ),
+            AgentEvent::MessageStart { message } | AgentEvent::MessageEnd { message } => {
+                let mut value = json!({"message": message_summary(message)});
+                if let (Some(marker), Value::Object(object)) = (runtime_message_marker, &mut value) {
+                    object.insert("runtimeMessageMarker".to_owned(), json!(marker));
+                }
+                let name = if matches!(agent_event, AgentEvent::MessageStart { .. }) {
+                    "message_start"
+                } else {
+                    "message_end"
+                };
+                (name.to_owned(), Some(value))
+            }
+            other => {
+                let value = serde_json::to_value(other).ok();
+                let name = value
+                    .as_ref()
+                    .and_then(|value| value.get("type"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("agent")
+                    .to_owned();
+                (name, None)
+            }
         };
-        return (
-            "message_update".to_owned(),
-            Some(json!({
-                "message": message_summary(message),
-                "assistantMessageEvent": assistant_message_event,
-            })),
-        );
     }
     match event {
-        AgentSessionEvent::Agent(agent_event) => {
-            let value = serde_json::to_value(agent_event).ok();
-            let name = value
-                .as_ref()
-                .and_then(|value| value.get("type"))
-                .and_then(Value::as_str)
-                .unwrap_or("agent")
-                .to_owned();
-            if matches!(
-                agent_event,
-                pi_agent_core::agent::types::AgentEvent::MessageStart { .. }
-                    | pi_agent_core::agent::types::AgentEvent::MessageEnd { .. }
-            ) {
-                let message = value.as_ref().and_then(|value| value.get("message")).cloned();
-                return (
-                    name,
-                    message.map(|message| json!({"message": message_summary_value(&message)})),
-                );
-            }
-            (name, None)
-        }
         AgentSessionEvent::AgentEnd(event) => ("agent_end".to_owned(), Some(json!({"willRetry": event.will_retry}))),
         AgentSessionEvent::ThinkingLevelChanged(event) => (
             "thinking_level_changed".to_owned(),
