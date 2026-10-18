@@ -499,6 +499,19 @@ pub struct BashExecutionUpdateEvent {
     pub delta: String,
 }
 
+fn flag_values_map(values: &indexmap::IndexMap<String, crate::core::extensions::types::FlagValue>) -> BTreeMap<String, Value> {
+    values
+        .iter()
+        .map(|(name, value)| {
+            let value = match value {
+                crate::core::extensions::types::FlagValue::Boolean(boolean) => Value::Bool(*boolean),
+                crate::core::extensions::types::FlagValue::String(text) => Value::String(text.clone()),
+            };
+            (name.clone(), value)
+        })
+        .collect()
+}
+
 /// Listener function for agent session events.
 pub type AgentSessionEventListener = Arc<dyn Fn(&AgentSessionEvent) + Send + Sync>;
 
@@ -4051,6 +4064,7 @@ fn _unused_import_markers() {
 
 use crate::core::extensions::runner::{
     BeforeAgentStartCombinedResult, ErrorSubscription, ExtensionErrorListener, ExtensionRunner,
+    emit_session_shutdown_event,
 };
 use crate::core::extensions::types::ToolCallEvent;
 use crate::core::extensions::types::{
@@ -4058,7 +4072,7 @@ use crate::core::extensions::types::{
     ExtensionActions, ExtensionCommandContext, ExtensionCommandContextActions, ExtensionContextActions, ExtensionEvent,
     ExtensionMode, ExtensionUiContext, InputEventResult, InputSource as ExtensionInputSource, MessageDelivery,
     MessageEndEvent, MessageStartEvent, MessageUpdateEvent, ModelSelectEvent, ModelSelectSource, ProviderActions,
-    SessionStartEvent, StreamingBehavior as ExtensionStreamingBehavior, ThinkingLevelSelectEvent,
+    SessionShutdownEvent, SessionStartEvent, StreamingBehavior as ExtensionStreamingBehavior, ThinkingLevelSelectEvent,
     ToolExecutionEndEvent, ToolExecutionStartEvent, ToolExecutionUpdateEvent, ToolInfo as ExtensionToolInfo,
     TurnEndEvent, TurnStartEvent, UserMessageContent, UserMessageDelivery,
 };
@@ -4117,6 +4131,56 @@ impl AgentSession {
         self.extend_resources_from_extensions().await;
     }
 
+    /// Reloads settings, resources, and extensions (`AgentSession.reload`).
+    pub async fn reload(
+        &self,
+        before_session_start: Option<Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>>,
+    ) {
+        let old_runner = self.runner();
+        let previous_flag_values = old_runner.get_flag_values();
+        emit_session_shutdown_event(
+            &old_runner,
+            SessionShutdownEvent {
+                reason: crate::core::extensions::types::SessionShutdownReason::Reload,
+                target_session_file: None,
+            },
+        )
+        .await;
+        old_runner.invalidate(None);
+        lock(&self.inner.settings_manager).reload();
+        let (steering_mode, follow_up_mode) = {
+            let settings = lock(&self.inner.settings_manager);
+            (settings.get_steering_mode(), settings.get_follow_up_mode())
+        };
+        self.inner.agent.set_steering_mode(steering_mode);
+        self.inner.agent.set_follow_up_mode(follow_up_mode);
+        pi_ai::compat::reset_api_providers();
+        self.inner.resource_loader.reload().await;
+        self.build_runtime(
+            Some(self.get_active_tool_names()),
+            Some(flag_values_map(&previous_flag_values)),
+            true,
+        );
+
+        let has_bindings = lock(&self.inner.extension_ui_context).is_some()
+            || lock(&self.inner.extension_command_context_actions).is_some()
+            || lock(&self.inner.extension_shutdown_handler).is_some()
+            || lock(&self.inner.extension_error_listener).is_some();
+        if !has_bindings {
+            return;
+        }
+        if let Some(before_session_start) = before_session_start {
+            before_session_start().await;
+        }
+        let mut event = ExtensionEvent::SessionStart(crate::core::extensions::types::SessionStartEvent {
+            reason: crate::core::extensions::types::SessionStartReason::Reload,
+            previous_session_file: None,
+        });
+        self.runner().emit(&mut event).await;
+        self.extend_resources_with_reason(crate::core::extensions::types::ResourcesDiscoverReason::Reload)
+            .await;
+    }
+
     fn apply_extension_bindings(&self, runner: &ExtensionRunner) {
         let mut runner = runner.clone();
         runner.set_ui_context(
@@ -4137,20 +4201,25 @@ impl AgentSession {
     }
 
     async fn extend_resources_from_extensions(&self) {
+        let reason = if self.inner.session_start_event.reason
+            == crate::core::extensions::types::SessionStartReason::Reload
+        {
+            crate::core::extensions::types::ResourcesDiscoverReason::Reload
+        } else {
+            crate::core::extensions::types::ResourcesDiscoverReason::Startup
+        };
+        self.extend_resources_with_reason(reason).await;
+    }
+
+    async fn extend_resources_with_reason(
+        &self,
+        reason: crate::core::extensions::types::ResourcesDiscoverReason,
+    ) {
         let runner = self.runner();
         if !runner.has_handlers("resources_discover") {
             return;
         }
-        let paths = runner
-            .emit_resources_discover(
-                &self.inner.cwd,
-                if self.inner.session_start_event.reason == crate::core::extensions::types::SessionStartReason::Reload {
-                    crate::core::extensions::types::ResourcesDiscoverReason::Reload
-                } else {
-                    crate::core::extensions::types::ResourcesDiscoverReason::Startup
-                },
-            )
-            .await;
+        let paths = runner.emit_resources_discover(&self.inner.cwd, reason).await;
         if paths.skill_paths.is_empty() && paths.prompt_paths.is_empty() && paths.theme_paths.is_empty() {
             return;
         }
