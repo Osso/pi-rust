@@ -13,6 +13,7 @@ pub mod list_models;
 pub mod list_tools;
 pub mod login_command;
 pub mod project_trust;
+pub mod resident_console_command;
 pub mod session_picker;
 pub mod sessions_command;
 pub mod startup_ui;

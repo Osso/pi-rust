@@ -640,7 +640,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/cli/list-extensions.ts` | 113 | 22 | done | `crates/pi-coding-agent/src/cli/list_extensions.rs` | First-party labels, scope/source derivation, UTF-16 column layout, locale path sort; 4-case byte-level differential ([traceability](traceability/list-extensions.md)). |
 | `coding-agent/src/cli/list-tools.ts` | 91 | 22 | done | `crates/pi-coding-agent/src/cli/list_tools.rs` | Source labels, UTF-16 truncation, sorted table; 4-case byte-level differential ([traceability](traceability/list-tools.md)). |
 | `coding-agent/src/cli/project-trust.ts` | 62 | 22 | done | `crates/pi-coding-agent/src/cli/project_trust.rs` | Mode mapping, hasUI gating, Yes/No confirm, notify coloring; startup-ui seam documented ([traceability](traceability/project-trust.md)). |
-| `coding-agent/src/cli/resident-console-command.ts` | 200 | 22 | todo |  | Blocked on `AgentSessionEvent` (ca-agent-session); resident-console transport is ported. |
+| `coding-agent/src/cli/resident-console-command.ts` | 200 | 22 | partial | `crates/pi-coding-agent/src/cli/resident_console_command.rs` | `parseResidentConsoleArgs` (service flags, flag conflict, prompt join/trim) with 4 tests; runner and `ResidentConsoleUi` blocked on `AgentSessionEvent`, `AssistantMessageComponent`, `UserMessageComponent` ([traceability](traceability/resident-console-command.md)). |
 | `coding-agent/src/core/agent-session-runtime.ts` | 576 | 22 | todo |  |  |
 | `coding-agent/src/core/agent-session-services.ts` | 219 | 22 | todo |  |  |
 | `coding-agent/src/core/agent-session.ts` | 6073 | 22 | todo |  |  |
