@@ -693,7 +693,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/footer.ts` | 279 | 22 | done | `crates/pi-coding-agent/src/modes/interactive/components/footer.rs` | Token/cwd helpers + pwd/stats/context/model/status render; differential helper and full-render cases. |
 | `coding-agent/src/modes/interactive/components/index.ts` | 38 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/markdown-transform.ts` | 29 | 22 | done | `crates/pi-coding-agent/src/modes/interactive/components/markdown_transform.rs` | shared extension types; differential transformer chain |
-| `coding-agent/src/modes/interactive/components/mermaid.ts` | 89 | 22 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/mermaid.ts` | 89 | 22 | gap |  | Third-party `grok-mermaid` not ported; user decision 2026-10-18. Mermaid code blocks render as plain Markdown code blocks. |
 | `coding-agent/src/modes/interactive/components/skill-invocation-message.ts` | 55 | 22 | done | `crates/pi-coding-agent/src/modes/interactive/components/skill_invocation_message.rs` | collapsed/expanded; behavioral test |
 | `coding-agent/src/modes/interactive/components/tool-execution.ts` | 495 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/user-message.ts` | 70 | 22 | done | `crates/pi-coding-agent/src/modes/interactive/components/user_message.rs` | Box + Markdown + OSC 133; differential 5 cases. |
