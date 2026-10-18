@@ -1,0 +1,266 @@
+//! Shared recording/replaying `Fetch` and request/option helpers for the
+//! Anthropic Messages adapter tests.
+
+use std::collections::{BTreeMap, VecDeque};
+use std::sync::{Arc, Mutex};
+
+use pi_ai::request::{
+    BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, ProviderRequestOptions, StreamOptions,
+};
+use pi_ai::types::{
+    AssistantMessage, AssistantMessageEvent, CacheRetention, JsonObject, ProviderEnv, ProviderHeaders, Transport,
+};
+use pi_ai::utils::event_stream::AssistantMessageEventStream;
+use pi_ai::utils::headers::headers_to_record;
+use serde_json::{Map, Value};
+use tokio_util::sync::CancellationToken;
+
+#[derive(Debug, Clone)]
+pub struct ScriptedResponse {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub chunks: Vec<String>,
+    pub abort_at_chunk: Option<usize>,
+    pub fetch_error: Option<String>,
+}
+
+struct ScriptedBody {
+    chunks: VecDeque<String>,
+    abort_at_chunk: Option<usize>,
+    delivered: usize,
+    signal: Option<CancellationToken>,
+}
+
+impl HttpBody for ScriptedBody {
+    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
+        Box::pin(async move {
+            if self.abort_at_chunk == Some(self.delivered)
+                && let Some(signal) = &self.signal
+            {
+                signal.cancel();
+            }
+            let chunk = self.chunks.pop_front()?;
+            self.delivered += 1;
+            Some(Ok(chunk.into_bytes()))
+        })
+    }
+}
+
+pub struct RecordingFetch {
+    script: Mutex<VecDeque<ScriptedResponse>>,
+    requests: Mutex<Vec<HttpRequest>>,
+    signal: Option<CancellationToken>,
+}
+
+impl RecordingFetch {
+    pub fn new(script: Vec<ScriptedResponse>, signal: Option<CancellationToken>) -> Self {
+        Self {
+            script: Mutex::new(script.into()),
+            requests: Mutex::new(Vec::new()),
+            signal,
+        }
+    }
+
+    pub fn requests(&self) -> Vec<HttpRequest> {
+        self.requests.lock().expect("requests").clone()
+    }
+}
+
+impl Fetch for RecordingFetch {
+    fn fetch(
+        &self,
+        request: HttpRequest,
+        _signal: Option<CancellationToken>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        Box::pin(async move {
+            self.requests.lock().expect("requests").push(request);
+            let response = self
+                .script
+                .lock()
+                .expect("script")
+                .pop_front()
+                .ok_or_else(|| CallbackError::new("no scripted response"))?;
+            if let Some(message) = response.fetch_error {
+                return Err(CallbackError::new(message));
+            }
+            let body = ScriptedBody {
+                chunks: response.chunks.into(),
+                abort_at_chunk: response.abort_at_chunk,
+                delivered: 0,
+                signal: self.signal.clone(),
+            };
+            Ok(HttpResponse {
+                status: response.status,
+                headers: response.headers,
+                body: Box::new(body),
+            })
+        })
+    }
+}
+
+pub fn json_options(options: &Value) -> JsonObject {
+    options.as_object().cloned().unwrap_or_default()
+}
+
+fn headers_from_json(value: Option<&Value>) -> Option<ProviderHeaders> {
+    let object = value?.as_object()?;
+    Some(
+        object
+            .iter()
+            .map(|(name, value)| (name.clone(), value.as_str().map(str::to_owned)))
+            .collect(),
+    )
+}
+
+fn env_from_json(value: Option<&Value>) -> Option<ProviderEnv> {
+    let object = value?.as_object()?;
+    Some(
+        object
+            .iter()
+            .filter_map(|(name, value)| value.as_str().map(|value| (name.clone(), value.to_owned())))
+            .collect(),
+    )
+}
+
+fn parse<T: serde::de::DeserializeOwned>(value: Option<&Value>) -> Option<T> {
+    value.and_then(|value| serde_json::from_value(value.clone()).ok())
+}
+
+const STREAM_KEYS: [&str; 18] = [
+    "apiKey",
+    "headers",
+    "env",
+    "timeoutMs",
+    "maxRetries",
+    "maxRetryDelayMs",
+    "temperature",
+    "maxTokens",
+    "transport",
+    "cacheRetention",
+    "sessionId",
+    "metadata",
+    "signal",
+    "onRetry",
+    "websocketConnectTimeoutMs",
+    "onPayload",
+    "onResponse",
+    "transformHeaders",
+];
+
+pub fn stream_options(options: &Value, fetch: Arc<dyn Fetch>, signal: Option<CancellationToken>) -> StreamOptions {
+    let mut extra = json_options(options);
+    for key in STREAM_KEYS {
+        extra.remove(key);
+    }
+    StreamOptions {
+        request: ProviderRequestOptions {
+            signal,
+            api_key: options["apiKey"].as_str().map(str::to_owned),
+            fetch: Some(fetch),
+            env: env_from_json(options.get("env")),
+            headers: headers_from_json(options.get("headers")),
+            timeout_ms: options["timeoutMs"].as_f64(),
+            max_retries: options["maxRetries"].as_f64(),
+            max_retry_delay_ms: options["maxRetryDelayMs"].as_f64(),
+            ..ProviderRequestOptions::default()
+        },
+        temperature: options["temperature"].as_f64(),
+        max_tokens: options["maxTokens"].as_f64(),
+        transport: parse::<Transport>(options.get("transport")),
+        cache_retention: parse::<CacheRetention>(options.get("cacheRetention")),
+        session_id: options["sessionId"].as_str().map(str::to_owned),
+        websocket_connect_timeout_ms: options["websocketConnectTimeoutMs"].as_f64(),
+        metadata: options.get("metadata").and_then(Value::as_object).cloned(),
+        extra,
+        ..StreamOptions::default()
+    }
+}
+
+pub async fn collect(mut stream: AssistantMessageEventStream) -> (Vec<AssistantMessageEvent>, AssistantMessage) {
+    let mut events = Vec::new();
+    while let Some(event) = stream.next().await {
+        events.push(event.expect("stream must not fail"));
+    }
+    let result = stream.result().await.expect("stream result");
+    (events, result)
+}
+
+fn strip_scratch(block: &mut Value) {
+    if let Some(object) = block.as_object_mut() {
+        object.remove("index");
+        object.remove("partialJson");
+    }
+}
+
+pub fn normalize_message(message: &mut Value) {
+    let Some(object) = message.as_object_mut() else {
+        return;
+    };
+    object.insert("timestamp".to_owned(), Value::from(0));
+    if let Some(Value::Array(content)) = object.get_mut("content") {
+        for block in content {
+            strip_scratch(block);
+        }
+    }
+}
+
+pub fn normalize_event(event: &mut Value) {
+    let Some(object) = event.as_object_mut() else {
+        return;
+    };
+    for key in ["partial", "message", "error"] {
+        if let Some(message) = object.get_mut(key) {
+            normalize_message(message);
+        }
+    }
+    if let Some(tool_call) = object.get_mut("toolCall") {
+        strip_scratch(tool_call);
+    }
+}
+
+pub fn events_json(events: &[AssistantMessageEvent]) -> Vec<Value> {
+    events
+        .iter()
+        .map(|event| {
+            let mut value = serde_json::to_value(event).expect("event");
+            normalize_event(&mut value);
+            value
+        })
+        .collect()
+}
+
+pub fn message_json(message: &AssistantMessage) -> Value {
+    let mut value = serde_json::to_value(message).expect("message");
+    normalize_message(&mut value);
+    value
+}
+
+pub fn requests_json(requests: &[HttpRequest]) -> Vec<Value> {
+    requests
+        .iter()
+        .map(|request| {
+            let headers: BTreeMap<String, String> = headers_to_record(request.headers.iter().cloned());
+            let body = request
+                .body
+                .as_ref()
+                .map(|body| String::from_utf8_lossy(body).into_owned());
+            let mut object = Map::new();
+            object.insert("method".to_owned(), Value::String(request.method.clone()));
+            object.insert("url".to_owned(), Value::String(request.url.clone()));
+            object.insert("headers".to_owned(), serde_json::to_value(headers).expect("headers"));
+            object.insert("body".to_owned(), body.map(Value::String).unwrap_or(Value::Null));
+            Value::Object(object)
+        })
+        .collect()
+}
+
+/// SDK identity headers depend on the host runtime (Node version, platform).
+/// Pin them through `model.headers` so the recorded request is deterministic.
+pub fn sdk_environment_headers() -> Value {
+    serde_json::json!({
+        "X-Stainless-OS": "Linux",
+        "X-Stainless-Arch": "x64",
+        "X-Stainless-Runtime": "node",
+        "X-Stainless-Runtime-Version": "v22.0.0",
+    })
+}
