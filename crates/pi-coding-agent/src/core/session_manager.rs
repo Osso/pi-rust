@@ -150,9 +150,12 @@ impl Serialize for SessionHeader {
         let mut object = Map::new();
         let original_order = self.original_key_order.as_deref().unwrap_or(&[]);
         for field in original_order {
-            if let Some(value) = header_value(self, field) {
-                object.insert(field.clone(), value);
+            if !HEADER_FIELD_ORDER.contains(&field.as_str()) {
+                continue;
             }
+            // A key present in the source file keeps its explicit `null` on rewrite.
+            let value = header_value(self, field).unwrap_or(Value::Null);
+            object.insert(field.clone(), value);
         }
         for field in HEADER_FIELD_ORDER {
             if original_order.iter().any(|existing| existing == field) {

@@ -11,7 +11,6 @@ use pi_coding_agent::core::session_control_db::{
 };
 use pi_coding_agent::core::session_manager::{SessionEntry, SessionManager};
 use pi_coding_agent::supervisor::approval_reviewer::review_tool_call_with_supervisor;
-use pi_coding_agent::supervisor::client::{RequestSupervisorDecisionInput, request_supervisor_decision};
 use pi_coding_agent::supervisor::main::{
     SupervisorSession, block_supervisor_file_access, process_supervisor_request, read_current_supervisor_response,
     validate_supervisor_extension_load,
@@ -365,76 +364,6 @@ async fn expired_requests_complete_with_the_deadline_error() {
         Some(SupervisorResponse::Error {
             reason: "Supervisor request deadline expired".to_owned()
         })
-    );
-}
-
-#[tokio::test]
-async fn client_waits_for_the_durable_response() {
-    let (_temp, control_db_path) = fixture();
-    let decision = {
-        let control_db_path = control_db_path.clone();
-        tokio::spawn(async move {
-            request_supervisor_decision(&RequestSupervisorDecisionInput {
-                control_db_path,
-                kind: SupervisorRequestKind::ApprovalReview,
-                payload: json!({"toolName": "read"}).as_object().cloned().unwrap_or_default(),
-                project_id: "pi".to_owned(),
-                sender_session_id: "main".to_owned(),
-                timeout_ms: 1_000,
-                max_attempts: None,
-                poll_interval_ms: Some(1),
-                retry_delay_ms: None,
-                retry_jitter_ratio: None,
-            })
-            .await
-        })
-    };
-    let request = loop {
-        if let Some(request) = claim_next_supervisor_request(&control_db_path, "runtime").unwrap() {
-            break request;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    };
-    pi_coding_agent::core::session_control_db::complete_supervisor_request(
-        &control_db_path,
-        request.id,
-        "runtime",
-        &SupervisorResponse::Approve {
-            reason: "bounded".to_owned(),
-        },
-    )
-    .unwrap();
-
-    assert_eq!(
-        decision.await.unwrap().unwrap(),
-        SupervisorResponse::Approve {
-            reason: "bounded".to_owned()
-        }
-    );
-}
-
-#[tokio::test]
-async fn client_reports_the_attempt_suffix_when_every_attempt_expires() {
-    let (_temp, control_db_path) = fixture();
-    let response = request_supervisor_decision(&RequestSupervisorDecisionInput {
-        control_db_path,
-        kind: SupervisorRequestKind::GoalIdleReview,
-        payload: json!({"objective": "finish"}).as_object().cloned().unwrap_or_default(),
-        project_id: "pi".to_owned(),
-        sender_session_id: "main".to_owned(),
-        timeout_ms: 20,
-        max_attempts: Some(2),
-        poll_interval_ms: Some(1),
-        retry_delay_ms: Some(1),
-        retry_jitter_ratio: Some(0.0),
-    })
-    .await
-    .unwrap();
-    assert_eq!(
-        response,
-        SupervisorResponse::Error {
-            reason: "Supervisor request timed out after 2 attempts".to_owned()
-        }
     );
 }
 

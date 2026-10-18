@@ -69,8 +69,8 @@ pub use terminal_image::{
     CellDimensions, ImageDimensions, ImageProtocol, ImageRenderOptions, TerminalCapabilities, allocate_image_id,
     calculate_image_rows, delete_all_kitty_images, delete_kitty_image, detect_capabilities, encode_iterm2,
     encode_kitty, get_capabilities, get_cell_dimensions, get_gif_dimensions, get_image_dimensions, get_jpeg_dimensions,
-    get_png_dimensions, get_webp_dimensions, hyperlink, image_fallback, render_image, set_capabilities,
-    set_cell_dimensions,
+    get_png_dimensions, get_webp_dimensions, hyperlink, image_fallback, path_to_file_url, render_image,
+    set_capabilities, set_cell_dimensions,
 };
 pub use tui::{
     CURSOR_MARKER, Component, Container, FixedCell, FlowRenderRegion, Focusable, OverlayAnchor, OverlayHandle,

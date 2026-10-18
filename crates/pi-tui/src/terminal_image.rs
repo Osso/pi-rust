@@ -868,7 +868,8 @@ fn shorten_image_path(filename: &str) -> String {
     }
 }
 
-fn path_to_file_url(filename: &str) -> String {
+/// Node `pathToFileURL` file URL for an absolute path (or `cwd`-joined relative path).
+pub fn path_to_file_url(filename: &str) -> String {
     let path = if Path::new(filename).is_absolute() {
         filename.to_string()
     } else {
