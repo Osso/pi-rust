@@ -108,43 +108,69 @@ fn read_orientation_from_tiff(bytes: &[u8], tiff_start: i64) -> u8 {
     1
 }
 
+/// One step of the JPEG marker walk.
+enum MarkerStep {
+    /// Fill byte (`0xFF` marker prefix); advance by one.
+    Fill,
+    /// APP1 segment: the TIFF offset, or `None` when the segment is unusable.
+    App1(Option<i64>),
+    /// Ordinary segment; continue at this offset.
+    Next(i64),
+    /// Not a valid segment chain.
+    Invalid,
+}
+
 fn find_jpeg_tiff_offset(bytes: &[u8]) -> Option<i64> {
     let length = bytes.len() as i64;
     let mut offset: i64 = 2;
 
     while offset < length - 1 {
-        if byte_at(bytes, offset) != 0xff {
-            return None;
+        match jpeg_marker_step(bytes, offset) {
+            MarkerStep::Fill => offset += 1,
+            MarkerStep::App1(tiff_offset) => return tiff_offset,
+            MarkerStep::Next(next_offset) => offset = next_offset,
+            MarkerStep::Invalid => return None,
         }
-        let marker = byte_at(bytes, offset + 1);
-        if marker == 0xff {
-            offset += 1;
-            continue;
-        }
-
-        if marker == JPEG_APP1 {
-            if offset + 4 >= length {
-                return None;
-            }
-            let segment_start = offset + 4;
-            if segment_start + 6 > length || !has_exif_header(bytes, segment_start) {
-                return None;
-            }
-            return Some(segment_start + 6);
-        }
-
-        if offset + 4 > length {
-            return None;
-        }
-        let segment_length = i64::from((byte_at(bytes, offset + 2) << 8) | byte_at(bytes, offset + 3));
-        let next_offset = offset + 2 + segment_length;
-        if next_offset > length || next_offset <= offset {
-            return None;
-        }
-        offset = next_offset;
     }
 
     None
+}
+
+fn jpeg_marker_step(bytes: &[u8], offset: i64) -> MarkerStep {
+    let length = bytes.len() as i64;
+    if byte_at(bytes, offset) != 0xff {
+        return MarkerStep::Invalid;
+    }
+
+    let marker = byte_at(bytes, offset + 1);
+    if marker == 0xff {
+        return MarkerStep::Fill;
+    }
+    if marker == JPEG_APP1 {
+        return MarkerStep::App1(jpeg_app1_tiff_offset(bytes, offset));
+    }
+
+    if offset + 4 > length {
+        return MarkerStep::Invalid;
+    }
+    let segment_length = i64::from((byte_at(bytes, offset + 2) << 8) | byte_at(bytes, offset + 3));
+    let next_offset = offset + 2 + segment_length;
+    if next_offset > length || next_offset <= offset {
+        return MarkerStep::Invalid;
+    }
+    MarkerStep::Next(next_offset)
+}
+
+fn jpeg_app1_tiff_offset(bytes: &[u8], offset: i64) -> Option<i64> {
+    let length = bytes.len() as i64;
+    if offset + 4 >= length {
+        return None;
+    }
+    let segment_start = offset + 4;
+    if segment_start + 6 > length || !has_exif_header(bytes, segment_start) {
+        return None;
+    }
+    Some(segment_start + 6)
 }
 
 fn find_webp_tiff_offset(bytes: &[u8]) -> Option<i64> {
