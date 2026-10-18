@@ -182,5 +182,6 @@ No `indexmap` dependency was needed in `pi-tui`.
 
 - `cargo fmt --check`
 - `cargo test -p pi-ai -p pi-agent-core -p pi-tui` — 2093 passed, 0 failed
+  (pi-ai 726, pi-agent-core 483, pi-tui 884)
 - `cargo check --workspace --all-targets`
 - `cargo clippy --workspace --all-targets -- -D warnings`
