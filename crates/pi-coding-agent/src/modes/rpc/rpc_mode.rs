@@ -503,7 +503,10 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             let messages: Vec<ForkMessageData> = session
                 .get_user_messages_for_forking()
                 .into_iter()
-                .map(|(entry_id, text)| ForkMessageData { entry_id, text })
+                .map(|message| ForkMessageData {
+                    entry_id: message.entry_id,
+                    text: message.text,
+                })
                 .collect();
             Ok(Some(RpcResponse::success_with_data(
                 id,

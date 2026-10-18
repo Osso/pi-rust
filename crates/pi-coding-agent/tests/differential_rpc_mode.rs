@@ -217,6 +217,48 @@ fn rpc_mode_matches_the_pinned_typescript_source() {
 }
 
 #[test]
+fn rpc_mode_routes_extension_ui_dialogs() {
+    let (mut session, _root) = Session::start_with(&[("PI_HARNESS_APPROVAL", "1")]);
+
+    session.send_both(r#"{"id":"p1","type":"prompt","message":"hello"}"#);
+    let (ts, rust) = session.response("p1");
+    session.assert_same(&ts, &rust);
+
+    let ts = session.ts.wait_for(|line| line.contains("\"method\":\"select\""));
+    let rust = session.rust.wait_for(|line| line.contains("\"method\":\"select\""));
+    session.assert_same(&ts, &rust);
+
+    let ts_id = ui_request_id(&ts);
+    let rust_id = ui_request_id(&rust);
+    session
+        .ts
+        .send(&json!({"type": "extension_ui_response", "id": ts_id, "value": "Allow once"}).to_string());
+    session
+        .rust
+        .send(&json!({"type": "extension_ui_response", "id": rust_id, "value": "Allow once"}).to_string());
+
+    let ts = session.ts.wait_for(|line| line.contains("\"type\":\"agent_settled\""));
+    let rust = session
+        .rust
+        .wait_for(|line| line.contains("\"type\":\"agent_settled\""));
+    session.assert_same(&ts, &rust);
+
+    let (ts, rust) = session.command(json!({"id": "s1", "type": "get_state"}));
+    session.assert_same(&ts, &rust);
+
+    let normalizer = session.normalizer.clone();
+    let (_, ts_code, ts_stderr) = session.ts.finish();
+    let (_, rust_code, rust_stderr) = session.rust.finish();
+    assert_eq!(ts_code, rust_code);
+    assert_eq!(normalizer.normalize(&ts_stderr), normalizer.normalize(&rust_stderr));
+}
+
+fn ui_request_id(line: &str) -> String {
+    let value: Value = serde_json::from_str(line).expect("ui request json");
+    value["id"].as_str().expect("ui request id").to_owned()
+}
+
+#[test]
 fn rpc_mode_continues_an_interrupted_restored_session() {
     let (mut session, _root) = Session::start_with(&[("PI_HARNESS_RESUME", "1")]);
 

@@ -4844,7 +4844,10 @@ impl AgentSession {
     }
 
     /// Reloads settings, resources, and extensions (`AgentSession.reload`).
-    pub async fn reload(&self, before_session_start: Option<Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>>) {
+    pub async fn reload(
+        &self,
+        before_session_start: Option<Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>>,
+    ) -> Result<(), AgentSessionError> {
         let old_runner = self.runner();
         let previous_flag_values = old_runner.get_flag_values();
         emit_session_shutdown_event(
@@ -4864,7 +4867,11 @@ impl AgentSession {
         self.inner.agent.set_steering_mode(steering_mode);
         self.inner.agent.set_follow_up_mode(follow_up_mode);
         pi_ai::compat::reset_api_providers();
-        self.inner.resource_loader.reload().await;
+        self.inner
+            .resource_loader
+            .reload()
+            .await
+            .map_err(AgentSessionError::new)?;
         self.build_runtime(
             Some(self.get_active_tool_names()),
             Some(flag_values_map(&previous_flag_values)),
@@ -4876,7 +4883,7 @@ impl AgentSession {
             || lock(&self.inner.extension_shutdown_handler).is_some()
             || lock(&self.inner.extension_error_listener).is_some();
         if !has_bindings {
-            return;
+            return Ok(());
         }
         if let Some(before_session_start) = before_session_start {
             before_session_start().await;
@@ -4888,6 +4895,7 @@ impl AgentSession {
         self.runner().emit(&mut event).await;
         self.extend_resources_with_reason(crate::core::extensions::types::ResourcesDiscoverReason::Reload)
             .await;
+        Ok(())
     }
 
     fn apply_extension_bindings(&self, runner: &ExtensionRunner) {

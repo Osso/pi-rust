@@ -5,22 +5,18 @@
 
 use std::sync::{Arc, Mutex};
 
-use pi_ai::types::UserContent;
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::core::agent_session::{AgentSession, AgentSessionError, NavigateTreeOptions as SessionNavigateTreeOptions};
+use crate::core::agent_session::{AgentSession, NavigateTreeOptions as SessionNavigateTreeOptions};
 use crate::core::agent_session_runtime::{
-    AgentSessionRuntime, ForkPosition, NewSessionOptions as RuntimeNewSessionOptions,
+    AgentSessionRuntime, ForkPosition, NewSessionOptions as RuntimeNewSessionOptions, ReplacedSessionCallback,
     SessionSetupCallback as RuntimeSessionSetupCallback,
 };
 use crate::core::extensions::types::{
-    CustomMessagePayload, ExtensionCommandContextActions, ForkOptions, HandlerError, MessageDelivery,
-    NavigateTreeOptions, NewSessionOptions, ReplacedSessionContext, RestartOptions, SendMessageOptions,
-    SendUserMessageOptions, SessionTransitionResult, SwitchSessionOptions, UserMessageContent, UserMessageDelivery,
-    WithSessionCallback,
+    ExtensionCommandContextActions, ForkOptions, HandlerError, NavigateTreeOptions, NewSessionOptions, RestartOptions,
+    SessionTransitionResult, SwitchSessionOptions, WithSessionCallback,
 };
 use crate::core::session_manager::SessionManager;
-use pi_ai::request::BoxFuture;
 
 type SharedSession = Arc<Mutex<AgentSession>>;
 type SharedRuntime = Arc<AsyncMutex<AgentSessionRuntime>>;
@@ -131,7 +127,9 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
             let session = Arc::clone(&reload_session);
             Box::pin(async move {
                 let session = lock(&session).clone();
-                session.reload(None).await;
+                if let Err(error) = session.reload(None).await {
+                    eprintln!("{}", error.message());
+                }
             })
         }),
         restart: Arc::new(move |options: Option<RestartOptions>| {
@@ -182,10 +180,10 @@ impl CallbackErrors {
         })
     }
 
-    fn adapt_with_session(&self, with_session: WithSessionCallback) -> WithSessionAdapter {
+    fn adapt_with_session(&self, with_session: WithSessionCallback) -> ReplacedSessionCallback {
         let errors = self.clone();
-        Arc::new(move |session: AgentSession| {
-            let future = with_session(replaced_session_context(&session));
+        Arc::new(move |context| {
+            let future = with_session(context);
             let errors = errors.clone();
             Box::pin(async move {
                 if let Err(error) = future.await {
@@ -194,105 +192,6 @@ impl CallbackErrors {
             })
         })
     }
-}
-
-type WithSessionAdapter = Arc<dyn Fn(AgentSession) -> BoxFuture<'static, ()> + Send + Sync>;
-
-/// Fresh command-capable context bound to the replacement session.
-fn replaced_session_context(session: &AgentSession) -> ReplacedSessionContext {
-    let send_message_session = session.clone();
-    let send_user_message_session = session.clone();
-    ReplacedSessionContext {
-        command: session.extension_runner().create_command_context(),
-        send_message: Arc::new(
-            move |message: CustomMessagePayload, options: Option<SendMessageOptions>| {
-                let session = send_message_session.clone();
-                Box::pin(async move {
-                    let options = options.unwrap_or_default();
-                    if options.deliver_as == Some(MessageDelivery::NextTurn) {
-                        session.send_custom_message_next_turn(
-                            &message.custom_type,
-                            custom_message_content(message.content),
-                            message.display,
-                            message.details,
-                        );
-                        return Ok(());
-                    }
-                    session
-                        .send_custom_message(
-                            &message.custom_type,
-                            custom_message_content(message.content),
-                            message.display,
-                            message.details,
-                            options.trigger_turn.unwrap_or(false),
-                            delivery_to_streaming_behavior(options.deliver_as),
-                        )
-                        .await
-                        .map_err(session_error)
-                })
-            },
-        ),
-        send_user_message: Arc::new(
-            move |content: UserMessageContent, options: Option<SendUserMessageOptions>| {
-                let session = send_user_message_session.clone();
-                Box::pin(async move {
-                    let options = options.unwrap_or_default();
-                    session
-                        .send_user_message(
-                            user_message_content(content),
-                            user_delivery_to_streaming_behavior(options.deliver_as),
-                            options.expand_prompt_templates.unwrap_or(true),
-                        )
-                        .await
-                        .map_err(session_error)
-                })
-            },
-        ),
-    }
-}
-
-fn custom_message_content(
-    content: crate::core::extensions::types::CustomMessageContent,
-) -> pi_agent_core::CustomMessageContent {
-    match content {
-        crate::core::extensions::types::CustomMessageContent::Text(text) => {
-            pi_agent_core::CustomMessageContent::Text(text)
-        }
-        crate::core::extensions::types::CustomMessageContent::Blocks(blocks) => {
-            pi_agent_core::CustomMessageContent::Blocks(blocks)
-        }
-    }
-}
-
-fn user_message_content(content: UserMessageContent) -> UserContent {
-    match content {
-        UserMessageContent::Text(text) => UserContent::Text(text),
-        UserMessageContent::Blocks(blocks) => UserContent::Blocks(blocks),
-    }
-}
-
-fn delivery_to_streaming_behavior(
-    delivery: Option<MessageDelivery>,
-) -> Option<crate::core::agent_session::StreamingBehavior> {
-    match delivery {
-        Some(MessageDelivery::Steer) => Some(crate::core::agent_session::StreamingBehavior::Steer),
-        Some(MessageDelivery::FollowUp) => Some(crate::core::agent_session::StreamingBehavior::FollowUp),
-        Some(MessageDelivery::NextTurn) | None => None,
-    }
-}
-
-fn user_delivery_to_streaming_behavior(
-    delivery: Option<UserMessageDelivery>,
-) -> Option<crate::core::agent_session::StreamingBehavior> {
-    match delivery {
-        Some(UserMessageDelivery::Steer) => Some(crate::core::agent_session::StreamingBehavior::Steer),
-        Some(UserMessageDelivery::FollowUp) => Some(crate::core::agent_session::StreamingBehavior::FollowUp),
-        None => None,
-    }
-}
-
-fn session_error(error: AgentSessionError) -> HandlerError {
-    HandlerError::new(error.message())
 }
 
 fn lock(session: &SharedSession) -> std::sync::MutexGuard<'_, AgentSession> {
