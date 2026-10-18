@@ -483,15 +483,15 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/client/index.ts` | 15 | 10 | todo |  |  |
 | `coding-agent/src/core/compaction/utils.ts` | 198 | 14 | todo |  |  |
 | `coding-agent/src/core/defaults.ts` | 3 | 14 | partial |  |  |
-| `coding-agent/src/core/messages.ts` | 212 | 14 | todo |  |  |
+| `coding-agent/src/core/messages.ts` | 212 | 14 | done | `crates/pi-coding-agent/src/core/messages.rs` | Re-exports `pi-agent-core` harness messages and adds `is_cut_point_message`; `tests/messages.rs` |
 | `coding-agent/src/core/runtime-message-markers.ts` | 36 | 14 | todo |  |  |
 | `coding-agent/src/core/settings-manager.ts` | 1442 | 14 | todo |  |  |
 | `coding-agent/src/core/detached-job-runner.ts` | 167 | 15 | todo |  |  |
 | `coding-agent/src/core/multi-agent-store.ts` | 1387 | 15 | todo |  |  |
 | `coding-agent/src/core/package-manager.ts` | 2699 | 15 | todo |  |  |
 | `coding-agent/src/core/session-control-db.ts` | 7047 | 15 | todo |  |  |
-| `coding-agent/src/core/session-manager.ts` | 2437 | 15 | partial |  |  |
-| `coding-agent/src/core/session-tool-output.ts` | 380 | 15 | partial |  |  |
+| `coding-agent/src/core/session-manager.ts` | 2437 | 15 | partial | `crates/pi-coding-agent/src/core/session_manager.rs` | JSONL v1–v3 read/migrate/write, tree/context/fork/relocate, scan listing done; control-db metadata integration blocked on `ca-control-db` |
+| `coding-agent/src/core/session-tool-output.ts` | 380 | 15 | done | `crates/pi-coding-agent/src/core/session_tool_output.rs` | Persistence truncation + atomic migration; `tests/session_tool_output.rs`, differential `41040` |
 | `coding-agent/src/core/telemetry.ts` | 13 | 15 | todo |  |  |
 | `coding-agent/extensions/agents-core/src/runtime-utils.ts` | 30 | 16 | todo |  |  |
 | `coding-agent/extensions/pyrun/src/detached-bridge.ts` | 153 | 16 | todo |  |  |
@@ -499,17 +499,17 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/cli/control-command.ts` | 122 | 16 | todo |  |  |
 | `coding-agent/src/cli/debug-command.ts` | 77 | 16 | todo |  |  |
 | `coding-agent/src/cli/sessions-command.ts` | 106 | 16 | todo |  |  |
-| `coding-agent/src/core/cache-stats.ts` | 164 | 16 | todo |  |  |
+| `coding-agent/src/core/cache-stats.ts` | 164 | 16 | done | `crates/pi-coding-agent/src/core/cache_stats.rs` | Cache-waste scan and miss detection; `tests/cache_stats.rs` |
 | `coding-agent/src/core/compaction/compaction.ts` | 1179 | 16 | todo |  |  |
 | `coding-agent/src/core/detached-job-cleanup.ts` | 351 | 16 | todo |  |  |
 | `coding-agent/src/core/detached-job-control.ts` | 213 | 16 | todo |  |  |
-| `coding-agent/src/core/external-session-importer.ts` | 310 | 16 | todo |  |  |
+| `coding-agent/src/core/external-session-importer.ts` | 310 | 16 | done | `crates/pi-coding-agent/src/core/external_session_importer.rs` | Codex/Claude fixture imports; `tests/external_session_importer.rs` |
 | `coding-agent/src/core/provider-attribution.ts` | 97 | 16 | todo |  |  |
 | `coding-agent/src/core/runtime-coordination-format.ts` | 38 | 16 | todo |  |  |
-| `coding-agent/src/core/session-cwd.ts` | 83 | 16 | todo |  |  |
-| `coding-agent/src/core/session-directory.ts` | 365 | 16 | todo |  |  |
+| `coding-agent/src/core/session-cwd.ts` | 83 | 16 | partial | `crates/pi-coding-agent/src/core/session_cwd.rs` | Issue/format/assert/reopen done; control-db cwd metadata blocked on `ca-control-db` |
+| `coding-agent/src/core/session-directory.ts` | 365 | 16 | partial |  | Blocked on `ca-control-db`; every export reads/writes the control DB |
 | `coding-agent/src/core/source-info.ts` | 40 | 16 | partial |  |  |
-| `coding-agent/src/core/usage-totals.ts` | 67 | 16 | todo |  |  |
+| `coding-agent/src/core/usage-totals.ts` | 67 | 16 | done | `crates/pi-coding-agent/src/core/usage_totals.rs` | Totals and cost breakdown; `tests/usage_totals.rs` |
 | `coding-agent/src/modes/interactive/components/custom-editor.ts` | 148 | 16 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/session-selector-search.ts` | 219 | 16 | todo |  |  |
 | `coding-agent/src/supervisor/client.ts` | 63 | 16 | todo |  |  |
