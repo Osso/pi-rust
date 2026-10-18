@@ -5,16 +5,14 @@ use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
 use pi_agent_core::harness::types::ThinkingLevel;
-use pi_ai::types::{ImageContent, Model, ProviderHeaders};
+use pi_ai::types::{ImageContent, ProviderHeaders};
 use pi_tui::keybindings::{KeyId, KeybindingsConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::core::diagnostics::{ResourceDiagnostic, ResourceDiagnosticType};
-use crate::core::footer_data_provider::FooterDataProvider;
 use crate::core::model_registry::ModelRegistry;
-use crate::core::model_resolver::ScopedModel;
 use crate::core::session_manager::SessionManager;
 use crate::core::settings_manager::SettingsManager;
 use crate::core::source_info::{SourceInfo, SourceOrigin, SourceScope};
@@ -215,60 +213,21 @@ fn event_type_name(name: &str) -> String {
 pub struct ExtensionRunner {
     extensions: Vec<Extension>,
     runtime: ExtensionRuntime,
-    ui_context: Arc<dyn ExtensionUiContext>,
-    has_ui: bool,
-    mode: ExtensionMode,
-    cwd: String,
-    session_manager: Arc<SessionManager>,
-    model_registry: Arc<ModelRegistry>,
-    settings_manager: Option<Arc<Mutex<SettingsManager>>>,
+    /// Live state shared with every context this runner creates.
+    state: Arc<Mutex<ExtensionContextState>>,
     error_listeners: Arc<Mutex<Vec<(u64, ExtensionErrorListener)>>>,
     error_listener_id: Arc<AtomicU64>,
-    get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync>,
-    get_thinking_level_fn: Arc<dyn Fn() -> ThinkingLevel + Send + Sync>,
-    get_scoped_models: Arc<dyn Fn() -> Vec<ScopedModel> + Send + Sync>,
-    get_footer_data: Arc<dyn Fn() -> Option<Arc<FooterDataProvider>> + Send + Sync>,
-    is_idle_fn: Arc<dyn Fn() -> bool + Send + Sync>,
-    has_active_retry_fn: Arc<dyn Fn() -> bool + Send + Sync>,
-    is_project_trusted_fn: Arc<dyn Fn() -> bool + Send + Sync>,
-    get_signal_fn: Arc<dyn Fn() -> Option<CancellationToken> + Send + Sync>,
-    abort_fn: Arc<dyn Fn() + Send + Sync>,
-    has_pending_messages_fn: Arc<dyn Fn() -> bool + Send + Sync>,
-    shutdown_handler: Arc<dyn Fn() + Send + Sync>,
-    restart_fn: Arc<dyn Fn(Option<RestartOptions>) -> BoxFuture<'static, ()> + Send + Sync>,
-    get_control_db_path_fn: Arc<dyn Fn() -> Option<String> + Send + Sync>,
-    get_context_usage_fn: Arc<dyn Fn() -> Option<ContextUsage> + Send + Sync>,
-    get_scoped_models_fn: Arc<dyn Fn() -> Vec<ScopedModel> + Send + Sync>,
-    get_multi_agent_agent_id_fn: Arc<dyn Fn() -> Option<String> + Send + Sync>,
-    get_multi_agent_parent_session_id_fn: Arc<dyn Fn() -> Option<String> + Send + Sync>,
-    get_multi_agent_requires_agent_id_fn: Arc<dyn Fn() -> bool + Send + Sync>,
-    get_multi_agent_store_fn:
-        Arc<dyn Fn() -> Option<Arc<crate::core::multi_agent_store::MultiAgentStore>> + Send + Sync>,
-    get_tool_detach_registry_fn:
-        Arc<dyn Fn() -> Option<Arc<crate::core::tool_detach_registry::ToolDetachRegistry>> + Send + Sync>,
-    compact_fn: Arc<dyn Fn(Option<CompactOptions>) + Send + Sync>,
-    get_system_prompt_fn: Arc<dyn Fn() -> String + Send + Sync>,
-    get_system_prompt_options_fn: Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>,
-    relocate_handler: RelocateCallback,
-    prepare_tool_result_relocation_handler: RelocateCallback,
-    activate_tool_result_relocation_handler: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
-    pending_tool_result_relocations: Arc<Mutex<IndexMap<String, String>>>,
     is_tool_result_relocation_prepared: Arc<AtomicBool>,
-    show_approval_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
-    show_sandbox_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
-    wait_for_idle_fn: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
-    new_session_handler: NewSessionCallback,
-    fork_handler: ForkCallback,
-    navigate_tree_handler: NavigateTreeCallback,
-    switch_session_handler: SwitchSessionCallback,
-    reload_handler: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     shortcut_diagnostics: Arc<Mutex<Vec<ResourceDiagnostic>>>,
     command_diagnostics: Arc<Mutex<Vec<ResourceDiagnostic>>>,
-    stale_message: Arc<Mutex<Option<String>>>,
     internal_commands: IndexMap<String, InternalCommandHandler>,
 }
 
 impl ExtensionRunner {
+    fn live(&self) -> std::sync::MutexGuard<'_, ExtensionContextState> {
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     pub fn new(
         extensions: Vec<Extension>,
         runtime: ExtensionRuntime,
@@ -278,84 +237,20 @@ impl ExtensionRunner {
         settings_manager: Option<Arc<Mutex<SettingsManager>>>,
     ) -> Self {
         let cwd = cwd.into();
-        let default_cwd = cwd.clone();
         Self {
             extensions,
             runtime,
-            ui_context: Arc::new(NoOpUiContext),
-            has_ui: false,
-            mode: ExtensionMode::Print,
-            cwd,
-            session_manager,
-            model_registry,
-            settings_manager,
+            state: Arc::new(Mutex::new(ExtensionContextState::new(
+                cwd,
+                session_manager,
+                model_registry,
+                settings_manager,
+            ))),
             error_listeners: Arc::new(Mutex::new(Vec::new())),
             error_listener_id: Arc::new(AtomicU64::new(0)),
-            get_model: Arc::new(|| None),
-            get_thinking_level_fn: Arc::new(|| ThinkingLevel::Off),
-            get_scoped_models: Arc::new(Vec::new),
-            get_footer_data: Arc::new(|| None),
-            is_idle_fn: Arc::new(|| true),
-            has_active_retry_fn: Arc::new(|| false),
-            is_project_trusted_fn: Arc::new(|| true),
-            get_signal_fn: Arc::new(|| None),
-            abort_fn: Arc::new(|| {}),
-            has_pending_messages_fn: Arc::new(|| false),
-            shutdown_handler: Arc::new(|| {}),
-            restart_fn: Arc::new(|_| Box::pin(async {})),
-            get_control_db_path_fn: Arc::new(|| None),
-            get_context_usage_fn: Arc::new(|| None),
-            get_scoped_models_fn: Arc::new(Vec::new),
-            get_multi_agent_agent_id_fn: Arc::new(|| None),
-            get_multi_agent_parent_session_id_fn: Arc::new(|| None),
-            get_multi_agent_requires_agent_id_fn: Arc::new(|| false),
-            get_multi_agent_store_fn: Arc::new(|| None),
-            get_tool_detach_registry_fn: Arc::new(|| None),
-            compact_fn: Arc::new(|_| {}),
-            get_system_prompt_fn: Arc::new(String::new),
-            get_system_prompt_options_fn: {
-                let default_cwd = default_cwd.clone();
-                Arc::new(move || BuildSystemPromptOptions {
-                    cwd: default_cwd.clone(),
-                    ..BuildSystemPromptOptions::default()
-                })
-            },
-            relocate_handler: Arc::new(|_| {
-                Box::pin(async {
-                    Err(HandlerError::new(
-                        "Working-directory changes are not available in this session mode",
-                    ))
-                })
-            }),
-            prepare_tool_result_relocation_handler: Arc::new(|_| {
-                Box::pin(async {
-                    Err(HandlerError::new(
-                        "Tool-result working-directory changes are not available in this session mode",
-                    ))
-                })
-            }),
-            activate_tool_result_relocation_handler: Arc::new(|| Box::pin(async {})),
-            pending_tool_result_relocations: Arc::new(Mutex::new(IndexMap::new())),
             is_tool_result_relocation_prepared: Arc::new(AtomicBool::new(false)),
-            show_approval_selector_handler: Arc::new(|| Ok(())),
-            show_sandbox_selector_handler: Arc::new(|| Ok(())),
-            wait_for_idle_fn: Arc::new(|| Box::pin(async {})),
-            new_session_handler: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
-            fork_handler: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
-            navigate_tree_handler: Arc::new(|_, _| {
-                Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })
-            }),
-            switch_session_handler: Arc::new(|_, _| {
-                Box::pin(async {
-                    Err(HandlerError::new(
-                        "Session resume is not available in this session mode",
-                    ))
-                })
-            }),
-            reload_handler: Arc::new(|| Box::pin(async {})),
             shortcut_diagnostics: Arc::new(Mutex::new(Vec::new())),
             command_diagnostics: Arc::new(Mutex::new(Vec::new())),
-            stale_message: Arc::new(Mutex::new(None)),
             internal_commands: IndexMap::new(),
         }
     }
@@ -381,41 +276,35 @@ impl ExtensionRunner {
     }
 
     fn bind_context_actions(&mut self, actions: ExtensionContextActions) {
-        self.get_model = actions.get_model;
-        self.get_thinking_level_fn = actions
+        let mut state = self.live();
+        state.get_model = actions.get_model;
+        state.get_thinking_level_fn = actions
             .get_thinking_level
             .unwrap_or_else(|| Arc::new(|| ThinkingLevel::Off));
-        self.get_footer_data = actions.get_footer_data.unwrap_or_else(|| Arc::new(|| None));
-        self.get_scoped_models = actions.get_scoped_models.clone().unwrap_or_else(|| Arc::new(Vec::new));
-        self.is_idle_fn = actions.is_idle;
-        self.has_active_retry_fn = actions.has_active_retry;
-        self.is_project_trusted_fn = actions.is_project_trusted;
-        self.get_signal_fn = actions.get_signal;
-        self.abort_fn = actions.abort;
-        self.has_pending_messages_fn = actions.has_pending_messages;
-        self.shutdown_handler = actions.shutdown;
-        self.restart_fn = actions.restart;
-        self.get_control_db_path_fn = actions.get_control_db_path.unwrap_or_else(|| Arc::new(|| None));
-        self.get_context_usage_fn = actions.get_context_usage;
-        self.get_scoped_models_fn = actions.get_scoped_models.unwrap_or_else(|| Arc::new(Vec::new));
-        self.get_multi_agent_agent_id_fn = actions.get_multi_agent_agent_id.unwrap_or_else(|| Arc::new(|| None));
-        self.get_multi_agent_parent_session_id_fn = actions
+        state.get_footer_data = actions.get_footer_data.unwrap_or_else(|| Arc::new(|| None));
+        state.get_scoped_models = actions.get_scoped_models.unwrap_or_else(|| Arc::new(Vec::new));
+        state.is_idle_fn = actions.is_idle;
+        state.has_active_retry_fn = actions.has_active_retry;
+        state.is_project_trusted_fn = actions.is_project_trusted;
+        state.get_signal_fn = actions.get_signal;
+        state.abort_fn = actions.abort;
+        state.has_pending_messages_fn = actions.has_pending_messages;
+        state.shutdown_handler = actions.shutdown;
+        state.restart_fn = actions.restart;
+        state.get_control_db_path_fn = actions.get_control_db_path.unwrap_or_else(|| Arc::new(|| None));
+        state.get_context_usage_fn = actions.get_context_usage;
+        state.get_multi_agent_agent_id_fn = actions.get_multi_agent_agent_id.unwrap_or_else(|| Arc::new(|| None));
+        state.get_multi_agent_parent_session_id_fn = actions
             .get_multi_agent_parent_session_id
             .unwrap_or_else(|| Arc::new(|| None));
-        self.get_multi_agent_requires_agent_id_fn = actions
+        state.get_multi_agent_requires_agent_id_fn = actions
             .get_multi_agent_requires_agent_id
             .unwrap_or_else(|| Arc::new(|| false));
-        self.get_multi_agent_store_fn = actions.get_multi_agent_store.unwrap_or_else(|| Arc::new(|| None));
-        self.get_tool_detach_registry_fn = actions.get_tool_detach_registry.unwrap_or_else(|| Arc::new(|| None));
-        self.compact_fn = actions.compact;
-        self.get_system_prompt_fn = actions.get_system_prompt;
-        let default_cwd = self.cwd.clone();
-        self.get_system_prompt_options_fn = actions.get_system_prompt_options.unwrap_or_else(|| {
-            Arc::new(move || BuildSystemPromptOptions {
-                cwd: default_cwd.clone(),
-                ..BuildSystemPromptOptions::default()
-            })
-        });
+        state.get_multi_agent_store_fn = actions.get_multi_agent_store.unwrap_or_else(|| Arc::new(|| None));
+        state.get_tool_detach_registry_fn = actions.get_tool_detach_registry.unwrap_or_else(|| Arc::new(|| None));
+        state.compact_fn = actions.compact;
+        state.get_system_prompt_fn = actions.get_system_prompt;
+        state.get_system_prompt_options_fn = actions.get_system_prompt_options;
     }
 
     fn flush_pending_provider_registrations(&self, provider_actions: Option<&ProviderActions>) {
@@ -463,7 +352,8 @@ impl ExtensionRunner {
             register(name, config)?;
             return Ok(());
         }
-        self.model_registry
+        let registry = Arc::clone(&self.live().model_registry);
+        registry
             .register_provider(name, config.clone())
             .map_err(|error| error.to_string())
     }
@@ -485,7 +375,8 @@ impl ExtensionRunner {
             unregister(name);
             return Ok(());
         }
-        self.model_registry.unregister_provider(name);
+        let registry = Arc::clone(&self.live().model_registry);
+        registry.unregister_provider(name);
         Ok(())
     }
 
@@ -499,7 +390,7 @@ impl ExtensionRunner {
     }
 
     pub fn set_relocate_handler(&mut self, handler: RelocateCallback) {
-        self.relocate_handler = handler;
+        self.live().relocate_handler = handler;
     }
 
     pub fn set_tool_result_relocation_handlers(
@@ -507,35 +398,21 @@ impl ExtensionRunner {
         prepare: RelocateCallback,
         activate: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     ) {
-        self.prepare_tool_result_relocation_handler = prepare;
-        self.activate_tool_result_relocation_handler = activate;
-    }
-
-    fn schedule_tool_result_relocation(&self, tool_call_id: &str, target_cwd: &str) -> Result<(), HandlerError> {
-        self.assert_active()?;
-        let mut pending = self
-            .pending_tool_result_relocations
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if pending.contains_key(tool_call_id) {
-            return Err(HandlerError::new(format!(
-                "Working-directory relocation already scheduled for tool call {tool_call_id}"
-            )));
-        }
-        pending.insert(tool_call_id.to_owned(), target_cwd.to_owned());
-        Ok(())
+        let mut state = self.live();
+        state.prepare_tool_result_relocation_handler = prepare;
+        state.activate_tool_result_relocation_handler = activate;
     }
 
     pub async fn deliver_tool_result_relocation(&self, tool_call_id: &str) -> Result<(), HandlerError> {
-        let target_cwd = self
-            .pending_tool_result_relocations
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .shift_remove(tool_call_id);
+        let (target_cwd, prepare) = {
+            let mut state = self.live();
+            let target_cwd = state.pending_tool_result_relocations.shift_remove(tool_call_id);
+            (target_cwd, Arc::clone(&state.prepare_tool_result_relocation_handler))
+        };
         let Some(target_cwd) = target_cwd else {
             return Ok(());
         };
-        (self.prepare_tool_result_relocation_handler)(&target_cwd).await?;
+        prepare(&target_cwd).await?;
         self.is_tool_result_relocation_prepared.store(true, Ordering::SeqCst);
         Ok(())
     }
@@ -548,61 +425,69 @@ impl ExtensionRunner {
         if !self.is_tool_result_relocation_prepared.swap(false, Ordering::SeqCst) {
             return;
         }
-        (self.activate_tool_result_relocation_handler)().await;
+        let activate = self.live().activate_tool_result_relocation_handler.clone();
+        activate().await;
     }
 
     pub fn bind_command_context(&mut self, actions: Option<ExtensionCommandContextActions>) {
+        let mut state = self.live();
         let Some(actions) = actions else {
-            self.show_approval_selector_handler = Arc::new(|| Ok(()));
-            self.show_sandbox_selector_handler = Arc::new(|| Ok(()));
-            self.wait_for_idle_fn = Arc::new(|| Box::pin(async {}));
-            self.new_session_handler =
+            state.show_approval_selector_handler = Arc::new(|| Ok(()));
+            state.show_sandbox_selector_handler = Arc::new(|| Ok(()));
+            state.wait_for_idle_fn = Arc::new(|| Box::pin(async {}));
+            state.new_session_handler =
                 Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) }));
-            self.fork_handler = Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) }));
-            self.navigate_tree_handler =
+            state.fork_handler = Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) }));
+            state.navigate_tree_handler =
                 Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) }));
-            self.switch_session_handler = Arc::new(|_, _| {
+            state.switch_session_handler = Arc::new(|_, _| {
                 Box::pin(async {
                     Err(HandlerError::new(
                         "Session resume is not available in this session mode",
                     ))
                 })
             });
-            self.reload_handler = Arc::new(|| Box::pin(async {}));
-            self.restart_fn = Arc::new(|_| Box::pin(async {}));
+            state.reload_handler = Arc::new(|| Box::pin(async {}));
+            state.restart_fn = Arc::new(|_| Box::pin(async {}));
             return;
         };
-        self.show_approval_selector_handler = actions.show_approval_selector;
-        self.show_sandbox_selector_handler = actions.show_sandbox_selector;
-        self.wait_for_idle_fn = actions.wait_for_idle;
-        self.new_session_handler = actions.new_session;
-        self.fork_handler = actions.fork;
-        self.navigate_tree_handler = actions.navigate_tree;
-        self.switch_session_handler = actions.switch_session;
-        self.reload_handler = actions.reload;
-        self.restart_fn = actions.restart;
+        state.show_approval_selector_handler = actions.show_approval_selector;
+        state.show_sandbox_selector_handler = actions.show_sandbox_selector;
+        state.wait_for_idle_fn = actions.wait_for_idle;
+        state.new_session_handler = actions.new_session;
+        state.fork_handler = actions.fork;
+        state.navigate_tree_handler = actions.navigate_tree;
+        state.switch_session_handler = actions.switch_session;
+        state.reload_handler = actions.reload;
+        state.restart_fn = actions.restart;
+    }
+
+    /// Update the working directory reported by live contexts.
+    pub fn set_cwd(&mut self, cwd: impl Into<String>) {
+        self.live().cwd = cwd.into();
     }
 
     pub fn set_ui_context(&mut self, ui_context: Option<Arc<dyn ExtensionUiContext>>, mode: ExtensionMode) {
+        let mut state = self.live();
         match ui_context {
             Some(ui_context) => {
-                self.ui_context = ui_context;
-                self.has_ui = true;
+                state.ui_context = ui_context;
+                state.has_ui = true;
             }
             None => {
-                self.ui_context = Arc::new(NoOpUiContext);
-                self.has_ui = false;
+                state.ui_context = Arc::new(NoOpUiContext);
+                state.has_ui = false;
             }
         }
-        self.mode = mode;
+        state.mode = mode;
     }
 
     pub fn get_ui_context(&self) -> Arc<dyn ExtensionUiContext> {
-        Arc::clone(&self.ui_context)
+        Arc::clone(&self.live().ui_context)
     }
 
     pub fn has_ui(&self) -> bool {
-        self.has_ui
+        self.live().has_ui
     }
 
     pub fn get_extension_paths(&self) -> Vec<String> {
@@ -720,38 +605,26 @@ impl ExtensionRunner {
     }
 
     pub fn invalidate(&self, message: Option<&str>) {
-        let mut stale = self
-            .stale_message
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if stale.is_some() {
-            return;
-        }
-        let message = message.map_or_else(
-            || {
-                "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().".to_owned()
-            },
-            str::to_owned,
-        );
-        *stale = Some(message.clone());
-        drop(stale);
+        let message = {
+            let mut state = self.live();
+            if state.stale_message.is_some() {
+                return;
+            }
+            let message = message.map_or_else(
+                || {
+                    "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().".to_owned()
+                },
+                str::to_owned,
+            );
+            state.stale_message = Some(message.clone());
+            state.pending_tool_result_relocations.clear();
+            message
+        };
         self.runtime.invalidate(Some(&message));
-        self.pending_tool_result_relocations
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clear();
     }
 
     pub fn assert_active(&self) -> Result<(), HandlerError> {
-        match self
-            .stale_message
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
-        {
-            Some(message) => Err(HandlerError::new(message.clone())),
-            None => Ok(()),
-        }
+        self.live().assert_active()
     }
 
     pub fn on_error(&self, listener: ExtensionErrorListener) -> ErrorSubscription {
@@ -955,7 +828,8 @@ impl ExtensionRunner {
     }
 
     pub fn shutdown(&self) {
-        (self.shutdown_handler)();
+        let shutdown = self.live().shutdown_handler.clone();
+        shutdown();
     }
 
     pub fn get_active_tools(&self) -> Result<Vec<String>, HandlerError> {
@@ -963,163 +837,15 @@ impl ExtensionRunner {
         (self.runtime.actions().get_active_tools)()
     }
 
-    fn context_callbacks(&self) -> Arc<ExtensionContextCallbacks> {
-        let runner = self.clone();
-        Arc::new(ExtensionContextCallbacks {
-            get_model: Arc::clone(&self.get_model),
-            get_thinking_level: Arc::clone(&self.get_thinking_level_fn),
-            get_scoped_models: Arc::clone(&self.get_scoped_models),
-            get_footer_data: Arc::clone(&self.get_footer_data),
-            is_idle: Arc::clone(&self.is_idle_fn),
-            has_active_retry: Arc::clone(&self.has_active_retry_fn),
-            is_project_trusted: Arc::clone(&self.is_project_trusted_fn),
-            get_signal: Arc::clone(&self.get_signal_fn),
-            abort: Arc::clone(&self.abort_fn),
-            has_pending_messages: Arc::clone(&self.has_pending_messages_fn),
-            shutdown: Arc::clone(&self.shutdown_handler),
-            restart: Arc::clone(&self.restart_fn),
-            get_control_db_path: Arc::clone(&self.get_control_db_path_fn),
-            get_context_usage: Arc::clone(&self.get_context_usage_fn),
-            get_multi_agent_agent_id: Arc::clone(&self.get_multi_agent_agent_id_fn),
-            get_multi_agent_parent_session_id: Arc::clone(&self.get_multi_agent_parent_session_id_fn),
-            get_multi_agent_requires_agent_id: Arc::clone(&self.get_multi_agent_requires_agent_id_fn),
-            get_multi_agent_store: Arc::clone(&self.get_multi_agent_store_fn),
-            get_tool_detach_registry: Arc::clone(&self.get_tool_detach_registry_fn),
-            compact: Arc::clone(&self.compact_fn),
-            get_system_prompt: Arc::clone(&self.get_system_prompt_fn),
-            get_system_prompt_options: Arc::clone(&self.get_system_prompt_options_fn),
-            relocate: {
-                let runner = runner.clone();
-                let handler = Arc::clone(&self.relocate_handler);
-                Arc::new(move |target_cwd: &str| {
-                    let target_cwd = target_cwd.to_owned();
-                    let handler = Arc::clone(&handler);
-                    let runner = runner.clone();
-                    Box::pin(async move {
-                        runner.assert_active()?;
-                        handler(&target_cwd).await
-                    })
-                })
-            },
-            relocate_after_tool_result: {
-                let runner = runner.clone();
-                Arc::new(move |tool_call_id: &str, target_cwd: &str| {
-                    runner.schedule_tool_result_relocation(tool_call_id, target_cwd)
-                })
-            },
-        })
-    }
-
     /// Create an `ExtensionContext` for event handlers and tool execution.
     pub fn create_context(&self) -> ExtensionContext {
-        let callbacks = self.context_callbacks();
-        let mut context = ExtensionContext::new(
-            Arc::clone(&self.ui_context),
-            self.mode,
-            self.has_ui,
-            self.cwd.clone(),
-            Arc::clone(&self.session_manager),
-            Arc::clone(&self.model_registry),
-            callbacks,
-        );
-        context.set_settings_manager(self.settings_manager.clone());
-        context
+        ExtensionContext::new(Arc::clone(&self.state))
     }
 
-    /// Create a command context; guarded getters stay live through the shared callbacks.
+    /// Create a command context; every handler is read from shared state on call.
     pub fn create_command_context(&self) -> ExtensionCommandContext {
-        let runner = self.clone();
-        let context = self.create_context();
         ExtensionCommandContext {
-            context,
-            show_approval_selector: {
-                let runner = runner.clone();
-                Arc::new(move || {
-                    runner.assert_active()?;
-                    (runner.show_approval_selector_handler)()
-                })
-            },
-            show_sandbox_selector: {
-                let runner = runner.clone();
-                Arc::new(move || {
-                    runner.assert_active()?;
-                    (runner.show_sandbox_selector_handler)()
-                })
-            },
-            wait_for_idle: {
-                let runner = runner.clone();
-                Arc::new(move || {
-                    let runner = runner.clone();
-                    Box::pin(async move {
-                        let _ = runner.assert_active();
-                        (runner.wait_for_idle_fn)().await;
-                    })
-                })
-            },
-            new_session: {
-                let runner = runner.clone();
-                Arc::new(move |options| {
-                    let runner = runner.clone();
-                    Box::pin(async move {
-                        runner.assert_active()?;
-                        (runner.new_session_handler)(options).await
-                    })
-                })
-            },
-            fork: {
-                let runner = runner.clone();
-                Arc::new(move |entry_id, options| {
-                    let runner = runner.clone();
-                    Box::pin(async move {
-                        runner.assert_active()?;
-                        (runner.fork_handler)(entry_id, options).await
-                    })
-                })
-            },
-            navigate_tree: {
-                let runner = runner.clone();
-                Arc::new(move |target_id, options| {
-                    let runner = runner.clone();
-                    Box::pin(async move {
-                        runner.assert_active()?;
-                        (runner.navigate_tree_handler)(target_id, options).await
-                    })
-                })
-            },
-            switch_session: {
-                let runner = runner.clone();
-                Arc::new(move |session_path, options| {
-                    let runner = runner.clone();
-                    Box::pin(async move {
-                        runner.assert_active()?;
-                        (runner.switch_session_handler)(session_path, options).await
-                    })
-                })
-            },
-            reload: {
-                let runner = runner.clone();
-                Arc::new(move || {
-                    let runner = runner.clone();
-                    Box::pin(async move {
-                        let _ = runner.assert_active();
-                        (runner.reload_handler)().await;
-                    })
-                })
-            },
-            restart: {
-                let runner = runner.clone();
-                Arc::new(move |options| {
-                    let runner = runner.clone();
-                    Box::pin(async move {
-                        let _ = runner.assert_active();
-                        (runner.restart_fn)(options).await;
-                    })
-                })
-            },
-            get_system_prompt_options: {
-                let runner = runner.clone();
-                Arc::new(move || (runner.get_system_prompt_options_fn)())
-            },
+            context: self.create_context(),
         }
     }
 
@@ -1563,7 +1289,7 @@ impl ExtensionRunner {
         messages: Vec<pi_agent_core::AgentMessage>,
     ) -> Result<Vec<pi_agent_core::AgentMessage>, HandlerError> {
         let ctx = self.create_context();
-        let signal = ctx.signal();
+        let signal = ctx.signal()?;
         let mut current_messages = messages;
 
         for extension in &self.extensions {

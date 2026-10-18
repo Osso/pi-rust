@@ -11,9 +11,11 @@ mod support;
 
 use std::sync::{Arc, Mutex};
 
-use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_agent_core::harness::types::ThinkingLevel;
+use pi_ai::types::{Model, TextContent, TextOrImageContent};
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::keybindings::KeybindingsManager;
+use pi_coding_agent::core::model_resolver::ScopedModel;
 use pi_coding_agent::core::provider_composer::ProviderConfigInput;
 use pi_coding_agent::core::session_control_db::RuntimeMailboxMessage;
 use pi_coding_agent::core::session_manager::SessionEntry;
@@ -128,9 +130,12 @@ async fn dispatch(temp_dir: &str) -> Value {
         .unwrap();
         let l5 = Arc::clone(&l1);
         api.on_before_agent_start(h!(BeforeAgentStartEvent, [l5], |_e, ctx| {
-            support::log(&l5, format!("e1:before_agent_start:{}", ctx.get_system_prompt()));
+            support::log(
+                &l5,
+                format!("e1:before_agent_start:{}", ctx.get_system_prompt().unwrap()),
+            );
             Ok(Some(BeforeAgentStartEventResult {
-                system_prompt: Some(format!("{}|e1", ctx.get_system_prompt())),
+                system_prompt: Some(format!("{}|e1", ctx.get_system_prompt().unwrap())),
                 message: None,
             }))
         }))
@@ -214,7 +219,7 @@ async fn dispatch(temp_dir: &str) -> Value {
         .unwrap();
         api.on_before_agent_start(h!(BeforeAgentStartEvent, |_e, ctx| {
             Ok(Some(BeforeAgentStartEventResult {
-                system_prompt: Some(format!("{}|e2", ctx.get_system_prompt())),
+                system_prompt: Some(format!("{}|e2", ctx.get_system_prompt().unwrap())),
                 message: None,
             }))
         }))
@@ -951,6 +956,184 @@ async fn session_events_scenario(temp_dir: &str) -> Value {
     json!({"steps": steps, "errors": []})
 }
 
+async fn mutations_scenario(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
+        api.on_tool_call(h!(ToolCallEvent, |e, _c| {
+            let mut input = e.input;
+            input.insert("a".to_owned(), json!(1));
+            Ok(Some(ToolCallEventResult {
+                input: Some(input),
+                ..Default::default()
+            }))
+        }))
+        .unwrap();
+        api.on_tool_call(h!(ToolCallEvent, |e, _c| {
+            let mut input = e.input;
+            let next = input.get("a").and_then(Value::as_i64).unwrap_or_default() + 1;
+            input.insert("b".to_owned(), json!(next));
+            Ok(Some(ToolCallEventResult {
+                reason: Some("mut".to_owned()),
+                input: Some(input),
+                ..Default::default()
+            }))
+        }))
+        .unwrap();
+        api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |e, _c| {
+            let mut headers = e.headers;
+            headers.insert("X-1".to_owned(), Some("1".to_owned()));
+            Ok(Some(headers))
+        }))
+        .unwrap();
+        api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |e, _c| {
+            let mut headers = e.headers;
+            let previous = headers.get("X-1").and_then(Clone::clone).unwrap_or_default();
+            headers.insert("X-2".to_owned(), Some(format!("{previous}2")));
+            Ok(Some(headers))
+        }))
+        .unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![a], temp_dir, runtime, support::model_registry().await);
+    support::bind(&mut runner);
+    let mut event = ToolCallEvent {
+        tool_name: ToolName::Bash,
+        tool_call_id: "call-mut".to_owned(),
+        bypass_permissions: false,
+        input: Map::new(),
+    };
+    let tool_call = runner.emit_tool_call(&mut event).await.unwrap();
+    let headers = runner
+        .emit_before_provider_headers(pi_ai::types::ProviderHeaders::from_iter([(
+            "User-Agent".to_owned(),
+            Some("x".to_owned()),
+        )]))
+        .await;
+    json!({
+        "steps": [
+            {"toolCall": tool_call, "input": event.input},
+            {"headers": headers},
+        ],
+        "errors": []
+    })
+}
+
+fn test_model(id: &str) -> Model {
+    serde_json::from_value(json!({
+        "id": id,
+        "name": id,
+        "api": "openai-completions",
+        "provider": "placeholder",
+        "baseUrl": "https://example.test/v1",
+        "reasoning": false,
+        "input": ["text"],
+        "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+        "contextWindow": 10000,
+        "maxTokens": 1000,
+    }))
+    .unwrap()
+}
+
+fn read_live_context(ctx: &ExtensionContext) -> Value {
+    json!({
+        "cwd": ctx.cwd().unwrap(),
+        "mode": ctx.mode().unwrap(),
+        "hasUI": ctx.has_ui().unwrap(),
+        "model": ctx.model().unwrap().map(|model| model.id),
+        "scopedModels": ctx
+            .scoped_models()
+            .unwrap()
+            .into_iter()
+            .map(|scoped| scoped.model.id)
+            .collect::<Vec<_>>(),
+        "thinkingLevel": ctx.thinking_level().unwrap(),
+        "controlDbPath": ctx.control_db_path().unwrap(),
+        "multiAgentAgentId": ctx.multi_agent_agent_id().unwrap(),
+        "multiAgentParentSessionId": ctx.multi_agent_parent_session_id().unwrap(),
+        "multiAgentRequiresAgentId": ctx.multi_agent_requires_agent_id().unwrap(),
+    })
+}
+
+async fn context_live_scenario(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let current_model: Arc<Mutex<Option<Model>>> = Arc::new(Mutex::new(None));
+    let current_scoped: Arc<Mutex<Vec<ScopedModel>>> = Arc::new(Mutex::new(Vec::new()));
+    let current_thinking = Arc::new(Mutex::new(ThinkingLevel::Off));
+    let control_db_path: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let agent_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let parent_session_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let requires_agent_id = Arc::new(Mutex::new(false));
+
+    let model_getter = Arc::clone(&current_model);
+    let scoped_getter = Arc::clone(&current_scoped);
+    let thinking_getter = Arc::clone(&current_thinking);
+    let control_getter = Arc::clone(&control_db_path);
+    let agent_getter = Arc::clone(&agent_id);
+    let parent_getter = Arc::clone(&parent_session_id);
+    let requires_getter = Arc::clone(&requires_agent_id);
+    let mut runner = ExtensionRunner::new(
+        Vec::new(),
+        runtime,
+        temp_dir,
+        support::session_manager(temp_dir),
+        support::model_registry().await,
+        None,
+    );
+    runner.bind_core(
+        support::actions(),
+        ExtensionContextActions {
+            get_model: Arc::new(move || model_getter.lock().unwrap().clone()),
+            get_thinking_level: Some(Arc::new(move || *thinking_getter.lock().unwrap())),
+            get_scoped_models: Some(Arc::new(move || scoped_getter.lock().unwrap().clone())),
+            get_control_db_path: Some(Arc::new(move || control_getter.lock().unwrap().clone())),
+            get_multi_agent_agent_id: Some(Arc::new(move || agent_getter.lock().unwrap().clone())),
+            get_multi_agent_parent_session_id: Some(Arc::new(move || parent_getter.lock().unwrap().clone())),
+            get_multi_agent_requires_agent_id: Some(Arc::new(move || *requires_getter.lock().unwrap())),
+            ..support::context_actions()
+        },
+        None,
+    );
+
+    let ctx = runner.create_context();
+    let command = runner.create_command_context();
+    let before = read_live_context(&ctx);
+    let before_command = read_live_context(&command);
+
+    runner.set_cwd(format!("{temp_dir}/moved"));
+    *current_model.lock().unwrap() = Some(test_model("model-a"));
+    *current_scoped.lock().unwrap() = vec![ScopedModel {
+        model: test_model("model-a"),
+        thinking_level: Some(ThinkingLevel::High),
+    }];
+    *current_thinking.lock().unwrap() = ThinkingLevel::High;
+    *control_db_path.lock().unwrap() = Some(format!("{temp_dir}/control.sqlite"));
+    *agent_id.lock().unwrap() = Some("agent-1".to_owned());
+    *parent_session_id.lock().unwrap() = Some("parent-1".to_owned());
+    *requires_agent_id.lock().unwrap() = true;
+    runner.set_ui_context(None, ExtensionMode::Json);
+
+    let after = read_live_context(&ctx);
+    let after_command = read_live_context(&command);
+
+    runner.invalidate(None);
+    let stale = vec![
+        ctx.cwd().unwrap_err().message,
+        ctx.mode().unwrap_err().message,
+        ctx.model().unwrap_err().message,
+        command.cwd().unwrap_err().message,
+        command.get_system_prompt_options().unwrap_err().message,
+    ];
+
+    json!({
+        "steps": [
+            {"before": before, "beforeCommand": before_command},
+            {"after": after, "afterCommand": after_command},
+            {"stale": stale},
+        ],
+        "errors": []
+    })
+}
+
 async fn provider_request_scenario(temp_dir: &str) -> Value {
     let runtime = support::runtime();
     let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
@@ -1034,6 +1217,16 @@ async fn extensions_match_the_pinned_typescript_runner() {
     let dir = temp_dir("session_events");
     let actual = support::normalize(&session_events_scenario(&dir).await, &dir);
     compare("session_events", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = temp_dir("mutations");
+    let actual = support::normalize(&mutations_scenario(&dir).await, &dir);
+    compare("mutations", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = temp_dir("context_live");
+    let actual = support::normalize(&context_live_scenario(&dir).await, &dir);
+    compare("context_live", &mut oracle, actual);
     std::fs::remove_dir_all(&dir).ok();
 
     let dir = temp_dir("provider_request");
@@ -1173,6 +1366,69 @@ async fn stale_contexts_reject_actions() {
     assert_eq!(error.message, "stale ctx");
 }
 
+const STALE_CONTEXT_MESSAGE: &str = "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
+
+#[tokio::test]
+async fn context_members_read_live_runner_state() {
+    let runtime = support::runtime();
+    let model: Arc<Mutex<Option<Model>>> = Arc::new(Mutex::new(None));
+    let getter = Arc::clone(&model);
+    let mut runner = ExtensionRunner::new(
+        Vec::new(),
+        runtime,
+        "/tmp",
+        support::session_manager("/tmp"),
+        support::model_registry().await,
+        None,
+    );
+    let ctx = runner.create_context();
+    let command = runner.create_command_context();
+    assert_eq!(ctx.cwd().unwrap(), "/tmp");
+    assert_eq!(ctx.mode().unwrap(), ExtensionMode::Print);
+    assert!(!ctx.has_ui().unwrap());
+    assert!(ctx.model().unwrap().is_none());
+
+    runner.bind_core(
+        support::actions(),
+        ExtensionContextActions {
+            get_model: Arc::new(move || getter.lock().unwrap().clone()),
+            ..support::context_actions()
+        },
+        None,
+    );
+    *model.lock().unwrap() = Some(test_model("model-a"));
+    runner.set_cwd("/tmp/moved");
+    runner.set_ui_context(None, ExtensionMode::Json);
+
+    assert_eq!(ctx.cwd().unwrap(), "/tmp/moved");
+    assert_eq!(ctx.mode().unwrap(), ExtensionMode::Json);
+    assert!(!ctx.has_ui().unwrap());
+    assert_eq!(ctx.model().unwrap().unwrap().id, "model-a");
+    assert_eq!(command.cwd().unwrap(), "/tmp/moved");
+    assert_eq!(command.model().unwrap().unwrap().id, "model-a");
+}
+
+#[tokio::test]
+async fn stale_context_reads_throw_the_typescript_error_text() {
+    let runtime = support::runtime();
+    let runner = support::runner_for(Vec::new(), "/tmp", runtime, support::model_registry().await);
+    let ctx = runner.create_context();
+    let command = runner.create_command_context();
+    runner.invalidate(None);
+
+    for error in [
+        ctx.cwd().unwrap_err(),
+        ctx.mode().unwrap_err(),
+        ctx.model().unwrap_err(),
+        ctx.is_idle().unwrap_err(),
+        ctx.get_system_prompt().unwrap_err(),
+        command.cwd().unwrap_err(),
+        command.get_system_prompt_options().unwrap_err(),
+    ] {
+        assert_eq!(error.message, STALE_CONTEXT_MESSAGE);
+    }
+}
+
 #[tokio::test]
 async fn gates_and_reviewers_patch_tool_input() {
     let runtime = support::runtime();
@@ -1289,6 +1545,20 @@ async fn session_shutdown_helper_reports_handler_presence() {
         )
         .await
     );
+}
+
+#[tokio::test]
+async fn handler_count_is_the_number_of_events_with_handlers() {
+    let runtime = support::runtime();
+    let empty = support::extension(&runtime, "/tmp", "/tmp/empty.ts", |_api| {}).await;
+    let a = support::extension(&runtime, "/tmp", "/tmp/a.ts", |api| {
+        api.on_tool_call(h!(ToolCallEvent, |_e, _c| Ok(None))).unwrap();
+        api.on_tool_call(h!(ToolCallEvent, |_e, _c| Ok(None))).unwrap();
+        api.on_input(h!(InputEvent, |_e, _c| Ok(None))).unwrap();
+    })
+    .await;
+    assert_eq!((empty.handlers.len(), empty.handlers.is_empty()), (0, true));
+    assert_eq!((a.handlers.len(), a.handlers.is_empty()), (2, false));
 }
 
 #[tokio::test]

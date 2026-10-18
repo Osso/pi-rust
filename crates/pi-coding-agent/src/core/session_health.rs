@@ -14,12 +14,35 @@ pub enum SessionCheckStatus {
     Never,
 }
 
+impl SessionCheckStatus {
+    /// Returns the exact TypeScript source literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Dead => "dead",
+            Self::Timeout => "timeout",
+            Self::Never => "never",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SessionLiveStatus {
     Running,
     Idle,
     Ended,
+}
+
+impl SessionLiveStatus {
+    /// Returns the exact TypeScript source literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Idle => "idle",
+            Self::Ended => "ended",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +88,20 @@ pub enum SessionBroadcastOutcome {
     CheckFailed,
     SendFailed,
     Timeout,
+}
+
+impl SessionBroadcastOutcome {
+    /// Returns the exact TypeScript source literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Sent => "sent",
+            Self::SkippedDead => "skipped_dead",
+            Self::SkippedFilter => "skipped_filter",
+            Self::CheckFailed => "check_failed",
+            Self::SendFailed => "send_failed",
+            Self::Timeout => "timeout",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
