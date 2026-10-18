@@ -1,6 +1,6 @@
 # Slice brief (for porting agents)
 
-Read `AGENTS.md` first. Never call `change_working_directory` (kills child agents); use absolute paths and `.cwd(<worktree>)`. Source oracle (read-only): `/home/osso/.worktrees/pi-rust-source-532f7d12/packages/...`.
+Read `AGENTS.md` first. Use absolute paths and `.cwd(<worktree>)`. Source oracle (read-only): `/home/osso/.worktrees/pi-rust-source-532f7d12/packages/...`.
 
 ## Workflow per module
 1. Read the TS module and its tests (`packages/<pkg>/test/*`) to learn observable behavior.
