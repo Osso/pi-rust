@@ -61,7 +61,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/openai-completions.ts` | 1577 | 1 | todo |  |  |
 | `ai/src/api/openai-responses-shared.ts` | 983 | 1 | todo |  |  |
 | `ai/src/api/openai-responses.ts` | 372 | 1 | todo |  |  |
-| `ai/src/api/pi-messages.ts` | 433 | 1 | todo |  |  |
+| `ai/src/api/pi-messages.ts` | 433 | 1 | done | `crates/pi-ai/src/api/pi_messages.rs` | SSE assistant-event protocol, rewrite diagnostics, response errors; differential 14 scenarios. |
 | `ai/src/api/simple-options.ts` | 97 | 1 | partial | `crates/pi-ai/src/api/simple_options.rs` | `clampMaxTokensToContext` + `buildBaseOptions` only (required by Mistral `streamSimple`); thinking-budget helpers remain. |
 | `ai/src/api/transform-messages.ts` | 228 | 1 | done | `crates/pi-ai/src/api/transform_messages.rs` | Cross-model thinking/tool-call normalization, image downgrade, synthetic tool results; injected clock; differential 18 scenarios. |
 | `ai/src/auth/context.ts` | 45 | 1 | done | `crates/pi-ai/src/auth/context.rs` | default env/file context; env branch not unit-tested (process-global) |
@@ -88,7 +88,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/openai-completions.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/openai-responses.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/openrouter-images.ts` | 196 | 2 | todo |  |  |
-| `ai/src/api/pi-messages.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/pi-messages.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/pi_messages.rs` | `pi_messages_api()` wraps `PiMessagesApi` in `LazyApi`. |
 | `ai/src/auth/helpers.ts` | 59 | 2 | done | `crates/pi-ai/src/auth/helpers.rs` | env api-key auth and lazy OAuth loading |
 | `ai/src/auth/oauth/anthropic.ts` | 364 | 2 | todo |  |  |
 | `ai/src/auth/oauth/kimi-coding.ts` | 310 | 2 | todo |  |  |
