@@ -93,6 +93,8 @@ impl Fetch for RecordingFetch {
         Box::pin(async move {
             Ok(HttpResponse {
                 status: response.status,
+                // Matches the oracle's `new Response(body, { status })`, whose statusText is "".
+                status_text: String::new(),
                 headers: response.headers,
                 body: Box::new(ScriptedBody {
                     chunks: response.chunks.into(),
