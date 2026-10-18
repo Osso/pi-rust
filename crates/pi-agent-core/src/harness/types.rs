@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use crate::agent::{AgentToolResult, AgentToolUpdateCallback, ToolError};
 
 /// Skill loaded from a `SKILL.md` file or provided by an application.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Skill {
     pub name: String,
     pub description: String,
@@ -22,7 +22,7 @@ pub struct Skill {
 }
 
 /// Prompt template that can be formatted into a prompt for explicit invocation.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptTemplate {
     pub name: String,
     pub description: Option<String>,

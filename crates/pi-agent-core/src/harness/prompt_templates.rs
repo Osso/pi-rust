@@ -1,4 +1,5 @@
-use super::types::PromptTemplate;
+use super::frontmatter::parse_frontmatter;
+use super::types::{ExecutionEnv, FileError, FileErrorCode, FileInfo, FileKind, PromptTemplate};
 
 /// Stable diagnostic codes emitted while loading prompt templates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,12 +38,277 @@ impl PromptTemplateDiagnosticType {
 }
 
 /// Value-only diagnostic emitted while loading prompt templates.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptTemplateDiagnostic {
     pub r#type: PromptTemplateDiagnosticType,
     pub code: PromptTemplateDiagnosticCode,
     pub message: String,
     pub path: String,
+}
+
+/// Prompt templates and diagnostics produced by [`load_prompt_templates`].
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PromptTemplateLoadResult {
+    pub prompt_templates: Vec<PromptTemplate>,
+    pub diagnostics: Vec<PromptTemplateDiagnostic>,
+}
+
+/// A prompt template tagged with its application-defined source value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcedPromptTemplate<TSource> {
+    pub prompt_template: PromptTemplate,
+    pub source: TSource,
+}
+
+/// A diagnostic tagged with its application-defined source value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcedPromptTemplateDiagnostic<TSource> {
+    pub diagnostic: PromptTemplateDiagnostic,
+    pub source: TSource,
+}
+
+/// Sourced prompt templates and diagnostics produced by [`load_sourced_prompt_templates`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcedPromptTemplateLoadResult<TSource> {
+    pub prompt_templates: Vec<SourcedPromptTemplate<TSource>>,
+    pub diagnostics: Vec<SourcedPromptTemplateDiagnostic<TSource>>,
+}
+
+/// Application subtype mapping applied to each loaded prompt template.
+pub type PromptTemplateMapper<'a, TSource> = dyn Fn(&PromptTemplate, &TSource) -> PromptTemplate + Sync + 'a;
+
+/// Load prompt templates from one or more paths.
+///
+/// Directory inputs load direct `.md` children non-recursively; file inputs load explicit `.md`
+/// files. Missing paths and non-markdown files are skipped; read and parse failures become
+/// diagnostics.
+pub async fn load_prompt_templates(env: &dyn ExecutionEnv, paths: &[&str]) -> PromptTemplateLoadResult {
+    let mut result = PromptTemplateLoadResult::default();
+    for path in paths {
+        let info = match env.file_info(path).await {
+            Ok(info) => info,
+            Err(error) => {
+                push_file_info_diagnostic(&mut result.diagnostics, &error, path);
+                continue;
+            }
+        };
+        match resolve_kind(env, &info, &mut result.diagnostics).await {
+            Some(FileKind::Directory) => {
+                let directory = load_templates_from_dir(env, &info.path).await;
+                result.prompt_templates.extend(directory.prompt_templates);
+                result.diagnostics.extend(directory.diagnostics);
+            }
+            Some(FileKind::File) if info.name.ends_with(".md") => {
+                let (prompt_template, diagnostics) = load_template_from_file(env, &info.path, &info.name).await;
+                if let Some(prompt_template) = prompt_template {
+                    result.prompt_templates.push(prompt_template);
+                }
+                result.diagnostics.extend(diagnostics);
+            }
+            _ => {}
+        }
+    }
+    result
+}
+
+/// Load prompt templates from source-tagged paths.
+///
+/// `map_prompt_template` maps each loaded template into an application subtype while preserving
+/// its source.
+pub async fn load_sourced_prompt_templates<TSource: Clone>(
+    env: &dyn ExecutionEnv,
+    inputs: &[(String, TSource)],
+    map_prompt_template: Option<&PromptTemplateMapper<'_, TSource>>,
+) -> SourcedPromptTemplateLoadResult<TSource> {
+    let mut prompt_templates = Vec::new();
+    let mut diagnostics = Vec::new();
+    for (path, source) in inputs {
+        let result = load_prompt_templates(env, &[path.as_str()]).await;
+        for prompt_template in result.prompt_templates {
+            let mapped = match map_prompt_template {
+                Some(map) => map(&prompt_template, source),
+                None => prompt_template,
+            };
+            prompt_templates.push(SourcedPromptTemplate {
+                prompt_template: mapped,
+                source: source.clone(),
+            });
+        }
+        for diagnostic in result.diagnostics {
+            diagnostics.push(SourcedPromptTemplateDiagnostic {
+                diagnostic,
+                source: source.clone(),
+            });
+        }
+    }
+    SourcedPromptTemplateLoadResult {
+        prompt_templates,
+        diagnostics,
+    }
+}
+
+async fn load_templates_from_dir(env: &dyn ExecutionEnv, dir: &str) -> PromptTemplateLoadResult {
+    let mut result = PromptTemplateLoadResult::default();
+    let entries = match env.list_dir(dir, None).await {
+        Ok(entries) => entries,
+        Err(error) => {
+            result.diagnostics.push(PromptTemplateDiagnostic {
+                r#type: PromptTemplateDiagnosticType::Warning,
+                code: PromptTemplateDiagnosticCode::ListFailed,
+                message: error.message,
+                path: dir.to_owned(),
+            });
+            return result;
+        }
+    };
+
+    let mut sorted = entries;
+    sorted.sort_by(|left, right| locale_compare(&left.name, &right.name));
+    for entry in sorted {
+        if resolve_kind(env, &entry, &mut result.diagnostics).await != Some(FileKind::File)
+            || !entry.name.ends_with(".md")
+        {
+            continue;
+        }
+        let (prompt_template, diagnostics) = load_template_from_file(env, &entry.path, &entry.name).await;
+        if let Some(prompt_template) = prompt_template {
+            result.prompt_templates.push(prompt_template);
+        }
+        result.diagnostics.extend(diagnostics);
+    }
+    result
+}
+
+async fn load_template_from_file(
+    env: &dyn ExecutionEnv,
+    file_path: &str,
+    file_name: &str,
+) -> (Option<PromptTemplate>, Vec<PromptTemplateDiagnostic>) {
+    let mut diagnostics = Vec::new();
+    let content = match env.read_text_file(file_path, None).await {
+        Ok(content) => content,
+        Err(error) => {
+            diagnostics.push(PromptTemplateDiagnostic {
+                r#type: PromptTemplateDiagnosticType::Warning,
+                code: PromptTemplateDiagnosticCode::ReadFailed,
+                message: error.message,
+                path: file_path.to_owned(),
+            });
+            return (None, diagnostics);
+        }
+    };
+    let parsed = match parse_frontmatter(&content) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            diagnostics.push(PromptTemplateDiagnostic {
+                r#type: PromptTemplateDiagnosticType::Warning,
+                code: PromptTemplateDiagnosticCode::ParseFailed,
+                message: error.message().to_owned(),
+                path: file_path.to_owned(),
+            });
+            return (None, diagnostics);
+        }
+    };
+
+    let frontmatter = &parsed.frontmatter;
+    let first_line = parsed.body.split('\n').find(|line| !line.trim().is_empty());
+    let mut description = frontmatter
+        .get("description")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_owned();
+    if description.is_empty()
+        && let Some(first_line) = first_line
+    {
+        description = utf16_prefix(first_line, 60);
+        if first_line.encode_utf16().count() > 60 {
+            description.push_str("...");
+        }
+    }
+    (
+        Some(PromptTemplate {
+            name: strip_markdown_extension(file_name),
+            description: Some(description),
+            content: parsed.body,
+        }),
+        diagnostics,
+    )
+}
+
+fn strip_markdown_extension(file_name: &str) -> String {
+    let suffix_start = file_name.len().saturating_sub(3);
+    if file_name.len() >= 3
+        && file_name.is_char_boundary(suffix_start)
+        && file_name[suffix_start..].eq_ignore_ascii_case(".md")
+    {
+        return file_name[..suffix_start].to_owned();
+    }
+    file_name.to_owned()
+}
+
+/// `String.prototype.slice(0, length)` over UTF-16 code units.
+fn utf16_prefix(value: &str, length: usize) -> String {
+    String::from_utf16_lossy(&value.encode_utf16().take(length).collect::<Vec<u16>>())
+}
+
+async fn resolve_kind(
+    env: &dyn ExecutionEnv,
+    info: &FileInfo,
+    diagnostics: &mut Vec<PromptTemplateDiagnostic>,
+) -> Option<FileKind> {
+    if info.kind == FileKind::File || info.kind == FileKind::Directory {
+        return Some(info.kind);
+    }
+    let canonical_path = match env.canonical_path(&info.path).await {
+        Ok(path) => path,
+        Err(error) => {
+            push_file_info_diagnostic(diagnostics, &error, &info.path);
+            return None;
+        }
+    };
+    let target = match env.file_info(&canonical_path).await {
+        Ok(target) => target,
+        Err(error) => {
+            push_file_info_diagnostic(diagnostics, &error, &info.path);
+            return None;
+        }
+    };
+    match target.kind {
+        FileKind::File | FileKind::Directory => Some(target.kind),
+        FileKind::Symlink => None,
+    }
+}
+
+fn push_file_info_diagnostic(diagnostics: &mut Vec<PromptTemplateDiagnostic>, error: &FileError, path: &str) {
+    if error.code == FileErrorCode::NotFound {
+        return;
+    }
+    diagnostics.push(PromptTemplateDiagnostic {
+        r#type: PromptTemplateDiagnosticType::Warning,
+        code: PromptTemplateDiagnosticCode::FileInfoFailed,
+        message: error.message.clone(),
+        path: path.to_owned(),
+    });
+}
+
+/// Approximates the default `Intl.Collator` ordering for ASCII names:
+/// case-insensitive primary order, then lowercase before uppercase.
+fn locale_compare(left: &str, right: &str) -> std::cmp::Ordering {
+    let primary = left.to_lowercase().cmp(&right.to_lowercase());
+    if primary != std::cmp::Ordering::Equal {
+        return primary;
+    }
+    for (left_character, right_character) in left.chars().zip(right.chars()) {
+        if left_character == right_character {
+            continue;
+        }
+        let left_rank = u8::from(left_character.is_uppercase());
+        let right_rank = u8::from(right_character.is_uppercase());
+        return left_rank
+            .cmp(&right_rank)
+            .then_with(|| left_character.cmp(&right_character));
+    }
+    left.len().cmp(&right.len())
 }
 
 /// Parses ASCII-space/tab-delimited arguments with source-compatible quote handling.

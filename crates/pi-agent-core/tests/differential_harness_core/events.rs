@@ -6,15 +6,6 @@ use serde_json::{Map, Value, json};
 
 use super::support::{TsOracle, expect_ok, oracle_request};
 
-const SOURCE_MODULES: [&str; 2] = [
-    "packages/agent/src/harness/events.ts",
-    "packages/agent/src/harness/messages.ts",
-];
-
-pub(crate) fn spawn_oracle() -> TsOracle {
-    TsOracle::spawn(&SOURCE_MODULES)
-}
-
 fn run_start(lane: &str, run_id: &str) -> Value {
     json!({"type": "run_start", "lane": lane, "runId": run_id})
 }

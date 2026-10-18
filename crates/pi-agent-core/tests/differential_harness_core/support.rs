@@ -111,6 +111,18 @@ fn verify_source_head(source_lock: &SourceLock) {
     );
 }
 
+const SOURCE_MODULES: [&str; 5] = [
+    "packages/agent/src/harness/events.ts",
+    "packages/agent/src/harness/messages.ts",
+    "packages/agent/src/harness/skills.ts",
+    "packages/agent/src/harness/prompt-templates.ts",
+    "packages/agent/src/harness/env/nodejs.ts",
+];
+
+pub(crate) fn spawn_oracle() -> TsOracle {
+    TsOracle::spawn(&SOURCE_MODULES)
+}
+
 pub(crate) fn expect_ok(response: &Value) -> &Value {
     assert_eq!(response["ok"], serde_json::json!(true), "oracle failed: {response}");
     &response["output"]

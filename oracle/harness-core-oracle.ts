@@ -1,3 +1,5 @@
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 
@@ -26,6 +28,39 @@ type Request = {
 		details?: unknown;
 		timestamp: number | string;
 	};
+	fixture?: Fixture;
+};
+
+type Fixture = {
+	root: string;
+	files?: Record<string, string>;
+	symlinks?: Array<{ target: string; path: string }>;
+	dirs?: string[];
+	inputs?: Array<{ path: string; source: unknown }>;
+	paths?: string[];
+};
+
+type NodeExecutionEnvApi = {
+	NodeExecutionEnv: new (options: { cwd: string }) => unknown;
+};
+
+type SkillsApi = {
+	loadSkills(env: unknown, dirs: string | string[]): Promise<{ skills: unknown[]; diagnostics: unknown[] }>;
+	loadSourcedSkills(
+		env: unknown,
+		inputs: Array<{ path: string; source: unknown }>,
+	): Promise<{ skills: unknown[]; diagnostics: unknown[] }>;
+};
+
+type PromptTemplatesApi = {
+	loadPromptTemplates(
+		env: unknown,
+		paths: string | string[],
+	): Promise<{ promptTemplates: unknown[]; diagnostics: unknown[] }>;
+	loadSourcedPromptTemplates(
+		env: unknown,
+		inputs: Array<{ path: string; source: unknown }>,
+	): Promise<{ promptTemplates: unknown[]; diagnostics: unknown[] }>;
 };
 
 type EventsApi = {
@@ -54,7 +89,13 @@ type MessagesApi = {
 	): unknown;
 };
 
-type Api = { events: EventsApi; messages: MessagesApi };
+type Api = {
+	events: EventsApi;
+	messages: MessagesApi;
+	skills: SkillsApi;
+	promptTemplates: PromptTemplatesApi;
+	nodeEnv: NodeExecutionEnvApi;
+};
 
 type Response =
 	| { id: RequestId; ok: true; output: unknown }
@@ -122,7 +163,61 @@ function executeEventScript(api: EventsApi, script: ScriptOperation[]): unknown 
 	};
 }
 
-function execute(request: Request, api: Api): Response {
+function createFixture(fixture: Fixture, api: Api): unknown {
+	for (const [relativePath, content] of Object.entries(fixture.files ?? {})) {
+		const fullPath = join(fixture.root, relativePath);
+		mkdirSync(dirname(fullPath), { recursive: true });
+		writeFileSync(fullPath, content);
+	}
+	for (const directory of fixture.dirs ?? []) mkdirSync(join(fixture.root, directory), { recursive: true });
+	for (const link of fixture.symlinks ?? []) {
+		mkdirSync(dirname(join(fixture.root, link.path)), { recursive: true });
+		symlinkSync(join(fixture.root, link.target), join(fixture.root, link.path));
+	}
+	return new api.nodeEnv.NodeExecutionEnv({ cwd: fixture.root });
+}
+
+function normalizeValue(value: unknown, root: string): unknown {
+	if (typeof value === "string") return value.split(root).join("<root>");
+	if (Array.isArray(value)) return value.map((item) => normalizeValue(item, root));
+	if (value && typeof value === "object") {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, item]) => [key, normalizeValue(item, root)]),
+		);
+	}
+	return value;
+}
+
+async function executeFixtureOperation(request: Request, api: Api): Promise<Response> {
+	const fixture = request.fixture;
+	if (!fixture) throw new Error(`${request.operation} requires fixture`);
+	const env = createFixture(fixture, api);
+	switch (request.operation) {
+		case "skills_load": {
+			const result = await api.skills.loadSkills(env, fixture.paths ?? []);
+			return { id: request.id, ok: true, output: normalizeValue(result, fixture.root) };
+		}
+		case "skills_load_sourced": {
+			const result = await api.skills.loadSourcedSkills(env, fixture.inputs ?? []);
+			return { id: request.id, ok: true, output: normalizeValue(result, fixture.root) };
+		}
+		case "prompt_templates_load": {
+			const result = await api.promptTemplates.loadPromptTemplates(env, fixture.paths ?? []);
+			return { id: request.id, ok: true, output: normalizeValue(result, fixture.root) };
+		}
+		case "prompt_templates_load_sourced": {
+			const result = await api.promptTemplates.loadSourcedPromptTemplates(env, fixture.inputs ?? []);
+			return { id: request.id, ok: true, output: normalizeValue(result, fixture.root) };
+		}
+		default:
+			throw new Error(`unsupported operation: ${request.operation}`);
+	}
+}
+
+async function execute(request: Request, api: Api): Promise<Response> {
+	if (request.operation.startsWith("skills_") || request.operation.startsWith("prompt_templates_")) {
+		return executeFixtureOperation(request, api);
+	}
 	switch (request.operation) {
 		case "event_bus":
 			return { id: request.id, ok: true, output: executeEventScript(api.events, request.script ?? []) };
@@ -150,12 +245,12 @@ function execute(request: Request, api: Api): Response {
 	}
 }
 
-function executeRequestLine(line: string, api: Api): void {
+async function executeRequestLine(line: string, api: Api): Promise<void> {
 	let id: RequestId = null;
 	try {
 		const request = JSON.parse(line) as Request;
 		id = request.id;
-		process.stdout.write(`${JSON.stringify(execute(request, api))}\n`);
+		process.stdout.write(`${JSON.stringify(await execute(request, api))}\n`);
 	} catch (error) {
 		const response: Response = { id, ok: false, error: normalizeError(error) };
 		process.stdout.write(`${JSON.stringify(response)}\n`);
@@ -165,13 +260,15 @@ function executeRequestLine(line: string, api: Api): void {
 function serveRequests(api: Api): void {
 	const decoder = new StringDecoder("utf8");
 	let buffer = "";
+	let queue = Promise.resolve();
 	process.stdin.on("data", (chunk: string | Buffer) => {
 		buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
 		while (true) {
 			const lineFeed = buffer.indexOf("\n");
 			if (lineFeed === -1) return;
-			executeRequestLine(buffer.slice(0, lineFeed), api);
+			const line = buffer.slice(0, lineFeed);
 			buffer = buffer.slice(lineFeed + 1);
+			queue = queue.then(() => executeRequestLine(line, api));
 		}
 	});
 }
@@ -183,11 +280,16 @@ function readSourceModules(): string[] {
 }
 
 async function main(): Promise<void> {
-	const [eventsPath, messagesPath] = readSourceModules();
-	if (!eventsPath || !messagesPath) throw new Error("harness core oracle requires events and messages modules");
+	const [eventsPath, messagesPath, skillsPath, promptTemplatesPath, nodeEnvPath] = readSourceModules();
+	if (!eventsPath || !messagesPath || !skillsPath || !promptTemplatesPath || !nodeEnvPath) {
+		throw new Error("harness core oracle requires events, messages, skills, prompt-templates and node-env modules");
+	}
 	const events = (await import(pathToFileURL(eventsPath).href)) as EventsApi;
 	const messages = (await import(pathToFileURL(messagesPath).href)) as MessagesApi;
-	serveRequests({ events, messages });
+	const skills = (await import(pathToFileURL(skillsPath).href)) as SkillsApi;
+	const promptTemplates = (await import(pathToFileURL(promptTemplatesPath).href)) as PromptTemplatesApi;
+	const nodeEnv = (await import(pathToFileURL(nodeEnvPath).href)) as NodeExecutionEnvApi;
+	serveRequests({ events, messages, skills, promptTemplates, nodeEnv });
 }
 
 void main().catch((error: unknown) => {

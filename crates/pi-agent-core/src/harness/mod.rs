@@ -1,13 +1,22 @@
 pub mod compaction;
 pub mod env;
 pub mod events;
+mod frontmatter;
 pub mod messages;
 
 pub use compaction::{CompactionSettings, should_compact};
 pub mod prompt_templates;
 pub mod session;
-pub use prompt_templates::{PromptTemplateDiagnostic, PromptTemplateDiagnosticCode, PromptTemplateDiagnosticType};
+pub use prompt_templates::{
+    PromptTemplateDiagnostic, PromptTemplateDiagnosticCode, PromptTemplateDiagnosticType, PromptTemplateLoadResult,
+    SourcedPromptTemplate, SourcedPromptTemplateDiagnostic, SourcedPromptTemplateLoadResult, load_prompt_templates,
+    load_sourced_prompt_templates,
+};
 pub mod skills;
+pub use skills::{
+    SkillDiagnostic, SkillDiagnosticCode, SkillDiagnosticType, SkillLoadResult, SourcedSkill, SourcedSkillDiagnostic,
+    SourcedSkillLoadResult, load_skills, load_sourced_skills,
+};
 pub mod system_prompt;
 pub mod tools;
 pub mod types;
