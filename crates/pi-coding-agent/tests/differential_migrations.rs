@@ -10,11 +10,9 @@ use std::path::{Path, PathBuf};
 use oracle::TsOracle;
 use std::cell::RefCell;
 
-use pi_coding_agent::migrations::{KeybindingsConfigMigrator, MigrationOutput, run_migrations_with};
+use pi_coding_agent::migrations::{MigrationOutput, run_migrations_with};
 use serde_json::{Value, json};
 use tempfile::TempDir;
-
-struct NoopKeybindingsMigrator;
 
 #[derive(Default)]
 struct RecordingOutput(RefCell<Vec<String>>);
@@ -22,12 +20,6 @@ struct RecordingOutput(RefCell<Vec<String>>);
 impl MigrationOutput for RecordingOutput {
     fn line(&self, text: &str) {
         self.0.borrow_mut().push(text.to_owned());
-    }
-}
-
-impl KeybindingsConfigMigrator for NoopKeybindingsMigrator {
-    fn migrate(&self, config: &serde_json::Map<String, Value>) -> (serde_json::Map<String, Value>, bool) {
-        (config.clone(), false)
     }
 }
 
@@ -48,6 +40,7 @@ fn collect_entries(root: &Path, dir: &Path, entries: &mut Vec<Value>) {
         return;
     };
     let mut paths: Vec<PathBuf> = read_dir.filter_map(Result::ok).map(|entry| entry.path()).collect();
+    // Directory entry order is filesystem-dependent; snapshots are compared sorted.
     paths.sort();
     for path in paths {
         let relative = path.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
@@ -96,7 +89,6 @@ fn run_case(name: &str, files: &[(&str, &str)]) {
         &rust_agent,
         &rust_agent.join("bin"),
         rust_cwd.to_str().unwrap(),
-        &NoopKeybindingsMigrator,
         &output_sink,
     );
     let output = &response["output"];
@@ -197,6 +189,17 @@ fn differential_tools_to_bin() {
             ("tools/fd.exe", "fdw"),
             ("tools/keep.txt", "k"),
         ],
+    );
+}
+
+#[test]
+fn differential_keybindings_migration() {
+    run_case(
+        "keybindings",
+        &[(
+            "keybindings.json",
+            r#"{"submit":"enter","cursorUp":["k","up"],"tui.editor.cursorDown":"j","custom.binding":"x"}"#,
+        )],
     );
 }
 

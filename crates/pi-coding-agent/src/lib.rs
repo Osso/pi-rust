@@ -5,6 +5,7 @@ pub mod config;
 pub mod core;
 pub mod migrations;
 pub mod modes;
+pub mod package_manager_cli;
 pub mod supervisor;
 pub mod utils;
 

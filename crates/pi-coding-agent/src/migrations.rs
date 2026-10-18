@@ -31,12 +31,6 @@ pub struct MigrationResult {
     pub deprecation_warnings: Vec<String>,
 }
 
-/// Migrates one `keybindings.json` object. Supplied by the keybindings module so
-/// this module does not duplicate its migration table.
-pub trait KeybindingsConfigMigrator {
-    fn migrate(&self, config: &Map<String, Value>) -> (Map<String, Value>, bool);
-}
-
 /// Destination for migration progress lines.
 pub trait MigrationOutput {
     fn line(&self, text: &str);
@@ -105,51 +99,51 @@ pub fn migrate_auth_to_auth_json_in(agent_dir: &Path) -> Vec<String> {
     };
     let mut providers = Vec::new();
 
-    if oauth_path.exists() {
-        if let Ok(oauth) = read_json_record(&oauth_path) {
-            for (provider, cred) in oauth {
-                if migrated.contains_key(&provider) || !is_record(&cred) {
+    if oauth_path.exists()
+        && let Ok(oauth) = read_json_record(&oauth_path)
+    {
+        for (provider, cred) in oauth {
+            if migrated.contains_key(&provider) || !is_record(&cred) {
+                continue;
+            }
+            let mut entry = Map::new();
+            entry.insert("type".to_owned(), Value::String("oauth".to_owned()));
+            if let Value::Object(cred) = cred {
+                for (key, value) in cred {
+                    entry.insert(key, value);
+                }
+            }
+            migrated.insert(provider.clone(), Value::Object(entry));
+            providers.push(provider);
+        }
+        let migrated_path = PathBuf::from(format!("{}.migrated", oauth_path.display()));
+        let _ = fs::rename(&oauth_path, migrated_path);
+    }
+
+    if settings_path.exists()
+        && let Ok(mut settings) = read_json_record(&settings_path)
+    {
+        let api_keys = settings.get("apiKeys").cloned();
+        if let Some(Value::Object(api_keys)) = api_keys {
+            for (provider, key) in api_keys {
+                let Value::String(key) = key else {
+                    continue;
+                };
+                if migrated.contains_key(&provider) {
                     continue;
                 }
                 let mut entry = Map::new();
-                entry.insert("type".to_owned(), Value::String("oauth".to_owned()));
-                if let Value::Object(cred) = cred {
-                    for (key, value) in cred {
-                        entry.insert(key, value);
-                    }
-                }
+                entry.insert("type".to_owned(), Value::String("api_key".to_owned()));
+                entry.insert("key".to_owned(), Value::String(key));
                 migrated.insert(provider.clone(), Value::Object(entry));
                 providers.push(provider);
             }
-            let migrated_path = PathBuf::from(format!("{}.migrated", oauth_path.display()));
-            let _ = fs::rename(&oauth_path, migrated_path);
-        }
-    }
-
-    if settings_path.exists() {
-        if let Ok(mut settings) = read_json_record(&settings_path) {
-            let api_keys = settings.get("apiKeys").cloned();
-            if let Some(Value::Object(api_keys)) = api_keys {
-                for (provider, key) in api_keys {
-                    let Value::String(key) = key else {
-                        continue;
-                    };
-                    if migrated.contains_key(&provider) {
-                        continue;
-                    }
-                    let mut entry = Map::new();
-                    entry.insert("type".to_owned(), Value::String("api_key".to_owned()));
-                    entry.insert("key".to_owned(), Value::String(key));
-                    migrated.insert(provider.clone(), Value::Object(entry));
-                    providers.push(provider);
-                }
-                settings.remove("apiKeys");
-                let _ = write_file_with_mode(
-                    &settings_path,
-                    &js_json::stringify_pretty(&Value::Object(settings)),
-                    None,
-                );
-            }
+            settings.remove("apiKeys");
+            let _ = write_file_with_mode(
+                &settings_path,
+                &js_json::stringify_pretty(&Value::Object(settings)),
+                None,
+            );
         }
     }
 
@@ -197,12 +191,11 @@ pub fn migrate_sessions_from_agent_root_in(agent_dir: &Path) {
     let Ok(entries) = fs::read_dir(agent_dir) else {
         return;
     };
-    let mut files: Vec<PathBuf> = entries
+    let files: Vec<PathBuf> = entries
         .filter_map(Result::ok)
         .filter(|entry| entry.file_name().to_string_lossy().ends_with(".jsonl"))
         .map(|entry| agent_dir.join(entry.file_name()))
         .collect();
-    files.sort();
     if files.is_empty() {
         return;
     }
@@ -267,7 +260,7 @@ fn migrate_commands_to_prompts(base_dir: &Path, label: &str, output: &dyn Migrat
     }
 }
 
-fn migrate_keybindings_config_file_in(agent_dir: &Path, migrator: &dyn KeybindingsConfigMigrator) {
+fn migrate_keybindings_config_file_in(agent_dir: &Path) {
     let config_path = agent_dir.join("keybindings.json");
     if !config_path.exists() {
         return;
@@ -278,13 +271,13 @@ fn migrate_keybindings_config_file_in(agent_dir: &Path, migrator: &dyn Keybindin
     let Ok(Value::Object(parsed)) = js_json::parse(&String::from_utf8_lossy(&content)) else {
         return;
     };
-    let (config, migrated) = migrator.migrate(&parsed);
-    if !migrated {
+    let migration = crate::core::keybindings::migrate_keybindings_config(&parsed);
+    if !migration.migrated {
         return;
     }
     let _ = fs::write(
         &config_path,
-        format!("{}\n", js_json::stringify_pretty(&Value::Object(config))),
+        format!("{}\n", js_json::stringify_pretty(&Value::Object(migration.config))),
     );
 }
 
@@ -339,21 +332,21 @@ fn check_deprecated_extension_dirs(base_dir: &Path, label: &str) -> Vec<String> 
         ));
     }
 
-    if tools_dir.exists() {
-        if let Ok(entries) = fs::read_dir(&tools_dir) {
-            let custom_tools = entries
-                .filter_map(Result::ok)
-                .filter(|entry| {
-                    let name = entry.file_name().to_string_lossy().into_owned();
-                    let lower = name.to_lowercase();
-                    !matches!(lower.as_str(), "fd" | "rg" | "fd.exe" | "rg.exe") && !name.starts_with('.')
-                })
-                .count();
-            if custom_tools > 0 {
-                warnings.push(format!(
-                    "{label} tools/ directory contains custom tools. Custom tools have been merged into extensions."
-                ));
-            }
+    if tools_dir.exists()
+        && let Ok(entries) = fs::read_dir(&tools_dir)
+    {
+        let custom_tools = entries
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let lower = name.to_lowercase();
+                !matches!(lower.as_str(), "fd" | "rg" | "fd.exe" | "rg.exe") && !name.starts_with('.')
+            })
+            .count();
+        if custom_tools > 0 {
+            warnings.push(format!(
+                "{label} tools/ directory contains custom tools. Custom tools have been merged into extensions."
+            ));
         }
     }
 
@@ -406,30 +399,24 @@ async fn wait_for_deprecation_keypress() {
 }
 
 /// Run all migrations. Called once on startup.
-pub fn run_migrations(cwd: &str, migrator: &dyn KeybindingsConfigMigrator) -> MigrationResult {
-    run_migrations_in(&config::get_agent_dir(), &config::get_bin_dir(), cwd, migrator)
+pub fn run_migrations(cwd: &str) -> MigrationResult {
+    run_migrations_in(&config::get_agent_dir(), &config::get_bin_dir(), cwd)
 }
 
-pub fn run_migrations_in(
-    agent_dir: &Path,
-    bin_dir: &Path,
-    cwd: &str,
-    migrator: &dyn KeybindingsConfigMigrator,
-) -> MigrationResult {
-    run_migrations_with(agent_dir, bin_dir, cwd, migrator, &StdoutOutput)
+pub fn run_migrations_in(agent_dir: &Path, bin_dir: &Path, cwd: &str) -> MigrationResult {
+    run_migrations_with(agent_dir, bin_dir, cwd, &StdoutOutput)
 }
 
 pub fn run_migrations_with(
     agent_dir: &Path,
     bin_dir: &Path,
     cwd: &str,
-    migrator: &dyn KeybindingsConfigMigrator,
     output: &dyn MigrationOutput,
 ) -> MigrationResult {
     let migrated_auth_providers = migrate_auth_to_auth_json_in(agent_dir);
     migrate_sessions_from_agent_root_in(agent_dir);
     migrate_tools_to_bin_with(agent_dir, bin_dir, output);
-    migrate_keybindings_config_file_in(agent_dir, migrator);
+    migrate_keybindings_config_file_in(agent_dir);
     let deprecation_warnings = migrate_extension_system(cwd, agent_dir, output);
     MigrationResult {
         migrated_auth_providers,

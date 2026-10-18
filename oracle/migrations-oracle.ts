@@ -37,6 +37,9 @@ function snapshot(root: string): Array<{ path: string; kind: string; contents?: 
 	const walk = (dir: string) => {
 		let names: string[];
 		try {
+			// Directory entry order is filesystem-dependent (per-directory hash seeds),
+			// so snapshots are compared sorted. All deterministic arrays are returned
+			// in source order.
 			names = readdirSync(dir).sort();
 		} catch {
 			return;

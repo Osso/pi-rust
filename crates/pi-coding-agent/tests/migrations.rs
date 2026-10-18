@@ -1,25 +1,11 @@
 use std::fs;
 
 use pi_coding_agent::migrations::{
-    KeybindingsConfigMigrator, encode_session_directory_name, migrate_auth_to_auth_json_in,
-    migrate_sessions_from_agent_root_in, migrate_tools_to_bin_in, run_migrations_in,
+    encode_session_directory_name, migrate_auth_to_auth_json_in, migrate_sessions_from_agent_root_in,
+    migrate_tools_to_bin_in, run_migrations_in,
 };
-use serde_json::{Map, Value, json};
+use serde_json::json;
 use tempfile::TempDir;
-
-struct FakeKeybindingsMigrator {
-    migrated: bool,
-}
-
-impl KeybindingsConfigMigrator for FakeKeybindingsMigrator {
-    fn migrate(&self, config: &Map<String, Value>) -> (Map<String, Value>, bool) {
-        let mut next = config.clone();
-        if self.migrated {
-            next.insert("migrated".to_owned(), Value::Bool(true));
-        }
-        (next, self.migrated)
-    }
-}
 
 fn read(path: &std::path::Path) -> String {
     fs::read_to_string(path).expect("fixture file must be readable")
@@ -189,17 +175,13 @@ fn moves_managed_binaries_and_drops_duplicates() {
 fn keybindings_file_is_rewritten_only_when_migration_applies() {
     let temp = TempDir::new().unwrap();
     let path = temp.path().join("keybindings.json");
-    fs::write(&path, r#"{"submit":"enter"}"#).unwrap();
-    let migrator = FakeKeybindingsMigrator { migrated: true };
+    fs::write(&path, r#"{"submit":"enter","cursorUp":"k"}"#).unwrap();
+    run_migrations_in(temp.path(), &temp.path().join("bin"), temp.path().to_str().unwrap());
 
-    run_migrations_in(
-        temp.path(),
-        &temp.path().join("bin"),
-        temp.path().to_str().unwrap(),
-        &migrator,
+    assert_eq!(
+        read(&path),
+        "{\n  \"tui.editor.cursorUp\": \"k\",\n  \"tui.input.submit\": \"enter\"\n}\n"
     );
-
-    assert_eq!(read(&path), "{\n  \"submit\": \"enter\",\n  \"migrated\": true\n}\n");
 }
 
 #[test]
@@ -207,22 +189,12 @@ fn keybindings_file_is_untouched_for_malformed_or_unchanged_content() {
     let temp = TempDir::new().unwrap();
     let path = temp.path().join("keybindings.json");
     fs::write(&path, "[1,2]").unwrap();
-    run_migrations_in(
-        temp.path(),
-        &temp.path().join("bin"),
-        temp.path().to_str().unwrap(),
-        &FakeKeybindingsMigrator { migrated: true },
-    );
+    run_migrations_in(temp.path(), &temp.path().join("bin"), temp.path().to_str().unwrap());
     assert_eq!(read(&path), "[1,2]");
 
-    fs::write(&path, r#"{"submit":"enter"}"#).unwrap();
-    run_migrations_in(
-        temp.path(),
-        &temp.path().join("bin"),
-        temp.path().to_str().unwrap(),
-        &FakeKeybindingsMigrator { migrated: false },
-    );
-    assert_eq!(read(&path), r#"{"submit":"enter"}"#);
+    fs::write(&path, r#"{"tui.input.submit":"enter"}"#).unwrap();
+    run_migrations_in(temp.path(), &temp.path().join("bin"), temp.path().to_str().unwrap());
+    assert_eq!(read(&path), r#"{"tui.input.submit":"enter"}"#);
 }
 
 #[test]
@@ -237,12 +209,7 @@ fn reports_deprecated_hook_and_tool_directories() {
     fs::create_dir_all(project_dir.join("tools")).unwrap();
     fs::write(project_dir.join("tools/custom.ts"), "tool").unwrap();
 
-    let result = run_migrations_in(
-        &agent_dir,
-        &temp.path().join("bin"),
-        temp.path().to_str().unwrap(),
-        &FakeKeybindingsMigrator { migrated: false },
-    );
+    let result = run_migrations_in(&agent_dir, &temp.path().join("bin"), temp.path().to_str().unwrap());
 
     assert_eq!(
         result.deprecation_warnings,
@@ -261,12 +228,7 @@ fn migrates_commands_directories_for_agent_and_project() {
     fs::write(agent_dir.join("commands/a.md"), "a").unwrap();
     fs::create_dir_all(temp.path().join(".pi/commands")).unwrap();
 
-    run_migrations_in(
-        &agent_dir,
-        &temp.path().join("bin"),
-        temp.path().to_str().unwrap(),
-        &FakeKeybindingsMigrator { migrated: false },
-    );
+    run_migrations_in(&agent_dir, &temp.path().join("bin"), temp.path().to_str().unwrap());
 
     assert!(agent_dir.join("prompts/a.md").exists());
     assert!(temp.path().join(".pi/prompts").is_dir());

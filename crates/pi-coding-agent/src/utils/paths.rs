@@ -280,7 +280,7 @@ pub(crate) fn lexical_normalize(path: &Path) -> String {
     normalized.to_string_lossy().into_owned()
 }
 
-fn relative_path(from: &str, to: &str) -> String {
+pub fn relative_path(from: &str, to: &str) -> String {
     let from_components = Path::new(from).components().collect::<Vec<_>>();
     let to_components = Path::new(to).components().collect::<Vec<_>>();
 
