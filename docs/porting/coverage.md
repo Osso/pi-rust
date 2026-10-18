@@ -205,7 +205,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/providers/zai.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/zai.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
 | `ai/src/bun-oauth.ts` | 21 | 5 | done | `crates/pi-ai/src/bun_oauth.rs` | Registers all ported flows, including GitHub Copilot. |
 | `ai/src/providers/all.ts` | 159 | 5 | done | `crates/pi-ai/src/providers/all.rs` | All 40 factories including both `openai-codex` entries; catalog/order/generatedAt/images differential ([traceability](traceability/providers-all.md)). |
-| `ai/src/cli.ts` | 119 | 6 | todo |  |  |
+| `ai/src/cli.ts` | 119 | 6 | done | `crates/pi-ai/src/bin/pi-ai.rs` | `pi-ai` binary: help/list/login, OAuth interaction, auth.json I/O; 15-case byte-level CLI differential + 5 unit tests ([traceability](traceability/cli.md)). |
 | `ai/src/compat.ts` | 299 | 6 | done | `crates/pi-ai/src/compat/mod.rs` | Api registry, builtin registration/override identity, env-key injection, faux registration, legacy dispatch; 9 behavioral + 4 differential requests ([traceability](traceability/compat.md)). |
 | `ai/src/base.ts` | 6 | 7 | done | `crates/pi-ai/src/base.rs` | Re-exports the compat surface plus the index surface ([traceability](traceability/ai-index.md)). |
 
