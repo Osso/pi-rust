@@ -134,6 +134,11 @@ No runtime dependencies. CBOR encoding and decoding are hand-written against the
 
 - `indexmap = 2.14.2` (`serde`) — `AgentHarnessStreamOptions` headers and the per-request header/metadata patches preserve TypeScript object key order when merged into provider requests.
 
+### `pi-coding-agent` client modules
+
+- `pi-protocol` / `pi-client` (path, `=0.0.0`) — `client::transcript` projects protocol snapshots/transcripts and `client::remote_session` wraps the transport-neutral client lease.
+- `indexmap = 2.14.2` (`serde`) — `TranscriptState` progress items and tool-call buffers preserve TypeScript `Map` insertion order.
+
 ### `pi-client`
 
 - `pi-protocol = { version = "=0.0.0", path = "../pi-protocol" }` — framing, CBOR message codecs, typed commands/results, snapshots, and protocol validation errors.

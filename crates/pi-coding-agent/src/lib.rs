@@ -1,6 +1,7 @@
 #![deny(clippy::print_stdout)]
 
 pub mod cli;
+pub mod client;
 pub mod config;
 pub mod core;
 pub mod migrations;

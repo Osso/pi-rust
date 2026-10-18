@@ -466,7 +466,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/runtime-credentials.ts` | 58 | 4 | done | `crates/pi-coding-agent/src/core/runtime_credentials.rs` | Overlay masking, list merge, delete ordering |
 | `coding-agent/src/utils/image-process.ts` | 119 | 4 | done | `crates/pi-coding-agent/src/utils/image_process.rs` | Differential 27106 (8 fixtures incl. BMP conversion and omission messages) |
 | `coding-agent/src/cli/file-processor.ts` | 87 | 5 | todo |  |  |
-| `coding-agent/src/client/transcript.ts` | 101 | 5 | todo |  |  |
+| `coding-agent/src/client/transcript.ts` | 101 | 5 | done | `crates/pi-coding-agent/src/client/transcript.rs` | Snapshot/progress projection, tool-call buffering, queued steering; 9 behavioral tests (differential skipped: CBOR-only protocol types) |
 | `coding-agent/src/core/auth-storage.ts` | 507 | 5 | done | `crates/pi-coding-agent/src/core/auth_storage.rs` | Cross-process byte parity and both lock directions; 16 focused cases |
 | `coding-agent/src/utils/tool-result-images.ts` | 62 | 5 | done | `crates/pi-coding-agent/src/utils/tool_result_images.rs` | Differential 27107 (7 fixtures); Cow preserves the unchanged-reference contract |
 | `coding-agent/src/core/models-store.ts` | 146 | 6 | done | `crates/pi-coding-agent/src/core/models_store.rs` | Coalesced reloads, canonical entry order documented |
@@ -481,10 +481,10 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/working-editor.ts` | 67 | 8 | todo |  |  |
 | `coding-agent/src/cli/list-models.ts` | 115 | 9 | todo |  |  |
 | `coding-agent/src/cli/login-command.ts` | 278 | 9 | todo |  |  |
-| `coding-agent/src/client/remote-session.ts` | 420 | 9 | todo |  |  |
+| `coding-agent/src/client/remote-session.ts` | 420 | 9 | done | `crates/pi-coding-agent/src/client/remote_session.rs` | Lifecycle/operations/attachment replacement/disposal; 8 behavioral tests over an in-memory protocol server |
 | `coding-agent/src/core/model-registry.ts` | 158 | 9 | done | `crates/pi-coding-agent/src/core/model_registry.rs` | Facade over ModelRuntime: resolved auth/compatibility fallback, statuses, display names, registration; registry tests. Overloads split into two methods. |
 | `coding-agent/src/migrations.ts` | 365 | 9 | done | `crates/pi-coding-agent/src/migrations.rs` | Auth/session/tools/keybindings/commands migrations, deprecation warnings, `runMigrations`; differential over fixture agent dirs. TTY keypress wait deferred. |
-| `coding-agent/src/client/index.ts` | 15 | 10 | todo |  |  |
+| `coding-agent/src/client/index.ts` | 15 | 10 | done | `crates/pi-coding-agent/src/client/mod.rs` | Re-exports |
 | `coding-agent/src/core/compaction/utils.ts` | 198 | 14 | todo |  |  |
 | `coding-agent/src/core/defaults.ts` | 3 | 14 | done | `crates/pi-coding-agent/src/core/defaults.rs` | `DEFAULT_THINKING_LEVEL = medium` reuses `pi-agent-core` `ThinkingLevel`. |
 | `coding-agent/src/core/messages.ts` | 212 | 14 | done | `crates/pi-coding-agent/src/core/messages.rs` | Re-exports `pi-agent-core` harness messages and adds `is_cut_point_message`; `tests/messages.rs` |

@@ -70,19 +70,7 @@ fn positive_token_limit(value: f64, label: &str) -> Result<u64, ProtocolBridgeEr
 /// The typed Rust boundary already excludes JavaScript values that have no JSON representation
 /// (non-finite numbers, bigint, undefined, functions, symbols, circular references, sparse arrays).
 pub fn to_protocol_json_value(value: &serde_json::Value) -> JsonValue {
-    match value {
-        serde_json::Value::Null => JsonValue::Null,
-        serde_json::Value::Bool(value) => JsonValue::Bool(*value),
-        serde_json::Value::Number(value) => JsonValue::Number(value.as_f64().unwrap_or_default()),
-        serde_json::Value::String(value) => JsonValue::String(value.clone()),
-        serde_json::Value::Array(values) => JsonValue::Array(values.iter().map(to_protocol_json_value).collect()),
-        serde_json::Value::Object(values) => JsonValue::Object(
-            values
-                .iter()
-                .map(|(key, value)| (key.clone(), to_protocol_json_value(value)))
-                .collect(),
-        ),
-    }
+    JsonValue::from_serde_json(value)
 }
 
 /// Lossily sanitize diagnostic tool details that must not affect execution semantics.
