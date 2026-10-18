@@ -250,6 +250,7 @@ async function scenario(request: Request, sourceDirectory: string): Promise<unkn
 					);
 					texts.push(text);
 					components.push(text);
+					tui.addChild(text);
 					break;
 				}
 				case "add_scroll": {
@@ -261,16 +262,21 @@ async function scenario(request: Request, sourceDirectory: string): Promise<unkn
 					});
 					scrolls.push(scroll);
 					components.push(scroll);
+					tui.addChild(scroll);
 					break;
 				}
 				case "add_vstack": {
 					const entries = (step.entries as Record<string, unknown>[]).map((entry) => stackEntry(components, entry));
-					components.push(new vstackModule.VStack(entries, { gap: step.gap ?? 0 }));
+					const stack = new vstackModule.VStack(entries, { gap: step.gap ?? 0 });
+					components.push(stack);
+					tui.addChild(stack);
 					break;
 				}
 				case "add_hstack": {
 					const entries = (step.entries as Record<string, unknown>[]).map((entry) => stackEntry(components, entry));
-					components.push(new hstackModule.HStack(entries, { gap: step.gap ?? 0 }));
+					const stack = new hstackModule.HStack(entries, { gap: step.gap ?? 0 });
+					components.push(stack);
+					tui.addChild(stack);
 					break;
 				}
 				case "add_image": {
@@ -278,10 +284,14 @@ async function scenario(request: Request, sourceDirectory: string): Promise<unkn
 						String(step.base64Data ?? ""),
 						String(step.mimeType ?? "image/png"),
 						{ fallbackColor: (value: string) => value },
-						step.filename === undefined ? {} : { filename: step.filename },
+						{
+							...(step.filename === undefined ? {} : { filename: step.filename }),
+							...(step.imageId === undefined ? {} : { imageId: Number(step.imageId) }),
+						},
 						{ widthPx: Number(step.widthPx ?? 800), heightPx: Number(step.heightPx ?? 600) },
 					);
 					components.push(image);
+					tui.addChild(image);
 					break;
 				}
 				case "kitty_metadata":

@@ -170,6 +170,12 @@ fn icu_segments(text: &str) -> Vec<WordSegment> {
     segments
 }
 
+/// Word segments of `text`, matching `getWordSegmenter().segment(text)` in
+/// the source.
+pub(crate) fn word_segments(text: &str) -> Vec<String> {
+    icu_segments(text).into_iter().map(|segment| segment.segment).collect()
+}
+
 fn is_atomic_segment(is_atomic: Option<&dyn Fn(&str) -> bool>, segment: &str) -> bool {
     is_atomic.is_some_and(|is_atomic| is_atomic(segment))
 }

@@ -623,10 +623,27 @@ impl TerminalColorSchemeQuery {
 pub trait RendererApi {
     fn do_render(&self);
     fn reset_render_state(&self);
+    fn before_terminal_start(&self) {}
     fn before_terminal_stop(&self, options: &TuiStopOptions);
+    fn after_terminal_stop(&self, _options: &TuiStopOptions) {}
     fn mode(&self) -> TuiMode {
         TuiMode::Regular
     }
+}
+
+/// Fullscreen viewport surface (`ViewportTUI` in the source).
+///
+/// The source marks viewport TUIs with the `VIEWPORT_TUI` symbol and exposes
+/// [`is_viewport_tui`] as the type guard.
+pub trait ViewportTui {
+    fn set_layout_root(&self, component: Option<ComponentRef>);
+    fn viewport_top(&self) -> usize;
+    fn is_following_output(&self) -> bool;
+}
+
+/// Whether a TUI renders a fullscreen viewport (`isViewportTUI`).
+pub fn is_viewport_tui<T: TuiExt>(tui: &T) -> bool {
+    tui.as_viewport_tui().is_some()
 }
 
 struct TuiBaseInner {
@@ -820,6 +837,9 @@ impl TuiBase {
         self.inner.stopped.set(false);
         self.inner.terminal_focused.set(true);
         self.inner.render_requested.set(false);
+        if let Some(renderer) = self.renderer() {
+            renderer.before_terminal_start();
+        }
         self.inner.terminal.borrow_mut().start()?;
         if self
             .renderer()
@@ -859,6 +879,9 @@ impl TuiBase {
         }
         self.inner.terminal.borrow_mut().show_cursor();
         self.inner.terminal.borrow_mut().stop();
+        if let Some(renderer) = self.renderer() {
+            renderer.after_terminal_stop(&options);
+        }
     }
 
     pub fn add_input_listener(&self, listener: InputListener) -> usize {
@@ -1800,6 +1823,10 @@ impl TuiBase {
         for child in children {
             child.borrow_mut().invalidate();
         }
+        self.invalidate_overlays();
+    }
+
+    pub(crate) fn invalidate_overlays(&self) {
         let overlays = self.inner.overlay_stack.borrow().clone();
         for overlay in overlays {
             let component = overlay.borrow().component.clone();
@@ -1845,7 +1872,7 @@ impl TuiBase {
         self.inner.render_requested.get()
     }
 
-    fn increment_full_redraws(&self) {
+    pub(crate) fn increment_full_redraws(&self) {
         self.inner.full_redraw_count.set(self.inner.full_redraw_count.get() + 1);
     }
 
@@ -2903,6 +2930,11 @@ fn position_hardware_cursor(
 /// Common TUI surface shared by both renderer variants.
 pub trait TuiExt: RendererApi + Sized {
     fn base(&self) -> &TuiBase;
+
+    /// Viewport surface when this TUI is a fullscreen viewport renderer.
+    fn as_viewport_tui(&self) -> Option<&dyn ViewportTui> {
+        None
+    }
 
     fn mode(&self) -> TuiMode {
         TuiMode::Regular
