@@ -170,6 +170,11 @@ fn icu_segments(text: &str) -> Vec<WordSegment> {
     segments
 }
 
+/// Segment text with the ICU word segmenter used by `Intl.Segmenter`.
+pub fn word_segments(text: &str) -> Vec<WordSegment> {
+    icu_segments(text)
+}
+
 fn is_atomic_segment(is_atomic: Option<&dyn Fn(&str) -> bool>, segment: &str) -> bool {
     is_atomic.is_some_and(|is_atomic| is_atomic(segment))
 }

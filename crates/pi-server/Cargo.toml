@@ -1,0 +1,22 @@
+[package]
+name = "pi-server"
+version = "0.0.0"
+description = "Rust port of Pi's session server"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+pi-ai = { version = "=0.0.0", path = "../pi-ai" }
+pi-protocol = { version = "=0.0.0", path = "../pi-protocol" }
+serde_json = { version = "=1.0.151", features = ["preserve_order"] }
+sha2 = "=0.10.9"
+tokio = { version = "=1.53.3", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+tokio = { version = "=1.53.3", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "test-util", "time"] }
+
+[lints]
+workspace = true

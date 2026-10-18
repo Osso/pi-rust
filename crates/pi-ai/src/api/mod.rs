@@ -1,12 +1,15 @@
 pub mod azure_openai_responses;
 pub mod cloudflare;
+pub mod cloudflare_gateway_binding;
 pub mod constrained_sampling;
 pub mod github_copilot_headers;
 pub mod lazy;
+pub mod mistral_conversations;
 pub mod openai_completions;
 pub mod openai_prompt_cache;
 pub mod openai_responses;
 pub mod openai_responses_shared;
 pub mod openai_sdk;
+pub mod pi_messages;
 pub mod simple_options;
 pub mod transform_messages;

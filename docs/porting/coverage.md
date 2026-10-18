@@ -56,12 +56,12 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/google-shared.ts` | 419 | 1 | todo |  |  |
 | `ai/src/api/google-vertex.ts` | 596 | 1 | todo |  |  |
 | `ai/src/api/lazy.ts` | 98 | 1 | done | `crates/pi-ai/src/api/lazy.rs` | lazy stream/api, setup errors, declared deferred capabilities; differential setup-error |
-| `ai/src/api/mistral-conversations.ts` | 931 | 1 | todo |  |  |
+| `ai/src/api/mistral-conversations.ts` | 931 | 1 | done | `crates/pi-ai/src/api/mistral_conversations.rs` | Native chat stream, wire remapping, SSE, reasoning modes, tool-call ID hashing; differential 43 scenarios (requests, events, messages). |
 | `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | todo |  |  |
 | `ai/src/api/openai-completions.ts` | 1577 | 1 | done | `crates/pi-ai/src/api/openai_completions.rs` | Compat detection, message/tool conversion, all thinking formats, cache control, routing; 9 behavioral + 35 recorded-fetch differential scenarios. |
 | `ai/src/api/openai-responses-shared.ts` | 983 | 1 | done | `crates/pi-ai/src/api/openai_responses_shared.rs` | Message/tool conversion, citation normalization, Responses SSE state machine; 19 behavioral + 31 differential scenarios. |
 | `ai/src/api/openai-responses.ts` | 372 | 1 | done | `crates/pi-ai/src/api/openai_responses.rs` | Params, compat, cache/session affinity, service-tier pricing; 20 recorded-fetch differential scenarios. |
-| `ai/src/api/pi-messages.ts` | 433 | 1 | todo |  |  |
+| `ai/src/api/pi-messages.ts` | 433 | 1 | done | `crates/pi-ai/src/api/pi_messages.rs` | SSE assistant-event protocol, rewrite diagnostics, response errors; differential 13 scenarios. |
 | `ai/src/api/simple-options.ts` | 97 | 1 | done | `crates/pi-ai/src/api/simple_options.rs` | Context clamp, base options, reasoning clamps, thinking budgets; unit + streamSimple differential. |
 | `ai/src/api/transform-messages.ts` | 228 | 1 | done | `crates/pi-ai/src/api/transform_messages.rs` | Cross-model thinking/tool-call normalization, image downgrade, synthetic tool results; injected clock; differential 18 scenarios. |
 | `ai/src/auth/context.ts` | 45 | 1 | done | `crates/pi-ai/src/auth/context.rs` | default env/file context; env branch not unit-tested (process-global) |
@@ -80,15 +80,15 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/anthropic-messages.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/azure-openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/azure_openai_responses.rs` | `azure_open_ai_responses_api()` lazy adapter. |
 | `ai/src/api/bedrock-converse-stream.lazy.ts` | 30 | 2 | todo |  |  |
-| `ai/src/api/cloudflare-gateway-binding.ts` | 192 | 2 | todo |  |  |
+| `ai/src/api/cloudflare-gateway-binding.ts` | 192 | 2 | done | `crates/pi-ai/src/api/cloudflare_gateway_binding.rs` | Workers AI binding transport: prefix normalization, provider/endpoint split, header stripping, signal passthrough; differential 11 scenarios. |
 | `ai/src/api/google-generative-ai.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/google-vertex.lazy.ts` | 4 | 2 | todo |  |  |
-| `ai/src/api/mistral-conversations.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/mistral-conversations.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/mistral_conversations.rs` | `mistral_conversations_api()` wraps `MistralConversationsApi` in `LazyApi`. |
 | `ai/src/api/openai-codex-responses.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/openai-completions.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_completions.rs` | `open_ai_completions_api()` lazy adapter. |
 | `ai/src/api/openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_responses.rs` | `open_ai_responses_api()` lazy adapter. |
 | `ai/src/api/openrouter-images.ts` | 196 | 2 | todo |  |  |
-| `ai/src/api/pi-messages.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/pi-messages.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/pi_messages.rs` | `pi_messages_api()` wraps `PiMessagesApi` in `LazyApi`. |
 | `ai/src/auth/helpers.ts` | 59 | 2 | done | `crates/pi-ai/src/auth/helpers.rs` | env api-key auth and lazy OAuth loading |
 | `ai/src/auth/oauth/anthropic.ts` | 364 | 2 | todo |  |  |
 | `ai/src/auth/oauth/kimi-coding.ts` | 310 | 2 | todo |  |  |
@@ -227,7 +227,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/session/types.ts` | 406 | 5 | todo |  |  |
 | `agent/src/harness/types.ts` | 320 | 5 | partial |  |  |
 | `agent/src/stream-fn.ts` | 20 | 5 | done | `crates/pi-agent-core/src/agent/stream_fn.rs` | Process-global default stream fn; exact missing-default error; see `agent-stream-fn.md`. |
-| `agent/src/agent-loop.ts` | 1028 | 6 | done | `crates/pi-agent-core/src/agent/agent_loop.rs` | Event ordering, tool modes, steering/follow-up, termination, abort races, restored tool calls; 32 behavioral tests + 27 differential scenarios; see `agent-loop.md`. |
+| `agent/src/agent-loop.ts` | 1028 | 6 | done | `crates/pi-agent-core/src/agent/agent_loop.rs` | Event ordering, tool modes, steering/follow-up, termination, abort races, restored tool calls, listener failures, result capping; 37 behavioral tests + 34 differential scenarios; see `agent-loop.md`. |
 | `agent/src/harness/env/nodejs.ts` | 695 | 6 | todo |  |  |
 | `agent/src/harness/prompt-templates.ts` | 262 | 6 | partial |  |  |
 | `agent/src/harness/reducer.ts` | 667 | 6 | todo |  |  |
@@ -243,7 +243,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/utils/shell-output.ts` | 199 | 6 | partial |  |  |
 | `agent/src/search/index.ts` | 32 | 6 | todo |  |  |
 | `agent/src/search/scanning.ts` | 176 | 6 | todo |  |  |
-| `agent/src/agent.ts` | 626 | 7 | done | `crates/pi-agent-core/src/agent/agent.rs` | Stateful wrapper, queues, lifecycle, listener settlement, continue/reset; 23 tests + 3 differential scenarios; see `agent.md`. |
+| `agent/src/agent.ts` | 626 | 7 | done | `crates/pi-agent-core/src/agent/agent.rs` | Stateful wrapper, queues, lifecycle, listener settlement and failure propagation, continue/reset; 23 tests + 6 differential scenarios; see `agent.md`. |
 | `agent/src/harness/compaction/compaction.ts` | 910 | 7 | partial |  |  |
 | `agent/src/harness/session/jsonl/codec.ts` | 240 | 7 | todo |  |  |
 | `agent/src/harness/session/memory.ts` | 192 | 7 | todo |  |  |
@@ -280,30 +280,30 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/terminal.ts` | 594 | 1 | done | `crates/pi-tui/src/terminal.rs` | differential negotiation/timeout/normalization; ProcessTerminal event-queue seam; resize polling |
 | `tui/src/word-navigation.ts` | 117 | 1 | done | `crates/pi-tui/src/word_navigation.rs` | TS tests + boundary differential; ICU4X dictionary-word mismatches pinned as approved deviation |
 | `tui/src/tui.ts` | 2534 | 2 | partial | `crates/pi-tui/src/tui.rs` | differential byte stream (main+renderer), overlays/focus/fixed cells/render regions; viewport fullscreen helpers deferred to alt-screen slice |
-| `tui/src/components/alt-screen-flash.ts` | 51 | 3 | todo |  |  |
-| `tui/src/components/box.ts` | 137 | 3 | todo |  |  |
-| `tui/src/components/dynamic-border.ts` | 15 | 3 | todo |  |  |
-| `tui/src/components/image.ts` | 127 | 3 | todo |  |  |
-| `tui/src/components/input.ts` | 465 | 3 | todo |  |  |
-| `tui/src/components/markdown.ts` | 1027 | 3 | todo |  |  |
-| `tui/src/components/select-list.ts` | 229 | 3 | todo |  |  |
-| `tui/src/components/spacer.ts` | 28 | 3 | todo |  |  |
-| `tui/src/components/text.ts` | 106 | 3 | todo |  |  |
-| `tui/src/components/truncated-text.ts` | 65 | 3 | todo |  |  |
-| `tui/src/editor-component.ts` | 74 | 3 | todo |  |  |
-| `tui/src/layout-node.ts` | 51 | 3 | todo |  |  |
+| `tui/src/components/alt-screen-flash.ts` | 51 | 3 | done | `crates/pi-tui/src/components/alt_screen_flash.rs` | differential flash/render/dispose; expiry timer driver-owned |
+| `tui/src/components/box.ts` | 137 | 3 | done | `crates/pi-tui/src/components/box.rs` | differential padding/background/cache-sample matrix |
+| `tui/src/components/dynamic-border.ts` | 15 | 3 | done | `crates/pi-tui/src/components/dynamic_border.rs` | TS tests ported + differential |
+| `tui/src/components/image.ts` | 127 | 3 | done | `crates/pi-tui/src/components/image.rs` | differential kitty/iterm2/fallback renders; kitty ids explicit |
+| `tui/src/components/input.ts` | 465 | 3 | done | `crates/pi-tui/src/components/input.rs` | TS tests ported + scripted differential edits/renders |
+| `tui/src/components/markdown.ts` | 1027 | 3 | done | `crates/pi-tui/src/components/markdown/` | marked 18.0.5 lexer port (fancy-regex) + component; token-stream and ANSI render differential; all TS tests ported |
+| `tui/src/components/select-list.ts` | 229 | 3 | done | `crates/pi-tui/src/components/select_list.rs` | TS tests ported; differential render/callback matrix |
+| `tui/src/components/spacer.ts` | 28 | 3 | done | `crates/pi-tui/src/components/spacer.rs` | differential line counts + setLines |
+| `tui/src/components/text.ts` | 106 | 3 | done | `crates/pi-tui/src/components/text.rs` | TS differential wrapping/padding/background/cache |
+| `tui/src/components/truncated-text.ts` | 65 | 3 | done | `crates/pi-tui/src/components/truncated_text.rs` | all TS tests ported + differential |
+| `tui/src/editor-component.ts` | 74 | 3 | done | `crates/pi-tui/src/editor_component.rs` | Optional members mapped to default trait methods; typed callback fields ([traceability](traceability/editor-component.md)). |
+| `tui/src/layout-node.ts` | 51 | 3 | done | `crates/pi-tui/src/layout_node.rs` | `Component::layout_node` replaces the `LAYOUT_NODE` symbol |
 | `tui/src/root-compositor.ts` | 91 | 3 | done | `crates/pi-tui/src/root_compositor.rs` | flow/bottom layout callbacks covered by render-region tests |
 | `tui/src/tui-main-screen.ts` | 586 | 3 | done | `crates/pi-tui/src/tui_main_screen.rs` | differential byte stream; capture/restore implemented (no listed test) |
 | `tui/src/alt-screen-search.ts` | 157 | 4 | todo |  |  |
-| `tui/src/components/loader.ts` | 94 | 4 | todo |  |  |
-| `tui/src/components/scroll-view.ts` | 216 | 4 | todo |  |  |
-| `tui/src/components/settings-list.ts` | 249 | 4 | todo |  |  |
-| `tui/src/components/stack.ts` | 154 | 4 | todo |  |  |
-| `tui/src/components/cancellable-loader.ts` | 40 | 5 | todo |  |  |
-| `tui/src/components/editor.ts` | 2687 | 5 | todo |  |  |
-| `tui/src/components/h-stack.ts` | 44 | 5 | todo |  |  |
-| `tui/src/components/v-stack.ts` | 33 | 5 | todo |  |  |
-| `tui/src/layout.ts` | 410 | 5 | todo |  |  |
+| `tui/src/components/loader.ts` | 94 | 4 | done | `crates/pi-tui/src/components/loader.rs` | TS test port + differential; frame timer is driver-owned (`poll`) |
+| `tui/src/components/scroll-view.ts` | 216 | 4 | done | `crates/pi-tui/src/components/scroll_view.rs` | TS layout tests ported; differential geometry/scroll state; scrollbar timer driver-owned |
+| `tui/src/components/settings-list.ts` | 249 | 4 | done | `crates/pi-tui/src/components/settings_list.rs` | TS tests ported + differential search/cycle/submenu/scroll matrix |
+| `tui/src/components/stack.ts` | 154 | 4 | done | `crates/pi-tui/src/components/stack.rs` | size allocation covered by layout tests + differential |
+| `tui/src/components/cancellable-loader.ts` | 40 | 5 | done | `crates/pi-tui/src/components/cancellable_loader.rs` | differential escape abort + render; AbortSignal mapped to CancellationToken |
+| `tui/src/components/editor.ts` | 2687 | 5 | done | `crates/pi-tui/src/components/editor.rs` | Full TS test port (202 cases) + 28-scenario differential against real TS editor; timer/async requests driver-owned ([traceability](traceability/editor.md)). |
+| `tui/src/components/h-stack.ts` | 44 | 5 | done | `crates/pi-tui/src/components/h_stack.rs` | TS layout tests + differential composition/alignment |
+| `tui/src/components/v-stack.ts` | 33 | 5 | done | `crates/pi-tui/src/components/v_stack.rs` | TS layout tests + differential sizes/gaps |
+| `tui/src/layout.ts` | 410 | 5 | done | `crates/pi-tui/src/layout.rs` | TS layout tests ported; differential frame geometry, scrollbar, kitty crop |
 | `tui/src/tui-alt-screen.ts` | 1291 | 6 | todo |  |  |
 | `tui/src/index.ts` | 161 | 7 | todo |  |  |
 
@@ -322,23 +322,27 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `client/src/client.ts` | 432 | 7 | done | `crates/pi-client/src/client.rs` | Requests, leases, attachment serialization |
 | `client/src/index.ts` | 18 | 8 | done | `crates/pi-client/src/lib.rs` | Public re-exports; static connect renamed `connect_new` |
 
-## server (13 files, 1839 lines)
+## server (17 files, 2305 lines)
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `server/src/errors.ts` | 58 | 5 | todo |  |  |
-| `server/src/protocol.ts` | 388 | 5 | todo |  |  |
-| `server/src/connection.ts` | 36 | 6 | todo |  |  |
-| `server/src/listener.ts` | 10 | 6 | todo |  |  |
-| `server/src/types.ts` | 63 | 6 | todo |  |  |
-| `server/src/sessions.ts` | 346 | 7 | todo |  |  |
-| `server/src/snapshots.ts` | 62 | 7 | todo |  |  |
-| `server/src/transports/unix/types.ts` | 15 | 7 | todo |  |  |
-| `server/src/server.ts` | 396 | 8 | todo |  |  |
-| `server/src/transports/unix/listener.ts` | 434 | 8 | todo |  |  |
-| `server/src/index.ts` | 5 | 9 | todo |  |  |
-| `server/src/transports/unix/preset.ts` | 23 | 9 | todo |  |  |
-| `server/src/transports/unix/index.ts` | 3 | 10 | todo |  |  |
+| `server/src/errors.ts` | 58 | 5 | done | `crates/pi-server/src/errors.rs` | Typed operation codes, cause-retaining internal error |
+| `server/src/protocol.ts` | 388 | 5 | done | `crates/pi-server/src/protocol.rs` | pi-ai → protocol bridge; differential oracle |
+| `server/src/connection.ts` | 36 | 6 | done | `crates/pi-server/src/connection.rs` | Byte connection/handler contracts, stage state |
+| `server/src/listener.ts` | 10 | 6 | done | `crates/pi-server/src/listener.rs` | Listener trait |
+| `server/src/types.ts` | 63 | 6 | done | `crates/pi-server/src/types.rs` | Service/runtime traits and option records |
+| `server/src/sessions.ts` | 346 | 7 | done | `crates/pi-server/src/sessions.rs` | Live session manager, disposal, metadata merge |
+| `server/src/snapshots.ts` | 62 | 7 | done | `crates/pi-server/src/snapshots.rs` | Serialized revision publisher |
+| `server/src/transports/unix/types.ts` | 15 | 7 | done | `crates/pi-server/src/transports/unix/types.rs` | Listener/server options |
+| `server/src/server.ts` | 396 | 8 | done | `crates/pi-server/src/server.rs` | Handshake, dispatch, close, error mapping |
+| `server/src/transports/unix/listener.ts` | 434 | 8 | done | `crates/pi-server/src/transports/unix/listener.rs` | Stale sockets, hard-link bind, pending-byte writes |
+| `server/src/index.ts` | 5 | 9 | done | `crates/pi-server/src/lib.rs` | Re-exports |
+| `server/src/transports/unix/preset.ts` | 23 | 9 | done | `crates/pi-server/src/transports/unix/preset.rs` | Unix server composition |
+| `server/src/transports/unix/index.ts` | 3 | 10 | done | `crates/pi-server/src/transports/unix/mod.rs` | Transport re-exports |
+| `server/src/testing/client.ts` | 147 | 6 | done | `crates/pi-server/src/testing/client.rs` | Wire client used by all integration tests |
+| `server/src/testing/index.ts` | 5 | 6 | done | `crates/pi-server/src/testing/mod.rs` | Testing re-exports |
+| `server/src/testing/server.ts` | 27 | 6 | done | `crates/pi-server/src/testing/server.rs` | Deterministic test server factory |
+| `server/src/testing/service.ts` | 287 | 6 | done | `crates/pi-server/src/testing/service.rs` | In-memory service/runtime with shared snapshots |
 
 ## session-backends (18 files, 2389 lines)
 
