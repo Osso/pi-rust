@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
+use crate::harness::session::facade::Session;
 use crate::harness::session::jsonl::codec::{metadata_from_header, parse_header};
 use crate::harness::session::jsonl::errors::file_result;
 use crate::harness::session::jsonl::storage::JsonlSessionStorage;
@@ -12,7 +13,6 @@ use crate::harness::session::jsonl::types::{
     HeaderKind, JsonlSessionCreateOptions, JsonlSessionListOptions, JsonlSessionMetadata, JsonlSessionRepoFileSystem,
     JsonlSessionRepoOptions, JsonlV4Header,
 };
-use crate::harness::session::session::Session;
 use crate::harness::session::types::{
     Clock, ForkOptions, IdGenerator, SessionError, SessionErrorCode, SessionStorage, UuidV7IdGenerator, system_clock,
 };

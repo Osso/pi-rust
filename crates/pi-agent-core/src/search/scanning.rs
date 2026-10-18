@@ -8,14 +8,15 @@ use std::sync::Arc;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::JsonObject;
 
-use crate::harness::session::session::Session;
+use crate::harness::session::facade::Session;
 use crate::harness::session::types::{
     Entry, EntryCursor, EntryOrder, EntryQuery, EntryType, SessionError, SessionMetadataValue,
 };
 use crate::search::index::{SessionSearch, SessionSearchHit, SessionSearchOptions};
 
 /// One entry projected into searchable text.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionSearchCandidate {
     pub entry_id: String,
     pub seq: i64,
@@ -81,8 +82,12 @@ pub type ScanningMatcher<M> = Arc<dyn Fn(&str, &SessionSearchCandidate, &M) -> b
 /// Hit factory for one candidate.
 pub type ScanningHitFactory<M, H> = Arc<dyn Fn(&M, &SessionSearchCandidate) -> H + Send + Sync>;
 
+/// Maps the normalized query to source-specific options.
+pub type ScanningSourceOptionsMapper<O> = Arc<dyn Fn(&str, &SessionSearchOptions) -> Option<O> + Send + Sync>;
+
 /// Hit returned by the default scanning search.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanningSessionSearchHit {
     pub session_id: String,
     pub entry_id: String,
@@ -103,7 +108,7 @@ impl SessionSearchHit for ScanningSessionSearchHit {
 /// Scanning search options.
 pub struct ScanningSessionSearchOptions<M: SessionMetadataValue, O, H> {
     pub readable: ScanningReadableOptions<M>,
-    pub source_options: Option<Arc<dyn Fn(&str, &SessionSearchOptions) -> Option<O> + Send + Sync>>,
+    pub source_options: Option<ScanningSourceOptionsMapper<O>>,
     pub matcher: Option<ScanningMatcher<M>>,
     pub create_hit: Option<ScanningHitFactory<M, H>>,
 }
@@ -205,10 +210,10 @@ pub async fn scan_readable_entries<M: SessionMetadataValue>(
             break;
         }
         for entry in &entries {
-            if let Some(types) = &entry_types {
-                if !types.contains(&entry.entry_type()) {
-                    continue;
-                }
+            if let Some(types) = &entry_types
+                && !types.contains(&entry.entry_type())
+            {
+                continue;
             }
             let label = readable.label(entry.id()).await?;
             let mut fields = JsonObject::new();

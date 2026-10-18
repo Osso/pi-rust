@@ -251,13 +251,13 @@ impl SessionStorage<JsonlSessionMetadata> for JsonlSessionStorage {
                 .find_open_operations(record.lane(), Some(1))?
                 .first()
                 .map(|record| record.id().to_owned());
-            if record.record_type() == crate::harness::session::types::RecordType::OperationStarted {
-                if let Some(open_id) = open_operation_id {
-                    return Err(SessionError::new(
-                        SessionErrorCode::Storage,
-                        format!("Lane {} already has an open operation {open_id}", record.lane()),
-                    ));
-                }
+            if record.record_type() == crate::harness::session::types::RecordType::OperationStarted
+                && let Some(open_id) = open_operation_id
+            {
+                return Err(SessionError::new(
+                    SessionErrorCode::Storage,
+                    format!("Lane {} already has an open operation {open_id}", record.lane()),
+                ));
             }
             let record = LaneRecord {
                 body: record,

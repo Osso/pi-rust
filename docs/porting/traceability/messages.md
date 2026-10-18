@@ -12,6 +12,8 @@ Pinned source: `packages/agent/src/harness/messages.ts:4-17,19-29,40-45` and pac
 | `messages.ts:19-29` | `BashExecutionMessage` is a public mutable value with role literal `"bashExecution"`, two string fields, required `exitCode: number | undefined`, two booleans, optional `fullOutputPath`, required numeric `timestamp`, and optional `excludeFromContext` | `harness::messages::BashExecutionMessage`; exact field types map to `BashExecutionRole`, `String`, `Option<f64>`, `bool`, `Option<String>`, `f64`, and `Option<bool>`; focused role, mutation, optional-state, string-boundary, and binary64-bit proof; direct plain-record groups `13097..=13104` |
 | `index.ts:76` | The package-wide message export includes `BashExecutionMessage` | Re-exported from `pi_agent_core::harness::messages` and `pi_agent_core::harness`; focused imports pass; strict public-index exact-shape/mutability/number proof passes |
 | `messages.ts:40-45` | `BranchSummaryMessage` is a public mutable value with role literal `"branchSummary"`, `summary`, `fromId`, and unrestricted numeric `timestamp` | `harness::messages::BranchSummaryMessage`; fields map to `BranchSummaryRole`, `String`, `String`, and `f64`; focused role, mutation, string-boundary, and binary64-bit proof; direct plain-record groups `13105..=13112` |
+| `messages.ts:56-66` | `createBranchSummaryMessage(summary, fromId, timestamp)` returns a custom `branchSummary` message with role, summary, fromId, and numeric timestamp | `harness::messages::create_branch_summary_message`; `session_context.rs` asserts the exact JSON shape; session differential context scenarios compare against the TS constructor |
+| `messages.ts:68-92` | `createCompactionSummaryMessage(summary, tokensBefore, timestamp, options)` emits role, summary, tokensBefore, optional tokensAfter/keptFromPreviousContextTokens/compactedResultTokens/durationMs/providerNative, then timestamp | `harness::messages::create_compaction_summary_message` + `CompactionSummaryOptions`; `session_context.rs` exact JSON; context differential |
 | `index.ts:76` | The package-wide message export includes `BranchSummaryMessage` | Re-exported from `pi_agent_core::harness::messages` and `pi_agent_core::harness`; focused imports pass; strict public-index exact-shape/mutability/number proof passes |
 
 ## Rust boundary
@@ -64,3 +66,9 @@ Pinned source: `packages/agent/src/harness/messages.ts:4-17,19-29,40-45` and pac
 ## Exclusions
 
 `bashExecutionToText`, `createBranchSummaryMessage`, Date or timestamp-string parsing, conversion, message unions, session/events, compaction/UI/RPC behavior, invalid runtime shapes, constructors, serde, validation, normalization, dynamic formatting, fallbacks, and dependencies remain deferred.
+
+## Session-context constructor extension
+
+`session/context.ts` needs `createBranchSummaryMessage` and `createCompactionSummaryMessage`. The Rust port adds both to
+`harness/messages.rs` as `AgentMessage::Custom` builders using the same field order and JS-number formatting.
+String timestamps (`new Date(value).getTime()`) are excluded by the typed boundary; callers pass `i64` milliseconds.

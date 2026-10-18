@@ -147,10 +147,10 @@ impl SessionState {
             SessionMutation::Entry { lane, entry } => self.apply_entry(lane.as_deref(), entry),
             SessionMutation::Record { record } => self.apply_record(record),
             SessionMutation::Lane { seq, lane, leaf_id } => {
-                if let Some(leaf) = leaf_id {
-                    if !self.entries_by_id.contains_key(leaf) {
-                        return Err(invalid_mutation(format!("references missing lane target {leaf}")));
-                    }
+                if let Some(leaf) = leaf_id
+                    && !self.entries_by_id.contains_key(leaf)
+                {
+                    return Err(invalid_mutation(format!("references missing lane target {leaf}")));
                 }
                 self.sequence = *seq;
                 match self.lanes.iter_mut().find(|(candidate, _)| candidate == lane) {
@@ -181,20 +181,20 @@ impl SessionState {
                 return Err(invalid_mutation("does not chain to the lane leaf"));
             }
         }
-        if let Some(parent_id) = &entry.parent_id {
-            if !self.entries_by_id.contains_key(parent_id) {
-                return Err(invalid_mutation(format!("references missing parent {parent_id}")));
-            }
+        if let Some(parent_id) = &entry.parent_id
+            && !self.entries_by_id.contains_key(parent_id)
+        {
+            return Err(invalid_mutation(format!("references missing parent {parent_id}")));
         }
 
         self.sequence = entry.seq;
         self.used_ids.insert(entry.id().to_owned());
         self.entries_by_id.insert(entry.id().to_owned(), self.entries.len());
         self.entries.push(entry.clone());
-        if let Some(lane) = lane {
-            if let Some((_, leaf_id)) = self.lanes.iter_mut().find(|(candidate, _)| candidate == lane) {
-                *leaf_id = Some(entry.id().to_owned());
-            }
+        if let Some(lane) = lane
+            && let Some((_, leaf_id)) = self.lanes.iter_mut().find(|(candidate, _)| candidate == lane)
+        {
+            *leaf_id = Some(entry.id().to_owned());
         }
         self.log.push(LogItem::Entry {
             seq: entry.seq,
@@ -225,10 +225,10 @@ impl SessionState {
                     .push(record.clone());
             }
             RecordType::OperationFinished => {
-                if let Some(run_id) = record.body.run_id() {
-                    if let Some(open) = self.open_operations_by_lane.get_mut(record.lane()) {
-                        open.retain(|candidate| candidate.id() != run_id);
-                    }
+                if let Some(run_id) = record.body.run_id()
+                    && let Some(open) = self.open_operations_by_lane.get_mut(record.lane())
+                {
+                    open.retain(|candidate| candidate.id() != run_id);
                 }
             }
             _ => {}
@@ -247,10 +247,10 @@ impl SessionState {
     }
 
     fn apply_fact(&mut self, seq: i64, fact: &FactItem) -> Result<(), SessionError> {
-        if let FactItem::Label { target_id, .. } = fact {
-            if !self.entries_by_id.contains_key(target_id) {
-                return Err(invalid_mutation(format!("references missing label target {target_id}")));
-            }
+        if let FactItem::Label { target_id, .. } = fact
+            && !self.entries_by_id.contains_key(target_id)
+        {
+            return Err(invalid_mutation(format!("references missing label target {target_id}")));
         }
         self.sequence = seq;
         match fact {
