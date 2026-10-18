@@ -499,7 +499,9 @@ pub struct BashExecutionUpdateEvent {
     pub delta: String,
 }
 
-fn flag_values_map(values: &indexmap::IndexMap<String, crate::core::extensions::types::FlagValue>) -> BTreeMap<String, Value> {
+fn flag_values_map(
+    values: &indexmap::IndexMap<String, crate::core::extensions::types::FlagValue>,
+) -> BTreeMap<String, Value> {
     values
         .iter()
         .map(|(name, value)| {
@@ -4257,10 +4259,7 @@ impl AgentSession {
     }
 
     /// Reloads settings, resources, and extensions (`AgentSession.reload`).
-    pub async fn reload(
-        &self,
-        before_session_start: Option<Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>>,
-    ) {
+    pub async fn reload(&self, before_session_start: Option<Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>>) {
         let old_runner = self.runner();
         let previous_flag_values = old_runner.get_flag_values();
         emit_session_shutdown_event(
@@ -4326,20 +4325,16 @@ impl AgentSession {
     }
 
     async fn extend_resources_from_extensions(&self) {
-        let reason = if self.inner.session_start_event.reason
-            == crate::core::extensions::types::SessionStartReason::Reload
-        {
-            crate::core::extensions::types::ResourcesDiscoverReason::Reload
-        } else {
-            crate::core::extensions::types::ResourcesDiscoverReason::Startup
-        };
+        let reason =
+            if self.inner.session_start_event.reason == crate::core::extensions::types::SessionStartReason::Reload {
+                crate::core::extensions::types::ResourcesDiscoverReason::Reload
+            } else {
+                crate::core::extensions::types::ResourcesDiscoverReason::Startup
+            };
         self.extend_resources_with_reason(reason).await;
     }
 
-    async fn extend_resources_with_reason(
-        &self,
-        reason: crate::core::extensions::types::ResourcesDiscoverReason,
-    ) {
+    async fn extend_resources_with_reason(&self, reason: crate::core::extensions::types::ResourcesDiscoverReason) {
         let runner = self.runner();
         if !runner.has_handlers("resources_discover") {
             return;

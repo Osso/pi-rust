@@ -267,16 +267,64 @@ impl RpcResponse {
 
     /// `error(id, command, message)`.
     pub fn error(id: Option<String>, command: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::error_optional(id, Some(command.into()), message)
+    }
+
+    /// `error(id, command, message)` with an absent `command` (unknown or
+    /// non-string `type`), which `JSON.stringify` omits.
+    pub fn error_optional(id: Option<String>, command: Option<String>, message: impl Into<String>) -> Self {
         Self {
             id,
             kind: RpcResponseTag::Response,
-            command: Some(command.into()),
+            command,
             success: false,
             data: None,
             error: Some(message.into()),
         }
     }
 }
+
+/// Returns whether `name` is part of the RPC command union.
+pub fn is_known_command_type(name: &str) -> bool {
+    COMMAND_TYPES.contains(&name)
+}
+
+/// Every `RpcCommand["type"]` discriminator in declaration order.
+pub const COMMAND_TYPES: [&str; 33] = [
+    "prompt",
+    "steer",
+    "follow_up",
+    "abort",
+    "interrupt",
+    "new_session",
+    "get_state",
+    "set_model",
+    "cycle_model",
+    "get_available_models",
+    "set_thinking_level",
+    "cycle_thinking_level",
+    "get_available_thinking_levels",
+    "set_steering_mode",
+    "set_follow_up_mode",
+    "compact",
+    "set_auto_compaction",
+    "set_auto_retry",
+    "abort_retry",
+    "bash",
+    "abort_bash",
+    "get_session_stats",
+    "export_html",
+    "switch_session",
+    "fork",
+    "clone",
+    "get_fork_messages",
+    "get_entries",
+    "get_tree",
+    "get_last_assistant_text",
+    "set_session_name",
+    "get_messages",
+    "get_commands",
+];
 
 /// `type` discriminator of an extension UI request line.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
