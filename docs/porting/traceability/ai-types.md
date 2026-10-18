@@ -4,7 +4,7 @@ Sources: `packages/ai/src/types.ts`, `packages/ai/src/utils/event-stream.ts`.
 Rust: `crates/pi-ai/src/types.rs`, `crates/pi-ai/src/utils/event_stream.rs`, `crates/pi-ai/src/js_number.rs`.
 
 ## Representation decisions
-- TS `number` → `f64` serialized via `js_number` (integral values print without `.0`, like `JSON.stringify`). Unix-ms `timestamp` → `i64`. `contentIndex` → `usize`.
+- TS `number` → `f64` serialized via `js_number` (integral values print without `.0`, like `JSON.stringify`). Unix-ms `timestamp` → `i64`. `contentIndex` → `usize`. `Number.parseInt` → `js_number::parse_int` (used by the `pi-ai` CLI selection prompt).
 - `Api`/`ProviderId`/`ImagesApi`/`ImagesProviderId` (`Known… | string`) → `String`; known literals exported as `KNOWN_APIS`, `KNOWN_PROVIDERS`, `KNOWN_IMAGES_APIS`, `KNOWN_IMAGES_PROVIDERS`.
 - Each content/message struct carries its literal discriminant (`type`/`role`) as a single-value enum field, so standalone values (`imageGenerationResult`, `toolCall`, `AssistantMessage`) serialize with the tag first like TS. Unions over them (`AssistantContent`, `TextOrImageContent`, `Message`) are `untagged` and dispatch on that tag.
 - `Model<TApi>.compat` → `ModelCompat`, parsed by `api` (`openai-completions`; `openai-responses|azure-openai-responses|openai-codex-responses`; `anthropic-messages`; `bedrock-converse-stream`); other APIs ignore `compat` (TS `never`).
