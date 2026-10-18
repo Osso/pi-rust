@@ -36,8 +36,8 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
   temporary definitions here; ca-compaction-export owns their final home and
   will replace these without changing runner dispatch.
 - `AbortSignal` maps to `tokio_util::sync::CancellationToken`.
-- `Theme` is reduced to `ExtensionTheme::fg`, the only theme operation used by
-  the runner.
+- `Theme` is the concrete `modes::interactive::theme::Theme`; `ExtensionUIContext::theme()`
+  returns the process theme (`Arc<Theme>`), matching the source `readonly theme: Theme`.
 
 ## Symbols → Rust
 
@@ -77,9 +77,9 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 - Component-factory UI methods are not ported: `setWidget` factory overload,
   `setFooter`, `setDefaultFooter`, `setHeader`, `custom`,
   `addAutocompleteProvider`, `setEditorComponent`, `getEditorComponent`, and
-  `theme`/`getTheme`/`setTheme(Theme)` object accessors. They depend on the
-  interactive TUI/theme port. String-array widgets, status/working state,
-  titles, editor text, theme listing and `setTheme(name)` are implemented.
+  the `getTheme`/`setTheme(Theme)` object accessors. They depend on the
+  interactive TUI/theme port. `theme()`, string-array widgets, status/working
+  state, titles, editor text, theme listing and `setTheme(name)` are implemented.
 - `AutocompleteProviderFactory`/`EditorFactory` aliases are omitted with the
   same dependency.
 - `DetachedJobLifecycleController` is not exposed on the context
