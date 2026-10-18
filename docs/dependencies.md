@@ -62,6 +62,18 @@ All direct dependencies are exact-pinned.
 
 The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToolExecutionContext` slices add no runtime or development dependency; `ThinkingLevel` does not depend on the distinct protocol schema. Existing public-index typeproofs use the pinned TypeScript toolchain. The harness tools/env slice adds `rustix` for process-group kill and `unicode-normalization` for NFKC/NFD, both exact-pinned; `tempfile` is test-only. Typed filesystem/execution, compaction and branch-summary errors, `QueueMode`, `ToolExecutionMode`, and `ThinkingLevel` enum/literal mappings, `CompactionSettings`/`should_compact`, module-local `SUMMARIZATION_SYSTEM_PROMPT` (not exported from the harness root or package index), module-local `CutPointResult`/`ContextUsageEstimate` (not exported from the harness root or package index), `Skill`/`PromptTemplate`/`PromptTemplateDiagnostic`/`AgentHarnessResources` values, prompt-template argument helpers, Skill system-prompt/invocation formatting, summary marker constants and value-only `BashExecutionMessage`/`BranchSummaryMessage` records, compaction file-operation formatting, image MIME/Base64 helpers, edit line-ending/BOM helpers, `FileKind`/`FileInfo` metadata values, output truncation, binary-output sanitization, and the jsdiff line-diff/unified-patch port use only the Rust standard library beyond these dependencies.
 
+### `pi-session-sqlite`
+
+- `pi-agent-core` (path, `=0.0.0`) — reuses the ported `SessionStorage`/`SessionSearch` contracts, `Session` facade, `FileSystem` execution env, `SessionError`, and UUIDv7 id generator; no session type is redefined.
+- `pi-ai` (path, `=0.0.0`) — `BoxFuture`, `js_number` float formatting for durable payloads, `uuidv7` for writer-lease owners and branch-cache ids, and the message/usage wire types.
+- `rusqlite = 0.37.0` (exact, `bundled`) — the SQLite driver. `bundled` compiles SQLite from source so the schema, PRAGMAs (`WAL`, `synchronous=FULL`, `busy_timeout=5000`), FTS5 virtual table with the `trigram` tokenizer, and `bm25()` ranking are available without depending on the host SQLite build; `node:sqlite` is the TypeScript equivalent.
+- `serde = 1.0.229` / `serde_json = 1.0.151` (`preserve_order`) — durable entry/record payloads, session metadata, and error-shaped values with TypeScript key order.
+- `tokio = 1.53.3` (`macros`, `rt`, `sync`, `time`) — repository operation queue (`tokio::sync::Mutex`), writer-lease heartbeat task, and lease timers.
+- `tokio-util = 0.7.20` (`rt`) — `CancellationToken` carried by `SessionSearchOptions`.
+- `tempfile = 3.27.0` (development) — isolated database directories for behavior and cross-implementation tests.
+
+The SQLite slice also relies on the pinned TypeScript toolchain (`tsx`) through `oracle/session-sqlite-oracle.ts`; that is test-only and adds no Rust dependency.
+
 ### `pi-tui`
 
 - `unicode-segmentation = 1.13.3` (exact) — Unicode 17.0 grapheme cluster segmentation for `utils`, `components::input`, and the editor; matches the Unicode tables used by Node 26 `Intl.Segmenter`.
