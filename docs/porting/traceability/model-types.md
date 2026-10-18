@@ -30,4 +30,8 @@ No code was added for this module. `Model` deserialization selects `compat` by `
 - TypeScript's conditional `compat` type (`TApi extends … ? … : never`) is represented as a runtime enum parsed by `api`; unknown APIs drop `compat`. Same observable wire behavior as the typed TS contract.
 
 ## Discrepancies
-- None.
+- `types::OpenAIResponsesCompat` carries an extra `supportsReasoningEffort`
+  field. The TypeScript interface does not declare it, but the pinned
+  `opencode` catalog attaches it to an `openai-responses` model and the TS
+  runtime preserves unknown properties; Rust needs the field to keep generated
+  catalog objects byte-identical (see `providers-models.md`).
