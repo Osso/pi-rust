@@ -1,0 +1,471 @@
+#[path = "../support/oracle.rs"]
+mod oracle;
+
+use pi_agent_core::harness::ThinkingLevel;
+use pi_ai::types::Model;
+use pi_coding_agent::core::model_resolver::{
+    FindInitialModelOptions, ModelResolverRuntime, ParseModelPatternOptions, ResolveCliModelOptions, ScopedModel,
+    default_model_for_provider, find_exact_model_reference_match, find_initial_model, parse_model_pattern,
+    resolve_cli_model, resolve_model_scope_from_models,
+};
+use serde_json::{Value, json};
+
+fn model(provider: &str, id: &str, name: &str, reasoning: bool) -> Model {
+    serde_json::from_value(json!({
+        "id": id,
+        "name": name,
+        "api": "anthropic-messages",
+        "provider": provider,
+        "baseUrl": "https://example.test/v1",
+        "reasoning": reasoning,
+        "input": ["text"],
+        "cost": {"input": 1, "output": 2, "cacheRead": 0.1, "cacheWrite": 1},
+        "contextWindow": 128000,
+        "maxTokens": 8192,
+    }))
+    .unwrap()
+}
+
+fn models_json(models: &[Model]) -> Value {
+    Value::Array(
+        models
+            .iter()
+            .map(|model| serde_json::to_value(model).unwrap())
+            .collect(),
+    )
+}
+
+fn normalize_model(model: Option<&Model>) -> Value {
+    match model {
+        Some(model) => json!({
+            "id": model.id,
+            "provider": model.provider,
+            "name": model.name,
+            "baseUrl": model.base_url,
+            "reasoning": model.reasoning,
+        }),
+        None => Value::Null,
+    }
+}
+
+fn thinking(level: Option<ThinkingLevel>) -> Value {
+    match level {
+        Some(level) => Value::String(level.as_str().to_owned()),
+        None => Value::Null,
+    }
+}
+
+fn fixture_models() -> Vec<Model> {
+    vec![
+        model("anthropic", "claude-sonnet-4-5", "Claude Sonnet 4.5", true),
+        model("anthropic", "claude-sonnet-4-5-20250929", "Claude Sonnet 4.5", true),
+        model("openai", "gpt-4o", "GPT-4o", false),
+        model("openrouter", "qwen/qwen3-coder:exacto", "Qwen3 Coder Exacto", true),
+        model("openrouter", "openai/gpt-4o:extended", "GPT-4o Extended", false),
+        model("zai", "glm-5", "GLM-5", true),
+        model("vercel-ai-gateway", "zai/glm-5", "GLM-5", true),
+        model(
+            "commandcode",
+            "xiaomi/mimo-v2.5-pro",
+            "Xiaomi MiMo via Commandcode",
+            false,
+        ),
+        model("xiaomi", "mimo-v2.5-pro", "Xiaomi MiMo", false),
+        model("neuralwatt", "some-base-model", "Some Base Model", false),
+        model("custom", "bracketed-model[1m]", "Bracketed Model", true),
+        model("azure-openai-responses", "gpt-5.6-sol", "GPT 5.6 Sol", true),
+        model("openai-codex", "gpt-5.6-sol", "GPT 5.6 Sol", true),
+    ]
+}
+
+fn parse_cases() -> Vec<(&'static str, Option<bool>)> {
+    vec![
+        ("claude-sonnet-4-5", None),
+        ("sonnet", None),
+        ("sonnet:high", None),
+        ("gpt-4o:medium", None),
+        ("sonnet:off", None),
+        ("sonnet:minimal", None),
+        ("sonnet:low", None),
+        ("sonnet:xhigh", None),
+        ("sonnet:max", None),
+        ("sonnet:ultra", None),
+        ("sonnet:random", None),
+        ("gpt-4o:invalid", None),
+        ("qwen/qwen3-coder:exacto", None),
+        ("openrouter/qwen/qwen3-coder:exacto", None),
+        ("qwen/qwen3-coder:exacto:high", None),
+        ("openrouter/qwen/qwen3-coder:exacto:high", None),
+        ("openai/gpt-4o:extended", None),
+        ("qwen/qwen3-coder:exacto:random", None),
+        ("qwen/qwen3-coder:exacto:high:random", None),
+        ("", None),
+        ("sonnet:", None),
+        ("gpt-4o:extended", Some(false)),
+        ("nonexistent", None),
+    ]
+}
+
+fn compare_parse(oracle: &mut oracle::TsOracle, models: &[Model]) {
+    for (index, (pattern, allow)) in parse_cases().into_iter().enumerate() {
+        let request = json!({
+            "id": index,
+            "operation": "parse",
+            "pattern": pattern,
+            "models": models_json(models),
+            "allowInvalidThinkingLevelFallback": allow,
+        });
+        let expected = oracle.request(&request);
+        assert!(expected["ok"].as_bool().unwrap(), "{expected}");
+        let result = parse_model_pattern(
+            pattern,
+            models,
+            ParseModelPatternOptions {
+                allow_invalid_thinking_level_fallback: allow,
+            },
+        );
+        let actual = json!({
+            "model": normalize_model(result.model.as_ref()),
+            "thinkingLevel": thinking(result.thinking_level),
+            "warning": result.warning,
+        });
+        assert_eq!(actual, expected["output"], "parse {pattern}");
+    }
+}
+
+fn compare_scope(oracle: &mut oracle::TsOracle, models: &[Model]) {
+    let cases: Vec<Vec<&str>> = vec![
+        vec!["sonnet:high", "gpt-4o:invalid", "missing"],
+        vec!["custom/bracketed-model[1m]"],
+        vec!["custom/bracketed-model[1m]:high"],
+        vec!["*sonnet*"],
+        vec!["openrouter/*/*:high"],
+        vec!["nope/*"],
+        vec!["sonnet", "claude-sonnet-4-5"],
+        vec!["zai/glm-5", "xiaomi/mimo-v2.5-pro"],
+    ];
+    for (index, patterns) in cases.into_iter().enumerate() {
+        let request = json!({
+            "id": index,
+            "operation": "scope",
+            "patterns": patterns,
+            "models": models_json(models),
+        });
+        let expected = oracle.request(&request);
+        assert!(expected["ok"].as_bool().unwrap(), "{expected}");
+        let owned: Vec<String> = patterns.iter().map(|pattern| (*pattern).to_owned()).collect();
+        let result = resolve_model_scope_from_models(&owned, models);
+        let actual = json!({
+            "scopedModels": result
+                .scoped_models
+                .iter()
+                .map(|scoped| json!({
+                    "model": normalize_model(Some(&scoped.model)),
+                    "thinkingLevel": thinking(scoped.thinking_level),
+                }))
+                .collect::<Vec<_>>(),
+            "diagnostics": result
+                .diagnostics
+                .iter()
+                .map(|diagnostic| json!({
+                    "code": diagnostic.code.as_str(),
+                    "message": diagnostic.message,
+                    "pattern": diagnostic.pattern,
+                }))
+                .collect::<Vec<_>>(),
+        });
+        assert_eq!(actual, expected["output"], "scope {patterns:?}");
+    }
+}
+
+struct StubRuntime {
+    models: Vec<Model>,
+    available: Vec<Model>,
+    authenticated: Vec<String>,
+}
+
+impl ModelResolverRuntime for StubRuntime {
+    fn get_models(&self) -> Vec<Model> {
+        self.models.clone()
+    }
+
+    fn get_available_snapshot(&self) -> Vec<Model> {
+        self.available.clone()
+    }
+
+    fn get_model(&self, provider: &str, model_id: &str) -> Option<Model> {
+        self.models
+            .iter()
+            .find(|model| model.provider == provider && model.id == model_id)
+            .cloned()
+    }
+
+    fn has_configured_auth(&self, provider: &str) -> bool {
+        self.authenticated.iter().any(|authenticated| authenticated == provider)
+    }
+
+    fn available_models(
+        &self,
+        _options: pi_ai::auth::types::AuthOperationOptions,
+    ) -> pi_ai::request::BoxFuture<'_, Vec<Model>> {
+        Box::pin(async { self.available.clone() })
+    }
+}
+
+type CliCase = (
+    &'static str,
+    Option<&'static str>,
+    Option<&'static str>,
+    Vec<&'static str>,
+);
+
+fn cli_cases() -> Vec<CliCase> {
+    vec![
+        ("openai/gpt-4o", None, None, vec![]),
+        ("4o", Some("openai"), None, vec![]),
+        ("sonnet:high", None, None, vec![]),
+        ("openai/gpt-4o:extended", None, None, vec![]),
+        ("gpt-4o:extended", Some("openai"), None, vec![]),
+        ("openrouter/openai/ghost-model", Some("openrouter"), None, vec![]),
+        ("gpt-5.6-sol", None, None, vec!["openai-codex"]),
+        ("gpt-5.6-sol", None, None, vec![]),
+        ("zai/glm-5", None, None, vec!["zai", "vercel-ai-gateway"]),
+        ("xiaomi/mimo-v2.5-pro", None, None, vec!["commandcode"]),
+        ("openrouter/qwen", None, None, vec![]),
+        ("neuralwatt/zai-org/GLM-5.1-FP8:high", None, None, vec![]),
+        ("neuralwatt/zai-org/GLM-5.1-FP8", None, None, vec![]),
+        ("neuralwatt/zai-org/GLM-5.1-FP8:banana", None, None, vec![]),
+        ("zai-org/GLM-5.1-FP8:high", Some("neuralwatt"), None, vec![]),
+        ("neuralwatt/zai-org/GLM-5.1-FP8:high", None, Some("medium"), vec![]),
+        ("gpt-4o", Some("missing-provider"), None, vec![]),
+    ]
+}
+
+fn compare_cli(oracle: &mut oracle::TsOracle, models: &[Model]) {
+    for (index, (cli_model, cli_provider, cli_thinking, authenticated)) in cli_cases().into_iter().enumerate() {
+        let request = json!({
+            "id": index,
+            "operation": "cli",
+            "models": models_json(models),
+            "authenticated": authenticated,
+            "cliModel": cli_model,
+            "cliProvider": cli_provider,
+            "cliThinking": cli_thinking,
+        });
+        let expected = oracle.request(&request);
+        assert!(expected["ok"].as_bool().unwrap(), "{expected}");
+        let runtime = StubRuntime {
+            models: models.to_vec(),
+            available: models.to_vec(),
+            authenticated: authenticated.iter().map(|value| (*value).to_owned()).collect(),
+        };
+        let thinking_level = cli_thinking.map(|value| match value {
+            "off" => ThinkingLevel::Off,
+            "minimal" => ThinkingLevel::Minimal,
+            "low" => ThinkingLevel::Low,
+            "medium" => ThinkingLevel::Medium,
+            "high" => ThinkingLevel::High,
+            "xhigh" => ThinkingLevel::XHigh,
+            "max" => ThinkingLevel::Max,
+            _ => ThinkingLevel::Ultra,
+        });
+        let result = resolve_cli_model(
+            &ResolveCliModelOptions {
+                cli_provider: cli_provider.map(str::to_owned),
+                cli_model: Some(cli_model.to_owned()),
+                cli_thinking: thinking_level,
+            },
+            &runtime,
+        );
+        let actual = json!({
+            "model": normalize_model(result.model.as_ref()),
+            "thinkingLevel": thinking(result.thinking_level),
+            "warning": result.warning,
+            "error": result.error,
+        });
+        assert_eq!(actual, expected["output"], "cli {cli_model}");
+    }
+}
+
+fn compare_defaults(oracle: &mut oracle::TsOracle) {
+    let expected = oracle.request(&json!({"id": 0, "operation": "defaults"}));
+    assert!(expected["ok"].as_bool().unwrap());
+    let mut actual = serde_json::Map::new();
+    for (provider, default) in pi_coding_agent::core::model_resolver::DEFAULT_MODEL_PER_PROVIDER {
+        actual.insert((*provider).to_owned(), Value::String((*default).to_owned()));
+    }
+    for (provider, default) in expected["output"]["defaults"].as_object().unwrap() {
+        assert_eq!(
+            actual.get(provider).and_then(Value::as_str),
+            default.as_str(),
+            "{provider}"
+        );
+    }
+    assert_eq!(actual.len(), expected["output"]["defaults"].as_object().unwrap().len());
+    assert_eq!(default_model_for_provider("radius"), Some("auto"));
+}
+
+fn compare_exact(oracle: &mut oracle::TsOracle, models: &[Model]) {
+    for (index, reference) in [
+        "gpt-5.6-sol",
+        "openai-codex/gpt-5.6-sol",
+        "azure-openai-responses/gpt-5.6-sol",
+        "custom/bracketed-model[1m]",
+        "   ",
+        "SONNET",
+        "anthropic/claude-sonnet-4-5",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let request = json!({
+            "id": index,
+            "operation": "exact",
+            "reference": reference,
+            "models": models_json(models),
+        });
+        let expected = oracle.request(&request);
+        assert!(expected["ok"].as_bool().unwrap(), "{expected}");
+        let actual = normalize_model(find_exact_model_reference_match(reference, models).as_ref());
+        assert_eq!(actual, expected["output"]["model"], "exact {reference}");
+    }
+}
+
+async fn compare_initial(oracle: &mut oracle::TsOracle, models: &[Model]) {
+    let openai = model("openai", "gpt-5.5", "GPT-5.5", true);
+    let codex = model("openai-codex", "gpt-5.5", "GPT-5.5", true);
+    let gateway = model(
+        "vercel-ai-gateway",
+        "anthropic/claude-opus-4-6",
+        "Claude Opus 4.6",
+        true,
+    );
+    type InitialCase = (Value, Vec<Model>, Vec<Model>, Vec<String>);
+    let cases: Vec<InitialCase> = vec![
+        (
+            json!({"scopedModels": [], "isContinuing": false}),
+            vec![openai.clone(), codex.clone()],
+            vec![openai.clone(), codex.clone()],
+            vec!["openai".to_owned(), "openai-codex".to_owned()],
+        ),
+        (
+            json!({
+                "cliProvider": "openrouter",
+                "cliModel": "openrouter/openai/ghost-model",
+                "scopedModels": [],
+                "isContinuing": false
+            }),
+            models.to_vec(),
+            models.to_vec(),
+            vec![],
+        ),
+        (
+            json!({"scopedModels": [], "isContinuing": false}),
+            vec![gateway.clone()],
+            vec![gateway.clone()],
+            vec!["vercel-ai-gateway".to_owned()],
+        ),
+        (
+            json!({
+                "scopedModels": [{"model": serde_json::to_value(&openai).unwrap(), "thinkingLevel": "high"}],
+                "isContinuing": false
+            }),
+            models.to_vec(),
+            models.to_vec(),
+            vec![],
+        ),
+        (
+            json!({
+                "scopedModels": [{"model": serde_json::to_value(&openai).unwrap()}],
+                "isContinuing": true
+            }),
+            models.to_vec(),
+            models.to_vec(),
+            vec![],
+        ),
+        (
+            json!({
+                "scopedModels": [],
+                "isContinuing": false,
+                "defaultProvider": "deepseek",
+                "defaultModelId": "deepseek-v4-flash"
+            }),
+            models.to_vec(),
+            models.to_vec(),
+            vec!["spark-two".to_owned()],
+        ),
+    ];
+
+    for (index, (options, all, available, authenticated)) in cases.into_iter().enumerate() {
+        let mut request = json!({
+            "id": index,
+            "operation": "initial",
+            "models": models_json(&all),
+            "available": models_json(&available),
+            "authenticated": authenticated,
+        });
+        for (key, value) in options.as_object().unwrap() {
+            request[key] = value.clone();
+        }
+        let expected = oracle.request(&request);
+        assert!(expected["ok"].as_bool().unwrap(), "{expected}");
+        let runtime = StubRuntime {
+            models: all.clone(),
+            available: available.clone(),
+            authenticated,
+        };
+        let scoped_models: Vec<ScopedModel> = request["scopedModels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| ScopedModel {
+                model: serde_json::from_value(entry["model"].clone()).unwrap(),
+                thinking_level: entry["thinkingLevel"].as_str().map(|value| match value {
+                    "off" => ThinkingLevel::Off,
+                    "minimal" => ThinkingLevel::Minimal,
+                    "low" => ThinkingLevel::Low,
+                    "medium" => ThinkingLevel::Medium,
+                    "high" => ThinkingLevel::High,
+                    "xhigh" => ThinkingLevel::XHigh,
+                    "max" => ThinkingLevel::Max,
+                    _ => ThinkingLevel::Ultra,
+                }),
+            })
+            .collect();
+        let result = find_initial_model(
+            &FindInitialModelOptions {
+                cli_provider: request["cliProvider"].as_str().map(str::to_owned),
+                cli_model: request["cliModel"].as_str().map(str::to_owned),
+                scoped_models,
+                is_continuing: request["isContinuing"].as_bool().unwrap_or(false),
+                default_provider: request["defaultProvider"].as_str().map(str::to_owned),
+                default_model_id: request["defaultModelId"].as_str().map(str::to_owned),
+                default_thinking_level: None,
+            },
+            &runtime,
+        )
+        .await
+        .unwrap();
+        let actual = json!({
+            "model": normalize_model(result.model.as_ref()),
+            "thinkingLevel": result.thinking_level.as_str(),
+            "fallbackMessage": result.fallback_message,
+        });
+        assert_eq!(actual, expected["output"], "initial case {index}");
+    }
+}
+
+pub(crate) fn run() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "model-resolver-oracle.ts",
+        "packages/coding-agent/src/core/model-resolver.ts",
+    );
+    let models = fixture_models();
+    compare_parse(&mut oracle, &models);
+    compare_scope(&mut oracle, &models);
+    compare_cli(&mut oracle, &models);
+    compare_defaults(&mut oracle);
+    compare_exact(&mut oracle, &models);
+    let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    runtime.block_on(compare_initial(&mut oracle, &models));
+}
