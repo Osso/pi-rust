@@ -1718,3 +1718,97 @@ fn thinking_level_maps_onto_reasoning() {
         Some(pi_ai::types::ThinkingLevel::Low)
     );
 }
+
+const TOOL_RESULT_CAP_PREFIX: &str = "[tool output truncated: max 10240 bytes / 2000 lines]\n";
+
+async fn tool_result_for(text: String, details: Option<serde_json::Value>) -> pi_ai::types::ToolResultMessage {
+    let tool = TestTool::new("big", move |_id, _params| AgentToolResult {
+        content: vec![TextOrImageContent::Text(TextContent::new(text.clone()))],
+        details: details.clone(),
+        usage: None,
+        added_tool_names: None,
+        is_error: None,
+        terminate: None,
+    });
+    let stream = agent_loop(
+        vec![agent_message(user("run"))],
+        context(Vec::new(), vec![Arc::new(tool)]),
+        config(),
+        None,
+        Some(scripted_stream_fn(vec![
+            Script::message(tool_use(vec![AssistantContent::ToolCall(tool_call(
+                "call-1",
+                "big",
+                json!({"value": "x"}),
+            ))])),
+            Script::message(text_assistant("done")),
+        ])),
+    );
+    let (_events, result) = collect_events(stream).await;
+    result
+        .unwrap()
+        .into_iter()
+        .find_map(|message| match message {
+            AgentMessage::ToolResult(result) => Some(result),
+            _ => None,
+        })
+        .expect("loop must produce a tool result")
+}
+
+fn tool_result_text(result: &pi_ai::types::ToolResultMessage) -> String {
+    result
+        .content
+        .iter()
+        .map(|part| match part {
+            TextOrImageContent::Text(text) => text.text.clone(),
+            TextOrImageContent::Image(_) => panic!("expected text content"),
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn caps_tool_result_text_at_the_line_limit() {
+    let lines: Vec<String> = (0..2001)
+        .map(|index| char::from(b'a' + (index % 26) as u8).to_string())
+        .collect();
+    let result = tool_result_for(lines.join("\n"), None).await;
+    let expected = format!("{TOOL_RESULT_CAP_PREFIX}{}", lines[1..].join("\n"));
+    assert_eq!(tool_result_text(&result), expected);
+    assert_eq!(result.details, None);
+}
+
+#[tokio::test]
+async fn caps_tool_result_text_at_the_byte_limit() {
+    let result = tool_result_for("a".repeat(20000), None).await;
+    let expected = format!("{TOOL_RESULT_CAP_PREFIX}{}", "a".repeat(9567));
+    assert_eq!(tool_result_text(&result), expected);
+}
+
+#[tokio::test]
+async fn caps_tool_result_text_by_utf16_code_units() {
+    let result = tool_result_for(format!("a{}", "😀".repeat(3000)), None).await;
+    let expected = format!("{TOOL_RESULT_CAP_PREFIX}\u{FFFD}{}", "😀".repeat(2430));
+    assert_eq!(tool_result_text(&result), expected);
+}
+
+#[tokio::test]
+async fn caps_tool_result_details_with_a_capped_preview() {
+    let result = tool_result_for("small".to_owned(), Some(json!({"value": "y".repeat(20000)}))).await;
+    assert_eq!(tool_result_text(&result), "small");
+    let details = result.details.expect("details must survive capping");
+    assert_eq!(details["truncated"], json!(true));
+    assert_eq!(details["reason"], json!("tool result details exceeded storage cap"));
+    assert_eq!(details["maxBytes"], json!(10240));
+    assert_eq!(details["maxLines"], json!(2000));
+    let preview = details["preview"].as_str().expect("preview must be text");
+    assert!(preview.starts_with(TOOL_RESULT_CAP_PREFIX));
+    assert!(preview.ends_with("\"}"));
+    assert_eq!(preview.len(), TOOL_RESULT_CAP_PREFIX.len() + 9574);
+}
+
+#[tokio::test]
+async fn leaves_small_tool_results_unchanged() {
+    let result = tool_result_for("small".to_owned(), Some(json!({"ok": true}))).await;
+    assert_eq!(tool_result_text(&result), "small");
+    assert_eq!(result.details, Some(json!({"ok": true})));
+}
