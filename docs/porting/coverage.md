@@ -220,13 +220,13 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/utils/truncate.ts` | 350 | 0 | partial |  |  |
 | `agent/src/harness/telemetry.ts` | 615 | 1 | todo |  |  |
 | `agent/src/proxy.ts` | 370 | 4 | todo |  |  |
-| `agent/src/types.ts` | 470 | 4 | partial |  |  |
+| `agent/src/types.ts` | 470 | 4 | done | `crates/pi-agent-core/src/agent/types.rs` | Full export set; `AgentMessage` custom variant is a raw JSON object; see `agent-types.md`. |
 | `agent/src/harness/compaction/utils.ts` | 163 | 5 | partial |  |  |
 | `agent/src/harness/messages.ts` | 188 | 5 | partial |  |  |
 | `agent/src/harness/session/session.ts` | 340 | 5 | todo |  |  |
 | `agent/src/harness/session/types.ts` | 406 | 5 | todo |  |  |
 | `agent/src/harness/types.ts` | 320 | 5 | partial |  |  |
-| `agent/src/stream-fn.ts` | 20 | 5 | todo |  |  |
+| `agent/src/stream-fn.ts` | 20 | 5 | done | `crates/pi-agent-core/src/agent/stream_fn.rs` | Process-global default stream fn; exact missing-default error; see `agent-stream-fn.md`. |
 | `agent/src/agent-loop.ts` | 1028 | 6 | todo |  |  |
 | `agent/src/harness/env/nodejs.ts` | 695 | 6 | todo |  |  |
 | `agent/src/harness/prompt-templates.ts` | 262 | 6 | partial |  |  |
