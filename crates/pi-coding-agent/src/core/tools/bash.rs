@@ -1,9 +1,9 @@
 //! Ported from `packages/coding-agent/src/core/tools/bash.ts`.
 //!
 //! Local shell execution with streaming output, throttled updates, timeout and
-//! abort mapping, and tail truncation with a full-output spill file. Renderers
-//! are pending `theme.ts`. The runner-owned detach path needs the unported
-//! `detached-job-runner` lifecycle controller.
+//! abort mapping, and tail truncation with a full-output spill file. The
+//! runner-owned detach path needs the unported `detached-job-runner` lifecycle
+//! controller.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -17,19 +17,24 @@ use std::time::{Duration, Instant};
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::string::{js_trim, js_trim_end};
 use pi_tui::Text;
-use pi_tui::tui::ComponentRef;
+use pi_tui::tui::{Component, ComponentRef, Container};
+use pi_tui::utils::truncate_to_width_with;
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 
 use super::node_fs::node_error_code;
 use super::output_accumulator::{OutputAccumulator, OutputAccumulatorOptions, SnapshotOptions};
-use super::render_utils::{invalid_arg_text, str_value};
+use super::render_utils::{get_text_output, invalid_arg_text, str_value};
+use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
-use super::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, format_size};
-use crate::core::extensions::types::{ExtensionTheme, ToolDefinition, ToolRenderContext};
-use crate::core::extensions::wrapper::create_tool_definition_from_agent_tool;
+use super::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, TruncationResult, format_size};
+use crate::core::extensions::types::{ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::modes::interactive::components::keybinding_hints::key_hint;
+use crate::modes::interactive::components::visual_truncate::truncate_to_visual_lines;
+use crate::modes::interactive::theme::{Theme, ThemeColor, current_theme};
 use crate::utils::shell::{
     CommandTransport, get_shell_config, get_shell_env, kill_process_tree, track_detached_child_pid,
     untrack_detached_child_pid,
@@ -768,37 +773,211 @@ fn format_js_number(value: f64) -> String {
     }
 }
 
-fn format_bash_call(args: &Value, theme: &dyn ExtensionTheme) -> String {
+fn format_bash_call(args: &Value) -> String {
+    let theme = current_theme();
     let command = str_value(args.get("command"));
     let timeout = args.get("timeout").and_then(Value::as_f64);
     let timeout_suffix = match timeout {
-        Some(timeout) if timeout != 0.0 => theme.fg("muted", &format!(" (timeout {}s)", format_js_number(timeout))),
+        Some(timeout) if timeout != 0.0 => {
+            theme.fg(ThemeColor::Muted, &format!(" (timeout {}s)", format_js_number(timeout)))
+        }
         _ => String::new(),
     };
     let command_display = match command {
-        None => invalid_arg_text(theme),
-        Some(command) if command.is_empty() => theme.fg("toolOutput", "..."),
+        None => invalid_arg_text(&theme),
+        Some(command) if command.is_empty() => theme.fg(ThemeColor::ToolOutput, "..."),
         Some(command) => command,
     };
     format!(
         "{}{timeout_suffix}",
-        theme.fg("toolTitle", &theme.bold(&format!("$ {command_display}")))
+        theme.fg(ThemeColor::ToolTitle, &theme.bold(&format!("$ {command_display}")))
     )
 }
 
 /// `renderCall` for the bash tool.
-pub fn render_call(args: &Value, theme: &dyn ExtensionTheme, _context: &ToolRenderContext) -> ComponentRef {
-    Rc::new(RefCell::new(Text::new(format_bash_call(args, theme), 0, 0)))
+pub fn render_call(args: &Value, _theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
+    Rc::new(RefCell::new(Text::new(format_bash_call(args), 0, 0)))
 }
 
-/// `createBashToolDefinition`: the bash tool plus its call renderer.
-///
-/// `renderResult` remains a gap: the collapsed preview needs
-/// `components/visual-truncate.ts`.
+const BASH_PREVIEW_LINES: usize = 5;
+
+fn format_duration(ms: f64) -> String {
+    format!("{:.1}s", ms / 1000.0)
+}
+
+fn now_millis() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as f64)
+        .unwrap_or_default()
+}
+
+/// Collapsed bash output: the last `BASH_PREVIEW_LINES` visual lines plus a hint.
+struct BashPreviewComponent {
+    styled_output: String,
+    theme: Theme,
+}
+
+impl Component for BashPreviewComponent {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        let preview = truncate_to_visual_lines(&self.styled_output, BASH_PREVIEW_LINES, width, 0);
+        if preview.skipped_count > 0 {
+            let hint = format!(
+                "{} {}{}",
+                self.theme.fg(
+                    ThemeColor::Muted,
+                    &format!("... ({} earlier lines,", preview.skipped_count)
+                ),
+                key_hint("app.tools.expand", "to expand"),
+                self.theme.fg(ThemeColor::Muted, ")")
+            );
+            let mut lines = vec![String::new(), truncate_to_width_with(&hint, width, "...", false)];
+            lines.extend(preview.visual_lines);
+            return lines;
+        }
+        let mut lines = vec![String::new()];
+        lines.extend(preview.visual_lines);
+        lines
+    }
+
+    fn wants_input(&self) -> bool {
+        false
+    }
+}
+
+fn truncation_details(result: &AgentToolResult) -> Option<TruncationResult> {
+    result
+        .details
+        .as_ref()
+        .and_then(|details| details.get("truncation"))
+        .and_then(|value| serde_json::from_value::<TruncationResult>(value.clone()).ok())
+}
+
+fn full_output_path(result: &AgentToolResult) -> Option<String> {
+    result
+        .details
+        .as_ref()
+        .and_then(|details| details.get("fullOutputPath"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
+fn strip_truncation_footer(
+    output: &str,
+    truncation: Option<&TruncationResult>,
+    full_output_path: Option<&str>,
+) -> String {
+    let Some(full_output_path) = full_output_path else {
+        return output.to_owned();
+    };
+    if !truncation.is_some_and(|truncation| truncation.truncated) || !output.ends_with(']') {
+        return output.to_owned();
+    }
+    let Some(footer_start) = output.rfind("\n\n[") else {
+        return output.to_owned();
+    };
+    if !output[footer_start..].contains(full_output_path) {
+        return output.to_owned();
+    }
+    js_trim_end(&output[..footer_start]).to_owned()
+}
+
+fn format_truncation_warnings(truncation: Option<&TruncationResult>, full_output_path: Option<&str>) -> Option<String> {
+    if !truncation.is_some_and(|truncation| truncation.truncated) && full_output_path.is_none() {
+        return None;
+    }
+    let mut warnings = Vec::new();
+    if let Some(full_output_path) = full_output_path {
+        warnings.push(format!("Full output: {full_output_path}"));
+    }
+    if let Some(truncation) = truncation.filter(|truncation| truncation.truncated) {
+        if truncation.truncated_by == Some(TruncatedBy::Lines) {
+            warnings.push(format!(
+                "Truncated: showing {} of {} lines",
+                truncation.output_lines, truncation.total_lines
+            ));
+        } else {
+            warnings.push(format!(
+                "Truncated: {} lines shown ({} limit)",
+                truncation.output_lines,
+                format_size(truncation.max_bytes)
+            ));
+        }
+    }
+    Some(warnings.join(". "))
+}
+
+/// `renderResult` for the bash tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    let mut component = Container::new();
+    let truncation = truncation_details(result);
+    let full_output_path = full_output_path(result);
+
+    let output = js_trim(&get_text_output(Some(result), context.show_images)).to_owned();
+    let output = if !options.is_partial {
+        strip_truncation_footer(&output, truncation.as_ref(), full_output_path.as_deref())
+    } else {
+        output
+    };
+
+    if !output.is_empty() {
+        let styled_output = output
+            .split('\n')
+            .map(|line| theme.fg(ThemeColor::ToolOutput, line))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if options.expanded {
+            component.add_child(Rc::new(RefCell::new(Text::new(format!("\n{styled_output}"), 0, 0))));
+        } else {
+            component.add_child(Rc::new(RefCell::new(BashPreviewComponent {
+                styled_output,
+                theme: theme.clone(),
+            })));
+        }
+    }
+
+    if let Some(warnings) = format_truncation_warnings(truncation.as_ref(), full_output_path.as_deref()) {
+        component.add_child(Rc::new(RefCell::new(Text::new(
+            format!("\n{}", theme.fg(ThemeColor::Warning, &format!("[{warnings}]"))),
+            0,
+            0,
+        ))));
+    }
+
+    if let Some(started_at) = context.state.get("startedAt").and_then(Value::as_f64) {
+        let ended_at = context
+            .state
+            .get("endedAt")
+            .and_then(Value::as_f64)
+            .unwrap_or_else(now_millis);
+        let label = if options.is_partial { "Elapsed" } else { "Took" };
+        component.add_child(Rc::new(RefCell::new(Text::new(
+            format!(
+                "\n{}",
+                theme.fg(
+                    ThemeColor::Muted,
+                    &format!("{label} {}", format_duration(ended_at - started_at))
+                )
+            ),
+            0,
+            0,
+        ))));
+    }
+
+    Rc::new(RefCell::new(component))
+}
+
+/// `createBashToolDefinition`: the bash tool plus its renderers.
 pub fn create_bash_tool_definition(cwd: &str, options: BashToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(BashTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
     definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }
 

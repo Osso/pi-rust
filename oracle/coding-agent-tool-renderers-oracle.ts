@@ -23,17 +23,20 @@ type Definition = {
 	) => { render(width: number): string[] };
 };
 
-const fakeTheme = {
-	fg: (color: string, text: string) => `[fg:${color}]${text}[/]`,
-	bg: (color: string, text: string) => `[bg:${color}]${text}[/]`,
-	bold: (text: string) => `[bold]${text}[/]`,
-};
+async function loadTheme(sourcePath: string): Promise<unknown> {
+	const themeModule = (await import(
+		pathToFileURL(join(dirname(sourcePath), "../../modes/interactive/theme/theme.ts")).href
+	)) as { initTheme(name?: string): void; theme: unknown };
+	themeModule.initTheme("dark");
+	return themeModule.theme;
+}
 
 async function loadFactories(sourcePath: string): Promise<Record<string, (cwd: string) => Definition>> {
 	const load = async (name: string) => (await import(pathToFileURL(join(dirname(sourcePath), name)).href)) as Record<string, unknown>;
-	const [read, write, ls, grep, find, codeIndex, bash] = await Promise.all([
+	const [read, write, edit, ls, grep, find, codeIndex, bash] = await Promise.all([
 		load("read.ts"),
 		load("write.ts"),
+		load("edit.ts"),
 		load("ls.ts"),
 		load("grep.ts"),
 		load("find.ts"),
@@ -43,6 +46,7 @@ async function loadFactories(sourcePath: string): Promise<Record<string, (cwd: s
 	return {
 		read: read.createReadToolDefinition as (cwd: string) => Definition,
 		write: write.createWriteToolDefinition as (cwd: string) => Definition,
+		edit: edit.createEditToolDefinition as (cwd: string) => Definition,
 		ls: ls.createLsToolDefinition as (cwd: string) => Definition,
 		grep: grep.createGrepToolDefinition as (cwd: string) => Definition,
 		find: find.createFindToolDefinition as (cwd: string) => Definition,
@@ -54,9 +58,11 @@ async function loadFactories(sourcePath: string): Promise<Record<string, (cwd: s
 }
 
 const factories = loadFactories(process.argv[2] ?? "");
+const theme = loadTheme(process.argv[2] ?? "");
 
 void runOracle(async (_module, request) => {
 	const available = await factories;
+	const activeTheme = await theme;
 	const cwd = String(request.cwd);
 	const results = [];
 	for (const value of requireCases(request)) {
@@ -82,13 +88,13 @@ void runOracle(async (_module, request) => {
 			let component: { render(width: number): string[] };
 			if (input.kind === "call") {
 				if (!definition.renderCall) throw new Error(`${input.tool} has no renderCall`);
-				component = definition.renderCall(input.args ?? {}, fakeTheme, context);
+				component = definition.renderCall(input.args ?? {}, activeTheme, context);
 			} else {
 				if (!definition.renderResult) throw new Error(`${input.tool} has no renderResult`);
 				component = definition.renderResult(
 					input.result ?? { content: [] },
 					{ expanded: context.expanded, isPartial: false },
-					fakeTheme,
+					activeTheme,
 					context,
 				);
 			}

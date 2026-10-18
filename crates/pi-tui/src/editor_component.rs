@@ -6,6 +6,7 @@
 use std::rc::Rc;
 
 use crate::autocomplete::AutocompleteProvider;
+use crate::components::loader::LoaderIndicatorOptions;
 use crate::components::text::StyleFn;
 use crate::tui::Component;
 
@@ -30,6 +31,21 @@ pub trait EditorComponent: Component {
     fn set_padding_x(&mut self, _padding: usize) {}
 
     fn set_autocomplete_max_visible(&mut self, _max_visible: usize) {}
+
+    /// Whether the editor implements the working-prompt animation surface
+    /// (the source's `setWorking`/`setWorkingIndicator`/`setScreenOrigin`/
+    /// `clearScreenOrigin` presence check).
+    fn supports_working_prompt(&self) -> bool {
+        false
+    }
+
+    fn set_working(&mut self, _working: bool) {}
+
+    fn set_working_indicator(&mut self, _options: Option<LoaderIndicatorOptions>) {}
+
+    fn set_screen_origin(&mut self, _row: i64, _col: i64) {}
+
+    fn clear_screen_origin(&mut self) {}
 }
 
 impl EditorComponent for crate::components::editor::Editor {
@@ -67,5 +83,26 @@ impl EditorComponent for crate::components::editor::Editor {
 
     fn set_autocomplete_max_visible(&mut self, max_visible: usize) {
         crate::components::editor::Editor::set_autocomplete_max_visible(self, max_visible);
+    }
+
+    fn supports_working_prompt(&self) -> bool {
+        true
+    }
+
+    fn set_working(&mut self, working: bool) {
+        crate::components::editor::Editor::set_working(self, working);
+    }
+
+    fn set_working_indicator(&mut self, options: Option<LoaderIndicatorOptions>) {
+        crate::components::editor::Editor::set_working_indicator(self, options)
+            .expect("working indicator frames must occupy one cell; callers validate first");
+    }
+
+    fn set_screen_origin(&mut self, row: i64, col: i64) {
+        crate::components::editor::Editor::set_screen_origin(self, row, col);
+    }
+
+    fn clear_screen_origin(&mut self) {
+        crate::components::editor::Editor::clear_screen_origin(self);
     }
 }

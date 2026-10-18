@@ -1,14 +1,18 @@
 //! Ported from `packages/coding-agent/src/core/tools/edit.ts`.
 //!
 //! Queued exact-text replacements with fuzzy/CRLF handling delegated to the
-//! shared `edit_diff` module. Renderers are pending `theme.ts`.
+//! shared `edit_diff` module.
 
+use std::cell::RefCell;
 use std::io;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_tui::tui::{ComponentRef, Container};
+use pi_tui::{Box as BoxComponent, Spacer, Text};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
@@ -19,6 +23,11 @@ use super::edit_diff::{
 use super::file_mutation_queue::with_file_mutation_queue;
 use super::node_fs::node_error_code;
 use super::path_utils::resolve_to_cwd;
+use super::render_utils::{render_tool_path, str_value};
+use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
+use crate::core::extensions::types::{RenderShell, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::modes::interactive::components::diff::render_diff;
+use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor};
 
 const DESCRIPTION: &str = "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.";
 const DIFF_CONTEXT_LINES: usize = 4;
@@ -281,4 +290,90 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
         return Err(ToolError::new("Operation aborted"));
     }
     Ok(())
+}
+
+// ============================================================================
+// Renderers
+// ============================================================================
+
+fn render_args_path(args: &Value) -> Option<String> {
+    str_value(args.get("file_path").or_else(|| args.get("path")))
+}
+
+fn format_edit_call(args: &Value, theme: &Theme, cwd: &str) -> String {
+    let path_display = render_tool_path(render_args_path(args).as_deref(), theme, cwd, None);
+    format!(
+        "{} {path_display}",
+        theme.fg(ThemeColor::ToolTitle, &theme.bold("edit"))
+    )
+}
+
+fn format_edit_result(_args: &Value, result: &AgentToolResult, theme: &Theme, is_error: bool) -> Option<String> {
+    if is_error {
+        let error_text = result
+            .content
+            .iter()
+            .filter_map(|entry| match entry {
+                TextOrImageContent::Text(text) => Some(text.text.as_str()),
+                TextOrImageContent::Image(_) => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        if error_text.is_empty() {
+            return None;
+        }
+        return Some(theme.fg(ThemeColor::Error, &error_text));
+    }
+
+    let result_diff = result
+        .details
+        .as_ref()
+        .and_then(|details| details.get("diff"))
+        .and_then(Value::as_str)
+        .filter(|diff| !diff.is_empty())?;
+    Some(render_diff(result_diff))
+}
+
+/// `renderCall` for the edit tool.
+pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+    let theme = Arc::new(theme.clone());
+    let background_theme = Arc::clone(&theme);
+    let mut component = BoxComponent::new(
+        1,
+        1,
+        Some(Rc::new(move |text: &str| {
+            background_theme.bg(ThemeBg::ToolPendingBg, text)
+        })),
+    );
+    component.add_child(Rc::new(RefCell::new(Text::new(
+        format_edit_call(args, theme.as_ref(), &context.cwd),
+        0,
+        0,
+    ))));
+    Rc::new(RefCell::new(component))
+}
+
+/// `renderResult` for the edit tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    _options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    let mut component = Container::new();
+    if let Some(output) = format_edit_result(&context.args, result, theme, context.is_error) {
+        component.add_child(Rc::new(RefCell::new(Spacer::new(1))));
+        component.add_child(Rc::new(RefCell::new(Text::new(output, 1, 0))));
+    }
+    Rc::new(RefCell::new(component))
+}
+
+/// `createEditToolDefinition`: the edit tool plus its renderers.
+pub fn create_edit_tool_definition(cwd: &str, options: EditToolOptions) -> ToolDefinition {
+    let tool: Arc<dyn AgentTool> = Arc::new(EditTool::with_options(cwd, options));
+    let mut definition = create_tool_definition_from_agent_tool(tool);
+    definition.render_shell = Some(RenderShell::SelfRender);
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
+    definition
 }

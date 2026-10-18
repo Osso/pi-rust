@@ -21,8 +21,10 @@ default-implemented methods.
 | `borderColor?` | default `set_border_color` | `custom_theme_border_color_is_used` |
 | `setPaddingX?(padding)` | default `set_padding_x` | padding tests |
 | `setAutocompleteMaxVisible?(maxVisible)` | default `set_autocomplete_max_visible` | differential autocomplete options |
+| `setWorking?` / `setWorkingIndicator?` / `setScreenOrigin?` / `clearScreenOrigin?` | default no-ops + `supports_working_prompt` opt-in; `Editor` overrides all four | `crates/pi-coding-agent/tests/interactive_workflows.rs` (working-editor) |
 
 Typed Rust exclusions: callbacks are `Option<Rc<dyn Fn(&str)>>` fields rather
-than assignable properties; optional methods cannot be distinguished from
-present-but-default implementations at runtime. `Editor` implements every
-method.
+than assignable properties. Optional methods cannot be distinguished from
+present-but-default implementations at runtime, so the working-prompt methods
+are guarded by the explicit `supports_working_prompt` capability flag. `Editor`
+implements every method.

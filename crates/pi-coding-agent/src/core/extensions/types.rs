@@ -39,6 +39,7 @@ use crate::core::slash_commands::SlashCommandInfo;
 use crate::core::source_info::SourceInfo;
 use crate::core::system_prompt::BuildSystemPromptOptions;
 use crate::core::tool_detach_registry::ToolDetachRegistry;
+use crate::modes::interactive::theme::{Theme, current_theme};
 
 use super::extension_runtime::ExtensionRuntime;
 
@@ -281,34 +282,6 @@ pub struct ThemeSetResult {
     pub error: Option<String>,
 }
 
-/// Styling surface used by the runner and renderers.
-///
-/// The interactive `Theme` object is owned by the interactive-mode port; this
-/// trait carries the styling operation the extension API observes.
-pub trait ExtensionTheme: Send + Sync {
-    /// Style `text` with the named theme color.
-    fn fg(&self, color: &str, text: &str) -> String;
-
-    /// Style `text` with the named theme background color.
-    fn bg(&self, _color: &str, text: &str) -> String {
-        text.to_owned()
-    }
-
-    /// Bold `text`.
-    fn bold(&self, text: &str) -> String {
-        text.to_owned()
-    }
-}
-
-/// Identity theme used when no UI is bound.
-pub struct PlainTheme;
-
-impl ExtensionTheme for PlainTheme {
-    fn fg(&self, _color: &str, text: &str) -> String {
-        text.to_owned()
-    }
-}
-
 /// UI surface exposed to extensions. Defaults match the source `noOpUIContext`.
 ///
 /// Component-factory overloads (`setWidget` factory form, `setFooter`,
@@ -395,8 +368,8 @@ pub trait ExtensionUiContext: Send + Sync {
 
     fn set_tools_expanded(&self, _expanded: bool) {}
 
-    fn theme_fg(&self, _color: &str, text: &str) -> String {
-        text.to_owned()
+    fn theme(&self) -> Arc<Theme> {
+        current_theme()
     }
 }
 
@@ -821,6 +794,17 @@ impl ExtensionContext {
         state.assert_active()?;
         state.schedule_tool_result_relocation(tool_call_id, target_cwd)
     }
+
+    pub fn switch_session(
+        &self,
+        session_path: String,
+        options: Option<SwitchSessionOptions>,
+    ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>> {
+        match self.read(|state| Arc::clone(&state.switch_session_handler)) {
+            Ok(handler) => handler(session_path, options),
+            Err(error) => Box::pin(async move { Err(error) }),
+        }
+    }
 }
 
 /// `ctx` passed to command handlers.
@@ -993,13 +977,10 @@ pub type ToolExecute = Arc<
         + Sync,
 >;
 
-pub type ToolRenderer = Arc<dyn Fn(&Value, &dyn ExtensionTheme, &ToolRenderContext) -> ComponentRef + Send + Sync>;
+pub type ToolRenderer = Arc<dyn Fn(&Value, &Theme, &ToolRenderContext) -> ComponentRef + Send + Sync>;
 
-pub type ToolResultRenderer = Arc<
-    dyn Fn(&AgentToolResult, &ToolRenderResultOptions, &dyn ExtensionTheme, &ToolRenderContext) -> ComponentRef
-        + Send
-        + Sync,
->;
+pub type ToolResultRenderer =
+    Arc<dyn Fn(&AgentToolResult, &ToolRenderResultOptions, &Theme, &ToolRenderContext) -> ComponentRef + Send + Sync>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -1966,10 +1947,9 @@ pub struct EntryRenderOptions {
 pub type MarkdownTransformer = Arc<dyn Fn(&str, &MarkdownTransformContext) -> String + Send + Sync>;
 
 pub type MessageRenderer =
-    Arc<dyn Fn(&CustomMessageValue, &MessageRenderOptions, &dyn ExtensionTheme) -> Option<ComponentRef> + Send + Sync>;
+    Arc<dyn Fn(&CustomMessageValue, &MessageRenderOptions, &Theme) -> Option<ComponentRef> + Send + Sync>;
 
-pub type EntryRenderer =
-    Arc<dyn Fn(&CustomEntry, &EntryRenderOptions, &dyn ExtensionTheme) -> Option<ComponentRef> + Send + Sync>;
+pub type EntryRenderer = Arc<dyn Fn(&CustomEntry, &EntryRenderOptions, &Theme) -> Option<ComponentRef> + Send + Sync>;
 
 /// Custom message shape passed to renderers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

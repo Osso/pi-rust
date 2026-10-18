@@ -12,8 +12,10 @@ use pi_js_compat::string::js_trim;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::context::ToolContext;
+use std::sync::Arc;
+
 use super::result::terminating_text_result;
+use crate::core::extensions::types::{ExtensionContext, SwitchSessionOptions, UserMessageContent};
 use crate::core::session_control_db::{
     SessionMetadata, find_active_session_metadata_by_id, find_active_session_metadata_by_name,
 };
@@ -170,24 +172,29 @@ fn merge_by_path(groups: Vec<Vec<SessionInfo>>) -> Vec<SessionInfo> {
     order.into_iter().filter_map(|path| by_path.remove(&path)).collect()
 }
 
-fn list_local_and_session_dir_sessions(context: &ToolContext) -> Result<Vec<SessionInfo>, ToolError> {
-    let control_db_path = context.control_db_path.as_deref();
+fn list_local_and_session_dir_sessions(
+    session: &SessionManager,
+    control_db_path: Option<&str>,
+) -> Result<Vec<SessionInfo>, ToolError> {
     let local = SessionManager::list(
-        context.session.get_cwd(),
-        Some(context.session.get_session_dir()),
+        session.get_cwd(),
+        Some(session.get_session_dir()),
         None,
         control_db_path,
     )
     .map_err(|error| ToolError::new(error.to_string()))?;
-    let session_dir = SessionManager::list_all(Some(context.session.get_session_dir()), None, control_db_path)
+    let session_dir = SessionManager::list_all(Some(session.get_session_dir()), None, control_db_path)
         .map_err(|error| ToolError::new(error.to_string()))?;
     Ok(merge_by_path(vec![local, session_dir]))
 }
 
-fn list_all_resolvable_sessions(context: &ToolContext) -> Result<Vec<SessionInfo>, ToolError> {
-    let scoped = list_local_and_session_dir_sessions(context)?;
-    let default_sessions = SessionManager::list_all(None, None, context.control_db_path.as_deref())
-        .map_err(|error| ToolError::new(error.to_string()))?;
+fn list_all_resolvable_sessions(
+    session: &SessionManager,
+    control_db_path: Option<&str>,
+) -> Result<Vec<SessionInfo>, ToolError> {
+    let scoped = list_local_and_session_dir_sessions(session, control_db_path)?;
+    let default_sessions =
+        SessionManager::list_all(None, None, control_db_path).map_err(|error| ToolError::new(error.to_string()))?;
     Ok(merge_by_path(vec![scoped, default_sessions]))
 }
 
@@ -211,8 +218,8 @@ fn resolvable_session_from_metadata(metadata: &SessionMetadata) -> ResolvableSes
     }
 }
 
-fn sessions_in_current_directory(sessions: Vec<ResolvableSession>, context: &ToolContext) -> Vec<ResolvableSession> {
-    let session_dir = resolve_session_path(context.session.get_session_dir());
+fn sessions_in_current_directory(sessions: Vec<ResolvableSession>, session: &SessionManager) -> Vec<ResolvableSession> {
+    let session_dir = resolve_session_path(session.get_session_dir());
     let prefix = format!("{session_dir}/");
     sessions
         .into_iter()
@@ -222,9 +229,9 @@ fn sessions_in_current_directory(sessions: Vec<ResolvableSession>, context: &Too
 
 fn find_metadata_sessions(
     params: &ResumeSessionParams,
-    context: &ToolContext,
+    control_db_path: Option<&str>,
 ) -> Result<Vec<ResolvableSession>, ToolError> {
-    let Some(control_db_path) = context.control_db_path.as_deref() else {
+    let Some(control_db_path) = control_db_path else {
         return Ok(Vec::new());
     };
     let metadata = match &params.name {
@@ -257,72 +264,84 @@ fn unique_name_match(sessions: Vec<&ResolvableSession>, label: &str) -> Result<R
     find_unique_session_match(sessions, label).cloned()
 }
 
-fn resolve_resume_session_file(params: &ResumeSessionParams, context: &ToolContext) -> Result<String, ToolError> {
+fn resolve_resume_session_file(
+    params: &ResumeSessionParams,
+    cwd: &str,
+    session: &SessionManager,
+    control_db_path: Option<&str>,
+) -> Result<String, ToolError> {
     if let Some(path) = &params.path {
-        let resolved = resolve_path(path, &context.cwd, &PathInputOptions::default())
-            .map_err(|error| ToolError::new(error.to_string()))?;
+        let resolved =
+            resolve_path(path, cwd, &PathInputOptions::default()).map_err(|error| ToolError::new(error.to_string()))?;
         return assert_resume_session_path(&resolved);
     }
 
     if let Some(name) = &params.name {
         let label = format!("name '{name}'");
-        let metadata_sessions = find_metadata_sessions(params, context)?;
-        let scoped_metadata = sessions_in_current_directory(metadata_sessions.clone(), context);
+        let metadata_sessions = find_metadata_sessions(params, control_db_path)?;
+        let scoped_metadata = sessions_in_current_directory(metadata_sessions.clone(), session);
         if !scoped_metadata.is_empty() {
             return assert_resume_session_path(&unique_name_match(scoped_metadata.iter().collect(), &label)?.path);
         }
         if !metadata_sessions.is_empty() {
             return assert_resume_session_path(&unique_name_match(metadata_sessions.iter().collect(), &label)?.path);
         }
-        let scoped_matches: Vec<ResolvableSession> = resolvable_sessions(list_local_and_session_dir_sessions(context)?)
-            .into_iter()
-            .filter(|session| session.name.as_deref() == Some(name.as_str()))
-            .collect();
+        let scoped_matches: Vec<ResolvableSession> =
+            resolvable_sessions(list_local_and_session_dir_sessions(session, control_db_path)?)
+                .into_iter()
+                .filter(|session| session.name.as_deref() == Some(name.as_str()))
+                .collect();
         if !scoped_matches.is_empty() {
             return assert_resume_session_path(&unique_name_match(scoped_matches.iter().collect(), &label)?.path);
         }
-        let all_matches: Vec<ResolvableSession> = resolvable_sessions(list_all_resolvable_sessions(context)?)
-            .into_iter()
-            .filter(|session| session.name.as_deref() == Some(name.as_str()))
-            .collect();
+        let all_matches: Vec<ResolvableSession> =
+            resolvable_sessions(list_all_resolvable_sessions(session, control_db_path)?)
+                .into_iter()
+                .filter(|session| session.name.as_deref() == Some(name.as_str()))
+                .collect();
         return assert_resume_session_path(&unique_name_match(all_matches.iter().collect(), &label)?.path);
     }
 
     let Some(id) = &params.id else {
         return Err(ToolError::new("resume_session requires { path }, { id }, or { name }"));
     };
-    find_session_file_by_id(id, context)
+    find_session_file_by_id(id, session, control_db_path)
 }
 
 /// `findSessionFileById`.
-pub fn find_session_file_by_id(id: &str, context: &ToolContext) -> Result<String, ToolError> {
+pub fn find_session_file_by_id(
+    id: &str,
+    session: &SessionManager,
+    control_db_path: Option<&str>,
+) -> Result<String, ToolError> {
     let params = ResumeSessionParams {
         id: Some(id.to_owned()),
         ..Default::default()
     };
-    let metadata_sessions = find_metadata_sessions(&params, context)?;
+    let metadata_sessions = find_metadata_sessions(&params, control_db_path)?;
     let scoped_metadata_match =
-        find_resume_session_by_id(&sessions_in_current_directory(metadata_sessions.clone(), context), id)?;
+        find_resume_session_by_id(&sessions_in_current_directory(metadata_sessions.clone(), session), id)?;
     if let Some(matched) = scoped_metadata_match {
         return assert_resume_session_path(&matched.path);
     }
     if let Some(matched) = find_resume_session_by_id(&metadata_sessions, id)? {
         return assert_resume_session_path(&matched.path);
     }
-    if let Some(matched) =
-        find_resume_session_by_id(&resolvable_sessions(list_local_and_session_dir_sessions(context)?), id)?
-    {
+    if let Some(matched) = find_resume_session_by_id(
+        &resolvable_sessions(list_local_and_session_dir_sessions(session, control_db_path)?),
+        id,
+    )? {
         return assert_resume_session_path(&matched.path);
     }
-    let all_sessions = resolvable_sessions(list_all_resolvable_sessions(context)?);
+    let all_sessions = resolvable_sessions(list_all_resolvable_sessions(session, control_db_path)?);
     let Some(matched) = find_resume_session_by_id(&all_sessions, id)? else {
         return Err(ToolError::new(format!("No session found matching id '{id}'")));
     };
     assert_resume_session_path(&matched.path)
 }
 
-fn assert_resume_target_is_different(session_path: &str, context: &ToolContext) -> Result<(), ToolError> {
-    if let Some(current_session_path) = context.session.get_session_file()
+fn assert_resume_target_is_different(session_path: &str, session: &SessionManager) -> Result<(), ToolError> {
+    if let Some(current_session_path) = session.get_session_file()
         && resolve_session_path(session_path) == resolve_session_path(current_session_path)
     {
         return Err(ToolError::new("resume_session cannot resume the current session"));
@@ -330,7 +349,7 @@ fn assert_resume_target_is_different(session_path: &str, context: &ToolContext) 
     Ok(())
 }
 
-impl AgentHarnessTool<ToolContext> for ResumeSessionTool {
+impl AgentHarnessTool<ExtensionContext> for ResumeSessionTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -357,25 +376,42 @@ impl AgentHarnessTool<ToolContext> for ResumeSessionTool {
         params: Value,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
-        context: ToolContext,
+        context: ExtensionContext,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
-            let Some(switcher) = context.switch_session.clone() else {
-                return Err(ToolError::new("resume_session is not available in this session mode"));
-            };
-            if context.multi_agent_agent_id.is_some() || context.multi_agent_requires_agent_id {
+            let agent_id = context
+                .multi_agent_agent_id()
+                .map_err(|error| ToolError::new(error.message))?;
+            let requires_agent_id = context
+                .multi_agent_requires_agent_id()
+                .map_err(|error| ToolError::new(error.message))?;
+            if agent_id.is_some() || requires_agent_id {
                 return Err(ToolError::new(
                     "resume_session is only available from the main supervisor session",
                 ));
             }
+            let cwd = context.cwd().map_err(|error| ToolError::new(error.message))?;
+            let session = context
+                .session_manager()
+                .map_err(|error| ToolError::new(error.message))?;
+            let control_db_path = context
+                .control_db_path()
+                .map_err(|error| ToolError::new(error.message))?;
             let resume_params = normalize_resume_session_params(&params)?;
-            let session_path = resolve_resume_session_file(&resume_params, &context)?;
-            assert_resume_target_is_different(&session_path, &context)?;
+            let session_path = resolve_resume_session_file(&resume_params, &cwd, &session, control_db_path.as_deref())?;
+            assert_resume_target_is_different(&session_path, &session)?;
             let starter_prompt = resume_params.starter_prompt.clone();
-            let result = switcher
-                .switch_session(&session_path, starter_prompt.as_deref())
-                .await?;
+            let options = starter_prompt.clone().map(|prompt| SwitchSessionOptions {
+                with_session: Some(Arc::new(move |replaced| {
+                    let prompt = prompt.clone();
+                    Box::pin(async move { (replaced.send_user_message)(UserMessageContent::Text(prompt), None).await })
+                })),
+            });
+            let result = context
+                .switch_session(session_path.clone(), options)
+                .await
+                .map_err(|error| ToolError::new(error.message))?;
             let details = json!({
                 "cancelled": result.cancelled,
                 "resumed": !result.cancelled,

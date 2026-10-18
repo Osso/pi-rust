@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/tools/end-turn.ts` at `532f7d12`.
 
-Rust: `crates/pi-coding-agent/src/core/tools/end_turn.rs` (`EndTurnTool: AgentHarnessTool<ToolContext>`).
+Rust: `crates/pi-coding-agent/src/core/tools/end_turn.rs` (`EndTurnTool: AgentHarnessTool<ExtensionContext>`).
 
 | Source | Rust | Tests |
 |---|---|---|

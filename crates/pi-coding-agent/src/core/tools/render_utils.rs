@@ -1,15 +1,12 @@
 //! Ported from `packages/coding-agent/src/core/tools/render-utils.ts`.
 //!
 //! Pure display helpers plus the text/image result projection shared by tool renderers.
-//! `invalidArgText` and `renderToolPath` need the interactive `Theme` type and are not ported.
 
 use pi_agent_core::agent::AgentToolResult;
 use pi_ai::types::TextOrImageContent;
 use pi_tui::{get_capabilities, get_image_dimensions, hyperlink, image_fallback};
 
-use crate::core::extensions::types::ExtensionTheme;
-use crate::core::keybindings::KeybindingsManager;
-use crate::modes::interactive::theme::{ThemeColor, current_theme};
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::ansi::strip_ansi;
 use crate::utils::paths::{PathInputOptions, resolve_path};
 use crate::utils::shell::sanitize_binary_output;
@@ -110,90 +107,13 @@ fn home_directory() -> String {
     }
 }
 
-/// `formatKeyText`: normalize a key chord list for display.
-pub fn format_key_text(key: &str, capitalize: bool) -> String {
-    key.split('/')
-        .map(|chord| {
-            chord
-                .split('+')
-                .map(|part| {
-                    let display = if cfg!(target_os = "macos") && part.eq_ignore_ascii_case("alt") {
-                        "option"
-                    } else {
-                        part
-                    };
-                    if capitalize {
-                        let mut characters = display.chars();
-                        match characters.next() {
-                            Some(first) => first.to_uppercase().collect::<String>() + characters.as_str(),
-                            None => String::new(),
-                        }
-                    } else {
-                        display.to_owned()
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("+")
-        })
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
-fn global_keybindings() -> &'static KeybindingsManager {
-    static KEYBINDINGS: std::sync::OnceLock<KeybindingsManager> = std::sync::OnceLock::new();
-    KEYBINDINGS.get_or_init(|| KeybindingsManager::create(None))
-}
-
-/// `keyText`: the configured keys for a keybinding id.
-pub fn key_text(keybinding: &str) -> String {
-    let keys = global_keybindings().get_keys(keybinding);
-    if keys.is_empty() {
-        return String::new();
-    }
-    format_key_text(&keys.join("/"), false)
-}
-
-/// `keyDisplayText`: the configured keys with each part capitalized.
-pub fn key_display_text(keybinding: &str) -> String {
-    let keys = global_keybindings().get_keys(keybinding);
-    if keys.is_empty() {
-        return String::new();
-    }
-    format_key_text(&keys.join("/"), true)
-}
-
-/// `keyHint`: dim key text followed by a muted description.
-pub fn key_hint(keybinding: &str, description: &str) -> String {
-    let theme = current_theme();
-    format!(
-        "{}{}",
-        theme.fg(ThemeColor::Dim, &key_text(keybinding)),
-        theme.fg(ThemeColor::Muted, &format!(" {description}"))
-    )
-}
-
-/// `rawKeyHint`: like [`key_hint`] for an explicit key chord.
-pub fn raw_key_hint(key: &str, description: &str) -> String {
-    let theme = current_theme();
-    format!(
-        "{}{}",
-        theme.fg(ThemeColor::Dim, &format_key_text(key, false)),
-        theme.fg(ThemeColor::Muted, &format!(" {description}"))
-    )
-}
-
 /// `invalidArgText`: the error-styled invalid-argument marker.
-pub fn invalid_arg_text(theme: &dyn ExtensionTheme) -> String {
-    theme.fg("error", "[invalid arg]")
+pub fn invalid_arg_text(theme: &Theme) -> String {
+    theme.fg(ThemeColor::Error, "[invalid arg]")
 }
 
 /// `renderToolPath`: accent-styled shortened path wrapped in a file link.
-pub fn render_tool_path(
-    raw_path: Option<&str>,
-    theme: &dyn ExtensionTheme,
-    cwd: &str,
-    empty_fallback: Option<&str>,
-) -> String {
+pub fn render_tool_path(raw_path: Option<&str>, theme: &Theme, cwd: &str, empty_fallback: Option<&str>) -> String {
     let Some(raw_path) = raw_path else {
         return invalid_arg_text(theme);
     };
@@ -203,7 +123,7 @@ pub fn render_tool_path(
         raw_path
     };
     if value.is_empty() {
-        return theme.fg("toolOutput", "...");
+        return theme.fg(ThemeColor::ToolOutput, "...");
     }
-    link_path(&theme.fg("accent", &shorten_path(value)), value, cwd)
+    link_path(&theme.fg(ThemeColor::Accent, &shorten_path(value)), value, cwd)
 }

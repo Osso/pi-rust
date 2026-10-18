@@ -10,8 +10,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::context::ToolContext;
 use super::result::text_result;
+use crate::core::extensions::types::ExtensionContext;
 use crate::core::session_directory::{
     BroadcastSessionFilters, BroadcastSessionsInput, SessionDirectoryOptions, broadcast_to_sessions,
 };
@@ -111,7 +111,7 @@ fn format_broadcast_result(result: &SessionBroadcastResult) -> String {
     )
 }
 
-impl AgentHarnessTool<ToolContext> for BroadcastTool {
+impl AgentHarnessTool<ExtensionContext> for BroadcastTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -138,19 +138,25 @@ impl AgentHarnessTool<ToolContext> for BroadcastTool {
         params: Value,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
-        context: ToolContext,
+        context: ExtensionContext,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
-            let control_db_path = context.require_control_db_path(NAME)?;
-            let session_path = context
-                .session
+            let control_db_path = context
+                .control_db_path()
+                .map_err(|error| ToolError::new(error.message))?
+                .ok_or_else(|| ToolError::new("broadcast requires a control database path"))?;
+            let session = context
+                .session_manager()
+                .map_err(|error| ToolError::new(error.message))?;
+            let session_path = session
                 .get_session_file()
-                .ok_or_else(|| ToolError::new("broadcast requires a persisted session file"))?;
+                .ok_or_else(|| ToolError::new("broadcast requires a persisted session file"))?
+                .to_owned();
             let params: BroadcastParams =
                 serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
             let results = broadcast_to_sessions(
-                control_db_path,
+                &control_db_path,
                 &BroadcastSessionsInput {
                     message: params.message,
                     filters: Some(BroadcastSessionFilters {
@@ -159,9 +165,11 @@ impl AgentHarnessTool<ToolContext> for BroadcastTool {
                         name: params.name,
                         status: parse_statuses(params.status),
                     }),
-                    sender_session_id: context.session.get_session_id().to_owned(),
-                    sender_session_path: session_path.to_owned(),
-                    sender_agent_id: context.multi_agent_agent_id.clone(),
+                    sender_session_id: session.get_session_id().to_owned(),
+                    sender_session_path: session_path,
+                    sender_agent_id: context
+                        .multi_agent_agent_id()
+                        .map_err(|error| ToolError::new(error.message))?,
                 },
                 &SessionDirectoryOptions::default(),
             )
