@@ -14,13 +14,13 @@ use pi_agent_core::agent::types::{
     AgentToolCall, BeforeToolCallContext, PrepareNextTurnContext, ShouldStopAfterTurnContext,
 };
 use pi_agent_core::agent::{Agent, AgentListener};
-use pi_agent_core::harness::types::BeforeToolCallResult;
 use pi_agent_core::harness::compaction::{
     ContextUsageEstimate, calculate_context_tokens, estimate_context_tokens, estimate_tokens,
 };
 use pi_agent_core::harness::messages::{
     BashExecutionMessage, BashExecutionRole, CustomMessageContent, create_custom_message,
 };
+use pi_agent_core::harness::types::BeforeToolCallResult;
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{
@@ -33,16 +33,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
 use crate::core::model_registry::ModelRegistry;
-use crate::core::model_resolver::{
-    ScopedModel, find_exact_model_reference_match, resolve_model_scope,
-};
+use crate::core::model_resolver::{ScopedModel, find_exact_model_reference_match, resolve_model_scope};
 use crate::core::model_runtime::ModelRuntime;
 use crate::core::permissions::policy::{ApprovalPolicy, evaluate_approval_policy};
 use crate::core::prompt_templates::expand_prompt_template;
 use crate::core::resource_loader::{LoadedPrompts, ResourceLoader};
-use crate::core::session_manager::{
-    SessionEntry, SessionManager, SessionManagerError, get_latest_compaction_entry,
-};
+use crate::core::session_manager::{SessionEntry, SessionManager, SessionManagerError, get_latest_compaction_entry};
 use crate::core::settings_manager::SettingsManager;
 use crate::core::slash_commands::builtin_slash_commands;
 use crate::core::source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info};
@@ -575,11 +571,7 @@ fn without_deleted_headers(headers: Option<&ProviderHeaders>) -> Option<Provider
     })
 }
 
-fn is_allowed_session_tool(
-    name: &str,
-    allowed: Option<&HashSet<String>>,
-    excluded: Option<&HashSet<String>>,
-) -> bool {
+fn is_allowed_session_tool(name: &str, allowed: Option<&HashSet<String>>, excluded: Option<&HashSet<String>>) -> bool {
     if name == "end_turn" {
         return true;
     }
@@ -722,6 +714,13 @@ fn session_model_message(provider: &str, model_id: &str) -> String {
 // AgentSession
 // =============================================================================
 
+struct CompactionRequestAuth {
+    model: Model,
+    api_key: Option<String>,
+    headers: Option<ProviderHeaders>,
+    env: Option<pi_ai::types::ProviderEnv>,
+}
+
 struct Inner {
     agent: Agent,
     session_manager: Arc<Mutex<SessionManager>>,
@@ -781,6 +780,8 @@ struct Inner {
     extension_error_listener: Mutex<Option<ExtensionErrorListener>>,
     extension_error_unsubscriber: Mutex<Option<ErrorSubscription>>,
     turn_index: AtomicU64,
+    overflow_recovery_attempted: AtomicBool,
+    length_recovery_attempted: AtomicBool,
 }
 
 /// Core session abstraction shared by all run modes.
@@ -792,10 +793,7 @@ pub struct AgentSession {
 impl AgentSession {
     /// Builds a session and installs agent hooks, subscriptions, and tools.
     pub fn new(config: AgentSessionConfig) -> Result<Self, AgentSessionError> {
-        validate_multi_agent_runtime_role(
-            config.multi_agent_runtime_role,
-            config.multi_agent_execution_capability,
-        )?;
+        validate_multi_agent_runtime_role(config.multi_agent_runtime_role, config.multi_agent_execution_capability)?;
 
         let model_runtime = config.model_runtime.clone();
         let model_registry = ModelRegistry::new(model_runtime.clone());
@@ -846,12 +844,8 @@ impl AgentSession {
             tool_prompt_guidelines: Mutex::new(HashMap::new()),
             tool_registry: Mutex::new(HashMap::new()),
             initial_active_tool_names: config.initial_active_tool_names,
-            allowed_tool_names: config
-                .allowed_tool_names
-                .map(|names| names.into_iter().collect()),
-            excluded_tool_names: config
-                .excluded_tool_names
-                .map(|names| names.into_iter().collect()),
+            allowed_tool_names: config.allowed_tool_names.map(|names| names.into_iter().collect()),
+            excluded_tool_names: config.excluded_tool_names.map(|names| names.into_iter().collect()),
             base_system_prompt: Mutex::new(String::new()),
             base_system_prompt_options: Mutex::new(None),
             system_prompt_override: Mutex::new(None),
@@ -891,6 +885,8 @@ impl AgentSession {
             extension_error_listener: Mutex::new(None),
             extension_error_unsubscriber: Mutex::new(None),
             turn_index: AtomicU64::new(0),
+            overflow_recovery_attempted: AtomicBool::new(false),
+            length_recovery_attempted: AtomicBool::new(false),
         });
 
         let session = Self { inner };
@@ -898,11 +894,7 @@ impl AgentSession {
         session.install_agent_next_turn_refresh();
         session.install_duplicate_turn_stop();
         session.subscribe_agent();
-        session.build_runtime(
-            session.inner.initial_active_tool_names.clone(),
-            None,
-            true,
-        );
+        session.build_runtime(session.inner.initial_active_tool_names.clone(), None, true);
         Ok(session)
     }
 
@@ -1046,11 +1038,7 @@ impl AgentSession {
         self.refresh_tool_registry(active_tool_names, include_all_extension_tools);
     }
 
-    fn refresh_tool_registry(
-        &self,
-        active_tool_names: Option<Vec<String>>,
-        include_all_extension_tools: bool,
-    ) {
+    fn refresh_tool_registry(&self, active_tool_names: Option<Vec<String>>, include_all_extension_tools: bool) {
         let previous_registry_names: HashSet<String> = lock(&self.inner.tool_registry).keys().cloned().collect();
         let previous_active_tool_names = self.get_active_tool_names();
         let allowed = self.inner.allowed_tool_names.clone();
@@ -1110,10 +1098,7 @@ impl AgentSession {
                 .collect::<Vec<_>>()
         };
         for (name, entry) in extension_tools {
-            if let Some(existing) = definition_registry
-                .iter_mut()
-                .find(|(tool_name, _)| *tool_name == name)
-            {
+            if let Some(existing) = definition_registry.iter_mut().find(|(tool_name, _)| *tool_name == name) {
                 existing.1 = entry;
             } else {
                 definition_registry.push((name, entry));
@@ -1290,13 +1275,11 @@ impl AgentSession {
         );
         match decision {
             crate::core::permissions::policy::ApprovalPolicyDecision::Allow => None,
-            crate::core::permissions::policy::ApprovalPolicyDecision::Block { reason } => {
-                Some(BeforeToolCallResult {
-                    block: Some(true),
-                    reason: Some(reason),
-                    terminate: None,
-                })
-            }
+            crate::core::permissions::policy::ApprovalPolicyDecision::Block { reason } => Some(BeforeToolCallResult {
+                block: Some(true),
+                reason: Some(reason),
+                terminate: None,
+            }),
             crate::core::permissions::policy::ApprovalPolicyDecision::Review => {
                 if approval_required && runner.has_approval_reviewers() {
                     let mut reviewed = event.clone();
@@ -1389,12 +1372,8 @@ impl AgentSession {
 
     fn reset_duplicate_turn_guard(&self) {
         *lock(&self.inner.last_assistant_turn_fingerprint) = None;
-        self.inner
-            .duplicate_turn_guard_injected
-            .store(false, Ordering::SeqCst);
-        self.inner
-            .duplicate_turn_loop_detected
-            .store(false, Ordering::SeqCst);
+        self.inner.duplicate_turn_guard_injected.store(false, Ordering::SeqCst);
+        self.inner.duplicate_turn_loop_detected.store(false, Ordering::SeqCst);
     }
 
     fn mark_duplicate_assistant_message_for_presentation(&self, message: &mut AssistantMessage) {
@@ -1434,22 +1413,16 @@ impl AgentSession {
         if last.as_deref() != Some(fingerprint.as_str()) {
             *last = Some(fingerprint);
             drop(last);
-            self.inner
-                .duplicate_turn_guard_injected
-                .store(false, Ordering::SeqCst);
+            self.inner.duplicate_turn_guard_injected.store(false, Ordering::SeqCst);
             return;
         }
         drop(last);
         mark_duplicate_turn_assistant_message(message);
         if self.inner.duplicate_turn_guard_injected.load(Ordering::SeqCst) {
-            self.inner
-                .duplicate_turn_loop_detected
-                .store(true, Ordering::SeqCst);
+            self.inner.duplicate_turn_loop_detected.store(true, Ordering::SeqCst);
             return;
         }
-        self.inner
-            .duplicate_turn_guard_injected
-            .store(true, Ordering::SeqCst);
+        self.inner.duplicate_turn_guard_injected.store(true, Ordering::SeqCst);
         let guard = create_custom_message(
             "duplicate_turn_guard",
             CustomMessageContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(
@@ -1526,9 +1499,7 @@ impl AgentSession {
                 if !is_internal {
                     self.reset_duplicate_turn_guard();
                 }
-                self.inner
-                    .quota_fallback_attempted
-                    .store(false, Ordering::SeqCst);
+                self.inner.quota_fallback_attempted.store(false, Ordering::SeqCst);
                 let text = user_message_text(&user.content);
                 if text.is_empty() {
                     return;
@@ -1584,11 +1555,7 @@ impl AgentSession {
         let Some(control_db_path) = &self.inner.control_db_path else {
             return;
         };
-        let _ = crate::core::session_control_db::write_last_message(
-            control_db_path,
-            "assistant",
-            &content,
-        );
+        let _ = crate::core::session_control_db::write_last_message(control_db_path, "assistant", &content);
     }
 
     fn persist_completed_message(&self, message: &AgentMessage, original_tool_call_id: Option<&str>) {
@@ -1639,6 +1606,21 @@ impl AgentSession {
             .find_map(|message| message.as_assistant().cloned())
     }
 
+    fn remove_trailing_interrupted_assistant(&self, remove_tool_use_assistant: bool) {
+        let mut messages = self.inner.agent.messages();
+        let Some(AgentMessage::Assistant(assistant)) = messages.last() else {
+            return;
+        };
+        let stop = assistant.stop_reason;
+        if stop == StopReason::Aborted
+            || stop == StopReason::Error
+            || (remove_tool_use_assistant && stop == StopReason::ToolUse)
+        {
+            messages.pop();
+            self.inner.agent.set_messages(messages);
+        }
+    }
+
     async fn continue_agent_with_thinking_timeout(
         &self,
         process_queued_messages_first: bool,
@@ -1686,8 +1668,7 @@ impl AgentSession {
                 return Ok(());
             };
             drop(guard);
-            self.continue_agent_with_thinking_timeout(kind == "queued")
-                .await?;
+            self.continue_agent_with_thinking_timeout(kind == "queued").await?;
         }
     }
 
@@ -1792,10 +1773,7 @@ impl AgentSession {
                 return Ok(());
             }
             if !self.is_known_slash_command(text) {
-                return Err(error(format!(
-                    "Unknown slash command: {}",
-                    slash_command_name(text)
-                )));
+                return Err(error(format!("Unknown slash command: {}", slash_command_name(text))));
             }
         }
         let guard = self.inner.turn_start_lock.lock().await;
@@ -1858,11 +1836,7 @@ impl AgentSession {
         Ok(Some(messages))
     }
 
-    async fn prepare_prompt_input(
-        &self,
-        text: &str,
-        options: &PromptOptions,
-    ) -> Option<(String, Vec<ImageContent>)> {
+    async fn prepare_prompt_input(&self, text: &str, options: &PromptOptions) -> Option<(String, Vec<ImageContent>)> {
         let mut current_text = text.to_owned();
         let mut current_images = options.images.clone();
         match self
@@ -1949,15 +1923,14 @@ impl AgentSession {
         let mut messages = vec![user_message];
         messages.extend(lock(&self.inner.pending_next_turn_messages).drain(..));
         let base_prompt = lock(&self.inner.base_system_prompt).clone();
-        let base_options = lock(&self.inner.base_system_prompt_options)
-            .clone()
-            .unwrap_or_else(|| BuildSystemPromptOptions {
-                cwd: self.inner.cwd.clone(),
-                ..Default::default()
-            });
-        let result = self
-            .emit_before_agent_start(text, images, &base_options)
-            .await;
+        let base_options =
+            lock(&self.inner.base_system_prompt_options)
+                .clone()
+                .unwrap_or_else(|| BuildSystemPromptOptions {
+                    cwd: self.inner.cwd.clone(),
+                    ..Default::default()
+                });
+        let result = self.emit_before_agent_start(text, images, &base_options).await;
         if let Some(result) = &result {
             for payload in result.messages.clone().unwrap_or_default() {
                 let content = match payload.content {
@@ -1988,10 +1961,7 @@ impl AgentSession {
     fn is_known_slash_command(&self, text: &str) -> bool {
         let command_name = slash_command_name(text);
         let name = command_name.trim_start_matches('/');
-        if builtin_slash_commands()
-            .iter()
-            .any(|command| command.name == name)
-        {
+        if builtin_slash_commands().iter().any(|command| command.name == name) {
             return true;
         }
         if let Some(skill_name) = name.strip_prefix("skill:") {
@@ -2003,9 +1973,7 @@ impl AgentSession {
                 .iter()
                 .any(|skill| skill.name == skill_name);
         }
-        self.prompt_templates()
-            .iter()
-            .any(|template| template.name == name)
+        self.prompt_templates().iter().any(|template| template.name == name)
     }
 
     fn expand_skill_command(&self, text: &str) -> String {
@@ -2061,11 +2029,7 @@ impl AgentSession {
     }
 
     /// Queues a follow-up message delivered after the agent finishes.
-    pub async fn follow_up(
-        &self,
-        text: &str,
-        images: &[ImageContent],
-    ) -> Result<(), AgentSessionError> {
+    pub async fn follow_up(&self, text: &str, images: &[ImageContent]) -> Result<(), AgentSessionError> {
         if text.starts_with('/') {
             self.throw_if_extension_command(text);
         }
@@ -2092,11 +2056,9 @@ impl AgentSession {
             provider_native: None,
             timestamp: now_millis(),
         }));
-        self.emit(AgentSessionEvent::SteeringMessageQueued(
-            SteeringMessageQueuedEvent {
-                event_type: "steering_message_queued",
-            },
-        ));
+        self.emit(AgentSessionEvent::SteeringMessageQueued(SteeringMessageQueuedEvent {
+            event_type: "steering_message_queued",
+        }));
     }
 
     async fn queue_follow_up(&self, text: &str, images: &[ImageContent], source: Option<InputSource>) {
@@ -2140,7 +2102,13 @@ impl AgentSession {
     }
 
     /// Queues a custom message for the next user prompt turn.
-    pub fn send_custom_message_next_turn(&self, custom_type: &str, content: CustomMessageContent, display: bool, details: Option<Value>) {
+    pub fn send_custom_message_next_turn(
+        &self,
+        custom_type: &str,
+        content: CustomMessageContent,
+        display: bool,
+        details: Option<Value>,
+    ) {
         lock(&self.inner.pending_next_turn_messages).push(create_custom_message(
             custom_type,
             content,
@@ -2227,12 +2195,7 @@ impl AgentSession {
     }
 
     pub fn has_pending_messages(&self) -> bool {
-        self.pending_message_count() > 0
-            || self
-                .inner
-                .external_user_input_reservations
-                .load(Ordering::SeqCst)
-                > 0
+        self.pending_message_count() > 0 || self.inner.external_user_input_reservations.load(Ordering::SeqCst) > 0
     }
 
     pub fn reserve_external_user_input(&self) -> ExternalUserInputReservation {
@@ -2254,11 +2217,7 @@ impl AgentSession {
     }
 
     /// Aborts the current operation, then submits preserved user input.
-    pub async fn interrupt(
-        &self,
-        message: &str,
-        source: InputSource,
-    ) -> Result<(), AgentSessionError> {
+    pub async fn interrupt(&self, message: &str, source: InputSource) -> Result<(), AgentSessionError> {
         let trimmed = message.trim();
         if trimmed.is_empty() {
             return self.abort().await;
@@ -2316,16 +2275,12 @@ impl AgentSession {
             .flatten()
             .is_none()
         {
-            return Err(error(format!(
-                "No API key for {}/{}",
-                model.provider, model.id
-            )));
+            return Err(error(format!("No API key for {}/{}", model.provider, model.id)));
         }
         let previous_model = self.inner.agent.model();
         let thinking_level = self.get_thinking_level_for_model_switch(None);
         self.inner.agent.set_model(model.clone());
-        lock(&self.inner.settings_manager)
-            .set_default_model_and_provider(&model.provider, &model.id);
+        lock(&self.inner.settings_manager).set_default_model_and_provider(&model.provider, &model.id);
         self.set_thinking_level(thinking_level);
         self.emit_model_select(&model, Some(&previous_model), ModelSelectSource::Set)
             .await;
@@ -2333,10 +2288,7 @@ impl AgentSession {
     }
 
     /// Cycles to the next/previous scoped model.
-    pub async fn cycle_model(
-        &self,
-        direction: CycleDirection,
-    ) -> Result<Option<ModelCycleResult>, AgentSessionError> {
+    pub async fn cycle_model(&self, direction: CycleDirection) -> Result<Option<ModelCycleResult>, AgentSessionError> {
         let scoped_models = self.get_scoped_models_for_cycle().await;
         if scoped_models.is_empty() {
             return Ok(None);
@@ -2353,8 +2305,7 @@ impl AgentSession {
         let Some(enabled_models) = enabled_models.filter(|models| !models.is_empty()) else {
             return Vec::new();
         };
-        let resolved =
-            resolve_model_scope(&enabled_models, &self.inner.model_runtime, Default::default()).await;
+        let resolved = resolve_model_scope(&enabled_models, &self.inner.model_runtime, Default::default()).await;
         self.filter_narrow_model_scope(resolved).await
     }
 
@@ -2388,9 +2339,7 @@ impl AgentSession {
             .collect();
         let available_scoped: Vec<&ScopedModel> = models
             .iter()
-            .filter(|scoped| {
-                available_ids.contains(&format!("{}\0{}", scoped.model.provider, scoped.model.id))
-            })
+            .filter(|scoped| available_ids.contains(&format!("{}\0{}", scoped.model.provider, scoped.model.id)))
             .collect();
         let mut authed = Vec::new();
         for scoped in available_scoped {
@@ -2422,8 +2371,7 @@ impl AgentSession {
         let next = authed[current_index].clone();
         let thinking_level = self.get_thinking_level_for_model_switch(next.thinking_level);
         self.inner.agent.set_model(next.model.clone());
-        lock(&self.inner.settings_manager)
-            .set_default_model_and_provider(&next.model.provider, &next.model.id);
+        lock(&self.inner.settings_manager).set_default_model_and_provider(&next.model.provider, &next.model.id);
         self.set_thinking_level(thinking_level);
         let previous_model = self.inner.agent.model();
         self.emit_model_select(&next.model, Some(&previous_model), ModelSelectSource::Cycle)
@@ -2454,12 +2402,10 @@ impl AgentSession {
             if self.supports_thinking() || effective != ThinkingLevel::Off {
                 lock(&self.inner.settings_manager).set_default_thinking_level(effective);
             }
-            self.emit(AgentSessionEvent::ThinkingLevelChanged(
-                ThinkingLevelChangedEvent {
-                    event_type: "thinking_level_changed",
-                    level: effective,
-                },
-            ));
+            self.emit(AgentSessionEvent::ThinkingLevelChanged(ThinkingLevelChangedEvent {
+                event_type: "thinking_level_changed",
+                level: effective,
+            }));
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 let session = self.clone();
                 handle.spawn(async move {
@@ -2508,10 +2454,7 @@ impl AgentSession {
 
     fn clamp_thinking_level(&self, level: ThinkingLevel) -> ThinkingLevel {
         let model = self.inner.agent.model();
-        thinking_level_from_model(pi_ai::models::clamp_thinking_level(
-            &model,
-            model_thinking_level(level),
-        ))
+        thinking_level_from_model(pi_ai::models::clamp_thinking_level(&model, model_thinking_level(level)))
     }
 
     pub fn set_steering_mode(&self, mode: pi_agent_core::harness::QueueMode) {
@@ -2537,9 +2480,7 @@ impl AgentSession {
     }
 
     fn find_quota_fallback_model(&self, message: &AssistantMessage) -> Option<Model> {
-        if self.inner.quota_fallback_attempted.load(Ordering::SeqCst)
-            || message.stop_reason != StopReason::Error
-        {
+        if self.inner.quota_fallback_attempted.load(Ordering::SeqCst) || message.stop_reason != StopReason::Error {
             return None;
         }
         let error_message = message.error_message.as_deref()?;
@@ -2562,9 +2503,7 @@ impl AgentSession {
         let Some(fallback_model) = self.find_quota_fallback_model(message) else {
             return false;
         };
-        self.inner
-            .quota_fallback_attempted
-            .store(true, Ordering::SeqCst);
+        self.inner.quota_fallback_attempted.store(true, Ordering::SeqCst);
         let mut messages = self.inner.agent.messages();
         if matches!(messages.last(), Some(AgentMessage::Assistant(_))) {
             messages.pop();
@@ -2629,12 +2568,10 @@ impl AgentSession {
 
     /// Surfaces a provider-internal retry as a session event.
     pub fn notify_provider_retry(&self, retry: ProviderRetryEvent) {
-        self.emit(AgentSessionEvent::ProviderStreamRetry(
-            ProviderStreamRetryEvent {
-                event_type: "provider_stream_retry",
-                retry,
-            },
-        ));
+        self.emit(AgentSessionEvent::ProviderStreamRetry(ProviderStreamRetryEvent {
+            event_type: "provider_stream_retry",
+            retry,
+        }));
     }
 
     pub fn has_active_retry(&self) -> bool {
@@ -2673,9 +2610,7 @@ impl ExternalUserInputReservation {
             return;
         }
         if let Some(inner) = self.inner.upgrade() {
-            let current = inner
-                .external_user_input_reservations
-                .load(Ordering::SeqCst);
+            let current = inner.external_user_input_reservations.load(Ordering::SeqCst);
             inner
                 .external_user_input_reservations
                 .store(current.saturating_sub(1), Ordering::SeqCst);
@@ -2698,17 +2633,84 @@ impl Drop for ExternalUserInputReservation {
     }
 }
 
-fn serialize_thinking_level<S: serde::Serializer>(
-    level: &ThinkingLevel,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
+fn serialize_thinking_level<S: serde::Serializer>(level: &ThinkingLevel, serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(level.as_str())
 }
 
+fn compaction_settings(settings_manager: &Arc<Mutex<SettingsManager>>) -> crate::core::compaction::CompactionSettings {
+    let view = lock(settings_manager).get_compaction_settings();
+    crate::core::compaction::CompactionSettings {
+        enabled: view.enabled,
+        reserve_tokens: view.reserve_tokens,
+        keep_recent_tokens: view.keep_recent_tokens,
+    }
+}
+
+struct CompactedContextEstimate {
+    estimated_tokens_after: f64,
+    kept_from_previous_context_tokens: f64,
+}
+
+fn estimate_compacted_context_tokens(
+    messages: &[AgentMessage],
+    summary: &str,
+    tokens_before: f64,
+    compacted_result_tokens: Option<f64>,
+) -> CompactedContextEstimate {
+    let synthetic_tokens_after = estimate_messages_tokens(messages);
+    let synthetic_summary = create_compaction_summary_probe(summary, tokens_before);
+    let synthetic_summary_tokens = estimate_tokens(&synthetic_summary);
+    let compacted_result_tokens = compacted_result_tokens.unwrap_or(synthetic_summary_tokens);
+    let kept_from_previous_context_tokens = (synthetic_tokens_after - synthetic_summary_tokens).max(0.0);
+    CompactedContextEstimate {
+        estimated_tokens_after: kept_from_previous_context_tokens + compacted_result_tokens,
+        kept_from_previous_context_tokens,
+    }
+}
+
+fn create_compaction_summary_probe(summary: &str, tokens_before: f64) -> AgentMessage {
+    pi_agent_core::harness::messages::create_compaction_summary_message(
+        summary,
+        tokens_before,
+        0,
+        &pi_agent_core::harness::messages::CompactionSummaryOptions::default(),
+    )
+}
+
+fn should_continue_after_manual_compaction(messages: &[AgentMessage]) -> bool {
+    let mut latest_user_index: isize = -1;
+    let mut latest_assistant_index: isize = -1;
+    let mut latest_completed_assistant_index: isize = -1;
+    for index in (0..messages.len()).rev() {
+        let message = &messages[index];
+        let index = index as isize;
+        if latest_user_index == -1 && matches!(message, AgentMessage::User(_)) {
+            latest_user_index = index;
+        }
+        if latest_assistant_index == -1
+            && let AgentMessage::Assistant(assistant) = message
+        {
+            latest_assistant_index = index;
+            if assistant.stop_reason == StopReason::Aborted || assistant.stop_reason == StopReason::Error {
+                return true;
+            }
+        }
+        if latest_completed_assistant_index == -1
+            && let AgentMessage::Assistant(assistant) = message
+            && assistant.stop_reason != StopReason::Aborted
+            && assistant.stop_reason != StopReason::Error
+        {
+            latest_completed_assistant_index = index;
+        }
+        if latest_user_index != -1 && latest_assistant_index != -1 && latest_completed_assistant_index != -1 {
+            break;
+        }
+    }
+    latest_user_index != -1 && latest_completed_assistant_index < latest_user_index
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn now_millis() -> i64 {
@@ -2774,19 +2776,13 @@ fn append_custom_agent_message(
     manager: &mut SessionManager,
     object: &Map<String, Value>,
 ) -> Result<Option<String>, SessionManagerError> {
-    let custom_type = object
-        .get("customType")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let custom_type = object.get("customType").and_then(Value::as_str).unwrap_or_default();
     let content = object
         .get("content")
         .cloned()
         .and_then(|content| serde_json::from_value::<CustomMessageContent>(content).ok())
         .unwrap_or(CustomMessageContent::Blocks(Vec::new()));
-    let display = object
-        .get("display")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let display = object.get("display").and_then(Value::as_bool).unwrap_or(false);
     let details = object.get("details").cloned();
     manager
         .append_custom_message_entry(custom_type, content, display, details)
@@ -2902,15 +2898,11 @@ impl AgentSession {
     }
 
     pub fn request_resume_continuation(&self) {
-        self.inner
-            .resume_continuation_requested
-            .store(true, Ordering::SeqCst);
+        self.inner.resume_continuation_requested.store(true, Ordering::SeqCst);
     }
 
     pub fn consume_resume_continuation_request(&self) -> bool {
-        self.inner
-            .resume_continuation_requested
-            .swap(false, Ordering::SeqCst)
+        self.inner.resume_continuation_requested.swap(false, Ordering::SeqCst)
     }
 
     pub fn get_active_tool_names(&self) -> Vec<String> {
@@ -2936,8 +2928,7 @@ impl AgentSession {
     }
 
     pub fn get_tool_definition(&self, name: &str) -> Option<ToolDefinition> {
-        self.find_tool_definition(name)
-            .map(|entry| entry.definition)
+        self.find_tool_definition(name).map(|entry| entry.definition)
     }
 
     pub fn set_active_tools_by_name(&self, tool_names: &[String]) {
@@ -2964,15 +2955,11 @@ impl AgentSession {
     }
 
     pub fn session_file(&self) -> Option<String> {
-        lock(&self.inner.session_manager)
-            .get_session_file()
-            .map(str::to_owned)
+        lock(&self.inner.session_manager).get_session_file().map(str::to_owned)
     }
 
     pub fn session_id(&self) -> String {
-        lock(&self.inner.session_manager)
-            .get_session_id()
-            .to_owned()
+        lock(&self.inner.session_manager).get_session_id().to_owned()
     }
 
     pub fn control_db_path(&self) -> Option<String> {
@@ -3033,13 +3020,268 @@ impl AgentSession {
     // =========================================================================
 
     /// Manually compacts the session context.
-    ///
-    /// Blocked on the coding-agent compaction module (`ca-compaction-export`);
-    /// the source path is not reproduced here until that slice merges.
-    pub async fn compact(&self, _custom_instructions: Option<&str>) -> Result<Value, AgentSessionError> {
-        Err(error(
-            "Compaction is unavailable until the coding-agent compaction module is ported",
-        ))
+    pub async fn compact(
+        &self,
+        custom_instructions: Option<&str>,
+    ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
+        let guard = self.inner.turn_start_lock.lock().await;
+        let result = self.compact_inner(custom_instructions).await;
+        drop(guard);
+        result
+    }
+
+    async fn compact_inner(
+        &self,
+        custom_instructions: Option<&str>,
+    ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
+        let was_running_agent_turn = self.is_streaming();
+        let compaction_started_during_tool_execution =
+            was_running_agent_turn && !self.inner.agent.pending_tool_calls().is_empty();
+        self.disconnect_from_agent();
+        self.abort().await?;
+        let abort = CancellationToken::new();
+        *lock(&self.inner.compaction_abort_controller) = Some(abort.clone());
+        let source_hint = self.get_compaction_source_hint("manual", false).await;
+        self.emit(AgentSessionEvent::CompactionStart(CompactionStartEvent {
+            event_type: "compaction_start",
+            reason: "manual".to_owned(),
+            source_hint,
+        }));
+        let started_at = now_millis();
+        let result = self
+            .compact_with_settings(
+                custom_instructions,
+                &abort,
+                was_running_agent_turn,
+                compaction_started_during_tool_execution,
+                started_at,
+                "manual",
+            )
+            .await;
+        match result {
+            Ok((compaction_result, should_continue)) => {
+                *lock(&self.inner.compaction_abort_controller) = None;
+                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                    event_type: "compaction_end",
+                    reason: "manual".to_owned(),
+                    result: Some(serde_json::to_value(&compaction_result).unwrap_or(Value::Null)),
+                    aborted: false,
+                    will_retry: should_continue,
+                    error_message: None,
+                }));
+                self.reconnect_to_agent();
+                if should_continue {
+                    self.continue_after_manual_compaction(was_running_agent_turn).await?;
+                }
+                Ok(compaction_result)
+            }
+            Err(error) => {
+                let aborted = error.message() == "Compaction cancelled";
+                *lock(&self.inner.compaction_abort_controller) = None;
+                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                    event_type: "compaction_end",
+                    reason: "manual".to_owned(),
+                    result: None,
+                    aborted,
+                    will_retry: false,
+                    error_message: (!aborted).then(|| format!("Compaction failed: {}", error.message())),
+                }));
+                self.reconnect_to_agent();
+                Err(error)
+            }
+        }
+    }
+
+    async fn continue_after_manual_compaction(&self, remove_tool_use_assistant: bool) -> Result<(), AgentSessionError> {
+        if self.is_streaming() {
+            return Err(error(
+                "Agent is already processing. Wait for completion before continuing.",
+            ));
+        }
+        self.remove_trailing_interrupted_assistant(remove_tool_use_assistant);
+        self.continue_agent_with_thinking_timeout(false).await?;
+        self.continue_post_agent_runs().await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn compact_with_settings(
+        &self,
+        custom_instructions: Option<&str>,
+        abort: &CancellationToken,
+        was_running_agent_turn: bool,
+        compaction_started_during_tool_execution: bool,
+        started_at: i64,
+        reason: &str,
+    ) -> Result<(crate::core::compaction::CompactionResult, bool), AgentSessionError> {
+        let model = self.inner.agent.model();
+        let settings = compaction_settings(&self.inner.settings_manager);
+        let auth = self.get_compaction_request_auth(&model).await;
+        let path_entries = lock(&self.inner.session_manager).get_branch(None);
+        let Some(preparation) = crate::core::compaction::prepare_compaction(&path_entries, settings) else {
+            if path_entries
+                .last()
+                .is_some_and(|entry| entry.entry_type() == "compaction")
+            {
+                return Err(error("Already compacted"));
+            }
+            return Err(error("Nothing to compact (session too small)"));
+        };
+        if !settings.enabled {
+            return Err(error(BUILT_IN_COMPACTION_DISABLED_MESSAGE));
+        }
+        let retry_policy = self.retry_policy();
+        let stream_fn = self.inner.agent.stream_fn();
+        let stream_fn = Some(&stream_fn);
+        let summary_options = crate::core::compaction::CompactionSummaryOptions {
+            model: &auth.model,
+            api_key: auth.api_key.clone(),
+            headers: auth.headers.clone(),
+            custom_instructions,
+            signal: Some(abort.clone()),
+            thinking_level: Some(self.thinking_level()),
+            stream_fn,
+            env: auth.env.clone(),
+            retry: Some(&retry_policy),
+        };
+        let mut compact_result = crate::core::compaction::compact(
+            &preparation,
+            &auth.model,
+            &summary_options,
+            None::<&mut pi_agent_core::harness::compaction::NoRetryCallbacks>,
+        )
+        .await
+        .map_err(|compaction_error| error(compaction_error.message()))?;
+        if abort.is_cancelled() {
+            return Err(error("Compaction cancelled"));
+        }
+        let duration_ms = (now_millis() - started_at) as f64;
+        let source = compact_result.source.clone();
+        let usage = compact_result.usage.clone();
+        let details = compact_result.details.clone();
+        let compacted_result_tokens = compact_result.compacted_result_tokens;
+        let provider_native = compact_result.provider_native.clone();
+        {
+            let mut manager = lock(&self.inner.session_manager);
+            manager
+                .append_compaction(
+                    &compact_result.summary,
+                    &compact_result.first_kept_entry_id,
+                    compact_result.tokens_before,
+                    crate::core::session_manager::CompactionAppendOptions {
+                        details,
+                        from_hook: None,
+                        usage,
+                        duration_ms: Some(duration_ms),
+                        provider_native,
+                    },
+                )
+                .map_err(|manager_error| error(manager_error.to_string()))?;
+        }
+        let session_context = lock(&self.inner.session_manager).build_session_context();
+        self.inner.agent.set_messages(session_context.messages.clone());
+        let estimate = estimate_compacted_context_tokens(
+            &session_context.messages,
+            &compact_result.summary,
+            compact_result.tokens_before,
+            compacted_result_tokens,
+        );
+        let will_retry = reason == "manual"
+            && !compaction_started_during_tool_execution
+            && (was_running_agent_turn || should_continue_after_manual_compaction(&session_context.messages));
+        compact_result.duration_ms = Some(duration_ms);
+        compact_result.estimated_tokens_after = Some(estimate.estimated_tokens_after);
+        compact_result.kept_from_previous_context_tokens = Some(estimate.kept_from_previous_context_tokens);
+        compact_result.compacted_result_tokens = compacted_result_tokens;
+        compact_result.source = source;
+        Ok((compact_result, will_retry))
+    }
+
+    fn disconnect_from_agent(&self) {
+        if let Some(subscription) = lock(&self.inner.agent_subscription).take() {
+            self.inner.agent.unsubscribe(subscription);
+        }
+    }
+
+    fn reconnect_to_agent(&self) {
+        if lock(&self.inner.agent_subscription).is_some() {
+            return;
+        }
+        self.subscribe_agent();
+    }
+
+    fn retry_policy(&self) -> pi_ai::utils::retry::RetryPolicy {
+        let settings = lock(&self.inner.settings_manager).get_retry_settings();
+        pi_ai::utils::retry::RetryPolicy {
+            enabled: settings.enabled,
+            max_retries: settings.max_retries.max(0.0) as u32,
+            base_delay_ms: settings.base_delay_ms,
+        }
+    }
+
+    async fn get_compaction_source_hint(&self, reason: &str, will_retry: bool) -> Option<Value> {
+        let runner = self.runner();
+        if runner.has_handlers("session_compaction_source") {
+            let mut event =
+                ExtensionEvent::SessionCompactionSource(crate::core::extensions::types::SessionCompactionSourceEvent {
+                    reason: match reason {
+                        "threshold" => crate::core::extensions::types::CompactionReason::Threshold,
+                        "overflow" => crate::core::extensions::types::CompactionReason::Overflow,
+                        _ => crate::core::extensions::types::CompactionReason::Manual,
+                    },
+                    will_retry,
+                });
+            let emit_result = runner.emit(&mut event).await;
+            if let Some(source) = emit_result.session_compaction_source()
+                && let Some(source) = &source.source
+            {
+                return serde_json::to_value(source).ok();
+            }
+        }
+        if runner.has_handlers("compaction") {
+            return None;
+        }
+        if !lock(&self.inner.settings_manager).get_compaction_enabled() {
+            return None;
+        }
+        let model = self.inner.agent.model();
+        serde_json::to_value(crate::core::compaction::CompactionSourceInfo {
+            r#type: crate::core::compaction::CompactionSourceType::Local,
+            provider: model.provider,
+            model: model.id,
+            endpoint: None,
+        })
+        .ok()
+    }
+
+    async fn get_compaction_request_auth(&self, model: &Model) -> CompactionRequestAuth {
+        match self
+            .inner
+            .model_runtime
+            .get_auth(&model.provider, Default::default())
+            .await
+        {
+            Ok(Some(result)) => {
+                let request_model = if let Some(base_url) = result.auth.base_url {
+                    let mut request_model = model.clone();
+                    request_model.base_url = base_url;
+                    request_model
+                } else {
+                    model.clone()
+                };
+                CompactionRequestAuth {
+                    model: request_model,
+                    api_key: result.auth.api_key,
+                    headers: without_deleted_headers(result.auth.headers.as_ref()),
+                    env: result.env,
+                }
+            }
+            _ => CompactionRequestAuth {
+                model: model.clone(),
+                api_key: None,
+                headers: None,
+                env: None,
+            },
+        }
     }
 
     /// Cancels in-progress compaction (manual or auto).
@@ -3066,10 +3308,156 @@ impl AgentSession {
         }
     }
 
-    async fn check_compaction(&self, _assistant_message: &AssistantMessage, _post_run_check: bool) -> bool {
-        // Blocked on `ca-compaction-export`: threshold/overflow recovery needs the
-        // coding-agent compaction module.
+    async fn check_compaction(&self, assistant_message: &AssistantMessage, post_run_check: bool) -> bool {
+        let settings = compaction_settings(&self.inner.settings_manager);
+        if post_run_check && assistant_message.stop_reason == StopReason::Aborted {
+            return false;
+        }
+        let model = self.inner.agent.model();
+        let context_window = model.context_window;
+        let same_model = assistant_message.provider == model.provider && assistant_message.model == model.id;
+        let branch = lock(&self.inner.session_manager).get_branch(None);
+        let compaction_entry = get_latest_compaction_entry(&branch).cloned();
+        let assistant_is_before_compaction = compaction_entry.as_ref().is_some_and(|entry| {
+            let compaction_timestamp = entry.timestamp().and_then(pi_js_compat::date::date_parse_millis);
+            compaction_timestamp.is_some_and(|timestamp| assistant_message.timestamp <= timestamp)
+        });
+        if assistant_is_before_compaction {
+            return false;
+        }
+        let recoverable_length =
+            same_model && pi_ai::utils::overflow::is_recoverable_length(assistant_message, model.max_tokens);
+        if same_model
+            && (pi_ai::utils::overflow::is_context_overflow(assistant_message, Some(context_window))
+                || recoverable_length)
+        {
+            let should_retry_after_compaction = assistant_message.stop_reason != StopReason::Stop;
+            let should_continue_after_compaction = post_run_check && should_retry_after_compaction;
+            if !should_retry_after_compaction {
+                return self.run_auto_compaction("overflow", false, false).await;
+            }
+            if self.inner.overflow_recovery_attempted.load(Ordering::SeqCst) {
+                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                    event_type: "compaction_end",
+                    reason: "overflow".to_owned(),
+                    result: None,
+                    aborted: false,
+                    will_retry: false,
+                    error_message: Some(
+                        "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.".to_owned(),
+                    ),
+                }));
+                return false;
+            }
+            if post_run_check {
+                self.inner.overflow_recovery_attempted.store(true, Ordering::SeqCst);
+                let mut messages = self.inner.agent.messages();
+                if matches!(messages.last(), Some(AgentMessage::Assistant(_))) {
+                    messages.pop();
+                    self.inner.agent.set_messages(messages);
+                }
+            }
+            return self
+                .run_auto_compaction(
+                    "overflow",
+                    should_continue_after_compaction,
+                    should_continue_after_compaction,
+                )
+                .await;
+        }
+
+        let direct_context_tokens = crate::core::compaction::calculate_context_tokens(&assistant_message.usage);
+        let mut context_tokens = direct_context_tokens;
+        if assistant_message.stop_reason == StopReason::Error || direct_context_tokens == 0.0 {
+            let messages = self.inner.agent.messages();
+            let estimate = crate::core::compaction::estimate_context_tokens(&messages);
+            let Some(last_usage_index) = estimate.last_usage_index else {
+                return false;
+            };
+            let index = last_usage_index as usize;
+            if let Some(compaction_entry) = &compaction_entry
+                && let Some(AgentMessage::Assistant(usage_message)) = messages.get(index)
+                && let Some(timestamp) = compaction_entry
+                    .timestamp()
+                    .and_then(pi_js_compat::date::date_parse_millis)
+                && usage_message.timestamp <= timestamp
+            {
+                return false;
+            }
+            context_tokens = estimate.tokens;
+        }
+        if crate::core::compaction::should_compact(
+            context_tokens,
+            context_window,
+            &settings,
+            model.auto_compaction_threshold,
+        ) {
+            let turn_was_truncated = assistant_message.stop_reason == StopReason::Length;
+            let will_retry =
+                post_run_check && turn_was_truncated && !self.inner.length_recovery_attempted.load(Ordering::SeqCst);
+            if will_retry {
+                self.inner.length_recovery_attempted.store(true, Ordering::SeqCst);
+            }
+            return self.run_auto_compaction("threshold", will_retry, will_retry).await;
+        }
         false
+    }
+
+    async fn run_auto_compaction(&self, reason: &str, will_retry: bool, continue_after_compaction: bool) -> bool {
+        let abort = CancellationToken::new();
+        *lock(&self.inner.auto_compaction_abort_controller) = Some(abort.clone());
+        let source_hint = self.get_compaction_source_hint(reason, will_retry).await;
+        self.emit(AgentSessionEvent::CompactionStart(CompactionStartEvent {
+            event_type: "compaction_start",
+            reason: reason.to_owned(),
+            source_hint,
+        }));
+        let started_at = now_millis();
+        let result = self
+            .compact_with_settings(None, &abort, false, false, started_at, reason)
+            .await;
+        *lock(&self.inner.auto_compaction_abort_controller) = None;
+        match result {
+            Ok((compaction_result, _)) => {
+                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                    event_type: "compaction_end",
+                    reason: reason.to_owned(),
+                    result: Some(serde_json::to_value(&compaction_result).unwrap_or(Value::Null)),
+                    aborted: false,
+                    will_retry,
+                    error_message: None,
+                }));
+                if continue_after_compaction {
+                    let mut messages = self.inner.agent.messages();
+                    if let Some(AgentMessage::Assistant(assistant)) = messages.last()
+                        && (assistant.stop_reason == StopReason::Error || assistant.stop_reason == StopReason::Length)
+                    {
+                        messages.pop();
+                        self.inner.agent.set_messages(messages);
+                    }
+                    return true;
+                }
+                self.inner.agent.has_queued_messages()
+            }
+            Err(error) => {
+                let aborted = abort.is_cancelled() || error.message() == "Compaction cancelled";
+                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                    event_type: "compaction_end",
+                    reason: reason.to_owned(),
+                    result: None,
+                    aborted,
+                    will_retry: false,
+                    error_message: (!aborted).then(|| {
+                        if reason == "overflow" {
+                            format!("Context overflow recovery failed: {}", error.message())
+                        } else {
+                            format!("Auto-compaction failed: {}", error.message())
+                        }
+                    }),
+                }));
+                false
+            }
+        }
     }
 
     pub fn set_auto_compaction_enabled(&self, enabled: bool) {
@@ -3117,12 +3505,10 @@ impl AgentSession {
         if let Err(error) = lock(&self.inner.session_manager).append_message(message.clone()) {
             eprintln!("Failed to persist bash message: {error}");
         }
-        self.emit(AgentSessionEvent::BashMessagesCommitted(
-            BashMessagesCommittedEvent {
-                event_type: "bash_messages_committed",
-                messages: vec![message],
-            },
-        ));
+        self.emit(AgentSessionEvent::BashMessagesCommitted(BashMessagesCommittedEvent {
+            event_type: "bash_messages_committed",
+            messages: vec![message],
+        }));
     }
 
     /// Cancels a running bash command.
@@ -3159,12 +3545,10 @@ impl AgentSession {
             committed.push(message);
         }
         self.inner.agent.set_messages(agent_messages);
-        self.emit(AgentSessionEvent::BashMessagesCommitted(
-            BashMessagesCommittedEvent {
-                event_type: "bash_messages_committed",
-                messages: committed,
-            },
-        ));
+        self.emit(AgentSessionEvent::BashMessagesCommitted(BashMessagesCommittedEvent {
+            event_type: "bash_messages_committed",
+            messages: committed,
+        }));
     }
 
     // =========================================================================
@@ -3175,22 +3559,16 @@ impl AgentSession {
     pub fn set_session_name(&self, name: &str) {
         let session_file = self.session_file();
         if let (Some(control_db_path), Some(session_file)) = (&self.inner.control_db_path, session_file) {
-            let _ = crate::core::session_control_db::set_named_session(
-                control_db_path,
-                &session_file,
-                name,
-            );
+            let _ = crate::core::session_control_db::set_named_session(control_db_path, &session_file, name);
         }
         if let Err(error) = lock(&self.inner.session_manager).append_session_info(name) {
             eprintln!("Failed to persist session name: {error}");
         }
         let name = lock(&self.inner.session_manager).get_session_name();
-        self.emit(AgentSessionEvent::SessionInfoChanged(
-            SessionInfoChangedEvent {
-                event_type: "session_info_changed",
-                name: name.clone(),
-            },
-        ));
+        self.emit(AgentSessionEvent::SessionInfoChanged(SessionInfoChangedEvent {
+            event_type: "session_info_changed",
+            name: name.clone(),
+        }));
         let session = self.clone();
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {
@@ -3202,20 +3580,15 @@ impl AgentSession {
     pub fn clear_session_name(&self) {
         let session_file = self.session_file();
         if let (Some(control_db_path), Some(session_file)) = (&self.inner.control_db_path, session_file) {
-            let _ = crate::core::session_control_db::remove_named_session(
-                control_db_path,
-                &session_file,
-            );
+            let _ = crate::core::session_control_db::remove_named_session(control_db_path, &session_file);
         }
         if let Err(error) = lock(&self.inner.session_manager).append_session_info("") {
             eprintln!("Failed to clear session name: {error}");
         }
-        self.emit(AgentSessionEvent::SessionInfoChanged(
-            SessionInfoChangedEvent {
-                event_type: "session_info_changed",
-                name: None,
-            },
-        ));
+        self.emit(AgentSessionEvent::SessionInfoChanged(SessionInfoChangedEvent {
+            event_type: "session_info_changed",
+            name: None,
+        }));
     }
 
     pub fn update_compaction_summary(&self, entry_id: &str, summary: &str) {
@@ -3230,14 +3603,98 @@ impl AgentSession {
     }
 
     /// Materializes a provider-native compaction summary.
-    ///
-    /// Blocked on the coding-agent compaction module (`ca-compaction-export`).
     pub async fn materialize_compaction_summary(
         &self,
         entry_id: &str,
-    ) -> Result<Value, AgentSessionError> {
-        Err(error(format!(
-            "Compaction summary materialization is unavailable until the compaction module is ported (entry {entry_id})"
+    ) -> Result<crate::core::compaction::MaterializeCompactionSummaryResult, AgentSessionError> {
+        let (entry, model) = self.require_compaction_summary_materialization_target(entry_id)?;
+        if lock(&self.inner.compaction_summary_materialization_abort_controller).is_some() {
+            return Err(error("Compaction summary materialization is already running"));
+        }
+        let abort = CancellationToken::new();
+        *lock(&self.inner.compaction_summary_materialization_abort_controller) = Some(abort.clone());
+        let auth = self.get_required_request_auth(&model).await?;
+        let settings = compaction_settings(&self.inner.settings_manager);
+        let stream_fn = self.inner.agent.stream_fn();
+        let result = crate::core::compaction::materialize_compaction_summary(
+            &entry,
+            &model,
+            &crate::core::compaction::MaterializeCompactionSummaryOptions {
+                reserve_tokens: settings.reserve_tokens,
+                api_key: auth.api_key,
+                headers: auth.headers,
+                env: auth.env,
+                signal: Some(abort),
+                stream_fn: Some(&stream_fn),
+            },
+        )
+        .await
+        .map_err(|compaction_error| error(compaction_error.message()));
+        *lock(&self.inner.compaction_summary_materialization_abort_controller) = None;
+        result
+    }
+
+    fn require_compaction_summary_materialization_target(
+        &self,
+        entry_id: &str,
+    ) -> Result<(crate::core::session_manager::CompactionEntry, Model), AgentSessionError> {
+        let entry = lock(&self.inner.session_manager)
+            .get_entry(entry_id)
+            .cloned()
+            .ok_or_else(|| error(format!("Entry {entry_id} not found")))?;
+        let Some(compaction) = entry.as_compaction().cloned() else {
+            return Err(error(format!("Entry {entry_id} is not a compaction")));
+        };
+        let Some(checkpoint) = &compaction.provider_native else {
+            return Err(error(format!(
+                "Compaction entry {entry_id} has no provider-native checkpoint"
+            )));
+        };
+        let model = self.inner.agent.model();
+        let matching_provider = checkpoint.provider == model.provider;
+        let matching_api = checkpoint.api == model.api;
+        let supported_format = checkpoint.format == pi_ai::types::ProviderNativeFormat::OpenAIResponsesInput;
+        if !matching_provider || !matching_api || !supported_format {
+            return Err(error(format!(
+                "Compaction summary materialization requires an active {}/{} model",
+                checkpoint.provider, checkpoint.api
+            )));
+        }
+        Ok((compaction, model))
+    }
+
+    async fn get_required_request_auth(&self, model: &Model) -> Result<CompactionRequestAuth, AgentSessionError> {
+        let result = self
+            .inner
+            .model_runtime
+            .get_auth(&model.provider, Default::default())
+            .await
+            .map_err(|error| normalize_required_request_auth_error(error.to_string(), &model.provider))?;
+        if let Some(result) = result
+            && (result.auth.api_key.is_some() || result.auth.headers.is_some())
+        {
+            let request_model = if let Some(base_url) = result.auth.base_url {
+                let mut request_model = model.clone();
+                request_model.base_url = base_url;
+                request_model
+            } else {
+                model.clone()
+            };
+            return Ok(CompactionRequestAuth {
+                model: request_model,
+                api_key: result.auth.api_key,
+                headers: without_deleted_headers(result.auth.headers.as_ref()),
+                env: result.env,
+            });
+        }
+        if self.inner.model_runtime.is_using_oauth(&model.provider) {
+            return Err(error(format!(
+                "Authentication failed for \"{}\". Credentials may have expired or network is unavailable. Run '/login {}' to re-authenticate.",
+                model.provider, model.provider
+            )));
+        }
+        Err(error(crate::core::auth_guidance::format_no_api_key_found_message(
+            &model.provider,
         )))
     }
 
@@ -3263,7 +3720,10 @@ impl AgentSession {
         }
         let (old_leaf_id, target_entry) = {
             let manager = lock(&self.inner.session_manager);
-            (manager.get_leaf_id().map(str::to_owned), manager.get_entry(target_id).cloned())
+            (
+                manager.get_leaf_id().map(str::to_owned),
+                manager.get_entry(target_id).cloned(),
+            )
         };
         if old_leaf_id.as_deref() == Some(target_id) {
             return Ok(NavigateTreeResult {
@@ -3349,11 +3809,9 @@ impl AgentSession {
 
     pub fn get_session_stats(&self) -> SessionStats {
         let entries = lock(&self.inner.session_manager).get_entries();
-        let totals = entries
-            .iter()
-            .fold(SessionStatsTotals::default(), |total, entry| {
-                add_session_entry(total, entry)
-            });
+        let totals = entries.iter().fold(SessionStatsTotals::default(), |total, entry| {
+            add_session_entry(total, entry)
+        });
         let usage = totals.usage;
         SessionStats {
             session_file: self.session_file(),
@@ -3397,9 +3855,7 @@ impl AgentSession {
                     let AgentMessage::Assistant(assistant) = message.message.as_ref() else {
                         return None;
                     };
-                    if assistant.stop_reason == StopReason::Aborted
-                        || assistant.stop_reason == StopReason::Error
-                    {
+                    if assistant.stop_reason == StopReason::Aborted || assistant.stop_reason == StopReason::Error {
                         return None;
                     }
                     let context_tokens = calculate_context_tokens(&assistant.usage);
@@ -3464,8 +3920,7 @@ impl AgentSession {
         let mut lines = vec![Value::Object(header).to_string()];
         let mut previous_id: Option<String> = None;
         for entry in branch_entries {
-            let mut value = serde_json::to_value(&entry)
-                .map_err(|json_error| error(json_error.to_string()))?;
+            let mut value = serde_json::to_value(&entry).map_err(|json_error| error(json_error.to_string()))?;
             if let Value::Object(object) = &mut value {
                 object.insert(
                     "parentId".to_owned(),
@@ -3510,7 +3965,10 @@ struct BashExecutionWire<'a> {
     role: &'static str,
     command: &'a str,
     output: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "pi_js_compat::number::serialize_option")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "pi_js_compat::number::serialize_option"
+    )]
     exit_code: Option<f64>,
     cancelled: bool,
     truncated: bool,
@@ -3566,23 +4024,22 @@ fn _unused_import_markers() {
 // Extension integration
 // =============================================================================
 
-use crate::core::extensions::types::ToolCallEvent;
 use crate::core::extensions::runner::{
     BeforeAgentStartCombinedResult, ErrorSubscription, ExtensionErrorListener, ExtensionRunner,
 };
+use crate::core::extensions::types::ToolCallEvent;
 use crate::core::extensions::types::{
-    AgentEndEvent as ExtensionAgentEndEvent, AgentSettledEvent as ExtensionAgentSettledEvent,
-    AgentStartEvent, ExtensionActions, ExtensionCommandContext, ExtensionCommandContextActions,
-    ExtensionContextActions, ExtensionEvent, ExtensionMode, ExtensionUiContext,
-    InputEventResult, InputSource as ExtensionInputSource, MessageDelivery, MessageEndEvent, MessageStartEvent,
-    MessageUpdateEvent, ModelSelectEvent, ModelSelectSource, ProviderActions, SessionStartEvent,
-    StreamingBehavior as ExtensionStreamingBehavior, ThinkingLevelSelectEvent, ToolExecutionEndEvent,
-    ToolExecutionStartEvent, ToolExecutionUpdateEvent, ToolInfo as ExtensionToolInfo, TurnEndEvent, TurnStartEvent,
-    UserMessageContent, UserMessageDelivery,
+    AgentEndEvent as ExtensionAgentEndEvent, AgentSettledEvent as ExtensionAgentSettledEvent, AgentStartEvent,
+    ExtensionActions, ExtensionCommandContext, ExtensionCommandContextActions, ExtensionContextActions, ExtensionEvent,
+    ExtensionMode, ExtensionUiContext, InputEventResult, InputSource as ExtensionInputSource, MessageDelivery,
+    MessageEndEvent, MessageStartEvent, MessageUpdateEvent, ModelSelectEvent, ModelSelectSource, ProviderActions,
+    SessionStartEvent, StreamingBehavior as ExtensionStreamingBehavior, ThinkingLevelSelectEvent,
+    ToolExecutionEndEvent, ToolExecutionStartEvent, ToolExecutionUpdateEvent, ToolInfo as ExtensionToolInfo,
+    TurnEndEvent, TurnStartEvent, UserMessageContent, UserMessageDelivery,
 };
 use crate::core::extensions::wrapper::wrap_registered_tool;
-use crate::core::slash_commands::SlashCommandInfo;
 use crate::core::footer_data_provider::FooterDataProvider;
+use crate::core::slash_commands::SlashCommandInfo;
 
 /// `ExtensionBindings` passed to [`AgentSession::bind_extensions`].
 #[derive(Default)]
@@ -3662,9 +4119,7 @@ impl AgentSession {
         let paths = runner
             .emit_resources_discover(
                 &self.inner.cwd,
-                if self.inner.session_start_event.reason
-                    == crate::core::extensions::types::SessionStartReason::Reload
-                {
+                if self.inner.session_start_event.reason == crate::core::extensions::types::SessionStartReason::Reload {
                     crate::core::extensions::types::ResourcesDiscoverReason::Reload
                 } else {
                     crate::core::extensions::types::ResourcesDiscoverReason::Startup
@@ -3706,7 +4161,9 @@ impl AgentSession {
         self.inner.agent.set_system_prompt(prompt);
     }
 
-    fn create_internal_commands(&self) -> indexmap::IndexMap<String, crate::core::extensions::types::InternalCommandHandler> {
+    fn create_internal_commands(
+        &self,
+    ) -> indexmap::IndexMap<String, crate::core::extensions::types::InternalCommandHandler> {
         let weak = Arc::downgrade(&self.inner);
         let handler: crate::core::extensions::types::InternalCommandHandler =
             Arc::new(move |args: String, ctx: ExtensionCommandContext| {
@@ -3716,9 +4173,9 @@ impl AgentSession {
                     if model_reference.is_empty() {
                         return Ok(());
                     }
-                    let scoped = ctx.context.get_scoped_models();
+                    let scoped = ctx.context.get_scoped_models()?;
                     let models = if scoped.is_empty() {
-                        ctx.context.model_registry.get_available()
+                        ctx.context.model_registry()?.get_available()
                     } else {
                         scoped.into_iter().map(|scoped| scoped.model).collect()
                     };
@@ -3730,16 +4187,12 @@ impl AgentSession {
                     let provider = model.provider.clone();
                     let model_id = model.id.clone();
                     let Some(inner) = weak.upgrade() else {
-                        return Err(crate::core::extensions::types::HandlerError::new(
-                            "Session is disposed",
-                        ));
+                        return Err(crate::core::extensions::types::HandlerError::new("Session is disposed"));
                     };
                     AgentSession { inner }
                         .set_model(model)
                         .await
-                        .map_err(|error| {
-                            crate::core::extensions::types::HandlerError::new(error.message())
-                        })?;
+                        .map_err(|error| crate::core::extensions::types::HandlerError::new(error.message()))?;
                     let _ = (provider, model_id);
                     Ok(())
                 })
@@ -3867,12 +4320,7 @@ impl AgentSession {
         }
     }
 
-    async fn emit_model_select(
-        &self,
-        next_model: &Model,
-        previous_model: Option<&Model>,
-        source: ModelSelectSource,
-    ) {
+    async fn emit_model_select(&self, next_model: &Model, previous_model: Option<&Model>, source: ModelSelectSource) {
         if pi_ai::models::models_are_equal(previous_model, Some(next_model)) {
             return;
         }
@@ -3893,9 +4341,8 @@ impl AgentSession {
     }
 
     async fn emit_session_info_changed(&self, name: Option<String>) {
-        let mut event = ExtensionEvent::SessionInfoChanged(
-            crate::core::extensions::types::SessionInfoChangedEvent { name },
-        );
+        let mut event =
+            ExtensionEvent::SessionInfoChanged(crate::core::extensions::types::SessionInfoChangedEvent { name });
         self.runner().emit(&mut event).await;
     }
 
@@ -3929,9 +4376,7 @@ impl AgentSession {
         let Some(control_db_path) = &self.inner.control_db_path else {
             return;
         };
-        if let Err(error) =
-            crate::core::session_control_db::record_prompt_history_entry(control_db_path, text)
-        {
+        if let Err(error) = crate::core::session_control_db::record_prompt_history_entry(control_db_path, text) {
             eprintln!("Failed to persist prompt history for handled slash command: {error}");
         }
     }
@@ -3983,9 +4428,7 @@ impl AgentSession {
     }
 }
 
-fn tool_call_result_to_before(
-    result: crate::core::extensions::types::ToolCallEventResult,
-) -> BeforeToolCallResult {
+fn tool_call_result_to_before(result: crate::core::extensions::types::ToolCallEventResult) -> BeforeToolCallResult {
     BeforeToolCallResult {
         block: result.block,
         reason: result.reason,
@@ -4029,22 +4472,18 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
             };
             let session = AgentSession { inner };
             let content = match message.content {
-                crate::core::extensions::types::CustomMessageContent::Text(text) => {
-                    CustomMessageContent::Text(text)
-                }
+                crate::core::extensions::types::CustomMessageContent::Text(text) => CustomMessageContent::Text(text),
                 crate::core::extensions::types::CustomMessageContent::Blocks(blocks) => {
                     CustomMessageContent::Blocks(blocks)
                 }
             };
-            let trigger_turn = options.as_ref().and_then(|options| options.trigger_turn).unwrap_or(false);
+            let trigger_turn = options
+                .as_ref()
+                .and_then(|options| options.trigger_turn)
+                .unwrap_or(false);
             let deliver_as = options.as_ref().and_then(|options| options.deliver_as);
             if deliver_as == Some(MessageDelivery::NextTurn) {
-                session.send_custom_message_next_turn(
-                    &message.custom_type,
-                    content,
-                    message.display,
-                    message.details,
-                );
+                session.send_custom_message_next_turn(&message.custom_type, content, message.display, message.details);
                 return Ok(());
             }
             let deliver = match deliver_as {
@@ -4071,8 +4510,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
     );
     let send_user_weak = weak.clone();
     let send_user_message: crate::core::extensions::types::SendUserMessageHandler = Arc::new(
-        move |content: UserMessageContent,
-              options: Option<crate::core::extensions::types::SendUserMessageOptions>| {
+        move |content: UserMessageContent, options: Option<crate::core::extensions::types::SendUserMessageOptions>| {
             let Some(inner) = send_user_weak.upgrade() else {
                 return Ok(());
             };
@@ -4081,12 +4519,13 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
                 UserMessageContent::Text(text) => UserContent::Text(text),
                 UserMessageContent::Blocks(blocks) => UserContent::Blocks(blocks),
             };
-            let deliver_as = options.as_ref().and_then(|options| options.deliver_as).map(|delivery| {
-                match delivery {
+            let deliver_as = options
+                .as_ref()
+                .and_then(|options| options.deliver_as)
+                .map(|delivery| match delivery {
                     UserMessageDelivery::Steer => StreamingBehavior::Steer,
                     UserMessageDelivery::FollowUp => StreamingBehavior::FollowUp,
-                }
-            });
+                });
             let expand = options
                 .as_ref()
                 .and_then(|options| options.expand_prompt_templates)
@@ -4176,15 +4615,10 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
         });
     let call_tool_weak = weak.clone();
     let call_tool: crate::core::extensions::types::CallToolHandler = Arc::new(
-        move |name: String,
-              params: Value,
-              signal: Option<CancellationToken>,
-              tool_call_id: Option<String>| {
+        move |name: String, params: Value, signal: Option<CancellationToken>, tool_call_id: Option<String>| {
             let Some(inner) = call_tool_weak.upgrade() else {
                 return Box::pin(async {
-                    Err(crate::core::extensions::types::HandlerError::new(
-                        "Session is disposed",
-                    ))
+                    Err(crate::core::extensions::types::HandlerError::new("Session is disposed"))
                 });
             };
             let session = AgentSession { inner };
@@ -4196,9 +4630,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
         Arc::new(move |name: String, args: Option<String>| {
             let Some(inner) = command_weak.upgrade() else {
                 return Box::pin(async {
-                    Err(crate::core::extensions::types::HandlerError::new(
-                        "Session is disposed",
-                    ))
+                    Err(crate::core::extensions::types::HandlerError::new("Session is disposed"))
                 });
             };
             let session = AgentSession { inner };
@@ -4234,10 +4666,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
         };
         let session = AgentSession { inner };
         Box::pin(async move {
-            if !session
-                .model_runtime()
-                .has_configured_auth(&model.provider)
-            {
+            if !session.model_runtime().has_configured_auth(&model.provider) {
                 return Ok(false);
             }
             session
@@ -4285,9 +4714,8 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
 
 fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
     let model_weak = weak.clone();
-    let get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync> = Arc::new(move || {
-        model_weak.upgrade().map(|inner| AgentSession { inner }.model())
-    });
+    let get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync> =
+        Arc::new(move || model_weak.upgrade().map(|inner| AgentSession { inner }.model()));
     let thinking_weak = weak.clone();
     let get_thinking_level: Option<Arc<dyn Fn() -> ThinkingLevel + Send + Sync>> =
         Some(Arc::new(move || match thinking_weak.upgrade() {
@@ -4320,16 +4748,13 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
     });
     let trust_weak = weak.clone();
     let is_project_trusted: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || {
-        trust_weak.upgrade().is_some_and(|inner| {
-            lock(&inner.settings_manager).is_project_trusted()
-        })
+        trust_weak
+            .upgrade()
+            .is_some_and(|inner| lock(&inner.settings_manager).is_project_trusted())
     });
     let signal_weak = weak.clone();
-    let get_signal: Arc<dyn Fn() -> Option<CancellationToken> + Send + Sync> = Arc::new(move || {
-        signal_weak
-            .upgrade()
-            .and_then(|inner| inner.agent.signal())
-    });
+    let get_signal: Arc<dyn Fn() -> Option<CancellationToken> + Send + Sync> =
+        Arc::new(move || signal_weak.upgrade().and_then(|inner| inner.agent.signal()));
     let abort_weak = weak.clone();
     let abort: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
         let Some(inner) = abort_weak.upgrade() else {
@@ -4362,42 +4787,38 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
     });
     let restart_weak = weak.clone();
     let restart: Arc<
-        dyn Fn(Option<crate::core::extensions::types::RestartOptions>) -> BoxFuture<'static, ()>
-            + Send
-            + Sync,
-    > =
-        Arc::new(move |options| {
-            let Some(inner) = restart_weak.upgrade() else {
-                return Box::pin(async {}) as BoxFuture<'static, ()>;
-            };
-            let session = AgentSession { inner };
-            let actions = lock(&session.inner.extension_command_context_actions).clone();
-            Box::pin(async move {
-                if let Some(actions) = actions {
-                    (actions.restart)(options).await;
-                }
-            })
-        });
+        dyn Fn(Option<crate::core::extensions::types::RestartOptions>) -> BoxFuture<'static, ()> + Send + Sync,
+    > = Arc::new(move |options| {
+        let Some(inner) = restart_weak.upgrade() else {
+            return Box::pin(async {}) as BoxFuture<'static, ()>;
+        };
+        let session = AgentSession { inner };
+        let actions = lock(&session.inner.extension_command_context_actions).clone();
+        Box::pin(async move {
+            if let Some(actions) = actions {
+                (actions.restart)(options).await;
+            }
+        })
+    });
     let control_weak = weak.clone();
-    let get_control_db_path: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>> =
-        Some(Arc::new(move || {
-            control_weak.upgrade().and_then(|inner| {
-                lock(&inner.extension_control_db_path)
-                    .clone()
-                    .or_else(|| inner.control_db_path.clone())
-            })
-        }));
+    let get_control_db_path: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>> = Some(Arc::new(move || {
+        control_weak.upgrade().and_then(|inner| {
+            lock(&inner.extension_control_db_path)
+                .clone()
+                .or_else(|| inner.control_db_path.clone())
+        })
+    }));
     let usage_weak = weak.clone();
     let get_context_usage: Arc<dyn Fn() -> Option<crate::core::extensions::types::ContextUsage> + Send + Sync> =
         Arc::new(move || {
             usage_weak.upgrade().and_then(|inner| {
-                AgentSession { inner }.get_context_usage().map(|usage| {
-                    crate::core::extensions::types::ContextUsage {
+                AgentSession { inner }
+                    .get_context_usage()
+                    .map(|usage| crate::core::extensions::types::ContextUsage {
                         tokens: Some(usage.tokens),
                         context_window: usage.context_window,
                         percent: Some(usage.percent),
-                    }
-                })
+                    })
             })
         });
     let compact_weak = weak.clone();
@@ -4432,14 +4853,13 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
             .unwrap_or_default()
     });
     let options_weak = weak.clone();
-    let get_system_prompt_options: Option<
-        Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>,
-    > = Some(Arc::new(move || {
-        options_weak
-            .upgrade()
-            .and_then(|inner| lock(&inner.base_system_prompt_options).clone())
-            .unwrap_or_default()
-    }));
+    let get_system_prompt_options: Option<Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>> =
+        Some(Arc::new(move || {
+            options_weak
+                .upgrade()
+                .and_then(|inner| lock(&inner.base_system_prompt_options).clone())
+                .unwrap_or_default()
+        }));
 
     ExtensionContextActions {
         get_model,
@@ -4469,8 +4889,10 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
 
 fn extension_provider_actions(weak: Weak<Inner>) -> ProviderActions {
     let register_weak = weak.clone();
-    let register_provider: Option<Arc<dyn Fn(&str, &crate::core::provider_composer::ProviderConfigInput) -> Result<(), String> + Send + Sync>> =
-        Some(Arc::new(move |name: &str, config: &crate::core::provider_composer::ProviderConfigInput| {
+    let register_provider: Option<
+        Arc<dyn Fn(&str, &crate::core::provider_composer::ProviderConfigInput) -> Result<(), String> + Send + Sync>,
+    > = Some(Arc::new(
+        move |name: &str, config: &crate::core::provider_composer::ProviderConfigInput| {
             let Some(inner) = register_weak.upgrade() else {
                 return Err("Session is disposed".to_owned());
             };
@@ -4480,7 +4902,8 @@ fn extension_provider_actions(weak: Weak<Inner>) -> ProviderActions {
                 .map_err(|error| error.to_string())?;
             refresh_current_model_from_registry(&inner);
             Ok(())
-        }));
+        },
+    ));
     let native_weak = weak.clone();
     let register_native_provider: Option<Arc<dyn Fn(Arc<dyn pi_ai::models::Provider>) + Send + Sync>> =
         Some(Arc::new(move |provider| {
@@ -4563,16 +4986,10 @@ impl AgentSession {
                 "pyrun_eval cannot call itself through pi.tools.call",
             ));
         }
-        let tool = lock(&self.inner.tool_registry)
-            .get(tool_name)
-            .cloned()
-            .ok_or_else(|| {
-                crate::core::extensions::types::HandlerError::new(format!(
-                    "Tool is not registered: {tool_name}"
-                ))
-            })?;
-        let tool_call_id = active_tool_call_id
-            .unwrap_or_else(|| format!("pyrun:{tool_name}:{}", now_millis()));
+        let tool = lock(&self.inner.tool_registry).get(tool_name).cloned().ok_or_else(|| {
+            crate::core::extensions::types::HandlerError::new(format!("Tool is not registered: {tool_name}"))
+        })?;
+        let tool_call_id = active_tool_call_id.unwrap_or_else(|| format!("pyrun:{tool_name}:{}", now_millis()));
         let arguments = params.as_object().cloned().unwrap_or_else(|| {
             let mut object = Map::new();
             object.insert("value".to_owned(), params.clone());
@@ -4587,23 +5004,21 @@ impl AgentSession {
             thought_signature: None,
             namespace: None,
         };
-        let tool_spec = pi_ai::types::Tool::new(
-            tool_name,
-            tool.description(),
-            tool.parameters().clone(),
-        );
+        let tool_spec = pi_ai::types::Tool::new(tool_name, tool.description(), tool.parameters().clone());
         let validated = pi_ai::utils::validation::validate_tool_arguments(&tool_spec, &tool_call)
             .map_err(|error| crate::core::extensions::types::HandlerError::new(error.to_string()))?;
-        let before = self.before_tool_call(BeforeToolCallContext {
-            assistant_message: synthetic_tool_call_assistant_message(&self.model(), &tool_call),
-            tool_call: tool_call.clone(),
-            args: Arc::new(Mutex::new(validated.clone())),
-            context: pi_agent_core::agent::types::AgentContext {
-                system_prompt: self.system_prompt(),
-                messages: self.messages(),
-                tools: Some(self.inner.agent.tools()),
-            },
-        }).await;
+        let before = self
+            .before_tool_call(BeforeToolCallContext {
+                assistant_message: synthetic_tool_call_assistant_message(&self.model(), &tool_call),
+                tool_call: tool_call.clone(),
+                args: Arc::new(Mutex::new(validated.clone())),
+                context: pi_agent_core::agent::types::AgentContext {
+                    system_prompt: self.system_prompt(),
+                    messages: self.messages(),
+                    tools: Some(self.inner.agent.tools()),
+                },
+            })
+            .await;
         if before.as_ref().and_then(|result| result.block) == Some(true) {
             let reason = before
                 .and_then(|result| result.reason)
@@ -4619,12 +5034,7 @@ impl AgentSession {
 }
 
 fn synthetic_tool_call_assistant_message(model: &Model, tool_call: &AgentToolCall) -> AssistantMessage {
-    let mut message = AssistantMessage::empty(
-        model.api.clone(),
-        model.provider.clone(),
-        model.id.clone(),
-        0,
-    );
+    let mut message = AssistantMessage::empty(model.api.clone(), model.provider.clone(), model.id.clone(), 0);
     message.content = vec![AssistantContent::ToolCall(tool_call.clone())];
     message.stop_reason = StopReason::ToolUse;
     message.timestamp = now_millis();

@@ -197,13 +197,13 @@ impl StaticResourceLoader {
 
 impl ResourceLoader for StaticResourceLoader {
     fn get_extensions(&self) -> crate::core::extensions::types::LoadExtensionsResult {
-        self.extensions.clone().unwrap_or_else(|| {
-            crate::core::extensions::types::LoadExtensionsResult {
+        self.extensions
+            .clone()
+            .unwrap_or_else(|| crate::core::extensions::types::LoadExtensionsResult {
                 extensions: Vec::new(),
                 errors: Vec::new(),
                 runtime: crate::core::extensions::extension_runtime::create_extension_runtime(),
-            }
-        })
+            })
     }
 
     fn get_skills(&self) -> LoadedSkills {

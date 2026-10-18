@@ -292,9 +292,7 @@ impl Agent {
     }
 
     fn hook<T: Clone>(&self, slot: &Mutex<Option<T>>) -> Option<T> {
-        slot.lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
+        slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
     }
 
     /// Replaces `beforeToolCall` (TypeScript's public mutable field).
@@ -346,6 +344,11 @@ impl Agent {
     /// Returns the currently installed legacy `prepareNextTurn` hook.
     pub fn prepare_next_turn_hook(&self) -> Option<PrepareNextTurnSignalHook> {
         self.hook(&self.inner.prepare_next_turn)
+    }
+
+    /// The configured stream function (`streamFn`).
+    pub fn stream_fn(&self) -> StreamFn {
+        Arc::clone(&self.inner.stream_function)
     }
 
     /// Current state snapshot.
@@ -772,10 +775,7 @@ impl Agent {
     fn build_prepare_next_turn_hook(&self, run_signal: Option<CancellationToken>) -> Option<PrepareNextTurnHook> {
         let prepare_next_turn_with_context = self.hook(&self.inner.prepare_next_turn_with_context);
         let prepare_next_turn = self.hook(&self.inner.prepare_next_turn);
-        match (
-            prepare_next_turn_with_context.as_ref(),
-            prepare_next_turn.as_ref(),
-        ) {
+        match (prepare_next_turn_with_context.as_ref(), prepare_next_turn.as_ref()) {
             (Some(with_context), _) => {
                 let with_context = Arc::clone(with_context);
                 Some(

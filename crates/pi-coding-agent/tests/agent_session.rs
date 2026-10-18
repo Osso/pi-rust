@@ -3,8 +3,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use pi_agent_core::agent::types::AgentMessage;
 use pi_agent_core::agent::AgentOptions;
+use pi_agent_core::agent::types::AgentMessage;
 use pi_agent_core::agent::{Agent, AgentInitialState};
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::providers::faux::{
@@ -43,10 +43,7 @@ fn faux_model() -> FauxModelDefinition {
 
 fn auth_data() -> serde_json::Map<String, serde_json::Value> {
     let mut data = serde_json::Map::new();
-    data.insert(
-        "faux".to_owned(),
-        json!({"type": "api_key", "key": "faux-key"}),
-    );
+    data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
     data
 }
 
@@ -91,8 +88,8 @@ async fn fixture() -> Fixture {
         ..Default::default()
     })
     .expect("agent");
-    let session_manager = SessionManager::in_memory(Some(&temp_dir.path().display().to_string()), None)
-        .expect("in-memory session");
+    let session_manager =
+        SessionManager::in_memory(Some(&temp_dir.path().display().to_string()), None).expect("in-memory session");
     let settings_manager = SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default());
     let session = AgentSession::new(AgentSessionConfig {
         agent,
@@ -175,13 +172,9 @@ fn agent_event_name(event: &pi_agent_core::agent::types::AgentEvent) -> &'static
 async fn prompt_persists_user_and_assistant_messages() {
     let fixture = fixture().await;
     let events = record_events(&fixture.session);
-    fixture
-        .faux
-        .set_responses(vec![faux_assistant_message(
-            "hello",
-            FauxAssistantMessageOptions::default(),
-        )
-        .into()]);
+    fixture.faux.set_responses(vec![
+        faux_assistant_message("hello", FauxAssistantMessageOptions::default()).into(),
+    ]);
 
     fixture
         .session
@@ -236,10 +229,7 @@ async fn steering_and_follow_up_messages_are_tracked_and_queued() {
                 Box::pin(async move {
                     calls.fetch_add(1, Ordering::SeqCst);
                     gate.notified().await;
-                    Ok(faux_assistant_message(
-                        "first",
-                        FauxAssistantMessageOptions::default(),
-                    ))
+                    Ok(faux_assistant_message("first", FauxAssistantMessageOptions::default()))
                 })
             },
         )),
@@ -249,20 +239,13 @@ async fn steering_and_follow_up_messages_are_tracked_and_queued() {
 
     let session = fixture.session.clone();
     let prompt_task = tokio::spawn(async move {
-        session
-            .prompt("start", PromptOptions::default())
-            .await
-            .expect("prompt");
+        session.prompt("start", PromptOptions::default()).await.expect("prompt");
     });
     while calls.load(Ordering::SeqCst) == 0 {
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     }
     fixture.session.steer("steer me", &[]).await.expect("steer");
-    fixture
-        .session
-        .follow_up("follow up", &[])
-        .await
-        .expect("follow up");
+    fixture.session.follow_up("follow up", &[]).await.expect("follow up");
     assert_eq!(fixture.session.get_steering_messages(), vec!["steer me"]);
     assert_eq!(fixture.session.get_follow_up_messages(), vec!["follow up"]);
     gate.notify_waiters();
@@ -292,10 +275,7 @@ async fn prompt_while_streaming_requires_streaming_behavior() {
                 let gate = Arc::clone(&gate_for_stream);
                 Box::pin(async move {
                     gate.notified().await;
-                    Ok(faux_assistant_message(
-                        "done",
-                        FauxAssistantMessageOptions::default(),
-                    ))
+                    Ok(faux_assistant_message("done", FauxAssistantMessageOptions::default()))
                 })
             },
         )),
@@ -303,10 +283,7 @@ async fn prompt_while_streaming_requires_streaming_behavior() {
     ]);
     let session = fixture.session.clone();
     let prompt_task = tokio::spawn(async move {
-        session
-            .prompt("start", PromptOptions::default())
-            .await
-            .expect("prompt");
+        session.prompt("start", PromptOptions::default()).await.expect("prompt");
     });
     while !fixture.session.is_streaming() {
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
@@ -338,10 +315,7 @@ async fn clear_queue_returns_pending_messages() {
                 let gate = Arc::clone(&gate_for_stream);
                 Box::pin(async move {
                     gate.notified().await;
-                    Ok(faux_assistant_message(
-                        "done",
-                        FauxAssistantMessageOptions::default(),
-                    ))
+                    Ok(faux_assistant_message("done", FauxAssistantMessageOptions::default()))
                 })
             },
         )),
@@ -349,10 +323,7 @@ async fn clear_queue_returns_pending_messages() {
     ]);
     let session = fixture.session.clone();
     let prompt_task = tokio::spawn(async move {
-        session
-            .prompt("start", PromptOptions::default())
-            .await
-            .expect("prompt");
+        session.prompt("start", PromptOptions::default()).await.expect("prompt");
     });
     while !fixture.session.is_streaming() {
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
@@ -396,8 +367,9 @@ async fn abort_clears_queues_and_reports_idle() {
     let fixture = fixture().await;
     let gate = Arc::new(tokio::sync::Notify::new());
     let gate_for_stream = Arc::clone(&gate);
-    fixture.faux.set_responses(vec![
-        pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+    fixture
+        .faux
+        .set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
             move |_context: Context,
                   _options: Option<SimpleStreamOptions>,
                   _state: pi_ai::providers::faux::FauxProviderStateSnapshot,
@@ -405,14 +377,10 @@ async fn abort_clears_queues_and_reports_idle() {
                 let gate = Arc::clone(&gate_for_stream);
                 Box::pin(async move {
                     gate.notified().await;
-                    Ok(faux_assistant_message(
-                        "done",
-                        FauxAssistantMessageOptions::default(),
-                    ))
+                    Ok(faux_assistant_message("done", FauxAssistantMessageOptions::default()))
                 })
             },
-        )),
-    ]);
+        ))]);
     let session = fixture.session.clone();
     let prompt_task = tokio::spawn(async move {
         let _ = session.prompt("start", PromptOptions::default()).await;
@@ -459,13 +427,9 @@ async fn session_name_round_trips_through_session_info() {
 #[tokio::test]
 async fn session_stats_count_messages_tools_and_usage() {
     let fixture = fixture().await;
-    fixture
-        .faux
-        .set_responses(vec![faux_assistant_message(
-            "hello",
-            FauxAssistantMessageOptions::default(),
-        )
-        .into()]);
+    fixture.faux.set_responses(vec![
+        faux_assistant_message("hello", FauxAssistantMessageOptions::default()).into(),
+    ]);
     fixture
         .session
         .prompt("hi", PromptOptions::default())
@@ -482,13 +446,9 @@ async fn session_stats_count_messages_tools_and_usage() {
 async fn get_last_assistant_text_skips_empty_aborted_messages() {
     let fixture = fixture().await;
     assert_eq!(fixture.session.get_last_assistant_text(), None);
-    fixture
-        .faux
-        .set_responses(vec![faux_assistant_message(
-            "  final answer  ",
-            FauxAssistantMessageOptions::default(),
-        )
-        .into()]);
+    fixture.faux.set_responses(vec![
+        faux_assistant_message("  final answer  ", FauxAssistantMessageOptions::default()).into(),
+    ]);
     fixture
         .session
         .prompt("hi", PromptOptions::default())
@@ -503,13 +463,9 @@ async fn get_last_assistant_text_skips_empty_aborted_messages() {
 #[tokio::test]
 async fn navigate_tree_moves_leaf_and_returns_editor_text() {
     let fixture = fixture().await;
-    fixture
-        .faux
-        .set_responses(vec![faux_assistant_message(
-            "hello",
-            FauxAssistantMessageOptions::default(),
-        )
-        .into()]);
+    fixture.faux.set_responses(vec![
+        faux_assistant_message("hello", FauxAssistantMessageOptions::default()).into(),
+    ]);
     fixture
         .session
         .prompt("first", PromptOptions::default())
@@ -555,10 +511,7 @@ async fn prompt_with_streaming_steer_queues_instead_of_failing() {
                 let gate = Arc::clone(&gate_for_stream);
                 Box::pin(async move {
                     gate.notified().await;
-                    Ok(faux_assistant_message(
-                        "done",
-                        FauxAssistantMessageOptions::default(),
-                    ))
+                    Ok(faux_assistant_message("done", FauxAssistantMessageOptions::default()))
                 })
             },
         )),
@@ -566,10 +519,7 @@ async fn prompt_with_streaming_steer_queues_instead_of_failing() {
     ]);
     let session = fixture.session.clone();
     let prompt_task = tokio::spawn(async move {
-        session
-            .prompt("start", PromptOptions::default())
-            .await
-            .expect("prompt");
+        session.prompt("start", PromptOptions::default()).await.expect("prompt");
     });
     while !fixture.session.is_streaming() {
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;

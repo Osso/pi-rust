@@ -15,8 +15,8 @@ use crate::core::agent_session_services::{
     create_agent_session_services,
 };
 use crate::core::sdk::CreateAgentSessionResult;
-use crate::core::session_cwd::assert_session_cwd_exists;
 use crate::core::session_control_db::assert_main_session_runtime_available;
+use crate::core::session_cwd::assert_session_cwd_exists;
 use crate::core::session_errors::SessionImportFileNotFoundError;
 use crate::core::session_manager::SessionManager;
 use crate::utils::paths::{PathInputOptions, resolve_path};
@@ -40,9 +40,7 @@ pub struct CreateAgentSessionRuntimeOptions {
 
 /// Runtime factory reused for `/new`, `/resume`, `/fork`, and imports.
 pub type CreateAgentSessionRuntimeFactory = Arc<
-    dyn Fn(
-            CreateAgentSessionRuntimeOptions,
-        ) -> BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, String>>
+    dyn Fn(CreateAgentSessionRuntimeOptions) -> BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, String>>
         + Send
         + Sync,
 >;
@@ -54,8 +52,7 @@ pub type BeforeSessionInvalidateHandler = Arc<dyn Fn() + Send + Sync>;
 /// Callback invoked before a process restart.
 pub type BeforeProcessRestartHandler = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 /// Replacement for `restartCurrentProcess`.
-pub type ProcessRestarter =
-    Arc<dyn Fn(ProcessRestartOptions) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
+pub type ProcessRestarter = Arc<dyn Fn(ProcessRestartOptions) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
 
 /// Arguments for a process restart.
 #[derive(Debug, Clone, Default)]
@@ -222,8 +219,8 @@ impl AgentSessionRuntime {
         with_session: Option<Arc<dyn Fn(AgentSession) -> BoxFuture<'static, ()> + Send + Sync>>,
     ) -> Result<SessionTransitionResult, String> {
         let previous_session_file = self.session.session_file();
-        let session_manager = SessionManager::open(session_path, None, cwd_override)
-            .map_err(|error| error.to_string())?;
+        let session_manager =
+            SessionManager::open(session_path, None, cwd_override).map_err(|error| error.to_string())?;
         assert_session_cwd_exists(&session_manager, self.cwd()).map_err(|error| error.to_string())?;
         let control_db_path = self.services_control_db_path()?;
         assert_main_session_runtime_available(&control_db_path, session_manager.get_session_id())
@@ -246,8 +243,8 @@ impl AgentSessionRuntime {
     }
 
     fn resolve_existing_directory(&self, input_path: &str) -> Result<String, String> {
-        let resolved = resolve_path(input_path, self.cwd(), &PathInputOptions::default())
-            .map_err(|error| error.to_string())?;
+        let resolved =
+            resolve_path(input_path, self.cwd(), &PathInputOptions::default()).map_err(|error| error.to_string())?;
         let path = std::path::Path::new(&resolved);
         if !path.exists() {
             return Err(format!("Directory does not exist: {resolved}"));
@@ -267,11 +264,11 @@ impl AgentSessionRuntime {
             .relocate(&resolved_target, Some(&self.services.agent_dir))
             .map_err(|error| error.to_string())?;
         let mut details = serde_json::Map::new();
-        details.insert("previousCwd".to_owned(), serde_json::Value::String(previous_cwd.clone()));
         details.insert(
-            "cwd".to_owned(),
-            serde_json::Value::String(resolved_target.clone()),
+            "previousCwd".to_owned(),
+            serde_json::Value::String(previous_cwd.clone()),
         );
+        details.insert("cwd".to_owned(), serde_json::Value::String(resolved_target.clone()));
         session_manager
             .append_custom_message_entry(
                 "cwd_changed",
@@ -324,7 +321,10 @@ impl AgentSessionRuntime {
             return Ok(());
         };
         self.activate_relocation(prepared).await?;
-        self.session.continue_run().await.map_err(|error| error.message().to_owned())
+        self.session
+            .continue_run()
+            .await
+            .map_err(|error| error.message().to_owned())
     }
 
     /// Relocates the session to a new working directory.
@@ -334,11 +334,7 @@ impl AgentSessionRuntime {
     }
 
     /// Restarts the session, optionally as a process restart.
-    pub async fn restart(
-        &mut self,
-        notice: Option<&str>,
-        process: bool,
-    ) -> Result<(), String> {
+    pub async fn restart(&mut self, notice: Option<&str>, process: bool) -> Result<(), String> {
         let previous_session_file = self.session.session_file();
         let current_session_file = self.session.session_file();
         let is_persisted = self.session.session_manager().is_persisted();
@@ -392,18 +388,14 @@ impl AgentSessionRuntime {
     }
 
     /// Starts a new session.
-    pub async fn new_session(
-        &mut self,
-        options: NewSessionOptions,
-    ) -> Result<SessionTransitionResult, String> {
+    pub async fn new_session(&mut self, options: NewSessionOptions) -> Result<SessionTransitionResult, String> {
         let previous_session_file = self.session.session_file();
         let (is_persisted, session_dir) = {
             let manager = self.session.session_manager();
             (manager.is_persisted(), manager.get_session_dir().to_owned())
         };
         let mut session_manager = if is_persisted {
-            SessionManager::create(self.cwd(), Some(&session_dir), None)
-                .map_err(|error| error.to_string())?
+            SessionManager::create(self.cwd(), Some(&session_dir), None).map_err(|error| error.to_string())?
         } else {
             SessionManager::in_memory(Some(self.cwd()), None).map_err(|error| error.to_string())?
         };
@@ -451,9 +443,12 @@ impl AgentSessionRuntime {
         let target_leaf_id = if position == ForkPosition::At {
             selected_entry.id().map(str::to_owned)
         } else {
-            let is_user_message = selected_entry
-                .as_message()
-                .is_some_and(|entry| matches!(entry.message.as_ref(), pi_agent_core::agent::types::AgentMessage::User(_)));
+            let is_user_message = selected_entry.as_message().is_some_and(|entry| {
+                matches!(
+                    entry.message.as_ref(),
+                    pi_agent_core::agent::types::AgentMessage::User(_)
+                )
+            });
             if !is_user_message {
                 return Err("Invalid entry ID for forking".to_owned());
             }
@@ -474,8 +469,8 @@ impl AgentSessionRuntime {
                 .ok_or_else(|| "Persisted session is missing a session file".to_owned())?;
             let session_dir = self.session.session_manager().get_session_dir().to_owned();
             let Some(target_leaf_id) = target_leaf_id else {
-                let mut session_manager = SessionManager::create(self.cwd(), Some(&session_dir), None)
-                    .map_err(|error| error.to_string())?;
+                let mut session_manager =
+                    SessionManager::create(self.cwd(), Some(&session_dir), None).map_err(|error| error.to_string())?;
                 session_manager
                     .new_session(Some(crate::core::session_manager::NewSessionOptions {
                         id: None,
@@ -579,8 +574,7 @@ impl AgentSessionRuntime {
         let destination = std::path::Path::new(&session_dir).join(file_name);
         let destination_path = destination.display().to_string();
         let previous_session_file = self.session.session_file();
-        if std::fs::canonicalize(&destination_path).ok().as_deref()
-            != std::fs::canonicalize(&resolved).ok().as_deref()
+        if std::fs::canonicalize(&destination_path).ok().as_deref() != std::fs::canonicalize(&resolved).ok().as_deref()
         {
             std::fs::copy(&resolved, &destination_path).map_err(|error| error.to_string())?;
         }
@@ -633,22 +627,19 @@ pub async fn create_agent_session_runtime(
 }
 
 /// Convenience factory that creates services and a session for one cwd.
-pub fn default_runtime_factory(
-    options: DefaultRuntimeFactoryOptions,
-) -> CreateAgentSessionRuntimeFactory {
+pub fn default_runtime_factory(options: DefaultRuntimeFactoryOptions) -> CreateAgentSessionRuntimeFactory {
     Arc::new(move |request| {
         let options = options.clone();
         Box::pin(async move {
-            let services = create_agent_session_services(
-                crate::core::agent_session_services::CreateAgentSessionServicesOptions {
+            let services =
+                create_agent_session_services(crate::core::agent_session_services::CreateAgentSessionServicesOptions {
                     cwd: request.cwd.clone(),
                     agent_dir: Some(request.agent_dir.clone()),
                     settings_manager: None,
                     model_runtime: None,
                     resource_loader: Some(options.resource_loader),
-                },
-            )
-            .await?;
+                })
+                .await?;
             let result: CreateAgentSessionResult = create_agent_session_from_services(
                 crate::core::agent_session_services::CreateAgentSessionFromServicesOptions {
                     services: AgentSessionServices {

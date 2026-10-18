@@ -95,9 +95,7 @@ pub struct CreateAgentSessionResult {
 }
 
 /// Creates an [`AgentSession`] with the supplied options.
-pub async fn create_agent_session(
-    options: CreateAgentSessionOptions,
-) -> Result<CreateAgentSessionResult, String> {
+pub async fn create_agent_session(options: CreateAgentSessionOptions) -> Result<CreateAgentSessionResult, String> {
     create_agent_session_internal(options).await
 }
 
@@ -119,14 +117,17 @@ fn resolve(input: &str) -> String {
     .unwrap_or_else(|_| input.to_owned())
 }
 
-async fn create_agent_session_internal(
-    options: CreateAgentSessionOptions,
-) -> Result<CreateAgentSessionResult, String> {
+async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Result<CreateAgentSessionResult, String> {
     let cwd = resolve(
         &options
             .cwd
             .clone()
-            .or_else(|| options.session_manager.as_ref().map(|manager| manager.get_cwd().to_owned()))
+            .or_else(|| {
+                options
+                    .session_manager
+                    .as_ref()
+                    .map(|manager| manager.get_cwd().to_owned())
+            })
             .unwrap_or_else(|| {
                 std::env::current_dir()
                     .map(|path| path.display().to_string())
@@ -167,10 +168,8 @@ async fn create_agent_session_internal(
     let session_manager = match options.session_manager {
         Some(manager) => manager,
         None => {
-            let session_dir = get_default_session_dir(&cwd, Some(&agent_dir))
-                .map_err(|error| error.to_string())?;
-            SessionManager::create(&cwd, Some(&session_dir), None)
-                .map_err(|error| error.to_string())?
+            let session_dir = get_default_session_dir(&cwd, Some(&agent_dir)).map_err(|error| error.to_string())?;
+            SessionManager::create(&cwd, Some(&session_dir), None).map_err(|error| error.to_string())?
         }
     };
     let resource_loader = options
@@ -178,8 +177,7 @@ async fn create_agent_session_internal(
         .clone()
         .ok_or_else(|| "DefaultResourceLoader is not ported; pass resourceLoader".to_owned())?;
 
-    let existing_session = session_manager
-        .build_session_context();
+    let existing_session = session_manager.build_session_context();
     let has_existing_session = !existing_session.messages.is_empty();
 
     let mut model = options.model.clone();
@@ -240,9 +238,10 @@ async fn create_agent_session_internal(
         model_thinking_level(thinking_level),
     ));
 
-    let allowed_tool_names = options.tools.clone().or_else(|| {
-        (options.no_tools == Some(NoTools::All)).then(Vec::new)
-    });
+    let allowed_tool_names = options
+        .tools
+        .clone()
+        .or_else(|| (options.no_tools == Some(NoTools::All)).then(Vec::new));
     let excluded_tool_names = options.exclude_tools.clone();
     let excluded_set: Option<std::collections::HashSet<String>> = excluded_tool_names
         .as_ref()
@@ -310,20 +309,16 @@ async fn create_agent_session_internal(
                     .timeout_ms
                     .or(provider_retry.timeout_ms)
                     .unwrap_or(effective_timeout_ms as f64);
-                let websocket_connect_timeout_ms = options
-                    .stream
-                    .websocket_connect_timeout_ms
-                    .or_else(|| {
-                        lock(&settings)
-                            .get_websocket_connect_timeout_ms()
-                            .ok()
-                            .flatten()
-                            .map(|timeout| timeout as f64)
-                    });
+                let websocket_connect_timeout_ms = options.stream.websocket_connect_timeout_ms.or_else(|| {
+                    lock(&settings)
+                        .get_websocket_connect_timeout_ms()
+                        .ok()
+                        .flatten()
+                        .map(|timeout| timeout as f64)
+                });
                 options.stream.request.timeout_ms = Some(timeout_ms);
                 options.stream.websocket_connect_timeout_ms = websocket_connect_timeout_ms;
-                options.stream.request.max_retries =
-                    options.stream.request.max_retries.or(provider_retry.max_retries);
+                options.stream.request.max_retries = options.stream.request.max_retries.or(provider_retry.max_retries);
                 options.stream.request.max_retry_delay_ms = Some(
                     options
                         .stream
@@ -334,29 +329,27 @@ async fn create_agent_session_internal(
                 let model_for_headers = model.clone();
                 let settings_for_headers = Arc::clone(&settings);
                 let session_id_for_headers = options.stream.session_id.clone();
-                options.stream.request.transform_headers = Some(Arc::new(
-                    move |request_headers: ProviderHeaders| {
-                        let model = model_for_headers.clone();
-                        let settings = Arc::clone(&settings_for_headers);
-                        let session_id = session_id_for_headers.clone();
-                        Box::pin(async move {
-                            let model_headers = model.headers.as_ref().map(|headers| {
-                                headers
-                                    .iter()
-                                    .map(|(key, value)| (key.clone(), Some(value.clone())))
-                                    .collect::<ProviderHeaders>()
-                            });
-                            let merged = merge_provider_attribution_headers(
-                                &model,
-                                &lock(&settings),
-                                session_id.as_deref(),
-                                &[model_headers, Some(request_headers)],
-                            )
-                            .unwrap_or_default();
-                            Ok(merged)
-                        })
-                    },
-                ));
+                options.stream.request.transform_headers = Some(Arc::new(move |request_headers: ProviderHeaders| {
+                    let model = model_for_headers.clone();
+                    let settings = Arc::clone(&settings_for_headers);
+                    let session_id = session_id_for_headers.clone();
+                    Box::pin(async move {
+                        let model_headers = model.headers.as_ref().map(|headers| {
+                            headers
+                                .iter()
+                                .map(|(key, value)| (key.clone(), Some(value.clone())))
+                                .collect::<ProviderHeaders>()
+                        });
+                        let merged = merge_provider_attribution_headers(
+                            &model,
+                            &lock(&settings),
+                            session_id.as_deref(),
+                            &[model_headers, Some(request_headers)],
+                        )
+                        .unwrap_or_default();
+                        Ok(merged)
+                    })
+                }));
                 let session_for_retry = Arc::clone(&session_ref);
                 options.stream.on_retry = Some(Arc::new(
                     move |event: pi_ai::types::ProviderRetryEvent, _model: &Model| {
@@ -444,18 +437,14 @@ async fn create_agent_session_internal(
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn block_images(message: Message) -> Message {
     match message {
         Message::User(mut user) => {
             if let UserContent::Blocks(blocks) = &user.content
-                && blocks
-                    .iter()
-                    .any(|block| matches!(block, TextOrImageContent::Image(_)))
+                && blocks.iter().any(|block| matches!(block, TextOrImageContent::Image(_)))
             {
                 let mut filtered: Vec<TextOrImageContent> = Vec::new();
                 for block in blocks {
@@ -504,13 +493,11 @@ fn block_images(message: Message) -> Message {
 }
 
 fn push_placeholder(blocks: &mut Vec<TextOrImageContent>) {
-    let is_consecutive = blocks
-        .last()
-        .is_some_and(|block| matches!(block, TextOrImageContent::Text(text) if text.text == "Image reading is disabled."));
+    let is_consecutive = blocks.last().is_some_and(
+        |block| matches!(block, TextOrImageContent::Text(text) if text.text == "Image reading is disabled."),
+    );
     if !is_consecutive {
-        blocks.push(TextOrImageContent::Text(TextContent::new(
-            "Image reading is disabled.",
-        )));
+        blocks.push(TextOrImageContent::Text(TextContent::new("Image reading is disabled.")));
     }
 }
 

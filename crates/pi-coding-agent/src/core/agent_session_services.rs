@@ -6,9 +6,7 @@ use std::sync::{Arc, Mutex};
 use crate::config::get_agent_dir;
 use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use crate::core::resource_loader::ResourceLoader;
-use crate::core::sdk::{
-    CreateAgentSessionOptions, CreateAgentSessionResult, NoTools, create_agent_session,
-};
+use crate::core::sdk::{CreateAgentSessionOptions, CreateAgentSessionResult, NoTools, create_agent_session};
 use crate::core::session_manager::SessionManager;
 use crate::core::settings_manager::SettingsManager;
 use crate::utils::paths::{PathInputOptions, resolve_path};
@@ -61,24 +59,19 @@ pub struct AgentSessionServices {
 pub async fn create_agent_session_services(
     options: CreateAgentSessionServicesOptions,
 ) -> Result<AgentSessionServices, String> {
-    let cwd = resolve_path(&options.cwd, &process_cwd(), &PathInputOptions::default())
-        .map_err(|error| error.to_string())?;
+    let cwd =
+        resolve_path(&options.cwd, &process_cwd(), &PathInputOptions::default()).map_err(|error| error.to_string())?;
     let agent_dir = options
         .agent_dir
         .as_ref()
-        .map(|dir| {
-            resolve_path(dir, &process_cwd(), &PathInputOptions::default())
-                .map_err(|error| error.to_string())
-        })
+        .map(|dir| resolve_path(dir, &process_cwd(), &PathInputOptions::default()).map_err(|error| error.to_string()))
         .transpose()?
         .unwrap_or_else(|| get_agent_dir().display().to_string());
     let model_runtime = match options.model_runtime {
         Some(runtime) => runtime,
         None => ModelRuntime::create(CreateModelRuntimeOptions {
             auth_path: Some(Path::new(&agent_dir).join("auth.json").display().to_string()),
-            models_path: Some(Some(
-                Path::new(&agent_dir).join("models.json").display().to_string(),
-            )),
+            models_path: Some(Some(Path::new(&agent_dir).join("models.json").display().to_string())),
             ..Default::default()
         })
         .await
