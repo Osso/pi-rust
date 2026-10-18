@@ -6,13 +6,14 @@
 
 use std::sync::{Arc, OnceLock, RwLock};
 
+use crate::auth::OAuthAuth;
 use crate::auth::oauth::anthropic::AnthropicOAuth;
+use crate::auth::oauth::github_copilot::GitHubCopilotOAuth;
 use crate::auth::oauth::kimi_coding::KimiCodingOAuth;
 use crate::auth::oauth::openai_codex::OpenAICodexOAuth;
 use crate::auth::oauth::openrouter::OpenRouterOAuth;
 use crate::auth::oauth::radius::{RadiusOAuthOptions, create_radius_oauth};
 use crate::auth::oauth::xai::XaiOAuth;
-use crate::auth::{AuthError, AuthInteraction, ModelAuth, OAuthAuth, OAuthCredential};
 
 type FlowLoader = Arc<dyn Fn() -> Arc<dyn OAuthAuth> + Send + Sync>;
 type RadiusFlowLoader = Arc<dyn Fn(RadiusOAuthOptions) -> Arc<dyn OAuthAuth> + Send + Sync>;
@@ -46,52 +47,6 @@ fn registered() -> Option<OAuthFlowLoaders> {
         .clone()
 }
 
-/// Flow placeholder for modules not ported yet (`github-copilot.ts`).
-pub struct UnavailableOAuth {
-    name: String,
-    message: String,
-}
-
-impl UnavailableOAuth {
-    pub fn new(name: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            message: message.into(),
-        }
-    }
-}
-
-impl OAuthAuth for UnavailableOAuth {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn login(
-        &self,
-        _interaction: Arc<dyn AuthInteraction>,
-    ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
-        let message = self.message.clone();
-        Box::pin(async move { Err(AuthError::failed(message)) })
-    }
-
-    fn refresh(
-        &self,
-        _credential: OAuthCredential,
-        _signal: tokio_util::sync::CancellationToken,
-    ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
-        let message = self.message.clone();
-        Box::pin(async move { Err(AuthError::failed(message)) })
-    }
-
-    fn to_auth(
-        &self,
-        _credential: OAuthCredential,
-    ) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
-        let message = self.message.clone();
-        Box::pin(async move { Err(AuthError::failed(message)) })
-    }
-}
-
 pub fn load_anthropic_oauth() -> Arc<dyn OAuthAuth> {
     registered()
         .map(|loaders| (loaders.anthropic)())
@@ -107,10 +62,7 @@ pub fn load_openai_codex_oauth() -> Arc<dyn OAuthAuth> {
 pub fn load_github_copilot_oauth() -> Arc<dyn OAuthAuth> {
     match registered() {
         Some(loaders) => (loaders.github_copilot)(),
-        None => Arc::new(UnavailableOAuth::new(
-            "GitHub Copilot",
-            "GitHub Copilot OAuth is not ported yet",
-        )),
+        None => Arc::new(GitHubCopilotOAuth::new()),
     }
 }
 

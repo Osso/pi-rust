@@ -8,6 +8,7 @@ pub mod estimate;
 pub mod event_stream;
 pub mod hash;
 pub mod headers;
+pub mod iso8601;
 pub(crate) mod js_number;
 pub mod json_parse;
 pub mod node_http_proxy;

@@ -81,11 +81,17 @@ pub(crate) fn build_request(
     })
 }
 
+/// Matches `new URL(base + path).href`: percent-encodes characters such as the
+/// `{PLACEHOLDER}` segments Cloudflare gateway base URLs carry.
 fn build_url(base_url: &str) -> String {
-    if base_url.ends_with('/') && MESSAGES_PATH.starts_with('/') {
+    let joined = if base_url.ends_with('/') && MESSAGES_PATH.starts_with('/') {
         format!("{base_url}{}", &MESSAGES_PATH[1..])
     } else {
         format!("{base_url}{MESSAGES_PATH}")
+    };
+    match reqwest::Url::parse(&joined) {
+        Ok(url) => url.to_string(),
+        Err(_) => joined,
     }
 }
 
