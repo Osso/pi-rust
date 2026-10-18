@@ -1,3 +1,5 @@
+#[path = "support/json_compare.rs"]
+mod json_compare;
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -77,18 +79,12 @@ impl HttpBody for FixedBody {
     }
 }
 
+/// Rebuilds a value with number normalization only; key order is untouched.
 fn canonical(value: Value) -> Value {
     match value {
         Value::Array(items) => Value::Array(items.into_iter().map(canonical).collect()),
         Value::Object(object) => {
-            let mut entries: Vec<(String, Value)> = object.into_iter().collect();
-            entries.sort_by(|left, right| left.0.cmp(&right.0));
-            Value::Object(
-                entries
-                    .into_iter()
-                    .map(|(key, value)| (key, canonical(value)))
-                    .collect(),
-            )
+            Value::Object(object.into_iter().map(|(key, value)| (key, canonical(value))).collect())
         }
         Value::Number(number) => match number.as_f64() {
             Some(float) if float.fract() == 0.0 && float.abs() < 1e21 => Value::from(float as i64),
@@ -318,6 +314,6 @@ fn gateway_binding_matches_the_pinned_typescript_module() {
             .build()
             .expect("runtime")
             .block_on(observe(&scenario));
-        assert_eq!(observed, expected, "scenario {}", scenario["id"]);
+        json_compare::assert_json_eq_ordered(&observed, &expected, &format!("scenario {}", scenario["id"]));
     }
 }

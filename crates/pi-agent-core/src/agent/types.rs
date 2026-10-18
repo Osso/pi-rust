@@ -4,9 +4,10 @@
 //! [`AgentMessage::Custom`], which keeps the full JSON object (including its
 //! `role`) so higher layers can parse their typed messages from it.
 
-use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::{Arc, Mutex};
+
+use indexmap::IndexSet;
 
 use pi_ai::request::{BoxFuture, SimpleStreamOptions};
 use pi_ai::types::{
@@ -521,6 +522,6 @@ pub struct AgentState {
     pub is_streaming: bool,
     pub is_model_request_active: bool,
     pub streaming_message: Option<AgentMessage>,
-    pub pending_tool_calls: BTreeSet<String>,
+    pub pending_tool_calls: IndexSet<String>,
     pub error_message: Option<String>,
 }

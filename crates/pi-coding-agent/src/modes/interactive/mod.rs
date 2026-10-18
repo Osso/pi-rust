@@ -1,0 +1,4 @@
+//! Ported from `packages/coding-agent/src/modes/interactive/`.
+
+pub mod components;
+pub mod theme;

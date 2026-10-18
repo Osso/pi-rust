@@ -10,6 +10,7 @@ Rust: `crates/pi-ai/src/types.rs`, `crates/pi-ai/src/utils/event_stream.rs`, `cr
 - `Model<TApi>.compat` → `ModelCompat`, parsed by `api` (`openai-completions`; `openai-responses|azure-openai-responses|openai-codex-responses`; `anthropic-messages`; `bedrock-converse-stream`); other APIs ignore `compat` (TS `never`).
 - `Tool.parameters: TSchema` → `serde_json::Value` (JSON Schema).
 - `constrainedSampling: false | Config` → `ConstrainedSampling::{Disabled, Config}`.
+- `AssistantMessage` serializes the base fields in the order every provider's object literal uses (`role`, `content`, `api`, `provider`, `model`, `usage`, `stopReason`, `timestamp`), then optional fields in interface declaration order. `createErrorEvent` in `pi-messages` places `errorMessage` before `timestamp`; that single path differs and is not asserted (see `pi-messages.md`).
 - `ThinkingLevelMap`, headers, grammar variants, chat-template kwargs → `BTreeMap` (key order on output is sorted; TS insertion order is not preserved — semantic JSON equal). `serde_json` `preserve_order` keeps object order for `arguments`, `details`, `samplingParams`, `value`.
 - `EventStream` is split into `EventSender` (push/end/fail) and `EventStream` (next/result). `fail(unknown)` → `StreamFailure { message }`.
 

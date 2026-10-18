@@ -29,6 +29,8 @@ Tests: `crates/pi-ai/tests/retry.rs` (10 behavioral), `crates/pi-ai/tests/differ
 | `errorMessage \|\| "Unknown error"` | `retry_assistant_call` (empty filter) | differential id 54 (`errorMessage: ""`) |
 
 ## Branch notes
+- Differential comparison is order-sensitive (`assert_json_eq_ordered`); the only
+  normalization is comparing JSON numbers as `f64` (TS `200` vs Rust `200.0`).
 - `baseDelayMs * 2^(attempt-1)`; delays are converted to `Duration` from seconds, clamping non-positive values to zero.
 - The first `produce()` is never guarded by the abort signal (matches TS).
 - Classification uses `(?i)` alternation of the exact TS strings; non-retryable patterns win before retryable patterns.
