@@ -10,7 +10,8 @@ use crate::agent::AgentMessage;
 const TOOL_RESULT_MAX_CHARS: usize = 2000;
 
 /// File paths touched by a session branch or compaction range.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileOperations {
     /// Files read but not necessarily modified.
     pub read: BTreeSet<String>,
