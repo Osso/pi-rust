@@ -42,6 +42,40 @@ function f64Bits(value: number): string {
 	return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+type KillRingApi = {
+	KillRing: new () => {
+		push(text: string, opts: { prepend: boolean; accumulate?: boolean }): void;
+		peek(): string | undefined;
+		rotate(): void;
+		readonly length: number;
+	};
+};
+
+type KillRingOperation =
+	| { kind: "push"; text: string; prepend: boolean; accumulate: boolean }
+	| { kind: "rotate" }
+	| { kind: "peek" };
+
+function simulateKillRing(api: KillRingApi, operations: KillRingOperation[]): unknown {
+	const ring = new api.KillRing();
+	const snapshots: unknown[] = [];
+	for (const operation of operations) {
+		if (operation.kind === "push") {
+			ring.push(operation.text, { prepend: operation.prepend, accumulate: operation.accumulate });
+		} else if (operation.kind === "rotate") {
+			ring.rotate();
+		} else {
+			snapshots.push({ peek: ring.peek() ?? null, length: ring.length });
+		}
+	}
+	const entries: Array<string | null> = [];
+	for (let index = 0; index < ring.length; index++) {
+		entries.push(ring.peek() ?? null);
+		ring.rotate();
+	}
+	return { snapshots, length: ring.length, entries };
+}
+
 async function loadApi(sourceDirectory: string, moduleName: string): Promise<unknown> {
 	return import(pathToFileURL(path.join(sourceDirectory, moduleName)).href);
 }
@@ -66,6 +100,11 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 					api.fuzzyFilter(testCase.items, testCase.query, (candidates) => candidates),
 				),
 			};
+		}
+		case "kill_ring": {
+			const api = (await loadApi(sourceDirectory, "kill-ring.ts")) as KillRingApi;
+			const cases = requireArray<KillRingOperation[]>(request, "cases");
+			return { results: cases.map((operations) => simulateKillRing(api, operations)) };
 		}
 		default:
 			throw new Error(`unsupported operation: ${request.operation}`);

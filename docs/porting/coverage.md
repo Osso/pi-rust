@@ -267,12 +267,12 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 |---|---:|---:|---|---|---|
 | `tui/src/fuzzy.ts` | 161 | 0 | done | `crates/pi-tui/src/fuzzy.rs` | exact score-bit differential |
 | `tui/src/keys.ts` | 1404 | 0 | todo |  |  |
-| `tui/src/kill-ring.ts` | 46 | 0 | todo |  |  |
+| `tui/src/kill-ring.ts` | 46 | 0 | done | `crates/pi-tui/src/kill_ring.rs` | differential ring operations |
 | `tui/src/native-modifiers.ts` | 66 | 0 | todo |  |  |
 | `tui/src/stdin-buffer.ts` | 444 | 0 | todo |  |  |
 | `tui/src/terminal-colors.ts` | 73 | 0 | todo |  |  |
 | `tui/src/terminal-image.ts` | 657 | 0 | todo |  |  |
-| `tui/src/undo-stack.ts` | 28 | 0 | todo |  |  |
+| `tui/src/undo-stack.ts` | 28 | 0 | done | `crates/pi-tui/src/undo_stack.rs` | clone-on-push; differential N/A (structuredClone) |
 | `tui/src/utils.ts` | 1326 | 0 | todo |  |  |
 | `tui/src/autocomplete.ts` | 793 | 1 | todo |  |  |
 | `tui/src/keybindings.ts` | 325 | 1 | todo |  |  |
