@@ -558,7 +558,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/model-selector.ts` | 373 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/model_selector.rs` | snapshot/sort/scope/search/select/cancel tests; refresh path + error-list order are gaps |
 | `coding-agent/src/modes/interactive/components/oauth-selector.ts` | 214 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/oauth_selector.rs` | status/search tests + differential; >8 scroll and empty-list gaps |
 | `coding-agent/src/modes/interactive/components/sandbox-selector.ts` | 130 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/sandbox_selector.rs` | profiles, scope cycle, session inherit; differential |
-| `coding-agent/src/modes/interactive/components/scoped-models-selector.ts` | 407 | 19 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/scoped-models-selector.ts` | 407 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/scoped_models_selector.rs` | all component cases + differential; kitty save-sequence and InteractiveMode cases are gaps |
 | `coding-agent/src/modes/interactive/components/session-selector.ts` | 1119 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/settings-selector.ts` | 894 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/show-images-selector.ts` | 50 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/show_images_selector.rs` | select list + borders; differential |

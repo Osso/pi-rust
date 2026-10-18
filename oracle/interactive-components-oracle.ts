@@ -155,6 +155,35 @@ const handlers: Record<string, (api: Api, request: Request) => unknown> = {
 		applyInputs(component, request.inputs);
 		return { lines: component.render(request.width), events };
 	},
+	scopedModels: (api, request) => {
+		const events: unknown[] = [];
+		const models = request.models.map((value: any) => ({
+			id: value.id,
+			name: value.name,
+			provider: value.provider,
+			api: "openai-completions",
+			baseUrl: "https://example.test/v1",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 10000,
+			maxTokens: 1000,
+		}));
+		const component = new api.ScopedModelsSelectorComponent(
+			{
+				allModels: models,
+				enabledModelIds: request.enabledModelIds ?? null,
+				refreshStatus: request.refreshStatus ?? undefined,
+			},
+			{
+				onChange: (ids: string[] | null) => events.push({ change: ids }),
+				onPersist: (ids: string[] | null) => events.push({ persist: ids }),
+				onCancel: () => events.push({ cancel: true }),
+			},
+		);
+		applyInputs(component, request.inputs);
+		return { lines: component.render(100), events };
+	},
 	agentSwitcher: (api, request) => {
 		const events: unknown[] = [];
 		const agents = request.agents.map((value: any) => ({
