@@ -443,7 +443,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/version-check.ts` | 109 | 1 | todo |  |  |
 | `coding-agent/src/config.ts` | 595 | 2 | todo |  |  |
 | `coding-agent/src/core/model-config.ts` | 298 | 2 | todo |  |  |
-| `coding-agent/src/core/tools/path-utils.ts` | 118 | 2 | todo |  |  |
+| `coding-agent/src/core/tools/path-utils.ts` | 118 | 2 | done | `crates/pi-coding-agent/src/core/tools/path_utils.rs` | all TS tests ported + differential |
 | `coding-agent/src/utils/clipboard.ts` | 175 | 2 | todo |  |  |
 | `coding-agent/src/utils/image-convert.ts` | 49 | 2 | todo |  |  |
 | `coding-agent/src/utils/image-resize-core.ts` | 164 | 2 | todo |  |  |

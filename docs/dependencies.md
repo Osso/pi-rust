@@ -19,6 +19,7 @@ All direct dependencies are exact-pinned.
 - `tokio = 1.53.3` — provides async sleep, cancellation, and process I/O for `utils::{sleep, abort, child_process}`.
 - `tokio-util = 0.7.20` — supplies `CancellationToken` as the Rust `AbortSignal` mapping.
 - `notify = 8.2.0` — provides the platform file watcher behind `utils::fs_watch`.
+- `icu_normalizer = 2.3.0` (`compiled_data`, no default features) — applies `String.prototype.normalize("NFD")` for the macOS filename variants in `core::tools::path_utils`.
 - `pi-ai` (path) — `utils::management_http` uses the shared `Fetch` contract and default reqwest client (one HTTP stack).
 - `tempfile = 3.27.0` (development) — creates isolated temporary files, symlinks, and git repositories for path and process tests.
 

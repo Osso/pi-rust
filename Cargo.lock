@@ -1023,6 +1023,7 @@ name = "pi-coding-agent"
 version = "0.0.0"
 dependencies = [
  "gethostname",
+ "icu_normalizer",
  "notify",
  "percent-encoding",
  "pi-agent-core",

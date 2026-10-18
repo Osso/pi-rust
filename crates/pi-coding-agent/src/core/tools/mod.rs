@@ -1,3 +1,4 @@
+pub mod path_utils;
 pub mod truncate;
 
 pub use truncate::{

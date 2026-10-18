@@ -19,9 +19,11 @@ gethostname = "=1.1.0"
 serde_yaml_ng = "=0.10.0"
 url = "=2.5.8"
 percent-encoding = "=2.3.2"
-tokio = { version = "=1.53.3", features = ["rt", "macros", "time", "sync", "process", "io-util"] }
+tokio = { version = "=1.53.3", features = ["rt", "macros", "time", "sync", "process", "io-util", "fs"] }
 tokio-util = "=0.7.20"
 notify = "=8.2.0"
+# Applies the NFD normalization used for macOS filename variants in `core::tools::path_utils`.
+icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 
 [dev-dependencies]
 tempfile = "=3.27.0"
