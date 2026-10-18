@@ -79,3 +79,11 @@ relocation.
   `runtime_process_instance_id_uses_the_live_process_identity`.
 - Typed-core exclusion: TS accepts arbitrary runtime payloads for `enqueueStoredRuntimeMailboxMessage`
   and mailbox JSON; Rust requires typed structs. Invalid JS payload shapes cannot be constructed.
+
+## Mailbox payload key order
+
+Every canonical mailbox payload mutation spreads the stored object and then appends keys in the
+TypeScript literal order (`claimedAt`, `claimantProcessIdentity`, `status`, `updatedAt`; routing
+appends `recipientSessionId`, `recipientAgentId`, `senderSessionId`, `senderAgentId`; delivery appends
+`deliveredAt` then `error`). Rust inserts in the same order with `shift_remove`/`remove` after the
+inserts, so `JSON.stringify` bytes match. Covered by the 74-step `differential_control_db` suite.

@@ -115,7 +115,7 @@ The SQLite slice also relies on the pinned TypeScript toolchain (`tsx`) through 
 
 ### `pi-protocol`
 
-No runtime dependencies. CBOR encoding and decoding are hand-written against the pinned TypeScript subset so encoded bytes match the source byte-for-byte; a general-purpose CBOR crate would not guarantee that parity.
+- `serde_json = 1.0.151` (`preserve_order`) — `JsonValue::from_serde_json` converts execution-boundary JSON (tool-call arguments in `client::transcript`) into the protocol subset while preserving object key order. CBOR encoding and decoding are hand-written against the pinned TypeScript subset so encoded bytes match the source byte-for-byte; a general-purpose CBOR crate would not guarantee that parity.
 
 ### `pi-server`
 

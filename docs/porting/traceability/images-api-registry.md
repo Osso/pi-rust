@@ -23,3 +23,8 @@ Tests: `crates/pi-ai/tests/images_api_registry.rs` (3 behavioral).
 
 ## Discrepancies
 - None.
+
+## Order audit
+
+The registry map is only read by `api` key (`getImagesApiProvider`); registration order is never
+iterated or serialized, so the `BTreeMap` key order is not observable.
