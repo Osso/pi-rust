@@ -109,3 +109,114 @@ impl RulesScope {
         }
     }
 }
+
+// =============================================================================
+// ResourceLoader contract used by AgentSession / sdk
+// =============================================================================
+
+use std::sync::Arc;
+
+use pi_ai::request::BoxFuture;
+
+use crate::core::diagnostics::ResourceDiagnostic;
+
+use crate::core::package_manager::PathMetadata;
+use crate::core::prompt_templates::PromptTemplate;
+use crate::core::skills::Skill;
+use crate::core::system_prompt::ContextFile;
+
+/// One extension-provided resource path (`{ path, metadata }`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtendedResourcePath {
+    pub path: String,
+    pub metadata: PathMetadata,
+}
+
+/// `ResourceExtensionPaths` supplied by extension `resources_discover` handlers.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ResourceExtensionPaths {
+    pub skill_paths: Vec<ExtendedResourcePath>,
+    pub prompt_paths: Vec<ExtendedResourcePath>,
+    pub theme_paths: Vec<ExtendedResourcePath>,
+}
+
+/// Loaded skills plus diagnostics.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LoadedSkills {
+    pub skills: Vec<Skill>,
+    pub diagnostics: Vec<ResourceDiagnostic>,
+}
+
+/// Loaded prompt templates plus diagnostics.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LoadedPrompts {
+    pub prompts: Vec<PromptTemplate>,
+    pub diagnostics: Vec<ResourceDiagnostic>,
+}
+
+/// Loaded context files (`AGENTS.md`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LoadedAgentsFiles {
+    pub agents_files: Vec<ContextFile>,
+}
+
+/// `ResourceLoader` interface consumed by AgentSession.
+///
+/// `getExtensions` and `extendResources` are absent until `ca-extensions-api`
+/// merges; see `docs/porting/traceability/agent-session.md`.
+pub trait ResourceLoader: Send + Sync {
+    fn get_skills(&self) -> LoadedSkills;
+    fn get_prompts(&self) -> LoadedPrompts;
+    fn get_agents_files(&self) -> LoadedAgentsFiles;
+    fn get_rules_content(&self) -> Option<String>;
+    fn get_system_prompt(&self) -> Option<String>;
+    fn get_append_system_prompt(&self) -> Vec<String>;
+    fn reload(&self) -> BoxFuture<'static, ()>;
+}
+
+/// Empty loader used by tests and callers without resource discovery.
+#[derive(Debug, Default)]
+pub struct StaticResourceLoader {
+    pub skills: LoadedSkills,
+    pub prompts: LoadedPrompts,
+    pub agents_files: LoadedAgentsFiles,
+    pub rules_content: Option<String>,
+    pub system_prompt: Option<String>,
+    pub append_system_prompt: Vec<String>,
+}
+
+impl StaticResourceLoader {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+}
+
+impl ResourceLoader for StaticResourceLoader {
+    fn get_skills(&self) -> LoadedSkills {
+        self.skills.clone()
+    }
+
+    fn get_prompts(&self) -> LoadedPrompts {
+        self.prompts.clone()
+    }
+
+    fn get_agents_files(&self) -> LoadedAgentsFiles {
+        self.agents_files.clone()
+    }
+
+    fn get_rules_content(&self) -> Option<String> {
+        self.rules_content.clone()
+    }
+
+    fn get_system_prompt(&self) -> Option<String> {
+        self.system_prompt.clone()
+    }
+
+    fn get_append_system_prompt(&self) -> Vec<String> {
+        self.append_system_prompt.clone()
+    }
+
+    fn reload(&self) -> BoxFuture<'static, ()> {
+        Box::pin(async {})
+    }
+}

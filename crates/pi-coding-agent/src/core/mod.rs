@@ -1,3 +1,4 @@
+pub mod agent_session;
 pub mod auth_guidance;
 pub mod auth_storage;
 pub mod cache_stats;
@@ -45,6 +46,7 @@ pub mod session_errors;
 pub mod session_health;
 pub mod session_manager;
 pub mod session_tool_output;
+pub mod sdk;
 pub mod settings_manager;
 mod skill_block;
 pub mod skills;
