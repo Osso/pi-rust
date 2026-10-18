@@ -101,7 +101,7 @@ fn response_chunks(scenario: &Value) -> Vec<Vec<u8>> {
 
 fn parse_headers(value: &Value) -> Option<ProviderHeaders> {
     let object = value.as_object()?;
-    let headers: BTreeMap<String, Option<String>> = object
+    let headers: indexmap::IndexMap<String, Option<String>> = object
         .iter()
         .map(|(name, value)| (name.clone(), value.as_str().map(str::to_owned)))
         .collect();

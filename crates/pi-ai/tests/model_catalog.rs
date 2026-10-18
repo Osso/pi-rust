@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 
 use pi_ai::model_catalog::flatten_model_catalog;
 use pi_ai::types::{Modality, Model, ModelCost, ModelCostTier};
@@ -43,24 +43,28 @@ fn model(id: &str, provider: &str, name: &str) -> Model {
 #[test]
 fn flattens_groups_and_keeps_the_last_value_for_duplicate_ids() {
     let groups = vec![
-        BTreeMap::from([
+        IndexMap::from([
             ("alpha".to_owned(), model("alpha", "provider", "Alpha")),
             ("shared".to_owned(), model("shared", "provider", "First")),
         ]),
-        BTreeMap::from([
+        IndexMap::from([
             ("beta".to_owned(), model("beta", "provider", "Beta")),
             ("shared".to_owned(), model("shared", "provider", "Second")),
         ]),
     ];
     let catalog = flatten_model_catalog(groups);
-    assert_eq!(catalog.keys().cloned().collect::<Vec<_>>(), ["alpha", "beta", "shared"]);
+    assert_eq!(
+        catalog.keys().cloned().collect::<Vec<_>>(),
+        ["alpha", "shared", "beta"],
+        "later duplicates replace values without moving the original key"
+    );
     assert_eq!(catalog["shared"].name, "Second");
     assert_eq!(catalog["beta"].id, "beta");
 }
 
 #[test]
 fn empty_catalog_flattens_to_an_empty_map() {
-    assert!(flatten_model_catalog(Vec::<BTreeMap<String, Model>>::new()).is_empty());
+    assert!(flatten_model_catalog(Vec::<IndexMap<String, Model>>::new()).is_empty());
 }
 
 #[test]

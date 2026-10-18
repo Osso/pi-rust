@@ -3,7 +3,7 @@ mod oracle;
 #[path = "support/recording_fetch.rs"]
 mod recording_fetch;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use oracle::TsOracle;
@@ -117,7 +117,7 @@ fn stream_options(
         request.env = Some(
             env.iter()
                 .map(|(key, value)| (key.clone(), value.as_str().unwrap_or("").to_owned()))
-                .collect::<BTreeMap<_, _>>(),
+                .collect::<indexmap::IndexMap<_, _>>(),
         );
     }
     let mut extra_map = extra.as_object().cloned().unwrap_or_default();
@@ -347,7 +347,7 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
         "extra": scenario.extra,
         "responses": scenario.responses.iter().map(|response| json!({
             "status": response.status,
-            "headers": response.headers.iter().cloned().collect::<BTreeMap<_, _>>(),
+            "headers": response.headers.iter().cloned().collect::<indexmap::IndexMap<_, _>>(),
             "chunks": response.chunks.iter().map(|chunk| String::from_utf8_lossy(chunk).into_owned()).collect::<Vec<_>>()
         })).collect::<Vec<_>>(),
     });

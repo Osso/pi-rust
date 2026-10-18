@@ -1,6 +1,6 @@
 //! Behavioral port of the harness orchestration value types in `packages/agent/src/harness/types.ts`.
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::sync::Arc;
 
 use pi_agent_core::agent::{AgentToolResult, ToolError};
@@ -31,7 +31,14 @@ fn stream_options_keep_absent_and_explicit_values_distinct() {
         websocket_connect_timeout_ms: Some(5_000.0),
         max_retries: Some(2.0),
         max_retry_delay_ms: Some(1_000.0),
-        headers: Some([("x-test".to_owned(), "1".to_owned())].into_iter().collect()),
+        headers: Some(
+            [
+                ("zeta".to_owned(), "1".to_owned()),
+                ("alpha".to_owned(), "2".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+        ),
         metadata: Some(json!({"trace": "abc"}).as_object().unwrap().clone()),
         cache_retention: Some(CacheRetention::Long),
         on_retry: None,
@@ -39,7 +46,9 @@ fn stream_options_keep_absent_and_explicit_values_distinct() {
     assert_eq!(options.transport, Some(Transport::WebsocketCached));
     assert_eq!(options.timeout_ms, Some(30_000.0));
     assert_eq!(options.max_retries, Some(2.0));
-    assert_eq!(options.headers.as_ref().unwrap()["x-test"], "1");
+    assert_eq!(options.headers.as_ref().unwrap()["zeta"], "1");
+    let header_keys: Vec<&str> = options.headers.as_ref().unwrap().keys().map(String::as_str).collect();
+    assert_eq!(header_keys, vec!["zeta", "alpha"]);
     assert_eq!(options.metadata.as_ref().unwrap()["trace"], "abc");
     assert_eq!(options.cache_retention, Some(CacheRetention::Long));
 }
@@ -58,10 +67,10 @@ fn stream_option_patch_distinguishes_unchanged_clear_and_set() {
     assert_eq!(clear.headers, OptionalPatch::Clear);
     assert_eq!(clear.metadata, OptionalPatch::Clear);
 
-    let mut headers = std::collections::BTreeMap::new();
+    let mut headers = IndexMap::new();
     headers.insert("keep".to_owned(), Some("value".to_owned()));
     headers.insert("delete".to_owned(), None);
-    let mut metadata = std::collections::BTreeMap::new();
+    let mut metadata = IndexMap::new();
     metadata.insert("keep".to_owned(), Some(json!(1)));
     metadata.insert("delete".to_owned(), None);
     let set = AgentHarnessStreamOptionsPatch {
@@ -163,7 +172,7 @@ async fn tool_context_source_resolves_static_and_provider_values() {
 
 #[test]
 fn patch_headers_use_an_ordered_map() {
-    let mut headers = BTreeMap::new();
+    let mut headers = IndexMap::new();
     headers.insert("b".to_owned(), None);
     headers.insert("a".to_owned(), Some("1".to_owned()));
     let patch = AgentHarnessStreamOptionsPatch {

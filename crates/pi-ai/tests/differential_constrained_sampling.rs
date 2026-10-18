@@ -158,6 +158,9 @@ fn requests() -> Vec<Value> {
 
     requests.push(json!({"id": requests.len(), "operation": "properties",
         "tools": [grammar_tool("grammar_tool", json!({"openai_lark": "lark"})), plain_tool, regex_tool], "supports": true}));
+    // Insertion order differs from lexicographic order; the returned Map keeps source order.
+    requests.push(json!({"id": requests.len(), "operation": "properties",
+        "tools": [grammar_tool("zeta_tool", json!({"openai_lark": "z"})), grammar_tool("alpha_tool", json!({"openai_lark": "a"}))], "supports": true}));
     requests.push(json!({"id": requests.len(), "operation": "properties",
         "tools": [lark_tool], "supports": false}));
     requests.push(json!({"id": requests.len(), "operation": "properties", "tools": null, "supports": true}));

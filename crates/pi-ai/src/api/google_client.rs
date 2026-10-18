@@ -6,10 +6,10 @@
 //! `ApiError`-shaped HTTP failures, and ADC service-account/authorized-user
 //! access-token exchange.
 
-use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use indexmap::IndexMap;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs1v15::SigningKey;
 use rsa::pkcs8::DecodePrivateKey;
@@ -579,7 +579,7 @@ async fn read_body_text(mut body: Box<dyn HttpBody>) -> String {
 }
 
 fn merge_headers(model: &Model, option_headers: Option<&ProviderHeaders>) -> Vec<(String, String)> {
-    let mut merged: BTreeMap<String, Option<String>> = BTreeMap::new();
+    let mut merged: IndexMap<String, Option<String>> = IndexMap::new();
     for (name, value) in model.headers.iter().flatten() {
         merged.insert(name.clone(), Some(value.clone()));
     }

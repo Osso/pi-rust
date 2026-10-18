@@ -79,6 +79,22 @@ fn read(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap()
 }
 
+fn find_session_file(root: &Path, id: &str) -> std::path::PathBuf {
+    let suffix = format!("_{id}.jsonl");
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.file_name().unwrap().to_string_lossy().ends_with(&suffix) {
+                return path;
+            }
+        }
+    }
+    panic!("session file for {id} not found");
+}
+
 fn file_ids(entries: &[pi_agent_core::harness::session::Entry]) -> Vec<String> {
     entries.iter().map(|entry| entry.id().to_owned()).collect()
 }
@@ -88,6 +104,44 @@ async fn open_session(
     metadata: &JsonlSessionMetadata,
 ) -> pi_agent_core::harness::session::Session<JsonlSessionMetadata> {
     repo(root).open(metadata).await.unwrap()
+}
+
+#[tokio::test]
+async fn resume_data_serializes_in_source_key_order() {
+    let root = TempDir::new().unwrap();
+    let session = repo(root.path())
+        .create(create_options("resume-order", root.path()))
+        .await
+        .unwrap();
+    let mut resume_data = indexmap::IndexMap::new();
+    resume_data.insert("zeta".to_owned(), json!({"n": 1}));
+    resume_data.insert("alpha".to_owned(), json!({"n": 2}));
+    session
+        .append_record(RecordBody::OperationStarted {
+            id: "run".to_owned(),
+            lane: "main".to_owned(),
+            source_leaf_id: None,
+            intent: pi_agent_core::harness::session::OperationIntent::Run {
+                original_prompt: vec![user_message("prompt")],
+                initial_messages: Vec::new(),
+                system_prompt_override: None,
+                resume_data: Some(resume_data),
+            },
+        })
+        .await
+        .unwrap();
+    let raw = read(&find_session_file(root.path(), "resume-order"));
+    let line = raw
+        .lines()
+        .find(|line| line.contains("\"resumeData\""))
+        .expect("resumeData record");
+    let parsed: serde_json::Value = serde_json::from_str(line).expect("record JSON");
+    let keys: Vec<&String> = parsed["intent"]["resumeData"]
+        .as_object()
+        .expect("resumeData object")
+        .keys()
+        .collect();
+    assert_eq!(keys, vec!["zeta", "alpha"]);
 }
 
 #[tokio::test]
@@ -339,7 +393,7 @@ async fn round_trips_every_record_type_and_ledger_statistics() {
                         terminate: None,
                     }],
                     system_prompt_override: Some("system".to_owned()),
-                    resume_data: Some(std::collections::HashMap::from([(
+                    resume_data: Some(indexmap::IndexMap::from([(
                         "extension".to_owned(),
                         json!({"version": 1}),
                     )])),

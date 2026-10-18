@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::sync::Arc;
 
 use pi_ai::auth::{AuthContext, AuthResolutionOverrides};
@@ -8,7 +8,7 @@ use pi_ai::providers::openrouter_images::openrouter_images_provider;
 use pi_ai::request::BoxFuture;
 
 struct FakeAuthContext {
-    env: BTreeMap<String, String>,
+    env: IndexMap<String, String>,
 }
 
 impl AuthContext for FakeAuthContext {

@@ -961,7 +961,7 @@ fn model_catalog_refresh_outcome_maps_abort_and_provider_errors() {
         });
     assert_eq!(aborted, Err("Model catalog refresh timed out.".to_owned()));
 
-    let mut errors = std::collections::BTreeMap::new();
+    let mut errors = indexmap::IndexMap::new();
     errors.insert("openai".to_owned(), pi_ai::request::CallbackError::new("boom"));
     errors.insert("anthropic".to_owned(), pi_ai::request::CallbackError::new("down"));
     let failed =
@@ -971,7 +971,7 @@ fn model_catalog_refresh_outcome_maps_abort_and_provider_errors() {
         });
     assert_eq!(
         failed,
-        Err("Could not refresh model catalogs: anthropic: down; openai: boom".to_owned())
+        Err("Could not refresh model catalogs: openai: boom; anthropic: down".to_owned())
     );
 
     assert_eq!(

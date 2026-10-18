@@ -449,7 +449,7 @@ async fn resolves_regions_endpoints_and_inference_profile_arns() {
         ..model()
     };
     let mut eu_env = env();
-    eu_env.remove("AWS_REGION");
+    eu_env.shift_remove("AWS_REGION");
     let eu_fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body.clone(), &[])]);
     drain(stream(eu_model.clone(), context(), options(eu_fetch.clone(), eu_env))).await;
     assert_eq!(
@@ -509,8 +509,8 @@ async fn reads_static_profile_credentials() {
     let body = [message_start(), message_stop("end_turn")].concat();
     let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[])]);
     let mut profile_env = env();
-    profile_env.remove("AWS_ACCESS_KEY_ID");
-    profile_env.remove("AWS_SECRET_ACCESS_KEY");
+    profile_env.shift_remove("AWS_ACCESS_KEY_ID");
+    profile_env.shift_remove("AWS_SECRET_ACCESS_KEY");
     profile_env.insert(
         "AWS_SHARED_CREDENTIALS_FILE".to_owned(),
         credentials_path.to_string_lossy().into_owned(),
