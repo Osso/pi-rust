@@ -4,13 +4,13 @@
 mod tool_context;
 
 use pi_agent_core::AgentHarnessTool;
-use pi_coding_agent::core::tools::context::ToolContext;
+use pi_coding_agent::core::extensions::ExtensionContext;
 use pi_coding_agent::core::tools::end_turn::{EndTurnTool, parameters};
 use serde_json::json;
-use tool_context::StaticSession;
 
-fn context() -> ToolContext {
-    ToolContext::new("/repo", StaticSession::new("/repo", "/repo/sessions", "session", None))
+async fn context() -> ExtensionContext {
+    let session = tool_context::in_memory_session("/repo", "session");
+    tool_context::TestContextBuilder::new("/repo", session).build().await.1
 }
 
 #[test]
@@ -27,7 +27,7 @@ async fn rejects_a_blank_reason() {
             json!({ "reason": "  " }),
             None,
             None,
-            context(),
+            context().await,
             None,
         )
         .await
@@ -43,7 +43,7 @@ async fn terminates_with_its_required_reason() {
             json!({ "reason": "Finished requested work" }),
             None,
             None,
-            context(),
+            context().await,
             None,
         )
         .await

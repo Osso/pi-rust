@@ -12,10 +12,13 @@ use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::desktop_notification::{
     DesktopNotification, DesktopNotificationHandle, DesktopNotifier, PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
 };
-use pi_coding_agent::core::tools::ask_questions::{AskQuestionsTool, parameters};
-use pi_coding_agent::core::tools::context::{ExtensionMode, ToolContext, ToolUi};
+use pi_coding_agent::core::extensions::{
+    ExtensionContext, ExtensionMode, ExtensionUiContext, ExtensionUiDialogOptions,
+};
+use pi_coding_agent::core::tools::ask_questions::{
+    AskQuestionsTool, close_ask_questions_notification, notify_ask_questions_waiting, parameters,
+};
 use serde_json::{Value, json};
-use tool_context::StaticSession;
 
 struct ScriptedUi {
     selects: Mutex<VecDeque<Option<String>>>,
@@ -35,17 +38,27 @@ impl ScriptedUi {
     }
 }
 
-impl ToolUi for ScriptedUi {
-    fn select<'a>(&'a self, title: &'a str, options: &'a [String]) -> BoxFuture<'a, Option<String>> {
+impl ExtensionUiContext for ScriptedUi {
+    fn select<'a>(
+        &'a self,
+        title: &str,
+        options: &[String],
+        _opts: Option<&ExtensionUiDialogOptions>,
+    ) -> BoxFuture<'a, Result<Option<String>, String>> {
         self.seen_titles.lock().expect("titles lock").push(title.to_owned());
         self.seen_options.lock().expect("options lock").push(options.to_vec());
         let choice = self.selects.lock().expect("selects lock").pop_front().flatten();
-        Box::pin(async move { choice })
+        Box::pin(async move { Ok(choice) })
     }
 
-    fn input<'a>(&'a self, _title: &'a str, _placeholder: Option<&'a str>) -> BoxFuture<'a, Option<String>> {
+    fn input<'a>(
+        &'a self,
+        _title: &str,
+        _placeholder: Option<&str>,
+        _opts: Option<&ExtensionUiDialogOptions>,
+    ) -> BoxFuture<'a, Result<Option<String>, String>> {
         let answer = self.inputs.lock().expect("inputs lock").pop_front().flatten();
-        Box::pin(async move { answer })
+        Box::pin(async move { Ok(answer) })
     }
 }
 
@@ -73,11 +86,13 @@ impl DesktopNotificationHandle for CloseCounter {
     }
 }
 
-fn context(ui: Arc<ScriptedUi>, notifier: Arc<MockNotifier>) -> ToolContext {
-    ToolContext::new("/repo", StaticSession::new("/repo", "/repo/sessions", "session", None))
-        .with_mode(ExtensionMode::Tui, true)
-        .with_ui(ui)
-        .with_desktop_notifier(notifier)
+async fn context(ui: Arc<ScriptedUi>) -> ExtensionContext {
+    tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
+        .mode(ExtensionMode::Tui)
+        .ui(ui)
+        .build()
+        .await
+        .1
 }
 
 #[test]
@@ -98,7 +113,6 @@ fn exposes_min_max_schema_constraints() {
 #[tokio::test]
 async fn asks_a_single_choice_question_and_returns_the_selected_label() {
     let ui = ScriptedUi::new(vec![Some("1. Direct API — Keep code simple")], vec![]);
-    let notifier = Arc::new(MockNotifier::default());
     let result = AskQuestionsTool::new()
         .execute(
             "call-1".to_owned(),
@@ -114,37 +128,41 @@ async fn asks_a_single_choice_question_and_returns_the_selected_label() {
             }),
             None,
             None,
-            context(Arc::clone(&ui), notifier),
+            context(Arc::clone(&ui)).await,
             None,
         )
         .await
         .expect("ask questions");
 
-    assert_eq!(result.details.as_ref().expect("details")["cancelled"], false);
     assert_eq!(
         result.details.as_ref().expect("details")["answers"],
         json!({ "Which approach should we use?": "Direct API" })
     );
-    assert!(ui.seen_options.lock().expect("options")[0].contains(&"1. Direct API — Keep code simple".to_owned()));
-    assert!(ui.seen_options.lock().expect("options")[0].contains(&"Cancel".to_owned()));
+    assert_eq!(
+        *ui.seen_titles.lock().expect("titles"),
+        vec!["Which approach should we use?".to_owned()]
+    );
+    assert_eq!(
+        *ui.seen_options.lock().expect("options"),
+        vec![vec![
+            "1. Direct API — Keep code simple".to_owned(),
+            "2. Adapter — Add indirection".to_owned(),
+            "Other".to_owned(),
+            "Cancel".to_owned(),
+        ]]
+    );
 }
 
 #[tokio::test]
-async fn adds_an_automatic_other_option_for_custom_answers() {
-    let ui = ScriptedUi::new(vec![Some("Other")], vec![Some("Use a plugin")]);
-    let notifier = Arc::new(MockNotifier::default());
+async fn custom_answers_trim_the_typed_text() {
+    let ui = ScriptedUi::new(vec![Some("Other")], vec![Some("  Use a plugin  ")]);
     let result = AskQuestionsTool::new()
         .execute(
             "call-2".to_owned(),
-            json!({
-                "questions": [{
-                    "question": "What should we build?",
-                    "options": [{ "label": "Tool" }, { "label": "Extension" }]
-                }]
-            }),
+            json!({ "questions": [{ "question": "What should we build?", "options": [{ "label": "Tool" }, { "label": "Extension" }] }] }),
             None,
             None,
-            context(Arc::clone(&ui), notifier),
+            context(ui).await,
             None,
         )
         .await
@@ -157,22 +175,15 @@ async fn adds_an_automatic_other_option_for_custom_answers() {
 }
 
 #[tokio::test]
-async fn supports_multi_select_questions() {
+async fn multi_select_questions_collect_every_selected_label() {
     let ui = ScriptedUi::new(vec![Some("[ ] 1. Tests"), Some("[ ] 2. Docs"), Some("Done")], vec![]);
-    let notifier = Arc::new(MockNotifier::default());
     let result = AskQuestionsTool::new()
         .execute(
             "call-3".to_owned(),
-            json!({
-                "questions": [{
-                    "question": "Which follow-ups should be included?",
-                    "multiSelect": true,
-                    "options": [{ "label": "Tests" }, { "label": "Docs" }]
-                }]
-            }),
+            json!({ "questions": [{ "question": "Which follow-ups should be included?", "multiSelect": true, "options": [{ "label": "Tests" }, { "label": "Docs" }] }] }),
             None,
             None,
-            context(Arc::clone(&ui), notifier),
+            context(ui).await,
             None,
         )
         .await
@@ -184,30 +195,11 @@ async fn supports_multi_select_questions() {
     );
 }
 
-#[tokio::test]
-async fn sends_a_persistent_desktop_notification_while_waiting() {
-    let ui = ScriptedUi::new(vec![Some("1. Yes")], vec![]);
-    let notifier = Arc::new(MockNotifier::default());
-    let result = AskQuestionsTool::new()
-        .execute(
-            "call-notify".to_owned(),
-            json!({ "questions": [{ "question": "Proceed?", "options": [{ "label": "Yes" }, { "label": "No" }] }] }),
-            None,
-            None,
-            context(Arc::clone(&ui), Arc::clone(&notifier)),
-            None,
-        )
-        .await
-        .expect("ask questions");
+#[test]
+fn sends_a_persistent_desktop_notification_while_waiting() {
+    let notifier = MockNotifier::default();
+    let notification = notify_ask_questions_waiting(&notifier, 1).expect("notification");
 
-    assert_eq!(
-        result
-            .details
-            .as_ref()
-            .and_then(|details| details.get("cancelled"))
-            .and_then(serde_json::Value::as_bool),
-        Some(false)
-    );
     let notifications = notifier.notifications.lock().expect("notifications");
     assert_eq!(notifications.len(), 1);
     assert_eq!(notifications[0].body, "Pi is waiting for your answer.");
@@ -220,61 +212,36 @@ async fn sends_a_persistent_desktop_notification_while_waiting() {
         notifications[0].urgency,
         Some(pi_coding_agent::core::desktop_notification::DesktopNotificationUrgency::Normal)
     );
+    drop(notifications);
+
+    close_ask_questions_notification(Some(notification));
     assert_eq!(notifier.closes.load(Ordering::SeqCst), 1);
 }
 
-#[tokio::test]
-async fn closes_the_desktop_notification_when_questions_are_cancelled() {
-    let ui = ScriptedUi::new(vec![Some("Cancel")], vec![]);
-    let notifier = Arc::new(MockNotifier::default());
-    let result = AskQuestionsTool::new()
-        .execute(
-            "call-notify-cancel".to_owned(),
-            json!({ "questions": [{ "question": "Proceed?", "options": [{ "label": "Yes" }, { "label": "No" }] }] }),
-            None,
-            None,
-            context(Arc::clone(&ui), Arc::clone(&notifier)),
-            None,
-        )
-        .await
-        .expect("ask questions");
+#[test]
+fn uses_the_plural_body_for_multiple_questions() {
+    let notifier = MockNotifier::default();
+    let notification = notify_ask_questions_waiting(&notifier, 2).expect("notification");
 
-    assert_eq!(
-        result
-            .details
-            .as_ref()
-            .and_then(|details| details.get("cancelled"))
-            .and_then(serde_json::Value::as_bool),
-        Some(true)
-    );
-    assert_eq!(notifier.notifications.lock().expect("notifications").len(), 1);
+    let notifications = notifier.notifications.lock().expect("notifications");
+    assert_eq!(notifications[0].body, "Pi is waiting for your answers.");
+    drop(notifications);
+
+    close_ask_questions_notification(Some(notification));
     assert_eq!(notifier.closes.load(Ordering::SeqCst), 1);
 }
 
-#[tokio::test]
-async fn does_not_expose_question_or_option_text_in_the_desktop_notification() {
-    let ui = ScriptedUi::new(vec![Some("1. Ship secret option")], vec![]);
-    let notifier = Arc::new(MockNotifier::default());
-    AskQuestionsTool::new()
-        .execute(
-            "call-notify-redacted".to_owned(),
-            json!({
-                "questions": [{
-                    "question": "Should we use token secret-question-token?",
-                    "options": [{ "label": "Ship secret option" }, { "label": "Hide secret option" }]
-                }]
-            }),
-            None,
-            None,
-            context(Arc::clone(&ui), Arc::clone(&notifier)),
-            None,
-        )
-        .await
-        .expect("ask questions");
+#[test]
+fn notification_body_never_includes_question_or_option_text() {
+    let notifier = MockNotifier::default();
+    let notification = notify_ask_questions_waiting(&notifier, 1).expect("notification");
 
     let notifications = notifier.notifications.lock().expect("notifications");
     assert!(!notifications[0].body.contains("secret-question-token"));
     assert!(!notifications[0].body.contains("secret option"));
+    drop(notifications);
+
+    close_ask_questions_notification(Some(notification));
 }
 
 #[tokio::test]
@@ -288,7 +255,7 @@ async fn rejects_duplicate_option_labels() {
             }),
             None,
             None,
-            context(ui, Arc::new(MockNotifier::default())),
+            context(ui).await,
             None,
         )
         .await
@@ -314,7 +281,7 @@ async fn returns_partial_answers_when_cancelled_after_earlier_questions() {
             }),
             None,
             None,
-            context(ui, Arc::new(MockNotifier::default())),
+            context(ui).await,
             None,
         )
         .await
@@ -339,7 +306,7 @@ async fn rejects_duplicate_questions() {
             }),
             None,
             None,
-            context(ui, Arc::new(MockNotifier::default())),
+            context(ui).await,
             None,
         )
         .await
@@ -350,16 +317,18 @@ async fn rejects_duplicate_questions() {
 
 #[tokio::test]
 async fn returns_an_error_outside_interactive_tui_mode() {
-    let ui = ScriptedUi::new(vec![], vec![]);
+    let context = tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
+        .mode(ExtensionMode::Print)
+        .build()
+        .await
+        .1;
     let result = AskQuestionsTool::new()
         .execute(
             "call-5".to_owned(),
             json!({ "questions": [{ "question": "Proceed?", "options": [{ "label": "Yes" }, { "label": "No" }] }] }),
             None,
             None,
-            ToolContext::new("/repo", StaticSession::new("/repo", "/repo/sessions", "session", None))
-                .with_mode(ExtensionMode::Print, false)
-                .with_ui(ui),
+            context,
             None,
         )
         .await
@@ -389,7 +358,7 @@ async fn result_text_formats_answers() {
             json!({ "questions": [{ "question": "Proceed?", "options": [{ "label": "Yes" }, { "label": "No" }] }] }),
             None,
             None,
-            context(ui, Arc::new(MockNotifier::default())),
+            context(ui).await,
             None,
         )
         .await

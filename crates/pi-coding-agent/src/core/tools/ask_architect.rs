@@ -12,8 +12,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::context::ToolContext;
 use super::result::text_result;
+use crate::core::extensions::types::ExtensionContext;
 use crate::core::session_control_db::{PostArchitectRequestInput, post_architect_request};
 
 pub const NAME: &str = "ask_architect";
@@ -79,7 +79,7 @@ fn resolve_project_path(project_path: Option<&str>, session_cwd: &str) -> Result
     Ok(canonical_path.to_string_lossy().into_owned())
 }
 
-impl AgentHarnessTool<ToolContext> for AskArchitectTool {
+impl AgentHarnessTool<ExtensionContext> for AskArchitectTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -106,23 +106,37 @@ impl AgentHarnessTool<ToolContext> for AskArchitectTool {
         params: Value,
         _signal: Option<CancellationToken>,
         _on_update: Option<AgentToolUpdateCallback>,
-        context: ToolContext,
+        context: ExtensionContext,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
-            if context.multi_agent_agent_id.is_some() || context.multi_agent_requires_agent_id {
+            let agent_id = context
+                .multi_agent_agent_id()
+                .map_err(|error| ToolError::new(error.message))?;
+            let requires_agent_id = context
+                .multi_agent_requires_agent_id()
+                .map_err(|error| ToolError::new(error.message))?;
+            if agent_id.is_some() || requires_agent_id {
                 return Err(ToolError::new("ask_architect is only available from main sessions"));
             }
-            let control_db_path = context.require_control_db_path(NAME)?;
-            let sender_session_id = context.session.get_session_id();
+            let control_db_path = context
+                .control_db_path()
+                .map_err(|error| ToolError::new(error.message))?
+                .ok_or_else(|| ToolError::new("ask_architect requires a control database path"))?;
+            let sender_session_id = context
+                .session_manager()
+                .map_err(|error| ToolError::new(error.message))?
+                .get_session_id()
+                .to_owned();
             if sender_session_id.is_empty() {
                 return Err(ToolError::new("ask_architect requires a persisted session id"));
             }
             let params: AskArchitectParams =
                 serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
-            let project_cwd = resolve_project_path(params.project_path.as_deref(), &context.cwd)?;
+            let cwd = context.cwd().map_err(|error| ToolError::new(error.message))?;
+            let project_cwd = resolve_project_path(params.project_path.as_deref(), &cwd)?;
             let request_id = post_architect_request(
-                control_db_path,
+                &control_db_path,
                 &PostArchitectRequestInput {
                     sender_session_id: sender_session_id.to_owned(),
                     project_cwd,
