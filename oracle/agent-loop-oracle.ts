@@ -95,6 +95,27 @@ async function collect(stream: any): Promise<{ events: any[]; messages: any[] }>
 	return { events, messages };
 }
 
+async function collectOutcome(stream: any): Promise<{ events: any[]; messages?: any; error?: string }> {
+	const events: any[] = [];
+	let error: string | undefined;
+	try {
+		for await (const event of stream) {
+			events.push(normalize(snapshot(event)));
+		}
+	} catch (failure) {
+		error = failure instanceof Error ? failure.message : String(failure);
+	}
+	if (!error) {
+		try {
+			const messages = normalize(snapshot(await stream.result()));
+			return { events, messages };
+		} catch (failure) {
+			error = failure instanceof Error ? failure.message : String(failure);
+		}
+	}
+	return { events, error };
+}
+
 async function executeScenario(api: any, scenario: string): Promise<any> {
 	const requests: any[] = [];
 	const scriptStream = (scripts: any[]) => {
@@ -633,6 +654,56 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				events.push(normalize(snapshot(event)));
 			});
 			await agent.prompt("Hello");
+			return {
+				events,
+				messages: normalize(snapshot(agent.state.messages)),
+				state: agentState(agent),
+				requests,
+			};
+		}
+		case "abort_stream": {
+			const controller = new AbortController();
+			const streamFn = (_model: any, context: any, _options: any) => {
+				requests.push(normalize(snapshot({ systemPrompt: context.systemPrompt, messages: context.messages })));
+				const stream = new api.ai.AssistantMessageEventStream();
+				queueMicrotask(() => {
+					stream.push({ type: "start", partial: assistant([], "pending") });
+				});
+				return stream;
+			};
+			const stream = api.agentLoop([user("work")], context([]), config(), controller.signal, streamFn);
+			setTimeout(() => controller.abort(), 5);
+			return { ...(await collectOutcome(stream)), requests };
+		}
+		case "abort_tool": {
+			let markToolStarted = () => {};
+			const toolStarted = new Promise<void>((resolve) => {
+				markToolStarted = resolve;
+			});
+			const tool = {
+				name: "stuck_tool",
+				label: "Stuck Tool",
+				description: "Never settles",
+				parameters: { type: "object", properties: {} },
+				execute: async () => {
+					markToolStarted();
+					return await new Promise<never>(() => undefined);
+				},
+			};
+			const agent = new api.Agent({
+				initialState: { tools: [tool] },
+				streamFn: scriptStream([
+					() => [done("toolUse", assistant([call("call-1", "stuck_tool", {})], "toolUse"))],
+				]),
+			});
+			const events: any[] = [];
+			agent.subscribe((event: any) => {
+				events.push(normalize(snapshot(event)));
+			});
+			const prompt = agent.prompt("run stuck tool");
+			await toolStarted;
+			agent.abort();
+			await prompt;
 			return {
 				events,
 				messages: normalize(snapshot(agent.state.messages)),

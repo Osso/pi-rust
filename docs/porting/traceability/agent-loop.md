@@ -31,7 +31,7 @@ Tests: `crates/pi-agent-core/tests/agent_loop.rs`, `crates/pi-agent-core/tests/a
 | `end_turn` continuation instruction when no tool calls | same | `continues_after_assistant_text_until_terminating_tool_result`, differential `end_turn` |
 | `turn_end`, abort check, `prepareNextTurn`, `shouldStopAfterTurn`, steering poll | same | `stops_after_current_turn_when_should_stop_after_turn_returns_true` |
 | follow-up queue drains only when the agent would stop | same | differential `follow_up`, `should_stop` |
-| `throwIfAborted` / `awaitWithAbort` for stream acquisition, iteration, result, tools | `throw_if_aborted` / `await_with_abort` | `terminalizes_when_stream_acquisition_ignores_abort`, `terminalizes_when_stream_iteration_ignores_abort`, `agent_abort.rs` |
+| `throwIfAborted` / `awaitWithAbort` for stream acquisition, iteration, result, tools | `throw_if_aborted` / `await_with_abort` | `terminalizes_when_stream_acquisition_ignores_abort`, `terminalizes_when_stream_iteration_ignores_abort`, differential `abort_stream`, `agent_abort.rs` |
 | `iterateWithAbort` iterator close on abort | dropped stream (no explicit close); TS closes the iterator | gap: Rust `EventStream` has no `return()`; dropping stops consumption. Producer-side cancellation is the caller's responsibility. |
 | `prepareAssistantToolExecutions` persists `prepareExecution` metadata | same | `persists_prepared_agent_id_and_passes_it_to_execution`, differential `prepare_execution` |
 | `streamAssistantResponse` transform → convert → request build | same | `handles_custom_message_types_via_convert_to_llm`, `applies_transform_context_before_convert_to_llm`, differential `convert_custom` |

@@ -17,6 +17,7 @@ use pi_ai::types::{
 };
 use serde_json::{Value, json};
 use support::*;
+use tokio_util::sync::CancellationToken;
 
 fn normalize_value(value: &mut Value) {
     match value {
@@ -682,6 +683,101 @@ async fn run_scenario(name: &str) -> Value {
             )
             .await
         }
+        "abort_stream" => {
+            let signal = CancellationToken::new();
+            let stream_fn: StreamFn = {
+                let requests = Arc::clone(&requests);
+                Arc::new(move |_model, request_context, _options| {
+                    requests.lock().unwrap().push(normalized(json!({
+                        "systemPrompt": request_context.system_prompt,
+                        "messages": request_context.messages,
+                    })));
+                    Box::pin(async {
+                        let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
+                        sender.push(pi_ai::types::AssistantMessageEvent::Start {
+                            partial: AssistantMessage::empty("openai-responses", "openai", "mock", 1000),
+                        });
+                        std::mem::forget(sender);
+                        stream
+                    })
+                })
+            };
+            let mut stream = pi_agent_core::agent::agent_loop(
+                vec![AgentMessage::User(user("work"))],
+                context(Vec::new(), Vec::new(), ""),
+                config(),
+                Some(signal.clone()),
+                Some(stream_fn),
+            );
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                signal.cancel();
+            });
+            let mut events = Vec::new();
+            let mut error = None;
+            loop {
+                match stream.next().await {
+                    Some(Ok(event)) => events.push(normalized(serde_json::to_value(event).unwrap())),
+                    Some(Err(failure)) => {
+                        error = Some(failure.message().to_owned());
+                        break;
+                    }
+                    None => break,
+                }
+            }
+            if error.is_none()
+                && let Err(failure) = stream.result().await
+            {
+                error = Some(failure.message().to_owned());
+            }
+            json!({"events": events, "error": error, "requests": requests.lock().unwrap().clone()})
+        }
+        "abort_tool" => {
+            let started = Arc::new(tokio::sync::Notify::new());
+            let started_hook = Arc::clone(&started);
+            let mut tool = TestTool::no_args("stuck_tool", || text_result("unused"));
+            tool.execute = Arc::new(move |_id, _params, _signal, _on_update| {
+                let started_hook = Arc::clone(&started_hook);
+                Box::pin(async move {
+                    started_hook.notify_waiters();
+                    std::future::pending::<()>().await;
+                    Ok(text_result("unreachable"))
+                })
+            });
+            let events = Arc::new(Mutex::new(Vec::<Value>::new()));
+            let agent = Agent::new(AgentOptions {
+                initial_state: Some(pi_agent_core::agent::AgentInitialState {
+                    tools: Some(vec![Arc::new(tool)]),
+                    ..Default::default()
+                }),
+                stream_fn: Some(recording_stream_fn(
+                    Arc::clone(&requests),
+                    vec![Script::message(tool_use(vec![AssistantContent::ToolCall(tool_call(
+                        "call-1",
+                        "stuck_tool",
+                        json!({}),
+                    ))]))],
+                )),
+                ..Default::default()
+            })
+            .unwrap();
+            let events_hook = Arc::clone(&events);
+            agent.subscribe(Arc::new(move |event, _signal| {
+                let events_hook = Arc::clone(&events_hook);
+                Box::pin(async move {
+                    events_hook
+                        .lock()
+                        .unwrap()
+                        .push(normalized(serde_json::to_value(event).unwrap()));
+                })
+            }));
+            let agent_clone = agent.clone();
+            let prompt = tokio::spawn(async move { agent_clone.prompt("run stuck tool").await });
+            started.notified().await;
+            agent.abort();
+            prompt.await.unwrap().unwrap();
+            agent_output(&agent, events.lock().unwrap().clone(), &requests)
+        }
         "agent_text" => {
             let events = Arc::new(Mutex::new(Vec::<Value>::new()));
             let agent = Agent::new(AgentOptions {
@@ -832,6 +928,8 @@ pub async fn run_differential() {
         "continue_partial_results",
         "convert_custom",
         "parallel_update",
+        "abort_stream",
+        "abort_tool",
         "agent_text",
         "agent_continue_queue",
     ];

@@ -2,7 +2,7 @@
 
 Rust: `crates/pi-agent-core/src/agent/agent.rs`.
 Tests: `crates/pi-agent-core/tests/agent.rs`, `agent_abort.rs`, `agent_continue_queue.rs`,
-`differential_agent_loop/mod.rs` (`agent_text`, `agent_continue_queue`).
+`differential_agent_loop/mod.rs` (`agent_text`, `agent_continue_queue`, `abort_tool`).
 
 ## Exports
 
