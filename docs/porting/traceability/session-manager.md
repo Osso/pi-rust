@@ -34,23 +34,23 @@ The session file is the shared contract with TypeScript Pi. Request `41000` prov
 | `setSessionFile` | reverse-scan v3 active slice; repair empty file; reject non-session file | `set_session_file`; `loads_active_compacted_slice`, `rewrites_empty_files_and_rejects_non_session_files`, `active_slice_errors_and_truncated_tail` |
 | `newSession` | uuidv7 id or validated custom id, timestamped file name, no file until assistant | `new_session`; `custom_session_ids_round_trip`, persistence test |
 | `isPersisted/getCwd/getSessionDir/usesDefaultSessionDir/getSessionId/getSessionFile/getMetadataControlDbPath` | accessors | same-named methods; used across tests (`getMetadataControlDbPath` blocked with the control-db gap) |
-| `readPersistedSessionSettings` | model/sandbox/thinking from control db | **blocked** on `ca-control-db` |
+| `readPersistedSessionSettings` | model/sandbox/thinking from control db | `read_persisted_session_settings`; `metadata_snapshot_tracks_appends_and_persisted_settings` |
 | `isSubagentSession/getSubagentName` | subagent flags | `is_subagent_session` / `get_subagent_name`; fork test |
-| `getSessionGoalJson*`, `set/clearSessionGoalJson` | control-db goal payload, in-memory fallback | **blocked** on `ca-control-db` |
-| `setSessionModel/ThinkingLevel/SandboxProfile` | control-db session settings | **blocked** on `ca-control-db` |
-| `setMetadataControlDbPath`, `restorePersistedMetadata`, `writeMetadataSnapshot` | metadata cache and incremental writes | **blocked** on `ca-control-db` |
-| `relocate` | move default-dir file, preserve bytes/header, reject existing destination | `relocate`; `relocation_preserves_the_complete_jsonl`. Control-data relocation is blocked |
+| `getSessionGoalJson*`, `set/clearSessionGoalJson` | control-db goal payload, in-memory fallback | `get_session_goal_json`, `get_session_goal_json_for_session`, `set_session_goal_json`, `clear_session_goal_json`; same test |
+| `setSessionModel/ThinkingLevel/SandboxProfile` | control-db session settings | `set_session_model`, `set_session_thinking_level`, `set_session_sandbox_profile`; same test |
+| `setMetadataControlDbPath`, `restorePersistedMetadata`, `writeMetadataSnapshot` | metadata cache and incremental writes | `set_metadata_control_db_path`, `restore_persisted_metadata`, `write_metadata_snapshot`; append hooks in `append_entry`; same test |
+| `relocate` | move default-dir file, preserve bytes/header, reject existing destination, move control data | `relocate`; `relocation_preserves_the_complete_jsonl`, `relocation_moves_control_data_to_the_new_session_path` |
 | `persistForRecovery` | write before first assistant | `persist_for_recovery`; exercised by branch dedup test |
 | `appendMessage/ThinkingLevelChange/ModelChange/Compaction/CustomEntry/SessionInfo/CustomMessageEntry/LabelChange` | leaf-child append, persist, id generation | same-named methods; tree/label/save-entry tests |
 | `updateCompactionSummary` | trim, non-empty, drop provider-native fields, restore on write failure | `update_compaction_summary`; two focused tests |
 | `getLeafId/getLeafEntry/getEntry/getChildren/getLabel/getBranch/buildContextEntries/buildSessionContext/getHeader/getEntries/getTree` | traversal and defensive copies | same-named methods; tree/label tests |
 | `branch/resetLeaf/branchWithSummary/createBranchedSession` | leaf pointer, branch summary, path extraction with label rewiring | same-named methods; `tree_traversal_and_branching`, `branched_session_*` tests |
-| `SessionManager.list/listArchived/listAll` | directory scan, cwd filter, metadata-backed fast path, archived/subagent exclusion | `list` / `list_archived` / `list_all`; `lists_sessions_scoped_by_cwd`. Metadata path, archived listing, and subagent exclusion are **blocked** on `ca-control-db`; the file scan is used |
+| `SessionManager.list/listArchived/listAll` | directory scan, cwd filter, metadata-backed fast path, archived/subagent exclusion | `list` / `list_archived` / `list_all` with `list_metadata_sessions`, `cache_session_metadata`, `exclude_known_subagent_sessions`; `lists_sessions_scoped_by_cwd`, `metadata_backed_listing_prefers_control_db_and_excludes_subagents` |
 | `getDefaultSessionDirPath` private helper | resolved cwd + agent dir | `get_default_session_dir_path` (public in Rust) |
 
 ## Gaps
 
-- **Control-db integration blocked.** `setMetadataControlDbPath`, `readPersistedSessionSettings`, goal/model/thinking/sandbox accessors, metadata snapshots, metadata-backed `list`/`listAll`/`listArchived`, subagent exclusion, and `relocate` control-data moves need `pi_coding_agent::core::session_control_db` from the parallel `ca-control-db` slice. Until it merges, listing always scans files and archived lists are empty.
+- Metadata-backed listing is synchronous, matching the Rust file scan; the source's 10-way concurrent file loads are only observable through progress-callback interleaving.
 - `SessionInfo.created`/`modified` are epoch milliseconds (`i64`) instead of JavaScript `Date`; invalid timestamps map to `0` instead of an invalid Date.
 - Listing loads session files sequentially; TypeScript uses at most 10 concurrent loads. Observable only through progress-callback interleaving.
 - `truncateMessageToFit` measures JavaScript UTF-16 lengths. Rust truncates at whole-char boundaries, so a cut inside a surrogate pair yields one fewer character than `String#slice` would; the source data (text content) does not rely on lone surrogates.

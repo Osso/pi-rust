@@ -9,7 +9,7 @@ Focused tests: `crates/pi-coding-agent/tests/session_cwd.rs` (5).
 |---|---|---|
 | `SessionCwdIssue` | sessionFile/sessionCwd/fallbackCwd | `SessionCwdIssue` |
 | `getMissingSessionCwdIssue` | no file or existing cwd → undefined; nearest existing fallback | `get_missing_session_cwd_issue`; `detects_missing_session_cwd_from_persisted_sessions`, `uses_nearest_existing_parent_when_cwd_was_deleted` |
-| `reopenSessionWithCwd` | reopen with cwd override and control-db cwd | `reopen_session_with_cwd`; `asserts_and_reopens_with_selected_cwd` |
+| `reopenSessionWithCwd` | reopen with cwd override and control-db cwd | `reopen_session_with_cwd` calls `set_metadata_control_db_path(..., cwd_override)`; `asserts_and_reopens_with_selected_cwd` asserts the persisted metadata cwd |
 | `formatMissingSessionCwdError` | exact multi-line error | `format_missing_session_cwd_error`; `formats_errors_and_prompts` |
 | `formatMissingSessionCwdPrompt` | exact prompt | `format_missing_session_cwd_prompt`; same test |
 | `MissingSessionCwdError` | message + `name` + issue | `MissingSessionCwdError` (Display + `NAME`); same test |
@@ -17,7 +17,7 @@ Focused tests: `crates/pi-coding-agent/tests/session_cwd.rs` (5).
 
 ## Gaps
 
-- `reopenSessionWithCwd` accepts `control_db_path` but does not call `setMetadataControlDbPath`; that method is blocked on `ca-control-db`. The in-memory cwd override is applied through `SessionManager::open`.
+None.
 
 ## Discrepancies
 

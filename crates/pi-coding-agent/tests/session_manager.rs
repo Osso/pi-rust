@@ -1150,3 +1150,185 @@ fn custom_session_ids_round_trip() {
     assert_eq!(session.get_header().unwrap().id, "abc-123_def.456");
     assert_eq!(session.get_header().unwrap().version, Some(CURRENT_SESSION_VERSION));
 }
+
+#[test]
+fn metadata_snapshot_tracks_appends_and_persisted_settings() {
+    use pi_coding_agent::core::permissions::presets::SandboxProfileName;
+    use pi_coding_agent::core::session_control_db::{get_control_db_path, read_session_goal, read_session_metadata};
+    use pi_coding_agent::core::session_manager::{MetadataControlDbOptions, PersistedSessionModel};
+
+    let dir = temp_dir("session-metadata");
+    let session_dir = dir.join("sessions");
+    let control_db_path = get_control_db_path(&dir);
+    let mut session = SessionManager::create(
+        &dir.display().to_string(),
+        Some(&session_dir.display().to_string()),
+        None,
+    )
+    .unwrap();
+    session
+        .set_metadata_control_db_path(Some(&control_db_path), MetadataControlDbOptions::default())
+        .unwrap();
+
+    session.append_message(user_message("hello", 1)).unwrap();
+    session.append_message(assistant_message("hi", 2)).unwrap();
+
+    let session_file = session.get_session_file().unwrap().to_owned();
+    let metadata = read_session_metadata(&control_db_path, &session_file)
+        .unwrap()
+        .expect("metadata snapshot");
+    assert_eq!(metadata.message_count, 2);
+    assert_eq!(metadata.first_message, "hello");
+    assert_eq!(metadata.cwd, dir.display().to_string());
+
+    session.set_session_goal_json(r#"{"objective":"ship"}"#).unwrap();
+    assert_eq!(
+        session.get_session_goal_json().unwrap().as_deref(),
+        Some(r#"{"objective":"ship"}"#)
+    );
+    assert_eq!(
+        read_session_goal(&control_db_path, &session_file).unwrap().as_deref(),
+        Some(r#"{"objective":"ship"}"#)
+    );
+    session.clear_session_goal_json().unwrap();
+    assert_eq!(session.get_session_goal_json().unwrap(), None);
+
+    session.set_session_model("anthropic", "claude-test").unwrap();
+    session.set_session_thinking_level("high").unwrap();
+    assert!(
+        session
+            .set_session_sandbox_profile(Some(SandboxProfileName::ReadOnly))
+            .unwrap()
+    );
+    let settings = session.read_persisted_session_settings().unwrap().unwrap();
+    assert_eq!(
+        settings.model,
+        Some(PersistedSessionModel {
+            provider: "anthropic".to_owned(),
+            model_id: "claude-test".to_owned(),
+        })
+    );
+    assert_eq!(settings.thinking_level.as_deref(), Some("high"));
+    assert_eq!(settings.sandbox_profile, Some(SandboxProfileName::ReadOnly));
+}
+
+#[test]
+fn metadata_backed_listing_prefers_control_db_and_excludes_subagents() {
+    use pi_coding_agent::core::session_control_db::{
+        WritableSessionMetadata, get_control_db_path, write_session_metadata,
+    };
+    use pi_coding_agent::core::session_manager::MetadataControlDbOptions;
+
+    let dir = temp_dir("session-metadata-list");
+    let session_dir = dir.join("sessions");
+    let control_db_path = get_control_db_path(&dir);
+    let cwd = dir.display().to_string();
+    let mut session = SessionManager::create(&cwd, Some(&session_dir.display().to_string()), None).unwrap();
+    session
+        .set_metadata_control_db_path(Some(&control_db_path), MetadataControlDbOptions::default())
+        .unwrap();
+    session.append_message(user_message("hello", 1)).unwrap();
+    session.append_message(assistant_message("hi", 2)).unwrap();
+    let session_file = session.get_session_file().unwrap().to_owned();
+
+    write_session_metadata(
+        &control_db_path,
+        &WritableSessionMetadata {
+            session_path: "/sessions/subagent.jsonl".to_owned(),
+            id: "subagent".to_owned(),
+            cwd: cwd.clone(),
+            name: None,
+            parent_session_path: Some(session_file.clone()),
+            archived_at: None,
+            is_archived: None,
+            is_subagent: Some(true),
+            subagent_name: Some("worker".to_owned()),
+            model_provider: None,
+            model_id: None,
+            thinking_level: None,
+            created_at: "2026-01-01T00:00:00.000Z".to_owned(),
+            modified_at: "2026-01-01T00:10:00.000Z".to_owned(),
+            message_count: 1,
+            first_message: "task".to_owned(),
+            all_messages_text: "task".to_owned(),
+            index_message_text: None,
+        },
+    )
+    .unwrap();
+
+    let listed = SessionManager::list(
+        &cwd,
+        Some(&session_dir.display().to_string()),
+        None,
+        Some(&control_db_path),
+    )
+    .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].path, session_file);
+    assert_eq!(listed[0].message_count, 2);
+
+    write_session_metadata(
+        &control_db_path,
+        &WritableSessionMetadata {
+            session_path: "/sessions/archived.jsonl".to_owned(),
+            id: "archived".to_owned(),
+            cwd: cwd.clone(),
+            name: Some("Old".to_owned()),
+            parent_session_path: None,
+            archived_at: Some("2026-01-02T00:00:00.000Z".to_owned()),
+            is_archived: None,
+            is_subagent: None,
+            subagent_name: None,
+            model_provider: None,
+            model_id: None,
+            thinking_level: None,
+            created_at: "2026-01-01T00:00:00.000Z".to_owned(),
+            modified_at: "2026-01-01T00:10:00.000Z".to_owned(),
+            message_count: 3,
+            first_message: "archived".to_owned(),
+            all_messages_text: "archived".to_owned(),
+            index_message_text: None,
+        },
+    )
+    .unwrap();
+
+    let archived = SessionManager::list_archived(None, Some(&control_db_path)).unwrap();
+    assert_eq!(archived.len(), 1);
+    assert_eq!(archived[0].id, "archived");
+    assert_eq!(archived[0].name.as_deref(), Some("Old"));
+    assert_eq!(archived[0].is_archived, Some(true));
+}
+
+#[test]
+fn relocation_moves_control_data_to_the_new_session_path() {
+    use pi_coding_agent::core::session_control_db::{get_control_db_path, read_session_metadata};
+    use pi_coding_agent::core::session_manager::MetadataControlDbOptions;
+
+    let dir = temp_dir("session-metadata-relocate");
+    let project_a = dir.join("project-a");
+    let project_b = dir.join("project-b");
+    let agent_dir = dir.join("agent");
+    fs::create_dir_all(&project_a).unwrap();
+    fs::create_dir_all(&project_b).unwrap();
+    let control_db_path = get_control_db_path(&dir);
+    let source_dir =
+        get_default_session_dir(&project_a.display().to_string(), Some(&agent_dir.display().to_string())).unwrap();
+    let mut session = SessionManager::create(&project_a.display().to_string(), Some(&source_dir), None).unwrap();
+    session
+        .set_metadata_control_db_path(Some(&control_db_path), MetadataControlDbOptions::default())
+        .unwrap();
+    session.append_message(user_message("hello", 1)).unwrap();
+    session.append_message(assistant_message("hi", 2)).unwrap();
+    let old_path = session.get_session_file().unwrap().to_owned();
+    assert!(read_session_metadata(&control_db_path, &old_path).unwrap().is_some());
+
+    session
+        .relocate(&project_b.display().to_string(), Some(&agent_dir.display().to_string()))
+        .unwrap();
+
+    let new_path = session.get_session_file().unwrap().to_owned();
+    assert_ne!(old_path, new_path);
+    assert!(read_session_metadata(&control_db_path, &old_path).unwrap().is_none());
+    let moved = read_session_metadata(&control_db_path, &new_path).unwrap().unwrap();
+    assert_eq!(moved.cwd, project_b.display().to_string());
+}
