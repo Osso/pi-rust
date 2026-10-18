@@ -1,6 +1,7 @@
 //! Ported from `coding-agent/src/modes/interactive/components/extension-selector.ts`.
 
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 
 use pi_tui::tui::component;
@@ -9,7 +10,8 @@ use pi_tui::{Component, Container, Spacer, Text};
 use crate::modes::interactive::components::countdown_timer::CountdownTimer;
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
 use crate::modes::interactive::components::keybinding_hints::{key_hint, raw_key_hint};
-use crate::modes::interactive::theme_api::{ThemeApi, ThemeColor};
+
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 /// Constructor options.
 #[derive(Default)]
@@ -34,7 +36,7 @@ pub struct ExtensionSelectorComponent {
     top: Container,
     after_title: Container,
     bottom: Container,
-    theme: Rc<dyn ThemeApi>,
+    theme: Arc<Theme>,
 }
 
 impl ExtensionSelectorComponent {
@@ -44,7 +46,7 @@ impl ExtensionSelectorComponent {
         on_select: Rc<dyn Fn(String)>,
         on_cancel: Rc<dyn Fn()>,
         opts: ExtensionSelectorOptions,
-        theme: Rc<dyn ThemeApi>,
+        theme: Arc<Theme>,
     ) -> Self {
         let mut top = Container::new();
         top.add_child(component(dynamic_border(&theme)));

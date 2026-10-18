@@ -13,55 +13,42 @@ use pi_coding_agent::modes::interactive::components::countdown_timer::CountdownT
 use pi_coding_agent::modes::interactive::components::earendil_announcement::EarendilAnnouncementComponent;
 use pi_coding_agent::modes::interactive::components::skill_invocation_message::SkillInvocationMessageComponent;
 use pi_coding_agent::modes::interactive::components::user_message_selector::UserMessageSelectorComponent;
-use pi_coding_agent::modes::interactive::theme_api::{ThemeApi, ThemeBg, ThemeColor};
-use pi_tui::{Component, MarkdownTheme};
+use pi_coding_agent::modes::interactive::theme::{
+    ColorMode, ColorValue, REQUIRED_COLORS, Theme, ThemeColor, set_theme_instance,
+};
+use pi_tui::{Component, MarkdownTheme, strip_terminal_sequences};
 
-struct StubTheme;
-
-impl ThemeApi for StubTheme {
-    fn fg(&self, color: ThemeColor, text: &str) -> String {
-        format!("<fg:{}>{text}</>", color_name(color))
-    }
-
-    fn bg(&self, color: ThemeBg, text: &str) -> String {
-        format!("<bg:{}>{text}</>", bg_name(color))
-    }
-
-    fn bold(&self, text: &str) -> String {
-        format!("<b>{text}</b>")
-    }
-
-    fn italic(&self, text: &str) -> String {
-        format!("<i>{text}</i>")
-    }
+fn install_theme() -> Arc<Theme> {
+    let colors: Vec<(String, ColorValue)> = REQUIRED_COLORS
+        .iter()
+        .enumerate()
+        .map(|(index, key)| {
+            (
+                key.to_string(),
+                ColorValue::Text(format!(
+                    "#{:02x}{:02x}{:02x}",
+                    (16 + 7 * index) % 256,
+                    (32 + 11 * index) % 256,
+                    (48 + 13 * index) % 256
+                )),
+            )
+        })
+        .collect();
+    let theme = Arc::new(Theme::new(&colors, &colors, ColorMode::Truecolor, None, None).expect("test theme"));
+    set_theme_instance(theme.clone());
+    theme
 }
 
-fn color_name(color: ThemeColor) -> &'static str {
-    match color {
-        ThemeColor::Accent => "accent",
-        ThemeColor::Border => "border",
-        ThemeColor::BorderAccent => "borderAccent",
-        ThemeColor::CustomMessageLabel => "customMessageLabel",
-        ThemeColor::CustomMessageText => "customMessageText",
-        ThemeColor::Dim => "dim",
-        ThemeColor::Error => "error",
-        ThemeColor::MdLink => "mdLink",
-        ThemeColor::Muted => "muted",
-        ThemeColor::Success => "success",
-        ThemeColor::Text => "text",
-        ThemeColor::Warning => "warning",
-    }
+fn theme() -> Arc<Theme> {
+    install_theme()
 }
 
-fn bg_name(color: ThemeBg) -> &'static str {
-    match color {
-        ThemeBg::CustomMessageBg => "customMessageBg",
-        ThemeBg::SelectedBg => "selectedBg",
-    }
-}
-
-fn theme() -> Rc<dyn ThemeApi> {
-    Rc::new(StubTheme)
+fn plain(lines: &[String]) -> String {
+    lines
+        .iter()
+        .map(|line| strip_terminal_sequences(line))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 struct PlainMarkdownTheme;
@@ -152,13 +139,17 @@ fn agent_selection_banner_renders_the_selected_agent() {
     store.publish_lifecycle_coordinator_snapshot(&agent("agent-1", "Scout", AgentLifecycle::WaitingForInput));
     store.select_agent_view("agent-1");
 
-    let mut banner = AgentSelectionBannerComponent::new(Some(Arc::new(store)), theme());
+    let theme = theme();
+    let mut banner = AgentSelectionBannerComponent::new(Some(Arc::new(store)), theme.clone());
     assert_eq!(
         banner.render(200),
-        vec!["<fg:accent><b>Agent agent-1: Scout (waiting for input)</b></>"]
+        vec![theme.fg(
+            ThemeColor::Accent,
+            &theme.bold("Agent agent-1: Scout (waiting for input)")
+        )]
     );
 
-    let mut empty_banner = AgentSelectionBannerComponent::new(None, theme());
+    let mut empty_banner = AgentSelectionBannerComponent::new(None, theme.clone());
     assert!(empty_banner.render(200).is_empty());
 }
 
@@ -170,33 +161,27 @@ fn skill_invocation_message_switches_between_collapsed_and_expanded() {
         content: "Review the diff.".to_string(),
         user_message: None,
     };
-    let mut component = SkillInvocationMessageComponent::new(block, Rc::new(PlainMarkdownTheme), theme());
+    let theme = theme();
+    let mut component = SkillInvocationMessageComponent::new(block, Rc::new(PlainMarkdownTheme), theme.clone());
 
     let collapsed = component.render(80);
-    let collapsed_text = collapsed.join("\n");
-    assert!(
-        collapsed_text.contains("<fg:customMessageLabel>\u{1b}[1m[skill]\u{1b}[22m </>"),
-        "{collapsed:?}"
-    );
-    assert!(
-        collapsed_text.contains("<fg:customMessageText>code-review</>"),
-        "{collapsed:?}"
-    );
+    let collapsed_raw = collapsed.join("\n");
+    assert!(collapsed_raw.contains("\u{1b}[1m[skill]\u{1b}[22m"), "{collapsed:?}");
+    let collapsed_text = plain(&collapsed);
+    assert!(collapsed_text.contains("code-review"), "{collapsed:?}");
     assert!(collapsed_text.contains("to expand"), "{collapsed:?}");
-    assert!(collapsed_text.contains("<bg:customMessageBg>"), "{collapsed:?}");
+    let background = theme.get_bg_ansi(pi_coding_agent::modes::interactive::theme::ThemeBg::CustomMessageBg);
+    assert!(collapsed.iter().any(|line| line.contains(background)), "{collapsed:?}");
 
     component.set_expanded(true);
     let expanded = component.render(80);
     assert!(expanded.len() > collapsed.len(), "{expanded:?}");
-    assert!(
-        expanded
-            .join("\n")
-            .contains("<fg:customMessageLabel>\u{1b}[1m[skill]\u{1b}[22m</>")
-    );
-    let joined = expanded.join("\n");
+    let expanded_raw = expanded.join("\n");
+    assert!(expanded_raw.contains("\u{1b}[1m[skill]\u{1b}[22m"), "{expanded:?}");
+    let joined = plain(&expanded);
     assert!(joined.contains("code-review"), "{joined}");
     assert!(joined.contains("Review the diff."), "{joined}");
-    assert!(joined.contains("<bg:customMessageBg>"), "{joined}");
+    assert!(expanded.iter().any(|line| line.contains(background)), "{expanded:?}");
 
     component.set_expanded(false);
     assert_eq!(component.render(80), collapsed);
@@ -206,23 +191,19 @@ fn skill_invocation_message_switches_between_collapsed_and_expanded() {
 fn earendil_announcement_renders_text_and_borders_without_the_bundled_image() {
     // The test binary has no `assets/clankolas.png` next to it, so the source's
     // image-load fallback is the observable branch here.
-    let mut component = EarendilAnnouncementComponent::new(theme());
+    let theme = theme();
+    let mut component = EarendilAnnouncementComponent::new(theme.clone());
     let lines = component.render(120);
-    let joined = lines.join("\n");
-    assert!(
-        joined.contains("<b><fg:accent>pi has joined Earendil</></b>"),
-        "{joined}"
-    );
+    let joined = plain(&lines);
+    assert!(joined.contains("pi has joined Earendil"), "{joined}");
     assert!(joined.contains("Read the blog post:"), "{joined}");
     assert!(
         joined.contains("https://mariozechner.at/posts/2026-04-08-ive-sold-out/"),
         "{joined}"
     );
-    assert!(lines[0].starts_with("<fg:accent>──"), "{lines:?}");
-    assert!(
-        lines.last().expect("bottom border").starts_with("<fg:accent>──"),
-        "{lines:?}"
-    );
+    let accent = theme.get_fg_ansi(ThemeColor::Accent);
+    assert!(lines[0].starts_with(accent), "{lines:?}");
+    assert!(lines.last().expect("bottom border").starts_with(accent), "{lines:?}");
 }
 
 #[test]
@@ -263,12 +244,7 @@ fn user_message_selector_auto_cancels_when_empty() {
     };
     let mut component =
         UserMessageSelectorComponent::new(Vec::new(), Rc::new(|_id: &str| {}), on_cancel, None, theme());
-    assert!(
-        component
-            .render(40)
-            .join("\n")
-            .contains("<fg:muted>  No user messages found</>")
-    );
+    assert!(plain(&component.render(40)).contains("  No user messages found"));
 
     let now = Instant::now();
     assert!(!component.poll(now + Duration::from_millis(99)));

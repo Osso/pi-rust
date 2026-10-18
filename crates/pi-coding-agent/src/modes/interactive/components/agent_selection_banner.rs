@@ -1,12 +1,12 @@
 //! Ported from `coding-agent/src/modes/interactive/components/agent-selection-banner.ts`.
 
-use std::rc::Rc;
 use std::sync::Arc;
 
 use pi_tui::{Component, truncate_to_width};
 
 use crate::core::multi_agent_store::{MultiAgentStore, lifecycle_name};
-use crate::modes::interactive::theme_api::{ThemeApi, ThemeColor};
+
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 fn format_lifecycle(lifecycle: &str) -> String {
     lifecycle.replace('_', " ")
@@ -26,11 +26,11 @@ fn selected_agent_text(store: &MultiAgentStore) -> Option<String> {
 /// Banner showing the currently selected child agent.
 pub struct AgentSelectionBannerComponent {
     store: Option<Arc<MultiAgentStore>>,
-    theme: Rc<dyn ThemeApi>,
+    theme: Arc<Theme>,
 }
 
 impl AgentSelectionBannerComponent {
-    pub fn new(store: Option<Arc<MultiAgentStore>>, theme: Rc<dyn ThemeApi>) -> Self {
+    pub fn new(store: Option<Arc<MultiAgentStore>>, theme: Arc<Theme>) -> Self {
         Self { store, theme }
     }
 }

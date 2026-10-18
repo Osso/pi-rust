@@ -1,6 +1,7 @@
 //! Ported from `coding-agent/src/modes/interactive/components/trust-selector.ts`.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use pi_tui::tui::component;
 use pi_tui::{Component, Container, Spacer, Text};
@@ -10,7 +11,8 @@ use crate::core::trust_manager::{
 };
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
 use crate::modes::interactive::components::keybinding_hints::{key_hint, raw_key_hint};
-use crate::modes::interactive::theme_api::{ThemeApi, ThemeColor};
+
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 /// Selection emitted when the user confirms a trust decision.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,11 +62,11 @@ pub struct TrustSelectorComponent {
     on_cancel: Rc<dyn Fn()>,
     top: Container,
     bottom: Container,
-    theme: Rc<dyn ThemeApi>,
+    theme: Arc<Theme>,
 }
 
 impl TrustSelectorComponent {
-    pub fn new(options: TrustSelectorOptions, theme: Rc<dyn ThemeApi>) -> Self {
+    pub fn new(options: TrustSelectorOptions, theme: Arc<Theme>) -> Self {
         let trust_options = get_project_trust_options(&options.cwd, false);
         let saved_decision = options.saved_decision;
         let mut selector = Self {

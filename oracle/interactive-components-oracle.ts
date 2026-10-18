@@ -14,14 +14,23 @@ function errorWithStack(error: unknown): { name: string; message: string; stack?
 	return error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : { name: "Unknown", message: String(error) };
 }
 
-const stubTheme = {
-	fg: (color: string, text: string) => `<fg:${color}>${text}</>`,
-	bg: (color: string, text: string) => `<bg:${color}>${text}</>`,
-	bold: (text: string) => `<b>${text}</b>`,
-	italic: (text: string) => `<i>${text}</i>`,
-	underline: (text: string) => `<u>${text}</u>`,
-	strikethrough: (text: string) => `<s>${text}</s>`,
-};
+const THEME_KEYS = [
+	"accent", "border", "borderAccent", "borderMuted", "success", "error", "warning", "muted", "dim", "text", "thinkingText", "selectedBg", "userMessageBg", "userMessageText", "customMessageBg", "customMessageText", "customMessageLabel", "toolPendingBg", "toolSuccessBg", "toolErrorBg", "toolTitle", "toolOutput", "mdHeading", "mdLink", "mdLinkUrl", "mdCode", "mdCodeBlock", "mdCodeBlockBorder", "mdQuote", "mdQuoteBorder", "mdHr", "mdListBullet", "toolDiffAdded", "toolDiffRemoved", "toolDiffContext", "syntaxComment", "syntaxKeyword", "syntaxFunction", "syntaxVariable", "syntaxString", "syntaxNumber", "syntaxType", "syntaxOperator", "syntaxPunctuation", "thinkingOff", "thinkingMinimal", "thinkingLow", "thinkingMedium", "thinkingHigh", "thinkingXhigh", "bashMode",
+];
+
+function hex(value: number): string {
+	return value.toString(16).padStart(2, "0");
+}
+
+function buildTheme(ThemeClass: any): unknown {
+	const colors = Object.fromEntries(
+		THEME_KEYS.map((key, index) => [
+			key,
+			`#${hex((16 + 7 * index) % 256)}${hex((32 + 11 * index) % 256)}${hex((48 + 13 * index) % 256)}`,
+		]),
+	);
+	return new ThemeClass(colors, colors, "truecolor");
+}
 
 function applyInputs(component: { handleInput(data: string): void }, inputs: string[]): void {
 	for (const input of inputs) component.handleInput(input);
@@ -145,7 +154,7 @@ async function main(): Promise<void> {
 	const sourceRoot = process.argv[2];
 	if (!sourceRoot) throw new Error("interactive oracle requires the coding-agent src directory");
 	const themeModule = (await import(pathToFileURL(`${sourceRoot}/modes/interactive/theme/theme.ts`).href)) as Api;
-	themeModule.setThemeInstance(stubTheme);
+	themeModule.setThemeInstance(buildTheme(themeModule.Theme));
 	const modules = new Map<string, Api>();
 	const load = async (module: string): Promise<Api> => {
 		let api = modules.get(module);

@@ -1,11 +1,13 @@
 //! Ported from `coding-agent/src/modes/interactive/components/show-images-selector.ts`.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use pi_tui::{Component, DynamicBorder, SelectItem, SelectList, SelectListLayoutOptions};
 
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
-use crate::modes::interactive::theme_api::{ThemeApi, select_list_theme};
+
+use crate::modes::interactive::theme::{Theme, get_select_list_theme};
 
 const SHOW_IMAGES_SELECT_LIST_LAYOUT: SelectListLayoutOptions = SelectListLayoutOptions {
     min_primary_column_width: Some(12),
@@ -21,18 +23,13 @@ pub struct ShowImagesSelectorComponent {
 }
 
 impl ShowImagesSelectorComponent {
-    pub fn new(
-        current_value: bool,
-        on_select: Rc<dyn Fn(bool)>,
-        on_cancel: Rc<dyn Fn()>,
-        theme: Rc<dyn ThemeApi>,
-    ) -> Self {
+    pub fn new(current_value: bool, on_select: Rc<dyn Fn(bool)>, on_cancel: Rc<dyn Fn()>, theme: Arc<Theme>) -> Self {
         let items = vec![
             SelectItem::new("yes", "Yes").with_description("Show images inline in terminal"),
             SelectItem::new("no", "No").with_description("Show text placeholder instead"),
         ];
 
-        let mut select_list = SelectList::new(items, 5, select_list_theme(&theme), SHOW_IMAGES_SELECT_LIST_LAYOUT);
+        let mut select_list = SelectList::new(items, 5, get_select_list_theme(), SHOW_IMAGES_SELECT_LIST_LAYOUT);
         select_list.set_selected_index(if current_value { 0 } else { 1 });
         select_list.on_select = Some(Rc::new(move |item: &SelectItem| on_select(item.value == "yes")));
         select_list.on_cancel = Some(on_cancel);

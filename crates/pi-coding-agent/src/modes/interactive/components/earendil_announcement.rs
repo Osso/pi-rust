@@ -1,6 +1,7 @@
 //! Ported from `coding-agent/src/modes/interactive/components/earendil-announcement.ts`.
 
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::OnceLock;
 
 use pi_js_compat::base64::buffer_to_base64;
@@ -10,7 +11,8 @@ use pi_tui::{Component, Container, Image, Spacer, Text};
 
 use crate::config::get_bundled_interactive_asset_path;
 use crate::modes::interactive::components::dynamic_border::dynamic_border_with;
-use crate::modes::interactive::theme_api::{ThemeApi, ThemeColor};
+
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 const BLOG_URL: &str = "https://mariozechner.at/posts/2026-04-08-ive-sold-out/";
 const IMAGE_FILENAME: &str = "clankolas.png";
@@ -33,7 +35,7 @@ pub struct EarendilAnnouncementComponent {
 }
 
 impl EarendilAnnouncementComponent {
-    pub fn new(theme: Rc<dyn ThemeApi>) -> Self {
+    pub fn new(theme: Arc<Theme>) -> Self {
         let mut container = Container::new();
         let accent_border = {
             let theme = theme.clone();

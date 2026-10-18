@@ -1,11 +1,13 @@
 //! Ported from `coding-agent/src/modes/interactive/components/theme-selector.ts`.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use pi_tui::{Component, DynamicBorder, SelectItem, SelectList, SelectListLayoutOptions};
 
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
-use crate::modes::interactive::theme_api::{ThemeApi, select_list_theme};
+
+use crate::modes::interactive::theme::{Theme, get_select_list_theme};
 
 const THEME_SELECT_LIST_LAYOUT: SelectListLayoutOptions = SelectListLayoutOptions {
     min_primary_column_width: Some(12),
@@ -29,7 +31,7 @@ impl ThemeSelectorComponent {
         on_select: Rc<dyn Fn(String)>,
         on_cancel: Rc<dyn Fn()>,
         on_preview: Rc<dyn Fn(String)>,
-        theme: Rc<dyn ThemeApi>,
+        theme: Arc<Theme>,
     ) -> Self {
         let items: Vec<SelectItem> = themes
             .iter()
@@ -43,7 +45,7 @@ impl ThemeSelectorComponent {
             })
             .collect();
 
-        let mut select_list = SelectList::new(items, 10, select_list_theme(&theme), THEME_SELECT_LIST_LAYOUT);
+        let mut select_list = SelectList::new(items, 10, get_select_list_theme(), THEME_SELECT_LIST_LAYOUT);
         if let Some(current_index) = themes.iter().position(|name| name == current_theme) {
             select_list.set_selected_index(current_index as isize);
         }

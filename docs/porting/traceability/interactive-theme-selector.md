@@ -12,4 +12,4 @@ Rust: `crates/pi-coding-agent/src/modes/interactive/components/theme_selector.rs
 | max visible 10, layout 12..32 | constructor constants | differential lines |
 | borders + `getSelectList` | `dynamic_border`, `select_list_mut` | differential |
 
-Adaptation: the theme registry lives in the interactive theme slice, so the available names are injected. The differential test asks the TypeScript module for the real list to keep both sides identical.
+Adaptation: the available theme names are injected because the component reads the theme registry. The differential test asks the TypeScript module for the real list to keep both sides identical.

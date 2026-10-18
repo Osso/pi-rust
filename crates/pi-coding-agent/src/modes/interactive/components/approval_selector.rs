@@ -1,6 +1,7 @@
 //! Ported from `coding-agent/src/modes/interactive/components/approval-selector.ts`.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use pi_tui::tui::component;
 use pi_tui::{Component, Container, Spacer, Text};
@@ -8,7 +9,8 @@ use pi_tui::{Component, Container, Spacer, Text};
 use crate::core::permissions::presets::{APPROVAL_PRESETS, ApprovalPresetName};
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
 use crate::modes::interactive::components::keybinding_hints::{key_hint, raw_key_hint};
-use crate::modes::interactive::theme_api::{ThemeApi, ThemeColor};
+
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 /// Save scope for an approval preset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,11 +52,11 @@ pub struct ApprovalSelectorComponent {
     current_preset: ApprovalPresetName,
     top: Container,
     bottom: Container,
-    theme: Rc<dyn ThemeApi>,
+    theme: Arc<Theme>,
 }
 
 impl ApprovalSelectorComponent {
-    pub fn new(options: ApprovalSelectorOptions, theme: Rc<dyn ThemeApi>) -> Self {
+    pub fn new(options: ApprovalSelectorOptions, theme: Arc<Theme>) -> Self {
         let selected_index = APPROVAL_PRESETS
             .iter()
             .position(|preset| preset.name == options.current_preset)

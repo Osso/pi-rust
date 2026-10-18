@@ -32,56 +32,36 @@ use pi_coding_agent::modes::interactive::components::user_message_selector::{
 };
 use pi_coding_agent::modes::interactive::components::visual_truncate::truncate_to_visual_lines;
 use pi_coding_agent::modes::interactive::model_search::{ModelSearchItem, get_model_search_candidates};
-use pi_coding_agent::modes::interactive::theme_api::{ThemeApi, ThemeBg, ThemeColor};
+use pi_coding_agent::modes::interactive::theme::{
+    ColorMode, ColorValue, REQUIRED_COLORS, Theme, current_theme, set_theme_instance,
+};
 use pi_tui::Component;
 use serde_json::{Value, json};
 
-struct StubTheme;
-
-impl ThemeApi for StubTheme {
-    fn fg(&self, color: ThemeColor, text: &str) -> String {
-        format!("<fg:{}>{text}</>", color_name(color))
-    }
-
-    fn bg(&self, color: ThemeBg, text: &str) -> String {
-        format!("<bg:{}>{text}</>", bg_name(color))
-    }
-
-    fn bold(&self, text: &str) -> String {
-        format!("<b>{text}</b>")
-    }
-
-    fn italic(&self, text: &str) -> String {
-        format!("<i>{text}</i>")
-    }
+fn install_theme() -> std::sync::Arc<Theme> {
+    let colors: Vec<(String, ColorValue)> = REQUIRED_COLORS
+        .iter()
+        .enumerate()
+        .map(|(index, key)| {
+            (
+                key.to_string(),
+                ColorValue::Text(format!(
+                    "#{:02x}{:02x}{:02x}",
+                    (16 + 7 * index) % 256,
+                    (32 + 11 * index) % 256,
+                    (48 + 13 * index) % 256
+                )),
+            )
+        })
+        .collect();
+    let theme =
+        std::sync::Arc::new(Theme::new(&colors, &colors, ColorMode::Truecolor, None, None).expect("test theme"));
+    set_theme_instance(theme.clone());
+    theme
 }
 
-fn color_name(color: ThemeColor) -> &'static str {
-    match color {
-        ThemeColor::Accent => "accent",
-        ThemeColor::Border => "border",
-        ThemeColor::BorderAccent => "borderAccent",
-        ThemeColor::CustomMessageLabel => "customMessageLabel",
-        ThemeColor::CustomMessageText => "customMessageText",
-        ThemeColor::Dim => "dim",
-        ThemeColor::Error => "error",
-        ThemeColor::MdLink => "mdLink",
-        ThemeColor::Muted => "muted",
-        ThemeColor::Success => "success",
-        ThemeColor::Text => "text",
-        ThemeColor::Warning => "warning",
-    }
-}
-
-fn bg_name(color: ThemeBg) -> &'static str {
-    match color {
-        ThemeBg::CustomMessageBg => "customMessageBg",
-        ThemeBg::SelectedBg => "selectedBg",
-    }
-}
-
-fn theme() -> Rc<dyn ThemeApi> {
-    Rc::new(StubTheme)
+fn theme() -> std::sync::Arc<Theme> {
+    current_theme()
 }
 
 type Events = Rc<RefCell<Vec<Value>>>;
@@ -96,6 +76,8 @@ fn events_json(events: &Events) -> Value {
 
 #[test]
 fn interactive_components_match_the_pinned_typescript_source() {
+    let theme = install_theme();
+    let _ = theme;
     let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
     let themes_response = oracle.request(&json!({
         "id": 0,

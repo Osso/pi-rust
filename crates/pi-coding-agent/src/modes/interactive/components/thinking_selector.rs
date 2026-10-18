@@ -1,12 +1,14 @@
 //! Ported from `coding-agent/src/modes/interactive/components/thinking-selector.ts`.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_tui::{Component, DynamicBorder, SelectItem, SelectList, SelectListLayoutOptions};
 
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
-use crate::modes::interactive::theme_api::{ThemeApi, select_list_theme};
+
+use crate::modes::interactive::theme::{Theme, get_select_list_theme};
 
 const THINKING_SELECT_LIST_LAYOUT: SelectListLayoutOptions = SelectListLayoutOptions {
     min_primary_column_width: Some(12),
@@ -40,7 +42,7 @@ impl ThinkingSelectorComponent {
         available_levels: &[ThinkingLevel],
         on_select: Rc<dyn Fn(ThinkingLevel)>,
         on_cancel: Rc<dyn Fn()>,
-        theme: Rc<dyn ThemeApi>,
+        theme: Arc<Theme>,
     ) -> Self {
         let levels: Vec<ThinkingLevel> = available_levels.to_vec();
         let items: Vec<SelectItem> = levels
@@ -49,12 +51,7 @@ impl ThinkingSelectorComponent {
             .collect();
         let max_visible = items.len();
 
-        let mut select_list = SelectList::new(
-            items,
-            max_visible,
-            select_list_theme(&theme),
-            THINKING_SELECT_LIST_LAYOUT,
-        );
+        let mut select_list = SelectList::new(items, max_visible, get_select_list_theme(), THINKING_SELECT_LIST_LAYOUT);
         if let Some(current_index) = levels.iter().position(|level| *level == current_level) {
             select_list.set_selected_index(current_index as isize);
         }

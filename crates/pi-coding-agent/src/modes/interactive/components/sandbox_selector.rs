@@ -1,6 +1,7 @@
 //! Ported from `coding-agent/src/modes/interactive/components/sandbox-selector.ts`.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use pi_tui::tui::component;
 use pi_tui::{Component, Container, Spacer, Text};
@@ -8,7 +9,8 @@ use pi_tui::{Component, Container, Spacer, Text};
 use crate::core::permissions::presets::{SANDBOX_PROFILES, SandboxProfileName, SandboxProfileScope};
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
 use crate::modes::interactive::components::keybinding_hints::{key_hint, raw_key_hint};
-use crate::modes::interactive::theme_api::{ThemeApi, ThemeColor};
+
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 /// Selection emitted when the user confirms a sandbox profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,11 +67,11 @@ pub struct SandboxSelectorComponent {
     session_profile: Option<SandboxProfileName>,
     top: Container,
     bottom: Container,
-    theme: Rc<dyn ThemeApi>,
+    theme: Arc<Theme>,
 }
 
 impl SandboxSelectorComponent {
-    pub fn new(options: SandboxSelectorOptions, theme: Rc<dyn ThemeApi>) -> Self {
+    pub fn new(options: SandboxSelectorOptions, theme: Arc<Theme>) -> Self {
         let mut top = Container::new();
         top.add_child(component(dynamic_border(&theme)));
         top.add_child(component(Spacer::new(1)));

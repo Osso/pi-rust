@@ -1,10 +1,10 @@
 //! Ported from `coding-agent/src/modes/interactive/components/keybinding-hints.ts`.
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 use pi_tui::get_keybindings;
 
-use crate::modes::interactive::theme_api::{ThemeApi, ThemeColor};
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 /// `KeyTextFormatOptions`.
 #[derive(Debug, Clone, Copy, Default)]
@@ -63,12 +63,12 @@ pub fn key_display_text(keybinding: &str) -> String {
 }
 
 /// `keyHint`: dim keys followed by a muted description.
-pub fn key_hint(theme: &Rc<dyn ThemeApi>, keybinding: &str, description: &str) -> String {
+pub fn key_hint(theme: &Arc<Theme>, keybinding: &str, description: &str) -> String {
     theme.fg(ThemeColor::Dim, &key_text(keybinding)) + &theme.fg(ThemeColor::Muted, &format!(" {description}"))
 }
 
 /// `rawKeyHint`: dim literal key text followed by a muted description.
-pub fn raw_key_hint(theme: &Rc<dyn ThemeApi>, key: &str, description: &str) -> String {
+pub fn raw_key_hint(theme: &Arc<Theme>, key: &str, description: &str) -> String {
     theme.fg(ThemeColor::Dim, &format_key_text(key, KeyTextFormatOptions::default()))
         + &theme.fg(ThemeColor::Muted, &format!(" {description}"))
 }

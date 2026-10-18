@@ -1,6 +1,7 @@
 //! Ported from `coding-agent/src/modes/interactive/components/skill-invocation-message.ts`.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use pi_tui::components::r#box::BoxComponent;
 use pi_tui::components::text::StyleFn;
@@ -9,20 +10,28 @@ use pi_tui::{Component, Markdown, MarkdownOptions, MarkdownTheme, Text};
 
 use crate::ParsedSkillBlock;
 use crate::modes::interactive::components::keybinding_hints::key_text;
-use crate::modes::interactive::theme_api::{ThemeApi, ThemeBg, ThemeColor, background_style};
+
+use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor};
 
 /// Renders a skill invocation block, collapsed or expanded.
 pub struct SkillInvocationMessageComponent {
     expanded: bool,
     skill_block: ParsedSkillBlock,
     markdown_theme: Rc<dyn MarkdownTheme>,
-    theme: Rc<dyn ThemeApi>,
+    theme: Arc<Theme>,
     container: BoxComponent,
 }
 
 impl SkillInvocationMessageComponent {
-    pub fn new(skill_block: ParsedSkillBlock, markdown_theme: Rc<dyn MarkdownTheme>, theme: Rc<dyn ThemeApi>) -> Self {
-        let container = BoxComponent::new(1, 1, Some(background_style(&theme, ThemeBg::CustomMessageBg)));
+    pub fn new(skill_block: ParsedSkillBlock, markdown_theme: Rc<dyn MarkdownTheme>, theme: Arc<Theme>) -> Self {
+        let container = BoxComponent::new(
+            1,
+            1,
+            Some({
+                let theme = theme.clone();
+                Rc::new(move |text: &str| theme.bg(ThemeBg::CustomMessageBg, text))
+            }),
+        );
         let mut component = Self {
             expanded: false,
             skill_block,

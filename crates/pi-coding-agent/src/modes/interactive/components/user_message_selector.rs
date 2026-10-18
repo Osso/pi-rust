@@ -1,6 +1,7 @@
 //! Ported from `coding-agent/src/modes/interactive/components/user-message-selector.ts`.
 
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pi_js_compat::string::js_trim;
@@ -8,7 +9,8 @@ use pi_tui::tui::component;
 use pi_tui::{Component, Container, Spacer, Text, truncate_to_width};
 
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
-use crate::modes::interactive::theme_api::{ThemeApi, ThemeColor};
+
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 const MAX_VISIBLE: usize = 10;
 const AUTO_CANCEL_DELAY: Duration = Duration::from_millis(100);
@@ -28,13 +30,13 @@ pub type UserMessageSelectFn = Rc<dyn Fn(&str)>;
 pub struct UserMessageList {
     messages: Vec<UserMessageItem>,
     selected_index: usize,
-    theme: Rc<dyn ThemeApi>,
+    theme: Arc<Theme>,
     pub on_select: Option<UserMessageSelectFn>,
     pub on_cancel: Option<Rc<dyn Fn()>>,
 }
 
 impl UserMessageList {
-    pub fn new(messages: Vec<UserMessageItem>, initial_selected_id: Option<&str>, theme: Rc<dyn ThemeApi>) -> Self {
+    pub fn new(messages: Vec<UserMessageItem>, initial_selected_id: Option<&str>, theme: Arc<Theme>) -> Self {
         let initial_index = initial_selected_id
             .and_then(|id| messages.iter().position(|message| message.id == id))
             .map(|index| index as i64)
@@ -144,7 +146,7 @@ impl UserMessageSelectorComponent {
         on_select: UserMessageSelectFn,
         on_cancel: Rc<dyn Fn()>,
         initial_selected_id: Option<&str>,
-        theme: Rc<dyn ThemeApi>,
+        theme: Arc<Theme>,
     ) -> Self {
         let mut top = Container::new();
         top.add_child(component(Spacer::new(1)));
