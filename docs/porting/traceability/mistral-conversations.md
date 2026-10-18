@@ -10,7 +10,7 @@ Tests: `crates/pi-ai/tests/mistral_conversations.rs`,
 | TypeScript | Rust | Tests |
 | --- | --- | --- |
 | `MistralOptions` (`toolChoice`, `promptMode`, `reasoningEffort`) | `MistralOptions`, `MistralToolChoice`, `MistralPromptMode`, `MistralReasoningEffort`; `MistralOptions::from_stream_options` parses `StreamOptions::extra` | serialization, reasoning, differential request scenarios |
-| `stream` | `stream` + `MistralConversationsApi::stream` (`ProviderStreams`) | behavioral tests, differential 48 scenarios |
+| `stream` | `stream` + `MistralConversationsApi::stream` (`ProviderStreams`) | behavioral tests, differential 43 scenarios |
 | `streamSimple` | `stream_simple` + `MistralConversationsApi::stream_simple` | reasoning-mode tests, differential thinking-level matrix |
 | `mistralConversationsApi` (lazy wrapper) | `mistral_conversations_api()` returning `LazyApi` | API-lazy coverage plus compile-time `ProviderStreams` use |
 
