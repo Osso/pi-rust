@@ -277,7 +277,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/autocomplete.ts` | 793 | 1 | todo |  |  |
 | `tui/src/keybindings.ts` | 325 | 1 | done | `crates/pi-tui/src/keybindings.rs` | differential resolved keys/conflicts; ordered config pairs |
 | `tui/src/latex.ts` | 1373 | 1 | todo |  |  |
-| `tui/src/terminal.ts` | 594 | 1 | todo |  |  |
+| `tui/src/terminal.ts` | 594 | 1 | done | `crates/pi-tui/src/terminal.rs` | differential negotiation/timeout/normalization; ProcessTerminal event-queue seam; resize polling |
 | `tui/src/word-navigation.ts` | 117 | 1 | todo |  |  |
 | `tui/src/tui.ts` | 2534 | 2 | todo |  |  |
 | `tui/src/components/alt-screen-flash.ts` | 51 | 3 | todo |  |  |

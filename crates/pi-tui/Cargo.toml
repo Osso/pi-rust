@@ -10,6 +10,8 @@ publish = false
 [dependencies]
 # Grapheme cluster segmentation matching the Unicode 17.0 tables used by Node's Intl.Segmenter.
 unicode-segmentation = "=1.13.3"
+# Safe termios/tty access for ProcessTerminal raw mode and window size (no libc/unsafe).
+rustix = { version = "=1.1.5", features = ["termios"] }
 
 [dev-dependencies]
 # Drives JSON-lines differential requests against the pinned TypeScript source.

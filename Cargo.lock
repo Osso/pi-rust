@@ -956,6 +956,7 @@ dependencies = [
 name = "pi-tui"
 version = "0.0.0"
 dependencies = [
+ "rustix",
  "serde_json",
  "unicode-segmentation",
 ]

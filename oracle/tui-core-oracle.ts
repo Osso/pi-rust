@@ -60,10 +60,53 @@ async function keybindingsOperation(request: Request, sourceDirectory: string): 
 	return { keys, resolved: resolvedArrays, conflicts: manager.getConflicts() };
 }
 
+type TerminalApi = {
+	resolveEscapeTimeoutMs(env: Record<string, string>): number;
+	normalizeNativeShiftEnterInput(data: string, detect: boolean, shift: boolean): string;
+	normalizeAppleTerminalInput(data: string, apple: boolean, shift: boolean): string;
+	parseKeyboardProtocolNegotiationSequence(
+		sequence: string,
+	): { type: string; flags?: number } | undefined;
+	isTerminalRawModeFailure(error: Error): boolean;
+	TerminalRawModeError: new (flag: boolean, cause: unknown) => Error;
+};
+
+async function terminalOperation(request: Request, sourceDirectory: string): Promise<unknown> {
+	const api = (await loadApi(sourceDirectory, "terminal.ts")) as TerminalApi;
+	const env = (request.env ?? {}) as Record<string, string>;
+	const sequences = (request.sequences ?? []) as string[];
+	const rawModeCases = (request.rawModeErrors ?? []) as Array<{ flag: boolean; message: string }>;
+	const normalizeCases = (request.normalize ?? []) as Array<{
+		data: string;
+		flag: boolean;
+		shift: boolean;
+		kind: "native" | "apple";
+	}>;
+	return {
+		escapeTimeout: api.resolveEscapeTimeoutMs(env),
+		sequences: sequences.map((sequence) => api.parseKeyboardProtocolNegotiationSequence(sequence) ?? null),
+		normalize: normalizeCases.map((testCase) =>
+			testCase.kind === "native"
+				? api.normalizeNativeShiftEnterInput(testCase.data, testCase.flag, testCase.shift)
+				: api.normalizeAppleTerminalInput(testCase.data, testCase.flag, testCase.shift),
+		),
+		rawMode: rawModeCases.map((testCase) => {
+			const typed = new api.TerminalRawModeError(testCase.flag, new Error(testCase.message));
+			return {
+				message: typed.message,
+				typed: api.isTerminalRawModeFailure(typed),
+				plain: api.isTerminalRawModeFailure(new Error(testCase.message)),
+			};
+		}),
+	};
+}
+
 async function execute(request: Request, sourceDirectory: string): Promise<unknown> {
 	switch (request.operation) {
 		case "keybindings":
 			return keybindingsOperation(request, sourceDirectory);
+		case "terminal":
+			return terminalOperation(request, sourceDirectory);
 		default:
 			throw new Error(`unsupported operation: ${request.operation}`);
 	}
