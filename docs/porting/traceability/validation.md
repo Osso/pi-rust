@@ -72,6 +72,9 @@ keywords; number keywords; ref/const/enum/if/not/allOf/anyOf/oneOf):
   Pi tool schemas only use `^.*$`-style patterns.
 - Relative `$id` URI resolution beyond exact `$id`/`$ref` string equality (TypeBox uses WHATWG URL
   pathname comparison). Pi schemas use `$id: "Node"` with `$ref: "Node"` and JSON-Pointer fragments.
+- `Value.Convert` resolves union-arm refs against its conversion `$defs` context in TypeScript; the
+  Rust conversion resolves refs against the schema tree. Pi schemas do not combine `Type.Union` with
+  `Type.Ref` inside `Type.Cyclic`.
 - Non-object `ToolCall.arguments`: the Rust type is `JsonObject`, per the typed-core decision; the
   TypeScript runtime accepts any value (e.g. `arguments: 1`). Differential cases keep arguments objects.
 - Nested `Type.Unsafe` nodes are converted as TypeBox nodes because origin is recorded per tool, not
