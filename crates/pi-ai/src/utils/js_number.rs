@@ -1,5 +1,5 @@
 /// ECMA-262 `Number::toString` for the finite values representable in JSON.
-pub(crate) fn js_number_to_string(value: f64) -> String {
+pub fn js_number_to_string(value: f64) -> String {
     if value == 0.0 {
         return "0".to_owned();
     }
