@@ -1350,6 +1350,7 @@ struct ToolState {
 #[derive(Debug)]
 pub enum CompletionsFailure {
     Sdk(SdkError),
+    Request(Box<ProviderRequestError<CallbackError>>),
     Message(String),
 }
 
@@ -1357,8 +1358,26 @@ impl CompletionsFailure {
     fn format(self) -> String {
         match self {
             Self::Sdk(error) => format_sdk_error(&error, None),
+            Self::Request(error) => format_request_error(&error, None),
             Self::Message(message) => message,
         }
+    }
+
+    fn raw_metadata(&self) -> Option<&str> {
+        let provider = match self {
+            Self::Sdk(SdkError::Provider(error)) => Some(error.as_ref()),
+            Self::Request(error) => match error.as_ref() {
+                ProviderRequestError::Provider(error) => Some(error),
+                _ => None,
+            },
+            _ => None,
+        }?;
+        provider
+            .inner_error
+            .as_deref()
+            .and_then(|error| error.get("metadata"))
+            .and_then(|metadata| metadata.get("raw"))
+            .and_then(Value::as_str)
     }
 }
 
@@ -1913,10 +1932,7 @@ async fn run_stream(
         retry_options(&stream_options.request),
     )
     .await
-    .map_err(|error| match error {
-        ProviderRequestError::Provider(_) => CompletionsFailure::Message(format_request_error(&error, None)),
-        other => CompletionsFailure::Message(format_request_error(&other, None)),
-    })?;
+    .map_err(|error| CompletionsFailure::Request(Box::new(error)))?;
 
     if let Some(on_response) = &stream_options.request.on_response {
         on_response(
@@ -2007,8 +2023,11 @@ fn run_and_emit(
             } else {
                 StopReason::Error
             };
+            let raw_metadata = failure.raw_metadata().map(str::to_owned);
             let mut message = failure.format();
-            if let Some(raw) = open_router_raw_metadata(&stream_options, &message) {
+            if let Some(raw) = raw_metadata
+                && !message.contains(&raw)
+            {
                 message.push('\n');
                 message.push_str(&raw);
             }
@@ -2025,10 +2044,6 @@ fn run_and_emit(
         }
     });
     stream
-}
-
-fn open_router_raw_metadata(_stream_options: &StreamOptions, _message: &str) -> Option<String> {
-    None
 }
 
 pub fn stream(
