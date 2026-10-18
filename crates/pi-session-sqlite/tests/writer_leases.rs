@@ -131,7 +131,6 @@ async fn lists_complete_metadata_without_acquiring_active_sessions_writer_leases
                     .expect("object")
                     .clone(),
             ),
-            ..Default::default()
         })
         .await
         .expect("second");
