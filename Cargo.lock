@@ -958,6 +958,9 @@ version = "0.0.0"
 dependencies = [
  "regex",
  "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
  "unicode-segmentation",
 ]
 
