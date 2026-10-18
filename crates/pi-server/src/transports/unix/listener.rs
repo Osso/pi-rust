@@ -545,37 +545,46 @@ async fn write_loop(
     while let Some(command) = commands.recv().await {
         match command {
             WriteCommand::Chunk { bytes, result } => {
-                let size = bytes.len();
-                let outcome = writer
-                    .write_all(&bytes)
-                    .await
-                    .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>);
-                if let Some(connection) = connection.upgrade() {
-                    connection.pending_bytes.fetch_sub(size, Ordering::SeqCst);
-                }
+                let outcome = write_chunk(&mut writer, &bytes, &connection).await;
                 let _ = result.send(outcome);
             }
             WriteCommand::Shutdown { result } => {
-                let outcome = writer
-                    .shutdown()
-                    .await
-                    .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>);
-                let _ = result.send(outcome);
+                let _ = result.send(shutdown_writer(&mut writer).await);
             }
             WriteCommand::Close { final_chunk, result } => {
-                let outcome = async {
-                    if let Some(final_chunk) = final_chunk {
-                        writer.write_all(&final_chunk).await?;
-                    }
-                    writer.shutdown().await?;
-                    Ok(())
-                }
-                .await;
+                let outcome = close_writer(&mut writer, final_chunk).await;
                 let _ = result.send(outcome);
                 return;
             }
         }
     }
+}
+
+async fn write_chunk(
+    writer: &mut OwnedWriteHalf,
+    bytes: &[u8],
+    connection: &Weak<UnixByteConnection>,
+) -> ConnectionResult {
+    let outcome = writer.write_all(bytes).await.map_err(boxed_error);
+    if let Some(connection) = connection.upgrade() {
+        connection.pending_bytes.fetch_sub(bytes.len(), Ordering::SeqCst);
+    }
+    outcome
+}
+
+async fn shutdown_writer(writer: &mut OwnedWriteHalf) -> ConnectionResult {
+    writer.shutdown().await.map_err(boxed_error)
+}
+
+async fn close_writer(writer: &mut OwnedWriteHalf, final_chunk: Option<Vec<u8>>) -> ConnectionResult {
+    if let Some(final_chunk) = final_chunk {
+        writer.write_all(&final_chunk).await.map_err(boxed_error)?;
+    }
+    writer.shutdown().await.map_err(boxed_error)
+}
+
+fn boxed_error(error: std::io::Error) -> Box<dyn Error + Send + Sync> {
+    Box::new(error)
 }
 
 impl ByteConnection for UnixByteConnection {
