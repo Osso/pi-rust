@@ -2102,6 +2102,16 @@ pub struct SessionManager {
     in_memory_goal_json: Option<String>,
 }
 
+impl crate::core::multi_agent_store::SessionPersistence for SessionManager {
+    fn metadata_control_db_path(&self) -> Option<String> {
+        self.get_metadata_control_db_path().map(str::to_owned)
+    }
+
+    fn session_file(&self) -> Option<String> {
+        self.get_session_file().map(str::to_owned)
+    }
+}
+
 impl SessionManager {
     fn new(
         cwd: &str,

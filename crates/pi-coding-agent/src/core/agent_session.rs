@@ -217,6 +217,11 @@ pub struct AgentSessionConfig {
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
     pub thinking_phase_timeout_ms: Option<u64>,
     pub supervisor_decision_requester: Option<SupervisorDecisionRequester>,
+    pub multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
+    pub multi_agent_agent_id: Option<String>,
+    pub multi_agent_parent_session_id: Option<String>,
+    pub disable_runtime_coordination_inbound: bool,
+    pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
     pub extension_runner_ref: Option<Arc<Mutex<Option<ExtensionRunner>>>>,
     pub session_start_event: Option<SessionStartEvent>,
 }
@@ -836,6 +841,13 @@ struct Inner {
     length_recovery_attempted: AtomicBool,
     permission_rule_store: Arc<Mutex<crate::core::rule_store::PermissionRuleStore>>,
     supervisor_decision_requester: SupervisorDecisionRequester,
+    multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
+    multi_agent_agent_id: Option<String>,
+    multi_agent_parent_session_id: Option<String>,
+    disable_runtime_coordination_inbound: bool,
+    on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
+    terminal_outbox_claim_id: String,
+    terminal_outbox_last_cleanup_at: Mutex<Option<i64>>,
 }
 
 /// Core session abstraction shared by all run modes.
@@ -909,6 +921,11 @@ impl AgentSession {
             .supervisor_decision_requester
             .clone()
             .unwrap_or_else(default_supervisor_decision_requester);
+        let multi_agent_store = config.multi_agent_store.clone();
+        let multi_agent_agent_id = config.multi_agent_agent_id.clone();
+        let multi_agent_parent_session_id = config.multi_agent_parent_session_id.clone();
+        let disable_runtime_coordination_inbound = config.disable_runtime_coordination_inbound;
+        let on_shared_channel_message_delivered = config.on_shared_channel_message_delivered.clone();
 
         let inner = Arc::new(Inner {
             agent: config.agent,
@@ -974,6 +991,13 @@ impl AgentSession {
             length_recovery_attempted: AtomicBool::new(false),
             permission_rule_store: Arc::new(Mutex::new(permission_rule_store)),
             supervisor_decision_requester,
+            multi_agent_store,
+            multi_agent_agent_id,
+            multi_agent_parent_session_id,
+            disable_runtime_coordination_inbound,
+            on_shared_channel_message_delivered,
+            terminal_outbox_claim_id: pi_ai::utils::uuid::random_uuid(),
+            terminal_outbox_last_cleanup_at: Mutex::new(None),
         });
 
         let session = Self { inner };
@@ -1115,6 +1139,12 @@ impl AgentSession {
             Arc::new(self.inner.model_registry.clone()),
             Some(Arc::clone(&self.inner.settings_manager)),
         );
+        let lifecycle_weak = Arc::downgrade(&self.inner);
+        runner.bind_detached_job_lifecycle(Arc::new(move || {
+            lifecycle_weak
+                .upgrade()
+                .and_then(|inner| AgentSession { inner }.get_detached_job_lifecycle_controller())
+        }));
         runner.set_internal_commands(self.create_internal_commands());
         self.bind_extension_core(&mut runner);
         *lock(&self.inner.extension_runner) = runner.clone();
@@ -1744,6 +1774,103 @@ impl AgentSession {
             .map(|(_, entry)| entry.clone())
     }
 
+    /// Parent runtime session ID for supervisor-directed messages.
+    pub fn multi_agent_parent_session_id(&self) -> Option<String> {
+        self.inner.multi_agent_parent_session_id.clone()
+    }
+
+    /// Whether inbound runtime coordination is disabled.
+    pub fn runtime_coordination_inbound_disabled(&self) -> bool {
+        self.inner.disable_runtime_coordination_inbound
+    }
+
+    /// Callback fired after a shared-channel message is delivered.
+    pub fn on_shared_channel_message_delivered(&self) -> Option<Arc<dyn Fn(String) + Send + Sync>> {
+        self.inner.on_shared_channel_message_delivered.clone()
+    }
+
+    fn runtime_mailbox_control_db_path(&self) -> Option<String> {
+        lock(&self.inner.extension_control_db_path)
+            .clone()
+            .or_else(|| self.inner.control_db_path.clone())
+    }
+
+    /// Builds the detached-job lifecycle controller from the multi-agent store.
+    pub fn get_detached_job_lifecycle_controller(
+        &self,
+    ) -> Option<Arc<crate::core::detached_job_runner::DetachedJobLifecycleController>> {
+        use crate::core::detached_job_runner::{DetachedJobLifecycleController, DetachedJobLifecycleControllerOptions};
+        use crate::core::lifecycle_coordinator::{LifecycleCoordinator, LifecycleCoordinatorOptions};
+
+        let store = self.inner.multi_agent_store.as_ref()?;
+        let persistence = store.get_persistence_target()?;
+        let control_db_path = self.runtime_mailbox_control_db_path()?;
+        let id_store = Arc::clone(store);
+        let process_identity = serde_json::from_str(crate::core::session_control_db::get_runtime_process_instance_id())
+            .unwrap_or(crate::core::runtime_process::ProcessIdentity {
+                pid: std::process::id(),
+                start_time_ticks: 0,
+                incarnation: None,
+            });
+        let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
+            control_db_path: control_db_path.clone(),
+            create_agent_id: Arc::new(move || id_store.allocate_agent_id_for_lifecycle_coordinator("agent")),
+            now: Arc::new(crate::utils::iso_time::now_iso_string),
+            process_identity,
+            session_path: persistence.session_path.clone(),
+        }));
+        Some(Arc::new(DetachedJobLifecycleController::new(
+            DetachedJobLifecycleControllerOptions {
+                artifact_root: self.inner.agent_dir.clone(),
+                control_db_path,
+                coordinator,
+                owner_agent_id: self.inner.multi_agent_agent_id.clone(),
+                owner_session_id: self.session_id(),
+                session_path: persistence.session_path,
+                store: Arc::clone(store),
+                write_bash_launch_manifest: None,
+            },
+        )))
+    }
+
+    /// Bound detached-job lifecycle controller, when a multi-agent store is configured.
+    pub fn detached_job_lifecycle(
+        &self,
+    ) -> Option<Arc<crate::core::detached_job_runner::DetachedJobLifecycleController>> {
+        self.get_detached_job_lifecycle_controller()
+    }
+
+    /// Delivers terminal-outbox projections to the multi-agent store.
+    pub fn drain_terminal_outbox_projections(&self) {
+        use crate::core::terminal_outbox_delivery::{
+            DeliverTerminalOutboxOptions, deliver_terminal_outbox_projections, is_terminal_outbox_cleanup_due,
+            terminal_outbox_retention_threshold,
+        };
+
+        let Some(control_db_path) = self.runtime_mailbox_control_db_path() else {
+            return;
+        };
+        let Some(store) = self.inner.multi_agent_store.as_ref() else {
+            return;
+        };
+        let now = pi_ai::request::now_millis();
+        let last_cleanup = *lock(&self.inner.terminal_outbox_last_cleanup_at);
+        if is_terminal_outbox_cleanup_due(last_cleanup, now) {
+            let _ = crate::core::session_control_db::cleanup_multi_agent_terminal_outbox(
+                &control_db_path,
+                &terminal_outbox_retention_threshold(now),
+            );
+            *lock(&self.inner.terminal_outbox_last_cleanup_at) = Some(now);
+        }
+        let _ = deliver_terminal_outbox_projections(&DeliverTerminalOutboxOptions {
+            artifact_root: Some(self.inner.agent_dir.clone()),
+            claim_id: self.inner.terminal_outbox_claim_id.clone(),
+            control_db_path,
+            now: Arc::new(crate::utils::iso_time::now_iso_string),
+            store: Arc::clone(store),
+        });
+    }
+
     fn emit(&self, event: AgentSessionEvent) {
         let listeners: Vec<AgentSessionEventListener> = lock(&self.inner.event_listeners)
             .iter()
@@ -2181,6 +2308,7 @@ impl AgentSession {
 
     /// Sends a prompt to the agent.
     pub async fn prompt(&self, text: &str, options: PromptOptions) -> Result<(), AgentSessionError> {
+        self.drain_terminal_outbox_projections();
         let expand = options.expand_prompt_templates.unwrap_or(true);
         if expand && text.starts_with('/') {
             if self.try_execute_extension_command(text).await {

@@ -227,6 +227,11 @@ async fn build_harness(cancel_switch: bool, cancel_fork: bool) -> Harness {
                     multi_agent_execution_capability: None,
                     thinking_phase_timeout_ms: None,
                     supervisor_decision_requester: None,
+                    multi_agent_store: None,
+                    multi_agent_agent_id: None,
+                    multi_agent_parent_session_id: None,
+                    disable_runtime_coordination_inbound: false,
+                    on_shared_channel_message_delivered: None,
                     extension_runner_ref: None,
                     session_start_event: None,
                 })

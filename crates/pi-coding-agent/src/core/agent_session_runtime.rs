@@ -132,8 +132,22 @@ impl AgentSessionRuntime {
             rebind_session: None,
             before_session_invalidate: None,
             before_process_restart: None,
-            process_restarter: Arc::new(|_| {
-                Box::pin(async { Err("Process restart is not available in this session mode".to_owned()) })
+            process_restarter: Arc::new(|options| {
+                Box::pin(async move {
+                    let target = crate::core::self_restart::RestartTarget {
+                        argv: std::env::args().collect(),
+                        ..Default::default()
+                    };
+                    let request = crate::core::self_restart::SelfRestartRequest {
+                        session_file: options.session_file,
+                        prompt: options.prompt,
+                        old_pid: None,
+                    };
+                    match crate::core::self_restart::spawn_self_restart(&request, &target, false) {
+                        Ok(code) => std::process::exit(code),
+                        Err(error) => Err(error.to_string()),
+                    }
+                })
             }),
             prepared_tool_result_relocation: Mutex::new(None),
         }

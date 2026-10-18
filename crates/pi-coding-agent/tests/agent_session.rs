@@ -122,6 +122,11 @@ async fn fixture_with(
         multi_agent_execution_capability: None,
         thinking_phase_timeout_ms: None,
         supervisor_decision_requester: None,
+        multi_agent_store: None,
+        multi_agent_agent_id: None,
+        multi_agent_parent_session_id: None,
+        disable_runtime_coordination_inbound: false,
+        on_shared_channel_message_delivered: None,
         extension_runner_ref: None,
         session_start_event: None,
     })
@@ -1153,6 +1158,83 @@ async fn persisted_allow_rule_skips_permission_prompt_tool() {
 
     assert!(calls.lock().unwrap().is_empty());
     assert_eq!(executed.lock().unwrap().as_slice(), ["original".to_owned()]);
+}
+
+#[tokio::test]
+async fn binds_detached_job_lifecycle_when_a_store_is_configured() {
+    use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
+
+    let temp_dir = tempfile::tempdir().expect("temp dir");
+    let faux = faux_provider(RegisterFauxProviderOptions {
+        provider: Some("faux".to_owned()),
+        models: Some(vec![faux_model()]),
+        ..Default::default()
+    });
+    let runtime = model_runtime(&faux).await;
+    let model = faux.get_model(None).expect("faux model");
+    let agent = Agent::new(AgentOptions {
+        initial_state: Some(AgentInitialState {
+            model: Some(model),
+            system_prompt: Some(String::new()),
+            thinking_level: Some(ThinkingLevel::Off),
+            tools: Some(Vec::new()),
+            messages: None,
+        }),
+        stream_fn: Some(stream_fn(runtime.clone())),
+        ..Default::default()
+    })
+    .expect("agent");
+    let cwd = temp_dir.path().display().to_string();
+    let session_dir = temp_dir.path().join("sessions").display().to_string();
+    let control_db = temp_dir.path().join("control.db").display().to_string();
+    let mut session_manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
+    session_manager.set_metadata_control_db_path(Some(&control_db), Default::default());
+    session_manager
+        .append_message(AgentMessage::User(pi_ai::types::UserMessage {
+            role: pi_ai::types::UserRole::Tag,
+            content: pi_ai::types::UserContent::Text("hello".to_owned()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 1_700_000_000_000,
+        }))
+        .expect("append");
+    session_manager.persist_for_recovery().expect("persist");
+    let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+    store.set_persistence_session_manager(Some(&session_manager));
+
+    let settings_manager = SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default());
+    let session = AgentSession::new(AgentSessionConfig {
+        agent,
+        session_manager: Arc::new(std::sync::Mutex::new(session_manager)),
+        settings_manager: Arc::new(std::sync::Mutex::new(settings_manager)),
+        cwd: cwd.clone(),
+        scoped_models: Vec::new(),
+        resource_loader: pi_coding_agent::core::resource_loader::StaticResourceLoader::new(),
+        model_runtime: runtime,
+        initial_active_tool_names: None,
+        allowed_tool_names: None,
+        excluded_tool_names: None,
+        permission_prompt_tool: None,
+        agent_dir: Some(cwd),
+        control_db_path: Some(control_db),
+        base_tools: Vec::new(),
+        custom_tools: Vec::<ToolDefinition>::new(),
+        multi_agent_runtime_role: None,
+        multi_agent_execution_capability: None,
+        thinking_phase_timeout_ms: None,
+        supervisor_decision_requester: None,
+        multi_agent_store: Some(store),
+        multi_agent_agent_id: None,
+        multi_agent_parent_session_id: None,
+        disable_runtime_coordination_inbound: false,
+        on_shared_channel_message_delivered: None,
+        extension_runner_ref: None,
+        session_start_event: None,
+    })
+    .expect("session");
+
+    let lifecycle = session.detached_job_lifecycle();
+    assert!(lifecycle.is_some(), "expected a bound detached-job lifecycle");
 }
 
 #[tokio::test]
