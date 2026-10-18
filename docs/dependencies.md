@@ -8,8 +8,14 @@ All direct dependencies are exact-pinned.
 
 - Auth commands, config-value reference/environment-status helpers, `ParsedSkillBlock`/`parse_skill_block`, the focused direct-module CLI `Mode` value, the focused direct-module `isValidThinkingLevel` predicate, and the tool-output persistence constants use only the Rust standard library beyond the existing exact local `pi-agent-core` type dependency. `MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES` uses `usize` only as a narrow exception for the exact TypeScript numeric literal used as a byte limit; this does not generalize JavaScript `number` mappings.
 - `pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }` — supplies the typed `ThinkingLevel` used by the direct-module default constant and the shared `format_size` implementation used by coding-agent's package-visible wrapper. Request `13185` changes no dependency version or lock entry.
-- `serde = 1.0.229` — exposes the typed serialization contract used by RPC JSONL records.
-- `serde_json = 1.0.151` — produces compact semantic JSON before the LF record delimiter.
+- `serde = 1.0.229` — exposes the typed serialization contract used by RPC JSONL records and `GitSource` wire values (`derive` feature).
+- `serde_json = 1.0.151` — produces compact semantic JSON before the LF record delimiter and represents parsed frontmatter values.
+- `regex = 1.13.1` — compiles the pinned ANSI compatibility pattern in `utils::ansi`.
+- `gethostname = 1.1.0` — supplies the local hostname for OSC 7 terminal current-directory sequences.
+- `serde_yaml_ng = 0.10.0` — parses YAML frontmatter in `utils::frontmatter`.
+- `url = 2.5.8` — parses WHATWG URLs in `utils::git` and `file://` paths in `utils::paths`.
+- `percent-encoding = 2.3.2` — decodes percent-encoded URL components in `utils::git` and `utils::paths`.
+- `tempfile = 3.27.0` (development) — creates isolated temporary files and symlinks for path and process tests.
 
 ### `pi-agent-core`
 

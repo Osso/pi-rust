@@ -408,25 +408,25 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/supervisor/project-resolver.ts` | 108 | 0 | todo |  |  |
 | `coding-agent/src/supervisor/request-wake.ts` | 149 | 0 | todo |  |  |
 | `coding-agent/src/utils/abort.ts` | 48 | 0 | todo |  |  |
-| `coding-agent/src/utils/ansi.ts` | 60 | 0 | todo |  |  |
+| `coding-agent/src/utils/ansi.ts` | 60 | 0 | done | `crates/pi-coding-agent/src/utils/ansi.rs` | Differential 26001 (237 inputs); focused tests |
 | `coding-agent/src/utils/child-process.ts` | 137 | 0 | todo |  |  |
 | `coding-agent/src/utils/clipboard-native.ts` | 33 | 0 | todo |  |  |
 | `coding-agent/src/utils/clipboard-temp-files.ts` | 42 | 0 | todo |  |  |
 | `coding-agent/src/utils/deprecation.ts` | 14 | 0 | todo |  |  |
-| `coding-agent/src/utils/footer-status.ts` | 20 | 0 | todo |  |  |
-| `coding-agent/src/utils/frontmatter.ts` | 39 | 0 | todo |  |  |
+| `coding-agent/src/utils/footer-status.ts` | 20 | 0 | done | `crates/pi-coding-agent/src/utils/footer_status.rs` | Differential 26004; focused tests |
+| `coding-agent/src/utils/frontmatter.ts` | 39 | 0 | done | `crates/pi-coding-agent/src/utils/frontmatter.rs` | Differential 26007; focused tests |
 | `coding-agent/src/utils/fs-watch.ts` | 30 | 0 | todo |  |  |
 | `coding-agent/src/utils/git-worktree.ts` | 113 | 0 | todo |  |  |
-| `coding-agent/src/utils/git.ts` | 226 | 0 | todo |  |  |
-| `coding-agent/src/utils/html.ts` | 51 | 0 | todo |  |  |
-| `coding-agent/src/utils/json.ts` | 6 | 0 | todo |  |  |
+| `coding-agent/src/utils/git.ts` | 226 | 0 | done | `crates/pi-coding-agent/src/utils/git.rs` | Differential 26008 (55 cases); focused tests |
+| `coding-agent/src/utils/html.ts` | 51 | 0 | done | `crates/pi-coding-agent/src/utils/html.rs` | Differential 26002; focused tests |
+| `coding-agent/src/utils/json.ts` | 6 | 0 | done | `crates/pi-coding-agent/src/utils/json.rs` | Differential 26003; focused tests |
 | `coding-agent/src/utils/management-http.ts` | 68 | 0 | todo |  |  |
 | `coding-agent/src/utils/mime.ts` | 116 | 0 | todo |  |  |
 | `coding-agent/src/utils/open-browser.ts` | 24 | 0 | todo |  |  |
 | `coding-agent/src/utils/photon.ts` | 139 | 0 | todo |  |  |
-| `coding-agent/src/utils/pi-user-agent.ts` | 4 | 0 | todo |  |  |
+| `coding-agent/src/utils/pi-user-agent.ts` | 4 | 0 | done | `crates/pi-coding-agent/src/utils/pi_user_agent.rs` | Differential 26005; runtime token is `rust` |
 | `coding-agent/src/utils/sleep.ts` | 18 | 0 | todo |  |  |
-| `coding-agent/src/utils/terminal-current-directory.ts` | 13 | 0 | todo |  |  |
+| `coding-agent/src/utils/terminal-current-directory.ts` | 13 | 0 | done | `crates/pi-coding-agent/src/utils/terminal_current_directory.rs` | Differential 26006; focused tests |
 | `coding-agent/src/core/detached-job-bootstrap.ts` | 113 | 1 | todo |  |  |
 | `coding-agent/src/core/exec.ts` | 107 | 1 | todo |  |  |
 | `coding-agent/src/core/permissions/presets.ts` | 62 | 1 | todo |  |  |
@@ -434,7 +434,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/clipboard-image.ts` | 300 | 1 | todo |  |  |
 | `coding-agent/src/utils/exif-orientation.ts` | 183 | 1 | todo |  |  |
 | `coding-agent/src/utils/git-project.ts` | 13 | 1 | todo |  |  |
-| `coding-agent/src/utils/paths.ts` | 139 | 1 | todo |  |  |
+| `coding-agent/src/utils/paths.ts` | 139 | 1 | done | `crates/pi-coding-agent/src/utils/paths.rs` | Differential 26009 (76 cases); focused tests |
 | `coding-agent/src/utils/syntax-highlight.ts` | 146 | 1 | todo |  |  |
 | `coding-agent/src/utils/version-check.ts` | 109 | 1 | todo |  |  |
 | `coding-agent/src/config.ts` | 595 | 2 | todo |  |  |

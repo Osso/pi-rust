@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod core;
 pub mod modes;
+pub mod utils;
 
 pub use core::{
     ParsedSkillBlock, parse_skill_block,
