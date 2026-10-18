@@ -24,6 +24,10 @@ dependencies = [
 [[package]]
 name = "pi-ai"
 version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "pi-coding-agent"

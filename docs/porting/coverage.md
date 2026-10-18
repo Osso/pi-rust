@@ -39,7 +39,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/session-resources.ts` | 24 | 0 | todo |  |  |
 | `ai/src/utils/abort-signals.ts` | 41 | 0 | todo |  |  |
 | `ai/src/utils/abort.ts` | 50 | 0 | todo |  |  |
-| `ai/src/utils/diagnostics.ts` | 45 | 0 | todo |  |  |
+| `ai/src/utils/diagnostics.ts` | 45 | 0 | done | `crates/pi-ai/src/utils/diagnostics.rs` | Thrown-value formatting, error extraction, diagnostic creation/append, serde wire shape. |
 | `ai/src/utils/error-body.ts` | 149 | 0 | todo |  |  |
 | `ai/src/utils/hash.ts` | 13 | 0 | todo |  |  |
 | `ai/src/utils/json-parse.ts` | 124 | 0 | todo |  |  |
