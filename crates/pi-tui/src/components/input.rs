@@ -470,6 +470,10 @@ impl Component for Input {
     fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
         Some(self)
     }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
 }
 
 impl Focusable for Input {

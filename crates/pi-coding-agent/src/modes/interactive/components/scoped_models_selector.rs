@@ -1,0 +1,676 @@
+//! Ported from `packages/coding-agent/src/modes/interactive/components/scoped-models-selector.ts`.
+
+use std::collections::HashSet;
+use std::rc::Rc;
+
+use pi_ai::types::Model;
+use pi_tui::components::input::{Input, InputOptions};
+use pi_tui::components::spacer::Spacer;
+use pi_tui::components::text::Text;
+use pi_tui::fuzzy::fuzzy_filter;
+use pi_tui::keybindings::get_keybindings;
+use pi_tui::keys::matches_key;
+use pi_tui::tui::{Component, ComponentRef, Container, Focusable, component};
+
+use super::super::model_search::{ModelSearchItem, get_model_search_candidates};
+use super::super::theme::{ThemeColor, with_theme};
+use super::dynamic_border::dynamic_border;
+use super::keybinding_hints::key_text;
+
+/// `null` = all enabled (no filter); otherwise an explicit ordered list.
+pub type EnabledIds = Option<Vec<String>>;
+
+fn is_enabled(enabled_ids: &EnabledIds, id: &str) -> bool {
+    match enabled_ids {
+        None => true,
+        Some(ids) => ids.iter().any(|enabled| enabled == id),
+    }
+}
+
+fn toggle(enabled_ids: &EnabledIds, id: &str) -> EnabledIds {
+    let Some(ids) = enabled_ids else {
+        return Some(vec![id.to_owned()]);
+    };
+    match ids.iter().position(|enabled| enabled == id) {
+        Some(index) => {
+            let mut result = ids.clone();
+            result.remove(index);
+            Some(result)
+        }
+        None => {
+            let mut result = ids.clone();
+            result.push(id.to_owned());
+            Some(result)
+        }
+    }
+}
+
+fn enable_all(enabled_ids: &EnabledIds, all_ids: &[String], target_ids: Option<&[String]>) -> EnabledIds {
+    let Some(ids) = enabled_ids else {
+        return None;
+    };
+    let targets = target_ids.unwrap_or(all_ids);
+    let mut result = ids.clone();
+    for id in targets {
+        if !result.contains(id) {
+            result.push(id.clone());
+        }
+    }
+    if result.len() == all_ids.len() && result.iter().all(|id| all_ids.contains(id)) {
+        None
+    } else {
+        Some(result)
+    }
+}
+
+fn clear_all(enabled_ids: &EnabledIds, all_ids: &[String], target_ids: Option<&[String]>) -> EnabledIds {
+    let Some(ids) = enabled_ids else {
+        return Some(match target_ids {
+            Some(targets) => all_ids.iter().filter(|id| !targets.contains(id)).cloned().collect(),
+            None => Vec::new(),
+        });
+    };
+    let targets: HashSet<&String> = match target_ids {
+        Some(targets) => targets.iter().collect(),
+        None => ids.iter().collect(),
+    };
+    Some(ids.iter().filter(|id| !targets.contains(id)).cloned().collect())
+}
+
+fn move_id(enabled_ids: &EnabledIds, id: &str, delta: isize) -> EnabledIds {
+    let Some(ids) = enabled_ids else {
+        return None;
+    };
+    let mut list = ids.clone();
+    let Some(index) = list.iter().position(|enabled| enabled == id) else {
+        return Some(list);
+    };
+    let new_index = index as isize + delta;
+    if new_index < 0 || new_index >= list.len() as isize {
+        return Some(list);
+    }
+    list.swap(index, new_index as usize);
+    Some(list)
+}
+
+fn get_sorted_ids(enabled_ids: &EnabledIds, all_ids: &[String]) -> Vec<String> {
+    let Some(ids) = enabled_ids else {
+        return all_ids.to_vec();
+    };
+    let enabled_set: HashSet<&String> = ids.iter().collect();
+    let mut result = ids.clone();
+    result.extend(all_ids.iter().filter(|id| !enabled_set.contains(id)).cloned());
+    result
+}
+
+#[derive(Clone)]
+struct ModelItem {
+    full_id: String,
+    model: Option<Model>,
+    enabled: bool,
+}
+
+pub struct ModelsConfig {
+    pub all_models: Vec<Model>,
+    pub enabled_model_ids: EnabledIds,
+    pub refresh_status: Option<String>,
+}
+
+pub struct ModelsCallbacks {
+    /// Called whenever the enabled model set or order changes (session-only).
+    pub on_change: Rc<dyn Fn(EnabledIds)>,
+    /// Called when the user persists the current selection to settings.
+    pub on_persist: Rc<dyn Fn(EnabledIds)>,
+    pub on_cancel: Rc<dyn Fn()>,
+}
+
+/// Enable/disable and reorder models used for model cycling.
+pub struct ScopedModelsSelectorComponent {
+    models_by_id: Vec<(String, Model)>,
+    all_ids: Vec<String>,
+    enabled_ids: EnabledIds,
+    filtered_items: Vec<ModelItem>,
+    selected_index: usize,
+    search_input: ComponentRef,
+    search_value: String,
+    list_container: Container,
+    footer_text: ComponentRef,
+    callbacks: ModelsCallbacks,
+    max_visible: usize,
+    is_dirty: bool,
+    refresh_status_text: Option<ComponentRef>,
+    focused: bool,
+    prefix_children: Vec<ComponentRef>,
+    suffix_children: Vec<ComponentRef>,
+}
+
+impl ScopedModelsSelectorComponent {
+    pub fn new(config: ModelsConfig, callbacks: ModelsCallbacks) -> Self {
+        let mut selector = Self {
+            models_by_id: Vec::new(),
+            all_ids: Vec::new(),
+            enabled_ids: config.enabled_model_ids,
+            filtered_items: Vec::new(),
+            selected_index: 0,
+            search_input: component(Input::new(InputOptions::default())),
+            search_value: String::new(),
+            list_container: Container::new(),
+            footer_text: component(Text::new(String::new(), 0, 0)),
+            callbacks,
+            max_visible: 8,
+            is_dirty: false,
+            refresh_status_text: None,
+            focused: false,
+            prefix_children: Vec::new(),
+            suffix_children: Vec::new(),
+        };
+        for model in &config.all_models {
+            let full_id = format!("{}/{}", model.provider, model.id);
+            selector.models_by_id.push((full_id.clone(), model.clone()));
+            selector.all_ids.push(full_id);
+        }
+        selector.filtered_items = selector.build_items();
+
+        selector.prefix_children = vec![
+            component(dynamic_border()),
+            component(Spacer::new(1)),
+            component(Text::new(
+                with_theme(|theme| theme.fg(ThemeColor::Accent, &theme.bold("Model Configuration"))),
+                0,
+                0,
+            )),
+            component(Text::new(
+                with_theme(|theme| {
+                    theme.fg(
+                        ThemeColor::Muted,
+                        &format!("Session-only. {} to save to settings.", key_text("app.models.save")),
+                    )
+                }),
+                0,
+                0,
+            )),
+            component(Spacer::new(1)),
+        ];
+        let mut suffix_children = vec![component(Spacer::new(1))];
+        if let Some(refresh_status) = &config.refresh_status {
+            let status = component(Text::new(
+                with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("  {refresh_status}"))),
+                0,
+                0,
+            ));
+            selector.refresh_status_text = Some(Rc::clone(&status));
+            suffix_children.push(status);
+        }
+        suffix_children.push(Rc::clone(&selector.footer_text));
+        suffix_children.push(component(dynamic_border()));
+        selector.suffix_children = suffix_children;
+
+        selector.set_footer_text(selector.get_footer_text());
+        selector.update_list();
+        selector
+    }
+
+    pub fn update_models(&mut self, models: &[Model], enabled_model_ids: Option<EnabledIds>) {
+        let selected_id = self
+            .filtered_items
+            .get(self.selected_index)
+            .map(|item| item.full_id.clone());
+        if let Some(enabled_ids) = enabled_model_ids {
+            self.enabled_ids = enabled_ids;
+        }
+        self.models_by_id.clear();
+        self.all_ids.clear();
+        for model in models {
+            let full_id = format!("{}/{}", model.provider, model.id);
+            self.models_by_id.push((full_id.clone(), model.clone()));
+            self.all_ids.push(full_id);
+        }
+        self.refresh();
+        if let Some(selected_id) = selected_id
+            && let Some(index) = self.filtered_items.iter().position(|item| item.full_id == selected_id)
+        {
+            self.selected_index = index;
+            self.update_list();
+        }
+    }
+
+    pub fn set_refresh_status(&self, message: &str, kind: RefreshStatusKind) {
+        if let Some(status) = &self.refresh_status_text {
+            set_text(
+                status,
+                with_theme(|theme| theme.fg(kind.color(), &format!("  {message}"))),
+            );
+        }
+    }
+
+    fn model_for(&self, id: &str) -> Option<&Model> {
+        self.models_by_id
+            .iter()
+            .find(|(full_id, _)| full_id == id)
+            .map(|(_, model)| model)
+    }
+
+    fn build_items(&self) -> Vec<ModelItem> {
+        get_sorted_ids(&self.enabled_ids, &self.all_ids)
+            .into_iter()
+            .map(|id| ModelItem {
+                model: self.model_for(&id).cloned(),
+                enabled: is_enabled(&self.enabled_ids, &id),
+                full_id: id,
+            })
+            .collect()
+    }
+
+    fn get_footer_text(&self) -> String {
+        let enabled_count = self.enabled_ids.as_ref().map_or(self.all_ids.len(), |ids| {
+            ids.iter().filter(|id| self.model_for(id).is_some()).count()
+        });
+        let unavailable_count = self
+            .enabled_ids
+            .as_ref()
+            .map_or(0, |ids| ids.iter().filter(|id| self.model_for(id).is_none()).count());
+        let all_enabled = self.enabled_ids.is_none();
+        let count_text = if all_enabled {
+            "all enabled".to_owned()
+        } else if unavailable_count > 0 {
+            format!(
+                "{enabled_count}/{} enabled · {unavailable_count} unavailable",
+                self.all_ids.len()
+            )
+        } else {
+            format!("{enabled_count}/{} enabled", self.all_ids.len())
+        };
+        let parts = [
+            format!("{} toggle", key_text("tui.select.confirm")),
+            format!("{} all", key_text("app.models.enableAll")),
+            format!("{} clear", key_text("app.models.clearAll")),
+            format!("{} provider", key_text("app.models.toggleProvider")),
+            format!(
+                "{}/{} reorder",
+                key_text("app.models.reorderUp"),
+                key_text("app.models.reorderDown")
+            ),
+            format!("{} save", key_text("app.models.save")),
+            count_text,
+        ];
+        let joined = parts.join(" · ");
+        if self.is_dirty {
+            with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("  {joined} ")))
+                + &with_theme(|theme| theme.fg(ThemeColor::Warning, "(unsaved)"))
+        } else {
+            with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("  {joined}")))
+        }
+    }
+
+    fn set_footer_text(&self, text: String) {
+        set_text(&self.footer_text, text);
+    }
+
+    fn refresh(&mut self) {
+        let query = self.search_value.clone();
+        let items = self.build_items();
+        self.filtered_items = if query.is_empty() {
+            items
+        } else {
+            fuzzy_filter(&items, &query, |item| match &item.model {
+                Some(model) => get_model_search_candidates(&ModelSearchItem {
+                    id: model.id.clone(),
+                    provider: model.provider.clone(),
+                    name: Some(model.name.clone()),
+                }),
+                None => vec![item.full_id.clone()],
+            })
+        };
+        self.selected_index = self.selected_index.min(self.filtered_items.len().saturating_sub(1));
+        self.update_list();
+        self.set_footer_text(self.get_footer_text());
+    }
+
+    fn notify_change(&self) {
+        (self.callbacks.on_change)(self.enabled_ids.clone());
+    }
+
+    fn update_list(&mut self) {
+        self.list_container.clear();
+
+        if self.filtered_items.is_empty() {
+            self.list_container.add_child(component(Text::new(
+                with_theme(|theme| theme.fg(ThemeColor::Muted, "  No matching models")),
+                0,
+                0,
+            )));
+            return;
+        }
+
+        let length = self.filtered_items.len();
+        let start_index = self
+            .selected_index
+            .saturating_sub(self.max_visible / 2)
+            .min(length.saturating_sub(self.max_visible));
+        let end_index = (start_index + self.max_visible).min(length);
+        let all_enabled = self.enabled_ids.is_none();
+
+        for index in start_index..end_index {
+            let item = &self.filtered_items[index];
+            let is_selected = index == self.selected_index;
+            let prefix = if is_selected {
+                with_theme(|theme| theme.fg(ThemeColor::Accent, "→ "))
+            } else {
+                "  ".to_owned()
+            };
+            let id = item
+                .model
+                .as_ref()
+                .map_or(item.full_id.clone(), |model| model.id.clone());
+            let model_text = if is_selected {
+                with_theme(|theme| theme.fg(ThemeColor::Accent, &id))
+            } else {
+                id
+            };
+            let badge_text = match &item.model {
+                Some(model) => format!(" [{}]", model.provider),
+                None => " [unavailable]".to_owned(),
+            };
+            let provider_badge = with_theme(|theme| theme.fg(ThemeColor::Muted, &badge_text));
+            let status = match &item.model {
+                None => with_theme(|theme| theme.fg(ThemeColor::Dim, " ✗")),
+                Some(_) if all_enabled => String::new(),
+                Some(_) if item.enabled => with_theme(|theme| theme.fg(ThemeColor::Success, " ✓")),
+                Some(_) => with_theme(|theme| theme.fg(ThemeColor::Dim, " ✗")),
+            };
+            self.list_container.add_child(component(Text::new(
+                format!("{prefix}{model_text}{provider_badge}{status}"),
+                0,
+                0,
+            )));
+        }
+
+        if start_index > 0 || end_index < length {
+            self.list_container.add_child(component(Text::new(
+                with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("  ({}/{length})", self.selected_index + 1))),
+                0,
+                0,
+            )));
+        }
+
+        if !self.filtered_items.is_empty() {
+            let selected = &self.filtered_items[self.selected_index];
+            let description = match &selected.model {
+                Some(model) => format!("  Model Name: {}", model.name),
+                None => "  Model unavailable".to_owned(),
+            };
+            self.list_container.add_child(component(Spacer::new(1)));
+            self.list_container.add_child(component(Text::new(
+                with_theme(|theme| theme.fg(ThemeColor::Muted, &description)),
+                0,
+                0,
+            )));
+        }
+    }
+
+    pub fn get_search_input(&self) -> ComponentRef {
+        Rc::clone(&self.search_input)
+    }
+
+    fn set_search_value(&mut self, value: &str) {
+        if let Some(input) = self
+            .search_input
+            .borrow_mut()
+            .as_any_mut()
+            .and_then(|any| any.downcast_mut::<Input>())
+        {
+            input.set_value(value);
+        }
+        self.search_value = value.to_owned();
+    }
+
+    fn refresh_search_value(&mut self) {
+        if let Some(input) = self
+            .search_input
+            .borrow_mut()
+            .as_any_mut()
+            .and_then(|any| any.downcast_mut::<Input>())
+        {
+            self.search_value = input.get_value().to_owned();
+        }
+    }
+
+    fn reorder(&mut self, delta: isize) {
+        if self.enabled_ids.is_none() {
+            return;
+        }
+        let Some(item) = self.filtered_items.get(self.selected_index) else {
+            return;
+        };
+        if !is_enabled(&self.enabled_ids, &item.full_id) {
+            return;
+        }
+        let current_index = self
+            .enabled_ids
+            .as_ref()
+            .and_then(|ids| ids.iter().position(|id| *id == item.full_id))
+            .unwrap_or(0) as isize;
+        let new_index = current_index + delta;
+        let length = self.enabled_ids.as_ref().map_or(0, Vec::len) as isize;
+        if new_index < 0 || new_index >= length {
+            return;
+        }
+        let full_id = item.full_id.clone();
+        self.enabled_ids = move_id(&self.enabled_ids, &full_id, delta);
+        self.is_dirty = true;
+        self.selected_index = (self.selected_index as isize + delta).max(0) as usize;
+        self.refresh();
+        self.notify_change();
+    }
+
+    fn toggle_selected(&mut self) {
+        let Some(item) = self.filtered_items.get(self.selected_index) else {
+            return;
+        };
+        let full_id = item.full_id.clone();
+        self.enabled_ids = toggle(&self.enabled_ids, &full_id);
+        self.is_dirty = true;
+        self.refresh();
+        self.notify_change();
+    }
+
+    fn target_ids(&self) -> Option<Vec<String>> {
+        if self.search_value.is_empty() {
+            None
+        } else {
+            Some(self.filtered_items.iter().map(|item| item.full_id.clone()).collect())
+        }
+    }
+
+    fn toggle_provider(&mut self) {
+        let Some(item) = self.filtered_items.get(self.selected_index) else {
+            return;
+        };
+        let Some(model) = &item.model else {
+            return;
+        };
+        let provider = model.provider.clone();
+        let provider_ids: Vec<String> = self
+            .all_ids
+            .iter()
+            .filter(|id| self.model_for(id).is_some_and(|model| model.provider == provider))
+            .cloned()
+            .collect();
+        let all_enabled = provider_ids.iter().all(|id| is_enabled(&self.enabled_ids, id));
+        self.enabled_ids = if all_enabled {
+            clear_all(&self.enabled_ids, &self.all_ids, Some(&provider_ids))
+        } else {
+            enable_all(&self.enabled_ids, &self.all_ids, Some(&provider_ids))
+        };
+        self.is_dirty = true;
+        self.refresh();
+        self.notify_change();
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefreshStatusKind {
+    Muted,
+    Success,
+    Warning,
+}
+
+impl RefreshStatusKind {
+    fn color(self) -> ThemeColor {
+        match self {
+            Self::Muted => ThemeColor::Muted,
+            Self::Success => ThemeColor::Success,
+            Self::Warning => ThemeColor::Warning,
+        }
+    }
+}
+
+fn set_text(target: &ComponentRef, text: String) {
+    if let Some(text_component) = target
+        .borrow_mut()
+        .as_any_mut()
+        .and_then(|any| any.downcast_mut::<Text>())
+    {
+        text_component.set_text(text);
+    }
+}
+
+impl Component for ScopedModelsSelectorComponent {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        let mut lines = Vec::new();
+        for child in &self.prefix_children {
+            lines.extend(child.borrow_mut().render(width));
+        }
+        lines.extend(self.search_input.borrow_mut().render(width));
+        let mut spacer = Spacer::new(1);
+        lines.extend(spacer.render(width));
+        lines.extend(self.list_container.render(width));
+        for child in &self.suffix_children {
+            lines.extend(child.borrow_mut().render(width));
+        }
+        lines
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        let keybindings = get_keybindings();
+
+        if keybindings.matches(data, "tui.select.up") {
+            if self.filtered_items.is_empty() {
+                return;
+            }
+            self.selected_index = if self.selected_index == 0 {
+                self.filtered_items.len() - 1
+            } else {
+                self.selected_index - 1
+            };
+            self.update_list();
+            return;
+        }
+        if keybindings.matches(data, "tui.select.down") {
+            if self.filtered_items.is_empty() {
+                return;
+            }
+            self.selected_index = if self.selected_index == self.filtered_items.len() - 1 {
+                0
+            } else {
+                self.selected_index + 1
+            };
+            self.update_list();
+            return;
+        }
+
+        let reorder_up = keybindings.matches(data, "app.models.reorderUp");
+        let reorder_down = keybindings.matches(data, "app.models.reorderDown");
+        if reorder_up || reorder_down {
+            self.reorder(if reorder_up { -1 } else { 1 });
+            return;
+        }
+
+        if keybindings.matches(data, "tui.select.confirm") {
+            self.toggle_selected();
+            return;
+        }
+
+        if keybindings.matches(data, "app.models.enableAll") {
+            let target_ids = self.target_ids();
+            self.enabled_ids = enable_all(&self.enabled_ids, &self.all_ids, target_ids.as_deref());
+            self.is_dirty = true;
+            self.refresh();
+            self.notify_change();
+            return;
+        }
+
+        if keybindings.matches(data, "app.models.clearAll") {
+            let target_ids = self.target_ids();
+            self.enabled_ids = clear_all(&self.enabled_ids, &self.all_ids, target_ids.as_deref());
+            self.is_dirty = true;
+            self.refresh();
+            self.notify_change();
+            return;
+        }
+
+        if keybindings.matches(data, "app.models.toggleProvider") {
+            self.toggle_provider();
+            return;
+        }
+
+        if keybindings.matches(data, "app.models.save") {
+            (self.callbacks.on_persist)(self.enabled_ids.clone());
+            self.is_dirty = false;
+            self.set_footer_text(self.get_footer_text());
+            return;
+        }
+
+        if matches_key(data, "ctrl+c") {
+            if !self.search_value.is_empty() {
+                self.set_search_value("");
+                self.refresh();
+            } else {
+                (self.callbacks.on_cancel)();
+            }
+            return;
+        }
+
+        if matches_key(data, "escape") {
+            (self.callbacks.on_cancel)();
+            return;
+        }
+
+        self.search_input.borrow_mut().handle_input(data);
+        self.refresh_search_value();
+        self.refresh();
+    }
+
+    fn invalidate(&mut self) {
+        for child in &self.prefix_children {
+            child.borrow_mut().invalidate();
+        }
+        self.search_input.borrow_mut().invalidate();
+        self.list_container.invalidate();
+        for child in &self.suffix_children {
+            child.borrow_mut().invalidate();
+        }
+    }
+
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
+}
+
+impl Focusable for ScopedModelsSelectorComponent {
+    fn focused(&self) -> bool {
+        self.focused
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        self.focused = focused;
+        if let Some(input) = self
+            .search_input
+            .borrow_mut()
+            .as_any_mut()
+            .and_then(|any| any.downcast_mut::<Input>())
+        {
+            input.set_focused(focused);
+        }
+    }
+}

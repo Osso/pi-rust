@@ -408,7 +408,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/extensions/llama/huggingface.ts` | 158 | 0 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/elapsed-time.ts` | 30 | 0 | todo |  |  |
 | `coding-agent/src/modes/interactive/external-editor.ts` | 45 | 0 | todo |  |  |
-| `coding-agent/src/modes/interactive/model-search.ts` | 27 | 0 | todo |  |  |
+| `coding-agent/src/modes/interactive/model-search.ts` | 27 | 0 | done | `crates/pi-coding-agent/src/modes/interactive/model_search.rs` | `getModelSearchCandidates` candidate order; covered by scoped-models differential search. |
 | `coding-agent/src/modes/rpc/jsonl.ts` | 58 | 0 | done | `crates/pi-coding-agent/src/modes/rpc/jsonl.rs` | all TS tests ported + differential |
 | `coding-agent/src/supervisor/project-resolver.ts` | 108 | 0 | done | `crates/pi-coding-agent/src/supervisor/project_resolver.rs` | Root/remote/basename resolution, config validation, `git remote -v` names; differential `27011`. |
 | `coding-agent/src/supervisor/request-wake.ts` | 149 | 0 | done | `crates/pi-coding-agent/src/supervisor/request_wake.rs` | Wake socket with stale recovery, generation watch, waiter cancellation; real-socket tests. |
@@ -476,7 +476,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/extensions/llama/provider.ts` | 150 | 7 | todo |  |  |
 | `coding-agent/src/core/keybindings.ts` | 434 | 8 | done | `crates/pi-coding-agent/src/core/keybindings.rs` | `KEYBINDINGS` layered on `pi-tui`, legacy-name migration/ordering, file load/reload; differential `coding-agent-keybindings-oracle.ts`. |
 | `coding-agent/src/core/model-runtime.ts` | 795 | 8 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/countdown-timer.ts` | 39 | 8 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/countdown-timer.ts` | 39 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/components/countdown_timer.rs` | `setInterval` mapped to `poll(now)`/`next_deadline`; tick/expire/request-render covered by `tests/components.rs`. |
 | `coding-agent/src/modes/interactive/components/visual-truncate.ts` | 50 | 8 | todo |  |  |
 | `coding-agent/src/modes/interactive/interactive-root-compositor.ts` | 40 | 8 | todo |  |  |
 | `coding-agent/src/modes/interactive/working-editor.ts` | 67 | 8 | todo |  |  |
@@ -516,7 +516,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/source-info.ts` | 40 | 16 | partial | `crates/pi-coding-agent/src/core/source_info.rs` | `createSyntheticSourceInfo` done with camelCase serde. `createSourceInfo` is blocked on `PathMetadata` from `package-manager.ts` (ca-package-manager slice). |
 | `coding-agent/src/core/usage-totals.ts` | 67 | 16 | done | `crates/pi-coding-agent/src/core/usage_totals.rs` | Totals and cost breakdown; `tests/usage_totals.rs` |
 | `coding-agent/src/modes/interactive/components/custom-editor.ts` | 148 | 16 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/session-selector-search.ts` | 219 | 16 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/session-selector-search.ts` | 219 | 16 | done | `crates/pi-coding-agent/src/modes/interactive/components/session_selector_search.rs` | Query parsing, scoring, filters, sorting; differential `coding-agent-session-search-oracle.ts` (21 cases) + `tests/components.rs`. JS RegExp replaced by fancy-regex (lookaround/backrefs supported; error text differs). |
 | `coding-agent/src/supervisor/client.ts` | 63 | 16 | todo |  |  |
 | `coding-agent/src/supervisor/service.ts` | 210 | 16 | todo |  |  |
 | `coding-agent/src/architect/prompt.ts` | 12 | 17 | todo |  |  |
@@ -538,36 +538,36 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/armin.ts` | 382 | 18 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/daxnuts.ts` | 164 | 18 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/diff.ts` | 147 | 18 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/dynamic-border.ts` | 8 | 18 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/keybinding-hints.ts` | 48 | 18 | todo |  |  |
-| `coding-agent/src/modes/interactive/theme/theme-controller.ts` | 139 | 18 | partial | `crates/pi-coding-agent/src/modes/interactive/theme/theme_controller.rs` | Settings-driven theme selection and auto-sync over the `ThemeUi` trait; no test in this slice (needs TUI + settings wiring). |
+| `coding-agent/src/modes/interactive/components/dynamic-border.ts` | 8 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/dynamic_border.rs` | Theme-colored border wrapper; covered through every selector's differential render. |
+| `coding-agent/src/modes/interactive/components/keybinding-hints.ts` | 48 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/keybinding_hints.rs` | Formatting and hint composition; `tests/components.rs`. |
+| `coding-agent/src/modes/interactive/theme/theme-controller.ts` | 139 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/theme/theme_controller.rs` | Settings-driven theme selection, auto-sync, preview, rebind; `tests/theme_controller.rs` with a fake `ThemeUi`. |
 | `coding-agent/extensions/pyrun/src/detached-runner-entry.ts` | 13 | 19 | todo |  |  |
 | `coding-agent/src/internal-runner.ts` | 19 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/agent-switcher.ts` | 269 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/approval-selector.ts` | 103 | 19 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/agent-switcher.ts` | 269 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/agent_switcher.rs` | Tree rows, closed-agent filtering/toggle, scrolling, inactive selection; differential `agent-switcher-*` (3 cases). |
+| `coding-agent/src/modes/interactive/components/approval-selector.ts` | 103 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/approval_selector.rs` | Differential render/input/events (`tests/differential_components.rs`). |
 | `coding-agent/src/modes/interactive/components/bash-execution.ts` | 278 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/bordered-loader.ts` | 70 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/branch-summary-message.ts` | 58 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/compaction-summary-message.ts` | 92 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/config-selector.ts` | 942 | 19 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/config-selector.ts` | 942 | 19 | todo |  | Blocked: needs the settings/config mutation surface plus model runtime; not started in this slice. |
 | `coding-agent/src/modes/interactive/components/earendil-announcement.ts` | 53 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/extension-editor.ts` | 132 | 19 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/extension-input.ts` | 88 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/extension-selector.ts` | 112 | 19 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/extension-selector.ts` | 112 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/extension_selector.rs` | Differential render/input/events; countdown wiring and `app.tools.expand` toggle in `tests/components.rs`. |
 | `coding-agent/src/modes/interactive/components/first-time-setup.ts` | 145 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/login-dialog.ts` | 233 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/model-selector.ts` | 373 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/oauth-selector.ts` | 214 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/sandbox-selector.ts` | 130 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/scoped-models-selector.ts` | 407 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/session-selector.ts` | 1119 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/settings-selector.ts` | 894 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/show-images-selector.ts` | 50 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/theme-selector.ts` | 67 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/thinking-selector.ts` | 76 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/tree-selector.ts` | 1464 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/trust-selector.ts` | 134 | 19 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/user-message-selector.ts` | 155 | 19 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/login-dialog.ts` | 233 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/login_dialog.rs` | Device code, details, info links, waiting/progress, prompt submit; differential `login-*` (3 cases). `showAuth` browser launch is untested. |
+| `coding-agent/src/modes/interactive/components/model-selector.ts` | 373 | 19 | todo |  | Blocked: needs `ModelRuntime` async refresh/abort plus `SettingsManager::setDefaultModelAndProvider`; not started in this slice. |
+| `coding-agent/src/modes/interactive/components/oauth-selector.ts` | 214 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/oauth_selector.rs` | Fuzzy search, status indicators, scrolling, empty states; differential `oauth-*` (5 cases). |
+| `coding-agent/src/modes/interactive/components/sandbox-selector.ts` | 130 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/sandbox_selector.rs` | Differential render/input/events, all three scopes. |
+| `coding-agent/src/modes/interactive/components/scoped-models-selector.ts` | 407 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/scoped_models_selector.rs` | Enable/clear/toggle/provider/reorder/save/search; differential `scoped-*` (4 cases). `updateModels`/`setRefreshStatus` are traceability-only. |
+| `coding-agent/src/modes/interactive/components/session-selector.ts` | 1119 | 19 | todo |  | Blocked: needs session manager listing/rename/delete APIs and tree navigation; not started in this slice. |
+| `coding-agent/src/modes/interactive/components/settings-selector.ts` | 894 | 19 | todo |  | Blocked: needs the full settings mutation surface; not started in this slice. |
+| `coding-agent/src/modes/interactive/components/show-images-selector.ts` | 50 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/show_images_selector.rs` | Differential render/input/events. |
+| `coding-agent/src/modes/interactive/components/theme-selector.ts` | 67 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/theme_selector.rs` | Differential render/input/preview events. |
+| `coding-agent/src/modes/interactive/components/thinking-selector.ts` | 76 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/thinking_selector.rs` | Differential render/input/events at two widths. |
+| `coding-agent/src/modes/interactive/components/tree-selector.ts` | 1464 | 19 | todo |  | Blocked: needs session tree entries and branch navigation; not started in this slice. |
+| `coding-agent/src/modes/interactive/components/trust-selector.ts` | 134 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/trust_selector.rs` | Differential render/input/events including inherited decisions. |
+| `coding-agent/src/modes/interactive/components/user-message-selector.ts` | 155 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/user_message_selector.rs` | Differential render/input/events incl. scrolling and truncation; empty auto-cancel in `tests/components.rs`. |
 | `coding-agent/src/cli/config-selector.ts` | 56 | 20 | todo |  |  |
 | `coding-agent/src/cli/startup-ui.ts` | 239 | 20 | todo |  |  |
 | `coding-agent/src/cli/session-picker.ts` | 96 | 21 | todo |  |  |
