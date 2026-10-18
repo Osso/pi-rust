@@ -1,0 +1,148 @@
+//! TUI config selector for `pi config` (`cli/config-selector.ts`).
+
+use std::cell::RefCell;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::mpsc::{Receiver, TryRecvError, channel};
+use std::time::Duration;
+
+use pi_tui::terminal::Terminal;
+use pi_tui::tui::{ComponentRef, TuiExt, TuiMainScreen};
+
+use crate::core::settings_manager::SettingsManager;
+use crate::modes::interactive::components::config_selector::{
+    ConfigSelectorComponent, ConfigSelectorOptions as ComponentOptions, ConfigWriteScope, ScopedResolvedPaths,
+};
+use crate::modes::interactive::theme::{init_theme, stop_theme_watcher};
+
+/// `ConfigSelectorOptions`.
+pub struct ConfigSelectorOptions {
+    pub resolved_paths: ScopedResolvedPaths,
+    pub settings_manager: Rc<RefCell<SettingsManager>>,
+    pub cwd: String,
+    pub agent_dir: String,
+    pub write_scope: ConfigWriteScope,
+    pub project_mode_available: bool,
+}
+
+/// How the selector closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectConfigOutcome {
+    /// `onClose`: the selector closed normally.
+    Closed,
+    /// `onExit`: `process.exit(0)` — the caller should exit with status 0.
+    Exit,
+}
+
+const POLL_INTERVAL: Duration = Duration::from_millis(5);
+
+/// `selectConfig`: show the TUI and return when it closes.
+///
+/// The TypeScript TUI owns its event loop; Rust's `TuiMainScreen` is driven by
+/// the caller, so this function polls events until a close/exit callback fires.
+pub fn select_config(
+    options: ConfigSelectorOptions,
+    terminal: Rc<RefCell<dyn Terminal>>,
+) -> Result<SelectConfigOutcome, String> {
+    let theme = options.settings_manager.borrow().get_theme_setting().map(str::to_owned);
+    init_theme(theme.as_deref(), true);
+
+    let agent_dir = options.agent_dir.clone();
+    let ui = TuiMainScreen::with_options(terminal, None, Some(PathBuf::from(&agent_dir)));
+    let (sender, receiver) = channel::<SelectConfigOutcome>();
+    let close_sender = sender.clone();
+    let exit_sender = sender.clone();
+    let request_render = {
+        let ui = Rc::clone(&ui);
+        Rc::new(move || ui.request_render(false)) as Rc<dyn Fn()>
+    };
+    let terminal_height = ui.terminal().borrow().rows();
+
+    let selector = ConfigSelectorComponent::new(ComponentOptions {
+        resolved_paths: options.resolved_paths,
+        settings_manager: Rc::clone(&options.settings_manager),
+        cwd: options.cwd,
+        agent_dir,
+        on_close: Rc::new(move || {
+            let _ = close_sender.send(SelectConfigOutcome::Closed);
+        }),
+        on_exit: Rc::new(move || {
+            let _ = exit_sender.send(SelectConfigOutcome::Exit);
+        }),
+        request_render: Rc::clone(&request_render),
+        terminal_height: Some(terminal_height),
+        write_scope: options.write_scope,
+        project_mode_available: options.project_mode_available,
+    });
+    let selector: ComponentRef = Rc::new(RefCell::new(selector));
+    ui.add_child(Rc::clone(&selector));
+    ui.set_focus(Some(Rc::clone(&selector)));
+    ui.start().map_err(|error| error.to_string())?;
+
+    let outcome = wait_for_close(&ui, &receiver);
+    ui.stop();
+    stop_theme_watcher();
+    Ok(outcome)
+}
+
+/// `selectConfig` wired to [`crate::package_manager_cli::ConfigSelector`].
+///
+/// The command-path settings store owns its manager behind a mutex, while the
+/// config TUI needs `Rc<RefCell<SettingsManager>>` for its synchronous toggles.
+/// The adapter reloads an equivalent manager for the TUI; every toggle writes
+/// through to the same settings files and the command exits immediately after
+/// the TUI closes, so the store's copy is not read again.
+pub struct TuiConfigSelector {
+    pub terminal: Rc<RefCell<dyn Terminal>>,
+}
+
+impl crate::package_manager_cli::ConfigSelector for TuiConfigSelector {
+    fn select<'a>(
+        &'a self,
+        request: crate::package_manager_cli::SelectConfigRequest,
+    ) -> crate::package_manager_cli::LocalBoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let settings_manager = SettingsManager::create(
+                &request.cwd,
+                Some(std::path::Path::new(&request.agent_dir)),
+                crate::core::settings_manager::SettingsManagerCreateOptions {
+                    project_trusted: Some(request.project_mode_available),
+                },
+            )
+            .map_err(|error| error.to_string())?;
+            let outcome = select_config(
+                ConfigSelectorOptions {
+                    resolved_paths: ScopedResolvedPaths {
+                        global: request.global,
+                        project: request.project,
+                    },
+                    settings_manager: Rc::new(RefCell::new(settings_manager)),
+                    cwd: request.cwd,
+                    agent_dir: request.agent_dir,
+                    write_scope: match request.write_scope {
+                        crate::package_manager_cli::ConfigWriteScope::Global => ConfigWriteScope::Global,
+                        crate::package_manager_cli::ConfigWriteScope::Project => ConfigWriteScope::Project,
+                    },
+                    project_mode_available: request.project_mode_available,
+                },
+                Rc::clone(&self.terminal),
+            )?;
+            // `onExit` calls `process.exit(0)`; the command ends with the same
+            // status either way, so both outcomes complete normally here.
+            let _ = outcome;
+            Ok(())
+        })
+    }
+}
+
+fn wait_for_close(ui: &TuiMainScreen, receiver: &Receiver<SelectConfigOutcome>) -> SelectConfigOutcome {
+    loop {
+        ui.process_events();
+        ui.flush_pending();
+        match receiver.try_recv() {
+            Ok(outcome) => return outcome,
+            Err(TryRecvError::Empty) => std::thread::sleep(POLL_INTERVAL),
+            Err(TryRecvError::Disconnected) => return SelectConfigOutcome::Closed,
+        }
+    }
+}

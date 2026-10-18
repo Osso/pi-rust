@@ -75,11 +75,12 @@ host, the real settings manager, and the real trust store.
   `DefaultPackageCommandEffects` takes it as a constructor argument, so production
   wiring must pass the real loader when it lands. Until then, callers that pass a
   loader returning `None` lose extension-provided `project_trust` decisions.
-- **`ConfigSelector`** — `cli/config-selector.ts` (`selectConfig`) is blocked on
-  the config TUI. `execute_config_command` builds the exact `SelectConfigRequest`
-  (global/project `ResolvedPaths`, settings store, cwd, agent dir, write scope,
-  project-mode availability) and hands it to the selector; the TUI adapter is the
-  only missing piece.
+- **`ConfigSelector`** — `execute_config_command` builds the exact
+  `SelectConfigRequest` (global/project `ResolvedPaths`, settings store, cwd, agent
+  dir, write scope, project-mode availability). The concrete adapter is
+  `cli::config_selector::TuiConfigSelector`, which runs the ported config TUI; see
+  `config-selector.md`. `PackageCommandEffects` and `ConfigSelector` are not
+  `Send`/`Sync` because the TUI is `Rc`-based (the command path is single-threaded).
 - **Interactive trust prompt** — `create_command_settings_manager` takes an
   optional `startup_ui`. When it is `None` (current state, since `cli/startup-ui.ts`
   is blocked), an interactive `ask` prompt resolves as dismissed/untrusted, exactly

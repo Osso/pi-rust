@@ -941,7 +941,7 @@ fn package_config_effects_struct_exposes_the_host_values() {
         install_context: context.clone(),
         entrypoint: context.entrypoint.clone(),
         extensions_loader: Arc::new(NoExtensionsLoader),
-        config_selector: Arc::new(Selector),
+        config_selector: std::rc::Rc::new(Selector),
         fetch: pi_ai::http::default_fetch(),
     };
     assert_eq!(effects.cwd(), root.display().to_string());

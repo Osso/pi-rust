@@ -3,6 +3,7 @@ mod auth_command;
 pub mod experimental;
 
 pub mod auth_check;
+pub mod config_selector;
 pub mod control_command;
 pub mod credential_print;
 pub mod debug_command;

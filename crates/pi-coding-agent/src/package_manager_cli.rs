@@ -10,6 +10,7 @@
 use std::future::Future;
 use std::io::IsTerminal;
 use std::pin::Pin;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::request::BoxFuture;
@@ -1130,7 +1131,7 @@ pub type PackageProgressSink = Arc<dyn Fn(String) + Send + Sync>;
 pub type LocalBoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
 /// Environment-bound operations behind the package and config commands.
-pub trait PackageCommandEffects: Send + Sync {
+pub trait PackageCommandEffects {
     fn cwd(&self) -> String;
     fn agent_dir(&self) -> String;
     fn stdout_columns(&self) -> Option<usize>;
@@ -1523,12 +1524,12 @@ pub struct DefaultPackageCommandEffects {
     pub install_context: config::InstallContext,
     pub entrypoint: Option<String>,
     pub extensions_loader: Arc<dyn ProjectTrustExtensionsLoader>,
-    pub config_selector: Arc<dyn ConfigSelector>,
+    pub config_selector: Rc<dyn ConfigSelector>,
     pub fetch: Arc<dyn pi_ai::request::Fetch>,
 }
 
 /// `selectConfig` for the real host.
-pub trait ConfigSelector: Send + Sync {
+pub trait ConfigSelector {
     fn select<'a>(&'a self, request: SelectConfigRequest) -> LocalBoxFuture<'a, Result<(), String>>;
 }
 
