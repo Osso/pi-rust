@@ -102,6 +102,9 @@ impl WaitAgentsWakeWatcher {
             *listener_wake_up.lock().expect("wait wake up") = Some(wake.clone());
             listener_notify.notify_waiters();
         }));
+        if let Some(wake) = self.reconcile_dead_detached_runtimes() {
+            return wake;
+        }
         if let Some(wake) = self.settle_for_terminal_agent_or_check_coordination() {
             return wake;
         }
