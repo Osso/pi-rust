@@ -4,14 +4,14 @@ use std::sync::{Arc, OnceLock};
 
 use tokio_util::sync::CancellationToken;
 
+use url::Url;
+
 use crate::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
 
 /// Message of the `AbortError` thrown by `fetch` when its signal aborts.
 pub const ABORT_ERROR_MESSAGE: &str = "This operation was aborted";
 
-struct ReqwestFetch {
-    client: reqwest::Client,
-}
+struct ReqwestFetch;
 
 struct ReqwestBody {
     response: reqwest::Response,
@@ -21,11 +21,36 @@ struct ReqwestBody {
 /// Process-wide default HTTP client.
 pub fn default_fetch() -> Arc<dyn Fetch> {
     static DEFAULT: OnceLock<Arc<dyn Fetch>> = OnceLock::new();
-    Arc::clone(DEFAULT.get_or_init(|| {
-        Arc::new(ReqwestFetch {
-            client: reqwest::Client::new(),
-        })
-    }))
+    Arc::clone(DEFAULT.get_or_init(|| Arc::new(ReqwestFetch)))
+}
+
+fn default_client() -> reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(reqwest::Client::new).clone()
+}
+
+/// Send a request through reqwest, optionally through `proxy`.
+pub(crate) async fn send_reqwest(
+    request: HttpRequest,
+    signal: Option<CancellationToken>,
+    proxy: Option<&Url>,
+) -> Result<HttpResponse, CallbackError> {
+    let client = match proxy {
+        Some(proxy) => {
+            let proxy = reqwest::Proxy::all(proxy.as_str()).map_err(to_callback_error)?;
+            reqwest::Client::builder()
+                .proxy(proxy)
+                .build()
+                .map_err(to_callback_error)?
+        }
+        None => default_client(),
+    };
+    let builder = build_request(&client, request)?;
+    let response = until_aborted(signal.as_ref(), async {
+        builder.send().await.map_err(to_callback_error)
+    })
+    .await?;
+    Ok(into_http_response(response, signal))
 }
 
 impl Fetch for ReqwestFetch {
@@ -34,14 +59,7 @@ impl Fetch for ReqwestFetch {
         request: HttpRequest,
         signal: Option<CancellationToken>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
-        Box::pin(async move {
-            let builder = build_request(&self.client, request)?;
-            let response = until_aborted(signal.as_ref(), async {
-                builder.send().await.map_err(to_callback_error)
-            })
-            .await?;
-            Ok(into_http_response(response, signal))
-        })
+        Box::pin(send_reqwest(request, signal, None))
     }
 }
 
