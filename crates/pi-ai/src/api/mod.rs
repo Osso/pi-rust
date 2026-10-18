@@ -2,6 +2,8 @@ pub mod cloudflare;
 pub mod constrained_sampling;
 pub mod github_copilot_headers;
 pub mod lazy;
+pub mod openai_codex_responses;
 pub mod openai_prompt_cache;
 pub mod openai_responses_shared;
+pub mod simple_options;
 pub mod transform_messages;
