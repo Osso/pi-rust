@@ -657,8 +657,8 @@ fn reasoning_effort_value(model: &Model, effort: CodexReasoningEffort) -> Option
     };
     match model.thinking_level_map.as_ref().and_then(|map| map.get(&key)) {
         Some(Some(mapped)) => Some(mapped.clone()),
-        Some(None) => None,
-        None => Some(effort.as_str().to_owned()),
+        // TypeScript uses `??`, so an explicit `null` falls back to the logical effort.
+        Some(None) | None => Some(effort.as_str().to_owned()),
     }
 }
 

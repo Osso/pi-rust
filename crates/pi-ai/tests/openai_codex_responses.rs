@@ -1129,3 +1129,19 @@ async fn sends_native_websocket_pings_while_waiting() {
     // emitted a ping on each 30s interval tick.
     assert!(server.records.connections.lock().unwrap()[0].pings >= 2);
 }
+
+#[tokio::test]
+async fn explicit_null_thinking_level_map_falls_back_to_logical_effort() {
+    let fetch = RecordingFetch::new(vec![sse_response(&text_sse("completed", None))]);
+    let mut opts = options(fetch.clone(), Transport::Sse);
+    opts.reasoning_effort = Some(CodexReasoningEffort::None);
+    let mut model = model();
+    model.thinking_level_map = Some([(pi_ai::types::ModelThinkingLevel::Off, None)].into_iter().collect());
+
+    collect(stream(model, context(), opts)).await;
+
+    assert_eq!(
+        decode_body(&fetch.requests()[0])["reasoning"],
+        json!({"effort": "none", "summary": "auto"})
+    );
+}
