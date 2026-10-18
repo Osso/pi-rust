@@ -42,6 +42,7 @@ No runtime dependencies. The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToo
 
 - `unicode-segmentation = 1.13.3` (exact) — Unicode 17.0 grapheme cluster segmentation for `utils`; matches the Unicode tables used by Node 26 `Intl.Segmenter`.
 - `regex = 1.13.1` (exact) — compiles the Unicode-property and whitespace patterns ported verbatim from `latex` (`\p{L}`, `\p{N}`, script spacing, environment row splitting).
+- `icu_segmenter = 2.3.0` (exact, default `compiled_data`/`auto`) — dictionary/LSTM word segmentation behind `word_navigation`, chosen as the pure-Rust mapping of `Intl.Segmenter` (decision 2026-10-18; dictionary-word deviations documented in the traceability doc).
 - `tokio = 1.53.3` (`process`, `rt`, `sync`, `io-util`; dev adds `macros`, `rt`, `rt-multi-thread`) — spawns `fd` asynchronously and waits for its output in `autocomplete`.
 - `tokio-util = 0.7.20` (`rt`) — `CancellationToken` maps the `AbortSignal` passed to autocomplete suggestions and kills an in-flight `fd` child.
 - `tempfile = 3.27.0` (development) — creates isolated directory trees and symlinks for autocomplete tests.

@@ -278,7 +278,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/keybindings.ts` | 325 | 1 | todo |  |  |
 | `tui/src/latex.ts` | 1373 | 1 | done | `crates/pi-tui/src/latex.rs` | TS test suite + generated differential corpus; byte-identical output incl. layout markers |
 | `tui/src/terminal.ts` | 594 | 1 | todo |  |  |
-| `tui/src/word-navigation.ts` | 117 | 1 | todo |  |  |
+| `tui/src/word-navigation.ts` | 117 | 1 | done | `crates/pi-tui/src/word_navigation.rs` | TS tests + boundary differential; ICU4X dictionary-word mismatches pinned as approved deviation |
 | `tui/src/tui.ts` | 2534 | 2 | todo |  |  |
 | `tui/src/components/alt-screen-flash.ts` | 51 | 3 | todo |  |  |
 | `tui/src/components/box.ts` | 137 | 3 | todo |  |  |

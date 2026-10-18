@@ -15,3 +15,4 @@ pub mod terminal_colors;
 pub mod terminal_image;
 pub mod undo_stack;
 pub mod utils;
+pub mod word_navigation;

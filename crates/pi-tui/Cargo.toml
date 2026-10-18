@@ -12,6 +12,8 @@ publish = false
 unicode-segmentation = "=1.13.3"
 # Compiles the Unicode-property patterns ported verbatim from the LaTeX renderer.
 regex = "=1.13.1"
+# ICU4X word segmentation: dictionary/LSTM behavior matching Intl.Segmenter.
+icu_segmenter = "=2.3.0"
 # Async process I/O for fd-backed file suggestions and AbortSignal cancellation.
 tokio = { version = "=1.53.3", features = ["process", "rt", "sync", "io-util"] }
 tokio-util = { version = "=0.7.20", features = ["rt"] }
