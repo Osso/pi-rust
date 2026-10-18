@@ -143,6 +143,48 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 		messages,
 		tools,
 	});
+	const runLoopWithThrowingEmit = async (throwOn: string, scripts: any[], tools: any[] = []) => {
+		const events: any[] = [];
+		const emit = async (event: any) => {
+			events.push(normalize(snapshot(event)));
+			if (event.type === throwOn) throw new Error(`listener exploded on ${event.type}`);
+		};
+		try {
+			const messages = await api.runAgentLoop(
+				[user("Hello")],
+				context([], tools),
+				config(),
+				emit,
+				undefined,
+				scriptStream(scripts),
+			);
+			return { events, messages: normalize(snapshot(messages)) };
+		} catch (failure) {
+			return { events, error: failure instanceof Error ? failure.message : String(failure) };
+		}
+	};
+	const runAgentWithThrowingListener = async (throwOn: string, scripts: any[], tools: any[] = []) => {
+		const agent = new api.Agent({ initialState: { tools }, streamFn: scriptStream(scripts) });
+		const events: any[] = [];
+		agent.subscribe((event: any) => {
+			events.push(normalize(snapshot(event)));
+			if (event.type === throwOn) throw new Error(`listener exploded on ${event.type}`);
+		});
+		let error: string | undefined;
+		try {
+			await agent.prompt("Hello");
+		} catch (failure) {
+			error = failure instanceof Error ? failure.message : String(failure);
+		}
+		const output: any = {
+			events,
+			messages: normalize(snapshot(agent.state.messages)),
+			state: agentState(agent),
+			requests,
+		};
+		if (error !== undefined) output.error = error;
+		return output;
+	};
 
 	switch (scenario) {
 		case "text": {
@@ -728,6 +770,99 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				state: agentState(agent),
 				requests,
 			};
+		}
+		case "listener_message_end_loop":
+			return runLoopWithThrowingEmit("message_end", [() => [done("stop", assistant([textBlock("Hi there!")]))]]);
+		case "listener_agent_end_loop":
+			return runLoopWithThrowingEmit("agent_end", [() => [done("stop", assistant([textBlock("Hi there!")]))]]);
+		case "listener_tool_execution_end_loop": {
+			const echo = {
+				name: "echo",
+				label: "Echo",
+				description: "Echo tool",
+				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
+				execute: async (_id: string, params: any) => result(`echoed: ${params.value}`),
+			};
+			return runLoopWithThrowingEmit(
+				"tool_execution_end",
+				[
+					() => [done("toolUse", assistant([call("tool-1", "echo", { value: "hello" })], "toolUse"))],
+					() => [done("stop", assistant([textBlock("done")]))],
+				],
+				[echo],
+			);
+		}
+		case "listener_message_end_agent":
+			return runAgentWithThrowingListener("message_end", [
+				() => [done("stop", assistant([textBlock("Hi there!")]))],
+			]);
+		case "listener_agent_end_agent":
+			return runAgentWithThrowingListener("agent_end", [
+				() => [done("stop", assistant([textBlock("Hi there!")]))],
+			]);
+		case "listener_tool_execution_end_agent": {
+			const echo = {
+				name: "echo",
+				label: "Echo",
+				description: "Echo tool",
+				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
+				execute: async (_id: string, params: any) => result(`echoed: ${params.value}`),
+			};
+			return runAgentWithThrowingListener(
+				"tool_execution_end",
+				[
+					() => [done("toolUse", assistant([call("tool-1", "echo", { value: "hello" })], "toolUse"))],
+					() => [done("stop", assistant([textBlock("done")]))],
+				],
+				[echo],
+			);
+		}
+		case "tool_result_cap": {
+			const bigText = (mode: string) => {
+				if (mode === "lines") {
+					return Array.from({ length: 2001 }, (_, index) => String.fromCharCode(97 + (index % 26))).join("\n");
+				}
+				if (mode === "single") return "a".repeat(20000);
+				return "😀".repeat(3000);
+			};
+			const bigDetails = (mode: string) => ({ value: mode === "lines" ? "y".repeat(20000) : bigText(mode) });
+			const big = {
+				name: "big",
+				label: "Big",
+				description: "Big tool",
+				parameters: { type: "object", properties: { mode: { type: "string" } }, required: ["mode"] },
+				execute: async (_id: string, params: any, _signal: any, onUpdate: any) => {
+					const text = bigText(params.mode);
+					const details = bigDetails(params.mode);
+					if (params.mode === "lines") {
+						onUpdate({ content: [textBlock(text)], details: { value: "z".repeat(20000) } });
+					}
+					return { content: [textBlock(text)], details };
+				},
+			};
+			const stream = api.agentLoop(
+				[user("cap results")],
+				context([], [big]),
+				config({ toolExecution: "sequential" }),
+				undefined,
+				scriptStream([
+					() => [
+						done(
+							"toolUse",
+							assistant(
+								[
+									call("cap-lines", "big", { mode: "lines" }),
+									call("cap-single", "big", { mode: "single" }),
+									call("cap-emoji", "big", { mode: "emoji" }),
+								],
+								"toolUse",
+							),
+						),
+					],
+					() => [done("stop", assistant([textBlock("done")]))],
+				]),
+			);
+			return { ...(await collect(stream)), requests };
 		}
 		default:
 			throw new Error(`Unknown scenario: ${scenario}`);
