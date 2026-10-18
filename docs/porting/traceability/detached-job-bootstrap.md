@@ -1,0 +1,29 @@
+# coding-agent detached-job-bootstrap traceability
+
+Pinned source: `packages/coding-agent/src/core/detached-job-bootstrap.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+
+Proof: behavioral tests in `crates/pi-coding-agent/tests/detached_job_bootstrap.rs` against real processes, `/proc` descriptors, sessions, and files.
+
+| TypeScript source | Observable contract | Rust mapping and proof |
+|---|---|---|
+| `PAYLOAD_GATE_SCRIPT` | Block on the gate until `run\n`, then `exec "$@"` | `PAYLOAD_GATE_SCRIPT`, prefixed with `exec 3<&0 </dev/null` to map stdin onto the source's fd 3 |
+| `GatedDetachedPayloadInput` | args, command, cwd, env, identity/stderr/stdout paths | `GatedDetachedPayloadInput` |
+| `spawnGatedDetachedPayload` spawn | `/bin/sh` gate, detached session, stdout+stderr on one file, gate pipe | `setsid(1)` + `/bin/sh` with piped stdin; `persists_identity_before_releasing_payload_with_direct_artifact_descriptors` asserts fds 1/2, parent pid, and session leadership |
+| Missing pid | `Could not start detached payload: <command>` | `DetachedPayloadError::SpawnFailed`; also raised by the up-front `execvp` search; `reports_a_missing_command` |
+| `openSharedOutputFile` | Split paths rejected; `O_CREAT\|O_EXCL\|O_WRONLY\|O_APPEND`, mode `0600` | `open_shared_output_file`; `rejects_split_output_files`, `rejects_an_existing_output_file` |
+| `persistIdentity` | `{pgid, pid, startTimeTicks}` written to `<path>.tmp`, fsynced, renamed, directory fsynced, mode `0600` | `persist_identity`/`write_identity_file`; main test asserts content, mode, and no leftover `.tmp` |
+| `release` | Requires persisted identity; single use; writes `run\n` | `release`; `refuses_to_release_before_persisting_the_identity`, `refuses_a_second_release` |
+| `waitForExit` | `{exitCode, signal}` | `wait_for_exit` via `spawn_blocking`; main test asserts `{0, None}` |
+| Payload stdin | Ignored by the source (`stdio[0] = "ignore"`) | Payload reads `/dev/null`; `gives_the_payload_a_closed_stdin_after_release` |
+
+## Approved deviation (user decision 2026-10-18)
+
+Node uses `spawn(..., { detached: true })` plus a pipe on fd 3. `unsafe_code = "forbid"` rules out `pre_exec`, so the port composes the same shape from `setsid(1)` and a shell redirect: the parent's piped stdin is copied to fd 3, stdin is redirected to `/dev/null`, and `exec "$@"` keeps the pid. Consequences:
+
+- Linux-only (the module already depends on `/proc` for identity).
+- The payload's stdin is `/dev/null` instead of `/dev/null`-equivalent inherited ignore — identical observable behavior.
+- `setsid(1)` must exist on `PATH`; a missing command is detected by an `execvp`-style search before spawn so the launch error matches the source (small TOCTOU window, documented).
+
+## Discrepancies
+
+None beyond the approved mechanism deviation.

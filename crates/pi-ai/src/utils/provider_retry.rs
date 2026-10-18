@@ -1,11 +1,14 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 
 use super::abort::AbortError;
+use crate::js_number::{date_parse, parse_float};
+use crate::request::now_millis;
+use crate::utils::js_number::js_number_to_string;
 
 pub const DEFAULT_MAX_RETRY_DELAY_MS: f64 = 60_000.0;
 const RETRYABLE_CLIENT_STATUSES: [f64; 3] = [408.0, 409.0, 429.0];
@@ -53,8 +56,8 @@ impl fmt::Display for RetryDelayLimitError {
         write!(
             formatter,
             "Server requested {}s retry delay (max: {}s). {}",
-            (self.delay_ms / 1000.0).ceil(),
-            (self.max_ms / 1000.0).ceil(),
+            js_number_to_string((self.delay_ms / 1000.0).ceil()),
+            js_number_to_string((self.max_ms / 1000.0).ceil()),
             self.provider_message
         )
     }
@@ -135,16 +138,19 @@ fn get_retry_delay_ms(
     retry_index: usize,
     max_retry_delay_ms: Option<f64>,
 ) -> Result<f64, RetryDelayLimitError> {
-    if let Some(retry_after_ms) = error.headers.get("retry-after-ms")
-        && let Some(value) = parse_float(retry_after_ms)
-    {
-        return validate_server_retry_delay_ms(value, max_retry_delay_ms, &error.message);
+    if let Some(retry_after_ms) = error.headers.get("retry-after-ms") {
+        let value = parse_float(retry_after_ms);
+        if !value.is_nan() {
+            return validate_server_retry_delay_ms(value, max_retry_delay_ms, &error.message);
+        }
     }
 
     if let Some(retry_after) = error.headers.get("retry-after") {
-        let delay_ms = match parse_float(retry_after) {
-            Some(seconds) => seconds * 1000.0,
-            None => parse_http_date_delay_ms(retry_after),
+        let seconds = parse_float(retry_after);
+        let delay_ms = if seconds.is_nan() {
+            date_parse(retry_after) - now_millis() as f64
+        } else {
+            seconds * 1000.0
         };
         return validate_server_retry_delay_ms(delay_ms, max_retry_delay_ms, &error.message);
     }
@@ -167,58 +173,6 @@ fn validate_server_retry_delay_ms(
         });
     }
     Ok(delay_ms)
-}
-
-fn parse_http_date_delay_ms(retry_after: &str) -> f64 {
-    let Ok(retry_at) = httpdate::parse_http_date(retry_after) else {
-        return f64::NAN;
-    };
-    let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
-        return f64::NAN;
-    };
-    match retry_at.duration_since(UNIX_EPOCH) {
-        Ok(retry_at) => retry_at.as_millis() as f64 - now.as_millis() as f64,
-        Err(_) => f64::NAN,
-    }
-}
-
-/// JavaScript `Number.parseFloat` for a leading numeric prefix.
-fn parse_float(text: &str) -> Option<f64> {
-    let trimmed = text.trim_start();
-    let bytes = trimmed.as_bytes();
-    let mut index = 0;
-
-    if matches!(bytes.first(), Some(b'+' | b'-')) {
-        index += 1;
-    }
-    let mut seen_digit = consume_digits(bytes, &mut index);
-    if bytes.get(index) == Some(&b'.') {
-        index += 1;
-        seen_digit |= consume_digits(bytes, &mut index);
-    }
-    if seen_digit && matches!(bytes.get(index), Some(b'e' | b'E')) {
-        let exponent_start = index;
-        index += 1;
-        if matches!(bytes.get(index), Some(b'+' | b'-')) {
-            index += 1;
-        }
-        if !consume_digits(bytes, &mut index) {
-            index = exponent_start;
-        }
-    }
-
-    if !seen_digit {
-        return None;
-    }
-    trimmed[..index].parse::<f64>().ok().filter(|value| value.is_finite())
-}
-
-fn consume_digits(bytes: &[u8], index: &mut usize) -> bool {
-    let start = *index;
-    while bytes.get(*index).is_some_and(u8::is_ascii_digit) {
-        *index += 1;
-    }
-    *index > start
 }
 
 fn random_fraction() -> f64 {
@@ -266,18 +220,6 @@ mod tests {
             body: None,
             inner_error: None,
         }
-    }
-
-    #[test]
-    fn parse_float_matches_javascript_prefix_parsing() {
-        assert_eq!(parse_float("1000"), Some(1000.0));
-        assert_eq!(parse_float(" 1.5e3ms"), Some(1500.0));
-        assert_eq!(parse_float("277403"), Some(277_403.0));
-        assert_eq!(parse_float("-12.5"), Some(-12.5));
-        assert_eq!(parse_float("0x10"), Some(0.0));
-        assert_eq!(parse_float("abc"), None);
-        assert_eq!(parse_float("Infinity"), None);
-        assert_eq!(parse_float(""), None);
     }
 
     #[test]

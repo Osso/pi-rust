@@ -1,0 +1,1231 @@
+#[path = "support/oracle.rs"]
+mod oracle;
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use pi_ai::api::bedrock_converse_stream::{stream, stream_simple};
+use pi_ai::api::bedrock_sigv4::{AwsCredentials, sign_request};
+use pi_ai::request::{HttpRequest, ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
+use pi_ai::types::{
+    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, Message, Model, ProviderEnv,
+    StopReason, Tool, ToolResultContent, ToolResultMessage, ToolResultRole, UserContent, UserMessage, UserRole,
+};
+use serde_json::{Map, Value, json};
+use tokio_util::sync::CancellationToken;
+
+const ACCESS_KEY: &str = "AKIDEXAMPLE";
+const SECRET_KEY: &str = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
+
+#[derive(Clone)]
+enum FrameSpec {
+    Event {
+        event_type: String,
+        payload: Value,
+        corrupt_message: bool,
+        corrupt_prelude: bool,
+    },
+    Exception {
+        exception_type: String,
+        payload: Value,
+    },
+}
+
+impl FrameSpec {
+    fn event(event_type: &str, payload: Value) -> Self {
+        Self::Event {
+            event_type: event_type.to_owned(),
+            payload,
+            corrupt_message: false,
+            corrupt_prelude: false,
+        }
+    }
+
+    fn exception(exception_type: &str, payload: Value) -> Self {
+        Self::Exception {
+            exception_type: exception_type.to_owned(),
+            payload,
+        }
+    }
+
+    fn to_ts(&self) -> Value {
+        match self {
+            Self::Event {
+                event_type,
+                payload,
+                corrupt_message,
+                corrupt_prelude,
+            } => json!({
+                "kind": "event",
+                "type": event_type,
+                "payload": payload,
+                "corruptMessage": corrupt_message,
+                "corruptPrelude": corrupt_prelude,
+            }),
+            Self::Exception {
+                exception_type,
+                payload,
+            } => json!({
+                "kind": "exception",
+                "type": exception_type,
+                "payload": payload,
+            }),
+        }
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            Self::Event {
+                event_type,
+                payload,
+                corrupt_message,
+                corrupt_prelude,
+            } => {
+                let body = serde_json::to_string(payload).expect("payload");
+                let mut frame = encode_frame_bytes(event_type, body.as_bytes(), *corrupt_message);
+                if *corrupt_prelude {
+                    let crc = pi_ai::api::bedrock_eventstream::crc32(&frame[0..8]) ^ 1;
+                    frame[8..12].copy_from_slice(&crc.to_be_bytes());
+                }
+                frame
+            }
+            Self::Exception {
+                exception_type,
+                payload,
+            } => {
+                let body = serde_json::to_string(payload).expect("payload");
+                encode_exception_frame(exception_type, body.as_bytes())
+            }
+        }
+    }
+}
+
+fn encode_frame_bytes(event_type: &str, payload: &[u8], corrupt_message: bool) -> Vec<u8> {
+    let headers = [
+        (":message-type", "event"),
+        (":event-type", event_type),
+        (":content-type", "application/json"),
+    ];
+    encode_frame(&headers, payload, corrupt_message)
+}
+
+fn encode_exception_frame(exception_type: &str, payload: &[u8]) -> Vec<u8> {
+    let headers = [
+        (":message-type", "exception"),
+        (":exception-type", exception_type),
+        (":content-type", "application/json"),
+    ];
+    encode_frame(&headers, payload, false)
+}
+
+fn encode_frame(headers: &[(&str, &str)], payload: &[u8], corrupt_message: bool) -> Vec<u8> {
+    let mut header_bytes = Vec::new();
+    for (name, value) in headers {
+        header_bytes.push(name.len() as u8);
+        header_bytes.extend_from_slice(name.as_bytes());
+        header_bytes.push(7);
+        header_bytes.extend_from_slice(&(value.len() as u16).to_be_bytes());
+        header_bytes.extend_from_slice(value.as_bytes());
+    }
+    let total_length = 12 + header_bytes.len() + payload.len() + 4;
+    let mut frame = vec![0u8; total_length];
+    frame[0..4].copy_from_slice(&(total_length as u32).to_be_bytes());
+    frame[4..8].copy_from_slice(&(header_bytes.len() as u32).to_be_bytes());
+    let prelude_crc = pi_ai::api::bedrock_eventstream::crc32(&frame[0..8]);
+    frame[8..12].copy_from_slice(&prelude_crc.to_be_bytes());
+    frame[12..12 + header_bytes.len()].copy_from_slice(&header_bytes);
+    frame[12 + header_bytes.len()..total_length - 4].copy_from_slice(payload);
+    let mut message_crc = pi_ai::api::bedrock_eventstream::crc32(&frame[0..total_length - 4]);
+    if corrupt_message {
+        message_crc ^= 1;
+    }
+    frame[total_length - 4..].copy_from_slice(&message_crc.to_be_bytes());
+    frame
+}
+
+#[derive(Clone)]
+struct ResponseSpec {
+    status: u16,
+    headers: Vec<(String, String)>,
+    frames: Vec<FrameSpec>,
+    text: Option<String>,
+    chunk_sizes: Vec<usize>,
+}
+
+impl ResponseSpec {
+    fn eventstream(frames: Vec<FrameSpec>) -> Self {
+        Self {
+            status: 200,
+            headers: vec![
+                (
+                    "content-type".to_owned(),
+                    "application/vnd.amazon.eventstream".to_owned(),
+                ),
+                ("x-amzn-requestid".to_owned(), "req-1".to_owned()),
+            ],
+            frames,
+            text: None,
+            chunk_sizes: vec![3, 8, 5, 13],
+        }
+    }
+
+    fn http(status: u16, headers: Vec<(&str, &str)>, body: &str) -> Self {
+        Self {
+            status,
+            headers: headers
+                .into_iter()
+                .map(|(name, value)| (name.to_owned(), value.to_owned()))
+                .collect(),
+            frames: Vec::new(),
+            text: Some(body.to_owned()),
+            chunk_sizes: Vec::new(),
+        }
+    }
+
+    fn to_ts(&self) -> Value {
+        json!({
+            "status": self.status,
+            "headers": self.headers,
+            "frames": self.frames.iter().map(FrameSpec::to_ts).collect::<Vec<_>>(),
+            "text": self.text,
+            "chunkSizes": self.chunk_sizes,
+        })
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        if let Some(text) = &self.text {
+            return text.as_bytes().to_vec();
+        }
+        self.frames.iter().flat_map(FrameSpec::to_bytes).collect()
+    }
+}
+
+struct Scenario {
+    name: &'static str,
+    model: Model,
+    context: Context,
+    options: StreamOptions,
+    process_env: BTreeMap<String, String>,
+    script: Vec<ResponseSpec>,
+    capture_payload: bool,
+    simple: Option<SimpleStreamOptions>,
+}
+
+fn default_env() -> ProviderEnv {
+    let mut env = ProviderEnv::new();
+    env.insert("AWS_ACCESS_KEY_ID".to_owned(), ACCESS_KEY.to_owned());
+    env.insert("AWS_SECRET_ACCESS_KEY".to_owned(), SECRET_KEY.to_owned());
+    env.insert("AWS_REGION".to_owned(), "us-east-1".to_owned());
+    env
+}
+
+fn model() -> Model {
+    Model {
+        id: "us.anthropic.claude-opus-4-8".to_owned(),
+        name: "Claude Opus 4.8".to_owned(),
+        api: "bedrock-converse-stream".to_owned(),
+        provider: "amazon-bedrock".to_owned(),
+        base_url: "https://bedrock-runtime.us-east-1.amazonaws.com".to_owned(),
+        reasoning: true,
+        thinking_level_map: None,
+        input: vec![pi_ai::types::Modality::Text, pi_ai::types::Modality::Image],
+        cost: pi_ai::types::ModelCost {
+            rates: pi_ai::types::ModelCostRates {
+                input: 3.0,
+                output: 15.0,
+                cache_read: 0.3,
+                cache_write: 3.75,
+            },
+            tiers: None,
+        },
+        context_window: 200_000.0,
+        auto_compaction_threshold: None,
+        max_tokens: 64_000.0,
+        sampling_params: None,
+        headers: None,
+        compat: None,
+    }
+}
+
+fn context() -> Context {
+    Context {
+        system_prompt: None,
+        messages: vec![Message::User(UserMessage {
+            role: UserRole::Tag,
+            content: UserContent::Text("hi".to_owned()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 0,
+        })],
+        tools: None,
+    }
+}
+
+fn options() -> StreamOptions {
+    StreamOptions {
+        request: ProviderRequestOptions {
+            env: Some(default_env()),
+            ..Default::default()
+        },
+        cache_retention: Some(CacheRetention::None),
+        ..Default::default()
+    }
+}
+
+fn text_script() -> Vec<ResponseSpec> {
+    vec![ResponseSpec::eventstream(vec![
+        FrameSpec::event("messageStart", json!({"role": "assistant"})),
+        FrameSpec::event(
+            "contentBlockDelta",
+            json!({"contentBlockIndex": 0, "delta": {"text": "Hello"}}),
+        ),
+        FrameSpec::event("contentBlockStop", json!({"contentBlockIndex": 0})),
+        FrameSpec::event("messageStop", json!({"stopReason": "end_turn"})),
+        FrameSpec::event(
+            "metadata",
+            json!({"usage": {"inputTokens": 10, "outputTokens": 2, "totalTokens": 12}}),
+        ),
+    ])]
+}
+
+fn scenarios() -> Vec<Scenario> {
+    let mut scenarios = Vec::new();
+    scenarios.push(Scenario {
+        name: "text",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: text_script(),
+        capture_payload: false,
+        simple: None,
+    });
+
+    let reasoning_body = vec![
+        FrameSpec::event("messageStart", json!({"role": "assistant"})),
+        FrameSpec::event(
+            "contentBlockDelta",
+            json!({"contentBlockIndex": 0, "delta": {"reasoningContent": {"text": "think"}}}),
+        ),
+        FrameSpec::event(
+            "contentBlockDelta",
+            json!({"contentBlockIndex": 0, "delta": {"reasoningContent": {"signature": "sig"}}}),
+        ),
+        FrameSpec::event("contentBlockStop", json!({"contentBlockIndex": 0})),
+        FrameSpec::event(
+            "contentBlockDelta",
+            json!({"contentBlockIndex": 1, "delta": {"text": "Answer"}}),
+        ),
+        FrameSpec::event("contentBlockStop", json!({"contentBlockIndex": 1})),
+        FrameSpec::event("messageStop", json!({"stopReason": "end_turn"})),
+        FrameSpec::event(
+            "metadata",
+            json!({"usage": {"inputTokens": 5, "outputTokens": 7, "cacheReadInputTokens": 2, "cacheWriteInputTokens": 3, "totalTokens": 17}}),
+        ),
+    ];
+    scenarios.push(Scenario {
+        name: "reasoning",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: vec![ResponseSpec::eventstream(reasoning_body)],
+        capture_payload: false,
+        simple: None,
+    });
+
+    let tool_body = vec![
+        FrameSpec::event("messageStart", json!({"role": "assistant"})),
+        FrameSpec::event(
+            "contentBlockStart",
+            json!({"contentBlockIndex": 0, "start": {"toolUse": {"toolUseId": "tool-1", "name": "edit"}}}),
+        ),
+        FrameSpec::event(
+            "contentBlockDelta",
+            json!({"contentBlockIndex": 0, "delta": {"toolUse": {"input": "{\"path\":\"/workspace/file.js\",\"edits\":["}}}),
+        ),
+        FrameSpec::event(
+            "contentBlockDelta",
+            json!({"contentBlockIndex": 0, "delta": {"toolUse": {"input": "{\"oldText\":\"first\",\"newText\":\"second\",\"\":\"\"}]}"}}}),
+        ),
+        FrameSpec::event("contentBlockStop", json!({"contentBlockIndex": 0})),
+        FrameSpec::event("messageStop", json!({"stopReason": "tool_use"})),
+    ];
+    scenarios.push(Scenario {
+        name: "tool-use",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: vec![ResponseSpec::eventstream(tool_body)],
+        capture_payload: false,
+        simple: None,
+    });
+
+    let mut cache_context = context();
+    cache_context.system_prompt = Some("You are helpful.".to_owned());
+    let mut cache_options = options();
+    cache_options.cache_retention = Some(CacheRetention::Long);
+    scenarios.push(Scenario {
+        name: "cache-points",
+        model: model(),
+        context: cache_context,
+        options: cache_options,
+        process_env: BTreeMap::new(),
+        script: vec![ResponseSpec::eventstream(vec![
+            FrameSpec::event("messageStart", json!({"role": "assistant"})),
+            FrameSpec::event("messageStop", json!({"stopReason": "end_turn"})),
+        ])],
+        capture_payload: false,
+        simple: None,
+    });
+
+    for (name, reasoning, thinking_display, govcloud) in [
+        ("thinking-adaptive-high", "high", Some("summarized"), false),
+        ("thinking-adaptive-xhigh", "xhigh", Some("summarized"), false),
+        ("thinking-adaptive-govcloud", "high", Some("summarized"), true),
+        ("thinking-budget", "high", Some("omitted"), false),
+    ] {
+        let mut scenario_model = if name == "thinking-budget" {
+            let mut model = model();
+            model.id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0".to_owned();
+            model.name = "Claude Sonnet 4.5".to_owned();
+            model
+        } else {
+            model()
+        };
+        if govcloud {
+            scenario_model.id = "global.anthropic.claude-opus-4-8-v1".to_owned();
+        }
+        let mut scenario_options = options();
+        scenario_options.extra.insert("reasoning".to_owned(), json!(reasoning));
+        if let Some(display) = thinking_display {
+            scenario_options
+                .extra
+                .insert("thinkingDisplay".to_owned(), json!(display));
+        }
+        if name == "thinking-budget" {
+            scenario_options
+                .extra
+                .insert("thinkingBudgets".to_owned(), json!({"high": 4096}));
+        }
+        if govcloud {
+            scenario_options
+                .extra
+                .insert("region".to_owned(), json!("us-gov-west-1"));
+        }
+        scenarios.push(Scenario {
+            name,
+            model: scenario_model,
+            context: context(),
+            options: scenario_options,
+            process_env: BTreeMap::new(),
+            script: vec![ResponseSpec::eventstream(vec![
+                FrameSpec::event("messageStart", json!({"role": "assistant"})),
+                FrameSpec::event("messageStop", json!({"stopReason": "end_turn"})),
+            ])],
+            capture_payload: true,
+            simple: None,
+        });
+    }
+
+    let mut rich_context = context();
+    rich_context.messages = vec![
+        Message::User(UserMessage {
+            role: UserRole::Tag,
+            content: UserContent::Blocks(vec![
+                pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new("look")),
+                pi_ai::types::TextOrImageContent::Image(pi_ai::types::ImageContent::new("aGVsbG8=", "image/png")),
+            ]),
+            input_source: None,
+            provider_native: None,
+            timestamp: 0,
+        }),
+        Message::Assistant(Box::new(AssistantMessage {
+            role: pi_ai::types::AssistantRole::Tag,
+            content: vec![
+                AssistantContent::Thinking(pi_ai::types::ThinkingContent {
+                    r#type: pi_ai::types::ThinkingTag::Tag,
+                    thinking: "hmm".to_owned(),
+                    thinking_signature: Some("sig".to_owned()),
+                    redacted: None,
+                }),
+                AssistantContent::Text(pi_ai::types::TextContent::new("calling")),
+                AssistantContent::ToolCall(pi_ai::types::ToolCall::new(
+                    "tool-1",
+                    "lookup",
+                    json!({"q": "x", "": ""}).as_object().unwrap().clone(),
+                )),
+            ],
+            api: "bedrock-converse-stream".to_owned(),
+            provider: "amazon-bedrock".to_owned(),
+            model: model().id,
+            response_model: None,
+            response_id: None,
+            image_generation_result: None,
+            diagnostics: None,
+            usage: Default::default(),
+            stop_reason: StopReason::ToolUse,
+            deferred: None,
+            error_message: None,
+            raw_stop_reason: None,
+            end_turn: None,
+            timestamp: 0,
+        })),
+        Message::ToolResult(ToolResultMessage {
+            role: ToolResultRole::Tag,
+            tool_call_id: "tool-1".to_owned(),
+            tool_name: "lookup".to_owned(),
+            content: vec![
+                ToolResultContent::Text(pi_ai::types::TextContent::new("result")),
+                ToolResultContent::Image(pi_ai::types::ImageContent::new("aGVsbG8=", "image/png")),
+                ToolResultContent::Text(pi_ai::types::TextContent::new("")),
+            ],
+            details: None,
+            usage: None,
+            added_tool_names: None,
+            is_error: false,
+            timestamp: 0,
+        }),
+        Message::User(UserMessage {
+            role: UserRole::Tag,
+            content: UserContent::Text("   ".to_owned()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 0,
+        }),
+    ];
+    rich_context.tools = Some(vec![Tool::new(
+        "lookup",
+        "Look up",
+        json!({"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]}),
+    )]);
+    let mut rich_options = options();
+    rich_options.temperature = Some(0.5);
+    rich_options.max_tokens = Some(1234.0);
+    rich_options.extra.insert("toolChoice".to_owned(), json!("auto"));
+    rich_options
+        .extra
+        .insert("requestMetadata".to_owned(), json!({"team": "core"}));
+    let mut rich_headers = pi_ai::types::ProviderHeaders::new();
+    rich_headers.insert("x-custom".to_owned(), Some("v".to_owned()));
+    rich_headers.insert("authorization".to_owned(), Some("evil".to_owned()));
+    rich_options.request.headers = Some(rich_headers);
+    scenarios.push(Scenario {
+        name: "rich-messages",
+        model: model(),
+        context: rich_context,
+        options: rich_options,
+        process_env: BTreeMap::new(),
+        script: vec![ResponseSpec::eventstream(vec![
+            FrameSpec::event("messageStart", json!({"role": "assistant"})),
+            FrameSpec::event("messageStop", json!({"stopReason": "end_turn"})),
+        ])],
+        capture_payload: false,
+        simple: None,
+    });
+
+    let mut bearer_options = options();
+    bearer_options.request.api_key = Some("bedrock-api-key".to_owned());
+    scenarios.push(Scenario {
+        name: "bearer",
+        model: model(),
+        context: context(),
+        options: bearer_options,
+        process_env: BTreeMap::new(),
+        script: text_script(),
+        capture_payload: false,
+        simple: None,
+    });
+
+    let mut arn_model = model();
+    arn_model.id = "arn:aws:bedrock:us-west-2:123456789012:application-inference-profile/abc123".to_owned();
+    scenarios.push(Scenario {
+        name: "arn-region",
+        model: arn_model,
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: text_script(),
+        capture_payload: false,
+        simple: None,
+    });
+
+    let mut custom_model = model();
+    custom_model.base_url = "https://bedrock-vpc.example.com".to_owned();
+    scenarios.push(Scenario {
+        name: "custom-endpoint",
+        model: custom_model,
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: text_script(),
+        capture_payload: false,
+        simple: None,
+    });
+
+    let error_script = vec![
+        ResponseSpec::http(
+            429,
+            vec![
+                ("content-type", "application/json"),
+                (
+                    "x-amzn-errortype",
+                    "ThrottlingException:http://internal.amazon.com/coral/com.amazon.bedrock/",
+                ),
+                ("x-amzn-requestid", "req-1"),
+                ("retry-after", "0"),
+            ],
+            r#"{"message":"slow down"}"#,
+        ),
+        ResponseSpec::http(
+            429,
+            vec![
+                ("content-type", "application/json"),
+                (
+                    "x-amzn-errortype",
+                    "ThrottlingException:http://internal.amazon.com/coral/com.amazon.bedrock/",
+                ),
+                ("x-amzn-requestid", "req-2"),
+                ("retry-after", "0"),
+            ],
+            r#"{"message":"slow down"}"#,
+        ),
+        ResponseSpec::http(
+            400,
+            vec![
+                ("content-type", "application/json"),
+                (
+                    "x-amzn-errortype",
+                    "ValidationException:http://internal.amazon.com/coral/com.amazon.bedrock/",
+                ),
+                ("x-amzn-requestid", "req-final"),
+            ],
+            r#"{"message":"The provided model identifier is invalid."}"#,
+        ),
+    ];
+    scenarios.push(Scenario {
+        name: "errors-retry",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: error_script,
+        capture_payload: false,
+        simple: None,
+    });
+
+    scenarios.push(Scenario {
+        name: "service-unavailable",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: vec![
+            ResponseSpec::http(
+                400,
+                vec![
+                    ("content-type", "application/json"),
+                    (
+                        "x-amzn-errortype",
+                        "ServiceUnavailableException:http://internal.amazon.com/coral/com.amazon.bedrock/",
+                    ),
+                    ("x-amzn-requestid", "req-service-1"),
+                    ("retry-after", "0"),
+                ],
+                r#"{"message":"try later"}"#,
+            ),
+            ResponseSpec::http(
+                400,
+                vec![
+                    ("content-type", "application/json"),
+                    (
+                        "x-amzn-errortype",
+                        "ServiceUnavailableException:http://internal.amazon.com/coral/com.amazon.bedrock/",
+                    ),
+                    ("x-amzn-requestid", "req-service-2"),
+                    ("retry-after", "0"),
+                ],
+                r#"{"message":"try later"}"#,
+            ),
+            ResponseSpec::http(
+                400,
+                vec![
+                    ("content-type", "application/json"),
+                    (
+                        "x-amzn-errortype",
+                        "ServiceUnavailableException:http://internal.amazon.com/coral/com.amazon.bedrock/",
+                    ),
+                    ("x-amzn-requestid", "req-service-3"),
+                    ("retry-after", "0"),
+                ],
+                r#"{"message":"try later"}"#,
+            ),
+        ],
+        capture_payload: false,
+        simple: None,
+    });
+
+    scenarios.push(Scenario {
+        name: "mid-stream-exception",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: vec![ResponseSpec::eventstream(vec![
+            FrameSpec::event("messageStart", json!({"role": "assistant"})),
+            FrameSpec::exception(
+                "ThrottlingException",
+                json!({"message": "Too many requests, please wait."}),
+            ),
+        ])],
+        capture_payload: false,
+        simple: None,
+    });
+
+    scenarios.push(Scenario {
+        name: "corrupt-message-crc",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: vec![ResponseSpec::eventstream(vec![
+            FrameSpec::event("messageStart", json!({"role": "assistant"})),
+            FrameSpec::Event {
+                event_type: "contentBlockDelta".to_owned(),
+                payload: json!({"contentBlockIndex": 0, "delta": {"text": "Hello"}}),
+                corrupt_message: true,
+                corrupt_prelude: false,
+            },
+        ])],
+        capture_payload: false,
+        simple: None,
+    });
+
+    scenarios.push(Scenario {
+        name: "corrupt-prelude-crc",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: vec![ResponseSpec::eventstream(vec![
+            FrameSpec::event("messageStart", json!({"role": "assistant"})),
+            FrameSpec::Event {
+                event_type: "contentBlockDelta".to_owned(),
+                payload: json!({"contentBlockIndex": 0, "delta": {"text": "Hello"}}),
+                corrupt_message: false,
+                corrupt_prelude: true,
+            },
+        ])],
+        capture_payload: false,
+        simple: None,
+    });
+
+    let credentials_path = std::env::temp_dir().join(format!("pi-bedrock-diff-{}", std::process::id()));
+    std::fs::create_dir_all(&credentials_path).expect("temp dir");
+    let credentials_file = credentials_path.join("credentials");
+    std::fs::write(
+        &credentials_file,
+        format!("[dev]\naws_access_key_id = {ACCESS_KEY}\naws_secret_access_key = {SECRET_KEY}\n"),
+    )
+    .expect("credentials file");
+    let mut profile_env = ProviderEnv::new();
+    profile_env.insert("AWS_REGION".to_owned(), "us-east-1".to_owned());
+    profile_env.insert(
+        "AWS_SHARED_CREDENTIALS_FILE".to_owned(),
+        credentials_file.to_string_lossy().into_owned(),
+    );
+    let mut profile_options = StreamOptions {
+        request: ProviderRequestOptions {
+            env: Some(profile_env),
+            ..Default::default()
+        },
+        cache_retention: Some(CacheRetention::None),
+        ..Default::default()
+    };
+    profile_options.extra.insert("profile".to_owned(), json!("dev"));
+    let mut profile_process_env = BTreeMap::new();
+    profile_process_env.insert(
+        "AWS_SHARED_CREDENTIALS_FILE".to_owned(),
+        credentials_file.to_string_lossy().into_owned(),
+    );
+    scenarios.push(Scenario {
+        name: "profile-credentials",
+        model: model(),
+        context: context(),
+        options: profile_options,
+        process_env: profile_process_env,
+        script: text_script(),
+        capture_payload: false,
+        simple: None,
+    });
+
+    let mut skip_env = ProviderEnv::new();
+    skip_env.insert("AWS_REGION".to_owned(), "us-east-1".to_owned());
+    skip_env.insert("AWS_BEDROCK_SKIP_AUTH".to_owned(), "1".to_owned());
+    scenarios.push(Scenario {
+        name: "skip-auth",
+        model: model(),
+        context: context(),
+        options: StreamOptions {
+            request: ProviderRequestOptions {
+                env: Some(skip_env),
+                ..Default::default()
+            },
+            cache_retention: Some(CacheRetention::None),
+            ..Default::default()
+        },
+        process_env: BTreeMap::new(),
+        script: text_script(),
+        capture_payload: false,
+        simple: None,
+    });
+
+    scenarios
+}
+
+fn scenario_to_oracle_request(id: usize, scenario: &Scenario) -> Value {
+    let mut options = options_to_ts(&scenario.options);
+    if let Some(simple) = &scenario.simple {
+        options = simple_to_ts(simple);
+    }
+    if scenario.capture_payload {
+        options["capturePayload"] = json!(true);
+    }
+    json!({
+        "id": id,
+        "model": serde_json::to_value(&scenario.model).expect("model"),
+        "context": serde_json::to_value(&scenario.context).expect("context"),
+        "options": options,
+        "processEnv": scenario.process_env,
+        "script": scenario.script.iter().map(ResponseSpec::to_ts).collect::<Vec<_>>(),
+        "capturePayload": scenario.capture_payload,
+    })
+}
+
+fn options_to_ts(options: &StreamOptions) -> Value {
+    let mut map = Map::new();
+    if let Some(temperature) = options.temperature {
+        map.insert("temperature".to_owned(), json!(temperature));
+    }
+    if let Some(max_tokens) = options.max_tokens {
+        map.insert("maxTokens".to_owned(), json!(max_tokens));
+    }
+    if let Some(cache_retention) = options.cache_retention {
+        map.insert("cacheRetention".to_owned(), json!(cache_retention));
+    }
+    if let Some(env) = &options.request.env {
+        map.insert("env".to_owned(), serde_json::to_value(env).expect("env"));
+    }
+    if let Some(api_key) = &options.request.api_key {
+        map.insert("apiKey".to_owned(), json!(api_key));
+    }
+    if let Some(headers) = &options.request.headers {
+        map.insert("headers".to_owned(), serde_json::to_value(headers).expect("headers"));
+    }
+    for (key, value) in &options.extra {
+        map.insert(key.clone(), value.clone());
+    }
+    Value::Object(map)
+}
+
+fn simple_to_ts(simple: &SimpleStreamOptions) -> Value {
+    let mut value = options_to_ts(&simple.stream);
+    let map = value.as_object_mut().expect("options object");
+    if let Some(reasoning) = simple.reasoning {
+        map.insert("reasoning".to_owned(), json!(reasoning));
+    }
+    if let Some(budgets) = &simple.thinking_budgets {
+        map.insert("thinkingBudgets".to_owned(), json!(budgets));
+    }
+    value
+}
+
+async fn run_rust(
+    scenario: &Scenario,
+) -> (
+    Vec<HttpRequest>,
+    Vec<AssistantMessageEvent>,
+    AssistantMessage,
+    Option<Value>,
+) {
+    let fetch = ScriptedFetch::new(
+        scenario
+            .script
+            .iter()
+            .map(|response| ScriptedResponse {
+                status: response.status,
+                headers: response.headers.clone(),
+                chunks: split_chunks(response.to_bytes(), &response.chunk_sizes),
+            })
+            .collect(),
+    );
+    let mut options = scenario.options.clone();
+    options.request.fetch = Some(fetch.clone());
+    let captured = Arc::new(std::sync::Mutex::new(None));
+    if scenario.capture_payload {
+        let captured_clone = Arc::clone(&captured);
+        options.request.on_payload = Some(Arc::new(move |payload, _model| {
+            *captured_clone.lock().expect("capture") = Some(payload);
+            Box::pin(async { Ok(None) })
+        }));
+    }
+    let token = CancellationToken::new();
+    options.request.signal = Some(token.clone());
+    let (events, message) = if let Some(simple) = &scenario.simple {
+        let mut simple = simple.clone();
+        simple.stream = options;
+        drain_with_abort(
+            stream_simple(scenario.model.clone(), scenario.context.clone(), simple),
+            token,
+        )
+        .await
+    } else {
+        drain_with_abort(stream(scenario.model.clone(), scenario.context.clone(), options), token).await
+    };
+    (
+        fetch.requests(),
+        events,
+        message,
+        captured.lock().expect("capture").clone(),
+    )
+}
+
+async fn drain_with_abort(
+    mut stream: pi_ai::utils::event_stream::AssistantMessageEventStream,
+    _token: CancellationToken,
+) -> (Vec<AssistantMessageEvent>, AssistantMessage) {
+    let mut events = Vec::new();
+    while let Some(event) = stream.next().await {
+        events.push(event.expect("stream event"));
+    }
+    let message = stream.result().await.expect("stream result");
+    (events, message)
+}
+
+fn split_chunks(body: Vec<u8>, sizes: &[usize]) -> Vec<Vec<u8>> {
+    if sizes.is_empty() {
+        return vec![body];
+    }
+    let mut chunks = Vec::new();
+    let mut index = 0;
+    for size in sizes {
+        if index >= body.len() {
+            break;
+        }
+        let end = (index + size).min(body.len());
+        chunks.push(body[index..end].to_vec());
+        index = end;
+    }
+    if index < body.len() {
+        chunks.push(body[index..].to_vec());
+    }
+    chunks
+}
+
+fn normalize_timestamps(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            if object.contains_key("timestamp") {
+                object.insert("timestamp".to_owned(), json!(0));
+            }
+            for value in object.values_mut() {
+                normalize_timestamps(value);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                normalize_timestamps(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn strip_transient_block_index(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            if matches!(
+                object.get("type").and_then(Value::as_str),
+                Some("text" | "thinking" | "toolCall")
+            ) {
+                object.remove("index");
+                object.remove("partialJson");
+            }
+            for value in object.values_mut() {
+                strip_transient_block_index(value);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                strip_transient_block_index(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn normalize_request_headers(headers: &Map<String, Value>) -> Map<String, Value> {
+    let mut normalized = Map::new();
+    for (name, value) in headers {
+        let lower = name.to_ascii_lowercase();
+        if matches!(
+            lower.as_str(),
+            "user-agent" | "x-amz-date" | "authorization" | "amz-sdk-invocation-id"
+        ) {
+            continue;
+        }
+        normalized.insert(lower, value.clone());
+    }
+    normalized
+}
+
+fn headers_map(headers: &[(String, String)]) -> Map<String, Value> {
+    let mut map = Map::new();
+    for (name, value) in headers {
+        map.insert(name.to_ascii_lowercase(), json!(value));
+    }
+    map
+}
+
+fn parse_amz_date(value: &str) -> i64 {
+    let year: i64 = value[0..4].parse().expect("year");
+    let month: i64 = value[4..6].parse().expect("month");
+    let day: i64 = value[6..8].parse().expect("day");
+    let hour: i64 = value[9..11].parse().expect("hour");
+    let minute: i64 = value[11..13].parse().expect("minute");
+    let second: i64 = value[13..15].parse().expect("second");
+    let days = days_from_civil(year, month as u32, day as u32);
+    (days * 86_400 + hour * 3600 + minute * 60 + second) * 1000
+}
+
+fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+    let year = year - i64::from(month <= 2);
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let year_of_era = year - era * 400;
+    let month_prime = i64::from(month) + if month > 2 { -3 } else { 9 };
+    let day_of_year = (153 * month_prime + 2) / 5 + i64::from(day) - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
+}
+
+fn verify_signature(scenario: &Scenario, oracle_request: &Value) {
+    if let Some(api_key) = &scenario.options.request.api_key {
+        assert_eq!(
+            oracle_request["headers"]["Authorization"].as_str(),
+            Some(format!("Bearer {api_key}").as_str()),
+            "bearer authorization mismatch for {}",
+            scenario.name
+        );
+        return;
+    }
+    let skip_auth = scenario
+        .options
+        .request
+        .env
+        .as_ref()
+        .and_then(|env| env.get("AWS_BEDROCK_SKIP_AUTH"))
+        .is_some_and(|value| value == "1")
+        || scenario.process_env.contains_key("AWS_BEDROCK_SKIP_AUTH");
+    let headers = oracle_request["headers"].as_object().expect("headers");
+    let authorization = headers
+        .get("authorization")
+        .and_then(Value::as_str)
+        .expect("oracle authorization");
+    let amz_date = headers
+        .get("x-amz-date")
+        .and_then(Value::as_str)
+        .expect("oracle x-amz-date");
+    let region = authorization.split('/').nth(2).expect("credential scope region");
+    let mut rust_headers: Vec<(String, String)> = headers
+        .iter()
+        .filter(|(name, _)| !name.eq_ignore_ascii_case("authorization"))
+        .map(|(name, value)| (name.clone(), value.as_str().expect("header string").to_owned()))
+        .collect();
+    let body = oracle_request["body"].as_str().expect("body").as_bytes();
+    let hostname = oracle_request["hostname"].as_str().expect("hostname");
+    let url = format!(
+        "{}//{hostname}{}",
+        oracle_request["protocol"].as_str().expect("protocol"),
+        oracle_request["path"].as_str().expect("path")
+    );
+    let credentials = AwsCredentials {
+        access_key_id: if skip_auth {
+            "dummy-access-key".to_owned()
+        } else {
+            ACCESS_KEY.to_owned()
+        },
+        secret_access_key: if skip_auth {
+            "dummy-secret-key".to_owned()
+        } else {
+            SECRET_KEY.to_owned()
+        },
+        session_token: headers
+            .get("x-amz-security-token")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+    };
+    sign_request(
+        "POST",
+        &url,
+        &mut rust_headers,
+        body,
+        &credentials,
+        (region, "bedrock"),
+        parse_amz_date(amz_date),
+    )
+    .expect("sign");
+    let rust_authorization = rust_headers
+        .iter()
+        .find(|(name, _)| name == "authorization")
+        .map(|(_, value)| value.as_str())
+        .expect("rust authorization");
+    assert_eq!(
+        rust_authorization, authorization,
+        "SigV4 mismatch for scenario {}",
+        scenario.name
+    );
+}
+
+#[tokio::test]
+async fn bedrock_converse_stream_matches_the_pinned_typescript_module() {
+    let mut oracle = oracle::TsOracle::spawn("bedrock-converse-stream-oracle.ts", "packages/ai/src");
+    for (index, scenario) in scenarios().into_iter().enumerate() {
+        let id = index + 1;
+        let response = oracle.request(&scenario_to_oracle_request(id, &scenario));
+        assert_eq!(
+            response["ok"],
+            json!(true),
+            "oracle failed for {}: {response}",
+            scenario.name
+        );
+        let output = &response["output"];
+
+        let (requests, events, message, captured) = run_rust(&scenario).await;
+        let oracle_requests = output["requests"].as_array().expect("requests");
+        assert_eq!(
+            requests.len(),
+            oracle_requests.len(),
+            "request count mismatch for {}",
+            scenario.name
+        );
+        for (rust_request, oracle_request) in requests.iter().zip(oracle_requests) {
+            assert_eq!(
+                oracle_request["method"].as_str(),
+                Some(rust_request.method.as_str()),
+                "method mismatch for {}",
+                scenario.name
+            );
+            assert_eq!(
+                oracle_request["body"].as_str(),
+                rust_request
+                    .body
+                    .as_deref()
+                    .map(|body| std::str::from_utf8(body).expect("body utf8")),
+                "body mismatch for {}",
+                scenario.name
+            );
+            let oracle_headers = oracle_request["headers"].as_object().expect("headers");
+            assert_eq!(
+                normalize_request_headers(&headers_map(&rust_request.headers)),
+                normalize_request_headers(oracle_headers),
+                "headers mismatch for {}",
+                scenario.name
+            );
+            verify_signature(&scenario, oracle_request);
+        }
+
+        let mut rust_events = serde_json::to_value(&events).expect("events");
+        normalize_timestamps(&mut rust_events);
+        let mut oracle_events = output["events"].clone();
+        normalize_timestamps(&mut oracle_events);
+        strip_transient_block_index(&mut oracle_events);
+        assert_eq!(rust_events, oracle_events, "event mismatch for {}", scenario.name);
+
+        let mut rust_message = serde_json::to_value(&message).expect("message");
+        normalize_timestamps(&mut rust_message);
+        let mut oracle_message = output["message"].clone();
+        normalize_timestamps(&mut oracle_message);
+        assert_eq!(rust_message, oracle_message, "message mismatch for {}", scenario.name);
+
+        if scenario.capture_payload {
+            let mut rust_payload = captured.expect("captured payload");
+            normalize_timestamps(&mut rust_payload);
+            let mut oracle_payload = output["capturedPayload"].clone();
+            normalize_timestamps(&mut oracle_payload);
+            assert_eq!(rust_payload, oracle_payload, "payload mismatch for {}", scenario.name);
+        }
+    }
+}
+
+struct ScriptedFetch {
+    requests: std::sync::Mutex<Vec<HttpRequest>>,
+    responses: std::sync::Mutex<std::collections::VecDeque<ScriptedResponse>>,
+}
+
+struct ScriptedResponse {
+    status: u16,
+    headers: Vec<(String, String)>,
+    chunks: Vec<Vec<u8>>,
+}
+
+impl ScriptedFetch {
+    fn new(responses: Vec<ScriptedResponse>) -> Arc<Self> {
+        Arc::new(Self {
+            requests: std::sync::Mutex::new(Vec::new()),
+            responses: std::sync::Mutex::new(responses.into()),
+        })
+    }
+
+    fn requests(&self) -> Vec<HttpRequest> {
+        self.requests.lock().expect("requests").clone()
+    }
+}
+
+impl pi_ai::request::Fetch for ScriptedFetch {
+    fn fetch(
+        &self,
+        request: HttpRequest,
+        signal: Option<CancellationToken>,
+    ) -> pi_ai::request::BoxFuture<'_, Result<pi_ai::request::HttpResponse, pi_ai::request::CallbackError>> {
+        Box::pin(async move {
+            self.requests.lock().expect("requests").push(request);
+            if signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+                return Err(pi_ai::request::CallbackError::new(pi_ai::http::ABORT_ERROR_MESSAGE));
+            }
+            let response = self
+                .responses
+                .lock()
+                .expect("responses")
+                .pop_front()
+                .expect("scripted response");
+            Ok(pi_ai::request::HttpResponse {
+                status: response.status,
+                status_text: String::new(),
+                headers: response.headers,
+                body: Box::new(ScriptedBody {
+                    chunks: response.chunks.into(),
+                    signal,
+                }),
+            })
+        })
+    }
+}
+
+struct ScriptedBody {
+    chunks: std::collections::VecDeque<Vec<u8>>,
+    signal: Option<CancellationToken>,
+}
+
+impl pi_ai::request::HttpBody for ScriptedBody {
+    fn next_chunk(&mut self) -> pi_ai::request::BoxFuture<'_, Option<Result<Vec<u8>, pi_ai::request::CallbackError>>> {
+        Box::pin(async move {
+            if self.signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+                return Some(Err(pi_ai::request::CallbackError::new(
+                    pi_ai::http::ABORT_ERROR_MESSAGE,
+                )));
+            }
+            self.chunks.pop_front().map(Ok)
+        })
+    }
+}

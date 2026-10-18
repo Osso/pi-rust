@@ -1,7 +1,7 @@
 #[path = "../support/oracle.rs"]
 mod oracle;
 
-use std::collections::BTreeMap;
+use pi_telemetry::TelemetryMap;
 use std::error::Error;
 use std::fmt;
 
@@ -155,12 +155,12 @@ fn run_settled(context: &InMemoryTelemetryContext) {
 fn differential_schema() -> TelemetrySchemaDefinition {
     define_telemetry_schema(TelemetrySchemaDefinition {
         version: 1,
-        spans: BTreeMap::from([(
+        spans: TelemetryMap::from([(
             "operation".to_owned(),
             TelemetrySpanDefinition {
                 description: "Test operation".to_owned(),
                 parents: TelemetryParentDefinition::Any,
-                start_attributes: BTreeMap::from([(
+                start_attributes: TelemetryMap::from([(
                     "kind".to_owned(),
                     TelemetryStartAttributeDefinition {
                         required: true,
@@ -177,12 +177,12 @@ fn differential_schema() -> TelemetrySchemaDefinition {
                         },
                     },
                 )]),
-                end_attributes: BTreeMap::new(),
-                events: Some(BTreeMap::from([(
+                end_attributes: TelemetryMap::new(),
+                events: Some(TelemetryMap::from([(
                     "result".to_owned(),
                     TelemetryEventDefinition {
                         description: "Result".to_owned(),
-                        attributes: BTreeMap::from([(
+                        attributes: TelemetryMap::from([(
                             "outcome".to_owned(),
                             TelemetryStartAttributeDefinition {
                                 required: true,

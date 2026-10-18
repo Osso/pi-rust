@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{AssistantContent, Context, Message, StopReason, TextOrImageContent, Tool, Usage, UserContent};
+use crate::types::{
+    AssistantContent, AssistantMessage, Context, Message, StopReason, TextOrImageContent, Tool, Usage, UserContent,
+};
 
 /// Estimated context usage.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -56,6 +58,19 @@ pub fn estimate_text_and_image_content_tokens(content: TextOrImageInput<'_>) -> 
     (chars as f64 / CHARS_PER_TOKEN).ceil()
 }
 
+pub fn estimate_assistant_message_tokens(message: &AssistantMessage) -> f64 {
+    let chars: usize = message
+        .content
+        .iter()
+        .map(|block| match block {
+            AssistantContent::Text(text) => js_len(&text.text),
+            AssistantContent::Thinking(thinking) => js_len(&thinking.thinking),
+            AssistantContent::ToolCall(call) => js_len(&call.name) + js_len(&safe_json_stringify(&call.arguments)),
+        })
+        .sum();
+    (chars as f64 / CHARS_PER_TOKEN).ceil()
+}
+
 pub fn estimate_message_tokens(message: &Message) -> f64 {
     match message {
         Message::User(user) => estimate_text_and_image_content_tokens(match &user.content {
@@ -65,20 +80,7 @@ pub fn estimate_message_tokens(message: &Message) -> f64 {
         Message::ToolResult(result) => {
             estimate_text_and_image_content_tokens(TextOrImageInput::Blocks(&result.content))
         }
-        Message::Assistant(assistant) => {
-            let chars: usize = assistant
-                .content
-                .iter()
-                .map(|block| match block {
-                    AssistantContent::Text(text) => js_len(&text.text),
-                    AssistantContent::Thinking(thinking) => js_len(&thinking.thinking),
-                    AssistantContent::ToolCall(call) => {
-                        js_len(&call.name) + js_len(&safe_json_stringify(&call.arguments))
-                    }
-                })
-                .sum();
-            (chars as f64 / CHARS_PER_TOKEN).ceil()
-        }
+        Message::Assistant(assistant) => estimate_assistant_message_tokens(assistant),
     }
 }
 

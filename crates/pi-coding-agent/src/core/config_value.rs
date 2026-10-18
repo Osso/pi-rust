@@ -1,4 +1,9 @@
 use std::collections::HashMap;
+use std::io::Write;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+use crate::utils::shell::{CommandTransport, get_shell_config};
 
 enum TemplatePart<'a> {
     Literal(String),
@@ -181,4 +186,260 @@ const fn is_environment_name_start(byte: u8) -> bool {
 
 const fn is_environment_name_continue(byte: u8) -> bool {
     is_environment_name_start(byte) || byte.is_ascii_digit()
+}
+
+// =============================================================================
+// Value Resolution
+// =============================================================================
+
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Failure from [`resolve_config_value_or_throw`] and [`resolve_headers_or_throw`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigValueError {
+    message: String,
+}
+
+impl std::fmt::Display for ConfigValueError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ConfigValueError {}
+
+fn command_result_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Clears the command cache; exported for tests, like `clearConfigValueCache`.
+pub fn clear_config_value_cache() {
+    command_result_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
+}
+
+/// Resolves a config value: `!command`, `$ENV`/`${ENV}` templates, `$$`/`$!` escapes, or a literal.
+pub fn resolve_config_value(config: &str, env: Option<&HashMap<String, String>>) -> Option<String> {
+    match parse_config_value_reference(config) {
+        ConfigValueReference::Command => execute_command(config),
+        ConfigValueReference::Template(parts) => resolve_template(&parts, env),
+    }
+}
+
+/// Like [`resolve_config_value`] but always executes commands.
+pub fn resolve_config_value_uncached(config: &str, env: Option<&HashMap<String, String>>) -> Option<String> {
+    match parse_config_value_reference(config) {
+        ConfigValueReference::Command => execute_command_uncached(config),
+        ConfigValueReference::Template(parts) => resolve_template(&parts, env),
+    }
+}
+
+/// Resolves a value or reports which source failed.
+pub fn resolve_config_value_or_throw(
+    config: &str,
+    description: &str,
+    env: Option<&HashMap<String, String>>,
+) -> Result<String, ConfigValueError> {
+    if let Some(resolved) = resolve_config_value_uncached(config, env) {
+        return Ok(resolved);
+    }
+
+    match parse_config_value_reference(config) {
+        ConfigValueReference::Command => {
+            let command = &config[1..];
+            return Err(ConfigValueError {
+                message: format!("Failed to resolve {description} from shell command: {command}"),
+            });
+        }
+        ConfigValueReference::Template(_) => {
+            let missing = get_missing_config_value_env_var_names(config, env);
+            if missing.len() == 1 {
+                return Err(ConfigValueError {
+                    message: format!(
+                        "Failed to resolve {description} from environment variable: {}",
+                        missing[0]
+                    ),
+                });
+            }
+            if missing.len() > 1 {
+                return Err(ConfigValueError {
+                    message: format!(
+                        "Failed to resolve {description} from environment variables: {}",
+                        missing.join(", ")
+                    ),
+                });
+            }
+        }
+    }
+
+    Err(ConfigValueError {
+        message: format!("Failed to resolve {description}"),
+    })
+}
+
+/// Resolves every header value; empty results are dropped.
+pub fn resolve_headers(
+    headers: Option<&HashMap<String, String>>,
+    env: Option<&HashMap<String, String>>,
+) -> Option<HashMap<String, String>> {
+    let headers = headers?;
+    let resolved: HashMap<String, String> = headers
+        .iter()
+        .filter_map(|(key, value)| resolve_config_value(value, env).map(|value| (key.clone(), value)))
+        .collect();
+    (!resolved.is_empty()).then_some(resolved)
+}
+
+/// Resolves every header value, reporting the first failure with its header name.
+pub fn resolve_headers_or_throw(
+    headers: Option<&HashMap<String, String>>,
+    description: &str,
+    env: Option<&HashMap<String, String>>,
+) -> Result<Option<HashMap<String, String>>, ConfigValueError> {
+    let Some(headers) = headers else {
+        return Ok(None);
+    };
+    let mut resolved = HashMap::new();
+    for (key, value) in headers {
+        let value = resolve_config_value_or_throw(value, &format!("{description} header \"{key}\""), env)?;
+        resolved.insert(key.clone(), value);
+    }
+    Ok((!resolved.is_empty()).then_some(resolved))
+}
+
+fn resolve_template(parts: &[TemplatePart<'_>], env: Option<&HashMap<String, String>>) -> Option<String> {
+    let mut resolved = String::new();
+    for part in parts {
+        match part {
+            TemplatePart::Literal(value) => resolved.push_str(value),
+            TemplatePart::Environment(name) => {
+                resolved.push_str(&resolve_environment_value(name, env)?);
+            }
+        }
+    }
+    Some(resolved)
+}
+
+fn resolve_environment_value(name: &str, env: Option<&HashMap<String, String>>) -> Option<String> {
+    env.and_then(|values| values.get(name))
+        .filter(|value| !value.is_empty())
+        .cloned()
+        .or_else(|| std::env::var(name).ok().filter(|value| !value.is_empty()))
+}
+
+fn execute_command(command_config: &str) -> Option<String> {
+    if let Some(cached) = command_result_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(command_config)
+    {
+        return cached.clone();
+    }
+    let result = execute_command_uncached(command_config);
+    command_result_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(command_config.to_owned(), result.clone());
+    result
+}
+
+fn execute_command_uncached(command_config: &str) -> Option<String> {
+    let command = &command_config[1..];
+    #[cfg(windows)]
+    {
+        let (executed, value) = execute_with_configured_shell(command);
+        if executed {
+            return value;
+        }
+        execute_with_default_shell(command)
+    }
+    #[cfg(not(windows))]
+    {
+        execute_with_default_shell(command)
+    }
+}
+
+/// `execSync(command)`: `/bin/sh -c`, ten-second timeout, stdout only.
+fn execute_with_default_shell(command: &str) -> Option<String> {
+    #[cfg(windows)]
+    let mut process = {
+        let mut process = std::process::Command::new("cmd");
+        process.arg("/C").arg(command);
+        process
+    };
+    #[cfg(not(windows))]
+    let mut process = {
+        let mut process = std::process::Command::new("sh");
+        process.arg("-c").arg(command);
+        process
+    };
+    process
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    let output = run_with_timeout(process)?;
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (!value.is_empty()).then_some(value)
+}
+
+/// The configured shell (stdin transport writes the command to stdin); `false` when it cannot start.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn execute_with_configured_shell(command: &str) -> (bool, Option<String>) {
+    let Ok(config) = get_shell_config(None) else {
+        return (false, None);
+    };
+    let mut process = std::process::Command::new(&config.shell);
+    process.args(&config.args);
+    let command_from_stdin = config.command_transport == CommandTransport::Stdin;
+    if !command_from_stdin {
+        process.arg(command);
+    }
+    process
+        .stdin(if command_from_stdin {
+            std::process::Stdio::piped()
+        } else {
+            std::process::Stdio::null()
+        })
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    let mut child = match process.spawn() {
+        Ok(child) => child,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return (false, None),
+        Err(_) => return (true, None),
+    };
+    if command_from_stdin && let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(command.as_bytes());
+    }
+    let Some(output) = wait_with_timeout(child) else {
+        return (true, None);
+    };
+    if !output.status.success() {
+        return (true, None);
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (true, (!value.is_empty()).then_some(value))
+}
+
+fn run_with_timeout(mut process: std::process::Command) -> Option<std::process::Output> {
+    let child = process.spawn().ok()?;
+    wait_with_timeout(child)
+}
+
+fn wait_with_timeout(mut child: std::process::Child) -> Option<std::process::Output> {
+    let deadline = Instant::now() + COMMAND_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return child.wait_with_output().ok(),
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(5)),
+            Err(_) => return None,
+        }
+    }
 }

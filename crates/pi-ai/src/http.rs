@@ -1,8 +1,11 @@
 //! Default [`Fetch`] implementation (the `globalThis.fetch` stand-in) backed by `reqwest`.
 
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
+
+use url::Url;
 
 use crate::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
 
@@ -23,9 +26,68 @@ pub fn default_fetch() -> Arc<dyn Fetch> {
     static DEFAULT: OnceLock<Arc<dyn Fetch>> = OnceLock::new();
     Arc::clone(DEFAULT.get_or_init(|| {
         Arc::new(ReqwestFetch {
-            client: reqwest::Client::new(),
+            client: default_client(),
         })
     }))
+}
+
+fn default_client() -> reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(reqwest::Client::new).clone()
+}
+
+/// Send a request through reqwest, optionally through `proxy`.
+pub(crate) async fn send_reqwest(
+    request: HttpRequest,
+    signal: Option<CancellationToken>,
+    proxy: Option<&Url>,
+) -> Result<HttpResponse, CallbackError> {
+    let client = match proxy {
+        Some(proxy) => {
+            let proxy = reqwest::Proxy::all(proxy.as_str()).map_err(to_callback_error)?;
+            reqwest::Client::builder()
+                .proxy(proxy)
+                .build()
+                .map_err(to_callback_error)?
+        }
+        None => default_client(),
+    };
+    send_with_client(&client, request, signal).await
+}
+
+async fn send_with_client(
+    client: &reqwest::Client,
+    request: HttpRequest,
+    signal: Option<CancellationToken>,
+) -> Result<HttpResponse, CallbackError> {
+    let builder = build_request(client, request)?;
+    let response = until_aborted(signal.as_ref(), async {
+        builder.send().await.map_err(to_callback_error)
+    })
+    .await?;
+    Ok(into_http_response(response, signal))
+}
+
+/// Options for a configured default client.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FetchClientOptions {
+    /// `allowH2: false` — HTTP/1.1 only.
+    pub http1_only: bool,
+    /// Per-read idle timeout (`bodyTimeout`/`headersTimeout`).
+    pub idle_timeout: Option<Duration>,
+}
+
+/// Build a [`Fetch`] from [`FetchClientOptions`] instead of the process-wide default.
+pub fn fetch_with_options(options: FetchClientOptions) -> Result<Arc<dyn Fetch>, String> {
+    let mut builder = reqwest::Client::builder();
+    if options.http1_only {
+        builder = builder.http1_only();
+    }
+    if let Some(idle_timeout) = options.idle_timeout {
+        builder = builder.read_timeout(idle_timeout);
+    }
+    let client = builder.build().map_err(|error| error.to_string())?;
+    Ok(Arc::new(ReqwestFetch { client }))
 }
 
 impl Fetch for ReqwestFetch {
@@ -34,14 +96,7 @@ impl Fetch for ReqwestFetch {
         request: HttpRequest,
         signal: Option<CancellationToken>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
-        Box::pin(async move {
-            let builder = build_request(&self.client, request)?;
-            let response = until_aborted(signal.as_ref(), async {
-                builder.send().await.map_err(to_callback_error)
-            })
-            .await?;
-            Ok(into_http_response(response, signal))
-        })
+        Box::pin(send_with_client(&self.client, request, signal))
     }
 }
 

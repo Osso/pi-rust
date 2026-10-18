@@ -52,6 +52,47 @@ pub fn encode_base64(bytes: &[u8]) -> String {
     output
 }
 
+/// Decodes Base64 with `Buffer.from(value, "base64")` semantics: the standard
+/// and URL-safe alphabets are accepted, other characters are ignored, and
+/// decoding stops at the first `=`.
+pub fn decode_base64(value: &str) -> Vec<u8> {
+    let mut values = Vec::new();
+    for byte in value.bytes() {
+        if byte == b'=' {
+            break;
+        }
+        if let Some(decoded) = decode_base64_value(byte) {
+            values.push(decoded);
+        }
+    }
+
+    let mut output = Vec::with_capacity(values.len() * 3 / 4);
+    for chunk in values.chunks(4) {
+        let first = chunk[0];
+        if chunk.len() >= 2 {
+            output.push((first << 2) | (chunk[1] >> 4));
+        }
+        if chunk.len() >= 3 {
+            output.push(((chunk[1] & 0x0f) << 4) | (chunk[2] >> 2));
+        }
+        if chunk.len() == 4 {
+            output.push(((chunk[2] & 0x03) << 6) | chunk[3]);
+        }
+    }
+    output
+}
+
+fn decode_base64_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'A'..=b'Z' => Some(byte - b'A'),
+        b'a'..=b'z' => Some(byte - b'a' + 26),
+        b'0'..=b'9' => Some(byte - b'0' + 52),
+        b'+' | b'-' => Some(62),
+        b'/' | b'_' => Some(63),
+        _ => None,
+    }
+}
+
 fn is_png(bytes: &[u8]) -> bool {
     bytes.len() >= 16 && read_u32_be(bytes, PNG_SIGNATURE.len()) == 13 && starts_with_ascii(bytes, 12, "IHDR")
 }

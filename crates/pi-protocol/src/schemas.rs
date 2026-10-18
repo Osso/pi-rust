@@ -32,9 +32,9 @@ pub use session_metadata::{SessionMetadata, SessionMetadataError, SessionMetadat
 pub use snapshot::{ServerSnapshot, SessionSnapshot, SessionSnapshotInput};
 pub use transcript::{
     AssistantContent, AssistantStopReason, AssistantTranscriptItem, AssistantTranscriptItemInput,
-    AssistantTranscriptState, FinishedTranscriptItem, ToolCallContent, ToolContent, ToolTranscriptItem,
-    ToolTranscriptItemInput, ToolTranscriptState, TranscriptDeltaKind, TranscriptItem, TranscriptProgress,
-    UpdatedTranscriptItem, UserContent, UserTranscriptItem,
+    AssistantTranscriptOrder, AssistantTranscriptState, FinishedTranscriptItem, ToolCallContent, ToolContent,
+    ToolTranscriptItem, ToolTranscriptItemInput, ToolTranscriptState, TranscriptDeltaKind, TranscriptItem,
+    TranscriptProgress, UpdatedTranscriptItem, UserContent, UserTranscriptItem,
 };
 
 /// Returned when a typed protocol record violates a source schema constraint.

@@ -1,3 +1,12 @@
+pub mod anthropic;
 pub mod device_code;
+pub mod github_copilot;
+pub mod kimi_coding;
+pub mod load;
 pub mod oauth_page;
+pub mod openai_codex;
+pub mod openrouter;
 pub mod pkce;
+pub mod radius;
+pub mod support;
+pub mod xai;

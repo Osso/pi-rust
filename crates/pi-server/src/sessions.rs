@@ -15,11 +15,16 @@ use crate::types::{
     RuntimeSubscription, ServiceError, ServiceResult, SteerInput,
 };
 
+struct BroadcastRequest {
+    result: tokio::sync::oneshot::Sender<ServiceResult<SessionSnapshot>>,
+}
+
 pub(crate) struct LiveSession {
     pub id: String,
     pub runtime: Arc<dyn PiSessionRuntime>,
     pub connections: Mutex<BTreeSet<String>>,
     subscription: Mutex<Option<RuntimeSubscription>>,
+    broadcasts: tokio::sync::mpsc::UnboundedSender<BroadcastRequest>,
     operation_count: AtomicUsize,
     ready: AtomicBool,
     terminal: AtomicBool,
@@ -28,12 +33,17 @@ pub(crate) struct LiveSession {
 }
 
 impl LiveSession {
-    fn new(id: String, runtime: Arc<dyn PiSessionRuntime>) -> Self {
+    fn new(
+        id: String,
+        runtime: Arc<dyn PiSessionRuntime>,
+        broadcasts: tokio::sync::mpsc::UnboundedSender<BroadcastRequest>,
+    ) -> Self {
         Self {
             id,
             runtime,
             connections: Mutex::new(BTreeSet::new()),
             subscription: Mutex::new(None),
+            broadcasts,
             operation_count: AtomicUsize::new(0),
             ready: AtomicBool::new(false),
             terminal: AtomicBool::new(false),
@@ -153,7 +163,7 @@ impl LiveSessionManager {
     }
 
     async fn acquire_and_attach(
-        &self,
+        self: &Arc<Self>,
         connection: &Arc<ConnectionState>,
         session_id: String,
         runtime: BoxFuture<'static, ServiceResult<Arc<dyn PiSessionRuntime>>>,
@@ -217,7 +227,7 @@ impl LiveSessionManager {
     }
 
     async fn acquire(
-        &self,
+        self: &Arc<Self>,
         id: String,
         acquire_runtime: BoxFuture<'static, ServiceResult<Arc<dyn PiSessionRuntime>>>,
     ) -> ServiceResult<Arc<LiveSession>> {
@@ -252,7 +262,11 @@ impl LiveSessionManager {
         }
     }
 
-    async fn create(&self, id: String, runtime: Arc<dyn PiSessionRuntime>) -> ServiceResult<Arc<LiveSession>> {
+    async fn create(
+        self: &Arc<Self>,
+        id: String,
+        runtime: Arc<dyn PiSessionRuntime>,
+    ) -> ServiceResult<Arc<LiveSession>> {
         let Some(core) = self.core.upgrade() else {
             return Err(dropped_error());
         };
@@ -279,7 +293,9 @@ impl LiveSessionManager {
                 None,
             )));
         }
-        let live = Arc::new(LiveSession::new(id.clone(), runtime.clone()));
+        let (broadcasts, receiver) = tokio::sync::mpsc::unbounded_channel();
+        let live = Arc::new(LiveSession::new(id.clone(), runtime.clone(), broadcasts));
+        tokio::spawn(broadcast_loop(Arc::downgrade(self), Arc::downgrade(&live), receiver));
         let core_weak = self.core.clone();
         let live_weak = Arc::downgrade(&live);
         let subscription = runtime.subscribe(Arc::new(move |event| {
@@ -333,8 +349,12 @@ impl LiveSessionManager {
             }
             PiSessionRuntimeEvent::Snapshot => {
                 let manager = self.clone();
+                let (result, completion) = tokio::sync::oneshot::channel();
+                if live.broadcasts.send(BroadcastRequest { result }).is_err() {
+                    return;
+                }
                 tokio::spawn(async move {
-                    if let Err(error) = manager.broadcast_snapshot(&live).await
+                    if let Ok(Err(error)) = completion.await
                         && let Some(core) = manager.core.upgrade()
                     {
                         core.report_error(error.as_ref());
@@ -395,7 +415,22 @@ impl LiveSessionManager {
         ))
     }
 
+    /// Enqueues a snapshot broadcast behind earlier broadcasts for this session, matching the
+    /// TypeScript runtime event order.
     async fn broadcast_snapshot(&self, live: &Arc<LiveSession>) -> ServiceResult<SessionSnapshot> {
+        let (result, completion) = tokio::sync::oneshot::channel();
+        live.broadcasts
+            .send(BroadcastRequest { result })
+            .map_err(|_| Box::new(PiServerError::session_not_found("Session runtime is gone", None)) as ServiceError)?;
+        completion.await.unwrap_or_else(|_| {
+            Err(Box::new(PiServerError::session_not_found(
+                "Session runtime is gone",
+                None,
+            )))
+        })
+    }
+
+    async fn broadcast_snapshot_now(&self, live: &Arc<LiveSession>) -> ServiceResult<SessionSnapshot> {
         let snapshot = self.normalized_snapshot(live).await?;
         let envelope = EventEnvelope::new(ServerEvent::SessionSnapshot(snapshot.clone()));
         if let Some(core) = self.core.upgrade() {
@@ -679,6 +714,20 @@ fn merge_metadata(stored: &SessionMetadata, snapshot: &SessionSnapshot) -> Sessi
 
 fn dropped_error() -> ServiceError {
     Box::new(std::io::Error::other("PiServer was dropped"))
+}
+
+async fn broadcast_loop(
+    manager: Weak<LiveSessionManager>,
+    live: Weak<LiveSession>,
+    mut requests: tokio::sync::mpsc::UnboundedReceiver<BroadcastRequest>,
+) {
+    while let Some(request) = requests.recv().await {
+        let result = match (manager.upgrade(), live.upgrade()) {
+            (Some(manager), Some(live)) => manager.broadcast_snapshot_now(&live).await,
+            _ => Err(Box::new(PiServerError::session_not_found("Session runtime is gone", None)) as ServiceError),
+        };
+        let _ = request.result.send(result);
+    }
 }
 
 async fn dispose_runtime(core: &Arc<ServerCore>, runtime: &dyn PiSessionRuntime) {

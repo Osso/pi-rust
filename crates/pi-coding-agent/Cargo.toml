@@ -12,8 +12,10 @@ publish = false
 pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }
 # Supplies the shared HTTP `Fetch` contract and default client.
 pi-ai = { version = "=0.0.0", path = "../pi-ai" }
+# Supplies the TUI keybinding registry that coding-agent extends.
+pi-tui = { version = "=0.0.0", path = "../pi-tui" }
 serde = { version = "=1.0.229", features = ["derive"] }
-serde_json = "=1.0.151"
+serde_json = { version = "=1.0.151", features = ["preserve_order"] }
 regex = "=1.13.1"
 gethostname = "=1.1.0"
 serde_yaml_ng = "=0.10.0"
@@ -26,6 +28,34 @@ notify = "=8.2.0"
 fancy-regex = "=0.16.2"
 # Applies the NFD normalization used for macOS filename variants in `core::tools::path_utils`.
 icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
+# Same photon-rs release and transitive `image` stack as the WASM build behind @silvia-odwyer/photon-node 0.3.4.
+photon-rs = { version = "=0.3.3", default-features = false }
+# Fallible decode/encode calls that photon-rs only exposes as panicking wrappers.
+# Codec features mirror photon-rs so decode support matches the WASM build.
+image = { version = "=0.24.9", default-features = false, features = [
+    "bmp",
+    "dds",
+    "dxt",
+    "farbfeld",
+    "gif",
+    "hdr",
+    "ico",
+    "jpeg",
+    "png",
+    "pnm",
+    "tga",
+    "tiff",
+    "webp",
+] }
+# The clipboard-rs release vendored by @mariozechner/clipboard 0.3.9.
+clipboard-rs = "=0.3.4"
+# Filesystem access checks (`W_OK`) and process signals, matching Node `fs.accessSync` / `process.kill`.
+rustix = { version = "=1.1.5", features = ["fs", "process"] }
+# Parses the catalog response `Last-Modified` header (Node `Date.parse`).
+httpdate = "=1.0.3"
+jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-system"] }
+icu_collator = { version = "=2.3.1", features = ["compiled_data"] }
+icu_locale_core = "=2.3.0"
 
 [dev-dependencies]
 tempfile = "=3.27.0"

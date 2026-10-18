@@ -1,87 +1,37 @@
 #[path = "support/oracle.rs"]
 mod oracle;
+#[path = "support/wire.rs"]
+mod wire;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use pi_protocol::{
-    AttachCommand, CborValue, ClientHello, ClientMessage, Command, CreateCommand, CreateCommandInput, DetachCommand,
-    FrameDecoder, ListCommand, PROTOCOL_VERSION, RequestEnvelope, SetThinkingCommand, ThinkingLevel,
-    encode_client_message,
+    AssistantContent, AssistantTranscriptItem, AssistantTranscriptState, AttachCommand, ClientHello, ClientMessage,
+    Command, CreateCommand, CreateCommandInput, DetachCommand, FrameDecoder, JsonValue, ListCommand, PROTOCOL_VERSION,
+    PromptCommand, RequestEnvelope, SetThinkingCommand, SteerCommand, TextContent, ThinkingLevel, ToolContent,
+    ToolTranscriptItem, ToolTranscriptState, TranscriptDeltaKind, TranscriptItem, TranscriptProgress, Usage, UsageCost,
+    UsageInput, encode_client_message,
 };
 use pi_server::testing::TestServerService;
 use pi_server::transports::unix::{UnixServerOptions, create_unix_server};
-use serde_json::json;
+use pi_server::types::PiSessionRuntime;
+use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
 const SETTLE_MS: u64 = 150;
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+enum RuntimeAction {
+    FinishPrompt,
+    Abort,
+    EmitSnapshot,
+    EmitProgress(Box<TranscriptProgress>),
 }
 
-fn decode_hex(value: &str) -> Vec<u8> {
-    (0..value.len())
-        .step_by(2)
-        .map(|index| u8::from_str_radix(&value[index..index + 2], 16).expect("hex digits"))
-        .collect()
-}
-
-fn is_uuid(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    if bytes.len() != 36 {
-        return false;
-    }
-    for (index, byte) in bytes.iter().enumerate() {
-        match index {
-            8 | 13 | 18 | 23 => {
-                if *byte != b'-' {
-                    return false;
-                }
-            }
-            _ => {
-                if !byte.is_ascii_hexdigit() {
-                    return false;
-                }
-            }
-        }
-    }
-    true
-}
-
-fn normalize_value(value: &CborValue, key: Option<&str>) -> CborValue {
-    match value {
-        CborValue::Text(text) => {
-            if key == Some("connectionId") {
-                CborValue::Text("<connection>".into())
-            } else if is_uuid(text) {
-                CborValue::Text("<uuid>".into())
-            } else {
-                CborValue::Text(text.clone())
-            }
-        }
-        CborValue::Array(values) => CborValue::Array(values.iter().map(|value| normalize_value(value, None)).collect()),
-        CborValue::Map(entries) => {
-            let mut entries: Vec<(String, CborValue)> = entries
-                .iter()
-                .map(|(entry_key, entry)| (entry_key.clone(), normalize_value(entry, Some(entry_key))))
-                .collect();
-            entries.sort_by(|left, right| left.0.cmp(&right.0));
-            CborValue::Map(entries)
-        }
-        value => value.clone(),
-    }
-}
-
-fn canonical_payload(payload: &[u8]) -> String {
-    let value = pi_protocol::decode_cbor(payload, None).expect("payload must decode");
-    hex(&pi_protocol::encode_cbor(&normalize_value(&value, None), None).expect("canonical payload"))
-}
-
-fn canonical_frame(frame_hex: &str) -> String {
-    let frame = decode_hex(frame_hex);
-    canonical_payload(&frame[4..])
+enum Step {
+    Send(Vec<u8>),
+    Runtime { id: &'static str, action: RuntimeAction },
 }
 
 fn command_frame(command: Command) -> Vec<u8> {
@@ -89,28 +39,303 @@ fn command_frame(command: Command) -> Vec<u8> {
     encode_client_message(&ClientMessage::Request(envelope), None).expect("client frame")
 }
 
-fn scripted_frames() -> Vec<Vec<u8>> {
+fn hello_frame() -> Vec<u8> {
+    encode_client_message(&ClientMessage::Hello(ClientHello::new(PROTOCOL_VERSION)), None).expect("hello frame")
+}
+
+fn usage() -> Usage {
+    Usage::new(UsageInput {
+        input: 1,
+        output: 2,
+        cache_read: 3,
+        cache_write: 4,
+        reasoning: Some(5),
+        total_tokens: 15,
+        cost: UsageCost::new(0.1, 0.2, 0.3, 0.4, 1.0).expect("usage cost"),
+    })
+}
+
+fn usage_json() -> Value {
+    json!({
+        "input": 1,
+        "output": 2,
+        "cacheRead": 3,
+        "cacheWrite": 4,
+        "reasoning": 5,
+        "totalTokens": 15,
+        "cost": { "input": 0.1, "output": 0.2, "cacheRead": 0.3, "cacheWrite": 0.4, "total": 1 }
+    })
+}
+
+fn model_ref() -> pi_protocol::ModelRef {
+    pi_protocol::ModelRef::new("test".into(), "small".into()).expect("test model reference")
+}
+
+fn assistant_item(state: AssistantTranscriptState, content: &str) -> AssistantTranscriptItem {
+    AssistantTranscriptItem::new(pi_protocol::AssistantTranscriptItemInput {
+        id: "assistant-progress".into(),
+        content: vec![AssistantContent::Text(TextContent::new(content.into()))],
+        model: model_ref(),
+        response_model: None,
+        usage: None,
+        timestamp: 7,
+        state,
+    })
+    .expect("assistant progress item")
+}
+
+fn tool_item(state: ToolTranscriptState, details: Option<JsonValue>, usage: Option<Usage>) -> ToolTranscriptItem {
+    ToolTranscriptItem::new(pi_protocol::ToolTranscriptItemInput {
+        id: "tool-progress".into(),
+        tool_call_id: "call-progress".into(),
+        tool_name: "read".into(),
+        input: JsonValue::Object(vec![("path".into(), JsonValue::String("README.md".into()))]),
+        content: vec![ToolContent::Text(TextContent::new("result".into()))],
+        details,
+        usage,
+        timestamp: 8,
+        state,
+    })
+    .expect("tool progress item")
+}
+
+fn progress_steps() -> Vec<Step> {
+    let streaming = assistant_item(AssistantTranscriptState::Streaming, "hello");
+    let error = assistant_item(
+        AssistantTranscriptState::Error {
+            error_message: Some("boom".into()),
+        },
+        "",
+    );
+    let aborted = assistant_item(AssistantTranscriptState::Aborted { error_message: None }, "");
+    let running = tool_item(ToolTranscriptState::Running, None, None);
+    let complete = tool_item(
+        ToolTranscriptState::Complete,
+        Some(JsonValue::Object(vec![("lines".into(), JsonValue::Number(2.0))])),
+        Some(usage()),
+    );
+    let failed = tool_item(ToolTranscriptState::Error, None, None);
+    let session = "session-1";
+    let progress = |progress: TranscriptProgress| Step::Runtime {
+        id: session,
+        action: RuntimeAction::EmitProgress(Box::new(progress)),
+    };
     vec![
-        encode_client_message(&ClientMessage::Hello(ClientHello::new(PROTOCOL_VERSION)), None).expect("hello frame"),
-        command_frame(Command::List(ListCommand::new())),
-        command_frame(Command::Attach(AttachCommand::new("session-1".into()).expect("attach"))),
-        command_frame(Command::SetThinking(
-            SetThinkingCommand::new("session-1".into(), ThinkingLevel::Medium).expect("set thinking"),
-        )),
-        command_frame(Command::Detach(DetachCommand::new("session-1".into()).expect("detach"))),
-        command_frame(Command::Create(
-            CreateCommand::new(CreateCommandInput {
-                cwd: None,
-                name: Some("Created".into()),
-                model: None,
-                thinking_level: None,
-            })
-            .expect("create"),
-        )),
-        command_frame(Command::List(ListCommand::new())),
-        command_frame(Command::Attach(AttachCommand::new("session-2".into()).expect("attach"))),
-        command_frame(Command::Detach(DetachCommand::new("session-2".into()).expect("detach"))),
+        progress(TranscriptProgress::item_started(TranscriptItem::Assistant(streaming))),
+        progress(
+            TranscriptProgress::assistant_delta(
+                "assistant-progress".into(),
+                0,
+                TranscriptDeltaKind::Text,
+                "hello".into(),
+            )
+            .expect("assistant delta"),
+        ),
+        progress(TranscriptProgress::item_updated(TranscriptItem::Tool(running)).expect("running tool update")),
+        progress(TranscriptProgress::item_finished(TranscriptItem::Tool(complete)).expect("complete tool")),
+        progress(TranscriptProgress::item_finished(TranscriptItem::Tool(failed)).expect("failed tool")),
+        progress(TranscriptProgress::item_finished(TranscriptItem::Assistant(error)).expect("error assistant")),
+        progress(TranscriptProgress::item_finished(TranscriptItem::Assistant(aborted)).expect("aborted assistant")),
+        Step::Runtime {
+            id: session,
+            action: RuntimeAction::EmitSnapshot,
+        },
     ]
+}
+
+fn progress_json_steps() -> Vec<Value> {
+    vec![
+        json!({ "runtime": { "id": "session-1", "action": "emitProgress", "progress": {
+            "type": "item_started",
+            "item": {
+                "id": "assistant-progress",
+                "role": "assistant",
+                "content": [{ "type": "text", "text": "hello" }],
+                "model": { "provider": "test", "id": "small" },
+                "timestamp": 7,
+                "status": "streaming"
+            }
+        }}}),
+        json!({ "runtime": { "id": "session-1", "action": "emitProgress", "progress": {
+            "type": "assistant_delta",
+            "messageId": "assistant-progress",
+            "contentIndex": 0,
+            "kind": "text",
+            "delta": "hello"
+        }}}),
+        json!({ "runtime": { "id": "session-1", "action": "emitProgress", "progress": {
+            "type": "item_updated",
+            "item": {
+                "id": "tool-progress",
+                "role": "tool",
+                "toolCallId": "call-progress",
+                "toolName": "read",
+                "input": { "path": "README.md" },
+                "content": [{ "type": "text", "text": "result" }],
+                "timestamp": 8,
+                "status": "running",
+                "isError": false
+            }
+        }}}),
+        json!({ "runtime": { "id": "session-1", "action": "emitProgress", "progress": {
+            "type": "item_finished",
+            "item": {
+                "id": "tool-progress",
+                "role": "tool",
+                "toolCallId": "call-progress",
+                "toolName": "read",
+                "input": { "path": "README.md" },
+                "content": [{ "type": "text", "text": "result" }],
+                "details": { "lines": 2 },
+                "usage": usage_json(),
+                "timestamp": 8,
+                "status": "complete",
+                "isError": false
+            }
+        }}}),
+        json!({ "runtime": { "id": "session-1", "action": "emitProgress", "progress": {
+            "type": "item_finished",
+            "item": {
+                "id": "tool-progress",
+                "role": "tool",
+                "toolCallId": "call-progress",
+                "toolName": "read",
+                "input": { "path": "README.md" },
+                "content": [{ "type": "text", "text": "result" }],
+                "timestamp": 8,
+                "status": "error",
+                "isError": true
+            }
+        }}}),
+        json!({ "runtime": { "id": "session-1", "action": "emitProgress", "progress": {
+            "type": "item_finished",
+            "item": {
+                "id": "assistant-progress",
+                "role": "assistant",
+                "content": [{ "type": "text", "text": "" }],
+                "model": { "provider": "test", "id": "small" },
+                "timestamp": 7,
+                "status": "error",
+                "stopReason": "error",
+                "errorMessage": "boom"
+            }
+        }}}),
+        json!({ "runtime": { "id": "session-1", "action": "emitProgress", "progress": {
+            "type": "item_finished",
+            "item": {
+                "id": "assistant-progress",
+                "role": "assistant",
+                "content": [{ "type": "text", "text": "" }],
+                "model": { "provider": "test", "id": "small" },
+                "timestamp": 7,
+                "status": "aborted",
+                "stopReason": "aborted"
+            }
+        }}}),
+        json!({ "runtime": { "id": "session-1", "action": "emitSnapshot" } }),
+    ]
+}
+
+fn scripted_steps() -> (Vec<Step>, Vec<Value>) {
+    let mut steps = vec![
+        Step::Send(hello_frame()),
+        Step::Send(command_frame(Command::List(ListCommand::new()))),
+        Step::Send(command_frame(Command::Attach(
+            AttachCommand::new("session-1".into()).expect("attach"),
+        ))),
+        Step::Send(command_frame(Command::SetThinking(
+            SetThinkingCommand::new("session-1".into(), ThinkingLevel::Medium).expect("set thinking"),
+        ))),
+        Step::Send(command_frame(Command::Prompt(
+            PromptCommand::new("session-1".into(), "hello".into()).expect("prompt"),
+        ))),
+    ];
+    let mut oracle_steps = vec![
+        json!({ "sendHex": wire::hex(&hello_frame()) }),
+        json!({ "sendHex": wire::hex(&command_frame(Command::List(ListCommand::new()))) }),
+        json!({ "sendHex": wire::hex(&command_frame(Command::Attach(
+            AttachCommand::new("session-1".into()).expect("attach")
+        ))) }),
+        json!({ "sendHex": wire::hex(&command_frame(Command::SetThinking(
+            SetThinkingCommand::new("session-1".into(), ThinkingLevel::Medium).expect("set thinking")
+        ))) }),
+        json!({ "sendHex": wire::hex(&command_frame(Command::Prompt(
+            PromptCommand::new("session-1".into(), "hello".into()).expect("prompt")
+        ))) }),
+    ];
+    steps.extend(progress_steps());
+    oracle_steps.extend(progress_json_steps());
+    steps.push(Step::Runtime {
+        id: "session-1",
+        action: RuntimeAction::FinishPrompt,
+    });
+    oracle_steps.push(json!({ "runtime": { "id": "session-1", "action": "finishPrompt" } }));
+    steps.push(Step::Send(command_frame(Command::Prompt(
+        PromptCommand::new("session-1".into(), "second".into()).expect("prompt"),
+    ))));
+    oracle_steps.push(json!({ "sendHex": wire::hex(&command_frame(Command::Prompt(
+        PromptCommand::new("session-1".into(), "second".into()).expect("prompt")
+    ))) }));
+    steps.push(Step::Send(command_frame(Command::Steer(
+        SteerCommand::new("session-1".into(), "adjust".into()).expect("steer"),
+    ))));
+    oracle_steps.push(json!({ "sendHex": wire::hex(&command_frame(Command::Steer(
+        SteerCommand::new("session-1".into(), "adjust".into()).expect("steer")
+    ))) }));
+    steps.push(Step::Runtime {
+        id: "session-1",
+        action: RuntimeAction::Abort,
+    });
+    oracle_steps.push(json!({ "runtime": { "id": "session-1", "action": "abort" } }));
+    steps.push(Step::Send(command_frame(Command::Detach(
+        DetachCommand::new("session-1".into()).expect("detach"),
+    ))));
+    oracle_steps.push(json!({ "sendHex": wire::hex(&command_frame(Command::Detach(
+        DetachCommand::new("session-1".into()).expect("detach")
+    ))) }));
+    steps.push(Step::Send(command_frame(Command::Create(
+        CreateCommand::new(CreateCommandInput {
+            cwd: None,
+            name: Some("Created".into()),
+            model: None,
+            thinking_level: None,
+        })
+        .expect("create"),
+    ))));
+    oracle_steps.push(json!({ "sendHex": wire::hex(&command_frame(Command::Create(
+        CreateCommand::new(CreateCommandInput {
+            cwd: None,
+            name: Some("Created".into()),
+            model: None,
+            thinking_level: None,
+        })
+        .expect("create")
+    ))) }));
+    steps.push(Step::Send(command_frame(Command::List(ListCommand::new()))));
+    oracle_steps.push(json!({ "sendHex": wire::hex(&command_frame(Command::List(ListCommand::new()))) }));
+    steps.push(Step::Send(command_frame(Command::Attach(
+        AttachCommand::new("session-2".into()).expect("attach"),
+    ))));
+    oracle_steps.push(json!({ "sendHex": wire::hex(&command_frame(Command::Attach(
+        AttachCommand::new("session-2".into()).expect("attach")
+    ))) }));
+    steps.push(Step::Send(command_frame(Command::Detach(
+        DetachCommand::new("session-2".into()).expect("detach"),
+    ))));
+    oracle_steps.push(json!({ "sendHex": wire::hex(&command_frame(Command::Detach(
+        DetachCommand::new("session-2".into()).expect("detach")
+    ))) }));
+    steps.push(Step::Send(command_frame(Command::Attach(
+        AttachCommand::new("missing-session".into()).expect("attach"),
+    ))));
+    oracle_steps.push(json!({ "sendHex": wire::hex(&command_frame(Command::Attach(
+        AttachCommand::new("missing-session".into()).expect("attach")
+    ))) }));
+    let unsupported_hello = encode_client_message(&ClientMessage::Hello(ClientHello::new(PROTOCOL_VERSION + 1)), None)
+        .expect("unsupported hello frame");
+    steps.push(Step::Send(unsupported_hello.clone()));
+    oracle_steps.push(json!({ "sendHex": wire::hex(&unsupported_hello) }));
+    (steps, oracle_steps)
 }
 
 async fn settle(frames: &Arc<Mutex<Vec<Vec<u8>>>>, index: usize) -> Vec<Vec<u8>> {
@@ -130,6 +355,16 @@ async fn settle(frames: &Arc<Mutex<Vec<Vec<u8>>>>, index: usize) -> Vec<Vec<u8>>
     }
 }
 
+async fn run_runtime_action(service: &TestServerService, id: &str, action: RuntimeAction) {
+    let runtime = service.latest_runtime(id);
+    match action {
+        RuntimeAction::FinishPrompt => runtime.finish_prompt(),
+        RuntimeAction::Abort => runtime.abort().await.expect("runtime abort"),
+        RuntimeAction::EmitSnapshot => runtime.emit_snapshot(),
+        RuntimeAction::EmitProgress(progress) => runtime.emit_progress(*progress),
+    }
+}
+
 #[tokio::test]
 async fn scripted_client_streams_produce_identical_server_frames() {
     let directory = tempfile::tempdir().expect("temporary directory");
@@ -139,7 +374,7 @@ async fn scripted_client_streams_produce_identical_server_frames() {
     service.seed("session-2");
     let server = Arc::new(
         create_unix_server(
-            service,
+            service.clone(),
             UnixServerOptions {
                 path: path.clone(),
                 server_id: Some("server-1".into()),
@@ -170,16 +405,16 @@ async fn scripted_client_streams_produce_identical_server_frames() {
         }
     });
 
+    let (steps, oracle_steps) = scripted_steps();
     let mut rust_steps: Vec<Vec<String>> = Vec::new();
-    let mut oracle_steps = Vec::new();
-    for frame in scripted_frames() {
+    for step in steps {
         let index = frames.lock().expect("frames mutex").len();
-        writer.write_all(&frame).await.expect("client frame must send");
+        match step {
+            Step::Send(frame) => writer.write_all(&frame).await.expect("client frame must send"),
+            Step::Runtime { id, action } => run_runtime_action(&service, id, action).await,
+        }
         let step_frames = settle(&frames, index).await;
-        let mut canonical: Vec<String> = step_frames.iter().map(|payload| canonical_payload(payload)).collect();
-        canonical.sort();
-        rust_steps.push(canonical);
-        oracle_steps.push(json!({ "sendHex": hex(&frame) }));
+        rust_steps.push(step_frames.iter().map(|frame| wire::frame_hex(frame)).collect());
     }
 
     let mut ts_oracle = oracle::TsOracle::spawn(
@@ -196,13 +431,12 @@ async fn scripted_client_streams_produce_identical_server_frames() {
     let ts_steps = response["output"]["steps"].as_array().expect("steps array");
     assert_eq!(ts_steps.len(), rust_steps.len());
     for (index, (rust, ts)) in rust_steps.iter().zip(ts_steps).enumerate() {
-        let mut ts_frames: Vec<String> = ts
+        let ts_frames: Vec<String> = ts
             .as_array()
             .expect("frame array")
             .iter()
-            .map(|frame| canonical_frame(frame.as_str().expect("frame hex")))
+            .map(|frame| wire::frame_hex(&wire::decode_hex(frame.as_str().expect("frame hex"))))
             .collect();
-        ts_frames.sort();
         assert_eq!(&ts_frames, rust, "step {index} differs");
     }
 

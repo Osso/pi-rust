@@ -47,17 +47,17 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/sanitize-unicode.ts` | 25 | 0 | done | `crates/pi-ai/src/utils/sanitize_unicode.rs` | Surrogate repair over UTF-16 units plus typed identity API; differential. |
 | `ai/src/utils/typebox-helpers.ts` | 24 | 0 | done | `crates/pi-ai/src/utils/typebox_helpers.rs` | `StringEnum` builder plus explicit TypeBox-origin newtype ([traceability](traceability/typebox-helpers.md)). |
 | `ai/src/utils/uuid.ts` | 48 | 0 | done | `crates/pi-ai/src/utils/uuid.rs` | RFC 9562 UUIDv7 with monotonic sequence; TS vectors + structural differential. |
-| `ai/src/api/anthropic-messages.ts` | 1366 | 1 | todo |  |  |
+| `ai/src/api/anthropic-messages.ts` | 1366 | 1 | done | `crates/pi-ai/src/api/anthropic_messages.rs` + `api/anthropic_sdk.rs` | Messages conversion, SDK request construction (URL/headers/body/status errors/retry), SSE state machine, thinking/cache/tool compat; 27 behavioral tests + 41 recorded-fixture differential scenarios. |
 | `ai/src/api/azure-openai-responses.ts` | 330 | 1 | done | `crates/pi-ai/src/api/azure_openai_responses.rs` | Deployment/env/base-URL resolution, api-key auth, strict tools, reasoning; 9 recorded-fetch differential scenarios. |
-| `ai/src/api/bedrock-converse-stream.ts` | 1190 | 1 | todo |  |  |
+| `ai/src/api/bedrock-converse-stream.ts` | 1190 | 1 | done | `crates/pi-ai/src/api/bedrock_converse_stream.rs` | Full stream/streamSimple, SigV4, event-stream framing, credential/profile chain, retries, custom headers; 16 behavioral + 18-scenario differential oracle |
 | `ai/src/api/constrained-sampling.ts` | 277 | 1 | done | `crates/pi-ai/src/api/constrained_sampling.rs` | Strict-schema conversion, grammar sampling, append-only JSON deltas; differential 47 requests. |
 | `ai/src/api/github-copilot-headers.ts` | 37 | 1 | done | `crates/pi-ai/src/api/github_copilot_headers.rs` | Initiator/vision/header builders; differential 16 requests. |
-| `ai/src/api/google-generative-ai.ts` | 521 | 1 | todo |  |  |
-| `ai/src/api/google-shared.ts` | 419 | 1 | todo |  |  |
-| `ai/src/api/google-vertex.ts` | 596 | 1 | todo |  |  |
+| `ai/src/api/google-generative-ai.ts` | 521 | 1 | done | `crates/pi-ai/src/api/google_generative_ai.rs` | stream/streamSimple, thinking config, tool/stop handling, private `@google/genai` stand-in; 45 differential scenarios + behavioral tests. |
+| `ai/src/api/google-shared.ts` | 419 | 1 | done | `crates/pi-ai/src/api/google_shared.rs` | Message/tool conversion, thought signatures, stop reasons, Google retry policy; 30 ported tests + differential request bodies. |
+| `ai/src/api/google-vertex.ts` | 596 | 1 | done | `crates/pi-ai/src/api/google_vertex.rs` | stream/streamSimple, Vertex URL/project/location rules, API-key vs ADC, service-account JWT + authorized-user token exchange; 21 differential scenarios + behavioral tests. |
 | `ai/src/api/lazy.ts` | 98 | 1 | done | `crates/pi-ai/src/api/lazy.rs` | lazy stream/api, setup errors, declared deferred capabilities; differential setup-error |
 | `ai/src/api/mistral-conversations.ts` | 931 | 1 | done | `crates/pi-ai/src/api/mistral_conversations.rs` | Native chat stream, wire remapping, SSE, reasoning modes, tool-call ID hashing; differential 43 scenarios (requests, events, messages). |
-| `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | todo |  |  |
+| `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | done | `crates/pi-ai/src/api/openai_codex_responses.rs` | SSE/WebSocket transports, zstd bodies, retries, cached continuation, session cache, debug stats; 31 behavioral + 5 differential suites (SSE events/requests, cached WS, idle, connect timeout). |
 | `ai/src/api/openai-completions.ts` | 1577 | 1 | done | `crates/pi-ai/src/api/openai_completions.rs` | Compat detection, message/tool conversion, all thinking formats, cache control, routing; 9 behavioral + 35 recorded-fetch differential scenarios. |
 | `ai/src/api/openai-responses-shared.ts` | 983 | 1 | done | `crates/pi-ai/src/api/openai_responses_shared.rs` | Message/tool conversion, citation normalization, Responses SSE state machine; 19 behavioral + 31 differential scenarios. |
 | `ai/src/api/openai-responses.ts` | 372 | 1 | done | `crates/pi-ai/src/api/openai_responses.rs` | Params, compat, cache/session affinity, service-tier pricing; 20 recorded-fetch differential scenarios. |
@@ -75,136 +75,136 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/estimate.ts` | 143 | 1 | done | `crates/pi-ai/src/utils/estimate.rs` | Context/message/tool estimation, UTF-16 lengths, added-tool accounting; differential 10 requests. |
 | `ai/src/utils/event-stream.ts` | 110 | 1 | done | `pi-ai/src/utils/event_stream.rs` | differential |
 | `ai/src/utils/headers.ts` | 18 | 1 | done | `crates/pi-ai/src/utils/headers.rs` | `Headers.entries()` normalization and provider header filtering; differential 7 requests. |
-| `ai/src/utils/node-http-proxy.ts` | 112 | 1 | todo |  |  |
+| `ai/src/utils/node-http-proxy.ts` | 112 | 1 | done | `crates/pi-ai/src/utils/node_http_proxy.rs` | Proxy selection plus `Fetch` wrapper; differential over target/env matrix (see traceability). |
 | `ai/src/utils/provider-env.ts` | 52 | 1 | partial | `crates/pi-ai/src/utils/provider_env.rs` | Scoped → process env precedence; Bun `/proc/self/environ` fallback not applicable to native Rust (see traceability). |
-| `ai/src/api/anthropic-messages.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/anthropic-messages.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/anthropic_messages_lazy.rs` | Lazy loader with no deferred capabilities; behavioral test. |
 | `ai/src/api/azure-openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/azure_openai_responses.rs` | `azure_open_ai_responses_api()` lazy adapter. |
-| `ai/src/api/bedrock-converse-stream.lazy.ts` | 30 | 2 | todo |  |  |
+| `ai/src/api/bedrock-converse-stream.lazy.ts` | 30 | 2 | done | `crates/pi-ai/src/bedrock_provider.rs` | `bedrock_converse_stream_api` + override seam; lazy test |
 | `ai/src/api/cloudflare-gateway-binding.ts` | 192 | 2 | done | `crates/pi-ai/src/api/cloudflare_gateway_binding.rs` | Workers AI binding transport: prefix normalization, provider/endpoint split, header stripping, signal passthrough; differential 11 scenarios. |
-| `ai/src/api/google-generative-ai.lazy.ts` | 4 | 2 | todo |  |  |
-| `ai/src/api/google-vertex.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/google-generative-ai.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/google_generative_ai.rs` | `google_generative_ai_api()` lazy wrapper. |
+| `ai/src/api/google-vertex.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/google_vertex.rs` | `google_vertex_api()` lazy wrapper. |
 | `ai/src/api/mistral-conversations.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/mistral_conversations.rs` | `mistral_conversations_api()` wraps `MistralConversationsApi` in `LazyApi`. |
-| `ai/src/api/openai-codex-responses.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/openai-codex-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_codex_responses.rs` | `openai_codex_responses_api()` lazy adapter. |
 | `ai/src/api/openai-completions.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_completions.rs` | `open_ai_completions_api()` lazy adapter. |
 | `ai/src/api/openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_responses.rs` | `open_ai_responses_api()` lazy adapter. |
-| `ai/src/api/openrouter-images.ts` | 196 | 2 | todo |  |  |
+| `ai/src/api/openrouter-images.ts` | 196 | 2 | done | `crates/pi-ai/src/api/openrouter_images.rs` | Request building, usage/image parsing, SDK error mapping, timeout; recorded-fixture differential (see traceability). |
 | `ai/src/api/pi-messages.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/pi_messages.rs` | `pi_messages_api()` wraps `PiMessagesApi` in `LazyApi`. |
 | `ai/src/auth/helpers.ts` | 59 | 2 | done | `crates/pi-ai/src/auth/helpers.rs` | env api-key auth and lazy OAuth loading |
-| `ai/src/auth/oauth/anthropic.ts` | 364 | 2 | todo |  |  |
-| `ai/src/auth/oauth/kimi-coding.ts` | 310 | 2 | todo |  |  |
-| `ai/src/auth/oauth/load.ts` | 68 | 2 | todo |  |  |
-| `ai/src/auth/oauth/openai-codex.ts` | 544 | 2 | todo |  |  |
-| `ai/src/auth/oauth/openrouter.ts` | 311 | 2 | todo |  |  |
-| `ai/src/auth/oauth/xai.ts` | 239 | 2 | todo |  |  |
-| `ai/src/bedrock-provider.ts` | 6 | 2 | todo |  |  |
-| `ai/src/compat/extension-oauth-types.ts` | 45 | 2 | todo |  |  |
-| `ai/src/env-api-keys.ts` | 187 | 2 | todo |  |  |
-| `ai/src/image-models.generated.ts` | 639 | 2 | todo |  |  |
-| `ai/src/images-api-registry.ts` | 53 | 2 | todo |  |  |
-| `ai/src/images-models.ts` | 275 | 2 | todo |  |  |
+| `ai/src/auth/oauth/anthropic.ts` | 364 | 2 | done | `crates/pi-ai/src/auth/oauth/anthropic.rs` | manual-code/callback race, localhost:53692 server, JSON exchange, refresh skew; differential manual + callback + refresh. |
+| `ai/src/auth/oauth/kimi-coding.ts` | 310 | 2 | done | `crates/pi-ai/src/auth/oauth/kimi_coding.rs` | RFC 8628 device flow, host overrides, retry/unauthorized refresh; differential device + refresh. |
+| `ai/src/auth/oauth/load.ts` | 68 | 2 | done | `crates/pi-ai/src/auth/oauth/load.rs` | Bundled-loader registry with direct-construction fallback; github-copilot fallback gap. |
+| `ai/src/auth/oauth/openai-codex.ts` | 544 | 2 | done | `crates/pi-ai/src/auth/oauth/openai_codex.rs` | select prompt, device grant, localhost:1455 callback, JWT accountId, form exchange/refresh; differential device + refresh. |
+| `ai/src/auth/oauth/openrouter.ts` | 311 | 2 | done | `crates/pi-ai/src/auth/oauth/openrouter.rs` | ephemeral PKCE callback, one-shot claim, key exchange, manual code, identity refresh; differential manual + callback. |
+| `ai/src/auth/oauth/xai.ts` | 239 | 2 | done | `crates/pi-ai/src/auth/oauth/xai.rs` | https-only verification URIs, device polling, refresh-token preservation, one-hour default; differential device + refresh. |
+| `ai/src/bedrock-provider.ts` | 6 | 2 | done | `crates/pi-ai/src/bedrock_provider.rs` | `bedrock_provider_module`; provider module test |
+| `ai/src/compat/extension-oauth-types.ts` | 45 | 2 | done | `crates/pi-ai/src/compat/extension_oauth_types.rs` | Type-only extension callback surface and credential alias. |
+| `ai/src/env-api-keys.ts` | 187 | 2 | done | `crates/pi-ai/src/env_api_keys.rs` | Provider env map, Anthropic token exclusion, Vertex ADC cache, and Bedrock ambient sources; differential over provider/env matrix (see traceability). |
+| `ai/src/image-models.generated.ts` | 639 | 2 | done | `crates/pi-ai/data/image-models.json`, `crates/pi-ai/src/image_models_generated.rs` | Embedded TS-generated JSON with identical values and order; differential full catalog. |
+| `ai/src/images-api-registry.ts` | 53 | 2 | done | `crates/pi-ai/src/images_api_registry.rs` | API registration/lookup and api-mismatch wrapper; `sourceId` excluded as unobservable (see traceability). |
+| `ai/src/images-models.ts` | 275 | 2 | done | `crates/pi-ai/src/images_models.rs` | Providers, auth merge, dynamic refresh with in-flight dedupe; differential for registry/auth merge. `builtinImagesModels` gap tracked under providers/all. |
 | `ai/src/model-catalog.ts` | 27 | 2 | done | `crates/pi-ai/src/model_catalog.rs` | Group flattening; `provider` parameter is type-only; differential 4 requests. |
 | `ai/src/model-types.ts` | 273 | 2 | done | `crates/pi-ai/src/types.rs` | Type-only module; all interfaces mapped to existing `types.rs` items, no new code. |
-| `ai/src/providers/cloudflare-auth.ts` | 103 | 2 | todo |  |  |
-| `ai/src/providers/cloudflare-stream.ts` | 28 | 2 | todo |  |  |
+| `ai/src/providers/cloudflare-auth.ts` | 103 | 2 | done | `crates/pi-ai/src/providers/cloudflare_auth.rs` | Per-field credential/env merge, workers vs gateway headers; differential auth + login flows. |
+| `ai/src/providers/cloudflare-stream.ts` | 28 | 2 | done | `crates/pi-ai/src/providers/cloudflare_stream.rs` | Endpoint placeholder materialization; behavioral + differential. |
 | `ai/src/providers/faux.ts` | 708 | 2 | done | `crates/pi-ai/src/providers/faux.rs` | deterministic faux streams, usage/cache estimation, abort, deferred; differential fixed-chunk scenarios |
-| `ai/src/providers/radius-config.ts` | 96 | 2 | todo |  |  |
+| `ai/src/providers/radius-config.ts` | 96 | 2 | done | `crates/pi-ai/src/providers/radius_config.rs` | URL normalization, config sanitization, model projection, bearer config load; differential. |
 | `ai/src/utils/overflow.ts` | 181 | 2 | done | `crates/pi-ai/src/utils/overflow.rs` | 26 overflow patterns, non-overflow exclusions, silent and length-stop overflow; differential 40 checks + pattern matrix. |
 | `ai/src/utils/retry.ts` | 253 | 2 | done | `crates/pi-ai/src/utils/retry.rs` | Exact classifier plus async backoff/cancellation/callbacks; differential 45 classifications + 10 scripted loops. |
 | `ai/src/utils/text.ts` | 12 | 2 | done | `crates/pi-ai/src/utils/text.rs` | `contentText` over assistant and tool-result blocks; differential 6 requests. |
 | `ai/src/utils/validation.ts` | 350 | 2 | done | `crates/pi-ai/src/utils/validation.rs` | Full hand-written TypeBox-compatible validator, coercions, error messages; 25 behavioral + 67 differential cases ([traceability](traceability/validation.md)). |
-| `ai/src/api/openrouter-images.lazy.ts` | 10 | 3 | todo |  |  |
-| `ai/src/auth/oauth/radius.ts` | 403 | 3 | todo |  |  |
-| `ai/src/image-models.ts` | 42 | 3 | todo |  |  |
-| `ai/src/images.ts` | 21 | 3 | todo |  |  |
+| `ai/src/api/openrouter-images.lazy.ts` | 10 | 3 | done | `crates/pi-ai/src/api/openrouter_images_lazy.rs` | Direct-link factory replacing the dynamic import. |
+| `ai/src/auth/oauth/radius.ts` | 403 | 3 | done | `crates/pi-ai/src/auth/oauth/radius.rs` | discovery, localhost:1456 browser callback, device grant, gateway token/refresh; differential device + browser callback + refresh. |
+| `ai/src/image-models.ts` | 42 | 3 | done | `crates/pi-ai/src/image_models.rs` | Lookup/list APIs; `undefined` modeled as `Option`/empty slice (see traceability). |
+| `ai/src/images.ts` | 21 | 3 | done | `crates/pi-ai/src/images.rs` | Builtin registration on first use, registry dispatch, unknown-api error. |
 | `ai/src/index.ts` | 47 | 3 | todo |  |  |
 | `ai/src/legacy-api-aliases.ts` | 108 | 3 | todo |  |  |
-| `ai/src/oauth.ts` | 10 | 3 | todo |  |  |
-| `ai/src/providers/amazon-bedrock.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/ant-ling.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/anthropic.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/azure-openai-responses.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/baseten.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/cerebras.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/cloudflare-ai-gateway.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/cloudflare-workers-ai.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/deepseek.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/fireworks.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/github-copilot.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/google-vertex.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/google.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/groq.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/huggingface.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/images/register-builtins.ts` | 50 | 3 | todo |  |  |
-| `ai/src/providers/kimi-coding.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/minimax-cn.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/minimax.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/mistral.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/moonshotai-cn.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/moonshotai.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/nvidia.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/openai-codex-gc.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/openai-codex.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/openai.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/opencode-go.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/opencode.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/openrouter.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/qwen-token-plan-cn.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/qwen-token-plan-individual.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/qwen-token-plan.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/radius.ts` | 82 | 3 | todo |  |  |
-| `ai/src/providers/together.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/vercel-ai-gateway.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/xai.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/xiaomi-token-plan-ams.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/xiaomi-token-plan-cn.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/xiaomi-token-plan-sgp.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/xiaomi.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/zai-coding-cn.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/providers/zai.models.ts` | 8 | 3 | todo |  |  |
-| `ai/src/auth/oauth/github-copilot.ts` | 417 | 4 | todo |  |  |
-| `ai/src/models.generated.ts` | 127 | 4 | todo |  |  |
-| `ai/src/providers/amazon-bedrock.ts` | 90 | 4 | todo |  |  |
-| `ai/src/providers/ant-ling.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/anthropic.ts` | 59 | 4 | todo |  |  |
-| `ai/src/providers/azure-openai-responses.ts` | 14 | 4 | todo |  |  |
-| `ai/src/providers/baseten.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/cerebras.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/cloudflare-ai-gateway.ts` | 23 | 4 | todo |  |  |
-| `ai/src/providers/cloudflare-workers-ai.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/deepseek.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/fireworks.ts` | 19 | 4 | todo |  |  |
-| `ai/src/providers/github-copilot.ts` | 34 | 4 | todo |  |  |
-| `ai/src/providers/google-vertex.ts` | 100 | 4 | todo |  |  |
-| `ai/src/providers/google.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/groq.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/huggingface.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/kimi-coding.ts` | 24 | 4 | todo |  |  |
-| `ai/src/providers/minimax-cn.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/minimax.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/mistral.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/moonshotai-cn.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/moonshotai.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/nvidia.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/openai-codex.ts` | 25 | 4 | todo |  |  |
-| `ai/src/providers/openai.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/opencode-go.ts` | 20 | 4 | todo |  |  |
-| `ai/src/providers/opencode.ts` | 24 | 4 | todo |  |  |
-| `ai/src/providers/openrouter-images.ts` | 22 | 4 | todo |  |  |
-| `ai/src/providers/openrouter.ts` | 23 | 4 | todo |  |  |
-| `ai/src/providers/qwen-token-plan-cn.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/qwen-token-plan-individual.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/qwen-token-plan.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/together.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/vercel-ai-gateway.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/xai.ts` | 28 | 4 | todo |  |  |
-| `ai/src/providers/xiaomi-token-plan-ams.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/xiaomi-token-plan-cn.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/xiaomi-token-plan-sgp.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/xiaomi.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/zai-coding-cn.ts` | 15 | 4 | todo |  |  |
-| `ai/src/providers/zai.ts` | 15 | 4 | todo |  |  |
-| `ai/src/bun-oauth.ts` | 21 | 5 | todo |  |  |
-| `ai/src/providers/all.ts` | 159 | 5 | todo |  |  |
+| `ai/src/oauth.ts` | 10 | 3 | done | `crates/pi-ai/src/oauth.rs` | Type-only compatibility re-exports. |
+| `ai/src/providers/amazon-bedrock.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/ant-ling.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/anthropic.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/azure-openai-responses.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/baseten.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/cerebras.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/cloudflare-ai-gateway.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/cloudflare-workers-ai.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/deepseek.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/fireworks.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/github-copilot.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/google-vertex.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/google.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/groq.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/huggingface.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/images/register-builtins.ts` | 50 | 3 | done | `crates/pi-ai/src/providers/images/register_builtins.rs` | Direct link replaces lazy import; load-error branch is not representable (see traceability). |
+| `ai/src/providers/kimi-coding.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/minimax-cn.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/minimax.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/mistral.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/moonshotai-cn.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/moonshotai.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/nvidia.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/openai-codex-gc.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/openai-codex.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/openai.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/opencode-go.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/opencode.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/openrouter.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/qwen-token-plan-cn.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/qwen-token-plan-individual.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/qwen-token-plan.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/radius.ts` | 82 | 3 | done | `crates/pi-ai/src/providers/radius.rs` | Dynamic catalog provider with stored/legacy/network refresh; behavioral tests. |
+| `ai/src/providers/together.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/vercel-ai-gateway.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/xai.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/xiaomi-token-plan-ams.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/xiaomi-token-plan-cn.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/xiaomi-token-plan-sgp.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/xiaomi.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/zai-coding-cn.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/providers/zai.models.ts` | 8 | 3 | done | `crates/pi-ai/src/providers/models_data.rs` | Generated `flattenModelCatalog` wrapper; embedded identical JSON; differential compares the full catalog and order. |
+| `ai/src/auth/oauth/github-copilot.ts` | 417 | 4 | done | `crates/pi-ai/src/auth/oauth/github_copilot.rs` | Device flow, policy enablement (concurrency 4), picker parsing, toAuth; behavioral + differential refresh/toAuth. |
+| `ai/src/models.generated.ts` | 127 | 4 | done | `crates/pi-ai/src/providers/models_data.rs` | Embedded generated catalogs plus manifest timestamp; differential full catalog. |
+| `ai/src/providers/amazon-bedrock.ts` | 90 | 4 | done | `crates/pi-ai/src/providers/amazon_bedrock.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/ant-ling.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/ant_ling.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/anthropic.ts` | 59 | 4 | done | `crates/pi-ai/src/providers/anthropic.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/azure-openai-responses.ts` | 14 | 4 | done | `crates/pi-ai/src/providers/azure_openai_responses.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/baseten.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/baseten.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/cerebras.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/cerebras.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/cloudflare-ai-gateway.ts` | 23 | 4 | done | `crates/pi-ai/src/providers/cloudflare_ai_gateway.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/cloudflare-workers-ai.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/cloudflare_workers_ai.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/deepseek.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/deepseek.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/fireworks.ts` | 19 | 4 | done | `crates/pi-ai/src/providers/fireworks.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/github-copilot.ts` | 34 | 4 | done | `crates/pi-ai/src/providers/github_copilot.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/google-vertex.ts` | 100 | 4 | done | `crates/pi-ai/src/providers/google_vertex.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/google.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/google.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/groq.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/groq.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/huggingface.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/huggingface.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/kimi-coding.ts` | 24 | 4 | done | `crates/pi-ai/src/providers/kimi_coding.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/minimax-cn.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/minimax_cn.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/minimax.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/minimax.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/mistral.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/mistral.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/moonshotai-cn.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/moonshotai_cn.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/moonshotai.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/moonshotai.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/nvidia.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/nvidia.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/openai-codex.ts` | 25 | 4 | todo |  | Excluded from this slice: depends on the in-flight api-codex adapter. |
+| `ai/src/providers/openai.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/openai.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/opencode-go.ts` | 20 | 4 | done | `crates/pi-ai/src/providers/opencode_go.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/opencode.ts` | 24 | 4 | done | `crates/pi-ai/src/providers/opencode.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/openrouter-images.ts` | 22 | 4 | done | `crates/pi-ai/src/providers/openrouter_images.rs` | Catalog, api-key auth, lazy OAuth surface; OAuth flow module remains an explicit gap (see traceability). |
+| `ai/src/providers/openrouter.ts` | 23 | 4 | done | `crates/pi-ai/src/providers/openrouter.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/qwen-token-plan-cn.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/qwen_token_plan_cn.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/qwen-token-plan-individual.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/qwen_token_plan_individual.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/qwen-token-plan.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/qwen_token_plan.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/together.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/together.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/vercel-ai-gateway.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/vercel_ai_gateway.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/xai.ts` | 28 | 4 | done | `crates/pi-ai/src/providers/xai.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/xiaomi-token-plan-ams.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/xiaomi_token_plan_ams.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/xiaomi-token-plan-cn.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/xiaomi_token_plan_cn.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/xiaomi-token-plan-sgp.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/xiaomi_token_plan_sgp.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/xiaomi.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/xiaomi.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/zai-coding-cn.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/zai_coding_cn.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/providers/zai.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/zai.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
+| `ai/src/bun-oauth.ts` | 21 | 5 | done | `crates/pi-ai/src/bun_oauth.rs` | Registers all ported flows, including GitHub Copilot. |
+| `ai/src/providers/all.ts` | 159 | 5 | partial | `crates/pi-ai/src/providers/all.rs` | All factories except the two `openai-codex` providers (api-codex slice); catalog/order/generatedAt/images differential. |
 | `ai/src/cli.ts` | 119 | 6 | todo |  |  |
 | `ai/src/compat.ts` | 299 | 6 | todo |  |  |
 | `ai/src/base.ts` | 6 | 7 | todo |  |  |
@@ -213,53 +213,53 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `agent/src/harness/events.ts` | 102 | 0 | todo |  |  |
-| `agent/src/harness/result.ts` | 63 | 0 | todo |  |  |
-| `agent/src/harness/tools/edit-diff.ts` | 500 | 0 | partial |  |  |
-| `agent/src/harness/tools/image.ts` | 104 | 0 | partial |  |  |
-| `agent/src/harness/utils/truncate.ts` | 350 | 0 | partial |  |  |
-| `agent/src/harness/telemetry.ts` | 615 | 1 | todo |  |  |
+| `agent/src/harness/events.ts` | 102 | 0 | done | `crates/pi-agent-core/src/harness/events.rs` | Typed event bus, subscriptions, buffered snapshot watches, reentrant emit; focused + differential scripts; see `events.md`. |
+| `agent/src/harness/result.ts` | 63 | 0 | done | Rust idioms | `Result`/`Ok`/`Err`; tagged errors are typed structs/enums with literal accessors; see `result.md`. |
+| `agent/src/harness/tools/edit-diff.ts` | 500 | 0 | done | `crates/pi-agent-core/src/harness/tools/edit_diff.rs` | Fuzzy matching, replacements, jsdiff line diff/unified patch; 8 behavioral + edit differential fixtures; see `edit-diff.md`. |
+| `agent/src/harness/tools/image.ts` | 104 | 0 | done | `crates/pi-agent-core/src/harness/tools/image.rs` | MIME detection + Base64; focused and differential proof; see `image-helpers.md`. |
+| `agent/src/harness/utils/truncate.ts` | 350 | 0 | done | `crates/pi-agent-core/src/harness/utils/truncate.rs` | Head/tail/line truncation and size formatting; focused and 34-request differential proof; see `truncation.md`. |
+| `agent/src/harness/telemetry.ts` | 615 | 1 | done | `crates/pi-agent-core/src/harness/telemetry.rs` | Both schemas and both starters; focused tests + full serialized-schema and recorded-span differential; conditional type helpers are an explicit gap; see `harness-telemetry.md`. |
 | `agent/src/proxy.ts` | 370 | 4 | done | `crates/pi-agent-core/src/agent/proxy.rs` | Proxy SSE reconstruction, error/abort paths, injectable `Fetch`; see `agent-proxy.md`. |
 | `agent/src/types.ts` | 470 | 4 | done | `crates/pi-agent-core/src/agent/types.rs` | Full export set; `AgentMessage` custom variant is a raw JSON object; see `agent-types.md`. |
-| `agent/src/harness/compaction/utils.ts` | 163 | 5 | partial |  |  |
-| `agent/src/harness/messages.ts` | 188 | 5 | partial |  |  |
-| `agent/src/harness/session/session.ts` | 340 | 5 | todo |  |  |
-| `agent/src/harness/session/types.ts` | 406 | 5 | todo |  |  |
-| `agent/src/harness/types.ts` | 320 | 5 | partial |  |  |
+| `agent/src/harness/compaction/utils.ts` | 163 | 5 | done | `crates/pi-agent-core/src/harness/compaction/utils.rs` | File-op accumulation, sorted lists, conversation serialization with UTF-16 truncation and full-output markers; see `compaction-utils.md`. |
+| `agent/src/harness/messages.ts` | 188 | 5 | done | `crates/pi-agent-core/src/harness/messages.rs` | Markers, value records, summary/custom builders, `bashExecutionToText`, `convertToLlm`; focused + differential; see `messages.md`. |
+| `agent/src/harness/session/session.ts` | 340 | 5 | done | `crates/pi-agent-core/src/harness/session/facade.rs` | Session facade, lane views, query/limit validation, payload checks; see `session-facade.md`. |
+| `agent/src/harness/session/types.ts` | 406 | 5 | done | `crates/pi-agent-core/src/harness/session/types.rs` | Typed entries/records/queries/errors; `OptionalValue` keeps explicit null; see `session-types.md`. |
+| `agent/src/harness/types.ts` | 320 | 5 | done | `crates/pi-agent-core/src/harness/types.rs` | FileSystem/Shell/ExecutionEnv, options, errors, records, harness tool/context source, stream options and patch; Result helpers are Rust idioms; see `harness-types.md`. |
 | `agent/src/stream-fn.ts` | 20 | 5 | done | `crates/pi-agent-core/src/agent/stream_fn.rs` | Process-global default stream fn; exact missing-default error; see `agent-stream-fn.md`. |
 | `agent/src/agent-loop.ts` | 1028 | 6 | done | `crates/pi-agent-core/src/agent/agent_loop.rs` | Event ordering, tool modes, steering/follow-up, termination, abort races, restored tool calls, listener failures, result capping; 37 behavioral tests + 34 differential scenarios; see `agent-loop.md`. |
-| `agent/src/harness/env/nodejs.ts` | 695 | 6 | todo |  |  |
-| `agent/src/harness/prompt-templates.ts` | 262 | 6 | partial |  |  |
-| `agent/src/harness/reducer.ts` | 667 | 6 | todo |  |  |
-| `agent/src/harness/session/context.ts` | 100 | 6 | todo |  |  |
-| `agent/src/harness/session/jsonl/errors.ts` | 27 | 6 | todo |  |  |
-| `agent/src/harness/session/jsonl/types.ts` | 57 | 6 | todo |  |  |
-| `agent/src/harness/session/state.ts` | 344 | 6 | todo |  |  |
-| `agent/src/harness/skills.ts` | 375 | 6 | todo |  |  |
-| `agent/src/harness/system-prompt.ts` | 34 | 6 | todo |  |  |
-| `agent/src/harness/tools/file-mutation-queue.ts` | 56 | 6 | todo |  |  |
-| `agent/src/harness/tools/path-utils.ts` | 30 | 6 | todo |  |  |
-| `agent/src/harness/tools/tool-context.ts` | 6 | 6 | todo |  |  |
-| `agent/src/harness/utils/shell-output.ts` | 199 | 6 | partial |  |  |
-| `agent/src/search/index.ts` | 32 | 6 | todo |  |  |
-| `agent/src/search/scanning.ts` | 176 | 6 | todo |  |  |
+| `agent/src/harness/env/nodejs.ts` | 695 | 6 | done | `crates/pi-agent-core/src/harness/env/nodejs.rs` | tokio fs/process env, shell selection, env handling, timeout/abort/process-group kill, streaming; 23 tests; Windows branches excluded; see `harness-nodejs-env.md`. |
+| `agent/src/harness/prompt-templates.ts` | 262 | 6 | done | `crates/pi-agent-core/src/harness/prompt_templates.rs` | Argument helpers, diagnostics, non-recursive loaders, sourced mapping, first-line descriptions; focused + differential; see `prompt-templates.md`. |
+| `agent/src/harness/reducer.ts` | 667 | 6 | done | `crates/pi-agent-core/src/harness/reducer.rs` | Record-log validation (all 12 reasons), lane reduction, tool batches, terminal failure, configuration fold; 20 tests + 15 corruption and 35-step differential; see `reducer.md`. |
+| `agent/src/harness/session/context.ts` | 100 | 6 | done | `crates/pi-agent-core/src/harness/session/context.rs` | Compaction boundary, transforms, projectors, model/thinking derivation; see `session-context.md`. |
+| `agent/src/harness/session/jsonl/errors.ts` | 27 | 6 | done | `crates/pi-agent-core/src/harness/session/jsonl/errors.rs` | File/decode/replay cause mapping; see `session-jsonl-errors.md`. |
+| `agent/src/harness/session/jsonl/types.ts` | 57 | 6 | done | `crates/pi-agent-core/src/harness/session/jsonl/types.rs` | FS capability subset + native adapter; see `session-jsonl-types.md`. |
+| `agent/src/harness/session/state.ts` | 344 | 6 | done | `crates/pi-agent-core/src/harness/session/state.rs` | Mutations, branch walks, queries, fork mutations, stats; see `session-state.md`. |
+| `agent/src/harness/skills.ts` | 375 | 6 | done | `crates/pi-agent-core/src/harness/skills.rs` | Invocation formatter, recursive loader, ignore rules, metadata validation, sourced mapping; focused + differential; see `skills.md`. |
+| `agent/src/harness/system-prompt.ts` | 34 | 6 | done | `crates/pi-agent-core/src/harness/system_prompt.rs` | Visible-skill filter, exact block format, XML escaping; focused + differential; see `system-prompt.md`. |
+| `agent/src/harness/tools/file-mutation-queue.ts` | 56 | 6 | done | `crates/pi-agent-core/src/harness/tools/file_mutation_queue.rs` | Canonical-path serialization shared via `ExecutionToolContext`; see `file-mutation-queue.md`. |
+| `agent/src/harness/tools/path-utils.ts` | 30 | 6 | done | `crates/pi-agent-core/src/harness/tools/path_utils.rs` | Path normalization and read variants; see `path-utils.md`. |
+| `agent/src/harness/tools/tool-context.ts` | 6 | 6 | done | `crates/pi-agent-core/src/harness/tools/tool_context.rs` | Env + mutation queue bound at tool construction; see `tool-context.md`. |
+| `agent/src/harness/utils/shell-output.ts` | 199 | 6 | done | `crates/pi-agent-core/src/harness/utils/shell_output.rs` | Sanitizer + full `executeShellWithCapture`; 6 tests and bash differential fixtures; see `shell-output.md`. |
+| `agent/src/search/index.ts` | 32 | 6 | done | `crates/pi-agent-core/src/search/index.rs` | Search options/hit traits; see `search-index.md`. |
+| `agent/src/search/scanning.ts` | 176 | 6 | done | `crates/pi-agent-core/src/search/scanning.rs` | Paged scanning, labels, filters, abort, custom hits; see `search-scanning.md`. |
 | `agent/src/agent.ts` | 626 | 7 | done | `crates/pi-agent-core/src/agent/agent.rs` | Stateful wrapper, queues, lifecycle, listener settlement and failure propagation, continue/reset; 23 tests + 6 differential scenarios; see `agent.md`. |
-| `agent/src/harness/compaction/compaction.ts` | 910 | 7 | partial |  |  |
-| `agent/src/harness/session/jsonl/codec.ts` | 240 | 7 | todo |  |  |
-| `agent/src/harness/session/memory.ts` | 192 | 7 | todo |  |  |
-| `agent/src/harness/tools/bash.ts` | 161 | 7 | todo |  |  |
-| `agent/src/harness/tools/edit.ts` | 127 | 7 | todo |  |  |
-| `agent/src/harness/tools/read.ts` | 144 | 7 | todo |  |  |
-| `agent/src/harness/tools/write.ts` | 39 | 7 | todo |  |  |
-| `agent/src/harness/session/jsonl/storage.ts` | 277 | 8 | todo |  |  |
-| `agent/src/harness/tools/index.ts` | 23 | 8 | todo |  |  |
-| `agent/src/harness/session/jsonl/repo.ts` | 247 | 9 | todo |  |  |
-| `agent/src/harness/session/jsonl.ts` | 9 | 10 | todo |  |  |
-| `agent/src/harness/session/index.ts` | 13 | 11 | todo |  |  |
-| `agent/src/harness/agent-harness.ts` | 508 | 12 | todo |  |  |
-| `agent/src/harness/compaction/branch-summarization.ts` | 282 | 12 | todo |  |  |
-| `agent/src/index.ts` | 145 | 13 | partial |  |  |
-| `agent/src/node.ts` | 2 | 14 | todo |  |  |
+| `agent/src/harness/compaction/compaction.ts` | 910 | 7 | done | `crates/pi-agent-core/src/harness/compaction/mod.rs` | Token estimates, cut points, preparation, summary/compact orchestration via `pi_ai` Models; exact prompts; 32 behavioral tests + differential cases; see `compaction.md`. |
+| `agent/src/harness/session/jsonl/codec.ts` | 240 | 7 | done | `crates/pi-agent-core/src/harness/session/jsonl/codec.rs` | Byte-identical header/mutation codec with TS key order and js_number; see `session-jsonl-codec.md`. |
+| `agent/src/harness/session/memory.ts` | 192 | 7 | done | `crates/pi-agent-core/src/harness/session/memory.rs` | In-memory storage/repo with injectable clock and ids; see `session-memory.md`. |
+| `agent/src/harness/tools/bash.ts` | 161 | 7 | done | `crates/pi-agent-core/src/harness/tools/bash.rs` | Schema, prepare/prefix, throttled updates, truncation/error/abort mapping; 8 behavioral + 7 differential fixtures; see `harness-tools-bash.md`. |
+| `agent/src/harness/tools/edit.ts` | 127 | 7 | done | `crates/pi-agent-core/src/harness/tools/edit.rs` | Legacy argument preparation, queued edits, diff/patch details; 8 behavioral + 11 differential fixtures; see `harness-tools-edit.md`. |
+| `agent/src/harness/tools/read.ts` | 144 | 7 | done | `crates/pi-agent-core/src/harness/tools/read.rs` | Text offsets/limits/truncation, image detection and processor; 5 behavioral + 9 differential fixtures; see `harness-tools-read.md`. |
+| `agent/src/harness/tools/write.ts` | 39 | 7 | done | `crates/pi-agent-core/src/harness/tools/write.rs` | Queued writes, abort checks, UTF-16 byte count; 2 tests + 3 differential fixtures; see `harness-tools-write.md`. |
+| `agent/src/harness/session/jsonl/storage.ts` | 277 | 8 | done | `crates/pi-agent-core/src/harness/session/jsonl/storage.rs` | Serialized writes, torn-tail repair, atomic publish/fork; see `session-jsonl-storage.md`. |
+| `agent/src/harness/tools/index.ts` | 23 | 8 | done | `crates/pi-agent-core/src/harness/tools/mod.rs` | Tool module re-exports; input/details are JSON values; see `harness-tools-index.md`. |
+| `agent/src/harness/session/jsonl/repo.ts` | 247 | 9 | done | `crates/pi-agent-core/src/harness/session/jsonl/repo.rs` | Directory/file naming, id validation, listing, create/fork claims; see `session-jsonl-repo.md`. |
+| `agent/src/harness/session/jsonl.ts` | 9 | 10 | done | `crates/pi-agent-core/src/harness/session/jsonl/mod.rs` | Barrel re-exports; see `session-index.md`. |
+| `agent/src/harness/session/index.ts` | 13 | 11 | done | `crates/pi-agent-core/src/harness/session/mod.rs` | Session package exports; see `session-index.md`. |
+| `agent/src/harness/agent-harness.ts` | 508 | 12 | done | `crates/pi-agent-core/src/harness/agent_harness.rs` | Scaffold contract: create/restore rejection, defaults, defensive-copy config, all 22 unavailable/closed operations, hooks/events rejection; 8 focused + differential; see `agent-harness.md`. |
+| `agent/src/harness/compaction/branch-summarization.ts` | 282 | 12 | done | `crates/pi-agent-core/src/harness/compaction/branch_summarization.rs` | Branch collection, token-budgeted preparation, summary generation and errors; 13 behavioral tests + differential cases; see `branch-summarization.md`. |
+| `agent/src/index.ts` | 145 | 13 | partial | `crates/pi-agent-core/src/lib.rs` | Every runtime export re-exported at the crate root; JS `Result` idioms and telemetry conditional-type helpers are explicit typed-boundary gaps; see `agent-index.md`. |
+| `agent/src/node.ts` | 2 | 14 | done | `crates/pi-agent-core/src/node.rs` | Re-exports `NodeExecutionEnv` and the crate root; see `agent-node.md`. |
 
 ## tui (41 files, 18529 lines)
 
@@ -279,7 +279,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/latex.ts` | 1373 | 1 | done | `crates/pi-tui/src/latex.rs` | TS test suite + generated differential corpus; byte-identical output incl. layout markers |
 | `tui/src/terminal.ts` | 594 | 1 | done | `crates/pi-tui/src/terminal.rs` | differential negotiation/timeout/normalization; ProcessTerminal event-queue seam; resize polling |
 | `tui/src/word-navigation.ts` | 117 | 1 | done | `crates/pi-tui/src/word_navigation.rs` | TS tests + boundary differential; ICU4X dictionary-word mismatches pinned as approved deviation |
-| `tui/src/tui.ts` | 2534 | 2 | partial | `crates/pi-tui/src/tui.rs` | differential byte stream (main+renderer), overlays/focus/fixed cells/render regions; viewport fullscreen helpers deferred to alt-screen slice |
+| `tui/src/tui.ts` | 2534 | 2 | done | `crates/pi-tui/src/tui.rs` | differential byte stream (main+renderer), overlays/focus/fixed cells/render regions, viewport helpers and start/stop hooks |
 | `tui/src/components/alt-screen-flash.ts` | 51 | 3 | done | `crates/pi-tui/src/components/alt_screen_flash.rs` | differential flash/render/dispose; expiry timer driver-owned |
 | `tui/src/components/box.ts` | 137 | 3 | done | `crates/pi-tui/src/components/box.rs` | differential padding/background/cache-sample matrix |
 | `tui/src/components/dynamic-border.ts` | 15 | 3 | done | `crates/pi-tui/src/components/dynamic_border.rs` | TS tests ported + differential |
@@ -294,7 +294,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/layout-node.ts` | 51 | 3 | done | `crates/pi-tui/src/layout_node.rs` | `Component::layout_node` replaces the `LAYOUT_NODE` symbol |
 | `tui/src/root-compositor.ts` | 91 | 3 | done | `crates/pi-tui/src/root_compositor.rs` | flow/bottom layout callbacks covered by render-region tests |
 | `tui/src/tui-main-screen.ts` | 586 | 3 | done | `crates/pi-tui/src/tui_main_screen.rs` | differential byte stream; capture/restore implemented (no listed test) |
-| `tui/src/alt-screen-search.ts` | 157 | 4 | todo |  |  |
+| `tui/src/alt-screen-search.ts` | 157 | 4 | done | `crates/pi-tui/src/alt_screen_search.rs` | TS search cases ported; differential match/segment/key and component render/query scripts |
 | `tui/src/components/loader.ts` | 94 | 4 | done | `crates/pi-tui/src/components/loader.rs` | TS test port + differential; frame timer is driver-owned (`poll`) |
 | `tui/src/components/scroll-view.ts` | 216 | 4 | done | `crates/pi-tui/src/components/scroll_view.rs` | TS layout tests ported; differential geometry/scroll state; scrollbar timer driver-owned |
 | `tui/src/components/settings-list.ts` | 249 | 4 | done | `crates/pi-tui/src/components/settings_list.rs` | TS tests ported + differential search/cycle/submenu/scroll matrix |
@@ -304,8 +304,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/components/h-stack.ts` | 44 | 5 | done | `crates/pi-tui/src/components/h_stack.rs` | TS layout tests + differential composition/alignment |
 | `tui/src/components/v-stack.ts` | 33 | 5 | done | `crates/pi-tui/src/components/v_stack.rs` | TS layout tests + differential sizes/gaps |
 | `tui/src/layout.ts` | 410 | 5 | done | `crates/pi-tui/src/layout.rs` | TS layout tests ported; differential frame geometry, scrollbar, kitty crop |
-| `tui/src/tui-alt-screen.ts` | 1291 | 6 | todo |  |  |
-| `tui/src/index.ts` | 161 | 7 | todo |  |  |
+| `tui/src/tui-alt-screen.ts` | 1291 | 6 | done | `crates/pi-tui/src/tui_alt_screen.rs` | 36 TS test cases + 23-scenario differential (full write stream and viewport/scroll/search state) |
+| `tui/src/index.ts` | 161 | 7 | partial | `crates/pi-tui/src/lib.rs` | Package-root re-exports; Editor/EditorComponent, Marked/Token/Tokens, Key and provider/interface aliases pending (see tui-index traceability) |
 
 ## client (10 files, 1225 lines)
 
@@ -348,24 +348,24 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `session-backends/sqlite-node/src/sqlite/types.ts` | 52 | 14 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/sql.ts` | 66 | 15 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/migrations.ts` | 49 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/branch-entries.ts` | 174 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/branch-tips.ts` | 35 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/entries.ts` | 78 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/facts.ts` | 64 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/lanes.ts` | 124 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/records.ts` | 95 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/session-sequences.ts` | 29 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/session-stats.ts` | 54 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/sessions.ts` | 131 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/storage/writer-leases.ts` | 58 | 16 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/branch-cache.ts` | 101 | 17 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/search-backend.ts` | 194 | 17 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/repo.ts` | 953 | 18 | todo |  |  |
-| `session-backends/sqlite-node/src/sqlite/index.ts` | 18 | 19 | todo |  |  |
-| `session-backends/sqlite-node/src/index.ts` | 114 | 20 | todo |  |  |
+| `session-backends/sqlite-node/src/sqlite/types.ts` | 52 | 14 | done | `crates/pi-session-sqlite/src/sqlite/types.rs + src/error.rs` | Metadata/options types and the error boundary; `SqliteDatabase`/`SqliteStatement`/`SqliteDatabaseFactory` capability interfaces collapse into rusqlite (see traceability). |
+| `session-backends/sqlite-node/src/sqlite/sql.ts` | 66 | 15 | done | `crates/pi-session-sqlite/src/sqlite/sql.rs` | `SqlQuery` + `join_sql_fragments`; template literal becomes explicit text/params. |
+| `session-backends/sqlite-node/src/sqlite/migrations.ts` | 49 | 16 | done | `crates/pi-session-sqlite/src/sqlite/migrations.rs + migrations/001_initial.sql` | Embedded schema; identical `sqlite_master` dump vs TS. |
+| `session-backends/sqlite-node/src/sqlite/storage/branch-entries.ts` | 174 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/branch_entries.rs` | Full branch cache reads/writes; bounded-window validation tests. |
+| `session-backends/sqlite-node/src/sqlite/storage/branch-tips.ts` | 35 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/branch_tips.rs` | Tip insert/update/delete and reads. |
+| `session-backends/sqlite-node/src/sqlite/storage/entries.ts` | 78 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/entries.rs` | Row queries plus facade-order payload serialization (byte-identical for facade entries). |
+| `session-backends/sqlite-node/src/sqlite/storage/facts.ts` | 64 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/facts.rs` | Latest fact/label projections with `IS` semantics. |
+| `session-backends/sqlite-node/src/sqlite/storage/lanes.ts` | 124 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/lanes.rs` | Lane lifecycle, open-operation enforcement, lane moves. |
+| `session-backends/sqlite-node/src/sqlite/storage/records.ts` | 95 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/records.rs` | Record rows and open-operation lookup. |
+| `session-backends/sqlite-node/src/sqlite/storage/session-sequences.ts` | 29 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/session_sequences.rs` | Sequence row lifecycle. |
+| `session-backends/sqlite-node/src/sqlite/storage/session-stats.ts` | 54 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/session_stats.rs` | Stats rows and usage accumulation. |
+| `session-backends/sqlite-node/src/sqlite/storage/sessions.ts` | 131 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/sessions.rs` | Session rows, metadata/name decoding errors. |
+| `session-backends/sqlite-node/src/sqlite/storage/writer-leases.ts` | 58 | 16 | done | `crates/pi-session-sqlite/src/sqlite/storage/writer_leases.rs` | Fenced lease acquire/renew/release; two-connection tests. |
+| `session-backends/sqlite-node/src/sqlite/branch-cache.ts` | 101 | 17 | done | `crates/pi-session-sqlite/src/sqlite/branch_cache.rs` | Cache build/repair/append with savepoint rollback. |
+| `session-backends/sqlite-node/src/sqlite/search-backend.ts` | 194 | 17 | done | `crates/pi-session-sqlite/src/sqlite/search_backend.rs` | FTS5 trigram schema, triggers, bm25 search; eager Vec behind the async contract. |
+| `session-backends/sqlite-node/src/sqlite/repo.ts` | 953 | 18 | done | `crates/pi-session-sqlite/src/sqlite/repo/{mod,storage,decode,fork}.rs` | Repository + `SessionStorage` impl, writer leases/heartbeat, forks; raw SQLite errors surface as `storage`. |
+| `session-backends/sqlite-node/src/sqlite/index.ts` | 18 | 19 | done | `crates/pi-session-sqlite/src/sqlite/mod.rs` | Re-exports. |
+| `session-backends/sqlite-node/src/index.ts` | 114 | 20 | done | `crates/pi-session-sqlite/src/sqlite/connection.rs + src/lib.rs` | node:sqlite adapter becomes rusqlite connection/transaction; async-callback and factory-injection cases are documented gaps. |
 
 ## coding-agent (346 files, 101231 lines)
 
@@ -375,32 +375,32 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/goal/src/goal-objective.ts` | 14 | 0 | todo |  |  |
 | `coding-agent/extensions/goal/src/stale-context.ts` | 5 | 0 | todo |  |  |
 | `coding-agent/extensions/pyrun/src/runner.ts` | 311 | 0 | todo |  |  |
-| `coding-agent/src/bun/restore-sandbox-env.ts` | 36 | 0 | todo |  |  |
-| `coding-agent/src/cli/experimental/auth.ts` | 21 | 0 | todo |  |  |
-| `coding-agent/src/cli/experimental/command.ts` | 205 | 0 | todo |  |  |
-| `coding-agent/src/cli/experimental/transport-address.ts` | 48 | 0 | todo |  |  |
-| `coding-agent/src/core/debug-repl.ts` | 292 | 0 | todo |  |  |
-| `coding-agent/src/core/desktop-notification.ts` | 116 | 0 | todo |  |  |
-| `coding-agent/src/core/detached-job-retention.ts` | 76 | 0 | todo |  |  |
-| `coding-agent/src/core/diagnostics.ts` | 15 | 0 | todo |  |  |
-| `coding-agent/src/core/event-bus.ts` | 33 | 0 | todo |  |  |
-| `coding-agent/src/core/experimental.ts` | 9 | 0 | todo |  |  |
+| `coding-agent/src/bun/restore-sandbox-env.ts` | 36 | 0 | gap | — | Bun-only workaround for oven-sh/bun#27802 (empty `process.env` in sandboxes); Rust has no Bun runtime and no empty-env bug to repair. |
+| `coding-agent/src/cli/experimental/auth.ts` | 21 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/auth.rs` | Token/file auth source parsing; differential `27007`. |
+| `coding-agent/src/cli/experimental/command.ts` | 205 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/command.rs` | Typed command/option/subcommand parser; differential `27010`. |
+| `coding-agent/src/cli/experimental/transport-address.ts` | 48 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/transport_address.rs` | Unix transport address validation; differential `27009`. |
+| `coding-agent/src/core/debug-repl.ts` | 292 | 0 | gap | — | `node:vm` JS evaluation; no JS engine in the Rust port (user decision 2026-10-18). |
+| `coding-agent/src/core/desktop-notification.ts` | 116 | 0 | done | `crates/pi-coding-agent/src/core/desktop_notification.rs` | notify-send argv, deferred close, busctl close; fake-binary child probes. |
+| `coding-agent/src/core/detached-job-retention.ts` | 76 | 0 | done | `crates/pi-coding-agent/src/core/detached_job_retention.rs` | Age/over-cap selection with ICU-collated path tie-break; differential `27014`. |
+| `coding-agent/src/core/diagnostics.ts` | 15 | 0 | done | `crates/pi-coding-agent/src/core/diagnostics.rs` | `ResourceCollision`/`ResourceDiagnostic` wire records. |
+| `coding-agent/src/core/event-bus.ts` | 33 | 0 | done | `crates/pi-coding-agent/src/core/event_bus.rs` | Channel bus with subscriptions, clear, and failure isolation; handlers are typed `Fn(&Value) -> Result`. |
+| `coding-agent/src/core/experimental.ts` | 9 | 0 | done | `crates/pi-coding-agent/src/core/experimental.rs` | `PI_EXPERIMENTAL` gate + strict tool sampling config; child-process env probes. |
 | `coding-agent/src/core/export-html/ansi-to-html.ts` | 258 | 0 | done | `crates/pi-coding-agent/src/core/export_html/ansi_to_html.rs` | differential 47 cases incl. JS number formatting |
-| `coding-agent/src/core/http-dispatcher.ts` | 111 | 0 | todo |  |  |
-| `coding-agent/src/core/output-guard.ts` | 126 | 0 | todo |  |  |
-| `coding-agent/src/core/permissions/policy.ts` | 33 | 0 | todo |  |  |
-| `coding-agent/src/core/pi-manifest.ts` | 34 | 0 | todo |  |  |
-| `coding-agent/src/core/provider-display-names.ts` | 34 | 0 | todo |  |  |
-| `coding-agent/src/core/radius.ts` | 1 | 0 | todo |  |  |
-| `coding-agent/src/core/resident-console-transport.ts` | 414 | 0 | todo |  |  |
-| `coding-agent/src/core/runtime-process.ts` | 103 | 0 | todo |  |  |
-| `coding-agent/src/core/session-errors.ts` | 12 | 0 | todo |  |  |
-| `coding-agent/src/core/session-health.ts` | 135 | 0 | todo |  |  |
+| `coding-agent/src/core/http-dispatcher.ts` | 111 | 0 | done | `crates/pi-coding-agent/src/core/http_dispatcher.rs` | Timeout parse/format, proxy resolution, configured `Fetch` (returns instead of mutating a global); differential `27013`. `autoSelectFamilyAttemptTimeout` is a documented gap. |
+| `coding-agent/src/core/output-guard.ts` | 126 | 0 | done | `crates/pi-coding-agent/src/core/output_guard.rs` | Raw stdout writer, chunking, backpressure, takeover flag; stray stdout prevented by `deny(clippy::print_stdout)` (approved deviation). |
+| `coding-agent/src/core/permissions/policy.ts` | 33 | 0 | done | `crates/pi-coding-agent/src/core/permissions/policy.rs` | Policy parse/normalize/evaluate; differential `27001`/`27002`. |
+| `coding-agent/src/core/pi-manifest.ts` | 34 | 0 | done | `crates/pi-coding-agent/src/core/pi_manifest.rs` | `package.json` `pi` manifest; differential `27006` over 16 fixtures. |
+| `coding-agent/src/core/provider-display-names.ts` | 34 | 0 | done | `crates/pi-coding-agent/src/core/provider_display_names.rs` | 32 built-in display names; differential `27004`. |
+| `coding-agent/src/core/radius.ts` | 1 | 0 | done | `crates/pi-coding-agent/src/core/radius.rs` | `RADIUS_PROVIDER_ID`; differential `27004`. |
+| `coding-agent/src/core/resident-console-transport.ts` | 414 | 0 | done | `crates/pi-coding-agent/src/core/resident_console_transport.rs` | Server + client protocol; cross-language wire tests `27020`-`27024` both directions. |
+| `coding-agent/src/core/runtime-process.ts` | 103 | 0 | done | `crates/pi-coding-agent/src/core/runtime_process.rs` | `/proc` identity/state, Pi-runtime command-line detection; differential `27012`. macOS `ps` cmdline fallback is a documented gap. |
+| `coding-agent/src/core/session-errors.ts` | 12 | 0 | done | `crates/pi-coding-agent/src/core/session_errors.rs` | `SessionImportFileNotFoundError`; differential `27004`. |
+| `coding-agent/src/core/session-health.ts` | 135 | 0 | done | `crates/pi-coding-agent/src/core/session_health.rs` | Records, sticky-death/eligibility, live-status derivation, goal parsing; differential `27008`. `Date.parse` subset lives in `utils::iso_time` (RFC 2822/free-form gap documented). |
 | `coding-agent/src/core/skill-block.ts` | 22 | 0 | done | `crates/pi-coding-agent/src/core/skill_block.rs` | all TS tests ported + differential |
 | `coding-agent/src/core/sqlite.ts` | 145 | 0 | todo |  |  |
-| `coding-agent/src/core/timings.ts` | 50 | 0 | todo |  |  |
-| `coding-agent/src/core/tool-capabilities.ts` | 11 | 0 | todo |  |  |
-| `coding-agent/src/core/tool-detach-registry.ts` | 58 | 0 | todo |  |  |
+| `coding-agent/src/core/timings.ts` | 50 | 0 | done | `crates/pi-coding-agent/src/core/timings.rs` | `PI_TIMING` startup profiling; stderr format asserted through a child process. |
+| `coding-agent/src/core/tool-capabilities.ts` | 11 | 0 | done | `crates/pi-coding-agent/src/core/tool_capabilities.rs` | Child-disabled and supervisor-only tool names; differential `27004`. |
+| `coding-agent/src/core/tool-detach-registry.ts` | 58 | 0 | done | `crates/pi-coding-agent/src/core/tool_detach_registry.rs` | Newest-first detach, running count, cancellable auto-detach timers. |
 | `coding-agent/src/core/tools/file-mutation-queue.ts` | 61 | 0 | done | `crates/pi-coding-agent/src/core/tools/file_mutation_queue.rs` | TS queue tests ported; no oracle (ordering contract) |
 | `coding-agent/src/core/tools/truncate.ts` | 276 | 0 | done | `crates/pi-coding-agent/src/core/tools/truncate.rs` | re-exports agent-core truncation (identical on valid Unicode); differential |
 | `coding-agent/src/extensions/llama/client.ts` | 332 | 0 | todo |  |  |
@@ -409,12 +409,12 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/external-editor.ts` | 45 | 0 | todo |  |  |
 | `coding-agent/src/modes/interactive/model-search.ts` | 27 | 0 | todo |  |  |
 | `coding-agent/src/modes/rpc/jsonl.ts` | 58 | 0 | done | `crates/pi-coding-agent/src/modes/rpc/jsonl.rs` | all TS tests ported + differential |
-| `coding-agent/src/supervisor/project-resolver.ts` | 108 | 0 | todo |  |  |
-| `coding-agent/src/supervisor/request-wake.ts` | 149 | 0 | todo |  |  |
+| `coding-agent/src/supervisor/project-resolver.ts` | 108 | 0 | done | `crates/pi-coding-agent/src/supervisor/project_resolver.rs` | Root/remote/basename resolution, config validation, `git remote -v` names; differential `27011`. |
+| `coding-agent/src/supervisor/request-wake.ts` | 149 | 0 | done | `crates/pi-coding-agent/src/supervisor/request_wake.rs` | Wake socket with stale recovery, generation watch, waiter cancellation; real-socket tests. |
 | `coding-agent/src/utils/abort.ts` | 48 | 0 | done | `crates/pi-coding-agent/src/utils/abort.rs` | Focused tests; no custom abort reasons |
 | `coding-agent/src/utils/ansi.ts` | 60 | 0 | done | `crates/pi-coding-agent/src/utils/ansi.rs` | Differential 26001 (237 inputs); focused tests |
 | `coding-agent/src/utils/child-process.ts` | 137 | 0 | done | `crates/pi-coding-agent/src/utils/child_process.rs` | Focused process tests; collects stdout/stderr |
-| `coding-agent/src/utils/clipboard-native.ts` | 33 | 0 | partial | `crates/pi-coding-agent/src/utils/clipboard_native.rs` | Loader/display ported; native npm binding gap |
+| `coding-agent/src/utils/clipboard-native.ts` | 33 | 0 | done | `crates/pi-coding-agent/src/utils/clipboard_native.rs` | clipboard-rs =0.3.4 is the vendored release behind @mariozechner/clipboard 0.3.9; live display calls untested |
 | `coding-agent/src/utils/clipboard-temp-files.ts` | 42 | 0 | done | `crates/pi-coding-agent/src/utils/clipboard_temp_files.rs` | Focused tracker tests |
 | `coding-agent/src/utils/deprecation.ts` | 14 | 0 | done | `crates/pi-coding-agent/src/utils/deprecation.rs` | Focused dedupe/yellow tests; chalk dependency port `utils::chalk` (see `traceability/chalk.md`) |
 | `coding-agent/src/utils/footer-status.ts` | 20 | 0 | done | `crates/pi-coding-agent/src/utils/footer_status.rs` | Differential 26004; focused tests |
@@ -427,49 +427,49 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/management-http.ts` | 68 | 0 | done | `crates/pi-coding-agent/src/utils/management_http.rs` | Mock retry matrix plus real local server |
 | `coding-agent/src/utils/mime.ts` | 116 | 0 | done | `crates/pi-coding-agent/src/utils/mime.rs` | Differential 26010 (33 buffers); focused tests |
 | `coding-agent/src/utils/open-browser.ts` | 24 | 0 | done | `crates/pi-coding-agent/src/utils/open_browser.rs` | Pure launcher mapping and failure tests |
-| `coding-agent/src/utils/photon.ts` | 139 | 0 | todo |  |  |
+| `coding-agent/src/utils/photon.ts` | 139 | 0 | done | `crates/pi-coding-agent/src/utils/photon.rs` | photon-rs =0.3.3 pinned; differential 27102-27106; WASM loader/patch is an explicit gap |
 | `coding-agent/src/utils/pi-user-agent.ts` | 4 | 0 | done | `crates/pi-coding-agent/src/utils/pi_user_agent.rs` | Differential 26005; runtime token is `rust` |
 | `coding-agent/src/utils/sleep.ts` | 18 | 0 | done | `crates/pi-coding-agent/src/utils/sleep.rs` | Focused timing/abort tests |
 | `coding-agent/src/utils/terminal-current-directory.ts` | 13 | 0 | done | `crates/pi-coding-agent/src/utils/terminal_current_directory.rs` | Differential 26006; focused tests |
-| `coding-agent/src/core/detached-job-bootstrap.ts` | 113 | 1 | todo |  |  |
-| `coding-agent/src/core/exec.ts` | 107 | 1 | todo |  |  |
-| `coding-agent/src/core/permissions/presets.ts` | 62 | 1 | todo |  |  |
+| `coding-agent/src/core/detached-job-bootstrap.ts` | 113 | 1 | done | `crates/pi-coding-agent/src/core/detached_job_bootstrap.rs` | Gated payload with persisted identity; `setsid(1)`+sh replaces `detached:true`+fd 3 (approved deviation). |
+| `coding-agent/src/core/exec.ts` | 107 | 1 | done | `crates/pi-coding-agent/src/core/exec.rs` | Shell-free exec with timeout/abort termination and killed-by-signal code 0; behavioral process tests. |
+| `coding-agent/src/core/permissions/presets.ts` | 62 | 1 | done | `crates/pi-coding-agent/src/core/permissions/presets.rs` | Presets, sandbox profiles, policy↔preset mapping; differential `27003`. |
 | `coding-agent/src/core/tools/output-accumulator.ts` | 224 | 1 | done | `crates/pi-coding-agent/src/core/tools/output_accumulator.rs` | differential 139 cases (incl. TextDecoder semantics) |
-| `coding-agent/src/utils/clipboard-image.ts` | 300 | 1 | todo |  |  |
-| `coding-agent/src/utils/exif-orientation.ts` | 183 | 1 | todo |  |  |
+| `coding-agent/src/utils/clipboard-image.ts` | 300 | 1 | done | `crates/pi-coding-agent/src/utils/clipboard_image.rs` | Fake-tool PATH scenarios assert exact argv; native clipboard injected; no differential (process/OS module) |
+| `coding-agent/src/utils/exif-orientation.ts` | 183 | 1 | done | `crates/pi-coding-agent/src/utils/exif_orientation.rs` | Differential 27100 (25 fixtures, orientations 1-8 LE/BE JPEG + WebP); matches upstream 098356ef6 bounds fix |
 | `coding-agent/src/utils/git-project.ts` | 13 | 1 | done | `crates/pi-coding-agent/src/utils/git_project.rs` | Real git repository tests |
 | `coding-agent/src/utils/paths.ts` | 139 | 1 | done | `crates/pi-coding-agent/src/utils/paths.rs` | Differential 26009 (76 cases); focused tests |
 | `coding-agent/src/utils/syntax-highlight.ts` | 146 | 1 | partial | `crates/pi-coding-agent/src/utils/syntax_highlight/` | render + engine done; 7 grammars verified, others gaps |
-| `coding-agent/src/utils/version-check.ts` | 109 | 1 | todo |  |  |
-| `coding-agent/src/config.ts` | 595 | 2 | todo |  |  |
-| `coding-agent/src/core/model-config.ts` | 298 | 2 | todo |  |  |
+| `coding-agent/src/utils/version-check.ts` | 109 | 1 | done | `crates/pi-coding-agent/src/utils/version_check.rs` | Differential 676 semver pairs + 676 newer checks + error fixtures; injected-Fetch release tests |
+| `coding-agent/src/config.ts` | 595 | 2 | done | `crates/pi-coding-agent/src/config.rs` | Compiled-binary runtime mapping (PI_PACKAGE_DIR/exe dir); install branches via injected context; differential config oracle (4 path + 13 install scenarios) |
+| `coding-agent/src/core/model-config.ts` | 298 | 2 | done | `crates/pi-coding-agent/src/core/model_config.rs` | TypeBox-equivalent schema via the shared validation engine; differential 21 fixtures (provider maps + exact error text) |
 | `coding-agent/src/core/tools/path-utils.ts` | 118 | 2 | done | `crates/pi-coding-agent/src/core/tools/path_utils.rs` | all TS tests ported + differential |
-| `coding-agent/src/utils/clipboard.ts` | 175 | 2 | todo |  |  |
-| `coding-agent/src/utils/image-convert.ts` | 49 | 2 | todo |  |  |
-| `coding-agent/src/utils/image-resize-core.ts` | 164 | 2 | todo |  |  |
-| `coding-agent/src/utils/windows-self-update.ts` | 84 | 2 | todo |  |  |
-| `coding-agent/src/core/auth-guidance.ts` | 25 | 3 | todo |  |  |
-| `coding-agent/src/core/permissions/rule-store.ts` | 303 | 3 | todo |  |  |
+| `coding-agent/src/utils/clipboard.ts` | 175 | 2 | done | `crates/pi-coding-agent/src/utils/clipboard.rs` | Fake-tool PATH scenarios plus captured OSC 52 output; no differential (process/OS module) |
+| `coding-agent/src/utils/image-convert.ts` | 49 | 2 | done | `crates/pi-coding-agent/src/utils/image_convert.rs` | Differential 27101/27102; synchronous (no loadPhoton) |
+| `coding-agent/src/utils/image-resize-core.ts` | 164 | 2 | done | `crates/pi-coding-agent/src/utils/image_resize_core.rs` | Differential 27103 (15 fixtures: limits, quality steps, degenerate targets) |
+| `coding-agent/src/utils/windows-self-update.ts` | 84 | 2 | done | `crates/pi-coding-agent/src/utils/windows_self_update.rs` | Injected shared-object list; 6 behavioral cases (layout, dedupe, move/copy-back, cleanup) |
+| `coding-agent/src/core/auth-guidance.ts` | 25 | 3 | done | `crates/pi-coding-agent/src/core/auth_guidance.rs` | Differential oracle for all four messages |
+| `coding-agent/src/core/permissions/rule-store.ts` | 303 | 3 | done | `crates/pi-coding-agent/src/core/rule_store.rs` | In-place settings splice; differential 5 content + 30 write + 9 store steps |
 | `coding-agent/src/core/tools/edit-diff.ts` | 645 | 3 | done | `crates/pi-coding-agent/src/core/tools/edit_diff.rs`, `jsdiff.rs` | differential ~790 cases incl. jsdiff port |
-| `coding-agent/src/core/trust-manager.ts` | 254 | 3 | todo |  |  |
-| `coding-agent/src/utils/changelog.ts` | 201 | 3 | todo |  |  |
-| `coding-agent/src/utils/image-resize-worker.ts` | 42 | 3 | todo |  |  |
-| `coding-agent/src/utils/image-resize.ts` | 123 | 3 | todo |  |  |
-| `coding-agent/src/utils/shell.ts` | 225 | 3 | todo |  |  |
-| `coding-agent/src/utils/tools-manager.ts` | 365 | 3 | todo |  |  |
-| `coding-agent/src/core/remote-catalog-provider.ts` | 132 | 4 | todo |  |  |
-| `coding-agent/src/core/resolve-config-value.ts` | 287 | 4 | partial |  |  |
-| `coding-agent/src/core/runtime-credentials.ts` | 58 | 4 | todo |  |  |
-| `coding-agent/src/utils/image-process.ts` | 119 | 4 | todo |  |  |
+| `coding-agent/src/core/trust-manager.ts` | 254 | 3 | done | `crates/pi-coding-agent/src/core/trust_manager.rs` | trust.json bytes and 12-step sequence match; shared proper-lockfile protocol |
+| `coding-agent/src/utils/changelog.ts` | 201 | 3 | done | `crates/pi-coding-agent/src/utils/changelog.rs` | Differential 24 link cases, parse, 3 comparisons, 4 new-entry queries |
+| `coding-agent/src/utils/image-resize-worker.ts` | 42 | 3 | done | `crates/pi-coding-agent/src/utils/image_resize.rs` | Worker entrypoint maps to the spawn_blocking closure; no message protocol (gap) |
+| `coding-agent/src/utils/image-resize.ts` | 123 | 3 | done | `crates/pi-coding-agent/src/utils/image_resize.rs` | Differential 27104/27105; spawn_blocking replaces worker_threads |
+| `coding-agent/src/utils/shell.ts` | 225 | 3 | done | `crates/pi-coding-agent/src/utils/shell.rs` | Shell resolution, PATH env, output sanitization, tracked process-group kill; behavioral tests |
+| `coding-agent/src/utils/tools-manager.ts` | 365 | 3 | done | `crates/pi-coding-agent/src/utils/tools_manager.rs` | Injected Fetch + real tar.gz; 11 behavioral cases (assets, discovery, offline, install, failures) |
+| `coding-agent/src/core/remote-catalog-provider.ts` | 132 | 4 | done | `crates/pi-coding-agent/src/core/remote_catalog_provider.rs` | Injected Fetch; 9 behavioral cases (restore, freshness, 304/404/500, parse, abort) |
+| `coding-agent/src/core/resolve-config-value.ts` | 287 | 4 | done | `crates/pi-coding-agent/src/core/config_value.rs` | Full module: templates, commands, cache, or-throw, headers; differential 12050-12083 plus 27 resolve/throw/header requests |
+| `coding-agent/src/core/runtime-credentials.ts` | 58 | 4 | done | `crates/pi-coding-agent/src/core/runtime_credentials.rs` | Overlay masking, list merge, delete ordering |
+| `coding-agent/src/utils/image-process.ts` | 119 | 4 | done | `crates/pi-coding-agent/src/utils/image_process.rs` | Differential 27106 (8 fixtures incl. BMP conversion and omission messages) |
 | `coding-agent/src/cli/file-processor.ts` | 87 | 5 | todo |  |  |
 | `coding-agent/src/client/transcript.ts` | 101 | 5 | todo |  |  |
-| `coding-agent/src/core/auth-storage.ts` | 507 | 5 | todo |  |  |
-| `coding-agent/src/utils/tool-result-images.ts` | 62 | 5 | todo |  |  |
-| `coding-agent/src/core/models-store.ts` | 146 | 6 | todo |  |  |
+| `coding-agent/src/core/auth-storage.ts` | 507 | 5 | done | `crates/pi-coding-agent/src/core/auth_storage.rs` | Cross-process byte parity and both lock directions; 16 focused cases |
+| `coding-agent/src/utils/tool-result-images.ts` | 62 | 5 | done | `crates/pi-coding-agent/src/utils/tool_result_images.rs` | Differential 27107 (7 fixtures); Cow preserves the unchanged-reference contract |
+| `coding-agent/src/core/models-store.ts` | 146 | 6 | done | `crates/pi-coding-agent/src/core/models_store.rs` | Coalesced reloads, canonical entry order documented |
 | `coding-agent/src/bun/register-bedrock.ts` | 4 | 7 | todo |  |  |
 | `coding-agent/src/core/provider-composer.ts` | 572 | 7 | todo |  |  |
 | `coding-agent/src/extensions/llama/provider.ts` | 150 | 7 | todo |  |  |
-| `coding-agent/src/core/keybindings.ts` | 434 | 8 | todo |  |  |
+| `coding-agent/src/core/keybindings.ts` | 434 | 8 | done | `crates/pi-coding-agent/src/core/keybindings.rs` | `KEYBINDINGS` layered on `pi-tui`, legacy-name migration/ordering, file load/reload; differential `coding-agent-keybindings-oracle.ts`. |
 | `coding-agent/src/core/model-runtime.ts` | 795 | 8 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/countdown-timer.ts` | 39 | 8 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/visual-truncate.ts` | 50 | 8 | todo |  |  |
@@ -482,10 +482,10 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/migrations.ts` | 365 | 9 | todo |  |  |
 | `coding-agent/src/client/index.ts` | 15 | 10 | todo |  |  |
 | `coding-agent/src/core/compaction/utils.ts` | 198 | 14 | todo |  |  |
-| `coding-agent/src/core/defaults.ts` | 3 | 14 | partial |  |  |
+| `coding-agent/src/core/defaults.ts` | 3 | 14 | done | `crates/pi-coding-agent/src/core/defaults.rs` | `DEFAULT_THINKING_LEVEL = medium` reuses `pi-agent-core` `ThinkingLevel`. |
 | `coding-agent/src/core/messages.ts` | 212 | 14 | todo |  |  |
 | `coding-agent/src/core/runtime-message-markers.ts` | 36 | 14 | todo |  |  |
-| `coding-agent/src/core/settings-manager.ts` | 1442 | 14 | todo |  |  |
+| `coding-agent/src/core/settings-manager.ts` | 1442 | 14 | done | `crates/pi-coding-agent/src/core/settings_manager.rs` | Global/project storage with the shared lock protocol, migrations, typed accessors, field-scoped persistence; differential `coding-agent-settings-manager-oracle.ts` (10 scenarios, file bytes). Synchronous writes documented. |
 | `coding-agent/src/core/detached-job-runner.ts` | 167 | 15 | todo |  |  |
 | `coding-agent/src/core/multi-agent-store.ts` | 1387 | 15 | todo |  |  |
 | `coding-agent/src/core/package-manager.ts` | 2699 | 15 | todo |  |  |
@@ -508,7 +508,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/runtime-coordination-format.ts` | 38 | 16 | todo |  |  |
 | `coding-agent/src/core/session-cwd.ts` | 83 | 16 | todo |  |  |
 | `coding-agent/src/core/session-directory.ts` | 365 | 16 | todo |  |  |
-| `coding-agent/src/core/source-info.ts` | 40 | 16 | partial |  |  |
+| `coding-agent/src/core/source-info.ts` | 40 | 16 | partial | `crates/pi-coding-agent/src/core/source_info.rs` | `createSyntheticSourceInfo` done with camelCase serde. `createSourceInfo` is blocked on `PathMetadata` from `package-manager.ts` (ca-package-manager slice). |
 | `coding-agent/src/core/usage-totals.ts` | 67 | 16 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/custom-editor.ts` | 148 | 16 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/session-selector-search.ts` | 219 | 16 | todo |  |  |
@@ -518,9 +518,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/compaction/branch-summarization.ts` | 378 | 17 | todo |  |  |
 | `coding-agent/src/core/detached-bash-runner.ts` | 294 | 17 | todo |  |  |
 | `coding-agent/src/core/lifecycle-coordinator.ts` | 448 | 17 | todo |  |  |
-| `coding-agent/src/core/prompt-templates.ts` | 285 | 17 | todo |  |  |
-| `coding-agent/src/core/skills.ts` | 487 | 17 | todo |  |  |
-| `coding-agent/src/core/slash-commands.ts` | 48 | 17 | todo |  |  |
+| `coding-agent/src/core/prompt-templates.ts` | 285 | 17 | done | `crates/pi-coding-agent/src/core/prompt_templates.rs` | Argument parsing/substitution, discovery, expansion, source metadata; differential `coding-agent-prompt-templates-oracle.ts`. |
+| `coding-agent/src/core/skills.ts` | 487 | 17 | done | `crates/pi-coding-agent/src/core/skills.rs` | Discovery, ignore rules, validation, collisions, prompt formatting; differential `coding-agent-skills-oracle.ts`. YAML error wording normalized (see traceability). |
+| `coding-agent/src/core/slash-commands.ts` | 48 | 17 | done | `crates/pi-coding-agent/src/core/slash_commands.rs` | Built-in command list and source enum; differential `coding-agent-slash-commands-oracle.ts`. |
 | `coding-agent/src/core/terminal-outbox-delivery.ts` | 84 | 17 | todo |  |  |
 | `coding-agent/src/modes/interactive/theme/theme.ts` | 1337 | 17 | todo |  |  |
 | `coding-agent/extensions/agents-core/src/lifecycle-runtime.ts` | 42 | 18 | todo |  |  |
@@ -652,11 +652,11 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/model-resolver.ts` | 780 | 22 | todo |  |  |
 | `coding-agent/src/core/permissions/mcp-permission-prompt.ts` | 250 | 22 | todo |  |  |
 | `coding-agent/src/core/permissions/orchestrator.ts` | 39 | 22 | todo |  |  |
-| `coding-agent/src/core/project-trust.ts` | 96 | 22 | todo |  |  |
-| `coding-agent/src/core/resource-loader.ts` | 1270 | 22 | todo |  |  |
+| `coding-agent/src/core/project-trust.ts` | 96 | 22 | partial | — | Blocked on `extensions/types.ts` (`LoadExtensionsResult`, `ProjectTrustContext`) and `extensions/runner.ts` (`emitProjectTrustEvent`). `formatProjectTrustPrompt`, option selection, and `resolveProjectTrusted` are not ported; no stand-in types added. |
+| `coding-agent/src/core/resource-loader.ts` | 1270 | 22 | partial | `crates/pi-coding-agent/src/core/resource_loader.rs` | Rule-file loading and inline/first-party path naming done; `DefaultResourceLoader`, context-file discovery, and `findShadowedContextFile` are blocked on extensions/loader, package-manager, footer-data-provider, and theme loader. |
 | `coding-agent/src/core/sdk.ts` | 462 | 22 | todo |  |  |
 | `coding-agent/src/core/self-restart.ts` | 251 | 22 | todo |  |  |
-| `coding-agent/src/core/system-prompt.ts` | 218 | 22 | todo |  |  |
+| `coding-agent/src/core/system-prompt.ts` | 218 | 22 | done | `crates/pi-coding-agent/src/core/system_prompt.rs` | Default/custom prompt assembly, tool snippets, guidelines, rules, skills; differential `coding-agent-system-prompt-oracle.ts`. |
 | `coding-agent/src/core/tools/ask-architect.ts` | 95 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/ask-questions.ts` | 309 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/ask-supervisor.ts` | 89 | 22 | todo |  |  |
@@ -669,7 +669,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/tools/end-turn.ts` | 37 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/find.ts` | 381 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/grep.ts` | 400 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/index.ts` | 420 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/index.ts` | 420 | 22 | partial | `crates/pi-coding-agent/src/core/tools/mod.rs` | Only `DEFAULT_ACTIVE_TOOL_NAMES` (needed by system-prompt); tool definitions/factories remain for ca-tools-text. |
 | `coding-agent/src/core/tools/list-sessions.ts` | 81 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/ls.ts` | 326 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/read.ts` | 468 | 22 | todo |  |  |

@@ -15,4 +15,5 @@ Pinned source: `packages/ai/src/utils/json-parse.ts` at commit `532f7d12cd192350
 - JavaScript numbers are IEEE-754 doubles. Rust keeps `serde_json` number representations; differential comparison normalizes both sides to `f64`. Integers beyond 2^53 therefore stay exact in Rust while TypeScript rounds them.
 - Non-finite numbers (`Infinity`, `-Infinity`, `NaN`, overflowing literals) cannot be represented in `serde_json::Value`; they map to `Value::Null`, which is the observable `JSON.stringify` output. A top-level non-finite literal is not converted to `{}` by the nullish rule.
 - `parseStreamingJson` result ordering follows TypeScript insertion order because `serde_json` is built with `preserve_order`.
+- `is_non_finite_json_number` uses `parse::<f64>` only on text already restricted to JSON number characters, and only to detect overflow (`1e400`), matching the `Infinity` that JavaScript's `JSON.parse` produces for the same literal. It does not emulate a JS numeric conversion.
 - No source bug found.

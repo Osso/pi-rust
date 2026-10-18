@@ -196,6 +196,13 @@ fn user_transcript_item(value: &UserTranscriptItem) -> CborValue {
 }
 
 fn assistant_transcript_item(value: &AssistantTranscriptItem) -> CborValue {
+    match value.order() {
+        AssistantTranscriptOrder::Bridge => assistant_transcript_item_bridge(value),
+        AssistantTranscriptOrder::Runtime => assistant_transcript_item_runtime(value),
+    }
+}
+
+fn assistant_transcript_item_bridge(value: &AssistantTranscriptItem) -> CborValue {
     let mut entries = vec![
         ("id", text(value.id())),
         ("role", text("assistant")),
@@ -211,6 +218,25 @@ fn assistant_transcript_item(value: &AssistantTranscriptItem) -> CborValue {
     entries.push(("status", text(value.state().as_str())));
     push_optional(&mut entries, "stopReason", value.state().stop_reason().map(text));
     push_optional(&mut entries, "errorMessage", value.state().error_message().map(text));
+    map(entries)
+}
+
+fn assistant_transcript_item_runtime(value: &AssistantTranscriptItem) -> CborValue {
+    let mut entries = vec![
+        ("id", text(value.id())),
+        ("role", text("assistant")),
+        (
+            "content",
+            CborValue::Array(value.content().iter().map(assistant_content).collect()),
+        ),
+        ("status", text(value.state().as_str())),
+        ("model", model_ref(value.model())),
+    ];
+    push_optional(&mut entries, "responseModel", value.response_model().map(text));
+    push_optional(&mut entries, "usage", value.usage().map(usage));
+    push_optional(&mut entries, "stopReason", value.state().stop_reason().map(text));
+    push_optional(&mut entries, "errorMessage", value.state().error_message().map(text));
+    entries.push(("timestamp", unsigned(value.timestamp())));
     map(entries)
 }
 

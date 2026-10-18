@@ -264,7 +264,7 @@ fn node_join(base: &str, tail: &str) -> String {
     lexical_normalize(Path::new(&format!("{base}/{tail}")))
 }
 
-fn lexical_normalize(path: &Path) -> String {
+pub(crate) fn lexical_normalize(path: &Path) -> String {
     let mut normalized = PathBuf::new();
     for component in path.components() {
         match component {

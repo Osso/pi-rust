@@ -209,7 +209,7 @@ impl TestSessionRuntime {
             .expect("snapshot mutex poisoned")
             .model()
             .clone();
-        let assistant = AssistantTranscriptItem::new(pi_protocol::AssistantTranscriptItemInput {
+        let assistant = AssistantTranscriptItem::new_runtime(pi_protocol::AssistantTranscriptItemInput {
             id: format!("assistant-{}", revision + 1),
             content: vec![AssistantContent::Text(TextContent::new(text))],
             model,
