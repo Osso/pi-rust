@@ -14,7 +14,11 @@ Pinned source: `packages/agent/src/harness/types.ts` at `532f7d12cd19235081bd4d6
 | `types.ts:17-20` | `getOrThrow` throws the failure error | Rust `?` propagation; no helper added |
 | `types.ts:23-25` | `getOrUndefined` returns only object successes | Explicit typed-API exclusion: Rust `Option`/`Result` already distinguish absence |
 | `types.ts:28-36` | `toError(unknown)` normalization | Explicit exclusion for the filesystem/shell layer: backend failures are already `io::Error`/`FileError`/`ExecutionError` |
-| `types.ts:39-160` | Skill, prompt template, harness resources, harness tool, stream options/patch, file/execution/compaction errors | Previously ported records; `AgentHarnessTool`/`AgentHarnessStreamOptions*` remain with the unported harness orchestration layer (coverage row stays `partial`) |
+| `types.ts:39-160` | Skill, prompt template, harness resources, file/execution/compaction errors | Ported records; `resources.md`, `harness-errors.md` |
+| `types.ts:81-99` | `AgentHarnessTool<TContext>`: every `AgentTool` member except `execute`, whose signature adds a resolved context and optional execution metadata | `AgentHarnessTool<TContext>` trait mirrors name/description/parameters/label/executionMode/prepareArguments/prepareExecution/execute; `tests/harness_stream_options.rs` implements and executes one tool |
+| `types.ts:101-103` | `AgentHarnessToolContextSource<TContext>` is a static context or zero-argument sync/async provider | `AgentHarnessToolContextSource::{Static, Provider}` with a boxed future provider; focused static/provider test |
+| `types.ts:105-123` | `AgentHarnessStreamOptions` curated transport/timeouts/retries/headers/metadata/cacheRetention/onRetry | `AgentHarnessStreamOptions` reusing `pi_ai` `Transport`/`CacheRetention`/`OnRetry`; focused default and populated-state test |
+| `types.ts:125-135` | `AgentHarnessStreamOptionsPatch`: optional per-field patches; headers/metadata support per-key `undefined` deletion and explicit `undefined` clearing | `AgentHarnessStreamOptionsPatch` + `OptionalPatch::{Unchanged,Clear,Set}`; ordered `BTreeMap` header/metadata patches with `None` deletions; focused patch test |
 
 ## Rust boundary
 

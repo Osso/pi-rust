@@ -15,6 +15,12 @@ Pinned source: `packages/agent/src/harness/messages.ts:4-17,19-29,40-45` and pac
 | `messages.ts:56-66` | `createBranchSummaryMessage(summary, fromId, timestamp)` returns a custom `branchSummary` message with role, summary, fromId, and numeric timestamp | `harness::messages::create_branch_summary_message`; `session_context.rs` asserts the exact JSON shape; session differential context scenarios compare against the TS constructor |
 | `messages.ts:68-92` | `createCompactionSummaryMessage(summary, tokensBefore, timestamp, options)` emits role, summary, tokensBefore, optional tokensAfter/keptFromPreviousContextTokens/compactedResultTokens/durationMs/providerNative, then timestamp | `harness::messages::create_compaction_summary_message` + `CompactionSummaryOptions`; `session_context.rs` exact JSON; context differential |
 | `index.ts:76` | The package-wide message export includes `BranchSummaryMessage` | Re-exported from `pi_agent_core::harness::messages` and `pi_agent_core::harness`; focused imports pass; strict public-index exact-shape/mutability/number proof passes |
+| `messages.ts:31-39` | `CustomMessage<T>`: role `custom`, `customType`, string-or-block content, `display`, optional `details`, numeric timestamp | Custom messages remain `AgentMessage::Custom` JSON records; `CustomMessageContent` models `string \| (TextContent \| ImageContent)[]`; `create_custom_message` builds the record. Focused and differential custom-message fixtures |
+| `messages.ts:48-54` | `CompactionSummaryMessage` optional tokens/providerNative fields | Custom JSON record; `create_compaction_summary_message` field order; session-context proof and conversion fixtures |
+| `messages.ts:68-92` | `createBranchSummaryMessage`/`createCompactionSummaryMessage` | Existing builders; `session_context.rs` and differential context scenarios |
+| `messages.ts:94-110` | `bashExecutionToText`: command, fenced output or `(no output)`, cancelled vs non-zero exit, truncation note only with a non-empty path | `bash_execution_to_text`; 13 focused cases and differential `bash_execution_to_text` fixtures `14100..=14112` |
+| `messages.ts:111-119` | `createCustomMessage` emits role, customType, content, display, optional details, timestamp | `create_custom_message`; focused test and differential `create_custom_message` fixtures `14300..=14303` |
+| `messages.ts:121-176` | `convertToLlm`: drops excluded bash messages and unknown custom roles, maps bash/custom/branch/compaction custom roles to user messages, passes user/assistant/toolResult through, preserves providerNative and timestamps | `convert_to_llm`; focused test and differential `convert_to_llm` fixture `14200` |
 
 ## Rust boundary
 
@@ -65,7 +71,15 @@ Pinned source: `packages/agent/src/harness/messages.ts:4-17,19-29,40-45` and pac
 
 ## Exclusions
 
-`createCustomMessage`, Date or timestamp-string parsing, message unions, session/events, compaction/UI/RPC behavior, invalid runtime shapes, constructors, serde, validation, normalization, dynamic formatting, fallbacks, and dependencies remain deferred.
+Date or timestamp-string parsing (`new Date(value).getTime()`) is outside the typed boundary; callers pass milliseconds.
+`convert_to_llm` is infallible like the source; stored custom fields outside the typed boundary read as empty
+strings/`false`/`0`, and content blocks that do not deserialize as text/image are dropped. Session/events, compaction/UI/RPC behavior, dynamic formatting, fallbacks, and dependencies remain out of scope.
+
+## Proof
+
+- Focused: `tests/harness_messages_conversion.rs` (4 tests).
+- Differential: `oracle/harness-core-oracle.ts` operations `bash_execution_to_text`, `convert_to_llm`,
+  `create_custom_message`; fixtures `14100..=14112`, `14200`, `14300..=14303`.
 
 ## Session-context constructor extension
 

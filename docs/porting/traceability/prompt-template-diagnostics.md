@@ -31,4 +31,6 @@ Pinned source: `packages/agent/src/harness/prompt-templates.ts` at commit `532f7
 
 ## Exclusions
 
-Prompt-template loading, sourced augmentation, `ExecutionEnv`, YAML/frontmatter parsing, filesystem behavior, diagnostic arrays/order, `toError`, dynamic errors, constructors, serde, validation, normalization, dependencies, and unrelated formatting helpers remain deferred.
+Loading, sourced augmentation, YAML/frontmatter parsing, filesystem behavior, and diagnostic arrays/order are implemented
+in the harness-core slice; see [prompt-template loading](prompt-templates.md). Dynamic errors, constructors, serde on the
+value type, validation, normalization, and dependencies remain deferred.

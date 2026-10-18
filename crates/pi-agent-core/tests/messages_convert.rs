@@ -206,8 +206,17 @@ fn converts_custom_string_and_block_content_to_user_messages() {
 
     let converted = convert_to_llm(&[string_content, block_content]);
     assert_eq!(converted.len(), 2);
-    assert_eq!(user_text(&converted[0]), "custom content");
-    assert_eq!(message_timestamp(&converted[0]), 7);
+    // The source wraps string content as `[{ type: "text", text }]`.
+    assert_eq!(
+        converted[0],
+        Message::User(UserMessage {
+            role: UserRole::Tag,
+            content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new("custom content"))]),
+            input_source: None,
+            provider_native: None,
+            timestamp: 7,
+        })
+    );
     assert_eq!(
         converted[1],
         Message::User(UserMessage {

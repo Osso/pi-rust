@@ -1,6 +1,7 @@
 use pi_ai::types::{
-    ImageContent, Message, ProviderNativeContext, TextContent, TextOrImageContent, UserContent, UserMessage, UserRole,
+    Message, ProviderNativeContext, TextContent, TextOrImageContent, UserContent, UserMessage, UserRole,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::agent::AgentMessage;
@@ -82,6 +83,14 @@ pub struct CompactionSummaryOptions {
     pub provider_native: Option<ProviderNativeContext>,
 }
 
+/// `CustomMessage.content`: `string | (TextContent | ImageContent)[]`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CustomMessageContent {
+    Text(String),
+    Blocks(Vec<TextOrImageContent>),
+}
+
 fn json_number(value: f64) -> Value {
     if !value.is_finite() {
         return Value::Null;
@@ -118,7 +127,8 @@ pub fn bash_execution_to_text(message: &BashExecutionMessage) -> String {
         text.push_str(&format!("\n\nCommand exited with code {exit_code}"));
     }
     if message.truncated
-        && let Some(path) = &message.full_output_path
+        && let Some(path) = message.full_output_path.as_deref()
+        && !path.is_empty()
     {
         text.push_str(&format!("\n\n[Output truncated. Full output: {path}]"));
     }
@@ -215,25 +225,20 @@ fn text_message(text: String, message: &BashExecutionMessage) -> Message {
     })
 }
 
+/// `typeof content === "string" ? [{ type: "text", text: content }] : content`.
 fn custom_content(content: Option<&Value>) -> UserContent {
     match content {
-        Some(Value::String(text)) => UserContent::Text(text.clone()),
+        Some(Value::String(text)) => {
+            UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(text.clone()))])
+        }
         Some(Value::Array(blocks)) => UserContent::Blocks(blocks.iter().filter_map(content_block).collect()),
-        _ => UserContent::Text(String::new()),
+        _ => UserContent::Blocks(Vec::new()),
     }
 }
 
+/// Text/image blocks outside the typed boundary are dropped.
 fn content_block(value: &Value) -> Option<TextOrImageContent> {
-    match value.get("type").and_then(Value::as_str)? {
-        "text" => Some(TextOrImageContent::Text(TextContent::new(
-            value.get("text").and_then(Value::as_str)?,
-        ))),
-        "image" => Some(TextOrImageContent::Image(ImageContent::new(
-            value.get("data").and_then(Value::as_str)?,
-            value.get("mimeType").and_then(Value::as_str)?,
-        ))),
-        _ => None,
-    }
+    serde_json::from_value(value.clone()).ok()
 }
 
 fn string_field(object: &Map<String, Value>, key: &str) -> String {
@@ -299,6 +304,27 @@ pub fn create_compaction_summary_message(
             .as_ref()
             .and_then(|value| serde_json::to_value(value).ok()),
     );
+    message.insert("timestamp".to_owned(), json_number(timestamp as f64));
+    AgentMessage::Custom(message)
+}
+
+/// Build the custom `custom` message for an application-defined message.
+pub fn create_custom_message(
+    custom_type: &str,
+    content: CustomMessageContent,
+    display: bool,
+    details: Option<Value>,
+    timestamp: i64,
+) -> AgentMessage {
+    let mut message = Map::new();
+    message.insert("role".to_owned(), Value::String("custom".to_owned()));
+    message.insert("customType".to_owned(), Value::String(custom_type.to_owned()));
+    message.insert(
+        "content".to_owned(),
+        serde_json::to_value(content).unwrap_or(Value::Null),
+    );
+    message.insert("display".to_owned(), Value::Bool(display));
+    insert_optional(&mut message, "details", details);
     message.insert("timestamp".to_owned(), json_number(timestamp as f64));
     AgentMessage::Custom(message)
 }
