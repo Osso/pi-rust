@@ -1,2 +1,9 @@
+pub mod deferred_tools;
 pub mod diagnostics;
+pub mod estimate;
 pub mod event_stream;
+pub mod headers;
+pub mod overflow;
+pub mod provider_env;
+pub mod retry;
+pub mod text;

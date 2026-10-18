@@ -13,6 +13,8 @@ All direct dependencies are exact-pinned.
 
 ### `pi-ai`
 
+- `regex = 1.13.1` — case-insensitive (`(?i)`) provider error classification for `utils/overflow.ts` and `utils/retry.ts`, replacing JavaScript `RegExp(..., "i")`.
+- `tokio-util = 0.7.20` (`rt`) — `CancellationToken` mapping of `AbortSignal` for retry backoff cancellation.
 - `serde = 1.0.229` — derives the diagnostics wire records and diagnostic-code enum.
 - `serde_json = 1.0.151` — carries JSON-shaped thrown values and optional diagnostic details.
 - `serde_json` feature `preserve_order` — keeps JS object key order for tool arguments, details, and provider-native values (workspace-wide via feature unification).
