@@ -6,7 +6,10 @@ use indexmap::IndexMap;
 
 use crate::core::event_bus::Subscription;
 
-use super::types::{ExtensionActions, ExtensionFlag, FlagValue, HandlerError, NativeProvider, ProviderConfig};
+use super::types::{
+    ExtensionActions, ExtensionFlag, FlagValue, HandlerError, NativeProvider, ProviderConfig,
+    RegisterNativeProviderCallback, RegisterProviderHandler, UnregisterProviderRuntimeCallback,
+};
 
 pub(crate) const DEFAULT_STALE_MESSAGE: &str = "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
 
@@ -29,9 +32,9 @@ pub struct PendingNativeProviderRegistration {
 /// Registration hooks installed by `ExtensionRunner::bindCore`.
 #[derive(Clone)]
 pub struct ProviderHandlers {
-    pub register_provider: Arc<dyn Fn(&str, &ProviderConfig, Option<&str>) -> Result<(), String> + Send + Sync>,
-    pub register_native_provider: Arc<dyn Fn(NativeProvider, Option<&str>) -> Result<(), String> + Send + Sync>,
-    pub unregister_provider: Arc<dyn Fn(&str, Option<&str>) -> Result<(), String> + Send + Sync>,
+    pub register_provider: RegisterProviderHandler,
+    pub register_native_provider: RegisterNativeProviderCallback,
+    pub unregister_provider: UnregisterProviderRuntimeCallback,
 }
 
 pub struct RuntimeInner {
