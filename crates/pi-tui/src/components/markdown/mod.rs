@@ -6,6 +6,8 @@
 pub mod lexer;
 pub mod tokens;
 
+use std::rc::Rc;
+
 use crate::latex::{RenderLatexOptions, render_latex};
 use crate::terminal_image::{get_capabilities, hyperlink, is_image_line};
 use crate::tui::Component;
@@ -84,7 +86,7 @@ pub struct Markdown {
     text: String,
     padding_x: usize,
     padding_y: usize,
-    theme: Box<dyn MarkdownTheme>,
+    theme: Rc<dyn MarkdownTheme>,
     default_text_style: Option<DefaultTextStyle>,
     options: MarkdownOptions,
     cached_text: Option<String>,
@@ -98,6 +100,18 @@ impl Markdown {
         padding_x: usize,
         padding_y: usize,
         theme: Box<dyn MarkdownTheme>,
+        default_text_style: Option<DefaultTextStyle>,
+        options: MarkdownOptions,
+    ) -> Self {
+        Self::with_shared_theme(text, padding_x, padding_y, Rc::from(theme), default_text_style, options)
+    }
+
+    /// Same as [`Markdown::new`] for a theme shared with the caller.
+    pub fn with_shared_theme(
+        text: impl Into<String>,
+        padding_x: usize,
+        padding_y: usize,
+        theme: Rc<dyn MarkdownTheme>,
         default_text_style: Option<DefaultTextStyle>,
         options: MarkdownOptions,
     ) -> Self {
