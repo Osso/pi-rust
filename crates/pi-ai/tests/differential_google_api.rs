@@ -9,11 +9,22 @@ use std::sync::Arc;
 use google_fetch::{RecordingFetch, ScriptedResponse};
 use oracle::TsOracle;
 use pi_ai::api::google_generative_ai;
+use pi_ai::api::google_vertex;
 use pi_ai::request::{Fetch, HttpRequest, ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{CacheRetention, Context, Model, ProviderHeaders, ThinkingBudgets};
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
+
+const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
+
+fn service_account_path() -> String {
+    format!("{FIXTURES}/service-account.json")
+}
+
+fn authorized_user_path() -> String {
+    format!("{FIXTURES}/authorized-user.json")
+}
 
 fn base_model(api: &str, provider: &str, id: &str, base_url: &str, reasoning: bool) -> Value {
     json!({
@@ -32,6 +43,16 @@ fn gemini_model(id: &str) -> Value {
         "google",
         id,
         "https://generativelanguage.googleapis.com/v1beta",
+        true,
+    )
+}
+
+fn vertex_model(id: &str) -> Value {
+    base_model(
+        "google-vertex",
+        "google-vertex",
+        id,
+        "https://{location}-aiplatform.googleapis.com",
         true,
     )
 }
@@ -421,6 +442,11 @@ impl Scenario {
         self
     }
 
+    fn token_responses(mut self, responses: Vec<ScriptedResponse>) -> Self {
+        self.token_responses = responses;
+        self
+    }
+
     fn abort_after(mut self, chunks: usize) -> Self {
         self.abort_after_chunks = Some(chunks);
         self
@@ -516,16 +542,19 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
             .thinking_budgets
             .as_ref()
             .and_then(|budgets| serde_json::from_value::<ThinkingBudgets>(budgets.clone()).ok());
-        google_generative_ai::stream_simple(
-            model,
-            context,
-            SimpleStreamOptions {
-                stream: options,
-                reasoning,
-                thinking_budgets,
-                ..Default::default()
-            },
-        )
+        let simple = SimpleStreamOptions {
+            stream: options,
+            reasoning,
+            thinking_budgets,
+            ..Default::default()
+        };
+        if scenario.api == "google-vertex" {
+            google_vertex::stream_simple(model, context, simple)
+        } else {
+            google_generative_ai::stream_simple(model, context, simple)
+        }
+    } else if scenario.api == "google-vertex" {
+        google_vertex::stream(model, context, options)
     } else {
         google_generative_ai::stream(model, context, options)
     };
@@ -559,6 +588,13 @@ fn sse_response(chunks: Vec<Vec<u8>>) -> ScriptedResponse {
 
 fn sse_events_response(events: &[Value]) -> ScriptedResponse {
     sse_response(sse_events(events))
+}
+
+fn token_response(token: &str) -> ScriptedResponse {
+    ScriptedResponse::json(
+        200,
+        &json!({"access_token": token, "expires_in": 3600, "token_type": "Bearer"}).to_string(),
+    )
 }
 
 #[tokio::test]
@@ -954,6 +990,248 @@ async fn differential_google_generative_ai() {
                 "config": {"temperature": 0.9}
             }))
             .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn differential_google_vertex() {
+    let mut oracle = TsOracle::spawn_with_environment(
+        "google-api-oracle.ts",
+        "packages/ai/src/api",
+        &[("NODE_TLS_REJECT_UNAUTHORIZED", "0".into())],
+    );
+
+    let text = text_events("Hello");
+    let service_account = service_account_path();
+    let authorized_user = authorized_user_path();
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(100, "google-vertex", vertex_model("gemini-3-flash-preview"))
+            .stream(json!({"apiKey": "AIzaSyRealKey"}))
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    let mut custom_model = vertex_model("gemini-3-flash-preview");
+    custom_model["baseUrl"] = json!("https://proxy.example.com");
+    run_scenario(
+        &mut oracle,
+        Scenario::new(101, "google-vertex", custom_model.clone())
+            .stream(json!({"apiKey": "AIzaSyRealKey"}))
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    let mut versioned_model = vertex_model("gemini-3-flash-preview");
+    versioned_model["baseUrl"] = json!("https://proxy.example.com/v1/projects/test-project/locations/global");
+    run_scenario(
+        &mut oracle,
+        Scenario::new(102, "google-vertex", versioned_model)
+            .stream(json!({"apiKey": "AIzaSyRealKey"}))
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(103, "google-vertex", vertex_model("gemini-3-flash-preview"))
+            .stream(json!({
+                "project": "test-project", "location": "us-central1",
+                "env": {"GOOGLE_APPLICATION_CREDENTIALS": service_account}
+            }))
+            .token_responses(vec![token_response("test-token")])
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(104, "google-vertex", vertex_model("gemini-3-flash-preview"))
+            .stream(json!({
+                "project": "test-project", "location": "us-central1",
+                "env": {"GOOGLE_APPLICATION_CREDENTIALS": authorized_user}
+            }))
+            .token_responses(vec![token_response("user-token")])
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    for (id, location, expected) in [
+        (105, "global", "https://aiplatform.googleapis.com"),
+        (106, "us", "https://aiplatform.us.rep.googleapis.com"),
+        (107, "europe-west4", "https://europe-west4-aiplatform.googleapis.com"),
+    ] {
+        run_scenario(
+            &mut oracle,
+            Scenario::new(id, "google-vertex", vertex_model("gemini-2.5-flash"))
+                .stream(json!({
+                    "project": "test-project", "location": location,
+                    "env": {"GOOGLE_APPLICATION_CREDENTIALS": service_account}
+                }))
+                .token_responses(vec![token_response("test-token")])
+                .responses(vec![sse_events_response(&text)]),
+        )
+        .await;
+        let _ = expected;
+    }
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(108, "google-vertex", custom_model)
+            .stream(json!({
+                "project": "test-project", "location": "us-central1",
+                "env": {"GOOGLE_APPLICATION_CREDENTIALS": service_account}
+            }))
+            .token_responses(vec![token_response("test-token")])
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(109, "google-vertex", vertex_model("gemini-3-flash-preview"))
+            .stream(json!({
+                "apiKey": "<authenticated>", "project": "test-project", "location": "us-central1",
+                "env": {"GOOGLE_APPLICATION_CREDENTIALS": service_account}
+            }))
+            .token_responses(vec![token_response("test-token")])
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(110, "google-vertex", vertex_model("gemini-3-flash-preview"))
+            .stream(json!({
+                "apiKey": "gcp-vertex-credentials", "project": "test-project", "location": "us-central1",
+                "env": {"GOOGLE_APPLICATION_CREDENTIALS": service_account}
+            }))
+            .token_responses(vec![token_response("test-token")])
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(111, "google-vertex", vertex_model("gemini-3-flash-preview"))
+            .reasoning("high")
+            .stream(json!({
+                "env": {
+                    "GOOGLE_APPLICATION_CREDENTIALS": service_account,
+                    "GOOGLE_CLOUD_PROJECT": "test-project",
+                    "GOOGLE_CLOUD_LOCATION": "us-central1"
+                }
+            }))
+            .token_responses(vec![token_response("test-token")])
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(112, "google-vertex", vertex_model("gemini-3-flash-preview"))
+            .reasoning("high")
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(113, "google-vertex", vertex_model("gemini-3-flash-preview"))
+            .stream(json!({"apiKey": "AIzaSyRealKey"}))
+            .extra(json!({"thinking": {"enabled": false}}))
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(114, "google-vertex", vertex_model("gemini-3.1-pro-preview"))
+            .stream(json!({"apiKey": "AIzaSyRealKey"}))
+            .extra(json!({"thinking": {"enabled": true, "level": "MEDIUM"}}))
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(115, "google-vertex", vertex_model("gemini-2.5-flash"))
+            .stream(json!({"apiKey": "AIzaSyRealKey"}))
+            .extra(json!({"thinking": {"enabled": true, "budgetTokens": 1024}}))
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    let tool_context = json!({
+        "messages": [{"role": "user", "content": "Use a tool.", "timestamp": 1}],
+        "tools": [tool("strict", true)]
+    });
+    run_scenario(
+        &mut oracle,
+        Scenario::new(116, "google-vertex", vertex_model("gemini-3.1-pro-preview"))
+            .stream(json!({"apiKey": "AIzaSyRealKey"}))
+            .context(tool_context)
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    let image_context = json!({
+        "messages": [
+            {"role": "user", "content": "read", "timestamp": 1},
+            {"role": "assistant", "content": [
+                {"type": "toolCall", "id": "call_1", "name": "read", "arguments": {"path": "a"}}
+            ], "api": "google-vertex", "provider": "google-vertex", "model": "gemini-3-flash-preview",
+             "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}},
+             "stopReason": "toolUse", "timestamp": 2},
+            {"role": "toolResult", "toolCallId": "call_1", "toolName": "read",
+                "content": [{"type": "image", "data": "img", "mimeType": "image/png"}],
+                "isError": false, "timestamp": 3}
+        ]
+    });
+    run_scenario(
+        &mut oracle,
+        Scenario::new(117, "google-vertex", vertex_model("gemini-3-flash-preview"))
+            .stream(json!({"apiKey": "AIzaSyRealKey"}))
+            .context(image_context)
+            .responses(vec![sse_events_response(&text)]),
+    )
+    .await;
+
+    let safety_events = vec![json!({"candidates": [{"finishReason": "SAFETY"}]})];
+    run_scenario(
+        &mut oracle,
+        Scenario::new(118, "google-vertex", vertex_model("gemini-3-flash-preview"))
+            .stream(json!({"apiKey": "AIzaSyRealKey"}))
+            .responses(vec![sse_events_response(&safety_events)]),
+    )
+    .await;
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(119, "google-vertex", vertex_model("gemini-3-flash-preview"))
+            .stream(json!({"apiKey": "AIzaSyRealKey", "maxRetries": 1}))
+            .responses(vec![
+                ScriptedResponse::json(500, r#"{"error":{"message":"boom"}}"#).with_header("retry-after", "0.001"),
+                sse_events_response(&text),
+            ]),
+    )
+    .await;
+
+    run_scenario(
+        &mut oracle,
+        Scenario::new(120, "google-vertex", vertex_model("gemini-3-flash-preview"))
+            .stream(json!({
+                "project": "test-project", "location": "us-central1", "maxRetries": 1,
+                "env": {"GOOGLE_APPLICATION_CREDENTIALS": service_account}
+            }))
+            .token_responses(vec![token_response("test-token")])
+            .responses(vec![
+                ScriptedResponse::json(500, r#"{"error":{"message":"boom"}}"#).with_header("retry-after", "0.001"),
+                sse_events_response(&text),
+            ]),
     )
     .await;
 }

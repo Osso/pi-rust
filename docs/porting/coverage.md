@@ -54,7 +54,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/github-copilot-headers.ts` | 37 | 1 | done | `crates/pi-ai/src/api/github_copilot_headers.rs` | Initiator/vision/header builders; differential 16 requests. |
 | `ai/src/api/google-generative-ai.ts` | 521 | 1 | done | `crates/pi-ai/src/api/google_generative_ai.rs` | stream/streamSimple, thinking config, tool/stop handling, private `@google/genai` stand-in; 45 differential scenarios + behavioral tests. |
 | `ai/src/api/google-shared.ts` | 419 | 1 | done | `crates/pi-ai/src/api/google_shared.rs` | Message/tool conversion, thought signatures, stop reasons, Google retry policy; 30 ported tests + differential request bodies. |
-| `ai/src/api/google-vertex.ts` | 596 | 1 | todo |  |  |
+| `ai/src/api/google-vertex.ts` | 596 | 1 | done | `crates/pi-ai/src/api/google_vertex.rs` | stream/streamSimple, Vertex URL/project/location rules, API-key vs ADC, service-account JWT + authorized-user token exchange; 21 differential scenarios + behavioral tests. |
 | `ai/src/api/lazy.ts` | 98 | 1 | done | `crates/pi-ai/src/api/lazy.rs` | lazy stream/api, setup errors, declared deferred capabilities; differential setup-error |
 | `ai/src/api/mistral-conversations.ts` | 931 | 1 | todo |  |  |
 | `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | todo |  |  |
@@ -82,7 +82,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/bedrock-converse-stream.lazy.ts` | 30 | 2 | todo |  |  |
 | `ai/src/api/cloudflare-gateway-binding.ts` | 192 | 2 | todo |  |  |
 | `ai/src/api/google-generative-ai.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/google_generative_ai.rs` | `google_generative_ai_api()` lazy wrapper. |
-| `ai/src/api/google-vertex.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/google-vertex.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/google_vertex.rs` | `google_vertex_api()` lazy wrapper. |
 | `ai/src/api/mistral-conversations.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/openai-codex-responses.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/openai-completions.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_completions.rs` | `open_ai_completions_api()` lazy adapter. |
