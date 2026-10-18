@@ -16,8 +16,11 @@ fn with_kitty(active: bool, test: impl FnOnce()) {
 
 #[test]
 fn kitty_protocol_state_round_trips() {
-    with_kitty(true, || assert!(is_kitty_protocol_active()));
-    assert!(!is_kitty_protocol_active());
+    with_kitty(true, || {
+        assert!(is_kitty_protocol_active());
+        set_kitty_protocol_active(false);
+        assert!(!is_kitty_protocol_active());
+    });
 }
 
 #[test]

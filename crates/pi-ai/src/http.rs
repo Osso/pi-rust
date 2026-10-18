@@ -106,6 +106,7 @@ fn into_http_response(response: reqwest::Response, signal: Option<CancellationTo
         .collect();
     HttpResponse {
         status: response.status().as_u16(),
+        status_text: response.status().canonical_reason().unwrap_or_default().to_owned(),
         headers,
         body: Box::new(ReqwestBody { response, signal }),
     }
