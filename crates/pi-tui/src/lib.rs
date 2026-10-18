@@ -12,6 +12,8 @@ pub mod keybindings;
 pub mod keys;
 pub mod kill_ring;
 pub mod latex;
+pub mod layout;
+pub mod layout_node;
 pub mod native_modifiers;
 pub mod root_compositor;
 pub mod stdin_buffer;

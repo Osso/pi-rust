@@ -365,12 +365,11 @@ async fn faux_provider_estimates_prompt_and_output_tokens_from_serialized_contex
         "done",
         FauxAssistantMessageOptions::default(),
     ))]);
-    let tool = Tool {
-        name: "echo".to_owned(),
-        description: "Echo back text".to_owned(),
-        parameters: json!({"type": "object", "properties": {"text": {"type": "string"}}}),
-        constrained_sampling: None,
-    };
+    let tool = Tool::new(
+        "echo",
+        "Echo back text",
+        json!({"type": "object", "properties": {"text": {"type": "string"}}}),
+    );
     let prior = faux_assistant_message("prior", FauxAssistantMessageOptions::default());
     let context = Context {
         system_prompt: Some("sys".to_owned()),

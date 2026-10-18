@@ -41,7 +41,7 @@ pub fn component<T: Component + 'static>(value: T) -> ComponentRef {
     Rc::new(RefCell::new(value))
 }
 
-fn component_id(component: &ComponentRef) -> usize {
+pub(crate) fn component_id(component: &ComponentRef) -> usize {
     Rc::as_ptr(component) as *const () as usize
 }
 fn same_component(left: &ComponentRef, right: &ComponentRef) -> bool {
@@ -71,6 +71,11 @@ pub trait Component {
     }
 
     fn as_container(&self) -> Option<&Container> {
+        None
+    }
+
+    /// Layout node exposed to `layout.rs` (TypeScript's `LAYOUT_NODE` symbol).
+    fn layout_node(&self) -> Option<crate::layout_node::LayoutNode> {
         None
     }
 
@@ -116,6 +121,10 @@ pub struct Container {
 impl Container {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_children(children: Vec<ComponentRef>) -> Self {
+        Self { children }
     }
 
     pub fn add_child(&mut self, component: ComponentRef) {
