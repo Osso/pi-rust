@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Shared test doubles for OAuth flow tests.
 
 use std::collections::{BTreeMap, VecDeque};
@@ -5,16 +7,22 @@ use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::oauth::support::{OAuthRuntime, RandomSource};
 use pi_ai::auth::{AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind};
-use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
+use pi_ai::request::{BoxFuture, CallbackError, Fetch};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 
-pub static CALLBACK_PORT_LOCK: Mutex<()> = Mutex::new(());
+pub static CALLBACK_PORT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Serializes tests that bind a flow's fixed loopback port.
-pub fn lock_callback_port() -> std::sync::MutexGuard<'static, ()> {
-    CALLBACK_PORT_LOCK.lock().unwrap_or_else(|error| error.into_inner())
+pub async fn lock_callback_port() -> tokio::sync::MutexGuard<'static, ()> {
+    CALLBACK_PORT_LOCK.lock().await
 }
+
+#[allow(dead_code)]
+#[path = "recording_fetch.rs"]
+pub mod recording_fetch;
+
+use recording_fetch::RecordingFetch;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordedRequest {
@@ -24,105 +32,17 @@ pub struct RecordedRequest {
     pub body: String,
 }
 
-#[derive(Debug, Clone)]
-pub struct ScriptedResponse {
-    pub url: Option<String>,
-    pub status: u16,
-    pub body: String,
-}
-
-impl ScriptedResponse {
-    pub fn ok(url: &str, body: impl Into<String>) -> Self {
-        Self {
-            url: Some(url.to_owned()),
-            status: 200,
-            body: body.into(),
-        }
-    }
-
-    pub fn status(url: &str, status: u16, body: impl Into<String>) -> Self {
-        Self {
-            url: Some(url.to_owned()),
-            status,
-            body: body.into(),
-        }
-    }
-
-    pub fn any_status(status: u16, body: impl Into<String>) -> Self {
-        Self {
-            url: None,
-            status,
-            body: body.into(),
-        }
-    }
-}
-
-pub struct ScriptedFetch {
-    responses: Mutex<VecDeque<ScriptedResponse>>,
-    requests: Mutex<Vec<RecordedRequest>>,
-}
-
-impl ScriptedFetch {
-    pub fn new(responses: Vec<ScriptedResponse>) -> Arc<Self> {
-        Arc::new(Self {
-            responses: Mutex::new(VecDeque::from(responses)),
-            requests: Mutex::new(Vec::new()),
-        })
-    }
-
-    pub fn requests(&self) -> Vec<RecordedRequest> {
-        self.requests.lock().expect("requests mutex").clone()
-    }
-
-    pub fn remaining(&self) -> usize {
-        self.responses.lock().expect("responses mutex").len()
-    }
-
-    fn next_response(&self, url: &str) -> Option<ScriptedResponse> {
-        let mut responses = self.responses.lock().expect("responses mutex");
-        let index = responses
-            .iter()
-            .position(|response| response.url.as_deref().is_none_or(|expected| expected == url))?;
-        responses.remove(index)
-    }
-}
-
-impl Fetch for ScriptedFetch {
-    fn fetch(
-        &self,
-        request: HttpRequest,
-        _signal: Option<CancellationToken>,
-    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
-        self.requests.lock().expect("requests mutex").push(RecordedRequest {
-            method: request.method.clone(),
-            url: request.url.clone(),
-            headers: request.headers.iter().cloned().collect(),
+pub fn recorded_requests(fetch: &RecordingFetch) -> Vec<RecordedRequest> {
+    fetch
+        .requests()
+        .into_iter()
+        .map(|request| RecordedRequest {
+            method: request.method,
+            url: request.url,
+            headers: request.headers.into_iter().collect(),
             body: String::from_utf8_lossy(request.body.as_deref().unwrap_or_default()).into_owned(),
-        });
-        let response = self
-            .next_response(&request.url)
-            .ok_or_else(|| CallbackError::new(format!("unexpected fetch: {}", request.url)));
-        Box::pin(async move {
-            let response = response?;
-            Ok(HttpResponse {
-                status: response.status,
-                headers: vec![("content-type".to_owned(), "application/json".to_owned())],
-                body: Box::new(VecBody {
-                    bytes: Some(response.body.into_bytes()),
-                }),
-            })
         })
-    }
-}
-
-struct VecBody {
-    bytes: Option<Vec<u8>>,
-}
-
-impl HttpBody for VecBody {
-    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
-        Box::pin(async move { self.bytes.take().map(Ok) })
-    }
+        .collect()
 }
 
 /// Deterministic random source: `fill` writes `(index + 1)` bytes and `uuid`
@@ -152,11 +72,7 @@ impl RandomSource for TestRandom {
 }
 
 pub fn runtime(fetch: Arc<dyn Fetch>, now: f64) -> OAuthRuntime {
-    OAuthRuntime::new(
-        fetch,
-        Arc::new(move || now),
-        TestRandom::new() as Arc<dyn RandomSource>,
-    )
+    OAuthRuntime::new(fetch, Arc::new(move || now), TestRandom::new() as Arc<dyn RandomSource>)
 }
 
 #[derive(Debug, Clone)]
@@ -189,15 +105,6 @@ impl TestInteraction {
         })
     }
 
-    pub fn with_signal(answers: Vec<PromptAnswer>, signal: CancellationToken) -> Arc<Self> {
-        Arc::new(Self {
-            signal,
-            answers: Mutex::new(VecDeque::from(answers)),
-            prompts: Mutex::new(Vec::new()),
-            events: Mutex::new(Vec::new()),
-        })
-    }
-
     pub fn prompts(&self) -> Vec<PromptRecord> {
         self.prompts.lock().expect("prompts mutex").clone()
     }
@@ -213,13 +120,10 @@ impl AuthInteraction for TestInteraction {
     }
 
     fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<String, CallbackError>> {
-        self.prompts
-            .lock()
-            .expect("prompts mutex")
-            .push(PromptRecord {
-                kind: prompt.kind,
-                signal: prompt.signal,
-            });
+        self.prompts.lock().expect("prompts mutex").push(PromptRecord {
+            kind: prompt.kind,
+            signal: prompt.signal,
+        });
         let answer = self
             .answers
             .lock()

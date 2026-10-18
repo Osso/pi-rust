@@ -9,11 +9,10 @@ use tokio_util::sync::CancellationToken;
 #[path = "support/oauth.rs"]
 mod oauth_support;
 
+use oauth_support::recording_fetch::{RecordingFetch, ScriptedResponse};
 use oauth_support::{
-    PromptAnswer, ScriptedFetch, ScriptedResponse, TestInteraction, TestRandom, http_get, lock_callback_port,
-    runtime,
+    PromptAnswer, TestInteraction, TestRandom, http_get, lock_callback_port, recorded_requests, runtime,
 };
-
 const TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
 const NOW: f64 = 1_750_000_000_000.0;
 
@@ -24,9 +23,9 @@ fn verifier() -> String {
 
 #[tokio::test]
 async fn manual_code_login_posts_the_expected_exchange_body_and_cancels_the_prompt() {
-    let _port = lock_callback_port();
-    let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(
-        TOKEN_URL,
+    let _port = lock_callback_port().await;
+    let fetch = RecordingFetch::new(vec![ScriptedResponse::json(
+        200,
         r#"{"access_token":"access-token","refresh_token":"refresh-token","expires_in":3600}"#,
     )]);
     let oauth = AnthropicOAuth::with_runtime(runtime(fetch.clone(), NOW));
@@ -40,12 +39,18 @@ async fn manual_code_login_posts_the_expected_exchange_body_and_cancels_the_prom
     assert_eq!(credential.refresh, "refresh-token");
     assert_eq!(credential.expires, NOW + 3_600_000.0 - 300_000.0);
 
-    let requests = fetch.requests();
+    let requests = recorded_requests(&fetch);
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].method, "POST");
     assert_eq!(requests[0].url, TOKEN_URL);
-    assert_eq!(requests[0].headers.get("Content-Type").map(String::as_str), Some("application/json"));
-    assert_eq!(requests[0].headers.get("Accept").map(String::as_str), Some("application/json"));
+    assert_eq!(
+        requests[0].headers.get("Content-Type").map(String::as_str),
+        Some("application/json")
+    );
+    assert_eq!(
+        requests[0].headers.get("Accept").map(String::as_str),
+        Some("application/json")
+    );
     assert_eq!(
         requests[0].body,
         format!(
@@ -57,7 +62,9 @@ async fn manual_code_login_posts_the_expected_exchange_body_and_cancels_the_prom
 
     let events = interaction.events();
     assert!(matches!(&events[0], AuthEvent::AuthUrl { url, .. } if url.contains("code_challenge_method=S256")));
-    assert!(matches!(&events[1], AuthEvent::Progress { message } if message == "Exchanging authorization code for tokens..."));
+    assert!(
+        matches!(&events[1], AuthEvent::Progress { message } if message == "Exchanging authorization code for tokens...")
+    );
     let prompts = interaction.prompts();
     assert_eq!(prompts.len(), 1);
     assert!(matches!(prompts[0].kind, AuthPromptKind::ManualCode { .. }));
@@ -66,9 +73,9 @@ async fn manual_code_login_posts_the_expected_exchange_body_and_cancels_the_prom
 
 #[tokio::test]
 async fn callback_login_uses_the_local_server_and_redirect_uri() {
-    let _port = lock_callback_port();
-    let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(
-        TOKEN_URL,
+    let _port = lock_callback_port().await;
+    let fetch = RecordingFetch::new(vec![ScriptedResponse::json(
+        200,
         r#"{"access_token":"callback-access","refresh_token":"callback-refresh","expires_in":60}"#,
     )]);
     let oauth = AnthropicOAuth::with_runtime(runtime(fetch.clone(), NOW));
@@ -90,7 +97,7 @@ async fn callback_login_uses_the_local_server_and_redirect_uri() {
     let credential = login.await.expect("login task").expect("credential");
     assert_eq!(credential.access, "callback-access");
     assert_eq!(credential.expires, NOW + 60_000.0 - 300_000.0);
-    let requests = fetch.requests();
+    let requests = recorded_requests(&fetch);
     assert_eq!(requests.len(), 1);
     assert!(requests[0].body.contains(r#""code":"server-code""#));
     assert!(requests[0].body.contains(r#""state":""#));
@@ -98,8 +105,8 @@ async fn callback_login_uses_the_local_server_and_redirect_uri() {
 
 #[tokio::test]
 async fn refresh_omits_scope_and_applies_the_five_minute_skew() {
-    let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(
-        TOKEN_URL,
+    let fetch = RecordingFetch::new(vec![ScriptedResponse::json(
+        200,
         r#"{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600,"scope":"ignored"}"#,
     )]);
     let oauth = AnthropicOAuth::with_runtime(runtime(fetch.clone(), NOW));
@@ -116,14 +123,14 @@ async fn refresh_omits_scope_and_applies_the_five_minute_skew() {
     assert_eq!(refreshed.expires, NOW + 3_600_000.0 - 300_000.0);
     assert!(!refreshed.extra.contains_key("scope"));
     assert_eq!(
-        fetch.requests()[0].body,
+        recorded_requests(&fetch)[0].body,
         r#"{"grant_type":"refresh_token","client_id":"9d1c250a-e61b-44d9-88ed-5944d1962f5e","refresh_token":"old-refresh"}"#
     );
 }
 
 #[tokio::test]
 async fn to_auth_returns_the_access_token_and_marks_subscription_login() {
-    let oauth = AnthropicOAuth::with_runtime(runtime(ScriptedFetch::new(vec![]), NOW));
+    let oauth = AnthropicOAuth::with_runtime(runtime(RecordingFetch::new(vec![]), NOW));
     assert_eq!(oauth.name(), "Anthropic (Claude Pro/Max)");
     assert!(oauth.is_subscription());
     let auth = oauth
@@ -136,8 +143,8 @@ async fn to_auth_returns_the_access_token_and_marks_subscription_login() {
 
 #[tokio::test]
 async fn manual_state_mismatch_fails_with_the_source_message() {
-    let _port = lock_callback_port();
-    let oauth = AnthropicOAuth::with_runtime(runtime(ScriptedFetch::new(vec![]), NOW));
+    let _port = lock_callback_port().await;
+    let oauth = AnthropicOAuth::with_runtime(runtime(RecordingFetch::new(vec![]), NOW));
     let interaction = TestInteraction::new(vec![PromptAnswer::Text(
         "http://localhost:53692/callback?code=manual-code&state=wrong".to_owned(),
     )]);
@@ -147,8 +154,8 @@ async fn manual_state_mismatch_fails_with_the_source_message() {
 
 #[tokio::test]
 async fn token_exchange_http_failures_keep_the_wrapped_details() {
-    let _port = lock_callback_port();
-    let fetch = ScriptedFetch::new(vec![ScriptedResponse::status(TOKEN_URL, 500, "boom")]);
+    let _port = lock_callback_port().await;
+    let fetch = RecordingFetch::new(vec![ScriptedResponse::json(500, "boom")]);
     let oauth = AnthropicOAuth::with_runtime(runtime(fetch, NOW));
     let interaction = TestInteraction::new(vec![PromptAnswer::Text(format!(
         "http://localhost:53692/callback?code=c&state={}",

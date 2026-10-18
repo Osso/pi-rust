@@ -10,7 +10,8 @@ use serde_json::json;
 #[path = "support/oauth.rs"]
 mod oauth_support;
 
-use oauth_support::{ScriptedFetch, ScriptedResponse};
+use oauth_support::recorded_requests;
+use oauth_support::recording_fetch::{RecordingFetch, ScriptedResponse};
 
 fn model(id: &str) -> serde_json::Value {
     json!({
@@ -36,8 +37,14 @@ fn config() -> serde_json::Value {
 fn normalizes_gateway_urls_with_scheme_detection_and_trailing_slashes() {
     assert_eq!(DEFAULT_RADIUS_GATEWAY, "https://radius.pi.dev");
     assert_eq!(normalize_radius_gateway_url("radius.pi.dev"), "https://radius.pi.dev");
-    assert_eq!(normalize_radius_gateway_url("HTTPS://radius.pi.dev///"), "HTTPS://radius.pi.dev");
-    assert_eq!(normalize_radius_gateway_url("http://localhost:8080/"), "http://localhost:8080");
+    assert_eq!(
+        normalize_radius_gateway_url("HTTPS://radius.pi.dev///"),
+        "HTTPS://radius.pi.dev"
+    );
+    assert_eq!(
+        normalize_radius_gateway_url("http://localhost:8080/"),
+        "http://localhost:8080"
+    );
     assert_eq!(normalize_radius_gateway_url("https://"), "https:");
 }
 
@@ -74,9 +81,7 @@ fn rejects_non_object_or_malformed_configs() {
 #[test]
 fn reads_the_gateway_config_from_the_credential_extra_fields() {
     let mut credential = OAuthCredential::new("r", "a", 0.0);
-    credential
-        .extra
-        .insert("gatewayConfig".to_owned(), config());
+    credential.extra.insert("gatewayConfig".to_owned(), config());
     let parsed = get_radius_credential_config(Some(&credential)).expect("gateway config");
     assert_eq!(parsed.models.len(), 2);
 
@@ -102,50 +107,59 @@ fn builds_pi_messages_models_from_gateway_entries() {
     assert!(model.auto_compaction_threshold.is_none());
 
     let mut credential = OAuthCredential::new("r", "a", 0.0);
-    credential
-        .extra
-        .insert("gatewayConfig".to_owned(), config());
+    credential.extra.insert("gatewayConfig".to_owned(), config());
     assert_eq!(get_radius_models("radius", Some(&credential)).len(), 2);
     assert!(get_radius_models("radius", None).is_empty());
 }
 
 #[tokio::test]
 async fn loads_gateway_config_with_bearer_auth_and_truncated_errors() {
-    let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(
-        "https://radius.example/v1/config",
-        config().to_string(),
-    )]);
-    let parsed = load_radius_gateway_config(&(fetch.clone() as Arc<dyn pi_ai::request::Fetch>), "https://radius.example", Some("token"), None)
-        .await
-        .expect("config");
+    let fetch = RecordingFetch::new(vec![ScriptedResponse::json(200, &config().to_string())]);
+    let parsed = load_radius_gateway_config(
+        &(fetch.clone() as Arc<dyn pi_ai::request::Fetch>),
+        "https://radius.example",
+        Some("token"),
+        None,
+    )
+    .await
+    .expect("config");
     assert_eq!(parsed.models.len(), 2);
-    let requests = fetch.requests();
+    let requests = recorded_requests(&fetch);
     assert_eq!(requests[0].method, "GET");
     assert_eq!(requests[0].url, "https://radius.example/v1/config");
-    assert_eq!(requests[0].headers.get("accept").map(String::as_str), Some("application/json"));
+    assert_eq!(
+        requests[0].headers.get("accept").map(String::as_str),
+        Some("application/json")
+    );
     assert_eq!(
         requests[0].headers.get("authorization").map(String::as_str),
         Some("Bearer token")
     );
 
     let long_body = format!("  {}  ", "é".repeat(600));
-    let fetch = ScriptedFetch::new(vec![ScriptedResponse::status(
-        "https://radius.example/v1/config",
-        503,
-        long_body,
-    )]);
-    let error = load_radius_gateway_config(&(fetch as Arc<dyn pi_ai::request::Fetch>), "https://radius.example", None, None)
-        .await
-        .expect_err("error");
-    let expected_prefix = format!("Could not load Radius config from https://radius.example: 503: {}", "é".repeat(512));
+    let fetch = RecordingFetch::new(vec![ScriptedResponse::json(503, &long_body)]);
+    let error = load_radius_gateway_config(
+        &(fetch as Arc<dyn pi_ai::request::Fetch>),
+        "https://radius.example",
+        None,
+        None,
+    )
+    .await
+    .expect_err("error");
+    let expected_prefix = format!(
+        "Could not load Radius config from https://radius.example: 503: {}",
+        "é".repeat(512)
+    );
     assert_eq!(error.message, format!("{expected_prefix}…"));
 
-    let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(
-        "https://radius.example/v1/config",
-        "{\"baseUrl\":1}",
-    )]);
-    let error = load_radius_gateway_config(&(fetch as Arc<dyn pi_ai::request::Fetch>), "https://radius.example", None, None)
-        .await
-        .expect_err("error");
+    let fetch = RecordingFetch::new(vec![ScriptedResponse::json(200, "{\"baseUrl\":1}")]);
+    let error = load_radius_gateway_config(
+        &(fetch as Arc<dyn pi_ai::request::Fetch>),
+        "https://radius.example",
+        None,
+        None,
+    )
+    .await
+    .expect_err("error");
     assert_eq!(error.message, "Invalid Radius config from https://radius.example");
 }

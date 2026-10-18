@@ -163,6 +163,7 @@ pub fn status_text(status: u16) -> &'static str {
 
 pub struct OAuthHttpResponse {
     pub status: u16,
+    pub status_text: String,
     pub body: String,
     pub json: Option<Value>,
 }
@@ -181,10 +182,16 @@ pub async fn send(
 ) -> Result<OAuthHttpResponse, CallbackError> {
     let response = fetch.fetch(request, signal).await?;
     let status = response.status;
+    let status_text = response.status_text;
     let body = collect_body(response.body).await?;
     let body = String::from_utf8_lossy(&body).into_owned();
     let json = serde_json::from_str(&body).ok();
-    Ok(OAuthHttpResponse { status, body, json })
+    Ok(OAuthHttpResponse {
+        status,
+        status_text,
+        body,
+        json,
+    })
 }
 
 async fn collect_body(mut body: Box<dyn HttpBody>) -> Result<Vec<u8>, CallbackError> {
@@ -376,11 +383,7 @@ impl CallbackServer {
     }
 }
 
-pub async fn start_callback_server(
-    host: &str,
-    port: u16,
-    handler: CallbackHandler,
-) -> std::io::Result<CallbackServer> {
+pub async fn start_callback_server(host: &str, port: u16, handler: CallbackHandler) -> std::io::Result<CallbackServer> {
     let listener = TcpListener::bind((host, port)).await?;
     let local_port = listener.local_addr()?.port();
     let shutdown = CancellationToken::new();

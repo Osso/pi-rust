@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::auth::OAuthCredential;
 use crate::request::{CallbackError, Fetch, HttpRequest};
-use crate::types::{Model, ModelCost, Modality, ThinkingLevelMap};
+use crate::types::{Modality, Model, ModelCost, ThinkingLevelMap};
 
 pub const DEFAULT_RADIUS_GATEWAY: &str = "https://radius.pi.dev";
 const PI_MESSAGES_API: &str = "pi-messages";
@@ -24,7 +24,9 @@ pub struct RadiusGatewayModel {
     pub thinking_level_map: Option<ThinkingLevelMap>,
     pub input: Vec<Modality>,
     pub cost: ModelCost,
+    #[serde(serialize_with = "crate::js_number::serialize")]
     pub context_window: f64,
+    #[serde(serialize_with = "crate::js_number::serialize")]
     pub max_tokens: f64,
 }
 

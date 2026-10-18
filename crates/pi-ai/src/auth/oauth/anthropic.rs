@@ -13,8 +13,9 @@ use crate::auth::oauth::support::{
     AuthorizationInput, CallbackReply, CallbackRequest, CallbackServer, OAuthRuntime, json_request,
     parse_authorization_input, send, start_callback_server,
 };
-use crate::auth::{AuthError, AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, ModelAuth, OAuthAuth,
-    OAuthCredential};
+use crate::auth::{
+    AuthError, AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, ModelAuth, OAuthAuth, OAuthCredential,
+};
 use crate::http::ABORT_ERROR_MESSAGE;
 use crate::request::CallbackError;
 use crate::utils::provider_env::get_provider_env_value;
@@ -41,12 +42,9 @@ impl AnthropicOAuth {
     }
 
     pub fn with_runtime(runtime: OAuthRuntime) -> Self {
-        let callback_host = get_provider_env_value("PI_OAUTH_CALLBACK_HOST", None)
-            .unwrap_or_else(|| "127.0.0.1".to_owned());
-        Self {
-            runtime,
-            callback_host,
-        }
+        let callback_host =
+            get_provider_env_value("PI_OAUTH_CALLBACK_HOST", None).unwrap_or_else(|| "127.0.0.1".to_owned());
+        Self { runtime, callback_host }
     }
 
     pub fn with_callback_host(mut self, host: impl Into<String>) -> Self {
@@ -74,7 +72,10 @@ impl OAuthAuth for AnthropicOAuth {
         true
     }
 
-    fn login(&self, interaction: Arc<dyn AuthInteraction>) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+    fn login(
+        &self,
+        interaction: Arc<dyn AuthInteraction>,
+    ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         let callback_host = self.callback_host.clone();
         Box::pin(async move { login_anthropic(&runtime, &callback_host, interaction).await })
@@ -94,7 +95,12 @@ impl OAuthAuth for AnthropicOAuth {
     }
 
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
-        Box::pin(async move { Ok(ModelAuth { api_key: Some(credential.access), ..ModelAuth::default() }) })
+        Box::pin(async move {
+            Ok(ModelAuth {
+                api_key: Some(credential.access),
+                ..ModelAuth::default()
+            })
+        })
     }
 }
 
@@ -109,10 +115,7 @@ struct CallbackWait {
     settle: Arc<Mutex<Option<oneshot::Sender<Option<CallbackCode>>>>>,
 }
 
-fn settle_wait(
-    sender: &Arc<Mutex<Option<oneshot::Sender<Option<CallbackCode>>>>>,
-    value: Option<CallbackCode>,
-) {
+fn settle_wait(sender: &Arc<Mutex<Option<oneshot::Sender<Option<CallbackCode>>>>>, value: Option<CallbackCode>) {
     if let Some(sender) = sender.lock().expect("callback sender mutex").take() {
         let _ = sender.send(value);
     }
@@ -150,13 +153,7 @@ async fn start_anthropic_callback_server(
             if state != expected_state {
                 return CallbackReply::html(400, oauth_error_html("State mismatch.", None));
             }
-            settle_wait(
-                &settle_sender,
-                Some(CallbackCode {
-                    code,
-                    state,
-                }),
-            );
+            settle_wait(&settle_sender, Some(CallbackCode { code, state }));
             CallbackReply::html(
                 200,
                 oauth_success_html("Anthropic authentication completed. You can close this window."),
@@ -280,13 +277,15 @@ async fn login_anthropic(
     let mut prompt = Box::pin(interaction.prompt(AuthPrompt {
         signal: Some(manual_abort.clone()),
         kind: AuthPromptKind::ManualCode {
-            message: "Complete login in your browser, or paste the authorization code / redirect URL here:"
-                .to_owned(),
+            message: "Complete login in your browser, or paste the authorization code / redirect URL here:".to_owned(),
             placeholder: Some(REDIRECT_URI.to_owned()),
         },
     }));
     let mut manual: Option<Result<String, CallbackError>> = None;
-    let CallbackWait { receiver, settle: wait_settle } = wait;
+    let CallbackWait {
+        receiver,
+        settle: wait_settle,
+    } = wait;
     let mut receiver = Box::pin(receiver);
     let interaction_signal = interaction.signal();
     let result = loop {
@@ -357,10 +356,7 @@ async fn login_anthropic(
     credential.map_err(|error| AuthError::failed(error.message))
 }
 
-fn resolve_manual_input(
-    input: &str,
-    verifier: &str,
-) -> Result<(Option<String>, Option<String>), AuthError> {
+fn resolve_manual_input(input: &str, verifier: &str) -> Result<(Option<String>, Option<String>), AuthError> {
     let AuthorizationInput { code, state } = parse_authorization_input(input);
     if state.as_deref().is_some_and(|state| state != verifier) {
         return Err(AuthError::failed("OAuth state mismatch"));
@@ -378,14 +374,12 @@ async fn refresh_anthropic(
         "client_id": CLIENT_ID,
         "refresh_token": refresh_token,
     });
-    let response_body = post_json(runtime, TOKEN_URL, body, signal)
-        .await
-        .map_err(|error| {
-            CallbackError::new(format!(
-                "Anthropic token refresh request failed. url={TOKEN_URL}; details={}",
-                format_error_details(&error)
-            ))
-        })?;
+    let response_body = post_json(runtime, TOKEN_URL, body, signal).await.map_err(|error| {
+        CallbackError::new(format!(
+            "Anthropic token refresh request failed. url={TOKEN_URL}; details={}",
+            format_error_details(&error)
+        ))
+    })?;
     let data: Value = serde_json::from_str(&response_body).map_err(|error| {
         CallbackError::new(format!(
             "Anthropic token refresh returned invalid JSON. url={TOKEN_URL}; body={response_body}; details=Error: {error}"
