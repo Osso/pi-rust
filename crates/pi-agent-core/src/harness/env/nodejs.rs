@@ -13,12 +13,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use pi_ai::request::BoxFuture;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
-use tokio::sync::mpsc::{self, UnboundedSender};
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio_util::sync::CancellationToken;
 
 use crate::harness::types::{
     CreateDirOptions, CreateTempFileOptions, ExecutionError, ExecutionErrorCode, FileContent, FileError, FileErrorCode,
     FileInfo, FileKind, FileSystem, ReadTextLinesOptions, RemoveOptions, Shell, ShellExecOptions, ShellExecResult,
+    ShellOutputHandler,
 };
 
 const MAX_TIMEOUT_MS: f64 = 2_147_483_647.0;
@@ -344,22 +345,51 @@ impl NodeExecutionEnv {
             return Err(ExecutionError::new(ExecutionErrorCode::Aborted, "aborted", None));
         }
         let timeout_ms = resolve_timeout_ms(options.timeout)?;
-        let cwd = match &options.cwd {
-            Some(path) => resolve_path(&self.cwd, path),
-            None => self.cwd.clone(),
-        };
+        let cwd = resolve_exec_cwd(&self.cwd, options.cwd.as_deref());
         let shell = get_shell_config(self.shell_path.as_deref()).await?;
-        if !path_exists(&cwd).await {
-            return Err(ExecutionError::new(
-                ExecutionErrorCode::SpawnError,
-                format!("Working directory does not exist: {cwd}\nCannot execute bash commands."),
-                None,
-            ));
-        }
+        ensure_working_directory(&cwd).await?;
 
+        let mut child = self.spawn_shell(&shell, command, &cwd, &options)?;
+        let pid = child.id();
+        self.track_child(pid);
+
+        let mut tasks = start_stream_tasks(&mut child, options.on_stdout.clone(), options.on_stderr.clone());
+        let wait = wait_for_exit(&mut child, pid, timeout_ms, options.abort.clone(), &mut tasks).await;
+        abort_stream_task(tasks.stdout_task.take());
+        abort_stream_task(tasks.stderr_task.take());
+        self.untrack_child(pid);
+
+        exec_outcome_to_result(wait, tasks.stdout, tasks.stderr, &options)
+    }
+
+    fn track_child(&self, pid: Option<u32>) {
+        if let Some(pid) = pid {
+            self.active_child_pids
+                .lock()
+                .expect("active child pids lock")
+                .insert(pid);
+        }
+    }
+
+    fn untrack_child(&self, pid: Option<u32>) {
+        if let Some(pid) = pid {
+            self.active_child_pids
+                .lock()
+                .expect("active child pids lock")
+                .remove(&pid);
+        }
+    }
+
+    fn spawn_shell(
+        &self,
+        shell: &ShellConfig,
+        command: &str,
+        cwd: &str,
+        options: &ShellExecOptions,
+    ) -> Result<tokio::process::Child, ExecutionError> {
         let mut process = Command::new(&shell.shell);
         process.args(&shell.args).arg(command);
-        process.current_dir(&cwd);
+        process.current_dir(cwd);
         process.env_clear();
         process.envs(build_env(&self.shell_env, options.env.as_ref(), options.inherit_env));
         process.stdin(std::process::Stdio::null());
@@ -368,131 +398,212 @@ impl NodeExecutionEnv {
         #[cfg(unix)]
         process.process_group(0);
 
-        let mut child = process.spawn().map_err(|error| {
+        process.spawn().map_err(|error| {
             ExecutionError::new(ExecutionErrorCode::SpawnError, error.to_string(), Some(Box::new(error)))
-        })?;
-        let pid = child.id();
-        if let Some(pid) = pid {
-            self.active_child_pids
-                .lock()
-                .expect("active child pids lock")
-                .insert(pid);
-        }
-
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        let (event_sender, mut event_receiver) = mpsc::unbounded_channel();
-        let stdout_text = Arc::new(Mutex::new(String::new()));
-        let stderr_text = Arc::new(Mutex::new(String::new()));
-        let stdout_task = stdout.map(|reader| {
-            tokio::spawn(read_stream(
-                reader,
-                StreamKind::Stdout,
-                Arc::clone(&stdout_text),
-                options.on_stdout.clone(),
-                event_sender.clone(),
-            ))
-        });
-        let stderr_task = stderr.map(|reader| {
-            tokio::spawn(read_stream(
-                reader,
-                StreamKind::Stderr,
-                Arc::clone(&stderr_text),
-                options.on_stderr.clone(),
-                event_sender.clone(),
-            ))
-        });
-
-        let deadline = timeout_ms.map(|millis| tokio::time::Instant::now() + Duration::from_secs_f64(millis / 1000.0));
-        let abort = options.abort.clone();
-        let mut timed_out = false;
-        let mut aborted = false;
-        let mut done = [false, false];
-        let mut callback_error = None;
-        let mut killed_for_callback = false;
-
-        let status = loop {
-            tokio::select! {
-                status = child.wait() => break status,
-                _ = async {
-                    match deadline {
-                        Some(deadline) => tokio::time::sleep_until(deadline).await,
-                        None => std::future::pending::<()>().await,
-                    }
-                }, if !timed_out => {
-                    timed_out = true;
-                    if let Some(pid) = pid {
-                        kill_process_tree(pid);
-                    }
-                }
-                _ = async {
-                    match &abort {
-                        Some(token) => token.cancelled().await,
-                        None => std::future::pending::<()>().await,
-                    }
-                }, if !aborted => {
-                    aborted = true;
-                    if let Some(pid) = pid {
-                        kill_process_tree(pid);
-                    }
-                }
-                event = event_receiver.recv() => {
-                    apply_stream_event(event, &mut done, &mut callback_error);
-                    if callback_error.is_some() && !killed_for_callback {
-                        killed_for_callback = true;
-                        if let Some(pid) = pid {
-                            kill_process_tree(pid);
-                        }
-                    }
-                }
-            }
-        };
-
-        let grace = tokio::time::sleep(EXIT_STDIO_GRACE);
-        tokio::pin!(grace);
-        while !(done[0] && done[1]) {
-            tokio::select! {
-                _ = &mut grace => break,
-                event = event_receiver.recv() => {
-                    if apply_stream_event(event, &mut done, &mut callback_error) {
-                        break;
-                    }
-                }
-            }
-        }
-        if let Some(task) = stdout_task {
-            task.abort();
-        }
-        if let Some(task) = stderr_task {
-            task.abort();
-        }
-        if let Some(pid) = pid {
-            self.active_child_pids
-                .lock()
-                .expect("active child pids lock")
-                .remove(&pid);
-        }
-
-        if let Some(message) = callback_error {
-            return Err(ExecutionError::new(ExecutionErrorCode::CallbackError, message, None));
-        }
-        if timed_out {
-            return Err(ExecutionError::new(
-                ExecutionErrorCode::Timeout,
-                format!("timeout:{}", format_js_number(options.timeout.unwrap_or_default())),
-                None,
-            ));
-        }
-        if aborted || options.abort.as_ref().is_some_and(CancellationToken::is_cancelled) {
-            return Err(ExecutionError::new(ExecutionErrorCode::Aborted, "aborted", None));
-        }
-
-        Ok(ShellExecResult {
-            stdout: stdout_text.lock().expect("stdout lock").clone(),
-            stderr: stderr_text.lock().expect("stderr lock").clone(),
-            exit_code: status.map(|status| status.code().unwrap_or(0)).unwrap_or(0),
         })
     }
+}
+
+fn resolve_exec_cwd(env_cwd: &str, requested_cwd: Option<&str>) -> String {
+    match requested_cwd {
+        Some(path) => resolve_path(env_cwd, path),
+        None => env_cwd.to_owned(),
+    }
+}
+
+async fn ensure_working_directory(cwd: &str) -> Result<(), ExecutionError> {
+    if path_exists(cwd).await {
+        return Ok(());
+    }
+    Err(ExecutionError::new(
+        ExecutionErrorCode::SpawnError,
+        format!("Working directory does not exist: {cwd}\nCannot execute bash commands."),
+        None,
+    ))
+}
+
+struct StreamTasks {
+    stdout_task: Option<tokio::task::JoinHandle<()>>,
+    stderr_task: Option<tokio::task::JoinHandle<()>>,
+    receiver: UnboundedReceiver<StreamEvent>,
+    stdout: Arc<Mutex<String>>,
+    stderr: Arc<Mutex<String>>,
+}
+
+fn start_stream_tasks(
+    child: &mut tokio::process::Child,
+    on_stdout: Option<Arc<ShellOutputHandler>>,
+    on_stderr: Option<Arc<ShellOutputHandler>>,
+) -> StreamTasks {
+    let stdout = Arc::new(Mutex::new(String::new()));
+    let stderr = Arc::new(Mutex::new(String::new()));
+    let (sender, receiver) = mpsc::unbounded_channel();
+    let stdout_task = child.stdout.take().map(|reader| {
+        tokio::spawn(read_stream(
+            reader,
+            StreamKind::Stdout,
+            Arc::clone(&stdout),
+            on_stdout,
+            sender.clone(),
+        ))
+    });
+    let stderr_task = child.stderr.take().map(|reader| {
+        tokio::spawn(read_stream(
+            reader,
+            StreamKind::Stderr,
+            Arc::clone(&stderr),
+            on_stderr,
+            sender,
+        ))
+    });
+    StreamTasks {
+        stdout_task,
+        stderr_task,
+        receiver,
+        stdout,
+        stderr,
+    }
+}
+
+struct ExitWait {
+    status: Result<std::process::ExitStatus, std::io::Error>,
+    timed_out: bool,
+    aborted: bool,
+    callback_error: Option<String>,
+}
+
+#[derive(Default)]
+struct WaitFlags {
+    timed_out: bool,
+    aborted: bool,
+    callback_error: Option<String>,
+}
+
+async fn wait_for_exit(
+    child: &mut tokio::process::Child,
+    pid: Option<u32>,
+    timeout_ms: Option<f64>,
+    abort: Option<CancellationToken>,
+    tasks: &mut StreamTasks,
+) -> ExitWait {
+    let deadline = timeout_ms.map(|millis| tokio::time::Instant::now() + Duration::from_secs_f64(millis / 1000.0));
+    let mut flags = WaitFlags::default();
+    let mut done = [false, false];
+    let status = wait_for_status(child, pid, deadline, abort.as_ref(), tasks, &mut done, &mut flags).await;
+    drain_streams(&mut tasks.receiver, &mut done, &mut flags.callback_error).await;
+    ExitWait {
+        status,
+        timed_out: flags.timed_out,
+        aborted: flags.aborted,
+        callback_error: flags.callback_error,
+    }
+}
+
+async fn wait_for_status(
+    child: &mut tokio::process::Child,
+    pid: Option<u32>,
+    deadline: Option<tokio::time::Instant>,
+    abort: Option<&CancellationToken>,
+    tasks: &mut StreamTasks,
+    done: &mut [bool; 2],
+    flags: &mut WaitFlags,
+) -> Result<std::process::ExitStatus, std::io::Error> {
+    let mut killed_for_callback = false;
+    loop {
+        tokio::select! {
+            status = child.wait() => return status,
+            _ = sleep_until_deadline(deadline), if !flags.timed_out => {
+                flags.timed_out = true;
+                kill_if_running(pid);
+            }
+            _ = cancel_on_abort(abort), if !flags.aborted => {
+                flags.aborted = true;
+                kill_if_running(pid);
+            }
+            event = tasks.receiver.recv() => {
+                apply_stream_event(event, done, &mut flags.callback_error);
+                if flags.callback_error.is_some() && !killed_for_callback {
+                    killed_for_callback = true;
+                    kill_if_running(pid);
+                }
+            }
+        }
+    }
+}
+
+async fn sleep_until_deadline(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending::<()>().await,
+    }
+}
+
+async fn cancel_on_abort(abort: Option<&CancellationToken>) {
+    match abort {
+        Some(token) => token.cancelled().await,
+        None => std::future::pending::<()>().await,
+    }
+}
+
+fn kill_if_running(pid: Option<u32>) {
+    if let Some(pid) = pid {
+        kill_process_tree(pid);
+    }
+}
+
+async fn drain_streams(
+    receiver: &mut UnboundedReceiver<StreamEvent>,
+    done: &mut [bool; 2],
+    callback_error: &mut Option<String>,
+) {
+    let grace = tokio::time::sleep(EXIT_STDIO_GRACE);
+    tokio::pin!(grace);
+    while !(done[0] && done[1]) {
+        tokio::select! {
+            _ = &mut grace => break,
+            event = receiver.recv() => {
+                if apply_stream_event(event, done, callback_error) {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+fn abort_stream_task(task: Option<tokio::task::JoinHandle<()>>) {
+    if let Some(task) = task {
+        task.abort();
+    }
+}
+
+fn exec_outcome_to_result(
+    wait: ExitWait,
+    stdout: Arc<Mutex<String>>,
+    stderr: Arc<Mutex<String>>,
+    options: &ShellExecOptions,
+) -> Result<ShellExecResult, ExecutionError> {
+    if let Some(message) = wait.callback_error {
+        return Err(ExecutionError::new(ExecutionErrorCode::CallbackError, message, None));
+    }
+    if wait.timed_out {
+        return Err(ExecutionError::new(
+            ExecutionErrorCode::Timeout,
+            format!("timeout:{}", format_js_number(options.timeout.unwrap_or_default())),
+            None,
+        ));
+    }
+    let cancelled = options.abort.as_ref().is_some_and(CancellationToken::is_cancelled);
+    if wait.aborted || cancelled {
+        return Err(ExecutionError::new(ExecutionErrorCode::Aborted, "aborted", None));
+    }
+    let status = wait.status.map_err(|error| {
+        ExecutionError::new(ExecutionErrorCode::SpawnError, error.to_string(), Some(Box::new(error)))
+    })?;
+    Ok(ShellExecResult {
+        stdout: stdout.lock().expect("stdout lock").clone(),
+        stderr: stderr.lock().expect("stderr lock").clone(),
+        exit_code: status.code().unwrap_or(0),
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -524,7 +635,7 @@ async fn read_stream<R>(
     mut reader: R,
     kind: StreamKind,
     shared: Arc<Mutex<String>>,
-    callback: Option<Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>>,
+    callback: Option<Arc<ShellOutputHandler>>,
     sender: UnboundedSender<StreamEvent>,
 ) where
     R: AsyncRead + Unpin,
@@ -536,18 +647,8 @@ async fn read_stream<R>(
             Ok(0) => break,
             Ok(read) => {
                 let text = decoder.push(&buffer[..read]);
-                if text.is_empty() {
-                    continue;
-                }
-                shared.lock().expect("stream text lock").push_str(&text);
-                if let Some(callback) = &callback {
-                    if let Err(message) = callback(&text) {
-                        let _ = sender.send(StreamEvent {
-                            kind,
-                            result: Err(message),
-                        });
-                        return;
-                    }
+                if !deliver_chunk(kind, &text, &shared, callback.as_ref(), &sender) {
+                    return;
                 }
             }
             Err(error) => {
@@ -560,19 +661,33 @@ async fn read_stream<R>(
         }
     }
     let tail = decoder.finish();
-    if !tail.is_empty() {
-        shared.lock().expect("stream text lock").push_str(&tail);
-        if let Some(callback) = &callback {
-            if let Err(message) = callback(&tail) {
-                let _ = sender.send(StreamEvent {
-                    kind,
-                    result: Err(message),
-                });
-                return;
-            }
-        }
+    if !deliver_chunk(kind, &tail, &shared, callback.as_ref(), &sender) {
+        return;
     }
     let _ = sender.send(StreamEvent { kind, result: Ok(()) });
+}
+
+fn deliver_chunk(
+    kind: StreamKind,
+    text: &str,
+    shared: &Arc<Mutex<String>>,
+    callback: Option<&Arc<ShellOutputHandler>>,
+    sender: &UnboundedSender<StreamEvent>,
+) -> bool {
+    if text.is_empty() {
+        return true;
+    }
+    shared.lock().expect("stream text lock").push_str(text);
+    if let Some(callback) = callback
+        && let Err(message) = callback(text)
+    {
+        let _ = sender.send(StreamEvent {
+            kind,
+            result: Err(message),
+        });
+        return false;
+    }
+    true
 }
 
 #[derive(Default)]
@@ -961,10 +1076,10 @@ fn expand_path(path: &str) -> String {
     if let Some(rest) = path.strip_prefix("~/") {
         return format!("{}/{}", home_dir(), rest);
     }
-    if path.starts_with("file://") {
-        if let Some(decoded) = file_url_to_path(path) {
-            return decoded;
-        }
+    if path.starts_with("file://")
+        && let Some(decoded) = file_url_to_path(path)
+    {
+        return decoded;
     }
     path.to_owned()
 }

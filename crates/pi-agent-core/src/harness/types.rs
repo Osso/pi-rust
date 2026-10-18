@@ -416,6 +416,9 @@ pub struct CreateTempFileOptions {
     pub suffix: Option<String>,
 }
 
+/// Shell stdout/stderr callback. `Err` carries the callback error message.
+pub type ShellOutputHandler = dyn Fn(&str) -> Result<(), String> + Send + Sync;
+
 /// Options for [`Shell::exec`].
 #[derive(Clone, Default)]
 pub struct ShellExecOptions {
@@ -430,9 +433,9 @@ pub struct ShellExecOptions {
     /// Cancellation token used to terminate the command.
     pub abort: Option<CancellationToken>,
     /// Called with stdout chunks as they are produced. `Err` carries the callback error message.
-    pub on_stdout: Option<Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>>,
+    pub on_stdout: Option<Arc<ShellOutputHandler>>,
     /// Called with stderr chunks as they are produced. `Err` carries the callback error message.
-    pub on_stderr: Option<Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>>,
+    pub on_stderr: Option<Arc<ShellOutputHandler>>,
 }
 
 impl std::fmt::Debug for ShellExecOptions {

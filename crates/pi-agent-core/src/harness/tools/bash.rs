@@ -185,122 +185,19 @@ async fn execute_bash(
     signal: Option<CancellationToken>,
     on_update: AgentToolUpdateCallback,
 ) -> Result<AgentToolResult, ToolError> {
-    let command = params
-        .get("command")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ToolError::new("bash tool requires a string command"))?
-        .to_owned();
-    let timeout = params.get("timeout").and_then(Value::as_f64);
-    validate_timeout(timeout)?;
-
-    let mut execution = BashExecution {
-        command: match &options.command_prefix {
-            Some(prefix) => format!("{prefix}\n{command}"),
-            None => command,
-        },
-        cwd: context.env.cwd().to_owned(),
-        env: HashMap::new(),
-        inherit_env: true,
-    };
-    if let Some(prepare) = &options.prepare {
-        prepare
-            .prepare(&mut execution, &context, signal.as_ref())
-            .await
-            .map_err(ToolError::new)?;
-    }
-
+    let (command, timeout) = parse_bash_input(&params)?;
+    let execution = prepare_execution(&context, &options, command, signal.as_ref()).await?;
     let throttle = Arc::new(UpdateThrottle::new(on_update));
     throttle.emit_initial();
-    let chunk_throttle = Arc::clone(&throttle);
-    let capture = execute_shell_with_capture(
-        &context.env,
-        &execution.command,
-        ShellCaptureOptions {
-            cwd: Some(execution.cwd.clone()),
-            env: Some(execution.env.clone()),
-            inherit_env: Some(execution.inherit_env),
-            timeout,
-            abort: signal.clone(),
-            on_chunk: Some(Arc::new(move |_chunk: &str, progress: &ShellCaptureProgress| {
-                chunk_throttle.record(progress);
-            })),
-            return_execution_errors: true,
-        },
-    )
-    .await
-    .map_err(|error| ToolError::new(error.message))?;
 
+    let capture = capture_shell(&context, &execution, timeout, signal, Arc::clone(&throttle)).await?;
     (throttle.on_update)(capture_update_result(&capture));
 
     let mut output_text = capture.output.clone();
-    let mut details = None;
-    if capture.truncation.truncated {
-        let mut map = Map::new();
-        map.insert(
-            "truncation".to_owned(),
-            serde_json::to_value(&capture.truncation).expect("truncation metadata must serialize"),
-        );
-        if let Some(path) = &capture.full_output_path {
-            map.insert("fullOutputPath".to_owned(), Value::String(path.clone()));
-        }
-        details = Some(Value::Object(map));
-
-        let start_line = capture.truncation.total_lines - capture.truncation.output_lines + 1;
-        let end_line = capture.truncation.total_lines;
-        let full_output_path = capture.full_output_path.clone().unwrap_or_default();
-        if capture.truncation.last_line_partial {
-            let last_line_size = format_size(capture.last_line_bytes);
-            output_text.push_str(&format!(
-                "\n\n[Showing last {} of line {} (line is {}). Full output: {}]",
-                format_size(capture.truncation.output_bytes),
-                end_line,
-                last_line_size,
-                full_output_path
-            ));
-        } else if capture.truncation.truncated_by == Some(crate::harness::utils::TruncatedBy::Lines) {
-            output_text.push_str(&format!(
-                "\n\n[Showing lines {}-{} of {}. Full output: {}]",
-                start_line, end_line, capture.truncation.total_lines, full_output_path
-            ));
-        } else {
-            output_text.push_str(&format!(
-                "\n\n[Showing lines {}-{} of {} ({} limit). Full output: {}]",
-                start_line,
-                end_line,
-                capture.truncation.total_lines,
-                format_size(DEFAULT_MAX_BYTES),
-                full_output_path
-            ));
-        }
+    let details = append_truncation(&mut output_text, &capture);
+    if let Some(error) = capture_failure(&capture, timeout, &output_text) {
+        return Err(error);
     }
-
-    let append_status = |status: &str| {
-        if output_text.is_empty() {
-            status.to_owned()
-        } else {
-            format!("{output_text}\n\n{status}")
-        }
-    };
-    if capture.cancelled {
-        return Err(ToolError::new(append_status("Command aborted")));
-    }
-    if let Some(error) = &capture.execution_error {
-        if error.code == ExecutionErrorCode::Timeout {
-            let timeout = timeout.map(format_js_number).unwrap_or_default();
-            return Err(ToolError::new(append_status(&format!(
-                "Command timed out after {timeout} seconds"
-            ))));
-        }
-        return Err(ToolError::new(error.message.clone()));
-    }
-    if let Some(exit_code) = capture.exit_code {
-        if exit_code != 0 {
-            return Err(ToolError::new(append_status(&format!(
-                "Command exited with code {exit_code}"
-            ))));
-        }
-    }
-
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(if output_text.is_empty() {
             "(no output)".to_owned()
@@ -313,6 +210,143 @@ async fn execute_bash(
         is_error: None,
         terminate: None,
     })
+}
+
+fn parse_bash_input(params: &Value) -> Result<(String, Option<f64>), ToolError> {
+    let command = params
+        .get("command")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::new("bash tool requires a string command"))?
+        .to_owned();
+    let timeout = params.get("timeout").and_then(Value::as_f64);
+    validate_timeout(timeout)?;
+    Ok((command, timeout))
+}
+
+async fn prepare_execution(
+    context: &ExecutionToolContext,
+    options: &BashToolOptions,
+    command: String,
+    signal: Option<&CancellationToken>,
+) -> Result<BashExecution, ToolError> {
+    let mut execution = BashExecution {
+        command: match &options.command_prefix {
+            Some(prefix) => format!("{prefix}\n{command}"),
+            None => command,
+        },
+        cwd: context.env.cwd().to_owned(),
+        env: HashMap::new(),
+        inherit_env: true,
+    };
+    if let Some(prepare) = &options.prepare {
+        prepare
+            .prepare(&mut execution, context, signal)
+            .await
+            .map_err(ToolError::new)?;
+    }
+    Ok(execution)
+}
+
+async fn capture_shell(
+    context: &ExecutionToolContext,
+    execution: &BashExecution,
+    timeout: Option<f64>,
+    signal: Option<CancellationToken>,
+    throttle: Arc<UpdateThrottle>,
+) -> Result<ShellCaptureResult, ToolError> {
+    execute_shell_with_capture(
+        &context.env,
+        &execution.command,
+        ShellCaptureOptions {
+            cwd: Some(execution.cwd.clone()),
+            env: Some(execution.env.clone()),
+            inherit_env: Some(execution.inherit_env),
+            timeout,
+            abort: signal,
+            on_chunk: Some(Arc::new(move |_chunk: &str, progress: &ShellCaptureProgress| {
+                throttle.record(progress);
+            })),
+            return_execution_errors: true,
+        },
+    )
+    .await
+    .map_err(|error| ToolError::new(error.message))
+}
+
+fn append_truncation(output_text: &mut String, capture: &ShellCaptureResult) -> Option<Value> {
+    if !capture.truncation.truncated {
+        return None;
+    }
+    output_text.push_str(&truncation_notice(capture));
+    let mut details = Map::new();
+    details.insert(
+        "truncation".to_owned(),
+        serde_json::to_value(&capture.truncation).expect("truncation metadata must serialize"),
+    );
+    if let Some(path) = &capture.full_output_path {
+        details.insert("fullOutputPath".to_owned(), Value::String(path.clone()));
+    }
+    Some(Value::Object(details))
+}
+
+fn truncation_notice(capture: &ShellCaptureResult) -> String {
+    let start_line = capture.truncation.total_lines - capture.truncation.output_lines + 1;
+    let end_line = capture.truncation.total_lines;
+    let full_output_path = capture.full_output_path.clone().unwrap_or_default();
+    if capture.truncation.last_line_partial {
+        return format!(
+            "\n\n[Showing last {} of line {} (line is {}). Full output: {}]",
+            format_size(capture.truncation.output_bytes),
+            end_line,
+            format_size(capture.last_line_bytes),
+            full_output_path
+        );
+    }
+    if capture.truncation.truncated_by == Some(crate::harness::utils::TruncatedBy::Lines) {
+        return format!(
+            "\n\n[Showing lines {}-{} of {}. Full output: {}]",
+            start_line, end_line, capture.truncation.total_lines, full_output_path
+        );
+    }
+    format!(
+        "\n\n[Showing lines {}-{} of {} ({} limit). Full output: {}]",
+        start_line,
+        end_line,
+        capture.truncation.total_lines,
+        format_size(DEFAULT_MAX_BYTES),
+        full_output_path
+    )
+}
+
+fn capture_failure(capture: &ShellCaptureResult, timeout: Option<f64>, output_text: &str) -> Option<ToolError> {
+    if capture.cancelled {
+        return Some(ToolError::new(append_status(output_text, "Command aborted")));
+    }
+    if let Some(error) = &capture.execution_error {
+        if error.code == ExecutionErrorCode::Timeout {
+            let timeout = timeout.map(format_js_number).unwrap_or_default();
+            return Some(ToolError::new(append_status(
+                output_text,
+                &format!("Command timed out after {timeout} seconds"),
+            )));
+        }
+        return Some(ToolError::new(error.message.clone()));
+    }
+    match capture.exit_code {
+        Some(exit_code) if exit_code != 0 => Some(ToolError::new(append_status(
+            output_text,
+            &format!("Command exited with code {exit_code}"),
+        ))),
+        _ => None,
+    }
+}
+
+fn append_status(output_text: &str, status: &str) -> String {
+    if output_text.is_empty() {
+        status.to_owned()
+    } else {
+        format!("{output_text}\n\n{status}")
+    }
 }
 
 fn validate_timeout(timeout: Option<f64>) -> Result<(), ToolError> {

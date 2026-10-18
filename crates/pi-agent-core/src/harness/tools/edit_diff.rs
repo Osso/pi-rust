@@ -212,19 +212,8 @@ pub fn apply_edits_to_normalized_content(
     edits: &[Edit],
     path: &str,
 ) -> Result<AppliedEditsResult, EditError> {
-    let normalized_edits = edits
-        .iter()
-        .map(|edit| Edit {
-            old_text: normalize_to_lf(&edit.old_text),
-            new_text: normalize_to_lf(&edit.new_text),
-        })
-        .collect::<Vec<_>>();
-
-    for (index, edit) in normalized_edits.iter().enumerate() {
-        if edit.old_text.is_empty() {
-            return Err(empty_old_text_error(path, index, normalized_edits.len()));
-        }
-    }
+    let normalized_edits = normalize_edits(edits);
+    ensure_nonempty_edits(&normalized_edits, path)?;
 
     let used_fuzzy_match = normalized_edits
         .iter()
@@ -249,6 +238,25 @@ pub fn apply_edits_to_normalized_content(
         base_content: normalized_content.to_owned(),
         new_content,
     })
+}
+
+fn normalize_edits(edits: &[Edit]) -> Vec<Edit> {
+    edits
+        .iter()
+        .map(|edit| Edit {
+            old_text: normalize_to_lf(&edit.old_text),
+            new_text: normalize_to_lf(&edit.new_text),
+        })
+        .collect()
+}
+
+fn ensure_nonempty_edits(edits: &[Edit], path: &str) -> Result<(), EditError> {
+    for (index, edit) in edits.iter().enumerate() {
+        if edit.old_text.is_empty() {
+            return Err(empty_old_text_error(path, index, edits.len()));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -412,36 +420,66 @@ fn apply_replacements_preserving_unchanged_lines(
             "Cannot preserve unchanged lines because the base content has a different line count.",
         ));
     }
+    let groups = group_replacements(&base_lines, replacements)?;
+    Ok(render_preserved_groups(
+        base_content,
+        &original_lines,
+        &base_lines,
+        &groups,
+    ))
+}
 
-    let mut groups: Vec<(usize, usize, Vec<MatchedEdit>)> = Vec::new();
+struct ReplacementGroup {
+    start_line: usize,
+    end_line: usize,
+    replacements: Vec<MatchedEdit>,
+}
+
+fn group_replacements(
+    base_lines: &[LineSpan],
+    replacements: &[MatchedEdit],
+) -> Result<Vec<ReplacementGroup>, EditError> {
+    let mut groups: Vec<ReplacementGroup> = Vec::new();
     let mut sorted = replacements.to_vec();
     sorted.sort_by_key(|replacement| replacement.match_index);
     for replacement in sorted {
-        let (start_line, end_line) = get_replacement_line_range(&base_lines, &replacement)?;
+        let (start_line, end_line) = get_replacement_line_range(base_lines, &replacement)?;
         match groups.last_mut() {
-            Some(current) if start_line < current.1 => {
-                current.1 = current.1.max(end_line);
-                current.2.push(replacement);
+            Some(current) if start_line < current.end_line => {
+                current.end_line = current.end_line.max(end_line);
+                current.replacements.push(replacement);
             }
-            _ => groups.push((start_line, end_line, vec![replacement])),
+            _ => groups.push(ReplacementGroup {
+                start_line,
+                end_line,
+                replacements: vec![replacement],
+            }),
         }
     }
+    Ok(groups)
+}
 
+fn render_preserved_groups(
+    base_content: &str,
+    original_lines: &[&str],
+    base_lines: &[LineSpan],
+    groups: &[ReplacementGroup],
+) -> String {
     let mut original_line_index = 0;
     let mut result = String::new();
-    for (start_line, end_line, group_replacements) in groups {
-        result.push_str(&original_lines[original_line_index..start_line].concat());
-        let group_start_offset = base_lines[start_line].start;
-        let group_end_offset = base_lines[end_line - 1].end;
+    for group in groups {
+        result.push_str(&original_lines[original_line_index..group.start_line].concat());
+        let group_start_offset = base_lines[group.start_line].start;
+        let group_end_offset = base_lines[group.end_line - 1].end;
         result.push_str(&apply_replacements(
             &base_content[group_start_offset..group_end_offset],
-            &group_replacements,
+            &group.replacements,
             group_start_offset,
         ));
-        original_line_index = end_line;
+        original_line_index = group.end_line;
     }
     result.push_str(&original_lines[original_line_index..].concat());
-    Ok(result)
+    result
 }
 
 /// Generates a standard unified patch with file headers only.
@@ -497,67 +535,25 @@ fn structured_patch(old_content: &str, new_content: &str, context: usize) -> Vec
         lines: Vec::new(),
     });
 
-    let mut hunks = Vec::new();
-    let mut old_range_start: Option<(i64, i64)> = None;
-    let mut current_range: Vec<String> = Vec::new();
-    let mut old_line: i64 = 1;
-    let mut new_line: i64 = 1;
-
+    let mut builder = PatchBuilder {
+        old_line: 1,
+        new_line: 1,
+        ..PatchBuilder::default()
+    };
     for index in 0..diff.len() {
         let current = &diff[index];
-        let lines = current.lines.clone();
         if current.added || current.removed {
-            if old_range_start.is_none() {
-                let mut old_start = old_line;
-                let mut new_start = new_line;
-                if index > 0 {
-                    let previous = &diff[index - 1];
-                    if context > 0 {
-                        let start = previous.lines.len().saturating_sub(context);
-                        current_range = previous.lines[start..].iter().map(|line| format!(" {line}")).collect();
-                    }
-                    let skipped = current_range.len() as i64;
-                    old_start -= skipped;
-                    new_start -= skipped;
-                }
-                old_range_start = Some((old_start, new_start));
-            }
-            for line in &lines {
-                current_range.push(format!("{}{line}", if current.added { '+' } else { '-' }));
-            }
-            if current.added {
-                new_line += lines.len() as i64;
-            } else {
-                old_line += lines.len() as i64;
-            }
+            builder.add_change(&diff, index, current, context);
         } else {
-            if old_range_start.is_some() {
-                if lines.len() <= context * 2 && index < diff.len() - 2 {
-                    for line in &lines {
-                        current_range.push(format!(" {line}"));
-                    }
-                } else {
-                    let context_size = lines.len().min(context);
-                    for line in &lines[..context_size] {
-                        current_range.push(format!(" {line}"));
-                    }
-                    let (old_start, new_start) = old_range_start.expect("active range");
-                    hunks.push(Hunk {
-                        old_start,
-                        old_lines: (old_line - old_start + context_size as i64) as usize,
-                        new_start,
-                        new_lines: (new_line - new_start + context_size as i64) as usize,
-                        lines: std::mem::take(&mut current_range),
-                    });
-                    old_range_start = None;
-                }
-            }
-            old_line += lines.len() as i64;
-            new_line += lines.len() as i64;
+            builder.add_context(&diff, index, current, context);
         }
     }
+    finalize_hunk_lines(&mut builder.hunks);
+    builder.hunks
+}
 
-    for hunk in &mut hunks {
+fn finalize_hunk_lines(hunks: &mut [Hunk]) {
+    for hunk in hunks {
         let mut index = 0;
         while index < hunk.lines.len() {
             if hunk.lines[index].ends_with('\n') {
@@ -569,7 +565,78 @@ fn structured_patch(old_content: &str, new_content: &str, context: usize) -> Vec
             index += 1;
         }
     }
-    hunks
+}
+
+#[derive(Default)]
+struct PatchBuilder {
+    hunks: Vec<Hunk>,
+    old_range_start: Option<(i64, i64)>,
+    current_range: Vec<String>,
+    old_line: i64,
+    new_line: i64,
+}
+
+impl PatchBuilder {
+    fn add_change(&mut self, diff: &[PatchChange], index: usize, current: &PatchChange, context: usize) {
+        if self.old_range_start.is_none() {
+            self.start_range(diff, index, context);
+        }
+        let marker = if current.added { '+' } else { '-' };
+        for line in &current.lines {
+            self.current_range.push(format!("{marker}{line}"));
+        }
+        if current.added {
+            self.new_line += current.lines.len() as i64;
+        } else {
+            self.old_line += current.lines.len() as i64;
+        }
+    }
+
+    fn start_range(&mut self, diff: &[PatchChange], index: usize, context: usize) {
+        let mut old_start = self.old_line;
+        let mut new_start = self.new_line;
+        if index > 0 {
+            let previous = &diff[index - 1];
+            if context > 0 {
+                let first = previous.lines.len().saturating_sub(context);
+                self.current_range = previous.lines[first..].iter().map(|line| format!(" {line}")).collect();
+            }
+            let skipped = self.current_range.len() as i64;
+            old_start -= skipped;
+            new_start -= skipped;
+        }
+        self.old_range_start = Some((old_start, new_start));
+    }
+
+    fn add_context(&mut self, diff: &[PatchChange], index: usize, current: &PatchChange, context: usize) {
+        if let Some((old_start, new_start)) = self.old_range_start {
+            let overlaps = current.lines.len() <= context * 2 && index < diff.len() - 2;
+            if overlaps {
+                self.push_context_lines(&current.lines);
+            } else {
+                self.close_hunk(old_start, new_start, current, context);
+            }
+        }
+        self.old_line += current.lines.len() as i64;
+        self.new_line += current.lines.len() as i64;
+    }
+
+    fn close_hunk(&mut self, old_start: i64, new_start: i64, current: &PatchChange, context: usize) {
+        let context_size = current.lines.len().min(context);
+        self.push_context_lines(&current.lines[..context_size]);
+        self.hunks.push(Hunk {
+            old_start,
+            old_lines: (self.old_line - old_start + context_size as i64) as usize,
+            new_start,
+            new_lines: (self.new_line - new_start + context_size as i64) as usize,
+            lines: std::mem::take(&mut self.current_range),
+        });
+        self.old_range_start = None;
+    }
+
+    fn push_context_lines(&mut self, lines: &[String]) {
+        self.current_range.extend(lines.iter().map(|line| format!(" {line}")));
+    }
 }
 
 fn split_lines_for_patch(text: &str) -> Vec<String> {
@@ -586,121 +653,141 @@ fn split_lines_for_patch(text: &str) -> Vec<String> {
 /// Generates a display-oriented diff string with line numbers and context.
 pub fn generate_diff_string(old_content: &str, new_content: &str, context_lines: usize) -> DiffStringResult {
     let parts = diff_lines(old_content, new_content);
-    let mut output = Vec::new();
     let old_lines = old_content.split('\n').collect::<Vec<_>>();
     let new_lines = new_content.split('\n').collect::<Vec<_>>();
-    let max_line_num = old_lines.len().max(new_lines.len());
-    let line_num_width = max_line_num.to_string().len();
+    let line_num_width = old_lines.len().max(new_lines.len()).to_string().len();
 
-    let mut old_line_num = 1usize;
-    let mut new_line_num = 1usize;
+    let mut renderer = DiffRenderer {
+        output: Vec::new(),
+        old_line_num: 1,
+        new_line_num: 1,
+        line_num_width,
+        first_changed_line: None,
+    };
     let mut last_was_change = false;
-    let mut first_changed_line = None;
-
     for (index, part) in parts.iter().enumerate() {
-        let mut raw = part.value.split('\n').collect::<Vec<_>>();
-        if raw.last() == Some(&"") {
-            raw.pop();
-        }
-
         if part.added || part.removed {
-            first_changed_line.get_or_insert(new_line_num);
-            for line in raw {
-                if part.added {
-                    output.push(format!("+{:>width$} {line}", new_line_num, width = line_num_width));
-                    new_line_num += 1;
-                } else {
-                    output.push(format!("-{:>width$} {line}", old_line_num, width = line_num_width));
-                    old_line_num += 1;
-                }
-            }
+            renderer.push_change(part);
             last_was_change = true;
             continue;
         }
-
         let next_part_is_change = parts.get(index + 1).is_some_and(|next| next.added || next.removed);
-        let has_leading_change = last_was_change;
-        let has_trailing_change = next_part_is_change;
-
-        if has_leading_change && has_trailing_change {
-            if raw.len() <= context_lines * 2 {
-                push_context_lines(&mut output, raw, &mut old_line_num, &mut new_line_num, line_num_width);
-            } else {
-                let leading = &raw[..context_lines];
-                let trailing = &raw[raw.len() - context_lines..];
-                let skipped = raw.len() - leading.len() - trailing.len();
-                push_context_lines(
-                    &mut output,
-                    leading.to_vec(),
-                    &mut old_line_num,
-                    &mut new_line_num,
-                    line_num_width,
-                );
-                output.push(format!(" {} ...", " ".repeat(line_num_width)));
-                old_line_num += skipped;
-                new_line_num += skipped;
-                push_context_lines(
-                    &mut output,
-                    trailing.to_vec(),
-                    &mut old_line_num,
-                    &mut new_line_num,
-                    line_num_width,
-                );
-            }
-        } else if has_leading_change {
-            let shown = &raw[..context_lines.min(raw.len())];
-            let skipped = raw.len() - shown.len();
-            push_context_lines(
-                &mut output,
-                shown.to_vec(),
-                &mut old_line_num,
-                &mut new_line_num,
-                line_num_width,
-            );
-            if skipped > 0 {
-                output.push(format!(" {} ...", " ".repeat(line_num_width)));
-                old_line_num += skipped;
-                new_line_num += skipped;
-            }
-        } else if has_trailing_change {
-            let skipped = raw.len().saturating_sub(context_lines);
-            if skipped > 0 {
-                output.push(format!(" {} ...", " ".repeat(line_num_width)));
-                old_line_num += skipped;
-                new_line_num += skipped;
-            }
-            push_context_lines(
-                &mut output,
-                raw[skipped..].to_vec(),
-                &mut old_line_num,
-                &mut new_line_num,
-                line_num_width,
-            );
-        } else {
-            old_line_num += raw.len();
-            new_line_num += raw.len();
-        }
+        renderer.push_context(part, context_lines, last_was_change, next_part_is_change);
         last_was_change = false;
     }
 
     DiffStringResult {
-        diff: output.join("\n"),
-        first_changed_line,
+        diff: renderer.output.join("\n"),
+        first_changed_line: renderer.first_changed_line,
     }
 }
 
-fn push_context_lines(
-    output: &mut Vec<String>,
-    lines: Vec<&str>,
-    old_line_num: &mut usize,
-    new_line_num: &mut usize,
+struct DiffRenderer {
+    output: Vec<String>,
+    old_line_num: usize,
+    new_line_num: usize,
     line_num_width: usize,
-) {
-    for line in lines {
-        output.push(format!(" {:>width$} {line}", *old_line_num, width = line_num_width));
-        *old_line_num += 1;
-        *new_line_num += 1;
+    first_changed_line: Option<usize>,
+}
+
+impl DiffRenderer {
+    fn push_change(&mut self, part: &Change) {
+        self.first_changed_line.get_or_insert(self.new_line_num);
+        for line in split_part_lines(&part.value) {
+            if part.added {
+                self.output.push(format!(
+                    "+{:>width$} {line}",
+                    self.new_line_num,
+                    width = self.line_num_width
+                ));
+                self.new_line_num += 1;
+            } else {
+                self.output.push(format!(
+                    "-{:>width$} {line}",
+                    self.old_line_num,
+                    width = self.line_num_width
+                ));
+                self.old_line_num += 1;
+            }
+        }
     }
+
+    fn push_context(
+        &mut self,
+        part: &Change,
+        context_lines: usize,
+        has_leading_change: bool,
+        has_trailing_change: bool,
+    ) {
+        let raw = split_part_lines(&part.value);
+        if has_leading_change && has_trailing_change {
+            self.push_surrounded_context(&raw, context_lines);
+        } else if has_leading_change {
+            self.push_trailing_context(&raw, context_lines);
+        } else if has_trailing_change {
+            self.push_leading_context(&raw, context_lines);
+        } else {
+            self.skip_lines(raw.len());
+        }
+    }
+
+    fn push_surrounded_context(&mut self, raw: &[&str], context_lines: usize) {
+        if raw.len() <= context_lines * 2 {
+            self.push_context_lines(raw);
+            return;
+        }
+        self.push_context_lines(&raw[..context_lines]);
+        let skipped = raw.len() - context_lines * 2;
+        self.push_skipped(skipped);
+        self.push_context_lines(&raw[raw.len() - context_lines..]);
+    }
+
+    fn push_trailing_context(&mut self, raw: &[&str], context_lines: usize) {
+        let shown = context_lines.min(raw.len());
+        self.push_context_lines(&raw[..shown]);
+        let skipped = raw.len() - shown;
+        if skipped > 0 {
+            self.push_skipped(skipped);
+        }
+    }
+
+    fn push_leading_context(&mut self, raw: &[&str], context_lines: usize) {
+        let skipped = raw.len().saturating_sub(context_lines);
+        if skipped > 0 {
+            self.push_skipped(skipped);
+        }
+        self.push_context_lines(&raw[skipped..]);
+    }
+
+    fn push_context_lines(&mut self, lines: &[&str]) {
+        for line in lines {
+            self.output.push(format!(
+                " {:>width$} {line}",
+                self.old_line_num,
+                width = self.line_num_width
+            ));
+            self.old_line_num += 1;
+            self.new_line_num += 1;
+        }
+    }
+
+    fn push_skipped(&mut self, skipped: usize) {
+        self.output.push(format!(" {} ...", " ".repeat(self.line_num_width)));
+        self.skip_lines(skipped);
+    }
+
+    fn skip_lines(&mut self, skipped: usize) {
+        self.old_line_num += skipped;
+        self.new_line_num += skipped;
+    }
+}
+
+fn split_part_lines(value: &str) -> Vec<&str> {
+    let mut raw = value.split('\n').collect::<Vec<_>>();
+    if raw.last() == Some(&"") {
+        raw.pop();
+    }
+    raw
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -779,62 +866,127 @@ fn diff_tokens(old_tokens: &[String], new_tokens: &[String]) -> Vec<Change> {
     if best[&0].old_pos + 1 >= old_len && new_pos + 1 >= new_len {
         return build_values(best[&0].last_component, &components, new_tokens, old_tokens);
     }
+    search_edit_path(&mut best, old_tokens, new_tokens, &mut components)
+}
 
-    let max_edit_length = old_len + new_len;
+fn search_edit_path(
+    best: &mut HashMap<i64, PathState>,
+    old_tokens: &[String],
+    new_tokens: &[String],
+    components: &mut Vec<Component>,
+) -> Vec<Change> {
+    let max_edit_length = old_tokens.len() as i64 + new_tokens.len() as i64;
     let mut min_diagonal = i64::MIN / 4;
     let mut max_diagonal = i64::MAX / 4;
     let mut edit_length = 1i64;
     while edit_length <= max_edit_length {
         let mut diagonal = min_diagonal.max(-edit_length);
         while diagonal <= max_diagonal.min(edit_length) {
-            let remove_path = best.get(&(diagonal - 1)).cloned();
-            let add_path = best.get(&(diagonal + 1)).cloned();
-            if remove_path.is_some() {
-                best.remove(&(diagonal - 1));
+            let outcome = advance_diagonal(best, diagonal, old_tokens, new_tokens, components);
+            if let DiagonalOutcome::Finished(changes) = outcome {
+                return changes;
             }
-            let can_add = add_path.as_ref().is_some_and(|path| {
-                let add_new_pos = path.old_pos - diagonal;
-                (0..new_len).contains(&add_new_pos)
-            });
-            let can_remove = remove_path.as_ref().is_some_and(|path| path.old_pos + 1 < old_len);
-            if !can_add && !can_remove {
-                best.remove(&diagonal);
-                diagonal += 2;
-                continue;
-            }
-
-            let use_add = match (&remove_path, &add_path) {
-                (None, Some(_)) => true,
-                (Some(remove), Some(add)) => remove.old_pos < add.old_pos,
-                _ => false,
-            };
-            let mut base = if use_add {
-                add_to_path(add_path.as_ref().expect("add path"), true, false, 0, &mut components)
-            } else {
-                add_to_path(
-                    remove_path.as_ref().expect("remove path"),
-                    false,
-                    true,
-                    1,
-                    &mut components,
-                )
-            };
-            let new_pos = extract_common(&mut base, new_tokens, old_tokens, diagonal, &mut components);
-            if base.old_pos + 1 >= old_len && new_pos + 1 >= new_len {
-                return build_values(base.last_component, &components, new_tokens, old_tokens);
-            }
-            if base.old_pos + 1 >= old_len {
-                max_diagonal = max_diagonal.min(diagonal - 1);
-            }
-            if new_pos + 1 >= new_len {
-                min_diagonal = min_diagonal.max(diagonal + 1);
-            }
-            best.insert(diagonal, base);
+            narrow_diagonal_bounds(outcome, diagonal, &mut min_diagonal, &mut max_diagonal);
             diagonal += 2;
         }
         edit_length += 1;
     }
     Vec::new()
+}
+
+fn narrow_diagonal_bounds(outcome: DiagonalOutcome, diagonal: i64, min_diagonal: &mut i64, max_diagonal: &mut i64) {
+    if let DiagonalOutcome::Continue {
+        reached_old_end,
+        reached_new_end,
+    } = outcome
+    {
+        if reached_old_end {
+            *max_diagonal = (*max_diagonal).min(diagonal - 1);
+        }
+        if reached_new_end {
+            *min_diagonal = (*min_diagonal).max(diagonal + 1);
+        }
+    }
+}
+
+enum DiagonalOutcome {
+    Pruned,
+    Finished(Vec<Change>),
+    Continue {
+        reached_old_end: bool,
+        reached_new_end: bool,
+    },
+}
+
+fn advance_diagonal(
+    best: &mut HashMap<i64, PathState>,
+    diagonal: i64,
+    old_tokens: &[String],
+    new_tokens: &[String],
+    components: &mut Vec<Component>,
+) -> DiagonalOutcome {
+    let old_len = old_tokens.len() as i64;
+    let new_len = new_tokens.len() as i64;
+    let Some(mut base) = choose_base_path(best, diagonal, old_len, new_len, components) else {
+        return DiagonalOutcome::Pruned;
+    };
+    let new_pos = extract_common(&mut base, new_tokens, old_tokens, diagonal, components);
+    if base.old_pos + 1 >= old_len && new_pos + 1 >= new_len {
+        return DiagonalOutcome::Finished(build_values(base.last_component, components, new_tokens, old_tokens));
+    }
+    let reached_old_end = base.old_pos + 1 >= old_len;
+    let reached_new_end = new_pos + 1 >= new_len;
+    best.insert(diagonal, base);
+    DiagonalOutcome::Continue {
+        reached_old_end,
+        reached_new_end,
+    }
+}
+
+fn choose_base_path(
+    best: &mut HashMap<i64, PathState>,
+    diagonal: i64,
+    old_len: i64,
+    new_len: i64,
+    components: &mut Vec<Component>,
+) -> Option<PathState> {
+    let remove_path = best.get(&(diagonal - 1)).cloned();
+    let add_path = best.get(&(diagonal + 1)).cloned();
+    if remove_path.is_some() {
+        best.remove(&(diagonal - 1));
+    }
+    let can_add = can_add_path(add_path.as_ref(), diagonal, new_len);
+    let can_remove = can_remove_path(remove_path.as_ref(), old_len);
+    if !can_add && !can_remove {
+        best.remove(&diagonal);
+        return None;
+    }
+
+    let base = if should_use_add(remove_path.as_ref(), add_path.as_ref()) {
+        add_to_path(add_path.as_ref().expect("add path"), true, false, 0, components)
+    } else {
+        add_to_path(remove_path.as_ref().expect("remove path"), false, true, 1, components)
+    };
+    Some(base)
+}
+
+fn can_add_path(add_path: Option<&PathState>, diagonal: i64, new_len: i64) -> bool {
+    add_path.is_some_and(|path| {
+        let add_new_pos = path.old_pos - diagonal;
+        (0..new_len).contains(&add_new_pos)
+    })
+}
+
+fn can_remove_path(remove_path: Option<&PathState>, old_len: i64) -> bool {
+    remove_path.is_some_and(|path| path.old_pos + 1 < old_len)
+}
+
+fn should_use_add(remove_path: Option<&PathState>, add_path: Option<&PathState>) -> bool {
+    match (remove_path, add_path) {
+        (None, Some(_)) => true,
+        (Some(remove), Some(add)) => remove.old_pos < add.old_pos,
+        _ => false,
+    }
 }
 
 fn add_to_path(

@@ -121,14 +121,7 @@ async fn execute_read(
     params: Value,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
-    let path = params
-        .get("path")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ToolError::new("read tool requires a string path"))?
-        .to_owned();
-    let offset = params.get("offset").and_then(Value::as_u64).map(|value| value as usize);
-    let limit = params.get("limit").and_then(Value::as_u64).map(|value| value as usize);
-
+    let (path, offset, limit) = parse_read_input(&params)?;
     let absolute_path = resolve_read_tool_path(context.env.as_ref(), &path, signal.as_ref())
         .await
         .map_err(|error| ToolError::new(error.message))?;
@@ -138,15 +131,32 @@ async fn execute_read(
         .await
         .map_err(|error| ToolError::new(error.message))?;
 
-    if let Some(mime_type) = detect_supported_image_mime_type(&bytes) {
-        return read_image(options, &bytes, mime_type).await;
+    match detect_supported_image_mime_type(&bytes) {
+        Some(mime_type) => read_image(options, &bytes, mime_type).await,
+        None => read_text_result(&path, offset, limit, &bytes),
     }
+}
 
-    let text_content = String::from_utf8_lossy(&bytes);
+fn parse_read_input(params: &Value) -> Result<(String, Option<usize>, Option<usize>), ToolError> {
+    let path = params
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::new("read tool requires a string path"))?
+        .to_owned();
+    let offset = params.get("offset").and_then(Value::as_u64).map(|value| value as usize);
+    let limit = params.get("limit").and_then(Value::as_u64).map(|value| value as usize);
+    Ok((path, offset, limit))
+}
+
+fn read_text_result(
+    path: &str,
+    offset: Option<usize>,
+    limit: Option<usize>,
+    bytes: &[u8],
+) -> Result<AgentToolResult, ToolError> {
+    let text_content = String::from_utf8_lossy(bytes);
     let all_lines = text_content.split('\n').collect::<Vec<_>>();
-    let total_file_lines = all_lines.len();
     let start_line = offset.map_or(0, |offset| offset.saturating_sub(1));
-    let start_line_display = start_line + 1;
     if start_line >= all_lines.len() {
         return Err(ToolError::new(format!(
             "Offset {} is beyond end of file ({} lines total)",
@@ -155,64 +165,17 @@ async fn execute_read(
         )));
     }
 
-    let (selected_content, user_limited_lines) = match limit {
-        Some(limit) => {
-            let end_line = (start_line + limit).min(all_lines.len());
-            (all_lines[start_line..end_line].join("\n"), Some(end_line - start_line))
-        }
-        None => (all_lines[start_line..].join("\n"), None),
-    };
-
+    let (selected_content, user_limited_lines) = select_lines(&all_lines, start_line, limit);
     let truncation = truncate_head(&selected_content, TruncationOptions::default());
-    let mut details = None;
-    let output_text = if truncation.first_line_exceeds_limit {
-        let first_line_size = format_size(all_lines[start_line].len());
-        details = Some(json!({"truncation": truncation}));
-        format!(
-            "[Line {} is {}, exceeds {} limit. Use bash: sed -n '{}p' {} | head -c {}]",
-            start_line_display,
-            first_line_size,
-            format_size(DEFAULT_MAX_BYTES),
-            start_line_display,
-            path,
-            DEFAULT_MAX_BYTES
-        )
-    } else if truncation.truncated {
-        let end_line_display = start_line_display + truncation.output_lines - 1;
-        let next_offset = end_line_display + 1;
-        let mut text = truncation.content.clone();
-        if truncation.truncated_by == Some(crate::harness::utils::TruncatedBy::Lines) {
-            text.push_str(&format!(
-                "\n\n[Showing lines {}-{} of {}. Use offset={} to continue.]",
-                start_line_display, end_line_display, total_file_lines, next_offset
-            ));
-        } else {
-            text.push_str(&format!(
-                "\n\n[Showing lines {}-{} of {} ({} limit). Use offset={} to continue.]",
-                start_line_display,
-                end_line_display,
-                total_file_lines,
-                format_size(DEFAULT_MAX_BYTES),
-                next_offset
-            ));
-        }
-        details = Some(json!({"truncation": truncation}));
-        text
-    } else if let Some(user_limited_lines) = user_limited_lines {
-        if start_line + user_limited_lines < all_lines.len() {
-            let remaining = all_lines.len() - (start_line + user_limited_lines);
-            let next_offset = start_line + user_limited_lines + 1;
-            format!(
-                "{}\n\n[{} more lines in file. Use offset={} to continue.]",
-                truncation.content, remaining, next_offset
-            )
-        } else {
-            truncation.content
-        }
-    } else {
-        truncation.content
-    };
-
+    let (output_text, details) = render_read_output(
+        path,
+        start_line,
+        all_lines.len(),
+        &all_lines,
+        &selected_content,
+        user_limited_lines,
+        truncation,
+    );
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(output_text))],
         details,
@@ -223,53 +186,137 @@ async fn execute_read(
     })
 }
 
+fn select_lines(all_lines: &[&str], start_line: usize, limit: Option<usize>) -> (String, Option<usize>) {
+    match limit {
+        Some(limit) => {
+            let end_line = (start_line + limit).min(all_lines.len());
+            (all_lines[start_line..end_line].join("\n"), Some(end_line - start_line))
+        }
+        None => (all_lines[start_line..].join("\n"), None),
+    }
+}
+
+fn render_read_output(
+    path: &str,
+    start_line: usize,
+    total_file_lines: usize,
+    all_lines: &[&str],
+    selected_content: &str,
+    user_limited_lines: Option<usize>,
+    truncation: crate::harness::utils::TruncationResult,
+) -> (String, Option<Value>) {
+    let start_line_display = start_line + 1;
+    if truncation.first_line_exceeds_limit {
+        let notice = first_line_limit_notice(path, start_line_display, all_lines[start_line].len());
+        return (notice, Some(json!({"truncation": truncation})));
+    }
+    if truncation.truncated {
+        let notice = truncation_notice(start_line_display, total_file_lines, &truncation);
+        return (notice, Some(json!({"truncation": truncation})));
+    }
+    if let Some(user_limited_lines) = user_limited_lines
+        && start_line + user_limited_lines < all_lines.len()
+    {
+        let notice = remainder_notice(start_line, total_file_lines, user_limited_lines);
+        return (format!("{}\n\n{notice}", truncation.content), None);
+    }
+    (selected_content.to_owned(), None)
+}
+
+fn first_line_limit_notice(path: &str, start_line_display: usize, line_bytes: usize) -> String {
+    format!(
+        "[Line {} is {}, exceeds {} limit. Use bash: sed -n '{}p' {} | head -c {}]",
+        start_line_display,
+        format_size(line_bytes),
+        format_size(DEFAULT_MAX_BYTES),
+        start_line_display,
+        path,
+        DEFAULT_MAX_BYTES
+    )
+}
+
+fn truncation_notice(
+    start_line_display: usize,
+    total_file_lines: usize,
+    truncation: &crate::harness::utils::TruncationResult,
+) -> String {
+    let end_line_display = start_line_display + truncation.output_lines - 1;
+    let next_offset = end_line_display + 1;
+    if truncation.truncated_by == Some(crate::harness::utils::TruncatedBy::Lines) {
+        return format!(
+            "{}\n\n[Showing lines {}-{} of {}. Use offset={} to continue.]",
+            truncation.content, start_line_display, end_line_display, total_file_lines, next_offset
+        );
+    }
+    format!(
+        "{}\n\n[Showing lines {}-{} of {} ({} limit). Use offset={} to continue.]",
+        truncation.content,
+        start_line_display,
+        end_line_display,
+        total_file_lines,
+        format_size(DEFAULT_MAX_BYTES),
+        next_offset
+    )
+}
+
+fn remainder_notice(start_line: usize, total_file_lines: usize, user_limited_lines: usize) -> String {
+    let remaining = total_file_lines - (start_line + user_limited_lines);
+    let next_offset = start_line + user_limited_lines + 1;
+    format!("[{remaining} more lines in file. Use offset={next_offset} to continue.]")
+}
+
 async fn read_image(
     options: ReadToolOptions,
     bytes: &[u8],
     mime_type: &'static str,
 ) -> Result<AgentToolResult, ToolError> {
-    if let Some(processor) = &options.image_processor {
-        let processed = processor
-            .process(
-                bytes,
-                mime_type,
-                ImageProcessorOptions {
-                    auto_resize_images: options.auto_resize_images.unwrap_or(true),
-                },
-            )
-            .await;
-        return Ok(match processed {
-            ReadImageProcessorResult::Err { message } => {
-                text_result(format!("Read image file [{mime_type}]\n{message}"))
-            }
-            ReadImageProcessorResult::Ok { data, mime_type, hints } => {
-                let hints = if hints.is_empty() {
-                    String::new()
-                } else {
-                    format!("\n{}", hints.join("\n"))
-                };
-                AgentToolResult {
-                    content: vec![
-                        TextOrImageContent::Text(TextContent::new(format!("Read image file [{mime_type}]{hints}"))),
-                        TextOrImageContent::Image(ImageContent::new(data, mime_type)),
-                    ],
-                    details: None,
-                    usage: None,
-                    added_tool_names: None,
-                    is_error: None,
-                    terminate: None,
-                }
-            }
-        });
-    }
+    let Some(processor) = &options.image_processor else {
+        return Ok(encode_image_result(bytes, mime_type));
+    };
+    let auto_resize_images = options.auto_resize_images.unwrap_or(true);
+    Ok(process_image_result(processor, auto_resize_images, bytes, mime_type).await)
+}
 
+async fn process_image_result(
+    processor: &Arc<dyn ReadImageProcessor>,
+    auto_resize_images: bool,
+    bytes: &[u8],
+    mime_type: &'static str,
+) -> AgentToolResult {
+    let processed = processor
+        .process(bytes, mime_type, ImageProcessorOptions { auto_resize_images })
+        .await;
+    match processed {
+        ReadImageProcessorResult::Err { message } => text_result(format!("Read image file [{mime_type}]\n{message}")),
+        ReadImageProcessorResult::Ok { data, mime_type, hints } => {
+            let hints = if hints.is_empty() {
+                String::new()
+            } else {
+                format!("\n{}", hints.join("\n"))
+            };
+            AgentToolResult {
+                content: vec![
+                    TextOrImageContent::Text(TextContent::new(format!("Read image file [{mime_type}]{hints}"))),
+                    TextOrImageContent::Image(ImageContent::new(data, mime_type)),
+                ],
+                details: None,
+                usage: None,
+                added_tool_names: None,
+                is_error: None,
+                terminate: None,
+            }
+        }
+    }
+}
+
+fn encode_image_result(bytes: &[u8], mime_type: &'static str) -> AgentToolResult {
     if mime_type == "image/bmp" {
-        return Ok(text_result(
+        return text_result(
             "Read image file [image/bmp]\n[Image omitted: configure an imageProcessor to convert BMP images.]"
                 .to_owned(),
-        ));
+        );
     }
-    Ok(AgentToolResult {
+    AgentToolResult {
         content: vec![
             TextOrImageContent::Text(TextContent::new(format!("Read image file [{mime_type}]"))),
             TextOrImageContent::Image(ImageContent::new(encode_base64(bytes), mime_type)),
@@ -279,7 +326,7 @@ async fn read_image(
         added_tool_names: None,
         is_error: None,
         terminate: None,
-    })
+    }
 }
 
 fn text_result(text: String) -> AgentToolResult {

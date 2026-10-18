@@ -11,6 +11,9 @@ use crate::harness::types::{
 
 const MAX_OUTPUT_BYTES: usize = DEFAULT_MAX_BYTES * 2;
 
+/// Captured-output chunk callback.
+pub type ShellChunkHandler = dyn Fn(&str, &ShellCaptureProgress) + Send + Sync;
+
 /// Progress snapshot produced while shell output is being captured.
 #[derive(Debug, Clone)]
 pub struct ShellCaptureProgress {
@@ -29,7 +32,7 @@ pub struct ShellCaptureOptions {
     pub timeout: Option<f64>,
     pub abort: Option<CancellationToken>,
     /// Called with each sanitized chunk and the progress snapshot produced after accounting.
-    pub on_chunk: Option<Arc<dyn Fn(&str, &ShellCaptureProgress) + Send + Sync>>,
+    pub on_chunk: Option<Arc<ShellChunkHandler>>,
     /// Return shell execution failures with captured output instead of as a failed `Result`.
     pub return_execution_errors: bool,
 }
@@ -82,63 +85,71 @@ pub async fn execute_shell_with_capture(
     let (sender, receiver) = mpsc::unbounded_channel();
     let writer = tokio::spawn(write_full_output(Arc::clone(env), Arc::clone(&state), receiver));
 
-    let on_chunk = options.on_chunk.clone();
-    let callback_state = Arc::clone(&state);
-    let callback_sender = sender.clone();
-    let exec_options = ShellExecOptions {
+    let result = env.exec(command, shell_exec_options(&options, &state, &sender)).await;
+    request_final_full_output(&state, &sender);
+    drop(sender);
+    await_full_output_writer(writer).await?;
+
+    let progress = progress_snapshot(&state.lock().expect("capture state lock"));
+    map_exec_result(result, progress, &options)
+}
+
+fn shell_exec_options(
+    options: &ShellCaptureOptions,
+    state: &Arc<Mutex<CaptureState>>,
+    sender: &UnboundedSender<WriteOperation>,
+) -> ShellExecOptions {
+    let on_stdout = chunk_handler(options.on_chunk.clone(), Arc::clone(state), sender.clone());
+    let on_stderr = chunk_handler(options.on_chunk.clone(), Arc::clone(state), sender.clone());
+    ShellExecOptions {
         cwd: options.cwd.clone(),
         env: options.env.clone(),
         inherit_env: options.inherit_env,
         timeout: options.timeout,
         abort: options.abort.clone(),
-        on_stdout: Some(Arc::new(move |chunk: &str| {
-            Ok(account_chunk(
-                &callback_state,
-                chunk,
-                &callback_sender,
-                on_chunk.as_deref(),
-            ))
-        })),
-        on_stderr: None,
-    };
-    let stderr_state = Arc::clone(&state);
-    let stderr_sender = sender.clone();
-    let stderr_on_chunk = options.on_chunk.clone();
-    let exec_options = ShellExecOptions {
-        on_stderr: Some(Arc::new(move |chunk: &str| {
-            Ok(account_chunk(
-                &stderr_state,
-                chunk,
-                &stderr_sender,
-                stderr_on_chunk.as_deref(),
-            ))
-        })),
-        ..exec_options
-    };
-
-    let result = env.exec(command, exec_options).await;
-    {
-        let mut state = state.lock().expect("capture state lock");
-        state.accepting_output = false;
-        let truncated = capture_truncation(&state).truncated;
-        if truncated && !state.full_output_requested {
-            state.full_output_requested = true;
-            let _ = sender.send(WriteOperation::Create(state.tail_output.clone()));
-        }
+        on_stdout: Some(on_stdout),
+        on_stderr: Some(on_stderr),
     }
-    drop(sender);
-    let write_result = writer.await.map_err(|error| {
+}
+
+fn chunk_handler(
+    on_chunk: Option<Arc<ShellChunkHandler>>,
+    state: Arc<Mutex<CaptureState>>,
+    sender: UnboundedSender<WriteOperation>,
+) -> Arc<crate::harness::types::ShellOutputHandler> {
+    Arc::new(move |chunk: &str| {
+        account_chunk(&state, chunk, &sender, on_chunk.as_deref());
+        Ok(())
+    })
+}
+
+fn request_final_full_output(state: &Arc<Mutex<CaptureState>>, sender: &UnboundedSender<WriteOperation>) {
+    let mut state = state.lock().expect("capture state lock");
+    state.accepting_output = false;
+    if capture_truncation(&state).truncated && !state.full_output_requested {
+        state.full_output_requested = true;
+        let _ = sender.send(WriteOperation::Create(state.tail_output.clone()));
+    }
+}
+
+async fn await_full_output_writer(
+    writer: tokio::task::JoinHandle<Result<(), ExecutionError>>,
+) -> Result<(), ExecutionError> {
+    writer.await.map_err(|error| {
         ExecutionError::new(
             ExecutionErrorCode::Unknown,
             format!("Full output writer failed: {error}"),
             None,
         )
-    })?;
-    write_result?;
+    })?
+}
 
-    let progress = progress_snapshot(&state.lock().expect("capture state lock"));
+fn map_exec_result(
+    result: Result<crate::harness::types::ShellExecResult, ExecutionError>,
+    progress: ShellCaptureProgress,
+    options: &ShellCaptureOptions,
+) -> Result<ShellCaptureResult, ExecutionError> {
     let truncated = progress.truncation.truncated;
-
     match result {
         Ok(result) => {
             let cancelled = options.abort.as_ref().is_some_and(CancellationToken::is_cancelled);
@@ -153,36 +164,31 @@ pub async fn execute_shell_with_capture(
                 execution_error: None,
             })
         }
-        Err(error) => {
-            let aborted = error.code == ExecutionErrorCode::Aborted
-                || options.abort.as_ref().is_some_and(CancellationToken::is_cancelled);
-            if aborted {
-                return Ok(ShellCaptureResult {
-                    output: progress.output,
-                    truncation: progress.truncation,
-                    full_output_path: progress.full_output_path,
-                    last_line_bytes: progress.last_line_bytes,
-                    exit_code: None,
-                    cancelled: true,
-                    truncated,
-                    execution_error: None,
-                });
-            }
-            if options.return_execution_errors {
-                return Ok(ShellCaptureResult {
-                    output: progress.output,
-                    truncation: progress.truncation,
-                    full_output_path: progress.full_output_path,
-                    last_line_bytes: progress.last_line_bytes,
-                    exit_code: None,
-                    cancelled: false,
-                    truncated,
-                    execution_error: Some(error),
-                });
-            }
-            Err(error)
-        }
+        Err(error) => map_exec_error(error, progress, options, truncated),
     }
+}
+
+fn map_exec_error(
+    error: ExecutionError,
+    progress: ShellCaptureProgress,
+    options: &ShellCaptureOptions,
+    truncated: bool,
+) -> Result<ShellCaptureResult, ExecutionError> {
+    let aborted = error.code == ExecutionErrorCode::Aborted
+        || options.abort.as_ref().is_some_and(CancellationToken::is_cancelled);
+    if !aborted && !options.return_execution_errors {
+        return Err(error);
+    }
+    Ok(ShellCaptureResult {
+        output: progress.output,
+        truncation: progress.truncation,
+        full_output_path: progress.full_output_path,
+        last_line_bytes: progress.last_line_bytes,
+        exit_code: None,
+        cancelled: aborted,
+        truncated,
+        execution_error: if aborted { None } else { Some(error) },
+    })
 }
 
 #[derive(Debug)]
@@ -221,7 +227,7 @@ fn account_chunk(
     state: &Arc<Mutex<CaptureState>>,
     chunk: &str,
     sender: &UnboundedSender<WriteOperation>,
-    on_chunk: Option<&(dyn Fn(&str, &ShellCaptureProgress) + Send + Sync)>,
+    on_chunk: Option<&ShellChunkHandler>,
 ) {
     let mut state = state.lock().expect("capture state lock");
     if !state.accepting_output {
@@ -262,36 +268,54 @@ async fn write_full_output(
     mut receiver: UnboundedReceiver<WriteOperation>,
 ) -> Result<(), ExecutionError> {
     while let Some(operation) = receiver.recv().await {
-        match operation {
-            WriteOperation::Create(initial_content) => {
-                let temp_file = env
-                    .create_temp_file(CreateTempFileOptions {
-                        prefix: Some("bash-".to_owned()),
-                        suffix: Some(".log".to_owned()),
-                    })
-                    .await
-                    .map_err(to_execution_error)?;
-                state.lock().expect("capture state lock").full_output_path = Some(temp_file.clone());
-                env.append_file(&temp_file, FileContent::Text(&initial_content))
-                    .await
-                    .map_err(to_execution_error)?;
-            }
-            WriteOperation::Append(text) => {
-                let path = state
-                    .lock()
-                    .expect("capture state lock")
-                    .full_output_path
-                    .clone()
-                    .ok_or_else(|| {
-                        ExecutionError::new(ExecutionErrorCode::Unknown, "Full output path was not created", None)
-                    })?;
-                env.append_file(&path, FileContent::Text(&text))
-                    .await
-                    .map_err(to_execution_error)?;
-            }
-        }
+        handle_write_operation(&env, &state, operation).await?;
     }
     Ok(())
+}
+
+async fn handle_write_operation(
+    env: &Arc<dyn ExecutionEnv>,
+    state: &Arc<Mutex<CaptureState>>,
+    operation: WriteOperation,
+) -> Result<(), ExecutionError> {
+    match operation {
+        WriteOperation::Create(initial_content) => create_full_output_file(env, state, &initial_content).await,
+        WriteOperation::Append(text) => append_full_output(env, state, &text).await,
+    }
+}
+
+async fn create_full_output_file(
+    env: &Arc<dyn ExecutionEnv>,
+    state: &Arc<Mutex<CaptureState>>,
+    initial_content: &str,
+) -> Result<(), ExecutionError> {
+    let temp_file = env
+        .create_temp_file(CreateTempFileOptions {
+            prefix: Some("bash-".to_owned()),
+            suffix: Some(".log".to_owned()),
+        })
+        .await
+        .map_err(to_execution_error)?;
+    state.lock().expect("capture state lock").full_output_path = Some(temp_file.clone());
+    env.append_file(&temp_file, FileContent::Text(initial_content))
+        .await
+        .map_err(to_execution_error)
+}
+
+async fn append_full_output(
+    env: &Arc<dyn ExecutionEnv>,
+    state: &Arc<Mutex<CaptureState>>,
+    text: &str,
+) -> Result<(), ExecutionError> {
+    let path = state
+        .lock()
+        .expect("capture state lock")
+        .full_output_path
+        .clone()
+        .ok_or_else(|| ExecutionError::new(ExecutionErrorCode::Unknown, "Full output path was not created", None))?;
+    env.append_file(&path, FileContent::Text(text))
+        .await
+        .map_err(to_execution_error)
 }
 
 fn to_execution_error(error: FileError) -> ExecutionError {

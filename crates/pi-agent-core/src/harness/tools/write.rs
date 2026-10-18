@@ -73,6 +73,20 @@ async fn execute_write(
     params: Value,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
+    let (path, content) = parse_write_input(&params)?;
+    let absolute_path = resolve_tool_path(context.env.as_ref(), &path, signal.as_ref())
+        .await
+        .map_err(|error| ToolError::new(error.message))?;
+    let env = Arc::clone(&context.env);
+    let operation = write_operation(env.as_ref(), &path, &content, &absolute_path, signal.as_ref());
+    context
+        .file_mutation_queue
+        .run(env.as_ref(), &absolute_path, operation)
+        .await
+        .map_err(|error| ToolError::new(error.message))?
+}
+
+fn parse_write_input(params: &Value) -> Result<(String, String), ToolError> {
     let path = params
         .get("path")
         .and_then(Value::as_str)
@@ -83,36 +97,38 @@ async fn execute_write(
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::new("write tool requires string content"))?
         .to_owned();
+    Ok((path, content))
+}
 
-    let absolute_path = resolve_tool_path(context.env.as_ref(), &path, signal.as_ref())
+async fn write_operation(
+    env: &dyn crate::harness::types::ExecutionEnv,
+    path: &str,
+    content: &str,
+    absolute_path: &str,
+    signal: Option<&CancellationToken>,
+) -> Result<AgentToolResult, ToolError> {
+    ensure_not_aborted(signal)?;
+    env.write_file(absolute_path, FileContent::Text(content), signal)
         .await
         .map_err(|error| ToolError::new(error.message))?;
-    let env = Arc::clone(&context.env);
-    context
-        .file_mutation_queue
-        .run(env.as_ref(), &absolute_path, async {
-            if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
-                return Err(ToolError::new("Operation aborted"));
-            }
-            env.write_file(&absolute_path, FileContent::Text(&content), signal.as_ref())
-                .await
-                .map_err(|error| ToolError::new(error.message))?;
-            if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
-                return Err(ToolError::new("Operation aborted"));
-            }
-            Ok(AgentToolResult {
-                content: vec![TextOrImageContent::Text(TextContent::new(format!(
-                    "Successfully wrote {} bytes to {}",
-                    content.encode_utf16().count(),
-                    path
-                )))],
-                details: None,
-                usage: None,
-                added_tool_names: None,
-                is_error: None,
-                terminate: None,
-            })
-        })
-        .await
-        .map_err(|error| ToolError::new(error.message))?
+    ensure_not_aborted(signal)?;
+    Ok(AgentToolResult {
+        content: vec![TextOrImageContent::Text(TextContent::new(format!(
+            "Successfully wrote {} bytes to {}",
+            content.encode_utf16().count(),
+            path
+        )))],
+        details: None,
+        usage: None,
+        added_tool_names: None,
+        is_error: None,
+        terminate: None,
+    })
+}
+
+fn ensure_not_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
+    if signal.is_some_and(CancellationToken::is_cancelled) {
+        return Err(ToolError::new("Operation aborted"));
+    }
+    Ok(())
 }
