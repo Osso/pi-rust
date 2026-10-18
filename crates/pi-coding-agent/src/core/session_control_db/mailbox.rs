@@ -12,13 +12,12 @@ use super::{
     RuntimeMailboxAddress, RuntimeMailboxListener, RuntimeMailboxListenerRow, RuntimeMailboxMessage,
     RuntimeMailboxMessageStatus, RuntimeMailboxRegistrationOptions, RuntimeMailboxRow,
     compare_and_write_canonical_mailbox_payload, compare_and_write_serialized_canonical_mailbox_payload,
-    multi_agent_runtime_ownership_rows_equal, parse_canonical_mailbox_payload, parse_process_identity,
-    parse_stored_json_object, process_identity_is_alive, read_canonical_mailbox_row_by_id,
+    get_runtime_process_instance_id, multi_agent_runtime_ownership_rows_equal, parse_canonical_mailbox_payload,
+    parse_process_identity, parse_stored_json_object, process_identity_is_alive, read_canonical_mailbox_row_by_id,
     read_canonical_mailbox_row_by_store_ref, read_multi_agent_runtime_ownership_row, read_runtime_mailbox_listener_row,
     require_string_field, runtime_mailbox_agent_id_key, runtime_mailbox_listener_rows_equal,
-    runtime_mailbox_message_from_canonical_row, runtime_process_instance_id, session_health_rows_equal,
-    to_runtime_mailbox_message_status, trusted_runtime_mailbox_session_path, validate_mailbox_payload, with_control_db,
-    with_immediate_transaction,
+    runtime_mailbox_message_from_canonical_row, session_health_rows_equal, to_runtime_mailbox_message_status,
+    trusted_runtime_mailbox_session_path, validate_mailbox_payload, with_control_db, with_immediate_transaction,
 };
 use crate::core::runtime_process::{is_verified_pi_runtime_process, read_process_identity};
 use crate::core::session_health::{SessionHealthRecord, empty_session_health, end_session_health};
@@ -275,7 +274,8 @@ pub fn read_runtime_mailbox_message_for_delivery(
         let message = parse_canonical_mailbox_payload(&row)?;
         let runtime_message = runtime_mailbox_message_from_canonical_row(&row, &message)?;
         let payload_valid = message.get("status").and_then(Value::as_str) == Some("claimed")
-            && message.get("claimantProcessIdentity").and_then(Value::as_str) == Some(runtime_process_instance_id());
+            && message.get("claimantProcessIdentity").and_then(Value::as_str)
+                == Some(get_runtime_process_instance_id());
         Ok(Some(RuntimeMailboxDeliveryRead {
             message: runtime_message,
             payload_data: Some(row.data.clone()),
@@ -330,7 +330,7 @@ fn update_claimed_canonical_mailbox_message(
             return Ok(true);
         }
         if current_status != RuntimeMailboxMessageStatus::Claimed
-            || message.get("claimantProcessIdentity").and_then(Value::as_str) != Some(runtime_process_instance_id())
+            || message.get("claimantProcessIdentity").and_then(Value::as_str) != Some(get_runtime_process_instance_id())
         {
             return Ok(false);
         }
@@ -570,7 +570,7 @@ fn current_runtime_owns_mailbox_authority(
 ) -> bool {
     if let Some(listener) = &authority.listener
         && listener.pid == std::process::id()
-        && listener.runtime_instance_id.as_deref() == Some(runtime_process_instance_id())
+        && listener.runtime_instance_id.as_deref() == Some(get_runtime_process_instance_id())
     {
         return true;
     }
@@ -651,7 +651,7 @@ fn claim_runtime_mailbox_candidate(
     claimed.insert("claimedAt".to_owned(), Value::String(now_iso.to_owned()));
     claimed.insert(
         "claimantProcessIdentity".to_owned(),
-        Value::String(runtime_process_instance_id().to_owned()),
+        Value::String(get_runtime_process_instance_id().to_owned()),
     );
     claimed.insert("status".to_owned(), Value::String("claimed".to_owned()));
     claimed.insert("updatedAt".to_owned(), Value::String(now_iso.to_owned()));
@@ -779,7 +779,7 @@ pub fn register_runtime_mailbox_listener(
         runtime_instance_id: options
             .runtime_instance_id
             .clone()
-            .unwrap_or_else(|| runtime_process_instance_id().to_owned()),
+            .unwrap_or_else(|| get_runtime_process_instance_id().to_owned()),
         options,
         pid,
         recipient: recipient.clone(),
@@ -1081,7 +1081,7 @@ pub fn assert_main_session_runtime_available(control_db_path: &str, session_id: 
                 agent_id: None,
                 session_id: session_id.to_owned(),
             },
-            runtime_instance_id: runtime_process_instance_id().to_owned(),
+            runtime_instance_id: get_runtime_process_instance_id().to_owned(),
             session_path: None,
         };
         let snapshot = read_runtime_mailbox_registration_snapshot(db, &registration.recipient)?;
@@ -1106,7 +1106,7 @@ pub fn resolve_own_main_runtime_coordination_recipient(
 				",
         )?;
         let rows = statement
-            .query_map(params![std::process::id(), runtime_process_instance_id()], |row| {
+            .query_map(params![std::process::id(), get_runtime_process_instance_id()], |row| {
                 row.get::<_, String>(0)
             })?
             .collect::<Result<Vec<_>, _>>()?;

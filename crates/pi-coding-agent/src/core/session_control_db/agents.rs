@@ -8,12 +8,11 @@ use super::mailbox::{PreparedStoredRuntimeMailboxMessage, prepare_stored_runtime
 use super::{
     ControlDbError, EnqueueStoredRuntimeMailboxMessageInput, MultiAgentRuntimeOwner, MultiAgentRuntimeOwnerIdentity,
     MultiAgentRuntimeOwnership, MultiAgentRuntimeOwnershipIdentity, MultiAgentRuntimeOwnershipRow,
-    RuntimeMailboxAddress, RuntimeMailboxListenerRow, RuntimeMailboxMessageKind, parse_agent_snapshot,
-    parse_process_identity, parse_stored_json_object, process_identity_is_alive,
+    RuntimeMailboxAddress, RuntimeMailboxListenerRow, RuntimeMailboxMessageKind, get_runtime_process_instance_id,
+    parse_agent_snapshot, parse_process_identity, parse_stored_json_object, process_identity_is_alive,
     read_multi_agent_runtime_ownership_row, read_runtime_mailbox_listener_row, require_string_field,
-    runtime_mailbox_agent_id_key, runtime_process_instance_id, serialize_process_identity,
-    trusted_runtime_mailbox_session_path, validate_mailbox_payload, validate_persisted_agent_payload, with_control_db,
-    with_immediate_transaction,
+    runtime_mailbox_agent_id_key, serialize_process_identity, trusted_runtime_mailbox_session_path,
+    validate_mailbox_payload, validate_persisted_agent_payload, with_control_db, with_immediate_transaction,
 };
 use crate::core::multi_agent_store::{
     AgentFileReference, AgentLifecycle, AgentMailboxMessage, AgentSnapshot, MailboxMessageKindValue,
@@ -198,6 +197,15 @@ pub struct SupervisorRuntimeOwnership {
     pub agent_id: Option<String>,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub session_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AcquireMultiAgentRuntimeOwnershipInput {
+    pub session_path: String,
+    pub agent_id: String,
+    pub process_identity: crate::core::runtime_process::ProcessIdentity,
+    pub owner: MultiAgentRuntimeOwnerIdentity,
+    pub now_iso: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -771,7 +779,7 @@ fn steering_mutation_has_authority(
             .map(|transcript| transcript.session_id.as_str())
             == Some(input.recipient.session_id.as_str())
         && sender_listener.pid == std::process::id()
-        && sender_listener.runtime_instance_id.as_deref() == Some(runtime_process_instance_id())
+        && sender_listener.runtime_instance_id.as_deref() == Some(get_runtime_process_instance_id())
         && sender_path_matches
         && runtime_listener_matches_process_identity(
             Some(recipient_listener),

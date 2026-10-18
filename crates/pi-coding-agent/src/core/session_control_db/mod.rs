@@ -33,24 +33,24 @@ use crate::core::sqlite::{
 use crate::utils::js_json;
 
 pub use agents::{
-    AcquireAttachedError, AcquireAttachedRuntimeOwnershipInput, AcquireAttachedRuntimeOwnershipResult, AgentDetails,
-    ClaimMultiAgentTerminalOutboxOptions, CommitMultiAgentDetachMarkInput, CommitMultiAgentDetachMarkResult,
-    CommitMultiAgentLifecycleMutationInput, CommitMultiAgentLifecycleMutationResult,
-    CommitMultiAgentSteeringDeliveryInput, CommitMultiAgentSteeringDeliveryResult,
-    CommitMultiAgentSteeringMutationInput, CommitMultiAgentSteeringMutationResult,
-    CommitMultiAgentTerminalMutationInput, CommitMultiAgentTerminalMutationResult, CreateAttachmentError,
-    CreateChildError, CreateFailedMultiAgentChildInput, CreateFailedMultiAgentChildResult,
-    CreateMultiAgentAttachmentInput, CreateMultiAgentAttachmentResult, CreateMultiAgentChildWithRuntimeOwnershipInput,
-    CreateMultiAgentChildWithRuntimeOwnershipResult, DetachedArtifactAgentRecord, DetachedCancellation,
-    LifecycleCommandError, MultiAgentCounterName, MultiAgentCounters, MultiAgentPersistedState,
-    MultiAgentTerminalOutboxRecord, RecoverDeadMultiAgentRuntimeInput, RecoverDeadMultiAgentRuntimeResult,
-    RecoverDeadRuntimeError, SteeringCommandError, SupervisorRuntimeOwnership, TerminalOutboxStatus,
-    acquire_attached_runtime_ownership, allocate_multi_agent_counter, bootstrap_multi_agent_agent,
-    claim_multi_agent_terminal_outbox, cleanup_multi_agent_terminal_outbox, commit_multi_agent_detach_mark,
-    commit_multi_agent_lifecycle_mutation, commit_multi_agent_steering_delivery, commit_multi_agent_steering_mutation,
-    commit_multi_agent_terminal_mutation, create_failed_multi_agent_child, create_multi_agent_attachment,
-    create_multi_agent_child_with_runtime_ownership, deliver_multi_agent_terminal_outbox,
-    fail_multi_agent_terminal_outbox, get_multi_agent_mailbox_message_status,
+    AcquireAttachedError, AcquireAttachedRuntimeOwnershipInput, AcquireAttachedRuntimeOwnershipResult,
+    AcquireMultiAgentRuntimeOwnershipInput, AgentDetails, ClaimMultiAgentTerminalOutboxOptions,
+    CommitMultiAgentDetachMarkInput, CommitMultiAgentDetachMarkResult, CommitMultiAgentLifecycleMutationInput,
+    CommitMultiAgentLifecycleMutationResult, CommitMultiAgentSteeringDeliveryInput,
+    CommitMultiAgentSteeringDeliveryResult, CommitMultiAgentSteeringMutationInput,
+    CommitMultiAgentSteeringMutationResult, CommitMultiAgentTerminalMutationInput,
+    CommitMultiAgentTerminalMutationResult, CreateAttachmentError, CreateChildError, CreateFailedMultiAgentChildInput,
+    CreateFailedMultiAgentChildResult, CreateMultiAgentAttachmentInput, CreateMultiAgentAttachmentResult,
+    CreateMultiAgentChildWithRuntimeOwnershipInput, CreateMultiAgentChildWithRuntimeOwnershipResult,
+    DetachedArtifactAgentRecord, DetachedCancellation, LifecycleCommandError, MultiAgentCounterName,
+    MultiAgentCounters, MultiAgentPersistedState, MultiAgentTerminalOutboxRecord, RecoverDeadMultiAgentRuntimeInput,
+    RecoverDeadMultiAgentRuntimeResult, RecoverDeadRuntimeError, SteeringCommandError, SupervisorRuntimeOwnership,
+    TerminalOutboxStatus, acquire_attached_runtime_ownership, allocate_multi_agent_counter,
+    bootstrap_multi_agent_agent, claim_multi_agent_terminal_outbox, cleanup_multi_agent_terminal_outbox,
+    commit_multi_agent_detach_mark, commit_multi_agent_lifecycle_mutation, commit_multi_agent_steering_delivery,
+    commit_multi_agent_steering_mutation, commit_multi_agent_terminal_mutation, create_failed_multi_agent_child,
+    create_multi_agent_attachment, create_multi_agent_child_with_runtime_ownership,
+    deliver_multi_agent_terminal_outbox, fail_multi_agent_terminal_outbox, get_multi_agent_mailbox_message_status,
     list_detached_artifact_agents_updated_at_or_before, mark_multi_agent_mailbox_message_delivered,
     mark_multi_agent_mailbox_message_failed, read_multi_agent_agent, read_multi_agent_agents,
     read_multi_agent_runtime_ownership, read_multi_agent_state, reconcile_dead_detached_agent_runtimes,
@@ -720,7 +720,7 @@ pub(crate) fn optional_string_field(
     }
 }
 
-pub(crate) fn runtime_process_instance_id() -> &'static str {
+pub fn get_runtime_process_instance_id() -> &'static str {
     static INSTANCE: OnceLock<String> = OnceLock::new();
     INSTANCE.get_or_init(|| {
         let identity = read_process_identity(std::process::id()).unwrap_or(ProcessIdentity {
