@@ -61,6 +61,38 @@ fn loaded_shared_objects_are_filtered_and_deduplicated() {
 }
 
 #[test]
+fn loaded_shared_objects_compare_paths_case_insensitively() {
+    let root = temp_dir("case");
+    let package = root.join("node_modules/pkg");
+    fs::create_dir_all(&package).unwrap();
+    let upper = root.join("node_modules/PKG/Native.node");
+    let lower = root.join("node_modules/pkg/native.node");
+
+    let loaded =
+        loaded_shared_objects_in_package_dir(&package, &[upper.display().to_string(), lower.display().to_string()]);
+
+    // The source lowercases both sides; the first spelling of a path is kept.
+    assert_eq!(loaded, [upper]);
+}
+
+#[test]
+fn quarantine_reports_filesystem_failures() {
+    let root = temp_dir("failure");
+    let node_modules = root.join("node_modules");
+    let package = node_modules.join("pkg");
+    fs::create_dir_all(&package).unwrap();
+    let native = package.join("addon.node");
+    fs::write(&native, "native").unwrap();
+    // A file where the quarantine directory belongs makes `mkdirSync` throw.
+    fs::write(node_modules.join(".pi-native-quarantine"), "blocker").unwrap();
+
+    let result = quarantine_windows_native_dependencies(&package, &[native.display().to_string()]);
+
+    assert!(result.is_err(), "mkdir failure must propagate like the source's throw");
+    assert_eq!(fs::read_to_string(&native).unwrap(), "native");
+}
+
+#[test]
 fn quarantine_moves_native_files_and_restores_a_copy() {
     let root = temp_dir("quarantine");
     let node_modules = root.join("node_modules");
@@ -75,7 +107,8 @@ fn quarantine_moves_native_files_and_restores_a_copy() {
     quarantine_windows_native_dependencies(
         &package,
         &[native.display().to_string(), unrelated.display().to_string()],
-    );
+    )
+    .unwrap();
 
     // The running process keeps a copy at the original path.
     assert_eq!(fs::read_to_string(&native).unwrap(), "native-binary");
@@ -119,6 +152,6 @@ fn quarantine_without_loaded_files_is_a_noop() {
     let node_modules = root.join("node_modules");
     let package = node_modules.join("pkg");
     fs::create_dir_all(&package).unwrap();
-    quarantine_windows_native_dependencies(&package, &[]);
+    quarantine_windows_native_dependencies(&package, &[]).unwrap();
     assert!(!node_modules.join(".pi-native-quarantine").exists());
 }

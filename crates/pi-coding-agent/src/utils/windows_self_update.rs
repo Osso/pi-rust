@@ -2,10 +2,11 @@
 //!
 //! The TypeScript module enumerates native addons from `process.report.getReport().sharedObjects`.
 //! A native Rust binary loads no addons, so the enumeration is injected; the default implementation
-//! reads `/proc/self/maps` on Linux and returns nothing elsewhere. Quarantine run directories use a
-//! UUID (v7 instead of `randomUUID`'s v4); the name is only used for uniqueness.
+//! reads `/proc/self/maps` on Linux and returns nothing elsewhere.
 
 use std::path::{Path, PathBuf};
+
+use crate::utils::paths::get_cwd_relative_path;
 
 const QUARANTINE_DIR_NAME: &str = ".pi-native-quarantine";
 
@@ -19,7 +20,7 @@ pub fn get_quarantine_root(package_dir: &Path) -> Option<PathBuf> {
     loop {
         if current
             .file_name()
-            .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("node_modules"))
+            .is_some_and(|name| name.to_string_lossy().to_lowercase() == "node_modules")
         {
             return Some(current.join(QUARANTINE_DIR_NAME));
         }
@@ -31,17 +32,18 @@ pub fn get_quarantine_root(package_dir: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Shared objects loaded from the package directory.
+/// Shared objects loaded from the package directory, compared case-insensitively like the source.
 pub fn loaded_shared_objects_in_package_dir(package_dir: &Path, shared_objects: &[String]) -> Vec<PathBuf> {
-    let root = resolve(package_dir);
-    let mut seen: Vec<PathBuf> = Vec::new();
+    let root = resolve(package_dir).to_string_lossy().to_lowercase();
+    let mut seen = std::collections::HashSet::new();
     let mut loaded = Vec::new();
     for value in shared_objects {
         let file_path = resolve(Path::new(value));
-        if !file_path.starts_with(&root) || seen.contains(&file_path) {
+        let comparison_path = file_path.to_string_lossy().to_lowercase();
+        let inside = matches!(get_cwd_relative_path(&comparison_path, &root), Ok(Some(_)));
+        if !inside || !seen.insert(comparison_path) {
             continue;
         }
-        seen.push(file_path.clone());
         loaded.push(file_path);
     }
     loaded
@@ -79,41 +81,39 @@ pub fn cleanup_windows_self_update_quarantine(package_dir: &Path) {
 }
 
 /// `quarantineWindowsNativeDependencies`: move loaded native files aside, then restore copies so the
-/// running process keeps working.
-pub fn quarantine_windows_native_dependencies(package_dir: &Path, shared_objects: &[String]) {
+/// running process keeps working. Filesystem failures propagate like the source's synchronous throws.
+pub fn quarantine_windows_native_dependencies(package_dir: &Path, shared_objects: &[String]) -> std::io::Result<()> {
     let resolved_package_dir = resolve(package_dir);
     let Some(quarantine_root) = get_quarantine_root(&resolved_package_dir) else {
-        return;
+        return Ok(());
     };
     let loaded_files = loaded_shared_objects_in_package_dir(&resolved_package_dir, shared_objects);
     if loaded_files.is_empty() {
-        return;
+        return Ok(());
     }
     let unique = format!(
         "{}-{}-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |elapsed| elapsed.as_millis()),
+        pi_ai::request::now_millis(),
         std::process::id(),
-        pi_ai::utils::uuid::uuidv7()
+        pi_ai::utils::uuid::random_uuid()
     );
     let quarantine_run_dir = quarantine_root.join(unique);
     for loaded_file in loaded_files {
         if !loaded_file.exists() {
             continue;
         }
-        let Ok(relative) = loaded_file.strip_prefix(&resolved_package_dir) else {
-            continue;
-        };
-        let quarantine_path = quarantine_run_dir.join(relative);
-        if let Some(parent) = quarantine_path.parent()
-            && std::fs::create_dir_all(parent).is_err()
-        {
-            continue;
+        let quarantine_path = quarantine_run_dir.join(relative_to(&resolved_package_dir, &loaded_file));
+        if let Some(parent) = quarantine_path.parent() {
+            std::fs::create_dir_all(parent)?;
         }
-        if std::fs::rename(&loaded_file, &quarantine_path).is_err() {
-            continue;
-        }
-        let _ = std::fs::copy(&quarantine_path, &loaded_file);
+        std::fs::rename(&loaded_file, &quarantine_path)?;
+        std::fs::copy(&quarantine_path, &loaded_file)?;
     }
+    Ok(())
+}
+
+/// `path.relative(base, path)` for a path the case-insensitive containment check placed under `base`.
+fn relative_to(base: &Path, path: &Path) -> PathBuf {
+    let base_depth = base.components().count();
+    path.components().skip(base_depth).collect()
 }
