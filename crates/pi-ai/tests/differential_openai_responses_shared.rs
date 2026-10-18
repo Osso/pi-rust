@@ -56,7 +56,7 @@ fn convert_options(value: &Value) -> ConvertResponsesMessagesOptions {
             properties
                 .iter()
                 .map(|(name, property)| (name.clone(), property.as_str().unwrap_or("").to_owned()))
-                .collect::<BTreeMap<_, _>>()
+                .collect::<indexmap::IndexMap<_, _>>()
         });
     let deferred_tools = value.get("deferredTools").and_then(Value::as_object).map(|tools| {
         tools

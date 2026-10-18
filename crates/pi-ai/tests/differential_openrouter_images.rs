@@ -6,7 +6,6 @@ use pi_ai::request::{
 };
 use pi_ai::types::{ImagesContext, ImagesModel};
 use serde_json::{Map, Value, json};
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 
@@ -18,7 +17,7 @@ fn context_from_json(value: &Value) -> ImagesContext {
     serde_json::from_value(value.clone()).expect("fixture context deserializes")
 }
 
-fn headers_from_json(value: &Value) -> Option<BTreeMap<String, Option<String>>> {
+fn headers_from_json(value: &Value) -> Option<indexmap::IndexMap<String, Option<String>>> {
     value.as_object().map(|object| {
         object
             .iter()

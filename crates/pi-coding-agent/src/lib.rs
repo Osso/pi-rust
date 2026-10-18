@@ -1,6 +1,7 @@
 #![deny(clippy::print_stdout)]
 
 pub mod bun;
+pub mod bundled_extensions;
 pub mod cli;
 pub mod cli_entry;
 pub mod config;

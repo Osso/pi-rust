@@ -7,10 +7,6 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
-[[bin]]
-name = "pi-ai"
-path = "src/bin/pi-ai.rs"
-
 [dependencies]
 # Shared JavaScript number/date/Base64 semantics.
 pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }

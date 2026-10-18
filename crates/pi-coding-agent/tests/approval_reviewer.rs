@@ -1,0 +1,122 @@
+//! Behavioral tests for `supervisor/approval-reviewer.ts`.
+
+use std::sync::Arc;
+
+use pi_coding_agent::core::extensions::types::ToolCallEventResult;
+use pi_coding_agent::core::session_control_db::SupervisorResponse;
+use pi_coding_agent::supervisor::approval_reviewer::{
+    SupervisorApprovalCall, SupervisorHumanReviewer, review_tool_call_with_supervisor,
+};
+
+fn decision(response: SupervisorResponse) -> SupervisorApprovalCall {
+    Arc::new(move || {
+        let response = response.clone();
+        Box::pin(async move { Ok(response) })
+    })
+}
+
+fn human(result: Option<ToolCallEventResult>) -> SupervisorHumanReviewer {
+    Arc::new(move |reason: String| {
+        let result = result.clone();
+        Box::pin(async move {
+            if let Some(mut result) = result {
+                result.reason = Some(format!("{reason}:{}", result.reason.unwrap_or_default()));
+                Some(result)
+            } else {
+                None
+            }
+        })
+    })
+}
+
+#[tokio::test]
+async fn approves_without_a_block() {
+    let result = review_tool_call_with_supervisor(
+        decision(SupervisorResponse::Approve {
+            reason: "ok".to_owned(),
+        }),
+        None,
+        false,
+    )
+    .await
+    .expect("decision");
+    assert!(result.is_none());
+}
+
+#[tokio::test]
+async fn rejects_with_the_supervisor_reason() {
+    let result = review_tool_call_with_supervisor(
+        decision(SupervisorResponse::Reject {
+            reason: "not allowed".to_owned(),
+        }),
+        None,
+        false,
+    )
+    .await
+    .expect("decision")
+    .expect("block");
+    assert_eq!(result.block, Some(true));
+    assert_eq!(result.reason.as_deref(), Some("not allowed"));
+}
+
+#[tokio::test]
+async fn escalates_rejection_to_the_human_reviewer() {
+    let result = review_tool_call_with_supervisor(
+        decision(SupervisorResponse::Reject {
+            reason: "uncertain".to_owned(),
+        }),
+        Some(human(Some(ToolCallEventResult {
+            block: Some(false),
+            input: None,
+            reason: Some("allowed".to_owned()),
+            terminate: None,
+        }))),
+        true,
+    )
+    .await
+    .expect("decision")
+    .expect("human result");
+    assert_eq!(result.block, Some(false));
+    assert_eq!(result.reason.as_deref(), Some("uncertain:allowed"));
+}
+
+#[tokio::test]
+async fn errors_and_invalid_responses_fall_back_to_human_or_block() {
+    let error = review_tool_call_with_supervisor(
+        decision(SupervisorResponse::Error {
+            reason: "supervisor down".to_owned(),
+        }),
+        None,
+        false,
+    )
+    .await
+    .expect("decision")
+    .expect("block");
+    assert_eq!(error.reason.as_deref(), Some("supervisor down"));
+
+    let invalid = review_tool_call_with_supervisor(
+        decision(SupervisorResponse::Complete {
+            reason: "done".to_owned(),
+        }),
+        None,
+        false,
+    )
+    .await
+    .expect("decision")
+    .expect("block");
+    assert_eq!(
+        invalid.reason.as_deref(),
+        Some("Supervisor returned an invalid approval response")
+    );
+
+    let escalated = review_tool_call_with_supervisor(
+        decision(SupervisorResponse::Error {
+            reason: "timeout".to_owned(),
+        }),
+        Some(human(None)),
+        false,
+    )
+    .await
+    .expect("decision");
+    assert!(escalated.is_none());
+}

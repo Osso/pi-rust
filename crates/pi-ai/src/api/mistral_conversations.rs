@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use indexmap::IndexMap;
 use serde_json::{Map, Value, json};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -490,8 +491,8 @@ fn chat_completions_url(model: &Model) -> Result<Url, MistralError> {
         .map_err(|error| MistralError::message(error.to_string()))
 }
 
-fn build_mistral_headers(model: &Model, api_key: &str, options: &MistralOptions) -> BTreeMap<String, String> {
-    let mut headers = BTreeMap::from([
+fn build_mistral_headers(model: &Model, api_key: &str, options: &MistralOptions) -> IndexMap<String, String> {
+    let mut headers = IndexMap::from([
         ("accept".to_owned(), "text/event-stream".to_owned()),
         ("authorization".to_owned(), format!("Bearer {api_key}")),
         ("content-type".to_owned(), "application/json".to_owned()),
@@ -509,7 +510,7 @@ fn build_mistral_headers(model: &Model, api_key: &str, options: &MistralOptions)
     headers
 }
 
-fn model_has_header_override(headers: Option<&BTreeMap<String, String>>, target: &str) -> bool {
+fn model_has_header_override(headers: Option<&IndexMap<String, String>>, target: &str) -> bool {
     headers.is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case(target)))
 }
 
@@ -517,7 +518,7 @@ fn provider_has_header_override(headers: Option<&crate::types::ProviderHeaders>,
     headers.is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case(target)))
 }
 
-fn apply_model_header_overrides(headers: &mut BTreeMap<String, String>, overrides: Option<&BTreeMap<String, String>>) {
+fn apply_model_header_overrides(headers: &mut IndexMap<String, String>, overrides: Option<&IndexMap<String, String>>) {
     let Some(overrides) = overrides else {
         return;
     };
@@ -527,7 +528,7 @@ fn apply_model_header_overrides(headers: &mut BTreeMap<String, String>, override
 }
 
 fn apply_mistral_header_overrides(
-    headers: &mut BTreeMap<String, String>,
+    headers: &mut IndexMap<String, String>,
     overrides: Option<&crate::types::ProviderHeaders>,
 ) {
     let Some(overrides) = overrides else {
@@ -540,7 +541,7 @@ fn apply_mistral_header_overrides(
                 headers.insert(name, value.clone());
             }
             None => {
-                headers.remove(&name);
+                headers.shift_remove(&name);
             }
         }
     }

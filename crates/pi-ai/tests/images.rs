@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::images::generate_images;
@@ -83,7 +83,7 @@ async fn dispatches_through_the_registered_builtin_api() {
         request: ImagesRequestOptions {
             api_key: Some("test".to_owned()),
             fetch: Some(fetch.clone()),
-            headers: Some(BTreeMap::new()),
+            headers: Some(IndexMap::new()),
             ..Default::default()
         },
         ..Default::default()

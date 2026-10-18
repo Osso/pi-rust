@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::{
@@ -52,7 +52,7 @@ fn ok_result(model: &ImagesModel) -> AssistantImages {
 }
 
 struct FakeAuthContext {
-    env: BTreeMap<String, String>,
+    env: IndexMap<String, String>,
 }
 
 impl AuthContext for FakeAuthContext {
@@ -256,8 +256,8 @@ async fn merges_provider_resolved_env_into_image_options() {
             headers: None,
             base_url: None,
         },
-        env: Some(BTreeMap::from([
-            ("PROVIDER_ONLY".to_owned(), "provider".to_owned()),
+        env: Some(IndexMap::from([
+            ("zeta".to_owned(), "provider".to_owned()),
             ("SHARED".to_owned(), "provider".to_owned()),
         ])),
         source: None,
@@ -277,8 +277,8 @@ async fn merges_provider_resolved_env_into_image_options() {
     let options = ImagesOptions {
         request: ImagesRequestOptions {
             api_key: Some("request-key".to_owned()),
-            env: Some(BTreeMap::from([
-                ("REQUEST_ONLY".to_owned(), "request".to_owned()),
+            env: Some(IndexMap::from([
+                ("alpha".to_owned(), "request".to_owned()),
                 ("SHARED".to_owned(), "request".to_owned()),
             ])),
             ..Default::default()
@@ -289,14 +289,10 @@ async fn merges_provider_resolved_env_into_image_options() {
 
     let recorded = &calls.lock().expect("calls lock")[0].options;
     assert_eq!(recorded.request.api_key.as_deref(), Some("request-key"));
-    assert_eq!(
-        recorded.request.env,
-        Some(BTreeMap::from([
-            ("PROVIDER_ONLY".to_owned(), "provider".to_owned()),
-            ("REQUEST_ONLY".to_owned(), "request".to_owned()),
-            ("SHARED".to_owned(), "request".to_owned()),
-        ]))
-    );
+    let env = recorded.request.env.as_ref().expect("merged env");
+    let keys: Vec<&str> = env.keys().map(String::as_str).collect();
+    assert_eq!(keys, vec!["zeta", "SHARED", "alpha"]);
+    assert_eq!(env.get("SHARED").map(String::as_str), Some("request"));
 }
 
 #[tokio::test]
@@ -306,7 +302,7 @@ async fn applies_auth_base_url_and_headers_to_the_request_model() {
     let auth = static_auth(Some(AuthResult {
         auth: ModelAuth {
             api_key: Some("key".to_owned()),
-            headers: Some(BTreeMap::from([("x-auth".to_owned(), Some("auth".to_owned()))])),
+            headers: Some(IndexMap::from([("x-auth".to_owned(), Some("auth".to_owned()))])),
             base_url: Some("https://auth.example/v1".to_owned()),
         },
         env: None,
@@ -325,7 +321,7 @@ async fn applies_auth_base_url_and_headers_to_the_request_model() {
     let model = models.get_model("p1", "model-a").expect("registered model");
     let options = ImagesOptions {
         request: ImagesRequestOptions {
-            headers: Some(BTreeMap::from([
+            headers: Some(IndexMap::from([
                 ("x-request".to_owned(), Some("request".to_owned())),
                 ("x-auth".to_owned(), Some("request".to_owned())),
             ])),
@@ -339,7 +335,7 @@ async fn applies_auth_base_url_and_headers_to_the_request_model() {
     assert_eq!(recorded.model.base_url, "https://auth.example/v1");
     assert_eq!(
         recorded.options.request.headers,
-        Some(BTreeMap::from([
+        Some(IndexMap::from([
             ("x-auth".to_owned(), Some("request".to_owned())),
             ("x-request".to_owned(), Some("request".to_owned())),
         ]))

@@ -412,25 +412,35 @@ fn signal_payload_group(pid: u32, signal: Signal) -> Result<(), DetachedBashRunn
     }
 }
 
+/// Error classification for terminal finalization retries.
+pub trait DetachedFinalizeError {
+    fn is_contention(&self) -> bool;
+}
+
+impl DetachedFinalizeError for ControlDbError {
+    fn is_contention(&self) -> bool {
+        ControlDbError::is_contention(self)
+    }
+}
+
 /// `finalizeDetachedJobWithRetry`.
-pub async fn finalize_detached_job_with_retry<T, F>(
-    terminal: &DetachedJobTerminalInput,
-    finalize: F,
-) -> Result<T, ControlDbError>
+pub async fn finalize_detached_job_with_retry<T, E, F>(terminal: &DetachedJobTerminalInput, finalize: F) -> Result<T, E>
 where
-    F: Fn(&DetachedJobTerminalInput) -> Result<T, ControlDbError>,
+    E: DetachedFinalizeError,
+    F: Fn(&DetachedJobTerminalInput) -> Result<T, E>,
 {
     finalize_detached_job_with_retry_delay(terminal, finalize, Duration::from_millis(250)).await
 }
 
 /// Retry variant with an explicit delay for tests.
-pub async fn finalize_detached_job_with_retry_delay<T, F>(
+pub async fn finalize_detached_job_with_retry_delay<T, E, F>(
     terminal: &DetachedJobTerminalInput,
     finalize: F,
     retry_delay: Duration,
-) -> Result<T, ControlDbError>
+) -> Result<T, E>
 where
-    F: Fn(&DetachedJobTerminalInput) -> Result<T, ControlDbError>,
+    E: DetachedFinalizeError,
+    F: Fn(&DetachedJobTerminalInput) -> Result<T, E>,
 {
     loop {
         match finalize(terminal) {

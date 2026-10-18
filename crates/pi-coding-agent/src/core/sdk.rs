@@ -25,7 +25,9 @@ use crate::core::defaults::DEFAULT_THINKING_LEVEL;
 use crate::core::model_resolver::{FindInitialModelOptions, find_initial_model};
 use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use crate::core::provider_attribution::merge_provider_attribution_headers;
-use crate::core::resource_loader::ResourceLoader;
+use crate::core::resource_loader::{
+    DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader, RulesScope,
+};
 use crate::core::session_manager::{SessionManager, get_default_session_dir};
 use crate::core::settings_manager::SettingsManager;
 use crate::core::tools::DEFAULT_ACTIVE_TOOL_NAMES;
@@ -58,6 +60,10 @@ pub struct CreateAgentSessionOptions {
     /// Rust carrier for the unported `createAllToolDefinitions` default.
     pub base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
     pub resource_loader: Option<Arc<dyn ResourceLoader>>,
+    /// Override runtime-role rule discovery when creating the default loader.
+    pub rules_scope: Option<RulesScope>,
+    /// Inline extension factories loaded by the default loader.
+    pub extension_factories: Vec<InlineExtension>,
     pub session_manager: Option<SessionManager>,
     pub settings_manager: Option<Arc<Mutex<SettingsManager>>>,
     pub control_db_path: Option<String>,
@@ -68,9 +74,16 @@ pub struct CreateAgentSessionOptions {
 /// `CreateAgentSessionResult`.
 pub struct CreateAgentSessionResult {
     pub session: AgentSession,
-    /// Placeholder for `LoadExtensionsResult` (owned by `ca-extensions-api`).
-    pub extensions_result: (),
+    pub extensions_result: crate::core::extensions::types::LoadExtensionsResult,
     pub model_fallback_message: Option<String>,
+}
+
+fn rules_scope_for_runtime_role(role: Option<MultiAgentRuntimeRole>) -> RulesScope {
+    match role {
+        Some(MultiAgentRuntimeRole::Child) => RulesScope::Child,
+        Some(MultiAgentRuntimeRole::Observer) => RulesScope::Shared,
+        _ => RulesScope::Main,
+    }
 }
 
 /// Creates an [`AgentSession`] with the supplied options.
@@ -151,10 +164,34 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
             SessionManager::create(&cwd, Some(&session_dir), None).map_err(|error| error.to_string())?
         }
     };
-    let resource_loader = options
-        .resource_loader
-        .clone()
-        .ok_or_else(|| "DefaultResourceLoader is not ported; pass resourceLoader".to_owned())?;
+    let persisted_settings = session_manager.read_persisted_session_settings();
+    lock(&settings_manager).set_session_sandbox_profile(
+        persisted_settings
+            .as_ref()
+            .and_then(|settings| settings.sandbox_profile),
+    );
+    let resource_loader = match options.resource_loader.clone() {
+        Some(loader) => loader,
+        None => {
+            let loader = Arc::new(
+                DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+                    cwd: cwd.clone(),
+                    agent_dir: agent_dir.clone(),
+                    settings_manager: Some(Arc::clone(&settings_manager)),
+                    extension_factories: options.extension_factories.clone(),
+                    rules_scope: Some(
+                        options
+                            .rules_scope
+                            .unwrap_or_else(|| rules_scope_for_runtime_role(options.multi_agent_runtime_role)),
+                    ),
+                    ..Default::default()
+                })
+                .map_err(|error| error.to_string())?,
+            );
+            loader.reload().await?;
+            loader
+        }
+    };
 
     let existing_session = session_manager.build_session_context();
     let has_existing_session = !existing_session.messages.is_empty();
@@ -162,20 +199,27 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
     let mut model = options.model.clone();
     let mut model_fallback_message: Option<String> = None;
 
+    let saved_model = persisted_settings
+        .as_ref()
+        .and_then(|settings| settings.model.as_ref())
+        .map(|model| (model.provider.clone(), model.model_id.clone()))
+        .or_else(|| {
+            existing_session
+                .model
+                .as_ref()
+                .map(|model| (model.provider.clone(), model.model_id.clone()))
+        });
     if model.is_none()
-        && let Some(saved_model) = existing_session.model.as_ref()
+        && let Some((saved_provider, saved_model_id)) = saved_model
     {
-        let restored = model_runtime.get_model(&saved_model.provider, &saved_model.model_id);
+        let restored = model_runtime.get_model(&saved_provider, &saved_model_id);
         if let Some(restored) = restored
             && model_runtime.has_configured_auth(&restored.provider)
         {
             model = Some(restored);
         }
         if model.is_none() {
-            model_fallback_message = Some(format!(
-                "Could not restore model {}/{}",
-                saved_model.provider, saved_model.model_id
-            ));
+            model_fallback_message = Some(format!("Could not restore model {saved_provider}/{saved_model_id}"));
         }
     }
 
@@ -203,19 +247,23 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         }
     }
 
-    let Some(model) = model else {
-        return Err(format_no_models_available_message());
-    };
-
     let default_thinking_level = lock(&settings_manager).get_default_thinking_level();
+    let persisted_thinking_level = persisted_settings
+        .as_ref()
+        .and_then(|settings| settings.thinking_level.as_ref())
+        .and_then(|level| serde_json::from_value::<ThinkingLevel>(serde_json::json!(level)).ok());
     let mut thinking_level = options
         .thinking_level
+        .or(persisted_thinking_level)
         .or(default_thinking_level)
         .unwrap_or(DEFAULT_THINKING_LEVEL);
-    thinking_level = thinking_level_from_model(pi_ai::models::clamp_thinking_level(
-        &model,
-        model_thinking_level(thinking_level),
-    ));
+    thinking_level = match &model {
+        Some(model) => thinking_level_from_model(pi_ai::models::clamp_thinking_level(
+            model,
+            model_thinking_level(thinking_level),
+        )),
+        None => ThinkingLevel::Off,
+    };
 
     let allowed_tool_names = options
         .tools
@@ -354,7 +402,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {
             system_prompt: Some(String::new()),
-            model: Some(model),
+            model: model.clone(),
             thinking_level: Some(thinking_level),
             tools: Some(Vec::new()),
             messages: None,
@@ -385,7 +433,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         settings_manager: settings,
         cwd,
         scoped_models: options.scoped_models,
-        resource_loader,
+        resource_loader: Arc::clone(&resource_loader),
         model_runtime,
         initial_active_tool_names: Some(initial_active_tool_names),
         allowed_tool_names,
@@ -398,6 +446,12 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         multi_agent_runtime_role: options.multi_agent_runtime_role,
         multi_agent_execution_capability: options.multi_agent_execution_capability,
         thinking_phase_timeout_ms: None,
+        supervisor_decision_requester: None,
+        multi_agent_store: None,
+        multi_agent_agent_id: None,
+        multi_agent_parent_session_id: None,
+        disable_runtime_coordination_inbound: false,
+        on_shared_channel_message_delivered: None,
         extension_runner_ref: None,
         session_start_event: None,
     })
@@ -407,9 +461,10 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         notifier_session.notify_provider_retry(event);
     }));
 
+    let extensions_result = resource_loader.get_extensions();
     Ok(CreateAgentSessionResult {
         session,
-        extensions_result: (),
+        extensions_result,
         model_fallback_message,
     })
 }

@@ -86,7 +86,7 @@ pub async fn create_agent_session_services(
     let resource_loader = options
         .resource_loader
         .ok_or_else(|| "DefaultResourceLoader is not ported; pass resourceLoader".to_owned())?;
-    resource_loader.reload().await;
+    resource_loader.reload().await?;
 
     Ok(AgentSessionServices {
         cwd,

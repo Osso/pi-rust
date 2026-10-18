@@ -145,6 +145,22 @@ async function run(request) {
 	session.setThinkingLevel("high");
 	await session.prompt("second");
 	session.setSessionName("Named session");
+	const cycle = await session.cycleModel();
+	const contextUsage = session.getContextUsage();
+	const forking = session.getUserMessagesForForking();
+	session.recordBashResult("echo hi", {
+		output: "hi",
+		exitCode: 0,
+		cancelled: false,
+		truncated: false,
+	});
+	const statsAfterBash = session.getSessionStats();
+	const exportPath = session.exportToJsonl(join(dir, "export.jsonl"));
+	const exportLines = readFileSync(exportPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+	const firstUserEntry = sessionManager
+		.getEntries()
+		.find((entry) => entry.type === "message" && entry.message.role === "user");
+	const navigation = await session.navigateTree(firstUserEntry.id, { summarize: false });
 	const stats = session.getSessionStats();
 	const sessionFile = session.sessionFile;
 	const lines = readFileSync(sessionFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
@@ -153,6 +169,18 @@ async function run(request) {
 
 	return {
 		events,
+		cycle: cycle ?? null,
+		contextUsage: contextUsage ?? null,
+		forking,
+		navigation,
+		exportLines,
+		statsAfterBash: {
+			userMessages: statsAfterBash.userMessages,
+			assistantMessages: statsAfterBash.assistantMessages,
+			toolCalls: statsAfterBash.toolCalls,
+			toolResults: statsAfterBash.toolResults,
+			totalMessages: statsAfterBash.totalMessages,
+		},
 		stats: {
 			userMessages: stats.userMessages,
 			assistantMessages: stats.assistantMessages,

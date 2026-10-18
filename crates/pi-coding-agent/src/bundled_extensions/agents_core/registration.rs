@@ -1,0 +1,816 @@
+//! Agents-core tool and command registration
+//! (`extensions/agents-core/src/registration.ts`).
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use crate::core::extensions::types::NotifyType;
+use pi_ai::request::BoxFuture;
+use serde_json::Value;
+use tokio_util::sync::CancellationToken;
+
+use crate::core::desktop_notification::DesktopNotifier;
+use crate::core::extensions::types::{
+    ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError, SessionShutdownEvent, ToolDefinition,
+};
+use crate::core::multi_agent_store::{AgentSnapshot, MultiAgentStore};
+
+use super::control_runtime::{CancelAgentParams, SteerAgentParams, cancel_agent, steer_agent};
+use super::dispatch_runtime::{
+    AGENT_COMPLETE_CUSTOM_TYPE, ActiveAgentDispatches, BackgroundSessionHandles, WaitingDesktopNotificationHandles,
+    append_parent_agent_record_for, close_waiting_desktop_notification, is_terminal_agent_lifecycle,
+};
+use super::lifecycle_runtime::{create_lifecycle_coordinator, publish_coordinator_snapshot};
+use super::mailbox_runtime::RuntimeLifecycleMirror;
+use super::parent_agent_journal::{JournalWriter, read_active_parent_agent_ids};
+use super::runtime::{
+    MultiAgentExtensionOptions, MultiAgentRuntimeHandles, NoopDesktopNotifier, assert_no_wait_agents_params,
+    create_multi_agent_runtime_handles, format_agent_status, jobs_command, resolve_multi_agent_store, wait_agents,
+};
+use super::runtime_utils::abort_agent_handle_safely;
+use super::session_factories::{
+    background_prompt_validation_message as background_validation_message, is_production_child_session_factory,
+    validate_goal_objective,
+};
+use super::shared::{
+    AttachedSessionFactory, CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, ChildAgentSession, ChildAgentSessionFactory,
+    SpawnContext, is_child_agent_runtime,
+};
+use super::spawn_attach_runtime::{
+    AttachSessionAgentParams, AttachSessionAgentRuntimeInput, RecoverAgentsInput, SpawnAgentRuntimeInput,
+    attach_session_agent, attach_session_agent_schema, recover_agents, spawn_agent, spawn_agent_schema,
+};
+use super::viewer::{ListAgentsParams, list_agents};
+
+#[derive(Clone)]
+pub struct BackgroundDispatchContext {
+    pub create_child_session: Option<ChildAgentSessionFactory>,
+    pub dispatches: ActiveAgentDispatches,
+    pub handles: BackgroundSessionHandles,
+    pub ownerships: Arc<Mutex<HashMap<String, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
+    pub store: Arc<MultiAgentStore>,
+}
+
+pub struct AgentsCoreRegistrationContext {
+    pub active_dispatches: ActiveAgentDispatches,
+    pub background_dispatch: BackgroundDispatchContext,
+    pub background_sessions: BackgroundSessionHandles,
+    pub create_attached_session: Option<AttachedSessionFactory>,
+    pub create_child_session: Option<ChildAgentSessionFactory>,
+    pub desktop_notifier: Arc<dyn DesktopNotifier>,
+    pub ownerships: Arc<Mutex<HashMap<String, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
+    pub runtime_handles: MultiAgentRuntimeHandles,
+    pub journal_binding: Arc<Mutex<Option<crate::core::multi_agent_store::AgentSubscription>>>,
+    pub runtime_lifecycle_mirror: RuntimeLifecycleMirror,
+    pub store: Arc<MultiAgentStore>,
+    pub waiting_desktop_notifications: WaitingDesktopNotificationHandles,
+}
+
+fn create_registration_context(options: &MultiAgentExtensionOptions) -> AgentsCoreRegistrationContext {
+    let store = resolve_multi_agent_store(options);
+    let runtime_handles = options
+        .runtime_handles
+        .clone()
+        .unwrap_or_else(create_multi_agent_runtime_handles);
+    let background_sessions = Arc::clone(&runtime_handles.sessions);
+    let active_dispatches = Arc::clone(&runtime_handles.dispatches);
+    let ownerships = Arc::clone(&runtime_handles.ownerships);
+    AgentsCoreRegistrationContext {
+        active_dispatches: Arc::clone(&active_dispatches),
+        background_dispatch: BackgroundDispatchContext {
+            create_child_session: options.create_child_session.clone(),
+            dispatches: active_dispatches,
+            handles: Arc::clone(&background_sessions),
+            ownerships: Arc::clone(&ownerships),
+            store: Arc::clone(&store),
+        },
+        background_sessions,
+        create_attached_session: options.create_attached_session.clone(),
+        create_child_session: options.create_child_session.clone(),
+        desktop_notifier: options
+            .desktop_notifier
+            .clone()
+            .unwrap_or_else(|| Arc::new(NoopDesktopNotifier)),
+        ownerships,
+        journal_binding: Arc::new(Mutex::new(None)),
+        runtime_lifecycle_mirror: RuntimeLifecycleMirror::new(Arc::clone(&store)),
+        runtime_handles,
+        store,
+        waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
+    }
+}
+
+fn should_append_terminal_agent_record(
+    previous: &AgentSnapshot,
+    current: &AgentSnapshot,
+    ctx: &ExtensionContext,
+) -> bool {
+    let became_terminal =
+        !is_terminal_agent_lifecycle(previous.lifecycle) && is_terminal_agent_lifecycle(current.lifecycle);
+    let belongs_to_active_parent = read_active_parent_agent_ids(ctx)
+        .map(|ids| ids.contains(&current.id))
+        .unwrap_or(false);
+    became_terminal && belongs_to_active_parent
+}
+
+fn initialize_supervisor_session(
+    journal: &JournalWriter,
+    registration: &HookRegistration,
+    ctx: &ExtensionContext,
+) -> Result<(), HandlerError> {
+    if is_child_agent_runtime(ctx)? {
+        return Ok(());
+    }
+    let journal = journal.clone();
+    let listener_ctx = ctx.clone();
+    let subscription = registration
+        .store
+        .subscribe_agent_transitions(move |previous, current| {
+            if should_append_terminal_agent_record(previous, current, &listener_ctx) {
+                let _ = append_parent_agent_record_for(&journal, AGENT_COMPLETE_CUSTOM_TYPE, current);
+            }
+        });
+    *registration.journal_binding.lock().expect("journal binding") = Some(subscription);
+    registration.runtime_lifecycle_mirror.bind(ctx)
+}
+
+fn register_session_start_hook(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+    let registration = registration.clone_for_hooks();
+    let journal = JournalWriter::from_api(pi);
+    let _ = pi.on_session_start(move |_event, ctx| {
+        let registration = registration.clone();
+        let journal = journal.clone();
+        let future: crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>> =
+            Box::pin(async move {
+                registration.runtime_lifecycle_mirror.dispose();
+                *registration.journal_binding.lock().expect("journal binding") = None;
+                initialize_supervisor_session(&journal, &registration, &ctx)?;
+                recover_agents(&RecoverAgentsInput {
+                    create_attached_session: registration.create_attached_session.clone(),
+                    ctx: ctx.clone(),
+                    desktop_notifier: Arc::clone(&registration.desktop_notifier),
+                    dispatches: Arc::clone(&registration.active_dispatches),
+                    handles: Some(Arc::clone(&registration.background_sessions)),
+                    ownerships: Arc::clone(&registration.ownerships),
+                    store: Arc::clone(&registration.store),
+                    waiting_desktop_notifications: Arc::clone(&registration.waiting_desktop_notifications),
+                })?;
+                Ok(None)
+            });
+        future
+    });
+}
+
+fn register_session_shutdown_hook(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+    let registration = registration.clone_for_hooks();
+    let _ = pi.on_session_shutdown(move |event: SessionShutdownEvent, _ctx| {
+        let registration = registration.clone();
+        let future: crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>> =
+            Box::pin(async move {
+                registration.runtime_lifecycle_mirror.dispose();
+                *registration.journal_binding.lock().expect("journal binding") = None;
+                if event.reason == crate::core::extensions::types::SessionShutdownReason::Reload {
+                    return Ok(None);
+                }
+                registration.store.invalidate_in_flight_dispatches();
+                for runtime in registration.ownerships.lock().expect("ownerships").values() {
+                    runtime.abort_controller.cancel();
+                }
+                let background_ids: Vec<String> = registration
+                    .background_sessions
+                    .lock()
+                    .expect("sessions")
+                    .keys()
+                    .cloned()
+                    .collect();
+                for agent_id in background_ids {
+                    if !registration
+                        .ownerships
+                        .lock()
+                        .expect("ownerships")
+                        .contains_key(&agent_id)
+                    {
+                        abort_agent_handle_safely(&registration.store, &agent_id);
+                    }
+                }
+                let waiting_ids: Vec<String> = registration
+                    .waiting_desktop_notifications
+                    .lock()
+                    .expect("waiting notifications")
+                    .keys()
+                    .cloned()
+                    .collect();
+                for agent_id in waiting_ids {
+                    close_waiting_desktop_notification(&agent_id, &registration.waiting_desktop_notifications);
+                }
+                registration.background_sessions.lock().expect("sessions").clear();
+                registration.active_dispatches.lock().expect("dispatches").clear();
+                Ok(None)
+            });
+        future
+    });
+}
+
+impl AgentsCoreRegistrationContext {
+    fn clone_for_hooks(&self) -> Arc<HookRegistration> {
+        Arc::new(HookRegistration {
+            active_dispatches: Arc::clone(&self.active_dispatches),
+            background_sessions: Arc::clone(&self.background_sessions),
+            create_attached_session: self.create_attached_session.clone(),
+            desktop_notifier: Arc::clone(&self.desktop_notifier),
+            ownerships: Arc::clone(&self.ownerships),
+            journal_binding: Arc::clone(&self.journal_binding),
+            runtime_lifecycle_mirror: self.runtime_lifecycle_mirror.clone(),
+            store: Arc::clone(&self.store),
+            waiting_desktop_notifications: Arc::clone(&self.waiting_desktop_notifications),
+        })
+    }
+}
+
+struct HookRegistration {
+    active_dispatches: ActiveAgentDispatches,
+    background_sessions: BackgroundSessionHandles,
+    create_attached_session: Option<AttachedSessionFactory>,
+    desktop_notifier: Arc<dyn DesktopNotifier>,
+    ownerships: Arc<Mutex<HashMap<String, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
+    journal_binding: Arc<Mutex<Option<crate::core::multi_agent_store::AgentSubscription>>>,
+    runtime_lifecycle_mirror: RuntimeLifecycleMirror,
+    store: Arc<MultiAgentStore>,
+    waiting_desktop_notifications: WaitingDesktopNotificationHandles,
+}
+
+fn register_background_command(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+    let background = registration.background_dispatch.clone();
+    let mirror = registration.runtime_lifecycle_mirror.clone();
+    let _ = pi.register_command(
+        "bg",
+        Some("Run a prompt as a background agent job.".to_owned()),
+        None,
+        Arc::new(move |args: String, ctx: ExtensionCommandContext| {
+            let background = background.clone();
+            let mirror = mirror.clone();
+            Box::pin(async move {
+                mirror.bind(&ctx.context)?;
+                background_command(&background, &args, &ctx).await
+            })
+        }),
+    );
+}
+
+fn register_jobs_command(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+    let store = Arc::clone(&registration.store);
+    let _ = pi.register_command(
+        "jobs",
+        Some("List background agent jobs.".to_owned()),
+        None,
+        Arc::new(move |_args: String, ctx: ExtensionCommandContext| {
+            let store = Arc::clone(&store);
+            Box::pin(async move { jobs_command(&store, &ctx) })
+        }),
+    );
+}
+
+fn tool_definition(
+    name: &str,
+    label: &str,
+    description: &str,
+    prompt_guidelines: Option<Vec<String>>,
+    parameters: Value,
+    execute: crate::core::extensions::types::ToolExecute,
+) -> ToolDefinition {
+    ToolDefinition {
+        name: name.to_owned(),
+        label: label.to_owned(),
+        description: description.to_owned(),
+        prompt_snippet: None,
+        prompt_guidelines,
+        approval_required: Some(false),
+        approval_kind: None,
+        parameters,
+        constrained_sampling: None,
+        render_shell: None,
+        prepare_arguments: None,
+        prepare_execution: None,
+        execution_mode: None,
+        execute,
+        render_call: None,
+        render_result: None,
+    }
+}
+
+fn register_spawn_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+    let store = Arc::clone(&registration.store);
+    let create_child_session = registration.create_child_session.clone();
+    let dispatches = Arc::clone(&registration.active_dispatches);
+    let ownerships = Arc::clone(&registration.ownerships);
+    let desktop_notifier = Arc::clone(&registration.desktop_notifier);
+    let waiting = Arc::clone(&registration.waiting_desktop_notifications);
+    let handles = Arc::clone(&registration.background_sessions);
+    let mirror = registration.runtime_lifecycle_mirror.clone();
+    let journal = JournalWriter::from_api(pi);
+    let _ = pi.register_tool(tool_definition(
+        "spawn_agent",
+        "Spawn Agent",
+        "Create a child agent record and optionally dispatch it through the multi-agent runtime.",
+        Some(vec![
+            "For read-only codebase research or exploration, prefer spawn_agent with agentType \"explore\".".to_owned(),
+            "Context defaults to \"inherit\"; choose \"fresh\" explicitly for isolated work, verification, or falsification. Reviewer profiles default to fresh context.".to_owned(),
+            "For scoped code changes, use agentType \"implement\"; for proof commands before completion, use agentType \"verifier\"; for final code review or second opinions, use agentType \"reviewer\".".to_owned(),
+        ]),
+        spawn_agent_schema(),
+        Arc::new(move |tool_call_id, params, _signal, _on_update, ctx| {
+            let store = Arc::clone(&store);
+            let create_child_session = create_child_session.clone();
+            let dispatches = Arc::clone(&dispatches);
+            let ownerships = Arc::clone(&ownerships);
+            let desktop_notifier = Arc::clone(&desktop_notifier);
+            let waiting = Arc::clone(&waiting);
+            let handles = Some(Arc::clone(&handles));
+            let mirror = mirror.clone();
+            let journal = journal.clone();
+            Box::pin(async move {
+                mirror.bind(&ctx)?;
+                spawn_agent(SpawnAgentRuntimeInput {
+                    active_tool_call_id: Some(tool_call_id),
+                    create_child_session,
+                    ctx,
+                    desktop_notifier,
+                    dispatches,
+                    handles,
+                    ownerships,
+                    params,
+                    pi: Some(journal),
+                    store,
+                    waiting_desktop_notifications: waiting,
+                    _marker: std::marker::PhantomData,
+                })
+                .await
+            })
+        }),
+    ));
+}
+
+fn register_list_agents_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+    let store = Arc::clone(&registration.store);
+    let _ = pi.register_tool(tool_definition(
+        "list_agents",
+        "List Agents",
+        "List agents from the authoritative multi-agent store.",
+        None,
+        list_agents_schema(),
+        Arc::new(move |_tool_call_id, params, _signal, _on_update, _ctx| {
+            let store = Arc::clone(&store);
+            Box::pin(async move {
+                let params: ListAgentsParams =
+                    serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                list_agents(&store, &params)
+            })
+        }),
+    ));
+}
+
+fn register_attach_session_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+    let store = Arc::clone(&registration.store);
+    let create_attached_session = registration.create_attached_session.clone();
+    let desktop_notifier = Arc::clone(&registration.desktop_notifier);
+    let dispatches = Arc::clone(&registration.active_dispatches);
+    let handles = Arc::clone(&registration.background_sessions);
+    let ownerships = Arc::clone(&registration.ownerships);
+    let waiting = Arc::clone(&registration.waiting_desktop_notifications);
+    let mirror = registration.runtime_lifecycle_mirror.clone();
+    let _ = pi.register_tool(tool_definition(
+        "attach_session_agent",
+        "Attach Session Agent",
+        "Attach or resume an existing saved session as an agent without changing its session ID.",
+        None,
+        attach_session_agent_schema(),
+        Arc::new(move |_tool_call_id, params, _signal, _on_update, ctx| {
+            let store = Arc::clone(&store);
+            let create_attached_session = create_attached_session.clone();
+            let desktop_notifier = Arc::clone(&desktop_notifier);
+            let dispatches = Arc::clone(&dispatches);
+            let handles = Some(Arc::clone(&handles));
+            let ownerships = Arc::clone(&ownerships);
+            let waiting = Arc::clone(&waiting);
+            let mirror = mirror.clone();
+            Box::pin(async move {
+                mirror.bind(&ctx)?;
+                let params: AttachSessionAgentParams =
+                    serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                attach_session_agent(&AttachSessionAgentRuntimeInput {
+                    create_attached_session,
+                    ctx,
+                    desktop_notifier,
+                    dispatches,
+                    handles,
+                    params,
+                    ownerships,
+                    store,
+                    waiting_desktop_notifications: waiting,
+                })
+                .await
+            })
+        }),
+    ));
+}
+
+fn register_wait_agents_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+    let store = Arc::clone(&registration.store);
+    let runtime_handles = registration.runtime_handles.clone();
+    let mirror = registration.runtime_lifecycle_mirror.clone();
+    let _ = pi.register_tool(tool_definition(
+        "wait_agent",
+        "Wait Agent",
+        "Wait until an active agent terminates, steering wakes the wait, or persisted coordination polling finds input. Terminal wakes consume pending terminal notifications.",
+        None,
+        wait_agents_schema(),
+        Arc::new(move |_tool_call_id, params, signal, _on_update, ctx| {
+            let store = Arc::clone(&store);
+            let runtime_handles = runtime_handles.clone();
+            let mirror = mirror.clone();
+            Box::pin(async move {
+                mirror.bind(&ctx)?;
+                assert_no_wait_agents_params(&params, "wait_agent")?;
+                wait_agents(&store, &runtime_handles, signal, Some(&ctx)).await
+            })
+        }),
+    ));
+}
+
+fn register_cancel_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+    let store = Arc::clone(&registration.store);
+    let runtime_handles = registration.runtime_handles.clone();
+    let _ = pi.register_tool(tool_definition(
+        "close_agent",
+        "Close Agent",
+        "Close an agent through the multi-agent store using the current store revision.",
+        None,
+        cancel_agent_schema(),
+        Arc::new(move |_tool_call_id, params, _signal, _on_update, _ctx| {
+            let store = Arc::clone(&store);
+            let runtime_handles = runtime_handles.clone();
+            Box::pin(async move {
+                let params: CancelAgentParams =
+                    serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                cancel_agent(&store, &runtime_handles, &params).await
+            })
+        }),
+    ));
+}
+
+fn register_steer_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+    let store = Arc::clone(&registration.store);
+    let runtime_handles = registration.runtime_handles.clone();
+    let _ = pi.register_tool(tool_definition(
+        "steer_agent",
+        "Steer Agent",
+        "Queue a steering message through the multi-agent mailbox.",
+        None,
+        steer_agent_schema(),
+        Arc::new(move |_tool_call_id, params, _signal, _on_update, ctx| {
+            let store = Arc::clone(&store);
+            let runtime_handles = runtime_handles.clone();
+            Box::pin(async move {
+                let params: SteerAgentParams =
+                    serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                steer_agent(&store, &runtime_handles, &params, Some(&ctx))
+            })
+        }),
+    ));
+}
+
+pub fn register_agents_core_tools(pi: &ExtensionApi, options: &MultiAgentExtensionOptions) -> Result<(), HandlerError> {
+    let registration = create_registration_context(options);
+    register_session_start_hook(pi, &registration);
+    register_session_shutdown_hook(pi, &registration);
+    register_background_command(pi, &registration);
+    register_jobs_command(pi, &registration);
+    register_spawn_agent_tool(pi, &registration);
+    register_list_agents_tool(pi, &registration);
+    register_attach_session_agent_tool(pi, &registration);
+    register_wait_agents_tool(pi, &registration);
+    register_cancel_agent_tool(pi, &registration);
+    register_steer_agent_tool(pi, &registration);
+    Ok(())
+}
+
+async fn background_command(
+    background: &BackgroundDispatchContext,
+    args: &str,
+    ctx: &ExtensionCommandContext,
+) -> Result<(), HandlerError> {
+    let Some(prompt) = validate_and_notify_background_command(background, args, ctx)? else {
+        return Ok(());
+    };
+    let Some(coordinator) = create_lifecycle_coordinator(&background.store) else {
+        notify(
+            ctx,
+            "Background jobs require a persisted supervisor session.",
+            NotifyType::Error,
+        )?;
+        return Ok(());
+    };
+    let Some(prepared_runtime) = prepare_background_runtime(background, &coordinator, &prompt, ctx).await? else {
+        return Ok(());
+    };
+    let session_manager = ctx.session_manager()?;
+    let session_id = session_manager.get_session_id().to_owned();
+    let created = coordinator
+        .commit_running_child(
+            &prepared_runtime.prepared,
+            &session_id,
+            super::lifecycle_runtime::runtime_process_identity(),
+            None,
+        )
+        .map_err(|error| HandlerError::new(error.message()))?;
+    let (agent, ownership) = match created {
+        crate::core::session_control_db::CreateMultiAgentChildWithRuntimeOwnershipResult::Ok { agent, ownership } => {
+            (*agent, *ownership)
+        }
+        crate::core::session_control_db::CreateMultiAgentChildWithRuntimeOwnershipResult::Err { error } => {
+            prepared_runtime.child_session.dispose();
+            notify(
+                ctx,
+                &format!("Could not create background job: {}", error.as_str()),
+                NotifyType::Error,
+            )?;
+            return Ok(());
+        }
+    };
+    background.store.publish_lifecycle_coordinator_snapshot(&agent);
+    let runtime = Arc::new(super::control_runtime::OwnedAgentRuntime {
+        abort_controller: prepared_runtime.abort_controller,
+        coordinator: Arc::clone(&coordinator),
+        lifecycle: crate::core::lifecycle_coordinator::OwnedLifecycleCommandInput {
+            agent: agent.clone(),
+            ownership,
+        },
+    });
+    background
+        .ownerships
+        .lock()
+        .expect("ownerships")
+        .insert(agent.id.clone(), Arc::clone(&runtime));
+    let agent = start_background_dispatch(background, runtime, &prompt, ctx, Some(prepared_runtime.child_session));
+    ctx.ui()?.set_editor_text("");
+    notify(
+        ctx,
+        &format!(
+            "Background job {} started. Use /jobs to inspect it or wait_agent to wait for any completion.",
+            agent.id
+        ),
+        NotifyType::Info,
+    )?;
+    Ok(())
+}
+
+struct PreparedBackgroundRuntime {
+    abort_controller: CancellationToken,
+    child_session: Arc<dyn ChildAgentSession>,
+    prepared: AgentSnapshot,
+}
+
+fn validate_and_notify_background_command(
+    background: &BackgroundDispatchContext,
+    args: &str,
+    ctx: &ExtensionCommandContext,
+) -> Result<Option<String>, HandlerError> {
+    if is_child_agent_runtime(&ctx.context)? {
+        notify(ctx, CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, NotifyType::Error)?;
+        return Ok(None);
+    }
+    let Some(create_child_session) = background.create_child_session.as_ref() else {
+        notify(
+            ctx,
+            "Background jobs are unavailable: no child session runtime is configured.",
+            NotifyType::Error,
+        )?;
+        return Ok(None);
+    };
+    let prompt = pi_js_compat::string::js_trim(args).to_owned();
+    if !is_production_child_session_factory(create_child_session) {
+        return Ok(Some(prompt));
+    }
+    let validation = validate_goal_objective(&prompt);
+    if validation.ok {
+        return Ok(Some(prompt));
+    }
+    notify(ctx, &background_validation_message(&validation), NotifyType::Error)?;
+    Ok(None)
+}
+
+async fn prepare_background_runtime(
+    background: &BackgroundDispatchContext,
+    coordinator: &Arc<crate::core::lifecycle_coordinator::LifecycleCoordinator>,
+    prompt: &str,
+    ctx: &ExtensionCommandContext,
+) -> Result<Option<PreparedBackgroundRuntime>, HandlerError> {
+    let Some(create_child_session) = background.create_child_session.as_ref() else {
+        return Ok(None);
+    };
+    let mut prepared = coordinator.prepare_child(&crate::core::lifecycle_coordinator::PrepareChildCommandInput {
+        spawn: crate::core::multi_agent_store::SpawnAgent {
+            parent_id: None,
+            display_name: "Background Job".to_owned(),
+            agent_type: "background".to_owned(),
+            origin: None,
+            cwd: ctx.cwd()?,
+            permission: crate::core::multi_agent_store::AgentPermission {
+                policy: "on-request".to_owned(),
+                inherited_from: None,
+                narrowed: true,
+            },
+            worktree: None,
+            model: None,
+            account: None,
+            slot: None,
+            transcript: None,
+            event_stream: None,
+            worker: None,
+        },
+        agent_id: None,
+        detached: None,
+        result: None,
+    });
+    let abort_controller = CancellationToken::new();
+    match create_child_session
+        .call(super::shared::ChildAgentDispatchInput {
+            active_tool_call_id: None,
+            agent: prepared.clone(),
+            context: SpawnContext::Fresh,
+            ctx: ctx.context.clone(),
+            prompt: prompt.to_owned(),
+            signal: Some(abort_controller.clone()),
+        })
+        .await
+    {
+        Ok(child_session) => {
+            if let Some(transcript) = child_session.transcript() {
+                prepared.transcript = Some(transcript);
+            }
+            Ok(Some(PreparedBackgroundRuntime {
+                abort_controller,
+                child_session,
+                prepared,
+            }))
+        }
+        Err(error) => {
+            let runtime_error = crate::core::multi_agent_store::AgentError {
+                code: Some("runtime_spawn_failed".to_owned()),
+                message: error.clone(),
+            };
+            let failed = coordinator
+                .commit_failed_child(&prepared, runtime_error)
+                .map_err(|error| HandlerError::new(error.message()))?;
+            if let crate::core::session_control_db::CreateFailedMultiAgentChildResult::Ok { agent } = failed {
+                let _ = publish_coordinator_snapshot(&background.store, &agent);
+            }
+            notify(
+                ctx,
+                &format!("Could not create background job: {error}"),
+                NotifyType::Error,
+            )?;
+            Ok(None)
+        }
+    }
+}
+
+fn start_background_dispatch(
+    background: &BackgroundDispatchContext,
+    runtime: Arc<super::control_runtime::OwnedAgentRuntime>,
+    prompt: &str,
+    ctx: &ExtensionCommandContext,
+    created_session: Option<Arc<dyn ChildAgentSession>>,
+) -> AgentSnapshot {
+    let agent = runtime.lifecycle.agent.clone();
+    let Some(create_child_session) = background.create_child_session.clone() else {
+        return agent;
+    };
+    let promise = track_background_agent_dispatch(
+        background,
+        create_child_session,
+        Arc::clone(&runtime),
+        prompt,
+        ctx,
+        created_session,
+    );
+    notify_background_dispatch(promise, &background.handles, &background.ownerships, ctx);
+    background.store.get_agent(&agent.id).unwrap_or(agent)
+}
+
+fn notify_background_dispatch(
+    promise: BoxFuture<'static, Result<AgentSnapshot, String>>,
+    handles: &BackgroundSessionHandles,
+    ownerships: &Arc<Mutex<HashMap<String, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
+    ctx: &ExtensionCommandContext,
+) {
+    let handles = Arc::clone(handles);
+    let ownerships = Arc::clone(ownerships);
+    let ui = ctx.ui().ok();
+    tokio::spawn(async move {
+        if let Ok(agent) = promise.await {
+            handles.lock().expect("sessions").remove(&agent.id);
+            ownerships.lock().expect("ownerships").remove(&agent.id);
+            if let Some(ui) = ui {
+                ui.notify(
+                    &format_agent_status(&agent),
+                    Some(background_notification_level(&agent)),
+                );
+            }
+        }
+    });
+}
+
+fn background_notification_level(agent: &AgentSnapshot) -> NotifyType {
+    match agent.lifecycle {
+        crate::core::multi_agent_store::AgentLifecycle::Completed => NotifyType::Info,
+        crate::core::multi_agent_store::AgentLifecycle::Failed => NotifyType::Error,
+        _ => NotifyType::Warning,
+    }
+}
+
+fn track_background_agent_dispatch(
+    background: &BackgroundDispatchContext,
+    create_child_session: ChildAgentSessionFactory,
+    runtime: Arc<super::control_runtime::OwnedAgentRuntime>,
+    prompt: &str,
+    ctx: &ExtensionCommandContext,
+    created_session: Option<Arc<dyn ChildAgentSession>>,
+) -> BoxFuture<'static, Result<AgentSnapshot, String>> {
+    let agent = runtime.lifecycle.agent.clone();
+    super::dispatch_runtime::track_agent_dispatch(super::dispatch_runtime::TrackAgentDispatchInput {
+        agent: agent.clone(),
+        dispatch: super::dispatch_runtime::run_agent_session(super::dispatch_runtime::RunAgentSessionInput {
+            create_child_session,
+            created_session,
+            ctx: ctx.context.clone(),
+            expected_restore_generation: None,
+            handles: Some(Arc::clone(&background.handles)),
+            prompt: prompt.to_owned(),
+            reserved_runtime: Arc::clone(&runtime),
+            running_agent: agent,
+            store: Arc::clone(&background.store),
+        }),
+        dispatches: Arc::clone(&background.dispatches),
+        handles: Some(Arc::clone(&background.handles)),
+        reserved_runtime: runtime,
+        store: Arc::clone(&background.store),
+    })
+}
+
+fn notify(ctx: &ExtensionCommandContext, message: &str, kind: NotifyType) -> Result<(), HandlerError> {
+    ctx.ui()?.notify(message, Some(kind));
+    Ok(())
+}
+
+fn cancel_agent_schema() -> Value {
+    serde_json::json!({
+        "type": "object",
+        "required": ["agentId"],
+        "properties": {
+            "agentId": {"type": "string"},
+            "reason": {"type": "string"}
+        }
+    })
+}
+
+fn steer_agent_schema() -> Value {
+    serde_json::json!({
+        "type": "object",
+        "required": ["agentId", "message"],
+        "properties": {
+            "agentId": {"type": "string"},
+            "fileRefs": {
+                "type": "array",
+                "items": super::shared::file_reference_schema()
+            },
+            "message": {"type": "string"},
+            "fromAgentId": {"type": "string"},
+            "targetCheckpoint": {
+                "anyOf": [
+                    {"type": "string", "const": "next_model_call"},
+                    {"type": "string", "const": "after_tool_result"},
+                    {"type": "string", "const": "when_waiting"}
+                ]
+            }
+        }
+    })
+}
+
+fn list_agents_schema() -> Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "parentId": {"type": "string"}
+        },
+        "additionalProperties": false
+    })
+}
+
+fn wait_agents_schema() -> Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+    })
+}

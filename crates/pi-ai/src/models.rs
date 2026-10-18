@@ -3,9 +3,10 @@
 //! `Models` owns auth resolution, refresh generation/supersession, and
 //! serialized model publication. Providers own stream behavior.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use indexmap::IndexMap;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
@@ -100,7 +101,7 @@ pub struct ModelsRefreshOptions {
 #[derive(Debug, Clone, Default)]
 pub struct ModelsRefreshResult {
     pub aborted: bool,
-    pub errors: BTreeMap<String, CallbackError>,
+    pub errors: IndexMap<String, CallbackError>,
 }
 
 /// A provider: id/name/base metadata, auth methods, model listing, and streams.
@@ -759,7 +760,7 @@ impl ModelsCollection {
         allow_network: bool,
         force: Option<bool>,
         caller_signal: CancellationToken,
-        errors: Arc<Mutex<BTreeMap<String, CallbackError>>>,
+        errors: Arc<Mutex<IndexMap<String, CallbackError>>>,
     ) {
         let provider_id = provider.id().to_owned();
         let (generation, controller) = self.begin_provider_refresh(&provider_id);
@@ -853,11 +854,11 @@ impl ModelsCollection {
     async fn refresh_inner(&self, options: ModelsRefreshOptions) -> ModelsRefreshResult {
         let allow_network = options.allow_network.unwrap_or(true);
         let caller_signal = operation_signal(options.signal.as_ref());
-        let errors = Arc::new(Mutex::new(BTreeMap::new()));
+        let errors = Arc::new(Mutex::new(IndexMap::new()));
         if caller_signal.is_cancelled() {
             return ModelsRefreshResult {
                 aborted: true,
-                errors: BTreeMap::new(),
+                errors: IndexMap::new(),
             };
         }
         let selected: Option<HashSet<String>> = options
@@ -904,7 +905,7 @@ impl ModelsCollection {
 
 struct AuthRequestParts {
     api_key: Option<String>,
-    env: Option<BTreeMap<String, String>>,
+    env: Option<IndexMap<String, String>>,
     headers: Option<ProviderHeaders>,
     transform_headers: Option<HeaderTransform>,
     signal: Option<CancellationToken>,
@@ -914,7 +915,7 @@ struct AppliedAuth {
     model: Model,
     api_key: Option<String>,
     headers: Option<ProviderHeaders>,
-    env: Option<BTreeMap<String, String>>,
+    env: Option<IndexMap<String, String>>,
 }
 
 fn resolve_error_to_callback(error: ResolveError) -> CallbackError {
@@ -1387,7 +1388,7 @@ pub type FilterModelsFn = Arc<dyn Fn(Vec<Model>, Option<&Credential>) -> Vec<Mod
 #[derive(Clone)]
 pub enum ProviderApi {
     Single(Arc<dyn ProviderStreams>),
-    Map(BTreeMap<String, Arc<dyn ProviderStreams>>),
+    Map(IndexMap<String, Arc<dyn ProviderStreams>>),
 }
 
 pub struct CreateProviderOptions {

@@ -269,6 +269,7 @@ async fn export_agent_session_probe() {
     let mut settings = Settings::new();
     settings.insert("theme".to_owned(), serde_json::json!("dark"));
     let settings_manager = SettingsManager::in_memory(settings, SettingsManagerCreateOptions::default());
+    let dir = tempfile::tempdir().expect("temp dir");
     let session = AgentSession::new(AgentSessionConfig {
         agent,
         session_manager: Arc::new(std::sync::Mutex::new(session_manager)),
@@ -282,19 +283,24 @@ async fn export_agent_session_probe() {
         excluded_tool_names: None,
         permission_prompt_tool: None,
         agent_dir: Some("/tmp".to_owned()),
-        control_db_path: None,
+        control_db_path: Some(dir.path().join("control.db").display().to_string()),
         base_tools: Vec::new(),
         custom_tools: Vec::new(),
         multi_agent_runtime_role: None,
         multi_agent_execution_capability: None,
         thinking_phase_timeout_ms: None,
+        supervisor_decision_requester: None,
+        multi_agent_store: None,
+        multi_agent_agent_id: None,
+        multi_agent_parent_session_id: None,
+        disable_runtime_coordination_inbound: false,
+        on_shared_channel_message_delivered: None,
         extension_runner_ref: None,
         session_start_event: None,
     })
     .expect("session");
     assert!(!session.extension_runner().has_handlers("session_start"));
 
-    let dir = tempfile::tempdir().expect("temp dir");
     let output = dir.path().join("session.html");
     let written = session
         .export_to_html(Some(&output.display().to_string()))

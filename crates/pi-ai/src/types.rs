@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 
+use indexmap::IndexMap;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
@@ -108,7 +109,7 @@ pub enum ModelThinkingLevel {
 }
 
 /// `Partial<Record<ModelThinkingLevel, string | null>>`; `None` is an explicit `null`.
-pub type ThinkingLevelMap = BTreeMap<ModelThinkingLevel, Option<String>>;
+pub type ThinkingLevelMap = IndexMap<ModelThinkingLevel, Option<String>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChatTemplateVarName {
@@ -188,9 +189,9 @@ pub enum SessionAffinityFormat {
 }
 
 /// `ProviderEnv`: provider-scoped environment overrides.
-pub type ProviderEnv = BTreeMap<String, String>;
+pub type ProviderEnv = IndexMap<String, String>;
 /// `ProviderHeaders`: `None` suppresses a default header of the same name.
-pub type ProviderHeaders = BTreeMap<String, Option<String>>;
+pub type ProviderHeaders = IndexMap<String, Option<String>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProviderNativeFormat {
@@ -664,7 +665,7 @@ pub enum GrammarFormat {
     OpenaiRegex,
 }
 
-pub type GrammarVariants = BTreeMap<GrammarFormat, String>;
+pub type GrammarVariants = IndexMap<GrammarFormat, String>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -918,9 +919,9 @@ pub struct OpenAICompletionsCompat {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_format: Option<ThinkingFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub chat_template_kwargs: Option<BTreeMap<String, ChatTemplateKwargValue>>,
+    pub chat_template_kwargs: Option<IndexMap<String, ChatTemplateKwargValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub chat_template_args: Option<BTreeMap<String, ChatTemplateKwargValue>>,
+    pub chat_template_args: Option<IndexMap<String, ChatTemplateKwargValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub open_router_routing: Option<OpenRouterRouting>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1217,7 +1218,7 @@ pub struct Model {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sampling_params: Option<JsonObject>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub headers: Option<BTreeMap<String, String>>,
+    pub headers: Option<IndexMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compat: Option<ModelCompat>,
 }
@@ -1238,7 +1239,7 @@ struct ModelWire {
     auto_compaction_threshold: Option<f64>,
     max_tokens: f64,
     sampling_params: Option<JsonObject>,
-    headers: Option<BTreeMap<String, String>>,
+    headers: Option<IndexMap<String, String>>,
     compat: Option<Value>,
 }
 
@@ -1291,7 +1292,7 @@ pub struct ImagesModel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sampling_params: Option<JsonObject>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub headers: Option<BTreeMap<String, String>>,
+    pub headers: Option<IndexMap<String, String>>,
 }
 
 fn deserialize_present_nullable<'de, D: Deserializer<'de>>(

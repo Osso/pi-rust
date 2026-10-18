@@ -1,7 +1,9 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
+
+use indexmap::IndexMap;
 
 use pi_ai::request::BoxFuture;
 use pi_ai::request::OnRetry;
@@ -86,7 +88,7 @@ pub struct AgentHarnessStreamOptions {
     pub websocket_connect_timeout_ms: Option<f64>,
     pub max_retries: Option<f64>,
     pub max_retry_delay_ms: Option<f64>,
-    pub headers: Option<BTreeMap<String, String>>,
+    pub headers: Option<IndexMap<String, String>>,
     pub metadata: Option<Map<String, Value>>,
     pub cache_retention: Option<CacheRetention>,
     pub on_retry: Option<OnRetry>,
@@ -111,8 +113,8 @@ pub struct AgentHarnessStreamOptionsPatch {
     pub websocket_connect_timeout_ms: Option<f64>,
     pub max_retries: Option<f64>,
     pub max_retry_delay_ms: Option<f64>,
-    pub headers: OptionalPatch<BTreeMap<String, Option<String>>>,
-    pub metadata: OptionalPatch<BTreeMap<String, Option<Value>>>,
+    pub headers: OptionalPatch<IndexMap<String, Option<String>>>,
+    pub metadata: OptionalPatch<IndexMap<String, Option<Value>>>,
     pub cache_retention: Option<CacheRetention>,
     pub on_retry: Option<OnRetry>,
 }

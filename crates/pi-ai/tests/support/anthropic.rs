@@ -6,7 +6,6 @@ mod recording_fetch;
 
 pub use recording_fetch::{RecordingFetch, ScriptedResponse};
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pi_ai::request::{Fetch, HttpRequest, ProviderRequestOptions, StreamOptions};
@@ -14,6 +13,8 @@ use pi_ai::types::{
     AssistantMessage, AssistantMessageEvent, CacheRetention, JsonObject, ProviderEnv, ProviderHeaders, Transport,
 };
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
+use std::collections::BTreeMap;
+
 use pi_ai::utils::headers::headers_to_record;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;

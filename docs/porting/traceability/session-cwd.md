@@ -17,7 +17,9 @@ Focused tests: `crates/pi-coding-agent/tests/session_cwd.rs` (5).
 
 ## Gaps
 
-- `reopenSessionWithCwd` accepts `control_db_path` but does not call `setMetadataControlDbPath`; that method is blocked on `ca-control-db`. The in-memory cwd override is applied through `SessionManager::open`.
+- `reopenSessionWithCwd` accepts `control_db_path` but does not call `setMetadataControlDbPath`; the
+  method and wiring are owned by the in-flight `ca-hosts-fixups` branch (not merged at this slice's
+  base). The in-memory cwd override is applied through `SessionManager::open`.
 
 ## Discrepancies
 

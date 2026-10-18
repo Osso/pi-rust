@@ -408,10 +408,10 @@ fn cloudflare_model_resolution_matches_ts() {
 
     for (case, ts_result) in cases.iter().zip(ts_results) {
         let model: Model = serde_json::from_value(case["model"].clone()).expect("model");
-        let env: Option<BTreeMap<String, String>> = case
+        let env: Option<indexmap::IndexMap<String, String>> = case
             .get("env")
             .filter(|value| value.as_object().is_some_and(|object| !object.is_empty()))
-            .map(string_map);
+            .map(|value| string_map(value).into_iter().collect());
         let resolved = resolve_cloudflare_model(&model, env.as_ref());
         assert_eq!(
             json!(resolved.base_url),

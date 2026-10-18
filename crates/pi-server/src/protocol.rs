@@ -167,7 +167,7 @@ fn supported_thinking_levels(model: &Model) -> Vec<ThinkingLevel> {
     EXTENDED_THINKING_LEVELS
         .iter()
         .filter(|level| {
-            let mapped = model.thinking_level_map.as_ref().and_then(|levels| levels.get(level));
+            let mapped = model.thinking_level_map.as_ref().and_then(|levels| levels.get(*level));
             if mapped == Some(&None) {
                 return false;
             }
