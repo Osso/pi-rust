@@ -407,7 +407,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/extensions/llama/client.ts` | 332 | 0 | todo |  |  |
 | `coding-agent/src/extensions/llama/huggingface.ts` | 158 | 0 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/elapsed-time.ts` | 30 | 0 | done | `crates/pi-coding-agent/src/modes/interactive/components/elapsed_time.rs` | formatting branches; differential `interactive-components-oracle.ts` |
-| `coding-agent/src/modes/interactive/external-editor.ts` | 45 | 0 | todo |  |  |
+| `coding-agent/src/modes/interactive/external-editor.ts` | 45 | 0 | done | `crates/pi-coding-agent/src/modes/interactive/external_editor.rs` | temp dir, editor spawn, failure/empty branches; behavioral fixture |
 | `coding-agent/src/modes/interactive/model-search.ts` | 27 | 0 | done | `crates/pi-coding-agent/src/modes/interactive/model_search.rs` | candidate order + empty-name truthiness; differential |
 | `coding-agent/src/modes/rpc/jsonl.ts` | 58 | 0 | done | `crates/pi-coding-agent/src/modes/rpc/jsonl.rs` | all TS tests ported + differential |
 | `coding-agent/src/supervisor/project-resolver.ts` | 108 | 0 | done | `crates/pi-coding-agent/src/supervisor/project_resolver.rs` | Root/remote/basename resolution, config validation, `git remote -v` names; differential `27011`. |
@@ -477,8 +477,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/model-runtime.ts` | 795 | 8 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/countdown-timer.ts` | 39 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/components/countdown_timer.rs` | poll-driven 1s schedule; behavioral test |
 | `coding-agent/src/modes/interactive/components/visual-truncate.ts` | 50 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/components/visual_truncate.rs` | wrap-aware tail truncation; differential; `slice(-0)` quirk preserved |
-| `coding-agent/src/modes/interactive/interactive-root-compositor.ts` | 40 | 8 | todo |  |  |
-| `coding-agent/src/modes/interactive/working-editor.ts` | 67 | 8 | todo |  |  |
+| `coding-agent/src/modes/interactive/interactive-root-compositor.ts` | 40 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/interactive_root_compositor.rs` | flow/bottom order + layout callbacks; behavioral test |
+| `coding-agent/src/modes/interactive/working-editor.ts` | 67 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/working_editor.rs` | sync/position/clear; `EditorComponent` opt-in capability; CustomEditor case in ca-interactive-a |
 | `coding-agent/src/cli/list-models.ts` | 115 | 9 | todo |  |  |
 | `coding-agent/src/cli/login-command.ts` | 278 | 9 | todo |  |  |
 | `coding-agent/src/client/remote-session.ts` | 420 | 9 | todo |  |  |
