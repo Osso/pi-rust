@@ -23,8 +23,8 @@ Rust: `crates/pi-coding-agent/src/supervisor/` (`approval_reviewer.rs`, `respons
 
 | TypeScript source | Contract | Rust and proof |
 |---|---|---|
-| `buildSupervisorPrompt` | exact instruction block + 2-space JSON request | `build_supervisor_prompt`; `builds_bounded_prompts_for_each_request_kind` |
-| `parseSupervisorResponse` | per-kind validation, string/content text inputs | `parse_supervisor_response`; `parses_responses_per_request_kind` |
+| `buildSupervisorPrompt` | exact instruction block + 2-space JSON request | `build_supervisor_prompt`; `builds_bounded_prompts_for_each_request_kind` + differential `differential_supervisor_service` (5 request kinds) |
+| `parseSupervisorResponse` | per-kind validation, string/content text inputs, branch key order | `parse_supervisor_response` + custom `Serialize`; `parses_responses_per_request_kind` + differential (15 parse cases, JSON strings) |
 | `runSupervisorRequest` | durable completion, deadline expiry, approval preemption, claim-token errors | `run_supervisor_request`; `completes_a_request_with_the_parsed_response`, `expired_requests_complete_with_the_deadline_error` |
 
 ## client.ts

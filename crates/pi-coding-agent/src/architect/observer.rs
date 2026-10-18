@@ -43,8 +43,9 @@ pub enum ArchitectObservationReason {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchitectObservation {
-    pub requests: Vec<ArchitectRequest>,
+    /// Serialized first: the source object literal starts with `reason`.
     pub reason: ArchitectObservationReason,
+    pub requests: Vec<ArchitectRequest>,
     pub sessions: Vec<ArchitectSessionSnapshot>,
 }
 

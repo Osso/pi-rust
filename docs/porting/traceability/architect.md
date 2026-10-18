@@ -9,7 +9,7 @@ Focused tests: `crates/pi-coding-agent/tests/architect.rs` (15).
 | TypeScript source | Contract | Rust and proof |
 |---|---|---|
 | `ARCHITECT_SYSTEM_PROMPT` | exact system prompt | `ARCHITECT_SYSTEM_PROMPT` |
-| `buildArchitectPrompt` | three instruction lines + compact observation JSON, `\n\n` joined | `build_architect_prompt`; `prompt_serializes_the_observation_after_the_bounded_instructions` |
+| `buildArchitectPrompt` | three instruction lines + compact observation JSON in `{reason, requests, sessions}` order, `\n\n` joined | `build_architect_prompt`; `prompt_serializes_the_observation_after_the_bounded_instructions` + differential `differential_architect_prompt` |
 
 ## observer.ts
 

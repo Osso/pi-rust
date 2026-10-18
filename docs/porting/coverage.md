@@ -518,8 +518,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/custom-editor.ts` | 148 | 16 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/session-selector-search.ts` | 219 | 16 | done | `crates/pi-coding-agent/src/modes/interactive/components/session_selector_search.rs` | Query parsing, scoring, filters, sorting; differential `coding-agent-session-search-oracle.ts` (21 cases) + `tests/components.rs`. JS RegExp replaced by fancy-regex (lookaround/backrefs supported; error text differs). |
 | `coding-agent/src/supervisor/client.ts` | 63 | 16 | done | `crates/pi-coding-agent/src/supervisor/client.rs` | Durable request/poll/retry with jitter; 3 ported behavioral tests. |
-| `coding-agent/src/supervisor/service.ts` | 210 | 16 | done | `crates/pi-coding-agent/src/supervisor/service.rs` | Prompt building, response parsing, durable completion/expiry/preemption; 4 behavioral tests |
-| `coding-agent/src/architect/prompt.ts` | 12 | 17 | done | `crates/pi-coding-agent/src/architect/prompt.rs` | Exact system prompt and observation prompt |
+| `coding-agent/src/supervisor/service.ts` | 210 | 16 | done | `crates/pi-coding-agent/src/supervisor/service.rs` | Prompt building, response parsing, durable completion/expiry/preemption; 4 behavioral tests + prompt/parse differential |
+| `coding-agent/src/architect/prompt.ts` | 12 | 17 | done | `crates/pi-coding-agent/src/architect/prompt.rs` | Exact system prompt and observation prompt; differential `differential_architect_prompt` |
 | `coding-agent/src/core/compaction/branch-summarization.ts` | 378 | 17 | done | `crates/pi-coding-agent/src/core/compaction/branch_summarization.rs` | Collection, budgeted preparation, summary generation; 14 tests + differential. See `coding-agent-branch-summarization.md`. |
 | `coding-agent/src/core/detached-bash-runner.ts` | 294 | 17 | todo |  |  |
 | `coding-agent/src/core/lifecycle-coordinator.ts` | 448 | 17 | done | `crates/pi-coding-agent/src/core/lifecycle_coordinator.rs` | Command surface over control-db lifecycle mutations; 23 behavioral tests. |
