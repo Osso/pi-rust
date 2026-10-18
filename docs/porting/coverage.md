@@ -665,18 +665,18 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/tools/change-working-directory.ts` | 145 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/channel-post.ts` | 72 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/code-index.ts` | 329 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/edit.ts` | 443 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/edit.ts` | 443 | 22 | partial | `crates/pi-coding-agent/src/core/tools/edit.rs` | Execution, arg preparation, diff/patch details; renderers pending theme.ts; differential 4 cases |
 | `coding-agent/src/core/tools/end-turn.ts` | 37 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/find.ts` | 381 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/grep.ts` | 400 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/index.ts` | 420 | 22 | partial | `crates/pi-coding-agent/src/core/tools/mod.rs` | Only `DEFAULT_ACTIVE_TOOL_NAMES` (needed by system-prompt); tool definitions/factories remain for ca-tools-text. |
 | `coding-agent/src/core/tools/list-sessions.ts` | 81 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/ls.ts` | 326 | 22 | todo |  |  |
-| `coding-agent/src/core/tools/read.ts` | 468 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/read.ts` | 468 | 22 | partial | `crates/pi-coding-agent/src/core/tools/read.rs` | Text offsets/limits, range reads, images; renderers pending theme.ts; differential 11 cases |
 | `coding-agent/src/core/tools/resume-session.ts` | 294 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/search-current-session-history.ts` | 196 | 22 | todo |  |  |
 | `coding-agent/src/core/tools/tool-definition-wrapper.ts` | 160 | 22 | partial | `crates/pi-coding-agent/src/core/tools/tool_definition_wrapper.rs` | `capToolResultOutput` + `wrap_agent_tool`; `ToolDefinition` conversion/context gaps pending ca-extensions-api |
-| `coding-agent/src/core/tools/write.ts` | 274 | 22 | todo |  |  |
+| `coding-agent/src/core/tools/write.ts` | 274 | 22 | partial | `crates/pi-coding-agent/src/core/tools/write.rs` | Queued writes, parent mkdir, UTF-16 byte count; renderers pending theme.ts; differential 1 case |
 | `coding-agent/src/extensions/index.ts` | 4 | 22 | todo |  |  |
 | `coding-agent/src/extensions/llama/index.ts` | 228 | 22 | todo |  |  |
 | `coding-agent/src/extensions/llama/ui.ts` | 542 | 22 | todo |  |  |

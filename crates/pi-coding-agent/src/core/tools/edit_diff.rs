@@ -1,9 +1,8 @@
 //! Shared diff computation utilities for the edit and similar tools.
 
-use std::io;
-
 use tokio::io::AsyncReadExt;
 
+use super::node_fs::{node_error_code, node_fs_error};
 use super::path_utils::resolve_to_cwd;
 use crate::utils::paths::PathError;
 
@@ -139,30 +138,8 @@ async fn read_editable_file(absolute_path: &str, display_path: &str) -> Result<S
     let mut bytes = Vec::new();
     match file.read_to_end(&mut bytes).await {
         Ok(_) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
-        Err(error) => Err(node_read_error_message(&error, absolute_path)),
+        Err(error) => Err(node_fs_error(&error, "read", absolute_path)),
     }
-}
-
-fn node_error_code(error: &io::Error) -> &'static str {
-    match error.kind() {
-        io::ErrorKind::NotFound => "ENOENT",
-        io::ErrorKind::PermissionDenied => "EACCES",
-        io::ErrorKind::IsADirectory => "EISDIR",
-        io::ErrorKind::NotADirectory => "ENOTDIR",
-        io::ErrorKind::AlreadyExists => "EEXIST",
-        io::ErrorKind::InvalidInput => "EINVAL",
-        _ => "EIO",
-    }
-}
-
-fn node_read_error_message(error: &io::Error, path: &str) -> String {
-    let description = match error.kind() {
-        io::ErrorKind::IsADirectory => "illegal operation on a directory",
-        io::ErrorKind::PermissionDenied => "permission denied",
-        io::ErrorKind::NotFound => "no such file or directory",
-        _ => return format!("{}: {error}, read '{path}'", node_error_code(error)),
-    };
-    format!("{}: {description}, read '{path}'", node_error_code(error))
 }
 
 struct MatchedEdit {

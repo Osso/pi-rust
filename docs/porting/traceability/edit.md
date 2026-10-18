@@ -1,35 +1,25 @@
-# Edit traceability
+# coding-agent edit tool traceability
 
-Pinned source: `packages/agent/src/harness/tools/edit-diff.ts:187-195` at `532f7d12cd19235081bd4d6e425bde185652d86f`. [AppliedEditsResult traceability](applied-edits-result.md) records the separate result-record slice.
+Pinned source: `packages/coding-agent/src/core/tools/edit.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-| TypeScript source | Observable contract | Rust mapping and proof |
+Rust: `pi_coding_agent::core::tools::edit`.
+
+| TypeScript source | Observable behavior | Rust proof |
 |---|---|---|
-| `edit-diff.ts:187-190` | Direct-module exported mutable interface with required `oldText: string` and `newText: string` | `harness::tools::edit_diff::Edit` uses public mutable `old_text: String` and `new_text: String` in source order; focused tests cover empty, Unicode, NUL, newline, and mutation states. |
-| `harness/tools` index and package index | `Edit` is not re-exported | Rust adds no `harness::tools`, harness-root, crate-root, or package-equivalent re-export. |
-| Differential request `13181` | Interfaces erase at runtime; ordinary records preserve representable field values | Four independent source-shaped cases compare through `edit_record`; no runtime interface identity or edit-algorithm behavior is claimed. |
-| Direct-module type proof | Required mutable fields are exactly strings; missing, wrong, and excess fresh-object cases fail | `oracle/edit-record-typecheck.mjs` resolves the real direct module, proves exact fields and direct-only boundary, and checks four unsuppressed diagnostics. |
-| `AppliedEditsResult` (`edit-diff.ts:192-195`) | Separate direct-module export with required mutable `baseContent` and `newContent` strings | Completed separately as `harness::tools::edit_diff::AppliedEditsResult`; application behavior remains excluded. |
+| `edit.ts:14-40` | Schemas for `edits[]` and the tool | `edit_schema`. |
+| `edit.ts:42-54` | Prompt snippet/guidelines | Not part of `AgentTool`; owned by the system-prompt slice. |
+| `edit.ts:56-77` | `EditToolDetails` (`diff`, `patch`, optional `firstChangedLine`) and `EditOperations` | `EditOperations` + `LocalEditOperations`; details asserted by the differential and `edit_replaces_text_and_reports_diff_and_patch`. |
+| `edit.ts:79-89` | Local operations read/write/access with R_OK+W_OK | `LocalEditOperations::access` uses `access(2)` with `READ_OK|WRITE_OK`. |
+| `edit.ts:96-124` | `prepareEditArguments`: parse JSON-string `edits`, merge legacy top-level `oldText`/`newText` after existing edits, drop legacy keys | `prepare_edit_arguments`; `prepare_arguments_accepts_json_strings_and_legacy_fields`. |
+| `edit.ts:126-131` | `validateEditInput` requires a non-empty edits array | `parse_edit_input`; `edit_rejects_empty_and_overlapping_edits`. |
+| `edit.ts:143-296` | Render components, preview computation, and diff formatting | **Gap: renderers pending theme.ts** (`formatEditCall`, `formatEditResult`, `buildEditCallComponent`, `setEditPreview`, `getEditHeaderBg`). Preview computation reuses `edit_diff::compute_edits_diff`. |
+| `edit.ts:318-330` | Queue, abort checks before/after awaits, access failure text `Could not edit file: <path>. Error code: <code>.` | `execute_edit`; `edit_reports_enoent_for_missing_files`. |
+| `edit.ts:332-352` | Read, strip BOM, detect line ending, normalize to LF, apply edits, restore BOM/line endings, write | `edit_preserves_crlf_and_bom`; fuzzy/duplicate/overlap behavior is covered by the shared `edit_diff` port. |
+| `edit.ts:353-365` | Diff with 4 context lines, unified patch, `Successfully replaced N block(s) in <path>.` | `generate_diff_string`, `generate_unified_patch`, `edit_replaces_text_and_reports_diff_and_patch`. |
+| `edit.ts:366-442` | `renderCall`/`renderResult`/`createEditTool` | **Gap: renderers pending theme.ts**; `EditTool` is the `AgentTool` equivalent of `createEditTool`. |
 
-## Rust boundary
+Differential: `oracle/coding-agent-edit-write-tool-oracle.ts` (request `27300`, 4 edit cases including success, multi-edit, ambiguity, and ENOENT) compares result JSON, error text, and resulting file contents.
 
-`Edit` derives `Debug` only. No constructor, `Default`, `Clone`, equality, serde, validation, normalization, or conversion traits are added. Rust strings cover representable Unicode scalars, empty values, NUL, and line breaks; invalid JavaScript runtime values and lone UTF-16 surrogates remain outside the typed boundary.
+## Discrepancies
 
-## Proof artifacts
-
-- Focused RED/GREEN: `/tmp/pi-rust-edit-record-focused-red.out` and `/tmp/pi-rust-edit-record-focused-green.out`.
-- Differential RED/GREEN: `/tmp/pi-rust-edit-record-differential-red.out` and `/tmp/pi-rust-edit-record-differential-green.out`.
-- Direct-module typeproof: `/tmp/pi-rust-edit-record-typeproof.out`.
-- `Edit` production/proof: `7085ae5`/`4b5fa7b`.
-- `AppliedEditsResult` production/proof: `39bb794`/`27ac88c`.
-
-## Final integration proof
-
-- `/tmp/pi-rust-edit-record-final-workspace-tests.out` records `cargo test --workspace --all-targets` exiting 0 at `3200027`; all 62 result lines sum to `289 passed, 0 failed, 2 ignored`.
-- `/tmp/pi-rust-edit-record-final-focused.out`, `...-differential.out`, `...-workspace-check.out`, and `...-workspace-clippy.out` pass.
-- `/tmp/pi-rust-edit-record-final-oracle.out`, `...-typeproof.out`, `...-node-check.out`, `...-fmt.out`, `...-diff.out`, and `...-readability.out` pass at `3200027`.
-- `/tmp/pi-rust-edit-record-final-audit.out` records the earlier `Edit`-only boundary at `3200027`; `AppliedEditsResult` is now tracked by its separate [traceability](applied-edits-result.md), while edit-application behavior remains excluded.
-- Inherited independent verification at clean Rust HEAD `3200027` returns `OVERALL: PASS`.
-
-## Exclusions
-
-`FuzzyMatchResult` is a separate completed direct-module record slice; executable integration passes at `f802bf1`, and inherited verification passes at docs-only closure HEAD `0fdd0ed` (`OVERALL: PASS`). FuzzyFindText, Unicode normalization, matching/validation, offsets, overlap and replacement ordering, edit application, filesystem/tool behavior, extra traits/APIs, package/root exports, dependencies, deployment, protocol behavior, and unrelated APIs remain unported. `AppliedEditsResult` application/producer behavior and FuzzyMatchResult producer/runtime-invariant behavior remain excluded. Combined executable gates pass at `b27569b` for the earlier AppliedEditsResult closure; this FuzzyMatchResult closure cites `/tmp/pi-rust-fuzzy-match-result-final-*.out` and remains pending inherited verification. No deployment applies.
+- None observed.
