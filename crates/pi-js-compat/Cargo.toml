@@ -8,12 +8,26 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+# Serializes JavaScript numbers without serde_json's trailing `.0`.
+serde = { version = "=1.0.229", features = ["derive"] }
+# Parses HTTP-date forms accepted by `Date.parse`.
+httpdate = "=1.0.3"
+# Resolves the system UTC offset for zone-less `Date.parse` values.
+jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-system"] }
+# `String.prototype.localeCompare` / `Intl.Collator`.
 icu_collator = { version = "=2.3.1", features = ["compiled_data"] }
 icu_locale_core = "=2.3.0"
+# Executes minimatch's lookaround regular expressions.
 fancy-regex = "=0.16.2"
 
 [dev-dependencies]
 serde_json = "=1.0.151"
+# `TimeZone::get` for the explicit-zone differential tests.
+jiff = { version = "=0.2.38", default-features = false, features = [
+    "std",
+    "tz-system",
+    "tzdb-zoneinfo",
+] }
 
 [lints]
 workspace = true

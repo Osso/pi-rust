@@ -96,7 +96,7 @@ impl HttpBody for PendingBody {
 
 fn mock_token(account_id: &str) -> String {
     let payload = json!({"https://api.openai.com/auth": {"chatgpt_account_id": account_id}});
-    let encoded = pi_ai::utils::base64::encode(payload.to_string().as_bytes());
+    let encoded = pi_js_compat::base64::btoa(payload.to_string().as_bytes());
     format!("aaa.{encoded}.bbb")
 }
 

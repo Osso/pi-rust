@@ -1,10 +1,10 @@
 use std::borrow::Cow;
 
-use pi_agent_core::harness::tools::image::{decode_base64, encode_base64};
 use pi_ai::types::{ImageContent, TextContent};
 use pi_coding_agent::utils::tool_result_images::{
     NormalizeToolResultImagesOptions, ToolResultContent, normalize_tool_result_images,
 };
+use pi_js_compat::base64::{buffer_from_base64, buffer_to_base64};
 
 #[path = "support/image_fixtures.rs"]
 mod image_fixtures;
@@ -14,7 +14,7 @@ fn text(value: &str) -> ToolResultContent {
 }
 
 fn image(bytes: &[u8], mime_type: &str) -> ToolResultContent {
-    ToolResultContent::Image(ImageContent::new(encode_base64(bytes), mime_type))
+    ToolResultContent::Image(ImageContent::new(buffer_to_base64(bytes), mime_type))
 }
 
 fn bmp_1x1_red_24bpp() -> Vec<u8> {
@@ -33,7 +33,7 @@ fn bmp_1x1_red_24bpp() -> Vec<u8> {
 }
 
 fn image_dimensions(base64: &str) -> (u32, u32) {
-    let image = image::load_from_memory(&decode_base64(base64)).expect("normalized image must decode");
+    let image = image::load_from_memory(&buffer_from_base64(base64)).expect("normalized image must decode");
     (image.width(), image.height())
 }
 

@@ -26,7 +26,7 @@ const SESSION_ID: &str = "diff-session";
 
 fn mock_token() -> String {
     let payload = json!({"https://api.openai.com/auth": {"chatgpt_account_id": "acc_test"}});
-    let encoded = pi_ai::utils::base64::encode(payload.to_string().as_bytes());
+    let encoded = pi_js_compat::base64::btoa(payload.to_string().as_bytes());
     format!("aaa.{encoded}.bbb")
 }
 

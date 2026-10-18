@@ -11,13 +11,13 @@ use crate::types::{
 #[serde(rename_all = "camelCase")]
 pub struct ContextUsageEstimate {
     /// Estimated total context tokens.
-    #[serde(serialize_with = "crate::js_number::serialize")]
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub tokens: f64,
     /// Tokens reported by the most recent applicable assistant usage block.
-    #[serde(serialize_with = "crate::js_number::serialize")]
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub usage_tokens: f64,
     /// Estimated tokens after the most recent applicable assistant usage block.
-    #[serde(serialize_with = "crate::js_number::serialize")]
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub trailing_tokens: f64,
     /// Index of the applicable message that provided usage, or null when none exists.
     pub last_usage_index: Option<usize>,

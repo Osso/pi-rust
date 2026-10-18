@@ -9,7 +9,7 @@ use std::io::Write;
 use std::process::Stdio;
 use std::time::Duration;
 
-use pi_agent_core::harness::tools::image::encode_base64;
+use pi_js_compat::base64::buffer_to_base64;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
@@ -30,7 +30,7 @@ pub fn is_remote_session(environment: &ClipboardEnvironment) -> bool {
 
 /// Writes the text as an OSC 52 clipboard sequence; false when too large.
 pub fn emit_osc52(text: &str) -> bool {
-    let encoded = encode_base64(text.as_bytes());
+    let encoded = buffer_to_base64(text.as_bytes());
     if encoded.len() > MAX_OSC52_ENCODED_LENGTH {
         return false;
     }

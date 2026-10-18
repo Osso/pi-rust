@@ -8,8 +8,8 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::js_compat::{is_js_whitespace_char, js_trim, js_trim_end, js_trim_start};
 use crate::utils::visible_width;
+use pi_js_compat::string::{is_js_whitespace_char, js_trim, js_trim_end, js_trim_start};
 
 // LaTeX command tables ported verbatim from `packages/tui/src/latex.ts`.
 

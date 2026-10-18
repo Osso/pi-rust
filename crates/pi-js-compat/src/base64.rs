@@ -1,10 +1,11 @@
-//! Base64 helpers matching the `atob`/`btoa` subset used by provider adapters.
+//! Base64 helpers with the two distinct Node semantics: `atob`/`btoa` and
+//! `Buffer.from(value, "base64")`/`Buffer#toString("base64")`.
 
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /// Decode standard base64 with `atob` leniency: ASCII whitespace is ignored and
 /// missing padding is accepted.
-pub fn decode(input: &str) -> Result<Vec<u8>, Base64Error> {
+pub fn atob(input: &str) -> Result<Vec<u8>, Base64Error> {
     let mut symbols = Vec::with_capacity(input.len());
     let mut padding = 0usize;
     for byte in input.bytes() {
@@ -44,8 +45,43 @@ pub fn decode(input: &str) -> Result<Vec<u8>, Base64Error> {
     Ok(output)
 }
 
-/// Encode with the standard padded alphabet.
-pub fn encode(bytes: &[u8]) -> String {
+/// `btoa(bytes)`: standard padded base64.
+pub fn btoa(bytes: &[u8]) -> String {
+    buffer_to_base64(bytes)
+}
+
+/// Decode Base64 with `Buffer.from(value, "base64")` semantics: the standard
+/// and URL-safe alphabets are accepted, other characters are ignored, and
+/// decoding stops at the first `=`.
+pub fn buffer_from_base64(value: &str) -> Vec<u8> {
+    let mut values = Vec::new();
+    for byte in value.bytes() {
+        if byte == b'=' {
+            break;
+        }
+        if let Some(decoded) = buffer_symbol_value(byte) {
+            values.push(decoded);
+        }
+    }
+
+    let mut output = Vec::with_capacity(values.len() * 3 / 4);
+    for chunk in values.chunks(4) {
+        let first = chunk[0];
+        if chunk.len() >= 2 {
+            output.push((first << 2) | (chunk[1] >> 4));
+        }
+        if chunk.len() >= 3 {
+            output.push(((chunk[1] & 0x0f) << 4) | (chunk[2] >> 2));
+        }
+        if chunk.len() == 4 {
+            output.push(((chunk[2] & 0x03) << 6) | chunk[3]);
+        }
+    }
+    output
+}
+
+/// `Buffer#toString("base64")`: standard padded base64.
+pub fn buffer_to_base64(bytes: &[u8]) -> String {
     let mut output = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let first = chunk[0];
@@ -61,6 +97,26 @@ pub fn encode(bytes: &[u8]) -> String {
     output
 }
 
+/// Decoded byte length of a Base64 payload, counting only valid standard
+/// alphabet symbols and stopping at the first `=`.
+pub fn buffer_decoded_len(value: &str) -> usize {
+    let mut count = 0;
+    for byte in value.bytes() {
+        if byte == b'=' {
+            break;
+        }
+        if symbol_value(byte).is_ok() {
+            count += 1;
+        }
+    }
+    count / 4 * 3
+        + match count % 4 {
+            2 => 1,
+            3 => 2,
+            _ => 0,
+        }
+}
+
 fn symbol_value(byte: u8) -> Result<u8, Base64Error> {
     match byte {
         b'A'..=b'Z' => Ok(byte - b'A'),
@@ -69,6 +125,17 @@ fn symbol_value(byte: u8) -> Result<u8, Base64Error> {
         b'+' => Ok(62),
         b'/' => Ok(63),
         _ => Err(Base64Error),
+    }
+}
+
+fn buffer_symbol_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'A'..=b'Z' => Some(byte - b'A'),
+        b'a'..=b'z' => Some(byte - b'a' + 26),
+        b'0'..=b'9' => Some(byte - b'0' + 52),
+        b'+' | b'-' => Some(62),
+        b'/' | b'_' => Some(63),
+        _ => None,
     }
 }
 

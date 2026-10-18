@@ -1,6 +1,6 @@
 # utils.ts traceability
 
-Source: `packages/tui/src/utils.ts` (1326 lines). Rust: `crates/pi-tui/src/utils.rs`, generated data in `crates/pi-tui/src/unicode_tables.rs`, shared ECMAScript string semantics in `crates/pi-tui/src/js_compat.rs`.
+Source: `packages/tui/src/utils.ts` (1326 lines). Rust: `crates/pi-tui/src/utils.rs`, generated data in `crates/pi-tui/src/unicode_tables.rs`, shared ECMAScript string semantics in `crates/pi-js-compat/src/string.rs`.
 
 Differential oracle: `oracle/tui-leaves-oracle.ts` (operations `utils_*`). Tests: `crates/pi-tui/tests/utils.rs`, `crates/pi-tui/tests/differential_utils.rs`.
 

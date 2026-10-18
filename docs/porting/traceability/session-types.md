@@ -41,7 +41,7 @@ Rust: `crates/pi-agent-core/src/harness/session/types.rs`. Tests: `crates/pi-age
 
 - `Entry`/`LaneRecord` bodies are internally tagged and flattened; the discriminant is emitted first and storage fields last, matching TS `{...body, parentId, seq, timestamp}`.
 - `OptionalValue` distinguishes an absent `data`/`details` property from an explicit JSON `null`; TS `undefined` → `Missing`, `null` → `Present(Null)`.
-- `Usage`, `tokensBefore`, `durationMs`, `attempt`, and `toolIndex` use `pi_ai::js_number` so integral values print without `.0`.
+- `Usage`, `tokensBefore`, `durationMs`, `attempt`, and `toolIndex` use `pi_js_compat::number` so integral values print without `.0`.
 - Query validation (`limit > 0`, cursor `>= 0`) lives in `state.rs` and the facade.
 
 ## Explicit gaps

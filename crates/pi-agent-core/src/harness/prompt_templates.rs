@@ -1,5 +1,6 @@
 use super::frontmatter::parse_frontmatter;
 use super::types::{ExecutionEnv, FileError, FileErrorCode, FileInfo, FileKind, PromptTemplate};
+use pi_js_compat::locale_compare;
 
 /// Stable diagnostic codes emitted while loading prompt templates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -289,26 +290,6 @@ fn push_file_info_diagnostic(diagnostics: &mut Vec<PromptTemplateDiagnostic>, er
         message: error.message.clone(),
         path: path.to_owned(),
     });
-}
-
-/// Approximates the default `Intl.Collator` ordering for ASCII names:
-/// case-insensitive primary order, then lowercase before uppercase.
-fn locale_compare(left: &str, right: &str) -> std::cmp::Ordering {
-    let primary = left.to_lowercase().cmp(&right.to_lowercase());
-    if primary != std::cmp::Ordering::Equal {
-        return primary;
-    }
-    for (left_character, right_character) in left.chars().zip(right.chars()) {
-        if left_character == right_character {
-            continue;
-        }
-        let left_rank = u8::from(left_character.is_uppercase());
-        let right_rank = u8::from(right_character.is_uppercase());
-        return left_rank
-            .cmp(&right_rank)
-            .then_with(|| left_character.cmp(&right_character));
-    }
-    left.len().cmp(&right.len())
 }
 
 /// Parses ASCII-space/tab-delimited arguments with source-compatible quote handling.

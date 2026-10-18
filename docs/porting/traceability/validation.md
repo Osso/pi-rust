@@ -22,7 +22,7 @@ Tests: `crates/pi-ai/tests/validation.rs` (26 behavioral cases), `crates/pi-ai/t
   union conversion replaces the value, and `validateToolArguments` discards the root replacement.
 - Validation is a hand-written JSON-Schema engine (no crate reproduces TypeBox's messages, ordering,
   instance paths, or `maxErrors`). Numbers in messages and in `JSON.stringify(…, null, 2)` use
-  `utils::js_number::js_number_to_string`; converted JSON numbers are canonicalized to integers when
+  `pi_js_compat::number::js_number_to_string`; converted JSON numbers are canonicalized to integers when
   integral so `Value` equality and serialization match JavaScript.
 - `Issues` carries a limit: the root context stops at TypeBox's default `maxErrors = 8`; scratch
   contexts used by `anyOf`/`oneOf`/`if`/`properties`/`additionalProperties` are unlimited and truncate

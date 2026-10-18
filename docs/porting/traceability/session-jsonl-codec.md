@@ -22,7 +22,7 @@ Rust: `crates/pi-agent-core/src/harness/session/jsonl/codec.rs`. Tests: `session
   TS API and by Rust are therefore byte-identical; an arbitrary caller-built mutation object with a different key
   order would encode differently in TS. This is documented as a caller-order caveat, not a session-file contract
   difference.
-- Numbers use `pi_ai::js_number` (`f64` → JavaScript formatting), timestamps and sequences are `i64`.
+- Numbers use `pi_js_compat::number` (`f64` → JavaScript formatting), timestamps and sequences are `i64`.
 - `OptionalValue` keeps explicit `null` for `data`/`details` while omitting absent properties.
 
 ## Gaps

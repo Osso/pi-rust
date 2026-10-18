@@ -5,7 +5,7 @@ Rust: `crates/pi-ai/src/utils/estimate.rs`.
 Tests: `crates/pi-ai/tests/estimate.rs` (8 behavioral), `crates/pi-ai/tests/differential_estimate.rs` (10 requests vs pinned TS).
 
 ## Representation
-- `ContextUsageEstimate` is serde `camelCase`; `f64` token counts serialize through `js_number` so integral estimates print like `JSON.stringify`.
+- `ContextUsageEstimate` is serde `camelCase`; `f64` token counts serialize through `pi_js_compat::number` so integral estimates print like `JSON.stringify`.
 - JavaScript `String.length` is UTF-16 code units: `js_len` uses `encode_utf16().count()`.
 - `string | (TextContent | ImageContent)[]` content is `TextOrImageInput::{String, Blocks}`.
 - `estimateContextTokens(Context | Message[])` is split into `estimate_context_tokens(&Context)` and `estimate_messages_tokens(&[Message])` (the array branch).
@@ -32,7 +32,7 @@ Tests: `crates/pi-ai/tests/estimate.rs` (8 behavioral), `crates/pi-ai/tests/diff
 
 ## Gaps
 - `safeJsonStringify`'s `undefined` result is unreachable (`serde_json::Value` has no undefined); `[unserializable]` is retained for serialization failures.
-- JSON number text can differ for float-typed tool arguments parsed from literals like `1.0`: `serde_json` re-prints `1.0` while JS prints `1`. Typed numeric fields elsewhere use `js_number`; arbitrary `arguments` preserve their parsed representation. Affects only `estimateMessageTokens` character counts for such inputs.
+- JSON number text can differ for float-typed tool arguments parsed from literals like `1.0`: `serde_json` re-prints `1.0` while JS prints `1`. Typed numeric fields elsewhere use `pi_js_compat::number`; arbitrary `arguments` preserve their parsed representation. Affects only `estimateMessageTokens` character counts for such inputs.
 
 ## Discrepancies
 - None in behavior exercised by provider tool arguments (integers/fractional values round-trip identically).

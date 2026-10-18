@@ -6,11 +6,11 @@
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::js_compat::{is_js_whitespace_char, js_trim, js_trim_end};
 use crate::unicode_tables::{
     east_asian_width, is_cjk_break, is_leading_non_printing, is_mark, is_non_printing, is_rgi_emoji, is_spacing_mark,
     is_zero_width,
 };
+use pi_js_compat::string::{is_js_whitespace_char, js_trim, js_trim_end};
 
 /// An extracted terminal escape sequence and its byte length.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

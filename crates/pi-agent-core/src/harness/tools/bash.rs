@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::number::js_number_to_string;
 use serde_json::{Map, Value, json};
 
 use crate::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
@@ -324,7 +325,7 @@ fn capture_failure(capture: &ShellCaptureResult, timeout: Option<f64>, output_te
     }
     if let Some(error) = &capture.execution_error {
         if error.code == ExecutionErrorCode::Timeout {
-            let timeout = timeout.map(format_js_number).unwrap_or_default();
+            let timeout = timeout.map(js_number_to_string).unwrap_or_default();
             return Some(ToolError::new(append_status(
                 output_text,
                 &format!("Command timed out after {timeout} seconds"),
@@ -359,17 +360,10 @@ fn validate_timeout(timeout: Option<f64>) -> Result<(), ToolError> {
     if timeout > MAX_TIMEOUT_SECONDS {
         return Err(ToolError::new(format!(
             "Invalid timeout: maximum is {} seconds",
-            format_js_number(MAX_TIMEOUT_SECONDS)
+            js_number_to_string(MAX_TIMEOUT_SECONDS)
         )));
     }
     Ok(())
-}
-
-fn format_js_number(value: f64) -> String {
-    if value.fract() == 0.0 && value.abs() < 1e21 {
-        return format!("{}", value as i64);
-    }
-    format!("{value}")
 }
 
 fn capture_update_result(capture: &ShellCaptureResult) -> AgentToolResult {

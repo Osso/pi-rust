@@ -3,7 +3,7 @@
 //! The source awaits `loadPhoton()`; the Rust port links the image backend
 //! directly, so conversion is synchronous.
 
-use pi_agent_core::harness::tools::image::{decode_base64, encode_base64};
+use pi_js_compat::base64::{buffer_from_base64, buffer_to_base64};
 
 use crate::utils::exif_orientation::apply_exif_orientation;
 use crate::utils::photon::{decode_image, png_bytes};
@@ -31,9 +31,9 @@ pub fn convert_to_png(base64_data: &str, mime_type: &str) -> Option<ConvertedIma
         });
     }
 
-    let png = convert_image_bytes_to_png(&decode_base64(base64_data))?;
+    let png = convert_image_bytes_to_png(&buffer_from_base64(base64_data))?;
     Some(ConvertedImage {
-        data: encode_base64(&png),
+        data: buffer_to_base64(&png),
         mime_type: "image/png".to_owned(),
     })
 }

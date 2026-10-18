@@ -19,7 +19,7 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use crate::types::{Tool, ToolCall};
-use crate::utils::js_number::js_number_to_string;
+use pi_js_compat::number::js_number_to_string;
 
 /// TypeBox's default `Settings.maxErrors`.
 const MAX_ERRORS: usize = 8;
@@ -529,7 +529,7 @@ fn try_number(value: &Value) -> Option<Value> {
 }
 
 fn number_from_string(text: &str) -> Option<Value> {
-    if let Some(parsed) = Some(crate::js_number::parse_number(text)).filter(|parsed| parsed.is_finite()) {
+    if let Some(parsed) = Some(pi_js_compat::number::parse_number(text)).filter(|parsed| parsed.is_finite()) {
         return Some(js_number(parsed));
     }
     let lowercase = text.to_lowercase();
@@ -745,7 +745,7 @@ fn coerce_number(value: &Value, integer: bool) -> Option<Value> {
     match value {
         Value::Null => Some(json!(0)),
         Value::String(text) if !text.trim().is_empty() => {
-            let parsed = Some(crate::js_number::parse_number(text)).filter(|parsed| parsed.is_finite())?;
+            let parsed = Some(pi_js_compat::number::parse_number(text)).filter(|parsed| parsed.is_finite())?;
             if integer && parsed.fract() != 0.0 {
                 return None;
             }

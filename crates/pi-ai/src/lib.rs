@@ -12,7 +12,6 @@ pub mod image_models_generated;
 pub mod images;
 pub mod images_api_registry;
 pub mod images_models;
-pub mod js_number;
 pub mod model_catalog;
 pub mod models;
 pub mod models_store;

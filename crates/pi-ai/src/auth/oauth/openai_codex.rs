@@ -251,7 +251,7 @@ async fn start_device_auth(runtime: &OAuthRuntime, signal: CancellationToken) ->
     }
     let json = response.json.unwrap_or(Value::Null);
     let interval_seconds = match json.get("interval") {
-        Some(Value::String(text)) => Some(crate::js_number::parse_number(text)),
+        Some(Value::String(text)) => Some(pi_js_compat::number::parse_number(text)),
         Some(Value::Number(number)) => number.as_f64(),
         _ => None,
     };

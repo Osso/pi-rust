@@ -8,8 +8,6 @@ use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::base64;
-
 /// Inline-image protocol supported by the terminal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageProtocol {
@@ -440,7 +438,7 @@ pub fn delete_all_kitty_placements() -> String {
 pub fn encode_iterm2(base64_data: &str, options: &Iterm2Options) -> String {
     let mut params = vec![
         format!("inline={}", if options.inline == Some(false) { 0 } else { 1 }),
-        format!("size={}", base64::decoded_len(base64_data)),
+        format!("size={}", pi_js_compat::base64::buffer_decoded_len(base64_data)),
     ];
 
     if let Some(width) = &options.width {
@@ -452,7 +450,7 @@ pub fn encode_iterm2(base64_data: &str, options: &Iterm2Options) -> String {
     if let Some(name) = &options.name
         && !name.is_empty()
     {
-        params.push(format!("name={}", base64::encode(name.as_bytes())));
+        params.push(format!("name={}", pi_js_compat::base64::btoa(name.as_bytes())));
     }
     if options.preserve_aspect_ratio == Some(false) {
         params.push("preserveAspectRatio=0".to_string());
@@ -686,7 +684,7 @@ fn read_u32_le(bytes: &[u8], offset: usize) -> Option<u32> {
 }
 
 pub fn get_png_dimensions(base64_data: &str) -> Option<ImageDimensions> {
-    let bytes = base64::decode_lenient(base64_data);
+    let bytes = pi_js_compat::base64::buffer_from_base64(base64_data);
     if bytes.len() < 24 {
         return None;
     }
@@ -700,7 +698,7 @@ pub fn get_png_dimensions(base64_data: &str) -> Option<ImageDimensions> {
 }
 
 pub fn get_jpeg_dimensions(base64_data: &str) -> Option<ImageDimensions> {
-    let bytes = base64::decode_lenient(base64_data);
+    let bytes = pi_js_compat::base64::buffer_from_base64(base64_data);
     if bytes.len() < 2 || bytes[0] != 0xff || bytes[1] != 0xd8 {
         return None;
     }
@@ -731,7 +729,7 @@ pub fn get_jpeg_dimensions(base64_data: &str) -> Option<ImageDimensions> {
 }
 
 pub fn get_gif_dimensions(base64_data: &str) -> Option<ImageDimensions> {
-    let bytes = base64::decode_lenient(base64_data);
+    let bytes = pi_js_compat::base64::buffer_from_base64(base64_data);
     if bytes.len() < 10 {
         return None;
     }
@@ -746,7 +744,7 @@ pub fn get_gif_dimensions(base64_data: &str) -> Option<ImageDimensions> {
 }
 
 pub fn get_webp_dimensions(base64_data: &str) -> Option<ImageDimensions> {
-    let bytes = base64::decode_lenient(base64_data);
+    let bytes = pi_js_compat::base64::buffer_from_base64(base64_data);
     if bytes.len() < 30 {
         return None;
     }

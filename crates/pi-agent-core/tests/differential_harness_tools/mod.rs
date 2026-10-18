@@ -1,5 +1,6 @@
 mod support;
 
+use pi_js_compat::base64::buffer_from_base64;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -696,7 +697,7 @@ fn setup_read_short(root: &Path) {
 }
 
 fn setup_png(root: &Path) {
-    let bytes = decode_base64(
+    let bytes = buffer_from_base64(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg==",
     );
     std::fs::write(root.join("image.txt"), bytes).expect("fixture write");
@@ -733,33 +734,6 @@ fn setup_edit_symlink(root: &Path) {
 
 fn setup_workspace(root: &Path) {
     std::fs::create_dir(root.join("workspace")).expect("fixture directory");
-}
-
-fn decode_base64(value: &str) -> Vec<u8> {
-    let mut output = Vec::new();
-    let mut accumulator = 0u32;
-    let mut bits = 0u32;
-    for byte in value.bytes() {
-        if byte == b'=' {
-            break;
-        }
-        let digit = match byte {
-            b'A'..=b'Z' => byte - b'A',
-            b'a'..=b'z' => byte - b'a' + 26,
-            b'0'..=b'9' => byte - b'0' + 52,
-            b'+' => 62,
-            b'/' => 63,
-            _ => continue,
-        };
-        accumulator = (accumulator << 6) | u32::from(digit);
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            output.push((accumulator >> bits) as u8);
-            accumulator &= (1 << bits) - 1;
-        }
-    }
-    output
 }
 
 fn tiny_bmp() -> Vec<u8> {

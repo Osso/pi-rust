@@ -1,23 +1,4 @@
-use pi_agent_core::harness::tools::image::{decode_base64, detect_supported_image_mime_type, encode_base64};
-
-#[test]
-fn decodes_base64_with_node_buffer_semantics() {
-    for (value, expected) in [
-        ("", &[][..]),
-        ("QQ==", b"A"),
-        ("QUI=", b"AB"),
-        ("QUJD", b"ABC"),
-        ("A", &[][..]),
-        ("AAAAA", &[0, 0, 0][..]),
-        ("AA==AAAA", &[0][..]),
-        ("A A A A", &[0, 0, 0][..]),
-        ("!!!!", &[][..]),
-        ("A-_A", &[0x03, 0xef, 0xc0][..]),
-        ("-_+/AQ==", &[0xfb, 0xff, 0xbf, 0x01][..]),
-    ] {
-        assert_eq!(decode_base64(value), expected, "{value:?}");
-    }
-}
+use pi_agent_core::harness::tools::image::detect_supported_image_mime_type;
 
 const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -99,27 +80,6 @@ fn rejects_bmp_invalid_size_offset_header_planes_and_depth() {
         None
     );
     assert_eq!(detect_supported_image_mime_type(&bmp_dib40(0, 54, 40, 1, 24, 26)), None);
-}
-
-#[test]
-fn encodes_empty_and_partial_base64_groups_with_padding() {
-    assert_eq!(encode_base64(&[]), "");
-    assert_eq!(encode_base64(&[0]), "AA==");
-    assert_eq!(encode_base64(&[0xff]), "/w==");
-    assert_eq!(encode_base64(&[0, 1]), "AAE=");
-    assert_eq!(encode_base64(&[0, 1, 2]), "AAEC");
-    assert_eq!(encode_base64(&[0xff, 0xfe, 0xfd]), "//79");
-}
-
-#[test]
-fn encodes_high_bit_alphabet_boundaries_and_multiple_groups() {
-    assert_eq!(encode_base64(&[0xfb, 0xff, 0xff]), "+///");
-    assert_eq!(encode_base64(&[0, 1, 2, 3, 4, 5]), "AAECAwQF");
-    assert_eq!(
-        encode_base64(&[0x00, 0x10, 0x83, 0xff, 0xfe, 0xfd, 0x7f]),
-        "ABCD//79fw=="
-    );
-    assert_eq!(encode_base64(&(0..=15).collect::<Vec<_>>()), "AAECAwQFBgcICQoLDA0ODw==");
 }
 
 fn minimal_png() -> Vec<u8> {

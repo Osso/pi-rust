@@ -5,7 +5,7 @@
 //! resizing are both CPU-bound, and splitting them across two blocking tasks
 //! would only add hand-offs.
 
-use pi_agent_core::harness::tools::image::encode_base64;
+use pi_js_compat::base64::buffer_to_base64;
 
 use crate::utils::image_convert::convert_image_bytes_to_png;
 use crate::utils::image_resize::format_dimension_note;
@@ -83,7 +83,7 @@ fn process_image_blocking(bytes: &[u8], mime_type: &str, options: ProcessImageOp
         .into_iter()
         .collect();
     ProcessImageResult::Processed {
-        data: encode_base64(&normalized.bytes),
+        data: buffer_to_base64(&normalized.bytes),
         mime_type: normalized.mime_type,
         hints,
     }

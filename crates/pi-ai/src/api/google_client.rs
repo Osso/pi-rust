@@ -934,7 +934,7 @@ pub(crate) fn js_json(value: &Value) -> String {
         Value::Number(number) => match (number.as_i64(), number.as_u64()) {
             (Some(value), _) => value.to_string(),
             (_, Some(value)) => value.to_string(),
-            _ => crate::utils::js_number::js_number_to_string(number.as_f64().unwrap_or_default()),
+            _ => pi_js_compat::number::js_number_to_string(number.as_f64().unwrap_or_default()),
         },
         Value::String(value) => serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_owned()),
         Value::Array(values) => {

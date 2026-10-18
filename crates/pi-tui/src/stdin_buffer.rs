@@ -7,7 +7,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::js_compat::utf16_len;
+use pi_js_compat::string::utf16_len;
 
 const ESC: &str = "\x1b";
 const BRACKETED_PASTE_START: &str = "\x1b[200~";

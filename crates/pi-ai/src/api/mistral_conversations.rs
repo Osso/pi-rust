@@ -32,9 +32,9 @@ use crate::utils::event_stream::{
 };
 use crate::utils::hash::short_hash;
 use crate::utils::headers::headers_to_record;
-use crate::utils::js_number::js_number_to_string;
 use crate::utils::json_parse::parse_streaming_json;
 use crate::utils::sanitize_unicode::sanitize_surrogates;
+use pi_js_compat::number::js_number_to_string;
 
 const MISTRAL_TOOL_CALL_ID_LENGTH: usize = 9;
 const MAX_MISTRAL_ERROR_BODY_CHARS: usize = 4000;

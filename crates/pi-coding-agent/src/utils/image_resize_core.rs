@@ -6,7 +6,7 @@
 
 use photon_rs::PhotonImage;
 use photon_rs::transform::resize as photon_resize;
-use pi_agent_core::harness::tools::image::encode_base64;
+use pi_js_compat::base64::buffer_to_base64;
 use serde::{Deserialize, Serialize};
 
 use crate::utils::exif_orientation::apply_exif_orientation;
@@ -89,7 +89,7 @@ pub fn resize_image_in_process(
         && input_base64_size < limits.max_bytes
     {
         return Some(ResizedImage {
-            data: encode_base64(input_bytes),
+            data: buffer_to_base64(input_bytes),
             mime_type: if mime_type.is_empty() {
                 format!("image/{}", image_format(mime_type))
             } else {
@@ -189,7 +189,7 @@ fn encode_candidates(image: &PhotonImage, width: u32, height: u32, qualities: &[
 }
 
 fn candidate(bytes: Vec<u8>, mime_type: &'static str) -> Candidate {
-    let data = encode_base64(&bytes);
+    let data = buffer_to_base64(&bytes);
     Candidate {
         encoded_size: data.len() as u64,
         data,

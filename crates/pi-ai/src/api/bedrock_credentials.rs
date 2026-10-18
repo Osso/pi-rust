@@ -122,7 +122,7 @@ async fn resolve_sso_credentials(
         .get("expiresAt")
         .and_then(Value::as_str)
         .ok_or_else(|| CallbackError::new("The SSO session token is invalid"))?;
-    let expires_at_ms = crate::js_number::date_parse(expires_at);
+    let expires_at_ms = pi_js_compat::date::date_parse(expires_at);
     if expires_at_ms.is_nan() {
         return Err(CallbackError::new("The SSO session token is invalid"));
     }

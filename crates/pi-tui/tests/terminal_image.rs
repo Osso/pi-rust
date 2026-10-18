@@ -1,8 +1,5 @@
 use std::sync::Mutex;
 
-#[path = "support/base64.rs"]
-mod base64;
-
 use pi_tui::terminal_image::{
     CellDimensions, ImageCellSize, ImageDimensions, ImageProtocol, ImageRenderOptions, Iterm2Size,
     TerminalCapabilities, TerminalEnvironment, calculate_image_cell_size, calculate_image_rows, crop_kitty_image_line,
@@ -466,7 +463,7 @@ fn reads_png_dimensions() {
     bytes.extend_from_slice(b"IHDR");
     bytes.extend_from_slice(&640u32.to_be_bytes());
     bytes.extend_from_slice(&480u32.to_be_bytes());
-    let encoded = base64::encode(&bytes);
+    let encoded = pi_js_compat::base64::btoa(&bytes);
     assert_eq!(
         get_png_dimensions(&encoded),
         Some(ImageDimensions {
@@ -480,7 +477,7 @@ fn reads_png_dimensions() {
 #[test]
 fn reads_jpeg_dimensions() {
     let bytes = [0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x64, 0x00, 0xc8, 0x00];
-    let encoded = base64::encode(&bytes);
+    let encoded = pi_js_compat::base64::btoa(&bytes);
     assert_eq!(
         get_jpeg_dimensions(&encoded),
         Some(ImageDimensions {
@@ -497,7 +494,7 @@ fn reads_gif_dimensions() {
     bytes.extend_from_slice(&320u16.to_le_bytes());
     bytes.extend_from_slice(&240u16.to_le_bytes());
     bytes.extend_from_slice(&[0, 0, 0, 0]);
-    let encoded = base64::encode(&bytes);
+    let encoded = pi_js_compat::base64::btoa(&bytes);
     assert_eq!(
         get_gif_dimensions(&encoded),
         Some(ImageDimensions {
@@ -518,7 +515,7 @@ fn reads_webp_dimensions() {
     vp8x.extend_from_slice(&[0, 0, 0, 0]);
     vp8x.extend_from_slice(&[0x3f, 0x02, 0x00]);
     vp8x.extend_from_slice(&[0x8f, 0x01, 0x00]);
-    let encoded = base64::encode(&vp8x);
+    let encoded = pi_js_compat::base64::btoa(&vp8x);
     assert_eq!(
         get_webp_dimensions(&encoded),
         Some(ImageDimensions {
@@ -536,7 +533,7 @@ fn reads_webp_dimensions() {
     let bits: u32 = (639) | ((479) << 14);
     vp8l.extend_from_slice(&bits.to_le_bytes());
     vp8l.extend_from_slice(&[0; 5]);
-    let encoded = base64::encode(&vp8l);
+    let encoded = pi_js_compat::base64::btoa(&vp8l);
     assert_eq!(
         get_webp_dimensions(&encoded),
         Some(ImageDimensions {
@@ -552,7 +549,7 @@ fn reads_webp_dimensions() {
     vp8.extend_from_slice(&[0; 10]);
     vp8.extend_from_slice(&300u16.to_le_bytes());
     vp8.extend_from_slice(&200u16.to_le_bytes());
-    let encoded = base64::encode(&vp8);
+    let encoded = pi_js_compat::base64::btoa(&vp8);
     assert_eq!(
         get_webp_dimensions(&encoded),
         Some(ImageDimensions {
@@ -567,7 +564,7 @@ fn reads_webp_dimensions() {
 #[test]
 fn dispatches_image_dimensions_by_mime_type() {
     let bytes = [0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x64, 0x00, 0xc8, 0x00];
-    let encoded = base64::encode(&bytes);
+    let encoded = pi_js_compat::base64::btoa(&bytes);
     assert_eq!(
         get_image_dimensions(&encoded, "image/jpeg"),
         Some(ImageDimensions {

@@ -8,9 +8,9 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
-use pi_ai::js_number;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{JsonObject, Usage};
+use pi_js_compat::number as js_number;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

@@ -1,5 +1,3 @@
-#[path = "support/base64.rs"]
-mod base64;
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -173,16 +171,16 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         bytes.extend_from_slice(b"IHDR");
         bytes.extend_from_slice(&640u32.to_be_bytes());
         bytes.extend_from_slice(&480u32.to_be_bytes());
-        base64::encode(&bytes)
+        pi_js_compat::base64::btoa(&bytes)
     };
-    let jpeg = base64::encode(&[0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x64, 0x00, 0xc8, 0x00]);
-    let jpeg_short = base64::encode(&[0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x64, 0x00, 0xc8]);
+    let jpeg = pi_js_compat::base64::btoa(&[0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x64, 0x00, 0xc8, 0x00]);
+    let jpeg_short = pi_js_compat::base64::btoa(&[0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x64, 0x00, 0xc8]);
     let gif = {
         let mut bytes = b"GIF89a".to_vec();
         bytes.extend_from_slice(&320u16.to_le_bytes());
         bytes.extend_from_slice(&240u16.to_le_bytes());
         bytes.extend_from_slice(&[0, 0, 0, 0]);
-        base64::encode(&bytes)
+        pi_js_compat::base64::btoa(&bytes)
     };
     let vp8x = {
         let mut bytes = b"RIFF".to_vec();
@@ -193,7 +191,7 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         bytes.extend_from_slice(&[0, 0, 0, 0]);
         bytes.extend_from_slice(&[0x3f, 0x02, 0x00]);
         bytes.extend_from_slice(&[0x8f, 0x01, 0x00]);
-        base64::encode(&bytes)
+        pi_js_compat::base64::btoa(&bytes)
     };
     let vp8l = {
         let mut bytes = b"RIFF".to_vec();
@@ -204,7 +202,7 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         bytes.push(0x2f);
         bytes.extend_from_slice(&((639u32) | ((479u32) << 14)).to_le_bytes());
         bytes.extend_from_slice(&[0; 5]);
-        base64::encode(&bytes)
+        pi_js_compat::base64::btoa(&bytes)
     };
     let vp8 = {
         let mut bytes = b"RIFF".to_vec();
@@ -214,7 +212,7 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         bytes.extend_from_slice(&[0; 10]);
         bytes.extend_from_slice(&300u16.to_le_bytes());
         bytes.extend_from_slice(&200u16.to_le_bytes());
-        base64::encode(&bytes)
+        pi_js_compat::base64::btoa(&bytes)
     };
     let dimension_cases = vec![
         json!({ "data": png, "mimeType": "image/png" }),

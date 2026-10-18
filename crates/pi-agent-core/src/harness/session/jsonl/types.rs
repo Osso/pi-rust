@@ -5,9 +5,9 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use pi_ai::js_number;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::JsonObject;
+use pi_js_compat::number as js_number;
 use serde::{Deserialize, Serialize};
 
 use crate::harness::session::types::{JsonValue, SessionCreateOptions};

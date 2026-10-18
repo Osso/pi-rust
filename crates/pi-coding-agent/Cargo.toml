@@ -47,9 +47,8 @@ clipboard-rs = "=0.3.4"
 rustix = { version = "=1.1.5", features = ["fs", "process"] }
 # Parses the catalog response `Last-Modified` header (Node `Date.parse`).
 httpdate = "=1.0.3"
-jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-system"] }
-icu_collator = { version = "=2.3.1", features = ["compiled_data"] }
-icu_locale_core = "=2.3.0"
+# Shared JS Date.parse/localeCompare/Base64/number semantics.
+pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }
 
 [dev-dependencies]
 tempfile = "=3.27.0"

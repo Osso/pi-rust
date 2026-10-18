@@ -7,8 +7,8 @@
 
 use std::borrow::Cow;
 
-use pi_agent_core::harness::tools::image::decode_base64;
 use pi_ai::types::{ImageContent, TextContent, TextOrImageContent};
+use pi_js_compat::base64::buffer_from_base64;
 
 use crate::utils::image_process::{ProcessImageOptions, ProcessImageResult, process_image};
 
@@ -41,7 +41,7 @@ pub async fn normalize_tool_result_images<'a>(
         };
 
         let processed = process_image(
-            &decode_base64(&image.data),
+            &buffer_from_base64(&image.data),
             &image.mime_type,
             Some(ProcessImageOptions {
                 auto_resize_images,

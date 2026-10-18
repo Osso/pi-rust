@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/session-health.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Differential proof: request `27008` runs the pinned module and the Rust port over the same fixtures: empty/sticky/eligible records, `endSessionHealth`, three `advanceGenerationForPid` transitions (new pid, same pid, zero generation), ten `parseGoalObjective` values, and 42 `deriveLiveStatus` timestamp cases covering UTC, offsets, `Z`-less date-only, `Date.parse` normalization (Feb 31 → Mar 3), hour 24, invalid fields, lowercase `t`/`z`, extended years, and RFC-2822/free-form strings. Focused tests: `crates/pi-coding-agent/tests/session_health.rs` and `crates/pi-coding-agent/tests/iso_time.rs`.
+Differential proof: request `27008` runs the pinned module and the Rust port over the same fixtures: empty/sticky/eligible records, `endSessionHealth`, three `advanceGenerationForPid` transitions (new pid, same pid, zero generation), ten `parseGoalObjective` values, and 42 `deriveLiveStatus` timestamp cases covering UTC, offsets, `Z`-less date-only, `Date.parse` normalization (Feb 31 → Mar 3), hour 24, invalid fields, lowercase `t`/`z`, extended years, and RFC-2822/free-form strings. Focused tests: `crates/pi-coding-agent/tests/session_health.rs`, `crates/pi-coding-agent/tests/iso_time.rs`, and the shared parser proof in `crates/pi-js-compat/tests/{date,differential_date_parse}.rs`.
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
@@ -22,16 +22,16 @@ Differential proof: request `27008` runs the pinned module and the Rust port ove
 
 ## Date parsing boundary
 
-`Date.parse` supports far more than ISO 8601. `utils::iso_time::parse_javascript_date` implements the ECMAScript date-time string format — including `T`/space separators, optional seconds and fraction, `Z`/`±HH:MM`/`±HHMM` offsets, extended years, `MakeDay` normalization, and `24:00` — which covers every value the store produces (`toISOString`).
+`Date.parse` supports far more than ISO 8601. `pi_js_compat::date::date_parse` implements the ECMAScript date-time string format — including `T`/space separators, optional seconds and fraction, `Z`/`±HH:MM`/`±HHMM` offsets, extended years, `MakeDay` normalization, and `24:00` — which covers every value the store produces (`toISOString`).
 
 Gap: RFC 2822 (`Thu, 01 Jan 2026 00:00:00 GMT`) and V8's free-form fallback (`Jan 1 2026`) are **not** parsed and yield "ended"/"idle" status. The source's own data never produces them.
 
 ## Discrepancies
 
 - `Date.parse` returns `NaN` for unparseable values, which `deriveLiveStatus` treats as idle; the Rust parser returns `None` for the same inputs. No behavior change.
-- Offset-less date-times resolve local time through `jiff`'s system time zone (tzdata) instead of V8's zone rules; both consult the host zone and the differential case runs in the same zone.
+- Offset-less date-times resolve local time through `jiff`'s system time zone (tzdata), including V8-compatible gap/fold disambiguation; the differential case runs in the same zone.
 
 ## Proof inventory
 
-- Focused cases: 10 (session health) + 4 (iso_time).
+- Focused cases: 10 (session health) + 2 (iso_time formatting/round-trip) + shared date parser differential.
 - Differential request: `27008`, 42 live-status cases plus record/goal fixtures.

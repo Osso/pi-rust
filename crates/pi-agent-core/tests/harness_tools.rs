@@ -1,5 +1,6 @@
 //! Behavioral port of `packages/agent/test/harness/tools.test.ts`.
 
+use pi_js_compat::base64::buffer_from_base64;
 use std::collections::HashMap;
 use std::os::unix::fs::symlink;
 use std::sync::{Arc, Mutex};
@@ -195,7 +196,7 @@ const PNG_BASE64: &str =
 #[tokio::test]
 async fn read_detects_images_and_omits_bmp_without_a_processor() {
     let (_root, context) = temp_env();
-    let png = decode_base64(PNG_BASE64);
+    let png = buffer_from_base64(PNG_BASE64);
     context
         .env
         .write_file(
@@ -790,33 +791,6 @@ async fn bash_returns_no_output_placeholder() {
         .unwrap();
     assert_eq!(text_output(&result), "(no output)");
     assert!(result.details.is_none());
-}
-
-fn decode_base64(value: &str) -> Vec<u8> {
-    let mut output = Vec::new();
-    let mut accumulator = 0u32;
-    let mut bits = 0u32;
-    for byte in value.bytes() {
-        if byte == b'=' {
-            break;
-        }
-        let digit = match byte {
-            b'A'..=b'Z' => byte - b'A',
-            b'a'..=b'z' => byte - b'a' + 26,
-            b'0'..=b'9' => byte - b'0' + 52,
-            b'+' => 62,
-            b'/' => 63,
-            _ => continue,
-        };
-        accumulator = (accumulator << 6) | u32::from(digit);
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            output.push((accumulator >> bits) as u8);
-            accumulator &= (1 << bits) - 1;
-        }
-    }
-    output
 }
 
 fn tiny_bmp() -> Vec<u8> {

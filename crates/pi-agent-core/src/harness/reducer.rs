@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
 use pi_ai::types::{AssistantMessage, DeferredHandle, StopReason, ToolCall};
+use pi_js_compat::number::js_number_to_string;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::AgentMessage;
@@ -154,7 +155,7 @@ pub struct ToolBatchState {
 #[serde(rename_all = "camelCase")]
 pub struct LaneStepState {
     pub kind: StepKind,
-    #[serde(serialize_with = "pi_ai::js_number::serialize")]
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub attempts: f64,
     pub result_entry_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -835,8 +836,8 @@ fn validate_attempt_sequence(
             format!(
                 "{} attempt {id} is {}; expected {}",
                 step_literal(*step),
-                js_number(*attempt),
-                js_number(expected_attempt)
+                js_number_to_string(*attempt),
+                js_number_to_string(expected_attempt)
             ),
         ));
     }
@@ -926,13 +927,13 @@ fn validate_tool_start(
     else {
         return Ok(());
     };
-    let invocation = format!("{assistant_entry_id}\u{0}{}", js_number(*tool_index));
+    let invocation = format!("{assistant_entry_id}\u{0}{}", js_number_to_string(*tool_index));
     if !invocations.insert(invocation) {
         return Err(corrupt(
             RecordLogCorruptionReason::DuplicateToolInvocation,
             format!(
                 "Tool invocation {assistant_entry_id}:{} is duplicated",
-                js_number(*tool_index)
+                js_number_to_string(*tool_index)
             ),
         ));
     }
@@ -1366,11 +1367,4 @@ fn tool_index_ordinal(value: f64) -> Option<usize> {
     } else {
         None
     }
-}
-
-fn js_number(value: f64) -> String {
-    if value.is_finite() && value.fract() == 0.0 && value.abs() < 1e21 {
-        return (value as i128).to_string();
-    }
-    value.to_string()
 }

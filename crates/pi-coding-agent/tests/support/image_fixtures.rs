@@ -16,11 +16,11 @@ pub const TINY_PNG_1X1: &str =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
 
 pub fn decode(value: &str) -> Vec<u8> {
-    pi_agent_core::harness::tools::image::decode_base64(value)
+    pi_js_compat::base64::buffer_from_base64(value)
 }
 
 pub fn encode(bytes: &[u8]) -> String {
-    pi_agent_core::harness::tools::image::encode_base64(bytes)
+    pi_js_compat::base64::buffer_to_base64(bytes)
 }
 
 /// Encodes an RGBA checkerboard PNG whose pixels are all distinct.

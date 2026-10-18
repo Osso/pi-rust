@@ -19,7 +19,7 @@ Agent-core exposes two pure internal helpers ported from `packages/agent/src/har
 
 ### API boundary
 
-- [x] Expose only `pi_agent_core::harness::tools::image::{detect_supported_image_mime_type, encode_base64}` with no harness-root or tools-root re-exports.
+- [x] Expose only `pi_agent_core::harness::tools::image::detect_supported_image_mime_type`; Base64 encoding is `pi_js_compat::base64::buffer_to_base64`.
 - [x] Keep the helpers pure, standard-library-only, and independent from image decoding, file I/O, and protocol message construction.
 
 ### Differential proof

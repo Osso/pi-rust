@@ -1,6 +1,6 @@
 # terminal-image.ts traceability
 
-Source: `packages/tui/src/terminal-image.ts` (657 lines). Rust: `crates/pi-tui/src/terminal_image.rs`, internal Base64 support in `crates/pi-tui/src/base64.rs`.
+Source: `packages/tui/src/terminal-image.ts` (657 lines). Rust: `crates/pi-tui/src/terminal_image.rs`, Base64 support from `crates/pi-js-compat/src/base64.rs`.
 
 Differential oracle: `oracle/tui-leaves-oracle.ts` (`terminal_image_*`). Tests: `crates/pi-tui/tests/terminal_image.rs`, `crates/pi-tui/tests/differential_terminal_image.rs`.
 
@@ -69,7 +69,7 @@ Differential oracle: `oracle/tui-leaves-oracle.ts` (`terminal_image_*`). Tests: 
 - Capability detection reads a `TerminalEnvironment` snapshot instead of `process.env` directly. `TerminalEnvironment::from_process()` supplies the process values; the explicit variant exists so tests and the differential oracle can exercise the matrix without mutating global process state. Behavior matches the source branch order exactly.
 - `probeTmuxHyperlinks` runs `tmux display-message -p '#{client_termfeatures}'` with a 250 ms bounded wait (spawn + poll + kill), then checks for a trimmed `hyperlinks` feature. Errors return `false`.
 - Kitty IDs are allocated from a `RandomState`-derived value in `[1, 0xfffffffe]`; the source uses `Math.random`. Randomness is not differential-tested; the range is unit-tested.
-- `Buffer.from(base64)` semantics are reproduced by `base64::decode_lenient`: invalid characters are skipped and decoding stops at the first `=`. `Buffer.byteLength(base64, "base64")` is reproduced by `base64::decoded_len`.
+- `Buffer.from(base64)` semantics are reproduced by `pi_js_compat::base64::buffer_from_base64`: standard and URL-safe alphabets are accepted, invalid characters are skipped, and decoding stops at the first `=`. `Buffer.byteLength(base64, "base64")` is approximated by `pi_js_compat::base64::buffer_decoded_len` (which counts only standard-alphabet symbols; see the js-compat traceability discrepancy).
 - `pathToFileURL` is reproduced for absolute POSIX paths with percent-encoding of space, `#`, `?`, `%`, and non-ASCII bytes; unreserved and sub-delim characters stay literal (matching Node for tested inputs).
 - `getCellDimensions`/`setCellDimensions` and capability cache are process-global, as in the source; tests serialize access with a mutex.
 

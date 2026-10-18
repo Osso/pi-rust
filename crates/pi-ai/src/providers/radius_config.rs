@@ -24,9 +24,9 @@ pub struct RadiusGatewayModel {
     pub thinking_level_map: Option<ThinkingLevelMap>,
     pub input: Vec<Modality>,
     pub cost: ModelCost,
-    #[serde(serialize_with = "crate::js_number::serialize")]
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub context_window: f64,
-    #[serde(serialize_with = "crate::js_number::serialize")]
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub max_tokens: f64,
 }
 

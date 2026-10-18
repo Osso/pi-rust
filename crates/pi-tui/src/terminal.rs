@@ -159,7 +159,7 @@ pub fn is_terminal_raw_mode_failure(error: &(dyn std::error::Error + 'static)) -
 /// Resolve the escape reassembly timeout from an environment lookup.
 pub fn resolve_escape_timeout_ms(env: &dyn Fn(&str) -> Option<String>) -> f64 {
     if let Some(raw) = env("PI_TUI_ESC_TIMEOUT") {
-        let configured = crate::js_number::parse_number(&raw);
+        let configured = pi_js_compat::number::parse_number(&raw);
         if configured.is_finite() && configured > 0.0 {
             return configured;
         }
@@ -171,7 +171,7 @@ pub fn resolve_escape_timeout_ms(env: &dyn Fn(&str) -> Option<String>) -> f64 {
 }
 
 fn parse_positive_dimension(value: Option<String>) -> Option<usize> {
-    let parsed = crate::js_number::parse_number(&value?);
+    let parsed = pi_js_compat::number::parse_number(&value?);
     if parsed.is_finite() && parsed > 0.0 {
         Some(parsed as usize)
     } else {

@@ -16,7 +16,7 @@ whole-source special values. Comparisons are byte-for-byte on `JSON.stringify(va
 |---|---|
 | `JSON.parse` accepts JSON grammar with only space/tab/LF/CR as whitespace | `Parser`; differential mutations cover BOM, NBSP, control characters |
 | Duplicate keys keep the first position and the last value | `Map::insert`; `parse_keeps_last_duplicate_value_at_first_position` |
-| Numbers become IEEE-754 doubles; `-0` prints as `0`; `1e400` becomes `null` on output | `number_value` + `pi_ai::utils::js_number::js_number_to_string`; `numbers_round_trip_as_javascript_doubles`, differential seeds |
+| Numbers become IEEE-754 doubles; `-0` prints as `0`; `1e400` becomes `null` on output | `number_value` + `pi_js_compat::number::js_number_to_string`; `numbers_round_trip_as_javascript_doubles`, differential seeds |
 | Object keys: array-index keys ascending first, then insertion order | `object_entries`; `stringify_orders_array_index_keys_first_like_javascript_objects` |
 | `JSON.stringify` escapes `"`, `\`, `\b\f\n\r\t`, other C0 as `\u00xx` | `write_string`; `pretty_output_matches_json_stringify_with_two_space_indent` |
 | Pretty output uses two spaces per level and `": "` separators | `stringify_pretty`; same test |

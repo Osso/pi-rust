@@ -1,0 +1,203 @@
+//! Differential proof for `Number`, `parseInt`, `parseFloat`, and `Number::toString`.
+
+#[path = "support/oracle.rs"]
+mod oracle;
+
+use pi_js_compat::number::{js_number_to_string, parse_float, parse_int, parse_number};
+use serde_json::json;
+
+const NUMBER_VALUES: &[&str] = &[
+    "",
+    "  ",
+    "\u{a0}\u{feff}12\u{2028}",
+    "0",
+    "-0",
+    "1.5",
+    " 42 ",
+    ".5",
+    "5.",
+    "1e3",
+    "1E-2",
+    "+7",
+    "-7",
+    "0x1F",
+    "0X1f",
+    "0b101",
+    "0o17",
+    "Infinity",
+    "-Infinity",
+    "+Infinity",
+    "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+    "\u{85}",
+    "-0x10",
+    "0x",
+    "inf",
+    "nan",
+    "NaN",
+    "1_000",
+    "1 2",
+    "12px",
+    "1e",
+    "+-1",
+    "1e999",
+    "-1e999",
+    "0.000001",
+    "1e-7",
+];
+
+const FLOAT_VALUES: &[&str] = &[
+    "  12px",
+    "1.5e3ms",
+    "+7",
+    "-12.5",
+    "0x10",
+    ".5",
+    "5.",
+    "1e",
+    "1e+",
+    "1,5",
+    "0b101",
+    "12 34",
+    "\u{a0}3.25",
+    "\u{feff}2",
+    "Infinityx",
+    "-Infinity",
+    "+Infinity",
+    "1e999",
+    "-1e999",
+    "",
+    "   ",
+    "abc",
+    "infinity",
+    "NaN",
+    ".",
+    "-",
+    "\u{85}3",
+    "e3",
+];
+
+const INT_VALUES: &[(&str, u32)] = &[
+    ("", 10),
+    ("   ", 10),
+    (" 42 ", 10),
+    ("+7", 10),
+    ("-7", 10),
+    ("-0", 10),
+    ("1abc", 10),
+    ("1.9", 10),
+    ("0x10", 10),
+    ("0x10", 16),
+    ("0Xf", 16),
+    ("0x10", 0),
+    ("010", 0),
+    ("z", 36),
+    ("Z", 36),
+    ("2", 2),
+    ("11", 2),
+    ("7", 1),
+    ("7", 37),
+    ("+ 1", 10),
+    ("\u{a0}\u{feff}12\u{2028}", 10),
+];
+
+const NUMBER_STRINGS: &[&str] = &[
+    "0",
+    "-0",
+    "1",
+    "-1",
+    "1.5",
+    "0.1",
+    "0.30000000000000004",
+    "1e20",
+    "1e21",
+    "1.234e21",
+    "1e-6",
+    "1e-7",
+    "5e-324",
+    "1.7976931348623157e308",
+    "123456789012345680000",
+    "100",
+    "1e300",
+    "1e-300",
+    "9007199254740993",
+    "1.2345678901234568e21",
+    "0.000001",
+    "0.0000001",
+    "-1e-7",
+    "1e999",
+    "-1e999",
+    "NaN",
+];
+
+fn normalize_parsed(value: f64) -> String {
+    if value.is_nan() {
+        return "NaN".to_owned();
+    }
+    if value == 0.0 && value.is_sign_negative() {
+        return "-0".to_owned();
+    }
+    js_number_to_string(value)
+}
+
+#[test]
+fn matches_node_number_conversions() {
+    let mut oracle = oracle::TsOracle::spawn("js-compat-oracle.ts", "packages/coding-agent/src/index.ts");
+    let int_values: Vec<_> = INT_VALUES.iter().map(|(value, radix)| json!([value, radix])).collect();
+    let response = oracle.request(&json!({
+        "id": 10,
+        "operation": "number",
+        "number_values": NUMBER_VALUES,
+        "float_values": FLOAT_VALUES,
+        "int_values": int_values,
+        "number_strings": NUMBER_STRINGS,
+    }));
+    assert_eq!(response["ok"], true, "oracle failed: {response}");
+
+    let expected_number: Vec<String> = response["output"]["number"]
+        .as_array()
+        .expect("number array")
+        .iter()
+        .map(|value| value.as_str().expect("string").to_owned())
+        .collect();
+    let actual_number: Vec<String> = NUMBER_VALUES
+        .iter()
+        .map(|value| normalize_parsed(parse_number(value)))
+        .collect();
+    assert_eq!(actual_number, expected_number, "Number(string)");
+
+    let expected_float: Vec<String> = response["output"]["float"]
+        .as_array()
+        .expect("float array")
+        .iter()
+        .map(|value| value.as_str().expect("string").to_owned())
+        .collect();
+    let actual_float: Vec<String> = FLOAT_VALUES
+        .iter()
+        .map(|value| normalize_parsed(parse_float(value)))
+        .collect();
+    assert_eq!(actual_float, expected_float, "parseFloat(string)");
+
+    let expected_int: Vec<String> = response["output"]["int"]
+        .as_array()
+        .expect("int array")
+        .iter()
+        .map(|value| value.as_str().expect("string").to_owned())
+        .collect();
+    let actual_int: Vec<String> = INT_VALUES
+        .iter()
+        .map(|(value, radix)| normalize_parsed(parse_int(value, *radix)))
+        .collect();
+    assert_eq!(actual_int, expected_int, "parseInt(string, radix)");
+
+    let expected_strings: Vec<String> = response["output"]["strings"]
+        .as_array()
+        .expect("strings array")
+        .iter()
+        .map(|value| value.as_str().expect("string").to_owned())
+        .collect();
+    let actual_strings: Vec<String> = NUMBER_STRINGS
+        .iter()
+        .map(|value| js_number_to_string(parse_number(value)))
+        .collect();
+    assert_eq!(actual_strings, expected_strings, "String(Number(string))");
+}
