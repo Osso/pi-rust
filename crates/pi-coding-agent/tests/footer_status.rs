@@ -47,3 +47,9 @@ fn keeps_an_empty_goal_status_line() {
     let statuses = BTreeMap::from([("goal".to_owned(), "  ".to_owned())]);
     assert_eq!(format_extension_status_text_lines(&statuses), vec![String::new()]);
 }
+
+#[test]
+fn keeps_an_empty_other_status_line() {
+    let statuses = BTreeMap::from([("a".to_owned(), "  ".to_owned())]);
+    assert_eq!(format_extension_status_text_lines(&statuses), vec![String::new()]);
+}

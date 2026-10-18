@@ -28,14 +28,17 @@ pub fn sanitize_footer_status_text(text: &str) -> String {
 pub fn format_extension_status_text_lines(statuses: &BTreeMap<String, String>) -> Vec<String> {
     let mut lines = Vec::new();
 
-    let other_status_line = statuses
+    let other_statuses = statuses
         .iter()
         .filter(|(key, _)| key.as_str() != GOAL_STATUS_KEY)
-        .map(|(_, text)| sanitize_footer_status_text(text))
-        .collect::<Vec<_>>()
-        .join(" ");
-    if !other_status_line.is_empty() {
-        lines.push(other_status_line);
+        .collect::<Vec<_>>();
+    if !other_statuses.is_empty() {
+        let line = other_statuses
+            .iter()
+            .map(|(_, text)| sanitize_footer_status_text(text))
+            .collect::<Vec<_>>()
+            .join(" ");
+        lines.push(line);
     }
 
     if let Some(goal) = statuses.get(GOAL_STATUS_KEY) {

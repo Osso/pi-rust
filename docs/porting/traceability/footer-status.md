@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/utils/footer-status.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Differential proof: request `26004` executes the real pinned module across 6 sanitize and 6 line-formatting cases. Focused tests: `crates/pi-coding-agent/tests/footer_status.rs`.
+Differential proof: request `26004` executes the real pinned module across 6 sanitize and 7 line-formatting cases. Focused tests: `crates/pi-coding-agent/tests/footer_status.rs`.
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
@@ -10,7 +10,7 @@ Differential proof: request `26004` executes the real pinned module across 6 san
 | `footer-status.ts:10-12` | Sort status keys with `localeCompare` | `BTreeMap` key order; focused `joins_non_goal_statuses_in_key_order_before_the_goal`; differential ASCII keys |
 | `footer-status.ts:12` | Extract the exact `goal` key | `format_extension_status_text_lines`; focused goal cases |
 | `footer-status.ts:13-17` | Sanitize non-goal texts, join with one space, sanitize the goal | `format_extension_status_text_lines`; focused and differential cases |
-| `footer-status.ts:19` | Return other-status line first, then goal; drop absent lines | Focused empty/only-goal/only-other cases |
+| `footer-status.ts:19` | Return other-status line first, then goal; drop absent lines, but keep an empty line when a status key exists | Focused empty/only-goal/only-other/empty-text cases; differential case 12 |
 
 ## Discrepancies
 
@@ -19,5 +19,5 @@ Differential proof: request `26004` executes the real pinned module across 6 san
 
 ## Proof inventory
 
-- Focused cases: 6.
-- Differential request: `26004`, 12 cases.
+- Focused cases: 7.
+- Differential request: `26004`, 13 cases.

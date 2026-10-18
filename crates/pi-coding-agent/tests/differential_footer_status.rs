@@ -13,7 +13,7 @@ enum Case {
     Lines(&'static [(&'static str, &'static str)]),
 }
 
-const CASES: [Case; 12] = [
+const CASES: [Case; 13] = [
     Case::Sanitize("a\r\n\tb"),
     Case::Sanitize("  hello   world  "),
     Case::Sanitize("\r\n"),
@@ -25,6 +25,7 @@ const CASES: [Case; 12] = [
     Case::Lines(&[("z", "Z"), ("a", "A")]),
     Case::Lines(&[("b", "  B  "), ("goal", "Ship\tit"), ("a", "A")]),
     Case::Lines(&[("goal", "  ")]),
+    Case::Lines(&[("a", "")]),
     Case::Lines(&[("a", ""), ("b", "")]),
 ];
 
