@@ -1,7 +1,5 @@
 //! Port of `packages/ai/src/providers/all.ts`.
 //!
-//! The two `openai-codex` factories belong to the in-flight api-codex slice;
-//! they are the only entries missing from [`builtin_providers`].
 
 use std::sync::Arc;
 
@@ -15,8 +13,8 @@ use crate::providers::{
     groq::groq_provider, huggingface::huggingface_provider, kimi_coding::kimi_coding_provider,
     minimax::minimax_provider, minimax_cn::minimax_cn_provider, mistral::mistral_provider, models_data,
     moonshotai::moonshotai_provider, moonshotai_cn::moonshotai_cn_provider, nvidia::nvidia_provider,
-    openai::openai_provider, opencode::opencode_provider, opencode_go::opencode_go_provider,
-    openrouter::openrouter_provider, qwen_token_plan::qwen_token_plan_provider,
+    openai::openai_provider, openai_codex::openai_codex_provider, opencode::opencode_provider,
+    opencode_go::opencode_go_provider, openrouter::openrouter_provider, qwen_token_plan::qwen_token_plan_provider,
     qwen_token_plan_cn::qwen_token_plan_cn_provider, qwen_token_plan_individual::qwen_token_plan_individual_provider,
     radius::radius_provider, together::together_provider, vercel_ai_gateway::vercel_ai_gateway_provider,
     xai::xai_provider, xiaomi::xiaomi_provider, xiaomi_token_plan_ams::xiaomi_token_plan_ams_provider,
@@ -85,6 +83,8 @@ pub fn builtin_providers() -> Vec<Arc<dyn Provider>> {
         moonshotai_cn_provider(),
         nvidia_provider(),
         openai_provider(),
+        openai_codex_provider(),
+        crate::providers::openai_codex::openai_codex_provider_with_id("openai-codex-gc", "OpenAI Codex (GlobalComix)"),
         opencode_provider(),
         opencode_go_provider(),
         openrouter_provider(),
