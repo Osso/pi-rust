@@ -448,10 +448,10 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/image-convert.ts` | 49 | 2 | todo |  |  |
 | `coding-agent/src/utils/image-resize-core.ts` | 164 | 2 | todo |  |  |
 | `coding-agent/src/utils/windows-self-update.ts` | 84 | 2 | todo |  |  |
-| `coding-agent/src/core/auth-guidance.ts` | 25 | 3 | todo |  |  |
-| `coding-agent/src/core/permissions/rule-store.ts` | 303 | 3 | todo |  |  |
+| `coding-agent/src/core/auth-guidance.ts` | 25 | 3 | done | `crates/pi-coding-agent/src/core/auth_guidance.rs` | Differential oracle for all four messages |
+| `coding-agent/src/core/permissions/rule-store.ts` | 303 | 3 | done | `crates/pi-coding-agent/src/core/rule_store.rs` | In-place settings splice; differential 5 content + 30 write + 9 store steps |
 | `coding-agent/src/core/tools/edit-diff.ts` | 645 | 3 | todo |  |  |
-| `coding-agent/src/core/trust-manager.ts` | 254 | 3 | todo |  |  |
+| `coding-agent/src/core/trust-manager.ts` | 254 | 3 | done | `crates/pi-coding-agent/src/core/trust_manager.rs` | trust.json bytes and 12-step sequence match; shared proper-lockfile protocol |
 | `coding-agent/src/utils/changelog.ts` | 201 | 3 | todo |  |  |
 | `coding-agent/src/utils/image-resize-worker.ts` | 42 | 3 | todo |  |  |
 | `coding-agent/src/utils/image-resize.ts` | 123 | 3 | todo |  |  |

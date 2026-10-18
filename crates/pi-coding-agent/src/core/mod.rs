@@ -1,10 +1,13 @@
+pub mod auth_guidance;
 mod config_value;
 pub mod defaults;
+pub mod rule_store;
 pub mod session_manager;
 pub mod session_tool_output;
 mod skill_block;
 pub mod source_info;
 pub mod tools;
+pub mod trust_manager;
 
 pub use config_value::{
     ConfigValueError, clear_config_value_cache, get_config_value_env_var_name, get_config_value_env_var_names,

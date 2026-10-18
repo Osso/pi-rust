@@ -46,6 +46,20 @@ pub(crate) fn paths_payload() -> Value {
     })
 }
 
+pub(crate) fn guidance_payload() -> Value {
+    use pi_coding_agent::core::auth_guidance;
+    let no_api_key: Vec<String> = ["anthropic", "unknown", ""]
+        .iter()
+        .map(|provider| auth_guidance::format_no_api_key_found_message(provider))
+        .collect();
+    json!({
+        "loginHelp": auth_guidance::get_provider_login_help(),
+        "noModels": auth_guidance::format_no_models_available_message(),
+        "noModelSelected": auth_guidance::format_no_model_selected_message(),
+        "noApiKey": no_api_key,
+    })
+}
+
 pub(crate) fn spawn_child_probe(mode: &str, env_pairs: &[(&str, OsString)]) -> Value {
     let output = child_probe_command(mode, env_pairs)
         .output()
@@ -91,6 +105,7 @@ pub(crate) fn run_child_probe() {
     let mode = std::env::var(MODE_ENV).expect("config child mode must be set");
     let payload = match mode.as_str() {
         "paths" => paths_payload(),
+        "guidance" => guidance_payload(),
         other => panic!("unknown config probe mode {other}"),
     };
     println!("{OUTPUT_PREFIX}{}", serde_json::to_string(&payload).unwrap());
