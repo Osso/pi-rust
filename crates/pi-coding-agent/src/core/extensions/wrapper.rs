@@ -13,7 +13,7 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::runner::ExtensionRunner;
-use super::types::{BoxFuture, RegisteredTool, ToolDefinition};
+use super::types::{BoxFuture, ExtensionContext, HandlerError, RegisteredTool, ToolDefinition};
 
 struct WrappedExtensionTool {
     definition: ToolDefinition,
@@ -127,4 +127,47 @@ pub fn wrap_registered_tools(
         .into_iter()
         .map(|tool| wrap_registered_tool(tool, runner))
         .collect()
+}
+
+/// Adapt an `AgentHarnessTool<ExtensionContext>` into an extension `ToolDefinition`.
+///
+/// First-party coordination tools implement the harness trait; the definition
+/// shape is what `createAllToolDefinitions` exposes to renderers and extensions.
+pub fn harness_tool_definition<T>(tool: Arc<T>) -> ToolDefinition
+where
+    T: pi_agent_core::harness::types::AgentHarnessTool<ExtensionContext> + 'static,
+{
+    let execute_tool = Arc::clone(&tool);
+    let arguments_tool = Arc::clone(&tool);
+    let prepare_tool = Arc::clone(&tool);
+    ToolDefinition {
+        name: tool.name().to_owned(),
+        label: tool.label().to_owned(),
+        description: tool.description().to_owned(),
+        prompt_snippet: None,
+        prompt_guidelines: None,
+        approval_required: None,
+        approval_kind: None,
+        parameters: tool.parameters().clone(),
+        constrained_sampling: None,
+        render_shell: None,
+        prepare_arguments: Some(Arc::new(move |args: &Value| {
+            Ok(arguments_tool.prepare_arguments(args.clone()))
+        })),
+        prepare_execution: Some(Arc::new(move |tool_call_id, signal, _context| {
+            let prepare_tool = Arc::clone(&prepare_tool);
+            Box::pin(async move { Ok(prepare_tool.prepare_execution(tool_call_id, signal).await) })
+        })),
+        execution_mode: tool.execution_mode(),
+        execute: Arc::new(move |tool_call_id, params, signal, on_update, context| {
+            let tool = Arc::clone(&execute_tool);
+            Box::pin(async move {
+                tool.execute(tool_call_id, params, signal, on_update, context, None)
+                    .await
+                    .map_err(|error| HandlerError::new(error.message))
+            })
+        }),
+        render_call: None,
+        render_result: None,
+    }
 }

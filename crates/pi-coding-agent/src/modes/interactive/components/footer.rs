@@ -172,7 +172,19 @@ impl FooterComponent {
                 })
             },
         );
-        let session_manager = self.session.session_manager();
+        let override_manager = self
+            .session_override
+            .as_ref()
+            .and_then(|override_| override_.session_manager.clone());
+        let live_manager = override_manager
+            .is_none()
+            .then(|| self.session.session_manager_handle());
+        let session_manager = match &override_manager {
+            Some(manager) => Some(manager.lock().expect("session manager lock")),
+            None => live_manager
+                .as_ref()
+                .map(|manager| manager.lock().expect("session manager lock")),
+        };
         let mut data = SessionFooterData {
             input: 0.0,
             output: 0.0,
@@ -181,10 +193,14 @@ impl FooterComponent {
             cost: 0.0,
             latest_cache_hit_rate: None,
             context_usage,
-            session_name: session_manager.get_session_name(),
+            session_name: session_manager.as_ref().and_then(|manager| manager.get_session_name()),
         };
         let mut usage_totals = create_usage_totals();
-        for entry in session_manager.get_entries() {
+        let entries = session_manager
+            .as_ref()
+            .map(|manager| manager.get_entries())
+            .unwrap_or_default();
+        for entry in entries {
             if let SessionEntry::Known(KnownSessionEntry::Message(message)) = &entry
                 && let pi_agent_core::agent::AgentMessage::Assistant(assistant) = message.message.as_ref()
             {

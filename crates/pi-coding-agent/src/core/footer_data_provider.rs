@@ -16,6 +16,7 @@ use pi_ai::request::BoxFuture;
 use pi_ai::types::Model;
 use tokio::task::JoinHandle;
 
+use crate::core::session_manager::SessionManager;
 use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, close_watcher, watch_with_error_handler};
 
 /// Debounce for file-system triggered branch refreshes.
@@ -47,13 +48,10 @@ pub struct ContextUsage {
 }
 
 /// Session values overriding the footer for one display cycle.
-///
-/// `session_manager` stays type-erased until the session-manager slice lands;
-/// the footer never reads it, it only carries the value for extension consumers.
 #[derive(Clone)]
 pub struct FooterSessionOverride {
     pub cwd: String,
-    pub session_manager: Option<Arc<dyn std::any::Any + Send + Sync>>,
+    pub session_manager: Option<Arc<Mutex<SessionManager>>>,
     pub model: Option<Model>,
     pub thinking_level: String,
     pub context_usage: Option<ContextUsage>,

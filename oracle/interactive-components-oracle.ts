@@ -322,9 +322,16 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		const footer = new api.FooterComponent(session, footerData);
 		footer.setAutoCompactEnabled(request.autoCompact);
 		if (request.override) {
+			const overrideManager = request.overrideSession
+				? {
+						getSessionName: () => request.overrideSession.sessionName,
+						getCwd: () => request.overrideSession.sessionCwd,
+						getEntries: () => request.overrideSession.entries,
+					}
+				: session.sessionManager;
 			footer.setSessionOverride({
 				cwd: request.override.cwd,
-				sessionManager: session.sessionManager,
+				sessionManager: overrideManager,
 				model: request.override.model,
 				thinkingLevel: request.override.thinkingLevel,
 				contextUsage: request.override.contextUsage,

@@ -1603,19 +1603,71 @@ fn footer_cases() -> Vec<(Value, Value)> {
     use pi_coding_agent::core::footer_data_provider::{ContextUsage, FooterDataProvider, FooterSessionOverride};
     use pi_coding_agent::modes::interactive::components::footer::FooterComponent;
 
-    let variants: Vec<(u64, f64, f64, f64, f64, f64)> = vec![
-        (210, 10_000.0, 2_000.0, 3_000.0, 4_000.0, 0.1234),
-        (211, 0.0, 0.0, 0.0, 0.0, 0.0),
+    struct FooterVariant {
+        id: u64,
+        input: f64,
+        output: f64,
+        cache_read: f64,
+        cache_write: f64,
+        cost: f64,
+        percent: Option<f64>,
+    }
+    let variants = vec![
+        FooterVariant {
+            id: 210,
+            input: 10_000.0,
+            output: 2_000.0,
+            cache_read: 3_000.0,
+            cache_write: 4_000.0,
+            cost: 0.1234,
+            percent: Some(25.0),
+        },
+        FooterVariant {
+            id: 211,
+            input: 0.0,
+            output: 0.0,
+            cache_read: 0.0,
+            cache_write: 0.0,
+            cost: 0.0,
+            percent: Some(75.0),
+        },
+        FooterVariant {
+            id: 212,
+            input: 0.0,
+            output: 0.0,
+            cache_read: 0.0,
+            cache_write: 0.0,
+            cost: 0.0,
+            percent: Some(95.0),
+        },
+        FooterVariant {
+            id: 213,
+            input: 0.0,
+            output: 0.0,
+            cache_read: 0.0,
+            cache_write: 0.0,
+            cost: 0.0,
+            percent: None,
+        },
     ];
     let mut cases = Vec::new();
-    for (index, (id, input, output, cache_read, cache_write, cost)) in variants.into_iter().enumerate() {
+    for (index, variant) in variants.into_iter().enumerate() {
+        let FooterVariant {
+            id,
+            input,
+            output,
+            cache_read,
+            cache_write,
+            cost,
+            percent,
+        } = variant;
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("runtime");
         let _runtime_guard = runtime.enter();
         let directory = tempfile::tempdir().expect("temp dir");
-        let (session, entries) = runtime.block_on(async {
+        let (session, entries, override_manager) = runtime.block_on(async {
             let fixture = crate::agent_session_fixture::fixture(
                 directory.path(),
                 pi_agent_core::harness::types::ThinkingLevel::High,
@@ -1656,9 +1708,58 @@ fn footer_cases() -> Vec<(Value, Value)> {
                     .expect("tool result");
                 serde_json::to_value(manager.get_entries()).expect("entries")
             };
-            (session, entries)
+            let override_dir = directory.path().join("override");
+            std::fs::create_dir_all(&override_dir).expect("override dir");
+            let override_fixture = crate::agent_session_fixture::fixture(
+                &override_dir,
+                pi_agent_core::harness::types::ThinkingLevel::High,
+            )
+            .await;
+            let override_manager = override_fixture.session.session_manager_handle();
+            {
+                let mut manager = override_manager.lock().expect("override manager");
+                manager.append_session_info("Override Session").expect("override name");
+                let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0);
+                assistant.usage.input = 7000.0;
+                assistant.usage.output = 8000.0;
+                assistant.usage.cache_read = 9000.0;
+                assistant.usage.cache_write = 1000.0;
+                assistant.usage.cost.total = 0.5;
+                assistant.stop_reason = StopReason::Stop;
+                manager
+                    .append_message(pi_agent_core::agent::AgentMessage::Assistant(Box::new(assistant)))
+                    .expect("override assistant");
+            }
+            (session, entries, override_manager)
         });
 
+        let override_session = json!({
+            "sessionName": "Override Session",
+            "sessionCwd": "/override",
+            "entries": [{
+                "type": "message",
+                "id": "override-entry",
+                "parentId": null,
+                "timestamp": "2026-01-01T00:00:00.000Z",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "override"}],
+                    "api": "faux",
+                    "provider": "faux",
+                    "model": "faux-1",
+                    "usage": {
+                        "input": 7000,
+                        "output": 8000,
+                        "cacheRead": 9000,
+                        "cacheWrite": 1000,
+                        "totalTokens": 25000,
+                        "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0.5}
+                    },
+                    "stopReason": "stop",
+                    "timestamp": 0
+                }
+            }]
+        });
         let model = footer_model("gpt-x", "openai", true, 200_000.0);
         let override_model: pi_ai::types::Model = serde_json::from_value(model.clone()).expect("model deserializes");
         let width = if index == 0 { 120 } else { 40 };
@@ -1682,12 +1783,13 @@ fn footer_cases() -> Vec<(Value, Value)> {
                 "cwd": "/repo",
                 "model": model,
                 "thinkingLevel": "high",
-                "contextUsage": {
+                "contextUsage": percent.map(|percent| json!({
                     "tokens": 50_000.0,
                     "contextWindow": 200_000.0,
-                    "percent": 25.0
-                }
+                    "percent": percent
+                }))
             },
+            "overrideSession": if index == 0 { override_session } else { Value::Null },
             "width": width,
         });
 
@@ -1697,13 +1799,13 @@ fn footer_cases() -> Vec<(Value, Value)> {
         footer.set_auto_compact_enabled(index == 0);
         footer.set_session_override(FooterSessionOverride {
             cwd: "/repo".to_owned(),
-            session_manager: None,
+            session_manager: (index == 0).then_some(override_manager),
             model: Some(override_model),
             thinking_level: "high".to_owned(),
-            context_usage: Some(ContextUsage {
+            context_usage: percent.map(|percent| ContextUsage {
                 tokens: Some(50_000.0),
                 context_window: 200_000.0,
-                percent: Some(25.0),
+                percent: Some(percent),
             }),
         });
         cases.push((request, json!(footer.render(width))));

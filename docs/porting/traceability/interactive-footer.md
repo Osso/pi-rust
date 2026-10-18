@@ -1,38 +1,43 @@
-# components/footer.ts
+# interactive-footer.ts traceability
 
-Source: `coding-agent/src/modes/interactive/components/footer.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/footer.rs`
+Source: `packages/coding-agent/src/modes/interactive/components/footer.ts`
+Port: `crates/pi-coding-agent/src/modes/interactive/components/footer.rs`
 
-Tests: `crates/pi-coding-agent/tests/interactive_components_c.rs` (footer_*),
-differential `footerHelpers` + `footer` cases (token/cwd helpers and full render lines).
+## Exported symbols
 
-| Symbol / branch | Rust item | Proof |
-|---|---|---|
-| `formatTokens` | `format_tokens` | helper differential + behavioral |
-| `formatCwdForFooter` | `format_cwd_for_footer` | helper differential |
-| `FooterComponent` | `FooterComponent` | differential + behavioral |
-| `setSession` | `set_session` | API surface |
-| `setAutoCompactEnabled` | `set_auto_compact_enabled` | differential (auto indicator) |
-| `setSessionOverride` / `clearSessionOverride` | same-named methods | differential |
-| `invalidate` clears cached data | `Component::invalidate` | render path |
-| `getSessionData` (usage totals, latest cache hit rate, session name, context usage) | `get_session_data` | differential entries |
-| assistant usage | assistant arm | differential ↑/↓/R/W/CH |
-| toolResult usage | tool result arm | differential |
-| branch summary / compaction usage | `add_entry_usage` arms | source parity (not in differential entries) |
-| context window/percent fallbacks | render | differential |
-| pwd + branch + session name | render | behavioral (override) |
-| stats parts (executable, tokens, cache, cost/sub, context, xp) | render | differential + behavioral |
-| model + effort + provider prefix | render | behavioral |
-| width truncation and dim part splitting | render | differential width 40 + behavioral width 16 |
-| extension status lines | render | differential + behavioral |
+| TS export | Rust | Tests |
+| --- | --- | --- |
+| `formatTokens` | `format_tokens` | `footerHelpers` differential, `footer_formats_tokens_like_the_source` |
+| `formatCwdForFooter` | `format_cwd_for_footer` | `footerHelpers` differential, `footer_formats_cwd_relative_to_home` |
+| `FooterComponent` | `FooterComponent` | `footer` differential, `footer_renders_override_stats_context_and_model`, `footer_truncates_to_width_and_appends_extension_status` |
 
-## Gaps
+## Branches
 
-- `branch_summary`/`compaction` usage totals are implemented but not exercised by the
-  differential fixture (AgentSession fixtures append messages only); covered by code review.
-- `usingSubscription` is exercised through `ModelRuntime`; the differential passes
-  `usingSubscription: false`.
+| Branch | Behavior | Coverage |
+| --- | --- | --- |
+| `formatTokens` `< 1000` | raw integer | differential `0`, `999` |
+| `< 10_000` | `(n/1000).toFixed(1)k` | differential `1000`, `1500`, `9999` |
+| `< 1_000_000` | `round(n/1000)k` | differential `10_000`, `12_345`, `999_999` |
+| `< 10_000_000` | `(n/1e6).toFixed(1)M` | differential `1_000_000`, `1_500_000`, `9_999_999` |
+| otherwise | `round(n/1e6)M` | differential `10_000_000`, `12_345_678` |
+| `formatCwdForFooter` inside home | `~` substitution | differential + unit test |
+| outside home | original cwd | differential + unit test |
+| no home | original cwd | differential `None`, `Some("")` |
+| `setSessionOverride` | replaces cwd/model/thinking/usage | `footer` differential index 0 |
+| override `session_manager` | name/entries from override manager | `footer` differential index 0 (`Override Session`, 7k/8k/9k/1k usage) |
+| override without `session_manager` | live session name/entries | `footer` differential index 1 |
+| `clearSessionOverride` | falls back to live session | not covered (gap) |
+| pwd line | `cwd` with `~` shortening | full-render differential |
+| stats line | executable, tokens, cache hit, cost split | full-render differential |
+| context line | percent + context window, `?` when unknown | `footer` differential (25%, unknown) |
+| context color | error > 90%, warning > 70% | `footer` differential (75%, 95%) |
+| model line | model id, `effort`, provider prefix fallback | full-render differential (`effort high`) |
+| extension status lines | `format_extension_status_text_lines` | `footer_truncates_to_width_and_appends_extension_status` |
+| auto-compact enabled | ` (auto)` suffix | `footer` differential index 0 |
+| narrow width | stats/model truncation | `footer` differential index 1 (width 40) |
+| experimental marker | `• xp` suffix | not covered (gap) |
 
 ## Discrepancies
 
-None found.
+None. `FooterContextUsage` mirrors the two fields the renderer consumes
+(`contextWindow`, `percent`); the unused `tokens` field is not carried.
