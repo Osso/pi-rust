@@ -5058,6 +5058,78 @@ fn extension_tool_info(entry: &ToolDefinitionEntry) -> ExtensionToolInfo {
     }
 }
 
+fn send_custom_message_from_extension(
+    session: &AgentSession,
+    message: crate::core::extensions::types::CustomMessagePayload,
+    options: Option<crate::core::extensions::types::SendMessageOptions>,
+) -> Result<(), crate::core::extensions::types::HandlerError> {
+    let content = match message.content {
+        crate::core::extensions::types::CustomMessageContent::Text(text) => CustomMessageContent::Text(text),
+        crate::core::extensions::types::CustomMessageContent::Blocks(blocks) => CustomMessageContent::Blocks(blocks),
+    };
+    let trigger_turn = options
+        .as_ref()
+        .and_then(|options| options.trigger_turn)
+        .unwrap_or(false);
+    let deliver_as = options.as_ref().and_then(|options| options.deliver_as);
+    if deliver_as == Some(MessageDelivery::NextTurn) {
+        session.send_custom_message_next_turn(&message.custom_type, content, message.display, message.details);
+        return Ok(());
+    }
+    let deliver = match deliver_as {
+        Some(MessageDelivery::Steer) => Some(StreamingBehavior::Steer),
+        Some(MessageDelivery::FollowUp) => Some(StreamingBehavior::FollowUp),
+        _ => None,
+    };
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return Ok(());
+    };
+    let session = session.clone();
+    handle.spawn(async move {
+        let _ = session
+            .send_custom_message(
+                &message.custom_type,
+                content,
+                message.display,
+                message.details,
+                trigger_turn,
+                deliver,
+            )
+            .await;
+    });
+    Ok(())
+}
+
+fn send_user_message_from_extension(
+    session: &AgentSession,
+    content: UserMessageContent,
+    options: Option<crate::core::extensions::types::SendUserMessageOptions>,
+) -> Result<(), crate::core::extensions::types::HandlerError> {
+    let content = match content {
+        UserMessageContent::Text(text) => UserContent::Text(text),
+        UserMessageContent::Blocks(blocks) => UserContent::Blocks(blocks),
+    };
+    let deliver_as = options
+        .as_ref()
+        .and_then(|options| options.deliver_as)
+        .map(|delivery| match delivery {
+            UserMessageDelivery::Steer => StreamingBehavior::Steer,
+            UserMessageDelivery::FollowUp => StreamingBehavior::FollowUp,
+        });
+    let expand = options
+        .as_ref()
+        .and_then(|options| options.expand_prompt_templates)
+        .unwrap_or(false);
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return Ok(());
+    };
+    let session = session.clone();
+    handle.spawn(async move {
+        let _ = session.send_user_message(content, deliver_as, expand).await;
+    });
+    Ok(())
+}
+
 fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
     let send_weak = weak.clone();
     let send_message: crate::core::extensions::types::SendMessageHandler = Arc::new(
@@ -5067,41 +5139,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
                 return Ok(());
             };
             let session = AgentSession { inner };
-            let content = match message.content {
-                crate::core::extensions::types::CustomMessageContent::Text(text) => CustomMessageContent::Text(text),
-                crate::core::extensions::types::CustomMessageContent::Blocks(blocks) => {
-                    CustomMessageContent::Blocks(blocks)
-                }
-            };
-            let trigger_turn = options
-                .as_ref()
-                .and_then(|options| options.trigger_turn)
-                .unwrap_or(false);
-            let deliver_as = options.as_ref().and_then(|options| options.deliver_as);
-            if deliver_as == Some(MessageDelivery::NextTurn) {
-                session.send_custom_message_next_turn(&message.custom_type, content, message.display, message.details);
-                return Ok(());
-            }
-            let deliver = match deliver_as {
-                Some(MessageDelivery::Steer) => Some(StreamingBehavior::Steer),
-                Some(MessageDelivery::FollowUp) => Some(StreamingBehavior::FollowUp),
-                _ => None,
-            };
-            if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                handle.spawn(async move {
-                    let _ = session
-                        .send_custom_message(
-                            &message.custom_type,
-                            content,
-                            message.display,
-                            message.details,
-                            trigger_turn,
-                            deliver,
-                        )
-                        .await;
-                });
-            }
-            Ok(())
+            send_custom_message_from_extension(&session, message, options)
         },
     );
     let send_user_weak = weak.clone();
@@ -5111,27 +5149,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
                 return Ok(());
             };
             let session = AgentSession { inner };
-            let content = match content {
-                UserMessageContent::Text(text) => UserContent::Text(text),
-                UserMessageContent::Blocks(blocks) => UserContent::Blocks(blocks),
-            };
-            let deliver_as = options
-                .as_ref()
-                .and_then(|options| options.deliver_as)
-                .map(|delivery| match delivery {
-                    UserMessageDelivery::Steer => StreamingBehavior::Steer,
-                    UserMessageDelivery::FollowUp => StreamingBehavior::FollowUp,
-                });
-            let expand = options
-                .as_ref()
-                .and_then(|options| options.expand_prompt_templates)
-                .unwrap_or(false);
-            if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                handle.spawn(async move {
-                    let _ = session.send_user_message(content, deliver_as, expand).await;
-                });
-            }
-            Ok(())
+            send_user_message_from_extension(&session, content, options)
         },
     );
     let append_weak = weak.clone();
@@ -5529,6 +5547,28 @@ fn refresh_current_model_from_registry(inner: &Arc<Inner>) {
 impl AgentSession {
     fn create_command_context(&self) -> ExtensionCommandContext {
         self.runner().create_command_context()
+    }
+
+    /// `createReplacedSessionContext`.
+    pub fn create_replaced_session_context(&self) -> crate::core::extensions::types::ReplacedSessionContext {
+        let command = self.runner().create_command_context();
+        let send_session = self.clone();
+        let send_message: crate::core::extensions::types::ReplacedSendMessageCallback =
+            Arc::new(move |message, options| {
+                let session = send_session.clone();
+                Box::pin(async move { send_custom_message_from_extension(&session, message, options) })
+            });
+        let send_user_session = self.clone();
+        let send_user_message: crate::core::extensions::types::ReplacedSendUserMessageCallback =
+            Arc::new(move |content, options| {
+                let session = send_user_session.clone();
+                Box::pin(async move { send_user_message_from_extension(&session, content, options) })
+            });
+        crate::core::extensions::types::ReplacedSessionContext {
+            command,
+            send_message,
+            send_user_message,
+        }
     }
 
     fn slash_commands(&self) -> Vec<SlashCommandInfo> {

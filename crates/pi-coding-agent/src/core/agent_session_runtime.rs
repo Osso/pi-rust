@@ -1,8 +1,4 @@
 //! Port of `packages/coding-agent/src/core/agent-session-runtime.ts`.
-//!
-//! Extension `session_before_switch` / `session_before_fork` hooks and
-//! `emitSessionShutdownEvent` are recorded as gaps until the AgentSession
-//! extension wiring lands.
 
 use std::sync::{Arc, Mutex};
 
@@ -13,6 +9,12 @@ use crate::core::agent_session::AgentSession;
 use crate::core::agent_session_services::{
     AgentSessionRuntimeDiagnostic, AgentSessionServices, create_agent_session_from_services,
     create_agent_session_services,
+};
+use crate::core::extensions::emit_session_shutdown_event;
+use crate::core::extensions::runner::EmitResult;
+use crate::core::extensions::types::{
+    ExtensionEvent, ForkPosition as ExtensionForkPosition, SessionBeforeForkEvent, SessionBeforeSwitchEvent,
+    SessionShutdownEvent, SessionShutdownReason, SessionSwitchReason,
 };
 use crate::core::sdk::CreateAgentSessionResult;
 use crate::core::session_control_db::assert_main_session_runtime_available;
@@ -83,12 +85,15 @@ pub struct ForkResult {
 
 /// Session setup callback used by `newSession`.
 pub type SessionSetupCallback = Arc<dyn Fn(&mut SessionManager) -> BoxFuture<'static, ()> + Send + Sync>;
+/// Callback receiving the replacement session context.
+pub type ReplacedSessionCallback =
+    Arc<dyn Fn(crate::core::extensions::types::ReplacedSessionContext) -> BoxFuture<'static, ()> + Send + Sync>;
 
 /// Options for `newSession`.
 pub struct NewSessionOptions {
     pub parent_session: Option<String>,
     pub setup: Option<SessionSetupCallback>,
-    pub with_session: Option<Arc<dyn Fn(AgentSession) -> BoxFuture<'static, ()> + Send + Sync>>,
+    pub with_session: Option<ReplacedSessionCallback>,
 }
 
 /// Owns the current AgentSession plus its cwd-bound services.
@@ -177,24 +182,71 @@ impl AgentSessionRuntime {
         self.model_fallback_message = result.model_fallback_message;
     }
 
-    async fn finish_session_replacement(
-        &self,
-        with_session: Option<Arc<dyn Fn(AgentSession) -> BoxFuture<'static, ()> + Send + Sync>>,
-    ) {
+    async fn finish_session_replacement(&self, with_session: Option<ReplacedSessionCallback>) {
         if let Some(rebind) = &self.rebind_session {
             rebind(self.session.clone()).await;
         }
         if let Some(with_session) = with_session {
-            with_session(self.session.clone()).await;
+            with_session(self.session.create_replaced_session_context()).await;
         }
     }
 
-    async fn teardown_current(&self, _reason: &str, _target_session_file: Option<String>) {
-        let _ = self.session.abort().await;
+    async fn teardown_current(&self, reason: SessionShutdownReason, target_session_file: Option<String>) {
+        self.teardown_current_with(reason, target_session_file, true).await;
+    }
+
+    async fn teardown_current_with(
+        &self,
+        reason: SessionShutdownReason,
+        target_session_file: Option<String>,
+        settle_active_response: bool,
+    ) {
+        if settle_active_response {
+            let _ = self.session.abort().await;
+        }
+        let runner = self.session.extension_runner();
+        emit_session_shutdown_event(
+            &runner,
+            SessionShutdownEvent {
+                reason,
+                target_session_file,
+            },
+        )
+        .await;
         if let Some(handler) = &self.before_session_invalidate {
             handler();
         }
         self.session.dispose();
+    }
+
+    async fn emit_before_switch(&self, reason: SessionSwitchReason, target_session_file: Option<String>) -> bool {
+        let runner = self.session.extension_runner();
+        if !runner.has_handlers("session_before_switch") {
+            return false;
+        }
+        let mut event = ExtensionEvent::SessionBeforeSwitch(SessionBeforeSwitchEvent {
+            reason,
+            target_session_file,
+        });
+        matches!(
+            runner.emit(&mut event).await,
+            EmitResult::SessionBeforeSwitch(result) if result.cancel == Some(true)
+        )
+    }
+
+    async fn emit_before_fork(&self, entry_id: &str, position: ExtensionForkPosition) -> bool {
+        let runner = self.session.extension_runner();
+        if !runner.has_handlers("session_before_fork") {
+            return false;
+        }
+        let mut event = ExtensionEvent::SessionBeforeFork(SessionBeforeForkEvent {
+            entry_id: entry_id.to_owned(),
+            position,
+        });
+        matches!(
+            runner.emit(&mut event).await,
+            EmitResult::SessionBeforeFork(result) if result.cancel == Some(true)
+        )
     }
 
     async fn create_runtime(
@@ -219,8 +271,14 @@ impl AgentSessionRuntime {
         &mut self,
         session_path: &str,
         cwd_override: Option<&str>,
-        with_session: Option<Arc<dyn Fn(AgentSession) -> BoxFuture<'static, ()> + Send + Sync>>,
+        with_session: Option<ReplacedSessionCallback>,
     ) -> Result<SessionTransitionResult, String> {
+        if self
+            .emit_before_switch(SessionSwitchReason::Resume, Some(session_path.to_owned()))
+            .await
+        {
+            return Ok(SessionTransitionResult { cancelled: true });
+        }
         let previous_session_file = self.session.session_file();
         let session_manager =
             SessionManager::open(session_path, None, cwd_override).map_err(|error| error.to_string())?;
@@ -229,8 +287,11 @@ impl AgentSessionRuntime {
         assert_main_session_runtime_available(&control_db_path, session_manager.get_session_id())
             .map_err(|error| error.to_string())?;
         let cwd = session_manager.get_cwd().to_owned();
-        self.teardown_current("resume", session_manager.get_session_file().map(str::to_owned))
-            .await;
+        self.teardown_current(
+            SessionShutdownReason::Resume,
+            session_manager.get_session_file().map(str::to_owned),
+        )
+        .await;
         let result = self
             .create_runtime(&cwd, session_manager, "resume", previous_session_file)
             .await?;
@@ -291,7 +352,8 @@ impl AgentSessionRuntime {
     async fn activate_relocation(&mut self, prepared: PreparedCwdRelocation) -> Result<(), String> {
         let cwd = prepared.session_manager.get_cwd().to_owned();
         let session_file = prepared.session_manager.get_session_file().map(str::to_owned);
-        self.teardown_current("resume", session_file).await;
+        self.teardown_current_with(SessionShutdownReason::Resume, session_file, false)
+            .await;
         let result = self
             .create_runtime(&cwd, prepared.session_manager, "resume", prepared.previous_session_file)
             .await?;
@@ -350,7 +412,8 @@ impl AgentSessionRuntime {
             if let Some(handler) = &self.before_process_restart {
                 handler().await;
             }
-            self.teardown_current("restart", Some(session_file.clone())).await;
+            self.teardown_current(SessionShutdownReason::Restart, Some(session_file.clone()))
+                .await;
             return (self.process_restarter)(ProcessRestartOptions {
                 session_file,
                 prompt: notice.map(str::to_owned),
@@ -380,7 +443,8 @@ impl AgentSessionRuntime {
                 .map_err(|error| error.to_string())?;
         }
         let cwd = session_manager.get_cwd().to_owned();
-        self.teardown_current("restart", current_session_file).await;
+        self.teardown_current(SessionShutdownReason::Restart, current_session_file)
+            .await;
         let result = self
             .create_runtime(&cwd, session_manager, "restart", previous_session_file)
             .await?;
@@ -391,6 +455,9 @@ impl AgentSessionRuntime {
 
     /// Starts a new session.
     pub async fn new_session(&mut self, options: NewSessionOptions) -> Result<SessionTransitionResult, String> {
+        if self.emit_before_switch(SessionSwitchReason::New, None).await {
+            return Ok(SessionTransitionResult { cancelled: true });
+        }
         let previous_session_file = self.session.session_file();
         let (is_persisted, session_dir) = {
             let manager = self.session.session_manager();
@@ -412,8 +479,11 @@ impl AgentSessionRuntime {
                 .map_err(|error| error.to_string())?;
         }
         let cwd = self.cwd().to_owned();
-        self.teardown_current("new", session_manager.get_session_file().map(str::to_owned))
-            .await;
+        self.teardown_current(
+            SessionShutdownReason::New,
+            session_manager.get_session_file().map(str::to_owned),
+        )
+        .await;
         let result = self
             .create_runtime(&cwd, session_manager, "new", previous_session_file)
             .await?;
@@ -438,8 +508,18 @@ impl AgentSessionRuntime {
         &mut self,
         entry_id: &str,
         position: ForkPosition,
-        with_session: Option<Arc<dyn Fn(AgentSession) -> BoxFuture<'static, ()> + Send + Sync>>,
+        with_session: Option<ReplacedSessionCallback>,
     ) -> Result<ForkResult, String> {
+        let extension_position = match position {
+            ForkPosition::Before => ExtensionForkPosition::Before,
+            ForkPosition::At => ExtensionForkPosition::At,
+        };
+        if self.emit_before_fork(entry_id, extension_position).await {
+            return Ok(ForkResult {
+                cancelled: true,
+                selected_text: None,
+            });
+        }
         let selected_entry = self
             .session
             .session_manager()
@@ -487,8 +567,11 @@ impl AgentSessionRuntime {
                     }))
                     .map_err(|error| error.to_string())?;
                 let cwd = self.cwd().to_owned();
-                self.teardown_current("fork", session_manager.get_session_file().map(str::to_owned))
-                    .await;
+                self.teardown_current(
+                    SessionShutdownReason::Fork,
+                    session_manager.get_session_file().map(str::to_owned),
+                )
+                .await;
                 let result = self
                     .create_runtime(&cwd, session_manager, "fork", previous_session_file)
                     .await?;
@@ -511,8 +594,11 @@ impl AgentSessionRuntime {
                 return Err("Failed to create forked session".to_owned());
             }
             let cwd = session_manager.get_cwd().to_owned();
-            self.teardown_current("fork", session_manager.get_session_file().map(str::to_owned))
-                .await;
+            self.teardown_current(
+                SessionShutdownReason::Fork,
+                session_manager.get_session_file().map(str::to_owned),
+            )
+            .await;
             let result = self
                 .create_runtime(&cwd, session_manager, "fork", previous_session_file)
                 .await?;
@@ -546,8 +632,11 @@ impl AgentSessionRuntime {
         }
         let session_manager = self.session.session_manager().clone();
         let cwd = self.cwd().to_owned();
-        self.teardown_current("fork", session_manager.get_session_file().map(str::to_owned))
-            .await;
+        self.teardown_current(
+            SessionShutdownReason::Fork,
+            session_manager.get_session_file().map(str::to_owned),
+        )
+        .await;
         let result = self
             .create_runtime(&cwd, session_manager, "fork", previous_session_file)
             .await?;
@@ -580,6 +669,12 @@ impl AgentSessionRuntime {
             .unwrap_or_default();
         let destination = std::path::Path::new(&session_dir).join(file_name);
         let destination_path = destination.display().to_string();
+        if self
+            .emit_before_switch(SessionSwitchReason::Resume, Some(destination_path.clone()))
+            .await
+        {
+            return Ok(SessionTransitionResult { cancelled: true });
+        }
         let previous_session_file = self.session.session_file();
         if std::fs::canonicalize(&destination_path).ok().as_deref() != std::fs::canonicalize(&resolved).ok().as_deref()
         {
@@ -589,8 +684,11 @@ impl AgentSessionRuntime {
             .map_err(|error| error.to_string())?;
         assert_session_cwd_exists(&session_manager, self.cwd()).map_err(|error| error.to_string())?;
         let cwd = session_manager.get_cwd().to_owned();
-        self.teardown_current("resume", session_manager.get_session_file().map(str::to_owned))
-            .await;
+        self.teardown_current(
+            SessionShutdownReason::Resume,
+            session_manager.get_session_file().map(str::to_owned),
+        )
+        .await;
         let result = self
             .create_runtime(&cwd, session_manager, "resume", previous_session_file)
             .await?;
@@ -616,6 +714,9 @@ pub async fn create_agent_session_runtime(
     session_manager: SessionManager,
 ) -> Result<AgentSessionRuntime, String> {
     assert_session_cwd_exists(&session_manager, cwd).map_err(|error| error.to_string())?;
+    if let Some(control_db_path) = session_manager.get_metadata_control_db_path() {
+        crate::core::detached_job_cleanup::run_detached_job_artifact_cleanup(control_db_path, Some(agent_dir), None);
+    }
     let result = create_runtime(CreateAgentSessionRuntimeOptions {
         cwd: cwd.to_owned(),
         agent_dir: agent_dir.to_owned(),

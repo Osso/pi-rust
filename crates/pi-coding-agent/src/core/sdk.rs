@@ -25,7 +25,9 @@ use crate::core::defaults::DEFAULT_THINKING_LEVEL;
 use crate::core::model_resolver::{FindInitialModelOptions, find_initial_model};
 use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use crate::core::provider_attribution::merge_provider_attribution_headers;
-use crate::core::resource_loader::ResourceLoader;
+use crate::core::resource_loader::{
+    DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader, RulesScope,
+};
 use crate::core::session_manager::{SessionManager, get_default_session_dir};
 use crate::core::settings_manager::SettingsManager;
 use crate::core::tools::DEFAULT_ACTIVE_TOOL_NAMES;
@@ -58,6 +60,10 @@ pub struct CreateAgentSessionOptions {
     /// Rust carrier for the unported `createAllToolDefinitions` default.
     pub base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
     pub resource_loader: Option<Arc<dyn ResourceLoader>>,
+    /// Override runtime-role rule discovery when creating the default loader.
+    pub rules_scope: Option<RulesScope>,
+    /// Inline extension factories loaded by the default loader.
+    pub extension_factories: Vec<InlineExtension>,
     pub session_manager: Option<SessionManager>,
     pub settings_manager: Option<Arc<Mutex<SettingsManager>>>,
     pub control_db_path: Option<String>,
@@ -68,9 +74,16 @@ pub struct CreateAgentSessionOptions {
 /// `CreateAgentSessionResult`.
 pub struct CreateAgentSessionResult {
     pub session: AgentSession,
-    /// Placeholder for `LoadExtensionsResult` (owned by `ca-extensions-api`).
-    pub extensions_result: (),
+    pub extensions_result: crate::core::extensions::types::LoadExtensionsResult,
     pub model_fallback_message: Option<String>,
+}
+
+fn rules_scope_for_runtime_role(role: Option<MultiAgentRuntimeRole>) -> RulesScope {
+    match role {
+        Some(MultiAgentRuntimeRole::Child) => RulesScope::Child,
+        Some(MultiAgentRuntimeRole::Observer) => RulesScope::Shared,
+        _ => RulesScope::Main,
+    }
 }
 
 /// Creates an [`AgentSession`] with the supplied options.
@@ -157,10 +170,28 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
             .as_ref()
             .and_then(|settings| settings.sandbox_profile),
     );
-    let resource_loader = options
-        .resource_loader
-        .clone()
-        .ok_or_else(|| "DefaultResourceLoader is not ported; pass resourceLoader".to_owned())?;
+    let resource_loader = match options.resource_loader.clone() {
+        Some(loader) => loader,
+        None => {
+            let loader = Arc::new(
+                DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+                    cwd: cwd.clone(),
+                    agent_dir: agent_dir.clone(),
+                    settings_manager: Some(Arc::clone(&settings_manager)),
+                    extension_factories: options.extension_factories.clone(),
+                    rules_scope: Some(
+                        options
+                            .rules_scope
+                            .unwrap_or_else(|| rules_scope_for_runtime_role(options.multi_agent_runtime_role)),
+                    ),
+                    ..Default::default()
+                })
+                .map_err(|error| error.to_string())?,
+            );
+            loader.reload().await?;
+            loader
+        }
+    };
 
     let existing_session = session_manager.build_session_context();
     let has_existing_session = !existing_session.messages.is_empty();
@@ -402,7 +433,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         settings_manager: settings,
         cwd,
         scoped_models: options.scoped_models,
-        resource_loader,
+        resource_loader: Arc::clone(&resource_loader),
         model_runtime,
         initial_active_tool_names: Some(initial_active_tool_names),
         allowed_tool_names,
@@ -425,9 +456,10 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         notifier_session.notify_provider_retry(event);
     }));
 
+    let extensions_result = resource_loader.get_extensions();
     Ok(CreateAgentSessionResult {
         session,
-        extensions_result: (),
+        extensions_result,
         model_fallback_message,
     })
 }
