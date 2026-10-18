@@ -54,6 +54,43 @@ pub fn parse_number(input: &str) -> f64 {
     trimmed.parse::<f64>().unwrap_or(f64::NAN)
 }
 
+/// JavaScript `Number.parseInt(string, radix)`: leading whitespace, optional
+/// sign, then the longest digit prefix; `NaN` when no digit is present.
+pub fn parse_int(input: &str, radix: u32) -> f64 {
+    let trimmed = input.trim_start_matches(is_js_whitespace);
+    let (negative, unsigned) = match trimmed.as_bytes().first() {
+        Some(b'+') => (false, &trimmed[1..]),
+        Some(b'-') => (true, &trimmed[1..]),
+        _ => (false, trimmed),
+    };
+    let (digits, radix) = match radix {
+        0 => match unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X")) {
+            Some(hex) => (hex, 16),
+            None => (unsigned, 10),
+        },
+        16 => match unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X")) {
+            Some(hex) => (hex, 16),
+            None => (unsigned, 16),
+        },
+        radix @ 2..=36 => (unsigned, radix),
+        _ => return f64::NAN,
+    };
+
+    let mut value = 0.0;
+    let mut seen_digit = false;
+    for character in digits.chars() {
+        let Some(digit) = character.to_digit(radix) else {
+            break;
+        };
+        value = value * f64::from(radix) + f64::from(digit);
+        seen_digit = true;
+    }
+    if !seen_digit {
+        return f64::NAN;
+    }
+    if negative { -value } else { value }
+}
+
 /// JavaScript `Number.parseFloat(string)`: leading numeric prefix, `NaN` when
 /// the text does not start with a numeric literal.
 pub fn parse_float(input: &str) -> f64 {

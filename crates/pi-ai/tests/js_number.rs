@@ -1,6 +1,41 @@
 //! `parse_number` against values printed by Node 26 `Number(string)`.
 
-use pi_ai::js_number::{date_parse, parse_float, parse_number};
+use pi_ai::js_number::{date_parse, parse_float, parse_int, parse_number};
+
+#[test]
+fn parses_strings_like_javascript_parse_int() {
+    let cases: &[(&str, u32, f64)] = &[
+        ("", 10, f64::NAN),
+        ("   ", 10, f64::NAN),
+        (" 42 ", 10, 42.0),
+        ("+7", 10, 7.0),
+        ("-7", 10, -7.0),
+        ("-0", 10, -0.0),
+        ("1abc", 10, 1.0),
+        ("1.9", 10, 1.0),
+        ("0x10", 10, 0.0),
+        ("0x10", 16, 16.0),
+        ("0Xf", 16, 15.0),
+        ("0x10", 0, 16.0),
+        ("010", 0, 10.0),
+        ("z", 36, 35.0),
+        ("Z", 36, 35.0),
+        ("2", 2, f64::NAN),
+        ("11", 2, 3.0),
+        ("7", 1, f64::NAN),
+        ("7", 37, f64::NAN),
+        ("+ 1", 10, f64::NAN),
+        ("\u{a0}\u{feff}12\u{2028}", 10, 12.0),
+    ];
+    for (input, radix, expected) in cases {
+        let parsed = parse_int(input, *radix);
+        assert_eq!(
+            parsed.to_bits(),
+            expected.to_bits(),
+            "Number.parseInt({input:?}, {radix})"
+        );
+    }
+}
 
 #[test]
 fn parses_strings_like_javascript_number() {

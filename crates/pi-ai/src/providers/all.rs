@@ -25,6 +25,9 @@ use crate::providers::{
 };
 use crate::types::Model;
 
+/// `BuiltinProvider = keyof typeof MODELS`: a generated catalog key.
+pub type BuiltinProvider = String;
+
 /// `getBuiltinModel(provider, modelId)`.
 pub fn get_builtin_model(provider: &str, model_id: &str) -> Option<Model> {
     models_data::builtin_model(provider, model_id)
