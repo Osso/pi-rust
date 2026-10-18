@@ -1,0 +1,55 @@
+#[path = "support/oracle.rs"]
+mod oracle;
+
+use pi_ai::types::ProviderHeaders;
+use pi_ai::utils::headers::{headers_to_record, provider_headers_to_record};
+use serde_json::{Value, json};
+
+fn header_requests() -> Vec<Value> {
+    vec![
+        json!({"id": 0, "operation": "headers", "pairs": [["X-Test", "one"], ["x-test", "two"], ["Accept", "text/plain"]]}),
+        json!({"id": 1, "operation": "headers", "pairs": [["X-Empty", ""]]}),
+        json!({"id": 2, "operation": "headers", "pairs": []}),
+        json!({"id": 6, "operation": "headers", "pairs": [["X-Space", "  padded\t"], ["X-Space", " next "]]}),
+    ]
+}
+
+fn provider_requests() -> Vec<Value> {
+    vec![
+        json!({"id": 3, "operation": "provider", "headers": {"x-keep": "value", "x-drop": null}}),
+        json!({"id": 4, "operation": "provider", "headers": {"x-drop": null}}),
+        json!({"id": 5, "operation": "provider", "headers": null}),
+    ]
+}
+
+#[test]
+fn header_records_match_the_pinned_typescript_module() {
+    let mut oracle = oracle::TsOracle::spawn("headers-oracle.ts", "packages/ai/src/utils/headers.ts");
+    for request in header_requests() {
+        let pairs: Vec<(String, String)> = request["pairs"]
+            .as_array()
+            .expect("pairs")
+            .iter()
+            .map(|pair| {
+                (
+                    pair[0].as_str().expect("name").to_owned(),
+                    pair[1].as_str().expect("value").to_owned(),
+                )
+            })
+            .collect();
+        let observed = json!({"id": request["id"], "ok": true, "output": {"record": headers_to_record(pairs)}});
+        assert_eq!(observed, oracle.request(&request), "request {request}");
+    }
+
+    for request in provider_requests() {
+        let headers: Option<ProviderHeaders> = request["headers"].as_object().map(|object| {
+            object
+                .iter()
+                .map(|(key, value)| (key.clone(), value.as_str().map(str::to_owned)))
+                .collect()
+        });
+        let record = provider_headers_to_record(headers.as_ref());
+        let observed = json!({"id": request["id"], "ok": true, "output": {"record": record}});
+        assert_eq!(observed, oracle.request(&request), "request {request}");
+    }
+}

@@ -50,8 +50,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/anthropic-messages.ts` | 1366 | 1 | todo |  |  |
 | `ai/src/api/azure-openai-responses.ts` | 330 | 1 | todo |  |  |
 | `ai/src/api/bedrock-converse-stream.ts` | 1190 | 1 | todo |  |  |
-| `ai/src/api/constrained-sampling.ts` | 277 | 1 | todo |  |  |
-| `ai/src/api/github-copilot-headers.ts` | 37 | 1 | todo |  |  |
+| `ai/src/api/constrained-sampling.ts` | 277 | 1 | done | `crates/pi-ai/src/api/constrained_sampling.rs` | Strict-schema conversion, grammar sampling, append-only JSON deltas; differential 47 requests. |
+| `ai/src/api/github-copilot-headers.ts` | 37 | 1 | done | `crates/pi-ai/src/api/github_copilot_headers.rs` | Initiator/vision/header builders; differential 16 requests. |
 | `ai/src/api/google-generative-ai.ts` | 521 | 1 | todo |  |  |
 | `ai/src/api/google-shared.ts` | 419 | 1 | todo |  |  |
 | `ai/src/api/google-vertex.ts` | 596 | 1 | todo |  |  |
@@ -63,7 +63,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/openai-responses.ts` | 372 | 1 | todo |  |  |
 | `ai/src/api/pi-messages.ts` | 433 | 1 | todo |  |  |
 | `ai/src/api/simple-options.ts` | 97 | 1 | todo |  |  |
-| `ai/src/api/transform-messages.ts` | 228 | 1 | todo |  |  |
+| `ai/src/api/transform-messages.ts` | 228 | 1 | done | `crates/pi-ai/src/api/transform_messages.rs` | Cross-model thinking/tool-call normalization, image downgrade, synthetic tool results; injected clock; differential 18 scenarios. |
 | `ai/src/auth/context.ts` | 45 | 1 | todo |  |  |
 | `ai/src/auth/credential-store.ts` | 67 | 1 | todo |  |  |
 | `ai/src/auth/resolve.ts` | 205 | 1 | todo |  |  |
@@ -71,12 +71,12 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/models-store.ts` | 45 | 1 | todo |  |  |
 | `ai/src/models.ts` | 953 | 1 | todo |  |  |
 | `ai/src/types.ts` | 846 | 1 | partial | `pi-ai/src/types.rs` | data contracts done; option/callback interfaces → provider runtime slice |
-| `ai/src/utils/deferred-tools.ts` | 39 | 1 | todo |  |  |
-| `ai/src/utils/estimate.ts` | 143 | 1 | todo |  |  |
+| `ai/src/utils/deferred-tools.ts` | 39 | 1 | done | `crates/pi-ai/src/utils/deferred_tools.rs` | Immediate/deferred split with insertion order; differential 6 requests. |
+| `ai/src/utils/estimate.ts` | 143 | 1 | done | `crates/pi-ai/src/utils/estimate.rs` | Context/message/tool estimation, UTF-16 lengths, added-tool accounting; differential 10 requests. |
 | `ai/src/utils/event-stream.ts` | 110 | 1 | done | `pi-ai/src/utils/event_stream.rs` | differential |
-| `ai/src/utils/headers.ts` | 18 | 1 | todo |  |  |
+| `ai/src/utils/headers.ts` | 18 | 1 | done | `crates/pi-ai/src/utils/headers.rs` | `Headers.entries()` normalization and provider header filtering; differential 7 requests. |
 | `ai/src/utils/node-http-proxy.ts` | 112 | 1 | todo |  |  |
-| `ai/src/utils/provider-env.ts` | 52 | 1 | todo |  |  |
+| `ai/src/utils/provider-env.ts` | 52 | 1 | partial | `crates/pi-ai/src/utils/provider_env.rs` | Scoped → process env precedence; Bun `/proc/self/environ` fallback not applicable to native Rust (see traceability). |
 | `ai/src/api/anthropic-messages.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/azure-openai-responses.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/bedrock-converse-stream.lazy.ts` | 30 | 2 | todo |  |  |
@@ -102,15 +102,15 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/image-models.generated.ts` | 639 | 2 | todo |  |  |
 | `ai/src/images-api-registry.ts` | 53 | 2 | todo |  |  |
 | `ai/src/images-models.ts` | 275 | 2 | todo |  |  |
-| `ai/src/model-catalog.ts` | 27 | 2 | todo |  |  |
-| `ai/src/model-types.ts` | 273 | 2 | todo |  |  |
+| `ai/src/model-catalog.ts` | 27 | 2 | done | `crates/pi-ai/src/model_catalog.rs` | Group flattening; `provider` parameter is type-only; differential 4 requests. |
+| `ai/src/model-types.ts` | 273 | 2 | done | `crates/pi-ai/src/types.rs` | Type-only module; all interfaces mapped to existing `types.rs` items, no new code. |
 | `ai/src/providers/cloudflare-auth.ts` | 103 | 2 | todo |  |  |
 | `ai/src/providers/cloudflare-stream.ts` | 28 | 2 | todo |  |  |
 | `ai/src/providers/faux.ts` | 708 | 2 | todo |  |  |
 | `ai/src/providers/radius-config.ts` | 96 | 2 | todo |  |  |
-| `ai/src/utils/overflow.ts` | 181 | 2 | todo |  |  |
-| `ai/src/utils/retry.ts` | 253 | 2 | todo |  |  |
-| `ai/src/utils/text.ts` | 12 | 2 | todo |  |  |
+| `ai/src/utils/overflow.ts` | 181 | 2 | done | `crates/pi-ai/src/utils/overflow.rs` | 26 overflow patterns, non-overflow exclusions, silent and length-stop overflow; differential 40 checks + pattern matrix. |
+| `ai/src/utils/retry.ts` | 253 | 2 | done | `crates/pi-ai/src/utils/retry.rs` | Exact classifier plus async backoff/cancellation/callbacks; differential 45 classifications + 10 scripted loops. |
+| `ai/src/utils/text.ts` | 12 | 2 | done | `crates/pi-ai/src/utils/text.rs` | `contentText` over assistant and tool-result blocks; differential 6 requests. |
 | `ai/src/utils/validation.ts` | 350 | 2 | todo |  |  |
 | `ai/src/api/openrouter-images.lazy.ts` | 10 | 3 | todo |  |  |
 | `ai/src/auth/oauth/radius.ts` | 403 | 3 | todo |  |  |
