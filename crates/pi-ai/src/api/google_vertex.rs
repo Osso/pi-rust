@@ -1,27 +1,23 @@
 //! Port of `packages/ai/src/api/google-vertex.ts`.
 
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use crate::api::google_client::{GoogleClient, GoogleStream};
+use crate::api::google_client::GoogleClient;
 use crate::api::google_generative_ai::GoogleThinkingOptions;
 use crate::api::google_shared::{
-    GoogleRequestError, GoogleRetryOptions, GoogleThinkingLevel, convert_messages, convert_tools, is_thinking_part,
-    map_stop_reason, resolve_google_function_calling_mode, retain_thought_signature, retry_google_request,
-    supports_google_strict_tool_sampling,
+    GoogleRequestError, GoogleRetryOptions, GoogleThinkingLevel, convert_messages, convert_tools,
+    resolve_google_function_calling_mode, retry_google_request, supports_google_strict_tool_sampling,
 };
 use crate::api::lazy::{LazyApi, lazy_api};
 use crate::api::simple_options::build_base_options;
 use crate::http::default_fetch;
-use crate::models::{calculate_cost, clamp_thinking_level};
+use crate::models::clamp_thinking_level;
 use crate::request::{ProviderStreams, SimpleStreamOptions, StreamOptions, error_stream, now_millis};
 use crate::types::{
-    AssistantContent, AssistantMessage, AssistantMessageEvent, Context, DoneReason, ErrorReason, Model,
-    ModelThinkingLevel, ProviderEnv, StopReason, TextContent, ThinkingBudgets, ThinkingContent, ToolCall, Usage,
-    UsageCost,
+    AssistantMessage, AssistantMessageEvent, Context, DoneReason, ErrorReason, Model, ModelThinkingLevel, ProviderEnv,
+    StopReason, ThinkingBudgets,
 };
 use crate::utils::event_stream::{
     AssistantMessageEventSender, AssistantMessageEventStream, create_assistant_message_event_stream,
@@ -30,8 +26,6 @@ use crate::utils::provider_env::get_provider_env_value;
 use crate::utils::sanitize_unicode::sanitize_surrogates;
 
 const GCP_VERTEX_CREDENTIALS_MARKER: &str = "gcp-vertex-credentials";
-
-static TOOL_CALL_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// `GoogleVertexOptions` from the TypeScript adapter.
 #[derive(Clone, Default)]
@@ -242,7 +236,7 @@ async fn run(
     sender.push(AssistantMessageEvent::Start {
         partial: output.clone(),
     });
-    pump_stream(&mut google_stream, output, sender, model)
+    crate::api::google_client::pump_stream(&mut google_stream, output, sender, model)
         .await
         .map_err(|error| error.message)?;
 
@@ -273,202 +267,6 @@ async fn run(
     });
     sender.end(None);
     Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BlockKind {
-    Text,
-    Thinking,
-}
-
-async fn pump_stream(
-    google_stream: &mut GoogleStream,
-    output: &mut AssistantMessage,
-    sender: &AssistantMessageEventSender,
-    model: &Model,
-) -> Result<(), GoogleRequestError> {
-    let mut current: Option<(BlockKind, usize)> = None;
-    while let Some(chunk) = google_stream.next_chunk().await {
-        let chunk = chunk?;
-        if output.response_id.as_deref().unwrap_or_default().is_empty()
-            && let Some(response_id) = chunk.response_id.clone()
-        {
-            output.response_id = Some(response_id);
-        }
-        if let Some(candidate) = chunk.candidates.as_ref().and_then(|candidates| candidates.first()) {
-            if let Some(parts) = candidate.content.as_ref().and_then(|content| content.parts.as_ref()) {
-                for part in parts {
-                    if let Some(text) = &part.text {
-                        let thinking = is_thinking_part(part.thought);
-                        let needs_block = match current {
-                            None => true,
-                            Some((BlockKind::Thinking, _)) => !thinking,
-                            Some((BlockKind::Text, _)) => thinking,
-                        };
-                        if needs_block {
-                            close_block(sender, output, current);
-                            current = Some(open_block(sender, output, thinking));
-                        }
-                        let (kind, index) = current.expect("a block was just opened");
-                        append_text(output, kind, index, text, part.thought_signature.as_deref());
-                        let event = match kind {
-                            BlockKind::Text => AssistantMessageEvent::TextDelta {
-                                content_index: index,
-                                delta: text.clone(),
-                                partial: output.clone(),
-                            },
-                            BlockKind::Thinking => AssistantMessageEvent::ThinkingDelta {
-                                content_index: index,
-                                delta: text.clone(),
-                                partial: output.clone(),
-                            },
-                        };
-                        sender.push(event);
-                    }
-                    if let Some(function_call) = &part.function_call {
-                        if current.is_some() {
-                            close_block(sender, output, current);
-                            current = None;
-                        }
-                        let provided_id = function_call.id.clone();
-                        let duplicate = provided_id.as_ref().is_some_and(|id| {
-                            output
-                                .content
-                                .iter()
-                                .any(|block| matches!(block, AssistantContent::ToolCall(call) if &call.id == id))
-                        });
-                        let tool_call_id = match &provided_id {
-                            Some(id) if !duplicate => id.clone(),
-                            _ => generated_tool_call_id(function_call.name.as_deref().unwrap_or("")),
-                        };
-                        let mut arguments = Map::new();
-                        if let Some(Value::Object(args)) = &function_call.args {
-                            arguments = args.clone();
-                        }
-                        let mut tool_call =
-                            ToolCall::new(tool_call_id, function_call.name.clone().unwrap_or_default(), arguments);
-                        tool_call.thought_signature =
-                            part.thought_signature.clone().filter(|signature| !signature.is_empty());
-                        let index = output.content.len();
-                        output.content.push(AssistantContent::ToolCall(tool_call.clone()));
-                        sender.push(AssistantMessageEvent::ToolCallStart {
-                            content_index: index,
-                            partial: output.clone(),
-                        });
-                        sender.push(AssistantMessageEvent::ToolCallDelta {
-                            content_index: index,
-                            delta: crate::api::google_client::js_json(&Value::Object(tool_call.arguments.clone())),
-                            partial: output.clone(),
-                        });
-                        sender.push(AssistantMessageEvent::ToolCallEnd {
-                            content_index: index,
-                            tool_call,
-                            partial: output.clone(),
-                        });
-                    }
-                }
-            }
-            if let Some(finish_reason) = &candidate.finish_reason {
-                output.raw_stop_reason = Some(finish_reason.clone());
-                output.stop_reason =
-                    map_stop_reason(finish_reason).map_err(|message| GoogleRequestError::new(message, None))?;
-                if output
-                    .content
-                    .iter()
-                    .any(|block| matches!(block, AssistantContent::ToolCall(_)))
-                {
-                    output.stop_reason = StopReason::ToolUse;
-                }
-            }
-        }
-        if let Some(usage) = &chunk.usage_metadata {
-            let cached = usage.cached_content_token_count.unwrap_or(0.0);
-            let thoughts = usage.thoughts_token_count.unwrap_or(0.0);
-            output.usage = Usage {
-                input: usage.prompt_token_count.unwrap_or(0.0) - cached,
-                output: usage.candidates_token_count.unwrap_or(0.0) + thoughts,
-                cache_read: cached,
-                cache_write: 0.0,
-                cache_write_1h: None,
-                reasoning: Some(thoughts),
-                total_tokens: usage.total_token_count.unwrap_or(0.0),
-                cost: UsageCost::default(),
-            };
-            output.usage.cost = calculate_cost(model, &output.usage);
-        }
-    }
-    close_block(sender, output, current);
-    Ok(())
-}
-
-fn open_block(
-    sender: &AssistantMessageEventSender,
-    output: &mut AssistantMessage,
-    thinking: bool,
-) -> (BlockKind, usize) {
-    let index = output.content.len();
-    if thinking {
-        output
-            .content
-            .push(AssistantContent::Thinking(ThinkingContent::new("")));
-        sender.push(AssistantMessageEvent::ThinkingStart {
-            content_index: index,
-            partial: output.clone(),
-        });
-        (BlockKind::Thinking, index)
-    } else {
-        output.content.push(AssistantContent::Text(TextContent::new("")));
-        sender.push(AssistantMessageEvent::TextStart {
-            content_index: index,
-            partial: output.clone(),
-        });
-        (BlockKind::Text, index)
-    }
-}
-
-fn close_block(sender: &AssistantMessageEventSender, output: &AssistantMessage, current: Option<(BlockKind, usize)>) {
-    let Some((kind, index)) = current else {
-        return;
-    };
-    match kind {
-        BlockKind::Text => {
-            if let Some(AssistantContent::Text(text)) = output.content.get(index) {
-                sender.push(AssistantMessageEvent::TextEnd {
-                    content_index: index,
-                    content: text.text.clone(),
-                    partial: output.clone(),
-                });
-            }
-        }
-        BlockKind::Thinking => {
-            if let Some(AssistantContent::Thinking(thinking)) = output.content.get(index) {
-                sender.push(AssistantMessageEvent::ThinkingEnd {
-                    content_index: index,
-                    content: thinking.thinking.clone(),
-                    partial: output.clone(),
-                });
-            }
-        }
-    }
-}
-
-fn append_text(output: &mut AssistantMessage, kind: BlockKind, index: usize, text: &str, signature: Option<&str>) {
-    match (kind, output.content.get_mut(index)) {
-        (BlockKind::Text, Some(AssistantContent::Text(block))) => {
-            block.text.push_str(text);
-            block.text_signature = retain_thought_signature(block.text_signature.as_deref(), signature);
-        }
-        (BlockKind::Thinking, Some(AssistantContent::Thinking(block))) => {
-            block.thinking.push_str(text);
-            block.thinking_signature = retain_thought_signature(block.thinking_signature.as_deref(), signature);
-        }
-        _ => {}
-    }
-}
-
-fn generated_tool_call_id(name: &str) -> String {
-    let counter = TOOL_CALL_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
-    format!("{name}_{}_{counter}", now_millis())
 }
 
 fn build_params(
