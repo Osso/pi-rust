@@ -73,7 +73,7 @@ fn ok_message(model: &Model) -> AssistantMessage {
     message
 }
 
-fn fake_stream(model: &Model, captured: &Arc<Mutex<Vec<Option<String>>>>) -> AssistantMessageEventStream {
+fn fake_stream(model: &Model) -> AssistantMessageEventStream {
     let message = ok_message(model);
     let (sender, stream) = create_assistant_message_event_stream();
     sender.push(AssistantMessageEvent::Start {
@@ -84,7 +84,6 @@ fn fake_stream(model: &Model, captured: &Arc<Mutex<Vec<Option<String>>>>) -> Ass
         message,
     });
     sender.end(None);
-    let _ = captured;
     stream
 }
 
@@ -95,14 +94,14 @@ fn fake_provider(api: &str, captured: Arc<Mutex<Vec<Option<String>>>>) -> ApiPro
         api,
         move |model, _context, options| {
             stream_captured.lock().unwrap().push(options.request.api_key.clone());
-            fake_stream(&model, &stream_captured)
+            fake_stream(&model)
         },
         move |model, _context, options| {
             simple_captured
                 .lock()
                 .unwrap()
                 .push(options.stream.request.api_key.clone());
-            fake_stream(&model, &simple_captured)
+            fake_stream(&model)
         },
     )
 }
@@ -240,14 +239,14 @@ fn stream_simple_injects_the_env_key_and_keeps_reasoning_options() {
                 let captured = Arc::clone(&captured);
                 move |model, _context, options| {
                     captured.lock().unwrap().push(options.request.api_key.clone());
-                    fake_stream(&model, &captured)
+                    fake_stream(&model)
                 }
             },
             move |model, _context, options| {
                 seen.lock()
                     .unwrap()
                     .push((options.stream.request.api_key.clone(), options.reasoning));
-                fake_stream(&model, &captured)
+                fake_stream(&model)
             },
         ),
         None,
@@ -293,17 +292,23 @@ fn unregister_removes_only_the_named_source() {
         get_api_provider("openai-completions").unwrap().api(),
         "openai-completions"
     );
+    reset_api_providers();
+}
+
+#[test]
+fn override_replaces_the_builtin_instance_until_reset() {
+    let _guard = serial();
+    reset_api_providers();
+    let builtin = get_api_provider("openai-responses").expect("builtin");
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    register_api_provider(fake_provider("openai-responses", captured), None);
+    let override_instance = get_api_provider("openai-responses").expect("override");
+    assert!(!Arc::ptr_eq(&builtin, &override_instance));
 
     reset_api_providers();
-    let before = get_api_provider("openai-responses").expect("builtin");
-    register_api_provider(fake_provider("openai-responses", captured), None);
-    assert!(!Arc::ptr_eq(
-        &before,
-        &get_api_provider("openai-responses").expect("override")
-    ));
-    reset_api_providers();
-    let after = get_api_provider("openai-responses").expect("builtin");
-    assert!(!Arc::ptr_eq(&before, &after));
+    let restored = get_api_provider("openai-responses").expect("restored builtin");
+    assert!(!Arc::ptr_eq(&builtin, &restored));
+    assert!(!Arc::ptr_eq(&override_instance, &restored));
 }
 
 #[test]
