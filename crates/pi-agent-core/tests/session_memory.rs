@@ -995,6 +995,27 @@ async fn repository_lifecycle_and_concurrent_writes() {
 }
 
 #[tokio::test]
+async fn lists_sessions_in_creation_order() {
+    let repo = InMemorySessionRepo::new();
+    for id in ["zeta", "alpha", "middle"] {
+        repo.create(SessionCreateOptions {
+            id: Some(id.to_owned()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    }
+    let ids: Vec<String> = repo
+        .list()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|metadata| metadata.id)
+        .collect();
+    assert_eq!(ids, vec!["zeta", "alpha", "middle"]);
+}
+
+#[tokio::test]
 async fn applies_fork_mutations_through_the_state_machine() {
     let mut state = pi_agent_core::harness::session::state::SessionState::new();
     state

@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 #[test]
 fn rejects_corrupt_record_logs_with_the_source_reasons_and_messages() {
     let cases = corruption_cases();
-    assert_eq!(cases.len(), 15);
+    assert_eq!(cases.len(), 16);
     for case in cases {
         let error = validate_record_log(&case.slice).expect_err("slice must be corrupt");
         assert_eq!(error.reason(), case.reason);

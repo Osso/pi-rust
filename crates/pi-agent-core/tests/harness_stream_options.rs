@@ -1,6 +1,6 @@
 //! Behavioral port of the harness orchestration value types in `packages/agent/src/harness/types.ts`.
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::sync::Arc;
 
 use pi_agent_core::agent::{AgentToolResult, ToolError};
@@ -58,10 +58,10 @@ fn stream_option_patch_distinguishes_unchanged_clear_and_set() {
     assert_eq!(clear.headers, OptionalPatch::Clear);
     assert_eq!(clear.metadata, OptionalPatch::Clear);
 
-    let mut headers = std::collections::BTreeMap::new();
+    let mut headers = IndexMap::new();
     headers.insert("keep".to_owned(), Some("value".to_owned()));
     headers.insert("delete".to_owned(), None);
-    let mut metadata = std::collections::BTreeMap::new();
+    let mut metadata = IndexMap::new();
     metadata.insert("keep".to_owned(), Some(json!(1)));
     metadata.insert("delete".to_owned(), None);
     let set = AgentHarnessStreamOptionsPatch {
@@ -163,7 +163,7 @@ async fn tool_context_source_resolves_static_and_provider_values() {
 
 #[test]
 fn patch_headers_use_an_ordered_map() {
-    let mut headers = BTreeMap::new();
+    let mut headers = IndexMap::new();
     headers.insert("b".to_owned(), None);
     headers.insert("a".to_owned(), Some("1".to_owned()));
     let patch = AgentHarnessStreamOptionsPatch {

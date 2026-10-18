@@ -1,6 +1,6 @@
 //! Port of `packages/agent/src/harness/session/memory.ts`.
 
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
@@ -213,7 +213,7 @@ impl SessionStorage<SessionMetadata> for InMemorySessionStorage {
 
 /// In-memory session repository.
 pub struct InMemorySessionRepo {
-    sessions: Mutex<HashMap<String, Arc<InMemorySessionStorage>>>,
+    sessions: Mutex<IndexMap<String, Arc<InMemorySessionStorage>>>,
     clock: Clock,
     id_generator: Arc<dyn IdGenerator>,
 }
@@ -235,7 +235,7 @@ impl InMemorySessionRepo {
 
     pub fn with_clock_and_id_generator(clock: Clock, id_generator: Arc<dyn IdGenerator>) -> Self {
         Self {
-            sessions: Mutex::new(HashMap::new()),
+            sessions: Mutex::new(IndexMap::new()),
             clock,
             id_generator,
         }
@@ -276,7 +276,7 @@ impl InMemorySessionRepo {
     }
 
     pub async fn delete(&self, metadata: &SessionMetadata) -> Result<(), SessionError> {
-        self.sessions.lock().await.remove(&metadata.id);
+        self.sessions.lock().await.shift_remove(&metadata.id);
         Ok(())
     }
 

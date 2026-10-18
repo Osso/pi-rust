@@ -4,7 +4,7 @@
 //! storage record, which reproduces the TypeScript key order: the discriminant
 //! first, the variant fields next, and storage-assigned fields last.
 
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
@@ -308,7 +308,7 @@ pub enum OperationIntent {
         #[serde(skip_serializing_if = "Option::is_none")]
         system_prompt_override: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        resume_data: Option<HashMap<String, JsonValue>>,
+        resume_data: Option<IndexMap<String, JsonValue>>,
     },
     Compaction {
         #[serde(skip_serializing_if = "Option::is_none")]
