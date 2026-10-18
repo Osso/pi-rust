@@ -7,6 +7,8 @@ mod events;
 mod loaders;
 #[path = "differential_harness_core/messages.rs"]
 mod messages;
+#[path = "differential_harness_core/reducer.rs"]
+mod reducer;
 
 #[tokio::test]
 async fn harness_events_messages_and_loaders_match_the_pinned_typescript_source() {
@@ -14,4 +16,5 @@ async fn harness_events_messages_and_loaders_match_the_pinned_typescript_source(
     events::compare_all_fixtures(&mut oracle);
     messages::compare_all_fixtures(&mut oracle);
     loaders::compare_all_fixtures(&mut oracle).await;
+    reducer::compare_all_fixtures(&mut oracle);
 }

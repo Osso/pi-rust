@@ -6,6 +6,7 @@ pub mod messages;
 
 pub use compaction::{CompactionSettings, should_compact};
 pub mod prompt_templates;
+pub mod reducer;
 pub mod session;
 pub use prompt_templates::{
     PromptTemplateDiagnostic, PromptTemplateDiagnosticCode, PromptTemplateDiagnosticType, PromptTemplateLoadResult,
@@ -32,6 +33,11 @@ pub use messages::{
     BranchSummaryRole, COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX, CompactionSummaryOptions,
     CustomMessageContent, bash_execution_to_text, convert_to_llm, create_branch_summary_message,
     create_compaction_summary_message, create_custom_message,
+};
+pub use reducer::{
+    EffectiveLaneConfiguration, LaneModel, LaneOperationState, LaneReductionInput, LaneReductionResult, LaneState,
+    LaneStepState, LaneTargets, NewestOwnState, RecordLogCorruption, RecordLogCorruptionReason, RecordLogSlice,
+    TerminalFailureSource, TerminalFailureState, ToolBatchCall, ToolBatchState, reduce_lane_state, validate_record_log,
 };
 pub use types::{
     AgentHarnessResources, AgentHarnessStreamOptions, AgentHarnessStreamOptionsPatch, AgentHarnessTool,

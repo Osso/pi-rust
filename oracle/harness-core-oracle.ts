@@ -29,6 +29,8 @@ type Request = {
 		timestamp: number | string;
 	};
 	fixture?: Fixture;
+	slice?: unknown;
+	input?: unknown;
 };
 
 type Fixture = {
@@ -89,20 +91,34 @@ type MessagesApi = {
 	): unknown;
 };
 
+type ReducerApi = {
+	validateRecordLog(input: unknown): void;
+	reduceLaneState(input: unknown): unknown;
+};
+
 type Api = {
 	events: EventsApi;
 	messages: MessagesApi;
 	skills: SkillsApi;
 	promptTemplates: PromptTemplatesApi;
 	nodeEnv: NodeExecutionEnvApi;
+	reducer: ReducerApi;
 };
 
 type Response =
 	| { id: RequestId; ok: true; output: unknown }
-	| { id: RequestId; ok: false; error: { name: string; message: string } };
+	| { id: RequestId; ok: false; error: { name: string; message: string; reason?: string } };
 
-function normalizeError(error: unknown): { name: string; message: string } {
-	if (error instanceof Error) return { name: error.name, message: error.message };
+function normalizeError(error: unknown): { name: string; message: string; reason?: string } {
+	if (error instanceof Error) {
+		const normalized: { name: string; message: string; reason?: string } = {
+			name: error.name,
+			message: error.message,
+		};
+		const reason = (error as { reason?: unknown }).reason;
+		if (typeof reason === "string") normalized.reason = reason;
+		return normalized;
+	}
 	return { name: "UnknownError", message: String(error) };
 }
 
@@ -225,6 +241,11 @@ async function execute(request: Request, api: Api): Promise<Response> {
 			return { id: request.id, ok: true, output: api.messages.bashExecutionToText(request.bash ?? {}) };
 		case "convert_to_llm":
 			return { id: request.id, ok: true, output: api.messages.convertToLlm(request.messages ?? []) };
+		case "validate_record_log":
+			api.reducer.validateRecordLog(request.slice);
+			return { id: request.id, ok: true, output: null };
+		case "reduce_lane_state":
+			return { id: request.id, ok: true, output: api.reducer.reduceLaneState(request.input) };
 		case "create_custom_message": {
 			const message = request.customMessage;
 			if (!message) throw new Error("create_custom_message requires customMessage");
@@ -280,16 +301,17 @@ function readSourceModules(): string[] {
 }
 
 async function main(): Promise<void> {
-	const [eventsPath, messagesPath, skillsPath, promptTemplatesPath, nodeEnvPath] = readSourceModules();
-	if (!eventsPath || !messagesPath || !skillsPath || !promptTemplatesPath || !nodeEnvPath) {
-		throw new Error("harness core oracle requires events, messages, skills, prompt-templates and node-env modules");
+	const [eventsPath, messagesPath, skillsPath, promptTemplatesPath, nodeEnvPath, reducerPath] = readSourceModules();
+	if (!eventsPath || !messagesPath || !skillsPath || !promptTemplatesPath || !nodeEnvPath || !reducerPath) {
+		throw new Error("harness core oracle requires events, messages, skills, prompt-templates, node-env and reducer modules");
 	}
 	const events = (await import(pathToFileURL(eventsPath).href)) as EventsApi;
 	const messages = (await import(pathToFileURL(messagesPath).href)) as MessagesApi;
 	const skills = (await import(pathToFileURL(skillsPath).href)) as SkillsApi;
 	const promptTemplates = (await import(pathToFileURL(promptTemplatesPath).href)) as PromptTemplatesApi;
 	const nodeEnv = (await import(pathToFileURL(nodeEnvPath).href)) as NodeExecutionEnvApi;
-	serveRequests({ events, messages, skills, promptTemplates, nodeEnv });
+	const reducer = (await import(pathToFileURL(reducerPath).href)) as ReducerApi;
+	serveRequests({ events, messages, skills, promptTemplates, nodeEnv, reducer });
 }
 
 void main().catch((error: unknown) => {
