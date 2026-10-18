@@ -181,9 +181,10 @@ fn agent_context_and_hook_contexts_are_constructible() {
     let before = BeforeToolCallContext {
         assistant_message: AssistantMessage::empty("api", "provider", "model", 1),
         tool_call: call.clone(),
-        args: json!({}),
+        args: std::sync::Arc::new(std::sync::Mutex::new(json!({}))),
         context: context.clone(),
     };
+    assert_eq!(before.args_snapshot(), json!({}));
     assert_eq!(before.context.system_prompt, "sys");
 
     let stop = ShouldStopAfterTurnContext {

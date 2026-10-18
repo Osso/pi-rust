@@ -6,7 +6,7 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use pi_ai::request::{BoxFuture, SimpleStreamOptions};
 use pi_ai::types::{
@@ -82,6 +82,10 @@ impl AgentError {
 
     pub fn run_aborted() -> Self {
         Self::new("Agent run aborted")
+    }
+
+    pub fn listener_outside_run() -> Self {
+        Self::new("Agent listener invoked outside active run")
     }
 }
 
@@ -346,8 +350,23 @@ pub enum AgentEvent {
 pub struct BeforeToolCallContext {
     pub assistant_message: AssistantMessage,
     pub tool_call: AgentToolCall,
-    pub args: Value,
+    /// Validated arguments. Shared so the hook can mutate them in place, matching
+    /// the TypeScript object-reference semantics; the loop does not revalidate.
+    pub args: Arc<Mutex<Value>>,
     pub context: AgentContext,
+}
+
+impl BeforeToolCallContext {
+    pub fn args_snapshot(&self) -> Value {
+        self.args
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    pub fn set_args(&self, args: Value) {
+        *self.args.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = args;
+    }
 }
 
 /// Partial override returned from `afterToolCall`.
