@@ -632,7 +632,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/spec-validation/src/index.ts` | 34 | 22 | todo |  |  |
 | `coding-agent/src/architect/main.ts` | 308 | 22 | todo |  |  |
 | `coding-agent/src/architect/project-spec.ts` | 70 | 22 | todo |  |  |
-| `coding-agent/src/cli/args.ts` | 481 | 22 | partial |  |  |
+| `coding-agent/src/cli/args.ts` | 481 | 22 | done | `crates/pi-coding-agent/src/cli/args.rs` | `parseArgs`/`printHelp`/`isValidThinkingLevel` plus extension-flag help; 19 focused tests and 47 differential requests ([traceability](traceability/args.md)). |
 | `coding-agent/src/cli/auth-check.ts` | 73 | 22 | todo |  |  |
 | `coding-agent/src/cli/auth-command.ts` | 125 | 22 | partial |  |  |
 | `coding-agent/src/cli/credential-print.ts` | 87 | 22 | todo |  |  |

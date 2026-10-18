@@ -18,6 +18,8 @@ pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }
 pi-tui = { version = "=0.0.0", path = "../pi-tui" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
+# Insertion-ordered map behind the TypeScript `Map` used for unknown CLI flags.
+indexmap = "=2.14.2"
 regex = "=1.13.1"
 gethostname = "=1.1.0"
 serde_yaml_ng = "=0.10.0"
