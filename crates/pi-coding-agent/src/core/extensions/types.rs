@@ -2113,6 +2113,59 @@ pub struct ExtensionHandlers {
     pub input: Vec<HandlerHandle<InputEvent, InputEventResult>>,
 }
 
+impl ExtensionHandlers {
+    /// Number of events with at least one handler: TS `handlers.size`, since
+    /// `on()` creates a map entry only when it pushes a handler.
+    pub fn len(&self) -> usize {
+        self.event_lists_empty().iter().filter(|empty| !**empty).count()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn event_lists_empty(&self) -> [bool; 36] {
+        [
+            self.project_trust.is_empty(),
+            self.resources_discover.is_empty(),
+            self.session_start.is_empty(),
+            self.session_info_changed.is_empty(),
+            self.session_before_switch.is_empty(),
+            self.session_before_fork.is_empty(),
+            self.session_before_compact.is_empty(),
+            self.compaction.is_empty(),
+            self.session_compaction_source.is_empty(),
+            self.session_compact.is_empty(),
+            self.session_shutdown.is_empty(),
+            self.runtime_mailbox.is_empty(),
+            self.session_before_tree.is_empty(),
+            self.session_tree.is_empty(),
+            self.context.is_empty(),
+            self.before_provider_request.is_empty(),
+            self.before_provider_headers.is_empty(),
+            self.after_provider_response.is_empty(),
+            self.before_agent_start.is_empty(),
+            self.agent_start.is_empty(),
+            self.agent_end.is_empty(),
+            self.agent_settled.is_empty(),
+            self.turn_start.is_empty(),
+            self.turn_end.is_empty(),
+            self.message_start.is_empty(),
+            self.message_update.is_empty(),
+            self.message_end.is_empty(),
+            self.tool_execution_start.is_empty(),
+            self.tool_execution_update.is_empty(),
+            self.tool_execution_end.is_empty(),
+            self.model_select.is_empty(),
+            self.thinking_level_select.is_empty(),
+            self.tool_call.is_empty(),
+            self.tool_result.is_empty(),
+            self.user_bash.is_empty(),
+            self.input.is_empty(),
+        ]
+    }
+}
+
 /// Loaded extension with all registered items.
 #[derive(Clone)]
 pub struct Extension {

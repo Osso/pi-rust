@@ -1548,6 +1548,20 @@ async fn session_shutdown_helper_reports_handler_presence() {
 }
 
 #[tokio::test]
+async fn handler_count_is_the_number_of_events_with_handlers() {
+    let runtime = support::runtime();
+    let empty = support::extension(&runtime, "/tmp", "/tmp/empty.ts", |_api| {}).await;
+    let a = support::extension(&runtime, "/tmp", "/tmp/a.ts", |api| {
+        api.on_tool_call(h!(ToolCallEvent, |_e, _c| Ok(None))).unwrap();
+        api.on_tool_call(h!(ToolCallEvent, |_e, _c| Ok(None))).unwrap();
+        api.on_input(h!(InputEvent, |_e, _c| Ok(None))).unwrap();
+    })
+    .await;
+    assert_eq!((empty.handlers.len(), empty.handlers.is_empty()), (0, true));
+    assert_eq!((a.handlers.len(), a.handlers.is_empty()), (2, false));
+}
+
+#[tokio::test]
 async fn cancelled_context_signal_aborts_dispatch() {
     let runtime = support::runtime();
     let a = support::extension(&runtime, "/tmp", "/tmp/a.ts", |api| {
