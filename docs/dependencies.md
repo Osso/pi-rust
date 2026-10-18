@@ -38,6 +38,7 @@ All direct dependencies are exact-pinned.
 - `hmac = 0.12.1` — derives the Bedrock SigV4 signing key and signatures (`HMAC-SHA256`).
 - `sha1 = 0.10.6` — computes the AWS SSO token-cache filename (SHA-1 of the session name or start URL).
 - The Anthropic Messages adapter adds no dependency: its private `@anthropic-ai/sdk` 0.91.1 request path (URL, headers, JSON body, status errors) is built with the existing `serde_json`, `tokio`, and `tokio-util` contracts.
+- `rsa = 0.9.10` (`pem`, `sha2`) — RS256-signs the Google service-account JWT assertion for the Vertex ADC token exchange.
 
 ### `pi-agent-core`
 

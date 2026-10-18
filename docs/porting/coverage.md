@@ -52,9 +52,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/bedrock-converse-stream.ts` | 1190 | 1 | done | `crates/pi-ai/src/api/bedrock_converse_stream.rs` | Full stream/streamSimple, SigV4, event-stream framing, credential/profile chain, retries, custom headers; 16 behavioral + 18-scenario differential oracle |
 | `ai/src/api/constrained-sampling.ts` | 277 | 1 | done | `crates/pi-ai/src/api/constrained_sampling.rs` | Strict-schema conversion, grammar sampling, append-only JSON deltas; differential 47 requests. |
 | `ai/src/api/github-copilot-headers.ts` | 37 | 1 | done | `crates/pi-ai/src/api/github_copilot_headers.rs` | Initiator/vision/header builders; differential 16 requests. |
-| `ai/src/api/google-generative-ai.ts` | 521 | 1 | todo |  |  |
-| `ai/src/api/google-shared.ts` | 419 | 1 | todo |  |  |
-| `ai/src/api/google-vertex.ts` | 596 | 1 | todo |  |  |
+| `ai/src/api/google-generative-ai.ts` | 521 | 1 | done | `crates/pi-ai/src/api/google_generative_ai.rs` | stream/streamSimple, thinking config, tool/stop handling, private `@google/genai` stand-in; 45 differential scenarios + behavioral tests. |
+| `ai/src/api/google-shared.ts` | 419 | 1 | done | `crates/pi-ai/src/api/google_shared.rs` | Message/tool conversion, thought signatures, stop reasons, Google retry policy; 30 ported tests + differential request bodies. |
+| `ai/src/api/google-vertex.ts` | 596 | 1 | done | `crates/pi-ai/src/api/google_vertex.rs` | stream/streamSimple, Vertex URL/project/location rules, API-key vs ADC, service-account JWT + authorized-user token exchange; 21 differential scenarios + behavioral tests. |
 | `ai/src/api/lazy.ts` | 98 | 1 | done | `crates/pi-ai/src/api/lazy.rs` | lazy stream/api, setup errors, declared deferred capabilities; differential setup-error |
 | `ai/src/api/mistral-conversations.ts` | 931 | 1 | done | `crates/pi-ai/src/api/mistral_conversations.rs` | Native chat stream, wire remapping, SSE, reasoning modes, tool-call ID hashing; differential 43 scenarios (requests, events, messages). |
 | `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | todo |  |  |
@@ -81,8 +81,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/azure-openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/azure_openai_responses.rs` | `azure_open_ai_responses_api()` lazy adapter. |
 | `ai/src/api/bedrock-converse-stream.lazy.ts` | 30 | 2 | done | `crates/pi-ai/src/bedrock_provider.rs` | `bedrock_converse_stream_api` + override seam; lazy test |
 | `ai/src/api/cloudflare-gateway-binding.ts` | 192 | 2 | done | `crates/pi-ai/src/api/cloudflare_gateway_binding.rs` | Workers AI binding transport: prefix normalization, provider/endpoint split, header stripping, signal passthrough; differential 11 scenarios. |
-| `ai/src/api/google-generative-ai.lazy.ts` | 4 | 2 | todo |  |  |
-| `ai/src/api/google-vertex.lazy.ts` | 4 | 2 | todo |  |  |
+| `ai/src/api/google-generative-ai.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/google_generative_ai.rs` | `google_generative_ai_api()` lazy wrapper. |
+| `ai/src/api/google-vertex.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/google_vertex.rs` | `google_vertex_api()` lazy wrapper. |
 | `ai/src/api/mistral-conversations.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/mistral_conversations.rs` | `mistral_conversations_api()` wraps `MistralConversationsApi` in `LazyApi`. |
 | `ai/src/api/openai-codex-responses.lazy.ts` | 4 | 2 | todo |  |  |
 | `ai/src/api/openai-completions.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_completions.rs` | `open_ai_completions_api()` lazy adapter. |
