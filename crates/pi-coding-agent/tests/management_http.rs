@@ -1,27 +1,40 @@
 use std::collections::VecDeque;
-use std::io::{Read, Write};
-use std::net::TcpListener;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use pi_coding_agent::utils::management_http::{
-    FetchError, FetchRetryOptions, HttpFetcher, HttpRequest, HttpResponse, UreqFetcher, fetch_with_retry,
-};
+use pi_ai::http::default_fetch;
+use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
+use pi_coding_agent::utils::management_http::{FetchRetryOptions, TIMEOUT_ERROR_MESSAGE, fetch_with_retry};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
+enum Scripted {
+    Status(u16),
+    Fail(&'static str),
+    /// Never completes unless the signal cancels it.
+    Hang,
+}
+
+struct EmptyBody;
+
+impl HttpBody for EmptyBody {
+    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
+        Box::pin(async { None })
+    }
+}
+
 #[derive(Default)]
-struct MockFetcher {
-    results: Mutex<VecDeque<Result<HttpResponse, FetchError>>>,
-    timeouts: Mutex<Vec<Option<Duration>>>,
+struct MockFetch {
+    script: Mutex<VecDeque<Scripted>>,
     calls: AtomicUsize,
 }
 
-impl MockFetcher {
-    fn with_results(results: Vec<Result<HttpResponse, FetchError>>) -> Self {
+impl MockFetch {
+    fn with(script: Vec<Scripted>) -> Self {
         Self {
-            results: Mutex::new(results.into()),
-            timeouts: Mutex::new(Vec::new()),
+            script: Mutex::new(script.into()),
             calls: AtomicUsize::new(0),
         }
     }
@@ -29,231 +42,227 @@ impl MockFetcher {
     fn calls(&self) -> usize {
         self.calls.load(Ordering::SeqCst)
     }
-
-    fn timeouts(&self) -> Vec<Option<Duration>> {
-        self.timeouts.lock().expect("timeouts lock").clone()
-    }
 }
 
-impl HttpFetcher for MockFetcher {
-    fn fetch(&self, _request: &HttpRequest, timeout: Option<Duration>) -> Result<HttpResponse, FetchError> {
+impl Fetch for MockFetch {
+    fn fetch(
+        &self,
+        _request: HttpRequest,
+        signal: Option<CancellationToken>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        self.timeouts.lock().expect("timeouts lock").push(timeout);
-        self.results
-            .lock()
-            .expect("results lock")
-            .pop_front()
-            .unwrap_or_else(|| panic!("unexpected fetch call"))
+        let next = self.script.lock().unwrap().pop_front().expect("unexpected fetch call");
+        Box::pin(async move {
+            match next {
+                Scripted::Status(status) => Ok(HttpResponse {
+                    status,
+                    headers: Vec::new(),
+                    body: Box::new(EmptyBody),
+                }),
+                Scripted::Fail(message) => Err(CallbackError::new(message)),
+                Scripted::Hang => {
+                    signal.expect("hanging fetch needs a signal").cancelled().await;
+                    Err(CallbackError::new("This operation was aborted"))
+                }
+            }
+        })
     }
 }
 
-fn ok(status: u16, body: &str) -> Result<HttpResponse, FetchError> {
-    Ok(HttpResponse {
-        status,
-        body: body.as_bytes().to_vec(),
-    })
+fn get(url: &str) -> HttpRequest {
+    HttpRequest {
+        method: "GET".to_owned(),
+        url: url.to_owned(),
+        headers: Vec::new(),
+        body: None,
+    }
 }
 
-fn transport(message: &str) -> Result<HttpResponse, FetchError> {
-    Err(FetchError::Transport(message.to_owned()))
+async fn status_of(fetch: &MockFetch, signal: Option<CancellationToken>, options: FetchRetryOptions) -> u16 {
+    fetch_with_retry(fetch, get("https://example.test"), signal, &options)
+        .await
+        .expect("response")
+        .status
 }
 
-#[test]
-fn retries_a_transient_transport_failure_twice_by_default() {
-    let fetcher = MockFetcher::with_results(vec![
-        transport("fetch failed"),
-        transport("fetch failed"),
-        ok(200, "ok"),
+#[tokio::test]
+async fn retries_a_transient_transport_failure_twice_by_default() {
+    let fetch = MockFetch::with(vec![
+        Scripted::Fail("fetch failed"),
+        Scripted::Fail("fetch failed"),
+        Scripted::Status(200),
     ]);
-
-    let response = fetch_with_retry(
-        &fetcher,
-        &HttpRequest::new("https://example.test"),
-        &FetchRetryOptions::default(),
-    )
-    .expect("eventual response");
-
-    assert_eq!(response.status, 200);
-    assert_eq!(response.body, b"ok");
-    assert_eq!(fetcher.calls(), 3);
+    assert_eq!(status_of(&fetch, None, FetchRetryOptions::default()).await, 200);
+    assert_eq!(fetch.calls(), 3);
 }
 
-#[test]
-fn shares_the_timeout_budget_across_attempts() {
-    let fetcher = MockFetcher::with_results(vec![transport("fetch failed"), ok(200, "ok")]);
-
-    let response = fetch_with_retry(
-        &fetcher,
-        &HttpRequest::new("https://example.test"),
-        &FetchRetryOptions {
-            timeout_ms: Some(1_000),
-            ..FetchRetryOptions::default()
-        },
-    )
-    .expect("eventual response");
-
-    assert_eq!(response.status, 200);
-    assert_eq!(fetcher.calls(), 2);
-    let timeouts = fetcher.timeouts();
-    let first = timeouts[0].expect("first timeout");
-    let second = timeouts[1].expect("second timeout");
-    assert!(first <= Duration::from_millis(1_000));
-    assert!(second > Duration::ZERO);
-    assert!(second <= first);
+#[tokio::test]
+async fn retries_transient_statuses_until_success() {
+    let fetch = MockFetch::with(vec![
+        Scripted::Status(503),
+        Scripted::Status(429),
+        Scripted::Status(200),
+    ]);
+    assert_eq!(status_of(&fetch, None, FetchRetryOptions::default()).await, 200);
+    assert_eq!(fetch.calls(), 3);
 }
 
-#[test]
-fn retries_transient_http_statuses_and_returns_the_successful_response() {
-    let fetcher = MockFetcher::with_results(vec![ok(503, "busy"), ok(200, "ok")]);
-
-    let response = fetch_with_retry(
-        &fetcher,
-        &HttpRequest::new("https://example.test"),
-        &FetchRetryOptions::default(),
-    )
-    .expect("eventual response");
-
-    assert_eq!(response.status, 200);
-    assert_eq!(fetcher.calls(), 2);
+#[tokio::test]
+async fn returns_the_last_transient_status_after_exhausting_retries() {
+    let fetch = MockFetch::with(vec![Scripted::Status(503), Scripted::Status(503)]);
+    let options = FetchRetryOptions {
+        max_retries: Some(1),
+        ..FetchRetryOptions::default()
+    };
+    assert_eq!(status_of(&fetch, None, options).await, 503);
+    assert_eq!(fetch.calls(), 2);
 }
 
-#[test]
-fn returns_the_last_transient_status_after_exhausting_retries() {
-    let fetcher = MockFetcher::with_results(vec![ok(503, "busy"), ok(503, "busy")]);
-
-    let response = fetch_with_retry(
-        &fetcher,
-        &HttpRequest::new("https://example.test"),
-        &FetchRetryOptions {
-            max_retries: Some(1),
-            ..FetchRetryOptions::default()
-        },
-    )
-    .expect("final response");
-
-    assert_eq!(response.status, 503);
-    assert_eq!(fetcher.calls(), 2);
+#[tokio::test]
+async fn does_not_retry_non_transient_statuses() {
+    for status in [200, 404, 501] {
+        let fetch = MockFetch::with(vec![Scripted::Status(status)]);
+        assert_eq!(status_of(&fetch, None, FetchRetryOptions::default()).await, status);
+        assert_eq!(fetch.calls(), 1);
+    }
 }
 
-#[test]
-fn does_not_retry_non_transient_statuses() {
-    let fetcher = MockFetcher::with_results(vec![ok(404, "missing")]);
-
-    let response = fetch_with_retry(
-        &fetcher,
-        &HttpRequest::new("https://example.test"),
-        &FetchRetryOptions::default(),
-    )
-    .expect("response");
-
-    assert_eq!(response.status, 404);
-    assert_eq!(fetcher.calls(), 1);
+#[tokio::test]
+async fn can_disable_status_retries() {
+    let fetch = MockFetch::with(vec![Scripted::Status(503)]);
+    let options = FetchRetryOptions {
+        retry_on_status: false,
+        ..FetchRetryOptions::default()
+    };
+    assert_eq!(status_of(&fetch, None, options).await, 503);
+    assert_eq!(fetch.calls(), 1);
 }
 
-#[test]
-fn can_disable_status_retries() {
-    let fetcher = MockFetcher::with_results(vec![ok(503, "busy")]);
-
-    let response = fetch_with_retry(
-        &fetcher,
-        &HttpRequest::new("https://example.test"),
-        &FetchRetryOptions {
-            retry_on_status: false,
-            ..FetchRetryOptions::default()
-        },
-    )
-    .expect("response");
-
-    assert_eq!(response.status, 503);
-    assert_eq!(fetcher.calls(), 1);
+#[tokio::test]
+async fn transport_failure_exhaustion_returns_the_last_error() {
+    let fetch = MockFetch::with(vec![Scripted::Fail("first"), Scripted::Fail("second")]);
+    let options = FetchRetryOptions {
+        max_retries: Some(1),
+        ..FetchRetryOptions::default()
+    };
+    let error = fetch_with_retry(&fetch, get("https://example.test"), None, &options)
+        .await
+        .err()
+        .expect("failure");
+    assert_eq!(error.message, "second");
+    assert_eq!(fetch.calls(), 2);
 }
 
-#[test]
-fn caller_cancellation_is_terminal_and_never_calls_the_fetcher() {
-    let token = CancellationToken::new();
-    token.cancel();
-    let fetcher = MockFetcher::with_results(vec![ok(200, "unused")]);
-
+#[tokio::test]
+async fn caller_cancellation_before_start_never_calls_fetch() {
+    let signal = CancellationToken::new();
+    signal.cancel();
+    let fetch = MockFetch::with(vec![Scripted::Status(200)]);
     let error = fetch_with_retry(
-        &fetcher,
-        &HttpRequest::new("https://example.test"),
-        &FetchRetryOptions {
-            cancellation: Some(token),
-            ..FetchRetryOptions::default()
-        },
+        &fetch,
+        get("https://example.test"),
+        Some(signal),
+        &FetchRetryOptions::default(),
     )
-    .expect_err("cancelled request");
-
-    assert_eq!(error, FetchError::Cancelled);
-    assert_eq!(fetcher.calls(), 0);
+    .await
+    .err()
+    .expect("aborted");
+    assert_eq!(error.message, "This operation was aborted");
+    assert_eq!(fetch.calls(), 0);
 }
 
-#[test]
-fn transport_failure_exhaustion_returns_the_last_error() {
-    let fetcher = MockFetcher::with_results(vec![transport("first"), transport("second")]);
-
+#[tokio::test]
+async fn caller_cancellation_in_flight_is_terminal() {
+    let signal = CancellationToken::new();
+    let cancel = signal.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        cancel.cancel();
+    });
+    let fetch = MockFetch::with(vec![Scripted::Hang, Scripted::Status(200)]);
     let error = fetch_with_retry(
-        &fetcher,
-        &HttpRequest::new("https://example.test"),
-        &FetchRetryOptions {
-            max_retries: Some(1),
-            ..FetchRetryOptions::default()
-        },
+        &fetch,
+        get("https://example.test"),
+        Some(signal),
+        &FetchRetryOptions::default(),
     )
-    .expect_err("transport failure");
-
-    assert_eq!(error, FetchError::Transport("second".to_owned()));
-    assert_eq!(fetcher.calls(), 2);
+    .await
+    .err()
+    .expect("aborted");
+    assert_eq!(error.message, "This operation was aborted");
+    assert_eq!(fetch.calls(), 1);
 }
 
-#[test]
-fn zero_or_absent_timeout_imposes_no_deadline() {
-    let fetcher = MockFetcher::with_results(vec![ok(200, "ok")]);
-    let response = fetch_with_retry(
-        &fetcher,
-        &HttpRequest::new("https://example.test"),
-        &FetchRetryOptions {
-            timeout_ms: Some(0),
-            ..FetchRetryOptions::default()
-        },
-    )
-    .expect("response");
-    assert_eq!(response.status, 200);
-    assert_eq!(fetcher.timeouts(), vec![None]);
+#[tokio::test]
+async fn timeout_is_one_budget_shared_by_all_attempts_and_terminal() {
+    let fetch = MockFetch::with(vec![
+        Scripted::Fail("fetch failed"),
+        Scripted::Hang,
+        Scripted::Status(200),
+    ]);
+    let options = FetchRetryOptions {
+        timeout_ms: Some(30),
+        ..FetchRetryOptions::default()
+    };
+    let started = std::time::Instant::now();
+    let error = fetch_with_retry(&fetch, get("https://example.test"), None, &options)
+        .await
+        .err()
+        .expect("timed out");
+    assert_eq!(error.message, TIMEOUT_ERROR_MESSAGE);
+    assert_eq!(
+        fetch.calls(),
+        2,
+        "the timeout aborts the in-flight attempt without retrying"
+    );
+    assert!(started.elapsed() < Duration::from_secs(2));
 }
 
-#[test]
-fn ureq_fetcher_retries_a_real_transient_response() {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+#[tokio::test]
+async fn zero_timeout_imposes_no_deadline() {
+    let fetch = MockFetch::with(vec![Scripted::Status(200)]);
+    let options = FetchRetryOptions {
+        timeout_ms: Some(0),
+        ..FetchRetryOptions::default()
+    };
+    assert_eq!(status_of(&fetch, None, options).await, 200);
+}
+
+#[tokio::test]
+async fn default_fetch_retries_a_real_transient_response() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let address = listener.local_addr().expect("address");
-    let requests = std::thread::spawn(move || {
-        for attempt in 0..2 {
-            let (mut stream, _) = listener.accept().expect("accept");
+    let server = tokio::spawn(async move {
+        for (status, body) in [(503, "busy"), (200, "ok")] {
+            let (mut stream, _) = listener.accept().await.expect("accept");
             let mut buffer = [0u8; 1024];
-            let _ = stream.read(&mut buffer);
-            let body = if attempt == 0 { "busy" } else { "ok" };
-            let status = if attempt == 0 { 503 } else { 200 };
-            write!(
-                stream,
+            let _ = stream.read(&mut buffer).await;
+            let response = format!(
                 "HTTP/1.1 {status} TEST\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
-            )
-            .expect("write response");
+            );
+            stream.write_all(response.as_bytes()).await.expect("write response");
         }
     });
 
-    let fetcher = UreqFetcher::new();
-    let response = fetch_with_retry(
-        &fetcher,
-        &HttpRequest::new(format!("http://{address}/resource")),
-        &FetchRetryOptions {
-            timeout_ms: Some(5_000),
-            ..FetchRetryOptions::default()
-        },
+    let options = FetchRetryOptions {
+        timeout_ms: Some(5_000),
+        ..FetchRetryOptions::default()
+    };
+    let fetch = default_fetch();
+    let mut response = fetch_with_retry(
+        fetch.as_ref(),
+        get(&format!("http://{address}/resource")),
+        None,
+        &options,
     )
+    .await
     .expect("eventual response");
-
-    requests.join().expect("server thread");
+    server.await.expect("server");
     assert_eq!(response.status, 200);
-    assert_eq!(response.body, b"ok");
+    let mut body = Vec::new();
+    while let Some(chunk) = response.body.next_chunk().await {
+        body.extend(chunk.expect("chunk"));
+    }
+    assert_eq!(body, b"ok");
 }

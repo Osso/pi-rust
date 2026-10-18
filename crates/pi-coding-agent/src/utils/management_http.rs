@@ -1,64 +1,26 @@
-use std::time::{Duration, Instant};
+//! Port of `packages/coding-agent/src/utils/management-http.ts`.
 
+use std::time::Duration;
+
+use pi_ai::http::ABORT_ERROR_MESSAGE;
+use pi_ai::request::{CallbackError, Fetch, HttpRequest, HttpResponse};
 use tokio_util::sync::CancellationToken;
-use ureq::Agent;
 
 const RETRYABLE_STATUS_CODES: [u16; 7] = [408, 425, 429, 500, 502, 503, 504];
+const DEFAULT_MAX_RETRIES: usize = 2;
 
-/// A management HTTP request.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HttpRequest {
-    pub url: String,
-}
+/// Message of the `TimeoutError` raised by `AbortSignal.timeout()`.
+pub const TIMEOUT_ERROR_MESSAGE: &str = "The operation was aborted due to timeout";
 
-impl HttpRequest {
-    pub fn new(url: impl Into<String>) -> Self {
-        Self { url: url.into() }
-    }
-}
-
-/// A completed management HTTP response.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HttpResponse {
-    pub status: u16,
-    pub body: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FetchError {
-    Transport(String),
-    Cancelled,
-    Timeout,
-}
-
-impl std::fmt::Display for FetchError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Transport(message) => formatter.write_str(message),
-            Self::Cancelled => formatter.write_str("The operation was aborted"),
-            Self::Timeout => formatter.write_str("The operation timed out"),
-        }
-    }
-}
-
-impl std::error::Error for FetchError {}
-
-/// Transport for management HTTP resources.
-pub trait HttpFetcher {
-    fn fetch(&self, request: &HttpRequest, timeout: Option<Duration>) -> Result<HttpResponse, FetchError>;
-}
-
-/// Bounded immediate retry for idempotent management HTTP requests.
+/// `FetchRetryOptions`.
 #[derive(Debug, Clone)]
 pub struct FetchRetryOptions {
     /// Additional attempts after the initial request. Defaults to two.
     pub max_retries: Option<usize>,
     /// Retry transient HTTP responses as well as transport failures. Defaults to true.
     pub retry_on_status: bool,
-    /// Overall time budget shared by all attempts.
+    /// Overall time budget shared by all attempts; absent or zero disables it.
     pub timeout_ms: Option<u64>,
-    /// Caller cancellation. Checked before every attempt.
-    pub cancellation: Option<CancellationToken>,
 }
 
 impl Default for FetchRetryOptions {
@@ -67,101 +29,89 @@ impl Default for FetchRetryOptions {
             max_retries: None,
             retry_on_status: true,
             timeout_ms: None,
-            cancellation: None,
         }
     }
 }
 
-/// Fetch a management HTTP resource with bounded immediate retry.
-pub fn fetch_with_retry(
-    fetcher: &dyn HttpFetcher,
-    request: &HttpRequest,
+/// `fetchWithRetry`: bounded immediate retry for idempotent management requests.
+///
+/// `signal` is the caller's `init.signal`; caller cancellation and the timeout are terminal.
+pub async fn fetch_with_retry(
+    fetch: &dyn Fetch,
+    request: HttpRequest,
+    signal: Option<CancellationToken>,
     options: &FetchRetryOptions,
-) -> Result<HttpResponse, FetchError> {
-    let max_retries = options.max_retries.unwrap_or(2);
-    let deadline = options
-        .timeout_ms
-        .filter(|timeout| *timeout > 0)
-        .map(|timeout| Instant::now() + Duration::from_millis(timeout));
+) -> Result<HttpResponse, CallbackError> {
+    let max_retries = options.max_retries.unwrap_or(DEFAULT_MAX_RETRIES);
+    let deadline = RequestDeadline::start(signal.as_ref(), options.timeout_ms);
+    let attempt_signal = deadline
+        .as_ref()
+        .map(|deadline| deadline.signal.clone())
+        .or(signal.clone());
 
-    for attempt in 0..=max_retries {
-        if options
-            .cancellation
-            .as_ref()
-            .is_some_and(CancellationToken::is_cancelled)
-        {
-            return Err(FetchError::Cancelled);
-        }
-
-        let remaining = remaining_budget(deadline)?;
-        match fetcher.fetch(request, remaining) {
+    for attempt in 0.. {
+        throw_if_aborted(signal.as_ref(), deadline.as_ref())?;
+        match fetch.fetch(request.clone(), attempt_signal.clone()).await {
             Ok(response) => {
-                let should_retry = options.retry_on_status
-                    && RETRYABLE_STATUS_CODES.contains(&response.status)
-                    && attempt < max_retries;
-                if !should_retry {
+                let retryable = RETRYABLE_STATUS_CODES.contains(&response.status);
+                if !(options.retry_on_status && retryable && attempt < max_retries) {
                     return Ok(response);
                 }
+                // The discarded response body is dropped (cancelled) before retrying.
             }
             Err(error) => {
-                if options
-                    .cancellation
-                    .as_ref()
-                    .is_some_and(CancellationToken::is_cancelled)
-                {
-                    return Err(FetchError::Cancelled);
-                }
+                throw_if_aborted(signal.as_ref(), deadline.as_ref())?;
                 if attempt >= max_retries {
                     return Err(error);
                 }
             }
         }
     }
-
-    Err(FetchError::Timeout)
+    unreachable!("the retry loop returns on every terminal attempt")
 }
 
-fn remaining_budget(deadline: Option<Instant>) -> Result<Option<Duration>, FetchError> {
-    let Some(deadline) = deadline else {
-        return Ok(None);
-    };
-    let remaining = deadline.saturating_duration_since(Instant::now());
-    if remaining.is_zero() {
-        return Err(FetchError::Timeout);
-    }
-    Ok(Some(remaining))
+/// `AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)])`.
+struct RequestDeadline {
+    signal: CancellationToken,
+    timed_out: CancellationToken,
+    timer: tokio::task::JoinHandle<()>,
 }
 
-/// A `ureq`-backed transport.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct UreqFetcher;
-
-impl UreqFetcher {
-    pub fn new() -> Self {
-        Self
+impl RequestDeadline {
+    fn start(parent: Option<&CancellationToken>, timeout_ms: Option<u64>) -> Option<Self> {
+        let timeout = Duration::from_millis(timeout_ms.filter(|ms| *ms > 0)?);
+        let signal = parent.map_or_else(CancellationToken::new, CancellationToken::child_token);
+        let timed_out = CancellationToken::new();
+        let (timer_signal, timer_flag) = (signal.clone(), timed_out.clone());
+        let timer = tokio::spawn(async move {
+            tokio::time::sleep(timeout).await;
+            timer_flag.cancel();
+            timer_signal.cancel();
+        });
+        Some(Self {
+            signal,
+            timed_out,
+            timer,
+        })
     }
 }
 
-impl HttpFetcher for UreqFetcher {
-    fn fetch(&self, request: &HttpRequest, timeout: Option<Duration>) -> Result<HttpResponse, FetchError> {
-        let agent: Agent = Agent::config_builder()
-            .http_status_as_error(false)
-            .timeout_global(timeout)
-            .build()
-            .into();
-
-        let mut response = agent
-            .get(&request.url)
-            .call()
-            .map_err(|error| FetchError::Transport(error.to_string()))?;
-        let status = response.status().as_u16();
-        let body = response
-            .body_mut()
-            .with_config()
-            .limit(u64::MAX)
-            .read_to_vec()
-            .map_err(|error| FetchError::Transport(error.to_string()))?;
-
-        Ok(HttpResponse { status, body })
+impl Drop for RequestDeadline {
+    fn drop(&mut self) {
+        self.timer.abort();
     }
+}
+
+/// `signal?.throwIfAborted()` with the reason of whichever source fired.
+fn throw_if_aborted(
+    parent: Option<&CancellationToken>,
+    deadline: Option<&RequestDeadline>,
+) -> Result<(), CallbackError> {
+    if parent.is_some_and(CancellationToken::is_cancelled) {
+        return Err(CallbackError::new(ABORT_ERROR_MESSAGE));
+    }
+    if deadline.is_some_and(|deadline| deadline.timed_out.is_cancelled()) {
+        return Err(CallbackError::new(TIMEOUT_ERROR_MESSAGE));
+    }
+    Ok(())
 }
