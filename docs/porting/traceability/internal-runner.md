@@ -3,8 +3,8 @@
 Source: `packages/coding-agent/src/internal-runner.ts` (19 lines, pinned revision in
 `docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent/src/internal_runner.rs`.
 
-The two runner bodies (`core/detached-bash-runner.ts` and the pyrun
-`extensions/pyrun/src/detached-runner.ts`) are owned by other slices and are not ported.
+The bash runner body (`core/detached-bash-runner.ts`) is ported in
+`core::detached_bash_runner`; the pyrun runner body is owned by the pyrun slice and is not ported.
 This module ports the dispatch, manifest validation, and error reporting around them.
 
 ## Exported symbols
@@ -15,8 +15,9 @@ This module ports the dispatch, manifest validation, and error reporting around 
 | — (`DETACHED_BASH_RUNNER_MODE`) | `DETACHED_BASH_RUNNER_MODE` | `each_mode_dispatches_to_its_runner` |
 | — (`DETACHED_PYRUN_RUNNER_MODE`) | `DETACHED_PYRUN_RUNNER_MODE` | same |
 
-The mode constants are imported from the runner modules in TypeScript; they are declared here
-because those modules are not ported. Values match the source byte for byte.
+The mode constants are imported from the runner modules in TypeScript; the bash constant is
+re-exported from `core::detached_bash_runner` and the pyrun constant is declared here. Values
+match the source byte for byte.
 
 ## Branches
 

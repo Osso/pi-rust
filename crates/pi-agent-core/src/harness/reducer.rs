@@ -262,7 +262,7 @@ pub fn validate_record_log(input: &RecordLogSlice) -> Result<(), RecordLogCorrup
     }
 
     let entries_by_id = entries_by_id(&input.entries);
-    validate_deferred_handles(&entries_by_id)?;
+    validate_deferred_handles(&input.entries)?;
     let mut state = ValidationState::default();
     for record in by_sequence(&input.records) {
         validate_record(record, &mut state, &entries_by_id)?;
@@ -984,8 +984,8 @@ fn validate_tool_start(
     )
 }
 
-fn validate_deferred_handles(entries_by_id: &HashMap<&str, &Entry>) -> Result<(), RecordLogCorruption> {
-    for entry in entries_by_id.values() {
+fn validate_deferred_handles(entries: &[Entry]) -> Result<(), RecordLogCorruption> {
+    for entry in entries {
         if let EntryBody::Message {
             message: AgentMessage::Assistant(assistant),
             ..

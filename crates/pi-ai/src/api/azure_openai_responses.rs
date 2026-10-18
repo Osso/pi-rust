@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
@@ -193,7 +194,7 @@ pub fn build_params(
     options: &AzureOpenAIResponsesOptions,
     stream_options: &StreamOptions,
     deployment_name: &str,
-    grammar_tool_input_properties: &BTreeMap<String, String>,
+    grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> Result<Value, String> {
     let messages = convert_responses_messages(
         model,
@@ -294,10 +295,10 @@ fn number_value(value: f64) -> Value {
 }
 
 fn merge_headers(
-    model_headers: Option<&BTreeMap<String, String>>,
+    model_headers: Option<&IndexMap<String, String>>,
     options_headers: Option<&crate::types::ProviderHeaders>,
-) -> BTreeMap<String, Option<String>> {
-    let mut headers: BTreeMap<String, Option<String>> = BTreeMap::new();
+) -> IndexMap<String, Option<String>> {
+    let mut headers: IndexMap<String, Option<String>> = IndexMap::new();
     for (name, value) in model_headers.into_iter().flatten() {
         headers.insert(name.clone(), Some(value.clone()));
     }

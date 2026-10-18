@@ -1,6 +1,6 @@
-use std::collections::BTreeMap;
 use std::fmt;
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -218,8 +218,8 @@ pub fn resolve_grammar_constrained_sampling(
 pub fn create_grammar_tool_input_properties(
     tools: Option<&[Tool]>,
     supports_openai_grammar_tools: bool,
-) -> Result<BTreeMap<String, String>, ConstrainedSamplingError> {
-    let mut properties = BTreeMap::new();
+) -> Result<IndexMap<String, String>, ConstrainedSamplingError> {
+    let mut properties = IndexMap::new();
     for tool in tools.into_iter().flatten() {
         if let Some(grammar) = resolve_grammar_constrained_sampling(tool, supports_openai_grammar_tools)? {
             properties.insert(tool.name.clone(), grammar.input_property);

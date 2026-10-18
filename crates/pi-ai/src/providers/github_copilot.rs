@@ -1,8 +1,9 @@
 //! Port of `packages/ai/src/providers/github-copilot.ts`.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use serde_json::Value;
 
 use crate::api::anthropic_messages_lazy::anthropic_messages_api;
@@ -38,7 +39,7 @@ fn filter_models(models: Vec<Model>, credential: Option<&Credential>) -> Vec<Mod
 
 /// `githubCopilotProvider()`.
 pub fn github_copilot_provider() -> Arc<dyn Provider> {
-    let mut api: BTreeMap<String, Arc<dyn ProviderStreams>> = BTreeMap::new();
+    let mut api: IndexMap<String, Arc<dyn ProviderStreams>> = IndexMap::new();
     api.insert("anthropic-messages".to_owned(), Arc::new(anthropic_messages_api()));
     api.insert("openai-completions".to_owned(), Arc::new(open_ai_completions_api()));
     api.insert("openai-responses".to_owned(), Arc::new(open_ai_responses_api()));

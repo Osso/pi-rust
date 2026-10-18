@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
+use crate::core::detached_job_runner::DetachedJobLifecycleController;
 use crate::core::event_bus::EventBus;
 use crate::core::exec::ExecResult;
 use crate::core::footer_data_provider::FooterDataProvider;
@@ -497,6 +498,8 @@ pub struct ExtensionContextState {
     pub(super) get_multi_agent_parent_session_id_fn: Arc<dyn Fn() -> Option<String> + Send + Sync>,
     pub(super) get_multi_agent_requires_agent_id_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) get_multi_agent_store_fn: Arc<dyn Fn() -> Option<Arc<MultiAgentStore>> + Send + Sync>,
+    pub(super) get_detached_job_lifecycle_fn:
+        Arc<dyn Fn() -> Option<Arc<DetachedJobLifecycleController>> + Send + Sync>,
     pub(super) get_tool_detach_registry_fn: Arc<dyn Fn() -> Option<Arc<ToolDetachRegistry>> + Send + Sync>,
     pub(super) compact_fn: Arc<dyn Fn(Option<CompactOptions>) + Send + Sync>,
     pub(super) get_system_prompt_fn: Arc<dyn Fn() -> String + Send + Sync>,
@@ -549,6 +552,7 @@ impl ExtensionContextState {
             get_multi_agent_parent_session_id_fn: Arc::new(|| None),
             get_multi_agent_requires_agent_id_fn: Arc::new(|| false),
             get_multi_agent_store_fn: Arc::new(|| None),
+            get_detached_job_lifecycle_fn: Arc::new(|| None),
             get_tool_detach_registry_fn: Arc::new(|| None),
             compact_fn: Arc::new(|_| {}),
             get_system_prompt_fn: Arc::new(String::new),
@@ -707,6 +711,10 @@ impl ExtensionContext {
 
     pub fn multi_agent_store(&self) -> Result<Option<Arc<MultiAgentStore>>, HandlerError> {
         self.callback(|state| Arc::clone(&state.get_multi_agent_store_fn))
+    }
+
+    pub fn detached_job_lifecycle(&self) -> Result<Option<Arc<DetachedJobLifecycleController>>, HandlerError> {
+        self.callback(|state| Arc::clone(&state.get_detached_job_lifecycle_fn))
     }
 
     pub fn tool_detach_registry(&self) -> Result<Option<Arc<ToolDetachRegistry>>, HandlerError> {

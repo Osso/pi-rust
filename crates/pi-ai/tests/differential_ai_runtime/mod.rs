@@ -543,13 +543,13 @@ impl ApiKeyAuth for HeaderAuth {
             Ok(Some(pi_ai::auth::AuthResult {
                 auth: ModelAuth {
                     api_key: Some("provider-key".to_owned()),
-                    headers: Some(BTreeMap::from([
+                    headers: Some(indexmap::IndexMap::from([
                         ("Authorization".to_owned(), Some("Bearer provider".to_owned())),
                         ("X-Shared".to_owned(), Some("provider".to_owned())),
                     ])),
                     base_url: Some("https://resolved.test/v1".to_owned()),
                 },
-                env: Some(BTreeMap::from([
+                env: Some(indexmap::IndexMap::from([
                     ("PROVIDER_ONLY".to_owned(), "provider".to_owned()),
                     ("SHARED".to_owned(), "provider".to_owned()),
                 ])),
@@ -600,7 +600,7 @@ fn compare_apply_auth(oracle: &mut oracle::TsOracle) {
     let output = request(oracle, json!({"id": 7, "operation": "apply_auth"}));
     let captured = Arc::new(Mutex::new(None));
     let mut model: Model = serde_json::from_value(model_json("p1", "m1")).unwrap();
-    model.headers = Some(BTreeMap::from([
+    model.headers = Some(indexmap::IndexMap::from([
         ("x-model".to_owned(), "model".to_owned()),
         ("x-shared".to_owned(), "model".to_owned()),
     ]));
@@ -634,11 +634,11 @@ fn compare_apply_auth(oracle: &mut oracle::TsOracle) {
                         stream: StreamOptions {
                             request: ProviderRequestOptions {
                                 api_key: Some("request-key".to_owned()),
-                                headers: Some(BTreeMap::from([
+                                headers: Some(indexmap::IndexMap::from([
                                     ("X-Request".to_owned(), Some("request".to_owned())),
                                     ("x-shared".to_owned(), Some("request".to_owned())),
                                 ])),
-                                env: Some(BTreeMap::from([
+                                env: Some(indexmap::IndexMap::from([
                                     ("REQUEST_ONLY".to_owned(), "request".to_owned()),
                                     ("SHARED".to_owned(), "request".to_owned()),
                                 ])),

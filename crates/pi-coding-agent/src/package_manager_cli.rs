@@ -667,22 +667,55 @@ pub struct CreateCommandSettingsOptions {
     pub agent_dir: String,
     pub project_trust_override: Option<bool>,
     pub use_saved_project_trust_only: bool,
+    /// Inline extension factories loaded before the trust prompt resolves.
+    pub extension_factories: Vec<crate::core::resource_loader::InlineExtension>,
     /// `showStartupSelector`/`showStartupInput` adapter; `None` when the startup
     /// UI is unavailable, which resolves the prompt as dismissed.
     pub startup_ui: Option<Arc<dyn crate::cli::project_trust::ProjectTrustStartupUi>>,
 }
 
 /// `DefaultResourceLoader.loadProjectTrustExtensions` for the command paths.
-///
-/// The concrete loader arrives with `core/resource-loader.ts`; the command
-/// paths only need the loaded handlers and their errors.
 pub trait ProjectTrustExtensionsLoader: Send + Sync {
     fn load<'a>(
         &'a self,
         cwd: &'a str,
         agent_dir: &'a str,
-        settings_manager: &'a SettingsManager,
-    ) -> BoxFuture<'a, Option<LoadExtensionsResult>>;
+        settings_manager: &'a Arc<std::sync::Mutex<SettingsManager>>,
+        extension_factories: &'a [crate::core::resource_loader::InlineExtension],
+    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, String>>;
+}
+
+/// Concrete loader backed by [`DefaultResourceLoader`].
+///
+/// Shares the command path's settings manager so forcing untrusted project
+/// settings during the bootstrap pass is visible to the trust resolution.
+#[derive(Clone, Default)]
+pub struct DefaultProjectTrustExtensionsLoader {
+    pub extension_registry: Option<Arc<crate::core::extensions::loader::ExtensionRegistry>>,
+}
+
+impl ProjectTrustExtensionsLoader for DefaultProjectTrustExtensionsLoader {
+    fn load<'a>(
+        &'a self,
+        cwd: &'a str,
+        agent_dir: &'a str,
+        settings_manager: &'a Arc<std::sync::Mutex<SettingsManager>>,
+        extension_factories: &'a [crate::core::resource_loader::InlineExtension],
+    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, String>> {
+        Box::pin(async move {
+            let loader = crate::core::resource_loader::DefaultResourceLoader::new(
+                crate::core::resource_loader::DefaultResourceLoaderOptions {
+                    cwd: cwd.to_owned(),
+                    agent_dir: agent_dir.to_owned(),
+                    settings_manager: Some(Arc::clone(settings_manager)),
+                    extension_registry: self.extension_registry.clone(),
+                    extension_factories: extension_factories.to_vec(),
+                    ..Default::default()
+                },
+            )?;
+            loader.load_project_trust_extensions().await.map(Some)
+        })
+    }
 }
 
 /// `getCommandAppMode`.
@@ -703,24 +736,28 @@ pub async fn create_command_settings_manager(
     options: CreateCommandSettingsOptions,
     extensions_loader: &dyn ProjectTrustExtensionsLoader,
 ) -> Result<CommandSettings, String> {
-    let settings_manager = SettingsManager::create(
-        &options.cwd,
-        Some(std::path::Path::new(&options.agent_dir)),
-        SettingsManagerCreateOptions {
-            project_trusted: Some(false),
-        },
-    )
-    .map_err(|error| error.to_string())?;
+    let settings_manager = Arc::new(std::sync::Mutex::new(
+        SettingsManager::create(
+            &options.cwd,
+            Some(std::path::Path::new(&options.agent_dir)),
+            SettingsManagerCreateOptions {
+                project_trusted: Some(false),
+            },
+        )
+        .map_err(|error| error.to_string())?,
+    ));
     let project_trust_warnings: Mutex<Vec<String>> = Mutex::new(Vec::new());
     let trust_store = ProjectTrustStore::new(&options.agent_dir);
 
     if options.use_saved_project_trust_only {
         let saved_project_trusted = trust_store.get(&options.cwd).map_err(|error| error.to_string())?
             == crate::core::trust_manager::ProjectTrustDecision::Trusted;
-        let mut settings_manager = settings_manager;
-        settings_manager.set_project_trusted(options.project_trust_override.unwrap_or(saved_project_trusted));
+        settings_manager
+            .lock()
+            .unwrap()
+            .set_project_trusted(options.project_trust_override.unwrap_or(saved_project_trusted));
         return Ok(CommandSettings {
-            store: Arc::new(SettingsManagerStore::new(settings_manager)),
+            store: Arc::new(SettingsManagerStore::from_shared(settings_manager)),
             project_trust_warnings: project_trust_warnings.into_inner().unwrap(),
         });
     }
@@ -729,8 +766,13 @@ pub async fn create_command_settings_manager(
     let extensions_result =
         if options.project_trust_override.is_none() && has_trust_requiring_project_resources(&options.cwd) {
             extensions_loader
-                .load(&options.cwd, &options.agent_dir, &settings_manager)
-                .await
+                .load(
+                    &options.cwd,
+                    &options.agent_dir,
+                    &settings_manager,
+                    &options.extension_factories,
+                )
+                .await?
         } else {
             None
         };
@@ -751,12 +793,12 @@ pub async fn create_command_settings_manager(
             startup_ui: options.startup_ui,
         },
     );
-    let mut settings_manager = settings_manager;
+    let default_project_trust = settings_manager.lock().unwrap().get_default_project_trust();
     let project_trusted = resolve_project_trusted(ResolveProjectTrustedOptions {
         cwd: &options.cwd,
         trust_store: &trust_store,
         trust_override: options.project_trust_override,
-        default_project_trust: Some(settings_manager.get_default_project_trust()),
+        default_project_trust: Some(default_project_trust),
         extensions_result: extensions_result.as_ref(),
         project_trust_context: &trust_context,
         on_extension_error: Some(&|message: String| {
@@ -765,9 +807,9 @@ pub async fn create_command_settings_manager(
     })
     .await
     .map_err(|error| error.to_string())?;
-    settings_manager.set_project_trusted(project_trusted);
+    settings_manager.lock().unwrap().set_project_trusted(project_trusted);
     Ok(CommandSettings {
-        store: Arc::new(SettingsManagerStore::new(settings_manager)),
+        store: Arc::new(SettingsManagerStore::from_shared(settings_manager)),
         project_trust_warnings: project_trust_warnings.into_inner().unwrap(),
     })
 }
@@ -1215,6 +1257,7 @@ pub async fn execute_package_command(
             agent_dir: agent_dir.clone(),
             project_trust_override: outcome.project_trust_override,
             use_saved_project_trust_only: matches!(action, PackageAction::Update { .. }),
+            extension_factories: Vec::new(),
             startup_ui: None,
         })
         .await?;
@@ -1445,6 +1488,7 @@ pub async fn execute_config_command(
             agent_dir: agent_dir.clone(),
             project_trust_override: outcome.project_trust_override,
             use_saved_project_trust_only: false,
+            extension_factories: Vec::new(),
             startup_ui: None,
         })
         .await?;

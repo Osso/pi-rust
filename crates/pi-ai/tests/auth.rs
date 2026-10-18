@@ -352,7 +352,7 @@ async fn resolve_provider_auth_honors_explicit_key_stored_credentials_and_ambien
         Arc::clone(&ctx),
         pi_ai::auth::AuthResolutionOverrides {
             api_key: Some("explicit".to_owned()),
-            env: Some(BTreeMap::from([("ACCOUNT_ID".to_owned(), "acct".to_owned())])),
+            env: Some(indexmap::IndexMap::from([("ACCOUNT_ID".to_owned(), "acct".to_owned())])),
             ..Default::default()
         },
     )

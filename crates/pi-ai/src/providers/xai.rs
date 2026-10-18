@@ -1,7 +1,8 @@
 //! Port of `packages/ai/src/providers/xai.ts`.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
+
+use indexmap::IndexMap;
 
 use crate::api::openai_completions::open_ai_completions_api;
 use crate::api::openai_responses::open_ai_responses_api;
@@ -13,7 +14,7 @@ use crate::request::ProviderStreams;
 
 /// `xaiProvider()`.
 pub fn xai_provider() -> Arc<dyn Provider> {
-    let mut api: BTreeMap<String, Arc<dyn ProviderStreams>> = BTreeMap::new();
+    let mut api: IndexMap<String, Arc<dyn ProviderStreams>> = IndexMap::new();
     api.insert("openai-completions".to_owned(), Arc::new(open_ai_completions_api()));
     api.insert("openai-responses".to_owned(), Arc::new(open_ai_responses_api()));
     custom_provider(

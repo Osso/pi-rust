@@ -91,7 +91,7 @@ pub(crate) fn compare() {
     let cases = cases();
     assert_eq!(cases.len(), EXPECTED_CASE_COUNT);
 
-    let mut oracle = oracle::TsOracle::spawn("source-info-oracle.ts", "packages/coding-agent/src/index.ts");
+    let mut oracle = oracle::TsOracle::spawn("source-info-oracle.ts", "packages/coding-agent/src/core/source-info.ts");
     let expected = oracle.request(&request(&cases));
     let actual = rust_response(&cases);
     assert_eq!(actual, expected, "source info mismatch");
@@ -266,6 +266,130 @@ fn cases() -> Vec<Case> {
             origin: OriginState::TopLevel,
             base_dir_state: OptionalState::Present,
             base_dir: "all base",
+        },
+    ]
+}
+
+struct MetadataCase {
+    name: &'static str,
+    path: &'static str,
+    source: &'static str,
+    scope: &'static str,
+    origin: &'static str,
+    base_dir_state: OptionalState,
+    base_dir: &'static str,
+}
+
+pub(crate) fn compare_create_source_info() {
+    let cases = metadata_cases();
+    let mut oracle = oracle::TsOracle::spawn("source-info-oracle.ts", "packages/coding-agent/src/core/source-info.ts");
+    let expected = oracle.request(&json!({
+        "id": REQUEST_ID + 1,
+        "operation": "create_source_info",
+        "metadataCases": cases.iter().map(metadata_case_request).collect::<Vec<_>>(),
+    }));
+    let results = cases.iter().map(normalize_metadata_case).collect::<Vec<_>>();
+    let actual = json!({
+        "id": REQUEST_ID + 1,
+        "ok": true,
+        "output": {"results": results},
+    });
+    assert_eq!(actual, expected, "createSourceInfo mismatch");
+}
+
+fn metadata_case_request(case: &MetadataCase) -> Value {
+    json!({
+        "name": case.name,
+        "path": case.path,
+        "source": case.source,
+        "scope": case.scope,
+        "origin": case.origin,
+        "baseDirState": case.base_dir_state.as_str(),
+        "baseDir": case.base_dir,
+    })
+}
+
+fn normalize_metadata_case(case: &MetadataCase) -> Value {
+    let metadata = pi_coding_agent::core::package_manager::PathMetadata {
+        source: case.source.to_owned(),
+        scope: match case.scope {
+            "user" => pi_coding_agent::core::package_manager::SourceScope::User,
+            "project" => pi_coding_agent::core::package_manager::SourceScope::Project,
+            "temporary" => pi_coding_agent::core::package_manager::SourceScope::Temporary,
+            other => panic!("unknown scope {other}"),
+        },
+        origin: match case.origin {
+            "package" => pi_coding_agent::core::package_manager::MetadataOrigin::Package,
+            "top-level" => pi_coding_agent::core::package_manager::MetadataOrigin::TopLevel,
+            other => panic!("unknown origin {other}"),
+        },
+        base_dir: optional_string(case.base_dir_state, case.base_dir),
+    };
+    let result = pi_coding_agent::core::source_info::create_source_info(case.path, &metadata);
+    json!({
+        "name": case.name,
+        "result": source_info_value(&result),
+        "metadataAfter": metadata_value(&metadata),
+    })
+}
+
+fn metadata_value(metadata: &pi_coding_agent::core::package_manager::PathMetadata) -> Value {
+    let mut value = Map::new();
+    value.insert("source".to_owned(), json!(metadata.source));
+    value.insert("scope".to_owned(), json!(metadata.scope));
+    value.insert("origin".to_owned(), json!(metadata.origin));
+    if let Some(base_dir) = &metadata.base_dir {
+        value.insert("baseDir".to_owned(), json!(base_dir));
+    }
+    Value::Object(value)
+}
+
+fn metadata_cases() -> Vec<MetadataCase> {
+    vec![
+        MetadataCase {
+            name: "npm user package",
+            path: "/agent/npm/node_modules/pkg/skills/a/SKILL.md",
+            source: "npm:pkg",
+            scope: "user",
+            origin: "package",
+            base_dir_state: OptionalState::Absent,
+            base_dir: "ignored",
+        },
+        MetadataCase {
+            name: "git project package",
+            path: "/repo/.pi/git/pkg/SKILL.md",
+            source: "git:github.com/acme/pkg",
+            scope: "project",
+            origin: "package",
+            base_dir_state: OptionalState::Present,
+            base_dir: "/repo/.pi/git/pkg",
+        },
+        MetadataCase {
+            name: "local temporary",
+            path: "/tmp/extension.md",
+            source: "local",
+            scope: "temporary",
+            origin: "top-level",
+            base_dir_state: OptionalState::Present,
+            base_dir: "",
+        },
+        MetadataCase {
+            name: "empty source and unicode",
+            path: "路径🙂\0\n",
+            source: "",
+            scope: "temporary",
+            origin: "top-level",
+            base_dir_state: OptionalState::Present,
+            base_dir: "旧🙂\r\n",
+        },
+        MetadataCase {
+            name: "cli temporary",
+            path: "cli.ts",
+            source: "cli",
+            scope: "temporary",
+            origin: "top-level",
+            base_dir_state: OptionalState::Absent,
+            base_dir: "ignored",
         },
     ]
 }

@@ -1,6 +1,6 @@
 //! Port of `packages/ai/src/api/openrouter-images.ts`.
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
@@ -197,8 +197,8 @@ fn timeout_error() -> ProviderRequestError<CallbackError> {
     })
 }
 
-fn merged_headers(model: &ImagesModel, options: &ImagesOptions) -> BTreeMap<String, Option<String>> {
-    let mut merged: BTreeMap<String, Option<String>> = BTreeMap::new();
+fn merged_headers(model: &ImagesModel, options: &ImagesOptions) -> IndexMap<String, Option<String>> {
+    let mut merged: IndexMap<String, Option<String>> = IndexMap::new();
     if let Some(headers) = &model.headers {
         for (name, value) in headers {
             merged.insert(name.clone(), Some(value.clone()));

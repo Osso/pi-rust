@@ -5,6 +5,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
@@ -26,7 +27,7 @@ pub struct SdkClientConfig {
     pub api_key: String,
     pub base_url: String,
     /// Merged model/options headers; `None` suppresses a default header.
-    pub default_headers: BTreeMap<String, Option<String>>,
+    pub default_headers: IndexMap<String, Option<String>>,
     pub timeout_ms: Option<f64>,
     pub fetch: Option<Arc<dyn Fetch>>,
     pub azure: Option<AzureClientConfig>,

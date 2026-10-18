@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -400,6 +400,35 @@ async fn refresh_updates_dynamic_providers_and_reports_failures() {
     let second = models.refresh(ModelsRefreshOptions::default()).await;
     assert_eq!(refreshes.load(Ordering::SeqCst), 2);
     assert_eq!(second.errors.get("flaky").unwrap().message, "fetch failed");
+}
+
+#[tokio::test]
+async fn refresh_reports_errors_in_completion_order() {
+    let models = models();
+    models.set_provider(provider(TestProvider::new("zeta", Vec::new()).with_refresh(Arc::new(
+        |context: RefreshModelsContext| {
+            Box::pin(async move {
+                if context.allow_network {
+                    return Err(CallbackError::new("zeta down"));
+                }
+                Ok(())
+            })
+        },
+    ))));
+    models.set_provider(provider(TestProvider::new("alpha", Vec::new()).with_refresh(Arc::new(
+        |context: RefreshModelsContext| {
+            Box::pin(async move {
+                if context.allow_network {
+                    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                    return Err(CallbackError::new("alpha down"));
+                }
+                Ok(())
+            })
+        },
+    ))));
+    let result = models.refresh(ModelsRefreshOptions::default()).await;
+    let providers: Vec<&str> = result.errors.keys().map(String::as_str).collect();
+    assert_eq!(providers, vec!["zeta", "alpha"]);
 }
 
 impl TestProvider {
@@ -1522,7 +1551,7 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
                         headers: None,
                         base_url: Some(format!("https://example.test/{account}")),
                     },
-                    env: Some(BTreeMap::from([("ACCOUNT_ID".to_owned(), account)])),
+                    env: Some(IndexMap::from([("ACCOUNT_ID".to_owned(), account)])),
                     source: None,
                 }))
             })
@@ -1543,7 +1572,7 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
                 stream: StreamOptions {
                     request: ProviderRequestOptions {
                         api_key: Some("explicit-key".to_owned()),
-                        env: Some(BTreeMap::from([("ACCOUNT_ID".to_owned(), "acct".to_owned())])),
+                        env: Some(IndexMap::from([("ACCOUNT_ID".to_owned(), "acct".to_owned())])),
                         ..Default::default()
                     },
                     ..Default::default()
@@ -1558,7 +1587,7 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
     assert_eq!(calls[0].options.request.api_key.as_deref(), Some("explicit-key"));
     assert_eq!(
         calls[0].options.request.env,
-        Some(BTreeMap::from([("ACCOUNT_ID".to_owned(), "acct".to_owned())]))
+        Some(IndexMap::from([("ACCOUNT_ID".to_owned(), "acct".to_owned())]))
     );
 }
 
@@ -1575,7 +1604,7 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
                 Ok(Some(AuthResult {
                     auth: ModelAuth {
                         api_key: Some("resolved-key".to_owned()),
-                        headers: Some(BTreeMap::from([
+                        headers: Some(IndexMap::from([
                             ("Authorization".to_owned(), Some("Bearer resolved-key".to_owned())),
                             ("x-a".to_owned(), Some("auth".to_owned())),
                             ("x-b".to_owned(), Some("auth".to_owned())),
@@ -1595,7 +1624,7 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
             .with_calls(Arc::clone(&calls)),
     ));
     let mut model = test_model("p1", "model-a");
-    model.headers = Some(BTreeMap::from([
+    model.headers = Some(IndexMap::from([
         ("x-model".to_owned(), "model".to_owned()),
         ("x-shared".to_owned(), "model".to_owned()),
     ]));
@@ -1608,7 +1637,7 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
                 stream: StreamOptions {
                     request: ProviderRequestOptions {
                         api_key: Some("explicit-key".to_owned()),
-                        headers: Some(BTreeMap::from([
+                        headers: Some(IndexMap::from([
                             ("authorization".to_owned(), Some("Explicit token".to_owned())),
                             ("x-b".to_owned(), Some("explicit".to_owned())),
                         ])),
@@ -1640,7 +1669,7 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
             SimpleStreamOptions {
                 stream: StreamOptions {
                     request: ProviderRequestOptions {
-                        headers: Some(BTreeMap::from([
+                        headers: Some(IndexMap::from([
                             ("x-explicit".to_owned(), Some("explicit".to_owned())),
                             ("X-Shared".to_owned(), Some("explicit".to_owned())),
                         ])),
@@ -1747,7 +1776,7 @@ async fn create_provider_dispatches_on_model_api_and_reports_missing_implementat
         models: vec![test_model("mixed", "model-a"), test_model("mixed", "model-b")],
         fetch_models: None,
         filter_models: None,
-        api: ProviderApi::Map(BTreeMap::from([
+        api: ProviderApi::Map(IndexMap::from([
             (
                 "test-api".to_owned(),
                 Arc::new(RecordingStreams {
@@ -1840,7 +1869,7 @@ async fn applies_resolved_env_to_stream_options() {
                         headers: None,
                         base_url: None,
                     },
-                    env: Some(BTreeMap::from([
+                    env: Some(IndexMap::from([
                         ("PROVIDER_ONLY".to_owned(), "provider".to_owned()),
                         ("SHARED".to_owned(), "provider".to_owned()),
                     ])),
@@ -1864,7 +1893,7 @@ async fn applies_resolved_env_to_stream_options() {
     });
     let models = models();
     models.set_provider(provider);
-    let env = BTreeMap::from([
+    let env = IndexMap::from([
         ("REQUEST_ONLY".to_owned(), "request".to_owned()),
         ("SHARED".to_owned(), "request".to_owned()),
     ]);
@@ -1890,7 +1919,7 @@ async fn applies_resolved_env_to_stream_options() {
     assert_eq!(options.request.api_key.as_deref(), Some("request-key"));
     assert_eq!(
         options.request.env,
-        Some(BTreeMap::from([
+        Some(IndexMap::from([
             ("PROVIDER_ONLY".to_owned(), "provider".to_owned()),
             ("REQUEST_ONLY".to_owned(), "request".to_owned()),
             ("SHARED".to_owned(), "request".to_owned()),
@@ -1964,13 +1993,13 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
                 Ok(Some(AuthResult {
                     auth: ModelAuth {
                         api_key: Some("provider-key".to_owned()),
-                        headers: Some(BTreeMap::from([
+                        headers: Some(IndexMap::from([
                             ("Authorization".to_owned(), Some("Bearer provider".to_owned())),
                             ("X-Shared".to_owned(), Some("provider".to_owned())),
                         ])),
                         base_url: Some("https://resolved.test/v1".to_owned()),
                     },
-                    env: Some(BTreeMap::from([
+                    env: Some(IndexMap::from([
                         ("PROVIDER_ONLY".to_owned(), "provider".to_owned()),
                         ("SHARED".to_owned(), "provider".to_owned()),
                     ])),
@@ -2012,11 +2041,11 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
             DeferredFetchOptions {
                 request: ProviderRequestOptions {
                     api_key: Some("request-key".to_owned()),
-                    headers: Some(BTreeMap::from([
+                    headers: Some(IndexMap::from([
                         ("X-Request".to_owned(), Some("request".to_owned())),
                         ("x-shared".to_owned(), Some("request".to_owned())),
                     ])),
-                    env: Some(BTreeMap::from([
+                    env: Some(IndexMap::from([
                         ("REQUEST_ONLY".to_owned(), "request".to_owned()),
                         ("SHARED".to_owned(), "request".to_owned()),
                     ])),
@@ -2047,7 +2076,7 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
         assert_eq!(headers.get("X-Transformed").unwrap().as_deref(), Some("yes"));
         assert_eq!(
             options.request.env,
-            Some(BTreeMap::from([
+            Some(IndexMap::from([
                 ("PROVIDER_ONLY".to_owned(), "provider".to_owned()),
                 ("REQUEST_ONLY".to_owned(), "request".to_owned()),
                 ("SHARED".to_owned(), "request".to_owned()),
@@ -2228,7 +2257,7 @@ fn thinking_levels_clamp_to_supported_levels() {
         ModelThinkingLevel::High
     );
 
-    model.thinking_level_map = Some(BTreeMap::from([
+    model.thinking_level_map = Some(IndexMap::from([
         (ModelThinkingLevel::Xhigh, Some("x".to_owned())),
         (ModelThinkingLevel::Max, None),
         (ModelThinkingLevel::High, None),
@@ -2263,11 +2292,11 @@ fn thinking_levels_clamp_to_supported_levels() {
 #[test]
 fn merges_headers_case_insensitively_and_compares_models() {
     let merged = merge_headers(
-        Some(BTreeMap::from([
+        Some(IndexMap::from([
             ("Authorization".to_owned(), Some("Bearer".to_owned())),
             ("x-a".to_owned(), Some("a".to_owned())),
         ])),
-        Some(BTreeMap::from([
+        Some(IndexMap::from([
             ("authorization".to_owned(), Some("Explicit".to_owned())),
             ("x-b".to_owned(), None),
         ])),
@@ -2277,6 +2306,9 @@ fn merges_headers_case_insensitively_and_compares_models() {
     assert_eq!(merged.get("x-a").unwrap().as_deref(), Some("a"));
     assert!(merged.contains_key("x-b"));
     assert!(!merged.contains_key("Authorization"));
+    // Deleting a case-insensitive duplicate and re-inserting moves it to the end.
+    let keys: Vec<&str> = merged.keys().map(String::as_str).collect();
+    assert_eq!(keys, vec!["x-a", "authorization", "x-b"]);
     assert_eq!(merge_headers(None, None), None);
 
     let a = test_model("p", "m");

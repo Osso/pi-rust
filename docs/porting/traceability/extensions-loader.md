@@ -32,6 +32,11 @@ Diagnostics text preserved:
 - `Extension does not export a valid factory function: {path}`
 - `Failed to load extension: {message}`
 
+## Remaining work
+
+None. The Rust-native discovery surface is complete; `core::resource_loader::DefaultResourceLoader`
+resolves factories through `ExtensionRegistry` keyed by resolved path or extension id.
+
 ## Gaps
 
 - `clearExtensionCache` cannot invalidate a module cache that does not exist.

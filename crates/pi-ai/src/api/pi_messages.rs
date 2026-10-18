@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
@@ -523,8 +524,8 @@ fn resolve_cache_retention(
     }
 }
 
-fn build_headers(api_key: &str, options: &PiMessagesOptions) -> BTreeMap<String, String> {
-    let mut headers = BTreeMap::from([
+fn build_headers(api_key: &str, options: &PiMessagesOptions) -> IndexMap<String, String> {
+    let mut headers = IndexMap::from([
         ("authorization".to_owned(), format!("Bearer {api_key}")),
         ("accept".to_owned(), "text/event-stream".to_owned()),
         ("content-type".to_owned(), "application/json".to_owned()),

@@ -5,3 +5,8 @@ mod source_info_oracle;
 fn source_info_matches_the_pinned_typescript_source() {
     source_info_oracle::compare();
 }
+
+#[test]
+fn create_source_info_matches_the_pinned_typescript_source() {
+    source_info_oracle::compare_create_source_info();
+}
