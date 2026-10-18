@@ -819,6 +819,7 @@ fn register_signal_handlers(state: Arc<RpcState>) -> Vec<JoinHandle<()>> {
     ]
 }
 
+#[cfg(unix)]
 fn spawn_signal_handler(
     kind: tokio::signal::unix::SignalKind,
     signal: &'static str,

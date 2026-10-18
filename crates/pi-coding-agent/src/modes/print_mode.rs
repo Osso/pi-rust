@@ -322,6 +322,7 @@ fn lock<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     value.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+#[cfg(unix)]
 fn register_signal_handlers(state: Arc<PrintState>) -> Vec<JoinHandle<()>> {
     vec![
         spawn_signal_handler(tokio::signal::unix::SignalKind::terminate(), 143, Arc::clone(&state)),
@@ -329,6 +330,12 @@ fn register_signal_handlers(state: Arc<PrintState>) -> Vec<JoinHandle<()>> {
     ]
 }
 
+#[cfg(not(unix))]
+fn register_signal_handlers(_state: Arc<PrintState>) -> Vec<JoinHandle<()>> {
+    Vec::new()
+}
+
+#[cfg(unix)]
 fn spawn_signal_handler(
     kind: tokio::signal::unix::SignalKind,
     exit_code: i32,
