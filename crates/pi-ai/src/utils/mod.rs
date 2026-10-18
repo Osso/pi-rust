@@ -1,6 +1,8 @@
 pub mod abort;
 pub mod abort_signals;
 pub mod diagnostics;
+pub mod error_body;
 pub mod hash;
+mod js_number;
 pub mod json_parse;
 pub mod sanitize_unicode;

@@ -40,7 +40,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/utils/abort-signals.ts` | 41 | 0 | done | `crates/pi-ai/src/utils/abort_signals.rs` | Child-token combination with bridge tasks; Tokio tests. |
 | `ai/src/utils/abort.ts` | 50 | 0 | done | `crates/pi-ai/src/utils/abort.rs` | Abort race and operation signal over `CancellationToken`; Tokio tests. |
 | `ai/src/utils/diagnostics.ts` | 45 | 0 | done | `crates/pi-ai/src/utils/diagnostics.rs` | Thrown-value formatting, error extraction, diagnostic creation/append, serde wire shape. |
-| `ai/src/utils/error-body.ts` | 149 | 0 | todo |  |  |
+| `ai/src/utils/error-body.ts` | 149 | 0 | done | `crates/pi-ai/src/utils/error_body.rs` | Provider error status/body normalization, formatting, truncation; differential. |
 | `ai/src/utils/hash.ts` | 13 | 0 | done | `crates/pi-ai/src/utils/hash.rs` | UTF-16 code-unit short hash, bit-for-bit differential. |
 | `ai/src/utils/json-parse.ts` | 124 | 0 | done | `crates/pi-ai/src/utils/json_parse.rs` | JSON repair + `partial-json@0.1.7` streaming parser; prefix/malformed differential corpus. |
 | `ai/src/utils/provider-retry.ts` | 125 | 0 | todo |  |  |
