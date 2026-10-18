@@ -1,0 +1,19 @@
+[package]
+name = "pi-js-compat"
+version = "0.0.0"
+description = "Shared JavaScript-semantics helpers (localeCompare, Number, Date.parse, Base64, minimatch)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+icu_collator = { version = "=2.3.1", features = ["compiled_data"] }
+icu_locale_core = "=2.3.0"
+fancy-regex = "=0.16.2"
+
+[dev-dependencies]
+serde_json = "=1.0.151"
+
+[lints]
+workspace = true

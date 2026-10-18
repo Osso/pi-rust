@@ -2048,10 +2048,13 @@ name = "pi-coding-agent"
 version = "0.0.0"
 dependencies = [
  "clipboard-rs",
+ "futures-util",
  "gethostname",
+ "globset",
  "httpdate",
  "icu_collator",
  "icu_locale_core",
+ "ignore",
  "image 0.24.9",
  "jiff",
  "notify",
@@ -2059,16 +2062,29 @@ dependencies = [
  "photon-rs",
  "pi-agent-core",
  "pi-ai",
+ "pi-js-compat",
  "pi-tui",
  "regex",
  "rustix",
+ "semver",
  "serde",
  "serde_json",
  "serde_yaml_ng",
+ "sha2",
  "tempfile",
  "tokio",
  "tokio-util",
  "url",
+]
+
+[[package]]
+name = "pi-js-compat"
+version = "0.0.0"
+dependencies = [
+ "fancy-regex",
+ "icu_collator",
+ "icu_locale_core",
+ "serde_json",
 ]
 
 [[package]]

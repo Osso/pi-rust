@@ -17,6 +17,7 @@ pub mod messages;
 pub mod model_config;
 pub mod models_store;
 pub mod output_guard;
+pub mod package_manager;
 pub mod permissions;
 pub mod pi_manifest;
 pub mod prompt_templates;
