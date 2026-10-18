@@ -5,7 +5,7 @@
 //! so this module keeps the SQL statements verbatim and performs all writes inside
 //! `BEGIN IMMEDIATE` transactions.
 
-mod agents;
+pub(crate) mod agents;
 mod channel;
 mod health;
 mod incoming;
@@ -28,7 +28,7 @@ use crate::core::runtime_process::{
 };
 use crate::core::session_health::SessionHealthRecord;
 use crate::core::sqlite::{
-    ControlDbError, DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS, configure_shared_sqlite_database, create_sqlite_database,
+    DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS, configure_shared_sqlite_database, create_sqlite_database,
 };
 use crate::utils::js_json;
 
@@ -98,6 +98,7 @@ pub use sessions::{
     write_session_thinking_level,
 };
 
+pub use crate::core::sqlite::ControlDbError;
 pub use schema::{CONTROL_DB_SCHEMA_VERSION, initialize_schema};
 
 use crate::core::multi_agent_store::{AgentFileReference, AgentSnapshot, SteeringCheckpoint};

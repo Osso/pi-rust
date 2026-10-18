@@ -10,6 +10,7 @@ pub mod event_bus;
 pub mod exec;
 pub mod experimental;
 pub mod http_dispatcher;
+pub mod lifecycle_coordinator;
 pub mod model_config;
 pub mod models_store;
 pub mod multi_agent_store;
