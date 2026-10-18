@@ -30,7 +30,7 @@ use crate::api::openai_responses_shared::{
 };
 use crate::api::simple_options::build_base_options;
 use crate::http::default_fetch;
-use crate::js_number::parse_number;
+use crate::js_number::{date_parse, parse_number};
 use crate::models::clamp_thinking_level;
 use crate::request::{
     BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, ProviderStreams, SimpleStreamOptions,
@@ -1028,12 +1028,11 @@ fn get_retry_after_delay_ms(headers: &BTreeMap<String, String>) -> Option<f64> {
         return Some((seconds * 1000.0).max(0.0));
     }
 
-    let date = httpdate::parse_http_date(retry_after.trim()).ok()?;
-    let date_millis = date
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| i64::try_from(duration.as_millis()).ok())?;
-    Some((date_millis - now_millis()).max(0) as f64)
+    let date = date_parse(retry_after);
+    if date.is_nan() {
+        return None;
+    }
+    Some((date - now_millis() as f64).max(0.0))
 }
 
 fn validate_retry_delay_ms(delay_ms: f64, options: &OpenAICodexResponsesOptions) -> Result<f64, CodexStreamError> {

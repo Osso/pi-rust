@@ -5,8 +5,8 @@ Rust: `crates/pi-ai/src/utils/validation.rs`.
 
 Differential oracle: `oracle/validation-oracle.ts` (builds TypeBox schemas with the pinned
 `Type.*` builders or passes plain JSON, calls the real `validateToolArguments`/`validateToolCall`).
-Tests: `crates/pi-ai/tests/validation.rs` (25 behavioral cases), `crates/pi-ai/tests/differential_validation.rs`
-(67 schema/argument cases + 3 tool-lookup cases), both byte-for-byte on returned values and `Error.message`.
+Tests: `crates/pi-ai/tests/validation.rs` (26 behavioral cases), `crates/pi-ai/tests/differential_validation.rs`
+(68 schema/argument cases + 3 tool-lookup cases), both byte-for-byte on returned values and `Error.message`.
 
 ## Representation decisions
 
@@ -33,9 +33,9 @@ Tests: `crates/pi-ai/tests/validation.rs` (25 behavioral cases), `crates/pi-ai/t
 | TypeScript | Rust | Test |
 |---|---|---|
 | `validateToolCall` | `validate_tool_call` | `validate_tool_call_reports_unknown_tool_names`, `validate_tool_call_validates_matching_tools`, differential `tool_call_lookup_matches_the_pinned_typescript_module` |
-| `validateToolArguments` | `validate_tool_arguments` | 25 behavioral tests + 67 differential cases |
+| `validateToolArguments` | `validate_tool_arguments` | 26 behavioral tests + 68 differential cases |
 | `normalizeOptionalNulls` | `normalize_optional_nulls` | `null_is_omitted_for_optional_non_nullable_typebox_properties`, `optional_nulls_with_nullable_references_are_preserved`, `nulls_matching_a_typebox_nullable_union_arm_are_preserved`, `typebox-array-of-objects-optional-nulls` |
-| `Value.Convert` (`FromType` dispatch) | `convert` + `convert_*` + `try_*` | `typebox-*` differential cases |
+| `Value.Convert` (`FromType` dispatch) | `convert` + `convert_*` + `try_*` | `typebox-*` differential cases, including `typebox-bigint-like-strings` |
 | `CheckSchema` inside keywords | `check` (standalone sub-schema) / `check_with` (caller schema stack) | `plain-contains-ref`, `plain-not-ref`, `plain-any-of-ref`, `plain-additional-properties-ref` |
 | `coerceWithJsonSchema` | `coerce_into`, `coerce_union`, `coerce_primitive_by_type` | `plain-*` differential cases, `plain_schemas_use_ajv_compatible_primitive_coercions` |
 | `getValidator` cache | none (stateless engine) | n/a — no observable behavior |

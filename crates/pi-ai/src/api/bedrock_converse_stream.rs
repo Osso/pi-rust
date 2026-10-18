@@ -20,6 +20,7 @@ use crate::api::simple_options::{
 };
 use crate::api::transform_messages::transform_messages_with;
 use crate::http::default_fetch;
+use crate::js_number::{date_parse, parse_number};
 use crate::models::calculate_cost;
 use crate::request::{
     HttpBody, HttpRequest, HttpResponse, OnPayload, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis,
@@ -1567,25 +1568,58 @@ fn retry_after_ms(headers: &[(String, String)]) -> Option<f64> {
     for (name, value) in headers {
         let lower = name.to_ascii_lowercase();
         if lower == "x-amz-retry-after" {
-            return value.trim().parse::<f64>().ok();
+            // Smithy reads the hint with `Number` and treats an invalid date as
+            // an immediate retry.
+            let millis = parse_number(value);
+            if millis.is_nan() {
+                return None;
+            }
+            return Some(finite_retry_delay(millis));
         }
         if lower == "retry-after" {
-            if let Ok(seconds) = value.trim().parse::<f64>() {
-                return Some(seconds * 1000.0);
-            }
-            if let Ok(date) = httpdate::parse_http_date(value)
-                && let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-            {
-                let now = now.as_millis() as i64;
-                let target = date
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|duration| duration.as_millis() as i64)
-                    .unwrap_or(now);
-                return Some((target - now) as f64);
-            }
+            return smithy_retry_after_ms(value);
         }
     }
     None
+}
+
+/// Smithy `parseRetryAfterHeader` for `retry-after`: numeric seconds, the
+/// `" GMT, <seconds>"` suffix, an HTTP date, or `Date.parse`.
+fn smithy_retry_after_ms(value: &str) -> Option<f64> {
+    if value.ends_with("GMT") {
+        let date = httpdate::parse_http_date(value).ok()?;
+        let millis = date.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as f64;
+        return Some(finite_retry_delay(millis - now_millis() as f64));
+    }
+    if let Some(seconds) = value.rsplit_once(" GMT, ").map(|(_, seconds)| seconds)
+        && is_plain_decimal(seconds)
+    {
+        return Some(finite_retry_delay(seconds.parse::<f64>().ok()? * 1000.0));
+    }
+    if is_plain_decimal(value) {
+        return Some(finite_retry_delay(value.parse::<f64>().ok()? * 1000.0));
+    }
+    let date = date_parse(value);
+    (date >= now_millis() as f64).then(|| finite_retry_delay(date - now_millis() as f64))
+}
+
+/// Smithy numeric hint pattern: `\d+` or `\d+\.\d+`.
+fn is_plain_decimal(value: &str) -> bool {
+    match value.split_once('.') {
+        Some((whole, fraction)) => {
+            !whole.is_empty()
+                && !fraction.is_empty()
+                && whole.bytes().all(|byte| byte.is_ascii_digit())
+                && fraction.bytes().all(|byte| byte.is_ascii_digit())
+        }
+        None => !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()),
+    }
+}
+
+/// Smithy builds `new Date(now + delay)`; a non-finite delay makes the date
+/// invalid and the retry immediate.
+fn finite_retry_delay(delay_ms: f64) -> f64 {
+    if delay_ms.is_finite() { delay_ms.max(0.0) } else { 0.0 }
 }
 
 fn retry_delay(attempt: usize, retry_after_ms: Option<f64>) -> std::time::Duration {
@@ -1816,4 +1850,25 @@ fn append_bedrock_failure_diagnostic(output: &mut AssistantMessage, error: &Bedr
             details: Some(details),
         },
     );
+}
+
+#[cfg(test)]
+mod retry_hint_tests {
+    use super::*;
+
+    #[test]
+    fn retry_after_hints_follow_smithy_parsing() {
+        let header = |name: &str, value: &str| vec![(name.to_owned(), value.to_owned())];
+        assert_eq!(retry_after_ms(&header("x-amz-retry-after", "0x10")), Some(16.0));
+        assert_eq!(retry_after_ms(&header("x-amz-retry-after", " 5 ")), Some(5.0));
+        assert_eq!(retry_after_ms(&header("x-amz-retry-after", "nope")), None);
+        assert_eq!(retry_after_ms(&header("x-amz-retry-after", "Infinity")), Some(0.0));
+        assert_eq!(retry_after_ms(&header("retry-after", "1.5")), Some(1500.0));
+        assert_eq!(retry_after_ms(&header("retry-after", "+1")), None);
+        assert_eq!(retry_after_ms(&header("retry-after", "0x10")), None);
+        assert_eq!(
+            retry_after_ms(&header("retry-after", "Mon, 01 Jan 2020 00:00:00 GMT, 30")),
+            Some(30_000.0)
+        );
+    }
 }

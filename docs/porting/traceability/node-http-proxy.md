@@ -39,3 +39,4 @@ Tests: `crates/pi-ai/tests/node_http_proxy.rs` (16 behavioral, including three r
 
 ## Discrepancies
 - JavaScript `\s` in the `NO_PROXY` split also matches Unicode space separators; the Rust split uses `char::is_whitespace`, which covers the same hostname-relevant separators. No differential case distinguishes them.
+- `parse::<f64>` for the `host:port` suffix is equivalent to `Number.parseInt(suffix, 10)`: the same guard requires a non-empty all-ASCII-digit suffix (the TS regex `^(.*):(\d+)$`), and both overflow to infinity for absurdly long digit strings.

@@ -694,3 +694,38 @@ async fn accepts_tool_choice_and_thinking_display_options() {
         json!({"effort": "medium"})
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn x_amz_retry_after_uses_javascript_number_parsing() {
+    // Smithy reads `x-amz-retry-after` with `Number`, so `"0x10"` is 16 ms.
+    let body = [message_start(), text_delta(0, "ok"), message_stop("end_turn")].concat();
+    let fetch = ScriptedFetch::new(vec![
+        ScriptedResponse::http(
+            429,
+            vec![
+                ("content-type", "application/json"),
+                (
+                    "x-amzn-errortype",
+                    "ThrottlingException:http://internal.amazon.com/coral/com.amazon.bedrock/",
+                ),
+                ("x-amz-retry-after", "0x10"),
+            ],
+            r#"{"message":"slow down"}"#,
+        ),
+        ScriptedResponse::ok(body, &[3, 8, 5, 13]),
+    ]);
+
+    let task = tokio::spawn(drain(stream(model(), context(), options(fetch.clone(), env()))));
+    let mut elapsed_ms = 0;
+    while fetch.request_count() < 2 && elapsed_ms < 1000 {
+        tokio::time::advance(std::time::Duration::from_millis(1)).await;
+        elapsed_ms += 1;
+    }
+    assert!(
+        (16..=25).contains(&elapsed_ms),
+        "retry should follow the 16 ms hint, not the exponential backoff: {elapsed_ms} ms"
+    );
+
+    let (_, message) = task.await.expect("stream task");
+    assert_eq!(message.stop_reason, StopReason::Stop);
+}

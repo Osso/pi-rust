@@ -1216,3 +1216,33 @@ async fn explicit_null_thinking_level_map_falls_back_to_logical_effort() {
         json!({"effort": "none", "summary": "auto"})
     );
 }
+
+#[tokio::test]
+async fn honors_iso_8601_retry_after_dates() {
+    // `Date.parse("2999-01-01T00:00:00Z")` is far beyond the configured limit.
+    let fetch = RecordingFetch::new(vec![
+        ScriptedResponse::json(
+            503,
+            r#"{"error":{"code":"temporarily_unavailable","message":"retry later"}}"#,
+        )
+        .with_header("retry-after", "2999-01-01T00:00:00Z"),
+    ]);
+    let mut opts = options(fetch.clone(), Transport::Sse);
+    opts.stream.request.max_retries = Some(3.0);
+    opts.stream.request.max_retry_delay_ms = Some(1000.0);
+
+    let (_, result) = collect(stream(model(), context(), opts)).await;
+
+    assert_eq!(result.stop_reason, StopReason::Error);
+    let message = result.error_message.expect("error message");
+    let requested = message
+        .strip_prefix("Server requested ")
+        .and_then(|rest| rest.strip_suffix("s retry delay (max: 1s)"))
+        .expect("retry delay message");
+    let requested: f64 = requested.parse().expect("delay seconds");
+    assert!(
+        (30_000_000_000.0..40_000_000_000.0).contains(&requested),
+        "delay seconds {requested}"
+    );
+    assert_eq!(fetch.requests().len(), 1);
+}

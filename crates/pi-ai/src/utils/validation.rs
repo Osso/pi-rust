@@ -540,10 +540,19 @@ fn number_from_string(text: &str) -> Option<Value> {
         return Some(json!(1));
     }
     let digits = text.strip_suffix('n')?;
-    if digits.is_empty() {
+    let unsigned = digits.strip_prefix('-').unwrap_or(digits);
+    if !is_canonical_integer(unsigned) {
         return None;
     }
-    digits.parse::<i64>().ok().map(Value::from)
+    let value: i64 = digits.parse().ok()?;
+    // TypeBox converts bigint-like strings only within `Number.MAX_SAFE_INTEGER`.
+    (value.unsigned_abs() <= 9_007_199_254_740_991).then(|| js_number(value as f64))
+}
+
+/// TypeBox `TryBigInt` integer pattern: `0` or a non-zero digit followed by digits.
+fn is_canonical_integer(digits: &str) -> bool {
+    digits == "0"
+        || (matches!(digits.as_bytes().first(), Some(b'1'..=b'9')) && digits.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 fn try_integer(value: &Value) -> Option<Value> {

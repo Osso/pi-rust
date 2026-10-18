@@ -413,3 +413,23 @@ fn string_enum_builds_a_google_compatible_string_schema() {
         "{message}"
     );
 }
+
+#[test]
+fn typebox_number_strings_use_the_bigint_like_fallback_rules() {
+    // TypeBox `TryNumber`: `+"0123n"` and `+"9007199254740992n"` are NaN, and
+    // `TryBigInt` rejects leading zeros and values above `Number.MAX_SAFE_INTEGER`,
+    // so both strings stay unconverted and fail the number type.
+    let tool = typebox_tool(json!({
+        "type": "object",
+        "required": ["count"],
+        "properties": { "count": { "type": "number" } },
+    }));
+    for value in [json!("0123n"), json!("9007199254740992n")] {
+        let call = tool_call(object([("count", value.clone())]));
+        let message = validation_message(&tool, &call);
+        assert!(message.starts_with("Validation failed"), "input {value}: {message}");
+    }
+
+    let call = tool_call(object([("count", json!("123n"))]));
+    assert_eq!(validate(&tool, &call), json!({ "count": 123 }));
+}

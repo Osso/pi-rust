@@ -26,7 +26,7 @@ plus the Rust-only helpers `bedrock_sigv4.rs`, `bedrock_eventstream.rs`,
 | SigV4 signing, session token, payload hash, canonical path/headers | `bedrock_sigv4::sign_request` | differential signer check against the SDK's recorded `Authorization` for every non-bearer scenario |
 | Custom header `build` middleware, reserved `x-amz-*`/`authorization`/`host` skip | `apply_custom_headers`, `is_reserved_header` | `ignores_reserved_custom_headers`; differential `rich-messages` |
 | Request construction, `onPayload`/`onResponse`, `onPayload` replacement | `build_command_input`, `apply_on_payload`, `execute_request` | differential `thinking-*` captured payloads; `rich-messages` |
-| Retry middleware (3 attempts, attempt header, retry-after) | `execute_request`, `is_retryable`, `retry_delay`, `retry_after_ms` | `retries_throttling_then_reports_validation_diagnostic`; differential `errors-retry`, `service-unavailable` |
+| Retry middleware (3 attempts, attempt header, retry-after) | `execute_request`, `is_retryable`, `retry_delay`, `retry_after_ms` (Smithy `parseRetryAfterHeader`: `Number` for `x-amz-retry-after`, numeric pattern/`" GMT, <seconds>"`/HTTP date/`Date.parse` for `retry-after`) | `retries_throttling_then_reports_validation_diagnostic`, `x_amz_retry_after_uses_javascript_number_parsing`, `retry_after_hints_follow_smithy_parsing`; differential `errors-retry`, `service-unavailable` |
 | Message conversion: text/image/tool-use/tool-result/thinking/cache points, empty placeholders, empty-key document sanitization | `convert_messages`, `convert_user_message`, `convert_assistant_message`, `convert_tool_result`, `sanitize_bedrock_document` | `converts_replayed_messages_and_documents`, `adds_long_cache_points_to_system_and_last_user_message`; differential `rich-messages`, `cache-points` |
 | System prompt + cache point (`PI_CACHE_RETENTION`, TTL `1h`) | `build_system_prompt`, `cache_point`, `resolve_cache_retention` | cache-point behavioral test; differential `cache-points` |
 | Tool config, strict mode, tool choice | `convert_tool_config` | `converts_replayed_messages_and_documents`, `accepts_tool_choice_and_thinking_display_options`; differential `rich-messages` |
@@ -86,3 +86,8 @@ auth.
 - Abort timing is not differential-tested: the synthetic request handler cannot
   reproduce real transport teardown deterministically. Behavioral tests cover
   immediate abort mapping; the source's abort unit tests are live-only.
+- The retry delay is the port's attempt-based backoff; it does not reproduce
+  Smithy's `max(backoff, min(hint, backoff + 5s))` clamp. Header parsing does
+  follow Smithy: `x-amz-retry-after` uses `Number`, and `retry-after` uses the
+  numeric pattern, the `" GMT, <seconds>"` suffix, an HTTP date, or
+  `Date.parse` (V8 legacy formats and pre-1970 HTTP dates are not reproduced).

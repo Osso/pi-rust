@@ -29,7 +29,7 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 | `normalizeTimeoutMs` | `normalize_timeout_ms` | timeout suites |
 | `compressRequestBodyZstd` | `compress_request_body_zstd` | `zstd_compresses_sse_request_bodies` |
 | `isTerminalRateLimitError` / `isRetryableError` | same-named helpers | retry/backoff and delay-limit tests |
-| `getRetryAfterDelayMs` (ms/seconds/HTTP date) | `get_retry_after_delay_ms` | retry tests; differential retry scenario |
+| `getRetryAfterDelayMs` (ms/seconds/`Date.parse`) | `get_retry_after_delay_ms` | retry tests; `honors_iso_8601_retry_after_dates`; differential retry scenario |
 | `validateRetryDelayMs` | `validate_retry_delay_ms` | `fails_when_retry_delay_exceeds_limit` |
 | SSE fetch retry loop and `onRetry` events | `fetch_sse_with_retries`, `notify_retry` | retry/backoff suites; differential |
 | header timeout (`AbortSignal.timeout`) | `fetch_with_header_timeout` | header-timeout unit + differential |
@@ -76,7 +76,7 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 - `User-Agent`: Linux reads `/proc/sys/kernel/osrelease`; other platforms use `std::env::consts::OS` in place of `node:os.release()`. Arch maps `x86_64`→`x64`, `aarch64`→`arm64`, `x86`→`ia32`.
 - `close_openai_codex_websocket_sessions` returns synchronously like TS and sends the close frame (`1000`, `"debug_close"`) on a spawned task; called outside a Tokio runtime it can only drop the sockets (`closing_sessions_sends_debug_close_frame_to_cached_sockets`). An empty session id closes every session, matching the source's falsy check.
 - Session cleanup registration happens on first WebSocket use, not at module load; the observable cleanup set is the same.
-- `retry-after-ms`/`retry-after` numbers use `js_number::parse_number` (`Number(string)`), so `retry-after-ms: ""` retries after 0 ms as in TS (`empty_retry_after_ms_header_retries_immediately`).
+- `retry-after-ms`/`retry-after` numbers use `js_number::parse_number` (`Number(string)`), so `retry-after-ms: ""` retries after 0 ms as in TS (`empty_retry_after_ms_header_retries_immediately`). Dates use `js_number::date_parse` (`Date.parse`): HTTP dates and ECMAScript ISO 8601 are supported; V8 legacy formats and HTTP dates before 1970 are not (`honors_iso_8601_retry_after_dates`).
 - JWT payloads are decoded with `utils::base64::decode` (`atob` semantics: padding optional, standard alphabet); URL-safe payloads fail in both implementations (`extracts_account_id_from_unpadded_jwt_payload`).
 - Event `partial` messages are clones (see normalization above).
 - `HttpResponse::status_text` supplies the TS `response.statusText` fallback for empty error bodies.
