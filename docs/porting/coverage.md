@@ -397,7 +397,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/session-errors.ts` | 12 | 0 | done | `crates/pi-coding-agent/src/core/session_errors.rs` | `SessionImportFileNotFoundError`; differential `27004`. |
 | `coding-agent/src/core/session-health.ts` | 135 | 0 | done | `crates/pi-coding-agent/src/core/session_health.rs` | Records, sticky-death/eligibility, live-status derivation, goal parsing; differential `27008`. `Date.parse` subset lives in `utils::iso_time` (RFC 2822/free-form gap documented). |
 | `coding-agent/src/core/skill-block.ts` | 22 | 0 | done | `crates/pi-coding-agent/src/core/skill_block.rs` | all TS tests ported + differential |
-| `coding-agent/src/core/sqlite.ts` | 145 | 0 | todo |  |  |
+| `coding-agent/src/core/sqlite.ts` | 145 | 0 | done | `crates/pi-coding-agent/src/core/sqlite.rs` | Connection/PRAGMA/contention helpers; dynamic statement interfaces are a typed-core gap (see traceability). |
 | `coding-agent/src/core/timings.ts` | 50 | 0 | done | `crates/pi-coding-agent/src/core/timings.rs` | `PI_TIMING` startup profiling; stderr format asserted through a child process. |
 | `coding-agent/src/core/tool-capabilities.ts` | 11 | 0 | done | `crates/pi-coding-agent/src/core/tool_capabilities.rs` | Child-disabled and supervisor-only tool names; differential `27004`. |
 | `coding-agent/src/core/tool-detach-registry.ts` | 58 | 0 | done | `crates/pi-coding-agent/src/core/tool_detach_registry.rs` | Newest-first detach, running count, cancellable auto-detach timers. |
@@ -487,9 +487,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/runtime-message-markers.ts` | 36 | 14 | todo |  |  |
 | `coding-agent/src/core/settings-manager.ts` | 1442 | 14 | done | `crates/pi-coding-agent/src/core/settings_manager.rs` | Global/project storage with the shared lock protocol, migrations, typed accessors, field-scoped persistence; differential `coding-agent-settings-manager-oracle.ts` (10 scenarios, file bytes). Synchronous writes documented. |
 | `coding-agent/src/core/detached-job-runner.ts` | 167 | 15 | todo |  |  |
-| `coding-agent/src/core/multi-agent-store.ts` | 1387 | 15 | todo |  |  |
+| `coding-agent/src/core/multi-agent-store.ts` | 1387 | 15 | done | `crates/pi-coding-agent/src/core/multi_agent_store.rs` | Store, subscriptions, persistence, projections; 23 behavioral tests + 28-step differential oracle. |
 | `coding-agent/src/core/package-manager.ts` | 2699 | 15 | done | `crates/pi-coding-agent/src/core/package_manager.rs` | npm/git/local installs, resource resolution/filters/auto-discovery, updates; differential resolve/parse/install plus real-git boundary tests. Settings behind `PackageSettingsStore`; glob/semver deviations documented. |
-| `coding-agent/src/core/session-control-db.ts` | 7047 | 15 | todo |  |  |
+| `coding-agent/src/core/session-control-db.ts` | 7047 | 15 | done | `crates/pi-coding-agent/src/core/session_control_db/` | Schema v14, migrations, all table APIs; 37 behavioral, 74-step differential, and 4 cross-implementation tests. |
 | `coding-agent/src/core/session-manager.ts` | 2437 | 15 | partial | `crates/pi-coding-agent/src/core/session_manager.rs` | JSONL v1–v3 read/migrate/write, tree/context/fork/relocate, scan listing done; control-db metadata integration blocked on `ca-control-db` |
 | `coding-agent/src/core/session-tool-output.ts` | 380 | 15 | done | `crates/pi-coding-agent/src/core/session_tool_output.rs` | Persistence truncation + atomic migration; `tests/session_tool_output.rs`, differential `41040` |
 | `coding-agent/src/core/telemetry.ts` | 13 | 15 | todo |  |  |
@@ -517,7 +517,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/architect/prompt.ts` | 12 | 17 | todo |  |  |
 | `coding-agent/src/core/compaction/branch-summarization.ts` | 378 | 17 | todo |  |  |
 | `coding-agent/src/core/detached-bash-runner.ts` | 294 | 17 | todo |  |  |
-| `coding-agent/src/core/lifecycle-coordinator.ts` | 448 | 17 | todo |  |  |
+| `coding-agent/src/core/lifecycle-coordinator.ts` | 448 | 17 | done | `crates/pi-coding-agent/src/core/lifecycle_coordinator.rs` | Command surface over control-db lifecycle mutations; 23 behavioral tests. |
 | `coding-agent/src/core/prompt-templates.ts` | 285 | 17 | done | `crates/pi-coding-agent/src/core/prompt_templates.rs` | Argument parsing/substitution, discovery, expansion, source metadata; differential `coding-agent-prompt-templates-oracle.ts`. |
 | `coding-agent/src/core/skills.ts` | 487 | 17 | done | `crates/pi-coding-agent/src/core/skills.rs` | Discovery, ignore rules, validation, collisions, prompt formatting; differential `coding-agent-skills-oracle.ts`. YAML error wording normalized (see traceability). |
 | `coding-agent/src/core/slash-commands.ts` | 48 | 17 | done | `crates/pi-coding-agent/src/core/slash_commands.rs` | Built-in command list and source enum; differential `coding-agent-slash-commands-oracle.ts`. |

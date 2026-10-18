@@ -80,7 +80,7 @@ The harness events, messages, reducer, and orchestration-type slices add no runt
 
 - `pi-agent-core` (path, `=0.0.0`) — reuses the ported `SessionStorage`/`SessionSearch` contracts, `Session` facade, `FileSystem` execution env, `SessionError`, and UUIDv7 id generator; no session type is redefined.
 - `pi-ai` (path, `=0.0.0`) — `BoxFuture`, `js_number` float formatting for durable payloads, `uuidv7` for writer-lease owners and branch-cache ids, and the message/usage wire types.
-- `rusqlite = 0.37.0` (exact, `bundled`) — the SQLite driver. `bundled` compiles SQLite from source so the schema, PRAGMAs (`WAL`, `synchronous=FULL`, `busy_timeout=5000`), FTS5 virtual table with the `trigram` tokenizer, and `bm25()` ranking are available without depending on the host SQLite build; `node:sqlite` is the TypeScript equivalent.
+- `rusqlite = 0.37.0` (exact, `bundled`) — the SQLite driver for session storage and the shared `control.sqlite` (`core/sqlite.ts`, `core/session-control-db.ts`). `bundled` compiles SQLite from source so the schema, PRAGMAs (`WAL`, `synchronous=NORMAL`/`FULL`, `busy_timeout=5000`), FTS5 virtual table with the `trigram` tokenizer, and `bm25()` ranking are available without depending on the host SQLite build; `node:sqlite`/`bun:sqlite` are the TypeScript equivalents.
 - `serde = 1.0.229` / `serde_json = 1.0.151` (`preserve_order`) — durable entry/record payloads, session metadata, and error-shaped values with TypeScript key order.
 - `tokio = 1.53.3` (`macros`, `rt`, `sync`, `time`) — repository operation queue (`tokio::sync::Mutex`), writer-lease heartbeat task, and lease timers.
 - `tokio-util = 0.7.20` (`rt`) — `CancellationToken` carried by `SessionSearchOptions`.

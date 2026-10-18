@@ -1,0 +1,1687 @@
+//! Behavioral tests for the shared control database (`core/session-control-db.ts`).
+
+use std::path::PathBuf;
+
+use pi_coding_agent::core::multi_agent_store::{
+    AgentError, AgentFileReference, AgentLifecycle, AgentNode, AgentPermission, AgentResult,
+};
+use pi_coding_agent::core::runtime_process::ProcessIdentity;
+use pi_coding_agent::core::session_control_db::{
+    CommitMultiAgentLifecycleMutationInput, CommitMultiAgentSteeringMutationInput,
+    CommitMultiAgentTerminalMutationInput, CreateMultiAgentChildWithRuntimeOwnershipInput, DetachedJobOutcome,
+    DetachedJobTerminalInput, DetachedJobTerminalOutput, EnqueueRuntimeMailboxMessageInput,
+    EnqueueStoredRuntimeMailboxMessageInput, FinalizeDetachedJobInput, FinalizeDetachedJobResult,
+    MultiAgentCounterName, MultiAgentCounters, MultiAgentRuntimeOwnerIdentity, PostArchitectRequestInput,
+    PostSharedChannelMessageInput, PostSupervisorRequestInput, RuntimeMailboxAddress, RuntimeMailboxMessageKind,
+    RuntimeMailboxMessageStatus, RuntimeMailboxStoreRef, SupervisorRequestKind, SupervisorResponse,
+    WritableSessionMetadata, advance_shared_channel_cursor, allocate_multi_agent_counter, archive_session,
+    archive_sessions_older_than, bootstrap_multi_agent_agent, claim_latest_incoming_message,
+    claim_multi_agent_terminal_outbox, claim_next_supervisor_request, claim_pending_architect_requests,
+    claim_runtime_mailbox_messages, cleanup_multi_agent_terminal_outbox, commit_multi_agent_detach_mark,
+    commit_multi_agent_lifecycle_mutation, commit_multi_agent_steering_delivery, commit_multi_agent_steering_mutation,
+    commit_multi_agent_terminal_mutation, complete_architect_request, complete_incoming_message,
+    complete_supervisor_request, consume_runtime_mailbox_message, create_multi_agent_child_with_runtime_ownership,
+    deliver_multi_agent_terminal_outbox, deliver_runtime_mailbox_message, enqueue_incoming_message,
+    enqueue_runtime_mailbox_message, enqueue_stored_runtime_mailbox_message, fail_incoming_message,
+    fail_runtime_mailbox_message, finalize_detached_job, get_multi_agent_mailbox_message_status,
+    has_pending_supervisor_approval_request, initialize_shared_channel_cursor_at_tail, list_active_session_metadata,
+    list_archived_session_metadata, list_named_sessions, list_pending_architect_requests,
+    list_runtime_mailbox_listeners, list_runtime_mailbox_messages, list_session_health, list_session_metadata,
+    list_shared_channel_messages_after, mark_runtime_mailbox_message_delivered, post_architect_request,
+    post_shared_channel_message, post_supervisor_request, read_incoming_message_status, read_last_message,
+    read_multi_agent_agent, read_multi_agent_state, read_or_migrate_prompt_history, read_prompt_history,
+    read_runtime_mailbox_listener, read_runtime_mailbox_message, read_session_goal, read_session_health,
+    read_session_metadata, read_session_sandbox_profile, read_shared_channel_cursor, read_shared_channel_tail,
+    read_supervisor_request, record_prompt_history_entry, register_runtime_mailbox_listener,
+    relocate_session_control_data, remove_named_session, renew_architect_request_claims, requeue_supervisor_request,
+    retire_runtime_mailbox_listener, set_named_session, unarchive_session, upsert_multi_agent_mailbox_message,
+    write_last_message, write_multi_agent_counters, write_session_goal, write_session_health, write_session_metadata,
+    write_session_model, write_session_sandbox_profile, write_session_thinking_level,
+};
+use pi_coding_agent::core::session_health::{SessionCheckStatus, empty_session_health};
+use tempfile::TempDir;
+
+fn temp_db() -> (TempDir, String) {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let path = directory.path().join("control.sqlite");
+    (directory, path.display().to_string())
+}
+
+fn identity(pid: u32, start: u64) -> ProcessIdentity {
+    ProcessIdentity {
+        pid,
+        start_time_ticks: start,
+        incarnation: None,
+    }
+}
+
+fn owner(session: &str) -> MultiAgentRuntimeOwnerIdentity {
+    MultiAgentRuntimeOwnerIdentity {
+        session_id: session.to_owned(),
+        agent_id: None,
+    }
+}
+
+fn metadata(session_path: &str, id: &str, name: Option<&str>) -> WritableSessionMetadata {
+    WritableSessionMetadata {
+        session_path: session_path.to_owned(),
+        id: id.to_owned(),
+        cwd: "/repo".to_owned(),
+        name: name.map(str::to_owned),
+        parent_session_path: None,
+        archived_at: None,
+        is_archived: None,
+        is_subagent: None,
+        subagent_name: None,
+        model_provider: None,
+        model_id: None,
+        thinking_level: None,
+        created_at: "2026-06-21T00:00:00.000Z".to_owned(),
+        modified_at: "2026-06-21T00:00:00.000Z".to_owned(),
+        message_count: 1,
+        first_message: "hello".to_owned(),
+        all_messages_text: "hello world".to_owned(),
+        index_message_text: None,
+    }
+}
+
+fn agent_node(id: &str, parent: Option<&str>, lifecycle: AgentLifecycle) -> AgentNode {
+    AgentNode {
+        id: id.to_owned(),
+        parent_id: parent.map(str::to_owned),
+        display_name: "Scout".to_owned(),
+        agent_type: "scout".to_owned(),
+        origin: None,
+        lifecycle,
+        revision: 1,
+        created_at: "2026-06-21T00:00:00.000Z".to_owned(),
+        updated_at: "2026-06-21T00:00:00.000Z".to_owned(),
+        cwd: "/repo".to_owned(),
+        worktree: None,
+        model: None,
+        account: None,
+        permission: AgentPermission {
+            policy: "on-request".to_owned(),
+            inherited_from: None,
+            narrowed: true,
+        },
+        slot: None,
+        transcript: None,
+        event_stream: None,
+        worker: None,
+        detached: None,
+        current_activity: None,
+        last_activity: None,
+        result: None,
+        error: None,
+        extra: serde_json::Map::new(),
+    }
+}
+
+fn register_listener(db: &str, recipient: &RuntimeMailboxAddress) {
+    register_runtime_mailbox_listener(db, recipient, std::process::id(), None, Default::default())
+        .expect("register listener");
+}
+
+fn stored_message(
+    db: &str,
+    session_path: &str,
+    message_id: &str,
+    recipient: &RuntimeMailboxAddress,
+    sender: &RuntimeMailboxAddress,
+    body: &str,
+) -> i64 {
+    register_listener(db, recipient);
+    let message = serde_json::json!({
+        "body": body,
+        "createdAt": "2026-06-21T00:00:00.000Z",
+        "fromAgentId": sender.agent_id.clone().unwrap_or_else(|| "main".to_owned()),
+        "id": message_id,
+        "kind": "message",
+        "status": "pending",
+        "toAgentId": recipient.agent_id.clone().unwrap_or_else(|| "main".to_owned()),
+        "updatedAt": "2026-06-21T00:00:00.000Z",
+    });
+    enqueue_stored_runtime_mailbox_message(
+        db,
+        &EnqueueStoredRuntimeMailboxMessageInput {
+            recipient: recipient.clone(),
+            sender: sender.clone(),
+            kind: RuntimeMailboxMessageKind::Message,
+            store_ref: RuntimeMailboxStoreRef {
+                session_path: session_path.to_owned(),
+                message_id: message_id.to_owned(),
+            },
+            message,
+            updated_at: Some("2026-06-21T00:00:00.000Z".to_owned()),
+        },
+    )
+    .expect("enqueue stored message")
+}
+
+#[test]
+fn schema_and_pragmas_match_the_shared_contract() {
+    let (_dir, db) = temp_db();
+    let health = empty_session_health("session", "2026-06-21T00:00:00.000Z");
+    write_session_health(&db, &health).expect("write health");
+
+    let connection = pi_coding_agent::core::sqlite::create_sqlite_database(&db).expect("open db");
+    pi_coding_agent::core::sqlite::configure_shared_sqlite_database(&connection, 5000).expect("configure");
+    let version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("user_version");
+    assert_eq!(version, 14);
+    let journal: String = connection
+        .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+        .expect("journal mode");
+    assert_eq!(journal.to_lowercase(), "wal");
+    let synchronous: i64 = connection
+        .query_row("PRAGMA synchronous", [], |row| row.get(0))
+        .expect("synchronous");
+    assert_eq!(synchronous, 1);
+    let tables: Vec<String> = connection
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+        .expect("prepare")
+        .query_map([], |row| row.get(0))
+        .expect("query")
+        .collect::<Result<_, _>>()
+        .expect("rows");
+    for table in [
+        "architect_requests",
+        "incoming_messages",
+        "last_message",
+        "multi_agent_agents",
+        "multi_agent_counters_v2",
+        "multi_agent_mailbox_messages",
+        "multi_agent_runtime_owners",
+        "multi_agent_terminal_outbox",
+        "named_sessions",
+        "prompt_history",
+        "runtime_mailbox_listeners",
+        "session_health",
+        "session_metadata",
+        "session_sandbox_profiles",
+        "shared_channel_cursors",
+        "shared_channel_messages",
+        "supervisor_requests",
+    ] {
+        assert!(tables.iter().any(|name| name == table), "missing {table}");
+    }
+}
+
+#[test]
+fn incoming_messages_claim_supersedes_pending_rows() {
+    let (_dir, db) = temp_db();
+    let first = enqueue_incoming_message(&db, "first").expect("enqueue first");
+    let second = enqueue_incoming_message(&db, "second").expect("enqueue second");
+    assert_eq!(first + 1, second);
+
+    let claimed = claim_latest_incoming_message(&db).expect("claim").expect("message");
+    assert_eq!(claimed.id, second);
+    assert_eq!(claimed.content, "second");
+    assert_eq!(
+        read_incoming_message_status(&db, first).expect("status"),
+        Some("superseded".to_owned())
+    );
+    assert_eq!(
+        read_incoming_message_status(&db, second).expect("status"),
+        Some("claimed".to_owned())
+    );
+    complete_incoming_message(&db, second).expect("complete");
+    assert_eq!(
+        read_incoming_message_status(&db, second).expect("status"),
+        Some("completed".to_owned())
+    );
+
+    let third = enqueue_incoming_message(&db, "third").expect("enqueue third");
+    fail_incoming_message(&db, third, "boom").expect("fail");
+    assert_eq!(
+        read_incoming_message_status(&db, third).expect("status"),
+        Some("failed".to_owned())
+    );
+}
+
+#[test]
+fn session_metadata_round_trips_and_archives() {
+    let (_dir, db) = temp_db();
+    write_session_metadata(&db, &metadata("/sessions/a.jsonl", "id-a", None)).expect("write a");
+    write_session_metadata(&db, &metadata("/sessions/b.jsonl", "id-b", None)).expect("write b");
+
+    let read = read_session_metadata(&db, "/sessions/a.jsonl")
+        .expect("read")
+        .expect("metadata");
+    assert_eq!(read.id, "id-a");
+    assert_eq!(read.cwd, "/repo");
+    assert_eq!(read.message_count, 1);
+    assert_eq!(read.first_message, "hello");
+    assert_eq!(read.is_subagent, Some(false));
+
+    write_session_model(&db, "/sessions/a.jsonl", "anthropic", "claude").expect("model");
+    write_session_thinking_level(&db, "/sessions/a.jsonl", "high").expect("thinking");
+    let read = read_session_metadata(&db, "/sessions/a.jsonl")
+        .expect("read")
+        .expect("metadata");
+    assert_eq!(read.model_provider.as_deref(), Some("anthropic"));
+    assert_eq!(read.model_id.as_deref(), Some("claude"));
+    assert_eq!(read.thinking_level.as_deref(), Some("high"));
+
+    write_session_goal(&db, "/sessions/a.jsonl", Some("{\"objective\":\"ship\"}")).expect("goal");
+    assert_eq!(
+        read_session_goal(&db, "/sessions/a.jsonl")
+            .expect("read goal")
+            .as_deref(),
+        Some("{\"objective\":\"ship\"}")
+    );
+    write_session_goal(&db, "/sessions/a.jsonl", None).expect("clear goal");
+    assert_eq!(read_session_goal(&db, "/sessions/a.jsonl").expect("read goal"), None);
+
+    assert_eq!(list_session_metadata(&db).expect("list").len(), 2);
+    archive_session(&db, "/sessions/a.jsonl").expect("archive");
+    assert_eq!(list_active_session_metadata(&db).expect("active").len(), 1);
+    assert_eq!(list_archived_session_metadata(&db).expect("archived").len(), 1);
+    unarchive_session(&db, "/sessions/a.jsonl").expect("unarchive");
+    assert_eq!(list_active_session_metadata(&db).expect("active").len(), 2);
+
+    let archived = archive_sessions_older_than(&db, "2026-06-22T00:00:00.000Z").expect("archive older");
+    assert_eq!(archived.len(), 2);
+}
+
+#[test]
+fn named_sessions_and_relocation_move_all_control_rows() {
+    let (_dir, db) = temp_db();
+    write_session_metadata(&db, &metadata("/sessions/old.jsonl", "id", None)).expect("metadata");
+    set_named_session(&db, "/sessions/old.jsonl", "  Named  ").expect("name");
+    let names = list_named_sessions(&db).expect("names");
+    assert_eq!(names.len(), 1);
+    assert_eq!(names[0].name, "Named");
+    assert_eq!(
+        read_session_metadata(&db, "/sessions/old.jsonl")
+            .expect("read")
+            .expect("metadata")
+            .name
+            .as_deref(),
+        Some("Named")
+    );
+
+    write_session_sandbox_profile(
+        &db,
+        "/sessions/old.jsonl",
+        "id",
+        pi_coding_agent::core::permissions::presets::SandboxProfileName::WorkspaceWrite,
+    )
+    .expect("sandbox");
+    relocate_session_control_data(&db, "/sessions/old.jsonl", "/sessions/new.jsonl").expect("relocate");
+    assert!(
+        read_session_metadata(&db, "/sessions/old.jsonl")
+            .expect("read")
+            .is_none()
+    );
+    assert_eq!(
+        read_session_metadata(&db, "/sessions/new.jsonl")
+            .expect("read")
+            .expect("metadata")
+            .id,
+        "id"
+    );
+    assert_eq!(
+        read_session_sandbox_profile(&db, "/sessions/new.jsonl", "id").expect("profile"),
+        Some(pi_coding_agent::core::permissions::presets::SandboxProfileName::WorkspaceWrite)
+    );
+
+    remove_named_session(&db, "/sessions/new.jsonl").expect("remove name");
+    assert!(list_named_sessions(&db).expect("names").is_empty());
+}
+
+#[test]
+fn prompt_history_deduplicates_and_migrates_legacy_entries() {
+    let (_dir, db) = temp_db();
+    record_prompt_history_entry(&db, "  first  ").expect("first");
+    record_prompt_history_entry(&db, "first").expect("duplicate");
+    record_prompt_history_entry(&db, "second").expect("second");
+    assert_eq!(
+        read_prompt_history(&db, 10).expect("history"),
+        vec!["second".to_owned(), "first".to_owned()]
+    );
+
+    let (_dir2, db2) = temp_db();
+    let migrated = read_or_migrate_prompt_history(
+        &db2,
+        &["one".to_owned(), "two".to_owned(), "two".to_owned(), "three".to_owned()],
+        10,
+    )
+    .expect("migrate");
+    assert_eq!(migrated, vec!["one", "two", "two", "three"]);
+    assert_eq!(
+        read_prompt_history(&db2, 10).expect("history"),
+        vec!["one".to_owned(), "two".to_owned(), "three".to_owned()]
+    );
+}
+
+#[test]
+fn last_message_only_returns_assistant_roles() {
+    let (_dir, db) = temp_db();
+    assert!(read_last_message(&db).expect("read").is_none());
+    write_last_message(&db, "assistant", "hello").expect("write");
+    let message = read_last_message(&db).expect("read").expect("message");
+    assert_eq!(message.role, "assistant");
+    assert_eq!(message.content, "hello");
+    write_last_message(&db, "user", "ignored").expect("write");
+    assert!(read_last_message(&db).expect("read").is_none());
+}
+
+#[test]
+fn session_health_and_listener_registration_track_generations() {
+    let (_dir, db) = temp_db();
+    let recipient = RuntimeMailboxAddress {
+        session_id: "session-1".to_owned(),
+        agent_id: None,
+    };
+    register_listener(&db, &recipient);
+    let health = read_session_health(&db, "session-1").expect("read").expect("health");
+    assert_eq!(health.pid, Some(std::process::id()));
+    assert_eq!(health.agent_generation, 1);
+    assert_eq!(health.check_status, SessionCheckStatus::Ok);
+    assert_eq!(health.checked_generation, Some(1));
+
+    register_listener(&db, &recipient);
+    let health = read_session_health(&db, "session-1").expect("read").expect("health");
+    assert_eq!(health.agent_generation, 1);
+
+    let listener = read_runtime_mailbox_listener(&db, &recipient)
+        .expect("listener")
+        .expect("row");
+    assert_eq!(listener.pid, std::process::id());
+    assert_eq!(list_runtime_mailbox_listeners(&db).expect("listeners").len(), 1);
+
+    assert!(retire_runtime_mailbox_listener(&db, &recipient, std::process::id()).expect("retire"));
+    let health = read_session_health(&db, "session-1").expect("read").expect("health");
+    assert_eq!(health.check_status, SessionCheckStatus::Dead);
+    assert_eq!(list_session_health(&db).expect("list").len(), 1);
+}
+
+#[test]
+fn runtime_mailbox_claim_deliver_and_consume() {
+    let (_dir, db) = temp_db();
+    let recipient = RuntimeMailboxAddress {
+        session_id: "recipient".to_owned(),
+        agent_id: None,
+    };
+    let sender = RuntimeMailboxAddress {
+        session_id: "sender".to_owned(),
+        agent_id: None,
+    };
+    let id = stored_message(&db, "/sessions/sender.jsonl", "message_1", &recipient, &sender, "hello");
+
+    let claimed = claim_runtime_mailbox_messages(&db, &recipient, 20).expect("claim");
+    assert_eq!(claimed.len(), 1);
+    assert_eq!(claimed[0].body, "hello");
+    assert_eq!(claimed[0].status, RuntimeMailboxMessageStatus::Claimed);
+    assert_eq!(claimed[0].id, id);
+
+    assert!(deliver_runtime_mailbox_message(&db, id, None).expect("deliver"));
+    assert!(consume_runtime_mailbox_message(&db, id).expect("consume"));
+    let message = read_runtime_mailbox_message(&db, id).expect("read").expect("message");
+    assert_eq!(message.status, RuntimeMailboxMessageStatus::Delivered);
+    assert!(message.delivered_at.is_some());
+    assert_eq!(list_runtime_mailbox_messages(&db).expect("list").len(), 1);
+
+    let second = stored_message(&db, "/sessions/sender.jsonl", "message_2", &recipient, &sender, "again");
+    let _ = claim_runtime_mailbox_messages(&db, &recipient, 20).expect("claim");
+    fail_runtime_mailbox_message(&db, second, "boom").expect("fail");
+    let message = read_runtime_mailbox_message(&db, second)
+        .expect("read")
+        .expect("message");
+    assert_eq!(message.status, RuntimeMailboxMessageStatus::Failed);
+    assert_eq!(message.error.as_deref(), Some("boom"));
+
+    let third = stored_message(&db, "/sessions/sender.jsonl", "message_3", &recipient, &sender, "again");
+    let _ = claim_runtime_mailbox_messages(&db, &recipient, 20).expect("claim");
+    mark_runtime_mailbox_message_delivered(&db, third).expect("mark delivered");
+    let message = read_runtime_mailbox_message(&db, third)
+        .expect("read")
+        .expect("message");
+    assert_eq!(message.status, RuntimeMailboxMessageStatus::Delivered);
+}
+
+#[test]
+fn runtime_mailbox_routing_preserves_payload_order_and_identity() {
+    let (_dir, db) = temp_db();
+    let recipient = RuntimeMailboxAddress {
+        session_id: "recipient".to_owned(),
+        agent_id: None,
+    };
+    let sender = RuntimeMailboxAddress {
+        session_id: "sender".to_owned(),
+        agent_id: None,
+    };
+    let store_ref = RuntimeMailboxStoreRef {
+        session_path: "/sessions/sender.jsonl".to_owned(),
+        message_id: "message_1".to_owned(),
+    };
+    upsert_multi_agent_mailbox_message(
+        &db,
+        &store_ref.session_path,
+        &store_ref.message_id,
+        &serde_json::json!({
+            "body": "hello",
+            "fromAgentId": "main",
+            "id": "message_1",
+            "kind": "message",
+            "status": "pending",
+            "toAgentId": "main",
+        }),
+    )
+    .expect("upsert");
+    register_listener(&db, &recipient);
+    let id = enqueue_runtime_mailbox_message(
+        &db,
+        &EnqueueRuntimeMailboxMessageInput {
+            recipient: recipient.clone(),
+            sender: sender.clone(),
+            kind: RuntimeMailboxMessageKind::Message,
+            store_ref: store_ref.clone(),
+        },
+    )
+    .expect("route");
+    assert_eq!(id, 1);
+
+    let connection = pi_coding_agent::core::sqlite::create_sqlite_database(&db).expect("open");
+    let data: String = connection
+        .query_row(
+            "SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
+            rusqlite::params![store_ref.session_path, store_ref.message_id],
+            |row| row.get(0),
+        )
+        .expect("row");
+    assert_eq!(
+        data,
+        "{\"body\":\"hello\",\"fromAgentId\":\"main\",\"id\":\"message_1\",\"kind\":\"message\",\"status\":\"pending\",\"toAgentId\":\"main\",\"recipientSessionId\":\"recipient\",\"recipientAgentId\":null,\"senderSessionId\":\"sender\",\"senderAgentId\":null}"
+    );
+
+    // Re-routing the same identity is a no-op and preserves the row.
+    enqueue_runtime_mailbox_message(
+        &db,
+        &EnqueueRuntimeMailboxMessageInput {
+            recipient,
+            sender,
+            kind: RuntimeMailboxMessageKind::Message,
+            store_ref,
+        },
+    )
+    .expect("reroute");
+}
+
+#[test]
+fn shared_channel_posts_and_cursors() {
+    let (_dir, db) = temp_db();
+    assert_eq!(read_shared_channel_tail(&db).expect("tail"), 0);
+    let first = post_shared_channel_message(
+        &db,
+        &PostSharedChannelMessageInput {
+            sender: RuntimeMailboxAddress {
+                session_id: "one".to_owned(),
+                agent_id: None,
+            },
+            body: "  hello  ".to_owned(),
+        },
+    )
+    .expect("post");
+    let second = post_shared_channel_message(
+        &db,
+        &PostSharedChannelMessageInput {
+            sender: RuntimeMailboxAddress {
+                session_id: "two".to_owned(),
+                agent_id: Some("agent".to_owned()),
+            },
+            body: "world".to_owned(),
+        },
+    )
+    .expect("post");
+    assert_eq!(first + 1, second);
+    assert_eq!(read_shared_channel_tail(&db).expect("tail"), second);
+
+    let messages = list_shared_channel_messages_after(&db, 0, 20, i64::MAX).expect("messages");
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0].body, "hello");
+    assert_eq!(messages[1].sender.agent_id.as_deref(), Some("agent"));
+
+    let recipient = RuntimeMailboxAddress {
+        session_id: "reader".to_owned(),
+        agent_id: None,
+    };
+    assert_eq!(
+        initialize_shared_channel_cursor_at_tail(&db, &recipient).expect("cursor"),
+        second
+    );
+    advance_shared_channel_cursor(&db, &recipient, second).expect("advance");
+    assert_eq!(
+        read_shared_channel_cursor(&db, &recipient).expect("cursor"),
+        Some(second)
+    );
+
+    let error = post_shared_channel_message(
+        &db,
+        &PostSharedChannelMessageInput {
+            sender: recipient.clone(),
+            body: "   ".to_owned(),
+        },
+    )
+    .expect_err("empty body");
+    assert_eq!(error.message(), "shared channel message body must be non-empty");
+}
+
+#[test]
+fn architect_requests_claim_renew_and_complete() {
+    let (_dir, db) = temp_db();
+    let error = post_architect_request(
+        &db,
+        &PostArchitectRequestInput {
+            sender_session_id: "sender".to_owned(),
+            project_cwd: "/repo".to_owned(),
+            body: "  ".to_owned(),
+        },
+    )
+    .expect_err("empty");
+    assert_eq!(error.message(), "Architect request body must be non-empty");
+
+    let id = post_architect_request(
+        &db,
+        &PostArchitectRequestInput {
+            sender_session_id: "sender".to_owned(),
+            project_cwd: "/repo".to_owned(),
+            body: "  question  ".to_owned(),
+        },
+    )
+    .expect("post");
+    assert_eq!(list_pending_architect_requests(&db, 20).expect("pending").len(), 1);
+    let claimed = claim_pending_architect_requests(&db, "token", 20).expect("claim");
+    assert_eq!(claimed.len(), 1);
+    assert_eq!(claimed[0].id, id);
+    assert_eq!(
+        claimed[0].status,
+        pi_coding_agent::core::session_control_db::ArchitectRequestStatus::Claimed
+    );
+
+    renew_architect_request_claims(&db, &[id], "token").expect("renew");
+    let lost = renew_architect_request_claims(&db, &[id], "other").expect_err("lost");
+    assert_eq!(lost.message(), format!("Architect request claim lost: {id}"));
+
+    complete_architect_request(&db, id, "token", Some("sender")).expect("complete");
+    assert!(list_pending_architect_requests(&db, 20).expect("pending").is_empty());
+}
+
+#[test]
+fn supervisor_requests_prioritize_approvals_and_validate_responses() {
+    let (_dir, db) = temp_db();
+    let advisory = post_supervisor_request(
+        &db,
+        &PostSupervisorRequestInput {
+            sender_session_id: "sender".to_owned(),
+            project_id: "project".to_owned(),
+            kind: SupervisorRequestKind::SupervisorAdvisory,
+            payload: serde_json::Map::new(),
+            deadline_at: "2099-01-01T00:00:00.000Z".to_owned(),
+        },
+    )
+    .expect("post advisory");
+    let approval = post_supervisor_request(
+        &db,
+        &PostSupervisorRequestInput {
+            sender_session_id: "sender".to_owned(),
+            project_id: "project".to_owned(),
+            kind: SupervisorRequestKind::ApprovalReview,
+            payload: serde_json::Map::new(),
+            deadline_at: "2099-01-01T00:00:00.000Z".to_owned(),
+        },
+    )
+    .expect("post approval");
+    assert!(has_pending_supervisor_approval_request(&db).expect("pending"));
+
+    let claimed = claim_next_supervisor_request(&db, "claim")
+        .expect("claim")
+        .expect("request");
+    assert_eq!(claimed.id, approval);
+    assert_eq!(
+        claimed.status,
+        pi_coding_agent::core::session_control_db::SupervisorRequestStatus::Claimed
+    );
+    assert!(claim_next_supervisor_request(&db, "other").expect("claim").is_none());
+
+    let invalid = complete_supervisor_request(
+        &db,
+        approval,
+        "claim",
+        &SupervisorResponse::Complete {
+            reason: "done".to_owned(),
+        },
+    )
+    .expect_err("invalid");
+    assert_eq!(
+        invalid.message(),
+        "Invalid Supervisor response kind complete for approval_review"
+    );
+    complete_supervisor_request(
+        &db,
+        approval,
+        "claim",
+        &SupervisorResponse::Approve {
+            reason: "ok".to_owned(),
+        },
+    )
+    .expect("complete");
+    let read = read_supervisor_request(&db, approval).expect("read").expect("request");
+    assert_eq!(
+        read.response,
+        Some(SupervisorResponse::Approve {
+            reason: "ok".to_owned()
+        })
+    );
+
+    let next = claim_next_supervisor_request(&db, "claim-2")
+        .expect("claim")
+        .expect("request");
+    assert_eq!(next.id, advisory);
+    requeue_supervisor_request(&db, advisory, "claim-2").expect("requeue");
+    assert!(requeue_supervisor_request(&db, advisory, "claim-2").is_err());
+}
+
+#[test]
+fn supervisor_recovery_completes_expired_requests() {
+    let (_dir, db) = temp_db();
+    let expired = post_supervisor_request(
+        &db,
+        &PostSupervisorRequestInput {
+            sender_session_id: "sender".to_owned(),
+            project_id: "project".to_owned(),
+            kind: SupervisorRequestKind::GoalCompletionReview,
+            payload: serde_json::Map::new(),
+            deadline_at: "2000-01-01T00:00:00.000Z".to_owned(),
+        },
+    )
+    .expect("post");
+    pi_coding_agent::core::session_control_db::recover_supervisor_requests(&db).expect("recover");
+    let read = read_supervisor_request(&db, expired).expect("read").expect("request");
+    assert_eq!(
+        read.response,
+        Some(SupervisorResponse::Error {
+            reason: "Supervisor request deadline expired".to_owned()
+        })
+    );
+}
+
+#[test]
+fn multi_agent_counters_allocate_monotonic_sequences() {
+    let (_dir, db) = temp_db();
+    assert_eq!(
+        allocate_multi_agent_counter(&db, "/sessions/a.jsonl", MultiAgentCounterName::Agent).expect("agent"),
+        1
+    );
+    assert_eq!(
+        allocate_multi_agent_counter(&db, "/sessions/a.jsonl", MultiAgentCounterName::Agent).expect("agent"),
+        2
+    );
+    assert_eq!(
+        allocate_multi_agent_counter(&db, "/sessions/a.jsonl", MultiAgentCounterName::Message).expect("message"),
+        1
+    );
+    write_multi_agent_counters(
+        &db,
+        "/sessions/b.jsonl",
+        &MultiAgentCounters {
+            next_agent_number: 7,
+            next_message_number: 9,
+        },
+    )
+    .expect("write counters");
+    assert_eq!(
+        allocate_multi_agent_counter(&db, "/sessions/b.jsonl", MultiAgentCounterName::Agent).expect("agent"),
+        7
+    );
+    assert_eq!(
+        allocate_multi_agent_counter(&db, "/sessions/b.jsonl", MultiAgentCounterName::Message).expect("message"),
+        9
+    );
+}
+
+#[test]
+fn child_creation_requires_active_parent_and_running_revision_one() {
+    let (_dir, db) = temp_db();
+    let process_identity = identity(std::process::id(), 1);
+    let mut child = agent_node("child", Some("main"), AgentLifecycle::Running);
+    child.revision = 1;
+    let result = create_multi_agent_child_with_runtime_ownership(
+        &db,
+        &CreateMultiAgentChildWithRuntimeOwnershipInput {
+            session_path: "/sessions/main.jsonl".to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity: process_identity.clone(),
+            owner: owner("owner"),
+            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            agent: child.clone(),
+        },
+    )
+    .expect("create");
+    assert!(matches!(
+        result,
+        pi_coding_agent::core::session_control_db::CreateMultiAgentChildWithRuntimeOwnershipResult::Ok { .. }
+    ));
+
+    let duplicate = create_multi_agent_child_with_runtime_ownership(
+        &db,
+        &CreateMultiAgentChildWithRuntimeOwnershipInput {
+            session_path: "/sessions/main.jsonl".to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity,
+            owner: owner("owner"),
+            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            agent: child,
+        },
+    )
+    .expect("create");
+    assert_eq!(
+        duplicate,
+        pi_coding_agent::core::session_control_db::CreateMultiAgentChildWithRuntimeOwnershipResult::Err {
+            error: pi_coding_agent::core::session_control_db::CreateChildError::AgentExists
+        }
+    );
+
+    let mut invalid = agent_node("bad", Some("main"), AgentLifecycle::Running);
+    invalid.revision = 2;
+    let error = create_multi_agent_child_with_runtime_ownership(
+        &db,
+        &CreateMultiAgentChildWithRuntimeOwnershipInput {
+            session_path: "/sessions/main.jsonl".to_owned(),
+            agent_id: "bad".to_owned(),
+            process_identity: identity(std::process::id(), 1),
+            owner: owner("owner"),
+            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            agent: invalid,
+        },
+    )
+    .expect_err("invalid revision");
+    assert_eq!(error.message(), "Child runtime ownership requires running revision 1");
+}
+
+#[test]
+fn lifecycle_and_terminal_mutations_write_the_outbox() {
+    let (_dir, db) = temp_db();
+    let process_identity = identity(std::process::id(), 1);
+    let session_path = "/sessions/main.jsonl";
+    let mut child = agent_node("child", Some("main"), AgentLifecycle::Running);
+    create_multi_agent_child_with_runtime_ownership(
+        &db,
+        &CreateMultiAgentChildWithRuntimeOwnershipInput {
+            session_path: session_path.to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity: process_identity.clone(),
+            owner: owner("owner"),
+            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            agent: child.clone(),
+        },
+    )
+    .expect("create");
+
+    let waiting = commit_multi_agent_lifecycle_mutation(
+        &db,
+        &CommitMultiAgentLifecycleMutationInput {
+            session_path: session_path.to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity: process_identity.clone(),
+            owner: owner("owner"),
+            requested_lifecycle: "waiting_for_input".to_owned(),
+            updated_at: "2026-06-21T00:00:01.000Z".to_owned(),
+            detached_cancellation: None,
+        },
+    )
+    .expect("waiting");
+    assert!(matches!(
+        waiting,
+        pi_coding_agent::core::session_control_db::CommitMultiAgentLifecycleMutationResult::Ok { .. }
+    ));
+    child = read_multi_agent_agent(&db, session_path, "child")
+        .expect("read")
+        .expect("agent");
+    assert_eq!(child.lifecycle, AgentLifecycle::WaitingForInput);
+    assert_eq!(child.revision, 2);
+
+    let terminal = commit_multi_agent_terminal_mutation(
+        &db,
+        &CommitMultiAgentTerminalMutationInput {
+            session_path: session_path.to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity: process_identity.clone(),
+            owner: owner("owner"),
+            terminal_lifecycle: "completed".to_owned(),
+            event_kind: "completed".to_owned(),
+            agent_details: pi_coding_agent::core::session_control_db::AgentDetails {
+                error: None,
+                result: Some(
+                    serde_json::to_value(AgentResult {
+                        summary: Some("done".to_owned()),
+                        file_refs: Some(vec![AgentFileReference {
+                            path: "/tmp/out".to_owned(),
+                            label: Some("Output".to_owned()),
+                        }]),
+                        duration_ms: Some(12),
+                        tool_call_id: None,
+                    })
+                    .expect("result"),
+                ),
+            },
+            updated_at: "2026-06-21T00:00:02.000Z".to_owned(),
+        },
+    )
+    .expect("terminal");
+    assert_eq!(
+        terminal,
+        pi_coding_agent::core::session_control_db::CommitMultiAgentTerminalMutationResult::Ok { terminal_revision: 3 }
+    );
+
+    let record = claim_multi_agent_terminal_outbox(&db, "claim", "2026-06-21T00:00:03.000Z", &Default::default())
+        .expect("claim")
+        .expect("record");
+    assert_eq!(record.terminal_revision, 3);
+    assert_eq!(record.attempt_count, 1);
+    assert!(deliver_multi_agent_terminal_outbox(&db, &record, "2026-06-21T00:00:04.000Z").expect("deliver"));
+    assert_eq!(
+        cleanup_multi_agent_terminal_outbox(&db, "2026-06-21T00:00:05.000Z").expect("cleanup"),
+        1
+    );
+}
+
+#[test]
+fn steering_mutations_require_registered_authority() {
+    let (_dir, db) = temp_db();
+    let process_identity =
+        pi_coding_agent::core::runtime_process::read_process_identity(std::process::id()).expect("identity");
+    let session_path = "/sessions/main.jsonl";
+    let mut child = agent_node("child", Some("main"), AgentLifecycle::Running);
+    child.transcript = Some(pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
+        session_id: "child-session".to_owned(),
+        path: None,
+    });
+    create_multi_agent_child_with_runtime_ownership(
+        &db,
+        &CreateMultiAgentChildWithRuntimeOwnershipInput {
+            session_path: session_path.to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity: process_identity.clone(),
+            owner: owner("supervisor"),
+            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            agent: child,
+        },
+    )
+    .expect("create");
+    let recipient = RuntimeMailboxAddress {
+        session_id: "child-session".to_owned(),
+        agent_id: Some("child".to_owned()),
+    };
+    register_listener(&db, &recipient);
+    register_runtime_mailbox_listener(
+        &db,
+        &RuntimeMailboxAddress {
+            session_id: "supervisor".to_owned(),
+            agent_id: None,
+        },
+        std::process::id(),
+        Some(session_path),
+        Default::default(),
+    )
+    .expect("register supervisor listener");
+
+    let result = commit_multi_agent_steering_mutation(
+        &db,
+        &CommitMultiAgentSteeringMutationInput {
+            session_path: session_path.to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity: process_identity.clone(),
+            owner: owner("supervisor"),
+            requested_lifecycle: "steering_pending".to_owned(),
+            updated_at: "2026-06-21T00:00:01.000Z".to_owned(),
+            body: "steer".to_owned(),
+            file_refs: None,
+            from_agent_id: "supervisor".to_owned(),
+            recipient: recipient.clone(),
+            target_checkpoint: None,
+            thread_id: None,
+        },
+    )
+    .expect("steer");
+    let pi_coding_agent::core::session_control_db::CommitMultiAgentSteeringMutationResult::Ok { agent, message } =
+        result
+    else {
+        panic!("expected steering ok");
+    };
+    assert_eq!(agent.lifecycle, AgentLifecycle::SteeringPending);
+    assert_eq!(message.id, "message_1");
+    assert_eq!(message.body.as_deref(), Some("steer"));
+
+    let delivery = commit_multi_agent_steering_delivery(
+        &db,
+        &pi_coding_agent::core::session_control_db::CommitMultiAgentSteeringDeliveryInput {
+            session_path: session_path.to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity,
+            owner: owner("supervisor"),
+            requested_lifecycle: "running".to_owned(),
+            updated_at: "2026-06-21T00:00:02.000Z".to_owned(),
+            message_id: "message_1".to_owned(),
+        },
+    )
+    .expect("deliver");
+    assert!(matches!(
+        delivery,
+        pi_coding_agent::core::session_control_db::CommitMultiAgentSteeringDeliveryResult::Ok { .. }
+    ));
+    let message = pi_coding_agent::core::session_control_db::get_multi_agent_mailbox_message_status(
+        &db,
+        session_path,
+        "message_1",
+    )
+    .expect("status");
+    assert_eq!(message.as_deref(), Some("delivered"));
+}
+
+#[test]
+fn detach_mark_is_idempotent_and_fenced_by_ownership() {
+    let (_dir, db) = temp_db();
+    let process_identity = identity(std::process::id(), 1);
+    let session_path = "/sessions/main.jsonl";
+    let child = agent_node("child", Some("main"), AgentLifecycle::Running);
+    create_multi_agent_child_with_runtime_ownership(
+        &db,
+        &CreateMultiAgentChildWithRuntimeOwnershipInput {
+            session_path: session_path.to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity: process_identity.clone(),
+            owner: owner("owner"),
+            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            agent: child,
+        },
+    )
+    .expect("create");
+
+    let input = pi_coding_agent::core::session_control_db::CommitMultiAgentDetachMarkInput {
+        agent_id: "child".to_owned(),
+        owner: owner("owner"),
+        process_identity: process_identity.clone(),
+        session_path: session_path.to_owned(),
+        updated_at: "2026-06-21T00:00:01.000Z".to_owned(),
+    };
+    let first = commit_multi_agent_detach_mark(&db, &input).expect("detach");
+    let pi_coding_agent::core::session_control_db::CommitMultiAgentDetachMarkResult::Ok { agent } = first else {
+        panic!("expected detach ok");
+    };
+    assert_eq!(agent.detached, Some(true));
+    assert_eq!(agent.revision, 2);
+
+    let second = commit_multi_agent_detach_mark(&db, &input).expect("detach again");
+    let pi_coding_agent::core::session_control_db::CommitMultiAgentDetachMarkResult::Ok { agent } = second else {
+        panic!("expected detach ok");
+    };
+    assert_eq!(agent.revision, 2);
+
+    let mismatch = commit_multi_agent_detach_mark(
+        &db,
+        &pi_coding_agent::core::session_control_db::CommitMultiAgentDetachMarkInput {
+            owner: owner("other"),
+            ..input
+        },
+    )
+    .expect("detach mismatch");
+    assert!(matches!(
+        mismatch,
+        pi_coding_agent::core::session_control_db::CommitMultiAgentDetachMarkResult::Err { .. }
+    ));
+}
+
+#[test]
+fn finalize_detached_job_records_terminal_transport_and_artifacts() {
+    let (_dir, db) = temp_db();
+    let process_identity = identity(std::process::id(), 1);
+    let session_path = "/sessions/main.jsonl";
+    let mut child = agent_node("bash_1", Some("main"), AgentLifecycle::Running);
+    child.detached = Some(true);
+    child.worker = Some(pi_coding_agent::core::multi_agent_store::AgentWorkerAdapter {
+        adapter: pi_coding_agent::core::multi_agent_store::AgentWorkerAdapterKind::Runtime,
+        handle_id: std::process::id().to_string(),
+        cwd: None,
+        tool_call_id: Some("tool-1".to_owned()),
+    });
+    create_multi_agent_child_with_runtime_ownership(
+        &db,
+        &CreateMultiAgentChildWithRuntimeOwnershipInput {
+            session_path: session_path.to_owned(),
+            agent_id: "bash_1".to_owned(),
+            process_identity: process_identity.clone(),
+            owner: owner("owner"),
+            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            agent: child,
+        },
+    )
+    .expect("create");
+
+    let result = finalize_detached_job(
+        &db,
+        &FinalizeDetachedJobInput {
+            session_path: session_path.to_owned(),
+            terminal: DetachedJobTerminalInput {
+                job_id: "bash_1".to_owned(),
+                owner: owner("owner"),
+                process_identity,
+                output_label: "Bash output".to_owned(),
+                terminal_at: "2026-06-21T00:00:03.000Z".to_owned(),
+                tool_call_id: Some("tool-1".to_owned()),
+                duration_ms: Some(42),
+                outcome: DetachedJobOutcome::Completed {
+                    exit_code: Some(0),
+                    summary: Some("ok".to_owned()),
+                },
+                output: DetachedJobTerminalOutput {
+                    label: "Bash output".to_owned(),
+                    path: "/tmp/output.log".to_owned(),
+                    size: 3,
+                    sha256: "abc".to_owned(),
+                },
+            },
+        },
+    )
+    .expect("finalize");
+    let FinalizeDetachedJobResult::Ok {
+        terminal_agent,
+        terminal_revision,
+    } = result
+    else {
+        panic!("expected finalize ok");
+    };
+    assert_eq!(terminal_revision, 2);
+    assert_eq!(terminal_agent.lifecycle, AgentLifecycle::Completed);
+    assert_eq!(terminal_agent.worker, None);
+    let result = terminal_agent.result.expect("result");
+    assert_eq!(result.summary.as_deref(), Some("ok"));
+    assert_eq!(result.duration_ms, Some(42));
+    assert_eq!(result.tool_call_id.as_deref(), Some("tool-1"));
+    let file_refs = result.file_refs.expect("file refs");
+    assert_eq!(file_refs[0].path, "/tmp/output.log");
+
+    let messages = list_runtime_mailbox_messages(&db).expect("messages");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].kind, RuntimeMailboxMessageKind::System);
+    assert!(messages[0].body.contains("\"type\":\"multi_agent_terminal\""));
+    assert_eq!(
+        messages[0].store_ref.message_id,
+        "terminal:bash_1:2:detached_job_completed"
+    );
+}
+
+#[test]
+fn bootstrap_refuses_to_mutate_owned_rows() {
+    let (_dir, db) = temp_db();
+    let process_identity = identity(std::process::id(), 1);
+    let session_path = "/sessions/main.jsonl";
+    let child = agent_node("child", Some("main"), AgentLifecycle::Running);
+    create_multi_agent_child_with_runtime_ownership(
+        &db,
+        &CreateMultiAgentChildWithRuntimeOwnershipInput {
+            session_path: session_path.to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity,
+            owner: owner("owner"),
+            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            agent: child.clone(),
+        },
+    )
+    .expect("create");
+    let value = serde_json::to_value(&child).expect("value");
+    let error = bootstrap_multi_agent_agent(&db, session_path, "child", &value).expect_err("owned");
+    assert_eq!(
+        error.message(),
+        format!("Generic agent upsert cannot mutate process-owned lifecycle row {session_path}#child")
+    );
+
+    let unowned = agent_node("plain", Some("main"), AgentLifecycle::Running);
+    bootstrap_multi_agent_agent(
+        &db,
+        session_path,
+        "plain",
+        &serde_json::to_value(&unowned).expect("value"),
+    )
+    .expect("bootstrap");
+    let state = read_multi_agent_state(&db, session_path)
+        .expect("state")
+        .expect("persisted state");
+    assert_eq!(state.agents.len(), 2);
+    assert_eq!(state.counters.next_agent_number, 1);
+}
+
+#[test]
+fn legacy_database_migrates_to_schema_fourteen() {
+    let (directory, path) = temp_db();
+    let connection = rusqlite::Connection::open(&path).expect("open legacy");
+    connection
+        .execute_batch(
+            "
+            CREATE TABLE multi_agent_counters (
+                session_path TEXT PRIMARY KEY,
+                next_agent_number INTEGER NOT NULL,
+                next_message_number INTEGER NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE multi_agent_agents (
+                session_path TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                data TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (session_path, agent_id)
+            );
+            CREATE TABLE multi_agent_mailbox_messages (
+                session_path TEXT NOT NULL,
+                message_id TEXT NOT NULL,
+                data TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (session_path, message_id)
+            );
+            CREATE TABLE multi_agent_dispatch_leases (
+                session_path TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                process_identity TEXT,
+                owner_session_id TEXT,
+                owner_agent_id TEXT,
+                PRIMARY KEY (session_path, agent_id)
+            );
+            INSERT INTO multi_agent_counters VALUES ('/sessions/a.jsonl', 4, 7, '2026-01-01T00:00:00.000Z');
+            INSERT INTO multi_agent_agents VALUES (
+                '/sessions/a.jsonl', 'agent_1',
+                '{\"id\":\"agent_1\",\"lifecycle\":\"running\",\"revision\":2,\"artifactIds\":[\"legacy\"]}',
+                '2026-01-01T00:00:00.000Z'
+            );
+            ",
+        )
+        .expect("legacy schema");
+    drop(connection);
+
+    let _ = read_session_health(&path, "missing").expect("initializes");
+    let connection = rusqlite::Connection::open(&path).expect("open migrated");
+    let version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("version");
+    assert_eq!(version, 14);
+    let counters: (i64, i64) = connection
+        .query_row(
+            "SELECT next_agent_number, next_message_number FROM multi_agent_counters_v2 WHERE session_path = ?",
+            rusqlite::params!["/sessions/a.jsonl"],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("counters");
+    assert_eq!(counters, (4, 7));
+    let migrated: String = connection
+        .query_row(
+            "SELECT data FROM multi_agent_agents WHERE agent_id = 'agent_1'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("agent");
+    assert!(!migrated.contains("artifactIds"));
+    let outbox: String = connection
+        .query_row(
+            "SELECT event_kind FROM multi_agent_terminal_outbox WHERE agent_id = 'agent_1'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("outbox");
+    assert_eq!(outbox, "lost_runtime");
+    let triggers: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%reject_legacy_artifact_fields%'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("triggers");
+    assert_eq!(triggers, 4);
+
+    let error = connection
+        .execute(
+            "INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
+            rusqlite::params![
+                "/sessions/a.jsonl",
+                "agent_2",
+                "{\"artifactRefs\":[]}",
+                "2026-01-01T00:00:00.000Z"
+            ],
+        )
+        .expect_err("trigger rejects legacy fields");
+    assert!(error.to_string().contains("Legacy artifact fields are not supported"));
+    drop(directory);
+}
+
+#[test]
+fn unsupported_future_schema_is_rejected() {
+    let (_directory, path) = temp_db();
+    let connection = rusqlite::Connection::open(&path).expect("open");
+    connection.execute_batch("PRAGMA user_version = 99").expect("version");
+    drop(connection);
+    let error = read_session_health(&path, "missing").expect_err("future schema");
+    assert_eq!(
+        error.message(),
+        "Unsupported control database schema version 99; this Pi runtime supports up to version 14"
+    );
+}
+
+#[test]
+fn retained_connection_survives_and_releases() {
+    let (_directory, path) = temp_db();
+    let guard = pi_coding_agent::core::session_control_db::retain_control_db_connection(&path).expect("retain");
+    enqueue_incoming_message(&path, "while retained").expect("enqueue");
+    guard.release();
+    let claimed = claim_latest_incoming_message(&path).expect("claim").expect("message");
+    assert_eq!(claimed.content, "while retained");
+}
+
+#[test]
+fn concurrent_writers_share_the_database_without_loss() {
+    let (_directory, path) = temp_db();
+    let threads = 4;
+    let per_thread = 20;
+    let mut handles = Vec::new();
+    for thread in 0..threads {
+        let path = path.clone();
+        handles.push(std::thread::spawn(move || {
+            for index in 0..per_thread {
+                post_shared_channel_message(
+                    &path,
+                    &PostSharedChannelMessageInput {
+                        sender: RuntimeMailboxAddress {
+                            session_id: format!("session-{thread}"),
+                            agent_id: None,
+                        },
+                        body: format!("message-{thread}-{index}"),
+                    },
+                )
+                .expect("post");
+            }
+        }));
+    }
+    for handle in handles {
+        handle.join().expect("writer");
+    }
+    let messages = list_shared_channel_messages_after(&path, 0, 1000, i64::MAX).expect("messages");
+    assert_eq!(messages.len(), threads * per_thread);
+    assert_eq!(
+        read_shared_channel_tail(&path).expect("tail"),
+        (threads * per_thread) as i64
+    );
+}
+
+#[test]
+fn detached_artifact_listing_filters_by_label_and_lifecycle() {
+    let (_dir, db) = temp_db();
+    let session_path = "/sessions/main.jsonl";
+    let mut completed = agent_node("bash_1", Some("main"), AgentLifecycle::Completed);
+    completed.updated_at = "2026-06-21T00:00:01.000Z".to_owned();
+    completed.result = Some(AgentResult {
+        summary: None,
+        file_refs: Some(vec![AgentFileReference {
+            path: "/tmp/output.log".to_owned(),
+            label: Some("Bash output".to_owned()),
+        }]),
+        duration_ms: None,
+        tool_call_id: None,
+    });
+    bootstrap_multi_agent_agent(
+        &db,
+        session_path,
+        "bash_1",
+        &serde_json::to_value(&completed).expect("value"),
+    )
+    .expect("bootstrap");
+    let mut other = agent_node("other", Some("main"), AgentLifecycle::Completed);
+    other.result = Some(AgentResult {
+        summary: None,
+        file_refs: Some(vec![AgentFileReference {
+            path: "/tmp/other.log".to_owned(),
+            label: Some("Other".to_owned()),
+        }]),
+        duration_ms: None,
+        tool_call_id: None,
+    });
+    bootstrap_multi_agent_agent(
+        &db,
+        session_path,
+        "other",
+        &serde_json::to_value(&other).expect("value"),
+    )
+    .expect("bootstrap");
+
+    let records = pi_coding_agent::core::session_control_db::list_detached_artifact_agents_updated_at_or_before(
+        &db,
+        "2026-06-21T00:00:02.000Z",
+    )
+    .expect("records");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].agent.id, "bash_1");
+}
+
+#[test]
+fn agent_error_type_is_persisted_through_terminal_mutation() {
+    let (_dir, db) = temp_db();
+    let process_identity = identity(std::process::id(), 1);
+    let session_path = "/sessions/main.jsonl";
+    let child = agent_node("child", Some("main"), AgentLifecycle::Running);
+    create_multi_agent_child_with_runtime_ownership(
+        &db,
+        &CreateMultiAgentChildWithRuntimeOwnershipInput {
+            session_path: session_path.to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity: process_identity.clone(),
+            owner: owner("owner"),
+            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            agent: child,
+        },
+    )
+    .expect("create");
+    commit_multi_agent_terminal_mutation(
+        &db,
+        &CommitMultiAgentTerminalMutationInput {
+            session_path: session_path.to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity,
+            owner: owner("owner"),
+            terminal_lifecycle: "failed".to_owned(),
+            event_kind: "failed".to_owned(),
+            agent_details: pi_coding_agent::core::session_control_db::AgentDetails {
+                error: Some(
+                    serde_json::to_value(AgentError {
+                        message: "boom".to_owned(),
+                        code: Some("E".to_owned()),
+                    })
+                    .expect("error"),
+                ),
+                result: None,
+            },
+            updated_at: "2026-06-21T00:00:01.000Z".to_owned(),
+        },
+    )
+    .expect("terminal");
+    let agent = read_multi_agent_agent(&db, session_path, "child")
+        .expect("read")
+        .expect("agent");
+    assert_eq!(agent.lifecycle, AgentLifecycle::Failed);
+    assert_eq!(agent.error.expect("error").message, "boom");
+}
+
+#[test]
+fn read_multi_agent_state_orders_rows_by_rowid() {
+    let (_dir, db) = temp_db();
+    let session_path = "/sessions/main.jsonl";
+    for id in ["first", "second", "third"] {
+        bootstrap_multi_agent_agent(
+            &db,
+            session_path,
+            id,
+            &serde_json::to_value(agent_node(id, Some("main"), AgentLifecycle::Running)).expect("value"),
+        )
+        .expect("bootstrap");
+    }
+    let state = read_multi_agent_state(&db, session_path)
+        .expect("state")
+        .expect("persisted");
+    let ids: Vec<&str> = state
+        .agents
+        .iter()
+        .map(|agent| agent.get("id").and_then(|value| value.as_str()).expect("id"))
+        .collect();
+    assert_eq!(ids, vec!["first", "second", "third"]);
+}
+
+#[test]
+fn session_metadata_identity_is_enforced_for_sandbox_profiles() {
+    let (_dir, db) = temp_db();
+    write_session_metadata(&db, &metadata("/sessions/a.jsonl", "id", None)).expect("write");
+    let error = write_session_sandbox_profile(
+        &db,
+        "/sessions/a.jsonl",
+        "other-id",
+        pi_coding_agent::core::permissions::presets::SandboxProfileName::ReadOnly,
+    )
+    .expect_err("mismatch");
+    assert_eq!(
+        error.message(),
+        "Session identity mismatch for /sessions/a.jsonl: expected id, received other-id"
+    );
+    let error = write_session_sandbox_profile(
+        &db,
+        "/sessions/missing.jsonl",
+        "id",
+        pi_coding_agent::core::permissions::presets::SandboxProfileName::ReadOnly,
+    )
+    .expect_err("missing");
+    assert_eq!(
+        error.message(),
+        "Session metadata is missing for /sessions/missing.jsonl"
+    );
+}
+
+#[test]
+fn health_record_round_trips_all_statuses() {
+    let (_dir, db) = temp_db();
+    let mut health = empty_session_health("session", "2026-06-21T00:00:00.000Z");
+    health.pid = Some(42);
+    health.agent_generation = 3;
+    health.last_active_at = Some("2026-06-21T00:00:00.000Z".to_owned());
+    health.last_checked_at = Some("2026-06-21T00:00:01.000Z".to_owned());
+    health.check_status = SessionCheckStatus::Timeout;
+    health.checked_generation = Some(2);
+    health.check_latency_ms = Some(1234);
+    write_session_health(&db, &health).expect("write");
+    let read = read_session_health(&db, "session").expect("read").expect("health");
+    assert_eq!(read, health);
+}
+
+#[test]
+fn control_db_path_joins_control_sqlite() {
+    assert_eq!(
+        pi_coding_agent::core::session_control_db::get_control_db_path(&PathBuf::from("/state")),
+        "/state/control.sqlite"
+    );
+}
+
+#[test]
+fn incoming_claim_returns_none_when_queue_is_empty() {
+    let (_dir, db) = temp_db();
+    assert!(claim_latest_incoming_message(&db).expect("claim").is_none());
+}
+
+#[test]
+fn supervisor_advisory_claim_requires_matching_response_kind() {
+    let (_dir, db) = temp_db();
+    let id = post_supervisor_request(
+        &db,
+        &PostSupervisorRequestInput {
+            sender_session_id: "sender".to_owned(),
+            project_id: "project".to_owned(),
+            kind: SupervisorRequestKind::SupervisorAdvisory,
+            payload: serde_json::Map::new(),
+            deadline_at: "2099-01-01T00:00:00.000Z".to_owned(),
+        },
+    )
+    .expect("post");
+    let claimed = claim_next_supervisor_request(&db, "token")
+        .expect("claim")
+        .expect("request");
+    assert_eq!(claimed.id, id);
+    complete_supervisor_request(
+        &db,
+        id,
+        "token",
+        &SupervisorResponse::Advisory {
+            answer: "answer".to_owned(),
+        },
+    )
+    .expect("complete");
+}
+
+#[test]
+fn outbox_claim_recovers_stale_claims_and_poisons_after_max_attempts() {
+    let (_dir, db) = temp_db();
+    let process_identity = identity(std::process::id(), 1);
+    let session_path = "/sessions/main.jsonl";
+    let child = agent_node("child", Some("main"), AgentLifecycle::Running);
+    create_multi_agent_child_with_runtime_ownership(
+        &db,
+        &CreateMultiAgentChildWithRuntimeOwnershipInput {
+            session_path: session_path.to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity: process_identity.clone(),
+            owner: owner("owner"),
+            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            agent: child,
+        },
+    )
+    .expect("create");
+    commit_multi_agent_terminal_mutation(
+        &db,
+        &CommitMultiAgentTerminalMutationInput {
+            session_path: session_path.to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity,
+            owner: owner("owner"),
+            terminal_lifecycle: "completed".to_owned(),
+            event_kind: "completed".to_owned(),
+            agent_details: Default::default(),
+            updated_at: "2026-06-21T00:00:01.000Z".to_owned(),
+        },
+    )
+    .expect("terminal");
+
+    let first = claim_multi_agent_terminal_outbox(&db, "claim-1", "2026-06-21T00:00:02.000Z", &Default::default())
+        .expect("claim")
+        .expect("record");
+    assert_eq!(first.attempt_count, 1);
+    pi_coding_agent::core::session_control_db::fail_multi_agent_terminal_outbox(
+        &db,
+        &first,
+        "transient",
+        "2026-06-21T00:00:03.000Z",
+        2,
+    )
+    .expect("fail");
+
+    let second = claim_multi_agent_terminal_outbox(&db, "claim-2", "2026-06-21T00:00:04.000Z", &Default::default())
+        .expect("claim")
+        .expect("record");
+    assert_eq!(second.attempt_count, 2);
+    pi_coding_agent::core::session_control_db::fail_multi_agent_terminal_outbox(
+        &db,
+        &second,
+        "permanent",
+        "2026-06-21T00:00:05.000Z",
+        2,
+    )
+    .expect("fail");
+    assert!(
+        claim_multi_agent_terminal_outbox(&db, "claim-3", "2026-06-21T00:00:06.000Z", &Default::default())
+            .expect("claim")
+            .is_none()
+    );
+}
+
+#[test]
+fn runtime_mailbox_claim_respects_registered_listener_pid() {
+    let (_dir, db) = temp_db();
+    let recipient = RuntimeMailboxAddress {
+        session_id: "recipient".to_owned(),
+        agent_id: None,
+    };
+    let sender = RuntimeMailboxAddress {
+        session_id: "sender".to_owned(),
+        agent_id: None,
+    };
+    stored_message(&db, "/sessions/sender.jsonl", "message_1", &recipient, &sender, "hello");
+    // A listener registered for a different process does not own the mailbox.
+    register_runtime_mailbox_listener(&db, &recipient, 999_999, None, Default::default()).expect("register");
+    let claimed = claim_runtime_mailbox_messages(&db, &recipient, 20).expect("claim");
+    assert!(claimed.is_empty());
+}
+
+#[test]
+fn mailbox_status_transitions_require_pending_state() {
+    let (_dir, db) = temp_db();
+    let session_path = "/sessions/main.jsonl";
+    upsert_multi_agent_mailbox_message(
+        &db,
+        session_path,
+        "message_1",
+        &serde_json::json!({
+            "fromAgentId": "main",
+            "id": "message_1",
+            "kind": "message",
+            "status": "delivered",
+            "toAgentId": "main",
+        }),
+    )
+    .expect("upsert");
+    assert!(
+        !pi_coding_agent::core::session_control_db::mark_multi_agent_mailbox_message_delivered(
+            &db,
+            session_path,
+            "message_1"
+        )
+        .expect("mark")
+    );
+    assert_eq!(
+        get_multi_agent_mailbox_message_status(&db, session_path, "message_1").expect("status"),
+        Some("delivered".to_owned())
+    );
+}
+
+#[test]
+fn terminal_outbox_replay_is_idempotent() {
+    let (_dir, db) = temp_db();
+    let process_identity = identity(std::process::id(), 1);
+    let session_path = "/sessions/main.jsonl";
+    let child = agent_node("child", Some("main"), AgentLifecycle::Running);
+    create_multi_agent_child_with_runtime_ownership(
+        &db,
+        &CreateMultiAgentChildWithRuntimeOwnershipInput {
+            session_path: session_path.to_owned(),
+            agent_id: "child".to_owned(),
+            process_identity: process_identity.clone(),
+            owner: owner("owner"),
+            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            agent: child,
+        },
+    )
+    .expect("create");
+    let input = CommitMultiAgentTerminalMutationInput {
+        session_path: session_path.to_owned(),
+        agent_id: "child".to_owned(),
+        process_identity,
+        owner: owner("owner"),
+        terminal_lifecycle: "completed".to_owned(),
+        event_kind: "completed".to_owned(),
+        agent_details: Default::default(),
+        updated_at: "2026-06-21T00:00:01.000Z".to_owned(),
+    };
+    commit_multi_agent_terminal_mutation(&db, &input).expect("terminal");
+    let replay = commit_multi_agent_terminal_mutation(&db, &input).expect("replay");
+    assert_eq!(
+        replay,
+        pi_coding_agent::core::session_control_db::CommitMultiAgentTerminalMutationResult::Ok { terminal_revision: 2 }
+    );
+}
+
+#[test]
+fn session_metadata_write_preserves_archived_state_and_index_flag() {
+    let (_dir, db) = temp_db();
+    write_session_metadata(&db, &metadata("/sessions/a.jsonl", "id", None)).expect("write");
+    archive_session(&db, "/sessions/a.jsonl").expect("archive");
+    let mut update = metadata("/sessions/a.jsonl", "id", None);
+    update.all_messages_text = "indexed".to_owned();
+    update.index_message_text = Some(false);
+    write_session_metadata(&db, &update).expect("update");
+    let read = read_session_metadata(&db, "/sessions/a.jsonl")
+        .expect("read")
+        .expect("metadata");
+    assert!(read.archived_at.is_some());
+    assert_eq!(read.all_messages_text, "");
+}

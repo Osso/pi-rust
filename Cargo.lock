@@ -2066,6 +2066,7 @@ dependencies = [
  "pi-js-compat",
  "pi-tui",
  "regex",
+ "rusqlite",
  "rustix",
  "semver",
  "serde",

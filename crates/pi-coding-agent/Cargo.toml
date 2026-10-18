@@ -66,6 +66,8 @@ ignore = "=0.4.23"
 sha2 = "=0.10.9"
 # Bounded-concurrency update checks and git updates.
 futures-util = "=0.3.34"
+# Shared control.sqlite access; same pinned rusqlite release as pi-session-sqlite.
+rusqlite = { version = "=0.37.0", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "=3.27.0"

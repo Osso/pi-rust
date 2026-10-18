@@ -1,0 +1,103 @@
+// Differential/cross-implementation oracle for the shared control database.
+// argv[2] is the pinned `packages/coding-agent/src` directory.
+import { createInterface } from "node:readline";
+import { pathToFileURL } from "node:url";
+
+type Api = Record<string, (...args: unknown[]) => unknown> & Record<string, unknown>;
+type Step = { op: string; args?: unknown[]; path?: string; count?: number; prefix?: string };
+type Request = { id: number; steps: Step[] };
+
+type StepResult = { ok: true; value: unknown } | { ok: false; error: { name: string; message: string } };
+
+function errorOf(error: unknown): { name: string; message: string } {
+	return error instanceof Error ? { name: error.name, message: error.message } : { name: "Unknown", message: String(error) };
+}
+
+function normalize(value: unknown): unknown {
+	return value === undefined ? null : value;
+}
+
+async function main(): Promise<void> {
+	const sourceRoot = process.argv[2];
+	if (!sourceRoot) throw new Error("control-db oracle requires the coding-agent src directory");
+	const api = (await import(pathToFileURL(`${sourceRoot}/core/session-control-db.ts`).href)) as Api;
+	const sqlite = (await import(pathToFileURL(`${sourceRoot}/core/sqlite.ts`).href)) as Api;
+
+	const execute = (step: Step): unknown => {
+		if (step.op === "call") {
+			const [fn, args] = step.args as [string, unknown[]];
+			const implementation = api[fn];
+			if (typeof implementation !== "function") throw new Error(`unknown control-db function ${fn}`);
+			return implementation(...(args ?? []));
+		}
+		if (step.op === "schema") {
+			const db = sqlite.createSqliteDatabase(step.path as string) as {
+				exec(sql: string): void;
+				prepare(sql: string): { all(): unknown[]; get(): unknown };
+				close(): void;
+			};
+			try {
+				sqlite.configureSharedSqliteDatabase(db);
+				const read = (sql: string) => {
+					const row = db.prepare(sql).get();
+					if (row === null || row === undefined) return "";
+					if (typeof row === "string" || typeof row === "number") return String(row).toLowerCase();
+					const value = Object.values(row as Record<string, unknown>)[0];
+					return typeof value === "string" || typeof value === "number" ? String(value).toLowerCase() : "";
+				};
+				const rows = db
+					.prepare(
+						"SELECT type, name, sql FROM sqlite_master WHERE type IN ('table', 'index', 'trigger') ORDER BY type, name",
+					)
+					.all();
+				return {
+					busyTimeout: read("PRAGMA busy_timeout"),
+					journalMode: read("PRAGMA journal_mode"),
+					rows,
+					synchronous: read("PRAGMA synchronous"),
+					userVersion: read("PRAGMA user_version"),
+				};
+			} finally {
+				db.close();
+			}
+		}
+		if (step.op === "channelSpam") {
+			const [controlDbPath, senderSessionId, count, prefix] = step.args as [string, string, number, string];
+			const ids: number[] = [];
+			for (let index = 0; index < count; index += 1) {
+				ids.push(
+					api.postSharedChannelMessage(controlDbPath, {
+						body: `${prefix}${index}`,
+						sender: { agentId: null, sessionId: senderSessionId },
+					}) as number,
+				);
+			}
+			return ids;
+		}
+		throw new Error(`unknown operation ${step.op}`);
+	};
+
+	for await (const line of createInterface({ input: process.stdin })) {
+		let id: number | null = null;
+		try {
+			const request = JSON.parse(line) as Request;
+			id = request.id;
+			const results: StepResult[] = [];
+			for (const step of request.steps) {
+				try {
+					results.push({ ok: true, value: normalize(execute(step)) });
+				} catch (error) {
+					results.push({ ok: false, error: errorOf(error) });
+				}
+			}
+			process.stdout.write(`${JSON.stringify({ id, ok: true, output: results })}\n`);
+		} catch (error) {
+			process.stdout.write(`${JSON.stringify({ id, ok: false, error: errorOf(error) })}\n`);
+		}
+	}
+}
+
+void main().catch((error: unknown) => {
+	process.stderr.write(`control-db oracle startup failed: ${String(error)}\n`);
+	process.exitCode = 1;
+});
