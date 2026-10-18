@@ -100,7 +100,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/compat/extension-oauth-types.ts` | 45 | 2 | todo |  |  |
 | `ai/src/env-api-keys.ts` | 187 | 2 | done | `crates/pi-ai/src/env_api_keys.rs` | Provider env map, Anthropic token exclusion, Vertex ADC cache, and Bedrock ambient sources; differential over provider/env matrix (see traceability). |
 | `ai/src/image-models.generated.ts` | 639 | 2 | done | `crates/pi-ai/data/image-models.json`, `crates/pi-ai/src/image_models_generated.rs` | Embedded TS-generated JSON with identical values and order; differential full catalog. |
-| `ai/src/images-api-registry.ts` | 53 | 2 | todo |  |  |
+| `ai/src/images-api-registry.ts` | 53 | 2 | done | `crates/pi-ai/src/images_api_registry.rs` | API registration/lookup and api-mismatch wrapper; `sourceId` excluded as unobservable (see traceability). |
 | `ai/src/images-models.ts` | 275 | 2 | todo |  |  |
 | `ai/src/model-catalog.ts` | 27 | 2 | done | `crates/pi-ai/src/model_catalog.rs` | Group flattening; `provider` parameter is type-only; differential 4 requests. |
 | `ai/src/model-types.ts` | 273 | 2 | done | `crates/pi-ai/src/types.rs` | Type-only module; all interfaces mapped to existing `types.rs` items, no new code. |
