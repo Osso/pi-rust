@@ -139,6 +139,7 @@ fn load_target_cwd(target: &ChangeWorkingDirectoryTarget, context: &ToolContext)
             }
             let cwd = read_session_header(&session_path)
                 .and_then(|header| header.cwd)
+                .filter(|cwd| !cwd.is_empty())
                 .ok_or_else(|| {
                     ToolError::new(format!("Session does not record a working directory: {session_path}"))
                 })?;
