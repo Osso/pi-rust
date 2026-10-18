@@ -40,10 +40,13 @@ fn unregister_stops_invocations() {
 
 #[test]
 fn passes_a_missing_session_id_as_none() {
-    let observed = Arc::new(Mutex::new(Vec::new()));
+    let observed: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
     let calls = Arc::clone(&observed);
+    // The registry is process-global; parallel tests call it with their own markers.
     let _registration = register_session_resource_cleanup(Box::new(move |session_id| {
-        calls.lock().unwrap().push(session_id.map(str::to_owned));
+        if session_id.is_none() {
+            calls.lock().unwrap().push(None);
+        }
         Ok(())
     }));
 
