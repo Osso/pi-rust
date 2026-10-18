@@ -59,7 +59,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/mistral-conversations.ts` | 931 | 1 | todo |  |  |
 | `ai/src/api/openai-codex-responses.ts` | 1727 | 1 | todo |  |  |
 | `ai/src/api/openai-completions.ts` | 1577 | 1 | todo |  |  |
-| `ai/src/api/openai-responses-shared.ts` | 983 | 1 | todo |  |  |
+| `ai/src/api/openai-responses-shared.ts` | 983 | 1 | done | `crates/pi-ai/src/api/openai_responses_shared.rs` | Message/tool conversion, citation normalization, Responses SSE state machine; 19 behavioral + 31 differential scenarios. |
 | `ai/src/api/openai-responses.ts` | 372 | 1 | todo |  |  |
 | `ai/src/api/pi-messages.ts` | 433 | 1 | todo |  |  |
 | `ai/src/api/simple-options.ts` | 97 | 1 | todo |  |  |
