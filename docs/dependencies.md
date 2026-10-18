@@ -33,6 +33,7 @@ All direct dependencies are exact-pinned.
 - `getrandom = 0.4.3` — fills UUIDv7 and retry-jitter random bytes from the OS.
 - `httpdate = 1.0.3` — parses HTTP-date `Retry-After` headers.
 - `sha2 = 0.10.9` — computes the PKCE S256 code challenge.
+- `rsa = 0.9.10` (`pem`, `sha2`) — RS256-signs the Google service-account JWT assertion for the Vertex ADC token exchange.
 
 ### `pi-agent-core`
 

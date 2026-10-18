@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
-import * as tls from "node:tls";
 import { pathToFileURL } from "node:url";
+import * as tls from "node:tls";
 
 type RequestId = string | number | null;
 
@@ -19,23 +19,32 @@ type ScriptedResponse = {
 type RunRequest = {
 	id: RequestId;
 	api: "google-generative-ai" | "google-vertex";
-	mode: "stream" | "simple";
-	model: unknown;
-	context: unknown;
-	options?: Record<string, unknown>;
+	operation: "stream" | "streamSimple";
+	model: Record<string, unknown>;
+	context: Record<string, unknown>;
+	stream?: Record<string, unknown>;
+	extra?: Record<string, unknown>;
+	reasoning?: string;
+	thinkingBudgets?: Record<string, unknown>;
 	responses: ScriptedResponse[];
 	tokenResponses?: ScriptedResponse[];
-	abortAfterEvents?: number;
+	abortAfterChunks?: number;
+	preAborted?: boolean;
 	onPayloadPatch?: unknown;
 };
 
 type ApiModule = {
-	stream: (model: unknown, context: unknown, options?: unknown) => AsyncIterable<unknown> & {
-		result(): Promise<unknown>;
-	};
-	streamSimple: (model: unknown, context: unknown, options?: unknown) => AsyncIterable<unknown> & {
-		result(): Promise<unknown>;
-	};
+	stream: StreamFunction;
+	streamSimple: StreamFunction;
+};
+
+type StreamFunction = (
+	model: unknown,
+	context: unknown,
+	options?: Record<string, unknown>,
+) => AsyncIterable<Record<string, unknown>> & {
+	push?: (event: unknown) => void;
+	result(): Promise<unknown>;
 };
 
 type RecordedRequest = {
@@ -44,13 +53,6 @@ type RecordedRequest = {
 	headers: Record<string, string>;
 	body: string | null;
 	jwt?: { header: unknown; claims: unknown; signatureLength: number } | null;
-};
-
-type NormalizedRun = {
-	requests: RecordedRequest[];
-	payloads: unknown[];
-	events: unknown[];
-	result: unknown;
 };
 
 const GENERATED_ID = /_1\d{12}_\d+$/;
@@ -67,7 +69,11 @@ function normalize(value: unknown): unknown {
 		for (const [key, entry] of Object.entries(source)) {
 			if (key === "timestamp") result[key] = 0;
 			else if (key === "id" && typeof entry === "string") result[key] = normalizeId(entry);
-			else result[key] = normalize(entry);
+			else if (key === "errorMessage" && typeof entry === "string") {
+				if (entry === "Incomplete JSON segment at the end") result[key] = entry;
+				else if (/JSON|Unexpected token|position|EOF|expected/i.test(entry)) result[key] = "<json-parse-error>";
+				else result[key] = entry;
+			} else result[key] = normalize(entry);
 		}
 		return result;
 	}
@@ -83,21 +89,20 @@ function normalizeBody(body: string | null): {
 	jwt: RecordedRequest["jwt"];
 } {
 	if (body === null || !body.includes("assertion=")) return { body, jwt: null };
-	const params = new URLSearchParams(body);
-	const assertion = params.get("assertion");
+	const assertion = new URLSearchParams(body).get("assertion");
 	if (!assertion) return { body, jwt: null };
 	const [header, claims, signature] = assertion.split(".");
 	const normalized = {
-		header: JSON.parse(decodeBase64Url(header)),
-		claims: JSON.parse(decodeBase64Url(claims)),
-		signatureLength: signature.length,
+		header: JSON.parse(decodeBase64Url(header ?? "")),
+		claims: JSON.parse(decodeBase64Url(claims ?? "")),
+		signatureLength: (signature ?? "").length,
 	} as { header: Record<string, unknown>; claims: Record<string, unknown>; signatureLength: number };
 	normalized.claims.iat = 0;
 	normalized.claims.exp = 0;
 	return { body: body.replace(assertion, "<jwt>"), jwt: normalized };
 }
 
-function normalizeHeaders(headers: Headers): Record<string, string> {
+function normalizeSdkHeaders(headers: Headers): Record<string, string> {
 	const result: Record<string, string> = {};
 	for (const [name, value] of headers.entries()) {
 		if (name === "user-agent" || name === "x-goog-api-client") result[name] = "<sdk-ua>";
@@ -110,20 +115,6 @@ function encodeChunk(chunk: ChunkSpec): Uint8Array {
 	if (typeof chunk === "string") return new TextEncoder().encode(chunk);
 	return new Uint8Array(Buffer.from(chunk.base64, "base64"));
 }
-
-function scriptedResponse(scripted: ScriptedResponse): Response {
-	const status = scripted.status ?? 200;
-	const headers = new Headers(scripted.headers ?? {});
-	const chunks = scripted.chunks ?? [];
-	const stream = new ReadableStream<Uint8Array>({
-		start(controller) {
-			for (const chunk of chunks) controller.enqueue(encodeChunk(chunk));
-			controller.close();
-		},
-	});
-	return new Response(stream, { status, statusText: scripted.statusText ?? "", headers });
-}
-
 
 let activeRequests: RecordedRequest[] = [];
 let activeTokenResponses: ScriptedResponse[] = [];
@@ -151,10 +142,10 @@ function startTokenProxy(): Promise<number> {
 		socket.on("data", onHandshake);
 		socket.on("error", () => {});
 	});
+	server.unref();
 	return new Promise((resolve) => {
 		server.listen(0, "127.0.0.1", () => {
-			const address = server.address() as net.AddressInfo;
-			resolve(address.port);
+			resolve((server.address() as net.AddressInfo).port);
 		});
 	});
 }
@@ -215,7 +206,10 @@ function serveTokenRequest(socket: tls.TLSSocket, host: string): void {
 function installFetch(
 	responses: ScriptedResponse[],
 	requests: RecordedRequest[],
+	controller: AbortController,
+	abortAfterChunks: number | undefined,
 ): typeof fetch {
+	let responseIndex = 0;
 	return (async (input: unknown, init: Record<string, unknown> = {}) => {
 		const url = typeof input === "string" ? input : String((input as { url: string }).url);
 		const method = (init.method as string | undefined) ?? "GET";
@@ -234,64 +228,100 @@ function installFetch(
 		const request: RecordedRequest = {
 			method,
 			url,
-			headers: normalizeHeaders(headers),
+			headers: normalizeSdkHeaders(headers),
 			body: normalized.body,
 		};
 		if (normalized.jwt) request.jwt = normalized.jwt;
 		requests.push(request);
 
-		const scripted = responses.shift();
+		const scripted = responses[Math.min(responseIndex, responses.length - 1)];
+		responseIndex++;
 		if (!scripted) throw new Error("unexpected fetch call");
 		if (scripted.throw) {
 			const error = new Error(scripted.throw.message);
 			if (scripted.throw.name) error.name = scripted.throw.name;
 			throw error;
 		}
-		return scriptedResponse(scripted);
+
+		const chunks = scripted.chunks ?? [];
+		let chunkIndex = 0;
+		let aborted = false;
+		const stream = new ReadableStream<Uint8Array>({
+			pull(streamController) {
+				if (aborted) {
+					streamController.error(new DOMException("This operation was aborted", "AbortError"));
+					return;
+				}
+				if (chunkIndex >= chunks.length) {
+					streamController.close();
+					return;
+				}
+				const chunk = chunks[chunkIndex++]!;
+				streamController.enqueue(encodeChunk(chunk));
+				if (abortAfterChunks !== undefined && chunkIndex === abortAfterChunks) {
+					controller.abort();
+					aborted = true;
+				}
+			},
+		});
+		return new Response(stream, {
+			status: scripted.status ?? 200,
+			statusText: scripted.statusText ?? "",
+			headers: { "content-type": "text/event-stream", ...(scripted.headers ?? {}) },
+		});
 	}) as typeof fetch;
 }
 
-async function execute(request: RunRequest, api: ApiModule, controller: AbortController): Promise<NormalizedRun> {
+async function execute(request: RunRequest, api: ApiModule): Promise<unknown> {
+	const controller = new AbortController();
 	const requests: RecordedRequest[] = [];
-	const payloads: unknown[] = [];
 	activeRequests = requests;
 	activeTokenResponses = request.tokenResponses ?? [];
-	globalThis.fetch = installFetch(request.responses, requests);
+	globalThis.fetch = installFetch(request.responses, requests, controller, request.abortAfterChunks);
 
-	const options: Record<string, unknown> = { ...(request.options ?? {}) };
+	const options: Record<string, unknown> = {
+		...(request.stream ?? {}),
+		...(request.extra ?? {}),
+	};
+	if (request.operation === "streamSimple") {
+		if (request.reasoning !== undefined) options.reasoning = request.reasoning;
+		if (request.thinkingBudgets !== undefined) options.thinkingBudgets = request.thinkingBudgets;
+	}
 	if (request.onPayloadPatch !== undefined) {
-		options.onPayload = async (payload: unknown) => {
-			payloads.push(JSON.parse(JSON.stringify(payload)));
-			return request.onPayloadPatch;
+		options.onPayload = async (payload: unknown) => request.onPayloadPatch;
+	}
+	if (request.abortAfterChunks !== undefined || request.preAborted) options.signal = controller.signal;
+	if (request.preAborted) controller.abort();
+
+	const events: unknown[] = [];
+	const runner = request.operation === "streamSimple" ? api.streamSimple : api.stream;
+	const stream = runner(request.model, request.context, options);
+	const originalPush = stream.push?.bind(stream);
+	if (originalPush) {
+		stream.push = (event: unknown) => {
+			events.push(JSON.parse(JSON.stringify(normalize(event))));
+			originalPush(event);
 		};
 	}
-	if (request.abortAfterEvents !== undefined) options.signal = controller.signal;
-
-	const runner = request.mode === "simple" ? api.streamSimple : api.stream;
-	const events: unknown[] = [];
-	let result: unknown = null;
-	let thrown: { name: string; message: string } | null = null;
-	try {
-		const stream = runner(request.model, request.context, options);
-		for await (const event of stream) {
-			events.push(JSON.parse(JSON.stringify(normalize(event))));
-			if (request.abortAfterEvents !== undefined && events.length === request.abortAfterEvents) {
-				controller.abort();
-			}
-		}
-		result = normalize(await stream.result());
-	} catch (error) {
-		thrown = error instanceof Error ? { name: error.name, message: error.message } : { name: "Unknown", message: String(error) };
+	let consumed = 0;
+	for await (const event of stream) {
+		// Events pushed before the patch was installed (synchronous setup
+		// failures) are snapshotted when the consumer receives them.
+		if (events.length === consumed) events.push(JSON.parse(JSON.stringify(normalize(event))));
+		consumed++;
 	}
-	if (thrown) {
-		return { requests, payloads: normalize(payloads), events, result: thrown };
-	}
-	return { requests, payloads: normalize(payloads), events, result };
+	const result = normalize(await stream.result());
+	return { requests, events, result };
 }
 
 async function loadApi(moduleDir: string, api: string): Promise<ApiModule> {
 	const file = api === "google-vertex" ? "google-vertex.ts" : "google-generative-ai.ts";
 	return (await import(pathToFileURL(path.join(moduleDir, file)).href)) as ApiModule;
+}
+
+function normalizeError(error: unknown): { name: string; message: string } {
+	if (error instanceof Error) return { name: error.name, message: error.message };
+	return { name: "Unknown", message: String(error) };
 }
 
 async function main(): Promise<void> {
@@ -301,11 +331,11 @@ async function main(): Promise<void> {
 	const proxyPort = await startTokenProxy();
 	process.env.HTTPS_PROXY = `http://127.0.0.1:${proxyPort}`;
 	process.env.https_proxy = process.env.HTTPS_PROXY;
-	const decoder = new TextDecoder();
+
 	let buffer = "";
 	let queue: Promise<void> = Promise.resolve();
 	process.stdin.on("data", (data: Buffer) => {
-		buffer += decoder.decode(data, { stream: true });
+		buffer += data.toString("utf8");
 		for (;;) {
 			const newline = buffer.indexOf("\n");
 			if (newline === -1) return;
@@ -326,17 +356,15 @@ async function main(): Promise<void> {
 				api = await loadApi(moduleDir, request.api);
 				apis.set(request.api, api);
 			}
-			const output = await execute(request, api, new AbortController());
+			const output = await execute(request, api);
 			process.stdout.write(`${JSON.stringify({ id, ok: true, output })}\n`);
 		} catch (error) {
-			const normalized =
-				error instanceof Error ? { name: error.name, message: error.message } : { name: "Unknown", message: String(error) };
-			process.stdout.write(`${JSON.stringify({ id, ok: false, error: normalized })}\n`);
+			process.stdout.write(`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`);
 		}
 	}
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`google api oracle startup failed: ${error instanceof Error ? error.message : String(error)}\n`);
+	process.stderr.write(`google api oracle startup failed: ${normalizeError(error).message}\n`);
 	process.exitCode = 1;
 });

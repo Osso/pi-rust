@@ -491,6 +491,8 @@ where
                         message: error.message,
                         status: Some(status),
                         headers: ProviderErrorHeaders::new(),
+                        body: None,
+                        inner_error: None,
                     }),
                     None => ProviderRequestError::Other(error),
                 })

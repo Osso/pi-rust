@@ -2,6 +2,8 @@ pub mod azure_openai_responses;
 pub mod cloudflare;
 pub mod constrained_sampling;
 pub mod github_copilot_headers;
+pub mod google_client;
+pub mod google_generative_ai;
 pub mod google_shared;
 pub mod lazy;
 pub mod openai_completions;
