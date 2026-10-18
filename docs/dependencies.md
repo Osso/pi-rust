@@ -19,7 +19,14 @@ No runtime dependencies. The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToo
 
 No runtime dependencies.
 
+### `pi-telemetry`
+
+- `serde = 1.0.229` — derives the camelCase wire shape for schema definitions and recorded spans/events, including the internally tagged status and parent definitions.
+
 ## Development
+
+- `futures = 0.3.31` — provides `block_on` and a oneshot channel for the async telemetry behavioral tests.
+- `serde_json = 1.0.151` — serializes recorded spans and schema definitions for the TypeScript differential oracle and attribute wire-shape tests.
 
 - `serde = 1.0.229` — derives typed JSON-lines request and response structures for differential tests.
 - `serde_json = 1.0.151` — serializes and parses the protocol, RPC JSONL, truncation, harness-error, metadata, resource-value, auth-command, and config-value differential-oracle messages. Public-index type proofs use the pinned TypeScript toolchain without adding a Rust dependency.

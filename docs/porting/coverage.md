@@ -10,9 +10,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `telemetry/src/index.ts` | 357 | 0 | todo |  |  |
-| `telemetry/src/memory.ts` | 219 | 0 | todo |  |  |
-| `telemetry/src/noop.ts` | 20 | 0 | todo |  |  |
+| `telemetry/src/index.ts` | 357 | 0 | done | `crates/pi-telemetry/src/lib.rs` | Runtime contracts, schema data, and typed starter ported; TypeScript conditional type inference helpers are an explicit gap (see traceability). |
+| `telemetry/src/memory.ts` | 219 | 0 | done | `crates/pi-telemetry/src/memory.rs` | In-memory recording ported with detached snapshots; JavaScript proxy/allocation passivity branches are not representable (see traceability). |
+| `telemetry/src/noop.ts` | 20 | 0 | done | `crates/pi-telemetry/src/noop.rs` | Inert context ported; JavaScript object freezing is not applicable. |
 
 ## protocol (8 files, 1236 lines)
 
