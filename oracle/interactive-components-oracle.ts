@@ -257,6 +257,43 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return { renders, selectedIds, copied };
 	},
+	sessionSelector: async (api, request, sourceRoot) => {
+		const keybindingsModule = (await import(
+			pathToFileURL(`${sourceRoot}/core/keybindings.ts`).href
+		)) as Api;
+		const toSession = (session: any) => ({
+			...session,
+			created: new Date(session.created),
+			modified: new Date(session.modified),
+		});
+		const current = request.currentSessions.map(toSession);
+		const all = request.allSessions.map(toSession);
+		const archived = request.archivedSessions ? request.archivedSessions.map(toSession) : undefined;
+		const selector = new api.SessionSelectorComponent(
+			async () => current,
+			async () => all,
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+			{
+				keybindings: new keybindingsModule.KeybindingsManager({}),
+				archivedSessionsLoader: archived ? async () => archived : undefined,
+			},
+			request.currentSessionFile ?? undefined,
+		);
+		const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
+		await flush();
+		const renders: string[][] = [selector.render(request.width)];
+		const selected: Array<string | null> = [selector.getSessionList().getSelectedSessionPath() ?? null];
+		for (const input of request.inputs) {
+			selector.handleInput(input);
+			await flush();
+			renders.push(selector.render(request.width));
+			selected.push(selector.getSessionList().getSelectedSessionPath() ?? null);
+		}
+		return { renders, selected };
+	},
 	configSelector: async (_api, request, sourceRoot) => {
 		const settingsModule = (await import(pathToFileURL(`${sourceRoot}/core/settings-manager.ts`).href)) as Api;
 		const selectorModule = (await import(

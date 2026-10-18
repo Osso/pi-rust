@@ -110,6 +110,7 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(custom_message_cases());
     cases.extend(bash_execution_cases());
     cases.extend(tree_selector_cases());
+    cases.extend(session_selector_cases());
     cases
 }
 
@@ -1390,6 +1391,148 @@ fn tree_selector_cases() -> Vec<(Value, Value)> {
         }
         let copied = copied_sink.borrow().clone();
         let output = json!({"renders": renders, "selectedIds": selected_ids, "copied": copied});
+        cases.push((request, output));
+    }
+    cases
+}
+
+fn session_info_fixture(
+    path: &str,
+    name: Option<&str>,
+    first_message: &str,
+    modified_offset_ms: i64,
+    archived: bool,
+) -> pi_coding_agent::core::session_manager::SessionInfo {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| i64::try_from(elapsed.as_millis()).unwrap_or_default())
+        .unwrap_or_default();
+    pi_coding_agent::core::session_manager::SessionInfo {
+        path: path.to_owned(),
+        id: format!("id-{path}"),
+        cwd: "/repo".to_owned(),
+        name: name.map(str::to_owned),
+        is_archived: archived.then_some(true),
+        parent_session_path: None,
+        created: now - modified_offset_ms,
+        modified: now - modified_offset_ms,
+        message_count: 4,
+        first_message: first_message.to_owned(),
+        all_messages_text: first_message.to_owned(),
+    }
+}
+
+fn session_json(session: &pi_coding_agent::core::session_manager::SessionInfo) -> Value {
+    json!({
+        "path": session.path,
+        "id": session.id,
+        "cwd": session.cwd,
+        "name": session.name,
+        "isArchived": session.is_archived,
+        "parentSessionPath": session.parent_session_path,
+        "created": session.created,
+        "modified": session.modified,
+        "messageCount": session.message_count,
+        "firstMessage": session.first_message,
+        "allMessagesText": session.all_messages_text,
+    })
+}
+
+fn session_selector_cases() -> Vec<(Value, Value)> {
+    use pi_coding_agent::core::keybindings::KeybindingsManager;
+    use pi_coding_agent::modes::interactive::components::session_selector::{
+        SessionListLoader, SessionSelectorComponent,
+    };
+
+    fn loader(sessions: Vec<pi_coding_agent::core::session_manager::SessionInfo>) -> SessionListLoader {
+        std::rc::Rc::new(move |_progress| {
+            let sessions = sessions.clone();
+            Box::pin(async move { Ok(sessions) })
+        })
+    }
+
+    let current = vec![
+        session_info_fixture("/sessions/alpha.jsonl", Some("alpha"), "alpha prompt", 7_200_000, false),
+        session_info_fixture("/sessions/beta.jsonl", None, "beta prompt", 2 * 86_400_000, false),
+        session_info_fixture("/sessions/gamma.jsonl", None, "gamma prompt", 180_000, false),
+    ];
+    let all = vec![
+        session_info_fixture("/sessions/alpha.jsonl", Some("alpha"), "alpha prompt", 7_200_000, false),
+        session_info_fixture("/sessions/beta.jsonl", None, "beta prompt", 2 * 86_400_000, false),
+        session_info_fixture("/other/delta.jsonl", Some("delta"), "delta prompt", 3_600_000, false),
+    ];
+    let archived = vec![session_info_fixture(
+        "/sessions/old.jsonl",
+        Some("old"),
+        "archived prompt",
+        5 * 86_400_000,
+        true,
+    )];
+
+    type SessionCase<'a> = (u64, Vec<&'a str>, Option<&'a str>, bool, usize);
+    let variants: Vec<SessionCase> = vec![
+        (180, vec![], Some("/sessions/beta.jsonl"), false, 120),
+        (181, vec!["\t"], None, false, 120),
+        (182, vec!["\t", "\t"], None, true, 120),
+        (183, vec!["\u{13}", "\u{13}", "\u{13}"], None, false, 120),
+        (184, vec!["\u{e}"], None, false, 120),
+        (185, vec!["a", "l", "p"], None, false, 120),
+        (186, vec!["\u{1b}[B", "\u{1b}[B", "\u{1b}[A"], None, false, 120),
+        (187, vec!["\u{10}"], None, false, 120),
+        (188, vec!["\t", "\u{13}"], None, false, 100),
+    ];
+
+    let mut cases = Vec::new();
+    for (id, inputs, current_file, with_archived, width) in variants {
+        let request = json!({
+            "id": id,
+            "module": "modes/interactive/components/session-selector.ts",
+            "operation": "sessionSelector",
+            "currentSessions": current.iter().map(session_json).collect::<Vec<_>>(),
+            "allSessions": all.iter().map(session_json).collect::<Vec<_>>(),
+            "archivedSessions": with_archived.then(|| archived.iter().map(session_json).collect::<Vec<_>>()),
+            "currentSessionFile": current_file,
+            "inputs": inputs,
+            "width": width,
+        });
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let output = runtime.block_on(async {
+            let mut selector = SessionSelectorComponent::new(
+                loader(current.clone()),
+                loader(all.clone()),
+                std::rc::Rc::new(|_| {}),
+                std::rc::Rc::new(|| {}),
+                std::rc::Rc::new(|| {}),
+                std::rc::Rc::new(|| {}),
+                None,
+                None,
+                Some(KeybindingsManager::new(Default::default(), None)),
+                None,
+                with_archived.then(|| loader(archived.clone())),
+                current_file,
+            );
+            selector.load_current_sessions().await;
+
+            let mut renders = vec![json!(selector.render(width))];
+            let mut selected = vec![json!(
+                selector.session_list().get_selected_session_path().map(str::to_owned)
+            )];
+            for input in &inputs {
+                selector.handle_input(input);
+                if selector.has_pending_action() {
+                    selector.run_pending_action().await;
+                }
+                renders.push(json!(selector.render(width)));
+                selected.push(json!(
+                    selector.session_list().get_selected_session_path().map(str::to_owned)
+                ));
+            }
+            json!({"renders": renders, "selected": selected})
+        });
         cases.push((request, output));
     }
     cases

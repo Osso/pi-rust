@@ -30,6 +30,7 @@ pub mod model_selector;
 pub mod oauth_selector;
 pub mod sandbox_selector;
 pub mod scoped_models_selector;
+pub mod session_selector;
 pub mod session_selector_search;
 pub mod settings_selector;
 pub mod show_images_selector;

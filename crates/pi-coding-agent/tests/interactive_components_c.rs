@@ -36,6 +36,7 @@ use pi_coding_agent::modes::interactive::components::extension_input::{
 use pi_coding_agent::modes::interactive::components::first_time_setup::{
     FirstTimeSetupComponent, FirstTimeSetupOptions, FirstTimeSetupResult,
 };
+use pi_coding_agent::modes::interactive::components::session_selector::{SessionListLoader, SessionSelectorComponent};
 use pi_coding_agent::modes::interactive::components::status_indicator::{
     CompactionStatusIndicator, CompactionStatusReason, IdleStatus, RetryStatusIndicator, WorkingStatusIndicator,
 };
@@ -1573,4 +1574,312 @@ fn tree_selector_hides_tool_only_assistants_and_maps_tool_results() {
     let leaf_selector = tree_selector(entries, "asst-tool", None);
     let rendered = plain(&leaf_selector.tree_list().borrow_mut().render(160));
     assert!(rendered.contains("assistant: (no content)"), "{rendered}");
+}
+
+fn session_info(
+    path: &str,
+    name: Option<&str>,
+    first_message: &str,
+    modified_offset_ms: i64,
+    archived: bool,
+) -> pi_coding_agent::core::session_manager::SessionInfo {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| i64::try_from(elapsed.as_millis()).unwrap_or_default())
+        .unwrap_or_default();
+    pi_coding_agent::core::session_manager::SessionInfo {
+        path: path.to_owned(),
+        id: format!("id-{path}"),
+        cwd: "/repo".to_owned(),
+        name: name.map(str::to_owned),
+        is_archived: archived.then_some(true),
+        parent_session_path: None,
+        created: now - modified_offset_ms,
+        modified: now - modified_offset_ms,
+        message_count: 3,
+        first_message: first_message.to_owned(),
+        all_messages_text: first_message.to_owned(),
+    }
+}
+
+fn session_loader(sessions: Vec<pi_coding_agent::core::session_manager::SessionInfo>) -> SessionListLoader {
+    std::rc::Rc::new(move |_progress| {
+        let sessions = sessions.clone();
+        Box::pin(async move { Ok(sessions) })
+    })
+}
+
+fn build_session_selector(
+    current: Vec<pi_coding_agent::core::session_manager::SessionInfo>,
+    all: Vec<pi_coding_agent::core::session_manager::SessionInfo>,
+    current_file: Option<&str>,
+) -> SessionSelectorComponent {
+    SessionSelectorComponent::new(
+        session_loader(current),
+        session_loader(all),
+        std::rc::Rc::new(|_| {}),
+        std::rc::Rc::new(|| {}),
+        std::rc::Rc::new(|| {}),
+        std::rc::Rc::new(|| {}),
+        None,
+        None,
+        None,
+        None,
+        None,
+        current_file,
+    )
+}
+
+#[tokio::test]
+async fn session_selector_loads_current_scope_and_renders_sessions() {
+    theme();
+    let current = vec![
+        session_info(
+            "/sessions/a.jsonl",
+            Some("alpha"),
+            "first alpha message",
+            7_200_000,
+            false,
+        ),
+        session_info("/sessions/b.jsonl", None, "beta first message", 3 * 86_400_000, false),
+    ];
+    let mut selector = build_session_selector(current, Vec::new(), Some("/sessions/b.jsonl"));
+    selector.load_current_sessions().await;
+    let rendered = plain(&selector.render(120));
+    assert!(rendered.contains("Resume Session (Current Folder)"), "{rendered}");
+    assert!(rendered.contains("alpha"), "{rendered}");
+    assert!(rendered.contains("beta first message"), "{rendered}");
+    assert!(rendered.contains("2h"), "{rendered}");
+    assert!(rendered.contains("3d"), "{rendered}");
+    assert!(rendered.contains("3 2h"), "{rendered}");
+}
+
+#[tokio::test]
+async fn session_selector_scope_toggle_loads_all_sessions() {
+    theme();
+    let current = vec![session_info("/sessions/a.jsonl", None, "current only", 60_000, false)];
+    let all = vec![
+        session_info("/sessions/a.jsonl", None, "current only", 60_000, false),
+        session_info("/other/c.jsonl", Some("other"), "other folder", 120_000, false),
+    ];
+    let mut selector = build_session_selector(current, all, None);
+    selector.load_current_sessions().await;
+
+    selector.handle_input("\t");
+    assert!(selector.has_pending_action());
+    selector.run_pending_action().await;
+    let rendered = plain(&selector.render(120));
+    assert!(rendered.contains("Resume Session (All)"), "{rendered}");
+    assert!(rendered.contains("› current only"), "{rendered}");
+    assert!(rendered.contains("other"), "{rendered}");
+    assert!(rendered.contains("/repo 3 2m"), "{rendered}");
+}
+
+#[tokio::test]
+async fn session_selector_sort_name_and_path_toggles() {
+    theme();
+    let current = vec![
+        session_info("/sessions/a.jsonl", None, "un-named", 60_000, false),
+        session_info("/sessions/b.jsonl", Some("named"), "named session", 120_000, false),
+    ];
+    let mut selector = build_session_selector(current, Vec::new(), None);
+    selector.load_current_sessions().await;
+
+    selector.handle_input("\u{13}");
+    assert_eq!(
+        selector.sort_mode(),
+        pi_coding_agent::modes::interactive::components::session_selector_search::SortMode::Relevance
+    );
+    assert!(plain(&selector.render(120)).contains("Sort: Fuzzy"));
+
+    selector.handle_input("\u{e}");
+    assert_eq!(
+        selector.name_filter(),
+        pi_coding_agent::modes::interactive::components::session_selector_search::NameFilter::Named
+    );
+    assert!(plain(&selector.render(120)).contains("Name: Named"));
+
+    selector.handle_input("\u{10}");
+    let rendered = plain(&selector.render(120));
+    assert!(rendered.contains("path (on)"), "{rendered}");
+    assert!(rendered.contains("/sessions/b.jsonl"), "{rendered}");
+}
+
+#[tokio::test]
+async fn session_selector_search_filters_and_current_session_cannot_be_deleted() {
+    theme();
+    let current = vec![
+        session_info("/sessions/a.jsonl", None, "alpha prompt", 60_000, false),
+        session_info("/sessions/b.jsonl", None, "beta prompt", 120_000, false),
+    ];
+    let mut selector = build_session_selector(current, Vec::new(), Some("/sessions/b.jsonl"));
+    selector.load_current_sessions().await;
+
+    for character in ["a", "l", "p"] {
+        selector.handle_input(character);
+    }
+    let rendered = plain(&selector.render(120));
+    assert!(rendered.contains("alpha prompt"), "{rendered}");
+    assert!(!rendered.contains("beta prompt"), "{rendered}");
+
+    // Clear the search with backspaces.
+    for _ in 0..3 {
+        selector.handle_input("\u{7f}");
+    }
+    // Select the current session (beta is second).
+    selector.handle_input("\u{1b}[B");
+    selector.handle_input("\u{4}");
+    let rendered = plain(&selector.render(120));
+    assert!(
+        rendered.contains("Cannot delete the currently active session"),
+        "{rendered}"
+    );
+}
+
+#[tokio::test]
+async fn session_selector_deletes_session_after_confirmation() {
+    theme();
+    let directory = tempfile::tempdir().expect("temp dir");
+    let target = directory.path().join("delete-me.jsonl");
+    std::fs::write(&target, "session").expect("session file");
+    let target_path = target.to_string_lossy().into_owned();
+    let current = vec![
+        session_info("/sessions/a.jsonl", None, "keep", 60_000, false),
+        session_info(&target_path, None, "delete me", 120_000, false),
+    ];
+    let mut selector = build_session_selector(current, Vec::new(), Some("/sessions/a.jsonl"));
+    selector.load_current_sessions().await;
+
+    selector.handle_input("\u{1b}[B");
+    selector.handle_input("\u{4}");
+    assert!(
+        plain(&selector.render(120)).contains("Delete session?"),
+        "confirmation hint"
+    );
+    // Other keys are ignored while confirming.
+    selector.handle_input("x");
+    assert!(plain(&selector.render(120)).contains("Delete session?"));
+
+    selector.handle_input("\r");
+    assert!(selector.has_pending_action());
+    selector.run_pending_action().await;
+    assert!(!target.exists());
+    let rendered = plain(&selector.render(120));
+    assert!(
+        rendered.contains("Session deleted") || rendered.contains("Session moved to trash"),
+        "{rendered}"
+    );
+}
+
+#[tokio::test]
+async fn session_selector_archive_requires_control_db_and_archives_with_one() {
+    theme();
+    let directory = tempfile::tempdir().expect("temp dir");
+    let control_db = directory.path().join("control.db");
+    let control_db_path = control_db.to_string_lossy().into_owned();
+    let session_path = directory.path().join("session.jsonl");
+    std::fs::write(&session_path, "session").expect("session file");
+    let session_path = session_path.to_string_lossy().into_owned();
+    let current = vec![session_info(&session_path, None, "archive me", 60_000, false)];
+
+    let mut no_db = SessionSelectorComponent::new(
+        session_loader(current.clone()),
+        session_loader(Vec::new()),
+        std::rc::Rc::new(|_| {}),
+        std::rc::Rc::new(|| {}),
+        std::rc::Rc::new(|| {}),
+        std::rc::Rc::new(|| {}),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    no_db.load_current_sessions().await;
+    no_db.handle_input("\u{1}");
+    no_db.run_pending_action().await;
+    assert!(plain(&no_db.render(120)).contains("Session archive requires a control database."));
+
+    let mut with_db = SessionSelectorComponent::new(
+        session_loader(current),
+        session_loader(Vec::new()),
+        std::rc::Rc::new(|_| {}),
+        std::rc::Rc::new(|| {}),
+        std::rc::Rc::new(|| {}),
+        std::rc::Rc::new(|| {}),
+        None,
+        None,
+        None,
+        Some(control_db_path),
+        None,
+        None,
+    );
+    with_db.load_current_sessions().await;
+    with_db.handle_input("\u{1}");
+    with_db.run_pending_action().await;
+    assert!(plain(&with_db.render(120)).contains("Session archived"));
+}
+
+#[tokio::test]
+async fn session_selector_rename_mode_trims_and_submits() {
+    theme();
+    let current = vec![session_info(
+        "/sessions/a.jsonl",
+        Some("old name"),
+        "alpha",
+        60_000,
+        false,
+    )];
+    type RenameCalls = Arc<std::sync::Mutex<Vec<(String, Option<String>)>>>;
+    let renamed: RenameCalls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = renamed.clone();
+    let rename: pi_coding_agent::modes::interactive::components::session_selector::RenameSessionFn =
+        std::rc::Rc::new(move |path, name| {
+            let sink = sink.clone();
+            Box::pin(async move {
+                sink.lock().unwrap().push((path, name));
+                Ok(())
+            })
+        });
+    let mut selector = SessionSelectorComponent::new(
+        session_loader(current.clone()),
+        session_loader(Vec::new()),
+        std::rc::Rc::new(|_| {}),
+        std::rc::Rc::new(|| {}),
+        std::rc::Rc::new(|| {}),
+        std::rc::Rc::new(|| {}),
+        Some(rename),
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    selector.load_current_sessions().await;
+    selector.handle_input("\u{12}");
+    let rendered = plain(&selector.render(120));
+    assert!(rendered.contains("Rename Session"), "{rendered}");
+    assert!(rendered.contains("old name"), "{rendered}");
+
+    // Typing inserts at the initial cursor (start), matching Input.setValue.
+    for character in ["n", "e", "w"] {
+        selector.handle_input(character);
+    }
+    selector.handle_input("\r");
+    assert!(selector.has_pending_action());
+    selector.run_pending_action().await;
+    assert_eq!(
+        *renamed.lock().unwrap(),
+        vec![("/sessions/a.jsonl".to_owned(), Some("newold name".to_owned()))]
+    );
+    assert!(plain(&selector.render(120)).contains("Resume Session"));
+
+    // Clear with ctrl+k and submit an empty name (None).
+    selector.handle_input("\u{12}");
+    selector.handle_input("\u{1}");
+    selector.handle_input("\u{b}");
+    selector.handle_input("\r");
+    selector.run_pending_action().await;
+    assert_eq!(renamed.lock().unwrap().last().unwrap().1, None);
 }
