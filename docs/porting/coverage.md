@@ -311,16 +311,16 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `client/src/promise.ts` | 16 | 0 | todo |  |  |
-| `client/src/transport.ts` | 18 | 0 | todo |  |  |
-| `client/src/errors.ts` | 56 | 5 | todo |  |  |
-| `client/src/types.ts` | 26 | 5 | todo |  |  |
-| `client/src/unix.ts` | 156 | 5 | todo |  |  |
-| `client/src/connection.ts` | 236 | 6 | todo |  |  |
-| `client/src/session-handle.ts` | 111 | 6 | todo |  |  |
-| `client/src/state.ts` | 156 | 6 | todo |  |  |
-| `client/src/client.ts` | 432 | 7 | todo |  |  |
-| `client/src/index.ts` | 18 | 8 | todo |  |  |
+| `client/src/promise.ts` | 16 | 0 | done | `crates/pi-client/src/promise.rs` | One-shot promise resolver over `tokio::sync::oneshot` |
+| `client/src/transport.ts` | 18 | 0 | done | `crates/pi-client/src/transport.rs` | Eager `send` method returning completion future; trait factory |
+| `client/src/errors.ts` | 56 | 5 | done | `crates/pi-client/src/errors.rs` | Typed error enum; `PiError::message` gap documented |
+| `client/src/types.ts` | 26 | 5 | done | `crates/pi-client/src/types.rs` | Enums and listener aliases |
+| `client/src/unix.ts` | 156 | 5 | done | `crates/pi-client/src/unix.rs` | Tokio Unix socket transport; real-socket tests |
+| `client/src/connection.ts` | 236 | 6 | done | `crates/pi-client/src/connection.rs` | Full lifecycle, reentrant callbacks; connection test port |
+| `client/src/session-handle.ts` | 111 | 6 | done | `crates/pi-client/src/session_handle.rs` | Lease callbacks trait; command futures |
+| `client/src/state.ts` | 156 | 6 | done | `crates/pi-client/src/state.rs` | Snapshot reduction, listener isolation |
+| `client/src/client.ts` | 432 | 7 | done | `crates/pi-client/src/client.rs` | Requests, leases, attachment serialization |
+| `client/src/index.ts` | 18 | 8 | done | `crates/pi-client/src/lib.rs` | Public re-exports; static connect renamed `connect_new` |
 
 ## server (13 files, 1839 lines)
 

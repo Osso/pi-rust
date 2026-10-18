@@ -917,6 +917,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pi-client"
+version = "0.0.0"
+dependencies = [
+ "pi-protocol",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "pi-coding-agent"
 version = "0.0.0"
 dependencies = [

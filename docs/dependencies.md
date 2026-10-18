@@ -52,6 +52,13 @@ No runtime dependencies. CBOR encoding and decoding are hand-written against the
 
 - `serde = 1.0.229` — derives the camelCase wire shape for schema definitions and recorded spans/events, including the internally tagged status and parent definitions.
 
+### `pi-client`
+
+- `pi-protocol = { version = "=0.0.0", path = "../pi-protocol" }` — framing, CBOR message codecs, typed commands/results, snapshots, and protocol validation errors.
+- `tokio = 1.53.3` (`io-util`, `net`, `rt`, `sync`) — one-shot request/handshake resolvers, spawned transport/read/write tasks, `UnixStream`, and async I/O. Dev targets add `macros` and `rt-multi-thread` for `#[tokio::test]`.
+- `tokio-util = 0.7.20` — `CancellationToken` stops the Unix read loop on local close. The source package has no `AbortSignal`; the dependency is not an `AbortSignal` mapping.
+- Dev-only `serde_json = 1.0.151` — compares Rust client frames, state transitions, and snapshots with the TypeScript differential oracle.
+
 ## Development
 
 - `futures = 0.3.31` — provides `block_on` and a oneshot channel for the async telemetry behavioral tests.
