@@ -2291,14 +2291,13 @@ fn parse_kitty_image_header(line: &str) -> Option<KittyImageHeader> {
         let Some(value) = parts.next() else {
             continue;
         };
-        let Ok(number) = value.parse::<u64>() else {
-            continue;
-        };
-        if number == 0 || number > 0xffff_ffff {
+        let number = crate::js_number::parse_number(value);
+        if number.fract() != 0.0 || number <= 0.0 || number > f64::from(u32::MAX) {
             continue;
         }
+        let number = number as u32;
         match key {
-            "i" => ids.push(number as u32),
+            "i" => ids.push(number),
             "r" => rows = number as usize,
             _ => {}
         }
@@ -3850,3 +3849,24 @@ impl Component for TuiMainScreen {
 
 // Re-export the visible-width helper as the source does.
 pub use crate::utils::visible_width;
+
+#[cfg(test)]
+mod kitty_header_tests {
+    use super::*;
+
+    #[test]
+    fn kitty_header_parameters_use_javascript_number_parsing() {
+        let header = parse_kitty_image_header("\x1b_Gi=0x10,r=1e1;payload").expect("header");
+        assert_eq!(header.ids, vec![16]);
+        assert_eq!(header.rows, 10);
+
+        let header = parse_kitty_image_header("\x1b_Gi=5.0,r= 5 ;payload").expect("header");
+        assert_eq!(header.ids, vec![5]);
+        assert_eq!(header.rows, 5);
+
+        // Non-integers, zero, and values above u32 are ignored.
+        let header = parse_kitty_image_header("\x1b_Gi=1.5,r=0,j=4294967296;payload").expect("header");
+        assert!(header.ids.is_empty());
+        assert_eq!(header.rows, 1);
+    }
+}

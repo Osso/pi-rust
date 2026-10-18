@@ -69,3 +69,5 @@ Differential oracle: `oracle/tui-leaves-oracle.ts` (operations `utils_*`). Tests
 ## Discrepancies
 
 None found. `isOsc11...`-style behavior is not in this module. The source's `getOsc8LinkAtColumn` recomputes tab width with a redundant `segment === "\t" ? 3` branch; Rust uses `grapheme_width` (which already returns 3 for a tab). Output is identical and covered by differential tests.
+
+The SGR parser's `Number.parseInt(part, 10)` is equivalent to `parse::<i64>` here: the parameter string is validated as ASCII digits and `;` before splitting, and only the values 38/48 select a branch (oversized values fail the Rust parse and cannot equal 38/48 in JavaScript either).

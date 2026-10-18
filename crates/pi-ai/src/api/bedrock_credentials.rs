@@ -247,18 +247,8 @@ fn parse_iso8601_millis(value: &str) -> Option<i64> {
     } else {
         0
     };
-    let days = days_from_civil(year, month as u32, day as u32);
+    let days = crate::js_number::days_from_civil(year, month, day);
     Some(((days * 86_400 + hour * 3600 + minute * 60 + second) * 1000) + millis)
-}
-
-fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
-    let year = year - i64::from(month <= 2);
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let year_of_era = year - era * 400;
-    let month_prime = i64::from(month) + if month > 2 { -3 } else { 9 };
-    let day_of_year = (153 * month_prime + 2) / 5 + i64::from(day) - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - 719_468
 }
 
 #[derive(Debug, Default)]

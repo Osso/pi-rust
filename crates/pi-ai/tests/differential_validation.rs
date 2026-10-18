@@ -74,6 +74,18 @@ fn cases() -> Vec<Value> {
             }),
         ),
         case(
+            "typebox-bigint-like-strings",
+            typebox(object_with(
+                json!({
+                    "canonical": { "t": "number" },
+                    "leadingZero": { "t": "number" },
+                    "unsafe": { "t": "number" }
+                }),
+                json!(["canonical", "leadingZero", "unsafe"]),
+            )),
+            json!({ "canonical": "123n", "leadingZero": "0123n", "unsafe": "9007199254740992n" }),
+        ),
+        case(
             "typebox-string-null",
             typebox(object_with(json!({ "value": { "t": "string" } }), json!(["value"]))),
             json!({ "value": null }),

@@ -267,3 +267,19 @@ fn falls_back_to_columns_and_lines_before_default_dimensions() {
     assert_eq!(resolve_columns(Some(100), Some("123".to_string())), 100);
     assert_eq!(resolve_rows(Some(50), Some("45".to_string())), 50);
 }
+
+#[test]
+fn environment_numbers_use_javascript_number_parsing() {
+    // `Number("0x10")` is 16 and `Number("2e1")` is 20.
+    assert_eq!(
+        resolve_escape_timeout_ms(&env_lookup(BTreeMap::from([("PI_TUI_ESC_TIMEOUT", "0x10")]))),
+        16.0
+    );
+    assert_eq!(
+        resolve_escape_timeout_ms(&env_lookup(BTreeMap::from([("PI_TUI_ESC_TIMEOUT", "2e1")]))),
+        20.0
+    );
+    assert_eq!(resolve_columns(None, Some("0x10".to_owned())), 16);
+    assert_eq!(resolve_rows(None, Some("0b1010".to_owned())), 10);
+    assert_eq!(resolve_columns(None, Some("1e2".to_owned())), 100);
+}

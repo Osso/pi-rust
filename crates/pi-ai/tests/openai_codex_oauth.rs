@@ -234,3 +234,39 @@ async fn to_auth_returns_the_access_token_and_marks_subscription_login() {
         .expect("auth");
     assert_eq!(auth.api_key.as_deref(), Some("token"));
 }
+
+#[tokio::test(start_paused = true)]
+async fn device_code_interval_uses_javascript_number_parsing() {
+    // `Number("0x10".trim())` is 16.
+    let token = access_token("account-hex");
+    let fetch = RecordingFetch::new(vec![
+        ScriptedResponse::json(
+            200,
+            r#"{"device_auth_id":"device-auth-id","user_code":"CODE","interval":"0x10"}"#,
+        ),
+        ScriptedResponse::json(
+            200,
+            r#"{"authorization_code":"oauth-code","code_challenge":"c","code_verifier":"device-code-verifier"}"#,
+        ),
+        ScriptedResponse::json(
+            200,
+            &json!({"access_token": token, "refresh_token": "refresh-token", "expires_in": 3600}).to_string(),
+        ),
+    ]);
+    let oauth = OpenAICodexOAuth::with_runtime(runtime(fetch, NOW));
+    let interaction = TestInteraction::new(vec![PromptAnswer::Text("device_code".to_owned())]);
+
+    oauth.login(interaction.clone()).await.expect("credential");
+
+    let events = interaction.events();
+    assert!(
+        matches!(
+            &events[0],
+            AuthEvent::DeviceCode {
+                interval_seconds: Some(interval),
+                ..
+            } if *interval == 16.0
+        ),
+        "unexpected events: {events:?}"
+    );
+}

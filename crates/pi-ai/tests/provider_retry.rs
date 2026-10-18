@@ -346,3 +346,67 @@ async fn retry_future_is_send() {
     let future = assert_future_send(retry_provider_request(request, ProviderRetryOptions::default()));
     assert_eq!(future.await, Ok("ok"));
 }
+
+#[tokio::test(start_paused = true)]
+async fn iso_8601_prefixes_parse_as_seconds_like_parse_float() {
+    // `Number.parseFloat("2999-01-01T00:00:00Z")` is 2999, so the `Date.parse`
+    // branch is only reached for non-numeric prefixes such as HTTP dates.
+    let calls = Arc::new(AtomicUsize::new(0));
+    let request = request_sequence(
+        vec![Err(ProviderRequestError::Provider(provider_error(
+            Some(429.0),
+            &[("retry-after", "2999-01-01T00:00:00Z")],
+        )))],
+        Arc::clone(&calls),
+    );
+
+    let result = retry_provider_request(
+        request,
+        ProviderRetryOptions {
+            max_retries: 1,
+            ..ProviderRetryOptions::default()
+        },
+    )
+    .await;
+
+    match result {
+        Err(ProviderRequestError::RetryDelayLimit(limit)) => assert_eq!(limit.delay_ms, 2_999_000.0),
+        other => panic!("expected a retry delay limit error, got {other:?}"),
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn non_finite_retry_after_values_exceed_the_cap() {
+    // `parseFloat("Infinity")` is `Infinity`, which `validateServerRetryDelayMs` rejects.
+    for header in ["retry-after-ms", "retry-after"] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let request = request_sequence(
+            vec![Err(ProviderRequestError::Provider(provider_error(
+                Some(429.0),
+                &[(header, "Infinity")],
+            )))],
+            Arc::clone(&calls),
+        );
+
+        let result = retry_provider_request(
+            request,
+            ProviderRetryOptions {
+                max_retries: 1,
+                ..ProviderRetryOptions::default()
+            },
+        )
+        .await;
+
+        match result {
+            Err(ProviderRequestError::RetryDelayLimit(limit)) => {
+                assert!(limit.delay_ms.is_infinite(), "{header}: {}", limit.delay_ms);
+                assert_eq!(
+                    limit.to_string(),
+                    "Server requested Infinitys retry delay (max: 60s). Provider error: Some(429.0)"
+                );
+            }
+            other => panic!("{header}: expected a retry delay limit error, got {other:?}"),
+        }
+    }
+}

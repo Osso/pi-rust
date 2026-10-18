@@ -11,7 +11,7 @@ Pinned source: `packages/ai/src/auth/oauth/openai-codex.ts` at `532f7d12cd192350
 | `fetchWithLoginCancellation` | Cancellation → `Login cancelled`. | `fetch_with_login_cancellation`. |
 | `readTokenResponse` | Non-2xx text/statusText error; missing fields error with JSON; expiry `now + expires_in*1000`. | `read_token_response`; differential exchange/refresh. |
 | `exchangeAuthorizationCode` / `refreshAccessToken` | Form bodies and Content-Type; refresh error prefix. | `exchange_authorization_code`, `refresh_access_token`; differential. |
-| `startOpenAICodexDeviceAuth` | JSON client id; 404 special message; string/number interval validation. | `start_device_auth`; `device_code_404_has_the_source_message`; differential device. |
+| `startOpenAICodexDeviceAuth` | JSON client id; 404 special message; string interval via `Number(string.trim())`, number interval as-is; finite and non-negative. | `start_device_auth`; `device_code_404_has_the_source_message`, `device_code_interval_uses_javascript_number_parsing`; differential device. |
 | `pollOpenAICodexDeviceAuth` | 200 success; 403/404 pending; JSON `error.code` pending/slow_down; other failures. | `poll_device_auth`; differential pending-free success and behavioral suite. |
 | `createAuthorizationFlow` | PKCE + state; authorize query order and flags (`originator=pi`). | `login_browser` URL construction; differential device does not exercise browser URL; behavioral callback test asserts `originator=pi`. |
 | `startLocalOAuthServer` | Port 1455; 404/400/200 pages; bind failure degrades to manual-only. | `start_local_server`; callback test. |
