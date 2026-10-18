@@ -53,7 +53,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/api/constrained-sampling.ts` | 277 | 1 | done | `crates/pi-ai/src/api/constrained_sampling.rs` | Strict-schema conversion, grammar sampling, append-only JSON deltas; differential 47 requests. |
 | `ai/src/api/github-copilot-headers.ts` | 37 | 1 | done | `crates/pi-ai/src/api/github_copilot_headers.rs` | Initiator/vision/header builders; differential 16 requests. |
 | `ai/src/api/google-generative-ai.ts` | 521 | 1 | todo |  |  |
-| `ai/src/api/google-shared.ts` | 419 | 1 | todo |  |  |
+| `ai/src/api/google-shared.ts` | 419 | 1 | done | `crates/pi-ai/src/api/google_shared.rs` | Message/tool conversion, thought signatures, stop reasons, Google retry policy; 30 ported tests + differential request bodies. |
 | `ai/src/api/google-vertex.ts` | 596 | 1 | todo |  |  |
 | `ai/src/api/lazy.ts` | 98 | 1 | done | `crates/pi-ai/src/api/lazy.rs` | lazy stream/api, setup errors, declared deferred capabilities; differential setup-error |
 | `ai/src/api/mistral-conversations.ts` | 931 | 1 | todo |  |  |
