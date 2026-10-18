@@ -1,6 +1,13 @@
+pub mod edit_diff;
+pub mod file_mutation_queue;
+pub mod output_accumulator;
+pub mod path_utils;
 pub mod truncate;
 
-pub use truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size};
+pub use truncate::{
+    DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncationOptions, TruncationResult, format_size, truncate_head,
+    truncate_line, truncate_tail,
+};
 
 /// Tools enabled for a default session (`DEFAULT_ACTIVE_TOOL_NAMES` in `tools/index.ts`).
 pub const DEFAULT_ACTIVE_TOOL_NAMES: [&str; 19] = [

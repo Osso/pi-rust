@@ -1,11 +1,10 @@
-/// Default maximum number of output lines.
-pub const DEFAULT_MAX_LINES: usize = pi_agent_core::harness::utils::DEFAULT_MAX_LINES;
-/// Default maximum number of output bytes.
-pub const DEFAULT_MAX_BYTES: usize = pi_agent_core::harness::utils::DEFAULT_MAX_BYTES;
-/// Default maximum length of one grep match line.
-pub const GREP_MAX_LINE_LENGTH: usize = pi_agent_core::harness::utils::GREP_MAX_LINE_LENGTH;
+//! Coding-agent tool-output truncation.
+//!
+//! The pinned `coding-agent/src/core/tools/truncate.ts` differs from the agent
+//! harness copy only in how it counts lone UTF-16 surrogates, which Rust strings
+//! cannot contain. The shared agent-core implementation is therefore reused.
 
-/// Formats a non-negative byte count with the shared truncation utility.
-pub fn format_size(bytes: usize) -> String {
-    pi_agent_core::harness::utils::format_size(bytes)
-}
+pub use pi_agent_core::harness::utils::{
+    DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, GREP_MAX_LINE_LENGTH, TruncatedBy, TruncatedLine, TruncationOptions,
+    TruncationResult, format_size, truncate_head, truncate_line, truncate_tail,
+};

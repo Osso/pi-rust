@@ -215,7 +215,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 |---|---:|---:|---|---|---|
 | `agent/src/harness/events.ts` | 102 | 0 | done | `crates/pi-agent-core/src/harness/events.rs` | Typed event bus, subscriptions, buffered snapshot watches, reentrant emit; focused + differential scripts; see `events.md`. |
 | `agent/src/harness/result.ts` | 63 | 0 | done | Rust idioms | `Result`/`Ok`/`Err`; tagged errors are typed structs/enums with literal accessors; see `result.md`. |
-| `agent/src/harness/tools/edit-diff.ts` | 500 | 0 | done | `crates/pi-agent-core/src/harness/tools/edit_diff.rs` | Fuzzy matching, replacements, jsdiff line diff/unified patch; 8 behavioral + edit differential fixtures; see `edit-diff.md`. |
+| `agent/src/harness/tools/edit-diff.ts` | 500 | 0 | done | `crates/pi-agent-core/src/harness/tools/edit_diff.rs`, `jsdiff.rs` | Fuzzy matching, replacements, shared jsdiff line diff/unified patch; ICU4X normalization differential; 8 behavioral + edit differential fixtures; see `edit-diff.md`. |
 | `agent/src/harness/tools/image.ts` | 104 | 0 | done | `crates/pi-agent-core/src/harness/tools/image.rs` | MIME detection + Base64; focused and differential proof; see `image-helpers.md`. |
 | `agent/src/harness/utils/truncate.ts` | 350 | 0 | done | `crates/pi-agent-core/src/harness/utils/truncate.rs` | Head/tail/line truncation and size formatting; focused and 34-request differential proof; see `truncation.md`. |
 | `agent/src/harness/telemetry.ts` | 615 | 1 | done | `crates/pi-agent-core/src/harness/telemetry.rs` | Both schemas and both starters; focused tests + full serialized-schema and recorded-span differential; conditional type helpers are an explicit gap; see `harness-telemetry.md`. |
@@ -238,7 +238,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/skills.ts` | 375 | 6 | done | `crates/pi-agent-core/src/harness/skills.rs` | Invocation formatter, recursive loader, ignore rules, metadata validation, sourced mapping; focused + differential; see `skills.md`. |
 | `agent/src/harness/system-prompt.ts` | 34 | 6 | done | `crates/pi-agent-core/src/harness/system_prompt.rs` | Visible-skill filter, exact block format, XML escaping; focused + differential; see `system-prompt.md`. |
 | `agent/src/harness/tools/file-mutation-queue.ts` | 56 | 6 | done | `crates/pi-agent-core/src/harness/tools/file_mutation_queue.rs` | Canonical-path serialization shared via `ExecutionToolContext`; see `file-mutation-queue.md`. |
-| `agent/src/harness/tools/path-utils.ts` | 30 | 6 | done | `crates/pi-agent-core/src/harness/tools/path_utils.rs` | Path normalization and read variants; see `path-utils.md`. |
+| `agent/src/harness/tools/path-utils.ts` | 30 | 6 | done | `crates/pi-agent-core/src/harness/tools/path_utils.rs` | Path normalization and read variants; NFD via shared ICU4X module; see `path-utils.md`. |
 | `agent/src/harness/tools/tool-context.ts` | 6 | 6 | done | `crates/pi-agent-core/src/harness/tools/tool_context.rs` | Env + mutation queue bound at tool construction; see `tool-context.md`. |
 | `agent/src/harness/utils/shell-output.ts` | 199 | 6 | done | `crates/pi-agent-core/src/harness/utils/shell_output.rs` | Sanitizer + full `executeShellWithCapture`; 6 tests and bash differential fixtures; see `shell-output.md`. |
 | `agent/src/search/index.ts` | 32 | 6 | done | `crates/pi-agent-core/src/search/index.rs` | Search options/hit traits; see `search-index.md`. |
@@ -385,7 +385,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/diagnostics.ts` | 15 | 0 | done | `crates/pi-coding-agent/src/core/diagnostics.rs` | `ResourceCollision`/`ResourceDiagnostic` wire records. |
 | `coding-agent/src/core/event-bus.ts` | 33 | 0 | done | `crates/pi-coding-agent/src/core/event_bus.rs` | Channel bus with subscriptions, clear, and failure isolation; handlers are typed `Fn(&Value) -> Result`. |
 | `coding-agent/src/core/experimental.ts` | 9 | 0 | done | `crates/pi-coding-agent/src/core/experimental.rs` | `PI_EXPERIMENTAL` gate + strict tool sampling config; child-process env probes. |
-| `coding-agent/src/core/export-html/ansi-to-html.ts` | 258 | 0 | todo |  |  |
+| `coding-agent/src/core/export-html/ansi-to-html.ts` | 258 | 0 | done | `crates/pi-coding-agent/src/core/export_html/ansi_to_html.rs` | differential 47 cases incl. JS number formatting |
 | `coding-agent/src/core/http-dispatcher.ts` | 111 | 0 | done | `crates/pi-coding-agent/src/core/http_dispatcher.rs` | Timeout parse/format, proxy resolution, configured `Fetch` (returns instead of mutating a global); differential `27013`. `autoSelectFamilyAttemptTimeout` is a documented gap. |
 | `coding-agent/src/core/output-guard.ts` | 126 | 0 | done | `crates/pi-coding-agent/src/core/output_guard.rs` | Raw stdout writer, chunking, backpressure, takeover flag; stray stdout prevented by `deny(clippy::print_stdout)` (approved deviation). |
 | `coding-agent/src/core/permissions/policy.ts` | 33 | 0 | done | `crates/pi-coding-agent/src/core/permissions/policy.rs` | Policy parse/normalize/evaluate; differential `27001`/`27002`. |
@@ -396,19 +396,19 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/runtime-process.ts` | 103 | 0 | done | `crates/pi-coding-agent/src/core/runtime_process.rs` | `/proc` identity/state, Pi-runtime command-line detection; differential `27012`. macOS `ps` cmdline fallback is a documented gap. |
 | `coding-agent/src/core/session-errors.ts` | 12 | 0 | done | `crates/pi-coding-agent/src/core/session_errors.rs` | `SessionImportFileNotFoundError`; differential `27004`. |
 | `coding-agent/src/core/session-health.ts` | 135 | 0 | done | `crates/pi-coding-agent/src/core/session_health.rs` | Records, sticky-death/eligibility, live-status derivation, goal parsing; differential `27008`. `Date.parse` subset lives in `utils::iso_time` (RFC 2822/free-form gap documented). |
-| `coding-agent/src/core/skill-block.ts` | 22 | 0 | done | `crates/pi-coding-agent/src/core/skill_block.rs` | `parseSkillBlock` with backtracking to a valid closing tag; differential `skill-block-oracle.ts` plus focused cases. |
+| `coding-agent/src/core/skill-block.ts` | 22 | 0 | done | `crates/pi-coding-agent/src/core/skill_block.rs` | all TS tests ported + differential |
 | `coding-agent/src/core/sqlite.ts` | 145 | 0 | todo |  |  |
 | `coding-agent/src/core/timings.ts` | 50 | 0 | done | `crates/pi-coding-agent/src/core/timings.rs` | `PI_TIMING` startup profiling; stderr format asserted through a child process. |
 | `coding-agent/src/core/tool-capabilities.ts` | 11 | 0 | done | `crates/pi-coding-agent/src/core/tool_capabilities.rs` | Child-disabled and supervisor-only tool names; differential `27004`. |
 | `coding-agent/src/core/tool-detach-registry.ts` | 58 | 0 | done | `crates/pi-coding-agent/src/core/tool_detach_registry.rs` | Newest-first detach, running count, cancellable auto-detach timers. |
-| `coding-agent/src/core/tools/file-mutation-queue.ts` | 61 | 0 | todo |  |  |
-| `coding-agent/src/core/tools/truncate.ts` | 276 | 0 | partial |  |  |
+| `coding-agent/src/core/tools/file-mutation-queue.ts` | 61 | 0 | done | `crates/pi-coding-agent/src/core/tools/file_mutation_queue.rs` | TS queue tests ported; no oracle (ordering contract) |
+| `coding-agent/src/core/tools/truncate.ts` | 276 | 0 | done | `crates/pi-coding-agent/src/core/tools/truncate.rs` | re-exports agent-core truncation (identical on valid Unicode); differential |
 | `coding-agent/src/extensions/llama/client.ts` | 332 | 0 | todo |  |  |
 | `coding-agent/src/extensions/llama/huggingface.ts` | 158 | 0 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/elapsed-time.ts` | 30 | 0 | todo |  |  |
 | `coding-agent/src/modes/interactive/external-editor.ts` | 45 | 0 | todo |  |  |
 | `coding-agent/src/modes/interactive/model-search.ts` | 27 | 0 | todo |  |  |
-| `coding-agent/src/modes/rpc/jsonl.ts` | 58 | 0 | partial |  |  |
+| `coding-agent/src/modes/rpc/jsonl.ts` | 58 | 0 | done | `crates/pi-coding-agent/src/modes/rpc/jsonl.rs` | all TS tests ported + differential |
 | `coding-agent/src/supervisor/project-resolver.ts` | 108 | 0 | done | `crates/pi-coding-agent/src/supervisor/project_resolver.rs` | Root/remote/basename resolution, config validation, `git remote -v` names; differential `27011`. |
 | `coding-agent/src/supervisor/request-wake.ts` | 149 | 0 | done | `crates/pi-coding-agent/src/supervisor/request_wake.rs` | Wake socket with stale recovery, generation watch, waiter cancellation; real-socket tests. |
 | `coding-agent/src/utils/abort.ts` | 48 | 0 | done | `crates/pi-coding-agent/src/utils/abort.rs` | Focused tests; no custom abort reasons |
@@ -434,23 +434,23 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/detached-job-bootstrap.ts` | 113 | 1 | done | `crates/pi-coding-agent/src/core/detached_job_bootstrap.rs` | Gated payload with persisted identity; `setsid(1)`+sh replaces `detached:true`+fd 3 (approved deviation). |
 | `coding-agent/src/core/exec.ts` | 107 | 1 | done | `crates/pi-coding-agent/src/core/exec.rs` | Shell-free exec with timeout/abort termination and killed-by-signal code 0; behavioral process tests. |
 | `coding-agent/src/core/permissions/presets.ts` | 62 | 1 | done | `crates/pi-coding-agent/src/core/permissions/presets.rs` | Presets, sandbox profiles, policy↔preset mapping; differential `27003`. |
-| `coding-agent/src/core/tools/output-accumulator.ts` | 224 | 1 | todo |  |  |
+| `coding-agent/src/core/tools/output-accumulator.ts` | 224 | 1 | done | `crates/pi-coding-agent/src/core/tools/output_accumulator.rs` | differential 139 cases (incl. TextDecoder semantics) |
 | `coding-agent/src/utils/clipboard-image.ts` | 300 | 1 | done | `crates/pi-coding-agent/src/utils/clipboard_image.rs` | Fake-tool PATH scenarios assert exact argv; native clipboard injected; no differential (process/OS module) |
 | `coding-agent/src/utils/exif-orientation.ts` | 183 | 1 | done | `crates/pi-coding-agent/src/utils/exif_orientation.rs` | Differential 27100 (25 fixtures, orientations 1-8 LE/BE JPEG + WebP); matches upstream 098356ef6 bounds fix |
 | `coding-agent/src/utils/git-project.ts` | 13 | 1 | done | `crates/pi-coding-agent/src/utils/git_project.rs` | Real git repository tests |
 | `coding-agent/src/utils/paths.ts` | 139 | 1 | done | `crates/pi-coding-agent/src/utils/paths.rs` | Differential 26009 (76 cases); focused tests |
-| `coding-agent/src/utils/syntax-highlight.ts` | 146 | 1 | todo |  |  |
+| `coding-agent/src/utils/syntax-highlight.ts` | 146 | 1 | partial | `crates/pi-coding-agent/src/utils/syntax_highlight/` | render + engine done; 7 grammars verified, others gaps |
 | `coding-agent/src/utils/version-check.ts` | 109 | 1 | done | `crates/pi-coding-agent/src/utils/version_check.rs` | Differential 676 semver pairs + 676 newer checks + error fixtures; injected-Fetch release tests |
 | `coding-agent/src/config.ts` | 595 | 2 | done | `crates/pi-coding-agent/src/config.rs` | Compiled-binary runtime mapping (PI_PACKAGE_DIR/exe dir); install branches via injected context; differential config oracle (4 path + 13 install scenarios) |
 | `coding-agent/src/core/model-config.ts` | 298 | 2 | done | `crates/pi-coding-agent/src/core/model_config.rs` | TypeBox-equivalent schema via the shared validation engine; differential 21 fixtures (provider maps + exact error text) |
-| `coding-agent/src/core/tools/path-utils.ts` | 118 | 2 | todo |  |  |
+| `coding-agent/src/core/tools/path-utils.ts` | 118 | 2 | done | `crates/pi-coding-agent/src/core/tools/path_utils.rs` | all TS tests ported + differential; NFD via `pi_agent_core::unicode` |
 | `coding-agent/src/utils/clipboard.ts` | 175 | 2 | done | `crates/pi-coding-agent/src/utils/clipboard.rs` | Fake-tool PATH scenarios plus captured OSC 52 output; no differential (process/OS module) |
 | `coding-agent/src/utils/image-convert.ts` | 49 | 2 | done | `crates/pi-coding-agent/src/utils/image_convert.rs` | Differential 27101/27102; synchronous (no loadPhoton) |
 | `coding-agent/src/utils/image-resize-core.ts` | 164 | 2 | done | `crates/pi-coding-agent/src/utils/image_resize_core.rs` | Differential 27103 (15 fixtures: limits, quality steps, degenerate targets) |
 | `coding-agent/src/utils/windows-self-update.ts` | 84 | 2 | done | `crates/pi-coding-agent/src/utils/windows_self_update.rs` | Injected shared-object list; 6 behavioral cases (layout, dedupe, move/copy-back, cleanup) |
 | `coding-agent/src/core/auth-guidance.ts` | 25 | 3 | done | `crates/pi-coding-agent/src/core/auth_guidance.rs` | Differential oracle for all four messages |
 | `coding-agent/src/core/permissions/rule-store.ts` | 303 | 3 | done | `crates/pi-coding-agent/src/core/rule_store.rs` | In-place settings splice; differential 5 content + 30 write + 9 store steps |
-| `coding-agent/src/core/tools/edit-diff.ts` | 645 | 3 | todo |  |  |
+| `coding-agent/src/core/tools/edit-diff.ts` | 645 | 3 | done | `crates/pi-coding-agent/src/core/tools/edit_diff.rs` | Shared agent-core helpers + shared `jsdiff`; differential ~790 cases |
 | `coding-agent/src/core/trust-manager.ts` | 254 | 3 | done | `crates/pi-coding-agent/src/core/trust_manager.rs` | trust.json bytes and 12-step sequence match; shared proper-lockfile protocol |
 | `coding-agent/src/utils/changelog.ts` | 201 | 3 | done | `crates/pi-coding-agent/src/utils/changelog.rs` | Differential 24 link cases, parse, 3 comparisons, 4 new-entry queries |
 | `coding-agent/src/utils/image-resize-worker.ts` | 42 | 3 | done | `crates/pi-coding-agent/src/utils/image_resize.rs` | Worker entrypoint maps to the spawn_blocking closure; no message protocol (gap) |

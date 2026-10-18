@@ -105,3 +105,23 @@ fn accepts_only_a_nonempty_double_lf_message_suffix() {
         );
     }
 }
+
+#[test]
+fn parses_a_skill_block_with_trailing_user_message() {
+    let parsed = parse_skill_block(
+        "<skill name=\"verify\" location=\"/tmp/SKILL.md\">\nCheck the output\n</skill>\n\nRun the proof",
+    )
+    .expect("skill block with a trailing message should parse");
+    assert_block(
+        parsed,
+        "verify",
+        "/tmp/SKILL.md",
+        "Check the output",
+        Some("Run the proof"),
+    );
+}
+
+#[test]
+fn returns_none_for_normal_message_text() {
+    assert!(parse_skill_block("Run the proof").is_none());
+}

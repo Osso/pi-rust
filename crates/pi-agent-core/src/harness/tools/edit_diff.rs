@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 
-use unicode_normalization::UnicodeNormalization;
+use crate::jsdiff::{self, Part};
+use crate::unicode::normalize_nfkc;
 
 /// The line-ending style selected by the source helper.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +44,14 @@ pub struct Edit {
     pub new_text: String,
 }
 
+/// A replacement expressed in byte offsets of the base content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextReplacement {
+    pub match_index: usize,
+    pub match_length: usize,
+    pub new_text: String,
+}
+
 /// A direct-module result record from edit application.
 #[derive(Debug)]
 pub struct AppliedEditsResult {
@@ -58,7 +66,8 @@ pub struct EditError {
 }
 
 impl EditError {
-    fn new(message: impl Into<String>) -> Self {
+    /// Creates an edit failure with the source message text.
+    pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
         }
@@ -125,15 +134,36 @@ pub fn strip_bom(content: &str) -> StripBomResult {
 
 /// Normalizes text for fuzzy matching: NFKC, trailing whitespace, quotes, dashes, and spaces.
 pub fn normalize_for_fuzzy_match(text: &str) -> String {
-    let normalized = text.nfkc().collect::<String>();
+    let normalized = normalize_nfkc(text);
     normalized
         .split('\n')
-        .map(str::trim_end)
+        .map(trim_end_javascript)
         .collect::<Vec<_>>()
         .join("\n")
         .chars()
         .map(normalize_fuzzy_character)
         .collect()
+}
+
+fn is_javascript_trim_character(character: char) -> bool {
+    matches!(
+        character,
+        '\u{0009}'..='\u{000D}'
+            | '\u{0020}'
+            | '\u{00A0}'
+            | '\u{1680}'
+            | '\u{2000}'..='\u{200A}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{202F}'
+            | '\u{205F}'
+            | '\u{3000}'
+            | '\u{FEFF}'
+    )
+}
+
+fn trim_end_javascript(value: &str) -> &str {
+    value.trim_end_matches(is_javascript_trim_character)
 }
 
 fn normalize_fuzzy_character(character: char) -> char {
@@ -225,10 +255,14 @@ pub fn apply_edits_to_normalized_content(
     };
 
     let matched_edits = match_edits(&normalized_edits, &replacement_base_content, path)?;
+    let replacements = matched_edits
+        .iter()
+        .map(|matched| matched.replacement.clone())
+        .collect::<Vec<_>>();
     let new_content = if used_fuzzy_match {
-        apply_replacements_preserving_unchanged_lines(normalized_content, &replacement_base_content, &matched_edits)?
+        apply_replacements_preserving_unchanged_lines(normalized_content, &replacement_base_content, &replacements)?
     } else {
-        apply_replacements(&replacement_base_content, &matched_edits, 0)
+        apply_replacements(&replacement_base_content, &replacements, 0)
     };
 
     if normalized_content == new_content {
@@ -262,9 +296,7 @@ fn ensure_nonempty_edits(edits: &[Edit], path: &str) -> Result<(), EditError> {
 #[derive(Clone)]
 struct MatchedEdit {
     edit_index: usize,
-    match_index: usize,
-    match_length: usize,
-    new_text: String,
+    replacement: TextReplacement,
 }
 
 fn match_edits(edits: &[Edit], replacement_base_content: &str, path: &str) -> Result<Vec<MatchedEdit>, EditError> {
@@ -279,17 +311,19 @@ fn match_edits(edits: &[Edit], replacement_base_content: &str, path: &str) -> Re
         }
         matched.push(MatchedEdit {
             edit_index: index,
-            match_index: found.byte_index,
-            match_length: found.byte_length,
-            new_text: edit.new_text.clone(),
+            replacement: TextReplacement {
+                match_index: found.byte_index,
+                match_length: found.byte_length,
+                new_text: edit.new_text.clone(),
+            },
         });
     }
 
-    matched.sort_by_key(|edit| edit.match_index);
+    matched.sort_by_key(|edit| edit.replacement.match_index);
     for pair in matched.windows(2) {
         let previous = &pair[0];
         let current = &pair[1];
-        if previous.match_index + previous.match_length > current.match_index {
+        if previous.replacement.match_index + previous.replacement.match_length > current.replacement.match_index {
             return Err(EditError::new(format!(
                 "edits[{}] and edits[{}] overlap in {path}. Merge them into one edit or target disjoint regions.",
                 previous.edit_index, current.edit_index
@@ -299,7 +333,7 @@ fn match_edits(edits: &[Edit], replacement_base_content: &str, path: &str) -> Re
     Ok(matched)
 }
 
-fn empty_old_text_error(path: &str, edit_index: usize, total_edits: usize) -> EditError {
+pub fn empty_old_text_error(path: &str, edit_index: usize, total_edits: usize) -> EditError {
     if total_edits == 1 {
         EditError::new(format!("oldText must not be empty in {path}."))
     } else {
@@ -307,7 +341,7 @@ fn empty_old_text_error(path: &str, edit_index: usize, total_edits: usize) -> Ed
     }
 }
 
-fn not_found_error(path: &str, edit_index: usize, total_edits: usize) -> EditError {
+pub fn not_found_error(path: &str, edit_index: usize, total_edits: usize) -> EditError {
     if total_edits == 1 {
         EditError::new(format!(
             "Could not find the exact text in {path}. The old text must match exactly including all whitespace and newlines."
@@ -331,7 +365,7 @@ fn duplicate_error(path: &str, edit_index: usize, total_edits: usize, occurrence
     }
 }
 
-fn no_change_error(path: &str, total_edits: usize) -> EditError {
+pub fn no_change_error(path: &str, total_edits: usize) -> EditError {
     if total_edits == 1 {
         EditError::new(format!(
             "No changes made to {path}. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected."
@@ -378,7 +412,7 @@ fn get_line_spans(content: &str) -> Vec<LineSpan> {
         .collect()
 }
 
-fn get_replacement_line_range(lines: &[LineSpan], replacement: &MatchedEdit) -> Result<(usize, usize), EditError> {
+fn get_replacement_line_range(lines: &[LineSpan], replacement: &TextReplacement) -> Result<(usize, usize), EditError> {
     let replacement_start = replacement.match_index;
     let replacement_end = replacement.match_index + replacement.match_length;
 
@@ -397,7 +431,7 @@ fn get_replacement_line_range(lines: &[LineSpan], replacement: &MatchedEdit) -> 
     Ok((start_line, end_line + 1))
 }
 
-fn apply_replacements(content: &str, replacements: &[MatchedEdit], offset: usize) -> String {
+pub fn apply_replacements(content: &str, replacements: &[TextReplacement], offset: usize) -> String {
     let mut result = content.to_owned();
     for replacement in replacements.iter().rev() {
         let start = replacement.match_index - offset;
@@ -408,10 +442,10 @@ fn apply_replacements(content: &str, replacements: &[MatchedEdit], offset: usize
 
 /// Applies replacements matched against `base_content` to `original_content`, preserving
 /// unchanged line blocks from the original.
-fn apply_replacements_preserving_unchanged_lines(
+pub fn apply_replacements_preserving_unchanged_lines(
     original_content: &str,
     base_content: &str,
-    replacements: &[MatchedEdit],
+    replacements: &[TextReplacement],
 ) -> Result<String, EditError> {
     let original_lines = split_lines_with_endings(original_content);
     let base_lines = get_line_spans(base_content);
@@ -432,12 +466,12 @@ fn apply_replacements_preserving_unchanged_lines(
 struct ReplacementGroup {
     start_line: usize,
     end_line: usize,
-    replacements: Vec<MatchedEdit>,
+    replacements: Vec<TextReplacement>,
 }
 
 fn group_replacements(
     base_lines: &[LineSpan],
-    replacements: &[MatchedEdit],
+    replacements: &[TextReplacement],
 ) -> Result<Vec<ReplacementGroup>, EditError> {
     let mut groups: Vec<ReplacementGroup> = Vec::new();
     let mut sorted = replacements.to_vec();
@@ -484,175 +518,12 @@ fn render_preserved_groups(
 
 /// Generates a standard unified patch with file headers only.
 pub fn generate_unified_patch(path: &str, old_content: &str, new_content: &str, context_lines: usize) -> String {
-    let hunks = structured_patch(old_content, new_content, context_lines);
-    let mut output = vec![format!("--- {path}"), format!("+++ {path}")];
-    for hunk in hunks {
-        let old_start = if hunk.old_lines == 0 {
-            hunk.old_start - 1
-        } else {
-            hunk.old_start
-        };
-        let new_start = if hunk.new_lines == 0 {
-            hunk.new_start - 1
-        } else {
-            hunk.new_start
-        };
-        output.push(format!(
-            "@@ -{},{} +{},{} @@",
-            old_start, hunk.old_lines, new_start, hunk.new_lines
-        ));
-        output.extend(hunk.lines);
-    }
-    format!("{}\n", output.join("\n"))
-}
-
-struct Hunk {
-    old_start: i64,
-    old_lines: usize,
-    new_start: i64,
-    new_lines: usize,
-    lines: Vec<String>,
-}
-
-struct PatchChange {
-    added: bool,
-    removed: bool,
-    lines: Vec<String>,
-}
-
-fn structured_patch(old_content: &str, new_content: &str, context: usize) -> Vec<Hunk> {
-    let mut diff = diff_lines(old_content, new_content)
-        .into_iter()
-        .map(|change| PatchChange {
-            lines: split_lines_for_patch(&change.value),
-            added: change.added,
-            removed: change.removed,
-        })
-        .collect::<Vec<_>>();
-    diff.push(PatchChange {
-        added: false,
-        removed: false,
-        lines: Vec::new(),
-    });
-
-    let mut builder = PatchBuilder {
-        old_line: 1,
-        new_line: 1,
-        ..PatchBuilder::default()
-    };
-    for index in 0..diff.len() {
-        let current = &diff[index];
-        if current.added || current.removed {
-            builder.add_change(&diff, index, current, context);
-        } else {
-            builder.add_context(&diff, index, current, context);
-        }
-    }
-    finalize_hunk_lines(&mut builder.hunks);
-    builder.hunks
-}
-
-fn finalize_hunk_lines(hunks: &mut [Hunk]) {
-    for hunk in hunks {
-        let mut index = 0;
-        while index < hunk.lines.len() {
-            if hunk.lines[index].ends_with('\n') {
-                hunk.lines[index].pop();
-            } else {
-                hunk.lines.insert(index + 1, "\\ No newline at end of file".to_owned());
-                index += 1;
-            }
-            index += 1;
-        }
-    }
-}
-
-#[derive(Default)]
-struct PatchBuilder {
-    hunks: Vec<Hunk>,
-    old_range_start: Option<(i64, i64)>,
-    current_range: Vec<String>,
-    old_line: i64,
-    new_line: i64,
-}
-
-impl PatchBuilder {
-    fn add_change(&mut self, diff: &[PatchChange], index: usize, current: &PatchChange, context: usize) {
-        if self.old_range_start.is_none() {
-            self.start_range(diff, index, context);
-        }
-        let marker = if current.added { '+' } else { '-' };
-        for line in &current.lines {
-            self.current_range.push(format!("{marker}{line}"));
-        }
-        if current.added {
-            self.new_line += current.lines.len() as i64;
-        } else {
-            self.old_line += current.lines.len() as i64;
-        }
-    }
-
-    fn start_range(&mut self, diff: &[PatchChange], index: usize, context: usize) {
-        let mut old_start = self.old_line;
-        let mut new_start = self.new_line;
-        if index > 0 {
-            let previous = &diff[index - 1];
-            if context > 0 {
-                let first = previous.lines.len().saturating_sub(context);
-                self.current_range = previous.lines[first..].iter().map(|line| format!(" {line}")).collect();
-            }
-            let skipped = self.current_range.len() as i64;
-            old_start -= skipped;
-            new_start -= skipped;
-        }
-        self.old_range_start = Some((old_start, new_start));
-    }
-
-    fn add_context(&mut self, diff: &[PatchChange], index: usize, current: &PatchChange, context: usize) {
-        if let Some((old_start, new_start)) = self.old_range_start {
-            let overlaps = current.lines.len() <= context * 2 && index < diff.len() - 2;
-            if overlaps {
-                self.push_context_lines(&current.lines);
-            } else {
-                self.close_hunk(old_start, new_start, current, context);
-            }
-        }
-        self.old_line += current.lines.len() as i64;
-        self.new_line += current.lines.len() as i64;
-    }
-
-    fn close_hunk(&mut self, old_start: i64, new_start: i64, current: &PatchChange, context: usize) {
-        let context_size = current.lines.len().min(context);
-        self.push_context_lines(&current.lines[..context_size]);
-        self.hunks.push(Hunk {
-            old_start,
-            old_lines: (self.old_line - old_start + context_size as i64) as usize,
-            new_start,
-            new_lines: (self.new_line - new_start + context_size as i64) as usize,
-            lines: std::mem::take(&mut self.current_range),
-        });
-        self.old_range_start = None;
-    }
-
-    fn push_context_lines(&mut self, lines: &[String]) {
-        self.current_range.extend(lines.iter().map(|line| format!(" {line}")));
-    }
-}
-
-fn split_lines_for_patch(text: &str) -> Vec<String> {
-    let has_trailing_newline = text.ends_with('\n');
-    let mut result = text.split('\n').map(|line| format!("{line}\n")).collect::<Vec<_>>();
-    if has_trailing_newline {
-        result.pop();
-    } else if let Some(last) = result.pop() {
-        result.push(last.trim_end_matches('\n').to_owned());
-    }
-    result
+    jsdiff::create_two_files_patch(path, old_content, new_content, context_lines)
 }
 
 /// Generates a display-oriented diff string with line numbers and context.
 pub fn generate_diff_string(old_content: &str, new_content: &str, context_lines: usize) -> DiffStringResult {
-    let parts = diff_lines(old_content, new_content);
+    let parts = jsdiff::diff_lines(old_content, new_content);
     let old_lines = old_content.split('\n').collect::<Vec<_>>();
     let new_lines = new_content.split('\n').collect::<Vec<_>>();
     let line_num_width = old_lines.len().max(new_lines.len()).to_string().len();
@@ -691,7 +562,7 @@ struct DiffRenderer {
 }
 
 impl DiffRenderer {
-    fn push_change(&mut self, part: &Change) {
+    fn push_change(&mut self, part: &Part) {
         self.first_changed_line.get_or_insert(self.new_line_num);
         for line in split_part_lines(&part.value) {
             if part.added {
@@ -712,13 +583,7 @@ impl DiffRenderer {
         }
     }
 
-    fn push_context(
-        &mut self,
-        part: &Change,
-        context_lines: usize,
-        has_leading_change: bool,
-        has_trailing_change: bool,
-    ) {
+    fn push_context(&mut self, part: &Part, context_lines: usize, has_leading_change: bool, has_trailing_change: bool) {
         let raw = split_part_lines(&part.value);
         if has_leading_change && has_trailing_change {
             self.push_surrounded_context(&raw, context_lines);
@@ -788,302 +653,4 @@ fn split_part_lines(value: &str) -> Vec<&str> {
         raw.pop();
     }
     raw
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Change {
-    value: String,
-    added: bool,
-    removed: bool,
-}
-
-fn diff_lines(old_content: &str, new_content: &str) -> Vec<Change> {
-    let old_tokens = tokenize_lines(old_content);
-    let new_tokens = tokenize_lines(new_content);
-    diff_tokens(&old_tokens, &new_tokens)
-}
-
-fn tokenize_lines(value: &str) -> Vec<String> {
-    let characters = value.chars().collect::<Vec<_>>();
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut index = 0;
-    while index < characters.len() {
-        let character = characters[index];
-        if character == '\r' && characters.get(index + 1) == Some(&'\n') {
-            current.push_str("\r\n");
-            tokens.push(std::mem::take(&mut current));
-            index += 2;
-        } else if character == '\n' {
-            current.push('\n');
-            tokens.push(std::mem::take(&mut current));
-            index += 1;
-        } else {
-            current.push(character);
-            index += 1;
-        }
-    }
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-    tokens
-}
-
-#[derive(Debug, Clone)]
-struct Component {
-    count: usize,
-    added: bool,
-    removed: bool,
-    previous: Option<usize>,
-}
-
-#[derive(Debug, Clone)]
-struct PathState {
-    old_pos: i64,
-    last_component: Option<usize>,
-}
-
-fn diff_tokens(old_tokens: &[String], new_tokens: &[String]) -> Vec<Change> {
-    let old_len = old_tokens.len() as i64;
-    let new_len = new_tokens.len() as i64;
-    let mut components = Vec::new();
-    let mut best: HashMap<i64, PathState> = HashMap::new();
-    best.insert(
-        0,
-        PathState {
-            old_pos: -1,
-            last_component: None,
-        },
-    );
-
-    let new_pos = extract_common(
-        best.get_mut(&0).expect("initial path"),
-        new_tokens,
-        old_tokens,
-        0,
-        &mut components,
-    );
-    if best[&0].old_pos + 1 >= old_len && new_pos + 1 >= new_len {
-        return build_values(best[&0].last_component, &components, new_tokens, old_tokens);
-    }
-    search_edit_path(&mut best, old_tokens, new_tokens, &mut components)
-}
-
-fn search_edit_path(
-    best: &mut HashMap<i64, PathState>,
-    old_tokens: &[String],
-    new_tokens: &[String],
-    components: &mut Vec<Component>,
-) -> Vec<Change> {
-    let max_edit_length = old_tokens.len() as i64 + new_tokens.len() as i64;
-    let mut min_diagonal = i64::MIN / 4;
-    let mut max_diagonal = i64::MAX / 4;
-    let mut edit_length = 1i64;
-    while edit_length <= max_edit_length {
-        let mut diagonal = min_diagonal.max(-edit_length);
-        while diagonal <= max_diagonal.min(edit_length) {
-            let outcome = advance_diagonal(best, diagonal, old_tokens, new_tokens, components);
-            if let DiagonalOutcome::Finished(changes) = outcome {
-                return changes;
-            }
-            narrow_diagonal_bounds(outcome, diagonal, &mut min_diagonal, &mut max_diagonal);
-            diagonal += 2;
-        }
-        edit_length += 1;
-    }
-    Vec::new()
-}
-
-fn narrow_diagonal_bounds(outcome: DiagonalOutcome, diagonal: i64, min_diagonal: &mut i64, max_diagonal: &mut i64) {
-    if let DiagonalOutcome::Continue {
-        reached_old_end,
-        reached_new_end,
-    } = outcome
-    {
-        if reached_old_end {
-            *max_diagonal = (*max_diagonal).min(diagonal - 1);
-        }
-        if reached_new_end {
-            *min_diagonal = (*min_diagonal).max(diagonal + 1);
-        }
-    }
-}
-
-enum DiagonalOutcome {
-    Pruned,
-    Finished(Vec<Change>),
-    Continue {
-        reached_old_end: bool,
-        reached_new_end: bool,
-    },
-}
-
-fn advance_diagonal(
-    best: &mut HashMap<i64, PathState>,
-    diagonal: i64,
-    old_tokens: &[String],
-    new_tokens: &[String],
-    components: &mut Vec<Component>,
-) -> DiagonalOutcome {
-    let old_len = old_tokens.len() as i64;
-    let new_len = new_tokens.len() as i64;
-    let Some(mut base) = choose_base_path(best, diagonal, old_len, new_len, components) else {
-        return DiagonalOutcome::Pruned;
-    };
-    let new_pos = extract_common(&mut base, new_tokens, old_tokens, diagonal, components);
-    if base.old_pos + 1 >= old_len && new_pos + 1 >= new_len {
-        return DiagonalOutcome::Finished(build_values(base.last_component, components, new_tokens, old_tokens));
-    }
-    let reached_old_end = base.old_pos + 1 >= old_len;
-    let reached_new_end = new_pos + 1 >= new_len;
-    best.insert(diagonal, base);
-    DiagonalOutcome::Continue {
-        reached_old_end,
-        reached_new_end,
-    }
-}
-
-fn choose_base_path(
-    best: &mut HashMap<i64, PathState>,
-    diagonal: i64,
-    old_len: i64,
-    new_len: i64,
-    components: &mut Vec<Component>,
-) -> Option<PathState> {
-    let remove_path = best.get(&(diagonal - 1)).cloned();
-    let add_path = best.get(&(diagonal + 1)).cloned();
-    if remove_path.is_some() {
-        best.remove(&(diagonal - 1));
-    }
-    let can_add = can_add_path(add_path.as_ref(), diagonal, new_len);
-    let can_remove = can_remove_path(remove_path.as_ref(), old_len);
-    if !can_add && !can_remove {
-        best.remove(&diagonal);
-        return None;
-    }
-
-    let base = if should_use_add(remove_path.as_ref(), add_path.as_ref()) {
-        add_to_path(add_path.as_ref().expect("add path"), true, false, 0, components)
-    } else {
-        add_to_path(remove_path.as_ref().expect("remove path"), false, true, 1, components)
-    };
-    Some(base)
-}
-
-fn can_add_path(add_path: Option<&PathState>, diagonal: i64, new_len: i64) -> bool {
-    add_path.is_some_and(|path| {
-        let add_new_pos = path.old_pos - diagonal;
-        (0..new_len).contains(&add_new_pos)
-    })
-}
-
-fn can_remove_path(remove_path: Option<&PathState>, old_len: i64) -> bool {
-    remove_path.is_some_and(|path| path.old_pos + 1 < old_len)
-}
-
-fn should_use_add(remove_path: Option<&PathState>, add_path: Option<&PathState>) -> bool {
-    match (remove_path, add_path) {
-        (None, Some(_)) => true,
-        (Some(remove), Some(add)) => remove.old_pos < add.old_pos,
-        _ => false,
-    }
-}
-
-fn add_to_path(
-    path: &PathState,
-    added: bool,
-    removed: bool,
-    old_pos_increment: i64,
-    components: &mut Vec<Component>,
-) -> PathState {
-    let merged = path.last_component.is_some_and(|index| {
-        let last = &components[index];
-        last.added == added && last.removed == removed
-    });
-    let (count, previous) = match path.last_component {
-        Some(index) if merged => (components[index].count + 1, components[index].previous),
-        _ => (1, path.last_component),
-    };
-    components.push(Component {
-        count,
-        added,
-        removed,
-        previous,
-    });
-    PathState {
-        old_pos: path.old_pos + old_pos_increment,
-        last_component: Some(components.len() - 1),
-    }
-}
-
-fn extract_common(
-    path: &mut PathState,
-    new_tokens: &[String],
-    old_tokens: &[String],
-    diagonal: i64,
-    components: &mut Vec<Component>,
-) -> i64 {
-    let new_len = new_tokens.len() as i64;
-    let old_len = old_tokens.len() as i64;
-    let mut old_pos = path.old_pos;
-    let mut new_pos = old_pos - diagonal;
-    let mut common = 0;
-    while new_pos + 1 < new_len
-        && old_pos + 1 < old_len
-        && old_tokens[(old_pos + 1) as usize] == new_tokens[(new_pos + 1) as usize]
-    {
-        new_pos += 1;
-        old_pos += 1;
-        common += 1;
-    }
-    if common > 0 {
-        components.push(Component {
-            count: common as usize,
-            added: false,
-            removed: false,
-            previous: path.last_component,
-        });
-        path.last_component = Some(components.len() - 1);
-    }
-    path.old_pos = old_pos;
-    new_pos
-}
-
-fn build_values(
-    last_component: Option<usize>,
-    components: &[Component],
-    new_tokens: &[String],
-    old_tokens: &[String],
-) -> Vec<Change> {
-    let mut ordered = Vec::new();
-    let mut current = last_component;
-    while let Some(index) = current {
-        ordered.push(&components[index]);
-        current = components[index].previous;
-    }
-    ordered.reverse();
-
-    let mut changes = Vec::with_capacity(ordered.len());
-    let mut new_pos = 0;
-    let mut old_pos = 0;
-    for component in ordered {
-        let value = if component.removed {
-            let value = old_tokens[old_pos..old_pos + component.count].concat();
-            old_pos += component.count;
-            value
-        } else {
-            let value = new_tokens[new_pos..new_pos + component.count].concat();
-            new_pos += component.count;
-            if !component.added {
-                old_pos += component.count;
-            }
-            value
-        };
-        changes.push(Change {
-            value,
-            added: component.added,
-            removed: component.removed,
-        });
-    }
-    changes
 }

@@ -1,6 +1,5 @@
-use unicode_normalization::UnicodeNormalization;
-
 use crate::harness::types::{ExecutionEnv, FileError};
+use crate::unicode::normalize_nfd;
 use tokio_util::sync::CancellationToken;
 
 const NARROW_NO_BREAK_SPACE: char = '\u{202f}';
@@ -37,9 +36,9 @@ pub async fn resolve_read_tool_path(
     let mut variants = Vec::new();
     push_variant(&mut variants, resolved.clone());
     push_variant(&mut variants, replace_am_pm(&resolved));
-    push_variant(&mut variants, resolved.nfd().collect());
+    push_variant(&mut variants, normalize_nfd(&resolved));
     push_variant(&mut variants, replace_apostrophes(&resolved));
-    push_variant(&mut variants, replace_apostrophes(&resolved.nfd().collect::<String>()));
+    push_variant(&mut variants, replace_apostrophes(&normalize_nfd(&resolved)));
 
     for variant in variants {
         if env.exists(&variant, signal).await? {

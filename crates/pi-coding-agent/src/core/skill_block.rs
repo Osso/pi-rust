@@ -41,32 +41,11 @@ fn parse_user_message(trailing: &str) -> Option<Option<String>> {
         return None;
     }
 
-    let message = trim_javascript(suffix);
+    let message = crate::core::js_string::trim_javascript(suffix);
     Some((!message.is_empty()).then(|| message.to_owned()))
 }
 
 fn take_quoted_attribute(value: &str) -> Option<(&str, &str)> {
     let end = value.find('"')?;
     (end > 0).then(|| (&value[..end], &value[end + 1..]))
-}
-
-fn trim_javascript(value: &str) -> &str {
-    value.trim_matches(is_javascript_trim_character)
-}
-
-fn is_javascript_trim_character(character: char) -> bool {
-    matches!(
-        character,
-        '\u{0009}'..='\u{000D}'
-            | '\u{0020}'
-            | '\u{00A0}'
-            | '\u{1680}'
-            | '\u{2000}'..='\u{200A}'
-            | '\u{2028}'
-            | '\u{2029}'
-            | '\u{202F}'
-            | '\u{205F}'
-            | '\u{3000}'
-            | '\u{FEFF}'
-    )
 }
