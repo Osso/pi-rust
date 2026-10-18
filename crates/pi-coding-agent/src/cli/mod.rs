@@ -1,5 +1,6 @@
 pub mod args;
 mod auth_command;
+pub mod experimental;
 
 pub use auth_command::{
     AuthCommand, AuthCommandError, AuthCommandKind, get_auth_command_name, get_auth_command_usage,

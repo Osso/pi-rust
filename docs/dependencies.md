@@ -23,7 +23,10 @@ All direct dependencies are exact-pinned.
 - `image = 0.24.9` (exact, `default-features = false`, codec features mirroring photon-rs) — supplies the fallible `load_from_memory`/`DynamicImage::write_to` calls behind `utils::photon`, replacing photon-rs' panicking wrappers; pinned with the `png 0.17.14`, `jpeg-decoder 0.3.1`, `gif 0.13.1`, `tiff 0.9.1`, `flate2 1.0.34`, `miniz_oxide 0.8.0`, `fdeflate 0.3.6`, `weezl 0.1.8` versions embedded in that WASM build (see `docs/porting/traceability/photon.md`).
 - `clipboard-rs = 0.3.4` (exact) — the release vendored by `@mariozechner/clipboard` 0.3.9, providing the native X11/Wayland/macOS/Windows clipboard behind `utils::clipboard_native`.
 - `httpdate = 1.0.3` — parses the remote catalog's `Last-Modified` header into the millisecond timestamp stored in `models-store.json` (Node `Date.parse`).
-- `rustix = 1.1.5` — supplies `fs::access(WRITE_OK)` for the install-path writability check (`fs.accessSync` parity) and `process::kill_process_group` for `utils::shell::kill_process_tree` (`process.kill(-pid)` parity); the crate is already pinned in the workspace by `pi-tui`.
+- `rustix = 1.1.5` (`fs`, `process`) — supplies `fs::access(WRITE_OK)` for the install-path writability check (`fs.accessSync` parity), `process::kill_process_group` for `utils::shell::kill_process_tree` (`process.kill(-pid)` parity), `SIGTERM`/`SIGKILL` for `core::exec` termination, and the `kill(pid, 0)` existence check in `core::runtime_process`; the crate is already pinned in the workspace by `pi-tui`.
+- `jiff = 0.2.38` (`std`, `tz-system`) — resolves the system UTC offset for offset-less timestamps in `utils::iso_time`, replacing V8's local-time `Date.parse` resolution.
+- `icu_collator = 2.3.1` (`compiled_data`) and `icu_locale_core = 2.3.0` — reproduce `String.prototype.localeCompare` ordering for `core::detached_job_retention` tie-breaks, using the host locale like Node's ICU collation.
+- `core::http_dispatcher` adds no dependency: it configures the shared `pi-ai` client through `pi_ai::http::fetch_with_options` (`http1_only`, `read_timeout`), keeping one HTTP stack.
 - `pi-ai` (path) — `utils::management_http` uses the shared `Fetch` contract and default reqwest client (one HTTP stack).
 - `tempfile = 3.27.0` (development) — creates isolated temporary files, symlinks, and git repositories for path and process tests.
 

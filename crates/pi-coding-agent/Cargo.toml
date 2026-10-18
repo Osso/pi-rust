@@ -43,10 +43,13 @@ image = { version = "=0.24.9", default-features = false, features = [
 ] }
 # The clipboard-rs release vendored by @mariozechner/clipboard 0.3.9.
 clipboard-rs = "=0.3.4"
-# Filesystem access checks (`W_OK`) and process-group signals, matching Node `fs.accessSync` / `process.kill(-pid)`.
+# Filesystem access checks (`W_OK`) and process signals, matching Node `fs.accessSync` / `process.kill`.
 rustix = { version = "=1.1.5", features = ["fs", "process"] }
 # Parses the catalog response `Last-Modified` header (Node `Date.parse`).
 httpdate = "=1.0.3"
+jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-system"] }
+icu_collator = { version = "=2.3.1", features = ["compiled_data"] }
+icu_locale_core = "=2.3.0"
 
 [dev-dependencies]
 tempfile = "=3.27.0"

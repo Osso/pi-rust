@@ -524,7 +524,7 @@ fn last_index_before(text: &str, needle: char, before: char) -> Option<usize> {
     text[..end].rfind(needle)
 }
 
-fn decode_uri_component(value: &str) -> Option<String> {
+pub(crate) fn decode_uri_component(value: &str) -> Option<String> {
     if !has_valid_percent_sequences(value) {
         return None;
     }
