@@ -2,7 +2,7 @@
 
 Source: `packages/ai/src/env-api-keys.ts`.
 Rust: `crates/pi-ai/src/env_api_keys.rs`.
-Tests: `crates/pi-ai/tests/env_api_keys.rs` (14 behavioral), `crates/pi-ai/tests/differential_env_api_keys.rs` (5 tests; 151 provider/env requests plus Vertex ADC and Bedrock ambient matrices vs pinned TS).
+Tests: `crates/pi-ai/tests/env_api_keys.rs` (14 behavioral), `crates/pi-ai/tests/differential_env_api_keys.rs` (5 tests; 167 provider/env requests plus Vertex ADC and Bedrock ambient matrices vs pinned TS).
 
 ## Representation
 - `findEnvKeys(provider, env?)` → `find_env_keys(provider, Option<&ProviderEnv>)`; testable form `find_env_keys_with(provider, env, process_env)`.
