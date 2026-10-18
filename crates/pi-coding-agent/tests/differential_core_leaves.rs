@@ -10,6 +10,9 @@ use pi_coding_agent::cli::experimental::command::{
     Command, CommandOption, CommandParseResult, NamedCommandInvocation, string_option, value_option,
 };
 use pi_coding_agent::cli::experimental::transport_address::parse_transport_address;
+use pi_coding_agent::core::http_dispatcher::{
+    HttpIdleTimeout, format_http_idle_timeout_ms, parse_http_idle_timeout_ms,
+};
 use pi_coding_agent::core::permissions::policy::{
     APPROVAL_POLICIES, ApprovalPolicyContext, evaluate_approval_policy, is_approval_policy, normalize_approval_policy,
 };
@@ -673,4 +676,72 @@ fn runtime_process_command_line_detection_matches_typescript() {
         })
         .collect();
     assert_eq!(json!(actual), expected);
+}
+
+#[test]
+fn http_dispatcher_parsing_and_formatting_match_typescript() {
+    let values = json!([
+        "disabled",
+        "DISABLED",
+        " disabled ",
+        "",
+        "   ",
+        "30000",
+        " 30000 ",
+        "1.9",
+        "-1",
+        "0",
+        "abc",
+        "1e3",
+        "0x10",
+        "0b101",
+        "0o17",
+        "Infinity",
+        "-Infinity",
+        "NaN",
+        "1.5e",
+        ".5",
+        "5.",
+        30000,
+        0,
+        1500.9,
+        -0.5,
+        2.5e-7
+    ]);
+    let timeouts = json!([0, 30_000, 60_000, 120_000, 300_000, 45_000, 1500, 1234, 999, 1_000_000]);
+    let mut oracle = Oracle::spawn();
+    let expected = oracle.call_raw(json!({
+        "module": "core/http-dispatcher.ts",
+        "operation": "httpDispatcher",
+        "cases": values,
+        "timeouts": timeouts,
+    }));
+
+    let parsed: Vec<Value> = values
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| {
+            let parsed = match value {
+                Value::String(text) => parse_http_idle_timeout_ms(HttpIdleTimeout::String(text)),
+                Value::Number(number) => parse_http_idle_timeout_ms(HttpIdleTimeout::Number(number.as_f64().unwrap())),
+                _ => None,
+            };
+            json!(parsed)
+        })
+        .collect();
+    let formatted: Vec<String> = timeouts
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| format_http_idle_timeout_ms(value.as_u64().unwrap()))
+        .collect();
+    assert_eq!(json!({"parsed": parsed, "formatted": formatted}), expected);
+
+    // Typed-representation boundary: JavaScript numbers above u64::MAX are not
+    // representable as a Rust millisecond duration, so they saturate.
+    assert_eq!(
+        parse_http_idle_timeout_ms(HttpIdleTimeout::Number(1e21)),
+        Some(u64::MAX)
+    );
 }

@@ -56,6 +56,13 @@ const handlers: Record<string, Handler> = {
 		}),
 	piManifest: (api, request) => cases(request).map((path) => api.readPiManifest(path)),
 	auth: (api, request) => cases(request).map((options) => api.parseAuthInput(options)),
+	httpDispatcher: (api, request) => ({
+		parsed: cases(request).map((value) => {
+			const parsed = api.parseHttpIdleTimeoutMs(value);
+			return parsed === undefined ? null : parsed;
+		}),
+		formatted: (request.timeouts as number[]).map((value) => api.formatHttpIdleTimeoutMs(value)),
+	}),
 	runtimeProcess: (api, request) =>
 		cases(request).map((value) => api.commandLineIsPiRuntime(value)),
 	transportAddress: (api, request) =>

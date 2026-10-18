@@ -1,3 +1,5 @@
+#![deny(clippy::print_stdout)]
+
 pub mod cli;
 pub mod core;
 pub mod modes;

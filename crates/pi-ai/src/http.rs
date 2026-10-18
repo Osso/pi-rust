@@ -1,6 +1,7 @@
 //! Default [`Fetch`] implementation (the `globalThis.fetch` stand-in) backed by `reqwest`.
 
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 
@@ -26,6 +27,28 @@ pub fn default_fetch() -> Arc<dyn Fetch> {
             client: reqwest::Client::new(),
         })
     }))
+}
+
+/// Options for a configured default client.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FetchClientOptions {
+    /// `allowH2: false` — HTTP/1.1 only.
+    pub http1_only: bool,
+    /// Per-read idle timeout (`bodyTimeout`/`headersTimeout`).
+    pub idle_timeout: Option<Duration>,
+}
+
+/// Build a [`Fetch`] from [`FetchClientOptions`] instead of the process-wide default.
+pub fn fetch_with_options(options: FetchClientOptions) -> Result<Arc<dyn Fetch>, String> {
+    let mut builder = reqwest::Client::builder();
+    if options.http1_only {
+        builder = builder.http1_only();
+    }
+    if let Some(idle_timeout) = options.idle_timeout {
+        builder = builder.read_timeout(idle_timeout);
+    }
+    let client = builder.build().map_err(|error| error.to_string())?;
+    Ok(Arc::new(ReqwestFetch { client }))
 }
 
 impl Fetch for ReqwestFetch {

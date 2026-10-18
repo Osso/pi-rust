@@ -379,15 +379,15 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/cli/experimental/auth.ts` | 21 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/auth.rs` | Token/file auth source parsing; differential `27007`. |
 | `coding-agent/src/cli/experimental/command.ts` | 205 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/command.rs` | Typed command/option/subcommand parser; differential `27010`. |
 | `coding-agent/src/cli/experimental/transport-address.ts` | 48 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/transport_address.rs` | Unix transport address validation; differential `27009`. |
-| `coding-agent/src/core/debug-repl.ts` | 292 | 0 | todo |  |  |
+| `coding-agent/src/core/debug-repl.ts` | 292 | 0 | gap | — | `node:vm` JS evaluation; no JS engine in the Rust port (user decision 2026-10-18). |
 | `coding-agent/src/core/desktop-notification.ts` | 116 | 0 | done | `crates/pi-coding-agent/src/core/desktop_notification.rs` | notify-send argv, deferred close, busctl close; fake-binary child probes. |
 | `coding-agent/src/core/detached-job-retention.ts` | 76 | 0 | todo |  |  |
 | `coding-agent/src/core/diagnostics.ts` | 15 | 0 | done | `crates/pi-coding-agent/src/core/diagnostics.rs` | `ResourceCollision`/`ResourceDiagnostic` wire records. |
 | `coding-agent/src/core/event-bus.ts` | 33 | 0 | done | `crates/pi-coding-agent/src/core/event_bus.rs` | Channel bus with subscriptions, clear, and failure isolation; handlers are typed `Fn(&Value) -> Result`. |
 | `coding-agent/src/core/experimental.ts` | 9 | 0 | done | `crates/pi-coding-agent/src/core/experimental.rs` | `PI_EXPERIMENTAL` gate + strict tool sampling config; child-process env probes. |
 | `coding-agent/src/core/export-html/ansi-to-html.ts` | 258 | 0 | todo |  |  |
-| `coding-agent/src/core/http-dispatcher.ts` | 111 | 0 | todo |  |  |
-| `coding-agent/src/core/output-guard.ts` | 126 | 0 | todo |  |  |
+| `coding-agent/src/core/http-dispatcher.ts` | 111 | 0 | done | `crates/pi-coding-agent/src/core/http_dispatcher.rs` | Timeout parse/format, proxy resolution, configured `Fetch` (returns instead of mutating a global); differential `27013`. `autoSelectFamilyAttemptTimeout` is a documented gap. |
+| `coding-agent/src/core/output-guard.ts` | 126 | 0 | done | `crates/pi-coding-agent/src/core/output_guard.rs` | Raw stdout writer, chunking, backpressure, takeover flag; stray stdout prevented by `deny(clippy::print_stdout)` (approved deviation). |
 | `coding-agent/src/core/permissions/policy.ts` | 33 | 0 | done | `crates/pi-coding-agent/src/core/permissions/policy.rs` | Policy parse/normalize/evaluate; differential `27001`/`27002`. |
 | `coding-agent/src/core/pi-manifest.ts` | 34 | 0 | done | `crates/pi-coding-agent/src/core/pi_manifest.rs` | `package.json` `pi` manifest; differential `27006` over 16 fixtures. |
 | `coding-agent/src/core/provider-display-names.ts` | 34 | 0 | done | `crates/pi-coding-agent/src/core/provider_display_names.rs` | 32 built-in display names; differential `27004`. |

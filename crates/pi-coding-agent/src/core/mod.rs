@@ -6,6 +6,8 @@ pub mod diagnostics;
 pub mod event_bus;
 pub mod exec;
 pub mod experimental;
+pub mod http_dispatcher;
+pub mod output_guard;
 pub mod permissions;
 pub mod pi_manifest;
 pub mod provider_display_names;
