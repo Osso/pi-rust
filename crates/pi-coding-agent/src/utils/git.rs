@@ -46,53 +46,69 @@ pub fn parse_git_url(source: &str) -> Option<GitSource> {
     }
 
     let split = split_ref(url);
-
-    let mut hosted_candidates = Vec::new();
-    if let Some(reference) = &split.reference {
-        hosted_candidates.push(format!("{}#{reference}", split.repo));
+    if let Some(source) = parse_hosted_candidates(&split, url) {
+        return Some(source);
     }
-    hosted_candidates.push(url.to_owned());
-
-    for candidate in hosted_candidates {
-        if let Some(info) = hosted_git_info(&candidate) {
-            if split.reference.is_some() && info.project.contains('@') {
-                continue;
-            }
-            let repo = if needs_https_prefix(&split.repo) {
-                format!("https://{}", split.repo)
-            } else {
-                split.repo.clone()
-            };
-            return build_git_source(
-                repo,
-                info.domain,
-                format!("{}/{}", info.user.unwrap_or_else(|| "null".to_owned()), info.project),
-                info.committish.or_else(|| split.reference.clone()),
-            );
-        }
+    if let Some(source) = parse_https_candidates(&split, url) {
+        return Some(source);
     }
-
-    let mut https_candidates = Vec::new();
-    if let Some(reference) = &split.reference {
-        https_candidates.push(format!("https://{}#{reference}", split.repo));
-    }
-    https_candidates.push(format!("https://{url}"));
-
-    for candidate in https_candidates {
-        if let Some(info) = hosted_git_info(&candidate) {
-            if split.reference.is_some() && info.project.contains('@') {
-                continue;
-            }
-            return build_git_source(
-                format!("https://{}", split.repo),
-                info.domain,
-                format!("{}/{}", info.user.unwrap_or_else(|| "null".to_owned()), info.project),
-                info.committish.or_else(|| split.reference.clone()),
-            );
-        }
-    }
-
     parse_generic_git_url(url)
+}
+
+fn parse_hosted_candidates(split: &SplitRef, url: &str) -> Option<GitSource> {
+    for candidate in reference_candidates(split, url) {
+        let Some(info) = hosted_git_info(&candidate) else {
+            continue;
+        };
+        if split.reference.is_some() && info.project.contains('@') {
+            continue;
+        }
+        let repo = if needs_https_prefix(&split.repo) {
+            format!("https://{}", split.repo)
+        } else {
+            split.repo.clone()
+        };
+        return build_from_hosted_info(repo, info, split);
+    }
+    None
+}
+
+fn parse_https_candidates(split: &SplitRef, url: &str) -> Option<GitSource> {
+    for candidate in https_candidates(split, url) {
+        let Some(info) = hosted_git_info(&candidate) else {
+            continue;
+        };
+        if split.reference.is_some() && info.project.contains('@') {
+            continue;
+        }
+        return build_from_hosted_info(format!("https://{}", split.repo), info, split);
+    }
+    None
+}
+
+fn reference_candidates(split: &SplitRef, url: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+    if let Some(reference) = &split.reference {
+        candidates.push(format!("{}#{reference}", split.repo));
+    }
+    candidates.push(url.to_owned());
+    candidates
+}
+
+fn https_candidates(split: &SplitRef, url: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+    if let Some(reference) = &split.reference {
+        candidates.push(format!("https://{}#{reference}", split.repo));
+    }
+    candidates.push(format!("https://{url}"));
+    candidates
+}
+
+fn build_from_hosted_info(repo: String, info: HostedGitInfo, split: &SplitRef) -> Option<GitSource> {
+    let user = info.user.unwrap_or_else(|| "null".to_owned());
+    let path = format!("{user}/{}", info.project);
+    let reference = info.committish.or_else(|| split.reference.clone());
+    build_git_source(repo, info.domain, path, reference)
 }
 
 fn has_explicit_protocol(url: &str) -> bool {
@@ -116,67 +132,73 @@ struct SplitRef {
 }
 
 fn split_ref(url: &str) -> SplitRef {
-    if let Some(rest) = url.strip_prefix("git@")
-        && let Some((host, path_with_maybe_ref)) = rest.split_once(':')
-        && !path_with_maybe_ref.is_empty()
-        && let Some(reference_separator) = path_with_maybe_ref.find('@')
-    {
-        let repo_path = &path_with_maybe_ref[..reference_separator];
-        let reference = &path_with_maybe_ref[reference_separator + 1..];
-        if !repo_path.is_empty() && !reference.is_empty() {
-            return SplitRef {
-                repo: format!("git@{host}:{repo_path}"),
-                reference: Some(reference.to_owned()),
-            };
-        }
+    if let Some(split) = split_scp_like_ref(url) {
+        return split;
     }
-
     if url.contains("://") {
-        if let Ok(mut parsed) = Url::parse(url) {
-            let path_with_maybe_ref = parsed.path().trim_start_matches('/').to_owned();
-            if let Some(reference_separator) = path_with_maybe_ref.find('@') {
-                let repo_path = &path_with_maybe_ref[..reference_separator];
-                let reference = &path_with_maybe_ref[reference_separator + 1..];
-                if !repo_path.is_empty() && !reference.is_empty() {
-                    parsed.set_path(&format!("/{repo_path}"));
-                    return SplitRef {
-                        repo: parsed.to_string().trim_end_matches('/').to_owned(),
-                        reference: Some(reference.to_owned()),
-                    };
-                }
-            }
-        }
-        return SplitRef {
-            repo: url.to_owned(),
-            reference: None,
-        };
+        return split_url_ref(url);
     }
+    split_host_path_ref(url)
+}
 
+fn split_scp_like_ref(url: &str) -> Option<SplitRef> {
+    let rest = url.strip_prefix("git@")?;
+    let (host, path_with_maybe_ref) = rest.split_once(':')?;
+    if path_with_maybe_ref.is_empty() {
+        return None;
+    }
+    let (repo_path, reference) = split_reference(path_with_maybe_ref)?;
+    Some(SplitRef {
+        repo: format!("git@{host}:{repo_path}"),
+        reference: Some(reference.to_owned()),
+    })
+}
+
+fn split_url_ref(url: &str) -> SplitRef {
+    let Ok(mut parsed) = Url::parse(url) else {
+        return unchanged_ref(url);
+    };
+    let path_with_maybe_ref = parsed.path().trim_start_matches('/').to_owned();
+    let Some((repo_path, reference)) = split_reference(&path_with_maybe_ref) else {
+        return unchanged_ref(url);
+    };
+
+    parsed.set_path(&format!("/{repo_path}"));
+    SplitRef {
+        repo: parsed.to_string().trim_end_matches('/').to_owned(),
+        reference: Some(reference.to_owned()),
+    }
+}
+
+fn split_host_path_ref(url: &str) -> SplitRef {
     let Some(slash_index) = url.find('/') else {
-        return SplitRef {
-            repo: url.to_owned(),
-            reference: None,
-        };
+        return unchanged_ref(url);
     };
     let host = &url[..slash_index];
     let path_with_maybe_ref = &url[slash_index + 1..];
-    let Some(reference_separator) = path_with_maybe_ref.find('@') else {
-        return SplitRef {
-            repo: url.to_owned(),
-            reference: None,
-        };
+    let Some((repo_path, reference)) = split_reference(path_with_maybe_ref) else {
+        return unchanged_ref(url);
     };
-    let repo_path = &path_with_maybe_ref[..reference_separator];
-    let reference = &path_with_maybe_ref[reference_separator + 1..];
-    if repo_path.is_empty() || reference.is_empty() {
-        return SplitRef {
-            repo: url.to_owned(),
-            reference: None,
-        };
-    }
     SplitRef {
         repo: format!("{host}/{repo_path}"),
         reference: Some(reference.to_owned()),
+    }
+}
+
+fn split_reference(path_with_maybe_ref: &str) -> Option<(&str, &str)> {
+    let separator = path_with_maybe_ref.find('@')?;
+    let repo_path = &path_with_maybe_ref[..separator];
+    let reference = &path_with_maybe_ref[separator + 1..];
+    if repo_path.is_empty() || reference.is_empty() {
+        return None;
+    }
+    Some((repo_path, reference))
+}
+
+fn unchanged_ref(url: &str) -> SplitRef {
+    SplitRef {
+        repo: url.to_owned(),
+        reference: None,
     }
 }
 
@@ -299,111 +321,103 @@ fn extract_shortcut(parsed: &Url) -> Option<(Option<String>, String, Option<Stri
     Some((user, project, committish))
 }
 
-fn extract_host(host: Host, parsed: &Url) -> Option<(Option<String>, String, Option<String>)> {
+type ExtractedSegments = (Option<String>, String, Option<String>);
+
+fn extract_host(host: Host, parsed: &Url) -> Option<ExtractedSegments> {
     let pathname = parsed.path();
     let hash = parsed.fragment().unwrap_or("");
-
     match host {
-        Host::Github => {
-            let segments = split_limited(pathname, 5);
-            let user = segments.get(1).copied().unwrap_or("");
-            let mut project = segments.get(2).copied().unwrap_or("");
-            let kind = segments.get(3).copied().filter(|value| !value.is_empty());
-            let mut committish = segments.get(4).copied().unwrap_or("");
-            if let Some(kind) = kind
-                && kind != "tree"
-            {
-                return None;
-            }
-            if kind.is_none() {
-                committish = hash;
-            }
-            project = project.strip_suffix(".git").unwrap_or(project);
-            if user.is_empty() || project.is_empty() {
-                return None;
-            }
-            Some((
-                Some(decode_uri_component(user)?),
-                decode_uri_component(project)?,
-                Some(decode_uri_component(committish)?),
-            ))
-        }
-        Host::Bitbucket => {
-            let segments = split_limited(pathname, 4);
-            let user = segments.get(1).copied().unwrap_or("");
-            let mut project = segments.get(2).copied().unwrap_or("");
-            if segments.get(3).copied() == Some("get") {
-                return None;
-            }
-            project = project.strip_suffix(".git").unwrap_or(project);
-            if user.is_empty() || project.is_empty() {
-                return None;
-            }
-            Some((
-                Some(decode_uri_component(user)?),
-                decode_uri_component(project)?,
-                Some(decode_uri_component(hash)?),
-            ))
-        }
-        Host::Gitlab => {
-            let path = pathname.strip_prefix('/').unwrap_or(pathname);
-            if path.contains("/-/") || path.contains("/archive.tar.gz") {
-                return None;
-            }
-            let mut segments = path.split('/').collect::<Vec<_>>();
-            let mut project = segments.pop()?;
-            project = project.strip_suffix(".git").unwrap_or(project);
-            let user = segments.join("/");
-            if user.is_empty() || project.is_empty() {
-                return None;
-            }
-            Some((
-                Some(decode_uri_component(&user)?),
-                decode_uri_component(project)?,
-                Some(decode_uri_component(hash)?),
-            ))
-        }
-        Host::Gist => {
-            let segments = split_limited(pathname, 4);
-            let mut user = segments.get(1).copied();
-            let mut project = segments.get(2).copied();
-            if segments.get(3).copied() == Some("raw") {
-                return None;
-            }
-            if project.is_none() {
-                let value = user?;
-                project = Some(value);
-                user = None;
-            }
-            let project = project?;
-            let project = project.strip_suffix(".git").unwrap_or(project);
-            Some((
-                match user {
-                    Some(value) => Some(decode_uri_component(value)?),
-                    None => None,
-                },
-                decode_uri_component(project)?,
-                Some(decode_uri_component(hash)?),
-            ))
-        }
-        Host::Sourcehut => {
-            let segments = split_limited(pathname, 4);
-            let user = segments.get(1).copied().unwrap_or("");
-            let mut project = segments.get(2).copied().unwrap_or("");
-            if segments.get(3).copied() == Some("archive") {
-                return None;
-            }
-            project = project.strip_suffix(".git").unwrap_or(project);
-            if user.is_empty() || project.is_empty() {
-                return None;
-            }
-            Some((
-                Some(decode_uri_component(user)?),
-                decode_uri_component(project)?,
-                Some(decode_uri_component(hash)?),
-            ))
-        }
+        Host::Github => extract_github(pathname, hash),
+        Host::Bitbucket => extract_bitbucket(pathname, hash),
+        Host::Gitlab => extract_gitlab(pathname, hash),
+        Host::Gist => extract_gist(pathname, hash),
+        Host::Sourcehut => extract_sourcehut(pathname, hash),
     }
+}
+
+fn extract_github(pathname: &str, hash: &str) -> Option<ExtractedSegments> {
+    let segments = split_limited(pathname, 5);
+    let user = segments.get(1).copied().unwrap_or("");
+    let project = segments.get(2).copied().unwrap_or("");
+    let kind = segments.get(3).copied().filter(|value| !value.is_empty());
+    if kind.is_some_and(|kind| kind != "tree") {
+        return None;
+    }
+    let committish = if kind.is_none() {
+        hash
+    } else {
+        segments.get(4).copied().unwrap_or("")
+    };
+    if user.is_empty() || project.is_empty() {
+        return None;
+    }
+    let project = project.strip_suffix(".git").unwrap_or(project);
+    decoded_segments(Some(user), project, committish)
+}
+
+fn extract_bitbucket(pathname: &str, hash: &str) -> Option<ExtractedSegments> {
+    extract_user_project(pathname, hash, "get")
+}
+
+fn extract_sourcehut(pathname: &str, hash: &str) -> Option<ExtractedSegments> {
+    extract_user_project(pathname, hash, "archive")
+}
+
+fn extract_user_project(pathname: &str, hash: &str, rejected_aux: &str) -> Option<ExtractedSegments> {
+    let segments = split_limited(pathname, 4);
+    let user = segments.get(1).copied().unwrap_or("");
+    let project = segments.get(2).copied().unwrap_or("");
+    if segments.get(3).copied() == Some(rejected_aux) {
+        return None;
+    }
+    if user.is_empty() || project.is_empty() {
+        return None;
+    }
+    let project = project.strip_suffix(".git").unwrap_or(project);
+    decoded_segments(Some(user), project, hash)
+}
+
+fn extract_gitlab(pathname: &str, hash: &str) -> Option<ExtractedSegments> {
+    let path = pathname.strip_prefix('/').unwrap_or(pathname);
+    if path.contains("/-/") || path.contains("/archive.tar.gz") {
+        return None;
+    }
+    let mut segments = path.split('/').collect::<Vec<_>>();
+    let project = segments.pop()?;
+    let user = segments.join("/");
+    if user.is_empty() || project.is_empty() {
+        return None;
+    }
+    let project = project.strip_suffix(".git").unwrap_or(project);
+    decoded_segments(Some(&user), project, hash)
+}
+
+fn extract_gist(pathname: &str, hash: &str) -> Option<ExtractedSegments> {
+    let segments = split_limited(pathname, 4);
+    let mut user = segments.get(1).copied();
+    let mut project = segments.get(2).copied();
+    if segments.get(3).copied() == Some("raw") {
+        return None;
+    }
+    if project.is_none() {
+        project = Some(user?);
+        user = None;
+    }
+    let project = project?;
+    let project = project.strip_suffix(".git").unwrap_or(project);
+    decoded_segments(user, project, hash)
+}
+
+fn decoded_segments(user: Option<&str>, project: &str, committish: &str) -> Option<ExtractedSegments> {
+    let user = match user {
+        Some(value) => Some(decode_uri_component(value)?),
+        None => None,
+    };
+    Some((
+        user,
+        decode_uri_component(project)?,
+        Some(decode_uri_component(committish)?),
+    ))
 }
 
 fn split_limited(pathname: &str, limit: usize) -> Vec<&str> {

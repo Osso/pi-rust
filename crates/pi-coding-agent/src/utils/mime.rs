@@ -97,12 +97,12 @@ fn read_uint16_le(buffer: &[u8], offset: usize) -> u16 {
 
 fn read_uint32_be(buffer: &[u8], offset: usize) -> u32 {
     let byte = |index: usize| u32::from(buffer.get(offset + index).copied().unwrap_or(0));
-    byte(0) * 0x0100_0000 + (byte(1) << 16) + (byte(2) << 8) + byte(3)
+    (byte(0) << 24) + (byte(1) << 16) + (byte(2) << 8) + byte(3)
 }
 
 fn read_uint32_le(buffer: &[u8], offset: usize) -> u32 {
     let byte = |index: usize| u32::from(buffer.get(offset + index).copied().unwrap_or(0));
-    byte(0) + (byte(1) << 8) + (byte(2) << 16) + byte(3) * 0x0100_0000
+    byte(0) + (byte(1) << 8) + (byte(2) << 16) + (byte(3) << 24)
 }
 
 fn starts_with(buffer: &[u8], bytes: &[u8]) -> bool {

@@ -47,75 +47,120 @@ pub fn spawn_process_sync(command: &str, args: &[&str], cwd: Option<&Path>) -> i
 /// re-armed on every chunk, so an actively writing descendant keeps us reading
 /// while a quiet inherited handle releases us after the grace elapses.
 pub async fn wait_for_child_process(child: &mut Child) -> io::Result<ProcessOutput> {
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    let (sender, mut receiver) = mpsc::channel(64);
-
-    let stdout_task = stdout.map(|reader| tokio::spawn(read_stream(reader, Stream::Stdout, sender.clone())));
-    let stderr_task = stderr.map(|reader| tokio::spawn(read_stream(reader, Stream::Stderr, sender.clone())));
-    drop(sender);
-
-    let mut output = ProcessOutput {
-        status: None,
-        stdout: Vec::new(),
-        stderr: Vec::new(),
-    };
-    let mut stdout_ended = stdout_task.is_none();
-    let mut stderr_ended = stderr_task.is_none();
-    let mut exited = false;
-    let mut deadline: Option<Instant> = None;
-    let grace = Duration::from_millis(EXIT_STDIO_GRACE_MS);
+    let (mut receiver, stdout_task, stderr_task) = start_output_readers(child);
+    let mut state = WaitState::new(stdout_task.is_none(), stderr_task.is_none());
 
     let wait = child.wait();
     tokio::pin!(wait);
 
     loop {
-        if exited && stdout_ended && stderr_ended {
+        if state.is_complete() {
             break;
         }
-
-        let idle = async {
-            let deadline = deadline.unwrap_or_else(Instant::now);
-            tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await;
-        };
-
+        let idle = sleep_until_deadline(state.deadline);
         tokio::select! {
-            status = &mut wait, if !exited => {
-                let status = status?;
-                output.status = status.code();
-                exited = true;
-                if !(stdout_ended && stderr_ended) {
-                    deadline = Some(Instant::now() + grace);
-                }
-            }
-            event = receiver.recv() => {
-                match event {
-                    Some(StreamEvent::Data(stream, bytes)) => {
-                        append(&mut output, stream, bytes);
-                        if exited {
-                            deadline = Some(Instant::now() + grace);
-                        }
-                    }
-                    Some(StreamEvent::Ended(Stream::Stdout)) => stdout_ended = true,
-                    Some(StreamEvent::Ended(Stream::Stderr)) => stderr_ended = true,
-                    None => {
-                        stdout_ended = true;
-                        stderr_ended = true;
-                    }
-                }
-            }
-            () = idle, if deadline.is_some() => break,
+            status = &mut wait, if !state.exited => state.record_exit(status?),
+            event = receiver.recv() => state.record_event(event),
+            () = idle, if state.deadline.is_some() => break,
         }
     }
 
-    if let Some(task) = stdout_task {
+    abort_reader(stdout_task);
+    abort_reader(stderr_task);
+    Ok(state.output)
+}
+
+fn start_output_readers(
+    child: &mut Child,
+) -> (
+    mpsc::Receiver<StreamEvent>,
+    Option<tokio::task::JoinHandle<()>>,
+    Option<tokio::task::JoinHandle<()>>,
+) {
+    let (sender, receiver) = mpsc::channel(64);
+    let stdout_task = child
+        .stdout
+        .take()
+        .map(|reader| tokio::spawn(read_stream(reader, Stream::Stdout, sender.clone())));
+    let stderr_task = child
+        .stderr
+        .take()
+        .map(|reader| tokio::spawn(read_stream(reader, Stream::Stderr, sender.clone())));
+    drop(sender);
+    (receiver, stdout_task, stderr_task)
+}
+
+fn abort_reader(task: Option<tokio::task::JoinHandle<()>>) {
+    if let Some(task) = task {
         task.abort();
     }
-    if let Some(task) = stderr_task {
-        task.abort();
+}
+
+async fn sleep_until_deadline(deadline: Option<Instant>) {
+    if let Some(deadline) = deadline {
+        tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await;
+    }
+}
+
+struct WaitState {
+    output: ProcessOutput,
+    exited: bool,
+    stdout_ended: bool,
+    stderr_ended: bool,
+    deadline: Option<Instant>,
+}
+
+impl WaitState {
+    fn new(stdout_ended: bool, stderr_ended: bool) -> Self {
+        Self {
+            output: ProcessOutput {
+                status: None,
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            },
+            exited: false,
+            stdout_ended,
+            stderr_ended,
+            deadline: None,
+        }
     }
 
-    Ok(output)
+    fn is_complete(&self) -> bool {
+        self.exited && self.pipes_ended()
+    }
+
+    fn record_exit(&mut self, status: std::process::ExitStatus) {
+        self.output.status = status.code();
+        self.exited = true;
+        if !self.pipes_ended() {
+            self.arm_deadline();
+        }
+    }
+
+    fn record_event(&mut self, event: Option<StreamEvent>) {
+        match event {
+            Some(StreamEvent::Data(stream, bytes)) => {
+                append(&mut self.output, stream, bytes);
+                if self.exited {
+                    self.arm_deadline();
+                }
+            }
+            Some(StreamEvent::Ended(Stream::Stdout)) => self.stdout_ended = true,
+            Some(StreamEvent::Ended(Stream::Stderr)) => self.stderr_ended = true,
+            None => {
+                self.stdout_ended = true;
+                self.stderr_ended = true;
+            }
+        }
+    }
+
+    fn pipes_ended(&self) -> bool {
+        self.stdout_ended && self.stderr_ended
+    }
+
+    fn arm_deadline(&mut self) {
+        self.deadline = Some(Instant::now() + Duration::from_millis(EXIT_STDIO_GRACE_MS));
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

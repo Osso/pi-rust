@@ -120,45 +120,55 @@ fn strip_ascii_prefix<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
 
 /// Normalize a path input without resolving it against a base directory.
 pub fn normalize_path(input: &str, options: &PathInputOptions) -> Result<String, PathError> {
+    let normalized = normalize_input(input, options);
+    if let Some(expanded) = expand_home_directory(&normalized, options) {
+        return Ok(expanded);
+    }
+    if normalized.starts_with("file://") {
+        return file_url_to_path(&normalized);
+    }
+    Ok(normalized)
+}
+
+fn normalize_input(input: &str, options: &PathInputOptions) -> String {
     let mut normalized = if options.trim {
         input.trim().to_owned()
     } else {
         input.to_owned()
     };
-
     if options.normalize_unicode_spaces {
-        normalized = normalized
-            .chars()
-            .map(|character| if is_unicode_space(character) { ' ' } else { character })
-            .collect();
+        normalized = replace_unicode_spaces(&normalized);
     }
-
-    if options.strip_at_prefix
-        && let Some(stripped) = normalized.strip_prefix('@')
-    {
-        normalized = stripped.to_owned();
+    if options.strip_at_prefix {
+        normalized = strip_at_prefix(&normalized);
     }
-
     if cfg!(windows) {
         normalized = normalize_windows_shell_path(&normalized);
     }
+    normalized
+}
 
-    if options.expand_tilde.unwrap_or(true) {
-        let home = options.home_dir.clone().unwrap_or_else(home_directory);
-        if normalized == "~" {
-            return Ok(home);
-        }
-        let tilde_prefix = if cfg!(windows) { "~\\" } else { "~/" };
-        if let Some(remainder) = normalized.strip_prefix(tilde_prefix) {
-            return Ok(node_join(&home, remainder));
-        }
+fn replace_unicode_spaces(text: &str) -> String {
+    text.chars()
+        .map(|character| if is_unicode_space(character) { ' ' } else { character })
+        .collect()
+}
+
+fn strip_at_prefix(text: &str) -> String {
+    text.strip_prefix('@').unwrap_or(text).to_owned()
+}
+
+fn expand_home_directory(normalized: &str, options: &PathInputOptions) -> Option<String> {
+    if !options.expand_tilde.unwrap_or(true) {
+        return None;
     }
-
-    if normalized.starts_with("file://") {
-        return file_url_to_path(&normalized);
+    let home = options.home_dir.clone().unwrap_or_else(home_directory);
+    if normalized == "~" {
+        return Some(home);
     }
-
-    Ok(normalized)
+    let tilde_prefix = if cfg!(windows) { "~\\" } else { "~/" };
+    let remainder = normalized.strip_prefix(tilde_prefix)?;
+    Some(node_join(&home, remainder))
 }
 
 /// Resolve an input path against a base directory.
