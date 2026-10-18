@@ -82,12 +82,13 @@ must be shared with the settings-manager port; they are defined here because
   Node's `spawn ... ENOENT` message.
 - `glob` is replaced by a `globset` walk over the package root. Dot entries are
   skipped globally (Node's `dot:false` only excludes them for wildcard segments),
-  and matches keep filesystem order.
+  and matches keep filesystem order. Directory walks use `read_dir` order, the
+  same getdents order Node sees for the same directory.
 - `minimatch` comes from `pi_js_compat` with default options, matching the
   TypeScript call sites.
-- `semver`: exact, caret, tilde, wildcard, comparator, and `*` ranges are
-  normalized to node-semver text; hyphen ranges and `||` unions are unsupported
-  (`range` becomes `None`, so the package is treated as unpinned).
+- `semver`: exact, caret, tilde, wildcard, comparator, hyphen, and `||` union
+  ranges are normalized to node-semver `validRange` text and matched with the
+  `semver` crate; unsupported forms yield `range: None` (treated as unpinned).
 - Timeout branch of `runCommandCapture` has no automated test (would require a
   deliberately hanging child); the code path mirrors the source.
 - Clone-failure cleanup has no test: exercising it requires a network clone or a

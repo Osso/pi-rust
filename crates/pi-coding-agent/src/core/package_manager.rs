@@ -995,20 +995,33 @@ fn apply_autoload_disabled_patterns(all_paths: &[String], patterns: &[String], b
 }
 
 /// node-semver `validRange` text for the range forms npm packages use.
-///
-/// Unsupported (documented): hyphen ranges and `||` unions.
 fn node_version_range(version: Option<&str>) -> Option<String> {
-    let version = version?.trim();
+    let version = version?;
+    if version.is_empty() {
+        return None;
+    }
+    let version = version.trim();
     if version.is_empty() || version == "*" || version.eq_ignore_ascii_case("x") {
         return Some("*".to_owned());
     }
-    if version.contains("||") || version.contains(" - ") {
-        return None;
-    }
     let normalized = version.strip_prefix('=').unwrap_or(version);
     let normalized = normalized.strip_prefix('v').unwrap_or(normalized);
+    if normalized.contains("||") {
+        let parts: Option<Vec<String>> = normalized
+            .split("||")
+            .map(|part| node_single_range(part.trim()))
+            .collect();
+        return Some(parts?.join("||"));
+    }
+    node_single_range(normalized)
+}
+
+fn node_single_range(normalized: &str) -> Option<String> {
     if Version::parse(normalized).is_ok() {
         return Some(normalized.to_owned());
+    }
+    if let Some((lower, upper)) = normalized.split_once(" - ") {
+        return expand_hyphen(lower.trim(), upper.trim());
     }
     if let Some(rest) = normalized.strip_prefix('^') {
         return expand_caret(rest);
@@ -1106,6 +1119,32 @@ fn expand_wildcard(text: &str) -> Option<String> {
     }
 }
 
+fn expand_hyphen(lower: &str, upper: &str) -> Option<String> {
+    let (lower_core, lower_prerelease) = split_prerelease(lower);
+    let (lower_major, lower_minor, lower_patch) = parse_components(lower_core)?;
+    let lower_major = lower_major?;
+    let lower_text = format!(
+        ">={}",
+        version_text(
+            lower_major,
+            lower_minor.unwrap_or(0),
+            lower_patch.unwrap_or(0),
+            lower_prerelease
+        )
+    );
+    let (upper_core, upper_prerelease) = split_prerelease(upper);
+    let (upper_major, upper_minor, upper_patch) = parse_components(upper_core)?;
+    let upper_major = upper_major?;
+    let upper_text = match (upper_minor, upper_patch) {
+        (Some(minor), Some(patch)) => {
+            format!("<={}", version_text(upper_major, minor, patch, upper_prerelease))
+        }
+        (Some(minor), None) => format!("<{upper_major}.{}.0-0", minor + 1),
+        (None, _) => format!("<{}.0.0-0", upper_major + 1),
+    };
+    Some(format!("{lower_text} {upper_text}"))
+}
+
 fn normalize_comparator(token: &str) -> Option<String> {
     let (operator, rest) = [(">=", ">="), ("<=", "<="), (">", ">"), ("<", "<"), ("=", "=")]
         .iter()
@@ -1125,7 +1164,7 @@ fn normalize_comparator(token: &str) -> Option<String> {
     })
 }
 
-fn node_range_requirement(range: &str) -> Option<VersionReq> {
+fn single_range_requirement(range: &str) -> Option<VersionReq> {
     if range == "*" {
         return VersionReq::parse("*").ok();
     }
@@ -1141,23 +1180,28 @@ fn node_range_requirement(range: &str) -> Option<VersionReq> {
     VersionReq::parse(&joined).ok()
 }
 
-fn installed_version_satisfies(installed: &str, range: &str) -> bool {
+fn node_range_matches(installed: &str, range: &str) -> bool {
     let installed = installed.strip_prefix('v').unwrap_or(installed);
-    let Some(requirement) = node_range_requirement(range) else {
+    let Ok(version) = Version::parse(installed) else {
         return false;
     };
-    Version::parse(installed).is_ok_and(|version| requirement.matches(&version))
+    range
+        .split("||")
+        .any(|part| single_range_requirement(part.trim()).is_some_and(|requirement| requirement.matches(&version)))
+}
+
+fn installed_version_satisfies(installed: &str, range: &str) -> bool {
+    node_range_matches(installed, range)
 }
 
 fn max_satisfying(versions: &[String], range: &str) -> Option<String> {
-    let requirement = node_range_requirement(range)?;
     versions
         .iter()
         .filter_map(|version| {
             let normalized = version.strip_prefix('v').unwrap_or(version);
             Version::parse(normalized).ok().map(|parsed| (parsed, version))
         })
-        .filter(|(parsed, _)| requirement.matches(parsed))
+        .filter(|(_, version)| node_range_matches(version, range))
         .max_by(|left, right| left.0.cmp(&right.0))
         .map(|(_, version)| version.clone())
 }
@@ -3652,9 +3696,27 @@ fn stderr_redirect_stdout() -> Result<std::process::Stdio, PackageManagerError> 
 fn exit_signal(status: &std::process::ExitStatus) -> String {
     use std::os::unix::process::ExitStatusExt;
 
-    status
-        .signal()
-        .map_or_else(|| "unknown".to_owned(), |signal| signal.to_string())
+    status.signal().map_or_else(|| "unknown".to_owned(), signal_name)
+}
+
+/// Node reports signal names (`SIGTERM`), not numbers.
+#[cfg(unix)]
+fn signal_name(signal: i32) -> String {
+    match signal {
+        1 => "SIGHUP",
+        2 => "SIGINT",
+        3 => "SIGQUIT",
+        4 => "SIGILL",
+        6 => "SIGABRT",
+        8 => "SIGFPE",
+        9 => "SIGKILL",
+        11 => "SIGSEGV",
+        13 => "SIGPIPE",
+        14 => "SIGALRM",
+        15 => "SIGTERM",
+        other => return format!("SIG{other}"),
+    }
+    .to_owned()
 }
 
 #[cfg(not(unix))]
