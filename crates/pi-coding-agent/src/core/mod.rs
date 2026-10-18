@@ -11,6 +11,7 @@ pub mod event_bus;
 pub mod exec;
 pub mod experimental;
 pub mod export_html;
+pub mod extensions;
 pub mod external_session_importer;
 pub mod footer_data_provider;
 pub mod http_dispatcher;
