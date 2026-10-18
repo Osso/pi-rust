@@ -46,9 +46,10 @@ impl ProjectTrustExtensionsLoader for NoExtensionsLoader {
         &'a self,
         _cwd: &'a str,
         _agent_dir: &'a str,
-        _settings_manager: &'a SettingsManager,
-    ) -> BoxFuture<'a, Option<LoadExtensionsResult>> {
-        Box::pin(async { None })
+        _settings_manager: &'a Arc<Mutex<SettingsManager>>,
+        _extension_factories: &'a [pi_coding_agent::core::resource_loader::InlineExtension],
+    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, String>> {
+        Box::pin(async { Ok(None) })
     }
 }
 
@@ -61,18 +62,19 @@ impl ProjectTrustExtensionsLoader for ErroringExtensionsLoader {
         &'a self,
         _cwd: &'a str,
         _agent_dir: &'a str,
-        _settings_manager: &'a SettingsManager,
-    ) -> BoxFuture<'a, Option<LoadExtensionsResult>> {
+        _settings_manager: &'a Arc<Mutex<SettingsManager>>,
+        _extension_factories: &'a [pi_coding_agent::core::resource_loader::InlineExtension],
+    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, String>> {
         let path = self.path.clone();
         Box::pin(async move {
-            Some(LoadExtensionsResult {
+            Ok(Some(LoadExtensionsResult {
                 extensions: Vec::new(),
                 errors: vec![pi_coding_agent::core::extensions::types::ExtensionLoadError {
                     path,
                     error: "boom".to_owned(),
                 }],
                 runtime: create_extension_runtime(),
-            })
+            }))
         })
     }
 }
