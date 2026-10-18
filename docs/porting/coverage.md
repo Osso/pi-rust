@@ -383,7 +383,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/desktop-notification.ts` | 116 | 0 | todo |  |  |
 | `coding-agent/src/core/detached-job-retention.ts` | 76 | 0 | todo |  |  |
 | `coding-agent/src/core/diagnostics.ts` | 15 | 0 | done | `crates/pi-coding-agent/src/core/diagnostics.rs` | `ResourceCollision`/`ResourceDiagnostic` wire records. |
-| `coding-agent/src/core/event-bus.ts` | 33 | 0 | todo |  |  |
+| `coding-agent/src/core/event-bus.ts` | 33 | 0 | done | `crates/pi-coding-agent/src/core/event_bus.rs` | Channel bus with subscriptions, clear, and failure isolation; handlers are typed `Fn(&Value) -> Result`. |
 | `coding-agent/src/core/experimental.ts` | 9 | 0 | done | `crates/pi-coding-agent/src/core/experimental.rs` | `PI_EXPERIMENTAL` gate + strict tool sampling config; child-process env probes. |
 | `coding-agent/src/core/export-html/ansi-to-html.ts` | 258 | 0 | todo |  |  |
 | `coding-agent/src/core/http-dispatcher.ts` | 111 | 0 | todo |  |  |
@@ -400,7 +400,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/sqlite.ts` | 145 | 0 | todo |  |  |
 | `coding-agent/src/core/timings.ts` | 50 | 0 | done | `crates/pi-coding-agent/src/core/timings.rs` | `PI_TIMING` startup profiling; stderr format asserted through a child process. |
 | `coding-agent/src/core/tool-capabilities.ts` | 11 | 0 | done | `crates/pi-coding-agent/src/core/tool_capabilities.rs` | Child-disabled and supervisor-only tool names; differential `27004`. |
-| `coding-agent/src/core/tool-detach-registry.ts` | 58 | 0 | todo |  |  |
+| `coding-agent/src/core/tool-detach-registry.ts` | 58 | 0 | done | `crates/pi-coding-agent/src/core/tool_detach_registry.rs` | Newest-first detach, running count, cancellable auto-detach timers. |
 | `coding-agent/src/core/tools/file-mutation-queue.ts` | 61 | 0 | todo |  |  |
 | `coding-agent/src/core/tools/truncate.ts` | 276 | 0 | partial |  |  |
 | `coding-agent/src/extensions/llama/client.ts` | 332 | 0 | todo |  |  |

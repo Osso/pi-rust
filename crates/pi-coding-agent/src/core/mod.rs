@@ -1,6 +1,7 @@
 mod config_value;
 pub mod defaults;
 pub mod diagnostics;
+pub mod event_bus;
 pub mod experimental;
 pub mod permissions;
 pub mod pi_manifest;
@@ -14,6 +15,7 @@ mod skill_block;
 pub mod source_info;
 pub mod timings;
 pub mod tool_capabilities;
+pub mod tool_detach_registry;
 pub mod tools;
 
 pub use config_value::{
