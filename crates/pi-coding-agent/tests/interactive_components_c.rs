@@ -6,13 +6,22 @@ use pi_agent_core::harness::messages::{BranchSummaryMessage, BranchSummaryRole};
 use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantRole, StopReason, TextContent, ThinkingContent, ToolCall, Usage,
 };
+use pi_coding_agent::core::extensions::types::{
+    CustomMessageContent, CustomMessageValue, EntryRenderOptions, MessageRenderOptions,
+};
 use pi_coding_agent::core::keybindings::KeybindingsManager;
 use pi_coding_agent::core::messages::{CompactionSummaryMessage, CompactionSummaryRole};
+use pi_coding_agent::core::session_manager::CustomEntry;
+use pi_coding_agent::modes::interactive::components::armin::ArminComponent;
 use pi_coding_agent::modes::interactive::components::assistant_message::AssistantMessageComponent;
+use pi_coding_agent::modes::interactive::components::bash_execution::{BashExecutionComponent, BashExecutionOptions};
 use pi_coding_agent::modes::interactive::components::bordered_loader::{BorderedLoader, BorderedLoaderOptions};
 use pi_coding_agent::modes::interactive::components::branch_summary_message::BranchSummaryMessageComponent;
 use pi_coding_agent::modes::interactive::components::compaction_summary_message::CompactionSummaryMessageComponent;
 use pi_coding_agent::modes::interactive::components::custom_editor::{CustomEditor, CustomEditorOptions};
+use pi_coding_agent::modes::interactive::components::custom_entry::CustomEntryComponent;
+use pi_coding_agent::modes::interactive::components::custom_message::CustomMessageComponent;
+use pi_coding_agent::modes::interactive::components::daxnuts::DaxnutsComponent;
 use pi_coding_agent::modes::interactive::components::extension_editor::{
     ExtensionEditorComponent, ExtensionEditorHost,
 };
@@ -29,6 +38,7 @@ use pi_coding_agent::modes::interactive::components::user_message::UserMessageCo
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, REQUIRED_COLORS, Theme, set_theme_instance};
 use pi_coding_agent::modes::interactive::theme::{TerminalTheme, get_editor_theme};
 use pi_tui::components::editor::{EditorFixedCell, EditorHost, EditorOptions};
+use pi_tui::components::text::Text;
 use pi_tui::{Component, MarkdownTheme, strip_terminal_sequences};
 
 const OSC133_ZONE_START: &str = "\u{1b}]133;A\u{7}";
@@ -867,4 +877,256 @@ fn custom_editor_filters_legacy_history() {
     )
     .expect("editor");
     assert_eq!(editor.get_history(), vec!["keep"]);
+}
+
+#[test]
+fn custom_entry_renders_renderer_output_and_tracks_expansion() {
+    use std::sync::Mutex;
+
+    theme();
+    let seen: Arc<Mutex<Vec<bool>>> = Arc::new(Mutex::new(Vec::new()));
+    let record = seen.clone();
+    let renderer: pi_coding_agent::core::extensions::types::EntryRenderer =
+        Arc::new(move |entry: &CustomEntry, options: &EntryRenderOptions, _theme| {
+            record.lock().unwrap().push(options.expanded);
+            Some(std::rc::Rc::new(std::cell::RefCell::new(Text::new(
+                format!("custom {}", entry.custom_type),
+                0,
+                0,
+            ))))
+        });
+    let entry = CustomEntry {
+        custom_type: "test".to_owned(),
+        data: None,
+        id: "entry".to_owned(),
+        parent_id: None,
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+    };
+    let mut component = CustomEntryComponent::new(entry, renderer);
+    assert!(component.has_content());
+    let rendered = plain(&component.render(40));
+    assert!(rendered.contains("custom test"), "{rendered}");
+    assert_eq!(*seen.lock().unwrap(), vec![false]);
+
+    component.set_expanded(true);
+    assert_eq!(*seen.lock().unwrap(), vec![false, true]);
+}
+
+#[test]
+fn custom_entry_without_renderer_output_has_no_content() {
+    theme();
+    let renderer: pi_coding_agent::core::extensions::types::EntryRenderer = Arc::new(|_entry, _options, _theme| None);
+    let entry = CustomEntry {
+        custom_type: "test".to_owned(),
+        data: None,
+        id: "entry".to_owned(),
+        parent_id: None,
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+    };
+    let mut component = CustomEntryComponent::new(entry, renderer);
+    assert!(!component.has_content());
+    assert!(component.render(40).iter().all(|line| line.trim().is_empty()));
+}
+
+fn custom_message(content: CustomMessageContent) -> CustomMessageValue {
+    CustomMessageValue {
+        custom_type: "test".to_owned(),
+        content,
+        display: true,
+        details: None,
+        timestamp: 0.0,
+    }
+}
+
+#[test]
+fn custom_message_default_rendering_uses_label_and_markdown() {
+    theme();
+    let mut component = CustomMessageComponent::new(
+        custom_message(CustomMessageContent::Text("hello **world**".to_owned())),
+        None,
+        Some(markdown_theme()),
+        1,
+    );
+    let rendered = plain(&component.render(40));
+    assert!(rendered.contains("[test]"), "{rendered}");
+    assert!(rendered.contains("hello world"), "{rendered}");
+}
+
+#[test]
+fn custom_message_renderer_receives_output_padding_and_updates() {
+    use std::sync::Mutex;
+
+    theme();
+    let options_seen: Arc<Mutex<Vec<MessageRenderOptions>>> = Arc::new(Mutex::new(Vec::new()));
+    let record = options_seen.clone();
+    let renderer: pi_coding_agent::core::extensions::types::MessageRenderer =
+        Arc::new(move |_message, options, _theme| {
+            record.lock().unwrap().push(*options);
+            Some(std::rc::Rc::new(std::cell::RefCell::new(Text::new(
+                "custom",
+                options.output_pad as usize,
+                0,
+            ))))
+        });
+    let mut component = CustomMessageComponent::new(
+        custom_message(CustomMessageContent::Text("custom".to_owned())),
+        Some(renderer),
+        Some(markdown_theme()),
+        1,
+    );
+    let rendered: Vec<String> = component
+        .render(40)
+        .iter()
+        .map(|line| strip_terminal_sequences(line))
+        .collect();
+    assert!(rendered.iter().any(|line| line.starts_with(" custom")), "{rendered:?}");
+    assert_eq!(options_seen.lock().unwrap()[0].output_pad, 1.0);
+
+    component.set_output_pad(0);
+    let rendered: Vec<String> = component
+        .render(40)
+        .iter()
+        .map(|line| strip_terminal_sequences(line))
+        .collect();
+    assert!(rendered.iter().any(|line| line.starts_with("custom")), "{rendered:?}");
+    assert_eq!(options_seen.lock().unwrap().last().unwrap().output_pad, 0.0);
+}
+
+#[test]
+fn bash_execution_streams_output_and_formats_completion() {
+    theme();
+    let mut component = BashExecutionComponent::new(
+        "echo hi",
+        std::rc::Rc::new(|| {}),
+        false,
+        BashExecutionOptions::default(),
+    );
+    component.append_output("hel");
+    component.append_output("lo\r\nsecond\rthird\n");
+    assert_eq!(component.get_output(), "hello\nsecond\nthird\n");
+    assert_eq!(component.get_command(), "echo hi");
+
+    let rendered = plain(&component.render(60));
+    assert!(rendered.contains("$ echo hi"), "{rendered}");
+    assert!(rendered.contains("hello"), "{rendered}");
+    assert!(rendered.contains("Running..."), "{rendered}");
+
+    component.set_complete(Some(0), false, None, None);
+    let rendered = plain(&component.render(60));
+    assert!(!rendered.contains("Running..."), "{rendered}");
+    assert!(!rendered.contains("(exit"), "{rendered}");
+}
+
+#[test]
+fn bash_execution_reports_error_exit_and_cancellation() {
+    theme();
+    let mut component =
+        BashExecutionComponent::new("false", std::rc::Rc::new(|| {}), false, BashExecutionOptions::default());
+    component.set_complete(Some(3), false, None, None);
+    assert!(plain(&component.render(60)).contains("(exit 3)"));
+
+    let mut cancelled = BashExecutionComponent::new(
+        "sleep 10",
+        std::rc::Rc::new(|| {}),
+        false,
+        BashExecutionOptions::default(),
+    );
+    cancelled.set_complete(None, true, None, None);
+    assert!(plain(&cancelled.render(60)).contains("(cancelled)"));
+}
+
+#[test]
+fn bash_execution_preview_hides_extra_lines_and_warns_on_truncation() {
+    theme();
+    let mut component = BashExecutionComponent::new(
+        "seq 1 30",
+        std::rc::Rc::new(|| {}),
+        false,
+        BashExecutionOptions::default(),
+    );
+    let output: String = (1..=30).map(|value| format!("line {value}\n")).collect();
+    component.append_output(&output);
+    component.set_complete(Some(0), false, None, None);
+    let rendered = plain(&component.render(80));
+    assert!(rendered.contains("... 11 more lines ("), "{rendered}");
+    assert!(!rendered.contains("line 10\n"), "{rendered}");
+    assert!(rendered.contains("line 30"), "{rendered}");
+
+    component.set_expanded(true);
+    let rendered = plain(&component.render(80));
+    assert!(rendered.contains("to collapse"), "{rendered}");
+    assert!(rendered.contains("line 1"), "{rendered}");
+}
+
+#[test]
+fn bash_execution_strips_ansi_and_tracks_elapsed_timer() {
+    use std::cell::Cell;
+
+    theme();
+    let renders = std::rc::Rc::new(Cell::new(0));
+    let counter = renders.clone();
+    let mut component = BashExecutionComponent::new(
+        "echo",
+        std::rc::Rc::new(move || counter.set(counter.get() + 1)),
+        true,
+        BashExecutionOptions {
+            show_elapsed: Some(true),
+        },
+    );
+    component.append_output("\u{1b}[31mred\u{1b}[0m");
+    assert_eq!(component.get_output(), "red");
+    let deadline = component.next_timer_deadline().expect("timer");
+    let renders_before = renders.get();
+    assert!(component.poll_timer(deadline));
+    assert!(renders.get() > renders_before);
+    component.dispose();
+    assert!(component.next_timer_deadline().is_none());
+    assert!(!component.poll_timer(deadline + std::time::Duration::from_secs(5)));
+}
+
+#[test]
+fn armin_animates_and_renders_message() {
+    theme();
+    let mut component = ArminComponent::new(std::rc::Rc::new(|| {}));
+    assert!(["typewriter", "scanline", "rain", "fade", "crt", "glitch", "dissolve"].contains(&component.effect()));
+    let mut now = std::time::Instant::now();
+    for _ in 0..2000 {
+        now += std::time::Duration::from_millis(50);
+        component.poll(now);
+        if !component.is_running() {
+            break;
+        }
+    }
+    // Source discrepancy: `rain` never settles the two all-background columns,
+    // so that effect animates forever. Every other effect reaches the final grid.
+    if component.effect() == "rain" {
+        assert!(component.is_running());
+    } else {
+        assert!(!component.is_running(), "effect {} did not finish", component.effect());
+    }
+    let rendered = plain(&component.render(40));
+    assert!(rendered.contains("ARMIN SAYS HI"), "{rendered}");
+    assert_eq!(component.current_grid().len(), 18);
+    component.dispose();
+}
+
+#[test]
+fn daxnuts_reveals_image_and_text_over_time() {
+    theme();
+    let mut component = DaxnutsComponent::new(std::rc::Rc::new(|| {}));
+    let initial = plain(&component.render(40));
+    assert!(!initial.contains("Free Kimi K2.5"), "{initial}");
+
+    let mut now = std::time::Instant::now();
+    for _ in 0..40 {
+        now += std::time::Duration::from_millis(80);
+        component.poll(now);
+    }
+    assert!(!component.is_running());
+    assert_eq!(component.tick(), 25);
+    let rendered = plain(&component.render(40));
+    assert!(rendered.contains("Free Kimi K2.5 via OpenCode Zen"), "{rendered}");
+    assert!(rendered.contains("Powered by daxnuts"), "{rendered}");
+    assert!(rendered.contains("Try OpenCode"), "{rendered}");
+    component.dispose();
 }

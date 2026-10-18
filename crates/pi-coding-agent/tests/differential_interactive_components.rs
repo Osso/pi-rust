@@ -9,7 +9,10 @@ use pi_agent_core::harness::messages::{BranchSummaryMessage, BranchSummaryRole};
 use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantRole, StopReason, TextContent, ThinkingContent, ToolCall, Usage,
 };
-use pi_coding_agent::core::extensions::types::{MarkdownMessageType, MarkdownTransformContext, MarkdownTransformer};
+use pi_coding_agent::core::extensions::types::{
+    CustomMessageContent, CustomMessageValue, MarkdownMessageType, MarkdownTransformContext, MarkdownTransformer,
+    MessageRenderOptions,
+};
 use pi_coding_agent::core::keybindings::KeybindingsManager;
 use pi_coding_agent::core::messages::{CompactionSummaryMessage, CompactionSummaryRole};
 use pi_coding_agent::core::package_manager::{
@@ -17,12 +20,15 @@ use pi_coding_agent::core::package_manager::{
 };
 use pi_coding_agent::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
 use pi_coding_agent::modes::interactive::components::assistant_message::AssistantMessageComponent;
+use pi_coding_agent::modes::interactive::components::bash_execution::{BashExecutionComponent, BashExecutionOptions};
 use pi_coding_agent::modes::interactive::components::bordered_loader::{BorderedLoader, BorderedLoaderOptions};
 use pi_coding_agent::modes::interactive::components::branch_summary_message::BranchSummaryMessageComponent;
 use pi_coding_agent::modes::interactive::components::compaction_summary_message::CompactionSummaryMessageComponent;
 use pi_coding_agent::modes::interactive::components::config_selector::{
     ConfigSelectorComponent, ConfigSelectorOptions, ConfigWriteScope, ScopedResolvedPaths,
 };
+use pi_coding_agent::modes::interactive::components::custom_entry::CustomEntryComponent;
+use pi_coding_agent::modes::interactive::components::custom_message::CustomMessageComponent;
 use pi_coding_agent::modes::interactive::components::diff::render_diff;
 use pi_coding_agent::modes::interactive::components::elapsed_time::format_elapsed_duration;
 use pi_coding_agent::modes::interactive::components::extension_editor::{
@@ -100,6 +106,9 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(extension_input_cases());
     cases.extend(extension_editor_cases());
     cases.extend(first_time_setup_cases());
+    cases.extend(custom_entry_cases());
+    cases.extend(custom_message_cases());
+    cases.extend(bash_execution_cases());
     cases
 }
 
@@ -904,6 +913,208 @@ fn first_time_setup_cases() -> Vec<(Value, Value)> {
             "submitted": *submitted.borrow(),
         });
         cases.push((request, output));
+    }
+    cases
+}
+
+fn custom_entry_cases() -> Vec<(Value, Value)> {
+    let mut cases = Vec::new();
+    for (index, expanded) in [false, true].into_iter().enumerate() {
+        let request = json!({
+            "id": 120 + index,
+            "module": "modes/interactive/components/custom-entry.ts",
+            "operation": "customEntry",
+            "customType": "test",
+            "expanded": expanded,
+            "width": 40,
+        });
+        let renderer: pi_coding_agent::core::extensions::types::EntryRenderer = Arc::new(
+            |entry: &pi_coding_agent::core::session_manager::CustomEntry,
+             options: &pi_coding_agent::core::extensions::types::EntryRenderOptions,
+             _theme: &pi_coding_agent::modes::interactive::theme::Theme| {
+                let component: pi_tui::tui::ComponentRef =
+                    std::rc::Rc::new(std::cell::RefCell::new(pi_tui::Text::new(
+                        format!("custom {} expanded={}", entry.custom_type, options.expanded),
+                        0,
+                        0,
+                    )));
+                Some(component)
+            },
+        );
+        let entry = pi_coding_agent::core::session_manager::CustomEntry {
+            custom_type: "test".to_owned(),
+            data: None,
+            id: "entry".to_owned(),
+            parent_id: None,
+            timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+        };
+        let mut component = CustomEntryComponent::new(entry, renderer);
+        component.set_expanded(expanded);
+        cases.push((
+            request,
+            json!({"lines": component.render(40), "hasContent": component.has_content()}),
+        ));
+    }
+
+    let request = json!({
+        "id": 122,
+        "module": "modes/interactive/components/custom-entry.ts",
+        "operation": "customEntryEmpty",
+        "customType": "empty",
+        "width": 40,
+    });
+    let renderer: pi_coding_agent::core::extensions::types::EntryRenderer = Arc::new(|_entry, _options, _theme| None);
+    let entry = pi_coding_agent::core::session_manager::CustomEntry {
+        custom_type: "empty".to_owned(),
+        data: None,
+        id: "entry".to_owned(),
+        parent_id: None,
+        timestamp: "2026-01-01T00:00:00.000Z".to_owned(),
+    };
+    let mut component = CustomEntryComponent::new(entry, renderer);
+    cases.push((
+        request,
+        json!({"lines": component.render(40), "hasContent": component.has_content()}),
+    ));
+    cases
+}
+
+fn custom_message_value(content: CustomMessageContent) -> CustomMessageValue {
+    CustomMessageValue {
+        custom_type: "test".to_owned(),
+        content,
+        display: true,
+        details: None,
+        timestamp: 0.0,
+    }
+}
+
+fn custom_message_cases() -> Vec<(Value, Value)> {
+    let variants = [
+        (json!("hello **world**"), false, false, 1usize, 1usize, 40usize),
+        (
+            json!([{"type": "text", "text": "first"}, {"type": "image", "data": "AA==", "mimeType": "image/png"}, {"type": "text", "text": "second"}]),
+            false,
+            false,
+            1,
+            1,
+            50,
+        ),
+        (json!("custom"), true, true, 1, 0, 40),
+    ];
+    let mut cases = Vec::new();
+    for (index, (content, custom_renderer, expanded, output_pad, final_output_pad, width)) in
+        variants.into_iter().enumerate()
+    {
+        let request = json!({
+            "id": 130 + index,
+            "module": "modes/interactive/components/custom-message.ts",
+            "operation": "customMessage",
+            "customType": "test",
+            "content": content,
+            "customRenderer": custom_renderer,
+            "expanded": expanded,
+            "outputPad": output_pad,
+            "finalOutputPad": final_output_pad,
+            "width": width,
+        });
+        let rust_content = match &content {
+            Value::String(text) => CustomMessageContent::Text(text.clone()),
+            Value::Array(blocks) => CustomMessageContent::Blocks(
+                blocks
+                    .iter()
+                    .filter_map(|block| {
+                        if block["type"] == "text" {
+                            Some(pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
+                                block["text"].as_str().unwrap_or_default(),
+                            )))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+            ),
+            _ => panic!("unexpected content"),
+        };
+        type MessageRenderer = pi_coding_agent::core::extensions::types::MessageRenderer;
+        let renderer: Option<MessageRenderer> = custom_renderer.then(|| {
+            Arc::new(
+                |_message: &CustomMessageValue,
+                 options: &MessageRenderOptions,
+                 _theme: &pi_coding_agent::modes::interactive::theme::Theme| {
+                    let component: pi_tui::tui::ComponentRef =
+                        std::rc::Rc::new(std::cell::RefCell::new(pi_tui::Text::new(
+                            format!("custom pad={} expanded={}", options.output_pad, options.expanded),
+                            options.output_pad as usize,
+                            0,
+                        )));
+                    Some(component)
+                },
+            ) as pi_coding_agent::core::extensions::types::MessageRenderer
+        });
+        let mut component = CustomMessageComponent::new(custom_message_value(rust_content), renderer, None, output_pad);
+        component.set_output_pad(final_output_pad);
+        component.set_expanded(expanded);
+        cases.push((request, json!(component.render(width))));
+    }
+    cases
+}
+
+fn bash_execution_cases() -> Vec<(Value, Value)> {
+    type BashCase = (bool, Vec<&'static str>, bool, Option<i32>, bool, bool, usize);
+    let variants: Vec<BashCase> = vec![
+        (false, vec!["hello\n"], true, Some(0), false, false, 60),
+        (true, vec!["hello\n"], true, Some(0), false, false, 60),
+        (
+            false,
+            vec!["\u{1b}[31mred\u{1b}[0m\r\nline\r"],
+            true,
+            Some(3),
+            false,
+            false,
+            60,
+        ),
+        (false, vec!["partial"], true, None, true, false, 60),
+        (false, vec!["one\ntwo\n"], false, Some(0), false, false, 60),
+    ];
+    let mut cases = Vec::new();
+    for (index, (exclude, chunks, complete, exit_code, cancelled, expanded, width)) in variants.into_iter().enumerate()
+    {
+        let request = json!({
+            "id": 140 + index,
+            "module": "modes/interactive/components/bash-execution.ts",
+            "operation": "bashExecution",
+            "command": "echo hi",
+            "excludeFromContext": exclude,
+            "chunks": chunks,
+            "complete": complete,
+            "exitCode": exit_code,
+            "cancelled": cancelled,
+            "truncation": null,
+            "fullOutputPath": null,
+            "expanded": expanded,
+            "width": width,
+        });
+        let mut component = BashExecutionComponent::new(
+            "echo hi",
+            std::rc::Rc::new(|| {}),
+            exclude,
+            BashExecutionOptions {
+                show_elapsed: Some(false),
+            },
+        );
+        for chunk in &chunks {
+            component.append_output(chunk);
+        }
+        if complete {
+            component.set_complete(exit_code, cancelled, None, None);
+        }
+        component.set_expanded(expanded);
+        let lines = component.render(width);
+        let output = component.get_output();
+        let command = component.get_command().to_owned();
+        component.dispose();
+        cases.push((request, json!({"lines": lines, "output": output, "command": command})));
     }
     cases
 }

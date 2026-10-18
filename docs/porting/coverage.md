@@ -534,8 +534,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/detached-job-lifecycle.ts` | 214 | 18 | todo |  |  |
 | `coding-agent/src/core/tools/render-utils.ts` | 85 | 18 | done | `crates/pi-coding-agent/src/core/tools/render_utils.rs` | Helpers, `getTextOutput`, invalid-arg/tool-path renderers; key hints live in `keybinding_hints`; differential 23 dark-theme cases |
 | `coding-agent/src/modes/interactive/components/agent-selection-banner.ts` | 36 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/agent_selection_banner.rs` | selected-agent banner; behavioral test against the ported store |
-| `coding-agent/src/modes/interactive/components/armin.ts` | 382 | 18 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/daxnuts.ts` | 164 | 18 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/armin.ts` | 382 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/armin.rs` | 7 effects, XBM decode, animation poll; behavioral test; rain never-settles source bug recorded. |
+| `coding-agent/src/modes/interactive/components/daxnuts.ts` | 164 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/daxnuts.rs` | 32x32 half-block image, 80ms reveal; behavioral test. |
 | `coding-agent/src/modes/interactive/components/diff.ts` | 147 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/diff.rs`, `crates/pi-agent-core/src/jsdiff.rs` | Line parsing, context/added/removed rendering, intra-line `diffWords` highlighting with shared jsdiff word tokenizer and whitespace dedupe; 16 differential cases (`tests/differential_interactive_components.rs`); see `interactive-diff.md`. |
 | `coding-agent/src/modes/interactive/components/dynamic-border.ts` | 8 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/dynamic_border.rs` | Theme-colored border wrapper; covered through every selector's differential render. |
 | `coding-agent/src/modes/interactive/components/keybinding-hints.ts` | 48 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/keybinding_hints.rs` | Formatting and hint composition; `tests/components.rs`. |
@@ -544,7 +544,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/internal-runner.ts` | 19 | 19 | done | `crates/pi-coding-agent/src/internal_runner.rs` | Mode dispatch, manifest validation, `.runner-error` file (0o600), exit code; runner bodies owned by other slices ([traceability](traceability/internal-runner.md)). |
 | `coding-agent/src/modes/interactive/components/agent-switcher.ts` | 269 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/agent_switcher.rs` | Tree rows, closed-agent filtering/toggle, scrolling, inactive selection; differential `agent-switcher-*` (3 cases). |
 | `coding-agent/src/modes/interactive/components/approval-selector.ts` | 103 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/approval_selector.rs` | Differential render/input/events (`tests/differential_components.rs`). |
-| `coding-agent/src/modes/interactive/components/bash-execution.ts` | 278 | 19 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/bash-execution.ts` | 278 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/bash_execution.rs` | Streaming output, preview/truncation, statuses, elapsed timer; differential 5 cases. |
 | `coding-agent/src/modes/interactive/components/bordered-loader.ts` | 70 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/bordered_loader.rs` | Cancellable/plain loader, signal, abort; differential 2 cases. |
 | `coding-agent/src/modes/interactive/components/branch-summary-message.ts` | 58 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/branch_summary_message.rs` | Collapsed/expanded render; differential 2 cases. |
 | `coding-agent/src/modes/interactive/components/compaction-summary-message.ts` | 92 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/compaction_summary_message.rs` | Token/duration formatting via `pi_js_compat::js_to_fixed`; differential 10 cases. |
@@ -688,8 +688,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/main.ts` | 1364 | 22 | todo |  |  |
 | `coding-agent/src/modes/index.ts` | 22 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/assistant-message.ts` | 197 | 22 | done | `crates/pi-coding-agent/src/modes/interactive/components/assistant_message.rs` | Content runs, thinking coalescing, OSC 133, stop reasons, transformers; differential 9 cases. |
-| `coding-agent/src/modes/interactive/components/custom-entry.ts` | 62 | 22 | todo |  |  |
-| `coding-agent/src/modes/interactive/components/custom-message.ts` | 113 | 22 | todo |  |  |
+| `coding-agent/src/modes/interactive/components/custom-entry.ts` | 62 | 22 | done | `crates/pi-coding-agent/src/modes/interactive/components/custom_entry.rs` | EntryRenderer output + expansion; differential 3 cases. |
+| `coding-agent/src/modes/interactive/components/custom-message.ts` | 113 | 22 | done | `crates/pi-coding-agent/src/modes/interactive/components/custom_message.rs` | Custom renderer + default box/Markdown; differential 3 cases. |
 | `coding-agent/src/modes/interactive/components/footer.ts` | 279 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/index.ts` | 38 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/markdown-transform.ts` | 29 | 22 | done | `crates/pi-coding-agent/src/modes/interactive/components/markdown_transform.rs` | shared extension types; differential transformer chain |

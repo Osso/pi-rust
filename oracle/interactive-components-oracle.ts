@@ -160,6 +160,67 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return { renders, previews, submitted };
 	},
+	customEntry: async (api, request, sourceRoot) => {
+		const tuiModule = (await import(pathToFileURL(`${sourceRoot}/../../tui/src/index.ts`).href)) as Api;
+		const entry = {
+			type: "custom",
+			customType: request.customType,
+			data: null,
+			id: "entry",
+			parentId: null,
+			timestamp: "2026-01-01T00:00:00.000Z",
+		};
+		const component = new api.CustomEntryComponent(entry, (value: any, options: any) => {
+			return new tuiModule.Text(`custom ${value.customType} expanded=${options.expanded}`, 0, 0);
+		});
+		component.setExpanded(request.expanded);
+		return { lines: component.render(request.width), hasContent: component.hasContent() };
+	},
+	customEntryEmpty: (api, request) => {
+		const entry = {
+			type: "custom",
+			customType: request.customType,
+			data: null,
+			id: "entry",
+			parentId: null,
+			timestamp: "2026-01-01T00:00:00.000Z",
+		};
+		const component = new api.CustomEntryComponent(entry, () => undefined);
+		return { lines: component.render(request.width), hasContent: component.hasContent() };
+	},
+	customMessage: async (api, request, sourceRoot) => {
+		const tuiModule = (await import(pathToFileURL(`${sourceRoot}/../../tui/src/index.ts`).href)) as Api;
+		const message = {
+			role: "custom",
+			customType: request.customType,
+			content: request.content,
+			display: true,
+			timestamp: 0,
+		};
+		const renderer = request.customRenderer
+			? (_message: any, options: any) => new tuiModule.Text(`custom pad=${options.outputPad} expanded=${options.expanded}`, options.outputPad, 0)
+			: undefined;
+		const component = new api.CustomMessageComponent(message, renderer, undefined, request.outputPad);
+		component.setOutputPad(request.finalOutputPad);
+		component.setExpanded(request.expanded);
+		return component.render(request.width);
+	},
+	bashExecution: (api, request) => {
+		const component = new api.BashExecutionComponent(
+			request.command,
+			{ requestComponentRender: () => false },
+			request.excludeFromContext,
+			{ showElapsed: false },
+		);
+		for (const chunk of request.chunks) component.appendOutput(chunk);
+		if (request.complete) {
+			component.setComplete(request.exitCode, request.cancelled, request.truncation, request.fullOutputPath);
+		}
+		component.setExpanded(request.expanded);
+		const lines = component.render(request.width);
+		component.dispose();
+		return { lines, output: component.getOutput(), command: component.getCommand() };
+	},
 	configSelector: async (_api, request, sourceRoot) => {
 		const settingsModule = (await import(pathToFileURL(`${sourceRoot}/core/settings-manager.ts`).href)) as Api;
 		const selectorModule = (await import(
