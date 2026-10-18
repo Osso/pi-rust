@@ -44,7 +44,10 @@ Tests: `crates/pi-ai/tests/mistral_conversations.rs`,
 
 - `timestamp`/`timestampMs` → `0` (clock-derived).
 - `partialArgs` removed (JS streaming scratch, deleted before persistence).
-- object key order sorted (TypeScript property order follows `Object.assign` mutation history).
+- Object key order is preserved by the oracle and the Rust `canonical` pass; request
+  bodies are compared as the exact captured `JSON.stringify` text. `remap_mistral_property`
+  uses `shift_remove` because TypeScript `delete` preserves the remaining insertion order
+  (serde_json `remove` is `swap_remove`).
 - JSON parser error text for malformed `data:` payloads → `<json-parse-error>` (runtime-specific wording).
 - Integral numbers canonicalized to integers (JS `200` vs Rust `200.0` representation).
 

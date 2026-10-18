@@ -1,4 +1,6 @@
 pub mod agent_session;
+pub mod agent_session_runtime;
+pub mod agent_session_services;
 pub mod auth_guidance;
 pub mod auth_storage;
 pub mod cache_stats;

@@ -2054,6 +2054,7 @@ fn build_branch_label_entries(
 // =============================================================================
 
 /// Manages conversation sessions as append-only trees stored in JSONL files.
+#[derive(Clone)]
 pub struct SessionManager {
     session_id: String,
     session_file: Option<String>,

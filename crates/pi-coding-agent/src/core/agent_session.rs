@@ -2730,6 +2730,10 @@ impl AgentSession {
             .to_owned()
     }
 
+    pub fn control_db_path(&self) -> Option<String> {
+        self.inner.control_db_path.clone()
+    }
+
     pub fn session_name(&self) -> Option<String> {
         lock(&self.inner.session_manager).get_session_name()
     }

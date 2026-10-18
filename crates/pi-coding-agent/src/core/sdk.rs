@@ -55,7 +55,7 @@ pub struct CreateAgentSessionOptions {
     pub base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
     pub resource_loader: Option<Arc<dyn ResourceLoader>>,
     pub session_manager: Option<SessionManager>,
-    pub settings_manager: Option<SettingsManager>,
+    pub settings_manager: Option<Arc<Mutex<SettingsManager>>>,
     pub control_db_path: Option<String>,
     pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
@@ -158,12 +158,12 @@ async fn create_agent_session_internal(
         .map_err(|error| error.to_string())?,
     };
 
-    let settings_manager = options
-        .settings_manager
-        .unwrap_or_else(|| {
+    let settings_manager = options.settings_manager.unwrap_or_else(|| {
+        Arc::new(Mutex::new(
             SettingsManager::create(&cwd, Some(Path::new(&agent_dir)), Default::default())
-                .expect("settings manager must initialize")
-        });
+                .expect("settings manager must initialize"),
+        ))
+    });
     let session_manager = match options.session_manager {
         Some(manager) => manager,
         None => {
@@ -203,18 +203,18 @@ async fn create_agent_session_internal(
     }
 
     if model.is_none() {
-        let result = find_initial_model(
-            &FindInitialModelOptions {
+        let initial_model_options = {
+            let settings = lock(&settings_manager);
+            FindInitialModelOptions {
                 scoped_models: Vec::new(),
                 is_continuing: has_existing_session,
-                default_provider: settings_manager.get_default_provider().map(str::to_owned),
-                default_model_id: settings_manager.get_default_model().map(str::to_owned),
-                default_thinking_level: settings_manager.get_default_thinking_level(),
+                default_provider: settings.get_default_provider().map(str::to_owned),
+                default_model_id: settings.get_default_model().map(str::to_owned),
+                default_thinking_level: settings.get_default_thinking_level(),
                 ..Default::default()
-            },
-            &model_runtime,
-        )
-        .await?;
+            }
+        };
+        let result = find_initial_model(&initial_model_options, &model_runtime).await?;
         model = result.model;
         match &model {
             Some(model) => {
@@ -230,9 +230,10 @@ async fn create_agent_session_internal(
         return Err(format_no_models_available_message());
     };
 
+    let default_thinking_level = lock(&settings_manager).get_default_thinking_level();
     let mut thinking_level = options
         .thinking_level
-        .or_else(|| settings_manager.get_default_thinking_level())
+        .or(default_thinking_level)
         .unwrap_or(DEFAULT_THINKING_LEVEL);
     thinking_level = thinking_level_from_model(pi_ai::models::clamp_thinking_level(
         &model,
@@ -258,7 +259,7 @@ async fn create_agent_session_internal(
     .filter(|name| !excluded_set.as_ref().is_some_and(|set| set.contains(name)))
     .collect();
 
-    let settings = Arc::new(Mutex::new(settings_manager));
+    let settings = Arc::clone(&settings_manager);
     let session_manager = Arc::new(Mutex::new(session_manager));
     let session_ref: Arc<Mutex<Option<Arc<dyn Fn(pi_ai::types::ProviderRetryEvent) + Send + Sync>>>> =
         Arc::new(Mutex::new(None));
