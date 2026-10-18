@@ -10,18 +10,21 @@ use pi_ai::types::{
     UserRole,
 };
 use pi_coding_agent::cli::args::{ListModels, Mode, parse_args};
+use pi_coding_agent::core::ResourceLoader;
 use pi_coding_agent::core::agent_session_services::AgentSessionRuntimeDiagnostic;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::model_resolver::ScopedModel;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::project_trust::AppMode;
+use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension};
 use pi_coding_agent::core::sdk::NoTools;
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
 use pi_coding_agent::main_runner::{
-    MainExit, ResolvedSession, build_session_options, collect_settings_diagnostics, create_session_manager,
-    fork_flag_conflict, is_plain_runtime_metadata_command, is_truthy_env_flag, prepare_initial_message,
-    resolve_app_mode, resolve_cli_paths, resolve_session_path, run_cli_action_or_report_error,
+    FIRST_PARTY_EXTENSION_NAMES, MainExit, PENDING_FIRST_PARTY_EXTENSIONS, ResolvedSession, build_session_options,
+    collect_settings_diagnostics, create_first_party_extension_factories, create_first_party_multi_agent_store,
+    create_session_manager, fork_flag_conflict, is_plain_runtime_metadata_command, is_truthy_env_flag,
+    prepare_initial_message, resolve_app_mode, resolve_cli_paths, resolve_session_path, run_cli_action_or_report_error,
     run_interactive_action_or_report_terminal_error, session_belongs_to_project, session_id_flag_conflict,
     to_print_output_mode, validate_fork_flags, validate_session_id_flags,
 };
@@ -475,4 +478,82 @@ fn diagnostics_are_serialized_with_the_ts_type_field() {
         serde_json::to_string(&diagnostic).expect("json"),
         r#"{"type":"error","message":"broken"}"#
     );
+}
+
+#[test]
+fn first_party_factory_list_partitions_the_source_names() {
+    let store = create_first_party_multi_agent_store();
+    let handles = pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
+    let factories = create_first_party_extension_factories(store, handles);
+    let registered: Vec<String> = factories
+        .iter()
+        .map(|factory| match factory {
+            InlineExtension::Factory {
+                extension_path: Some(path),
+                ..
+            } => path
+                .strip_prefix("<first-party:")
+                .and_then(|path| path.strip_suffix('>'))
+                .expect("first-party path")
+                .to_owned(),
+            _ => panic!("first-party factories carry an extension path"),
+        })
+        .collect();
+    assert_eq!(registered, vec!["agents-core", "agent-viewer", "agents-mailbox"]);
+
+    for name in &registered {
+        assert!(FIRST_PARTY_EXTENSION_NAMES.contains(&name.as_str()), "{name}");
+        assert!(!PENDING_FIRST_PARTY_EXTENSIONS.contains(&name.as_str()), "{name}");
+    }
+    for name in PENDING_FIRST_PARTY_EXTENSIONS {
+        assert!(FIRST_PARTY_EXTENSION_NAMES.contains(name), "{name}");
+    }
+    assert_eq!(
+        registered.len() + PENDING_FIRST_PARTY_EXTENSIONS.len(),
+        FIRST_PARTY_EXTENSION_NAMES.len()
+    );
+}
+
+#[tokio::test]
+async fn first_party_factories_load_and_register_agent_tools() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let cwd = root.path().display().to_string();
+    let store = create_first_party_multi_agent_store();
+    let handles = pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
+    let factories = create_first_party_extension_factories(store, handles);
+    let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+        cwd: cwd.clone(),
+        agent_dir: cwd,
+        extension_factories: factories,
+        no_skills: true,
+        no_prompt_templates: true,
+        no_themes: true,
+        no_context_files: true,
+        ..Default::default()
+    })
+    .expect("loader");
+    loader.reload_with_options(None).await.expect("reload");
+    let result = loader.get_extensions();
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    let paths: Vec<&str> = result
+        .extensions
+        .iter()
+        .map(|extension| extension.path.as_str())
+        .collect();
+    assert_eq!(
+        paths,
+        vec![
+            "<first-party:agents-core>",
+            "<first-party:agent-viewer>",
+            "<first-party:agents-mailbox>"
+        ]
+    );
+    let core = &result.extensions[0];
+    assert!(core.tools.contains_key("spawn_agent"));
+    assert!(!core.tools.contains_key("send_agent_message"));
+    let viewer = &result.extensions[1];
+    assert!(viewer.tools.contains_key("agent_viewer"));
+    let mailbox = &result.extensions[2];
+    assert!(mailbox.tools.contains_key("send_agent_message"));
+    assert!(mailbox.tools.contains_key("contact_parent"));
 }

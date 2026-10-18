@@ -681,7 +681,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/extensions/llama/index.ts` | 228 | 22 | todo |  |  |
 | `coding-agent/src/extensions/llama/ui.ts` | 542 | 22 | todo |  |  |
 | `coding-agent/src/index.ts` | 444 | 22 | partial |  |  |
-| `coding-agent/src/main.ts` | 1364 | 22 | partial | `crates/pi-coding-agent/src/main.rs` | Startup helpers ported and tested (16 behavioral tests): env/app-mode predicates, diagnostics, auth command, initial message, session resolution/creation, fork/session-id validation, session options, CLI paths, action wrappers. `main()` orchestration, `pi` binary, and process differentials pending consolidated master ([traceability](traceability/main.md)). |
+| `coding-agent/src/main.ts` | 1364 | 22 | partial | `crates/pi-coding-agent/src/main.rs` | Startup helpers and first-party factory wiring ported and tested (18 behavioral tests): env/app-mode predicates, diagnostics, auth command, initial message, session resolution/creation, fork/session-id validation, session options, CLI paths, action wrappers, bundled agents factory registration. `main()` orchestration, `pi` binary, and process differentials pending consolidated master ([traceability](traceability/main.md)). |
 | `coding-agent/src/modes/index.ts` | 22 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/assistant-message.ts` | 197 | 22 | todo |  |  |
 | `coding-agent/src/modes/interactive/components/custom-entry.ts` | 62 | 22 | todo |  |  |

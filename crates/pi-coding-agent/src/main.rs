@@ -8,6 +8,7 @@
 use std::future::Future;
 use std::io::Write;
 use std::path::Path;
+use std::sync::Arc;
 
 use pi_ai::auth::types::{AuthOperationOptions, CredentialStore};
 use pi_ai::models::models_are_equal;
@@ -28,12 +29,15 @@ use crate::cli::{
 use crate::config::{get_agent_dir, package_config};
 use crate::core::agent_session_services::AgentSessionRuntimeDiagnostic;
 use crate::core::auth_storage::{AuthStorage, ReadOnlyAuthStorage};
+use crate::core::extensions::loader::ExtensionFactory;
 use crate::core::external_session_importer::{
     ExternalSessionImportOptions, import_external_session_alias, is_external_session_alias,
 };
 use crate::core::model_resolver::{ResolveCliModelOptions, ScopedModel, resolve_cli_model};
 use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use crate::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 use crate::core::project_trust::AppMode;
+use crate::core::resource_loader::InlineExtension;
 use crate::core::sdk::{CreateAgentSessionOptions, NoTools};
 use crate::core::session_manager::{
     NewSessionOptions, SessionInfo, SessionManager, assert_valid_session_id, get_default_session_dir,
@@ -55,6 +59,99 @@ pub type MainResult<T> = Result<T, MainExit>;
 pub struct MainOptions {
     /// Inline extension factories appended after the first-party factories.
     pub extension_factories: Vec<crate::core::extensions::loader::ExtensionFactory>,
+}
+
+/// Every `<first-party:...>` factory registered by `main.ts`, in source order.
+pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
+    "approval-controls",
+    "ask-secret",
+    "browser-cli",
+    "claude-bash-hook",
+    "claude-memory-enrich",
+    "claude-memory-session-end",
+    "codex-fast",
+    "codex-image-generation",
+    "codex-usage",
+    "codex-web-search",
+    "debug",
+    "docs-tree-context",
+    "agents-core",
+    "agent-viewer",
+    "agents-mailbox",
+    "default-footer",
+    "effort",
+    "goal",
+    "bwrap",
+    "pyrun",
+    "loop",
+    "openai-remote-compact",
+    "run-plan",
+    "safe",
+    "spec-validation",
+    "session-archive",
+    "self-restart",
+    "session-id",
+];
+
+/// First-party extensions whose TypeScript factories are not ported on this
+/// branch yet. `main.ts` registers every name in this list unconditionally;
+/// the registry wiring lands with each extension slice.
+pub const PENDING_FIRST_PARTY_EXTENSIONS: &[&str] = &[
+    "approval-controls",
+    "ask-secret",
+    "browser-cli",
+    "claude-bash-hook",
+    "claude-memory-enrich",
+    "claude-memory-session-end",
+    "codex-fast",
+    "codex-image-generation",
+    "codex-usage",
+    "codex-web-search",
+    "debug",
+    "default-footer",
+    "docs-tree-context",
+    "effort",
+    "goal",
+    "bwrap",
+    "pyrun",
+    "loop",
+    "openai-remote-compact",
+    "run-plan",
+    "safe",
+    "spec-validation",
+    "session-archive",
+    "self-restart",
+    "session-id",
+];
+
+/// `firstPartyExtensionFactory`.
+pub fn first_party_extension_factory(name: &str, factory: ExtensionFactory) -> InlineExtension {
+    InlineExtension::Factory {
+        extension_path: Some(format!("<first-party:{name}>")),
+        factory,
+    }
+}
+
+/// `createFirstPartyExtensionFactories` for the bundled extensions ported on
+/// this branch. The shared store and runtime handles are created by `main`.
+pub fn create_first_party_extension_factories(
+    store: Arc<MultiAgentStore>,
+    runtime_handles: crate::bundled_extensions::agents_core::runtime::MultiAgentRuntimeHandles,
+) -> Vec<InlineExtension> {
+    let options = crate::bundled_extensions::agents_core::runtime::MultiAgentExtensionOptions {
+        runtime_handles: Some(runtime_handles),
+        store: Some(store),
+        ..Default::default()
+    };
+    crate::bundled_extensions::agents_extension_factories(&options)
+        .into_iter()
+        .map(|(name, factory)| first_party_extension_factory(name, factory))
+        .collect()
+}
+
+/// `new MultiAgentStore()` as created at module load in the source.
+pub fn create_first_party_multi_agent_store() -> Arc<MultiAgentStore> {
+    Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()))
 }
 
 // =============================================================================
