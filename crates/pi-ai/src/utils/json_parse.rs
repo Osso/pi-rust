@@ -3,6 +3,8 @@ use std::fmt;
 use serde_json::{Map, Value};
 
 const VALID_JSON_ESCAPES: [char; 9] = ['"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u'];
+const JSON_WHITESPACE: &str = " \n\r\t";
+const NUMBER_DELIMITERS: &str = ",]}";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JsonParseError {
@@ -225,7 +227,10 @@ impl PartialParser<'_> {
     }
 
     fn skip_blank(&mut self) {
-        while self.current().is_some_and(|character| " \n\r\t".contains(character)) {
+        while self
+            .current()
+            .is_some_and(|character| JSON_WHITESPACE.contains(character))
+        {
             self.index += 1;
         }
     }
@@ -383,7 +388,7 @@ impl PartialParser<'_> {
             self.index += 1;
         }
         while let Some(character) = self.current() {
-            if ",]}".contains(character) {
+            if NUMBER_DELIMITERS.contains(character) {
                 break;
             }
             self.index += 1;

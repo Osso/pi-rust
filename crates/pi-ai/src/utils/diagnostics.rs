@@ -61,11 +61,7 @@ pub fn extract_diagnostic_error(error: &ThrownValue) -> DiagnosticErrorInfo {
     match error {
         ThrownValue::Error(info) => DiagnosticErrorInfo {
             name: info.name.clone().filter(|name| !name.is_empty()),
-            message: if info.message.is_empty() {
-                info.name.clone().unwrap_or_default()
-            } else {
-                info.message.clone()
-            },
+            message: format_error_message(info),
             stack: info.stack.clone(),
             code: info.code.clone(),
         },

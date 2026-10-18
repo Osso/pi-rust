@@ -8,6 +8,8 @@ use tokio_util::sync::CancellationToken;
 use super::abort::AbortError;
 
 pub const DEFAULT_MAX_RETRY_DELAY_MS: f64 = 60_000.0;
+const RETRYABLE_CLIENT_STATUSES: [f64; 3] = [408.0, 409.0, 429.0];
+const SERVER_ERROR_STATUS: f64 = 500.0;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ProviderErrorHeaders {
@@ -120,7 +122,7 @@ fn is_retryable_provider_error(error: &ProviderError) -> bool {
 
     match error.status {
         None => true,
-        Some(status) => status == 408.0 || status == 409.0 || status == 429.0 || status >= 500.0,
+        Some(status) => RETRYABLE_CLIENT_STATUSES.contains(&status) || status >= SERVER_ERROR_STATUS,
     }
 }
 

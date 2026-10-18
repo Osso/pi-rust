@@ -57,47 +57,63 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = OAuthDeviceCodePollResult<T>>,
 {
-    let deadline = options
-        .expires_in_seconds
-        .map(|seconds| Instant::now() + duration_from_ms(seconds * 1000.0));
-    let mut interval_ms = options
-        .interval_seconds
-        .unwrap_or(DEFAULT_POLL_INTERVAL_SECONDS)
-        .mul_add(1000.0, 0.0)
-        .floor()
-        .max(MINIMUM_INTERVAL_MS);
+    let deadline = deadline_from(options.expires_in_seconds);
+    let mut state = PollState::new(options.interval_seconds);
 
-    let mut slow_down_responses = 0;
     if options.wait_before_first_poll {
-        sleep_until_deadline(interval_ms, deadline, &options.signal).await?;
+        sleep_until_deadline(state.interval_ms, deadline, &options.signal).await?;
     }
 
     while !is_expired(deadline) {
         if options.signal.is_cancelled() {
             return Err(OAuthDeviceCodeError::Cancelled);
         }
-
         match poll().await {
             OAuthDeviceCodePollResult::Complete(value) => return Ok(value),
             OAuthDeviceCodePollResult::Failed { message } => return Err(OAuthDeviceCodeError::Failed(message)),
-            OAuthDeviceCodePollResult::SlowDown { interval_seconds } => {
-                slow_down_responses += 1;
-                interval_ms = slow_down_interval(interval_ms, interval_seconds);
-            }
+            OAuthDeviceCodePollResult::SlowDown { interval_seconds } => state.record_slow_down(interval_seconds),
             OAuthDeviceCodePollResult::Pending => {}
         }
-
         if is_expired(deadline) {
             break;
         }
-        sleep_until_deadline(interval_ms, deadline, &options.signal).await?;
+        sleep_until_deadline(state.interval_ms, deadline, &options.signal).await?;
     }
 
-    Err(if slow_down_responses > 0 {
-        OAuthDeviceCodeError::SlowDownTimedOut
-    } else {
-        OAuthDeviceCodeError::TimedOut
-    })
+    Err(state.timeout_error())
+}
+
+struct PollState {
+    interval_ms: f64,
+    slow_down_responses: usize,
+}
+
+impl PollState {
+    fn new(interval_seconds: Option<f64>) -> Self {
+        let seconds = interval_seconds.unwrap_or(DEFAULT_POLL_INTERVAL_SECONDS);
+        let interval_ms = (seconds * 1000.0).floor().max(MINIMUM_INTERVAL_MS);
+        Self {
+            interval_ms,
+            slow_down_responses: 0,
+        }
+    }
+
+    fn record_slow_down(&mut self, interval_seconds: Option<f64>) {
+        self.slow_down_responses += 1;
+        self.interval_ms = slow_down_interval(self.interval_ms, interval_seconds);
+    }
+
+    fn timeout_error(&self) -> OAuthDeviceCodeError {
+        if self.slow_down_responses > 0 {
+            OAuthDeviceCodeError::SlowDownTimedOut
+        } else {
+            OAuthDeviceCodeError::TimedOut
+        }
+    }
+}
+
+fn deadline_from(expires_in_seconds: Option<f64>) -> Option<Instant> {
+    expires_in_seconds.map(|seconds| Instant::now() + duration_from_ms(seconds * 1000.0))
 }
 
 fn slow_down_interval(current_interval_ms: f64, interval_seconds: Option<f64>) -> f64 {
