@@ -38,6 +38,12 @@ All direct dependencies are exact-pinned.
 
 No runtime dependencies. The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToolExecutionContext` slices add no runtime or development dependency; `ThinkingLevel` does not depend on the distinct protocol schema. Existing public-index typeproofs use the pinned TypeScript toolchain. Typed filesystem/execution, compaction and branch-summary errors, `QueueMode`, `ToolExecutionMode`, and `ThinkingLevel` enum/literal mappings, `CompactionSettings`/`should_compact`, module-local `SUMMARIZATION_SYSTEM_PROMPT` (not exported from the harness root or package index), module-local `CutPointResult`/`ContextUsageEstimate` (not exported from the harness root or package index), `Skill`/`PromptTemplate`/`PromptTemplateDiagnostic`/`AgentHarnessResources` values, prompt-template argument helpers, Skill system-prompt/invocation formatting, summary marker constants and value-only `BashExecutionMessage`/`BranchSummaryMessage` records, compaction file-operation formatting, image MIME/Base64 helpers, edit line-ending/BOM helpers, `FileKind`/`FileInfo` metadata values, output truncation, and binary-output sanitization use only the Rust standard library.
 
+### `pi-tui`
+
+- `unicode-segmentation = 1.13.3` (exact) — Unicode 17.0 grapheme cluster segmentation for `utils`; matches the Unicode tables used by Node 26 `Intl.Segmenter`.
+- No runtime Base64 dependency: `terminal_image` uses the crate-local `src/base64.rs` implementation of Node `Buffer` leniency and standard padded encoding.
+- `src/unicode_tables.rs` is generated data, not a dependency: Unicode 17.0 emoji sequences, character-property ranges, and `get-east-asian-width` 1.6.0 width ranges (see `docs/porting/traceability/utils.md`).
+
 ### `pi-protocol`
 
 No runtime dependencies. CBOR encoding and decoding are hand-written against the pinned TypeScript subset so encoded bytes match the source byte-for-byte; a general-purpose CBOR crate would not guarantee that parity.
@@ -52,4 +58,4 @@ No runtime dependencies. CBOR encoding and decoding are hand-written against the
 - `serde_json = 1.0.151` — serializes recorded spans and schema definitions for the TypeScript differential oracle and attribute wire-shape tests.
 
 - `serde = 1.0.229` — derives typed JSON-lines request and response structures for differential tests.
-- `serde_json = 1.0.151` — serializes and parses the protocol, RPC JSONL, truncation, harness-error, metadata, resource-value, auth-command, and config-value differential-oracle messages. Public-index type proofs use the pinned TypeScript toolchain without adding a Rust dependency.
+- `serde_json = 1.0.151` — differential-oracle transport (including `pi-tui`) and typed protocol/RPC/truncation/harness-error/metadata/resource/auth/config-value messages. Public-index type proofs use the pinned TypeScript toolchain without adding a Rust dependency.
