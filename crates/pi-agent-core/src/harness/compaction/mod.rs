@@ -150,7 +150,8 @@ pub struct CompactionDetails {
 }
 
 /// Compaction thresholds and retention settings.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompactionSettings {
     pub enabled: bool,
     pub reserve_tokens: f64,
