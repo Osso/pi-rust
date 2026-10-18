@@ -1181,6 +1181,10 @@ pub trait PackageCommandEffects {
     fn stdout_columns(&self) -> Option<usize>;
     fn entrypoint(&self) -> Option<String>;
     fn install_context(&self) -> config::InstallContext;
+    /// Inline factories loaded before the project-trust prompt resolves.
+    fn extension_factories(&self) -> Vec<crate::core::resource_loader::InlineExtension> {
+        Vec::new()
+    }
 
     fn create_settings<'a>(
         &'a self,
@@ -1259,7 +1263,7 @@ pub async fn execute_package_command(
             agent_dir: agent_dir.clone(),
             project_trust_override: outcome.project_trust_override,
             use_saved_project_trust_only: matches!(action, PackageAction::Update { .. }),
-            extension_factories: Vec::new(),
+            extension_factories: effects.extension_factories(),
             startup_ui: None,
         })
         .await?;
@@ -1479,8 +1483,9 @@ pub async fn execute_config_command(
     let Some(mut outcome) = handle_config_command(args) else {
         return Ok(None);
     };
-    let Some(PackageAction::Config { local }) = outcome.action.take() else {
-        return Ok(None);
+    let action = outcome.action.take();
+    let Some(PackageAction::Config { local }) = action else {
+        return Ok(Some(outcome));
     };
     let cwd = effects.cwd();
     let agent_dir = effects.agent_dir();
@@ -1490,7 +1495,7 @@ pub async fn execute_config_command(
             agent_dir: agent_dir.clone(),
             project_trust_override: outcome.project_trust_override,
             use_saved_project_trust_only: false,
-            extension_factories: Vec::new(),
+            extension_factories: effects.extension_factories(),
             startup_ui: None,
         })
         .await?;
@@ -1572,6 +1577,7 @@ pub struct DefaultPackageCommandEffects {
     pub extensions_loader: Arc<dyn ProjectTrustExtensionsLoader>,
     pub config_selector: Rc<dyn ConfigSelector>,
     pub fetch: Arc<dyn pi_ai::request::Fetch>,
+    pub extension_factories: Vec<crate::core::resource_loader::InlineExtension>,
 }
 
 /// `selectConfig` for the real host.
@@ -1582,6 +1588,10 @@ pub trait ConfigSelector {
 impl PackageCommandEffects for DefaultPackageCommandEffects {
     fn cwd(&self) -> String {
         self.cwd.clone()
+    }
+
+    fn extension_factories(&self) -> Vec<crate::core::resource_loader::InlineExtension> {
+        self.extension_factories.clone()
     }
 
     fn agent_dir(&self) -> String {

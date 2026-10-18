@@ -945,6 +945,7 @@ fn package_config_effects_struct_exposes_the_host_values() {
         extensions_loader: Arc::new(NoExtensionsLoader),
         config_selector: std::rc::Rc::new(Selector),
         fetch: pi_ai::http::default_fetch(),
+        extension_factories: Vec::new(),
     };
     assert_eq!(effects.cwd(), root.display().to_string());
     assert_eq!(effects.agent_dir(), root.join("agent").display().to_string());

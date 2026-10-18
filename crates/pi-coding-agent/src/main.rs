@@ -5,58 +5,98 @@
 //! land on `master`; see `docs/porting/traceability/main.md` for the current
 //! mapping and the explicit gaps.
 
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::types::{AuthOperationOptions, CredentialStore};
 use pi_ai::models::models_are_equal;
 use tokio_util::sync::CancellationToken;
 
-use crate::cli::args::{Args, ListModels, Mode, parse_args};
+use crate::cli::args::{
+    Args, ExtensionFlag, ExtensionFlagDefault, ExtensionFlagType, ListModels, Mode, parse_args, print_help,
+};
 use crate::cli::auth_check::{
     AuthCheckReason, AuthCheckResult, AuthCheckStatus, CheckProviderAuthOptions, check_provider_auth,
     create_auth_check_model_runtime, get_provider_credential,
 };
+use crate::cli::config_selector::TuiConfigSelector;
 use crate::cli::credential_print::{CredentialPrintKind, resolve_credential_for_print};
 use crate::cli::file_processor::{ProcessFileOptions, process_file_arguments};
 use crate::cli::initial_message::{InitialMessageInput, InitialMessageResult, build_initial_message};
+use crate::cli::list_extensions::list_extensions;
+use crate::cli::list_models::list_models;
+use crate::cli::list_tools::list_tools;
 use crate::cli::project_trust::{CreateProjectTrustContextOptions, create_project_trust_context};
+use crate::cli::resident_console_command::parse_resident_console_args;
 use crate::cli::{
-    AuthCommand, AuthCommandError, AuthCommandKind, AuthCommandTarget, get_auth_command_name, get_auth_command_usage,
-    is_auth_command_help, parse_auth_command, print_auth_command_help, validate_auth_command_args,
+    AuthCommand, AuthCommandError, AuthCommandKind, AuthCommandTarget, ControlCommandDependencies,
+    DebugCommandDependencies, LoginCommandDependencies, SessionsCommandDependencies, get_auth_command_name,
+    get_auth_command_usage, handle_control_command, handle_debug_command, handle_login_command,
+    handle_sessions_command, is_auth_command_help, parse_auth_command, print_auth_command_help,
+    validate_auth_command_args,
 };
-use crate::config::{get_agent_dir, get_user_state_root, package_config};
-use crate::core::agent_session::{MultiAgentRuntimeRole, create_multi_agent_execution_capability};
+use crate::config::{InstallContext, get_agent_dir, get_package_dir, get_user_state_root, package_config};
+use crate::core::agent_session::{ExtensionBindings, MultiAgentRuntimeRole, create_multi_agent_execution_capability};
 use crate::core::agent_session_runtime::{
     CreateAgentSessionRuntimeFactory, CreateAgentSessionRuntimeOptions, CreateAgentSessionRuntimeResult,
+    create_agent_session_runtime,
 };
 use crate::core::agent_session_services::{
     AgentSessionRuntimeDiagnostic, AgentSessionServices, CreateAgentSessionFromServicesOptions,
     CreateAgentSessionServicesOptions, create_agent_session_from_services, create_agent_session_services,
 };
+use crate::core::auth_guidance::format_no_models_available_message;
 use crate::core::auth_storage::{AuthStorage, ReadOnlyAuthStorage};
+use crate::core::export_html::{ExportOptions, export_from_file};
 use crate::core::extensions::loader::ExtensionFactory;
 use crate::core::external_session_importer::{
     ExternalSessionImportOptions, import_external_session_alias, is_external_session_alias,
 };
+use crate::core::http_dispatcher::configure_http_dispatcher;
+use crate::core::lifecycle_coordinator::LifecycleCoordinator;
 use crate::core::model_resolver::{ResolveCliModelOptions, ScopedModel, resolve_cli_model, resolve_model_scope};
 use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use crate::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
+use crate::core::output_guard::{restore_stdout, take_over_stdout};
 use crate::core::project_trust::{AppMode, ResolveProjectTrustedOptions, resolve_project_trusted};
-use crate::core::resource_loader::{DefaultResourceLoaderOptions, InlineExtension};
+use crate::core::resource_loader::{
+    DefaultResourceLoaderOptions, InlineExtension, ResourceLoader,
+};
 use crate::core::sdk::{CreateAgentSessionOptions, NoTools};
-use crate::core::session_control_db::get_control_db_path;
+use crate::core::self_restart::{
+    SelfRestartWaitDependencies, append_self_restart_notice, apply_self_restart_request, consume_self_restart_request,
+    wait_for_self_restart_parent_exit,
+};
+use crate::core::session_control_db::{
+    claim_latest_incoming_message, get_control_db_path, prepare_control_db_for_self_restart,
+};
+use crate::core::session_cwd::{MissingSessionCwdError, get_missing_session_cwd_issue, reopen_session_with_cwd};
+use crate::core::session_directory::{SessionDirectoryOptions, reconcile_session_runtime_bindings};
 use crate::core::session_manager::{
     NewSessionOptions, SessionInfo, SessionManager, assert_valid_session_id, get_default_session_dir,
 };
 use crate::core::settings_manager::{DefaultProjectTrust, SettingsManager, SettingsManagerCreateOptions};
+use crate::core::timings::{TimingLabel, print_timings, reset_timings, time};
 use crate::core::trust_manager::{ProjectTrustDecision, ProjectTrustStore, has_trust_requiring_project_resources};
+use crate::migrations::{run_migrations, show_deprecation_warnings};
+use crate::modes::interactive::theme::{init_theme, stop_theme_watcher};
+use crate::modes::print_mode::{PrintMode, PrintModeOptions, run_print_mode};
+use crate::modes::rpc::rpc_mode::run_rpc_mode;
+use crate::package_manager_cli::{
+    CommandOutcome, DefaultPackageCommandEffects, DefaultProjectTrustExtensionsLoader, execute_config_command,
+    execute_package_command,
+};
 use crate::utils::chalk::Chalk;
 use crate::utils::git_project::read_git_common_directory;
+use crate::utils::git_worktree::resolve_worktree;
+use crate::utils::iso_time::now_iso_string;
 use crate::utils::paths::{PathInputOptions, is_local_path, normalize_path, resolve_path};
+use crate::utils::windows_self_update::cleanup_windows_self_update_quarantine;
 
 /// `process.exit(code)` represented as an error so helpers can stop the flow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,7 +109,7 @@ pub type MainResult<T> = Result<T, MainExit>;
 #[derive(Default)]
 pub struct MainOptions {
     /// Inline extension factories appended after the first-party factories.
-    pub extension_factories: Vec<crate::core::extensions::loader::ExtensionFactory>,
+    pub extension_factories: Vec<InlineExtension>,
 }
 
 /// Every `<first-party:...>` factory registered by `main.ts`, in source order.
@@ -745,7 +785,7 @@ fn invalid_auth_result(requested_auth: &AuthCommandTarget) -> AuthCheckResult {
 /// `runAuthCommand`. `Ok(false)` means the arguments are not an auth command.
 pub async fn run_auth_command(args: &[String], exit_code: &mut i32) -> bool {
     if is_auth_command_help(args) {
-        console_log(&print_auth_command_help());
+        write_stdout(&print_auth_command_help());
         return true;
     }
 
@@ -1442,4 +1482,624 @@ pub fn list_models_search(parsed: &Args) -> Option<Option<&str>> {
 /// `AuthOperationOptions` carrying a 15 second abort timeout.
 pub fn auth_operation_options(signal: CancellationToken) -> AuthOperationOptions {
     AuthOperationOptions::new(Some(signal))
+}
+
+// =============================================================================
+// CLI orchestration
+// =============================================================================
+
+struct CliControlDependencies;
+impl ControlCommandDependencies for CliControlDependencies {}
+
+struct CliSessionsDependencies;
+impl SessionsCommandDependencies for CliSessionsDependencies {}
+
+struct CliDebugDependencies {
+    agent_dir: String,
+}
+
+impl DebugCommandDependencies for CliDebugDependencies {
+    fn agent_dir(&self) -> String {
+        self.agent_dir.clone()
+    }
+}
+
+fn print_command_outcome(outcome: &CommandOutcome) {
+    for line in &outcome.stdout {
+        console_log(line);
+    }
+    for line in &outcome.stderr {
+        console_error(line);
+    }
+}
+
+fn extension_flags_from_loader(resource_loader: &Arc<dyn ResourceLoader>) -> Vec<ExtensionFlag> {
+    resource_loader
+        .get_extensions()
+        .extensions
+        .iter()
+        .flat_map(|extension| extension.flags.values())
+        .map(|flag| ExtensionFlag {
+            name: flag.name.clone(),
+            description: flag.description.clone(),
+            kind: match flag.flag_type {
+                crate::core::extensions::types::FlagType::Boolean => ExtensionFlagType::Boolean,
+                crate::core::extensions::types::FlagType::String => ExtensionFlagType::String,
+            },
+            default: flag.default.as_ref().map(|value| match value {
+                crate::core::extensions::types::FlagValue::Boolean(value) => ExtensionFlagDefault::Boolean(*value),
+                crate::core::extensions::types::FlagValue::String(value) => {
+                    ExtensionFlagDefault::String(value.clone())
+                }
+            }),
+            extension_path: flag.extension_path.clone(),
+        })
+        .collect()
+}
+
+async fn read_piped_stdin() -> Option<String> {
+    if std::io::stdin().is_terminal() {
+        return None;
+    }
+    use tokio::io::AsyncReadExt;
+    let mut data = String::new();
+    let mut stdin = tokio::io::stdin();
+    if stdin.read_to_string(&mut data).await.is_err() {
+        return None;
+    }
+    let trimmed = data.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+async fn prompt_for_missing_session_cwd(
+    issue: &crate::core::session_cwd::SessionCwdIssue,
+    settings_manager: &SettingsManager,
+) -> Option<String> {
+    let env: BTreeMap<String, String> = std::env::vars().collect();
+    let terminal = Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new()));
+    let options = vec![
+        ("Continue".to_owned(), Some(issue.fallback_cwd.clone())),
+        ("Cancel".to_owned(), None),
+    ];
+    crate::cli::startup_ui::show_startup_selector(
+        settings_manager,
+        terminal,
+        &env,
+        &crate::core::session_cwd::format_missing_session_cwd_prompt(issue),
+        options,
+    )
+    .await
+    .ok()
+    .flatten()
+    .flatten()
+}
+
+fn parent_process_id() -> u32 {
+    #[cfg(unix)]
+    {
+        std::os::unix::process::parent_id()
+    }
+    #[cfg(not(unix))]
+    {
+        0
+    }
+}
+
+/// Runs `main.ts` and returns the process exit code.
+///
+/// `Err` carries a thrown error; the CLI entry point prints it as
+/// `Error: <message>` and exits 1.
+pub async fn main(args: &[String], options: MainOptions) -> Result<i32, String> {
+    let mut exit_code = 0;
+    match run_main_inner(args, options, &mut exit_code).await {
+        Ok(Some(code)) => Ok(code),
+        Ok(None) => Ok(exit_code),
+        Err(message) => Err(message),
+    }
+}
+
+/// Rust entry glue: `runCliActionOrReportError(() => main(...))` with the
+/// explicit exit code preserved.
+pub async fn run_main_or_report_error(args: &[String], options: MainOptions) -> i32 {
+    match main(args, options).await {
+        Ok(code) => code,
+        Err(message) => {
+            console_error(&Chalk::stderr().red(&format!("Error: {message}")));
+            1
+        }
+    }
+}
+
+async fn run_main_inner(
+    args: &[String],
+    options: MainOptions,
+    exit_code: &mut i32,
+) -> Result<Option<i32>, String> {
+    match parse_resident_console_args(args) {
+        Ok(Some(command)) => {
+            return Err(format!(
+                "--{} resident console is not ported (cli/resident-console-command.ts)",
+                command.service.as_str()
+            ));
+        }
+        Ok(None) => {}
+        Err(message) => return Err(message),
+    }
+    if args.len() == 1 && args[0] == "architect" {
+        return Err("architect service is not ported (architect/main.ts)".to_owned());
+    }
+    if args.len() == 1 && args[0] == "supervisor" {
+        return Err("supervisor service is not ported (supervisor/main.ts)".to_owned());
+    }
+
+    reset_timings(TimingLabel::Main);
+    let package_command_extension_factories = options.extension_factories.clone();
+    let offline_mode = offline_mode_from_env(args);
+    if offline_mode {
+        // `process.env.PI_OFFLINE = "1"` and `PI_SKIP_VERSION_CHECK = "1"` cannot
+        // be applied safely in edition 2024; see the traceability deviations.
+    }
+
+    if run_auth_command(args, exit_code).await {
+        return Ok(None);
+    }
+
+    if cfg!(windows) {
+        cleanup_windows_self_update_quarantine(&get_package_dir());
+    }
+
+    let mut cwd = std::env::current_dir()
+        .map(|path| path.display().to_string())
+        .unwrap_or_default();
+    let agent_dir = agent_dir_string();
+    let _bootstrap_settings_manager = SettingsManager::create(
+        &cwd,
+        Some(Path::new(&agent_dir)),
+        SettingsManagerCreateOptions {
+            project_trusted: Some(false),
+        },
+    )
+    .map_err(|error| error.to_string())?;
+    let fetch = configure_http_dispatcher(
+        crate::core::http_dispatcher::DEFAULT_HTTP_IDLE_TIMEOUT_MS as f64,
+    )?;
+
+    let package_effects = DefaultPackageCommandEffects {
+        cwd: cwd.clone(),
+        agent_dir: agent_dir.clone(),
+        install_context: InstallContext::for_process(),
+        entrypoint: std::env::current_exe()
+            .ok()
+            .map(|path| path.display().to_string()),
+        extensions_loader: Arc::new(DefaultProjectTrustExtensionsLoader::default()),
+        config_selector: Rc::new(TuiConfigSelector {
+            terminal: Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new())),
+        }),
+        fetch: Arc::clone(&fetch),
+        extension_factories: package_command_extension_factories.clone(),
+    };
+
+    if let Some(outcome) = execute_package_command(args, &package_effects).await? {
+        print_command_outcome(&outcome);
+        let code = outcome.exit_code.unwrap_or(0);
+        return Ok(Some(code));
+    }
+    if let Some(outcome) = execute_config_command(args, &package_effects).await? {
+        print_command_outcome(&outcome);
+        return Ok(None);
+    }
+
+    if run_auth_command(args, exit_code).await {
+        return Ok(None);
+    }
+
+    let login = handle_login_command(
+        args,
+        LoginCommandDependencies {
+            model_runtime: None,
+            io: None,
+            use_browser_cli: None,
+            open_browser_cli_url: None,
+        },
+    )
+    .await?;
+    if login.handled {
+        return Ok(Some(login.exit_code.unwrap_or(0)));
+    }
+
+    let control = handle_control_command(args, &CliControlDependencies)?;
+    if control.handled {
+        return Ok(Some(control.exit_code.unwrap_or(0)));
+    }
+
+    let debug = handle_debug_command(
+        args,
+        &CliDebugDependencies {
+            agent_dir: agent_dir.clone(),
+        },
+    )
+    .await;
+    if debug.handled {
+        return Ok(Some(debug.exit_code.unwrap_or(0)));
+    }
+
+    let sessions = handle_sessions_command(args, &CliSessionsDependencies).await?;
+    if sessions.handled {
+        return Ok(Some(sessions.exit_code.unwrap_or(0)));
+    }
+
+    let mut parsed = parse_args(args);
+    let mut env: BTreeMap<String, String> = std::env::vars().collect();
+    let handoff = consume_self_restart_request(&mut env, std::process::id(), parent_process_id());
+    apply_self_restart_request(&mut parsed, handoff.as_ref());
+    wait_for_self_restart_parent_exit(handoff.as_ref(), &SelfRestartWaitDependencies::default()).await;
+    if handoff.as_ref().and_then(|handoff| handoff.old_pid) == Some(std::process::id()) {
+        prepare_control_db_for_self_restart(
+            &get_control_db_path(&get_user_state_root()),
+            std::process::id(),
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    let multi_agent_store = create_first_party_multi_agent_store();
+    let multi_agent_runtime_handles =
+        crate::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
+    let first_party_extension_factories = create_first_party_extension_factories(
+        Arc::clone(&multi_agent_store),
+        multi_agent_runtime_handles,
+    );
+    let extension_factories = if parsed.no_extensions.is_some_and(|value| value) {
+        options.extension_factories.clone()
+    } else {
+        let mut factories = first_party_extension_factories;
+        factories.extend(options.extension_factories.clone());
+        factories
+    };
+
+    if !parsed.diagnostics.is_empty() {
+        let chalk = Chalk::stderr();
+        for diagnostic in &parsed.diagnostics {
+            let message = match diagnostic.kind {
+                crate::cli::args::DiagnosticType::Error => {
+                    chalk.red(&format!("Error: {}", diagnostic.message))
+                }
+                crate::cli::args::DiagnosticType::Warning => {
+                    chalk.yellow(&format!("Warning: {}", diagnostic.message))
+                }
+            };
+            console_error(&message);
+        }
+        if parsed
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.kind == crate::cli::args::DiagnosticType::Error)
+        {
+            return Ok(Some(1));
+        }
+    }
+    time("parseArgs", TimingLabel::Main);
+
+    if parsed.version.is_some_and(|value| value) {
+        console_log(&package_config().version);
+        return Ok(Some(0));
+    }
+
+    if let Some(export_path) = parsed.export.as_deref() {
+        let output_path = parsed.messages.first().cloned();
+        let options = output_path.map(ExportOptions::from_output_path);
+        let result = export_from_file(export_path, options)
+            .await
+            .map_err(|error| error.message().to_owned())?;
+        console_log(&format!("Exported to: {result}"));
+        return Ok(Some(0));
+    }
+
+    let mut app_mode = resolve_app_mode(
+        &parsed,
+        std::io::stdin().is_terminal(),
+        std::io::stdout().is_terminal(),
+    );
+    let should_take_over_stdout =
+        app_mode != AppMode::Interactive && !is_plain_runtime_metadata_command(&parsed);
+
+    if parsed.mode == Some(Mode::Rpc) && !parsed.file_args.is_empty() {
+        console_error(&Chalk::stderr().red("Error: @file arguments are not supported in RPC mode"));
+        return Ok(Some(1));
+    }
+
+    if let Err(MainExit(code)) = validate_fork_flags(&parsed) {
+        return Ok(Some(code));
+    }
+    if let Err(MainExit(code)) = validate_session_id_flags(&parsed) {
+        return Ok(Some(code));
+    }
+    if let Some(worktree) = parsed.worktree.as_deref() {
+        cwd = resolve_worktree(worktree, Path::new(&cwd))
+            .map(|path| path.display().to_string())
+            .map_err(|error| error.to_string())?;
+    }
+
+    let migrations = run_migrations(&cwd);
+    time("runMigrations", TimingLabel::Main);
+
+    let mut startup_settings_manager = SettingsManager::create(
+        &cwd,
+        Some(Path::new(&agent_dir)),
+        SettingsManagerCreateOptions {
+            project_trusted: None,
+        },
+    )
+    .map_err(|error| error.to_string())?;
+    report_diagnostics(&collect_settings_diagnostics(
+        &mut startup_settings_manager,
+        "startup session lookup",
+    ));
+
+    if app_mode == AppMode::Interactive
+        && parsed.help != Some(true)
+        && parsed.list_models.is_none()
+        && crate::cli::startup_ui::should_run_first_time_setup_for_process()
+    {
+        return Err("first-time setup is not ported (cli/startup-ui.ts showFirstTimeSetup)".to_owned());
+    }
+
+    let env_session_dir = std::env::var(crate::config::env_session_dir()).ok();
+    let session_dir = match parsed.session_dir.as_deref() {
+        Some(dir) => Some(normalize_session_dir(dir)?),
+        None => match env_session_dir {
+            Some(dir) => Some(crate::config::expand_tilde_path(&dir)),
+            None => startup_settings_manager.get_session_dir(),
+        },
+    };
+    let control_db_path = get_control_db_path(&get_user_state_root());
+    let mut session_manager = match create_session_manager(
+        &parsed,
+        &cwd,
+        session_dir.as_deref(),
+        &startup_settings_manager,
+        Some(&control_db_path),
+    )
+    .await
+    {
+        Ok(manager) => manager,
+        Err(MainExit(code)) => return Ok(Some(code)),
+    };
+    session_manager.set_metadata_control_db_path(
+        Some(&control_db_path),
+        crate::core::session_manager::SetMetadataControlDbPathOptions {
+            index_message_text: None,
+            cwd_override: None,
+        },
+    );
+    if let Some(issue) = get_missing_session_cwd_issue(&session_manager, &cwd) {
+        if handoff.is_some() {
+            session_manager = reopen_session_with_cwd(
+                &issue,
+                session_dir.as_deref(),
+                &issue.fallback_cwd,
+                &control_db_path,
+            )
+            .map_err(|error| error.to_string())?;
+        } else if app_mode == AppMode::Interactive {
+            let Some(selected_cwd) =
+                prompt_for_missing_session_cwd(&issue, &startup_settings_manager).await
+            else {
+                return Ok(Some(0));
+            };
+            session_manager = reopen_session_with_cwd(
+                &issue,
+                session_dir.as_deref(),
+                &selected_cwd,
+                &control_db_path,
+            )
+            .map_err(|error| error.to_string())?;
+        } else {
+            console_error(&Chalk::stderr().red(&MissingSessionCwdError::new(issue).to_string()));
+            return Ok(Some(1));
+        }
+    }
+    append_self_restart_notice(&mut session_manager, handoff.as_ref(), std::process::id())
+        .map_err(|error| error.to_string())?;
+    if let Some(name) = parsed.name.as_deref() {
+        let name = name.trim();
+        if name.is_empty() {
+            console_error(&Chalk::stderr().red("Error: --name requires a non-empty value"));
+            return Ok(Some(1));
+        }
+        session_manager
+            .append_session_info(name)
+            .map_err(|error| error.to_string())?;
+    }
+    if should_take_over_stdout {
+        take_over_stdout();
+    }
+    time("createSessionManager", TimingLabel::Main);
+    if app_mode == AppMode::Interactive {
+        let _control_message = claim_latest_incoming_message(&control_db_path)
+            .map_err(|error| error.to_string())?;
+    }
+
+    let trust_store = Arc::new(ProjectTrustStore::new(&agent_dir));
+    let trust_prompt_mode = if parsed.help == Some(true)
+        || parsed.list_models.is_some()
+        || parsed.list_tools == Some(true)
+        || parsed.list_extensions == Some(true)
+    {
+        AppMode::Print
+    } else {
+        app_mode
+    };
+    let project_trust_by_cwd = Arc::new(Mutex::new(HashMap::new()));
+    let additional_extension_paths =
+        resolve_cli_paths(&cwd, parsed.extensions.as_deref())?.unwrap_or_default();
+    let additional_skill_paths = resolve_cli_paths(&cwd, parsed.skills.as_deref())?.unwrap_or_default();
+    let additional_prompt_template_paths =
+        resolve_cli_paths(&cwd, parsed.prompt_templates.as_deref())?.unwrap_or_default();
+    let additional_theme_paths = resolve_cli_paths(&cwd, parsed.themes.as_deref())?.unwrap_or_default();
+
+    let create_runtime = create_runtime_factory(RuntimeFactoryOptions {
+        parsed: parsed.clone(),
+        agent_dir: agent_dir.clone(),
+        startup_default_project_trust: startup_settings_manager.get_default_project_trust(),
+        trust_store,
+        trust_prompt_mode,
+        app_mode,
+        project_trust_by_cwd,
+        additional_extension_paths,
+        additional_skill_paths,
+        additional_prompt_template_paths,
+        additional_theme_paths,
+        extension_factories,
+    });
+    time("createRuntime", TimingLabel::Main);
+    let session_cwd = session_manager.get_cwd().to_owned();
+    let runtime = create_agent_session_runtime(
+        create_runtime,
+        &session_cwd,
+        &agent_dir,
+        session_manager,
+    )
+    .await?;
+    reconcile_session_runtime_bindings(&control_db_path, &SessionDirectoryOptions::default())
+        .map_err(|error| error.to_string())?;
+    LifecycleCoordinator::reconcile_dead_detached_runtimes(&control_db_path, &now_iso_string())
+        .map_err(|error| error.to_string())?;
+    time("createAgentSessionRuntime", TimingLabel::Main);
+
+    let services = runtime.services();
+    let settings_manager = Arc::clone(&services.settings_manager);
+    let model_runtime = services.model_runtime.clone();
+    let resource_loader = Arc::clone(&services.resource_loader);
+    let session = runtime.session().clone();
+    let model_fallback_message = runtime.model_fallback_message().map(str::to_owned);
+    let (image_auto_resize, theme, http_idle_timeout_ms) = {
+        let settings = settings_manager
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        (
+            settings.get_image_auto_resize(),
+            settings.get_theme().map(str::to_owned),
+            settings.get_http_idle_timeout_ms().map_err(|error| error.to_string())?,
+        )
+    };
+    let _ = configure_http_dispatcher(http_idle_timeout_ms as f64)?;
+
+    if parsed.help == Some(true) {
+        write_stdout(&print_help(&extension_flags_from_loader(&resource_loader)));
+        return Ok(Some(0));
+    }
+
+    if let Some(search_pattern) = list_models_search(&parsed) {
+        let timeout = TimeoutSignal::new(15_000);
+        let output = list_models(&model_runtime, search_pattern, Some(timeout.token())).await?;
+        if let Some(warning) = output.warning {
+            console_error(&warning);
+        }
+        write_stdout(&output.stdout);
+        return Ok(Some(0));
+    }
+
+    if parsed.list_tools == Some(true) || parsed.list_extensions == Some(true) {
+        session.bind_extensions(ExtensionBindings::default()).await;
+        if parsed.list_tools == Some(true) {
+            let tools: Vec<crate::core::extensions::types::ToolInfo> = session
+                .get_all_tools()
+                .into_iter()
+                .map(|tool| crate::core::extensions::types::ToolInfo {
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.parameters,
+                    prompt_guidelines: (!tool.prompt_guidelines.is_empty()).then_some(tool.prompt_guidelines),
+                    source_info: tool.source_info,
+                })
+                .collect();
+            write_stdout(&list_tools(&tools, &session.get_active_tool_names()));
+        } else {
+            write_stdout(&list_extensions(&resource_loader.get_extensions().extensions));
+        }
+        return Ok(Some(0));
+    }
+
+    let stdin_content = if app_mode != AppMode::Rpc {
+        let content = read_piped_stdin().await;
+        if content.is_some() && app_mode == AppMode::Interactive {
+            app_mode = AppMode::Print;
+        }
+        content
+    } else {
+        None
+    };
+    time("readPipedStdin", TimingLabel::Main);
+
+    let initial = prepare_initial_message(&mut parsed, image_auto_resize, stdin_content.as_deref()).await?;
+    time("prepareInitialMessage", TimingLabel::Main);
+    init_theme(theme.as_deref(), app_mode == AppMode::Interactive);
+    time("initTheme", TimingLabel::Main);
+
+    if app_mode == AppMode::Interactive && !migrations.deprecation_warnings.is_empty() {
+        show_deprecation_warnings(&migrations.deprecation_warnings).await;
+    }
+    time("resolveModelScope", TimingLabel::Main);
+    report_diagnostics(runtime.diagnostics());
+    if runtime
+        .diagnostics()
+        .iter()
+        .any(|diagnostic| diagnostic.diagnostic_type == "error")
+    {
+        if runtime
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("Failed to load extension"))
+        {
+            console_error(&Chalk::stderr().yellow(
+                "Hint: Start without extensions using \"pi -ne\".",
+            ));
+        }
+        return Ok(Some(1));
+    }
+    time("createAgentSession", TimingLabel::Main);
+
+    let no_models_message = format_no_models_available_message();
+    if app_mode != AppMode::Interactive
+        && model_fallback_message.as_deref() == Some(no_models_message.as_str())
+    {
+        console_error(&Chalk::stderr().red(&no_models_message));
+        return Ok(Some(1));
+    }
+
+    let startup_benchmark = is_truthy_env_flag(std::env::var("PI_STARTUP_BENCHMARK").ok().as_deref());
+    if startup_benchmark && app_mode != AppMode::Interactive {
+        console_error(&Chalk::stderr().red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
+        return Ok(Some(1));
+    }
+
+    refresh_rpc_model_catalogs(&model_runtime, offline_mode, app_mode);
+
+    if app_mode == AppMode::Rpc {
+        print_timings();
+        run_rpc_mode(runtime).await;
+        return Ok(None);
+    }
+    if app_mode == AppMode::Interactive {
+        return Err("Interactive mode is not ported (modes/interactive/interactive-mode.ts)".to_owned());
+    }
+
+    print_timings();
+    let print_mode = match to_print_output_mode(app_mode) {
+        Mode::Json => PrintMode::Json,
+        _ => PrintMode::Text,
+    };
+    let result = run_print_mode(
+        runtime,
+        PrintModeOptions {
+            mode: print_mode,
+            messages: parsed.messages.clone(),
+            initial_message: initial.initial_message,
+            initial_images: initial.initial_images.unwrap_or_default(),
+        },
+    )
+    .await;
+    stop_theme_watcher();
+    restore_stdout();
+    Ok((result != 0).then_some(result))
 }

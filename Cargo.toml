@@ -11,6 +11,8 @@ members = [
     "crates/pi-session-sqlite",
     "crates/pi-js-compat",
 ]
+# `cargo run` at the workspace root builds the `pi` executable.
+default-members = ["crates/pi-coding-agent"]
 resolver = "3"
 
 [workspace.package]
