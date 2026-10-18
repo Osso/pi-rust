@@ -1365,36 +1365,23 @@ impl DefaultResourceLoader {
         }
 
         let normalized_resource_path = resolve_from_process_cwd(resource_path);
-        if let Some(extra_source_infos) = extra_source_infos {
-            for (source_path, source_info) in extra_source_infos {
-                let normalized_source_path = resolve_from_process_cwd(source_path);
-                if normalized_resource_path == normalized_source_path
-                    || normalized_resource_path
-                        .starts_with(&format!("{normalized_source_path}{}", std::path::MAIN_SEPARATOR))
-                {
-                    return Ok(Some(SourceInfo {
-                        path: resource_path.to_owned(),
-                        ..source_info.clone()
-                    }));
-                }
-            }
+        if let Some(source_info) =
+            extra_source_infos.and_then(|infos| find_path_prefix_match(infos, &normalized_resource_path))
+        {
+            return Ok(Some(SourceInfo {
+                path: resource_path.to_owned(),
+                ..source_info.clone()
+            }));
         }
 
         if let Some(metadata_by_path) = metadata_by_path {
-            if let Some(metadata) = metadata_by_path
+            let exact_metadata = metadata_by_path
                 .get(&normalized_resource_path)
-                .or_else(|| metadata_by_path.get(resource_path))
-            {
+                .or_else(|| metadata_by_path.get(resource_path));
+            let metadata =
+                exact_metadata.or_else(|| find_path_prefix_match(metadata_by_path, &normalized_resource_path));
+            if let Some(metadata) = metadata {
                 return Ok(Some(create_source_info(resource_path, metadata)));
-            }
-            for (source_path, metadata) in metadata_by_path {
-                let normalized_source_path = resolve_from_process_cwd(source_path);
-                if normalized_resource_path == normalized_source_path
-                    || normalized_resource_path
-                        .starts_with(&format!("{normalized_source_path}{}", std::path::MAIN_SEPARATOR))
-                {
-                    return Ok(Some(create_source_info(resource_path, metadata)));
-                }
             }
         }
 
@@ -1421,48 +1408,37 @@ impl DefaultResourceLoader {
         }
 
         let normalized_path = resolve_from_process_cwd(file_path);
-        let agent_roots = [
-            Path::new(&self.agent_dir).join("skills"),
-            Path::new(&self.agent_dir).join("prompts"),
-            Path::new(&self.agent_dir).join("themes"),
-            Path::new(&self.agent_dir).join("extensions"),
-        ];
-        let project_roots = [
-            Path::new(&self.cwd)
-                .join(&package_config().config_dir_name)
-                .join("skills"),
-            Path::new(&self.cwd)
-                .join(&package_config().config_dir_name)
-                .join("prompts"),
-            Path::new(&self.cwd)
-                .join(&package_config().config_dir_name)
-                .join("themes"),
-            Path::new(&self.cwd)
-                .join(&package_config().config_dir_name)
-                .join("extensions"),
+        let config_dir = package_config().config_dir_name.clone();
+        let roots_by_scope = [
+            (Path::new(&self.agent_dir).join("skills"), SourceScope::User),
+            (Path::new(&self.agent_dir).join("prompts"), SourceScope::User),
+            (Path::new(&self.agent_dir).join("themes"), SourceScope::User),
+            (Path::new(&self.agent_dir).join("extensions"), SourceScope::User),
+            (
+                Path::new(&self.cwd).join(&config_dir).join("skills"),
+                SourceScope::Project,
+            ),
+            (
+                Path::new(&self.cwd).join(&config_dir).join("prompts"),
+                SourceScope::Project,
+            ),
+            (
+                Path::new(&self.cwd).join(&config_dir).join("themes"),
+                SourceScope::Project,
+            ),
+            (
+                Path::new(&self.cwd).join(&config_dir).join("extensions"),
+                SourceScope::Project,
+            ),
         ];
 
-        for root in agent_roots {
+        for (root, scope) in roots_by_scope {
             if is_under_path(&normalized_path, &root) {
                 return Ok(create_synthetic_source_info(
                     file_path,
                     &crate::core::source_info::SyntheticSourceInfoOptions {
                         source: "local".to_owned(),
-                        scope: Some(SourceScope::User),
-                        origin: Some(SourceOrigin::TopLevel),
-                        base_dir: Some(root.to_string_lossy().into_owned()),
-                    },
-                ));
-            }
-        }
-
-        for root in project_roots {
-            if is_under_path(&normalized_path, &root) {
-                return Ok(create_synthetic_source_info(
-                    file_path,
-                    &crate::core::source_info::SyntheticSourceInfoOptions {
-                        source: "local".to_owned(),
-                        scope: Some(SourceScope::Project),
+                        scope: Some(scope),
                         origin: Some(SourceOrigin::TopLevel),
                         base_dir: Some(root.to_string_lossy().into_owned()),
                     },
@@ -1911,6 +1887,15 @@ fn dedupe_themes(themes: Vec<Theme>) -> LoadedThemes {
         themes: seen.into_values().collect(),
         diagnostics,
     }
+}
+
+fn find_path_prefix_match<'a, T>(entries: &'a IndexMap<String, T>, normalized_path: &str) -> Option<&'a T> {
+    entries.iter().find_map(|(source_path, value)| {
+        let normalized_source_path = resolve_from_process_cwd(source_path);
+        let is_match = normalized_path == normalized_source_path
+            || normalized_path.starts_with(&format!("{normalized_source_path}{}", std::path::MAIN_SEPARATOR));
+        is_match.then_some(value)
+    })
 }
 
 fn is_under_path(target: &str, root: &Path) -> bool {
