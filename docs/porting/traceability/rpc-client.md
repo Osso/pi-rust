@@ -24,12 +24,13 @@ cannot produce (`SIGKILL` always terminates). The TypeScript test files `rpc-cli
 | `prompt`/`steer`/`followUp`/`abort`/`interrupt`/`setThinkingLevel`/`setSteeringMode`/`setFollowUpMode`/`setAutoCompaction`/`setAutoRetry`/`abortRetry`/`abortBash`/`setSessionName` | Send only; a `success: false` response is ignored | same-named methods; `rejects_commands_sent_after_stop_begins` |
 | `newSession`, `getState`, `setModel`, `cycleModel`, `getAvailableModels`, `cycleThinkingLevel`, `getAvailableThinkingLevels`, `exportHtml`, `switchSession`, `fork`, `clone`, `getForkMessages`, `getEntries`, `getTree`, `getLastAssistantText`, `getMessages`, `getCommands` | `getData`: throw the response `error` on failure, otherwise return `data` | `response_data` + typed result structs; `surfaces_command_failure_messages`, `sends_jsonl_commands_with_id_last_and_correlates_responses` |
 | `clone()` | Sends `{ type: "clone" }` and returns `data.cancelled` | `clone_session`; `clone_sends_the_clone_command_and_returns_cancelled` |
+| `compact(customInstructions?)` | Sends `{ type: "compact", customInstructions }` (omitted when absent) and returns `data` | `compact` + `core::compaction::CompactionResult`; `compact_sends_custom_instructions_and_returns_the_result`, `compact_omits_absent_custom_instructions` |
+| `getSessionStats()` | Sends `{ type: "get_session_stats" }` and returns `data` | `get_session_stats` + `core::agent_session::SessionStats`; `get_session_stats_returns_the_stats_payload` |
 
 ## Pending in this slice
 
-- `compact()`, `bash()`, and `getSessionStats()` are not yet ported: their payload types
-  (`CompactionResult`, `BashResult`, `SessionStats`) belong to the in-flight `ca-compaction-export`,
-  `ca-tools-core`, and `ca-agent-session` slices. No duplicate public types are defined here.
+- `bash()` is not yet ported: `BashResult` and `AgentSession::execute_bash` belong to the in-flight
+  `ca-detached` slice. No duplicate public type is defined here.
 
 ## Exclusions and deviations
 
@@ -53,4 +54,6 @@ cannot produce (`SIGKILL` always terminates). The TypeScript test files `rpc-cli
 - `wait_for_idle`/`collect_events` take an explicit `Duration`; `DEFAULT_EVENT_TIMEOUT` is the TypeScript
   60 s default.
 - Test seam: `RpcClient::with_kill` injects the signal sender so the stop-failure path can be tested.
+- `core::agent_session::SessionStats`, `SessionTokenStats`, and `ContextUsage` gained `Deserialize` so the
+  typed client can parse `get_session_stats` data (additive derive only).
 - No source bug found.

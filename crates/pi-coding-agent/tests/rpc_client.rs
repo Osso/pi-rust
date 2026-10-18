@@ -438,3 +438,165 @@ setInterval(() => {}, 1000);
 
     client.stop().await.expect("client must stop");
 }
+
+#[tokio::test]
+async fn compact_sends_custom_instructions_and_returns_the_result() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let script = write_script(
+        &dir,
+        r#"import { createInterface } from "node:readline";
+const lines = createInterface({ input: process.stdin });
+lines.on("line", (line) => {
+  const command = JSON.parse(line);
+  process.stdout.write(JSON.stringify({ type: "echo", line }) + "\n");
+  process.stdout.write(JSON.stringify({
+    id: command.id,
+    type: "response",
+    command: "compact",
+    success: true,
+    data: {
+      summary: "Condensed",
+      firstKeptEntryId: "entry-2",
+      tokensBefore: 1200,
+      durationMs: 35,
+      estimatedTokensAfter: 300
+    }
+  }) + "\n");
+});
+"#,
+    );
+    let client = RpcClient::new(options(script));
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    let _subscription = client.on_event(move |event| {
+        let _ = sender.send(event.clone());
+    });
+    client.start().await.expect("client must start");
+
+    let result = client
+        .compact(Some("Keep decisions".to_owned()))
+        .await
+        .expect("compact must succeed");
+    assert_eq!(result.summary, "Condensed");
+    assert_eq!(result.first_kept_entry_id, "entry-2");
+    assert_eq!(result.tokens_before, 1200.0);
+    assert_eq!(result.duration_ms, Some(35.0));
+    assert_eq!(result.estimated_tokens_after, Some(300.0));
+
+    let event = tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+        .await
+        .expect("event must arrive")
+        .expect("event channel must stay open");
+    assert_eq!(
+        event,
+        json!({
+            "type": "echo",
+            "line": "{\"type\":\"compact\",\"customInstructions\":\"Keep decisions\",\"id\":\"req_1\"}"
+        })
+    );
+
+    client.stop().await.expect("client must stop");
+}
+
+#[tokio::test]
+async fn compact_omits_absent_custom_instructions() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let script = write_script(
+        &dir,
+        r#"import { createInterface } from "node:readline";
+const lines = createInterface({ input: process.stdin });
+lines.on("line", (line) => {
+  const command = JSON.parse(line);
+  process.stdout.write(JSON.stringify({ type: "echo", line }) + "\n");
+  process.stdout.write(JSON.stringify({
+    id: command.id,
+    type: "response",
+    command: "compact",
+    success: true,
+    data: { summary: "s", firstKeptEntryId: "e", tokensBefore: 1 }
+  }) + "\n");
+});
+"#,
+    );
+    let client = RpcClient::new(options(script));
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    let _subscription = client.on_event(move |event| {
+        let _ = sender.send(event.clone());
+    });
+    client.start().await.expect("client must start");
+
+    let result = client.compact(None).await.expect("compact must succeed");
+    assert_eq!(result.duration_ms, None);
+
+    let event = tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+        .await
+        .expect("event must arrive")
+        .expect("event channel must stay open");
+    assert_eq!(
+        event,
+        json!({"type": "echo", "line": "{\"type\":\"compact\",\"id\":\"req_1\"}"})
+    );
+
+    client.stop().await.expect("client must stop");
+}
+
+#[tokio::test]
+async fn get_session_stats_returns_the_stats_payload() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let script = write_script(
+        &dir,
+        r#"import { createInterface } from "node:readline";
+const lines = createInterface({ input: process.stdin });
+lines.on("line", (line) => {
+  const command = JSON.parse(line);
+  process.stdout.write(JSON.stringify({ type: "echo", line }) + "\n");
+  process.stdout.write(JSON.stringify({
+    id: command.id,
+    type: "response",
+    command: "get_session_stats",
+    success: true,
+    data: {
+      sessionFile: "/tmp/session.jsonl",
+      sessionId: "session-1",
+      userMessages: 2,
+      assistantMessages: 1,
+      toolCalls: 3,
+      toolResults: 3,
+      totalMessages: 6,
+      tokens: { input: 10, output: 20, cacheRead: 1, cacheWrite: 2, total: 33 },
+      cost: 0.5,
+      contextUsage: { tokens: 100, contextWindow: 1000, percent: 10 }
+    }
+  }) + "\n");
+});
+"#,
+    );
+    let client = RpcClient::new(options(script));
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    let _subscription = client.on_event(move |event| {
+        let _ = sender.send(event.clone());
+    });
+    client.start().await.expect("client must start");
+
+    let stats = client.get_session_stats().await.expect("stats must succeed");
+    assert_eq!(stats.session_file.as_deref(), Some("/tmp/session.jsonl"));
+    assert_eq!(stats.session_id, "session-1");
+    assert_eq!(stats.user_messages, 2);
+    assert_eq!(stats.assistant_messages, 1);
+    assert_eq!(stats.tool_calls, 3);
+    assert_eq!(stats.tool_results, 3);
+    assert_eq!(stats.total_messages, 6);
+    assert_eq!(stats.tokens.total, 33.0);
+    assert_eq!(stats.cost, 0.5);
+    assert_eq!(stats.context_usage.expect("context usage").percent, 10.0);
+
+    let event = tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+        .await
+        .expect("event must arrive")
+        .expect("event channel must stay open");
+    assert_eq!(
+        event,
+        json!({"type": "echo", "line": "{\"type\":\"get_session_stats\",\"id\":\"req_1\"}"})
+    );
+
+    client.stop().await.expect("client must stop");
+}

@@ -27,7 +27,7 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, ImageContent, InputSource, Model, ProviderHeaders, ProviderRetryEvent,
     StopReason, TextContent, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
@@ -232,7 +232,7 @@ pub struct ModelCycleResult {
 }
 
 /// Session statistics for `/session`.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStats {
     pub session_file: Option<String>,
@@ -249,7 +249,7 @@ pub struct SessionStats {
     pub context_usage: Option<ContextUsage>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionTokenStats {
     #[serde(serialize_with = "pi_js_compat::number::serialize")]
@@ -265,7 +265,7 @@ pub struct SessionTokenStats {
 }
 
 /// `ContextUsage`.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextUsage {
     #[serde(serialize_with = "pi_js_compat::number::serialize")]

@@ -23,6 +23,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::{ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, watch};
 
+use crate::core::agent_session::SessionStats;
+use crate::core::compaction::CompactionResult;
 use crate::core::session_manager::{SessionEntry, SessionTreeNode};
 use crate::modes::rpc::jsonl::{JsonlLineReader, attach_jsonl_line_reader, serialize_json_line};
 use crate::modes::rpc::rpc_types::{
@@ -733,6 +735,11 @@ impl RpcClient {
         Ok(())
     }
 
+    pub async fn compact(&self, custom_instructions: Option<String>) -> Result<CompactionResult, RpcClientError> {
+        let response = self.send(RpcCommandBody::Compact { custom_instructions }).await?;
+        response_data(response, "compact")
+    }
+
     pub async fn set_auto_retry(&self, enabled: bool) -> Result<(), RpcClientError> {
         self.send(RpcCommandBody::SetAutoRetry { enabled }).await?;
         Ok(())
@@ -746,6 +753,11 @@ impl RpcClient {
     pub async fn abort_bash(&self) -> Result<(), RpcClientError> {
         self.send(RpcCommandBody::AbortBash).await?;
         Ok(())
+    }
+
+    pub async fn get_session_stats(&self) -> Result<SessionStats, RpcClientError> {
+        let response = self.send(RpcCommandBody::GetSessionStats).await?;
+        response_data(response, "get_session_stats")
     }
 
     pub async fn export_html(&self, output_path: Option<String>) -> Result<ExportHtmlResult, RpcClientError> {
