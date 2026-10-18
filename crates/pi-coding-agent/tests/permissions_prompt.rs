@@ -50,6 +50,7 @@ fn counting_reviewer(result: Option<ToolCallEventResult>, calls: Arc<Mutex<usize
 fn blocked(reason: &str) -> Option<ToolCallEventResult> {
     Some(ToolCallEventResult {
         block: Some(true),
+        input: None,
         reason: Some(reason.to_owned()),
         terminate: None,
     })

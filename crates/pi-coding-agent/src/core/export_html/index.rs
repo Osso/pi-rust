@@ -99,7 +99,10 @@ pub struct RenderedToolResult {
 }
 
 /// Renders custom tools to HTML using their TUI renderers.
-pub trait ToolHtmlRenderer: Send + Sync {
+///
+/// `ComponentRef` is `Rc`-based, so the renderer is single-threaded like the
+/// TypeScript object it replaces.
+pub trait ToolHtmlRenderer {
     fn render_call(&self, tool_call_id: &str, tool_name: &str, args: &Value) -> Option<String>;
     fn render_result(
         &self,
@@ -116,7 +119,7 @@ pub trait ToolHtmlRenderer: Send + Sync {
 pub struct ExportOptions {
     pub output_path: Option<String>,
     pub theme_name: Option<String>,
-    pub tool_renderer: Option<std::sync::Arc<dyn ToolHtmlRenderer>>,
+    pub tool_renderer: Option<std::rc::Rc<dyn ToolHtmlRenderer>>,
 }
 
 impl ExportOptions {

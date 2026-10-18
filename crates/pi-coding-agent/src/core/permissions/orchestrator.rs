@@ -33,6 +33,7 @@ pub async fn orchestrate_tool_approval(options: &ApprovalOrchestratorOptions) ->
         ApprovalPolicyDecision::Allow => None,
         ApprovalPolicyDecision::Block { reason } => Some(ToolCallEventResult {
             block: Some(true),
+            input: None,
             reason: Some(reason),
             terminate: None,
         }),

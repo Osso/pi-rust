@@ -75,16 +75,32 @@ pub struct CompactionSourceInfo {
 pub struct CompactionResult<T = Value> {
     pub summary: String,
     pub first_kept_entry_id: String,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub tokens_before: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "pi_js_compat::number::serialize_option"
+    )]
     pub duration_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "pi_js_compat::number::serialize_option"
+    )]
     pub estimated_tokens_after: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "pi_js_compat::number::serialize_option"
+    )]
     pub kept_from_previous_context_tokens: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "pi_js_compat::number::serialize_option"
+    )]
     pub compacted_result_tokens: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "pi_js_compat::number::serialize_option"
+    )]
     pub compacted_result_bytes: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<CompactionSourceInfo>,
@@ -904,6 +920,7 @@ pub struct CompactionPreparation {
     /// Messages turned into a turn-prefix summary when splitting.
     pub turn_prefix_messages: Vec<AgentMessage>,
     pub is_split_turn: bool,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub tokens_before: f64,
     /// Summary from the previous compaction, for iterative update.
     #[serde(skip_serializing_if = "Option::is_none")]

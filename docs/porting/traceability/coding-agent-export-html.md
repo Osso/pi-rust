@@ -10,7 +10,7 @@ Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 | TypeScript | Rust | Tests |
 |---|---|---|
-| `ToolHtmlRenderer` | `ToolHtmlRenderer` trait | exercised by `pre_render_custom_tools` once `tool-renderer.ts` lands |
+| `ToolHtmlRenderer` | `ToolHtmlRenderer` trait | `tests/tool_renderer.rs`, live-session export |
 | `ExportOptions` | `ExportOptions` (+ `from_output_path` for the `string` overload) | both export tests |
 | `exportSessionToHtml` | `export_session_to_html` | `exports_live_sessions_with_prompt_and_tools`, `rejects_in_memory_sessions` |
 | `exportFromFile` | `export_from_file` | `exports_file_sessions_with_embedded_session_data`, differential (3 themes + missing file) |
@@ -31,7 +31,7 @@ Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
 | JavaScript `String.replace` `$`-substitution | `pi_js_compat::string::replace` | differential (highlight.js contains `$&` and `$$`) |
 | base64 session payload | `pi_js_compat::base64::btoa` | decoded session-data assertions + differential |
 | `TEMPLATE_RENDERED_TOOLS` | `TEMPLATE_RENDERED_TOOLS` | live-session export (custom calls absent) |
-| `preRenderCustomTools` | `pre_render_custom_tools` | requires `tool-renderer.ts` |
+| `preRenderCustomTools` | `pre_render_custom_tools` | live-session export; `tool_renderer.rs` |
 | in-memory / empty / missing-file errors | `ExportError` messages | `rejects_in_memory_sessions`, differential missing file |
 | default output name `APP_NAME-session-<basename>.html` | `default_output_path` | not directly tested (would write into the process cwd) |
 
@@ -51,12 +51,29 @@ Byte-identical copies of the pinned source assets live in
 
 Source paths: `packages/coding-agent/src/core/export-html/{template.html,template.css,template.js,vendor/*}`.
 
-## Gaps / deviations
+## `tool-renderer.ts`
 
-- `tool-renderer.ts` is not ported yet: the extensions API currently returns
-  `Arc<dyn Component>`, which cannot be rendered through `Component::render(&mut self)`.
-  A `ComponentRef`-based contract is in flight; `pre_render_custom_tools` and the
-  `ToolHtmlRenderer` trait are ready for it.
+Rust: `crates/pi-coding-agent/src/core/export_html/tool_renderer.rs`. Tests:
+`tests/tool_renderer.rs` (9 tests, including the ported whitespace test).
+
+| TypeScript | Rust | Tests |
+|---|---|---|
+| `ToolHtmlRendererDeps` | `ToolHtmlRendererDeps` | every test |
+| `createToolHtmlRenderer` | `create_tool_html_renderer` | every test |
+| `isBlankRenderedLine` / `trimRenderedResultLines` | same names | `trims_tui_spacing_lines_from_custom_tool_result_html` |
+| render-call cache + last component | `rendered_call_components` | `passes_args_and_previous_component_identity` |
+| render-result collapsed/expanded cache | `rendered_result_components` | `omits_...`, `includes_...` |
+| `renderedStates` / `renderedArgs` | `rendered_states` / `rendered_args` | `shares_render_state_between_calls` |
+| missing renderer → `undefined` | `Option::None` | `returns_none_without_a_custom_renderer` |
+| `catch` → `undefined` | Rust renderers cannot reject; no path | — |
+| default width 100 | `width.unwrap_or(100)` | `renders_call_html_with_the_default_width` |
+
+The renderer is `Rc`-based (like `ComponentRef`) and therefore not `Send`; the
+TypeScript object is likewise single-threaded. `ToolRenderContext.args` is
+`Value::Null` before the first `renderCall`, while the source value is
+`undefined`.
+
+## Gaps / deviations
 - The default output filename is implemented but not tested to avoid writing into
   the test process cwd.
 - Session-entry key order comes from the session-manager serializer. Pi-written

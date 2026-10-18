@@ -224,6 +224,7 @@ pub fn create_permission_prompt_handler(options: PermissionPromptHandlerOptions)
             match decision {
                 PermissionPromptDecision::Deny { message } => Some(ToolCallEventResult {
                     block: Some(true),
+                    input: None,
                     reason: Some(message),
                     terminate: None,
                 }),
