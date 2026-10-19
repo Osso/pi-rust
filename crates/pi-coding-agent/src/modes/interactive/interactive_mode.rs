@@ -2515,6 +2515,27 @@ pub fn read_child_transcript(path: &str, session_dir: &str) -> Option<Vec<AgentM
     Some(manager.build_session_context().messages)
 }
 
+fn is_steerable_agent(agent: &AgentSnapshot) -> bool {
+    let has_parent = agent.parent_id.as_deref() == Some("main");
+    let has_transcript = agent
+        .transcript
+        .as_ref()
+        .is_some_and(|transcript| !transcript.session_id.is_empty());
+    has_parent
+        && has_transcript
+        && matches!(
+            agent.lifecycle,
+            AgentLifecycle::Running | AgentLifecycle::WaitingForInput | AgentLifecycle::SteeringPending
+        )
+}
+
+fn is_interruptible_lifecycle(lifecycle: AgentLifecycle) -> bool {
+    matches!(
+        lifecycle,
+        AgentLifecycle::Running | AgentLifecycle::SteeringPending | AgentLifecycle::Cancelling
+    )
+}
+
 fn transcript_stamp(path: &str) -> Option<(u64, u64)> {
     let metadata = std::fs::metadata(path).ok()?;
     let modified = metadata
@@ -2834,33 +2855,16 @@ impl InteractiveMode {
     fn open_child_agent_view(&self, agent: &AgentSnapshot) -> bool {
         let transcript_path = agent.transcript.as_ref().and_then(|transcript| transcript.path.clone());
         self.clear_child_agent_view();
-        let session_dir = self.session.borrow().session_manager().get_session_dir().to_owned();
-        if let Some(path) = transcript_path.clone()
-            && std::path::Path::new(&path).exists()
-        {
-            let stamp = transcript_stamp(&path);
-            match SessionManager::open(&path, Some(&session_dir), None) {
-                Ok(_) => {
-                    *self.child_view.borrow_mut() = Some(ChildAgentView { transcript_path, stamp });
-                    self.render_child_agent_view();
-                    return true;
-                }
-                Err(_) => {
-                    *self.child_view.borrow_mut() = Some(ChildAgentView { transcript_path, stamp });
-                    self.render_live_agent_placeholder(agent);
-                    return true;
-                }
-            }
+        let stamp = transcript_path.as_deref().and_then(transcript_stamp);
+        *self.child_view.borrow_mut() = Some(ChildAgentView { transcript_path, stamp });
+        if self.render_child_agent_view() {
+            return true;
         }
-        *self.child_view.borrow_mut() = Some(ChildAgentView {
-            transcript_path,
-            stamp: None,
-        });
         self.render_live_agent_placeholder(agent);
         true
     }
 
-    fn render_child_agent_view(&self) {
+    fn render_child_agent_view(&self) -> bool {
         self.chat_container.borrow_mut().clear();
         let session_dir = self.session.borrow().session_manager().get_session_dir().to_owned();
         let messages = self
@@ -2870,10 +2874,14 @@ impl InteractiveMode {
             .and_then(|view| view.transcript_path.as_deref())
             .and_then(|path| read_child_transcript(path, &session_dir))
             .unwrap_or_default();
+        if messages.is_empty() {
+            return false;
+        }
         for message in &messages {
             self.add_message_to_chat(message);
         }
         self.ui.request_render();
+        true
     }
 
     fn render_live_agent_placeholder(&self, agent: &AgentSnapshot) {
@@ -2926,16 +2934,7 @@ impl InteractiveMode {
         let Some(agent) = store.get_agent(&agent_id) else {
             return false;
         };
-        let steerable = agent.parent_id.as_deref() == Some("main")
-            && agent
-                .transcript
-                .as_ref()
-                .is_some_and(|transcript| !transcript.session_id.is_empty())
-            && matches!(
-                agent.lifecycle,
-                AgentLifecycle::Running | AgentLifecycle::WaitingForInput | AgentLifecycle::SteeringPending
-            );
-        if !steerable {
+        if !is_steerable_agent(&agent) {
             self.show_error(&format!(
                 "Could not steer {}: agent is not steerable",
                 agent.display_name
@@ -2976,10 +2975,7 @@ impl InteractiveMode {
         let Some(agent) = store.get_agent(&agent_id) else {
             return false;
         };
-        if !matches!(
-            agent.lifecycle,
-            AgentLifecycle::Running | AgentLifecycle::SteeringPending | AgentLifecycle::Cancelling
-        ) {
+        if !is_interruptible_lifecycle(agent.lifecycle) {
             return false;
         }
         let Some(cancel) = self.options.cancel_multi_agent.clone() else {

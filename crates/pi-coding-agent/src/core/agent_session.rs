@@ -5483,6 +5483,42 @@ impl AgentSession {
         self.continue_post_agent_runs().await
     }
 
+    /// Runs the `session_before_compact` preflight and the `compaction` provider
+    /// event; the latter overrides the former when both supply a result.
+    async fn resolve_extension_compaction(
+        &self,
+        preparation: &crate::core::compaction::CompactionPreparation,
+        path_entries: &[SessionEntry],
+        custom_instructions: Option<&str>,
+        reason: &str,
+        abort: &CancellationToken,
+    ) -> Result<Option<crate::core::compaction::CompactionResult>, AgentSessionError> {
+        let mut extension_compaction = match self
+            .emit_session_before_compact_event(preparation, path_entries, custom_instructions, reason, false, abort)
+            .await
+        {
+            CompactionExtensionDecision::Cancel => return Err(error("Compaction cancelled")),
+            CompactionExtensionDecision::None => None,
+            CompactionExtensionDecision::Compaction(compaction) => Some(*compaction),
+        };
+        match emit_compaction_event(
+            &self.runner(),
+            preparation,
+            path_entries,
+            custom_instructions,
+            reason,
+            false,
+            abort,
+        )
+        .await
+        {
+            CompactionExtensionDecision::Cancel => return Err(error("Compaction cancelled")),
+            CompactionExtensionDecision::None => {}
+            CompactionExtensionDecision::Compaction(compaction) => extension_compaction = Some(*compaction),
+        }
+        Ok(extension_compaction)
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn compact_with_settings(
         &self,
@@ -5510,29 +5546,9 @@ impl AgentSession {
             }
             return Err(error("Nothing to compact (session too small)"));
         };
-        let mut extension_compaction = match self
-            .emit_session_before_compact_event(&preparation, &path_entries, custom_instructions, reason, false, abort)
-            .await
-        {
-            CompactionExtensionDecision::Cancel => return Err(error("Compaction cancelled")),
-            CompactionExtensionDecision::None => None,
-            CompactionExtensionDecision::Compaction(compaction) => Some(*compaction),
-        };
-        match emit_compaction_event(
-            &self.runner(),
-            &preparation,
-            &path_entries,
-            custom_instructions,
-            reason,
-            false,
-            abort,
-        )
-        .await
-        {
-            CompactionExtensionDecision::Cancel => return Err(error("Compaction cancelled")),
-            CompactionExtensionDecision::None => {}
-            CompactionExtensionDecision::Compaction(compaction) => extension_compaction = Some(*compaction),
-        }
+        let extension_compaction = self
+            .resolve_extension_compaction(&preparation, &path_entries, custom_instructions, reason, abort)
+            .await?;
         let from_extension = extension_compaction.is_some();
         let compact_result = match extension_compaction {
             Some(compaction) => compaction,
