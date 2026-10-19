@@ -42,7 +42,7 @@ Tests: module unit tests, `crates/pi-ai/tests/openai_completions.rs` (9 behavior
 - Anthropic cache control: 29.
 
 ## Differential normalization
-- Timestamps become `0`; environment identity headers become `<env>`; malformed-JSON messages become `<json-error>`; event `partial` is snapshotted at push time.
+- Timestamps become `0`; environment identity headers become `<env>`; malformed-JSON messages are the V8 `SyntaxError` text from `pi_js_compat::js_json` and are compared byte-for-byte; event `partial` is snapshotted at push time.
 
 ## Gaps
 - `streamSimple` API-key failure returns an error stream instead of throwing synchronously.

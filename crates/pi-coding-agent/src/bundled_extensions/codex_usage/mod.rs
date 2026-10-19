@@ -115,7 +115,7 @@ fn decode_codex_token_payload(token: &str) -> Result<Value, String> {
     }
     let bytes = buffer_from_base64(parts[1]);
     let text = String::from_utf8_lossy(&bytes);
-    serde_json::from_str(&text).map_err(|error| error.to_string())
+    pi_js_compat::js_json::parse(&text).map_err(|error| error.to_string())
 }
 
 fn resolve_email_claim(payload: &Value) -> Option<String> {
@@ -455,7 +455,7 @@ async fn read_json_response(response: pi_ai::request::HttpResponse) -> Result<Va
     if text.is_empty() {
         return Ok(Value::Object(Map::new()));
     }
-    serde_json::from_str(&text).map_err(|error| HandlerError::new(error.to_string()))
+    pi_js_compat::js_json::parse(&text).map_err(|error| HandlerError::new(error.to_string()))
 }
 
 async fn read_codex_usage(ctx: &ExtensionCommandContext, fetch: &dyn Fetch) -> Result<CodexUsage, HandlerError> {

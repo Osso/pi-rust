@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::{ControlDbError, with_control_db, with_immediate_transaction};
 use crate::core::permissions::presets::SandboxProfileName;
-use crate::utils::js_json;
+use pi_js_compat::js_json;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -87,8 +87,8 @@ pub fn display_available(is_linux: bool, display: Option<&str>, wayland_display:
 pub fn has_display() -> bool {
     display_available(
         cfg!(target_os = "linux"),
-        std::env::var("DISPLAY").ok().as_deref(),
-        std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
+        pi_js_compat::process_env::get("DISPLAY").as_deref(),
+        pi_js_compat::process_env::get("WAYLAND_DISPLAY").as_deref(),
     )
 }
 
@@ -97,7 +97,7 @@ pub fn has_display() -> bool {
 /// Disabled under Termux or without a display, matching the source's module
 /// initialization guard.
 pub fn clipboard() -> Option<Box<dyn ClipboardModule>> {
-    if std::env::var_os("TERMUX_VERSION").is_some() || !has_display() {
+    if pi_js_compat::process_env::get("TERMUX_VERSION").is_some() || !has_display() {
         return None;
     }
     Some(Box::new(SystemClipboard))

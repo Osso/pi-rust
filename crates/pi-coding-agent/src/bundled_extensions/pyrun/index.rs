@@ -794,7 +794,7 @@ pub fn install_pyrun_extension(pi: &ExtensionApi, options: PyrunExtensionOptions
     let bwrap_command = options
         .bwrap_command
         .clone()
-        .or_else(|| std::env::var("PI_BWRAP_COMMAND").ok())
+        .or_else(|| pi_js_compat::process_env::get("PI_BWRAP_COMMAND"))
         .unwrap_or_else(|| "bwrap".to_owned());
     let slot = Arc::new(ExecutorSlot::new());
     let slot_for_evaluate = Arc::clone(&slot);

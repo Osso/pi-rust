@@ -211,7 +211,8 @@ impl ApiKeyAuth for LlamaApiKeyAuth {
     ) -> Option<BoxFuture<'static, Result<ApiKeyCredential, AuthError>>> {
         let fetch = Arc::clone(&self.fetch);
         Some(Box::pin(async move {
-            let placeholder = std::env::var("LLAMA_BASE_URL").unwrap_or_else(|_| DEFAULT_LLAMA_SERVER_URL.to_owned());
+            let placeholder =
+                pi_js_compat::process_env::get("LLAMA_BASE_URL").unwrap_or_else(|| DEFAULT_LLAMA_SERVER_URL.to_owned());
             let entered_url = interaction
                 .prompt(AuthPrompt {
                     signal: None,
@@ -221,8 +222,7 @@ impl ApiKeyAuth for LlamaApiKeyAuth {
                     },
                 })
                 .await?;
-            let fallback = std::env::var("LLAMA_BASE_URL")
-                .ok()
+            let fallback = pi_js_compat::process_env::get("LLAMA_BASE_URL")
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| DEFAULT_LLAMA_SERVER_URL.to_owned());
             let entered_url = js_trim(&entered_url);

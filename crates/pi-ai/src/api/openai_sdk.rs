@@ -130,7 +130,7 @@ impl SdkClient {
         let status = response.status;
         let headers = response.headers.clone();
         let text = String::from_utf8_lossy(&read_success_body(response.body, signal.as_ref()).await?).into_owned();
-        let data = serde_json::from_str(&text)
+        let data = pi_js_compat::js_json::parse(&text)
             .map_err(|error| ProviderRequestError::Other(CallbackError::new(error.to_string())))?;
         Ok(SdkJsonResponse { status, headers, data })
     }
@@ -401,7 +401,8 @@ impl SseJsonStream {
             self.done = true;
             return Ok(None);
         }
-        let value: Value = serde_json::from_str(&event.data).map_err(|error| SdkError::Message(error.to_string()))?;
+        let value: Value =
+            pi_js_compat::js_json::parse(&event.data).map_err(|error| SdkError::Message(error.to_string()))?;
         if let Some(error) = value.get("error").filter(|error| is_truthy(error)) {
             let message = api_error_detail(error);
             let mut headers = ProviderErrorHeaders::new();

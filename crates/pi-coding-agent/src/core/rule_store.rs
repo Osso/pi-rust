@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value};
 
 use crate::config::package_config;
-use crate::utils::js_json;
+use pi_js_compat::js_json;
 
 /// Where an allow rule is persisted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

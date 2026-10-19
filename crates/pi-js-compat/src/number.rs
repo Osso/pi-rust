@@ -8,14 +8,22 @@ use crate::string::is_js_whitespace_char;
 
 const JS_INTEGER_NOTATION_LIMIT: f64 = 1e21;
 
-/// `serialize_with` helper for `f64` fields.
-pub fn serialize<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
-    let value = *value;
+/// `JSON.stringify(number)` digits: integral finite numbers below `1e21` are
+/// printed without an exponent.
+fn integer_digits(value: f64) -> Option<i128> {
     if value.is_finite() && value.fract() == 0.0 && value.abs() < JS_INTEGER_NOTATION_LIMIT {
         // Below 1e21 every integral f64 fits in i128 and JavaScript prints it without exponent.
-        return serializer.serialize_i128(value as i128);
+        return Some(value as i128);
     }
-    serializer.serialize_f64(value)
+    None
+}
+
+/// `serialize_with` helper for `f64` fields.
+pub fn serialize<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
+    match integer_digits(*value) {
+        Some(digits) => serializer.serialize_i128(digits),
+        None => serializer.serialize_f64(*value),
+    }
 }
 
 /// `serialize_with` helper for `Option<f64>` fields (combine with `skip_serializing_if`).
@@ -262,12 +270,16 @@ fn round_scaled(magnitude: f64, scale: u128) -> u128 {
 
 /// `JSON.stringify(number)` value: integral finite numbers use integer notation,
 /// non-finite numbers become `null`.
+///
+/// Integral values above `u64::MAX` cannot be stored as `serde_json` integers;
+/// they stay floats with the same numeric value (`JSON.stringify(1e20)` and
+/// `serde_json` both round-trip `1e20`).
 pub fn js_number_value(value: f64) -> Value {
     if !value.is_finite() {
         return Value::Null;
     }
-    if value.fract() == 0.0 && value.abs() <= 9_007_199_254_740_992.0 {
-        return Value::Number(serde_json::Number::from(value as i64));
+    if let Some(number) = integer_digits(value).and_then(serde_json::Number::from_i128) {
+        return Value::Number(number);
     }
     Value::Number(serde_json::Number::from_f64(value).expect("finite number"))
 }
@@ -302,5 +314,19 @@ mod to_fixed_tests {
         assert_eq!(js_number_value(42.5), serde_json::json!(42.5));
         assert_eq!(js_number_value(f64::NAN), serde_json::Value::Null);
         assert_eq!(js_number_value(f64::INFINITY), serde_json::Value::Null);
+        // Integral values above `MAX_SAFE_INTEGER` keep integer notation.
+        assert_eq!(
+            js_number_value(9_007_199_254_740_994.0),
+            serde_json::json!(9_007_199_254_740_994_u64)
+        );
+        assert_eq!(
+            js_number_value(-9_007_199_254_740_994.0),
+            serde_json::json!(-9_007_199_254_740_994_i64)
+        );
+        // Integral values above `u64::MAX` cannot be stored as `serde_json`
+        // integers, so the value round-trips as a float.
+        assert_eq!(serde_json::to_string(&js_number_value(1e20)).unwrap(), "1e+20");
+        // `1e21` switches to exponent notation in JavaScript.
+        assert_eq!(serde_json::to_string(&js_number_value(1e21)).unwrap(), "1e+21");
     }
 }

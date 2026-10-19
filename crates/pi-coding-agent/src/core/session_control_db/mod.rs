@@ -30,7 +30,7 @@ use crate::core::session_health::SessionHealthRecord;
 use crate::core::sqlite::{
     DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS, configure_shared_sqlite_database, create_sqlite_database,
 };
-use crate::utils::js_json;
+use pi_js_compat::js_json;
 
 pub use agents::{
     AcquireAttachedError, AcquireAttachedRuntimeOwnershipInput, AcquireAttachedRuntimeOwnershipResult,
@@ -752,7 +752,7 @@ pub fn serialize_process_identity(identity: &ProcessIdentity) -> String {
 }
 
 pub(crate) fn parse_process_identity(value: &str) -> Result<ProcessIdentity, ControlDbError> {
-    let parsed = js_json::parse(value).map_err(|_| ControlDbError::new("Persisted process identity is invalid"))?;
+    let parsed = js_json::parse(value).map_err(|error| ControlDbError::new(error.to_string()))?;
     let Value::Object(parsed) = parsed else {
         return Err(ControlDbError::new("Persisted process identity is invalid"));
     };

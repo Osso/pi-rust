@@ -17,9 +17,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::get_agent_dir;
 use crate::core::config_value::{is_command_config_value, resolve_config_value};
-use crate::utils::js_json;
 use crate::utils::lockfile::{LockErrorCode, LockOptions, acquire, acquire_sync};
 use crate::utils::paths::{get_file_revision, normalize_path};
+use pi_js_compat::js_json;
 
 const AUTH_FILE_MODE: u32 = 0o600;
 const SYNC_LOCK_ATTEMPTS: usize = 10;

@@ -506,14 +506,6 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
 // Renderers
 // ============================================================================
 
-fn format_js_number(value: f64) -> String {
-    if value.fract() == 0.0 {
-        format!("{value:.0}")
-    } else {
-        value.to_string()
-    }
-}
-
 fn format_grep_call(args: &Value, theme: &Theme) -> String {
     let pattern = str_value(args.get("pattern"));
     let raw_path = str_value(args.get("path"));
@@ -540,7 +532,10 @@ fn format_grep_call(args: &Value, theme: &Theme) -> String {
         text.push_str(&theme.fg(ThemeColor::ToolOutput, &format!(" ({glob})")));
     }
     if let Some(limit) = limit {
-        text.push_str(&theme.fg(ThemeColor::ToolOutput, &format!(" limit {}", format_js_number(limit))));
+        text.push_str(&theme.fg(
+            ThemeColor::ToolOutput,
+            &format!(" limit {}", pi_js_compat::number::js_number_to_string(limit)),
+        ));
     }
     text
 }

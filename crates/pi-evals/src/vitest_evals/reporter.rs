@@ -5,7 +5,7 @@
 //! `runs.jsonl` appends and the end-of-run comparison report.
 
 use pi_ai::utils::uuid::random_uuid;
-use pi_coding_agent::utils::js_json;
+use pi_js_compat::js_json;
 use pi_js_compat::process_env;
 use pi_js_compat::string::js_trim;
 use serde::{Deserialize, Serialize};

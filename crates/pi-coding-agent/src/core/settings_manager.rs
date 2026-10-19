@@ -25,9 +25,9 @@ use crate::core::permissions::presets::{
     ApprovalPresetName, SandboxProfileName, approval_preset_for_policy, find_approval_preset, is_approval_preset_name,
     is_sandbox_profile_name,
 };
-use crate::utils::js_json;
 use crate::utils::lockfile::{LockErrorCode, LockOptions, acquire_sync};
 use crate::utils::paths::{PathInputOptions, normalize_path, resolve_path};
+use pi_js_compat::js_json;
 
 const SETTINGS_LOCK_ATTEMPTS: usize = 10;
 const SETTINGS_LOCK_DELAY: Duration = Duration::from_millis(20);
@@ -1165,7 +1165,7 @@ impl SettingsManager {
         if !timeout_ms.is_finite() || timeout_ms < 0.0 {
             return Err(SettingsFailure::new(format!(
                 "Invalid httpIdleTimeoutMs setting: {}",
-                format_js_number(timeout_ms)
+                js_number::js_number_to_string(timeout_ms)
             )));
         }
         set_number(&mut self.global_settings, "httpIdleTimeoutMs", timeout_ms.floor());
@@ -1246,10 +1246,9 @@ impl SettingsManager {
         {
             return configured.to_owned();
         }
-        if let Some(environment_editor) = std::env::var("VISUAL")
-            .ok()
+        if let Some(environment_editor) = pi_js_compat::process_env::get("VISUAL")
             .filter(|value| !value.is_empty())
-            .or_else(|| std::env::var("EDITOR").ok().filter(|value| !value.is_empty()))
+            .or_else(|| pi_js_compat::process_env::get("EDITOR").filter(|value| !value.is_empty()))
         {
             return environment_editor;
         }
@@ -1526,7 +1525,7 @@ impl SettingsManager {
         if let Some(clear) = nested_bool(&self.settings, "terminal", "clearOnShrink") {
             return clear;
         }
-        std::env::var("PI_CLEAR_ON_SHRINK").is_ok_and(|value| value == "1")
+        pi_js_compat::process_env::get("PI_CLEAR_ON_SHRINK").is_some_and(|value| value == "1")
     }
 
     pub fn set_clear_on_shrink(&mut self, enabled: bool) {
@@ -1706,7 +1705,7 @@ impl SettingsManager {
         if let Some(value) = self.settings.get("showHardwareCursor").and_then(Value::as_bool) {
             return value;
         }
-        std::env::var("PI_HARDWARE_CURSOR").is_ok_and(|value| value == "1")
+        pi_js_compat::process_env::get("PI_HARDWARE_CURSOR").is_some_and(|value| value == "1")
     }
 
     pub fn set_show_hardware_cursor(&mut self, enabled: bool) {
@@ -1872,12 +1871,12 @@ fn migrate_settings(settings: &mut Settings) {
             if let Some(max_delay) = max_delay
                 && provider_delay.is_none_or(Value::is_null)
             {
-                provider.insert("maxRetryDelayMs".to_owned(), number_value(max_delay));
+                provider.insert("maxRetryDelayMs".to_owned(), js_number::js_number_value(max_delay));
                 retry.insert("provider".to_owned(), Value::Object(provider));
             }
         } else if let Some(max_delay) = retry.get("maxDelayMs").and_then(Value::as_f64) {
             let mut provider = Map::new();
-            provider.insert("maxRetryDelayMs".to_owned(), number_value(max_delay));
+            provider.insert("maxRetryDelayMs".to_owned(), js_number::js_number_value(max_delay));
             retry.insert("provider".to_owned(), Value::Object(provider));
         }
         retry.shift_remove("maxDelayMs");
@@ -2060,7 +2059,7 @@ fn set_bool(settings: &mut Settings, key: &str, value: bool) {
 }
 
 fn set_number(settings: &mut Settings, key: &str, value: f64) {
-    settings.insert(key.to_owned(), number_value(value));
+    settings.insert(key.to_owned(), js_number::js_number_value(value));
 }
 
 fn set_string_array(settings: &mut Settings, key: &str, values: &[String]) {
@@ -2087,27 +2086,7 @@ fn set_nested(settings: &mut Settings, field: &str, nested_key: &str, value: Val
 }
 
 fn set_number_nested(settings: &mut Settings, field: &str, nested_key: &str, value: f64) {
-    set_nested(settings, field, nested_key, number_value(value));
-}
-
-fn number_value(value: f64) -> Value {
-    if value.is_finite() && value.fract() == 0.0 && value.abs() < 9_007_199_254_740_992.0 {
-        return Value::from(value as i64);
-    }
-    serde_json::Number::from_f64(value).map_or(Value::Null, Value::Number)
-}
-
-fn format_js_number(value: f64) -> String {
-    if value.is_nan() {
-        return "NaN".to_owned();
-    }
-    if value == f64::INFINITY {
-        return "Infinity".to_owned();
-    }
-    if value == f64::NEG_INFINITY {
-        return "-Infinity".to_owned();
-    }
-    js_json::stringify(&number_value(value))
+    set_nested(settings, field, nested_key, js_number::js_number_value(value));
 }
 
 /// `Math.max(min, Math.floor(value))`; `NaN` stays `NaN`.

@@ -47,7 +47,7 @@ pub struct BwrapExtensionOptions {
 }
 
 fn default_bwrap_command() -> String {
-    std::env::var("PI_BWRAP_COMMAND").unwrap_or_else(|_| DEFAULT_BWRAP_COMMAND.to_owned())
+    pi_js_compat::process_env::get("PI_BWRAP_COMMAND").unwrap_or_else(|| DEFAULT_BWRAP_COMMAND.to_owned())
 }
 
 fn read_sandbox_profile_name(ctx: &ExtensionContext) -> SandboxProfileName {
@@ -186,7 +186,7 @@ async fn run_json_in_sandbox(
             trimmed.to_owned()
         });
     }
-    serde_json::from_str(&stdout_text).map_err(|error| error.to_string())
+    pi_js_compat::js_json::parse(&stdout_text).map_err(|error| error.to_string())
 }
 
 fn run_sandbox_operation<'a>(

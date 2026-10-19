@@ -1,4 +1,4 @@
-use pi_coding_agent::utils::js_json::{object_entries, parse, stringify, stringify_pretty};
+use pi_js_compat::js_json::{object_entries, parse, stringify, stringify_pretty};
 use serde_json::json;
 
 fn parse_error(text: &str) -> String {

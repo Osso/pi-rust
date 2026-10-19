@@ -510,10 +510,8 @@ fn parse_sse_event(event: &str) -> Option<Result<GoogleChunk, GoogleRequestError
     let trimmed = event.trim();
     let payload = trimmed.strip_prefix("data:")?.trim();
     Some(
-        serde_json::from_str::<Value>(payload)
-            .map_err(|error| {
-                GoogleRequestError::new(format!("exception parsing stream chunk {payload}. {error}"), None)
-            })
+        pi_js_compat::js_json::parse(payload)
+            .map_err(|error| GoogleRequestError::new(error.to_string(), None))
             .and_then(|value| {
                 serde_json::from_value(value).map_err(|error| {
                     GoogleRequestError::new(format!("exception parsing stream chunk {payload}. {error}"), None)
@@ -593,8 +591,7 @@ fn merge_headers(model: &Model, option_headers: Option<&ProviderHeaders>) -> Vec
 
 /// `getEnv()`: trimmed process environment value, empty values are absent.
 fn read_process_env_value(name: &str) -> Option<String> {
-    std::env::var(name)
-        .ok()
+    pi_js_compat::process_env::get(name)
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
 }
@@ -1002,13 +999,13 @@ fn load_credentials(env: Option<&ProviderEnv>) -> Result<Credentials, GoogleRequ
 }
 
 fn well_known_adc_path() -> Option<String> {
-    let home = std::env::var("HOME").ok()?;
+    let home = pi_js_compat::process_env::get("HOME")?;
     let path = std::path::Path::new(&home).join(".config/gcloud/application_default_credentials.json");
     path.is_file().then(|| path.to_string_lossy().into_owned())
 }
 
 fn parse_credentials(contents: &str) -> Result<Credentials, GoogleRequestError> {
-    let value: Value = serde_json::from_str(contents)
+    let value: Value = pi_js_compat::js_json::parse(contents)
         .map_err(|error| GoogleRequestError::new(format!("Unable to parse the credential file: {error}"), None))?;
     match value.get("type").and_then(Value::as_str) {
         Some("authorized_user") => Ok(Credentials::AuthorizedUser {

@@ -339,7 +339,7 @@ fn format_call(args: &Value, theme: &Theme) -> String {
         None | Some(Value::Null) => Value::String(String::new()),
         Some(query) => query.clone(),
     };
-    let query = crate::utils::js_json::stringify(&query);
+    let query = pi_js_compat::js_json::stringify(&query);
     format!(
         "{} {}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold("search_current_session_history")),

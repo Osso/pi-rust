@@ -14,7 +14,7 @@ use pi_coding_agent::core::session_control_db::{
     list_shared_channel_messages_after, read_prompt_history, read_session_health, read_session_metadata,
     set_named_session, write_session_metadata,
 };
-use pi_coding_agent::utils::js_json;
+use pi_js_compat::js_json;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 

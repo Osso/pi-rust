@@ -100,8 +100,8 @@ fn resolve_model_selection_matches_the_typescript_module() {
 
 #[test]
 fn eval_inputs_serialize_to_the_typescript_shape() {
-    use pi_coding_agent::utils::js_json;
     use pi_evals::pi_harness::{PiCodingAgentInput, PiCodingAgentStep};
+    use pi_js_compat::js_json;
 
     let prompt = PiCodingAgentInput::Prompt("hello".to_owned());
     assert_eq!(js_json::stringify(&serde_json::to_value(&prompt).unwrap()), "\"hello\"");

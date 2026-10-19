@@ -1,6 +1,7 @@
 # js_json traceability (support module)
 
-Rust: `crates/pi-coding-agent/src/utils/js_json.rs`.
+Rust: `crates/pi-js-compat/src/js_json.rs` (`pi_js_compat::js_json`), the single
+implementation shared by `pi-ai`, `pi-agent-core`, and `pi-coding-agent`.
 Source contract: the JavaScript engine's own `JSON.parse` / `JSON.stringify` (V8 as shipped by the
 pinned Node runtime), required because persistent agent files are shared byte-for-byte with the
 TypeScript runtime and their read errors embed V8 messages.
@@ -16,7 +17,7 @@ whole-source special values. Comparisons are byte-for-byte on `JSON.stringify(va
 |---|---|
 | `JSON.parse` accepts JSON grammar with only space/tab/LF/CR as whitespace | `Parser`; differential mutations cover BOM, NBSP, control characters |
 | Duplicate keys keep the first position and the last value | `Map::insert`; `parse_keeps_last_duplicate_value_at_first_position` |
-| Numbers become IEEE-754 doubles; `-0` prints as `0`; `1e400` becomes `null` on output | `number_value` + `pi_js_compat::number::js_number_to_string`; `numbers_round_trip_as_javascript_doubles`, differential seeds |
+| Numbers become IEEE-754 doubles; `-0` prints as `0`; `1e400` becomes `null` on output | `pi_js_compat::number::js_number_value` + `js_number_to_string`; `numbers_round_trip_as_javascript_doubles`, differential seeds |
 | Object keys: array-index keys ascending first, then insertion order | `object_entries`; `stringify_orders_array_index_keys_first_like_javascript_objects` |
 | `JSON.stringify` escapes `"`, `\`, `\b\f\n\r\t`, other C0 as `\u00xx` | `write_string`; `pretty_output_matches_json_stringify_with_two_space_indent` |
 | Pretty output uses two spaces per level and `": "` separators | `stringify_pretty`; same test |
@@ -24,6 +25,15 @@ whole-source special values. Comparisons are byte-for-byte on `JSON.stringify(va
 | Positions and line/column count UTF-16 units; `\r\n`, `\r`, `\n` each end a line | `utf16_position`, `line_and_column`; differential cases with CR-only and CRLF inputs |
 | Whole-source `NaN`/`Infinity`/`undefined`/`[object Object]` report `"x" is not valid JSON` | `SPECIAL_SOURCES`; differential suite |
 | Escapes: `\uXXXX`, surrogate pairs, `\/` | `parse_unicode_escape`; `string_escapes_decode_surrogate_pairs` |
+
+## Callers
+
+Every ported `JSON.parse` site whose error text reaches output, events, or files uses this
+module instead of `serde_json::from_str`: `pi-ai` (Mistral SSE, pi-messages SSE, OpenAI SDK
+body/SSE, Codex SSE/WebSocket, Google SSE/credentials, Anthropic OAuth token bodies, Bedrock SSO
+token cache, JSON-repair rethrow), `pi-agent-core` (proxy SSE), and `pi-coding-agent` (pyrun
+runner/manifest/activation/evaluation, codex-usage, bwrap, supervisor project resolver, detached
+bash manifests/completions, supervisor request rows, persisted process identity).
 
 ## Discrepancies
 

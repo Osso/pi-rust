@@ -44,6 +44,12 @@ type ToFixedRequest = {
 	cases: Array<[number, number]>;
 };
 
+type JsonStringifyRequest = {
+	id: RequestId;
+	operation: "json_stringify";
+	values: string[];
+};
+
 type DateParseRequest = {
 	id: RequestId;
 	operation: "date_parse";
@@ -63,6 +69,7 @@ type Request =
 	| BraceExpandRequest
 	| NumberRequest
 	| ToFixedRequest
+	| JsonStringifyRequest
 	| DateParseRequest
 	| Base64Request;
 
@@ -143,6 +150,13 @@ async function execute(request: Request): Promise<Response> {
 			id: request.id,
 			ok: true,
 			output: request.cases.map(([value, digits]) => value.toFixed(digits)),
+		};
+	}
+	if (request.operation === "json_stringify") {
+		return {
+			id: request.id,
+			ok: true,
+			output: request.values.map((value) => JSON.stringify(Number(value))),
 		};
 	}
 	if (request.operation === "date_parse") {

@@ -58,9 +58,7 @@ fn highlights_registered_languages_and_reports_the_rest_as_unavailable() {
     assert!(supports_language("rust"));
     assert!(supports_language("rs"));
     assert!(!supports_language("not-a-language"));
-    // TypeScript's compiled grammar exceeds the current compile-time budget; the
-    // traceability doc records it as a gap.
-    assert!(!supports_language("typescript"));
+    assert!(supports_language("typescript"));
 
     let rendered = highlight(
         "fn main() {}",
@@ -80,7 +78,7 @@ fn unregistered_languages_fall_back_to_escaped_text() {
     let rendered = highlight(
         "<const> & \"x\"",
         &HighlightOptions {
-            language: Some("typescript".to_owned()),
+            language: Some("not-a-language".to_owned()),
             ignore_illegals: Some(true),
             theme: theme(&[("default", "def")]),
             ..HighlightOptions::default()

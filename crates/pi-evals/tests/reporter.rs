@@ -3,7 +3,6 @@
 use std::fs;
 use tokio::sync::Mutex;
 
-use pi_coding_agent::utils::js_json;
 use pi_evals::harness::{HarnessRun, NormalizedSession, TimingSummary, UsageSummary};
 use pi_evals::vitest_evals::artifacts::PI_SESSION_SNAPSHOT_ARTIFACT;
 use pi_evals::vitest_evals::harness_table::EVAL_HARNESS_ITERATION_ARTIFACT;
@@ -13,6 +12,7 @@ use pi_evals::vitest_evals::reporter::{
 };
 use pi_evals::vitest_evals::setup::record_eval_session_artifact_after_run;
 use pi_evals::vitest_evals::summary::HarnessObservationOutcome;
+use pi_js_compat::js_json;
 use pi_js_compat::process_env;
 use serde_json::{Map, Value, json};
 

@@ -39,6 +39,7 @@ use crate::utils::json_parse::{parse_json_with_repair, parse_streaming_json};
 use crate::utils::provider_env::get_provider_env_value;
 use crate::utils::provider_retry::{ProviderRequestError, ProviderRetryOptions, retry_provider_request};
 use crate::utils::sanitize_unicode::sanitize_surrogates;
+use pi_js_compat::number::js_number_value;
 
 const FINE_GRAINED_TOOL_STREAMING_BETA: &str = "fine-grained-tool-streaming-2025-05-14";
 const INTERLEAVED_THINKING_BETA: &str = "interleaved-thinking-2025-05-14";
@@ -427,16 +428,6 @@ fn normalize_tool_call_id_value(id: &str) -> String {
         })
         .collect();
     normalized.chars().take(64).collect()
-}
-
-fn js_number(value: f64) -> Value {
-    if !value.is_finite() {
-        return Value::Null;
-    }
-    if value.fract() == 0.0 && value.abs() < 9.007_199_254_740_992e15 {
-        return Value::from(value as i64);
-    }
-    serde_json::Number::from_f64(value).map_or(Value::Null, Value::Number)
 }
 
 fn convert_content_blocks(content: &[TextOrImageContent]) -> Value {
@@ -902,7 +893,7 @@ fn build_params(
     );
     params.insert(
         "max_tokens".to_owned(),
-        js_number(options.max_tokens.unwrap_or(model.max_tokens)),
+        js_number_value(options.max_tokens.unwrap_or(model.max_tokens)),
     );
     params.insert("stream".to_owned(), Value::Bool(true));
 
@@ -987,7 +978,7 @@ fn insert_temperature_param(
         && anthropic.thinking_enabled != Some(true)
         && supports_temperature
     {
-        params.insert("temperature".to_owned(), js_number(temperature));
+        params.insert("temperature".to_owned(), js_number_value(temperature));
     }
 }
 
@@ -1065,7 +1056,7 @@ fn insert_enabled_thinking(params: &mut Map<String, Value>, model: &Model, anthr
         .thinking_budget_tokens
         .filter(|budget| *budget != 0.0 && budget.is_finite())
         .unwrap_or(1024.0);
-    thinking.insert("budget_tokens".to_owned(), js_number(budget));
+    thinking.insert("budget_tokens".to_owned(), js_number_value(budget));
     thinking.insert(
         "display".to_owned(),
         serde_json::to_value(display).unwrap_or(Value::Null),
@@ -1805,7 +1796,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
     let max_tokens = clamp_max_tokens_to_context(&model, &context, adjusted_max_tokens);
     let thinking_budget = adjusted_budget.min((max_tokens - 1024.0).max(0.0));
     let base = with_extra(base, "thinkingEnabled", Value::Bool(true));
-    let mut base = with_extra(base, "thinkingBudgetTokens", js_number(thinking_budget));
+    let mut base = with_extra(base, "thinkingBudgetTokens", js_number_value(thinking_budget));
     base.max_tokens = Some(max_tokens);
     stream(model, context, base)
 }

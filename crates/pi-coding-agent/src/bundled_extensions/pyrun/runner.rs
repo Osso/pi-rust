@@ -147,7 +147,8 @@ fn parse_runner_args(value: Option<&str>) -> Result<Option<Vec<String>>, PyrunRu
     let Some(value) = value.filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
-    let parsed: Value = serde_json::from_str(value).map_err(|error| PyrunRunnerError::new(error.to_string()))?;
+    let parsed: Value =
+        pi_js_compat::js_json::parse(value).map_err(|error| PyrunRunnerError::new(error.to_string()))?;
     let Some(items) = parsed.as_array() else {
         return Err(PyrunRunnerError::new(
             "PI_PYRUN_RUNNER_ARGS must be a JSON string array",
@@ -176,7 +177,7 @@ pub fn resolve_pyrun_runner_options(
                 .rev()
                 .find(|(name, _)| name == key)
                 .map(|(_, value)| value.clone()),
-            None => std::env::var(key).ok(),
+            None => pi_js_compat::process_env::get(key),
         }
     };
     let args = parse_runner_args(lookup("PI_PYRUN_RUNNER_ARGS").as_deref())?.unwrap_or_default();
@@ -578,7 +579,7 @@ async fn handle_stdout_line(
     generation: u64,
     line: &str,
 ) {
-    let parsed: Value = match serde_json::from_str(line) {
+    let parsed: Value = match pi_js_compat::js_json::parse(line) {
         Ok(parsed) => parsed,
         Err(error) => {
             let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

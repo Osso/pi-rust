@@ -27,7 +27,6 @@ Tests: `crates/pi-ai/tests/differential_google_api.rs` (66 scenarios), `crates/p
 ## Gaps
 - GCE metadata credentials, external/impersonated credential types, and universe-domain token URLs.
 - gaxios retry config, proxy support, timeouts, and multipart/upload paths (not used by the adapters).
-- The exact Node `SyntaxError` text for malformed SSE JSON; the differential normalizes both sides to `<json-parse-error>`.
 - `maxRetries` fractional values truncate to `usize` (typed-core exclusion).
 
 ## Discrepancies

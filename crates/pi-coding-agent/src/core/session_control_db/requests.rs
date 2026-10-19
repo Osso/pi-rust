@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::{ControlDbError, with_control_db, with_immediate_transaction};
-use crate::utils::js_json;
+use pi_js_compat::js_json;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -459,8 +459,7 @@ type SupervisorRequestRow = (
 );
 
 fn supervisor_request_from_row(row: SupervisorRequestRow) -> Result<SupervisorRequest, ControlDbError> {
-    let payload = js_json::parse(&row.4)
-        .map_err(|_| ControlDbError::new(format!("Invalid persisted JSON at supervisor request {}", row.0)))?;
+    let payload = js_json::parse(&row.4).map_err(|error| ControlDbError::new(error.to_string()))?;
     let Value::Object(payload) = payload else {
         return Err(ControlDbError::new(format!(
             "Invalid persisted JSON at supervisor request {}",
@@ -470,7 +469,9 @@ fn supervisor_request_from_row(row: SupervisorRequestRow) -> Result<SupervisorRe
     let response = match row.11 {
         None => None,
         Some(response_json) => {
-            Some(serde_json::from_str(&response_json).map_err(|error| ControlDbError::new(error.to_string()))?)
+            let value =
+                pi_js_compat::js_json::parse(&response_json).map_err(|error| ControlDbError::new(error.to_string()))?;
+            Some(serde_json::from_value(value).map_err(|error| ControlDbError::new(error.to_string()))?)
         }
     };
     Ok(SupervisorRequest {

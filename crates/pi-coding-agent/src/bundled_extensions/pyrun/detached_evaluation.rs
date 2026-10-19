@@ -622,7 +622,7 @@ fn read_complete_artifact_records(path: &str) -> Result<Vec<Value>, String> {
     };
     let mut records = Vec::new();
     for line in text[..last_newline].split('\n').filter(|line| !line.is_empty()) {
-        records.push(serde_json::from_str(line).map_err(|error| error.to_string())?);
+        records.push(pi_js_compat::js_json::parse(line).map_err(|error| error.to_string())?);
     }
     Ok(records)
 }

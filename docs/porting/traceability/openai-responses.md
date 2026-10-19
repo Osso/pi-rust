@@ -30,7 +30,7 @@ Tests: module unit tests, `crates/pi-ai/tests/differential_openai_responses.rs` 
 ## Differential normalization
 - Timestamps (`Date.now()` in TypeScript, `now_millis()` in Rust) become `0`.
 - Environment identity headers (`user-agent`, `x-stainless-*`) become `<env>`.
-- JSON syntax-error text differs between V8 and Rust; the malformed-stream scenario normalizes the message to `<json-error>`.
+- JSON syntax-error text for malformed streams is the V8 `SyntaxError` message from `pi_js_compat::js_json` and is compared byte-for-byte (the malformed-stream scenario has no normalization).
 - Event `partial` is snapshotted at `push` time by the oracle.
 
 ## Gaps

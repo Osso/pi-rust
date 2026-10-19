@@ -200,10 +200,9 @@ fn invalid_manifests_throw_the_typescript_message() {
     }
 }
 
-/// `JSON.parse` error text comes from the host parser (V8 vs `serde_json`), so
-/// this compares the failure boundary instead of the message.
+/// The truncated document must surface the same V8 `JSON.parse` message as TypeScript.
 #[test]
-fn truncated_manifests_throw_a_json_parse_error_in_both_runtimes() {
+fn truncated_manifests_throw_the_typescript_json_parse_error() {
     let directory = TempDir::new().expect("temp dir");
     let case_dir = directory.path().join("truncated");
     let mut oracle = oracle();
@@ -217,16 +216,12 @@ fn truncated_manifests_throw_a_json_parse_error_in_both_runtimes() {
         "cases": [{"dir": case_dir.to_string_lossy(), "content": truncated}],
     }));
     assert_eq!(response["ok"], true, "{response}");
-    assert!(
-        response["output"][0]["error"].is_string(),
-        "TypeScript must reject the truncated manifest: {response}"
-    );
+    let expected = response["output"][0]["error"]
+        .as_str()
+        .unwrap_or_else(|| panic!("TypeScript must reject the truncated manifest: {response}"));
 
     let manifest_path = case_dir.join("launch.json");
     std::fs::write(&manifest_path, truncated).expect("truncated manifest");
     let error = read_detached_pyrun_launch_manifest(&manifest_path.to_string_lossy()).expect_err("invalid");
-    assert!(
-        !error.starts_with("Invalid detached Pyrun launch manifest"),
-        "a truncated document is a JSON.parse failure, not a manifest validation failure: {error}"
-    );
+    assert_eq!(error, expected);
 }

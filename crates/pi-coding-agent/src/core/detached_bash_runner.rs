@@ -187,7 +187,10 @@ pub fn read_detached_bash_activation(
         return Ok(None);
     }
     let data = std::fs::read_to_string(path)?;
-    Ok(Some(serde_json::from_str(&data)?))
+    let value = pi_js_compat::js_json::parse(&data).map_err(|error| DetachedBashRunnerError(error.to_string()))?;
+    Ok(Some(
+        serde_json::from_value(value).map_err(DetachedBashRunnerError::from)?,
+    ))
 }
 
 /// `getDetachedBashRunnerInvocation`.
@@ -234,10 +237,10 @@ pub fn launch_detached_bash_runner(manifest_path: &str) -> Result<u32, DetachedB
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    if let Some(home) = std::env::var_os("HOME") {
+    if let Some(home) = pi_js_compat::process_env::get("HOME") {
         command.env("HOME", home);
     }
-    if let Some(path) = std::env::var_os("PATH") {
+    if let Some(path) = pi_js_compat::process_env::get("PATH") {
         command.env("PATH", path);
     }
     let child = command.spawn()?;
@@ -545,7 +548,8 @@ async fn wait_for_detached_bash_launch_manifest(
 
 fn read_detached_bash_launch_manifest(path: &str) -> Result<DetachedBashLaunchManifest, DetachedBashRunnerError> {
     let data = std::fs::read_to_string(path)?;
-    let parsed: DetachedBashLaunchManifest = serde_json::from_str(&data)?;
+    let value = pi_js_compat::js_json::parse(&data).map_err(|error| DetachedBashRunnerError(error.to_string()))?;
+    let parsed: DetachedBashLaunchManifest = serde_json::from_value(value).map_err(DetachedBashRunnerError::from)?;
     let checksum = hash_json(&Value::Object(manifest_unsigned_value(&parsed.data)?));
     if parsed.version != DETACHED_BASH_LAUNCH_VERSION || parsed.checksum != checksum {
         return Err(DetachedBashRunnerError(format!(
@@ -624,7 +628,7 @@ pub fn read_json_lines(path: &str, offset: u64) -> Result<JsonLinesChunk, std::i
     let text = String::from_utf8_lossy(&data[offset as usize..]);
     let mut values = Vec::new();
     for line in text.split('\n').filter(|line| !line.is_empty()) {
-        values.push(serde_json::from_str(line).map_err(std::io::Error::other)?);
+        values.push(pi_js_compat::js_json::parse(line).map_err(std::io::Error::other)?);
     }
     Ok(JsonLinesChunk {
         offset: data.len() as u64,

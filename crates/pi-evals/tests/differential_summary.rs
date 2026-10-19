@@ -5,12 +5,12 @@ mod support;
 
 use std::ffi::OsString;
 
-use pi_coding_agent::utils::js_json;
 use pi_evals::style::StyleText;
 use pi_evals::vitest_evals::summary::{
     HarnessComparisonReport, HarnessObservation, HarnessObservationBase, HarnessObservationOutcome,
     format_harness_comparison_report_with_style, summarize_harness_comparisons,
 };
+use pi_js_compat::js_json;
 use serde_json::{Value, json};
 
 const SOURCE_MODULE: &str = "packages/evals/src/vitest-evals/summary.ts";

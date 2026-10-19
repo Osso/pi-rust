@@ -21,7 +21,7 @@ use super::{
 };
 use crate::core::runtime_process::{is_verified_pi_runtime_process, read_process_identity};
 use crate::core::session_health::{SessionHealthRecord, empty_session_health, end_session_health};
-use crate::utils::js_json;
+use pi_js_compat::js_json;
 
 const UPSERT_RUNTIME_MAILBOX_LISTENER_SQL: &str = "
 	INSERT INTO runtime_mailbox_listeners (

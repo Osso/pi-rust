@@ -35,7 +35,7 @@ use crate::utils::hash::short_hash;
 use crate::utils::headers::headers_to_record;
 use crate::utils::json_parse::parse_streaming_json;
 use crate::utils::sanitize_unicode::sanitize_surrogates;
-use pi_js_compat::number::js_number_to_string;
+use pi_js_compat::number::{js_number_to_string, js_number_value};
 
 const MISTRAL_TOOL_CALL_ID_LENGTH: usize = 9;
 const MAX_MISTRAL_ERROR_BODY_CHARS: usize = 4000;
@@ -904,11 +904,6 @@ fn build_tool_result_text(tool_result: &crate::types::ToolResultMessage, support
     .to_owned()
 }
 
-fn js_number_value(value: f64) -> Value {
-    let text = js_number_to_string(value);
-    serde_json::from_str(&text).unwrap_or(Value::Null)
-}
-
 // --- Streaming -------------------------------------------------------------
 
 async fn consume_chat_stream(
@@ -1441,7 +1436,8 @@ fn parse_mistral_event(raw: &str) -> Result<ParsedEvent, MistralError> {
     if data == "[DONE]" {
         return Ok(ParsedEvent::Done);
     }
-    let parsed: Value = serde_json::from_str(&data).map_err(|error| MistralError::message(error.to_string()))?;
+    let parsed: Value =
+        pi_js_compat::js_json::parse(&data).map_err(|error| MistralError::message(error.to_string()))?;
     if !parsed.is_object() || !parsed.get("choices").is_some_and(Value::is_array) {
         return Err(MistralError::message("Invalid Mistral streaming event"));
     }

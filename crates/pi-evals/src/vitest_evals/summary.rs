@@ -8,7 +8,7 @@
 use std::cmp::Ordering;
 
 use indexmap::IndexMap;
-use pi_coding_agent::utils::js_json;
+use pi_js_compat::js_json;
 use pi_js_compat::locale_compare;
 use pi_js_compat::number::to_fixed;
 use serde::{Deserialize, Serialize};

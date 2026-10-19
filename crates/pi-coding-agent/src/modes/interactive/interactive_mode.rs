@@ -508,13 +508,13 @@ fn git_path_regex() -> &'static Regex {
 fn home_directory() -> String {
     #[cfg(windows)]
     {
-        std::env::var("USERPROFILE")
-            .or_else(|_| std::env::var("HOME"))
+        pi_js_compat::process_env::get("USERPROFILE")
+            .or_else(|_| pi_js_compat::process_env::get("HOME"))
             .unwrap_or_default()
     }
     #[cfg(not(windows))]
     {
-        std::env::var("HOME").unwrap_or_default()
+        pi_js_compat::process_env::get("HOME").unwrap_or_default()
     }
 }
 

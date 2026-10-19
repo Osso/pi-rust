@@ -45,8 +45,8 @@ use crate::modes::rpc::rpc_types::{
     ExtensionUiRequestTag, RpcCommand, RpcCommandBody, RpcExtensionUiRequest, RpcExtensionUiRequestPayload,
     RpcExtensionUiResponse, RpcExtensionUiResponsePayload, RpcResponse, RpcSessionState, RpcSlashCommand,
 };
-use crate::utils::js_json;
 use crate::utils::shell::kill_tracked_detached_children;
+use pi_js_compat::js_json;
 
 type PendingSender = oneshot::Sender<RpcExtensionUiResponse>;
 

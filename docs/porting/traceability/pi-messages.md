@@ -53,7 +53,7 @@ Tests: `crates/pi-ai/tests/pi_messages.rs`,
   match. `createErrorEvent` places `errorMessage` before `timestamp`, which a single
   struct order cannot reproduce; that path's key order is a residual gap. The port's
   protocol layer models producer-specific order explicitly.
-- JSON parser error text for malformed `data:` payloads → `<json-parse-error>`.
+- JSON parser error text for malformed `data:` payloads is the V8 `SyntaxError` message from `pi_js_compat::js_json` and is compared byte-for-byte.
 - integral numbers canonicalized to integers.
 - extra fields the converter spreads into events but that are not part of
   `AssistantMessageEvent` are stripped: `contentSignature`/`redacted` on

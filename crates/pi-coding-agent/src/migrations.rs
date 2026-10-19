@@ -17,7 +17,7 @@ use serde_json::{Map, Value};
 use crate::config;
 use crate::core::output_guard::write_raw_stdout;
 use crate::utils::chalk::Chalk;
-use crate::utils::js_json;
+use pi_js_compat::js_json;
 
 pub const MIGRATION_GUIDE_URL: &str =
     "https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/CHANGELOG.md#extensions-migration";

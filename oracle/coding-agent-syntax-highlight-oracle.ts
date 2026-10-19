@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import { requireCases, runOracle } from "./coding-agent-utils-oracle-support.ts";
 
 type ThemeEntry = [string, string];
@@ -13,7 +15,21 @@ type Case =
 			theme: ThemeEntry[];
 	  }
 	| { kind: "render"; name: string; html: string; theme: ThemeEntry[] }
+	| { kind: "raw"; name: string; code: string; language: string; ignoreIllegals: boolean }
 	| { kind: "supports"; name: string; language: string };
+
+type RawHighlighter = {
+	highlight(code: string, options: { language: string; ignoreIllegals?: boolean }): { value: string };
+};
+
+function loadRawHighlighter(): RawHighlighter {
+	const sourceModulePath = process.argv[2];
+	if (sourceModulePath === undefined) {
+		throw new Error("coding-agent syntax-highlight oracle requires a source module path");
+	}
+	const sourceRequire = createRequire(pathToFileURL(sourceModulePath));
+	return sourceRequire("highlight.js/lib/index.js") as RawHighlighter;
+}
 
 type Api = {
 	highlight(
@@ -38,6 +54,15 @@ void runOracle((module, request) => {
 		const input = value as Case;
 		if (input.kind === "render") {
 			return { name: input.name, value: api.renderHighlightedHtml(input.html, buildTheme(input.theme)) };
+		}
+		if (input.kind === "raw") {
+			return {
+				name: input.name,
+				value: loadRawHighlighter().highlight(input.code, {
+					language: input.language,
+					ignoreIllegals: input.ignoreIllegals,
+				}).value,
+			};
 		}
 		if (input.kind === "supports") {
 			return { name: input.name, value: api.supportsLanguage(input.language) };

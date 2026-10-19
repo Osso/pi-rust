@@ -39,6 +39,7 @@ use crate::utils::json_parse::parse_streaming_json;
 use crate::utils::provider_env::get_provider_env_value;
 use crate::utils::provider_retry::{ProviderRequestError, ProviderRetryOptions, retry_provider_request};
 use crate::utils::sanitize_unicode::sanitize_surrogates;
+use pi_js_compat::number::js_number_value;
 
 /// `OpenAICompletionsOptions`.
 #[derive(Debug, Clone, Default)]
@@ -1029,10 +1030,10 @@ pub fn build_params(
             MaxTokensField::MaxTokens => "max_tokens",
             MaxTokensField::MaxCompletionTokens => "max_completion_tokens",
         };
-        params.insert(field.to_owned(), number_value(max_tokens));
+        params.insert(field.to_owned(), js_number_value(max_tokens));
     }
     if let Some(temperature) = stream_options.temperature {
-        params.insert("temperature".to_owned(), number_value(temperature));
+        params.insert("temperature".to_owned(), js_number_value(temperature));
     }
 
     let deferred_tool_names = if compat.deferred_tools_mode == Some(crate::types::DeferredToolsMode::Kimi) {
@@ -1241,7 +1242,7 @@ pub fn build_params(
             .unwrap_or(model.max_tokens);
         let budget = budget.min((ceiling - MIN_ANSWER_TOKENS).max(0.0));
         if budget > 0.0 {
-            params.insert("thinking_token_budget".to_owned(), number_value(budget));
+            params.insert("thinking_token_budget".to_owned(), js_number_value(budget));
         }
     }
 
@@ -1288,12 +1289,6 @@ fn clamp_reasoning_level(level: ModelThinkingLevel) -> Option<crate::types::Thin
         }
         ModelThinkingLevel::Off => return None,
     })
-}
-
-fn number_value(value: f64) -> Value {
-    serde_json::Number::from_f64(value)
-        .map(Value::Number)
-        .unwrap_or(Value::Null)
 }
 
 // =============================================================================

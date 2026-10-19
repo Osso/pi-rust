@@ -52,7 +52,7 @@ use crate::utils::event_stream::{
 };
 use crate::utils::uuid::uuidv7;
 use pi_js_compat::date::date_parse;
-use pi_js_compat::number::parse_number;
+use pi_js_compat::number::{js_number_value, parse_number};
 
 pub const DEFAULT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api";
 const JWT_CLAIM_PATH: &str = "https://api.openai.com/auth";
@@ -706,13 +706,6 @@ fn object(entries: Vec<(&str, Value)>) -> Value {
         map.insert(key.to_owned(), value);
     }
     Value::Object(map)
-}
-
-fn js_number_value(value: f64) -> Value {
-    if value.is_finite() && value.fract() == 0.0 && value.abs() < 1e21 {
-        return Value::from(value as i64);
-    }
-    Value::from(value)
 }
 
 fn codex_tool_call_providers() -> std::collections::BTreeSet<String> {
@@ -1388,7 +1381,7 @@ impl SseEventSource {
         if data.is_empty() || data == "[DONE]" {
             return Ok(SseStep::Skip);
         }
-        serde_json::from_str(data)
+        pi_js_compat::js_json::parse(data)
             .map(SseStep::Event)
             .map_err(|error| CodexStreamError::Protocol {
                 message: format!("Invalid Codex SSE JSON: {error}"),
@@ -2575,7 +2568,7 @@ impl WsEventSource {
     }
 
     fn handle_text(&mut self, text: &str) {
-        let parsed: Value = match serde_json::from_str(text) {
+        let parsed: Value = match pi_js_compat::js_json::parse(text) {
             Ok(parsed) => parsed,
             Err(error) => {
                 self.fail(CodexStreamError::Protocol {

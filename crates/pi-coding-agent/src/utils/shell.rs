@@ -109,7 +109,7 @@ fn custom_shell_config(custom: &str) -> Result<ShellConfig, ShellError> {
 fn windows_shell_config() -> Result<ShellConfig, ShellError> {
     let mut searched = Vec::new();
     for variable in ["ProgramFiles", "ProgramFiles(x86)"] {
-        let Some(program_files) = std::env::var(variable).ok().filter(|value| !value.is_empty()) else {
+        let Some(program_files) = pi_js_compat::process_env::get(variable).filter(|value| !value.is_empty()) else {
             continue;
         };
         let path = format!("{program_files}\\Git\\bin\\bash.exe");

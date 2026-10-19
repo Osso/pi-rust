@@ -43,34 +43,14 @@ fn normalize(value: &mut Value) {
 fn canonical(value: Value) -> Value {
     match value {
         Value::Array(items) => Value::Array(items.into_iter().map(canonical).collect()),
-        Value::Object(object) => Value::Object(
-            object
-                .into_iter()
-                .map(|(key, value)| {
-                    let value = canonical(value);
-                    let value = if key == "errorMessage" {
-                        normalize_parse_error(value)
-                    } else {
-                        value
-                    };
-                    (key, value)
-                })
-                .collect(),
-        ),
+        Value::Object(object) => {
+            Value::Object(object.into_iter().map(|(key, value)| (key, canonical(value))).collect())
+        }
         Value::Number(number) => match number.as_f64() {
-            Some(float) if float.fract() == 0.0 && float.abs() < 1e21 => Value::from(float as i64),
-            _ => Value::Number(number),
+            Some(float) => pi_js_compat::number::js_number_value(float),
+            None => Value::Number(number),
         },
         other => other,
-    }
-}
-
-fn normalize_parse_error(value: Value) -> Value {
-    match &value {
-        Value::String(text) if text.contains("JSON") || text.contains("expected") || text.contains("line ") => {
-            json!("<json-parse-error>")
-        }
-        _ => value,
     }
 }
 

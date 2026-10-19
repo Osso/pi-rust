@@ -58,10 +58,6 @@ function normalize(value: unknown): unknown {
 			result[key] = 0;
 			continue;
 		}
-		if (key === "errorMessage" && typeof source[key] === "string" && /JSON|Unexpected token/.test(source[key] as string)) {
-			result[key] = "<json-parse-error>";
-			continue;
-		}
 		if (
 			(key === "contentSignature" || key === "redacted") &&
 			(source.type === "text_end" || source.type === "thinking_end") &&

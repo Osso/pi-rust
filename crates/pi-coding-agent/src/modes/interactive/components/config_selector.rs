@@ -121,7 +121,7 @@ enum FlatEntry {
 }
 
 fn home_dir() -> String {
-    std::env::var("HOME").unwrap_or_default()
+    pi_js_compat::process_env::get("HOME").unwrap_or_default()
 }
 
 fn format_base_dir(base_dir: &str) -> String {

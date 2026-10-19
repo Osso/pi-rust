@@ -72,11 +72,7 @@ fn request_case(case: &Case, cwd: &str) -> Value {
 }
 
 fn number(value: f64) -> Value {
-    if value.fract() == 0.0 && value.is_finite() {
-        json!(value as i64)
-    } else {
-        json!(value)
-    }
+    pi_js_compat::number::js_number_value(value)
 }
 
 fn edits_json(edits: &[Edit]) -> Value {

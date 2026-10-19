@@ -7,11 +7,10 @@
 
 use std::fmt;
 
-use pi_js_compat::number::js_number_to_string;
-use serde_json::{Map, Number, Value};
+use crate::number::{js_number_to_string, js_number_value};
+use serde_json::{Map, Value};
 
 const CONTEXT_CHARACTERS: usize = 10;
-const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const SPECIAL_SOURCES: [&str; 4] = ["[object Object]", "undefined", "Infinity", "NaN"];
 
 /// `SyntaxError` thrown by `JSON.parse`; `Display` is the V8 message.
@@ -82,14 +81,6 @@ fn array_index(key: &str) -> Option<u32> {
         return None;
     }
     key.parse::<u32>().ok().filter(|index| *index != u32::MAX)
-}
-
-/// A JavaScript number as a JSON value; non-finite numbers become `null`, as `JSON.stringify` writes them.
-pub fn number_value(value: f64) -> Value {
-    if value.fract() == 0.0 && value.abs() <= MAX_SAFE_INTEGER {
-        return Value::from(value as i64);
-    }
-    Number::from_f64(value).map_or(Value::Null, Value::Number)
 }
 
 struct Parser<'a> {
@@ -231,7 +222,7 @@ impl Parser<'_> {
         }
         let text: String = self.chars[start..self.index].iter().collect();
         let value: f64 = text.parse().expect("validated JSON number text must parse");
-        Ok(number_value(value))
+        Ok(js_number_value(value))
     }
 
     fn require_digits(&mut self, message: &str) -> Result<(), JsonParseError> {

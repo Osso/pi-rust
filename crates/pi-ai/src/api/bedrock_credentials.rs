@@ -186,13 +186,13 @@ fn read_sso_token(cache_key: &str) -> Result<Value, CallbackError> {
             "The SSO session associated with this profile is invalid. To refresh this SSO session run aws sso login with the corresponding profile.",
         )
     })?;
-    serde_json::from_str(&text)
+    pi_js_compat::js_json::parse(&text)
         .map_err(|error| CallbackError::new(format!("The SSO session token is invalid: {error}")))
 }
 
 fn sso_token_path(cache_key: &str) -> Result<PathBuf, CallbackError> {
-    let home =
-        std::env::var("HOME").map_err(|_| CallbackError::new("HOME is not set; cannot read the SSO token cache"))?;
+    let home = pi_js_compat::process_env::get("HOME")
+        .ok_or_else(|| CallbackError::new("HOME is not set; cannot read the SSO token cache"))?;
     let digest = Sha1::digest(cache_key.as_bytes());
     let mut name = String::with_capacity(40);
     for byte in digest {
@@ -233,7 +233,7 @@ struct SharedFiles {
 
 impl SharedFiles {
     fn load(env: Option<&ProviderEnv>) -> Self {
-        let home = std::env::var("HOME").unwrap_or_default();
+        let home = pi_js_compat::process_env::get("HOME").unwrap_or_default();
         let config_path = get_provider_env_value("AWS_CONFIG_FILE", env)
             .map(PathBuf::from)
             .unwrap_or_else(|| Path::new(&home).join(".aws").join("config"));

@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::request::{BoxFuture, CallbackError};
 use crate::types::{ProviderEnv, ProviderHeaders};
+use pi_js_compat::number::js_number_value;
 
 /// `ModelAuth`: request auth for a single model request.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -131,7 +132,7 @@ impl Serialize for Credential {
                 object.insert("type".to_owned(), Value::String("oauth".to_owned()));
                 object.insert("refresh".to_owned(), Value::String(credential.refresh.clone()));
                 object.insert("access".to_owned(), Value::String(credential.access.clone()));
-                object.insert("expires".to_owned(), number_value(credential.expires));
+                object.insert("expires".to_owned(), js_number_value(credential.expires));
                 for (key, value) in &credential.extra {
                     object.insert(key.clone(), value.clone());
                 }
@@ -171,14 +172,6 @@ impl<'de> Deserialize<'de> for Credential {
             }
             other => Err(D::Error::custom(format!("unknown credential type {other:?}"))),
         }
-    }
-}
-
-fn number_value(value: f64) -> Value {
-    if value.fract() == 0.0 && value.abs() <= i64::MAX as f64 {
-        Value::from(value as i64)
-    } else {
-        Value::from(value)
     }
 }
 

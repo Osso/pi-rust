@@ -258,7 +258,7 @@ impl Component for FooterComponent {
             || self.session.session_manager().get_cwd().to_owned(),
             |override_| override_.cwd.clone(),
         );
-        let home = std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok());
+        let home = pi_js_compat::process_env::get("HOME").or_else(|| pi_js_compat::process_env::get("USERPROFILE"));
         let mut pwd = format_cwd_for_footer(&cwd, home.as_deref());
 
         let branch = if self.session_override.is_some() {

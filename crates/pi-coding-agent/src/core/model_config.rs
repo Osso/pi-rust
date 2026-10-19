@@ -9,8 +9,8 @@ use std::path::Path;
 use pi_ai::utils::validation::schema_error_lines;
 use serde_json::{Map, Value, json};
 
-use crate::utils::js_json;
 use crate::utils::paths::normalize_path;
+use pi_js_compat::js_json;
 
 /// One immutable load of `models.json`.
 #[derive(Debug, Clone, Default)]

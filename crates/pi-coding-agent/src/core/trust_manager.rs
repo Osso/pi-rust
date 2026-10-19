@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::config::package_config;
-use crate::utils::js_json;
 use crate::utils::lockfile::{LockOptions, acquire_sync};
 use crate::utils::paths::{PathInputOptions, canonicalize_path, resolve_path};
+use pi_js_compat::js_json;
 
 const TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES: [&str; 8] = [
     "settings.json",
@@ -355,8 +355,7 @@ impl ProjectTrustStore {
 /// gated by project trust. The user-level `~/.agents/skills`, `~/.codex/skills`, and
 /// `~/.claude/skills` directories are always trusted and ignored.
 pub fn has_trust_requiring_project_resources(cwd: &str) -> bool {
-    let home = std::env::var("HOME")
-        .ok()
+    let home = pi_js_compat::process_env::get("HOME")
         .filter(|home| !home.is_empty())
         .unwrap_or_else(|| ".".to_owned());
     let home_dir = canonicalize_path(&resolve_path(&home, &current_dir(), &path_options()).unwrap_or(home));

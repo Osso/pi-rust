@@ -230,7 +230,9 @@ fn drain_lines(
         if data.is_empty() {
             continue;
         }
-        let proxy_event: ProxyAssistantMessageEvent = serde_json::from_str(data).map_err(|error| error.to_string())?;
+        let value = pi_js_compat::js_json::parse(data).map_err(|error| error.to_string())?;
+        let proxy_event: ProxyAssistantMessageEvent =
+            serde_json::from_value(value).map_err(|error| error.to_string())?;
         if let Some(event) = process_proxy_event(proxy_event, state)? {
             sender.push(event);
         }

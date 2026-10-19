@@ -99,11 +99,11 @@ pub fn get_text_output(result: Option<&AgentToolResult>, show_images: bool) -> S
 fn home_directory() -> String {
     #[cfg(windows)]
     {
-        std::env::var("USERPROFILE").unwrap_or_default()
+        pi_js_compat::process_env::get("USERPROFILE").unwrap_or_default()
     }
     #[cfg(not(windows))]
     {
-        std::env::var("HOME").unwrap_or_default()
+        pi_js_compat::process_env::get("HOME").unwrap_or_default()
     }
 }
 

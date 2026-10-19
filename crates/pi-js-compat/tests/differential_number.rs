@@ -3,7 +3,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use pi_js_compat::number::{js_number_to_string, parse_float, parse_int, parse_number, to_fixed};
+use pi_js_compat::number::{js_number_to_string, js_number_value, parse_float, parse_int, parse_number, to_fixed};
 use serde_json::json;
 
 const NUMBER_VALUES: &[&str] = &[
@@ -231,6 +231,65 @@ const FIXED_CASES: &[(f64, u32)] = &[
     (999.99, 0),
     (0.000001, 3),
 ];
+
+const JSON_STRINGIFY_VALUES: &[&str] = &[
+    "0",
+    "-0",
+    "1",
+    "-1",
+    "42.5",
+    "3000",
+    "0.1",
+    "0.30000000000000004",
+    "9007199254740991",
+    "9007199254740992",
+    "9007199254740994",
+    "-9007199254740994",
+    "18446744073709551615",
+    "18446744073709551616",
+    "100000000000000000000",
+    "-100000000000000000000",
+    "1e21",
+    "1.234e21",
+    "-1e21",
+    "1e20",
+    "1e-6",
+    "1e-7",
+    "5e-324",
+    "1.7976931348623157e308",
+    "1e999",
+    "-1e999",
+    "NaN",
+];
+
+#[test]
+fn matches_node_json_stringify_numbers() {
+    let mut oracle = oracle::TsOracle::spawn("js-compat-oracle.ts", "packages/coding-agent/src/index.ts");
+    let response = oracle.request(&json!({
+        "id": 12,
+        "operation": "json_stringify",
+        "values": JSON_STRINGIFY_VALUES,
+    }));
+    assert_eq!(response["ok"], true, "oracle failed: {response}");
+    let expected: Vec<String> = response["output"]
+        .as_array()
+        .expect("stringify array")
+        .iter()
+        .map(|value| value.as_str().expect("string").to_owned())
+        .collect();
+    // Compare JSON values: `serde_json` spells exponents without the JavaScript
+    // `+` (`1e21` vs `1e+21`), which is a workspace-wide serialization spelling,
+    // not a numeric difference.
+    let actual: Vec<serde_json::Value> = JSON_STRINGIFY_VALUES
+        .iter()
+        .map(|value| js_number_value(parse_number(value)))
+        .collect();
+    let expected: Vec<serde_json::Value> = expected
+        .iter()
+        .map(|value| serde_json::from_str(value).expect("JSON.stringify output is JSON"))
+        .collect();
+    assert_eq!(actual, expected, "JSON.stringify(number)");
+}
 
 #[test]
 fn matches_node_to_fixed() {

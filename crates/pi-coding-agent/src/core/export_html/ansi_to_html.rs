@@ -1,5 +1,7 @@
 //! Converts terminal ANSI SGR styling to inline-styled HTML.
 
+use pi_js_compat::number::js_number_to_string;
+
 const ANSI_COLORS: [&str; 16] = [
     "#000000", "#800000", "#008000", "#808000", "#000080", "#800080", "#008080", "#c0c0c0", "#808080", "#ff0000",
     "#00ff00", "#ffff00", "#0000ff", "#ff00ff", "#00ffff", "#ffffff",
@@ -264,24 +266,6 @@ fn js_number_to_radix16(value: f64) -> String {
     let mut digits = format!("{:x}", mantissa << shift);
     digits.push_str(&"0".repeat((exponent / 4) as usize));
     digits
-}
-
-/// JavaScript `Number.prototype.toString()` for non-negative integers and infinities.
-fn js_number_to_string(value: f64) -> String {
-    if value.is_nan() {
-        return "NaN".to_owned();
-    }
-    if value.is_infinite() {
-        return "Infinity".to_owned();
-    }
-    if value < 1e21 {
-        return format!("{value:.0}");
-    }
-    let scientific = format!("{value:e}");
-    match scientific.split_once('e') {
-        Some((digits, exponent)) if !exponent.starts_with('-') => format!("{digits}e+{exponent}"),
-        _ => scientific,
-    }
 }
 
 fn push_escaped(output: &mut String, text: &str) {

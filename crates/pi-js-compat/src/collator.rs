@@ -36,11 +36,10 @@ fn build_collator(locale: &str) -> CollatorBorrowed<'static> {
 
 /// ICU's default locale comes from the environment; so does Node's.
 pub fn host_locale() -> String {
-    let raw = std::env::var("LC_ALL")
-        .ok()
+    let raw = crate::process_env::get("LC_ALL")
         .filter(|value| !value.is_empty())
-        .or_else(|| std::env::var("LC_COLLATE").ok().filter(|value| !value.is_empty()))
-        .or_else(|| std::env::var("LANG").ok().filter(|value| !value.is_empty()))
+        .or_else(|| crate::process_env::get("LC_COLLATE").filter(|value| !value.is_empty()))
+        .or_else(|| crate::process_env::get("LANG").filter(|value| !value.is_empty()))
         .unwrap_or_else(|| "und".to_owned());
     let language = raw.split(['.', '@']).next().unwrap_or("und");
     let normalized = language.replace('_', "-");

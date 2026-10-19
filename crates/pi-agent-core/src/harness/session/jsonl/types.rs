@@ -146,12 +146,12 @@ impl NativeFileSystem {
 
 fn expand_home(path: &str) -> String {
     if path == "~" {
-        return std::env::var("HOME").unwrap_or_else(|_| path.to_owned());
+        return pi_js_compat::process_env::get("HOME").unwrap_or_else(|| path.to_owned());
     }
     match path.strip_prefix("~/") {
-        Some(rest) => match std::env::var("HOME") {
-            Ok(home) => format!("{home}/{rest}"),
-            Err(_) => path.to_owned(),
+        Some(rest) => match pi_js_compat::process_env::get("HOME") {
+            Some(home) => format!("{home}/{rest}"),
+            None => path.to_owned(),
         },
         None => path.to_owned(),
     }

@@ -214,7 +214,7 @@ async fn exchange_authorization_code(
             ))
         })?;
 
-    let token_data: Value = serde_json::from_str(&response_body).map_err(|error| {
+    let token_data: Value = pi_js_compat::js_json::parse(&response_body).map_err(|error| {
         CallbackError::new(format!(
             "Token exchange returned invalid JSON. url={TOKEN_URL}; body={response_body}; details=Error: {error}"
         ))
@@ -380,7 +380,7 @@ async fn refresh_anthropic(
             format_error_details(&error)
         ))
     })?;
-    let data: Value = serde_json::from_str(&response_body).map_err(|error| {
+    let data: Value = pi_js_compat::js_json::parse(&response_body).map_err(|error| {
         CallbackError::new(format!(
             "Anthropic token refresh returned invalid JSON. url={TOKEN_URL}; body={response_body}; details=Error: {error}"
         ))

@@ -427,7 +427,7 @@ impl ArchitectConsoleServer for SharedArchitectConsoleServer {
 /// `runArchitectService`.
 pub async fn run_architect_service() -> Result<(), String> {
     let agent_dir = crate::config::get_agent_dir().display().to_string();
-    let cwd = std::env::var("HOME").unwrap_or_else(|_| {
+    let cwd = pi_js_compat::process_env::get("HOME").unwrap_or_else(|| {
         std::env::current_dir()
             .map(|path| path.display().to_string())
             .unwrap_or_default()

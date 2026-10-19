@@ -15,8 +15,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::get_agent_dir;
 use crate::core::auth_storage::{AsyncLockOperation, AuthStorageBackend, FileAuthStorageBackend, StorageError};
-use crate::utils::js_json;
 use crate::utils::paths::{get_file_revision, normalize_path};
+use pi_js_compat::js_json;
+use pi_js_compat::number::js_number_value;
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -96,14 +97,6 @@ fn entry_to_value(entry: &ModelsStoreEntry) -> Result<Value, StorageError> {
         object.insert("etag".to_owned(), Value::String(etag.clone()));
     }
     Ok(Value::Object(object))
-}
-
-fn js_number_value(value: f64) -> Value {
-    if value.fract() == 0.0 && value.abs() <= 9_007_199_254_740_991.0 {
-        Value::from(value as i64)
-    } else {
-        serde_json::Number::from_f64(value).map_or(Value::Null, Value::Number)
-    }
 }
 
 fn value_to_entry(value: &Value) -> Result<ModelsStoreEntry, StorageError> {

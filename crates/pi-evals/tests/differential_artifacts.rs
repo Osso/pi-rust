@@ -5,8 +5,8 @@ mod support;
 
 use std::fs;
 
-use pi_coding_agent::utils::js_json;
 use pi_evals::vitest_evals::artifacts::{TestArtifact, persist_eval_artifact_references};
+use pi_js_compat::js_json;
 use serde_json::{Value, json};
 
 const SOURCE_MODULE: &str = "packages/evals/src/vitest-evals/artifacts.ts";

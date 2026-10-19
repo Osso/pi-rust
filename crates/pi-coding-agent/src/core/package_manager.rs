@@ -37,10 +37,10 @@ use crate::core::pi_manifest::{PiManifest, read_pi_manifest};
 use crate::core::settings_manager::{Settings, SettingsManager};
 use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::git::{GitSource, parse_git_url};
-use crate::utils::js_json;
 use crate::utils::paths::{
     PathInputOptions, canonicalize_path, is_local_path, mark_path_ignored_by_cloud_sync, relative_path, resolve_path,
 };
+use pi_js_compat::js_json;
 
 const NETWORK_TIMEOUT_MS: u64 = 10_000;
 const UPDATE_CHECK_CONCURRENCY: usize = 4;
@@ -473,7 +473,7 @@ fn to_posix_path(path: &str) -> String {
 }
 
 fn home_dir() -> String {
-    std::env::var("HOME").unwrap_or_default()
+    pi_js_compat::process_env::get("HOME").unwrap_or_default()
 }
 
 fn resolve_input(input: &str, base_dir: &str) -> Result<String, PackageManagerError> {

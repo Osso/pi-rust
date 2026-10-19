@@ -60,7 +60,8 @@ pub fn review_goal_with_resident_supervisor(
     input: GoalReviewInput,
 ) -> BoxFuture<'static, Result<GoalSupervisorResponse, HandlerError>> {
     Box::pin(async move {
-        let kb_dir = std::env::var("PI_KB_DIR").unwrap_or_else(|_| DEFAULT_SUPERVISOR_KB_DIR.to_owned());
+        let kb_dir =
+            pi_js_compat::process_env::get("PI_KB_DIR").unwrap_or_else(|| DEFAULT_SUPERVISOR_KB_DIR.to_owned());
         let control_db_path = get_control_db_path(&get_user_state_root());
         let cwd = input.ctx.cwd().map_err(|error| HandlerError::new(error.to_string()))?;
         let session = input

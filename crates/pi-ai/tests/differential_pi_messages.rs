@@ -28,32 +28,15 @@ fn canonical(value: Value) -> Value {
                 object
                     .into_iter()
                     .filter(|(key, _)| !(is_end_event && matches!(key.as_str(), "contentSignature" | "redacted")))
-                    .map(|(key, value)| {
-                        let value = canonical(value);
-                        let value = if key == "errorMessage" {
-                            normalize_parse_error(value)
-                        } else {
-                            value
-                        };
-                        (key, value)
-                    })
+                    .map(|(key, value)| (key, canonical(value)))
                     .collect(),
             )
         }
         Value::Number(number) => match number.as_f64() {
-            Some(float) if float.fract() == 0.0 && float.abs() < 1e21 => Value::from(float as i64),
-            _ => Value::Number(number),
+            Some(float) => pi_js_compat::number::js_number_value(float),
+            None => Value::Number(number),
         },
         other => other,
-    }
-}
-
-fn normalize_parse_error(value: Value) -> Value {
-    match &value {
-        Value::String(text) if text.contains("JSON") || text.contains("expected") || text.contains("line ") => {
-            json!("<json-parse-error>")
-        }
-        _ => value,
     }
 }
 
