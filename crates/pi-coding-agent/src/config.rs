@@ -145,6 +145,16 @@ static PACKAGE_CONFIG: OnceLock<Result<PackageConfig, ConfigError>> = OnceLock::
 /// TypeScript throws during module evaluation when `PI_PACKAGE_DIR/package.json`
 /// cannot be read or parsed; nothing catches it, so it reaches the process-level
 /// handler.
+/// `VERSION`: the embedded package version.
+pub fn version() -> &'static str {
+    &package_config().version
+}
+
+/// `CONFIG_DIR_NAME`: the embedded package config directory name.
+pub fn config_dir_name() -> &'static str {
+    &package_config().config_dir_name
+}
+
 pub fn package_config() -> &'static PackageConfig {
     try_package_config().unwrap_or_else(|error| throw_uncaught(error.label(), error.to_string()))
 }

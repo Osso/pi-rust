@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
@@ -546,6 +547,20 @@ pub trait ExtensionUiContext: Send + Sync {
         current_theme()
     }
 }
+
+/// `BeforeProviderRequestEventResult` (`unknown` in the source): the handler
+/// returns the replacement payload.
+pub type BeforeProviderRequestEventResult = Value;
+
+/// `AutocompleteProviderFactory`: wraps the current provider.
+///
+/// The source factory is `(current: AutocompleteProvider) => AutocompleteProvider`;
+/// Rust hands the shared trait object through.
+pub type AutocompleteProviderFactory = Arc<
+    dyn Fn(Rc<dyn pi_tui::autocomplete::AutocompleteProvider>) -> Rc<dyn pi_tui::autocomplete::AutocompleteProvider>
+        + Send
+        + Sync,
+>;
 
 /// `SessionMutationTarget`: the session a multi-agent selection points at.
 ///
