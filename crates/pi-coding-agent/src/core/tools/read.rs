@@ -32,6 +32,13 @@ use crate::utils::paths::format_path_relative_to_cwd_or_absolute;
 
 const DESCRIPTION: &str = "Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 10KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.";
 
+/// `readToolSystemPromptContribution`.
+pub const READ_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribution =
+    super::ToolSystemPromptContribution {
+        snippet: "Read file contents",
+        guidelines: &["Use read to examine files instead of cat or sed."],
+    };
+
 /// File access used by [`ReadTool`]. Override to delegate reads to a remote system.
 pub trait ReadOperations: Send + Sync {
     fn read_file<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Vec<u8>>>;

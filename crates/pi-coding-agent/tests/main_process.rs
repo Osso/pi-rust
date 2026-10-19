@@ -134,6 +134,19 @@ fn run_rust(fixture: &Fixture, args: &[&str]) -> ProcessOutput {
     run(&mut command, &environment(fixture, &fixture.package_dir))
 }
 
+/// Runs the binary without `PI_PACKAGE_DIR`, so package.json and the built-in
+/// themes come from the assets embedded in the executable.
+fn run_rust_with_embedded_assets(fixture: &Fixture, args: &[&str]) -> ProcessOutput {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pi"));
+    command.args(args).current_dir(&fixture.work);
+    let env: Vec<(String, String)> = environment(fixture, &fixture.package_dir)
+        .into_iter()
+        .filter(|(name, _)| name != "PI_PACKAGE_DIR")
+        .collect();
+    command.env_remove("PI_PACKAGE_DIR");
+    run(&mut command, &env)
+}
+
 fn run_typescript(lock: &SourceLock, fixture: &Fixture, args: &[&str]) -> ProcessOutput {
     let package_dir = lock.worktree.join("packages/coding-agent");
     let mut command = Command::new(lock.worktree.join("node_modules/.bin/tsx"));
@@ -168,6 +181,36 @@ fn assert_matches(lock: &SourceLock, args: &[&str]) {
 #[test]
 fn version_differential() {
     assert_matches(&source_lock(), &["--version"]);
+}
+
+#[test]
+fn embedded_assets_version_differential() {
+    let lock = source_lock();
+    verify_source_head(&lock);
+    let rust = run_rust_with_embedded_assets(&fixture(&lock), &["--version"]);
+    let typescript = run_typescript(&lock, &fixture(&lock), &["--version"]);
+    assert_eq!(typescript.code, rust.code);
+    assert_eq!(typescript.stdout, rust.stdout);
+    assert_eq!(typescript.stderr, rust.stderr);
+}
+
+#[test]
+fn embedded_assets_are_byte_copies_of_the_pinned_source() {
+    let lock = source_lock();
+    verify_source_head(&lock);
+    let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let source_dir = lock.worktree.join("packages/coding-agent");
+    for (embedded, source) in [
+        ("package.json", "package.json"),
+        ("theme/dark.json", "src/modes/interactive/theme/dark.json"),
+        ("theme/light.json", "src/modes/interactive/theme/light.json"),
+    ] {
+        assert_eq!(
+            std::fs::read(source_dir.join(source)).expect("pinned source asset"),
+            std::fs::read(crate_dir.join(embedded)).expect("embedded asset"),
+            "{embedded} must equal the pinned {source}"
+        );
+    }
 }
 
 #[test]
@@ -277,6 +320,14 @@ fn normalize_process_output(text: &str, fixture: &Fixture) -> String {
 }
 
 fn assert_model_differential(lock: &SourceLock, mode_args: &[&str]) {
+    assert_model_differential_with(lock, mode_args, run_rust);
+}
+
+fn assert_model_differential_with(
+    lock: &SourceLock,
+    mode_args: &[&str],
+    run_rust: fn(&Fixture, &[&str]) -> ProcessOutput,
+) {
     verify_source_head(lock);
     let port = spawn_sse_server();
     let rust_fixture = fixture(lock);
@@ -314,4 +365,9 @@ fn json_mode_differential() {
 #[test]
 fn rpc_mode_empty_stdin_differential() {
     assert_model_differential(&source_lock(), &["--mode", "rpc"]);
+}
+
+#[test]
+fn print_mode_with_embedded_assets_differential() {
+    assert_model_differential_with(&source_lock(), &[], run_rust_with_embedded_assets);
 }

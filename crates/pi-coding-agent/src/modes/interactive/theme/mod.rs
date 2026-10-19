@@ -31,9 +31,9 @@ use pi_tui::terminal_colors::RgbColor;
 use pi_tui::terminal_image::get_capabilities;
 use serde_json::{Map, Value};
 
-use crate::config::{get_custom_themes_dir, get_themes_dir};
+use crate::config::{embedded_builtin_theme, get_custom_themes_dir, get_themes_dir, package_dir_override};
 use crate::core::source_info::SourceInfo;
-use crate::core::tools::node_fs::node_fs_error;
+use crate::core::tools::node_fs::{node_fs_error, node_read_error};
 use crate::utils::chalk::{Chalk, Style};
 use crate::utils::fs_watch::{WatchEventKind, close_watcher, watch_with_error_handler};
 use crate::utils::syntax_highlight::{
@@ -768,17 +768,8 @@ static WATCH_CONTROL: Mutex<WatchControl> = Mutex::new(WatchControl {
 
 fn read_theme_file(path: &Path) -> Result<String, ThemeError> {
     fs::read_to_string(path).map_err(|error| ThemeError::Io {
-        message: node_fs_error(&error, read_syscall(&error), &path.display().to_string()),
+        message: node_read_error(&error, &path.display().to_string()),
     })
-}
-
-/// `readFileSync` reports `EISDIR` with the `read` syscall, every other failure with `open`.
-fn read_syscall(error: &std::io::Error) -> &'static str {
-    if error.kind() == std::io::ErrorKind::IsADirectory {
-        "read"
-    } else {
-        "open"
-    }
 }
 
 fn get_builtin_themes() -> Result<Map<String, Value>, ThemeError> {
@@ -786,10 +777,14 @@ fn get_builtin_themes() -> Result<Map<String, Value>, ThemeError> {
         return Ok(builtin);
     }
     let themes_dir = get_themes_dir();
+    let read_from_disk = package_dir_override().is_some();
     let mut builtin = Map::new();
     for name in ["dark", "light"] {
         let path = themes_dir.join(format!("{name}.json"));
-        let content = read_theme_file(&path)?;
+        let content = match embedded_builtin_theme(name) {
+            Some(embedded) if !read_from_disk => embedded.to_owned(),
+            _ => read_theme_file(&path)?,
+        };
         let value: Value = crate::utils::js_json::parse(&content).map_err(|error| ThemeError::Syntax {
             message: error.to_string(),
         })?;

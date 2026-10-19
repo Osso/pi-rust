@@ -1710,10 +1710,12 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         Err(message) => return Err(message),
     }
     if args.len() == 1 && args[0] == "architect" {
-        return Err("architect service is not ported (architect/main.ts)".to_owned());
+        crate::architect::run_architect_service().await?;
+        return Ok(None);
     }
     if args.len() == 1 && args[0] == "supervisor" {
-        return Err("supervisor service is not ported (supervisor/main.ts)".to_owned());
+        crate::supervisor::run_supervisor_service().await?;
+        return Ok(None);
     }
 
     reset_timings(TimingLabel::Main);

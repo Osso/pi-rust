@@ -7,15 +7,22 @@
 //! self-update is unavailable because the binary is not managed by a package manager. The
 //! package-manager branches stay ported as pure functions driven by an [`InstallContext`] so they
 //! remain testable and differentially provable.
+//!
+//! Embedded assets (approved deviation 2026-10-18): without `PI_PACKAGE_DIR`, `package.json` and
+//! the built-in `dark`/`light` themes come from copies of the pinned source compiled into the
+//! executable instead of files beside it, so a bare binary starts. `PI_PACKAGE_DIR` restores the
+//! disk reads.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use serde::Deserialize;
+use serde_json::Value;
 
+use crate::core::tools::node_fs::node_read_error;
 use crate::utils::js_json;
 use crate::utils::paths::{PathInputOptions, normalize_path};
+use crate::utils::uncaught::{ERROR, throw_uncaught};
 
 const DEFAULT_PACKAGE_NAME: &str = "@earendil-works/pi-coding-agent";
 const DEFAULT_VERSION: &str = "0.0.0";
@@ -23,18 +30,35 @@ const DEFAULT_APP_NAME: &str = "pi";
 const DEFAULT_CONFIG_DIR_NAME: &str = ".pi";
 const DEFAULT_SHARE_VIEWER_URL: &str = "https://pi.dev/session/";
 const RELEASES_URL: &str = "https://github.com/earendil-works/pi-mono/releases/latest";
+const EMBEDDED_PACKAGE_JSON: &str = include_str!("../package.json");
+const EMBEDDED_DARK_THEME: &str = include_str!("../theme/dark.json");
+const EMBEDDED_LIGHT_THEME: &str = include_str!("../theme/light.json");
 
 /// Failure while reading the package configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigError {
+    label: &'static str,
     message: String,
 }
 
 impl ConfigError {
     fn new(message: impl Into<String>) -> Self {
         Self {
+            label: ERROR,
             message: message.into(),
         }
+    }
+
+    fn syntax(message: impl Into<String>) -> Self {
+        Self {
+            label: "SyntaxError",
+            message: message.into(),
+        }
+    }
+
+    /// Node error name used by the process-level uncaught handler.
+    pub fn label(&self) -> &'static str {
+        self.label
     }
 }
 
@@ -45,21 +69,6 @@ impl std::fmt::Display for ConfigError {
 }
 
 impl std::error::Error for ConfigError {}
-
-#[derive(Debug, Deserialize)]
-struct PackageJson {
-    name: Option<String>,
-    version: Option<String>,
-    #[serde(rename = "piConfig")]
-    pi_config: Option<PiConfig>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PiConfig {
-    name: Option<String>,
-    #[serde(rename = "configDir")]
-    config_dir: Option<String>,
-}
 
 /// Package identity derived from `package.json` (`piConfig` overrides the app name and config dir).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,52 +89,82 @@ impl PackageConfig {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Self::defaults());
             }
-            Err(error) => return Err(ConfigError::new(error.to_string())),
+            Err(error) => return Err(ConfigError::new(node_read_error(&error, &path.display().to_string()))),
         };
-        let value = js_json::parse(&content).map_err(|error| ConfigError::new(error.to_string()))?;
-        let parsed: PackageJson = serde_json::from_value(value).map_err(|error| ConfigError::new(error.to_string()))?;
-        Ok(Self::from_package_json(&parsed))
+        Self::parse(&content)
     }
 
-    fn from_package_json(package: &PackageJson) -> Self {
-        let pi_config_name = package.pi_config.as_ref().and_then(|config| config.name.clone());
-        let app_name = pi_config_name.clone().unwrap_or_else(|| DEFAULT_APP_NAME.to_owned());
+    fn parse(content: &str) -> Result<Self, ConfigError> {
+        let value = js_json::parse(content).map_err(|error| ConfigError::syntax(error.to_string()))?;
+        Ok(Self::from_value(&value))
+    }
+
+    /// `pkg.name || default` etc.: only string fields are meaningful for the typed port.
+    fn from_value(value: &Value) -> Self {
+        let package = value.as_object();
+        let field = |name: &str| package.and_then(|package| package.get(name)).and_then(Value::as_str);
+        let pi_config = package
+            .and_then(|package| package.get("piConfig"))
+            .and_then(Value::as_object);
+        let pi_config_field = |name: &str| pi_config.and_then(|config| config.get(name)).and_then(Value::as_str);
+        let pi_config_name = pi_config_field("name").filter(|name| !name.is_empty());
+        let app_name = pi_config_name.unwrap_or(DEFAULT_APP_NAME).to_owned();
         let app_title = if pi_config_name.is_some() {
             app_name.clone()
         } else {
             "π".to_owned()
         };
         Self {
-            package_name: package.name.clone().unwrap_or_else(|| DEFAULT_PACKAGE_NAME.to_owned()),
-            version: package.version.clone().unwrap_or_else(|| DEFAULT_VERSION.to_owned()),
+            package_name: field("name")
+                .filter(|name| !name.is_empty())
+                .unwrap_or(DEFAULT_PACKAGE_NAME)
+                .to_owned(),
+            version: field("version")
+                .filter(|version| !version.is_empty())
+                .unwrap_or(DEFAULT_VERSION)
+                .to_owned(),
             app_name,
             app_title,
-            config_dir_name: package
-                .pi_config
-                .as_ref()
-                .and_then(|config| config.config_dir.clone())
-                .unwrap_or_else(|| DEFAULT_CONFIG_DIR_NAME.to_owned()),
+            config_dir_name: pi_config_field("configDir")
+                .filter(|directory| !directory.is_empty())
+                .unwrap_or(DEFAULT_CONFIG_DIR_NAME)
+                .to_owned(),
         }
     }
 
     fn defaults() -> Self {
-        Self::from_package_json(&PackageJson {
-            name: None,
-            version: None,
-            pi_config: None,
-        })
+        Self::from_value(&Value::Null)
     }
 }
 
-static PACKAGE_CONFIG: OnceLock<PackageConfig> = OnceLock::new();
+static PACKAGE_CONFIG: OnceLock<Result<PackageConfig, ConfigError>> = OnceLock::new();
 
 /// The process-wide package constants, read once like the TypeScript module constants.
+///
+/// TypeScript throws during module evaluation when `PI_PACKAGE_DIR/package.json`
+/// cannot be read or parsed; nothing catches it, so it reaches the process-level
+/// handler.
 pub fn package_config() -> &'static PackageConfig {
-    PACKAGE_CONFIG.get_or_init(|| {
-        PackageConfig::load(&get_package_dir()).unwrap_or_else(|error| {
-            panic!("Failed to load package.json: {error}");
+    try_package_config().unwrap_or_else(|error| throw_uncaught(error.label(), error.to_string()))
+}
+
+/// Fallible [`package_config`] for callers that can propagate the module-load failure.
+pub fn try_package_config() -> Result<&'static PackageConfig, &'static ConfigError> {
+    PACKAGE_CONFIG
+        .get_or_init(|| match package_dir_override() {
+            Some(package_dir) => PackageConfig::load(&package_dir),
+            None => PackageConfig::parse(EMBEDDED_PACKAGE_JSON),
         })
-    })
+        .as_ref()
+}
+
+/// The built-in theme source compiled into the executable, used when `PI_PACKAGE_DIR` is unset.
+pub fn embedded_builtin_theme(name: &str) -> Option<&'static str> {
+    match name {
+        "dark" => Some(EMBEDDED_DARK_THEME),
+        "light" => Some(EMBEDDED_LIGHT_THEME),
+        _ => None,
+    }
 }
 
 fn default_path_options() -> PathInputOptions {
@@ -153,13 +192,20 @@ fn join(base: &str, segment: &str) -> String {
 
 /// The package directory: `PI_PACKAGE_DIR`, otherwise the executable's directory.
 pub fn get_package_dir() -> PathBuf {
-    if let Some(directory) = std::env::var_os("PI_PACKAGE_DIR").filter(|value| !value.is_empty()) {
-        return PathBuf::from(normalize(&directory.to_string_lossy()));
+    if let Some(directory) = package_dir_override() {
+        return directory;
     }
     std::env::current_exe()
         .ok()
         .and_then(|executable| executable.parent().map(Path::to_path_buf))
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// `PI_PACKAGE_DIR`, when set and non-empty.
+pub fn package_dir_override() -> Option<PathBuf> {
+    std::env::var_os("PI_PACKAGE_DIR")
+        .filter(|value| !value.is_empty())
+        .map(|directory| PathBuf::from(normalize(&directory.to_string_lossy())))
 }
 
 /// Themes shipped next to the executable.
