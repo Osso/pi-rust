@@ -2099,6 +2099,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pi-evals"
+version = "0.0.0"
+dependencies = [
+ "indexmap",
+ "pi-agent-core",
+ "pi-ai",
+ "pi-coding-agent",
+ "pi-js-compat",
+ "regex",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "pi-js-compat"
 version = "0.0.0"
 dependencies = [
