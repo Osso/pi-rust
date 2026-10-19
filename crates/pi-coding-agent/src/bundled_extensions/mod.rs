@@ -13,6 +13,7 @@ pub mod agents_core;
 pub mod agents_mailbox;
 pub mod bwrap;
 pub mod goal;
+pub mod openai_remote_compact;
 pub mod pyrun;
 
 use agents_core::runtime::{MultiAgentExtensionOptions, create_multi_agent_runtime_handles, resolve_multi_agent_store};
