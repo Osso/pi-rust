@@ -4626,6 +4626,8 @@ impl InteractiveMode {
     }
 
     fn render_initial_messages(&self) {
+        self.footer.borrow_mut().invalidate();
+        self.update_editor_border_color();
         let entries = self.session.borrow().session_manager().build_context_entries();
         self.render_session_entries(&entries);
         self.render_project_trust_warning_if_needed();

@@ -151,6 +151,10 @@ has no separate render-region callbacks.
   including custom entries through their registered entry renderers, and
   reconstructs assistant tool-call components matched with tool results. This
   is shared by startup, child views and the transcript rebuild.
+- `renderInitialMessages` does not replay user messages into the editor history
+  (`populateHistory`); the Rust editor loads its history from the control DB.
+  Only custom editors that expose in-memory history would observe the
+  difference.
 - The share flow accepts an explicit `gh` program path
   (`handle_share_command_with_program`) so tests can run a recording script
   without mutating the process `PATH`; production passes `"gh"` exactly like
