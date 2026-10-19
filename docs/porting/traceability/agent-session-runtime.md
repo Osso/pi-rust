@@ -4,7 +4,7 @@ Rust: `crates/pi-coding-agent/src/core/agent_session_runtime.rs`.
 
 | TS | Rust | Tests |
 | --- | --- | --- |
-| `AgentSessionRuntime` | `AgentSessionRuntime` | `tests/agent_session_runtime.rs` (5) |
+| `AgentSessionRuntime` | `AgentSessionRuntime` | `tests/agent_session_runtime.rs` (7) |
 | `createAgentSessionRuntime` | `create_agent_session_runtime` | same |
 | `CreateAgentSessionRuntimeFactory` | `CreateAgentSessionRuntimeFactory` | same |
 | `switchSession` | `switch_session` | cancellation test |

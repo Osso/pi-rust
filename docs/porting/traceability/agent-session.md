@@ -6,7 +6,7 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 
 | TS | Rust | Tests |
 | --- | --- | --- |
-| `AgentSession` | `AgentSession` | `tests/agent_session.rs` (28), `tests/differential_agent_session.rs` |
+| `AgentSession` | `AgentSession` | `tests/agent_session.rs` (42), `tests/differential_agent_session.rs` |
 | `AgentSessionConfig` | `AgentSessionConfig` | same |
 | `AgentSessionEvent` | `AgentSessionEvent` + `AgentMessageEvent` | event assertions + differential |
 | `AgentSessionEventListener` | `AgentSessionEventListener` | — |
