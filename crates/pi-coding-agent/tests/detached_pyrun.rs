@@ -82,7 +82,7 @@ fn manifest(dir: &str) -> DetachedPyrunLaunchManifestData {
             start_time_ticks: 100,
             incarnation: None,
         },
-        tool_call_id: "call-1".to_owned(),
+        tool_call_id: Some("call-1".to_owned()),
     }
 }
 
@@ -119,10 +119,10 @@ fn writes_and_reads_a_checksummed_launch_manifest() {
 fn writes_and_reads_the_activation_identity() {
     let dir = temp_dir("activation");
     let path = format!("{dir}/activation.json");
-    assert!(read_detached_pyrun_activation(&path).is_none());
+    assert!(read_detached_pyrun_activation(&path).unwrap().is_none());
     let identity = identity();
     write_detached_pyrun_activation(&path, &identity).unwrap();
-    assert_eq!(read_detached_pyrun_activation(&path), Some(identity));
+    assert_eq!(read_detached_pyrun_activation(&path).unwrap(), Some(identity));
 }
 
 #[test]

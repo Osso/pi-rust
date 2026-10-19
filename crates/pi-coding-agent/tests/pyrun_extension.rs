@@ -122,6 +122,7 @@ print(json.dumps({"type": "completed", "executed": params["code"], "console": ["
             params("print(1)"),
             Some(Arc::new(move |update| {
                 updates_for_callback.lock().unwrap().push(update.raw);
+                Ok(())
             })),
             None,
             None,
