@@ -52,12 +52,24 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 - Permissions: tool gates, auto-approve reviewers, approval orchestrator, MCP
   permission-prompt protocol tool (discovery/config, rule-store skip, updated input
   write-back), human UI reviewer, supervisor LLM reviewer.
-- Session: names, compaction summary edits, `navigateTree` (no-summary path),
-  fork selector, stats, context usage, `exportToJsonl`, `exportToHtml`,
+- Session: names, compaction summary edits, `navigateTree` (no-summary and
+  summarization paths with `session_before_tree`/`session_tree` and branch-summary
+  attachment), fork selector, stats, context usage, `exportToJsonl`, `exportToHtml`,
   `getLastAssistantText`, `createReplacedSessionContext`.
+- Runtime coordination: `drainRuntimeCoordination`, mailbox delivery at prompt /
+  post-agent-run / after-tool-result checkpoints (steer vs prompt), extension
+  `runtime_mailbox` interception, detached tool-call completion entries, shared-channel
+  formatting/cursor delivery, listener registration on first drain.
+- Multi-agent: activity publishing for `agent_start`, `tool_execution_start/end`, and
+  `agent_end` with exact runtime ownership; relocation continuation via
+  `AgentEndSessionContinuation::CwdRelocation` and `activateToolResultRelocation`.
+- Background compaction: speculative cache generated during tool turns at 70% of the
+  context window, reused by the next threshold compaction, invalidated on session/model/
+  prompt/settings drift.
 - Extensions: runner construction, `bind_core` actions/context/provider actions,
   `bind_extensions`, tool gates/reviewers/tool_call/tool_result hooks,
-  `before_agent_start`, `input`, resources discovery, internal `model` command.
+  `before_agent_start`, `input`, resources discovery, internal `model` command,
+  `bind_session_runtime_relocation` + `AgentSessionRuntime::bind_session_runtime_actions`.
 - Detached jobs: `bind_detached_job_lifecycle` provider from `MultiAgentStore`,
   terminal-outbox projection delivery on prompt.
 
@@ -70,31 +82,41 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 
 ## Gaps (explicit)
 
-- Runtime mailbox, shared-channel delivery/formatting, `wait_agent` wakeups:
-  multi-agent store slice.
 - `BashToolOptions` spawn hook / session environment wiring: owned by the
   tool-definition factory slice.
-- `navigateTree` summarization: `session_before_tree` events, branch summary
-  generation/attachment, `session_tree` emission. No-summary navigation is ported.
-- Background compaction cache, provider-native compaction source hints: local
-  compaction only.
+- Runtime mailbox polling timer (30s), heartbeat (60s), SIGUSR2 wake, and steering
+  delivery acknowledgement/finalization (`_completeRuntimeMailboxSteeringTurn`).
+  Drains run at prompt completion, post-agent-run, and after-tool-result checkpoints;
+  listeners register on the first drain.
+- Extension `compaction` override in the background cache and `session_before_compact`
+  preflight: the cache always uses the local summarizer.
+- Background compaction cache has no dedicated test; it is exercised only through the
+  compaction/agent-session suites.
 - `spawn_allow_always` agent for the human "Allow always" choice (the selection is
   accepted without spawning the config agent).
 - Read-only `approvalKind` auto-approval in the LLM reviewer: session tool definitions
   do not carry `approvalKind`.
-- `_startThinkingPhaseDeadline` / child activity publication and duplicate-turn stop
-  hook installation: partial (duplicate guard exists; thinking deadline timers and
-  multi-agent activity publishing are absent).
-- Multi-agent agent/parent identity config is stored but activity/mailbox behavior is
-  not implemented.
+- `_startThinkingPhaseDeadline` 15-minute timers.
+- `AgentSessionRuntime::bind_session_runtime_actions` has no caller yet (main/interactive
+  slices own runtime construction); the session-level binding is tested.
 
 ## Discrepancies
 
 - `AgentSession::compact` returns `core::compaction::CompactionResult` instead of
   `unknown`; typed API excludes the JS loose shape (approved typed-core rule).
-- Differential normalizes provider usage-derived numbers (message usage and context
-  usage `tokens`/`percent`) because the Rust differential session uses a reduced tool
-  set/system prompt; event order, deltas, messages, session JSONL, fork selector,
-  navigation, and export JSONL are compared exactly.
+- Activity publication errors are reported to stderr: TypeScript throws from the
+  infallible agent event listener, Rust listeners cannot return an error.
+- Runtime coordination `hasConfiguredAuth` uses the model-runtime snapshot, matching
+  the source; a runtime created with `refreshOnCreate: false` must refresh before
+  mailbox prompt delivery.
+- Differential `differential_agent_session` compares provider usage
+  (`input`/`output`/`cacheRead`/`cacheWrite`/`totalTokens`), context usage
+  `tokens`/`percent`, events, messages, stats, fork selector, navigation, and
+  session/export JSONL byte-for-byte with no numeric normalization. Both sides run
+  one active `end_turn` tool and a fixed custom system prompt
+  (`"Differential system prompt"`). The oracle's stream adapter removes the
+  TS-only `AgentTool` fields `label` and `executionMode` before handing the
+  context to the faux provider, matching the provider-facing `Tool` shape Rust
+  sends; real provider adapters drop those fields too.
 - `getUserMessagesForForking` returns typed `UserMessageForForking` objects matching
   the TS `{entryId,text}` wire shape.
