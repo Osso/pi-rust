@@ -1,0 +1,857 @@
+//! Behavioral tests for `extensions/agents-core/src/session-factories.ts`
+//! production child and attached session factories.
+
+use std::sync::{Arc, Mutex};
+
+use pi_agent_core::agent::types::AgentMessage;
+use pi_ai::providers::faux::{FauxModelDefinition, FauxProviderHandle, RegisterFauxProviderOptions, faux_provider};
+use pi_ai::request::BoxFuture;
+use pi_coding_agent::bundled_extensions::agents_core::session_factories::{
+    AgentSessionChildSession, ChildExtensionFactories, CreateChildSessionManager,
+    ProductionAttachedSessionFactoryOptions, ProductionChildAgentSessionFactoryOptions, UnboundChildAgentSession,
+    create_production_attached_session_factory, create_production_child_agent_session_factory,
+    spawn_prompt_validation_message, validate_goal_objective,
+};
+use pi_coding_agent::bundled_extensions::agents_core::shared::{
+    AttachedSessionDispatchInput, ChildAgentDispatchInput, ChildAgentSession, SpawnContext,
+};
+use pi_coding_agent::core::agent_session::{AgentSession, MultiAgentRuntimeRole};
+use pi_coding_agent::core::auth_storage::AuthStorage;
+use pi_coding_agent::core::extensions::types::SessionStartReason;
+use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::multi_agent_store::{
+    AgentModel, AgentPermission, AgentSnapshot, AgentTranscriptMetadata, MultiAgentStore, MultiAgentStoreOptions,
+};
+use pi_coding_agent::core::permissions::policy::ApprovalPolicy;
+use pi_coding_agent::core::resource_loader::{InlineExtension, StaticResourceLoader};
+use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, create_agent_session};
+use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager, lock_session_manager};
+use serde_json::{Value, json};
+
+fn faux() -> FauxProviderHandle {
+    faux_provider(RegisterFauxProviderOptions {
+        provider: Some("faux".to_owned()),
+        models: Some(vec![FauxModelDefinition {
+            id: "faux-1".to_owned(),
+            name: Some("Faux Model".to_owned()),
+            reasoning: Some(true),
+            input: None,
+            cost: None,
+            context_window: Some(100_000.0),
+            max_tokens: Some(4096.0),
+        }]),
+        ..Default::default()
+    })
+}
+
+async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRuntime {
+    let mut data = serde_json::Map::new();
+    data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
+    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+        credentials: Some(Arc::new(AuthStorage::in_memory(data))),
+        models_path: Some(None),
+        refresh_on_create: Some(false),
+        ..Default::default()
+    })
+    .await
+    .expect("runtime");
+    runtime.register_native_provider(Arc::clone(&faux.provider));
+    runtime
+}
+
+struct TestEnv {
+    _dir: tempfile::TempDir,
+    cwd: String,
+    agent_dir: String,
+    control_db: String,
+    session: AgentSession,
+    session_manager: SharedSessionManager,
+}
+
+async fn test_env_with_settings(settings: Option<Value>) -> TestEnv {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let cwd = dir.path().join("repo").display().to_string();
+    std::fs::create_dir_all(&cwd).expect("cwd");
+    let agent_dir = dir.path().join("agent").display().to_string();
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    if let Some(settings) = settings {
+        std::fs::write(
+            std::path::Path::new(&agent_dir).join("settings.json"),
+            serde_json::to_string(&settings).expect("settings json"),
+        )
+        .expect("settings file");
+    }
+    let session_dir = dir.path().join("sessions").display().to_string();
+    let control_db = dir.path().join("control.db").display().to_string();
+    let faux = faux();
+    let runtime = faux_runtime(&faux).await;
+    let model = faux.get_model(None).expect("model");
+    let mut manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
+    manager
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
+    let result = create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(cwd.clone()),
+        agent_dir: Some(agent_dir.clone()),
+        model_runtime: Some(runtime),
+        model: Some(model),
+        resource_loader: Some(StaticResourceLoader::new()),
+        session_manager: Some(manager),
+        ..Default::default()
+    })
+    .await
+    .expect("parent session");
+    let session_manager = result.session.session_manager_handle();
+    TestEnv {
+        _dir: dir,
+        cwd,
+        agent_dir,
+        control_db,
+        session: result.session,
+        session_manager,
+    }
+}
+
+async fn test_env() -> TestEnv {
+    test_env_with_settings(None).await
+}
+
+fn user_message(text: &str) -> AgentMessage {
+    serde_json::from_value(json!({
+        "role": "user",
+        "content": text,
+        "timestamp": 1
+    }))
+    .expect("user message")
+}
+
+fn append_user(session_manager: &SharedSessionManager, text: &str) {
+    lock_session_manager(session_manager)
+        .append_message(user_message(text))
+        .expect("append user");
+}
+
+fn assistant_message(text: &str) -> pi_ai::types::AssistantMessage {
+    let mut message = pi_ai::types::AssistantMessage::empty("faux", "faux-1", "faux", 2);
+    message
+        .content
+        .push(pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(
+            text,
+        )));
+    message
+}
+
+fn append_assistant(session_manager: &SharedSessionManager, text: &str) {
+    lock_session_manager(session_manager)
+        .append_message(AgentMessage::Assistant(Box::new(assistant_message(text))))
+        .expect("append assistant");
+}
+
+fn session_texts(session_manager: &SharedSessionManager) -> Vec<String> {
+    lock_session_manager(session_manager)
+        .build_session_context()
+        .messages
+        .iter()
+        .map(message_text)
+        .collect()
+}
+
+fn message_text(message: &AgentMessage) -> String {
+    match message {
+        AgentMessage::User(user) => match &user.content {
+            pi_ai::types::UserContent::Text(text) => text.clone(),
+            pi_ai::types::UserContent::Blocks(blocks) => blocks
+                .iter()
+                .filter_map(|block| match block {
+                    pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
+                    pi_ai::types::TextOrImageContent::Image(_) => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        },
+        AgentMessage::Assistant(assistant) => assistant
+            .content
+            .iter()
+            .filter_map(|part| match part {
+                pi_ai::types::AssistantContent::Text(text) => Some(text.text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        other => format!("{other:?}"),
+    }
+}
+
+fn child_agent(env: &TestEnv, id: &str, display_name: &str) -> AgentSnapshot {
+    AgentSnapshot {
+        id: id.to_owned(),
+        parent_id: Some("main".to_owned()),
+        display_name: display_name.to_owned(),
+        agent_type: "explore".to_owned(),
+        origin: None,
+        lifecycle: pi_coding_agent::core::multi_agent_store::AgentLifecycle::Running,
+        revision: 0,
+        created_at: "2026-06-21T00:00:00.000Z".to_owned(),
+        updated_at: "2026-06-21T00:00:00.000Z".to_owned(),
+        cwd: env.cwd.clone(),
+        worktree: None,
+        model: Some(AgentModel {
+            provider_id: "faux".to_owned(),
+            model_id: "faux-1".to_owned(),
+            thinking_level: Some("high".to_owned()),
+        }),
+        account: None,
+        permission: AgentPermission {
+            policy: "on-request".to_owned(),
+            inherited_from: None,
+            narrowed: true,
+        },
+        slot: None,
+        transcript: None,
+        event_stream: None,
+        worker: None,
+        detached: None,
+        current_activity: None,
+        last_activity: None,
+        result: None,
+        error: None,
+        extra: Default::default(),
+    }
+}
+
+/// Minimal `UnboundChildAgentSession` backed by the manager passed through options.
+struct FakeChildSession {
+    session_manager: SharedSessionManager,
+    summary: String,
+}
+
+impl FakeChildSession {
+    fn new(session_manager: SharedSessionManager, summary: &str) -> Self {
+        Self {
+            session_manager,
+            summary: summary.to_owned(),
+        }
+    }
+}
+
+impl ChildAgentSession for FakeChildSession {
+    fn messages(&self) -> Vec<AgentMessage> {
+        lock_session_manager(&self.session_manager)
+            .build_session_context()
+            .messages
+    }
+
+    fn prompt(&self, text: String) -> BoxFuture<'static, Result<(), String>> {
+        let manager = Arc::clone(&self.session_manager);
+        let summary = self.summary.clone();
+        Box::pin(async move {
+            append_user(&manager, &text);
+            append_assistant(&manager, &summary);
+            Ok(())
+        })
+    }
+
+    fn transcript(&self) -> Option<AgentTranscriptMetadata> {
+        None
+    }
+}
+
+impl UnboundChildAgentSession for FakeChildSession {
+    fn bind_extensions(&self) -> BoxFuture<'static, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn session_manager(&self) -> SharedSessionManager {
+        Arc::clone(&self.session_manager)
+    }
+}
+
+#[derive(Default)]
+struct Captured {
+    options: Mutex<Option<CreateAgentSessionOptions>>,
+    manager: Mutex<Option<SharedSessionManager>>,
+    calls: Mutex<usize>,
+}
+
+fn create_child_session(
+    captured: Arc<Captured>,
+    summary: &'static str,
+) -> Arc<
+    dyn Fn(CreateAgentSessionOptions) -> BoxFuture<'static, Result<Arc<dyn UnboundChildAgentSession>, String>>
+        + Send
+        + Sync,
+> {
+    Arc::new(move |options: CreateAgentSessionOptions| {
+        *captured.calls.lock().expect("calls") += 1;
+        let manager = Arc::new(Mutex::new(options.session_manager.clone().expect("session manager")));
+        *captured.manager.lock().expect("manager") = Some(Arc::clone(&manager));
+        *captured.options.lock().expect("options") = Some(options);
+        Box::pin(
+            async move { Ok(Arc::new(FakeChildSession::new(manager, summary)) as Arc<dyn UnboundChildAgentSession>) },
+        )
+    })
+}
+
+fn create_session_manager() -> CreateChildSessionManager {
+    Arc::new(|cwd: &str, session_dir: Option<&str>, options| {
+        SessionManager::create(cwd, session_dir, Some(options)).map_err(|error| error.to_string())
+    })
+}
+
+fn child_options(
+    env: &TestEnv,
+    captured: Arc<Captured>,
+    extension_factories: Option<ChildExtensionFactories>,
+    store: Option<Arc<MultiAgentStore>>,
+) -> ProductionChildAgentSessionFactoryOptions {
+    ProductionChildAgentSessionFactoryOptions {
+        agent_dir: Some(env.agent_dir.clone()),
+        create_session: create_child_session(captured, "fresh child done"),
+        create_session_manager: create_session_manager(),
+        extension_factories,
+        multi_agent_store: store,
+        session_dir: None,
+    }
+}
+
+fn child_input(env: &TestEnv, agent: AgentSnapshot, context: SpawnContext, prompt: &str) -> ChildAgentDispatchInput {
+    ChildAgentDispatchInput {
+        active_tool_call_id: None,
+        agent,
+        context,
+        ctx: env.session.extension_runner().create_context(),
+        prompt: prompt.to_owned(),
+        signal: None,
+    }
+}
+
+fn captured_session_manager(captured: &Captured) -> SharedSessionManager {
+    captured
+        .manager
+        .lock()
+        .expect("manager")
+        .clone()
+        .expect("session manager")
+}
+
+#[tokio::test]
+async fn fresh_child_gets_its_own_session_with_only_the_assignment() {
+    let env = test_env().await;
+    append_user(&env.session_manager, "Parent-only context marker");
+    append_assistant(&env.session_manager, "Parent-only assistant marker");
+    let parent_messages_before = session_texts(&env.session_manager);
+    let parent_session_id = lock_session_manager(&env.session_manager).get_session_id().to_owned();
+    let parent_session_file = lock_session_manager(&env.session_manager)
+        .get_session_file()
+        .map(str::to_owned);
+    let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+    let captured = Arc::new(Captured::default());
+    let factory = create_production_child_agent_session_factory(child_options(
+        &env,
+        Arc::clone(&captured),
+        None,
+        Some(Arc::clone(&store)),
+    ));
+    let agent = child_agent(&env, "agent_child", "Explorer");
+
+    let child = factory
+        .call(child_input(&env, agent, SpawnContext::Fresh, "Handle isolated task"))
+        .await
+        .expect("child session");
+    child.prompt("Handle isolated task".to_owned()).await.expect("prompt");
+
+    {
+        let captured_options = captured.options.lock().expect("options");
+        let options = captured_options.as_ref().expect("options");
+        assert_eq!(options.cwd.as_deref(), Some(env.cwd.as_str()));
+        assert_eq!(options.agent_dir.as_deref(), Some(env.agent_dir.as_str()));
+        assert_eq!(options.multi_agent_agent_id.as_deref(), Some("agent_child"));
+        assert_eq!(
+            options.multi_agent_parent_session_id.as_deref(),
+            Some(parent_session_id.as_str())
+        );
+        assert!(options.multi_agent_requires_agent_id);
+        assert_eq!(options.multi_agent_runtime_role, Some(MultiAgentRuntimeRole::Child));
+        assert!(options.multi_agent_store.is_some());
+        assert_eq!(
+            options.exclude_tools.clone().expect("exclude tools"),
+            vec![
+                "agent_viewer",
+                "attach_session_agent",
+                "close_agent",
+                "list_agents",
+                "spawn_agent",
+                "steer_agent",
+                "wait_agent",
+                "ask_supervisor",
+                "manage_goal",
+            ]
+        );
+        assert_eq!(
+            options.thinking_level,
+            Some(pi_agent_core::harness::ThinkingLevel::High)
+        );
+        assert_eq!(options.model.as_ref().map(|model| model.id.as_str()), Some("faux-1"));
+        let event = options.session_start_event.clone().expect("session start event");
+        assert_eq!(event.reason, SessionStartReason::Fork);
+        assert_eq!(event.previous_session_file, parent_session_file);
+    }
+
+    let child_manager = captured_session_manager(&captured);
+    assert_eq!(
+        session_texts(&child_manager),
+        vec!["Handle isolated task".to_owned(), "fresh child done".to_owned()]
+    );
+    let child_id = lock_session_manager(&child_manager).get_session_id().to_owned();
+    let child_file = lock_session_manager(&child_manager)
+        .get_session_file()
+        .map(str::to_owned);
+    assert_ne!(child_id, parent_session_id);
+    assert_ne!(child_file, parent_session_file);
+    assert_eq!(session_texts(&env.session_manager), parent_messages_before);
+    assert_eq!(*captured.calls.lock().expect("calls"), 1);
+}
+
+#[tokio::test]
+async fn inherited_child_forks_the_parent_prefix() {
+    let env = test_env().await;
+    append_user(&env.session_manager, "Inherited parent context marker");
+    append_assistant(&env.session_manager, "Inherited parent assistant marker");
+    let parent_messages_before = session_texts(&env.session_manager);
+    let parent_session_file = lock_session_manager(&env.session_manager)
+        .get_session_file()
+        .map(str::to_owned)
+        .expect("persisted parent");
+    let captured = Arc::new(Captured::default());
+    let factory = create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
+    let agent = child_agent(&env, "agent_child", "Explorer");
+
+    let child = factory
+        .call(child_input(
+            &env,
+            agent,
+            SpawnContext::Inherit,
+            "Continue integrated task",
+        ))
+        .await
+        .expect("child session");
+    child
+        .prompt("Continue integrated task".to_owned())
+        .await
+        .expect("prompt");
+
+    let child_manager = captured_session_manager(&captured);
+    assert_eq!(
+        session_texts(&child_manager),
+        vec![
+            "Inherited parent context marker".to_owned(),
+            "Inherited parent assistant marker".to_owned(),
+            "Continue integrated task".to_owned(),
+            "fresh child done".to_owned(),
+        ]
+    );
+    let parent_header = {
+        let manager = lock_session_manager(&child_manager);
+        manager.get_header().and_then(|header| header.parent_session.clone())
+    };
+    assert_eq!(parent_header, Some(parent_session_file));
+    assert_ne!(
+        lock_session_manager(&child_manager).get_session_id(),
+        lock_session_manager(&env.session_manager).get_session_id()
+    );
+    assert_eq!(session_texts(&env.session_manager), parent_messages_before);
+}
+
+#[tokio::test]
+async fn inherited_child_copies_only_the_active_tool_call_branch() {
+    let env = test_env().await;
+    append_user(&env.session_manager, "Shared branch prefix");
+    let active_leaf = lock_session_manager(&env.session_manager)
+        .append_message(AgentMessage::Assistant(Box::new(assistant_message(
+            "Active branch response",
+        ))))
+        .expect("active leaf");
+    lock_session_manager(&env.session_manager)
+        .branch(&active_leaf)
+        .expect("branch active");
+    append_user(&env.session_manager, "Later branch only");
+    append_assistant(&env.session_manager, "Later branch response");
+    lock_session_manager(&env.session_manager)
+        .branch(&active_leaf)
+        .expect("branch back");
+    let tool_entry = lock_session_manager(&env.session_manager)
+        .append_message(assistant_with_tool_call("spawn_agent", "spawn_agent-call"))
+        .expect("tool call entry");
+    let captured = Arc::new(Captured::default());
+    let factory = create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
+    let agent = child_agent(&env, "agent_child", "Explorer");
+    let mut input = child_input(&env, agent, SpawnContext::Inherit, "Continue active branch");
+    input.active_tool_call_id = Some("spawn_agent-call".to_owned());
+
+    let child = factory.call(input).await.expect("child session");
+    child.prompt("Continue active branch".to_owned()).await.expect("prompt");
+
+    let child_manager = captured_session_manager(&captured);
+    let texts = session_texts(&child_manager);
+    assert_eq!(
+        texts,
+        vec![
+            "Shared branch prefix".to_owned(),
+            "Active branch response".to_owned(),
+            "Continue active branch".to_owned(),
+            "fresh child done".to_owned(),
+        ]
+    );
+    assert!(!texts.contains(&"Later branch only".to_owned()));
+    let branch = lock_session_manager(&child_manager).get_branch(None);
+    assert!(
+        branch.iter().all(|entry| entry.id() != Some(tool_entry.as_str())),
+        "active spawn call must not be copied"
+    );
+}
+
+#[tokio::test]
+async fn inherited_child_rejects_an_unpersisted_parent() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let cwd = dir.path().display().to_string();
+    let faux = faux();
+    let runtime = faux_runtime(&faux).await;
+    let model = faux.get_model(None).expect("model");
+    let result = create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(cwd.clone()),
+        agent_dir: Some(cwd.clone()),
+        model_runtime: Some(runtime),
+        model: Some(model),
+        resource_loader: Some(StaticResourceLoader::new()),
+        session_manager: Some(SessionManager::in_memory(Some(&cwd), None).expect("in-memory")),
+        control_db_path: Some(dir.path().join("control.db").display().to_string()),
+        ..Default::default()
+    })
+    .await
+    .expect("parent session");
+    let session_manager = result.session.session_manager_handle();
+    let env = TestEnv {
+        _dir: dir,
+        cwd: cwd.clone(),
+        agent_dir: cwd.clone(),
+        control_db: String::new(),
+        session: result.session,
+        session_manager,
+    };
+    let captured = Arc::new(Captured::default());
+    let factory = create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
+    let error = factory
+        .call(child_input(
+            &env,
+            child_agent(&env, "agent_child", "Explorer"),
+            SpawnContext::Inherit,
+            "Continue integrated task",
+        ))
+        .await
+        .err()
+        .expect("unpersisted parent");
+    assert_eq!(error, "Cannot inherit context from an unpersisted parent session");
+    assert_eq!(*captured.calls.lock().expect("calls"), 0);
+}
+
+#[tokio::test]
+async fn invalid_prompts_fail_before_session_creation() {
+    let env = test_env().await;
+    let captured = Arc::new(Captured::default());
+    let factory = create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
+
+    let empty = factory
+        .call(child_input(
+            &env,
+            child_agent(&env, "agent_child", "Explorer"),
+            SpawnContext::Fresh,
+            "   ",
+        ))
+        .await
+        .err()
+        .expect("empty prompt");
+    assert_eq!(empty, "spawn_agent requires a non-empty prompt");
+
+    let long = "x".repeat(10_001);
+    let too_long = factory
+        .call(child_input(
+            &env,
+            child_agent(&env, "agent_child", "Explorer"),
+            SpawnContext::Fresh,
+            &long,
+        ))
+        .await
+        .err()
+        .expect("long prompt");
+    assert_eq!(too_long, "spawn_agent prompt too long (10001 > 10000 chars)");
+    assert_eq!(*captured.calls.lock().expect("calls"), 0);
+
+    let validation = validate_goal_objective("   ");
+    assert_eq!(spawn_prompt_validation_message(&validation), empty);
+}
+
+#[tokio::test]
+async fn active_tool_call_identity_must_be_non_empty() {
+    let env = test_env().await;
+    let captured = Arc::new(Captured::default());
+    let factory = create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
+    let mut input = child_input(
+        &env,
+        child_agent(&env, "agent_child", "Explorer"),
+        SpawnContext::Inherit,
+        "Continue",
+    );
+    input.active_tool_call_id = Some("  ".to_owned());
+    let error = factory.call(input).await.err().expect("blank tool call id");
+    assert_eq!(
+        error,
+        "Cannot inherit context: active tool call identity must be non-empty"
+    );
+}
+
+#[tokio::test]
+async fn inherited_child_rejects_an_active_tool_call_outside_the_parent_branch() {
+    let env = test_env().await;
+    append_user(&env.session_manager, "Parent prefix");
+    let captured = Arc::new(Captured::default());
+    let factory = create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
+    let mut input = child_input(
+        &env,
+        child_agent(&env, "agent_child", "Explorer"),
+        SpawnContext::Inherit,
+        "Continue",
+    );
+    input.active_tool_call_id = Some("missing-call".to_owned());
+    let error = factory.call(input).await.err().expect("missing tool call");
+    assert_eq!(
+        error,
+        "Cannot inherit context: active tool call missing-call is not in the parent branch"
+    );
+}
+
+#[tokio::test]
+async fn goal_extension_factory_is_filtered_from_child_sessions() {
+    let env = test_env().await;
+    let captured = Arc::new(Captured::default());
+    let goal = InlineExtension::Factory {
+        extension_path: Some("<first-party:goal>".to_owned()),
+        factory: Arc::new(|_pi| Box::pin(async { Ok(()) })),
+    };
+    let probe = InlineExtension::Factory {
+        extension_path: Some("<first-party:probe>".to_owned()),
+        factory: Arc::new(|_pi| Box::pin(async { Ok(()) })),
+    };
+    let factory = create_production_child_agent_session_factory(child_options(
+        &env,
+        Arc::clone(&captured),
+        Some(ChildExtensionFactories::Static(vec![goal, probe])),
+        None,
+    ));
+    factory
+        .call(child_input(
+            &env,
+            child_agent(&env, "agent_child", "Explorer"),
+            SpawnContext::Fresh,
+            "Run",
+        ))
+        .await
+        .expect("child session");
+    let captured_options = captured.options.lock().expect("options");
+    let options = captured_options.as_ref().expect("options");
+    let paths: Vec<Option<&str>> = options
+        .extension_factories
+        .iter()
+        .map(InlineExtension::explicit_extension_path)
+        .collect();
+    assert_eq!(paths, vec![Some("<first-party:probe>")]);
+}
+
+#[tokio::test]
+async fn child_agent_tools_append_control_tools_in_order() {
+    let env = test_env_with_settings(Some(json!({
+        "agents": {
+            "explore": {"tools": ["read", "end_turn", "grep"]}
+        }
+    })))
+    .await;
+    let captured = Arc::new(Captured::default());
+    let factory = create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
+    let mut agent = child_agent(&env, "agent_child", "Explorer");
+    agent.agent_type = "explore".to_owned();
+    factory
+        .call(child_input(&env, agent, SpawnContext::Fresh, "Run"))
+        .await
+        .expect("child session");
+    let captured_options = captured.options.lock().expect("options");
+    assert_eq!(
+        captured_options
+            .as_ref()
+            .expect("options")
+            .tools
+            .clone()
+            .expect("tools"),
+        vec![
+            "read".to_owned(),
+            "end_turn".to_owned(),
+            "grep".to_owned(),
+            "contact_parent".to_owned(),
+            "send_agent_message".to_owned(),
+        ]
+    );
+}
+
+fn assistant_with_tool_call(name: &str, id: &str) -> AgentMessage {
+    let mut message = pi_ai::types::AssistantMessage::empty("faux", "faux-1", "faux", 2);
+    message
+        .content
+        .push(pi_ai::types::AssistantContent::ToolCall(pi_ai::types::ToolCall::new(
+            id,
+            name,
+            Default::default(),
+        )));
+    message.stop_reason = pi_ai::types::StopReason::ToolUse;
+    AgentMessage::Assistant(Box::new(message))
+}
+
+#[tokio::test]
+async fn attached_session_opens_the_transcript_and_applies_its_policy() {
+    let env = test_env().await;
+    let target_dir = env._dir.path().join("target").display().to_string();
+    std::fs::create_dir_all(&target_dir).expect("target dir");
+    let target_session_dir = env._dir.path().join("target-sessions").display().to_string();
+    let mut target = SessionManager::create(&target_dir, Some(&target_session_dir), None).expect("target session");
+    target.append_message(user_message("existing")).expect("append target");
+    target.persist_for_recovery().expect("persist target");
+    let target_path = target.get_session_file().expect("target file").to_owned();
+    let target_id = target.get_session_id().to_owned();
+    let parent_session_file = lock_session_manager(&env.session_manager)
+        .get_session_file()
+        .map(str::to_owned);
+    let captured = Arc::new(Captured::default());
+    let factory = create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
+        agent_dir: Some(env.agent_dir.clone()),
+        create_session: create_child_session(Arc::clone(&captured), "attached done"),
+        extension_factories: None,
+        multi_agent_store: None,
+        session_dir: None,
+    });
+    let mut agent = child_agent(&env, "agent_attached", "Attached");
+    agent.cwd = target_dir;
+    agent.permission.policy = "never".to_owned();
+    agent.transcript = Some(AgentTranscriptMetadata {
+        session_id: target_id.clone(),
+        path: Some(target_path.clone()),
+    });
+
+    let child = factory
+        .call(AttachedSessionDispatchInput {
+            active_tool_call_id: None,
+            agent,
+            ctx: env.session.extension_runner().create_context(),
+            prompt: "resume".to_owned(),
+            signal: None,
+            session_path: target_path.clone(),
+        })
+        .await
+        .expect("attached session");
+    child.prompt("continue".to_owned()).await.expect("prompt");
+
+    let options = captured.options.lock().expect("options").take().expect("options");
+    let manager = captured_session_manager(&captured);
+    assert_eq!(lock_session_manager(&manager).get_session_id(), target_id);
+    assert_eq!(
+        session_texts(&manager),
+        vec!["existing".to_owned(), "continue".to_owned(), "attached done".to_owned()]
+    );
+    let event = options.session_start_event.clone().expect("session start event");
+    assert_eq!(event.reason, SessionStartReason::Resume);
+    assert_eq!(event.previous_session_file, parent_session_file);
+    let settings = options.settings_manager.expect("attached settings");
+    let settings = settings.lock().expect("settings");
+    assert_eq!(settings.get_approval_policy(), ApprovalPolicy::Never);
+    assert_eq!(
+        settings
+            .get_merged_settings()
+            .get("approvalPreset")
+            .and_then(Value::as_str),
+        Some("never-ask-deny")
+    );
+    let control_db = lock_session_manager(&manager)
+        .get_metadata_control_db_path()
+        .map(str::to_owned);
+    assert_eq!(control_db.as_deref(), Some(env.control_db.as_str()));
+}
+
+#[tokio::test]
+async fn attached_session_rejects_missing_paths_and_session_mismatches() {
+    let env = test_env().await;
+    let captured = Arc::new(Captured::default());
+    let factory = create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
+        agent_dir: Some(env.agent_dir.clone()),
+        create_session: create_child_session(Arc::clone(&captured), "attached done"),
+        extension_factories: None,
+        multi_agent_store: None,
+        session_dir: None,
+    });
+    let input = |session_path: &str, agent: AgentSnapshot| AttachedSessionDispatchInput {
+        active_tool_call_id: None,
+        agent,
+        ctx: env.session.extension_runner().create_context(),
+        prompt: "resume".to_owned(),
+        signal: None,
+        session_path: session_path.to_owned(),
+    };
+
+    let error = factory
+        .call(input("", child_agent(&env, "agent_attached", "Attached")))
+        .await
+        .err()
+        .expect("empty path");
+    assert_eq!(error, "Cannot resume attached session without a session path");
+
+    let missing = env._dir.path().join("missing.jsonl").display().to_string();
+    let error = factory
+        .call(input(&missing, child_agent(&env, "agent_attached", "Attached")))
+        .await
+        .err()
+        .expect("missing path");
+    assert_eq!(error, format!("Child agent transcript does not exist: {missing}"));
+
+    let target_dir = env._dir.path().join("target").display().to_string();
+    std::fs::create_dir_all(&target_dir).expect("target dir");
+    let target_session_dir = env._dir.path().join("target-sessions").display().to_string();
+    let mut target = SessionManager::create(&target_dir, Some(&target_session_dir), None).expect("target session");
+    target.append_message(user_message("existing")).expect("append target");
+    target.persist_for_recovery().expect("persist target");
+    let target_path = target.get_session_file().expect("target file").to_owned();
+    let target_id = target.get_session_id().to_owned();
+    let mut agent = child_agent(&env, "agent_attached", "Attached");
+    agent.cwd = target_dir;
+    agent.transcript = Some(AgentTranscriptMetadata {
+        session_id: "different-session".to_owned(),
+        path: Some(target_path.clone()),
+    });
+    let error = factory.call(input(&target_path, agent)).await.err().expect("mismatch");
+    assert_eq!(
+        error,
+        format!("Child agent transcript session mismatch: expected different-session, found {target_id}")
+    );
+    assert_eq!(*captured.calls.lock().expect("calls"), 0);
+}
+
+/// A real `AgentSession` wrapped by the adapter behaves like a child session.
+#[tokio::test]
+async fn agent_session_child_adapter_forwards_prompt_and_transcript_state() {
+    let env = test_env().await;
+    let adapter = AgentSessionChildSession::new(env.session.clone());
+    assert!(adapter.transcript().is_none());
+    let adapter_session_id = adapter
+        .session_manager()
+        .lock()
+        .expect("manager")
+        .get_session_id()
+        .to_owned();
+    let env_session_id = lock_session_manager(&env.session_manager).get_session_id().to_owned();
+    assert_eq!(adapter_session_id, env_session_id);
+    adapter.bind_extensions().await.expect("bind extensions");
+}
