@@ -18,7 +18,7 @@ notify-based child transcript reloads are implemented and behavior-tested.
 | `InteractiveModeOptions` | `InteractiveModeOptions` | construction in `ui_tests::build_mode` |
 | `createInteractiveTui` | `create_interactive_tui` | exercised by `build_mode` (regular); fullscreen renderer construction covered by `pi-tui` renderer tests |
 | `createInteractiveTuiReference` | `InteractiveTuiHandle` (stable renderer handle) | construction/renderer swap used by components; no direct test |
-| `bindInteractiveModeSessionMutationTargetResolver` | not ported | gap: no `ViewedSessionMutationTarget` API |
+| `bindInteractiveModeSessionMutationTargetResolver` | not ported (see Discrepancies) | session-level resolver in `main.rs` |
 | `stop()` | `InteractiveMode::stop` | `PI_STARTUP_BENCHMARK` path in `main_runner` |
 | `processControlMessage` | `process_control_message` | control-message branch of `run`; `IncomingControlMessage` completion/failure |
 | `InteractiveTuiHandle` dispatch | `InteractiveTuiHandle::renderer()` clones the active renderer | pty interactive test (input callbacks request renders) |
