@@ -9,6 +9,11 @@ pub mod agents_core;
 pub mod agents_mailbox;
 pub mod llama;
 
+/// Registers the inline built-in extensions (`extensions/index.ts`).
+pub fn register_builtin_extensions(registry: &mut ExtensionRegistry) {
+    llama::index::register_builtin_extensions(registry);
+}
+
 use agents_core::runtime::{MultiAgentExtensionOptions, create_multi_agent_runtime_handles, resolve_multi_agent_store};
 
 /// Registers the first-party agents extensions under their source ids.

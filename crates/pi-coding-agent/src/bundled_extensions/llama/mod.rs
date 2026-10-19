@@ -5,4 +5,6 @@
 
 pub mod client;
 pub mod huggingface;
+pub mod index;
 pub mod provider;
+pub mod ui;

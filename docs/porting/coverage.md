@@ -677,9 +677,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/tools/search-current-session-history.ts` | 196 | 22 | done | `crates/pi-coding-agent/src/core/tools/search_current_session_history.rs` | 7 ported tests + differential (6 cases) with byte-exact pretty JSON; query call renderer and result renderer. |
 | `coding-agent/src/core/tools/tool-definition-wrapper.ts` | 160 | 22 | partial | `crates/pi-coding-agent/src/core/tools/tool_definition_wrapper.rs` | `capToolResultOutput`, `wrap_agent_tool`, `create_tool_definition_from_agent_tool`; execution-context injection is provided by the runner context |
 | `coding-agent/src/core/tools/write.ts` | 274 | 22 | done | `crates/pi-coding-agent/src/core/tools/write.rs` | Execution + renderers; differential execution + renderer cases |
-| `coding-agent/src/extensions/index.ts` | 4 | 22 | todo |  |  |
-| `coding-agent/src/extensions/llama/index.ts` | 228 | 22 | todo |  |  |
-| `coding-agent/src/extensions/llama/ui.ts` | 542 | 22 | todo |  |  |
+| `coding-agent/src/extensions/index.ts` | 4 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/mod.rs` | `register_builtin_extensions` registers the hidden inline llama.cpp factory; registry test ([traceability](traceability/llama-index.md)). |
+| `coding-agent/src/extensions/llama/index.ts` | 228 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/llama/index.rs` | `/llama` command loop, load/unload/download helpers, configured client, extension registration; 5 behavioral cases incl. TUI unload flow ([traceability](traceability/llama-index.md)). |
+| `coding-agent/src/extensions/llama/ui.ts` | 542 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/llama/ui.rs` | Thread-safe LlamaView, search/progress/select rendering, showLlamaUi factory, runWithProgress; differential 4 scenarios + 6 behavioral cases ([traceability](traceability/llama-ui.md)). |
 | `coding-agent/src/index.ts` | 444 | 22 | partial |  |  |
 | `coding-agent/src/main.ts` | 1364 | 22 | todo |  |  |
 | `coding-agent/src/modes/index.ts` | 22 | 22 | done | `crates/pi-coding-agent/src/modes/mod.rs` | Re-export surface; `InteractiveMode` remains with the interactive slice ([traceability](traceability/modes-index.md)). |
