@@ -3601,6 +3601,11 @@ impl AgentSession {
         lock(&self.inner.settings_manager)
     }
 
+    /// The shared settings handle owned by this session.
+    pub fn settings_manager_handle(&self) -> Arc<Mutex<SettingsManager>> {
+        Arc::clone(&self.inner.settings_manager)
+    }
+
     /// `ExtensionRunner.setSandboxProfile`.
     pub fn set_sandbox_profile(
         &self,

@@ -1,6 +1,5 @@
 //! Ported from `coding-agent/src/modes/interactive/components/model-selector.ts`.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::core::model_resolver::ScopedModel;
 use crate::core::model_runtime::{ModelRuntime, ModelRuntimeError};
-use crate::core::settings_manager::SettingsManager;
+use crate::core::settings_manager::{SharedSettingsManager, lock_settings_manager};
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::model_search::{ModelSearchItem, get_model_search_candidates};
@@ -52,7 +51,7 @@ pub struct ModelSelectorComponent {
     filtered_models: Vec<ModelItem>,
     selected_index: usize,
     current_model: Option<Model>,
-    settings_manager: Rc<RefCell<SettingsManager>>,
+    settings_manager: SharedSettingsManager,
     model_runtime: ModelRuntime,
     on_select: Rc<dyn Fn(&Model)>,
     on_cancel: Rc<dyn Fn()>,
@@ -78,7 +77,7 @@ impl ModelSelectorComponent {
     pub fn new(
         ui: Rc<dyn ModelSelectorUi>,
         current_model: Option<Model>,
-        settings_manager: Rc<RefCell<SettingsManager>>,
+        settings_manager: SharedSettingsManager,
         model_runtime: ModelRuntime,
         scoped_models: Vec<ScopedModel>,
         on_select: Rc<dyn Fn(&Model)>,
@@ -431,9 +430,7 @@ impl ModelSelectorComponent {
 
     fn handle_select(&mut self, model: &Model) {
         self.dispose();
-        self.settings_manager
-            .borrow_mut()
-            .set_default_model_and_provider(&model.provider, &model.id);
+        lock_settings_manager(&self.settings_manager).set_default_model_and_provider(&model.provider, &model.id);
         (self.on_select)(model);
     }
 

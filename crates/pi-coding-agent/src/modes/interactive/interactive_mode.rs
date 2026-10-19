@@ -1132,6 +1132,69 @@ impl InteractiveTuiHandle {
         }
     }
 
+    pub fn request_render_force(&self) {
+        match &*self.renderer.borrow() {
+            Renderer::Main(tui) => TuiExt::request_render(tui.as_ref(), true),
+            Renderer::Fullscreen(tui) => TuiExt::request_render(tui.as_ref(), true),
+        }
+    }
+
+    pub fn set_terminal_color_scheme_notifications(&self, enabled: bool) {
+        match &*self.renderer.borrow() {
+            Renderer::Main(tui) => TuiExt::set_terminal_color_scheme_notifications(tui.as_ref(), enabled),
+            Renderer::Fullscreen(tui) => TuiExt::set_terminal_color_scheme_notifications(tui.as_ref(), enabled),
+        }
+    }
+
+    pub fn on_terminal_color_scheme_change(
+        &self,
+        listener: Rc<dyn Fn(pi_tui::terminal_colors::TerminalColorScheme)>,
+    ) -> usize {
+        match &*self.renderer.borrow() {
+            Renderer::Main(tui) => TuiExt::on_terminal_color_scheme_change(tui.as_ref(), listener),
+            Renderer::Fullscreen(tui) => TuiExt::on_terminal_color_scheme_change(tui.as_ref(), listener),
+        }
+    }
+
+    pub fn remove_terminal_color_scheme_listener(&self, id: usize) {
+        match &*self.renderer.borrow() {
+            Renderer::Main(tui) => tui.base().remove_terminal_color_scheme_listener(id),
+            Renderer::Fullscreen(tui) => tui.base().remove_terminal_color_scheme_listener(id),
+        }
+    }
+
+    pub fn query_terminal_background_color(
+        &self,
+        timeout: Duration,
+    ) -> Option<Option<pi_tui::terminal_colors::RgbColor>> {
+        let query = match &*self.renderer.borrow() {
+            Renderer::Main(tui) => TuiExt::query_terminal_background_color(tui.as_ref(), timeout),
+            Renderer::Fullscreen(tui) => TuiExt::query_terminal_background_color(tui.as_ref(), timeout),
+        };
+        self.wait_for_terminal_query(|| query.result())
+    }
+
+    pub fn query_terminal_color_scheme(
+        &self,
+        timeout: Duration,
+    ) -> Option<Option<pi_tui::terminal_colors::TerminalColorScheme>> {
+        let query = match &*self.renderer.borrow() {
+            Renderer::Main(tui) => TuiExt::query_terminal_color_scheme(tui.as_ref(), timeout),
+            Renderer::Fullscreen(tui) => TuiExt::query_terminal_color_scheme(tui.as_ref(), timeout),
+        };
+        self.wait_for_terminal_query(|| query.result())
+    }
+
+    fn wait_for_terminal_query<T>(&self, result: impl Fn() -> Option<T>) -> Option<T> {
+        loop {
+            self.process_events();
+            if let Some(value) = result() {
+                return Some(value);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
     pub fn show_overlay(&self, component: ComponentRef, options: Option<OverlayOptions>) -> OverlayHandle {
         match &*self.renderer.borrow() {
             Renderer::Main(tui) => TuiExt::show_overlay(tui.as_ref(), component, options),
@@ -1229,6 +1292,72 @@ impl ExtensionEditorHost for InteractiveTuiHost {
             Renderer::Main(tui) => TuiExt::request_render(tui.as_ref(), true),
             Renderer::Fullscreen(tui) => TuiExt::request_render(tui.as_ref(), true),
         }
+    }
+}
+
+/// `TUI` surface consumed by the interactive theme controller.
+struct InteractiveThemeUi(Rc<InteractiveTuiHandle>);
+
+impl crate::modes::interactive::theme::ThemeUi for InteractiveThemeUi {
+    fn invalidate(&self) {
+        self.0.invalidate();
+    }
+
+    fn request_render(&self) {
+        self.0.request_render();
+    }
+
+    fn set_terminal_color_scheme_notifications(&self, enabled: bool) {
+        self.0.set_terminal_color_scheme_notifications(enabled);
+    }
+
+    fn on_terminal_color_scheme_change(
+        &self,
+        listener: Rc<dyn Fn(crate::modes::interactive::theme::TerminalTheme)>,
+    ) -> usize {
+        self.0.on_terminal_color_scheme_change(Rc::new(move |scheme| {
+            let theme = match scheme {
+                pi_tui::terminal_colors::TerminalColorScheme::Dark => {
+                    crate::modes::interactive::theme::TerminalTheme::Dark
+                }
+                pi_tui::terminal_colors::TerminalColorScheme::Light => {
+                    crate::modes::interactive::theme::TerminalTheme::Light
+                }
+            };
+            listener(theme);
+        }))
+    }
+
+    fn remove_terminal_color_scheme_listener(&self, id: usize) {
+        self.0.remove_terminal_color_scheme_listener(id);
+    }
+
+    fn query_terminal_background_color(
+        &self,
+        timeout: Duration,
+    ) -> Result<Option<pi_tui::terminal_colors::RgbColor>, crate::modes::interactive::theme::ThemeQueryError> {
+        Ok(self.0.query_terminal_background_color(timeout).flatten())
+    }
+
+    fn query_terminal_color_scheme(
+        &self,
+        timeout: Duration,
+    ) -> Option<
+        Result<
+            Option<crate::modes::interactive::theme::TerminalTheme>,
+            crate::modes::interactive::theme::ThemeQueryError,
+        >,
+    > {
+        Some(Ok(self.0.query_terminal_color_scheme(timeout).flatten().map(
+            |scheme| match scheme {
+                pi_tui::terminal_colors::TerminalColorScheme::Dark => {
+                    crate::modes::interactive::theme::TerminalTheme::Dark
+                }
+                pi_tui::terminal_colors::TerminalColorScheme::Light => {
+                    crate::modes::interactive::theme::TerminalTheme::Light
+                }
+            },
+        )))
     }
 }
 
@@ -1799,6 +1928,7 @@ pub struct InteractiveMode {
     custom_header: RefCell<Option<ComponentRef>>,
     changelog_markdown: RefCell<Option<String>>,
     terminal_current_directory: RefCell<Option<String>>,
+    theme_controller: RefCell<crate::modes::interactive::theme::InteractiveThemeController>,
 }
 
 impl InteractiveMode {
@@ -1810,6 +1940,7 @@ impl InteractiveMode {
         terminal: Option<Rc<RefCell<dyn Terminal>>>,
     ) -> Result<Rc<Self>, String> {
         let session = runtime.session().clone();
+        let settings_handle = session.settings_manager_handle();
         let settings = session.settings_manager();
         let tui_mode = options.tui_mode.unwrap_or_else(|| settings.get_tui_mode());
         let show_hardware_cursor = settings.get_show_hardware_cursor();
@@ -1830,6 +1961,27 @@ impl InteractiveMode {
         });
         let ui = InteractiveTuiHandle::new(renderer);
         ui.set_clear_on_shrink(clear_on_shrink);
+
+        let loader_themes = session.resource_loader().get_themes();
+        let registered: Vec<Arc<Theme>> = loader_themes.themes.into_iter().map(Arc::new).collect();
+        if !registered.is_empty() {
+            let _ = crate::modes::interactive::theme::set_registered_themes(registered);
+        }
+        let mode_slot: Rc<RefCell<Option<std::rc::Weak<InteractiveMode>>>> = Rc::new(RefCell::new(None));
+        let error_slot = Rc::clone(&mode_slot);
+        let theme_controller = crate::modes::interactive::theme::InteractiveThemeController::new(
+            Rc::new(InteractiveThemeUi(Rc::clone(&ui))),
+            Arc::clone(&settings_handle),
+            Rc::new(move |message: &str| {
+                if let Some(mode) = error_slot.borrow().as_ref().and_then(std::rc::Weak::upgrade) {
+                    mode.show_error(message);
+                }
+            }),
+            Rc::new({
+                let ui = Rc::clone(&ui);
+                move || ui.request_render()
+            }),
+        );
 
         let (header_container, header_ref) = SharedContainer::create();
         let (loaded_resources_container, loaded_ref) = SharedContainer::create();
@@ -1937,7 +2089,10 @@ impl InteractiveMode {
             custom_header: RefCell::new(None),
             changelog_markdown: RefCell::new(None),
             terminal_current_directory: RefCell::new(None),
+            theme_controller: RefCell::new(theme_controller),
         });
+
+        *mode_slot.borrow_mut() = Some(Rc::downgrade(&mode));
 
         let id = register_mode(&mode);
         mode.ui_id.set(id);
@@ -2731,16 +2886,14 @@ impl InteractiveMode {
     }
 
     fn set_theme_name(&self, name: &str) -> ThemeSetResult {
-        let result = crate::modes::interactive::theme::set_theme(name, false);
+        let result = self.theme_controller.borrow_mut().set_theme_name(name, false);
         if result.success {
             self.settings_mut(|settings| {
                 if settings.get_theme() != Some(name) {
                     settings.set_theme(name);
                 }
             });
-            self.ui.invalidate();
             self.update_editor_border_color();
-            self.ui.request_render();
         }
         ThemeSetResult {
             success: result.success,
@@ -3194,15 +3347,6 @@ impl InteractiveMode {
             return Ok(());
         }
 
-        if crate::modes::interactive::theme::current_theme_if_initialized().is_none() {
-            crate::modes::interactive::theme::init_theme(None, false);
-        }
-        let loader_themes = self.session.borrow().resource_loader().get_themes();
-        let registered: Vec<Arc<Theme>> = loader_themes.themes.into_iter().map(Arc::new).collect();
-        if !registered.is_empty() {
-            let _ = crate::modes::interactive::theme::set_registered_themes(registered);
-        }
-
         self.bind_callbacks();
         self.build_fullscreen_layout();
         self.render_widgets();
@@ -3213,6 +3357,7 @@ impl InteractiveMode {
         self.is_initialized.set(true);
         self.update_terminal_current_directory();
         self.update_terminal_title();
+        self.theme_controller.borrow_mut().apply_from_settings();
         self.build_header();
         self.show_loaded_resources(false, false);
         self.bind_extensions().await;
