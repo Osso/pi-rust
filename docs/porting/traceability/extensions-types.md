@@ -91,10 +91,10 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
   source (above: leading spacer and empty spacer; below: none), and removing a
   key clears both placements.
 - `addAutocompleteProvider`, `setEditorComponent`, and `getEditorComponent`
-  remain gaps: the interactive mode has no base autocomplete provider and holds
-  a concrete `CustomEditor`, so swapping in an arbitrary `EditorComponent`
-  requires the interactive-mode editor abstraction (ca-interactive-2).
-  `AutocompleteProviderFactory` and `EditorFactory` aliases exist.
+  are owned by ca-interactive-2 (in flight, `interactive_mode.rs`): the base
+  autocomplete provider and the `Rc<RefCell<dyn EditorComponent>>` editor
+  abstraction land there. `AutocompleteProviderFactory` and `EditorFactory`
+  are the Rust contract.
 - `DetachedJobLifecycleController` is exposed as `ExtensionContext::detached_job_lifecycle()`
   and bound by `ExtensionRunner::bind_detached_job_lifecycle`. `core::agent_session`
   (owned by ca-agent-session-2) must call that binder with the session controller.
