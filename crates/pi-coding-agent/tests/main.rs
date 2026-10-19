@@ -1,0 +1,632 @@
+//! Behavioral tests for the `main.ts` startup helpers.
+
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+
+use pi_agent_core::agent::AgentMessage;
+use pi_agent_core::harness::types::ThinkingLevel;
+use pi_ai::providers::faux::{FauxTokenSize, RegisterFauxProviderOptions, faux_provider};
+use pi_ai::types::{
+    AssistantContent, AssistantMessage, AssistantRole, StopReason, TextContent, Usage, UserContent, UserMessage,
+    UserRole,
+};
+use pi_coding_agent::cli::args::{ListModels, Mode, parse_args};
+use pi_coding_agent::core::ResourceLoader;
+use pi_coding_agent::core::agent_session_runtime::CreateAgentSessionRuntimeOptions;
+use pi_coding_agent::core::agent_session_services::AgentSessionRuntimeDiagnostic;
+use pi_coding_agent::core::auth_guidance::format_no_models_available_message;
+use pi_coding_agent::core::auth_storage::AuthStorage;
+use pi_coding_agent::core::model_resolver::ScopedModel;
+use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
+use pi_coding_agent::core::project_trust::AppMode;
+use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension};
+use pi_coding_agent::core::sdk::NoTools;
+use pi_coding_agent::core::session_manager::SessionManager;
+use pi_coding_agent::core::settings_manager::{DefaultProjectTrust, SettingsManager, SettingsManagerCreateOptions};
+use pi_coding_agent::core::trust_manager::ProjectTrustStore;
+use pi_coding_agent::main_runner::{
+    FIRST_PARTY_EXTENSION_NAMES, MainExit, PENDING_FIRST_PARTY_EXTENSIONS, ResolvedSession, RuntimeFactoryOptions,
+    build_session_options, collect_settings_diagnostics, create_first_party_extension_factories,
+    create_first_party_multi_agent_store, create_runtime_factory, create_session_manager, fork_flag_conflict,
+    is_plain_runtime_metadata_command, is_truthy_env_flag, prepare_initial_message, resolve_app_mode,
+    resolve_cli_paths, resolve_session_path, run_cli_action_or_report_error,
+    run_interactive_action_or_report_terminal_error, session_belongs_to_project, session_id_flag_conflict,
+    to_print_output_mode, validate_fork_flags, validate_session_id_flags,
+};
+
+fn args(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| (*value).to_owned()).collect()
+}
+
+fn user_message(text: &str, timestamp: i64) -> AgentMessage {
+    AgentMessage::User(UserMessage {
+        role: UserRole::Tag,
+        content: UserContent::Text(text.to_owned()),
+        input_source: None,
+        provider_native: None,
+        timestamp,
+    })
+}
+
+fn create_session(cwd: &str, session_dir: &str, text: &str) -> SessionManager {
+    let mut session = SessionManager::create(cwd, Some(session_dir), None).expect("session");
+    session.append_message(user_message(text, 1)).expect("append message");
+    session
+        .append_message(AgentMessage::Assistant(Box::new(AssistantMessage {
+            role: AssistantRole::Tag,
+            content: vec![AssistantContent::Text(TextContent::new("ok"))],
+            api: "anthropic-messages".to_owned(),
+            provider: "anthropic".to_owned(),
+            model: "claude-test".to_owned(),
+            response_model: None,
+            response_id: None,
+            image_generation_result: None,
+            diagnostics: None,
+            usage: Usage::default(),
+            stop_reason: StopReason::Stop,
+            deferred: None,
+            error_message: None,
+            raw_stop_reason: None,
+            end_turn: None,
+            timestamp: 2,
+        })))
+        .expect("append assistant message");
+    session
+}
+
+fn settings_manager(cwd: &str, agent_dir: &Path) -> SettingsManager {
+    SettingsManager::create(
+        cwd,
+        Some(agent_dir),
+        SettingsManagerCreateOptions {
+            project_trusted: Some(false),
+        },
+    )
+    .expect("settings manager")
+}
+
+async fn model_runtime() -> (ModelRuntime, pi_ai::types::Model) {
+    let handle = faux_provider(RegisterFauxProviderOptions {
+        api: Some("faux".to_owned()),
+        token_size: Some(FauxTokenSize {
+            min: Some(1.0),
+            max: Some(1.0),
+        }),
+        ..Default::default()
+    });
+    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+        credentials: Some(std::sync::Arc::new(AuthStorage::in_memory(serde_json::Map::from_iter(
+            [(
+                "faux".to_owned(),
+                serde_json::json!({"type": "api_key", "key": "faux-key"}),
+            )],
+        )))),
+        models_path: Some(None),
+        ..Default::default()
+    })
+    .await
+    .expect("model runtime");
+    runtime.register_native_provider(handle.provider.clone());
+    let model = handle.get_model(None).expect("faux model");
+    (runtime, model)
+}
+
+#[test]
+fn truthy_env_flags_match_javascript_lowercasing() {
+    assert!(!is_truthy_env_flag(None));
+    assert!(!is_truthy_env_flag(Some("")));
+    assert!(!is_truthy_env_flag(Some("0")));
+    assert!(!is_truthy_env_flag(Some("no")));
+    assert!(!is_truthy_env_flag(Some(" true ")));
+    assert!(is_truthy_env_flag(Some("1")));
+    assert!(is_truthy_env_flag(Some("true")));
+    assert!(is_truthy_env_flag(Some("TRUE")));
+    assert!(is_truthy_env_flag(Some("Yes")));
+}
+
+#[test]
+fn app_mode_follows_mode_print_and_tty_state() {
+    let rpc = parse_args(&args(&["--mode", "rpc"]));
+    assert_eq!(resolve_app_mode(&rpc, true, true), AppMode::Rpc);
+
+    let json = parse_args(&args(&["--mode", "json"]));
+    assert_eq!(resolve_app_mode(&json, true, true), AppMode::Json);
+
+    let print = parse_args(&args(&["--print", "hello"]));
+    assert_eq!(resolve_app_mode(&print, true, true), AppMode::Print);
+
+    let plain = parse_args(&args(&["hello"]));
+    assert_eq!(resolve_app_mode(&plain, false, true), AppMode::Print);
+    assert_eq!(resolve_app_mode(&plain, true, false), AppMode::Print);
+    assert_eq!(resolve_app_mode(&plain, true, true), AppMode::Interactive);
+
+    assert_eq!(to_print_output_mode(AppMode::Json), Mode::Json);
+    assert_eq!(to_print_output_mode(AppMode::Print), Mode::Text);
+}
+
+#[test]
+fn plain_runtime_metadata_commands_skip_stdout_takeover() {
+    for values in [
+        vec!["--help"],
+        vec!["--list-models"],
+        vec!["--list-models", "sonnet"],
+        vec!["tools"],
+        vec!["extensions"],
+    ] {
+        assert!(
+            is_plain_runtime_metadata_command(&parse_args(&args(&values))),
+            "{values:?}"
+        );
+    }
+    assert!(!is_plain_runtime_metadata_command(&parse_args(&args(&[
+        "--help", "--mode", "json"
+    ]))));
+    assert!(!is_plain_runtime_metadata_command(&parse_args(&args(&[
+        "--print", "--help"
+    ]))));
+    assert!(!is_plain_runtime_metadata_command(&parse_args(&args(&["hello"]))));
+}
+
+#[test]
+fn fork_conflicts_list_flags_in_source_order() {
+    let parsed = parse_args(&args(&[
+        "--fork",
+        "abc",
+        "--session",
+        "def",
+        "--continue",
+        "--resume",
+        "--no-session",
+    ]));
+    assert_eq!(
+        fork_flag_conflict(&parsed).as_deref(),
+        Some("Error: --fork cannot be combined with --session, --continue, --resume, --no-session")
+    );
+    assert_eq!(fork_flag_conflict(&parse_args(&args(&["--fork", "abc"]))), None);
+    assert_eq!(fork_flag_conflict(&parse_args(&args(&["--continue"]))), None);
+    assert_eq!(validate_fork_flags(&parsed), Err(MainExit(1)));
+}
+
+#[test]
+fn session_id_conflicts_and_validation_match_the_source() {
+    let parsed = parse_args(&args(&["--session-id", "abc", "--session", "def"]));
+    assert_eq!(
+        session_id_flag_conflict(&parsed).as_deref(),
+        Some("Error: --session-id cannot be combined with --session")
+    );
+    assert_eq!(validate_session_id_flags(&parsed), Err(MainExit(1)));
+
+    let invalid = parse_args(&args(&["--session-id", "-bad"]));
+    assert_eq!(session_id_flag_conflict(&invalid), None);
+    assert_eq!(validate_session_id_flags(&invalid), Err(MainExit(1)));
+
+    let valid = parse_args(&args(&["--session-id", "good.id_1"]));
+    assert_eq!(validate_session_id_flags(&valid), Ok(()));
+}
+
+#[test]
+fn settings_diagnostics_prefix_scope_and_context() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let agent_dir = root.path().join("agent");
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    std::fs::write(agent_dir.join("settings.json"), "{ invalid json").expect("settings");
+    let mut manager = settings_manager("/tmp", &agent_dir);
+
+    let diagnostics = collect_settings_diagnostics(&mut manager, "startup session lookup");
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].diagnostic_type, "warning");
+    assert!(
+        diagnostics[0]
+            .message
+            .starts_with("(startup session lookup, global settings) ")
+    );
+    assert!(collect_settings_diagnostics(&mut manager, "startup session lookup").is_empty());
+}
+
+#[test]
+fn session_paths_resolve_locally_globally_and_by_prefix() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let session_dir = root.path().join("sessions");
+    std::fs::create_dir_all(&session_dir).expect("session dir");
+    let project_a = root.path().join("project-a");
+    let project_b = root.path().join("project-b");
+    std::fs::create_dir_all(&project_a).expect("project a");
+    std::fs::create_dir_all(&project_b).expect("project b");
+    let session_dir = session_dir.display().to_string();
+    let project_a = project_a.display().to_string();
+    let project_b = project_b.display().to_string();
+
+    let session = create_session(&project_a, &session_dir, "from A");
+    let session_id = session.get_session_id().to_owned();
+    let session_file = session.get_session_file().expect("session file").to_owned();
+    assert_eq!(
+        SessionManager::list_all(Some(&session_dir), None, None)
+            .expect("all")
+            .len(),
+        1
+    );
+    let listed = SessionManager::list(&project_a, Some(&session_dir), None, None).expect("list");
+    assert_eq!(listed.len(), 1, "cwd={project_a} sessions={listed:?}");
+    let listed = SessionManager::list(&project_a, Some(&session_dir), None, None).expect("list");
+    assert_eq!(listed.len(), 1, "cwd={project_a} sessions={listed:?}");
+
+    let resolved = resolve_session_path(&session_id[..6], &project_a, Some(&session_dir), None).expect("resolved");
+    assert_eq!(resolved, ResolvedSession::Local(session_file.clone()));
+
+    let resolved = resolve_session_path(&session_id, &project_b, Some(&session_dir), None).expect("resolved");
+    assert_eq!(
+        resolved,
+        ResolvedSession::Global {
+            path: session_file.clone(),
+            cwd: project_a.clone()
+        }
+    );
+
+    let resolved = resolve_session_path(&session_file, &project_b, Some(&session_dir), None).expect("resolved");
+    assert_eq!(resolved, ResolvedSession::Path(session_file.clone()));
+
+    let missing_jsonl = root.path().join("missing.jsonl").display().to_string();
+    let resolved = resolve_session_path(&missing_jsonl, &project_b, Some(&session_dir), None).expect("resolved");
+    assert_eq!(resolved, ResolvedSession::Path(missing_jsonl));
+
+    let resolved = resolve_session_path("does-not-exist", &project_a, Some(&session_dir), None).expect("resolved");
+    assert_eq!(resolved, ResolvedSession::NotFound("does-not-exist".to_owned()));
+}
+
+#[test]
+fn session_project_membership_uses_the_git_common_directory() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let repo = root.path().join("repo");
+    let sibling = root.path().join("sibling");
+    std::fs::create_dir_all(&repo).expect("repo");
+    std::fs::create_dir_all(&sibling).expect("sibling");
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .args(["init", "--quiet"])
+        .status()
+        .expect("git init");
+    assert!(status.success());
+    let worktree = repo.join("worktree");
+    std::fs::create_dir_all(&worktree).expect("worktree");
+
+    let repo = repo.display().to_string();
+    let worktree = worktree.display().to_string();
+    let sibling = sibling.display().to_string();
+    assert!(session_belongs_to_project(&repo, &repo));
+    assert!(session_belongs_to_project(&worktree, &repo));
+    assert!(!session_belongs_to_project(&sibling, &repo));
+}
+
+#[test]
+fn cli_paths_resolve_local_entries_only() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let cwd = root.path().display().to_string();
+    let resolved = resolve_cli_paths(
+        &cwd,
+        Some(&[
+            "./skills".to_owned(),
+            "npm:package".to_owned(),
+            "/absolute/path".to_owned(),
+        ]),
+    )
+    .expect("paths")
+    .expect("some");
+    assert_eq!(
+        resolved,
+        vec![
+            Path::new(&cwd).join("skills").display().to_string(),
+            "npm:package".to_owned(),
+            "/absolute/path".to_owned(),
+        ]
+    );
+    assert_eq!(resolve_cli_paths(&cwd, None).expect("paths"), None);
+}
+
+#[tokio::test]
+async fn initial_message_concatenates_stdin_and_the_first_cli_message() {
+    let mut parsed = parse_args(&args(&["hello", "second"]));
+    let result = prepare_initial_message(&mut parsed, true, Some("piped\n"))
+        .await
+        .expect("initial message");
+    assert_eq!(result.initial_message.as_deref(), Some("piped\nhello"));
+    assert_eq!(parsed.messages, vec!["second".to_owned()]);
+
+    let mut parsed = parse_args(&args(&[]));
+    let result = prepare_initial_message(&mut parsed, true, None)
+        .await
+        .expect("initial message");
+    assert_eq!(result.initial_message, None);
+}
+
+#[tokio::test]
+async fn build_session_options_prefers_cli_model_and_explicit_thinking() {
+    let (runtime, model) = model_runtime().await;
+    let root = tempfile::tempdir().expect("temp dir");
+    let settings = settings_manager("/tmp", root.path());
+
+    let parsed = parse_args(&args(&["--model", &format!("{}:high", model.id)]));
+    let built = build_session_options(&parsed, &[], false, &runtime, &settings);
+    assert!(built.diagnostics.is_empty());
+    assert_eq!(
+        built.options.model.as_ref().map(|model| model.id.as_str()),
+        Some(model.id.as_str())
+    );
+    assert_eq!(built.options.thinking_level, Some(ThinkingLevel::High));
+    assert!(built.cli_thinking_from_model);
+
+    let parsed = parse_args(&args(&["--model", &model.id, "--thinking", "off"]));
+    let built = build_session_options(&parsed, &[], false, &runtime, &settings);
+    assert_eq!(built.options.thinking_level, Some(ThinkingLevel::Off));
+    assert!(!built.cli_thinking_from_model);
+}
+
+#[tokio::test]
+async fn build_session_options_uses_scoped_models_and_tool_flags() {
+    let (runtime, model) = model_runtime().await;
+    let root = tempfile::tempdir().expect("temp dir");
+    let mut settings = settings_manager("/tmp", root.path());
+    settings.set_default_provider(&model.provider);
+    settings.set_default_model(&model.id);
+    let scoped = vec![ScopedModel {
+        model: model.clone(),
+        thinking_level: Some(ThinkingLevel::Medium),
+    }];
+
+    let parsed = parse_args(&args(&[
+        "--no-builtin-tools",
+        "--tools",
+        "read,write",
+        "--exclude-tools",
+        "bash",
+    ]));
+    let built = build_session_options(&parsed, &scoped, false, &runtime, &settings);
+    assert_eq!(
+        built.options.model.as_ref().map(|model| model.id.as_str()),
+        Some(model.id.as_str())
+    );
+    assert_eq!(built.options.thinking_level, Some(ThinkingLevel::Medium));
+    assert_eq!(built.options.no_tools, Some(NoTools::Builtin));
+    assert_eq!(built.options.tools, Some(vec!["read".to_owned(), "write".to_owned()]));
+    assert_eq!(built.options.exclude_tools, Some(vec!["bash".to_owned()]));
+    assert_eq!(built.options.scoped_models.len(), 1);
+
+    let built = build_session_options(&parsed, &scoped, true, &runtime, &settings);
+    assert!(built.options.model.is_none());
+}
+
+#[tokio::test]
+async fn create_session_manager_honors_help_in_memory_and_session_ids() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let agent_dir = root.path().join("agent");
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    let session_dir = root.path().join("sessions");
+    std::fs::create_dir_all(&session_dir).expect("session dir");
+    let cwd = root.path().display().to_string();
+    let session_dir = session_dir.display().to_string();
+    let settings = settings_manager(&cwd, &agent_dir);
+
+    let parsed = parse_args(&args(&["--help"]));
+    let manager = create_session_manager(&parsed, &cwd, Some(&session_dir), &settings, None)
+        .await
+        .expect("manager");
+    assert!(manager.get_session_file().is_none());
+
+    let parsed = parse_args(&args(&["--session-id", "chosen-id"]));
+    let manager = create_session_manager(&parsed, &cwd, Some(&session_dir), &settings, None)
+        .await
+        .expect("manager");
+    assert_eq!(manager.get_session_id(), "chosen-id");
+    assert!(manager.get_session_file().is_some());
+
+    let parsed = parse_args(&args(&["--fork", "missing-session"]));
+    assert_eq!(
+        create_session_manager(&parsed, &cwd, Some(&session_dir), &settings, None)
+            .await
+            .err(),
+        Some(MainExit(1))
+    );
+
+    let parsed = parse_args(&args(&["--resume"]));
+    assert_eq!(
+        create_session_manager(&parsed, &cwd, Some(&session_dir), &settings, None)
+            .await
+            .err(),
+        Some(MainExit(1))
+    );
+}
+
+#[tokio::test]
+async fn cli_action_wrappers_map_errors_to_exit_codes() {
+    assert_eq!(run_cli_action_or_report_error(|| async { Ok(()) }).await, 0);
+    assert_eq!(
+        run_cli_action_or_report_error(|| async { Err("boom".to_owned()) }).await,
+        1
+    );
+
+    let outcome = run_interactive_action_or_report_terminal_error(|| async { Ok(()) }, None)
+        .await
+        .expect("ok");
+    assert!(outcome.ok);
+    assert_eq!(outcome.exit_code, None);
+
+    let outcome = run_interactive_action_or_report_terminal_error(
+        || async { Err("SetRawMode failed with errno: 5".to_owned()) },
+        None,
+    )
+    .await
+    .expect("terminal error");
+    assert!(!outcome.ok);
+    assert_eq!(outcome.exit_code, Some(1));
+
+    let error =
+        run_interactive_action_or_report_terminal_error(|| async { Err("other failure".to_owned()) }, None).await;
+    assert_eq!(error, Err("other failure".to_owned()));
+}
+
+#[test]
+fn list_models_parse_variants_are_preserved() {
+    assert_eq!(parse_args(&args(&["--list-models"])).list_models, Some(ListModels::All));
+    assert_eq!(
+        parse_args(&args(&["--list-models", "sonnet"])).list_models,
+        Some(ListModels::Search("sonnet".to_owned()))
+    );
+}
+
+#[test]
+fn diagnostics_are_serialized_with_the_ts_type_field() {
+    let diagnostic = AgentSessionRuntimeDiagnostic {
+        diagnostic_type: "error".to_owned(),
+        message: "broken".to_owned(),
+    };
+    assert_eq!(
+        serde_json::to_string(&diagnostic).expect("json"),
+        r#"{"type":"error","message":"broken"}"#
+    );
+}
+
+#[test]
+fn first_party_factory_list_partitions_the_source_names() {
+    let store = create_first_party_multi_agent_store();
+    let handles = pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
+    let factories = create_first_party_extension_factories(store, handles);
+    let registered: Vec<String> = factories
+        .iter()
+        .map(|factory| match factory {
+            InlineExtension::Factory {
+                extension_path: Some(path),
+                ..
+            } => path
+                .strip_prefix("<first-party:")
+                .and_then(|path| path.strip_suffix('>'))
+                .expect("first-party path")
+                .to_owned(),
+            _ => panic!("first-party factories carry an extension path"),
+        })
+        .collect();
+    assert_eq!(
+        registered,
+        vec![
+            "agents-core",
+            "agent-viewer",
+            "agents-mailbox",
+            "goal",
+            "bwrap",
+            "pyrun"
+        ]
+    );
+
+    for name in &registered {
+        assert!(FIRST_PARTY_EXTENSION_NAMES.contains(&name.as_str()), "{name}");
+        assert!(!PENDING_FIRST_PARTY_EXTENSIONS.contains(&name.as_str()), "{name}");
+    }
+    for name in PENDING_FIRST_PARTY_EXTENSIONS {
+        assert!(FIRST_PARTY_EXTENSION_NAMES.contains(name), "{name}");
+    }
+    assert_eq!(
+        registered.len() + PENDING_FIRST_PARTY_EXTENSIONS.len(),
+        FIRST_PARTY_EXTENSION_NAMES.len()
+    );
+}
+
+#[tokio::test]
+async fn first_party_factories_load_and_register_agent_tools() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let cwd = root.path().display().to_string();
+    let store = create_first_party_multi_agent_store();
+    let handles = pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
+    let factories = create_first_party_extension_factories(store, handles);
+    let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+        cwd: cwd.clone(),
+        agent_dir: cwd,
+        extension_factories: factories,
+        no_skills: true,
+        no_prompt_templates: true,
+        no_themes: true,
+        no_context_files: true,
+        ..Default::default()
+    })
+    .expect("loader");
+    loader.reload_with_options(None).await.expect("reload");
+    let result = loader.get_extensions();
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    let paths: Vec<&str> = result
+        .extensions
+        .iter()
+        .map(|extension| extension.path.as_str())
+        .collect();
+    assert_eq!(
+        paths,
+        vec![
+            "<first-party:agents-core>",
+            "<first-party:agent-viewer>",
+            "<first-party:agents-mailbox>",
+            "<first-party:goal>",
+            "<first-party:bwrap>",
+            "<first-party:pyrun>"
+        ]
+    );
+    let core = &result.extensions[0];
+    assert!(core.tools.contains_key("spawn_agent"));
+    assert!(!core.tools.contains_key("send_agent_message"));
+    let viewer = &result.extensions[1];
+    assert!(viewer.tools.contains_key("agent_viewer"));
+    let mailbox = &result.extensions[2];
+    assert!(mailbox.tools.contains_key("send_agent_message"));
+    assert!(mailbox.tools.contains_key("contact_parent"));
+}
+
+#[tokio::test]
+async fn runtime_factory_creates_services_and_reports_missing_models() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let cwd = root.path().join("project");
+    let agent_dir = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).expect("project");
+    std::fs::create_dir_all(&agent_dir).expect("agent");
+    std::fs::create_dir_all(cwd.join(".pi")).expect("project config");
+    std::fs::write(cwd.join(".pi/settings.json"), "{}").expect("project settings");
+    let cwd_string = cwd.display().to_string();
+    let agent_dir_string = agent_dir.display().to_string();
+
+    let parsed = parse_args(&args(&["--no-session"]));
+    let session_manager = SessionManager::in_memory(Some(&cwd_string), None).expect("session manager");
+    let trust_store = Arc::new(ProjectTrustStore::new(&agent_dir_string));
+    let project_trust_by_cwd = Arc::new(Mutex::new(HashMap::new()));
+    let factory = create_runtime_factory(RuntimeFactoryOptions {
+        parsed,
+        agent_dir: agent_dir_string.clone(),
+        startup_default_project_trust: DefaultProjectTrust::Ask,
+        trust_store,
+        trust_prompt_mode: AppMode::Print,
+        app_mode: AppMode::Print,
+        project_trust_by_cwd: Arc::clone(&project_trust_by_cwd),
+        additional_extension_paths: Vec::new(),
+        additional_skill_paths: Vec::new(),
+        additional_prompt_template_paths: Vec::new(),
+        additional_theme_paths: Vec::new(),
+        extension_factories: Vec::new(),
+        multi_agent_store: Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default())),
+        multi_agent_runtime_handles:
+            pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles(),
+    });
+    let result = factory(CreateAgentSessionRuntimeOptions {
+        cwd: cwd_string.clone(),
+        agent_dir: agent_dir_string,
+        session_manager,
+        session_start_reason: "startup".to_owned(),
+        previous_session_file: None,
+    })
+    .await
+    .expect("runtime");
+
+    assert_eq!(
+        result.model_fallback_message.as_deref(),
+        Some(format_no_models_available_message().as_str())
+    );
+    assert_eq!(result.services.cwd, cwd_string);
+    assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+    assert!(result.session.messages().is_empty());
+    assert_eq!(project_trust_by_cwd.lock().unwrap().get(&cwd_string), Some(&false));
+}

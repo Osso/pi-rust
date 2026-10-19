@@ -138,7 +138,7 @@ fn update_target_predicates() {
 
 #[test]
 fn formats_the_configured_package_list() {
-    assert_eq!(format_package_list(&[]), "No packages installed.\n");
+    assert_eq!(format_package_list(&[]), "No packages installed.");
     let packages = vec![
         ConfiguredPackage {
             source: "npm:user".to_owned(),
@@ -155,6 +155,6 @@ fn formats_the_configured_package_list() {
     ];
     assert_eq!(
         format_package_list(&packages),
-        "User packages:\n  npm:user\n    /agent/npm/node_modules/user\n\nProject packages:\n  npm:project (filtered)\n"
+        "User packages:\n  npm:user\n    /agent/npm/node_modules/user\n\nProject packages:\n  npm:project (filtered)"
     );
 }

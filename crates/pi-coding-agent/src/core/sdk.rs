@@ -57,7 +57,7 @@ pub struct CreateAgentSessionOptions {
     pub exclude_tools: Option<Vec<String>>,
     pub permission_prompt_tool: Option<String>,
     pub custom_tools: Vec<ToolDefinition>,
-    /// Rust carrier for the unported `createAllToolDefinitions` default.
+    /// Override the built-in tool definitions.
     pub base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
     pub resource_loader: Option<Arc<dyn ResourceLoader>>,
     /// Override runtime-role rule discovery when creating the default loader.
@@ -69,6 +69,9 @@ pub struct CreateAgentSessionOptions {
     pub control_db_path: Option<String>,
     pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
+    pub multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
+    pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
+    pub session_start_event: Option<crate::core::extensions::types::SessionStartEvent>,
 }
 
 /// `CreateAgentSessionResult`.
@@ -449,13 +452,13 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         multi_agent_execution_capability: options.multi_agent_execution_capability,
         thinking_phase_timeout_ms: None,
         supervisor_decision_requester: None,
-        multi_agent_store: None,
+        multi_agent_store: options.multi_agent_store,
         multi_agent_agent_id: None,
         multi_agent_parent_session_id: None,
         disable_runtime_coordination_inbound: false,
-        on_shared_channel_message_delivered: None,
+        on_shared_channel_message_delivered: options.on_shared_channel_message_delivered,
         extension_runner_ref: None,
-        session_start_event: None,
+        session_start_event: options.session_start_event,
     })
     .map_err(|error| error.message().to_owned())?;
     let notifier_session = session.clone();

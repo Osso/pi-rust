@@ -45,6 +45,10 @@ use crate::core::settings_manager::{SettingsManager, SettingsScope};
 use crate::core::slash_commands::builtin_slash_commands;
 use crate::core::source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::core::system_prompt::{BuildSystemPromptOptions, build_system_prompt};
+use crate::core::tool_detach_registry::ToolDetachRegistry;
+use crate::core::tools::bash::{BashBackgroundJobs, BashToolOptions};
+use crate::core::tools::read::ReadToolOptions;
+use crate::core::tools::{ToolsOptions, create_all_tool_definitions};
 use crate::modes::interactive::theme::ThemeColor;
 use crate::utils::frontmatter::strip_frontmatter;
 
@@ -160,6 +164,18 @@ impl ToolDefinition {
             tool,
         }
     }
+}
+
+fn builtin_source_info(name: &str) -> crate::core::source_info::SourceInfo {
+    create_synthetic_source_info(
+        &format!("<builtin:{name}>"),
+        &SyntheticSourceInfoOptions {
+            source: "builtin".to_owned(),
+            scope: None,
+            origin: None,
+            base_dir: None,
+        },
+    )
 }
 
 /// `ToolInfo` returned by `getAllTools`.
@@ -815,7 +831,10 @@ struct Inner {
     model_runtime: ModelRuntime,
     model_registry: ModelRegistry,
     custom_tools: Vec<ToolDefinition>,
-    base_tool_definitions: Vec<(String, ToolDefinition)>,
+    /// `_baseToolsOverride`: `Some` replaces the built-in definitions.
+    base_tools_override: Option<Vec<(String, crate::core::extensions::types::ToolDefinition)>>,
+    base_tool_definitions: Mutex<Vec<(String, crate::core::extensions::types::ToolDefinition)>>,
+    tool_detach_registry: Arc<ToolDetachRegistry>,
     tool_definitions: Mutex<Vec<(String, ToolDefinitionEntry)>>,
     tool_prompt_snippets: Mutex<HashMap<String, String>>,
     tool_prompt_guidelines: Mutex<HashMap<String, Vec<String>>>,
@@ -889,11 +908,27 @@ impl AgentSession {
 
         let model_runtime = config.model_runtime.clone();
         let model_registry = ModelRegistry::new(model_runtime.clone());
-        let base_tool_definitions = config
-            .base_tools
-            .iter()
-            .map(|tool| (tool.name().to_owned(), ToolDefinition::from_tool(Arc::clone(tool))))
-            .collect::<Vec<_>>();
+        let base_tools_override = (!config.base_tools.is_empty()).then(|| {
+            let mut definitions = config
+                .base_tools
+                .iter()
+                .filter(|tool| tool.name() != crate::core::tools::end_turn::NAME)
+                .map(|tool| {
+                    (
+                        tool.name().to_owned(),
+                        crate::core::tools::tool_definition_wrapper::create_tool_definition_from_agent_tool(
+                            Arc::clone(tool),
+                        ),
+                    )
+                })
+                .collect::<Vec<_>>();
+            definitions.push((
+                crate::core::tools::end_turn::NAME.to_owned(),
+                crate::core::tools::end_turn::create_end_turn_tool_definition(),
+            ));
+            definitions
+        });
+        let tool_detach_registry = Arc::new(ToolDetachRegistry::new());
         let agent_dir = config
             .agent_dir
             .clone()
@@ -961,7 +996,9 @@ impl AgentSession {
             model_runtime,
             model_registry,
             custom_tools: config.custom_tools,
-            base_tool_definitions,
+            base_tools_override,
+            base_tool_definitions: Mutex::new(Vec::new()),
+            tool_detach_registry,
             tool_definitions: Mutex::new(Vec::new()),
             tool_prompt_snippets: Mutex::new(HashMap::new()),
             tool_prompt_guidelines: Mutex::new(HashMap::new()),
@@ -1027,7 +1064,24 @@ impl AgentSession {
         session.install_agent_next_turn_refresh();
         session.install_duplicate_turn_stop();
         session.subscribe_agent();
-        session.build_runtime(session.inner.initial_active_tool_names.clone(), None, true);
+        let default_active_tool_names = match &session.inner.base_tools_override {
+            Some(definitions) => definitions.iter().map(|(name, _)| name.clone()).collect(),
+            None => crate::core::tools::DEFAULT_ACTIVE_TOOL_NAMES
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect(),
+        };
+        session.build_runtime(
+            Some(
+                session
+                    .inner
+                    .initial_active_tool_names
+                    .clone()
+                    .unwrap_or(default_active_tool_names),
+            ),
+            None,
+            true,
+        );
         Ok(session)
     }
 
@@ -1146,6 +1200,7 @@ impl AgentSession {
         _flag_values: Option<BTreeMap<String, Value>>,
         include_all_extension_tools: bool,
     ) {
+        self.rebuild_base_tool_definitions();
         let extensions = self.inner.resource_loader.get_extensions();
         let mut runner = ExtensionRunner::new(
             extensions.extensions,
@@ -1171,6 +1226,50 @@ impl AgentSession {
         self.refresh_tool_registry(active_tool_names, include_all_extension_tools);
     }
 
+    /// `_buildRuntime` base definitions: overrides, or every built-in tool with
+    /// the current settings.
+    fn rebuild_base_tool_definitions(&self) {
+        if self.inner.base_tools_override.is_some() {
+            lock(&self.inner.base_tool_definitions).clear();
+            return;
+        }
+        let (auto_resize_images, command_prefix, shell_path) = {
+            let settings = lock(&self.inner.settings_manager);
+            (
+                settings.get_image_auto_resize(),
+                settings.get_shell_command_prefix().map(str::to_owned),
+                settings.get_shell_path(),
+            )
+        };
+        let session = self.clone();
+        let background_jobs = self.inner.multi_agent_store.as_ref().map(|_| {
+            Arc::new(BashBackgroundJobs {
+                get_lifecycle: Arc::new(move || session.get_detached_job_lifecycle_controller()),
+            })
+        });
+        let definitions = create_all_tool_definitions(
+            &self.inner.cwd,
+            ToolsOptions {
+                read: Some(ReadToolOptions {
+                    auto_resize_images: Some(auto_resize_images),
+                    ..Default::default()
+                }),
+                bash: Some(BashToolOptions {
+                    command_prefix,
+                    shell_path,
+                    detach_registry: Some(Arc::clone(&self.inner.tool_detach_registry)),
+                    background_jobs,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )
+        .into_iter()
+        .map(|(name, definition)| (name.to_owned(), definition))
+        .collect();
+        *lock(&self.inner.base_tool_definitions) = definitions;
+    }
+
     fn refresh_tool_registry(&self, active_tool_names: Option<Vec<String>>, include_all_extension_tools: bool) {
         let previous_registry_names: HashSet<String> = lock(&self.inner.tool_registry).keys().cloned().collect();
         let previous_active_tool_names = self.get_active_tool_names();
@@ -1178,32 +1277,43 @@ impl AgentSession {
         let excluded = self.inner.excluded_tool_names.clone();
         let is_allowed = |name: &str| is_allowed_session_tool(name, allowed.as_ref(), excluded.as_ref());
 
-        let mut definition_registry: Vec<(String, ToolDefinitionEntry)> = self
-            .inner
-            .base_tool_definitions
+        let runner = self.runner();
+        let base_definitions: Vec<(String, crate::core::extensions::types::ToolDefinition)> =
+            match &self.inner.base_tools_override {
+                Some(overrides) => overrides.clone(),
+                None => lock(&self.inner.base_tool_definitions).clone(),
+            };
+        let mut definition_registry: Vec<(String, ToolDefinitionEntry)> = base_definitions
             .iter()
             .filter(|(name, _)| is_allowed(name))
             .map(|(name, definition)| {
+                let source_info = builtin_source_info(name);
+                let wrapped = wrap_registered_tool(
+                    crate::core::extensions::types::RegisteredTool {
+                        definition: definition.clone(),
+                        source_info: source_info.clone(),
+                    },
+                    &runner,
+                );
                 (
                     name.clone(),
                     ToolDefinitionEntry {
-                        definition: definition.clone(),
-                        source_info: create_synthetic_source_info(
-                            &format!("<builtin:{name}>"),
-                            &SyntheticSourceInfoOptions {
-                                source: "builtin".to_owned(),
-                                scope: None,
-                                origin: None,
-                                base_dir: None,
-                            },
-                        ),
+                        definition: ToolDefinition {
+                            name: definition.name.clone(),
+                            description: definition.description.clone(),
+                            parameters: definition.parameters.clone(),
+                            prompt_snippet: definition.prompt_snippet.clone(),
+                            prompt_guidelines: definition.prompt_guidelines.clone().unwrap_or_default(),
+                            approval_required: definition.approval_required.unwrap_or(true),
+                            tool: wrapped,
+                        },
+                        source_info,
                     },
                 )
             })
             .collect();
 
         let extension_tools = {
-            let runner = self.runner();
             runner
                 .get_all_registered_tools()
                 .into_iter()
@@ -1310,10 +1420,10 @@ impl AgentSession {
         }
 
         next_active_tool_names.push("end_turn".to_owned());
+        let mut seen = HashSet::new();
         let unique: Vec<String> = next_active_tool_names
             .into_iter()
-            .collect::<HashSet<_>>()
-            .into_iter()
+            .filter(|name| seen.insert(name.clone()))
             .collect();
 
         *lock(&self.inner.tool_definitions) = definition_registry;

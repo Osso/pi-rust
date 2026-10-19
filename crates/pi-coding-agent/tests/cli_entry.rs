@@ -156,41 +156,28 @@ async fn cli_entry_stops_after_an_internal_runner_handles_the_process() {
     let argv = args(&[DETACHED_BASH_RUNNER_MODE, "/tmp/manifest.json"]);
     let main: CliMain<'_> = Box::new(|_args: &[String]| {
         *main_called.lock().unwrap() = true;
-        Box::pin(async { Ok(()) })
+        Box::pin(async { Ok(0) })
     });
 
     let result = run_cli_entry(&argv, &host, main).await.unwrap();
 
-    assert!(result.is_none());
+    assert_eq!(result, 0);
     assert!(!*main_called.lock().unwrap());
 }
 
 #[tokio::test]
-async fn cli_entry_runs_main_and_returns_the_configured_fetch() {
+async fn cli_entry_runs_main_and_returns_its_exit_code() {
     let host = ScriptedHost::ok();
     let seen = Mutex::new(Vec::new());
     let argv = args(&["--help"]);
     let main: CliMain<'_> = Box::new(|args: &[String]| {
         seen.lock().unwrap().extend(args.iter().cloned());
-        Box::pin(async { Ok(()) })
+        Box::pin(async { Ok(7) })
     });
 
     let result = run_cli_entry(&argv, &host, main).await.unwrap();
-    let fetch = result.expect("main path returns the configured fetch");
-    assert!(
-        fetch
-            .fetch(
-                pi_ai::request::HttpRequest {
-                    method: "GET".to_owned(),
-                    url: "http://127.0.0.1:1/never".to_owned(),
-                    headers: Vec::new(),
-                    body: None,
-                },
-                Some(tokio_util::sync::CancellationToken::new()),
-            )
-            .await
-            .is_err()
-    );
+
+    assert_eq!(result, 7);
     assert_eq!(*seen.lock().unwrap(), vec!["--help".to_owned()]);
     assert!(host.calls().is_empty());
 }
@@ -202,8 +189,7 @@ async fn cli_entry_propagates_main_errors() {
     let main: CliMain<'_> = Box::new(|_args: &[String]| Box::pin(async { Err("boom".to_owned()) }));
     let error = run_cli_entry(&argv, &host, main)
         .await
-        .err()
-        .expect("main error propagates");
+        .expect_err("main error propagates");
     assert_eq!(error, "boom");
 }
 

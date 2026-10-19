@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use agents_core::runtime::{MultiAgentExtensionOptions, create_multi_agent_runtime_handles, resolve_multi_agent_store};
 
-use crate::core::extensions::ExtensionRegistry;
+use crate::core::extensions::{ExtensionFactory, ExtensionRegistry};
 
 pub mod agent_viewer;
 pub mod agents_core;
@@ -138,12 +138,8 @@ pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &Sma
     );
 }
 
-/// Registers the first-party agents extensions under their source ids.
-///
-/// `main.ts` shares one store and runtime handle set across agents-core,
-/// agent-viewer, agents-mailbox, and the Pyrun request handler; callers that
-/// construct their own options can pass the same handles to preserve that.
-pub fn register_agents_extensions(registry: &mut ExtensionRegistry, options: &MultiAgentExtensionOptions) {
+/// First-party agents extension factories in source registration order.
+pub fn agents_extension_factories(options: &MultiAgentExtensionOptions) -> Vec<(&'static str, ExtensionFactory)> {
     let store = resolve_multi_agent_store(options);
     let mut shared = options.clone();
     shared.store = Some(Arc::clone(&store));
@@ -152,33 +148,41 @@ pub fn register_agents_extensions(registry: &mut ExtensionRegistry, options: &Mu
     }
 
     let core_options = shared.clone();
-    registry.register(
-        "<first-party:agents-core>",
-        Arc::new(move |pi| {
-            let options = core_options.clone();
-            let result = agents_core::runtime::multi_agent_extension(pi, &options);
-            Box::pin(async move { result })
-        }),
-    );
+    let core: ExtensionFactory = Arc::new(move |pi| {
+        let options = core_options.clone();
+        let result = agents_core::registration::register_agents_core_tools(pi, &options);
+        Box::pin(async move { result })
+    });
 
     let viewer_options = shared.clone();
-    registry.register(
-        "<first-party:agent-viewer>",
-        Arc::new(move |pi| {
-            let options = viewer_options.clone();
-            let result = agent_viewer::agent_viewer_extension(pi, &options);
-            Box::pin(async move { result })
-        }),
-    );
+    let viewer: ExtensionFactory = Arc::new(move |pi| {
+        let options = viewer_options.clone();
+        let result = agent_viewer::agent_viewer_extension(pi, &options);
+        Box::pin(async move { result })
+    });
 
-    registry.register(
-        "<first-party:agents-mailbox>",
-        Arc::new(move |pi| {
-            let options = shared.clone();
-            let result = agents_mailbox::agents_mailbox_extension(pi, &options);
-            Box::pin(async move { result })
-        }),
-    );
+    let mailbox: ExtensionFactory = Arc::new(move |pi| {
+        let options = shared.clone();
+        let result = agents_mailbox::agents_mailbox_extension(pi, &options);
+        Box::pin(async move { result })
+    });
+
+    vec![
+        ("agents-core", core),
+        ("agent-viewer", viewer),
+        ("agents-mailbox", mailbox),
+    ]
+}
+
+/// Registers the first-party agents extensions under their source ids.
+///
+/// `main.ts` shares one store and runtime handle set across agents-core,
+/// agent-viewer, agents-mailbox, and the Pyrun request handler; callers that
+/// construct their own options can pass the same handles to preserve that.
+pub fn register_agents_extensions(registry: &mut ExtensionRegistry, options: &MultiAgentExtensionOptions) {
+    for (name, factory) in agents_extension_factories(options) {
+        registry.register(format!("<first-party:{name}>"), factory);
+    }
 }
 
 /// Registers every bundled first-party extension.

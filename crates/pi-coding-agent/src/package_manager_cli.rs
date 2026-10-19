@@ -604,7 +604,7 @@ pub fn handle_config_command(args: &[String]) -> Option<CommandOutcome> {
 pub fn format_package_list(packages: &[crate::core::package_manager::ConfiguredPackage]) -> String {
     let chalk = Chalk::stdout();
     if packages.is_empty() {
-        return format!("{}\n", chalk.dim("No packages installed."));
+        return chalk.dim("No packages installed.");
     }
     let mut lines: Vec<String> = Vec::new();
     let user_packages: Vec<_> = packages
@@ -643,7 +643,7 @@ pub fn format_package_list(packages: &[crate::core::package_manager::ConfiguredP
             format_package(package, &mut lines);
         }
     }
-    format!("{}\n", lines.join("\n"))
+    lines.join("\n")
 }
 
 /// `reportProjectTrustWarnings`.
@@ -746,7 +746,7 @@ pub async fn create_command_settings_manager(
         )
         .map_err(|error| error.to_string())?,
     ));
-    let project_trust_warnings: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let project_trust_warnings: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let trust_store = ProjectTrustStore::new(&options.agent_dir);
 
     if options.use_saved_project_trust_only {
@@ -758,7 +758,7 @@ pub async fn create_command_settings_manager(
             .set_project_trusted(options.project_trust_override.unwrap_or(saved_project_trusted));
         return Ok(CommandSettings {
             store: Arc::new(SettingsManagerStore::from_shared(settings_manager)),
-            project_trust_warnings: project_trust_warnings.into_inner().unwrap(),
+            project_trust_warnings: project_trust_warnings.lock().unwrap().clone(),
         });
     }
 
@@ -794,6 +794,10 @@ pub async fn create_command_settings_manager(
         },
     );
     let default_project_trust = settings_manager.lock().unwrap().get_default_project_trust();
+    let warnings_for_trust = Arc::clone(&project_trust_warnings);
+    let on_extension_error = move |message: String| {
+        warnings_for_trust.lock().unwrap().push(message);
+    };
     let project_trusted = resolve_project_trusted(ResolveProjectTrustedOptions {
         cwd: &options.cwd,
         trust_store: &trust_store,
@@ -801,16 +805,14 @@ pub async fn create_command_settings_manager(
         default_project_trust: Some(default_project_trust),
         extensions_result: extensions_result.as_ref(),
         project_trust_context: &trust_context,
-        on_extension_error: Some(&|message: String| {
-            project_trust_warnings.lock().unwrap().push(message);
-        }),
+        on_extension_error: Some(&on_extension_error),
     })
     .await
     .map_err(|error| error.to_string())?;
     settings_manager.lock().unwrap().set_project_trusted(project_trusted);
     Ok(CommandSettings {
         store: Arc::new(SettingsManagerStore::from_shared(settings_manager)),
-        project_trust_warnings: project_trust_warnings.into_inner().unwrap(),
+        project_trust_warnings: project_trust_warnings.lock().unwrap().clone(),
     })
 }
 
@@ -1179,6 +1181,10 @@ pub trait PackageCommandEffects {
     fn stdout_columns(&self) -> Option<usize>;
     fn entrypoint(&self) -> Option<String>;
     fn install_context(&self) -> config::InstallContext;
+    /// Inline factories loaded before the project-trust prompt resolves.
+    fn extension_factories(&self) -> Vec<crate::core::resource_loader::InlineExtension> {
+        Vec::new()
+    }
 
     fn create_settings<'a>(
         &'a self,
@@ -1257,7 +1263,7 @@ pub async fn execute_package_command(
             agent_dir: agent_dir.clone(),
             project_trust_override: outcome.project_trust_override,
             use_saved_project_trust_only: matches!(action, PackageAction::Update { .. }),
-            extension_factories: Vec::new(),
+            extension_factories: effects.extension_factories(),
             startup_ui: None,
         })
         .await?;
@@ -1477,8 +1483,9 @@ pub async fn execute_config_command(
     let Some(mut outcome) = handle_config_command(args) else {
         return Ok(None);
     };
-    let Some(PackageAction::Config { local }) = outcome.action.take() else {
-        return Ok(None);
+    let action = outcome.action.take();
+    let Some(PackageAction::Config { local }) = action else {
+        return Ok(Some(outcome));
     };
     let cwd = effects.cwd();
     let agent_dir = effects.agent_dir();
@@ -1488,7 +1495,7 @@ pub async fn execute_config_command(
             agent_dir: agent_dir.clone(),
             project_trust_override: outcome.project_trust_override,
             use_saved_project_trust_only: false,
-            extension_factories: Vec::new(),
+            extension_factories: effects.extension_factories(),
             startup_ui: None,
         })
         .await?;
@@ -1570,6 +1577,7 @@ pub struct DefaultPackageCommandEffects {
     pub extensions_loader: Arc<dyn ProjectTrustExtensionsLoader>,
     pub config_selector: Rc<dyn ConfigSelector>,
     pub fetch: Arc<dyn pi_ai::request::Fetch>,
+    pub extension_factories: Vec<crate::core::resource_loader::InlineExtension>,
 }
 
 /// `selectConfig` for the real host.
@@ -1580,6 +1588,10 @@ pub trait ConfigSelector {
 impl PackageCommandEffects for DefaultPackageCommandEffects {
     fn cwd(&self) -> String {
         self.cwd.clone()
+    }
+
+    fn extension_factories(&self) -> Vec<crate::core::resource_loader::InlineExtension> {
+        self.extension_factories.clone()
     }
 
     fn agent_dir(&self) -> String {

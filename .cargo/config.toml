@@ -2,3 +2,7 @@
 # ~460 test binaries is the largest part of target/.
 [build]
 incremental = false
+
+[alias]
+# `cargo pi -- <args>` runs the coding-agent CLI.
+pi = "run -p pi-coding-agent --bin pi --"
