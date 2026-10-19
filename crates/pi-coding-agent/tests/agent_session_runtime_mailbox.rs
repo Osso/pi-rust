@@ -108,6 +108,7 @@ async fn test_env(with_store: bool) -> TestEnv {
         .set_metadata_control_db_path(Some(&initial_control_db), Default::default())
         .expect("metadata control db");
     let store = with_store.then(|| Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default())));
+    let session_id = manager.get_session_id().to_owned();
     let result = create_agent_session(CreateAgentSessionOptions {
         cwd: Some(cwd.clone()),
         agent_dir: Some(agent_dir.clone()),
@@ -118,6 +119,7 @@ async fn test_env(with_store: bool) -> TestEnv {
         control_db_path: Some(initial_control_db.clone()),
         multi_agent_store: store.clone(),
         multi_agent_agent_id: with_store.then(|| "agent_1".to_owned()),
+        multi_agent_parent_session_id: with_store.then_some(session_id),
         ..Default::default()
     })
     .await
