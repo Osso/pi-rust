@@ -722,11 +722,11 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `evals/src/vitest-evals/artifacts.ts` | 113 | 0 | todo |  |  |
-| `evals/src/vitest-evals/harness-table.ts` | 193 | 0 | todo |  |  |
-| `evals/src/vitest-evals/summary.ts` | 438 | 0 | todo |  |  |
-| `evals/src/vitest-evals/reporter.ts` | 111 | 1 | todo |  |  |
-| `evals/src/vitest-evals/setup.ts` | 8 | 1 | todo |  |  |
-| `evals/src/pi-harness.ts` | 257 | 23 | todo |  |  |
-| `evals/src/extensions.eval.ts` | 140 | 24 | todo |  |  |
-| `evals/src/smoke.eval.ts` | 17 | 24 | todo |  |  |
+| `evals/src/vitest-evals/artifacts.ts` | 113 | 0 | done | `crates/pi-evals/src/vitest_evals/artifacts.rs` | Session/source artifacts and byte-exact persistence; differential over references and file bodies; Vitest `location` gap ([traceability](traceability/evals-vitest-artifacts.md)). |
+| `evals/src/vitest-evals/harness-table.ts` | 193 | 0 | done | `crates/pi-evals/src/vitest_evals/harness_table.rs` | Group keys, artifact parsing, and table planning; differential over 20 key fixtures, parse fixtures, plans, and validation errors ([traceability](traceability/evals-vitest-harness-table.md)). |
+| `evals/src/vitest-evals/summary.ts` | 438 | 0 | done | `crates/pi-evals/src/vitest_evals/summary.rs` | Comparisons and terminal report byte-exact against the TS module in plain and ANSI modes ([traceability](traceability/evals-vitest-summary.md)). |
+| `evals/src/vitest-evals/reporter.ts` | 111 | 1 | done | `crates/pi-evals/src/vitest_evals/reporter.rs` | `runs.jsonl` records (byte-exact), observations, report text; Vitest logger wiring replaced by returned text ([traceability](traceability/evals-vitest-reporter.md)). |
+| `evals/src/vitest-evals/setup.ts` | 8 | 1 | done | `crates/pi-evals/src/vitest_evals/setup.rs` | Session artifact registration after each eval case ([traceability](traceability/evals-vitest-setup.md)). |
+| `evals/src/pi-harness.ts` | 257 | 23 | done | `crates/pi-evals/src/pi_harness.rs` | Model-selection differential; faux-provider runs cover prompts, reload, tools, transforms, abort, stop reasons, usage, and session snapshots ([traceability](traceability/evals-pi-harness.md)). |
+| `evals/src/extensions.eval.ts` | 140 | 24 | done | `crates/pi-evals/src/evals/extensions.rs` + `tests/extensions_eval.rs` | Harness factory, prompt transforms, judge, and comparative table; live run opt-in via `PI_PROVIDER`/`PI_MODEL` ([traceability](traceability/evals-extensions-eval.md)). |
+| `evals/src/smoke.eval.ts` | 17 | 24 | done | `crates/pi-evals/src/evals/smoke.rs` + `tests/smoke_eval.rs` | Smoke harness and faux end-to-end run; live run opt-in via `PI_PROVIDER`/`PI_MODEL` ([traceability](traceability/evals-smoke-eval.md)). |
