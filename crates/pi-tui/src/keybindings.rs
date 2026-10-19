@@ -11,6 +11,18 @@ use crate::keys::matches_key;
 /// Key identifier accepted by [`matches_key`].
 pub type KeyId = String;
 
+/// Keybinding name (`Keybinding = keyof Keybindings`).
+pub type Keybinding = String;
+
+/// Keybinding registry (`Keybindings`): definitions in declaration order.
+///
+/// TypeScript's registry is an interface populated through declaration merging;
+/// Rust carries the definition list returned by [`tui_keybindings`].
+pub type Keybindings = Vec<(String, KeybindingDefinition)>;
+
+/// `KeybindingDefinitions` (`Record<string, KeybindingDefinition>`).
+pub type KeybindingDefinitions = Vec<(String, KeybindingDefinition)>;
+
 /// One keybinding definition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeybindingDefinition {

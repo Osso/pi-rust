@@ -15,6 +15,22 @@ use crate::utils::{apply_background_to_line, visible_width, wrap_text_with_ansi}
 
 use self::tokens::{ListItem, ListStart, TableCell, Token};
 
+/// Package-root `Marked` facade: the pinned `marked` lexer.
+///
+/// TypeScript exports the third-party `Marked` class; Rust exposes the same
+/// lexing entry point as a namespace type.
+pub struct Marked;
+
+impl Marked {
+    /// `new Marked().lex(source)`.
+    pub fn lex(source: &str) -> Vec<Token> {
+        lexer::lex(source)
+    }
+}
+
+/// `Tokens` (`Token[]`).
+pub type Tokens = Vec<Token>;
+
 /// Caller-supplied text styling function.
 pub type StyleFn = Box<dyn Fn(&str) -> String>;
 

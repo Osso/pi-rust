@@ -305,7 +305,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/components/v-stack.ts` | 33 | 5 | done | `crates/pi-tui/src/components/v_stack.rs` | TS layout tests + differential sizes/gaps |
 | `tui/src/layout.ts` | 410 | 5 | done | `crates/pi-tui/src/layout.rs` | TS layout tests ported; differential frame geometry, scrollbar, kitty crop |
 | `tui/src/tui-alt-screen.ts` | 1291 | 6 | done | `crates/pi-tui/src/tui_alt_screen.rs` | 36 TS test cases + 23-scenario differential (full write stream and viewport/scroll/search state) |
-| `tui/src/index.ts` | 161 | 7 | partial | `crates/pi-tui/src/lib.rs` | Package-root re-exports; Editor/EditorComponent, Marked/Token/Tokens, Key and provider/interface aliases pending (see tui-index traceability) |
+| `tui/src/index.ts` | 161 | 7 | done | `crates/pi-tui/src/lib.rs` | Every source export maps to a package-root path; `Key` and `Marked` differential in `tests/index_exports.rs` ([traceability](traceability/tui-index.md)) |
 
 ## client (10 files, 1225 lines)
 

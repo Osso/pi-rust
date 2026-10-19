@@ -180,7 +180,8 @@ impl Component for Container {
     }
 }
 
-type InputListener = Rc<dyn Fn(&str) -> TuiInputListenerResult>;
+/// Raw terminal input listener (`TuiInputListener`).
+pub type TuiInputListener = Rc<dyn Fn(&str) -> TuiInputListenerResult>;
 type ColorSchemeListener = Rc<dyn Fn(TerminalColorScheme)>;
 
 /// Input listener result: optional consumption and optional data rewrite.
@@ -657,7 +658,7 @@ struct TuiBaseInner {
     children: RefCell<Vec<ComponentRef>>,
     focused_component: RefCell<Option<ComponentRef>>,
     deferred_focus_updates: RefCell<Vec<(ComponentRef, bool)>>,
-    input_listeners: RefCell<Vec<(usize, InputListener)>>,
+    input_listeners: RefCell<Vec<(usize, TuiInputListener)>>,
     next_listener_id: Cell<usize>,
     on_debug: RefCell<Option<Rc<dyn Fn()>>>,
     render_requested: Cell<bool>,
@@ -888,7 +889,7 @@ impl TuiBase {
         }
     }
 
-    pub fn add_input_listener(&self, listener: InputListener) -> usize {
+    pub fn add_input_listener(&self, listener: TuiInputListener) -> usize {
         let id = self.inner.next_listener_id.get();
         self.inner.next_listener_id.set(id + 1);
         self.inner.input_listeners.borrow_mut().push((id, listener));
@@ -3043,7 +3044,7 @@ pub trait TuiExt: RendererApi + Sized {
         self.base().process_events();
     }
 
-    fn add_input_listener(&self, listener: InputListener) -> usize {
+    fn add_input_listener(&self, listener: TuiInputListener) -> usize {
         self.base().add_input_listener(listener)
     }
 
