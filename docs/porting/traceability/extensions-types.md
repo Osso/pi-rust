@@ -66,6 +66,7 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 | Renderers (`MessageRenderer`, `EntryRenderer`, `MarkdownTransformer`) | same aliases returning `ComponentRef` | `collects_renderers_and_transformers_in_load_order` |
 | `RegisteredCommand`, `ResolvedCommand` | same names (flat `ResolvedCommand`) | differential `commands` |
 | `ExtensionAPI` | `ExtensionApi` struct, one `on_*` method per event | differential, runner tests |
+| `ExtensionContext.setThinkingLevel` | `ExtensionContext::set_thinking_level` bound from `ExtensionContextActions::set_thinking_level` | `extensions.rs::context_set_thinking_level_invokes_the_session_setter`; effort/codex-fast differential |
 | `FlagValue`, `ExtensionFlag`, `FlagType` | same names | differential `flags` |
 | `ExtensionShortcut`, `RegisteredTool`, `Extension` | same names; ordered `IndexMap`s | differential, discovery tests |
 | `ExtensionHandlers` | typed handler vectors (one per event) | differential |
@@ -74,12 +75,14 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
 ## Gaps
 
-- Component-factory UI methods are not ported: `setWidget` factory overload,
-  `setFooter`, `setDefaultFooter`, `setHeader`, `custom`,
-  `addAutocompleteProvider`, `setEditorComponent`, `getEditorComponent`, and
-  the `getTheme`/`setTheme(Theme)` object accessors. They depend on the
-  interactive TUI/theme port. `theme()`, string-array widgets, status/working
-  state, titles, editor text, theme listing and `setTheme(name)` are implemented.
+- Component-factory UI contracts are defined in `types` (`ExtensionUiComponent`,
+  `ExtensionUiTui`, factory contexts, `setWidget` factory overload, `setFooter`,
+  `setDefaultFooter`, `setHeader`, `custom`, `getTheme`) but the interactive
+  implementation lands with `port/ca-interactive-mode`. `theme()`, string-array
+  widgets, status/working state, titles, editor text, theme listing and
+  `setTheme(name)` are implemented.
+- `addAutocompleteProvider`, `setEditorComponent`, `getEditorComponent`, and the
+  `setTheme(Theme)` object accessor remain gaps.
 - `AutocompleteProviderFactory`/`EditorFactory` aliases are omitted with the
   same dependency.
 - `DetachedJobLifecycleController` is exposed as `ExtensionContext::detached_job_lifecycle()`

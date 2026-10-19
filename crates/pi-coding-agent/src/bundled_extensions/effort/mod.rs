@@ -1,0 +1,454 @@
+//! Bundled `effort` extension (`packages/coding-agent/extensions/effort/src/index.ts`).
+
+use std::sync::{Arc, Mutex};
+
+use pi_agent_core::harness::ThinkingLevel;
+use regex::Regex;
+
+use crate::core::agent_session::thinking_level_from_model;
+use crate::core::extensions::types::{
+    BeforeAgentStartEvent, BeforeAgentStartEventResult, BoxFuture, ExtensionApi, ExtensionCommandContext,
+    ExtensionContext, HandlerError, NotifyType, SessionTreeEvent, ThinkingLevelSelectEvent,
+};
+use crate::core::session_manager::{KnownSessionEntry, SessionEntry};
+use crate::modes::interactive::theme::ThemeColor;
+
+const DELEGATION_MODE_ENTRY: &str = "multi-agent-mode";
+const DELEGATION_STATUS_KEY: &str = "multi-agent-mode";
+const POLICY_START: &str = "<multi_agent_mode>";
+const POLICY_END: &str = "</multi_agent_mode>";
+
+const PROACTIVE_POLICY: &str = "Proactive multi-agent delegation is active. Use sub-agents when parallel work would materially improve speed or quality. This mode remains active until a later multi-agent mode message changes it.";
+const EXPLICIT_POLICY: &str = "Any earlier instruction enabling proactive multi-agent delegation no longer applies. Do not spawn sub-agents unless the user or applicable AGENTS.md/skill instructions explicitly ask for sub-agents, delegation, or parallel agent work.";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MultiAgentMode {
+    Proactive,
+    Explicit,
+}
+
+impl MultiAgentMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Proactive => "proactive",
+            Self::Explicit => "explicit",
+        }
+    }
+
+    pub const fn policy(self) -> &'static str {
+        match self {
+            Self::Proactive => PROACTIVE_POLICY,
+            Self::Explicit => EXPLICIT_POLICY,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DelegationState {
+    mode: Arc<Mutex<MultiAgentMode>>,
+}
+
+impl Default for DelegationState {
+    fn default() -> Self {
+        Self {
+            mode: Arc::new(Mutex::new(MultiAgentMode::Proactive)),
+        }
+    }
+}
+
+impl DelegationState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn mode(&self) -> MultiAgentMode {
+        *self.mode.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn set_mode(&self, mode: MultiAgentMode) {
+        *self.mode.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = mode;
+    }
+}
+
+fn is_child_runtime(ctx: &ExtensionContext) -> Result<bool, HandlerError> {
+    Ok(ctx.multi_agent_agent_id()?.is_some() || ctx.multi_agent_requires_agent_id()?)
+}
+
+pub fn parse_multi_agent_mode(value: &str) -> Option<MultiAgentMode> {
+    match value {
+        "proactive" => Some(MultiAgentMode::Proactive),
+        "explicit" => Some(MultiAgentMode::Explicit),
+        _ => None,
+    }
+}
+
+fn get_effort_levels(ctx: &ExtensionCommandContext) -> Result<Option<Vec<ThinkingLevel>>, HandlerError> {
+    let Some(model) = ctx.model()? else {
+        return Ok(None);
+    };
+    Ok(Some(
+        pi_ai::models::get_supported_thinking_levels(&model)
+            .into_iter()
+            .map(thinking_level_from_model)
+            .collect(),
+    ))
+}
+
+pub fn format_effort_levels(levels: &[ThinkingLevel]) -> String {
+    levels.iter().map(|level| level.as_str()).collect::<Vec<_>>().join(", ")
+}
+
+pub fn find_selected_effort(levels: &[ThinkingLevel], effort: &str) -> Option<ThinkingLevel> {
+    let requested = effort.to_lowercase();
+    levels.iter().copied().find(|level| level.as_str() == requested)
+}
+
+fn clear_editor(ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
+    ctx.ui()?.set_editor_text("");
+    Ok(())
+}
+
+fn restore_delegation_mode(state: &DelegationState, ctx: &ExtensionContext) -> Result<(), HandlerError> {
+    state.set_mode(MultiAgentMode::Proactive);
+    for entry in ctx.session_manager()?.get_branch(None) {
+        let SessionEntry::Known(KnownSessionEntry::Custom(custom)) = entry else {
+            continue;
+        };
+        if custom.custom_type != DELEGATION_MODE_ENTRY {
+            continue;
+        }
+        let Some(mode) = custom
+            .data
+            .as_ref()
+            .and_then(|data| data.get("mode"))
+            .and_then(serde_json::Value::as_str)
+            .and_then(parse_multi_agent_mode)
+        else {
+            continue;
+        };
+        state.set_mode(mode);
+    }
+    Ok(())
+}
+
+fn persist_delegation_mode(pi: &ExtensionApi, state: &DelegationState) -> Result<(), HandlerError> {
+    pi.append_entry(
+        DELEGATION_MODE_ENTRY,
+        Some(serde_json::json!({ "mode": state.mode().as_str() })),
+    )
+}
+
+fn update_delegation_status(ctx: &ExtensionContext, state: &DelegationState) -> Result<(), HandlerError> {
+    let ui = ctx.ui()?;
+    let prefix = ui.theme().fg(ThemeColor::Dim, "multi-agent: ");
+    ui.set_status(
+        DELEGATION_STATUS_KEY,
+        Some(&format!("{prefix}{}", state.mode().as_str())),
+    );
+    Ok(())
+}
+
+pub fn policy_text(mode: MultiAgentMode) -> String {
+    format!("{POLICY_START}{}{POLICY_END}", mode.policy())
+}
+
+pub fn remove_delegation_policy(system_prompt: &str) -> String {
+    let pattern = Regex::new(&format!(
+        r"\n*{}[\s\S]*?{}\n*",
+        regex::escape(POLICY_START),
+        regex::escape(POLICY_END)
+    ))
+    .expect("static delegation policy pattern");
+    pi_js_compat::string::js_trim_end(&pattern.replace_all(system_prompt, "")).to_owned()
+}
+
+pub fn inject_delegation_policy(system_prompt: &str, mode: MultiAgentMode) -> String {
+    let base_prompt = remove_delegation_policy(system_prompt);
+    let policy = policy_text(mode);
+    if base_prompt.is_empty() {
+        policy
+    } else {
+        format!("{base_prompt}\n\n{policy}")
+    }
+}
+
+fn apply_delegation_mode(
+    pi: &ExtensionApi,
+    ctx: &ExtensionContext,
+    state: &DelegationState,
+    mode: MultiAgentMode,
+) -> Result<(), HandlerError> {
+    state.set_mode(mode);
+    persist_delegation_mode(pi, state)?;
+    update_delegation_status(ctx, state)
+}
+
+fn set_delegation_mode(
+    pi: &ExtensionApi,
+    ctx: &ExtensionCommandContext,
+    state: &DelegationState,
+    mode: MultiAgentMode,
+) -> Result<(), HandlerError> {
+    if mode == MultiAgentMode::Explicit && ctx.get_thinking_level()? == ThinkingLevel::Ultra {
+        ctx.set_thinking_level(ThinkingLevel::Max)?;
+    }
+    apply_delegation_mode(pi, ctx, state, mode)?;
+    ctx.ui()?
+        .notify(&format!("Multi-agent mode: {}", mode.as_str()), Some(NotifyType::Info));
+    clear_editor(ctx)
+}
+
+fn show_invalid_mode(ctx: &ExtensionCommandContext, requested_mode: &str) -> Result<(), HandlerError> {
+    ctx.ui()?.notify(
+        &format!("Invalid multi-agent mode \"{requested_mode}\". Available: proactive, explicit"),
+        Some(NotifyType::Warning),
+    );
+    clear_editor(ctx)
+}
+
+async fn select_delegation_mode(ctx: &ExtensionCommandContext) -> Result<Option<MultiAgentMode>, HandlerError> {
+    let selected = ctx
+        .ui()?
+        .select(
+            "Select multi-agent mode",
+            &["proactive".to_owned(), "explicit".to_owned()],
+            None,
+        )
+        .await
+        .map_err(HandlerError::new)?;
+    Ok(selected.as_deref().and_then(parse_multi_agent_mode))
+}
+
+pub async fn handle_delegation_command(
+    args: &str,
+    ctx: &ExtensionCommandContext,
+    pi: &ExtensionApi,
+    state: &DelegationState,
+) -> Result<(), HandlerError> {
+    if is_child_runtime(ctx)? {
+        ctx.ui()?.notify(
+            "Multi-agent mode is controlled by the main thread",
+            Some(NotifyType::Warning),
+        );
+        clear_editor(ctx)?;
+        return Ok(());
+    }
+
+    let requested_mode = pi_js_compat::string::js_trim(args).to_lowercase();
+    let mode = if requested_mode.is_empty() {
+        select_delegation_mode(ctx).await?
+    } else {
+        parse_multi_agent_mode(&requested_mode)
+    };
+    let Some(mode) = mode else {
+        if !requested_mode.is_empty() {
+            show_invalid_mode(ctx, &requested_mode)?;
+        } else {
+            clear_editor(ctx)?;
+        }
+        return Ok(());
+    };
+    set_delegation_mode(pi, ctx, state, mode)
+}
+
+fn restore_and_update_delegation_mode(state: &DelegationState, ctx: &ExtensionContext) -> Result<(), HandlerError> {
+    if is_child_runtime(ctx)? {
+        return Ok(());
+    }
+    restore_delegation_mode(state, ctx)?;
+    update_delegation_status(ctx, state)
+}
+
+fn set_effort(
+    pi: &ExtensionApi,
+    ctx: &ExtensionCommandContext,
+    state: &DelegationState,
+    effort: ThinkingLevel,
+) -> Result<(), HandlerError> {
+    let activates_proactive_delegation = effort == ThinkingLevel::Ultra && !is_child_runtime(ctx)?;
+    if activates_proactive_delegation {
+        apply_delegation_mode(pi, ctx, state, MultiAgentMode::Proactive)?;
+    }
+    ctx.set_thinking_level(effort)?;
+    let label = if activates_proactive_delegation {
+        "ultra (max + proactive)".to_owned()
+    } else {
+        ctx.get_thinking_level()?.as_str().to_owned()
+    };
+    ctx.ui()?.notify(&format!("Effort: {label}"), Some(NotifyType::Info));
+    clear_editor(ctx)
+}
+
+fn show_invalid_effort(
+    ctx: &ExtensionCommandContext,
+    requested_effort: &str,
+    levels: &[ThinkingLevel],
+) -> Result<(), HandlerError> {
+    ctx.ui()?.notify(
+        &format!(
+            "Invalid effort \"{requested_effort}\". Available: {}",
+            format_effort_levels(levels)
+        ),
+        Some(NotifyType::Warning),
+    );
+    Ok(())
+}
+
+async fn select_effort(
+    ctx: &ExtensionCommandContext,
+    levels: &[ThinkingLevel],
+) -> Result<Option<ThinkingLevel>, HandlerError> {
+    let options: Vec<String> = levels.iter().map(|level| level.as_str().to_owned()).collect();
+    let selected = ctx
+        .ui()?
+        .select("Select effort", &options, None)
+        .await
+        .map_err(HandlerError::new)?;
+    Ok(selected
+        .as_deref()
+        .and_then(|effort| find_selected_effort(levels, effort)))
+}
+
+pub async fn handle_effort_command(
+    args: &str,
+    ctx: &ExtensionCommandContext,
+    pi: &ExtensionApi,
+    state: &DelegationState,
+) -> Result<(), HandlerError> {
+    let Some(levels) = get_effort_levels(ctx)? else {
+        ctx.ui()?.notify("No model selected", Some(NotifyType::Warning));
+        clear_editor(ctx)?;
+        return Ok(());
+    };
+
+    let requested_effort = pi_js_compat::string::js_trim(args).to_owned();
+    let selected_effort = if requested_effort.is_empty() {
+        select_effort(ctx, &levels).await?
+    } else {
+        find_selected_effort(&levels, &requested_effort)
+    };
+    let Some(selected_effort) = selected_effort else {
+        if !requested_effort.is_empty() {
+            show_invalid_effort(ctx, &requested_effort, &levels)?;
+        }
+        clear_editor(ctx)?;
+        return Ok(());
+    };
+    set_effort(pi, ctx, state, selected_effort)
+}
+
+/// Bundled `effort` extension.
+pub fn effort_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
+    let state = DelegationState::new();
+    register_delegation_control(pi, state.clone())?;
+
+    pi.register_command(
+        "effort",
+        Some("Set model effort level (depends on selected model)".to_owned()),
+        None,
+        {
+            let state = state.clone();
+            let pi = pi.clone();
+            Arc::new(move |args, ctx| {
+                let state = state.clone();
+                let pi = pi.clone();
+                Box::pin(async move { handle_effort_command(&args, &ctx, &pi, &state).await })
+            })
+        },
+    )
+    .map_err(HandlerError::new)?;
+    Ok(())
+}
+
+fn register_delegation_control(pi: &ExtensionApi, state: DelegationState) -> Result<(), HandlerError> {
+    pi.register_command(
+        "multi-agent",
+        Some("Set multi-agent delegation mode".to_owned()),
+        None,
+        {
+            let state = state.clone();
+            let pi = pi.clone();
+            Arc::new(move |args, ctx| {
+                let state = state.clone();
+                let pi = pi.clone();
+                Box::pin(async move { handle_delegation_command(&args, &ctx, &pi, &state).await })
+            })
+        },
+    )
+    .map_err(HandlerError::new)?;
+
+    pi.on_session_start({
+        let state = state.clone();
+        move |_event, ctx| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            let state = state.clone();
+            Box::pin(async move {
+                restore_and_update_delegation_mode(&state, &ctx)?;
+                Ok(None)
+            })
+        }
+    })
+    .map_err(HandlerError::new)?;
+
+    pi.on_session_tree({
+        let state = state.clone();
+        move |_event: SessionTreeEvent, ctx| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            let state = state.clone();
+            Box::pin(async move {
+                restore_and_update_delegation_mode(&state, &ctx)?;
+                Ok(None)
+            })
+        }
+    })
+    .map_err(HandlerError::new)?;
+
+    pi.on_thinking_level_select({
+        let state = state.clone();
+        let pi = pi.clone();
+        move |event: ThinkingLevelSelectEvent, ctx| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            let state = state.clone();
+            let pi = pi.clone();
+            Box::pin(async move {
+                if is_child_runtime(&ctx)?
+                    || event.level != ThinkingLevel::Ultra
+                    || state.mode() == MultiAgentMode::Proactive
+                {
+                    return Ok(None);
+                }
+                apply_delegation_mode(&pi, &ctx, &state, MultiAgentMode::Proactive)?;
+                Ok(None)
+            })
+        }
+    })
+    .map_err(HandlerError::new)?;
+
+    pi.on_before_agent_start({
+        let state = state.clone();
+        move |event: BeforeAgentStartEvent,
+              ctx|
+              -> BoxFuture<'static, Result<Option<BeforeAgentStartEventResult>, HandlerError>> {
+            let state = state.clone();
+            Box::pin(async move {
+                if is_child_runtime(&ctx)? {
+                    return Ok(None);
+                }
+                Ok(Some(BeforeAgentStartEventResult {
+                    message: None,
+                    system_prompt: Some(inject_delegation_policy(&event.system_prompt, state.mode())),
+                }))
+            })
+        }
+    })
+    .map_err(HandlerError::new)?;
+    Ok(())
+}
+
+/// Registers the extension factory under `<first-party:effort>`.
+pub fn register(registry: &mut crate::core::extensions::loader::ExtensionRegistry) {
+    registry.register(
+        "<first-party:effort>",
+        Arc::new(|pi| {
+            let result = effort_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+}

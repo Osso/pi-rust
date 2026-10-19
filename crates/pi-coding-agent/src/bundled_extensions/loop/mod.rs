@@ -1,0 +1,432 @@
+//! Bundled `loop` extension (`packages/coding-agent/extensions/loop/src/index.ts`).
+
+use std::sync::{Arc, Mutex};
+
+use pi_agent_core::AgentToolResult;
+use pi_js_compat::number::js_number_to_string;
+use pi_js_compat::string::js_trim;
+use regex::Regex;
+use serde_json::{Map, Value, json};
+use tokio_util::sync::CancellationToken;
+
+use crate::core::extensions::types::{
+    BoxFuture, ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError, NotifyType,
+    SendUserMessageOptions, ToolDefinition, UserMessageContent, UserMessageDelivery,
+};
+
+const MINIMUM_INTERVAL_MS: f64 = 1_000.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoopAction {
+    Start,
+    Stop,
+    Status,
+}
+
+impl LoopAction {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::Stop => "stop",
+            Self::Status => "status",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoopToolDetails {
+    pub action: LoopAction,
+    pub active: bool,
+    pub interval_ms: Option<f64>,
+    pub prompt: Option<String>,
+}
+
+impl LoopToolDetails {
+    pub fn to_value(&self) -> Value {
+        let mut object = Map::new();
+        object.insert("action".to_owned(), Value::String(self.action.as_str().to_owned()));
+        object.insert("active".to_owned(), Value::Bool(self.active));
+        if let Some(interval_ms) = self.interval_ms {
+            object.insert(
+                "intervalMs".to_owned(),
+                pi_js_compat::number::js_number_value(interval_ms),
+            );
+        }
+        if let Some(prompt) = &self.prompt {
+            object.insert("prompt".to_owned(), Value::String(prompt.clone()));
+        }
+        Value::Object(object)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActiveLoop {
+    pub interval_ms: f64,
+    pub prompt: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParsedLoopCommand {
+    Start { interval_ms: f64, prompt: String },
+    Stop,
+    Status,
+    Error(String),
+}
+
+struct LoopState {
+    active: Option<ActiveLoop>,
+    cancellation: Option<CancellationToken>,
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+/// Controller shared by the slash command, the tool, and shutdown.
+#[derive(Clone)]
+pub struct LoopController {
+    state: Arc<Mutex<LoopState>>,
+    api: ExtensionApi,
+}
+
+impl LoopController {
+    pub fn new(api: ExtensionApi) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(LoopState {
+                active: None,
+                cancellation: None,
+                task: None,
+            })),
+            api,
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, LoopState> {
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub fn stop(&self) -> bool {
+        let mut state = self.lock();
+        if state.active.is_none() {
+            return false;
+        }
+        if let Some(cancellation) = state.cancellation.take() {
+            cancellation.cancel();
+        }
+        if let Some(task) = state.task.take() {
+            task.abort();
+        }
+        state.active = None;
+        true
+    }
+
+    pub fn status(&self) -> Option<ActiveLoop> {
+        self.lock().active.clone()
+    }
+
+    pub fn start(&self, interval_ms: f64, prompt: String) -> ActiveLoop {
+        self.stop();
+        let cancellation = CancellationToken::new();
+        let api = self.api.clone();
+        let prompt_for_task = prompt.clone();
+        let task_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(interval_ms as u64));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            interval.tick().await;
+            loop {
+                tokio::select! {
+                    _ = task_cancellation.cancelled() => break,
+                    _ = interval.tick() => {
+                        let result = api.send_user_message(
+                            UserMessageContent::Text(prompt_for_task.clone()),
+                            Some(SendUserMessageOptions {
+                                deliver_as: Some(UserMessageDelivery::FollowUp),
+                                expand_prompt_templates: None,
+                            }),
+                        );
+                        if let Err(error) = result {
+                            eprintln!("loop: failed to inject prompt: {}", error.message);
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+        let active = ActiveLoop { interval_ms, prompt };
+        let mut state = self.lock();
+        state.active = Some(active.clone());
+        state.cancellation = Some(cancellation);
+        state.task = Some(task);
+        active
+    }
+}
+
+pub fn parse_interval_ms(value: &str) -> Option<f64> {
+    let pattern = Regex::new(r"^(\d+(?:\.\d+)?)(ms|s|m|h)?$").expect("static interval pattern");
+    let trimmed = js_trim(value);
+    let captures = pattern.captures(trimmed)?;
+    let amount = pi_js_compat::number::parse_number(&captures[1]);
+    if !amount.is_finite() || amount <= 0.0 {
+        return None;
+    }
+    let unit = captures.get(2).map_or("s", |capture| capture.as_str());
+    let multiplier = match unit {
+        "ms" => 1.0,
+        "s" => 1_000.0,
+        "m" => 60_000.0,
+        _ => 3_600_000.0,
+    };
+    let interval_ms = (amount * multiplier).floor();
+    (interval_ms >= MINIMUM_INTERVAL_MS).then_some(interval_ms)
+}
+
+pub fn format_interval(interval_ms: f64) -> String {
+    if interval_ms % 3_600_000.0 == 0.0 {
+        return format!("{}h", js_number_to_string(interval_ms / 3_600_000.0));
+    }
+    if interval_ms % 60_000.0 == 0.0 {
+        return format!("{}m", js_number_to_string(interval_ms / 60_000.0));
+    }
+    if interval_ms % 1_000.0 == 0.0 {
+        return format!("{}s", js_number_to_string(interval_ms / 1_000.0));
+    }
+    format!("{}ms", js_number_to_string(interval_ms))
+}
+
+pub fn parse_loop_command(args: &str) -> ParsedLoopCommand {
+    let trimmed = js_trim(args);
+    if trimmed.is_empty() || trimmed == "status" {
+        return ParsedLoopCommand::Status;
+    }
+    if trimmed == "stop" || trimmed == "off" || trimmed == "clear" {
+        return ParsedLoopCommand::Stop;
+    }
+
+    let mut parts = trimmed.split_whitespace();
+    let interval_text = parts.next().unwrap_or("");
+    let Some(interval_ms) = parse_interval_ms(interval_text) else {
+        return ParsedLoopCommand::Error("Usage: /loop <interval> <prompt> | /loop status | /loop stop".to_owned());
+    };
+    let joined = parts.collect::<Vec<_>>().join(" ");
+    let prompt = js_trim(&joined);
+    if prompt.is_empty() {
+        return ParsedLoopCommand::Error("Loop prompt is required.".to_owned());
+    }
+    ParsedLoopCommand::Start {
+        interval_ms,
+        prompt: prompt.to_owned(),
+    }
+}
+
+pub fn describe_loop(active: Option<&ActiveLoop>) -> String {
+    match active {
+        None => "No active loop".to_owned(),
+        Some(active) => format!(
+            "Loop active every {}: {}",
+            format_interval(active.interval_ms),
+            active.prompt
+        ),
+    }
+}
+
+fn text_result(text: String, details: LoopToolDetails) -> AgentToolResult {
+    AgentToolResult {
+        content: vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
+            text,
+        ))],
+        details: Some(details.to_value()),
+        usage: None,
+        added_tool_names: None,
+        is_error: None,
+        terminate: None,
+    }
+}
+
+fn loop_tool_definition(controller: LoopController) -> ToolDefinition {
+    let parameters = json!({
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+            "action": {
+                "anyOf": [
+                    {"type": "string", "const": "start"},
+                    {"type": "string", "const": "stop"},
+                    {"type": "string", "const": "status"}
+                ]
+            },
+            "intervalSeconds": {
+                "type": "number",
+                "description": "Interval in seconds. Required for action=start."
+            },
+            "prompt": {
+                "type": "string",
+                "description": "Prompt to inject on every interval. Required for action=start."
+            }
+        }
+    });
+    ToolDefinition {
+        name: "loop".to_owned(),
+        label: "Loop".to_owned(),
+        description: "Start, stop, or inspect a recurring prompt injected into this Pi session.".to_owned(),
+        prompt_snippet: Some(
+            "Schedule recurring user prompts at a fixed interval, or stop/status the active loop.".to_owned(),
+        ),
+        prompt_guidelines: Some(vec![
+            "Use loop only when the user wants recurring follow-up prompts injected into the current session."
+                .to_owned(),
+            "Prefer action=status before changing an existing loop when unsure.".to_owned(),
+            "Use action=stop when the recurring prompts are no longer needed.".to_owned(),
+        ]),
+        approval_required: Some(true),
+        approval_kind: None,
+        parameters,
+        constrained_sampling: None,
+        render_shell: None,
+        prepare_arguments: None,
+        prepare_execution: None,
+        execution_mode: None,
+        execute: Arc::new(
+            move |_tool_call_id, params, _signal, _on_update, _ctx: ExtensionContext| {
+                let controller = controller.clone();
+                Box::pin(async move { execute_loop_tool(&controller, params) })
+            },
+        ),
+        render_call: None,
+        render_result: None,
+    }
+}
+
+fn execute_loop_tool(controller: &LoopController, params: Value) -> Result<AgentToolResult, HandlerError> {
+    let action = params.get("action").and_then(Value::as_str).unwrap_or_default();
+    if action == "status" {
+        let active = controller.status();
+        let text = describe_loop(active.as_ref());
+        return Ok(text_result(
+            text,
+            LoopToolDetails {
+                action: LoopAction::Status,
+                active: active.is_some(),
+                interval_ms: active.as_ref().map(|active| active.interval_ms),
+                prompt: active.map(|active| active.prompt),
+            },
+        ));
+    }
+
+    if action == "stop" {
+        let stopped = controller.stop();
+        return Ok(text_result(
+            if stopped { "Loop stopped" } else { "No active loop" }.to_owned(),
+            LoopToolDetails {
+                action: LoopAction::Stop,
+                active: false,
+                interval_ms: None,
+                prompt: None,
+            },
+        ));
+    }
+
+    let prompt = params
+        .get("prompt")
+        .and_then(Value::as_str)
+        .map(js_trim)
+        .filter(|prompt| !prompt.is_empty());
+    let interval_ms = params
+        .get("intervalSeconds")
+        .and_then(Value::as_f64)
+        .and_then(|seconds| parse_interval_ms(&format!("{}s", js_number_to_string(seconds))));
+
+    let Some(interval_ms) = interval_ms else {
+        return Ok(text_result(
+            "intervalSeconds must be at least 1.".to_owned(),
+            LoopToolDetails {
+                action: LoopAction::Start,
+                active: false,
+                interval_ms: None,
+                prompt: None,
+            },
+        ));
+    };
+    let Some(prompt) = prompt else {
+        return Ok(text_result(
+            "Prompt is required for action=start.".to_owned(),
+            LoopToolDetails {
+                action: LoopAction::Start,
+                active: false,
+                interval_ms: None,
+                prompt: None,
+            },
+        ));
+    };
+
+    let active = controller.start(interval_ms, prompt.to_owned());
+    Ok(text_result(
+        format!("Loop started every {}: {}", format_interval(active.interval_ms), prompt),
+        LoopToolDetails {
+            action: LoopAction::Start,
+            active: true,
+            interval_ms: Some(active.interval_ms),
+            prompt: Some(prompt.to_owned()),
+        },
+    ))
+}
+
+/// Bundled `loop` extension.
+pub fn loop_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
+    let controller = LoopController::new(pi.clone());
+
+    let shutdown_controller = controller.clone();
+    pi.on_session_shutdown(
+        move |_event, _ctx| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            let controller = shutdown_controller.clone();
+            Box::pin(async move {
+                controller.stop();
+                Ok(None)
+            })
+        },
+    )
+    .map_err(HandlerError::new)?;
+
+    pi.register_tool(loop_tool_definition(controller.clone()))
+        .map_err(HandlerError::new)?;
+
+    pi.register_command(
+        "loop",
+        Some("Inject a recurring prompt (/loop <interval> <prompt> | /loop status | /loop stop).".to_owned()),
+        None,
+        Arc::new(move |args, ctx: ExtensionCommandContext| {
+            let controller = controller.clone();
+            Box::pin(async move { handle_loop_command(&args, &ctx, &controller).await })
+        }),
+    )
+    .map_err(HandlerError::new)?;
+    Ok(())
+}
+
+async fn handle_loop_command(
+    args: &str,
+    ctx: &ExtensionCommandContext,
+    controller: &LoopController,
+) -> Result<(), HandlerError> {
+    let ui = ctx.ui()?;
+    match parse_loop_command(args) {
+        ParsedLoopCommand::Error(error) => ui.notify(&error, Some(NotifyType::Error)),
+        ParsedLoopCommand::Status => {
+            ui.notify(&describe_loop(controller.status().as_ref()), Some(NotifyType::Info));
+        }
+        ParsedLoopCommand::Stop => {
+            let message = if controller.stop() {
+                "Loop stopped"
+            } else {
+                "No active loop"
+            };
+            ui.notify(message, Some(NotifyType::Info));
+        }
+        ParsedLoopCommand::Start { interval_ms, prompt } => {
+            let active = controller.start(interval_ms, prompt);
+            ui.notify(
+                &format!("Loop started every {}", format_interval(active.interval_ms)),
+                Some(NotifyType::Info),
+            );
+            ui.set_editor_text("");
+        }
+    }
+    Ok(())
+}

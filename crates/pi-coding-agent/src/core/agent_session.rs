@@ -670,7 +670,7 @@ fn normalize_message_content(message: AgentMessage) -> AgentMessage {
     }
 }
 
-fn thinking_level_from_model(level: pi_ai::types::ModelThinkingLevel) -> ThinkingLevel {
+pub(crate) fn thinking_level_from_model(level: pi_ai::types::ModelThinkingLevel) -> ThinkingLevel {
     match level {
         pi_ai::types::ModelThinkingLevel::Off => ThinkingLevel::Off,
         pi_ai::types::ModelThinkingLevel::Minimal => ThinkingLevel::Minimal,

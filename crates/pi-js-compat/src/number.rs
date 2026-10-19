@@ -2,6 +2,7 @@
 //! `Number.parseFloat`, and ECMA-262 `Number::toString`.
 
 use serde::Serializer;
+use serde_json::Value;
 
 use crate::string::is_js_whitespace_char;
 
@@ -259,6 +260,18 @@ fn round_scaled(magnitude: f64, scale: u128) -> u128 {
     (2 * scaled + (1_u128 << shift)) >> (shift + 1)
 }
 
+/// `JSON.stringify(number)` value: integral finite numbers use integer notation,
+/// non-finite numbers become `null`.
+pub fn js_number_value(value: f64) -> Value {
+    if !value.is_finite() {
+        return Value::Null;
+    }
+    if value.fract() == 0.0 && value.abs() <= 9_007_199_254_740_992.0 {
+        return Value::Number(serde_json::Number::from(value as i64));
+    }
+    Value::Number(serde_json::Number::from_f64(value).expect("finite number"))
+}
+
 #[cfg(test)]
 mod to_fixed_tests {
     use super::to_fixed;
@@ -280,5 +293,14 @@ mod to_fixed_tests {
         assert_eq!(to_fixed(0.0001, 2), "0.00");
         assert_eq!(to_fixed(1e21, 1), "1e+21");
         assert_eq!(to_fixed(f64::NAN, 1), "NaN");
+    }
+
+    #[test]
+    fn js_number_value_matches_json_stringify_numbers() {
+        assert_eq!(js_number_value(3000.0), serde_json::json!(3000));
+        assert_eq!(js_number_value(-0.0), serde_json::json!(0));
+        assert_eq!(js_number_value(42.5), serde_json::json!(42.5));
+        assert_eq!(js_number_value(f64::NAN), serde_json::Value::Null);
+        assert_eq!(js_number_value(f64::INFINITY), serde_json::Value::Null);
     }
 }

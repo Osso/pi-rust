@@ -7,6 +7,14 @@ use crate::core::extensions::loader::ExtensionRegistry;
 pub mod agent_viewer;
 pub mod agents_core;
 pub mod agents_mailbox;
+pub mod claude_bash_hook;
+pub mod codex_fast;
+pub mod codex_image_generation;
+pub mod codex_usage;
+pub mod codex_web_search;
+pub mod effort;
+#[path = "loop/mod.rs"]
+pub mod r#loop;
 
 use agents_core::runtime::{MultiAgentExtensionOptions, create_multi_agent_runtime_handles, resolve_multi_agent_store};
 

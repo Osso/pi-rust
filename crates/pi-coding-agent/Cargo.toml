@@ -81,7 +81,7 @@ bench = false
 doc = false
 
 [dev-dependencies]
-tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs"] }
+tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs", "test-util"] }
 
 [lints]
 workspace = true

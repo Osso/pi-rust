@@ -1,3 +1,5 @@
+#![allow(dead_code)] // Each integration test compiles its own copy and uses a subset.
+
 //! Shared harness for extension runner and discovery tests.
 
 use std::sync::{Arc, Mutex};
