@@ -55,6 +55,13 @@ const BASH_UPDATE_THROTTLE_MS: u64 = 100;
 const DESCRIPTION_PREFIX: &str =
     "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last";
 
+/// `bashToolSystemPromptContribution`.
+pub const BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribution =
+    super::ToolSystemPromptContribution {
+        snippet: "Execute bash commands (ls, grep, find, etc.)",
+        guidelines: &["You can inspect PI_* environment variables for current model and session details."],
+    };
+
 /// Output artifact paths for a detached job.
 pub use crate::core::detached_job_runner::DetachedJobArtifacts;
 

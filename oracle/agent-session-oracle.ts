@@ -40,7 +40,7 @@ function createResourceLoader() {
 		getAgentsFiles: () => ({ agentsFiles: [] }),
 		getRulesFiles: () => ({ rulesFiles: [] }),
 		getRulesContent: () => undefined,
-		getSystemPrompt: () => undefined,
+		getSystemPrompt: () => "Differential system prompt",
 		getSystemPromptSource: () => undefined,
 		getAppendSystemPrompt: () => [],
 		getAppendSystemPromptSources: () => [],
@@ -107,7 +107,10 @@ async function run(request) {
 	const settingsManager = SettingsManager.create(dir, agentDir);
 	const agent = new Agent({
 		initialState: { systemPrompt: "", model, thinkingLevel: "off", tools: [] },
-		streamFn: async (requestModel, context, options) => core.streamSimple(requestModel, context, options),
+		streamFn: async (requestModel, context, options) => {
+			const tools = context.tools?.map(({ label: _label, executionMode: _executionMode, ...tool }) => tool);
+			return core.streamSimple(requestModel, { ...context, tools }, options);
+		},
 		sessionId: sessionManager.getSessionId(),
 		steeringMode: settingsManager.getSteeringMode(),
 		followUpMode: settingsManager.getFollowUpMode(),

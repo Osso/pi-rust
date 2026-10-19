@@ -36,10 +36,12 @@ use crate::core::extensions::types::NoOpUiContext;
 use crate::core::model_registry::ModelRegistry;
 use crate::core::model_resolver::{ScopedModel, find_exact_model_reference_match, resolve_model_scope};
 use crate::core::model_runtime::ModelRuntime;
+use crate::core::multi_agent_store::SteeringCheckpoint;
 use crate::core::permissions::policy::ApprovalPolicy;
 use crate::core::permissions::presets::{ApprovalPresetName, SandboxProfileName, SandboxProfileScope};
 use crate::core::prompt_templates::expand_prompt_template;
 use crate::core::resource_loader::{LoadedPrompts, ResourceLoader};
+use crate::core::session_control_db::RuntimeMailboxMessage;
 use crate::core::session_manager::{SessionEntry, SessionManager, SessionManagerError, get_latest_compaction_entry};
 use crate::core::settings_manager::{SettingsManager, SettingsScope};
 use crate::core::slash_commands::builtin_slash_commands;
@@ -231,6 +233,8 @@ pub struct AgentSessionConfig {
     pub control_db_path: Option<String>,
     pub base_tools: Vec<Arc<dyn AgentTool>>,
     pub custom_tools: Vec<ToolDefinition>,
+    /// Rust-native carrier for SDK custom definitions executed with the runner context.
+    pub custom_tool_definitions: Vec<crate::core::extensions::types::ToolDefinition>,
     pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
     pub thinking_phase_timeout_ms: Option<u64>,
@@ -447,14 +451,21 @@ pub struct AgentEndEvent {
     pub event_type: &'static str,
     pub messages: Vec<AgentMessage>,
     pub will_retry: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_continuation: Option<crate::core::extensions::types::AgentEndSessionContinuation>,
 }
 
 impl AgentEndEvent {
-    fn new(messages: Vec<AgentMessage>, will_retry: bool) -> Self {
+    fn new(
+        messages: Vec<AgentMessage>,
+        will_retry: bool,
+        session_continuation: Option<crate::core::extensions::types::AgentEndSessionContinuation>,
+    ) -> Self {
         Self {
             event_type: "agent_end",
             messages,
             will_retry,
+            session_continuation,
         }
     }
 }
@@ -831,6 +842,7 @@ struct Inner {
     model_runtime: ModelRuntime,
     model_registry: ModelRegistry,
     custom_tools: Vec<ToolDefinition>,
+    custom_tool_definitions: Vec<crate::core::extensions::types::ToolDefinition>,
     /// `_baseToolsOverride`: `Some` replaces the built-in definitions.
     base_tools_override: Option<Vec<(String, crate::core::extensions::types::ToolDefinition)>>,
     base_tool_definitions: Mutex<Vec<(String, crate::core::extensions::types::ToolDefinition)>>,
@@ -893,6 +905,130 @@ struct Inner {
     on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
     terminal_outbox_claim_id: String,
     terminal_outbox_last_cleanup_at: Mutex<Option<i64>>,
+    multi_agent_active_tools: Mutex<Vec<(String, ActiveTool)>>,
+    background_compaction_cache: Mutex<Option<BackgroundCompactionCache>>,
+    runtime_mailbox_drain_lock: tokio::sync::Mutex<()>,
+    shared_channel_drain_in_progress: AtomicBool,
+}
+
+struct ActiveTool {
+    started_at: String,
+    tool_call_id: String,
+    tool_name: String,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BackgroundCompactionState {
+    Pending,
+    Ready,
+    Failed,
+}
+
+#[derive(Clone)]
+struct BackgroundCompactionCache {
+    token: u64,
+    state: BackgroundCompactionState,
+    session_id: String,
+    snapshot_leaf_id: String,
+    preparation: crate::core::compaction::CompactionPreparation,
+    settings: crate::core::compaction::CompactionSettings,
+    model_provider: String,
+    model_id: String,
+    model_api: String,
+    thinking_level: ThinkingLevel,
+    system_prompt: String,
+    abort: CancellationToken,
+    compaction: Option<crate::core::compaction::CompactionResult>,
+    from_extension: bool,
+    generation_duration_ms: Option<i64>,
+}
+
+const BACKGROUND_COMPACTION_CONTEXT_RATIO: f64 = 0.7;
+
+/// `DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE`.
+pub const DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE: &str = "detached_tool_call_completion";
+
+/// Terminal outcome recorded for a detached tool call.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetachedToolCallCompletionEntryData {
+    pub tool_call_id: String,
+    pub agent_id: String,
+    pub lifecycle: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// `buildDetachedToolCallCompletionEntry`.
+pub fn build_detached_tool_call_completion_entry(
+    agent: Option<&crate::core::multi_agent_store::AgentSnapshot>,
+) -> Option<DetachedToolCallCompletionEntryData> {
+    use crate::core::multi_agent_store::AgentLifecycle;
+
+    let agent = agent?;
+    let tool_call_id = agent
+        .worker
+        .as_ref()
+        .and_then(|worker| worker.tool_call_id.clone())
+        .or_else(|| agent.result.as_ref().and_then(|result| result.tool_call_id.clone()))?;
+    let lifecycle = match agent.lifecycle {
+        AgentLifecycle::Completed => "completed",
+        AgentLifecycle::Failed => "failed",
+        AgentLifecycle::Aborted => "aborted",
+        _ => return None,
+    };
+    Some(DetachedToolCallCompletionEntryData {
+        tool_call_id,
+        agent_id: agent.id.clone(),
+        lifecycle: lifecycle.to_owned(),
+        summary: agent.result.as_ref().and_then(|result| result.summary.clone()),
+        error: agent.error.as_ref().map(|error| error.message.clone()),
+    })
+}
+
+#[derive(Clone, Copy)]
+struct DrainCoordinationOptions {
+    checkpoint: Option<SteeringCheckpoint>,
+    include_next_model_call: bool,
+    trigger_if_idle: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MailboxDeliveryMode {
+    Steer,
+    Prompt,
+}
+
+fn is_runtime_mailbox_message_due(message: &RuntimeMailboxMessage, options: DrainCoordinationOptions) -> bool {
+    if message.kind != crate::core::session_control_db::RuntimeMailboxMessageKind::Steer {
+        return options.checkpoint != Some(SteeringCheckpoint::AfterToolResult) || options.include_next_model_call;
+    }
+    match message.target_checkpoint.unwrap_or(SteeringCheckpoint::NextModelCall) {
+        SteeringCheckpoint::AfterToolResult => options.checkpoint == Some(SteeringCheckpoint::AfterToolResult),
+        SteeringCheckpoint::WhenWaiting => options.trigger_if_idle,
+        SteeringCheckpoint::NextModelCall => {
+            options.checkpoint == Some(SteeringCheckpoint::NextModelCall)
+                || options.include_next_model_call
+                || options.trigger_if_idle
+        }
+    }
+}
+
+fn runtime_mailbox_checkpoint_priority(message: &RuntimeMailboxMessage) -> u8 {
+    u8::from(message.target_checkpoint != Some(SteeringCheckpoint::AfterToolResult))
+}
+
+fn is_own_shared_channel_message(
+    message: &crate::core::session_control_db::SharedChannelMessage,
+    recipient: &crate::core::session_control_db::RuntimeMailboxAddress,
+) -> bool {
+    message.sender.session_id == recipient.session_id && message.sender.agent_id == recipient.agent_id
+}
+
+fn is_subagent_shared_channel_message(message: &crate::core::session_control_db::SharedChannelMessage) -> bool {
+    message.sender.agent_id.is_some()
 }
 
 /// Core session abstraction shared by all run modes.
@@ -996,6 +1132,7 @@ impl AgentSession {
             model_runtime,
             model_registry,
             custom_tools: config.custom_tools,
+            custom_tool_definitions: config.custom_tool_definitions,
             base_tools_override,
             base_tool_definitions: Mutex::new(Vec::new()),
             tool_detach_registry,
@@ -1057,6 +1194,10 @@ impl AgentSession {
             on_shared_channel_message_delivered,
             terminal_outbox_claim_id: pi_ai::utils::uuid::random_uuid(),
             terminal_outbox_last_cleanup_at: Mutex::new(None),
+            multi_agent_active_tools: Mutex::new(Vec::new()),
+            background_compaction_cache: Mutex::new(None),
+            runtime_mailbox_drain_lock: tokio::sync::Mutex::new(()),
+            shared_channel_drain_in_progress: AtomicBool::new(false),
         });
 
         let session = Self { inner };
@@ -1150,6 +1291,18 @@ impl AgentSession {
                     let Some(inner) = weak.upgrade() else {
                         return Ok(previous_snapshot);
                     };
+                    if !turn.tool_results.is_empty() {
+                        AgentSession {
+                            inner: Arc::clone(&inner),
+                        }
+                        .drain_runtime_coordination_messages(DrainCoordinationOptions {
+                            checkpoint: Some(SteeringCheckpoint::AfterToolResult),
+                            include_next_model_call: true,
+                            trigger_if_idle: false,
+                        })
+                        .await
+                        .map_err(|error| AgentError::new(error.message()))?;
+                    }
                     let previous_context = previous_snapshot
                         .as_ref()
                         .and_then(|snapshot| snapshot.context.clone())
@@ -1377,6 +1530,43 @@ impl AgentSession {
             }
         }
 
+        let custom_definition_tools = self
+            .inner
+            .custom_tool_definitions
+            .iter()
+            .filter(|definition| is_allowed(&definition.name))
+            .map(|definition| ToolDefinitionEntry {
+                definition: ToolDefinition {
+                    name: definition.name.clone(),
+                    description: definition.description.clone(),
+                    parameters: definition.parameters.clone(),
+                    prompt_snippet: definition.prompt_snippet.clone(),
+                    prompt_guidelines: definition.prompt_guidelines.clone().unwrap_or_default(),
+                    approval_required: definition.approval_required.unwrap_or(true),
+                    tool: wrap_definition_tool(definition.clone(), &runner),
+                },
+                source_info: create_synthetic_source_info(
+                    &format!("<sdk:{}>", definition.name),
+                    &SyntheticSourceInfoOptions {
+                        source: "sdk".to_owned(),
+                        scope: None,
+                        origin: None,
+                        base_dir: None,
+                    },
+                ),
+            })
+            .collect::<Vec<_>>();
+        for entry in &custom_definition_tools {
+            if let Some(existing) = definition_registry
+                .iter_mut()
+                .find(|(name, _)| *name == entry.definition.name)
+            {
+                existing.1 = entry.clone();
+            } else {
+                definition_registry.push((entry.definition.name.clone(), entry.clone()));
+            }
+        }
+
         let mut snippets = HashMap::new();
         let mut guidelines = HashMap::new();
         for (_, entry) in &definition_registry {
@@ -1409,6 +1599,9 @@ impl AgentSession {
             }
         } else if include_all_extension_tools {
             for entry in &custom_tools {
+                next_active_tool_names.push(entry.definition.name.clone());
+            }
+            for entry in &custom_definition_tools {
                 next_active_tool_names.push(entry.definition.name.clone());
             }
         } else if active_tool_names.is_none() {
@@ -2007,6 +2200,365 @@ impl AgentSession {
         });
     }
 
+    /// Drains runtime mailbox and shared-channel messages (TS `drainRuntimeCoordination`).
+    pub async fn drain_runtime_coordination(&self) -> Result<(), AgentSessionError> {
+        self.drain_runtime_coordination_messages(DrainCoordinationOptions {
+            checkpoint: None,
+            include_next_model_call: false,
+            trigger_if_idle: true,
+        })
+        .await
+        .map(|_| ())
+    }
+
+    async fn drain_runtime_coordination_messages(
+        &self,
+        options: DrainCoordinationOptions,
+    ) -> Result<bool, AgentSessionError> {
+        if self.inner.disable_runtime_coordination_inbound || self.inner.disposed.load(Ordering::SeqCst) {
+            return Ok(false);
+        }
+        self.drain_terminal_outbox_projections();
+        let mailbox_queued = self.drain_runtime_mailbox_messages(options).await?;
+        let channel_queued = if options.checkpoint == Some(SteeringCheckpoint::AfterToolResult) {
+            false
+        } else {
+            self.drain_shared_channel_messages(options).await?
+        };
+        Ok(mailbox_queued || channel_queued)
+    }
+
+    fn runtime_mailbox_recipient(&self) -> crate::core::session_control_db::RuntimeMailboxAddress {
+        crate::core::session_control_db::RuntimeMailboxAddress {
+            agent_id: self.inner.multi_agent_agent_id.clone(),
+            session_id: self.session_id(),
+        }
+    }
+
+    async fn drain_runtime_mailbox_messages(
+        &self,
+        options: DrainCoordinationOptions,
+    ) -> Result<bool, AgentSessionError> {
+        let can_steer_active_turn = self.is_streaming() && options.checkpoint.is_some();
+        if self.is_streaming() {
+            if !can_steer_active_turn {
+                return Ok(false);
+            }
+        } else if !options.trigger_if_idle {
+            return Ok(false);
+        }
+        let control_db_path = match self.runtime_mailbox_control_db_path() {
+            Some(path) => path,
+            None => return Ok(false),
+        };
+        let _drain_guard = self.inner.runtime_mailbox_drain_lock.lock().await;
+        if can_steer_active_turn {
+            return self
+                .deliver_ready_runtime_mailbox_messages(&control_db_path, options, MailboxDeliveryMode::Steer, None)
+                .await;
+        }
+        let guard = self.inner.turn_start_lock.lock().await;
+        self.deliver_ready_runtime_mailbox_messages(&control_db_path, options, MailboxDeliveryMode::Prompt, Some(guard))
+            .await
+    }
+
+    async fn deliver_ready_runtime_mailbox_messages(
+        &self,
+        control_db_path: &str,
+        options: DrainCoordinationOptions,
+        mode: MailboxDeliveryMode,
+        guard: Option<tokio::sync::MutexGuard<'_, ()>>,
+    ) -> Result<bool, AgentSessionError> {
+        if mode == MailboxDeliveryMode::Prompt {
+            let model = self.inner.agent.model();
+            if !self.inner.model_runtime.has_configured_auth(&model.provider) {
+                return Ok(false);
+            }
+        }
+        let recipient = self.runtime_mailbox_recipient();
+        let mut listener = crate::core::session_control_db::read_runtime_mailbox_listener(control_db_path, &recipient)
+            .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+        if listener.is_none() {
+            let session_file = self.session_file();
+            crate::core::session_control_db::register_runtime_mailbox_listener(
+                control_db_path,
+                &recipient,
+                std::process::id(),
+                session_file.as_deref(),
+                Default::default(),
+            )
+            .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+            listener = crate::core::session_control_db::read_runtime_mailbox_listener(control_db_path, &recipient)
+                .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+        }
+        if listener
+            .as_ref()
+            .is_none_or(|listener| listener.pid != std::process::id())
+        {
+            return Ok(false);
+        }
+        let mut messages = crate::core::session_control_db::take_runtime_mailbox_messages_for_delivery(
+            control_db_path,
+            &recipient,
+            |message| is_runtime_mailbox_message_due(message, options),
+            i64::MAX as usize,
+        )
+        .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+        if options.include_next_model_call {
+            messages.sort_by_key(runtime_mailbox_checkpoint_priority);
+        }
+        let mut prompt_messages = Vec::new();
+        for message in messages {
+            self.record_detached_tool_call_completion(&message);
+            if self.intercept_runtime_mailbox_message(&message).await {
+                continue;
+            }
+            prompt_messages.push(message);
+        }
+        if prompt_messages.is_empty() {
+            return Ok(false);
+        }
+        let prompt = prompt_messages
+            .iter()
+            .map(|message| {
+                crate::core::runtime_coordination_format::format_runtime_mailbox_prompt(message, &recipient.session_id)
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        if mode == MailboxDeliveryMode::Steer {
+            self.steer_agent(AgentMessage::User(UserMessage {
+                role: UserRole::Tag,
+                content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(prompt))]),
+                input_source: Some(InputSource::Extension),
+                provider_native: None,
+                timestamp: now_millis(),
+            }));
+            for message in &prompt_messages {
+                self.mark_store_mailbox_message_delivered(message);
+            }
+            return Ok(true);
+        }
+        let guard = guard.expect("prompt delivery holds the turn start lock");
+        let result = Box::pin(self.prompt_turn(
+            &prompt,
+            PromptOptions {
+                expand_prompt_templates: Some(false),
+                source: Some(InputSource::Extension),
+                ..Default::default()
+            },
+            guard,
+        ))
+        .await;
+        for message in &prompt_messages {
+            self.mark_store_mailbox_message_delivered(message);
+        }
+        result.map(|_| false)
+    }
+
+    fn record_detached_tool_call_completion(&self, message: &RuntimeMailboxMessage) {
+        let Some(store) = self.inner.multi_agent_store.as_ref() else {
+            return;
+        };
+        let Some(sender_id) = message.sender.agent_id.as_deref() else {
+            return;
+        };
+        let Some(data) = build_detached_tool_call_completion_entry(store.get_agent(sender_id).as_ref()) else {
+            return;
+        };
+        let already_recorded = lock(&self.inner.session_manager).get_entries().iter().any(|entry| {
+            if entry.entry_type() != "custom" {
+                return false;
+            }
+            let SessionEntry::Known(crate::core::session_manager::KnownSessionEntry::Custom(custom)) = entry else {
+                return false;
+            };
+            if custom.custom_type != DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE {
+                return false;
+            }
+            let Some(existing) = custom.data.as_ref() else {
+                return false;
+            };
+            existing.get("agentId").and_then(Value::as_str) == Some(data.agent_id.as_str())
+                && existing.get("toolCallId").and_then(Value::as_str) == Some(data.tool_call_id.as_str())
+        });
+        if already_recorded {
+            return;
+        }
+        if let Err(error) = lock(&self.inner.session_manager).append_custom_entry(
+            DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE,
+            Some(serde_json::to_value(&data).unwrap_or(Value::Null)),
+        ) {
+            eprintln!("Failed to record detached tool call completion: {error}");
+        }
+    }
+
+    async fn intercept_runtime_mailbox_message(&self, message: &RuntimeMailboxMessage) -> bool {
+        let runner = self.runner();
+        if !runner.has_handlers("runtime_mailbox") {
+            return false;
+        }
+        match runner
+            .emit_runtime_mailbox(crate::core::extensions::types::RuntimeMailboxEvent {
+                message: message.clone(),
+            })
+            .await
+        {
+            Ok(result) if result.handled => {
+                self.mark_store_mailbox_message_delivered(message);
+                true
+            }
+            Ok(_) => false,
+            Err(error) => {
+                self.fail_store_mailbox_delivery(message, &error.message);
+                true
+            }
+        }
+    }
+
+    fn mark_store_mailbox_message_delivered(&self, message: &RuntimeMailboxMessage) {
+        let store_ref = &message.store_ref;
+        if let Some(store) = self.inner.multi_agent_store.as_ref()
+            && store
+                .get_persistence_target()
+                .is_some_and(|persistence| persistence.session_path == store_ref.session_path)
+        {
+            if message.kind != crate::core::session_control_db::RuntimeMailboxMessageKind::Steer {
+                store.mark_mailbox_message_delivered(&store_ref.message_id);
+            }
+            return;
+        }
+        if message.kind == crate::core::session_control_db::RuntimeMailboxMessageKind::Steer {
+            return;
+        }
+        let Some(control_db_path) = self.runtime_mailbox_control_db_path() else {
+            return;
+        };
+        if let Err(error) = crate::core::session_control_db::mark_multi_agent_mailbox_message_delivered(
+            &control_db_path,
+            &store_ref.session_path,
+            &store_ref.message_id,
+        ) {
+            eprintln!("Failed to mark mailbox message delivered: {error}");
+        }
+    }
+
+    fn fail_store_mailbox_delivery(&self, message: &RuntimeMailboxMessage, failure: &str) {
+        let store_ref = &message.store_ref;
+        if let Some(store) = self.inner.multi_agent_store.as_ref()
+            && store
+                .get_persistence_target()
+                .is_some_and(|persistence| persistence.session_path == store_ref.session_path)
+        {
+            store.mark_mailbox_message_failed(&store_ref.message_id, failure);
+            return;
+        }
+        let Some(control_db_path) = self.runtime_mailbox_control_db_path() else {
+            return;
+        };
+        if let Err(error) = crate::core::session_control_db::mark_multi_agent_mailbox_message_failed(
+            &control_db_path,
+            &store_ref.session_path,
+            &store_ref.message_id,
+            failure,
+        ) {
+            eprintln!("Failed to mark mailbox message failed: {error}");
+        }
+    }
+
+    async fn drain_shared_channel_messages(
+        &self,
+        options: DrainCoordinationOptions,
+    ) -> Result<bool, AgentSessionError> {
+        if self.inner.disable_runtime_coordination_inbound || self.inner.multi_agent_agent_id.is_some() {
+            return Ok(false);
+        }
+        if self.inner.shared_channel_drain_in_progress.swap(true, Ordering::SeqCst) {
+            return Ok(false);
+        }
+        let result = self.drain_shared_channel_messages_inner(options).await;
+        self.inner
+            .shared_channel_drain_in_progress
+            .store(false, Ordering::SeqCst);
+        result
+    }
+
+    async fn drain_shared_channel_messages_inner(
+        &self,
+        options: DrainCoordinationOptions,
+    ) -> Result<bool, AgentSessionError> {
+        if options.trigger_if_idle && self.is_streaming() {
+            return Ok(false);
+        }
+        let Some(control_db_path) = self.runtime_mailbox_control_db_path() else {
+            return Ok(false);
+        };
+        let recipient = self.runtime_mailbox_recipient();
+        let cursor =
+            crate::core::session_control_db::initialize_shared_channel_cursor_at_tail(&control_db_path, &recipient)
+                .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+        let last_message_id = crate::core::session_control_db::read_shared_channel_tail(&control_db_path)
+            .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+        let messages = crate::core::session_control_db::list_shared_channel_messages_after(
+            &control_db_path,
+            cursor,
+            i64::MAX,
+            last_message_id,
+        )
+        .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+        let deliverable: Vec<_> = messages
+            .into_iter()
+            .filter(|message| !is_own_shared_channel_message(message, &recipient))
+            .filter(|message| !is_subagent_shared_channel_message(message))
+            .collect();
+        if deliverable.is_empty() {
+            crate::core::session_control_db::advance_shared_channel_cursor(
+                &control_db_path,
+                &recipient,
+                last_message_id,
+            )
+            .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+            return Ok(false);
+        }
+        let prompt =
+            crate::core::runtime_coordination_format::format_shared_channel_prompt(&deliverable, &recipient.session_id);
+        let queued = self.send_shared_channel_prompt(&prompt, options).await?;
+        crate::core::session_control_db::advance_shared_channel_cursor(&control_db_path, &recipient, last_message_id)
+            .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+        if let Some(handler) = self.on_shared_channel_message_delivered() {
+            handler(prompt);
+        }
+        Ok(queued)
+    }
+
+    async fn send_shared_channel_prompt(
+        &self,
+        prompt: &str,
+        options: DrainCoordinationOptions,
+    ) -> Result<bool, AgentSessionError> {
+        if options.trigger_if_idle && !self.is_streaming() {
+            Box::pin(self.send_custom_message(
+                "shared_channel",
+                CustomMessageContent::Text(prompt.to_owned()),
+                true,
+                None,
+                true,
+                Some(StreamingBehavior::FollowUp),
+            ))
+            .await?;
+            return Ok(false);
+        }
+        lock(&self.inner.follow_up_messages).push(prompt.to_owned());
+        self.emit_queue_update();
+        self.inner.agent.follow_up(create_custom_message(
+            "shared_channel",
+            CustomMessageContent::Text(prompt.to_owned()),
+            true,
+            None,
+            now_millis(),
+        ));
+        Ok(true)
+    }
+
     fn emit(&self, event: AgentSessionEvent) {
         let listeners: Vec<AgentSessionEventListener> = lock(&self.inner.event_listeners)
             .iter()
@@ -2125,8 +2677,15 @@ impl AgentSession {
                 _ => {}
             }
         }
+        self.publish_current_agent_activity(&event);
+        let session_continuation = match &event {
+            AgentEvent::AgentEnd { .. } if self.runner().has_prepared_tool_result_relocation() => {
+                Some(crate::core::extensions::types::AgentEndSessionContinuation::CwdRelocation)
+            }
+            _ => None,
+        };
         self.remove_started_message_from_queue(&event);
-        let replacement = self.emit_extension_event(&mut event).await;
+        let replacement = self.emit_extension_event(&mut event, session_continuation).await;
         if let (Some(replacement), AgentEvent::MessageEnd { message }) = (replacement, &mut event) {
             *message = replacement;
             runtime_message_marker = None;
@@ -2139,7 +2698,8 @@ impl AgentSession {
         let listener_event = match &event {
             AgentEvent::AgentEnd { messages } => AgentSessionEvent::AgentEnd(AgentEndEvent::new(
                 messages.clone(),
-                self.will_retry_after_agent_end(messages),
+                session_continuation.is_some() || self.will_retry_after_agent_end(messages),
+                session_continuation,
             )),
             AgentEvent::MessageStart { .. } | AgentEvent::MessageUpdate { .. } | AgentEvent::MessageEnd { .. } => {
                 AgentSessionEvent::Message(AgentMessageEvent {
@@ -2150,9 +2710,363 @@ impl AgentSession {
             other => AgentSessionEvent::Agent(other.clone()),
         };
         self.emit(listener_event);
-        if let AgentEvent::MessageEnd { message } = event {
-            self.persist_completed_message(&message, original_tool_call_id.as_deref());
+        if let AgentEvent::MessageEnd { message } = &event {
+            self.persist_completed_message(message, original_tool_call_id.as_deref());
+            if let AgentMessage::Assistant(assistant) = message {
+                self.start_background_compaction_during_tool_turn(assistant);
+            }
         }
+        if matches!(event, AgentEvent::AgentEnd { .. }) && session_continuation.is_some() {
+            self.runner().activate_tool_result_relocation().await;
+        }
+    }
+
+    fn current_agent_activity_owner(&self) -> Option<crate::core::multi_agent_store::AgentCurrentActivityOwner> {
+        let owner_session_id = self.inner.multi_agent_parent_session_id.clone()?;
+        // TS computes this identity during construction and lets a failure throw.
+        let instance_id = crate::core::session_control_db::get_runtime_process_instance_id()
+            .expect("runtime process identity must be readable");
+        let process_identity: crate::core::runtime_process::ProcessIdentity =
+            serde_json::from_str(instance_id).expect("runtime process identity must be valid JSON");
+        Some(crate::core::multi_agent_store::AgentCurrentActivityOwner {
+            owner_session_id,
+            process_identity,
+        })
+    }
+
+    fn publish_current_agent_activity(&self, event: &AgentEvent) {
+        use crate::core::multi_agent_store::AgentCurrentActivity;
+
+        if matches!(event, AgentEvent::AgentStart | AgentEvent::AgentEnd { .. }) {
+            lock(&self.inner.multi_agent_active_tools).clear();
+        }
+        if let AgentEvent::ToolExecutionStart {
+            tool_call_id,
+            tool_name,
+            started_at,
+            ..
+        } = event
+        {
+            lock(&self.inner.multi_agent_active_tools).push((
+                tool_call_id.clone(),
+                ActiveTool {
+                    started_at: crate::utils::iso_time::format_iso_millis(*started_at as i64),
+                    tool_call_id: tool_call_id.clone(),
+                    tool_name: tool_name.clone(),
+                },
+            ));
+        }
+        if let AgentEvent::ToolExecutionEnd { tool_call_id, .. } = event {
+            lock(&self.inner.multi_agent_active_tools).retain(|(id, _)| id != tool_call_id);
+        }
+        let Some(store) = self.inner.multi_agent_store.as_ref() else {
+            return;
+        };
+        let Some(agent_id) = self.inner.multi_agent_agent_id.as_deref() else {
+            return;
+        };
+        let ownership = self.current_agent_activity_owner();
+        match event {
+            AgentEvent::AgentStart => {
+                self.publish_agent_activity(
+                    store,
+                    agent_id,
+                    Some(AgentCurrentActivity::Thinking {
+                        started_at: crate::utils::iso_time::now_iso_string(),
+                    }),
+                    ownership.as_ref(),
+                );
+            }
+            AgentEvent::ToolExecutionStart { .. } => {
+                let active_tools = lock(&self.inner.multi_agent_active_tools);
+                if active_tools.len() == 1
+                    && let Some((_, tool)) = active_tools.first()
+                {
+                    let activity = AgentCurrentActivity::Tool {
+                        started_at: tool.started_at.clone(),
+                        tool_call_id: tool.tool_call_id.clone(),
+                        tool_name: tool.tool_name.clone(),
+                    };
+                    drop(active_tools);
+                    self.publish_agent_activity(store, agent_id, Some(activity), ownership.as_ref());
+                }
+            }
+            AgentEvent::ToolExecutionEnd { finished_at, .. } => {
+                let next =
+                    lock(&self.inner.multi_agent_active_tools)
+                        .first()
+                        .map(|(_, tool)| AgentCurrentActivity::Tool {
+                            started_at: tool.started_at.clone(),
+                            tool_call_id: tool.tool_call_id.clone(),
+                            tool_name: tool.tool_name.clone(),
+                        });
+                let activity = next.unwrap_or_else(|| AgentCurrentActivity::Thinking {
+                    started_at: crate::utils::iso_time::format_iso_millis(*finished_at as i64),
+                });
+                self.publish_agent_activity(store, agent_id, Some(activity), ownership.as_ref());
+            }
+            AgentEvent::AgentEnd { .. } => {
+                self.publish_agent_activity(store, agent_id, None, ownership.as_ref());
+            }
+            _ => {}
+        }
+    }
+
+    fn publish_agent_activity(
+        &self,
+        store: &Arc<crate::core::multi_agent_store::MultiAgentStore>,
+        agent_id: &str,
+        activity: Option<crate::core::multi_agent_store::AgentCurrentActivity>,
+        ownership: Option<&crate::core::multi_agent_store::AgentCurrentActivityOwner>,
+    ) {
+        if let Err(error) = store.publish_agent_current_activity(agent_id, activity, ownership) {
+            // TS throws from the event handler; Rust listeners are infallible, so report.
+            eprintln!("Failed to publish multi-agent activity: {error}");
+        }
+    }
+
+    fn start_background_compaction_during_tool_turn(&self, message: &AssistantMessage) {
+        if message.stop_reason != StopReason::ToolUse {
+            return;
+        }
+        let model = self.inner.agent.model();
+        if message.provider != model.provider || message.model != model.id {
+            return;
+        }
+        let context_window = model.context_window;
+        let context_tokens = crate::core::compaction::calculate_context_tokens(&message.usage);
+        if context_tokens <= 0.0 || context_window <= 0.0 {
+            return;
+        }
+        let settings = compaction_settings(&self.inner.settings_manager);
+        if crate::core::compaction::should_compact(
+            context_tokens,
+            context_window,
+            &crate::core::compaction::CompactionSettings {
+                enabled: true,
+                ..settings
+            },
+            model.auto_compaction_threshold,
+        ) {
+            return;
+        }
+        self.start_background_compaction(context_tokens, context_window);
+    }
+
+    fn start_background_compaction(&self, context_tokens: f64, context_window: f64) {
+        if context_window <= 0.0 || context_tokens < context_window * BACKGROUND_COMPACTION_CONTEXT_RATIO {
+            return;
+        }
+        if lock(&self.inner.background_compaction_cache).is_some()
+            || lock(&self.inner.auto_compaction_abort_controller).is_some()
+            || lock(&self.inner.compaction_abort_controller).is_some()
+        {
+            return;
+        }
+        let model = self.inner.agent.model();
+        let settings = compaction_settings(&self.inner.settings_manager);
+        if !settings.enabled && !self.runner().has_handlers("compaction") {
+            return;
+        }
+        let branch_entries = lock(&self.inner.session_manager).get_branch(None);
+        let Some(snapshot_leaf_id) = lock(&self.inner.session_manager).get_leaf_id().map(str::to_owned) else {
+            return;
+        };
+        let Some(preparation) = crate::core::compaction::prepare_compaction(&branch_entries, settings) else {
+            return;
+        };
+        static NEXT_BACKGROUND_COMPACTION_TOKEN: AtomicU64 = AtomicU64::new(1);
+        let token = NEXT_BACKGROUND_COMPACTION_TOKEN.fetch_add(1, Ordering::SeqCst);
+        let cache = BackgroundCompactionCache {
+            token,
+            state: BackgroundCompactionState::Pending,
+            session_id: lock(&self.inner.session_manager).get_session_id().to_owned(),
+            snapshot_leaf_id,
+            preparation,
+            settings,
+            model_provider: model.provider.clone(),
+            model_id: model.id.clone(),
+            model_api: model.api.clone(),
+            thinking_level: self.thinking_level(),
+            system_prompt: self.inner.agent.state().system_prompt,
+            abort: CancellationToken::new(),
+            compaction: None,
+            from_extension: false,
+            generation_duration_ms: None,
+        };
+        *lock(&self.inner.background_compaction_cache) = Some(cache);
+        let weak = Arc::downgrade(&self.inner);
+        tokio::spawn(async move {
+            let Some(inner) = weak.upgrade() else {
+                return;
+            };
+            AgentSession { inner }.generate_background_compaction(token).await;
+        });
+    }
+
+    async fn generate_background_compaction(&self, token: u64) {
+        let Some((preparation, settings, abort, model)) = lock(&self.inner.background_compaction_cache)
+            .as_ref()
+            .filter(|cache| cache.token == token)
+            .map(|cache| {
+                (
+                    cache.preparation.clone(),
+                    cache.settings,
+                    cache.abort.clone(),
+                    self.inner.agent.model(),
+                )
+            })
+        else {
+            return;
+        };
+        if !settings.enabled {
+            return;
+        }
+        let started_at = now_millis();
+        let auth = self.get_compaction_request_auth(&model).await;
+        let stream_fn = self.inner.agent.stream_fn();
+        let retry_policy = self.retry_policy();
+        let summary_options = crate::core::compaction::CompactionSummaryOptions {
+            model: &auth.model,
+            api_key: auth.api_key.clone(),
+            headers: auth.headers.clone(),
+            custom_instructions: None,
+            signal: Some(abort.clone()),
+            thinking_level: Some(self.thinking_level()),
+            stream_fn: Some(&stream_fn),
+            env: auth.env.clone(),
+            retry: Some(&retry_policy),
+        };
+        let generated = crate::core::compaction::compact(
+            &preparation,
+            &auth.model,
+            &summary_options,
+            None::<&mut pi_agent_core::harness::compaction::NoRetryCallbacks>,
+        )
+        .await;
+        if abort.is_cancelled() {
+            return;
+        }
+        let mut cache_guard = lock(&self.inner.background_compaction_cache);
+        let Some(cache) = cache_guard.as_mut().filter(|cache| cache.token == token) else {
+            return;
+        };
+        match generated {
+            Ok(compaction) => {
+                cache.compaction = Some(compaction);
+                cache.from_extension = false;
+                cache.generation_duration_ms = Some(now_millis() - started_at);
+                cache.state = BackgroundCompactionState::Ready;
+                drop(cache_guard);
+                self.schedule_background_compaction_install(token);
+            }
+            Err(error) => {
+                cache.state = BackgroundCompactionState::Failed;
+                eprintln!("Background compaction cache generation failed: {}", error.message());
+            }
+        }
+    }
+
+    fn schedule_background_compaction_install(&self, token: u64) {
+        let weak = Arc::downgrade(&self.inner);
+        tokio::spawn(async move {
+            let Some(inner) = weak.upgrade() else {
+                return;
+            };
+            let session = AgentSession { inner };
+            let _guard = session.inner.turn_start_lock.lock().await;
+            if !session.background_compaction_matches_current_session(token) {
+                if lock(&session.inner.background_compaction_cache)
+                    .as_ref()
+                    .is_some_and(|cache| cache.token == token)
+                {
+                    *lock(&session.inner.background_compaction_cache) = None;
+                }
+                return;
+            }
+            let session_advanced = lock(&session.inner.session_manager).get_leaf_id().map(str::to_owned)
+                != lock(&session.inner.background_compaction_cache)
+                    .as_ref()
+                    .map(|cache| cache.snapshot_leaf_id.clone());
+            let agent_run_needs_post_processing =
+                session.is_streaming() || lock(&session.inner.last_assistant_message).is_some();
+            let ready = lock(&session.inner.background_compaction_cache)
+                .as_ref()
+                .is_some_and(|cache| cache.token == token && cache.state == BackgroundCompactionState::Ready);
+            if !ready || session_advanced || agent_run_needs_post_processing {
+                return;
+            }
+            session.run_auto_compaction("threshold", false, false).await;
+        });
+    }
+
+    fn background_compaction_matches_current_session(&self, token: u64) -> bool {
+        let model = self.inner.agent.model();
+        let settings = compaction_settings(&self.inner.settings_manager);
+        let Some(cache) = lock(&self.inner.background_compaction_cache).clone() else {
+            return false;
+        };
+        if cache.token != token {
+            return false;
+        }
+        let snapshot_is_ancestor = lock(&self.inner.session_manager)
+            .get_branch(None)
+            .iter()
+            .any(|entry| entry.id() == Some(cache.snapshot_leaf_id.as_str()));
+        cache.session_id == lock(&self.inner.session_manager).get_session_id()
+            && snapshot_is_ancestor
+            && cache.model_provider == model.provider
+            && cache.model_id == model.id
+            && cache.model_api == model.api
+            && cache.thinking_level == self.thinking_level()
+            && cache.system_prompt == self.inner.agent.state().system_prompt
+            && cache.settings.enabled == settings.enabled
+            && cache.settings.reserve_tokens == settings.reserve_tokens
+            && cache.settings.keep_recent_tokens == settings.keep_recent_tokens
+    }
+
+    fn has_ready_background_compaction(&self) -> bool {
+        let token = lock(&self.inner.background_compaction_cache)
+            .as_ref()
+            .filter(|cache| cache.state == BackgroundCompactionState::Ready)
+            .map(|cache| cache.token);
+        let Some(token) = token else {
+            return false;
+        };
+        if self.background_compaction_matches_current_session(token) {
+            return true;
+        }
+        *lock(&self.inner.background_compaction_cache) = None;
+        false
+    }
+
+    async fn cancel_background_compaction(&self) {
+        let abort = lock(&self.inner.background_compaction_cache)
+            .as_ref()
+            .map(|cache| cache.abort.clone());
+        let Some(abort) = abort else {
+            return;
+        };
+        abort.cancel();
+        *lock(&self.inner.background_compaction_cache) = None;
+    }
+
+    async fn take_background_compaction(&self) -> Option<BackgroundCompactionCache> {
+        let (token, state, abort) = {
+            let guard = lock(&self.inner.background_compaction_cache);
+            let cache = guard.as_ref()?;
+            (cache.token, cache.state, cache.abort.clone())
+        };
+        if state == BackgroundCompactionState::Pending {
+            abort.cancel();
+            *lock(&self.inner.background_compaction_cache) = None;
+            return None;
+        }
+        if state != BackgroundCompactionState::Ready || !self.background_compaction_matches_current_session(token) {
+            *lock(&self.inner.background_compaction_cache) = None;
+            return None;
+        }
+        lock(&self.inner.background_compaction_cache).take()
     }
 
     fn remove_started_message_from_queue(&self, event: &AgentEvent) {
@@ -2373,7 +3287,14 @@ impl AgentSession {
         if self.inner.agent.has_queued_messages() {
             return Ok(Some("queued"));
         }
-        Ok(None)
+        let coordination_ready = self
+            .drain_runtime_coordination_messages(DrainCoordinationOptions {
+                checkpoint: Some(SteeringCheckpoint::NextModelCall),
+                include_next_model_call: false,
+                trigger_if_idle: false,
+            })
+            .await?;
+        Ok(coordination_ready.then_some("normal"))
     }
 
     /// Validates that the active model has configured auth.
@@ -2461,7 +3382,16 @@ impl AgentSession {
             }
         }
         let guard = self.inner.turn_start_lock.lock().await;
-        self.prompt_turn(text, options, guard).await
+        let result = self.prompt_turn(text, options, guard).await;
+        if result.is_ok() {
+            self.drain_runtime_coordination_messages(DrainCoordinationOptions {
+                checkpoint: None,
+                include_next_model_call: false,
+                trigger_if_idle: true,
+            })
+            .await?;
+        }
+        result
     }
 
     async fn prompt_turn(
@@ -3829,6 +4759,7 @@ impl AgentSession {
             was_running_agent_turn && !self.inner.agent.pending_tool_calls().is_empty();
         self.disconnect_from_agent();
         self.abort().await?;
+        self.cancel_background_compaction().await;
         let abort = CancellationToken::new();
         *lock(&self.inner.compaction_abort_controller) = Some(abort.clone());
         let source_hint = self.get_compaction_source_hint("manual", false).await;
@@ -3933,7 +4864,7 @@ impl AgentSession {
             env: auth.env.clone(),
             retry: Some(&retry_policy),
         };
-        let mut compact_result = crate::core::compaction::compact(
+        let compact_result = crate::core::compaction::compact(
             &preparation,
             &auth.model,
             &summary_options,
@@ -3945,6 +4876,19 @@ impl AgentSession {
             return Err(error("Compaction cancelled"));
         }
         let duration_ms = (now_millis() - started_at) as f64;
+        let compact_result = self.append_compaction_result(compact_result, None, duration_ms)?;
+        let will_retry = reason == "manual"
+            && !compaction_started_during_tool_execution
+            && (was_running_agent_turn || should_continue_after_manual_compaction(&self.inner.agent.messages()));
+        Ok((compact_result, will_retry))
+    }
+
+    fn append_compaction_result(
+        &self,
+        mut compact_result: crate::core::compaction::CompactionResult,
+        from_hook: Option<bool>,
+        duration_ms: f64,
+    ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let source = compact_result.source.clone();
         let usage = compact_result.usage.clone();
         let details = compact_result.details.clone();
@@ -3959,7 +4903,7 @@ impl AgentSession {
                     compact_result.tokens_before,
                     crate::core::session_manager::CompactionAppendOptions {
                         details,
-                        from_hook: None,
+                        from_hook,
                         usage,
                         duration_ms: Some(duration_ms),
                         provider_native,
@@ -3975,15 +4919,12 @@ impl AgentSession {
             compact_result.tokens_before,
             compacted_result_tokens,
         );
-        let will_retry = reason == "manual"
-            && !compaction_started_during_tool_execution
-            && (was_running_agent_turn || should_continue_after_manual_compaction(&session_context.messages));
         compact_result.duration_ms = Some(duration_ms);
         compact_result.estimated_tokens_after = Some(estimate.estimated_tokens_after);
         compact_result.kept_from_previous_context_tokens = Some(estimate.kept_from_previous_context_tokens);
         compact_result.compacted_result_tokens = compacted_result_tokens;
         compact_result.source = source;
-        Ok((compact_result, will_retry))
+        Ok(compact_result)
     }
 
     fn disconnect_from_agent(&self) {
@@ -4077,6 +5018,12 @@ impl AgentSession {
     /// Cancels in-progress compaction (manual or auto).
     pub fn abort_compaction(&self) {
         if let Some(token) = lock(&self.inner.compaction_abort_controller).as_ref() {
+            token.cancel();
+        }
+        if let Some(token) = lock(&self.inner.background_compaction_cache)
+            .as_ref()
+            .map(|cache| cache.abort.clone())
+        {
             token.cancel();
         }
         if let Some(token) = lock(&self.inner.auto_compaction_abort_controller).as_ref() {
@@ -4190,6 +5137,10 @@ impl AgentSession {
             }
             return self.run_auto_compaction("threshold", will_retry, will_retry).await;
         }
+        if self.has_ready_background_compaction() {
+            return self.run_auto_compaction("threshold", false, false).await;
+        }
+        self.start_background_compaction(context_tokens, context_window);
         false
     }
 
@@ -4203,9 +5154,22 @@ impl AgentSession {
             source_hint,
         }));
         let started_at = now_millis();
-        let result = self
-            .compact_with_settings(None, &abort, false, false, started_at, reason)
-            .await;
+        let cached = self.take_background_compaction().await;
+        let result = match cached {
+            Some(cache) => {
+                let duration_ms = cache.generation_duration_ms.unwrap_or_default() as f64;
+                match cache.compaction {
+                    Some(compaction) => self
+                        .append_compaction_result(compaction, cache.from_extension.then_some(true), duration_ms)
+                        .map(|result| (result, false)),
+                    None => Err(error("Background compaction cache is empty")),
+                }
+            }
+            None => {
+                self.compact_with_settings(None, &abort, false, false, started_at, reason)
+                    .await
+            }
+        };
         *lock(&self.inner.auto_compaction_abort_controller) = None;
         match result {
             Ok((compaction_result, _)) => {
@@ -4555,16 +5519,19 @@ impl AgentSession {
                 "Wait for the current response to finish before navigating the session tree.",
             ));
         }
-        if options.summarize == Some(true) {
-            return Err(error(
-                "Branch summarization is unavailable until the coding-agent compaction module is ported",
-            ));
-        }
-        let (old_leaf_id, target_entry) = {
+        let (old_leaf_id, target_entry, entries_to_summarize, common_ancestor_id) = {
             let manager = lock(&self.inner.session_manager);
+            let old_leaf_id = manager.get_leaf_id().map(str::to_owned);
+            let collected = crate::core::compaction::branch_summarization::collect_entries_for_branch_summary(
+                &manager,
+                old_leaf_id.as_deref(),
+                target_id,
+            );
             (
-                manager.get_leaf_id().map(str::to_owned),
+                old_leaf_id,
                 manager.get_entry(target_id).cloned(),
+                collected.entries,
+                collected.common_ancestor_id,
             )
         };
         if old_leaf_id.as_deref() == Some(target_id) {
@@ -4578,6 +5545,112 @@ impl AgentSession {
         let Some(target_entry) = target_entry else {
             return Err(error(format!("Entry {target_id} not found")));
         };
+
+        let mut custom_instructions = options.custom_instructions.clone();
+        let mut replace_instructions = options.replace_instructions;
+        let mut label = options.label.clone();
+        let abort = CancellationToken::new();
+        *lock(&self.inner.branch_summary_abort_controller) = Some(abort.clone());
+
+        let runner = self.runner();
+        let mut extension_summary = None;
+        if runner.has_handlers("session_before_tree") {
+            let mut event = crate::core::extensions::types::ExtensionEvent::SessionBeforeTree(
+                crate::core::extensions::types::SessionBeforeTreeEvent {
+                    preparation: crate::core::extensions::types::TreePreparation {
+                        target_id: target_id.to_owned(),
+                        old_leaf_id: old_leaf_id.clone(),
+                        common_ancestor_id: common_ancestor_id.clone(),
+                        entries_to_summarize: entries_to_summarize.clone(),
+                        user_wants_summary: options.summarize.unwrap_or(false),
+                        custom_instructions: custom_instructions.clone(),
+                        replace_instructions,
+                        label: label.clone(),
+                    },
+                    signal: Some(abort.clone()),
+                },
+            );
+            if let crate::core::extensions::runner::EmitResult::SessionBeforeTree(result) =
+                runner.emit(&mut event).await
+            {
+                if result.cancel == Some(true) {
+                    *lock(&self.inner.branch_summary_abort_controller) = None;
+                    return Ok(NavigateTreeResult {
+                        editor_text: None,
+                        cancelled: true,
+                        aborted: None,
+                        summary_entry: None,
+                    });
+                }
+                if let Some(summary) = result.summary
+                    && options.summarize == Some(true)
+                {
+                    extension_summary = Some(summary);
+                }
+                if let Some(instructions) = result.custom_instructions {
+                    custom_instructions = Some(instructions);
+                }
+                if let Some(replace) = result.replace_instructions {
+                    replace_instructions = Some(replace);
+                }
+                if let Some(next_label) = result.label {
+                    label = Some(next_label);
+                }
+            }
+        }
+
+        let mut summary_text: Option<String> = None;
+        let mut summary_details = None;
+        let mut summary_usage = None;
+        let mut from_extension = false;
+        if options.summarize == Some(true) && !entries_to_summarize.is_empty() && extension_summary.is_none() {
+            let model = self.inner.agent.model();
+            let auth = self.get_compaction_request_auth(&model).await;
+            let reserve_tokens = lock(&self.inner.settings_manager)
+                .get_branch_summary_settings()
+                .reserve_tokens;
+            let stream_fn = self.inner.agent.stream_fn();
+            let result = crate::core::compaction::branch_summarization::generate_branch_summary_default(
+                &entries_to_summarize,
+                &crate::core::compaction::branch_summarization::GenerateBranchSummaryOptions {
+                    model: &auth.model,
+                    api_key: auth.api_key.clone(),
+                    headers: auth.headers.clone(),
+                    env: auth.env.clone(),
+                    signal: Some(abort.clone()),
+                    custom_instructions: custom_instructions.as_deref(),
+                    replace_instructions: replace_instructions.unwrap_or(false),
+                    reserve_tokens: Some(reserve_tokens),
+                    stream_fn: Some(&stream_fn),
+                    retry: None,
+                },
+            )
+            .await;
+            if result.aborted == Some(true) {
+                *lock(&self.inner.branch_summary_abort_controller) = None;
+                return Ok(NavigateTreeResult {
+                    editor_text: None,
+                    cancelled: true,
+                    aborted: Some(true),
+                    summary_entry: None,
+                });
+            }
+            if let Some(summary_error) = result.error {
+                *lock(&self.inner.branch_summary_abort_controller) = None;
+                return Err(error(summary_error));
+            }
+            summary_text = result.summary;
+            summary_usage = result.usage;
+            summary_details = Some(serde_json::json!({
+                "readFiles": result.read_files.unwrap_or_default(),
+                "modifiedFiles": result.modified_files.unwrap_or_default(),
+            }));
+        } else if let Some(summary) = extension_summary {
+            summary_text = Some(summary.summary);
+            summary_details = summary.details;
+            summary_usage = summary.usage;
+            from_extension = true;
+        }
 
         let (new_leaf_id, editor_text) = match &target_entry {
             SessionEntry::Known(crate::core::session_manager::KnownSessionEntry::Message(message))
@@ -4605,25 +5678,72 @@ impl AgentSession {
             _ => (Some(target_id.to_owned()), None),
         };
 
+        let mut summary_entry = None;
+        let had_summary = summary_text.is_some();
         {
             let mut manager = lock(&self.inner.session_manager);
-            if let Some(new_leaf_id) = &new_leaf_id {
-                manager.branch(new_leaf_id)?;
+            if let Some(text) = summary_text {
+                let summary_id = manager.branch_with_summary(
+                    new_leaf_id.as_deref(),
+                    &text,
+                    summary_details,
+                    Some(from_extension),
+                    summary_usage,
+                )?;
+                summary_entry = manager.get_entry(&summary_id).cloned();
+                if let Some(label) = &label {
+                    manager.append_label_change(&summary_id, Some(label))?;
+                }
             } else {
-                manager.reset_leaf();
-            }
-            if let Some(label) = &options.label {
-                manager.append_label_change(target_id, Some(label))?;
+                if let Some(new_leaf_id) = &new_leaf_id {
+                    manager.branch(new_leaf_id)?;
+                } else {
+                    manager.reset_leaf();
+                }
+                if let Some(label) = &label {
+                    manager.append_label_change(target_id, Some(label))?;
+                }
             }
         }
         let session_context = lock(&self.inner.session_manager).build_session_context();
         self.inner.agent.set_messages(session_context.messages);
+        let mut event = crate::core::extensions::types::ExtensionEvent::SessionTree(
+            crate::core::extensions::types::SessionTreeEvent {
+                new_leaf_id: lock(&self.inner.session_manager).get_leaf_id().map(str::to_owned),
+                old_leaf_id,
+                summary_entry: summary_entry.clone().and_then(|entry| match entry {
+                    SessionEntry::Known(crate::core::session_manager::KnownSessionEntry::BranchSummary(summary)) => {
+                        Some(summary)
+                    }
+                    _ => None,
+                }),
+                from_extension: had_summary.then_some(from_extension),
+            },
+        );
+        runner.emit(&mut event).await;
+        *lock(&self.inner.branch_summary_abort_controller) = None;
         Ok(NavigateTreeResult {
             editor_text,
             cancelled: false,
             aborted: None,
-            summary_entry: None,
+            summary_entry,
         })
+    }
+
+    /// Binds the runtime-owned working-directory relocation handlers on the extension runner.
+    ///
+    /// TypeScript captures `this` inside `AgentSessionRuntime`; Rust callers supply the
+    /// closures because the runtime owns the session and cannot reference itself during
+    /// construction.
+    pub fn bind_session_runtime_relocation(
+        &self,
+        relocate: crate::core::extensions::types::RelocateCallback,
+        prepare_tool_result: crate::core::extensions::types::RelocateCallback,
+        activate_tool_result: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
+    ) {
+        let mut runner = self.runner();
+        runner.set_relocate_handler(relocate);
+        runner.set_tool_result_relocation_handlers(prepare_tool_result, activate_tool_result);
     }
 
     /// All user messages from the session, for the fork selector.
@@ -4954,7 +6074,7 @@ use crate::core::extensions::types::{
     ToolExecutionStartEvent, ToolExecutionUpdateEvent, ToolInfo as ExtensionToolInfo, TurnEndEvent, TurnStartEvent,
     UserMessageContent, UserMessageDelivery,
 };
-use crate::core::extensions::wrapper::wrap_registered_tool;
+use crate::core::extensions::wrapper::{wrap_definition_tool, wrap_registered_tool};
 use crate::core::footer_data_provider::FooterDataProvider;
 use crate::core::slash_commands::SlashCommandInfo;
 
@@ -5188,7 +6308,11 @@ impl AgentSession {
         runner.bind_core(actions, context_actions, Some(provider_actions));
     }
 
-    async fn emit_extension_event(&self, event: &mut AgentEvent) -> Option<AgentMessage> {
+    async fn emit_extension_event(
+        &self,
+        event: &mut AgentEvent,
+        session_continuation: Option<crate::core::extensions::types::AgentEndSessionContinuation>,
+    ) -> Option<AgentMessage> {
         let runner = self.runner();
         match event {
             AgentEvent::AgentStart => {
@@ -5200,7 +6324,7 @@ impl AgentSession {
             AgentEvent::AgentEnd { messages } => {
                 let mut extension_event = ExtensionEvent::AgentEnd(ExtensionAgentEndEvent {
                     messages: messages.clone(),
-                    session_continuation: None,
+                    session_continuation,
                 });
                 runner.emit(&mut extension_event).await;
                 None

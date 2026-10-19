@@ -1304,6 +1304,237 @@ fn appending_messages_writes_the_metadata_snapshot() {
 }
 
 #[test]
+fn set_session_sandbox_profile_persists_and_clears() {
+    use pi_coding_agent::core::permissions::presets::SandboxProfileName;
+
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().display().to_string();
+    let sessions = dir.path().join("sessions").display().to_string();
+    let control_db = dir.path().join("control.db").display().to_string();
+    let mut session = SessionManager::create(&cwd, Some(&sessions), None).unwrap();
+    assert!(!session.set_session_sandbox_profile(None).expect("no control db"));
+    session
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
+    let session_file = session.get_session_file().unwrap().to_owned();
+    session
+        .append_message(user_message("hello", 1))
+        .expect("append message");
+
+    assert!(
+        session
+            .set_session_sandbox_profile(Some(SandboxProfileName::ReadOnly))
+            .expect("write profile")
+    );
+    assert!(Path::new(&session_file).exists(), "profile write persists for recovery");
+    let settings = session.read_persisted_session_settings().unwrap().unwrap();
+    assert_eq!(settings.sandbox_profile, Some(SandboxProfileName::ReadOnly));
+
+    assert!(session.set_session_sandbox_profile(None).expect("clear profile"));
+    let settings = session.read_persisted_session_settings().unwrap().unwrap();
+    assert_eq!(settings.sandbox_profile, None);
+}
+
+#[test]
+fn metadata_backed_listing_prefers_control_db_and_excludes_subagents() {
+    use pi_coding_agent::core::session_control_db::get_control_db_path;
+
+    let dir = temp_dir("session-metadata-list");
+    let session_dir = dir.join("sessions");
+    let control_db_path = get_control_db_path(&dir);
+    let cwd = dir.display().to_string();
+    let mut session = SessionManager::create(&cwd, Some(&session_dir.display().to_string()), None).unwrap();
+    session
+        .set_metadata_control_db_path(Some(&control_db_path), Default::default())
+        .unwrap();
+    session.append_message(user_message("hello", 1)).unwrap();
+    session.append_message(assistant_message("hi", 2)).unwrap();
+    let session_file = session.get_session_file().unwrap().to_owned();
+
+    let subagent_path = session_dir.join("subagent.jsonl").display().to_string();
+    write_session_metadata(
+        &control_db_path,
+        &WritableSessionMetadata {
+            session_path: subagent_path.clone(),
+            id: "subagent".to_owned(),
+            cwd: cwd.clone(),
+            name: None,
+            parent_session_path: Some(session_file.clone()),
+            archived_at: None,
+            is_archived: None,
+            is_subagent: Some(true),
+            subagent_name: Some("worker".to_owned()),
+            model_provider: None,
+            model_id: None,
+            thinking_level: None,
+            created_at: "2026-01-01T00:00:00.000Z".to_owned(),
+            modified_at: "2026-01-01T00:10:00.000Z".to_owned(),
+            message_count: 1,
+            first_message: "task".to_owned(),
+            all_messages_text: "task".to_owned(),
+            index_message_text: None,
+        },
+    )
+    .unwrap();
+
+    let listed = SessionManager::list(
+        &cwd,
+        Some(&session_dir.display().to_string()),
+        None,
+        Some(&control_db_path),
+    )
+    .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].path, session_file);
+    assert_eq!(listed[0].message_count, 2);
+    assert_eq!(listed[0].first_message, "hello");
+
+    let archived_path = session_dir.join("archived.jsonl").display().to_string();
+    write_session_metadata(
+        &control_db_path,
+        &WritableSessionMetadata {
+            session_path: archived_path,
+            id: "archived".to_owned(),
+            cwd: cwd.clone(),
+            name: Some("Old".to_owned()),
+            parent_session_path: None,
+            archived_at: Some("2026-01-02T00:00:00.000Z".to_owned()),
+            is_archived: None,
+            is_subagent: None,
+            subagent_name: None,
+            model_provider: None,
+            model_id: None,
+            thinking_level: None,
+            created_at: "2026-01-01T00:00:00.000Z".to_owned(),
+            modified_at: "2026-01-01T00:10:00.000Z".to_owned(),
+            message_count: 3,
+            first_message: "archived".to_owned(),
+            all_messages_text: "archived".to_owned(),
+            index_message_text: None,
+        },
+    )
+    .unwrap();
+
+    let archived = SessionManager::list_archived(None, Some(&control_db_path)).unwrap();
+    assert_eq!(archived.len(), 1);
+    assert_eq!(archived[0].id, "archived");
+    assert_eq!(archived[0].name.as_deref(), Some("Old"));
+    assert_eq!(archived[0].is_archived, Some(true));
+    assert!(
+        SessionManager::list_archived(None, None).unwrap().is_empty(),
+        "archived listing requires a control database"
+    );
+
+    let all = SessionManager::list_all(Some(&session_dir.display().to_string()), None, Some(&control_db_path)).unwrap();
+    assert_eq!(all.len(), 1, "subagents and archived sessions are excluded");
+    assert_eq!(all[0].path, session_file);
+}
+
+#[test]
+fn metadata_listing_scopes_by_cwd_and_returns_control_db_order() {
+    use pi_coding_agent::core::session_control_db::get_control_db_path;
+
+    let dir = temp_dir("session-metadata-scope");
+    let control_db_path = get_control_db_path(&dir);
+    let sessions_a = dir.join("sessions-a");
+    let sessions_b = dir.join("sessions-b");
+    let cwd_a = dir.join("repo-a").display().to_string();
+    let cwd_b = dir.join("repo-b").display().to_string();
+    for cwd in [&cwd_a, &cwd_b] {
+        fs::create_dir_all(cwd).unwrap();
+    }
+    let mut session_a = SessionManager::create(&cwd_a, Some(&sessions_a.display().to_string()), None).unwrap();
+    session_a
+        .set_metadata_control_db_path(Some(&control_db_path), Default::default())
+        .unwrap();
+    session_a.append_message(user_message("a", 1)).unwrap();
+    session_a.append_message(assistant_message("a", 2)).unwrap();
+    let path_a = session_a.get_session_file().unwrap().to_owned();
+
+    let mut session_b = SessionManager::create(&cwd_b, Some(&sessions_b.display().to_string()), None).unwrap();
+    session_b
+        .set_metadata_control_db_path(Some(&control_db_path), Default::default())
+        .unwrap();
+    session_b.append_message(user_message("b", 1)).unwrap();
+    session_b.append_message(assistant_message("b", 2)).unwrap();
+    let path_b = session_b.get_session_file().unwrap().to_owned();
+
+    let scoped = SessionManager::list(
+        &cwd_a,
+        Some(&sessions_a.display().to_string()),
+        None,
+        Some(&control_db_path),
+    )
+    .unwrap();
+    assert_eq!(scoped.len(), 1);
+    assert_eq!(scoped[0].path, path_a);
+
+    let all = SessionManager::list_all(None, None, Some(&control_db_path)).unwrap();
+    assert_eq!(all.len(), 2);
+    let newest = read_session_metadata(&control_db_path, &path_b).unwrap().unwrap();
+    let oldest = read_session_metadata(&control_db_path, &path_a).unwrap().unwrap();
+    let expected_first = if newest.modified_at >= oldest.modified_at {
+        path_b.clone()
+    } else {
+        path_a.clone()
+    };
+    assert_eq!(all[0].path, expected_first, "listing keeps control-db modified order");
+
+    let scoped_b =
+        SessionManager::list_all(Some(&sessions_b.display().to_string()), None, Some(&control_db_path)).unwrap();
+    assert_eq!(scoped_b.len(), 1);
+    assert_eq!(scoped_b[0].path, path_b);
+}
+
+#[test]
+fn open_preserves_a_freshly_persisted_header() {
+    let dir = temp_dir("session-open-header");
+    let session_dir = dir.join("sessions").display().to_string();
+    let mut created = SessionManager::create(
+        &dir.display().to_string(),
+        Some(&session_dir),
+        Some(NewSessionOptions {
+            id: Some("fresh-header".to_owned()),
+            parent_session: Some("/parent/session.jsonl".to_owned()),
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    created.append_session_info("Fresh Session").unwrap();
+    created.persist_for_recovery().unwrap();
+    let path = created.get_session_file().unwrap().to_owned();
+    let created_id = created.get_session_id().to_owned();
+    drop(created);
+
+    let opened = SessionManager::open(&path, Some(&session_dir), None).unwrap();
+    assert_eq!(opened.get_session_id(), created_id);
+    assert_eq!(opened.get_session_name().as_deref(), Some("Fresh Session"));
+    assert_eq!(opened.get_cwd(), dir.display().to_string());
+    let header = opened.get_header().expect("header");
+    assert_eq!(header.id, created_id);
+    assert_eq!(header.version, Some(CURRENT_SESSION_VERSION));
+    assert_eq!(header.parent_session.as_deref(), Some("/parent/session.jsonl"));
+
+    let header_only_dir = temp_dir("session-open-header-only");
+    let header_only_dir_path = header_only_dir.display().to_string();
+    let mut header_only = SessionManager::create(
+        &header_only_dir_path,
+        Some(&header_only_dir.join("sessions").display().to_string()),
+        Some(NewSessionOptions {
+            id: Some("header-only".to_owned()),
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    header_only.persist_for_recovery().unwrap();
+    let header_only_path = header_only.get_session_file().unwrap().to_owned();
+    drop(header_only);
+    let reopened = SessionManager::open(&header_only_path, None, None).unwrap();
+    assert_eq!(reopened.get_session_id(), "header-only");
+    assert_eq!(reopened.get_cwd(), header_only_dir_path);
+}
+
+#[test]
 fn relocation_moves_control_db_rows() {
     let dir = temp_dir("session-relocate-control-db");
     let project_a = dir.join("project-a");

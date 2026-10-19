@@ -7,6 +7,11 @@
 //! self-update is unavailable because the binary is not managed by a package manager. The
 //! package-manager branches stay ported as pure functions driven by an [`InstallContext`] so they
 //! remain testable and differentially provable.
+//!
+//! Embedded assets (approved deviation 2026-10-18): without `PI_PACKAGE_DIR`, `package.json` and
+//! the built-in `dark`/`light` themes come from copies of the pinned source compiled into the
+//! executable instead of files beside it, so a bare binary starts. `PI_PACKAGE_DIR` restores the
+//! disk reads.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -24,6 +29,9 @@ const DEFAULT_APP_NAME: &str = "pi";
 const DEFAULT_CONFIG_DIR_NAME: &str = ".pi";
 const DEFAULT_SHARE_VIEWER_URL: &str = "https://pi.dev/session/";
 const RELEASES_URL: &str = "https://github.com/earendil-works/pi-mono/releases/latest";
+const EMBEDDED_PACKAGE_JSON: &str = include_str!("../package.json");
+const EMBEDDED_DARK_THEME: &str = include_str!("../theme/dark.json");
+const EMBEDDED_LIGHT_THEME: &str = include_str!("../theme/light.json");
 
 /// Failure while reading the package configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,7 +91,11 @@ impl PackageConfig {
             }
             Err(error) => return Err(ConfigError::new(error.to_string())),
         };
-        let value = js_json::parse(&content).map_err(|error| ConfigError::new(error.to_string()))?;
+        Self::parse(&content)
+    }
+
+    fn parse(content: &str) -> Result<Self, ConfigError> {
+        let value = js_json::parse(content).map_err(|error| ConfigError::new(error.to_string()))?;
         let parsed: PackageJson = serde_json::from_value(value).map_err(|error| ConfigError::new(error.to_string()))?;
         Ok(Self::from_package_json(&parsed))
     }
@@ -123,10 +135,23 @@ static PACKAGE_CONFIG: OnceLock<PackageConfig> = OnceLock::new();
 /// The process-wide package constants, read once like the TypeScript module constants.
 pub fn package_config() -> &'static PackageConfig {
     PACKAGE_CONFIG.get_or_init(|| {
-        PackageConfig::load(&get_package_dir()).unwrap_or_else(|error| {
+        let loaded = match package_dir_override() {
+            Some(package_dir) => PackageConfig::load(&package_dir),
+            None => PackageConfig::parse(EMBEDDED_PACKAGE_JSON),
+        };
+        loaded.unwrap_or_else(|error| {
             panic!("Failed to load package.json: {error}");
         })
     })
+}
+
+/// The built-in theme source compiled into the executable, used when `PI_PACKAGE_DIR` is unset.
+pub fn embedded_builtin_theme(name: &str) -> Option<&'static str> {
+    match name {
+        "dark" => Some(EMBEDDED_DARK_THEME),
+        "light" => Some(EMBEDDED_LIGHT_THEME),
+        _ => None,
+    }
 }
 
 fn default_path_options() -> PathInputOptions {
@@ -154,13 +179,20 @@ fn join(base: &str, segment: &str) -> String {
 
 /// The package directory: `PI_PACKAGE_DIR`, otherwise the executable's directory.
 pub fn get_package_dir() -> PathBuf {
-    if let Some(directory) = std::env::var_os("PI_PACKAGE_DIR").filter(|value| !value.is_empty()) {
-        return PathBuf::from(normalize(&directory.to_string_lossy()));
+    if let Some(directory) = package_dir_override() {
+        return directory;
     }
     std::env::current_exe()
         .ok()
         .and_then(|executable| executable.parent().map(Path::to_path_buf))
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// `PI_PACKAGE_DIR`, when set and non-empty.
+pub fn package_dir_override() -> Option<PathBuf> {
+    std::env::var_os("PI_PACKAGE_DIR")
+        .filter(|value| !value.is_empty())
+        .map(|directory| PathBuf::from(normalize(&directory.to_string_lossy())))
 }
 
 /// Themes shipped next to the executable.

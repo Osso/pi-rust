@@ -31,7 +31,7 @@ use pi_tui::terminal_colors::RgbColor;
 use pi_tui::terminal_image::get_capabilities;
 use serde_json::{Map, Value};
 
-use crate::config::{get_custom_themes_dir, get_themes_dir};
+use crate::config::{embedded_builtin_theme, get_custom_themes_dir, get_themes_dir, package_dir_override};
 use crate::core::source_info::SourceInfo;
 use crate::utils::chalk::{Chalk, Style};
 use crate::utils::fs_watch::{WatchEventKind, close_watcher, watch_with_error_handler};
@@ -771,11 +771,15 @@ fn get_builtin_themes() -> Map<String, Value> {
         return builtin;
     }
     let themes_dir = get_themes_dir();
+    let read_from_disk = package_dir_override().is_some();
     let mut builtin = Map::new();
     for name in ["dark", "light"] {
         let path = themes_dir.join(format!("{name}.json"));
-        let content = fs::read_to_string(&path)
-            .unwrap_or_else(|error| panic!("Failed to read built-in theme {}: {error}", path.display()));
+        let content = match embedded_builtin_theme(name) {
+            Some(embedded) if !read_from_disk => embedded.to_owned(),
+            _ => fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("Failed to read built-in theme {}: {error}", path.display())),
+        };
         let value: Value = serde_json::from_str(&content)
             .unwrap_or_else(|error| panic!("Failed to parse built-in theme {}: {error}", path.display()));
         builtin.insert(name.to_owned(), value);
