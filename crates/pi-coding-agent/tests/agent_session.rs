@@ -151,6 +151,7 @@ async fn fixture_with_multi_agent(
         multi_agent_store: multi_agent.as_ref().map(|(store, _)| Arc::clone(store)),
         multi_agent_agent_id: multi_agent.as_ref().map(|(_, agent_id)| agent_id.clone()),
         multi_agent_parent_session_id: None,
+        multi_agent_requires_agent_id: multi_agent.is_some(),
         disable_runtime_coordination_inbound: false,
         on_shared_channel_message_delivered: None,
         extension_runner_ref: None,

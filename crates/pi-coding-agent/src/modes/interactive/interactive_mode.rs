@@ -5404,6 +5404,7 @@ mod ui_tests {
                         multi_agent_store: None,
                         multi_agent_agent_id: None,
                         multi_agent_parent_session_id: None,
+                        multi_agent_requires_agent_id: false,
                         disable_runtime_coordination_inbound: false,
                         on_shared_channel_message_delivered: None,
                         extension_runner_ref: None,

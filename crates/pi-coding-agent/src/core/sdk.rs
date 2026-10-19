@@ -72,6 +72,12 @@ pub struct CreateAgentSessionOptions {
     pub multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
     pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
+    /// Current multi-agent runtime agent identity, when resuming or running as a child agent.
+    pub multi_agent_agent_id: Option<String>,
+    /// Parent runtime session ID for supervisor-directed messages from attached agents.
+    pub multi_agent_parent_session_id: Option<String>,
+    /// Whether this runtime must have an explicit multi-agent identity to send agent messages.
+    pub multi_agent_requires_agent_id: bool,
     pub disable_runtime_coordination_inbound: bool,
     pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
     pub session_start_event: Option<crate::core::extensions::types::SessionStartEvent>,
@@ -457,8 +463,9 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         thinking_phase_timeout_ms: None,
         supervisor_decision_requester: None,
         multi_agent_store: options.multi_agent_store,
-        multi_agent_agent_id: None,
-        multi_agent_parent_session_id: None,
+        multi_agent_agent_id: options.multi_agent_agent_id,
+        multi_agent_parent_session_id: options.multi_agent_parent_session_id,
+        multi_agent_requires_agent_id: options.multi_agent_requires_agent_id,
         disable_runtime_coordination_inbound: options.disable_runtime_coordination_inbound,
         on_shared_channel_message_delivered: options.on_shared_channel_message_delivered,
         extension_runner_ref: None,

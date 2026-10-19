@@ -242,6 +242,7 @@ pub struct AgentSessionConfig {
     pub multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
     pub multi_agent_agent_id: Option<String>,
     pub multi_agent_parent_session_id: Option<String>,
+    pub multi_agent_requires_agent_id: bool,
     pub disable_runtime_coordination_inbound: bool,
     pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
     pub extension_runner_ref: Option<Arc<Mutex<Option<ExtensionRunner>>>>,
@@ -901,6 +902,7 @@ struct Inner {
     multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
     multi_agent_agent_id: Option<String>,
     multi_agent_parent_session_id: Option<String>,
+    multi_agent_requires_agent_id: bool,
     disable_runtime_coordination_inbound: bool,
     on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
     terminal_outbox_claim_id: String,
@@ -1117,6 +1119,7 @@ impl AgentSession {
         let multi_agent_store = config.multi_agent_store.clone();
         let multi_agent_agent_id = config.multi_agent_agent_id.clone();
         let multi_agent_parent_session_id = config.multi_agent_parent_session_id.clone();
+        let multi_agent_requires_agent_id = config.multi_agent_requires_agent_id;
         let disable_runtime_coordination_inbound = config.disable_runtime_coordination_inbound;
         let on_shared_channel_message_delivered = config.on_shared_channel_message_delivered.clone();
 
@@ -1190,6 +1193,7 @@ impl AgentSession {
             multi_agent_store,
             multi_agent_agent_id,
             multi_agent_parent_session_id,
+            multi_agent_requires_agent_id,
             disable_runtime_coordination_inbound,
             on_shared_channel_message_delivered,
             terminal_outbox_claim_id: pi_ai::utils::uuid::random_uuid(),
@@ -7010,9 +7014,21 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
         restart,
         get_control_db_path,
         get_context_usage,
-        get_multi_agent_agent_id: None,
-        get_multi_agent_parent_session_id: None,
-        get_multi_agent_requires_agent_id: None,
+        get_multi_agent_agent_id: Some(Arc::new({
+            let weak = weak.clone();
+            move || weak.upgrade().and_then(|inner| inner.multi_agent_agent_id.clone())
+        })),
+        get_multi_agent_parent_session_id: Some(Arc::new({
+            let weak = weak.clone();
+            move || {
+                weak.upgrade()
+                    .and_then(|inner| inner.multi_agent_parent_session_id.clone())
+            }
+        })),
+        get_multi_agent_requires_agent_id: Some(Arc::new({
+            let weak = weak.clone();
+            move || weak.upgrade().is_some_and(|inner| inner.multi_agent_requires_agent_id)
+        })),
         get_multi_agent_store: None,
         get_tool_detach_registry: None,
         compact,
