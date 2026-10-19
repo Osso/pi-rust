@@ -41,6 +41,12 @@ pub fn local_date_fields(millis: i64) -> Option<LocalDateFields> {
     local_date_fields_in(millis, &TimeZone::system())
 }
 
+/// UTC fields of a JavaScript `Date` (`getUTCFullYear`, `getUTCMonth`,
+/// `getUTCDate`, `getUTCHours`, `getUTCMinutes`).
+pub fn utc_date_fields(millis: i64) -> Option<LocalDateFields> {
+    local_date_fields_in(millis, &TimeZone::UTC)
+}
+
 /// [`local_date_fields`] resolved against an explicit time zone.
 pub fn local_date_fields_in(millis: i64, zone: &TimeZone) -> Option<LocalDateFields> {
     if !(-MAX_DATE_MILLIS..=MAX_DATE_MILLIS).contains(&millis) {
@@ -459,4 +465,19 @@ fn days_in_month(year: i64, month: i64) -> i64 {
 
 fn is_leap_year(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::utc_date_fields;
+
+    #[test]
+    fn utc_fields_match_javascript_get_utc_getters() {
+        let fields = utc_date_fields(1_800_000_000_000).expect("valid date");
+        assert_eq!(
+            (fields.year, fields.month, fields.day, fields.hours, fields.minutes),
+            (2027, 0, 15, 8, 0)
+        );
+        assert!(utc_date_fields(i64::MAX).is_none());
+    }
 }
