@@ -7,7 +7,9 @@ Rust: `crates/pi-coding-agent/src/bundled_extensions/llama/huggingface.rs`.
 Differential: `crates/pi-coding-agent/tests/differential_llama_huggingface.rs`
 drives `oracle/llama-huggingface-oracle.ts` against a local Node HTTP server and
 compares token discovery, search requests/results, details payloads, and error
-messages in source order. No external service is contacted.
+messages in source order. The request comparison keeps the client-controlled
+`authorization` header only; transport headers are not module output. No
+external service is contacted.
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|

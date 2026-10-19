@@ -7,8 +7,10 @@ Rust: `crates/pi-coding-agent/src/bundled_extensions/llama/client.rs`.
 Differential: `crates/pi-coding-agent/tests/differential_llama_client.rs` drives
 `oracle/llama-client-oracle.ts` (real module under `tsx`) and compares leaf
 outputs, request bytes (method, path, content-type, authorization, body), list
-results, and catalog error messages in source order. SSE timing paths are proven
-behaviorally.
+results, and catalog error messages in source order. The request comparison
+keeps only headers the module sets; Node's transport adds accept/user-agent/
+connection headers that are not module output. An absent request body is
+normalized to `null` on both sides. SSE timing paths are proven behaviorally.
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
