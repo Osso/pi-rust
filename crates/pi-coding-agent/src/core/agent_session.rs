@@ -5433,15 +5433,16 @@ impl AgentSession {
         }));
     }
 
-    pub fn update_compaction_summary(&self, entry_id: &str, summary: &str) {
+    pub fn update_compaction_summary(&self, entry_id: &str, summary: &str) -> Result<(), AgentSessionError> {
         let messages = {
             let mut manager = lock(&self.inner.session_manager);
-            if let Err(error) = manager.update_compaction_summary(entry_id, summary) {
-                eprintln!("Failed to update compaction summary: {error}");
-            }
+            manager
+                .update_compaction_summary(entry_id, summary)
+                .map_err(|failure| error(failure.to_string()))?;
             manager.build_session_context().messages
         };
         self.inner.agent.set_messages(messages);
+        Ok(())
     }
 
     /// Materializes a provider-native compaction summary.

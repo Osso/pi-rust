@@ -19,7 +19,7 @@ Tests: `crates/pi-ai/tests/auth.rs`.
 | `ModelAuth`, `ApiKeyCredential`, `OAuthCredential`, `Credential`, `CredentialInfo` | same names | `credential_round_trips_and_preserves_extra_oauth_keys`, `in_memory_store_lists_metadata_and_serializes_modifications` |
 | `AuthResult`, `AuthCheck`, `AuthType` | same | `auth_result_serializes_provider_env_and_source`, `models_error_with_cause_keeps_detail_once` |
 | `AuthPrompt`, `AuthEvent`, `AuthInteraction` | same | `env_api_key_login_prompts_for_a_secret` |
-| `ApiKeyAuth` (`name/login/check/resolve`) | trait | `env_api_key_auth_*`; models tests exercise `check/resolve/login` |
+| `ApiKeyAuth` (`name/login/check/resolve`, `supports_login`) | trait | `env_api_key_auth_*`; models tests exercise `check/resolve/login`; `login_options::tests::api_key_login_availability_follows_the_auth_method` covers `supports_login` (ambient-only `FauxApiKeyAuth` reports `false`) |
 | `OAuthAuth` (`login/refresh/toAuth`, subscription/label) | trait | `lazy_oauth_loads_implementation_once_and_delegates`, OAuth tests |
 | `CredentialStore` (`read/list/modify/delete`) | trait | credential-store and resolve tests |
 | `ProviderAuth` | struct | all resolution tests |

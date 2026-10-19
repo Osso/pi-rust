@@ -26,7 +26,7 @@ All direct dependencies are exact-pinned.
 - `tempfile = 3.27.0` — creates the private `pi-editor-*` directory for the interactive external editor (`mkdtempSync` equivalent); the mode is set to 0700 to match Node.
 - `serde_json = 1.0.151` (`preserve_order`, `float_roundtrip`) — produces compact semantic JSON before the LF record delimiter, represents parsed frontmatter values, preserves insertion order for byte-identical `settings.json` output (`js_json::stringify_pretty`), and keeps session-entry key order and decimal floats byte-compatible with TypeScript `JSON.stringify`/`JSON.parse`.
 - `indexmap = 2.14.2` — insertion-ordered `IndexMap` for the unknown CLI flags that TypeScript stores in a `Map`, preserving first-insertion order with last-value-wins replacement.
-- `regex = 1.13.1` — compiles the pinned ANSI compatibility pattern in `utils::ansi` and the three pinned `supports-color` patterns in `utils::chalk`.
+- `regex = 1.13.1` — compiles the pinned ANSI compatibility pattern in `utils::ansi`, the three pinned `supports-color` patterns in `utils::chalk`, and the changelog version header match used by the condensed startup notice.
 - `utils::chalk` needs no dependency: `std::io::IsTerminal` supplies TTY detection, replacing `node:tty`.
 - `gethostname = 1.1.0` — supplies the local hostname for OSC 7 terminal current-directory sequences.
 - `getrandom = 0.4.3` — fills the `Math.random()` jitter between Supervisor request attempts in `supervisor::client` and the `randomBytes(8)` suffix of `pi-bash-*.log` full-output files in `core::bash_executor`.

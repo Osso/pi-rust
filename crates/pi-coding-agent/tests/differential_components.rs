@@ -1050,6 +1050,7 @@ fn run_component_case(case: &Value) -> Value {
                         name: provider["name"].as_str().unwrap().to_owned(),
                         auth_type,
                         method_name: provider["methodName"].as_str().map(str::to_owned),
+                        login_supported: true,
                         status,
                     }
                 })

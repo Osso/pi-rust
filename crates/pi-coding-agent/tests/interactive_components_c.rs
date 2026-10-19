@@ -2032,6 +2032,7 @@ fn tool_execution_timer_advances_and_stops_on_completion() {
     use pi_coding_agent::modes::interactive::components::tool_execution::{
         ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
     };
+    use pi_js_compat::date::js_now_millis;
     use std::time::{Duration, Instant};
 
     theme();
@@ -2045,13 +2046,17 @@ fn tool_execution_timer_advances_and_stops_on_completion() {
         "/tmp",
     );
     assert!(!component.has_elapsed_timing());
-    let start = Instant::now();
+    let start = js_now_millis() - 5_000.0;
     component.mark_execution_started(start);
     assert!(component.has_elapsed_timing());
 
-    component.poll(start + Duration::from_millis(1500));
     let rendered = plain(&component.render(40));
-    assert!(rendered.contains("Elapsed: 1s"), "{rendered}");
+    assert!(rendered.contains("Elapsed: 5s"), "{rendered}");
+
+    // The elapsed value comes from `Date.now()`, not from the animation tick.
+    component.poll(Instant::now() + Duration::from_secs(10));
+    let rendered = plain(&component.render(40));
+    assert!(rendered.contains("Elapsed: 5s"), "{rendered}");
 
     component.update_result(
         ToolExecutionResult {
@@ -2062,10 +2067,10 @@ fn tool_execution_timer_advances_and_stops_on_completion() {
             is_error: false,
         },
         false,
-        Some(start + Duration::from_millis(2500)),
+        Some(start + 12_000.0),
     );
     let rendered = plain(&component.render(40));
-    assert!(rendered.contains("Elapsed: 2s"), "{rendered}");
+    assert!(rendered.contains("Elapsed: 12s"), "{rendered}");
     assert!(rendered.contains("done"), "{rendered}");
     assert!(component.next_deadline().is_none());
 }

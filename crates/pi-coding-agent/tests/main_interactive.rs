@@ -10,6 +10,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+#[path = "support/executable_script.rs"]
+mod executable_script;
+
+use executable_script::write_executable_script;
+
 const CTRL_C: &str = "\x03";
 const ESCAPE: &str = "\x1b";
 
@@ -304,4 +309,35 @@ fn resume_flag_selects_a_session_and_starts_interactive_mode() {
     assert!(text.contains("Resume Session"), "stdout:\n{text}");
     assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text}");
     assert!(!text.contains("No session selected"), "stdout:\n{text}");
+}
+
+fn share_environment(fixture: &Fixture, gh_body: &str) -> Vec<(String, String)> {
+    let bin = fixture._temp.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("bin directory");
+    let gh = bin.join("gh");
+    write_executable_script(&gh, gh_body);
+    let mut environment = agent_environment(fixture);
+    environment.push((
+        "PATH".to_owned(),
+        format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()),
+    ));
+    environment
+}
+
+#[test]
+fn share_command_reports_a_missing_gh_login() {
+    let fixture = fixture();
+    let environment = share_environment(&fixture, "#!/bin/sh\nexit 1\n");
+    let inputs = vec![
+        input("Ctrl+C twice to exit", "/share\r"),
+        input("GitHub CLI is not logged in.", CTRL_C),
+        input("Ctrl+C twice to exit", CTRL_C),
+    ];
+    let outcome = run_under_pty(&fixture, &[], &environment, &inputs);
+    let text = visible(&outcome.stdout);
+    assert_eq!(outcome.code, 0, "stdout:\n{text}");
+    assert!(
+        text.contains("GitHub CLI is not logged in. Run 'gh auth login' first."),
+        "stdout:\n{text}"
+    );
 }

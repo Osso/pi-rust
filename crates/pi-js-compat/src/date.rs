@@ -13,6 +13,11 @@ pub fn date_parse(input: &str) -> f64 {
     date_parse_with_time_zone(input, &TimeZone::system())
 }
 
+/// JavaScript `Date.now()` in epoch milliseconds.
+pub fn js_now_millis() -> f64 {
+    system_time_millis(SystemTime::now()).map_or(f64::NAN, |millis| millis as f64)
+}
+
 /// [`date_parse`] as integral epoch milliseconds; `None` where JavaScript returns `NaN`.
 pub fn date_parse_millis(input: &str) -> Option<i64> {
     let millis = date_parse(input);
@@ -469,7 +474,7 @@ fn is_leap_year(year: i64) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::utc_date_fields;
+    use super::{js_now_millis, system_time_millis, utc_date_fields};
 
     #[test]
     fn utc_fields_match_javascript_get_utc_getters() {
@@ -479,5 +484,16 @@ mod tests {
             (2027, 0, 15, 8, 0)
         );
         assert!(utc_date_fields(i64::MAX).is_none());
+    }
+
+    #[test]
+    fn now_millis_tracks_the_system_clock() {
+        let before = system_time_millis(std::time::SystemTime::now()).expect("system time");
+        let now = js_now_millis();
+        let after = system_time_millis(std::time::SystemTime::now()).expect("system time");
+        assert!(
+            (now as i64) >= before && (now as i64) <= after,
+            "{now} not in [{before}, {after}]"
+        );
     }
 }

@@ -1823,3 +1823,57 @@ async fn bash_tool_exposes_live_session_environment_variables() {
         )
     );
 }
+
+#[tokio::test]
+async fn update_compaction_summary_returns_the_persistence_error() {
+    use pi_ai::types::{UserContent, UserMessage, UserRole};
+
+    let fixture = fixture_with_multi_agent(Default::default(), Vec::new(), None, None, None, true).await;
+    let session = &fixture.session;
+    let (compaction_id, session_file) = {
+        let mut manager = session.session_manager();
+        let first_kept = manager
+            .append_message(AgentMessage::User(UserMessage {
+                role: UserRole::Tag,
+                content: UserContent::Text("kept".to_owned()),
+                input_source: None,
+                provider_native: None,
+                timestamp: 1,
+            }))
+            .expect("user message");
+        let id = manager
+            .append_compaction(
+                "original summary",
+                &first_kept,
+                42_000.0,
+                pi_coding_agent::core::session_manager::CompactionAppendOptions {
+                    from_hook: Some(true),
+                    duration_ms: Some(321.0),
+                    ..Default::default()
+                },
+            )
+            .expect("compaction");
+        (
+            id,
+            manager.get_session_file().expect("persisted session file").to_owned(),
+        )
+    };
+    if std::path::Path::new(&session_file).exists() {
+        std::fs::remove_file(&session_file).expect("remove session file");
+    }
+    std::fs::create_dir(&session_file).expect("replace with directory");
+
+    let before = session.messages();
+    let error = session
+        .update_compaction_summary(&compaction_id, "edited summary")
+        .expect_err("persistence failure must surface");
+    assert!(!error.message().is_empty());
+    assert_eq!(session.messages(), before);
+    let compaction = session
+        .session_manager()
+        .get_entry(&compaction_id)
+        .and_then(|entry| entry.as_compaction())
+        .cloned()
+        .expect("compaction entry");
+    assert_eq!(compaction.summary, "original summary");
+}

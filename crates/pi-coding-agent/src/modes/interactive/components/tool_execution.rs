@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::TextOrImageContent;
+use pi_js_compat::date::js_now_millis;
 use pi_tui::tui::{Component, ComponentRef, Container};
 use pi_tui::{Box as BoxComponent, Image, ImageOptions, ImageProtocol, ImageTheme, Spacer, Text, get_capabilities};
 use serde_json::Value;
@@ -140,10 +141,9 @@ pub struct ToolExecutionComponent {
     request_render: Arc<dyn Fn() + Send + Sync>,
     cwd: String,
     execution_started: bool,
-    execution_started_at: Option<Instant>,
-    execution_finished_at: Option<Instant>,
+    execution_started_at: Option<f64>,
+    execution_finished_at: Option<f64>,
     timer_deadline: Option<Instant>,
-    now: Instant,
     args_complete: bool,
     result: Option<ToolExecutionResult>,
     converted_images: HashMap<usize, ConvertedImage>,
@@ -199,7 +199,6 @@ impl ToolExecutionComponent {
             execution_started_at: None,
             execution_finished_at: None,
             timer_deadline: None,
-            now: Instant::now(),
             args_complete: false,
             result: None,
             converted_images: HashMap::new(),
@@ -301,11 +300,10 @@ impl ToolExecutionComponent {
 
     fn format_timer_text(&self) -> Option<String> {
         let started_at = self.execution_started_at?;
-        let finished_at = self.execution_finished_at.unwrap_or(self.now);
-        let elapsed = finished_at.saturating_duration_since(started_at);
+        let finished_at = self.execution_finished_at.unwrap_or_else(js_now_millis);
         Some(format!(
             "Elapsed: {}",
-            format_elapsed_duration(elapsed.as_secs_f64() * 1000.0)
+            format_elapsed_duration(finished_at - started_at)
         ))
     }
 
@@ -351,12 +349,11 @@ impl ToolExecutionComponent {
         self.execution_started_at.is_some()
     }
 
-    pub fn mark_execution_started(&mut self, started_at: Instant) {
+    pub fn mark_execution_started(&mut self, started_at: f64) {
         self.execution_started = true;
         self.execution_started_at = Some(started_at);
         self.execution_finished_at = None;
-        self.now = started_at;
-        self.timer_deadline = Some(started_at + TIMER_INTERVAL);
+        self.timer_deadline = Some(Instant::now() + TIMER_INTERVAL);
         self.update_display();
         (self.request_render)();
     }
@@ -367,12 +364,11 @@ impl ToolExecutionComponent {
         (self.request_render)();
     }
 
-    pub fn update_result(&mut self, result: ToolExecutionResult, is_partial: bool, finished_at: Option<Instant>) {
+    pub fn update_result(&mut self, result: ToolExecutionResult, is_partial: bool, finished_at: Option<f64>) {
         self.result = Some(result);
         self.is_partial = is_partial;
         if !is_partial && self.execution_started_at.is_some() {
-            let finished_at = finished_at.unwrap_or_else(Instant::now);
-            self.now = finished_at;
+            let finished_at = finished_at.unwrap_or_else(js_now_millis);
             self.execution_finished_at = Some(finished_at);
             self.stop_timer();
         }
@@ -386,7 +382,6 @@ impl ToolExecutionComponent {
 
     /// Advance the one-second elapsed timer when due.
     pub fn poll(&mut self, now: Instant) -> bool {
-        self.now = now;
         let mut ticked = false;
         while let Some(deadline) = self.timer_deadline {
             if now < deadline {

@@ -763,6 +763,10 @@ impl crate::auth::types::ApiKeyAuth for FauxApiKeyAuth {
         "Faux"
     }
 
+    fn supports_login(&self) -> bool {
+        false
+    }
+
     fn resolve(
         &self,
         _input: crate::auth::types::ApiKeyResolveInput,
