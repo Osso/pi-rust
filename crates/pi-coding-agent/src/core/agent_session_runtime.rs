@@ -551,6 +551,27 @@ impl AgentSessionRuntime {
         Ok(SessionTransitionResult { cancelled: false })
     }
 
+    /// Swaps the runtime to `session_manager` and runs the replacement callback.
+    async fn replace_with_fork(
+        &mut self,
+        cwd: &str,
+        session_manager: SessionManager,
+        previous_session_file: Option<String>,
+        with_session: Option<ReplacedSessionCallback>,
+    ) -> Result<(), String> {
+        self.teardown_current(
+            SessionShutdownReason::Fork,
+            session_manager.get_session_file().map(str::to_owned),
+        )
+        .await;
+        let result = self
+            .create_runtime(cwd, session_manager, "fork", previous_session_file)
+            .await?;
+        self.apply(result);
+        self.finish_session_replacement(with_session).await;
+        Ok(())
+    }
+
     /// Forks the current session at an entry.
     pub async fn fork(
         &mut self,
@@ -615,16 +636,8 @@ impl AgentSessionRuntime {
                     }))
                     .map_err(|error| error.to_string())?;
                 let cwd = self.cwd().to_owned();
-                self.teardown_current(
-                    SessionShutdownReason::Fork,
-                    session_manager.get_session_file().map(str::to_owned),
-                )
-                .await;
-                let result = self
-                    .create_runtime(&cwd, session_manager, "fork", previous_session_file)
+                self.replace_with_fork(&cwd, session_manager, previous_session_file, with_session)
                     .await?;
-                self.apply(result);
-                self.finish_session_replacement(with_session).await;
                 return Ok(ForkResult {
                     cancelled: false,
                     selected_text,
@@ -642,16 +655,8 @@ impl AgentSessionRuntime {
                 return Err("Failed to create forked session".to_owned());
             }
             let cwd = session_manager.get_cwd().to_owned();
-            self.teardown_current(
-                SessionShutdownReason::Fork,
-                session_manager.get_session_file().map(str::to_owned),
-            )
-            .await;
-            let result = self
-                .create_runtime(&cwd, session_manager, "fork", previous_session_file)
+            self.replace_with_fork(&cwd, session_manager, previous_session_file, with_session)
                 .await?;
-            self.apply(result);
-            self.finish_session_replacement(with_session).await;
             return Ok(ForkResult {
                 cancelled: false,
                 selected_text,
@@ -680,16 +685,8 @@ impl AgentSessionRuntime {
         }
         let session_manager = self.session.session_manager().clone();
         let cwd = self.cwd().to_owned();
-        self.teardown_current(
-            SessionShutdownReason::Fork,
-            session_manager.get_session_file().map(str::to_owned),
-        )
-        .await;
-        let result = self
-            .create_runtime(&cwd, session_manager, "fork", previous_session_file)
+        self.replace_with_fork(&cwd, session_manager, previous_session_file, with_session)
             .await?;
-        self.apply(result);
-        self.finish_session_replacement(with_session).await;
         Ok(ForkResult {
             cancelled: false,
             selected_text,
