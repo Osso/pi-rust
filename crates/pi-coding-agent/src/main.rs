@@ -2082,7 +2082,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
 
     let initial = prepare_initial_message(&mut parsed, image_auto_resize, stdin_content.as_deref()).await?;
     time("prepareInitialMessage", TimingLabel::Main);
-    init_theme(theme.as_deref(), app_mode == AppMode::Interactive);
+    init_theme(theme.as_deref(), app_mode == AppMode::Interactive).map_err(|error| error.to_string())?;
     time("initTheme", TimingLabel::Main);
 
     if app_mode == AppMode::Interactive && !migrations.deprecation_warnings.is_empty() {

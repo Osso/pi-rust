@@ -72,7 +72,7 @@ fn result_text(result: &AgentToolResult) -> String {
 fn small_results_pass_through_unchanged() {
     let mut spill = ToolOutputSpill::default();
     let result = text_result("hello".to_owned());
-    let capped = cap_tool_result_output(result.clone(), &mut spill);
+    let capped = cap_tool_result_output(result.clone(), &mut spill).expect("cap result");
     assert_eq!(capped.content, result.content);
     assert_eq!(capped.details, None);
     assert!(spill.full_output_path.is_none());
@@ -83,7 +83,7 @@ fn oversized_results_spill_the_full_text_and_keep_the_tail() {
     let lines = (0..2500).map(|index| format!("line {index}")).collect::<Vec<_>>();
     let full_text = lines.join("\n");
     let mut spill = ToolOutputSpill::default();
-    let capped = cap_tool_result_output(text_result(full_text.clone()), &mut spill);
+    let capped = cap_tool_result_output(text_result(full_text.clone()), &mut spill).expect("cap result");
 
     let path = spill.full_output_path.clone().expect("spill path");
     assert_eq!(std::fs::read_to_string(&path).expect("spill file"), full_text);
@@ -103,7 +103,7 @@ fn existing_output_details_are_never_recapped() {
     let mut result = text_result(lines.join("\n"));
     result.details = Some(json!({"fullOutputPath": "/tmp/existing.log"}));
     let mut spill = ToolOutputSpill::default();
-    let capped = cap_tool_result_output(result.clone(), &mut spill);
+    let capped = cap_tool_result_output(result.clone(), &mut spill).expect("cap result");
     assert_eq!(capped.content, result.content);
     assert_eq!(capped.details, result.details);
     assert!(spill.full_output_path.is_none());
@@ -138,4 +138,22 @@ fn wrapped_tools_cap_partial_updates_and_reuse_one_spill_file() {
     assert_eq!(update_path, final_path);
     let path = final_path.as_str().expect("path string").to_owned();
     let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn spill_write_failure_returns_the_node_error() {
+    let lines = (0..2500).map(|index| format!("line {index}")).collect::<Vec<_>>();
+    let path = std::env::temp_dir()
+        .join(format!("pi-missing-dir-{}", std::process::id()))
+        .join("spill.log");
+    let mut spill = ToolOutputSpill {
+        full_output_path: Some(path.display().to_string()),
+        error: None,
+    };
+    let error =
+        cap_tool_result_output(text_result(lines.join("\n")), &mut spill).expect_err("unwritable spill path must fail");
+    assert_eq!(
+        error.message,
+        format!("ENOENT: no such file or directory, open '{}'", path.display())
+    );
 }

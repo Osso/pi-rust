@@ -9,7 +9,7 @@ Rust: `crates/pi-coding-agent/src/modes/interactive/external_editor.rs`
 | `ExternalEditorResult` union | `ExternalEditorResult` enum | same tests |
 | `mkdtempSync(tmpdir, "pi-editor-")` | `tempfile::Builder::prefix("pi-editor-").tempdir()` | private-directory test (parent, prefix) |
 | mkdtemp 0700 permissions | `set_private_directory_permissions` | test asserts `mode & 0o077 == 0` (Rust `tempdir` creates 0755, so the mode is set explicitly) |
-| `prompt.md` write/read | `std::fs::write` / `read` | content capture assertions |
+| `prompt.md` write/read | `std::fs::write` / `read` returning `Err(String)` with Node fs text | content capture assertions; error path reaches the process-level uncaught handler ([throw-audit](throw-audit.md)) |
 | launch banner on stdout | `stdout().write_all` (crate denies `print_stdout`) | observed in test output |
 | `command.split(" ")` + args | `spawn_editor` | fixture command with flags |
 | spawn error → `failed` | `spawn_editor` returns `None` | code-mapped (fixture always spawns) |

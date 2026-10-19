@@ -2,7 +2,9 @@
 
 use crate::cli::args::Args;
 use crate::cli::experimental::auth::AuthInput;
-use crate::cli::experimental::command::{Command, CommandParseResult, NamedCommandInvocation, ParsedCommandInput};
+use crate::cli::experimental::command::{
+    Command, CommandError, CommandParseResult, NamedCommandInvocation, ParsedCommandInput,
+};
 use crate::cli::experimental::command_options::{
     AUTH_TOKEN_FILE_OPTION, AUTH_TOKEN_OPTION, parse_auth, parse_legacy_options, transport_option,
 };
@@ -23,16 +25,16 @@ impl NamedCommandInvocation for PiCommand {
     }
 }
 
-pub fn pi_command() -> Command<PiCommand, ExperimentalCliContext> {
+pub fn pi_command() -> Result<Command<PiCommand, ExperimentalCliContext>, CommandError> {
     let listen_option = transport_option("--listen");
     let mut command: Command<PiCommand, ExperimentalCliContext> = Command::new("pi");
     command
-        .option(listen_option.clone())
-        .option(AUTH_TOKEN_OPTION.clone())
-        .option(AUTH_TOKEN_FILE_OPTION.clone())
+        .option(listen_option.clone())?
+        .option(AUTH_TOKEN_OPTION.clone())?
+        .option(AUTH_TOKEN_FILE_OPTION.clone())?
         .build(move |input| build_pi(input, &listen_option))
         .action(|command, context| (context.run_pi)(command));
-    command
+    Ok(command)
 }
 
 pub fn build_pi(

@@ -219,7 +219,7 @@ async fn export_agent_session_probe() {
     use pi_coding_agent::core::session_manager::SessionManager;
     use pi_coding_agent::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
 
-    pi_coding_agent::modes::interactive::theme::init_theme(Some("dark"), false);
+    pi_coding_agent::modes::interactive::theme::init_theme(Some("dark"), false).expect("dark theme");
 
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("faux".to_owned()),

@@ -20,6 +20,16 @@ pub fn node_error_code(error: &io::Error) -> &'static str {
     }
 }
 
+/// `readFileSync` failure text: `EISDIR` reports the `read` syscall, everything else `open`.
+pub fn node_read_error(error: &io::Error, path: &str) -> String {
+    let syscall = if error.kind() == io::ErrorKind::IsADirectory {
+        "read"
+    } else {
+        "open"
+    };
+    node_fs_error(error, syscall, path)
+}
+
 /// Node filesystem error message: `<CODE>: <description>, <syscall> '<path>'`.
 pub fn node_fs_error(error: &io::Error, syscall: &str, path: &str) -> String {
     let description = match error.kind() {

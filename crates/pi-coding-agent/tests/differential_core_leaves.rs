@@ -487,14 +487,14 @@ fn build_cli_command() -> Command<CliInvocation, Vec<String>> {
             .map_err(|_| format!("--count must be a number, got \"{value}\""))
     });
     let mut root: Command<CliInvocation, Vec<String>> = Command::new("pi");
-    root.option(name.clone());
-    root.option(count.clone());
+    root.option(name.clone()).expect("root option");
+    root.option(count.clone()).expect("root option");
     root.build(move |input| CommandParseResult::Ok(cli_invocation("pi", input, &name, &count)));
     root.action(|_, context| context.push("pi".into()));
 
     let listen = string_option("--listen");
     let mut child: Command<CliInvocation, Vec<String>> = Command::new("server");
-    child.option(listen.clone());
+    child.option(listen.clone()).expect("child option");
     child.build(move |input| {
         CommandParseResult::Ok(CliInvocation {
             command: "server".into(),
@@ -504,7 +504,7 @@ fn build_cli_command() -> Command<CliInvocation, Vec<String>> {
         })
     });
     child.action(|_, context| context.push("server".into()));
-    root.command(child, |invocation| invocation);
+    root.command(child, |invocation| invocation).expect("subcommand");
     root
 }
 
@@ -547,7 +547,7 @@ fn command_parsing_matches_typescript() {
         .iter()
         .map(|argv| {
             let argv: Vec<String> = argv.iter().map(|value| (*value).to_owned()).collect();
-            match command.parse(&argv) {
+            match command.parse(&argv).expect("parse") {
                 CommandParseResult::Ok(invocation) => json!({
                     "ok": true,
                     "command": {
