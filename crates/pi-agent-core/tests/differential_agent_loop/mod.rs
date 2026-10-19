@@ -477,13 +477,32 @@ async fn run_scenario(name: &str) -> Value {
             )
             .await
         }
+        "prepare_arguments_error" => {
+            let mut tool = echo_tool();
+            tool.prepare_arguments = Some(Arc::new(|_args: Value| {
+                Err(pi_agent_core::agent::ToolError::new("prepareArguments exploded"))
+            }));
+            tool.execute =
+                Arc::new(|_id, _params, _signal, _on_update| Box::pin(async { Ok(text_result("should not run")) }));
+            run_loop(
+                vec![AgentMessage::User(user("echo"))],
+                context(Vec::new(), vec![Arc::new(tool)], ""),
+                config(),
+                requests,
+                vec![
+                    Script::message(tool_message("tool-1", "echo", "hello")),
+                    Script::message(text_assistant("done")),
+                ],
+            )
+            .await
+        }
         "prepare_execution" => {
             let mut tool = echo_tool();
             tool.prepare_execution = Some(Arc::new(|_id, _signal| {
                 Box::pin(async {
-                    Some(ToolCallExecution {
+                    Ok(Some(ToolCallExecution {
                         agent_id: "known-agent".to_owned(),
-                    })
+                    }))
                 })
             }));
             tool.execute = Arc::new(|_id, params, _signal, _on_update| {
@@ -1126,6 +1145,7 @@ pub async fn run_differential() {
         "terminate_all",
         "terminate_mixed",
         "after_tool_call",
+        "prepare_arguments_error",
         "prepare_execution",
         "steering",
         "follow_up",

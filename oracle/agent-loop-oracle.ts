@@ -441,6 +441,29 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 			);
 			return { ...(await collect(stream)), requests };
 		}
+		case "prepare_arguments_error": {
+			const echo = {
+				name: "echo",
+				label: "Echo",
+				description: "Echo tool",
+				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
+				prepareArguments: () => {
+					throw new Error("prepareArguments exploded");
+				},
+				execute: async () => result("should not run"),
+			};
+			const stream = api.agentLoop(
+				[user("echo")],
+				context([], [echo]),
+				config(),
+				undefined,
+				scriptStream([
+					() => [done("toolUse", assistant([call("tool-1", "echo", { value: "hello" })], "toolUse"))],
+					() => [done("stop", assistant([textBlock("done")]))],
+				]),
+			);
+			return { ...(await collect(stream)), requests };
+		}
 		case "prepare_execution": {
 			const echo = {
 				name: "echo",

@@ -33,7 +33,7 @@ Tests: `crates/pi-agent-core/tests/agent_loop.rs`, `crates/pi-agent-core/tests/a
 | follow-up queue drains only when the agent would stop | same | differential `follow_up`, `should_stop` |
 | `throwIfAborted` / `awaitWithAbort` for stream acquisition, iteration, result, tools | `throw_if_aborted` / `await_with_abort` | `terminalizes_when_stream_acquisition_ignores_abort`, `terminalizes_when_stream_iteration_ignores_abort`, differential `abort_stream`, `agent_abort.rs` |
 | `iterateWithAbort` iterator close on abort | dropped stream (no explicit close); TS closes the iterator | gap: Rust `EventStream` has no `return()`; dropping stops consumption. Producer-side cancellation is the caller's responsibility. |
-| `prepareAssistantToolExecutions` persists `prepareExecution` metadata | same | `persists_prepared_agent_id_and_passes_it_to_execution`, differential `prepare_execution` |
+| `prepareAssistantToolExecutions` persists `prepareExecution` metadata | same; a `prepareExecution` error aborts the run | `persists_prepared_agent_id_and_passes_it_to_execution`, `prepare_execution_errors_abort_the_run`, differential `prepare_execution` |
 | `streamAssistantResponse` transform → convert → request build | same | `handles_custom_message_types_via_convert_to_llm`, `applies_transform_context_before_convert_to_llm`, differential `convert_custom` |
 | API key resolution (`getApiKey` then `config.apiKey`) | same | code inspection; no dedicated test |
 | streaming events: start/updates/done/error, partial replacement | same | differential `text` (done path); `message_update` exercised by Agent abort tests |
@@ -41,7 +41,7 @@ Tests: `crates/pi-agent-core/tests/agent_loop.rs`, `crates/pi-agent-core/tests/a
 | parallel: preflight starts in source order, ends in completion order, results in source order | `JoinSet` with indexed results | `emits_tool_execution_end_in_completion_order_and_results_in_source_order`, differential `parallel_order` |
 | sequential: per-call prepare/execute/finalize, break on abort | same | `forces_sequential_when_tool_declares_sequential_mode` |
 | early termination: non-empty batch and every finalized `terminate === true` | `should_terminate_tool_batch` | `stops_after_tool_batch_when_every_result_terminates`, `continues_after_parallel_*`, differential `terminate_*` |
-| `prepareToolCallArguments` shim before validation | same; non-object results are a typed error | `prepares_tool_arguments_for_validation` |
+| `prepareToolCallArguments` shim before validation | same; a `prepareArguments` error becomes an immediate error tool result (source `catch`) and the run continues | `prepares_tool_arguments_for_validation`, `prepare_arguments_errors_become_error_tool_results_and_the_run_continues`, differential `prepare_arguments_error` |
 | tool-not-found / validation-error / before-hook-error immediate results | same | code inspection; validation differential in `pi-ai` |
 | `beforeToolCall` block/reason/terminate | same | `stops_after_blocked_tool_call_when_before_hook_terminates`, `continues_after_mixed_batch_*`, differential `blocked_terminate` |
 | `beforeToolCall` argument mutation without revalidation | `BeforeToolCallContext.args: Arc<Mutex<Value>>`; the loop reads the cell after the hook | `executes_mutated_before_tool_call_args_without_revalidation`, differential `before_mutation` |

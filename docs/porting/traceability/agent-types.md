@@ -25,7 +25,7 @@ Rust: `crates/pi-agent-core/src/agent/types.rs`. Tests: `crates/pi-agent-core/te
 | `AgentToolResult` | `agent::AgentToolResult` | `agent_types.rs` | `details` is `Option<Value>` so TS `undefined` is omitted from JSON; `terminate`/`isError` stay optional. |
 | `AgentToolUpdateCallback` | `agent::AgentToolUpdateCallback` | `agent_loop.rs` | Ignored after settlement by the loop's accepting-updates flag. |
 | `AgentToolExecutionContext` | `harness::types::AgentToolExecutionContext` | `agent_tool_execution_context.rs` | Reused; `started_at` stays `f64` per the existing port contract. |
-| `AgentTool` | `agent::AgentTool` | `agent_loop.rs` | Dyn-compatible trait; `parameters()` returns the JSON Schema `Value`; async members return `BoxFuture<'static, _>`. |
+| `AgentTool` | `agent::AgentTool` | `agent_loop.rs` | Dyn-compatible trait; `parameters()` returns the JSON Schema `Value`; async members return `BoxFuture<'static, _>`. `prepare_arguments` and `prepare_execution` return `Result` (TS throws propagate to the loop's catch / abort). |
 | `AgentContext` | `agent::AgentContext` | `agent_types.rs` | Tools are `Option<Vec<Arc<dyn AgentTool>>>`. |
 | `AgentEvent` | `agent::AgentEvent` | `agent_types.rs`, `agent_loop.rs`, `agent.rs` | Internally tagged with snake_case type names and camelCase fields; `assistant_message_event` is boxed (clippy large-variant). |
 

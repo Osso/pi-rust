@@ -748,7 +748,7 @@ async fn prepare_assistant_tool_executions(
             continue;
         };
         let execution = await_with_abort(tool.prepare_execution(call.id.clone(), signal.clone()), signal).await?;
-        match execution {
+        match execution? {
             Some(execution) => {
                 changed = true;
                 let mut call = call.clone();
@@ -1014,7 +1014,7 @@ fn should_terminate_tool_batch(finalized_calls: &[FinalizedToolCallOutcome]) -> 
 
 fn prepare_tool_call_arguments(tool: &Arc<dyn AgentTool>, tool_call: &ToolCall) -> Result<ToolCall, AgentError> {
     let original = Value::Object(tool_call.arguments.clone());
-    let prepared = tool.prepare_arguments(original.clone());
+    let prepared = tool.prepare_arguments(original.clone())?;
     if prepared == original {
         return Ok(tool_call.clone());
     }

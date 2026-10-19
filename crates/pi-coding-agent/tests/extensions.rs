@@ -1993,3 +1993,161 @@ async fn context_session_manager_is_the_live_shared_handle() {
         SessionEntry::Known(pi_coding_agent::core::session_manager::KnownSessionEntry::Message(_))
     ));
 }
+
+// ============================================================================
+// wrapToolDefinition (tool-definition-wrapper.ts)
+// ============================================================================
+
+fn text_definition(
+    execute: pi_coding_agent::core::extensions::ToolExecute,
+) -> pi_coding_agent::core::extensions::ToolDefinition {
+    pi_coding_agent::core::extensions::ToolDefinition {
+        name: "wrapped".to_owned(),
+        label: "Wrapped".to_owned(),
+        description: "Wrapped tool".to_owned(),
+        prompt_snippet: None,
+        prompt_guidelines: None,
+        approval_required: None,
+        approval_kind: None,
+        parameters: json!({"type": "object"}),
+        constrained_sampling: None,
+        render_shell: None,
+        prepare_arguments: None,
+        prepare_execution: None,
+        execution_mode: None,
+        execute,
+        render_call: None,
+        render_result: None,
+    }
+}
+
+fn wrapped_text_result(text: String) -> pi_agent_core::agent::AgentToolResult {
+    pi_agent_core::agent::AgentToolResult {
+        content: vec![TextOrImageContent::Text(TextContent::new(text))],
+        details: None,
+        usage: None,
+        added_tool_names: None,
+        is_error: None,
+        terminate: None,
+    }
+}
+
+#[tokio::test]
+async fn wrapped_definitions_inject_execution_identity_and_cap_output() {
+    use pi_agent_core::harness::AgentToolExecutionContext;
+    use pi_coding_agent::core::extensions::wrapper::wrap_definition_tool;
+
+    let observed_started_at = Arc::new(Mutex::new(None::<f64>));
+    let observed_agent_id = Arc::new(Mutex::new(None::<Option<String>>));
+    let started_at_hook = Arc::clone(&observed_started_at);
+    let agent_id_hook = Arc::clone(&observed_agent_id);
+    let definition = text_definition(Arc::new(move |_id, _params, _signal, on_update, context| {
+        let started_at_hook = Arc::clone(&started_at_hook);
+        let agent_id_hook = Arc::clone(&agent_id_hook);
+        Box::pin(async move {
+            *started_at_hook.lock().unwrap() = context.tool_execution_started_at;
+            *agent_id_hook.lock().unwrap() = Some(context.tool_execution_agent_id.clone());
+            if let Some(on_update) = on_update {
+                on_update(wrapped_text_result("partial".to_owned()));
+            }
+            Ok(wrapped_text_result("x".repeat(50_000)))
+        })
+    }));
+    let mut runner = support::runner_for(Vec::new(), "/tmp", support::runtime(), support::model_registry().await);
+    support::bind(&mut runner);
+    let tool = wrap_definition_tool(definition, &runner);
+
+    let updates = Arc::new(Mutex::new(Vec::new()));
+    let update_hook = Arc::clone(&updates);
+    let result = tool
+        .execute(
+            "call-1".to_owned(),
+            json!({}),
+            None,
+            Arc::new(move |result| update_hook.lock().unwrap().push(result)),
+            Some(AgentToolExecutionContext {
+                agent_id: Some("known-agent".to_owned()),
+                started_at: 1234.0,
+            }),
+        )
+        .await
+        .expect("wrapped execution");
+
+    assert_eq!(*observed_started_at.lock().unwrap(), Some(1234.0));
+    assert_eq!(
+        observed_agent_id.lock().unwrap().clone(),
+        Some(Some("known-agent".to_owned()))
+    );
+    assert_eq!(updates.lock().unwrap().len(), 1);
+    let details = result.details.expect("capped details");
+    let full_output_path = details["fullOutputPath"].as_str().expect("spill path").to_owned();
+    assert!(
+        std::fs::read_to_string(&full_output_path)
+            .expect("spill file")
+            .starts_with('x')
+    );
+    let _ = std::fs::remove_file(full_output_path);
+}
+
+#[tokio::test]
+async fn wrapped_definitions_forward_prepare_arguments_and_prepare_execution() {
+    use pi_coding_agent::core::extensions::wrapper::wrap_definition_tool;
+
+    let observed_context_started_at = Arc::new(Mutex::new(None::<f64>));
+    let hook = Arc::clone(&observed_context_started_at);
+    let mut definition = text_definition(Arc::new(|_id, _params, _signal, _on_update, _context| {
+        Box::pin(async { Ok(wrapped_text_result("done".to_owned())) })
+    }));
+    definition.prepare_arguments = Some(Arc::new(|args: &Value| {
+        let mut args = args.clone();
+        if let Some(object) = args.as_object_mut() {
+            object.insert("prepared".to_owned(), Value::Bool(true));
+        }
+        Ok(args)
+    }));
+    definition.prepare_execution = Some(Arc::new(move |_id, _signal, context| {
+        let hook = Arc::clone(&hook);
+        Box::pin(async move {
+            *hook.lock().unwrap() = context.tool_execution_started_at;
+            Ok(Some(pi_ai::types::ToolCallExecution {
+                agent_id: "prepared-agent".to_owned(),
+            }))
+        })
+    }));
+    let mut runner = support::runner_for(Vec::new(), "/tmp", support::runtime(), support::model_registry().await);
+    support::bind(&mut runner);
+    let tool = wrap_definition_tool(definition, &runner);
+
+    assert_eq!(
+        tool.prepare_arguments(json!({"value": 1})).expect("prepared arguments"),
+        json!({"value": 1, "prepared": true})
+    );
+    let prepared = tool
+        .prepare_execution("call-1".to_owned(), None)
+        .await
+        .expect("prepare execution")
+        .expect("execution metadata");
+    assert_eq!(prepared.agent_id, "prepared-agent");
+    assert_eq!(*observed_context_started_at.lock().unwrap(), None);
+}
+
+#[tokio::test]
+async fn wrapped_definitions_propagate_prepare_execution_errors() {
+    use pi_coding_agent::core::extensions::wrapper::wrap_definition_tool;
+
+    let mut definition = text_definition(Arc::new(|_id, _params, _signal, _on_update, _context| {
+        Box::pin(async { Ok(wrapped_text_result("done".to_owned())) })
+    }));
+    definition.prepare_execution = Some(Arc::new(|_id, _signal, _context| {
+        Box::pin(async { Err(HandlerError::new("prepare failed")) })
+    }));
+    let mut runner = support::runner_for(Vec::new(), "/tmp", support::runtime(), support::model_registry().await);
+    support::bind(&mut runner);
+    let tool = wrap_definition_tool(definition, &runner);
+
+    let error = tool
+        .prepare_execution("call-1".to_owned(), None)
+        .await
+        .expect_err("prepare execution must fail");
+    assert_eq!(error.message, "prepare failed");
+}
