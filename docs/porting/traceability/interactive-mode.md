@@ -56,6 +56,7 @@ notify-based child transcript reloads are implemented and behavior-tested.
 | `updateSelectedAgentSelectionWidgets` | `update_selected_agent_selection_widgets` | `ui_tests::agent_slot_keybindings_select_active_agents_and_main` |
 | `renderSessionEntries` / `renderSessionItems` / `addCustomEntryToChat` / `getPendingToolStartedAt` | `render_session_entries` / `render_session_message` / `add_custom_entry_to_chat` / `get_pending_tool_started_at` | `ui_tests::render_session_entries_renders_persisted_custom_entries`, `ui_tests::render_session_entries_replays_tool_calls_and_results`, `ui_tests::entry_appended_renders_registered_custom_entries` |
 | `entry_appended` branch | `AgentSessionEvent::EntryAppended` -> `add_custom_entry_to_chat` | `ui_tests::entry_appended_renders_registered_custom_entries` |
+| `renderInitialMessages` / `renderProjectTrustWarningIfNeeded` | `render_initial_messages` / `render_project_trust_warning_if_needed` | `ui_tests::startup_renders_the_project_trust_warning` |
 | `completedToolTimings` | `completed_tool_timings` | `ui_tests::render_session_entries_replays_tool_calls_and_results` |
 | `maybeShowCacheMissNotice` / `addCacheMissNotice` | `maybe_show_cache_miss_notice` / `add_cache_miss_notice` | `ui_tests::message_end_shows_a_cache_miss_notice` |
 | `handleCtrlZ` / `suspendToBackground` | `handle_ctrl_z` / `suspend_to_background` | no direct test (sends SIGTSTP) |

@@ -4628,6 +4628,41 @@ impl InteractiveMode {
     fn render_initial_messages(&self) {
         let entries = self.session.borrow().session_manager().build_context_entries();
         self.render_session_entries(&entries);
+        self.render_project_trust_warning_if_needed();
+        let all_entries = self.session.borrow().session_manager().get_entries();
+        let compaction_count = all_entries
+            .iter()
+            .filter(|entry| matches!(entry, SessionEntry::Known(KnownSessionEntry::Compaction(_))))
+            .count();
+        if compaction_count > 0 {
+            let times = if compaction_count == 1 {
+                "1 time".to_owned()
+            } else {
+                format!("{compaction_count} times")
+            };
+            self.show_status(&format!("Session compacted {times}"));
+        }
+    }
+
+    /// `renderProjectTrustWarningIfNeeded`.
+    fn render_project_trust_warning_if_needed(&self) {
+        if self.settings(|settings| settings.is_project_trusted())
+            || !crate::core::trust_manager::has_trust_requiring_project_resources(&self.cwd())
+        {
+            return;
+        }
+        if !self.chat_container.borrow().children().is_empty() {
+            self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
+        }
+        let message = format!(
+            "This project is not trusted. Project {} resources and packages are ignored. Use /trust to save a trust decision, then restart pi.",
+            crate::config::config_dir_name()
+        );
+        self.chat_container.borrow_mut().add_child(component(Text::new(
+            with_theme(|theme| theme.fg(ThemeColor::Warning, &message)),
+            1,
+            0,
+        )));
     }
 
     /// `renderSessionEntries`: custom entries render through their registered
@@ -13173,6 +13208,30 @@ mod ui_tests {
                 mode.render_session_entries(&entries);
                 let chat = chat_text(&mode);
                 assert!(chat.contains("replayed tool output"), "{chat}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn startup_renders_the_project_trust_warning() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let settings = SettingsManager::in_memory(
+                    Default::default(),
+                    SettingsManagerCreateOptions {
+                        project_trusted: Some(false),
+                    },
+                );
+                let (mode, _terminal, _faux, _temp) =
+                    build_mode_with_settings(StaticResourceLoader::new(), None, settings).await;
+                let cwd = mode.cwd();
+                std::fs::create_dir_all(Path::new(&cwd).join(crate::config::config_dir_name()).join("skills"))
+                    .expect("project resources");
+                let _events = start(&mode).await;
+                let chat = chat_text(&mode);
+                assert!(chat.contains("This project is not trusted."), "{chat}");
+                assert!(chat.contains("Use /trust to save a trust decision"), "{chat}");
             })
             .await;
     }
