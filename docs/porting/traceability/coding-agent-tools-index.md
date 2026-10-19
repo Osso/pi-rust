@@ -20,7 +20,9 @@ Rust: `pi_coding_agent::core::tools` (`mod.rs`).
 | `createAllTools` | `create_all_tools` | same |
 
 Differential: `oracle/coding-agent-tools-index-oracle.ts` (request `27960`) loads the real
-`tools/index.ts` and compares every factory output and the name lists.
+`tools/index.ts` and compares every factory output, `constrainedSampling`, and the name lists.
+The experimental branch is proven in a child process with `PI_EXPERIMENTAL=1`
+(`tool_definitions_expose_experimental_constrained_sampling`).
 
 ## Deviations
 
