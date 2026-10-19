@@ -1,8 +1,9 @@
 //! Process differentials for the `pi` binary against the pinned `cli.ts`.
 //!
-//! Only startup paths that do not depend on still-unported bundled extensions or
-//! network providers are compared; `--help`, `tools`, and `extensions` diverge
-//! until the pending first-party factories land.
+//! Startup paths that do not depend on unported bundled extensions or network
+//! providers are compared byte-for-byte. `--help`, `tools`, and `extensions`
+//! diverge while first-party factories remain pending, so they are covered by
+//! behavioral assertions instead.
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -80,6 +81,11 @@ fn fixture(lock: &SourceLock) -> Fixture {
         &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("theme"),
         &package_dir.join("theme"),
     );
+    // The TypeScript source resolves built-in themes from `src/modes/interactive/theme`.
+    copy_directory(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("theme"),
+        &package_dir.join("src/modes/interactive/theme"),
+    );
     let _ = lock;
     Fixture {
         _temp: temp,
@@ -120,6 +126,8 @@ fn run(command: &mut Command, env: &[(String, String)]) -> ProcessOutput {
     for (name, value) in env {
         command.env(name, value);
     }
+    // A TTY-less harness leaves stdin open; piped stdin would block startup.
+    command.stdin(std::process::Stdio::null());
     let output = command.output().expect("process must run");
     ProcessOutput {
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -307,6 +315,29 @@ fn write_models(fixture: &Fixture, port: u16) {
     std::fs::write(fixture.agent_dir.join("models.json"), models).expect("models.json");
 }
 
+/// Valid `models.json` for tests that must reach the provider. The legacy
+/// `write_models` literal above is missing its root brace; see the traceability
+/// discrepancy. Keep it until the json-mode differential is fixed.
+fn write_valid_models(fixture: &Fixture, port: u16) {
+    let models = serde_json::json!({
+        "providers": {
+            "demo": {
+                "baseUrl": format!("http://127.0.0.1:{port}/v1"),
+                "api": "openai-completions",
+                "models": [{
+                    "id": "demo-model",
+                    "name": "Demo",
+                    "reasoning": false,
+                    "input": ["text"],
+                    "contextWindow": 64000,
+                    "maxTokens": 4096,
+                }],
+            }
+        }
+    });
+    std::fs::write(fixture.agent_dir.join("models.json"), models.to_string()).expect("models.json");
+}
+
 fn normalize_process_output(text: &str, fixture: &Fixture) -> String {
     let text = text.replace(&fixture._temp.path().display().to_string(), "<tmp>");
     let uuid = regex::Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").unwrap();
@@ -370,6 +401,150 @@ fn rpc_mode_empty_stdin_differential() {
 #[test]
 fn print_mode_with_embedded_assets_differential() {
     assert_model_differential_with(&source_lock(), &[], run_rust_with_embedded_assets);
+}
+
+const TOOL_CALL_BODY: &str = concat!(
+    "data: {\"id\":\"chatcmpl-2\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"demo-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"chatcmpl-2\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"demo-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-env\",\"type\":\"function\",\"function\":{\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"printf '%s|%s|%s' \\\\\\\"$PI_CODING_AGENT\\\\\\\" \\\\\\\"$AI_AGENT\\\\\\\" \\\\\\\"$PI_OFFLINE\\\\\\\" > env.txt\\\"}\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"chatcmpl-2\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"demo-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n",
+    "data: [DONE]\n\n",
+);
+
+const FINAL_BODY: &str = concat!(
+    "data: {\"id\":\"chatcmpl-3\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"demo-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"done\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"chatcmpl-3\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"demo-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":5,\"total_tokens\":25}}\n\n",
+    "data: [DONE]\n\n",
+);
+
+fn spawn_tool_call_server() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("mock provider listener");
+    let port = listener.local_addr().expect("mock provider address").port();
+    let requests = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { continue };
+            let first = requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0;
+            let body = if first { TOOL_CALL_BODY } else { FINAL_BODY };
+            std::thread::spawn(move || serve_body(stream, body));
+        }
+    });
+    port
+}
+
+fn serve_body(mut stream: TcpStream, body: &str) {
+    stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
+    let mut request = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    loop {
+        let Ok(read) = stream.read(&mut buffer) else {
+            return;
+        };
+        if read == 0 {
+            return;
+        }
+        request.extend_from_slice(&buffer[..read]);
+        let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n") else {
+            continue;
+        };
+        let headers = String::from_utf8_lossy(&request[..header_end]).to_ascii_lowercase();
+        let content_length = headers
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+        if request.len() >= header_end + 4 + content_length {
+            break;
+        }
+    }
+    let response = format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let _ = stream.write_all(response.as_bytes());
+}
+
+/// `cli.ts` exports `PI_CODING_AGENT`/`AI_AGENT`, and `main.ts --offline` writes
+/// `PI_OFFLINE`/`PI_SKIP_VERSION_CHECK`; child processes must observe both.
+#[test]
+fn offline_environment_reaches_child_processes_differential() {
+    let lock = source_lock();
+    verify_source_head(&lock);
+    let rust_fixture = fixture(&lock);
+    let ts_fixture = fixture(&lock);
+    let rust_port = spawn_tool_call_server();
+    let ts_port = spawn_tool_call_server();
+    write_valid_models(&rust_fixture, rust_port);
+    write_valid_models(&ts_fixture, ts_port);
+    let args = [
+        "-ne",
+        "--offline",
+        "--model",
+        "demo/demo-model",
+        "--api-key",
+        "test",
+        "hello",
+    ];
+    let mut rust_env = environment(&rust_fixture, &rust_fixture.package_dir);
+    let mut ts_env = environment(&ts_fixture, &ts_fixture.package_dir);
+    rust_env.retain(|(name, _)| name != "PI_OFFLINE");
+    ts_env.retain(|(name, _)| name != "PI_OFFLINE");
+
+    let mut rust_command = Command::new(env!("CARGO_BIN_EXE_pi"));
+    rust_command.args(args).current_dir(&rust_fixture.work);
+    let rust = run(&mut rust_command, &rust_env);
+
+    let package_dir = lock.worktree.join("packages/coding-agent");
+    let mut ts_command = Command::new(lock.worktree.join("node_modules/.bin/tsx"));
+    ts_command
+        .arg("--tsconfig")
+        .arg(lock.worktree.join("tsconfig.json"))
+        .arg(package_dir.join("src/cli.ts"))
+        .args(args)
+        .current_dir(&ts_fixture.work);
+    let typescript = run(&mut ts_command, &ts_env);
+
+    assert_eq!(typescript.code, rust.code, "exit code");
+    assert_eq!(
+        normalize_process_output(&typescript.stdout, &ts_fixture),
+        normalize_process_output(&rust.stdout, &rust_fixture),
+        "stdout"
+    );
+    let rust_env_file = std::fs::read_to_string(rust_fixture.work.join("env.txt")).unwrap_or_else(|error| {
+        panic!(
+            "rust env.txt: {error}\nstdout: {}\nstderr: {}",
+            rust.stdout, rust.stderr
+        )
+    });
+    let ts_env_file = std::fs::read_to_string(ts_fixture.work.join("env.txt")).unwrap_or_else(|error| {
+        panic!(
+            "typescript env.txt: {error}\nstdout: {}\nstderr: {}",
+            typescript.stdout, typescript.stderr
+        )
+    });
+    assert_eq!(ts_env_file, rust_env_file);
+    assert_eq!(rust_env_file, "true|pi|1");
+}
+
+/// `pi extensions` loads the first-party factories registered by `main.ts`.
+/// The inventory is sorted by path, so this proves presence and the ported gap
+/// list, not registration order (covered by `tests/main.rs`).
+#[test]
+fn extensions_command_lists_the_ported_first_party_extensions() {
+    use pi_coding_agent::main_runner::FIRST_PARTY_EXTENSION_NAMES;
+
+    let fixture = fixture(&source_lock());
+    let output = run_rust(&fixture, &["extensions"]);
+    assert_eq!(output.code, 0, "stderr: {}", output.stderr);
+    let expected: Vec<&str> = FIRST_PARTY_EXTENSION_NAMES.to_vec();
+    assert!(
+        output
+            .stdout
+            .contains(&format!("Loaded extensions ({})", expected.len()))
+    );
+    for name in expected {
+        assert!(output.stdout.contains(name), "missing {name}:\n{}", output.stdout);
+    }
 }
 
 /// Reads stderr lines until an `Error: ` line appears or `timeout` elapses, then kills the child.

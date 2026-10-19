@@ -285,30 +285,32 @@ async fn registers_all_small_extensions_under_source_ids() {
             fetch: None,
         },
     );
+    // Registration order follows `main.ts` `createFirstPartyExtensionFactories`.
     assert_eq!(
         registry.ids(),
         vec![
-            "<first-party:claude-memory-enrich>",
-            "<first-party:claude-memory-session-end>",
-            "<first-party:docs-tree-context>",
+            "<first-party:approval-controls>",
             "<first-party:ask-secret>",
             "<first-party:browser-cli>",
-            "<first-party:approval-controls>",
-            "<first-party:debug>",
-            "<first-party:run-plan>",
-            "<first-party:safe>",
-            "<first-party:self-restart>",
-            "<first-party:session-archive>",
-            "<first-party:session-id>",
-            "<first-party:spec-validation>",
             "<first-party:claude-bash-hook>",
+            "<first-party:claude-memory-enrich>",
+            "<first-party:claude-memory-session-end>",
             "<first-party:codex-fast>",
             "<first-party:codex-image-generation>",
             "<first-party:codex-usage>",
             "<first-party:codex-web-search>",
+            "<first-party:debug>",
+            "<first-party:docs-tree-context>",
             "<first-party:default-footer>",
             "<first-party:effort>",
             "<first-party:loop>",
+            "<first-party:openai-remote-compact>",
+            "<first-party:run-plan>",
+            "<first-party:safe>",
+            "<first-party:spec-validation>",
+            "<first-party:session-archive>",
+            "<first-party:self-restart>",
+            "<first-party:session-id>",
         ]
     );
     let (extensions, errors) = registry
@@ -320,7 +322,7 @@ async fn registers_all_small_extensions_under_source_ids() {
         )
         .await;
     assert!(errors.is_empty(), "{errors:?}");
-    assert_eq!(extensions.len(), 21);
+    assert_eq!(extensions.len(), 22);
     let tool_names: Vec<&str> = extensions
         .iter()
         .flat_map(|extension| extension.tools.keys().map(String::as_str))
@@ -330,10 +332,10 @@ async fn registers_all_small_extensions_under_source_ids() {
         vec![
             "ask_secret",
             "browser-cli",
-            "restart_self",
             "image_gen",
             "web_search",
             "loop",
+            "restart_self",
         ]
     );
     let command_names: Vec<&str> = extensions
@@ -345,18 +347,18 @@ async fn registers_all_small_extensions_under_source_ids() {
         vec![
             "approvals",
             "sandbox",
-            "debug",
-            "run-plan",
-            "safe",
-            "restart",
-            "archive",
-            "session-id",
-            "spec-validation",
             "fast",
             "usage",
+            "debug",
             "multi-agent",
             "effort",
             "loop",
+            "run-plan",
+            "safe",
+            "spec-validation",
+            "archive",
+            "restart",
+            "session-id",
         ]
     );
 }

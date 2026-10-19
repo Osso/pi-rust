@@ -2,9 +2,8 @@
 
 use std::path::PathBuf;
 
-use pi_ai::request::BoxFuture;
 use pi_coding_agent::cli::session_picker::SessionListProgress;
-use pi_coding_agent::cli::session_picker::{SessionLoader, load_sessions_with_control_names};
+use pi_coding_agent::cli::session_picker::{SessionListFuture, SessionLoader, load_sessions_with_control_names};
 use pi_coding_agent::core::session_control_db::set_named_session;
 use pi_coding_agent::core::session_manager::SessionInfo;
 
@@ -42,7 +41,7 @@ impl SessionLoader for FixedLoader {
     fn load<'a>(
         &'a self,
         on_progress: Option<SessionListProgress<'a>>,
-    ) -> BoxFuture<'a, Result<Vec<SessionInfo>, String>> {
+    ) -> SessionListFuture<'a, Result<Vec<SessionInfo>, String>> {
         Box::pin(async move {
             if let Some(progress) = on_progress {
                 progress(1, 2);
@@ -160,7 +159,7 @@ async fn loader_errors_propagate() {
         fn load<'a>(
             &'a self,
             _on_progress: Option<SessionListProgress<'a>>,
-        ) -> BoxFuture<'a, Result<Vec<SessionInfo>, String>> {
+        ) -> SessionListFuture<'a, Result<Vec<SessionInfo>, String>> {
             Box::pin(async { Err("scan failed".to_owned()) })
         }
     }

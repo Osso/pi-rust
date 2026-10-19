@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use pi_ai::request::BoxFuture;
-use pi_coding_agent::cli_entry::{CLI_PROCESS_ENV, CliMain, run_cli_entry};
+use pi_coding_agent::cli_entry::{CLI_PROCESS_ENV, CliMain, run_cli_entry, run_cli_main};
 use pi_coding_agent::internal_runner::{
     DETACHED_BASH_RUNNER_MODE, DETACHED_PYRUN_RUNNER_MODE, DetachedRunnerHost, run_internal_detached_runner,
 };
@@ -196,4 +196,26 @@ async fn cli_entry_propagates_main_errors() {
 #[test]
 fn cli_process_env_matches_the_typescript_entry_point() {
     assert_eq!(CLI_PROCESS_ENV, [("PI_CODING_AGENT", "true"), ("AI_AGENT", "pi")]);
+}
+
+#[tokio::test]
+async fn run_cli_main_exports_the_typescript_process_environment_to_children() {
+    pi_js_compat::process_env::clear();
+    let argv = args(&[]);
+    let main: CliMain<'_> = Box::new(|_args: &[String]| Box::pin(async { Ok(0) }));
+    assert_eq!(run_cli_main(&argv, main).await.expect("cli main"), 0);
+
+    let output = pi_coding_agent::utils::child_process::spawn_process_sync(
+        "sh",
+        &["-c", "printf '%s|%s' \"$PI_CODING_AGENT\" \"$AI_AGENT\""],
+        None,
+    )
+    .expect("child process");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "true|pi");
+    assert_eq!(
+        pi_js_compat::process_env::get("PI_CODING_AGENT").as_deref(),
+        Some("true")
+    );
+    assert_eq!(pi_js_compat::process_env::get("AI_AGENT").as_deref(), Some("pi"));
+    pi_js_compat::process_env::clear();
 }

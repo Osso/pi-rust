@@ -141,7 +141,10 @@ fn persist_delegation_mode(pi: &ExtensionApi, state: &DelegationState) -> Result
 
 fn update_delegation_status(ctx: &ExtensionContext, state: &DelegationState) -> Result<(), HandlerError> {
     let ui = ctx.ui()?;
-    let prefix = ui.theme().fg(ThemeColor::Dim, "multi-agent: ");
+    // `ctx.ui.theme` throws before `initTheme`; surface it like the source.
+    let theme =
+        crate::modes::interactive::theme::try_current_theme().map_err(|error| HandlerError::new(error.to_string()))?;
+    let prefix = theme.fg(ThemeColor::Dim, "multi-agent: ");
     ui.set_status(
         DELEGATION_STATUS_KEY,
         Some(&format!("{prefix}{}", state.mode().as_str())),

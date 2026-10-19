@@ -20,6 +20,10 @@ use pi_tui::terminal::Terminal;
 use pi_tui::terminal_colors::RgbColor;
 use pi_tui::tui::{ComponentRef, TuiExt, TuiMainScreen, component};
 
+use crate::modes::interactive::components::first_time_setup::{
+    FirstTimeSetupComponent, FirstTimeSetupOptions, FirstTimeSetupResult,
+};
+
 use crate::config;
 use crate::core::keybindings::KeybindingsManager;
 use crate::core::package_manager::{
@@ -176,6 +180,60 @@ pub fn apply_detected_startup_theme(
         .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught(error.label(), error.to_string()));
     ui.invalidate();
     ui.request_render(false);
+}
+
+/// `showFirstTimeSetup`: theme choice and analytics opt-in, persisted on submit.
+pub async fn show_first_time_setup(
+    settings_manager: &mut SettingsManager,
+    terminal: Rc<RefCell<dyn Terminal>>,
+    env: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    let ui = create_startup_tui(settings_manager, terminal, env).await?;
+    let (sender, receiver) = channel::<Option<FirstTimeSetupResult>>();
+    ui.start().map_err(|error| error.to_string())?;
+    let detector = StartupThemeDetector { ui: Rc::clone(&ui) };
+    let detected_theme = detect_terminal_theme_for_auto(&detector, THEME_DETECTION_TIMEOUT, env);
+    set_theme(detected_theme.as_str(), false).map_err(|error| error.to_string())?;
+
+    let submit_sender = sender.clone();
+    let cancel_sender = sender;
+    let preview_ui = Rc::clone(&ui);
+    let setup = FirstTimeSetupComponent::new(FirstTimeSetupOptions {
+        detected_theme,
+        on_theme_preview: Rc::new(move |theme| {
+            // The source ignores `setTheme`'s result in the preview callback.
+            let _ = set_theme(theme.as_str(), false);
+            preview_ui.request_render(false);
+        }),
+        on_submit: Rc::new(move |result| {
+            let _ = submit_sender.send(Some(result));
+        }),
+        on_cancel: Rc::new(move || {
+            let _ = cancel_sender.send(None);
+        }),
+    });
+    let component_ref: ComponentRef = component(setup);
+    ui.add_child(Rc::clone(&component_ref));
+    ui.set_focus(Some(component_ref));
+    ui.request_render(false);
+
+    let result = loop {
+        ui.process_events();
+        ui.flush_pending();
+        match receiver.try_recv() {
+            Ok(result) => break result,
+            Err(TryRecvError::Empty) => std::thread::sleep(POLL_INTERVAL),
+            Err(TryRecvError::Disconnected) => break None,
+        }
+    };
+    if let Some(result) = result {
+        settings_manager.set_theme(result.theme.as_str());
+        settings_manager.set_enable_analytics(result.share_analytics);
+        settings_manager.flush();
+    }
+    clear_startup_tui(&ui);
+    ui.stop();
+    Ok(())
 }
 
 /// `clearStartupTui`.

@@ -6,14 +6,16 @@ Rust: `crates/pi-coding-agent/src/main.rs` (module `main_runner`) and the `pi`
 binary at `crates/pi-coding-agent/src/bin/pi.rs`.
 
 Status: **done** for `main.ts`. Dispatch targets that live in unported modules
-return an explicit gap error; they are listed under "Explicit gaps".
+return an explicit gap error; they are listed under "Explicit gaps". Interactive
+dispatch, the `--resume` picker, first-time setup, and first-party extension
+registration are wired.
 
 ## Exported symbols
 
 | TypeScript | Rust | Tests |
 | --- | --- | --- |
 | `MainOptions` | `main_runner::MainOptions` | `tests/main.rs`, `tests/main_process.rs` |
-| `main` | `main_runner::main` / `run_main_or_report_error` | process differentials (`tests/main_process.rs`, 11) |
+| `main` | `main_runner::main` / `run_main_or_report_error` | process differentials (`tests/main_process.rs`, 16 incl. env/offline and embedded assets), pty tests (`tests/main_interactive.rs`, 4) |
 | `runCliActionOrReportError` | `main_runner::run_cli_action_or_report_error` | `cli_action_wrappers_map_errors_to_exit_codes` |
 | `runInteractiveActionOrReportTerminalError` | `main_runner::run_interactive_action_or_report_terminal_error` | `cli_action_wrappers_map_errors_to_exit_codes` |
 
@@ -22,6 +24,7 @@ return an explicit gap error; they are listed under "Explicit gaps".
 | TypeScript | Rust | Tests |
 | --- | --- | --- |
 | `isTruthyEnvFlag` | `is_truthy_env_flag` | `truthy_env_flags_match_javascript_lowercasing` |
+| `process.env.PI_OFFLINE`/`PI_SKIP_VERSION_CHECK` writes | `pi_js_compat::process_env::set` | `offline_environment_reaches_child_processes_differential` |
 | `resolveAppMode` | `resolve_app_mode` | `app_mode_follows_mode_print_and_tty_state` |
 | `toPrintOutputMode` | `to_print_output_mode` | `app_mode_follows_mode_print_and_tty_state` |
 | `isPlainRuntimeMetadataCommand` | `is_plain_runtime_metadata_command` | `plain_runtime_metadata_commands_skip_stdout_takeover` |
@@ -44,8 +47,11 @@ return an explicit gap error; they are listed under "Explicit gaps".
 | `promptForMissingSessionCwd` | `prompt_for_missing_session_cwd` | interactive-only; uses `showStartupSelector` |
 | `firstPartyExtensionFactory` | `first_party_extension_factory` | `first_party_factory_list_partitions_the_source_names`, `first_party_factories_load_and_register_agent_tools` |
 | `runtimeExtensionFactory` | `InlineExtension::Factory` | extension loader tests |
-| `createFirstPartyExtensionFactories` | `create_first_party_extension_factories` | same first-party tests |
+| `createFirstPartyExtensionFactories` | `create_first_party_extension_factories` (registry-backed, emitted in source order; takes the startup `Fetch`) | `first_party_factory_list_partitions_the_source_names`, `first_party_factories_load_and_register_agent_tools`, `extensions_command_lists_the_ported_first_party_extensions` |
+| `builtInExtensions` | `built_in_extensions` | package/config command paths; `extensions` inventory excludes it |
 | `createRuntime` (closure in `main`) | `create_runtime_factory` / `create_runtime` | `runtime_factory_creates_services_and_reports_missing_models`, print/json differentials |
+| `selectSession` call | `select_session_for_process` / `MainSessionsLoader` | `resume_flag_opens_the_session_picker_and_cancels_with_escape`, `resume_flag_selects_a_session_and_starts_interactive_mode` |
+| `showFirstTimeSetup` call | `cli::startup_ui::show_first_time_setup` | `first_time_setup_persists_theme_and_analytics` |
 | `readPipedStdin` | `read_piped_stdin` | print differential with argv messages; stdin path covered by initial-message test |
 | `sessionStartEvent` (runtime request) | `session_start_event` | print/json differentials |
 
@@ -69,30 +75,50 @@ return an explicit gap error; they are listed under "Explicit gaps".
   the orchestrator session with the shared store, runtime handles, session-start
   event, and shared-channel wake handler.
 - Print/JSON/RPC dispatch calls the ported `modes` implementations. Interactive
-  dispatch returns the explicit gap error for `interactive-mode.ts`.
+  dispatch maps `InteractiveModeOptions` (migrated providers, model fallback,
+  auto-trust cwd, initial message/images/messages, claimed control message,
+  verbose, TUI mode, control DB path) and calls
+  `modes::interactive::run_interactive_mode`, which owns its `LocalSet`. The
+  `PI_STARTUP_BENCHMARK` branch constructs `InteractiveMode` directly, calls
+  `init()`, waits 150 ms, `stop()`, then prints timings.
+- `--offline` writes `PI_OFFLINE=1`/`PI_SKIP_VERSION_CHECK=1` through the
+  `pi_js_compat::process_env` overlay; every child spawn builds its environment
+  from `process_env::vars()`.
+- First-party factories are registered in an `ExtensionRegistry` under their
+  `<first-party:...>` ids and emitted in `main.ts` order. `register_small_extensions`
+  (source order), `register_agents_extensions`, and `register_bundled_extensions`
+  provide the factories; `pyrun` is re-registered with the multi-agent Pi request
+  handler. `SmallExtensionsOptions` carries the shared fast-mode authority, the
+  startup HTTP client, and the multi-agent store. `builtInExtensions` (hidden
+  `llama.cpp`) feeds only the package/config command factories.
+- `--resume` builds `SessionManager::{list,list_all,list_archived}` loaders,
+  validates the selection with `assert_main_session_runtime_available`, and maps
+  cancel/exit to `No session selected`/exit 0.
+- First-time setup runs when `should_run_first_time_setup` holds and persists
+  theme/analytics through `SettingsManager`.
 
 ## Explicit gaps
 
-- `--resume` returns an explicit error: `cli/session-picker.ts` `selectSession` is
-  unported (`SessionSelectorComponent`).
-- Interactive mode dispatch returns an explicit error naming
-  `modes/interactive/interactive-mode.ts` until the `ca-interactive-mode` slice lands.
-  First-time setup (`showFirstTimeSetup`) is likewise an explicit gap error.
-- `--supervisor` / `--architect` resident console and the `architect`/`supervisor`
-  subcommands are not wired; the service loops are owned by the hosts slice.
-- `core/debug-repl.ts` is a documented gap (`node:vm`), so the `debug` extension
-  factory is not registered.
-- First-party factories: `agents-core`, `agent-viewer`, `agents-mailbox`, `goal`,
-  `bwrap`, and `pyrun` are wired. The Pyrun factory constructs the multi-agent Pi
-  request handler from the extension API and falls through to builtin Pyrun
-  requests for unowned methods. `FIRST_PARTY_EXTENSION_NAMES` lists the source
-  names and `PENDING_FIRST_PARTY_EXTENSIONS` the remaining factories
-  (approval-controls, ask-secret, browser-cli, claude-bash-hook,
-  claude-memory-enrich, claude-memory-session-end, codex-fast,
-  codex-image-generation, codex-usage, codex-web-search, debug, default-footer,
-  docs-tree-context, effort, loop, openai-remote-compact, run-plan, safe,
-  spec-validation, session-archive, self-restart, session-id). A test enforces
-  that registered and pending names partition the source list.
+- `--supervisor` / `--architect` resident console is not wired; the `architect` /
+  `supervisor` subcommands call the ported service entries.
+- `core/debug-repl.ts` is a documented gap (`node:vm`). The `debug` extension is
+  registered; its controller provider returns the gap error
+  (`Debug REPL is not ported (core/debug-repl.ts)`) from `enable`/`disable`
+  instead of a fake REPL (`debug_repl_provider_reports_the_documented_gap`).
+- First-party factories: all 28 source names are registered in source order.
+  `FIRST_PARTY_EXTENSION_NAMES` is the reference list; tests assert the factory
+  list, the loaded extension order, and the `pi extensions` inventory.
+- Interactive multi-agent options (`multiAgentStore`, `wakeWaitAgentsAfterSteering`,
+  `steerMultiAgent`, `cancelMultiAgent`), `bindInteractiveModeSessionMutationTargetResolver`,
+  and `interactiveAgentViewSelector` are not wired (child-orchestration gap).
+- `selectSession` keybindings: `create_startup_tui` installs
+  `KeybindingsManager::create()`; the component receives a clone. The source
+  installs the same manager in both places.
+- First-time setup and the picker use `ProcessTerminal`; the pty tests drive the
+  real binary, so terminal wiring is covered.
+- Extension HTTP (`codex-usage`) captures the startup dispatcher client; the
+  settings-driven idle timeout applied after runtime creation is not visible to
+  already-registered factories (Rust has no global fetch).
 - `bindAgentSessionMutationTargetResolver` is not ported; the store is restored but
   mutation-target resolution for interactive views is skipped.
 - Production child/attached session factories remain unavailable (documented
@@ -100,12 +126,11 @@ return an explicit gap error; they are listed under "Explicit gaps".
 
 ## Deviations
 
-- `process.title`, `process.emitWarning`, and the `PI_CODING_AGENT`/`AI_AGENT`
-  environment writes from `cli.ts` are not applied. Edition 2024 makes
-  `std::env::set_var` unsafe and the workspace forbids unsafe code;
-  `cli_entry::CLI_PROCESS_ENV` records the values for the in-flight
-  `pi_js_compat::process_env` overlay. Apply it at startup once that module lands.
-  `process.title`/`emitWarning` have no Rust analogue.
+- `process.title` and `process.emitWarning` are not applied; both have no Rust
+  analogue. `PI_CODING_AGENT`/`AI_AGENT` from `cli.ts` are written to the
+  `pi_js_compat::process_env` overlay by `cli_entry::run_cli_main`
+  (`apply_process_env`), matching the source order (after the internal-runner
+  gate, before the dispatcher).
 - `applyHttpProxySettings` has no process-global equivalent. Settings `httpProxy`
   is not written into the environment; the HTTP client reads the ambient proxy
   environment instead. `resolve_http_proxy_settings` captures the source decision.
@@ -121,3 +146,11 @@ return an explicit gap error; they are listed under "Explicit gaps".
 - `format_package_list` previously returned a trailing newline, which produced a
   blank line through `console_log`; fixed to match `console.log` output. This was a
   Rust port bug, not a source discrepancy.
+- `tests/main_process.rs::write_models` writes a `models.json` literal that is
+  missing its root closing brace. Both the pinned TypeScript CLI and the Rust
+  port fail to parse it identically, so the existing print/json/RPC differentials
+  never reach the provider. Fixing the literal exposes a real json-mode
+  divergence (TypeScript emits the completed assistant message in `message_start`
+  with `partialArgs`/`streamIndex`; Rust emits an empty pending message followed
+  by deltas). The provider-reaching test uses `write_valid_models`; the json-mode
+  divergence is reported, not fixed here.

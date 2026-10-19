@@ -53,7 +53,7 @@ use crate::core::agent_session_services::{
 use crate::core::auth_guidance::format_no_models_available_message;
 use crate::core::auth_storage::{AuthStorage, ReadOnlyAuthStorage};
 use crate::core::export_html::{ExportOptions, export_from_file};
-use crate::core::extensions::loader::ExtensionFactory;
+use crate::core::extensions::loader::{ExtensionFactory, ExtensionRegistry};
 use crate::core::external_session_importer::{
     ExternalSessionImportOptions, import_external_session_alias, is_external_session_alias,
 };
@@ -82,6 +82,7 @@ use crate::core::settings_manager::{DefaultProjectTrust, SettingsManager, Settin
 use crate::core::timings::{TimingLabel, print_timings, reset_timings, time};
 use crate::core::trust_manager::{ProjectTrustDecision, ProjectTrustStore, has_trust_requiring_project_resources};
 use crate::migrations::{run_migrations, show_deprecation_warnings};
+use crate::modes::interactive::interactive_mode::{InteractiveMode, InteractiveModeOptions};
 use crate::modes::interactive::theme::{init_theme, stop_theme_watcher};
 use crate::modes::print_mode::{PrintMode, PrintModeOptions, run_print_mode};
 use crate::modes::rpc::rpc_mode::run_rpc_mode;
@@ -142,33 +143,21 @@ pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
     "session-id",
 ];
 
-/// First-party extensions whose TypeScript factories are not ported on this
-/// branch yet. `main.ts` registers every name in this list unconditionally;
-/// the registry wiring lands with each extension slice.
-pub const PENDING_FIRST_PARTY_EXTENSIONS: &[&str] = &[
-    "approval-controls",
-    "ask-secret",
-    "browser-cli",
-    "claude-bash-hook",
-    "claude-memory-enrich",
-    "claude-memory-session-end",
-    "codex-fast",
-    "codex-image-generation",
-    "codex-usage",
-    "codex-web-search",
-    "debug",
-    "default-footer",
-    "docs-tree-context",
-    "effort",
-    "loop",
-    "openai-remote-compact",
-    "run-plan",
-    "safe",
-    "spec-validation",
-    "session-archive",
-    "self-restart",
-    "session-id",
-];
+/// `builtInExtensions` from `extensions/index.ts` (the hidden llama.cpp
+/// extension, registered for package/config commands only).
+pub fn built_in_extensions() -> Vec<InlineExtension> {
+    let mut registry = ExtensionRegistry::new();
+    crate::bundled_extensions::register_builtin_extensions(&mut registry);
+    registry
+        .get("<inline:llama.cpp>")
+        .map(|factory| InlineExtension::Named {
+            name: "llama.cpp".to_owned(),
+            factory: Arc::clone(factory),
+            hidden: Some(true),
+        })
+        .into_iter()
+        .collect()
+}
 
 /// `firstPartyExtensionFactory`.
 pub fn first_party_extension_factory(name: &str, factory: ExtensionFactory) -> InlineExtension {
@@ -178,36 +167,71 @@ pub fn first_party_extension_factory(name: &str, factory: ExtensionFactory) -> I
     }
 }
 
-/// `createFirstPartyExtensionFactories` for the bundled extensions ported on
-/// this branch. The shared store and runtime handles are created by `main`.
+/// `createFirstPartyExtensionFactories`. The shared store, runtime handles,
+/// fast-mode authority, and HTTP client are created by `main`.
+///
+/// The factories are registered under their source ids and then emitted in
+/// `main.ts` order, so loading order matches the TypeScript list.
 pub fn create_first_party_extension_factories(
     store: Arc<MultiAgentStore>,
     runtime_handles: crate::bundled_extensions::agents_core::runtime::MultiAgentRuntimeHandles,
+    fetch: Arc<dyn pi_ai::request::Fetch>,
 ) -> Vec<InlineExtension> {
     let options = crate::bundled_extensions::agents_core::runtime::MultiAgentExtensionOptions {
         runtime_handles: Some(runtime_handles),
         store: Some(Arc::clone(&store)),
         ..Default::default()
     };
-    let mut factories = crate::bundled_extensions::agents_extension_factories(&options)
-        .into_iter()
-        .map(|(name, factory)| first_party_extension_factory(name, factory))
-        .collect::<Vec<_>>();
-    factories.push(first_party_extension_factory(
-        "goal",
-        crate::bundled_extensions::goal::goal_extension_factory(
-            crate::bundled_extensions::goal::goal_types::GoalExtensionOptions::default(),
-        ),
-    ));
-    factories.push(first_party_extension_factory(
-        "bwrap",
-        crate::bundled_extensions::bwrap::bwrap_extension_factory(
-            crate::bundled_extensions::bwrap::BwrapExtensionOptions::default(),
-        ),
-    ));
-    factories.push(first_party_extension_factory("pyrun", pyrun_extension_factory(options)));
-    factories
+    let mut registry = ExtensionRegistry::new();
+    crate::bundled_extensions::register_small_extensions(
+        &mut registry,
+        &crate::bundled_extensions::SmallExtensionsOptions {
+            get_debug_repl: debug_repl_gap_provider(),
+            fast_mode_authority: crate::bundled_extensions::codex_fast::FastModeAuthority::default(),
+            fetch: Some(fetch),
+            multi_agent_store: Some(Arc::clone(&store)),
+        },
+    );
+    crate::bundled_extensions::register_agents_extensions(&mut registry, &options);
+    crate::bundled_extensions::register_bundled_extensions(&mut registry);
+    registry.register("<first-party:pyrun>", pyrun_extension_factory(options));
+
+    FIRST_PARTY_EXTENSION_NAMES
+        .iter()
+        .filter_map(|name| {
+            registry
+                .get(&format!("<first-party:{name}>"))
+                .map(|factory| first_party_extension_factory(name, Arc::clone(factory)))
+        })
+        .collect()
 }
+
+/// `core/debug-repl.ts` is an approved gap: the provider reports the gap
+/// instead of returning a fake REPL.
+pub fn debug_repl_gap_provider() -> crate::bundled_extensions::debug::DebugReplControllerProvider {
+    Arc::new(|| Arc::new(DebugReplGapController))
+}
+
+struct DebugReplGapController;
+
+impl crate::bundled_extensions::debug::DebugReplController for DebugReplGapController {
+    fn enable(
+        &self,
+        _session_id: &str,
+    ) -> crate::core::extensions::types::BoxFuture<'static, Result<String, crate::core::extensions::types::HandlerError>>
+    {
+        Box::pin(async { Err(crate::core::extensions::types::HandlerError::new(DEBUG_REPL_GAP)) })
+    }
+
+    fn disable(
+        &self,
+    ) -> crate::core::extensions::types::BoxFuture<'static, Result<(), crate::core::extensions::types::HandlerError>>
+    {
+        Box::pin(async { Err(crate::core::extensions::types::HandlerError::new(DEBUG_REPL_GAP)) })
+    }
+}
+
+pub const DEBUG_REPL_GAP: &str = "Debug REPL is not ported (core/debug-repl.ts)";
 
 /// `pyrunExtension(pi, { piRequestHandlers: [multiAgentPiRequestHandler] })`.
 fn pyrun_extension_factory(
@@ -660,7 +684,8 @@ pub fn is_plain_runtime_metadata_command(parsed: &Args) -> bool {
 
 /// `isTruthyEnvFlag(process.env.PI_OFFLINE)`.
 pub fn offline_mode_from_env(args: &[String]) -> bool {
-    args.iter().any(|arg| arg == "--offline") || is_truthy_env_flag(std::env::var("PI_OFFLINE").ok().as_deref())
+    args.iter().any(|arg| arg == "--offline")
+        || is_truthy_env_flag(pi_js_compat::process_env::get("PI_OFFLINE").as_deref())
 }
 
 // =============================================================================
@@ -1295,6 +1320,92 @@ fn fork_session_or_exit(
     })
 }
 
+/// Session loader used by the `--resume` picker.
+struct MainSessionsLoader {
+    cwd: String,
+    session_dir: Option<String>,
+    control_db_path: Option<String>,
+    scope: MainSessionsScope,
+}
+
+#[derive(Clone, Copy)]
+enum MainSessionsScope {
+    Current,
+    All,
+    Archived,
+}
+
+impl crate::cli::session_picker::SessionLoader for MainSessionsLoader {
+    fn load<'a>(
+        &'a self,
+        on_progress: Option<crate::cli::session_picker::SessionListProgress<'a>>,
+    ) -> crate::cli::session_picker::SessionListFuture<'a, Result<Vec<SessionInfo>, String>> {
+        Box::pin(async move {
+            let session_dir = self.session_dir.as_deref();
+            let control_db_path = self.control_db_path.as_deref();
+            match self.scope {
+                MainSessionsScope::Current => {
+                    SessionManager::list(&self.cwd, session_dir, on_progress, control_db_path)
+                        .map_err(|error| error.to_string())
+                }
+                MainSessionsScope::All => SessionManager::list_all(session_dir, on_progress, control_db_path)
+                    .map_err(|error| error.to_string()),
+                MainSessionsScope::Archived => {
+                    SessionManager::list_archived(session_dir, control_db_path).map_err(|error| error.to_string())
+                }
+            }
+        })
+    }
+}
+
+/// `selectSession(...)` with the process terminal and environment.
+async fn select_session_for_process(
+    cwd: &str,
+    session_dir: Option<&str>,
+    settings_manager: &SettingsManager,
+    control_db_path: Option<&str>,
+) -> MainResult<crate::cli::session_picker::SelectSessionOutcome> {
+    let loader = |scope| {
+        Arc::new(MainSessionsLoader {
+            cwd: cwd.to_owned(),
+            session_dir: session_dir.map(str::to_owned),
+            control_db_path: control_db_path.map(str::to_owned),
+            scope,
+        }) as Arc<dyn crate::cli::session_picker::SessionLoader>
+    };
+    let validate_selection = control_db_path.map(|control_db_path| {
+        let control_db_path = control_db_path.to_owned();
+        let session_dir = session_dir.map(str::to_owned);
+        Arc::new(move |path: &str| {
+            let selected =
+                SessionManager::open(path, session_dir.as_deref(), None).map_err(|error| error.to_string())?;
+            crate::core::session_control_db::assert_main_session_runtime_available(
+                &control_db_path,
+                selected.get_session_id(),
+            )
+            .map_err(|error| error.to_string())
+        }) as Arc<dyn Fn(&str) -> Result<(), String>>
+    });
+    let env: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
+    let outcome = crate::cli::session_picker::select_session(
+        loader(MainSessionsScope::Current),
+        loader(MainSessionsScope::All),
+        crate::cli::session_picker::SelectSessionOptions {
+            settings_manager,
+            terminal: Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new())),
+            env: &env,
+            control_db_path,
+            archived_sessions_loader: Some(loader(MainSessionsScope::Archived)),
+            validate_selection,
+        },
+    )
+    .await;
+    outcome.map_err(|message| {
+        console_error(&Chalk::stderr().red(&format!("Error: {message}")));
+        MainExit(1)
+    })
+}
+
 // =============================================================================
 // Session manager creation
 // =============================================================================
@@ -1304,7 +1415,7 @@ pub async fn create_session_manager(
     parsed: &Args,
     cwd: &str,
     session_dir: Option<&str>,
-    _settings_manager: &SettingsManager,
+    settings_manager: &SettingsManager,
     control_db_path: Option<&str>,
 ) -> MainResult<SessionManager> {
     if parsed.no_session.is_some_and(|value| value)
@@ -1373,10 +1484,18 @@ pub async fn create_session_manager(
     }
 
     if parsed.resume.is_some_and(|value| value) {
-        console_error(&Chalk::stderr().red(
-            "Error: --resume requires the interactive session picker, which is not ported (cli/session-picker.ts selectSession)",
-        ));
-        return Err(MainExit(1));
+        let outcome = select_session_for_process(cwd, session_dir, settings_manager, control_db_path).await?;
+        stop_theme_watcher();
+        match outcome {
+            crate::cli::session_picker::SelectSessionOutcome::Selected(path) => {
+                return open_session_or_exit(&path, session_dir);
+            }
+            crate::cli::session_picker::SelectSessionOutcome::Cancelled => {
+                console_log(&Chalk::stdout().dim("No session selected"));
+                return Err(MainExit(0));
+            }
+            crate::cli::session_picker::SelectSessionOutcome::Exited => return Err(MainExit(0)),
+        }
     }
 
     if parsed.continue_session.is_some_and(|value| value) {
@@ -1719,11 +1838,12 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     }
 
     reset_timings(TimingLabel::Main);
-    let package_command_extension_factories = options.extension_factories.clone();
+    let mut package_command_extension_factories = built_in_extensions();
+    package_command_extension_factories.extend(options.extension_factories.clone());
     let offline_mode = offline_mode_from_env(args);
     if offline_mode {
-        // `process.env.PI_OFFLINE = "1"` and `PI_SKIP_VERSION_CHECK = "1"` cannot
-        // be applied safely in edition 2024; see the traceability deviations.
+        pi_js_compat::process_env::set("PI_OFFLINE", "1");
+        pi_js_compat::process_env::set("PI_SKIP_VERSION_CHECK", "1");
     }
 
     if run_auth_command(args, exit_code).await {
@@ -1823,8 +1943,11 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     let multi_agent_store = create_first_party_multi_agent_store();
     let multi_agent_runtime_handles =
         crate::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
-    let first_party_extension_factories =
-        create_first_party_extension_factories(Arc::clone(&multi_agent_store), multi_agent_runtime_handles.clone());
+    let first_party_extension_factories = create_first_party_extension_factories(
+        Arc::clone(&multi_agent_store),
+        multi_agent_runtime_handles.clone(),
+        Arc::clone(&fetch),
+    );
     let extension_factories = if parsed.no_extensions.is_some_and(|value| value) {
         options.extension_factories.clone()
     } else {
@@ -1906,10 +2029,16 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         && parsed.list_models.is_none()
         && crate::cli::startup_ui::should_run_first_time_setup_for_process()
     {
-        return Err("first-time setup is not ported (cli/startup-ui.ts showFirstTimeSetup)".to_owned());
+        let env: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
+        crate::cli::startup_ui::show_first_time_setup(
+            &mut startup_settings_manager,
+            Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new())),
+            &env,
+        )
+        .await?;
     }
 
-    let env_session_dir = std::env::var(crate::config::env_session_dir()).ok();
+    let env_session_dir = pi_js_compat::process_env::get(&crate::config::env_session_dir());
     let session_dir = match parsed.session_dir.as_deref() {
         Some(dir) => Some(normalize_session_dir(dir)?),
         None => match env_session_dir {
@@ -1971,9 +2100,11 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         take_over_stdout();
     }
     time("createSessionManager", TimingLabel::Main);
-    if app_mode == AppMode::Interactive {
-        let _control_message = claim_latest_incoming_message(&control_db_path).map_err(|error| error.to_string())?;
-    }
+    let control_message = if app_mode == AppMode::Interactive {
+        claim_latest_incoming_message(&control_db_path).map_err(|error| error.to_string())?
+    } else {
+        None
+    };
 
     let trust_store = Arc::new(ProjectTrustStore::new(&agent_dir));
     let trust_prompt_mode = if parsed.help == Some(true)
@@ -2112,7 +2243,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         return Ok(Some(1));
     }
 
-    let startup_benchmark = is_truthy_env_flag(std::env::var("PI_STARTUP_BENCHMARK").ok().as_deref());
+    let startup_benchmark = is_truthy_env_flag(pi_js_compat::process_env::get("PI_STARTUP_BENCHMARK").as_deref());
     if startup_benchmark && app_mode != AppMode::Interactive {
         console_error(&Chalk::stderr().red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
         return Ok(Some(1));
@@ -2126,7 +2257,54 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         return Ok(None);
     }
     if app_mode == AppMode::Interactive {
-        return Err("Interactive mode is not ported (modes/interactive/interactive-mode.ts)".to_owned());
+        let auto_trust_on_reload_cwd =
+            if parsed.project_trust_override.is_none() && !has_trust_requiring_project_resources(&session_cwd) {
+                Some(session_cwd.clone())
+            } else {
+                None
+            };
+        let options = InteractiveModeOptions {
+            migrated_providers: migrations.migrated_auth_providers.clone(),
+            model_fallback_message: model_fallback_message.clone(),
+            auto_trust_on_reload_cwd,
+            initial_message: initial.initial_message.clone(),
+            initial_images: initial.initial_images.clone().unwrap_or_default(),
+            initial_messages: parsed.messages.clone(),
+            control_message,
+            verbose: parsed.verbose.is_some_and(|value| value),
+            tui_mode: parsed.tui_mode,
+            control_db_path: Some(control_db_path.clone()),
+        };
+        if startup_benchmark {
+            let local = tokio::task::LocalSet::new();
+            let code = local
+                .run_until(async move {
+                    let mode = InteractiveMode::new(runtime, options, None)?;
+                    let result = run_interactive_action_or_report_terminal_error(|| mode.init(), None).await?;
+                    if !result.ok {
+                        return Ok::<Option<i32>, String>(Some(result.exit_code.unwrap_or(1)));
+                    }
+                    // Give the TUI's stdin handler a brief chance to consume terminal
+                    // query replies before restoring the terminal.
+                    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                    mode.stop();
+                    stop_theme_watcher();
+                    print_timings();
+                    Ok::<Option<i32>, String>(None)
+                })
+                .await?;
+            return Ok(code);
+        }
+        print_timings();
+        let result = run_interactive_action_or_report_terminal_error(
+            || crate::modes::interactive::run_interactive_mode(runtime, options, None),
+            None,
+        )
+        .await?;
+        if !result.ok {
+            return Ok(Some(result.exit_code.unwrap_or(1)));
+        }
+        return Ok(None);
     }
 
     print_timings();

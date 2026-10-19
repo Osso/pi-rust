@@ -4572,7 +4572,9 @@ impl AgentSession {
         } else {
             ThemeColor::Accent
         };
-        let styled = ui.theme().fg(color, &status_text);
+        let theme = crate::modes::interactive::theme::try_current_theme()
+            .map_err(|theme_error| error(theme_error.to_string()))?;
+        let styled = theme.fg(color, &status_text);
         ui.set_status("bwrap", Some(&styled));
         Ok(())
     }

@@ -7,9 +7,9 @@
 //!   dependency.
 //! - `process.emitWarning = () => {}` has no Rust analogue (Rust does not emit
 //!   Node warnings).
-//! - The process environment (`PI_CODING_AGENT`, `AI_AGENT`) is exported as
-//!   [`CLI_PROCESS_ENV`] for the binary bootstrap to apply: edition 2024 makes
-//!   `std::env::set_var` unsafe and this workspace denies unsafe code.
+//! - The process environment writes (`PI_CODING_AGENT`, `AI_AGENT`) go through
+//!   [`pi_js_compat::process_env`]: edition 2024 makes `std::env::set_var` unsafe
+//!   and this workspace denies unsafe code.
 //!
 //! `configureHttpDispatcher()` patches `globalThis.fetch` in TypeScript; Rust has
 //! no global fetch, so [`run_cli_main`] configures the process-wide dispatcher.
@@ -25,6 +25,13 @@ use crate::internal_runner::{DetachedRunnerHost, run_internal_bwrap_fs_worker, r
 
 /// Environment the TypeScript entry point sets before running `main`.
 pub const CLI_PROCESS_ENV: [(&str, &str); 2] = [("PI_CODING_AGENT", "true"), ("AI_AGENT", "pi")];
+
+/// Applies `process.env` writes to the [`pi_js_compat::process_env`] overlay.
+pub fn apply_process_env(entries: &[(&str, &str)]) {
+    for (name, value) in entries {
+        pi_js_compat::process_env::set(name, value);
+    }
+}
 
 /// `runCliActionOrReportError(() => main(process.argv.slice(2)))`.
 pub type CliMain<'a> = Box<dyn FnOnce(&'a [String]) -> Pin<Box<dyn Future<Output = Result<i32, String>> + 'a>> + 'a>;
@@ -48,6 +55,7 @@ pub async fn run_cli_entry<'a>(
 /// The non-internal-runner half of `cli.ts`: configure the dispatcher, then run
 /// `main`.
 pub async fn run_cli_main<'a>(args: &'a [String], main: CliMain<'a>) -> Result<i32, String> {
+    apply_process_env(&CLI_PROCESS_ENV);
     configure_http_dispatcher(DEFAULT_HTTP_IDLE_TIMEOUT_MS as f64)?;
     main(args).await
 }

@@ -27,11 +27,11 @@ use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::settings_manager::{DefaultProjectTrust, SettingsManager, SettingsManagerCreateOptions};
 use pi_coding_agent::core::trust_manager::ProjectTrustStore;
 use pi_coding_agent::main_runner::{
-    FIRST_PARTY_EXTENSION_NAMES, MainExit, PENDING_FIRST_PARTY_EXTENSIONS, ResolvedSession, RuntimeFactoryOptions,
+    DEBUG_REPL_GAP, FIRST_PARTY_EXTENSION_NAMES, MainExit, ResolvedSession, RuntimeFactoryOptions,
     build_session_options, collect_settings_diagnostics, create_first_party_extension_factories,
-    create_first_party_multi_agent_store, create_runtime_factory, create_session_manager, fork_flag_conflict,
-    is_plain_runtime_metadata_command, is_truthy_env_flag, prepare_initial_message, resolve_app_mode,
-    resolve_cli_paths, resolve_session_path, run_cli_action_or_report_error,
+    create_first_party_multi_agent_store, create_runtime_factory, create_session_manager, debug_repl_gap_provider,
+    fork_flag_conflict, is_plain_runtime_metadata_command, is_truthy_env_flag, prepare_initial_message,
+    resolve_app_mode, resolve_cli_paths, resolve_session_path, run_cli_action_or_report_error,
     run_interactive_action_or_report_terminal_error, session_belongs_to_project, session_id_flag_conflict,
     to_print_output_mode, validate_fork_flags, validate_session_id_flags,
 };
@@ -428,14 +428,6 @@ async fn create_session_manager_honors_help_in_memory_and_session_ids() {
             .err(),
         Some(MainExit(1))
     );
-
-    let parsed = parse_args(&args(&["--resume"]));
-    assert_eq!(
-        create_session_manager(&parsed, &cwd, Some(&session_dir), &settings, None)
-            .await
-            .err(),
-        Some(MainExit(1))
-    );
 }
 
 #[tokio::test]
@@ -491,7 +483,8 @@ fn diagnostics_are_serialized_with_the_ts_type_field() {
 fn first_party_factory_list_partitions_the_source_names() {
     let store = create_first_party_multi_agent_store();
     let handles = pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
-    let factories = create_first_party_extension_factories(store, handles);
+    let fetch = pi_ai::http::default_fetch();
+    let factories = create_first_party_extension_factories(store, handles, fetch);
     let registered: Vec<String> = factories
         .iter()
         .map(|factory| match factory {
@@ -508,26 +501,10 @@ fn first_party_factory_list_partitions_the_source_names() {
         .collect();
     assert_eq!(
         registered,
-        vec![
-            "agents-core",
-            "agent-viewer",
-            "agents-mailbox",
-            "goal",
-            "bwrap",
-            "pyrun"
-        ]
-    );
-
-    for name in &registered {
-        assert!(FIRST_PARTY_EXTENSION_NAMES.contains(&name.as_str()), "{name}");
-        assert!(!PENDING_FIRST_PARTY_EXTENSIONS.contains(&name.as_str()), "{name}");
-    }
-    for name in PENDING_FIRST_PARTY_EXTENSIONS {
-        assert!(FIRST_PARTY_EXTENSION_NAMES.contains(name), "{name}");
-    }
-    assert_eq!(
-        registered.len() + PENDING_FIRST_PARTY_EXTENSIONS.len(),
-        FIRST_PARTY_EXTENSION_NAMES.len()
+        FIRST_PARTY_EXTENSION_NAMES
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect::<Vec<_>>()
     );
 }
 
@@ -537,7 +514,8 @@ async fn first_party_factories_load_and_register_agent_tools() {
     let cwd = root.path().display().to_string();
     let store = create_first_party_multi_agent_store();
     let handles = pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
-    let factories = create_first_party_extension_factories(store, handles);
+    let fetch = pi_ai::http::default_fetch();
+    let factories = create_first_party_extension_factories(store, handles, fetch);
     let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
         cwd: cwd.clone(),
         agent_dir: cwd,
@@ -552,28 +530,34 @@ async fn first_party_factories_load_and_register_agent_tools() {
     loader.reload_with_options(None).await.expect("reload");
     let result = loader.get_extensions();
     assert!(result.errors.is_empty(), "{:?}", result.errors);
-    let paths: Vec<&str> = result
+    let paths: Vec<String> = result
         .extensions
         .iter()
-        .map(|extension| extension.path.as_str())
+        .map(|extension| extension.path.clone())
         .collect();
-    assert_eq!(
-        paths,
-        vec![
-            "<first-party:agents-core>",
-            "<first-party:agent-viewer>",
-            "<first-party:agents-mailbox>",
-            "<first-party:goal>",
-            "<first-party:bwrap>",
-            "<first-party:pyrun>"
-        ]
-    );
-    let core = &result.extensions[0];
+    let expected: Vec<String> = FIRST_PARTY_EXTENSION_NAMES
+        .iter()
+        .map(|name| format!("<first-party:{name}>"))
+        .collect();
+    assert_eq!(paths, expected);
+    let core = result
+        .extensions
+        .iter()
+        .find(|extension| extension.path == "<first-party:agents-core>")
+        .expect("agents-core");
     assert!(core.tools.contains_key("spawn_agent"));
     assert!(!core.tools.contains_key("send_agent_message"));
-    let viewer = &result.extensions[1];
+    let viewer = result
+        .extensions
+        .iter()
+        .find(|extension| extension.path == "<first-party:agent-viewer>")
+        .expect("agent-viewer");
     assert!(viewer.tools.contains_key("agent_viewer"));
-    let mailbox = &result.extensions[2];
+    let mailbox = result
+        .extensions
+        .iter()
+        .find(|extension| extension.path == "<first-party:agents-mailbox>")
+        .expect("agents-mailbox");
     assert!(mailbox.tools.contains_key("send_agent_message"));
     assert!(mailbox.tools.contains_key("contact_parent"));
 }
@@ -629,4 +613,15 @@ async fn runtime_factory_creates_services_and_reports_missing_models() {
     assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
     assert!(result.session.messages().is_empty());
     assert_eq!(project_trust_by_cwd.lock().unwrap().get(&cwd_string), Some(&false));
+}
+
+#[tokio::test]
+async fn debug_repl_provider_reports_the_documented_gap() {
+    let controller = (debug_repl_gap_provider())();
+    assert_eq!(
+        controller.enable("session-1").await.unwrap_err().message,
+        DEBUG_REPL_GAP
+    );
+    assert_eq!(controller.disable().await.unwrap_err().message, DEBUG_REPL_GAP);
+    assert_eq!(DEBUG_REPL_GAP, "Debug REPL is not ported (core/debug-repl.ts)");
 }

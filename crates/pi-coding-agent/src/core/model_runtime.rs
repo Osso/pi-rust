@@ -231,7 +231,7 @@ impl ModelRuntime {
                 }
             })
             .collect();
-        let model_network_enabled = std::env::var_os("PI_OFFLINE").is_none();
+        let model_network_enabled = pi_js_compat::process_env::get("PI_OFFLINE").is_none();
         let models = create_models(CreateModelsOptions {
             credentials: Some(credentials.clone() as Arc<dyn CredentialStore>),
             models_store: Some(models_store),

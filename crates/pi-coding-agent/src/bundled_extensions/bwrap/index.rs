@@ -513,15 +513,17 @@ fn register_bwrap_session_start(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
         let bwrap_command = bwrap_command.clone();
         Box::pin(async move {
             let profile = read_sandbox_profile(&ctx);
+            // `ctx.ui.theme` throws before `initTheme`; the source's runner
+            // records the error, so surface it as a handler error.
+            let theme = crate::modes::interactive::theme::try_current_theme()
+                .map_err(|error| HandlerError::new(error.to_string()))?;
             let Some(profile) = profile else {
                 if let Ok(ui) = ctx.ui() {
-                    let theme = ui.theme();
                     ui.set_status("bwrap", Some(&theme.fg(ThemeColor::Muted, "bwrap: full access")));
                 }
                 return Ok(None);
             };
             if let Ok(ui) = ctx.ui() {
-                let theme = ui.theme();
                 match run_bwrap_availability_check(&bwrap_command) {
                     Ok(()) => ui.set_status(
                         "bwrap",

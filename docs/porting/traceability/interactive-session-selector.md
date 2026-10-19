@@ -31,12 +31,12 @@ ANSI lines and selected paths).
 | `onArchiveSession` (control DB required, already-archived, archive+refresh) | `archive_selected_session` | archive test |
 | `loadCurrentSessions` from constructor | `load_current_sessions` (async) | differential |
 | `getSessionList` | `session_list` | differential |
-| `showError` | `SessionSelectorHeader::set_status_message` | status path |
+| `showError` | `show_error` (error status, 4 s auto-hide, render) | `resume_flag_opens_the_session_picker_and_cancels_with_escape` error path; header status tests |
 
 ## Gaps
 
 - Async boundaries: the constructor does not start loading; the caller awaits
-  `load_current_sessions()`. `handle_input` queues async work (delete/archive/scope load/rename
+  `load_current_sessions()`. Loader futures are non-`Send` (single-threaded TUI). `handle_input` queues async work (delete/archive/scope load/rename
   submit) and the caller awaits `run_pending_action()`. State ordering matches the source
   (loading set before the await, results applied after, sequence guards preserved).
 - Loader progress is recorded in a shared cell and applied to the header after the loader

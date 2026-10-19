@@ -22,10 +22,13 @@ behavior is process/DB-bound and covered by behavioral tests.
 | `app.exit` only when text empty | `Component::handle_input` | exit test |
 | history previous/next forwarded before app actions | `Component::handle_input` | code path |
 | remaining actions iterate in insertion order, `!== false` | `IndexMap` + `bool` handler | action tests |
+| callbacks run while the editor is live | `collect_input_callbacks` returns matched callbacks; `EditorHandle::handle_input` runs them after the `RefCell` borrow drops | `interactive_mode_starts_the_tui_and_exits_on_double_ctrl_c` (ctrl+c clear re-enters the editor) |
 
 ## Gaps
 
 - `addToHistory` and the constructor return `Result` where the source throws on control-DB errors.
+- `onExtensionShortcut` still runs inline (it reports whether it consumed the key); it is not
+  wired by `InteractiveMode` yet, so it cannot re-enter the editor.
 - App action handlers return `bool` (`true` = handled); the source treats any value other than
   `false` as handled.
 - Rendering is delegated to the ported `Editor`; no differential case because the source

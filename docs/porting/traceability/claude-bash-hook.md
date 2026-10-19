@@ -26,3 +26,10 @@ Source: `packages/coding-agent/extensions/claude-bash-hook/src/index.ts`. Rust:
   `claude-bash-hook timed out`; TypeScript rejects with the abort reason from
   `AbortController`. No source test covers this path.
 - `stderr` is captured but unused, matching the source.
+
+## Known test flake
+
+`tests/claude_bash_hook_extension.rs` writes an executable script and spawns it
+from several parallel test threads; a concurrent fork can inherit the write fd
+and the spawn fails with `Text file busy (os error 26)`. Reproduced 1 in 3 serial
+runs of that binary; owned by the `ca-errno` spawn-race slice.

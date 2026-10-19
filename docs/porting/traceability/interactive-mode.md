@@ -17,6 +17,9 @@ multi-agent child transcripts are explicit gaps below.
 | `createInteractiveTui` | `create_interactive_tui` | exercised by `build_mode` (regular); fullscreen renderer construction covered by `pi-tui` renderer tests |
 | `createInteractiveTuiReference` | `InteractiveTuiHandle` (stable renderer handle) | construction/renderer swap used by components; no direct test |
 | `bindInteractiveModeSessionMutationTargetResolver` | not ported | gap: no `ViewedSessionMutationTarget` API |
+| `stop()` | `InteractiveMode::stop` | `PI_STARTUP_BENCHMARK` path in `main_runner` |
+| `processControlMessage` | `process_control_message` | control-message branch of `run`; `IncomingControlMessage` completion/failure |
+| `InteractiveTuiHandle` dispatch | `InteractiveTuiHandle::renderer()` clones the active renderer | pty interactive test (input callbacks request renders) |
 | `formatResumeCommand` | `format_resume_command` | unit tests for quoting; TTY-dependent branch not covered |
 | `ExtensionUIContext` implementation | `InteractiveUiContext` | `ui_tests::extension_select_dialog_resolves_and_restores_editor` (select); confirm/input/editor share the same broker |
 
@@ -50,6 +53,13 @@ multi-agent child transcripts are explicit gaps below.
   getAllThemes/getTheme/setTheme, tools-expanded, footer/header/custom
   component factories, runtime new-session/fork/tree/switch/reload/restart
   requests, abort and shutdown handlers.
+
+## Runtime loop
+
+`run` binds callbacks, subscribes to session events, calls `init`, processes the
+claimed control message, then prompts initial message/messages and loops:
+`process_events` -> `flush_pending` -> border color -> UI requests -> queued
+actions, breaking when shutdown is requested, then `shutdown`.
 
 ## Gaps (explicit)
 

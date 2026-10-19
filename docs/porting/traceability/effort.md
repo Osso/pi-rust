@@ -28,3 +28,6 @@ Source: `packages/coding-agent/extensions/effort/src/index.ts`. Rust:
   `261b879`; the value is the agent-core `ThinkingLevel` enum.
 - `session_tree` is registered with the same restore handler; the differential
   oracle drives `session_start` because both call the same Rust function.
+- Status coloring uses `try_current_theme()` and returns the source's
+  `Theme not initialized. Call initTheme() first.` as a handler error, matching
+  the runner's caught throw before `initTheme` (for example `pi extensions`).

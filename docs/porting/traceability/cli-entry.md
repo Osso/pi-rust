@@ -9,7 +9,7 @@ Source: `packages/coding-agent/src/cli.ts` (25 lines, pinned revision in
 | --- | --- | --- |
 | `runInternalDetachedRunner(args)` gate | `run_internal_detached_runner` call in `run_cli_entry` | `cli_entry_stops_after_an_internal_runner_handles_the_process` |
 | `process.title = APP_NAME` | not ported (gap) | — |
-| `process.env.PI_CODING_AGENT = "true"`, `process.env.AI_AGENT = "pi"` | `CLI_PROCESS_ENV` | `cli_process_env_matches_the_typescript_entry_point` |
+| `process.env.PI_CODING_AGENT = "true"`, `process.env.AI_AGENT = "pi"` | `CLI_PROCESS_ENV` + `apply_process_env` in `run_cli_main` (`pi_js_compat::process_env` overlay) | `cli_process_env_matches_the_typescript_entry_point`, `run_cli_main_exports_the_typescript_process_environment_to_children` |
 | `process.emitWarning = () => {}` | not ported (no Rust analogue) | — |
 | `configureHttpDispatcher()` | `configure_http_dispatcher(DEFAULT_HTTP_IDLE_TIMEOUT_MS)`; the fetch is returned | `cli_entry_runs_main_and_returns_the_configured_fetch` |
 | `runCliActionOrReportError(() => main(args))` | `main(args).await`; errors propagate to the caller | `cli_entry_propagates_main_errors` |
@@ -30,10 +30,11 @@ Source: `packages/coding-agent/src/cli.ts` (25 lines, pinned revision in
 - **`process.emitWarning`** — Node-only API with no Rust equivalent; Rust does not emit Node
   warnings, so nothing is suppressed.
 - **Environment variables** — edition 2024 makes `std::env::set_var` unsafe and this workspace
-  denies unsafe code. The pairs are exported as `CLI_PROCESS_ENV`; the binary bootstrap must
-  apply them before running `main` (TypeScript sets them inline).
+  denies unsafe code. `run_cli_main` applies `CLI_PROCESS_ENV` to the
+  `pi_js_compat::process_env` overlay (same position as the source: after the
+  internal-runner gate, before the dispatcher); child spawns read the overlay.
 - **Global dispatcher** — TypeScript replaces `globalThis.fetch`. Rust has no global fetch, so
   `run_cli_entry` returns the configured `Arc<dyn Fetch>`; the caller passes it to the model
   runtime.
-- **`runCliActionOrReportError`** — defined in `main.ts` (not yet ported); the entry point
-  propagates the error instead of printing `Error: …` and setting `exitCode = 1`.
+- **`runCliActionOrReportError`** — defined in `main.ts` (`main_runner::run_main_or_report_error`);
+  the entry point propagates the error and the binary prints `Error: …` with exit code 1.
