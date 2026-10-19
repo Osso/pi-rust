@@ -31,6 +31,13 @@ pub use truncate::{
     truncate_line, truncate_tail,
 };
 
+/// System-prompt contribution exported by a built-in tool (`*ToolSystemPromptContribution`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToolSystemPromptContribution {
+    pub snippet: &'static str,
+    pub guidelines: &'static [&'static str],
+}
+
 /// Tools enabled for a default session (`DEFAULT_ACTIVE_TOOL_NAMES` in `tools/index.ts`).
 pub const DEFAULT_ACTIVE_TOOL_NAMES: [&str; 19] = [
     "read",
