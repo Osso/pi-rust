@@ -7,6 +7,7 @@ use crate::core::extensions::loader::ExtensionRegistry;
 pub mod agent_viewer;
 pub mod agents_core;
 pub mod agents_mailbox;
+pub mod llama;
 
 use agents_core::runtime::{MultiAgentExtensionOptions, create_multi_agent_runtime_handles, resolve_multi_agent_store};
 

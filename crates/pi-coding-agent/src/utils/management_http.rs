@@ -71,14 +71,19 @@ pub async fn fetch_with_retry(
 }
 
 /// `AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)])`.
-struct RequestDeadline {
+pub(crate) struct RequestDeadline {
     signal: CancellationToken,
     timed_out: CancellationToken,
     timer: tokio::task::JoinHandle<()>,
 }
 
 impl RequestDeadline {
-    fn start(parent: Option<&CancellationToken>, timeout_ms: Option<u64>) -> Option<Self> {
+    /// Signal handed to `fetch`: cancelled by either the caller or the timeout.
+    pub(crate) fn signal(&self) -> &CancellationToken {
+        &self.signal
+    }
+
+    pub(crate) fn start(parent: Option<&CancellationToken>, timeout_ms: Option<u64>) -> Option<Self> {
         let timeout = Duration::from_millis(timeout_ms.filter(|ms| *ms > 0)?);
         let signal = parent.map_or_else(CancellationToken::new, CancellationToken::child_token);
         let timed_out = CancellationToken::new();
@@ -103,7 +108,7 @@ impl Drop for RequestDeadline {
 }
 
 /// `signal?.throwIfAborted()` with the reason of whichever source fired.
-fn throw_if_aborted(
+pub(crate) fn throw_if_aborted(
     parent: Option<&CancellationToken>,
     deadline: Option<&RequestDeadline>,
 ) -> Result<(), CallbackError> {
