@@ -705,3 +705,82 @@ async fn wait_for(mut predicate: impl FnMut() -> bool, label: &str) {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
+
+/// End-to-end runner-owned detach: the real `pi` binary executes the internal
+/// detached Bash runner mode against a launch manifest and finalizes the job.
+#[test]
+fn real_pi_binary_finalizes_a_detached_bash_job() {
+    let fixture = fixture("2026-07-11T22:00:00.000Z");
+    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash);
+    let activation_path = fixture
+        .directory
+        .path()
+        .join("activation.json")
+        .to_string_lossy()
+        .into_owned();
+    let foreground_completion_path = fixture
+        .directory
+        .path()
+        .join("foreground-completed")
+        .to_string_lossy()
+        .into_owned();
+    let data = manifest(
+        &fixture,
+        &job_id,
+        &activation_path,
+        &foreground_completion_path,
+        vec!["-c".to_owned(), "printf detached-ok".to_owned()],
+    );
+    let ownership = register(&fixture, &job_id, test_process_identity("runner"));
+    write_detached_bash_activation(&activation_path, &ownership.identity).expect("activation");
+    let manifest_path = fixture
+        .directory
+        .path()
+        .join("launch.json")
+        .to_string_lossy()
+        .into_owned();
+    write_detached_bash_launch_manifest(&manifest_path, &data).expect("manifest");
+
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_pi"));
+    command
+        .arg("--internal-detached-bash-runner")
+        .arg(&manifest_path)
+        .env_clear()
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    if let Some(home) = std::env::var_os("HOME") {
+        command.env("HOME", home);
+    }
+    if let Some(path) = std::env::var_os("PATH") {
+        command.env("PATH", path);
+    }
+    let child = command.spawn().expect("spawn pi");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut child = child;
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("wait for pi") {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            panic!("pi detached runner timed out");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let output = child.wait_with_output().expect("runner output");
+    assert!(status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        fs::read_to_string(&data.artifacts.output_path).expect("output"),
+        "detached-ok"
+    );
+    let agent = read_multi_agent_agent(&fixture.control_db_path, &fixture.session_path, &job_id)
+        .expect("read")
+        .expect("agent");
+    assert_eq!(agent.lifecycle, AgentLifecycle::Completed);
+    assert_eq!(agent.revision, 2);
+    assert_eq!(
+        agent.result.expect("result").summary.as_deref(),
+        Some("Process exited successfully.")
+    );
+}
