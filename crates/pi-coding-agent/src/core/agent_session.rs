@@ -1035,6 +1035,40 @@ fn compaction_extension_decision(
     }
 }
 
+fn compaction_reason(reason: &str) -> CompactionReason {
+    match reason {
+        "threshold" => CompactionReason::Threshold,
+        "overflow" => CompactionReason::Overflow,
+        _ => CompactionReason::Manual,
+    }
+}
+
+async fn emit_compaction_event(
+    runner: &ExtensionRunner,
+    preparation: &crate::core::compaction::CompactionPreparation,
+    branch_entries: &[SessionEntry],
+    custom_instructions: Option<&str>,
+    reason: &str,
+    will_retry: bool,
+    abort: &CancellationToken,
+) -> CompactionExtensionDecision {
+    if !runner.has_handlers("compaction") {
+        return CompactionExtensionDecision::None;
+    }
+    let mut event = ExtensionEvent::Compaction(CompactionEvent {
+        preparation: preparation.clone(),
+        branch_entries: branch_entries.to_vec(),
+        custom_instructions: custom_instructions.map(str::to_owned),
+        reason: compaction_reason(reason),
+        will_retry,
+        signal: Some(abort.clone()),
+    });
+    match runner.emit(&mut event).await {
+        EmitResult::Compaction(result) => compaction_extension_decision(result.cancel, result.compaction),
+        _ => CompactionExtensionDecision::None,
+    }
+}
+
 /// `DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE`.
 pub const DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE: &str = "detached_tool_call_completion";
 
@@ -3456,14 +3490,13 @@ impl AgentSession {
             return;
         };
         let started_at = now_millis();
-        let extension_compaction = match self
-            .emit_compaction_event(&runner, &preparation, &branch_entries, None, "threshold", false, &abort)
-            .await
-        {
-            CompactionExtensionDecision::Cancel => return,
-            CompactionExtensionDecision::None => None,
-            CompactionExtensionDecision::Compaction(compaction) => Some(*compaction),
-        };
+        let extension_compaction =
+            match emit_compaction_event(&runner, &preparation, &branch_entries, None, "threshold", false, &abort).await
+            {
+                CompactionExtensionDecision::Cancel => return,
+                CompactionExtensionDecision::None => None,
+                CompactionExtensionDecision::Compaction(compaction) => Some(*compaction),
+            };
         let from_extension = extension_compaction.is_some();
         let generated = match extension_compaction {
             Some(compaction) => Ok(compaction),
@@ -3495,14 +3528,6 @@ impl AgentSession {
         }
     }
 
-    fn compaction_reason(reason: &str) -> CompactionReason {
-        match reason {
-            "threshold" => CompactionReason::Threshold,
-            "overflow" => CompactionReason::Overflow,
-            _ => CompactionReason::Manual,
-        }
-    }
-
     async fn emit_session_before_compact_event(
         &self,
         preparation: &crate::core::compaction::CompactionPreparation,
@@ -3520,39 +3545,12 @@ impl AgentSession {
             preparation: preparation.clone(),
             branch_entries: branch_entries.to_vec(),
             custom_instructions: custom_instructions.map(str::to_owned),
-            reason: Self::compaction_reason(reason),
+            reason: compaction_reason(reason),
             will_retry,
             signal: Some(abort.clone()),
         });
         match runner.emit(&mut event).await {
             EmitResult::SessionBeforeCompact(result) => compaction_extension_decision(result.cancel, result.compaction),
-            _ => CompactionExtensionDecision::None,
-        }
-    }
-
-    async fn emit_compaction_event(
-        &self,
-        runner: &ExtensionRunner,
-        preparation: &crate::core::compaction::CompactionPreparation,
-        branch_entries: &[SessionEntry],
-        custom_instructions: Option<&str>,
-        reason: &str,
-        will_retry: bool,
-        abort: &CancellationToken,
-    ) -> CompactionExtensionDecision {
-        if !runner.has_handlers("compaction") {
-            return CompactionExtensionDecision::None;
-        }
-        let mut event = ExtensionEvent::Compaction(CompactionEvent {
-            preparation: preparation.clone(),
-            branch_entries: branch_entries.to_vec(),
-            custom_instructions: custom_instructions.map(str::to_owned),
-            reason: Self::compaction_reason(reason),
-            will_retry,
-            signal: Some(abort.clone()),
-        });
-        match runner.emit(&mut event).await {
-            EmitResult::Compaction(result) => compaction_extension_decision(result.cancel, result.compaction),
             _ => CompactionExtensionDecision::None,
         }
     }
@@ -5486,17 +5484,16 @@ impl AgentSession {
             CompactionExtensionDecision::None => None,
             CompactionExtensionDecision::Compaction(compaction) => Some(*compaction),
         };
-        match self
-            .emit_compaction_event(
-                &self.runner(),
-                &preparation,
-                &path_entries,
-                custom_instructions,
-                reason,
-                false,
-                abort,
-            )
-            .await
+        match emit_compaction_event(
+            &self.runner(),
+            &preparation,
+            &path_entries,
+            custom_instructions,
+            reason,
+            false,
+            abort,
+        )
+        .await
         {
             CompactionExtensionDecision::Cancel => return Err(error("Compaction cancelled")),
             CompactionExtensionDecision::None => {}
@@ -5839,17 +5836,16 @@ impl AgentSession {
             }
         }
         if cached.is_none() {
-            match self
-                .emit_compaction_event(
-                    &self.runner(),
-                    &preparation,
-                    &path_entries,
-                    None,
-                    reason,
-                    will_retry,
-                    &abort,
-                )
-                .await
+            match emit_compaction_event(
+                &self.runner(),
+                &preparation,
+                &path_entries,
+                None,
+                reason,
+                will_retry,
+                &abort,
+            )
+            .await
             {
                 CompactionExtensionDecision::Cancel => {
                     *lock(&self.inner.auto_compaction_abort_controller) = None;
