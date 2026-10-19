@@ -44,6 +44,11 @@ Tests: `crates/pi-evals/tests/pi_harness.rs` (faux provider), `crates/pi-evals/t
 
 ## Gaps
 
+- `HarnessContext` is passed by value; the run's artifacts are exposed on `HarnessRun.artifacts`
+  (the source's observable contract) instead of mutating a caller-owned bag. `withIterationArtifact`
+  merges the wrapper context with the returned run artifacts.
+- `createPiCodingAgentHarness` overloads become one `PiCodingAgentHarnessOptions` value; `output`
+  transforms return `serde_json::Value` (`JsonValue` in the source).
 - OpenTelemetry trace attachment (`ensureRunTrace`) belongs to the third-party `vitest-evals`
   `createHarness` wrapper; the Rust harness returns the normalized run directly.
 - `createHarness` failed-run attachment (`attachHarnessRunToError`) is not modeled; the Pi harness
