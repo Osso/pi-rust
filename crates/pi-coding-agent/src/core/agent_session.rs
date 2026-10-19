@@ -41,6 +41,9 @@ use crate::core::permissions::policy::ApprovalPolicy;
 use crate::core::permissions::presets::{ApprovalPresetName, SandboxProfileName, SandboxProfileScope};
 use crate::core::prompt_templates::expand_prompt_template;
 use crate::core::resource_loader::{LoadedPrompts, ResourceLoader};
+use crate::core::runtime_message_markers::{
+    RuntimeMessageMarker, is_duplicate_turn_guard_message as is_duplicate_turn_guard_message_marker,
+};
 use crate::core::session_control_db::RuntimeMailboxMessage;
 use crate::core::session_manager::{SessionEntry, SessionManager, SessionManagerError, get_latest_compaction_entry};
 use crate::core::settings_manager::{SettingsManager, SettingsScope};
@@ -2629,7 +2632,8 @@ impl AgentSession {
             return;
         }
         drop(last);
-        mark_duplicate_turn_assistant_message(message);
+        // The presentation marker is computed from the fingerprint at emission
+        // time (`mark_duplicate_assistant_message_for_presentation`).
         if self.inner.duplicate_turn_guard_injected.load(Ordering::SeqCst) {
             self.inner.duplicate_turn_loop_detected.store(true, Ordering::SeqCst);
             return;
@@ -2652,8 +2656,6 @@ impl AgentSession {
     }
 
     async fn handle_agent_event(&self, mut event: AgentEvent) {
-        use crate::core::runtime_message_markers::RuntimeMessageMarker;
-
         let original_tool_call_id = match &event {
             AgentEvent::MessageEnd {
                 message: AgentMessage::ToolResult(result),
@@ -4426,20 +4428,25 @@ fn is_permission_prompt_protocol_tool(name: &str, parameters: &Value) -> bool {
         .all(|field| properties.contains_key(*field))
 }
 
-fn is_duplicate_turn_guard_message(message: &AgentMessage) -> bool {
+/// Owner-side stored-marker lookup for the internally created guard message.
+///
+/// The source stores the marker in a `WeakMap` keyed by message identity; Rust
+/// messages are owned values, so the session recognizes its own guard message
+/// by the exact content and input source it wrote.
+fn stored_runtime_message_marker(message: &AgentMessage) -> Option<RuntimeMessageMarker> {
     match message {
-        AgentMessage::User(user) => {
-            user.input_source == Some(InputSource::Extension)
-                && user_message_text(&user.content) == DUPLICATE_TURN_GUARD_PROMPT
+        AgentMessage::User(user)
+            if user.input_source == Some(InputSource::Extension)
+                && user_message_text(&user.content) == DUPLICATE_TURN_GUARD_PROMPT =>
+        {
+            Some(RuntimeMessageMarker::DuplicateTurnGuard)
         }
-        _ => false,
+        _ => None,
     }
 }
 
-fn mark_duplicate_turn_assistant_message(message: &mut AssistantMessage) {
-    // The runtime-message marker module is owned by a parallel slice; the
-    // fingerprint tracking above still suppresses the repeated turn.
-    let _ = message;
+fn is_duplicate_turn_guard_message(message: &AgentMessage) -> bool {
+    is_duplicate_turn_guard_message_marker(stored_runtime_message_marker(message), None)
 }
 
 fn append_custom_agent_message(
