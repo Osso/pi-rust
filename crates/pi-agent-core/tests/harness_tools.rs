@@ -532,18 +532,22 @@ async fn edit_fuzzy_matches_smart_quotes_and_whitespace() {
 async fn edit_prepare_arguments_accepts_json_strings_and_legacy_fields() {
     let (_root, context) = temp_env();
     let tool = EditTool::new(Arc::clone(&context));
-    let prepared = tool.prepare_arguments(json!({
-        "path": "f.txt",
-        "edits": "[{\"oldText\":\"a\",\"newText\":\"A\"}]"
-    }));
+    let prepared = tool
+        .prepare_arguments(json!({
+            "path": "f.txt",
+            "edits": "[{\"oldText\":\"a\",\"newText\":\"A\"}]"
+        }))
+        .expect("prepare arguments");
     assert_eq!(prepared["edits"], json!([{"oldText": "a", "newText": "A"}]));
 
-    let legacy = tool.prepare_arguments(json!({
-        "path": "f.txt",
-        "edits": [{"oldText": "a", "newText": "A"}],
-        "oldText": "b",
-        "newText": "B"
-    }));
+    let legacy = tool
+        .prepare_arguments(json!({
+            "path": "f.txt",
+            "edits": [{"oldText": "a", "newText": "A"}],
+            "oldText": "b",
+            "newText": "B"
+        }))
+        .expect("prepare arguments");
     assert_eq!(
         legacy["edits"],
         json!([

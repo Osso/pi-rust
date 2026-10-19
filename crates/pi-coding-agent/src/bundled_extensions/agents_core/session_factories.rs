@@ -12,7 +12,10 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::core::agent_session::{AgentSession, ExtensionBindings, PromptOptions};
-use crate::core::extensions::types::{ExtensionContext, SessionStartEvent, SessionStartReason};
+use crate::core::extensions::types::{
+    ExtensionContext, HandlerError, SessionMutationTarget, SessionStartEvent, SessionStartReason,
+    ViewedSessionMutationTarget,
+};
 use crate::core::multi_agent_store::{AgentSnapshot, AgentTranscriptMetadata, MultiAgentStore};
 use crate::core::permissions::policy::normalize_approval_policy;
 use crate::core::permissions::presets::approval_preset_for_policy;
@@ -164,33 +167,52 @@ impl ChildAgentSession for AgentSessionChildSession {
         None
     }
 
-    fn session_mutation_target(&self) -> Option<Arc<crate::core::extensions::types::ViewedSessionMutationTarget>> {
-        use crate::core::extensions::types::{HandlerError, ViewedSessionMutationTarget};
-
-        let session = self.session.clone();
-        let set_model_session = self.session.clone();
-        let set_thinking_session = self.session.clone();
-        Some(Arc::new(ViewedSessionMutationTarget {
-            model: Some(session.model()),
-            model_registry: Arc::new(session.model_registry().clone()),
-            scoped_models: session.scoped_models(),
-            thinking_level: session.thinking_level(),
-            set_model: Arc::new(move |model| {
-                let session = set_model_session.clone();
-                Box::pin(async move {
-                    session
-                        .set_model(model)
-                        .await
-                        .map(|()| true)
-                        .map_err(|error| HandlerError::new(error.message()))
-                })
-            }),
-            set_thinking_level: Arc::new(move |level| {
-                set_thinking_session
-                    .set_thinking_level(level)
-                    .map_err(|error| HandlerError::new(error.to_string()))
-            }),
+    fn session_mutation_target(&self) -> Option<Arc<dyn ViewedSessionMutationTarget>> {
+        Some(Arc::new(AgentSessionMutationTarget {
+            session: self.session.clone(),
         }))
+    }
+}
+
+/// Live viewed-session target backed by a child [`AgentSession`].
+pub struct AgentSessionMutationTarget {
+    session: AgentSession,
+}
+
+impl SessionMutationTarget for AgentSessionMutationTarget {
+    fn model(&self) -> Option<pi_ai::types::Model> {
+        Some(self.session.model())
+    }
+
+    fn thinking_level(&self) -> ThinkingLevel {
+        self.session.thinking_level()
+    }
+
+    fn set_model(&self, model: pi_ai::types::Model) -> BoxFuture<'static, Result<bool, HandlerError>> {
+        let session = self.session.clone();
+        Box::pin(async move {
+            session
+                .set_model(model)
+                .await
+                .map(|()| true)
+                .map_err(|error| HandlerError::new(error.message()))
+        })
+    }
+
+    fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), HandlerError> {
+        self.session
+            .set_thinking_level(level)
+            .map_err(|error| HandlerError::new(error.to_string()))
+    }
+}
+
+impl ViewedSessionMutationTarget for AgentSessionMutationTarget {
+    fn model_registry(&self) -> Arc<crate::core::model_registry::ModelRegistry> {
+        Arc::new(self.session.model_registry().clone())
+    }
+
+    fn scoped_models(&self) -> Vec<crate::core::model_resolver::ScopedModel> {
+        self.session.scoped_models()
     }
 }
 

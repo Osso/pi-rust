@@ -97,7 +97,7 @@ pub fn wake_wait_agents_after_coordination(runtime_handles: &MultiAgentRuntimeHa
 pub fn resolve_selected_session_mutation_target(
     store: &MultiAgentStore,
     runtime_handles: &MultiAgentRuntimeHandles,
-) -> Result<Option<Arc<crate::core::extensions::types::ViewedSessionMutationTarget>>, HandlerError> {
+) -> Result<Option<Arc<dyn crate::core::extensions::types::ViewedSessionMutationTarget>>, HandlerError> {
     use crate::core::multi_agent_store::format_inactive_agent_selection_message;
 
     let Some(selected_agent_id) = store.get_selected_agent_id() else {

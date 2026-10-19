@@ -3,9 +3,8 @@
 Source: `packages/coding-agent/src/cli/startup-ui.ts` (239 lines, pinned revision in
 `docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent/src/cli/startup_ui.rs`.
 
-Status: partial. Predicates, theme loading, the startup TUI, the selector dialog,
-and the first-time-setup dialog are ported and tested; `showStartupInput` is blocked
-on `ExtensionInputComponent` wiring (the component exists; no caller needs it).
+Status: done. Predicates, theme loading, the startup TUI, the selector dialog,
+the text-input dialog, and the first-time-setup dialog are ported and tested.
 
 ## Exported symbols
 
@@ -16,7 +15,7 @@ on `ExtensionInputComponent` wiring (the component exists; no caller needs it).
 | `startStartupTui` | `start_startup_tui` | selector probes |
 | `showStartupSelector` | `show_startup_selector` | `startup_selector_returns_the_selected_value`, `startup_selector_returns_none_when_cancelled` |
 | `showFirstTimeSetup` | `show_first_time_setup` | `first_time_setup_persists_theme_and_analytics` (pty, real binary) |
-| `showStartupInput` | blocked | — |
+| `showStartupInput` | `show_startup_input` | `startup_input_returns_the_typed_text`, `startup_input_returns_none_when_cancelled` |
 | private `isOfficialDistribution` | `is_official_distribution` | `official_distribution_requires_all_three_identifiers` |
 | private `loadThemes` | `load_themes` | `load_themes_skips_disabled_and_broken_entries_and_dedupes_names` |
 | private `loadStartupThemes` | `load_startup_themes` | `load_startup_themes_uses_global_settings_only` |
@@ -39,13 +38,10 @@ on `ExtensionInputComponent` wiring (the component exists; no caller needs it).
 | 10 | selector value lookup by label; cancel resolves `undefined` | `startup_selector_returns_the_selected_value`, `..._none_when_cancelled` |
 | 11 | clear (25 ms) + `ui.stop()` before resolving | selector probes |
 | 12 | setup: start TUI, 100 ms theme detection, `setTheme`, preview re-render, submit persists theme/analytics + `flush`, cancel persists nothing, clear+stop | `first_time_setup_persists_theme_and_analytics` |
+| 13 | input: submit resolves the typed text, cancel resolves `undefined`, clear+stop | `startup_input_returns_the_typed_text`, `startup_input_returns_none_when_cancelled` |
 
 ## Blocked parts
 
-- **`showStartupInput`** — needs `ExtensionInputComponent` (`modes/interactive/components/`),
-  not ported.
-- **`showFirstTimeSetup`** — needs `FirstTimeSetupComponent`, not ported; also writes
-  `setTheme`/`setEnableAnalytics` and flushes settings.
 - **`ProjectTrustStartupUi` adapter** — `cli::project_trust::ProjectTrustStartupUi` returns
   `BoxFuture` (Send) and lives in `Arc<dyn ExtensionUiContext>` (Send + Sync), while the startup
   TUI is `Rc`-based. A Send-safe driver over the TUI is required before the adapter can be
@@ -66,5 +62,5 @@ on `ExtensionInputComponent` wiring (the component exists; no caller needs it).
 
 ## Proof
 
-`cargo test -p pi-coding-agent --test startup_ui` (6 tests + 1 ignored probe entry; the two
-selector tests run the TUI in a child process with `PI_PACKAGE_DIR` set).
+`cargo test -p pi-coding-agent --test startup_ui` (8 tests + 2 ignored probe entries; the
+selector and input tests run the TUI in a child process with `PI_PACKAGE_DIR` set).

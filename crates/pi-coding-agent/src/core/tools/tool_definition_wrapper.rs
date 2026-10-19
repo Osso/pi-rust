@@ -1,13 +1,13 @@
 //! Ported from `packages/coding-agent/src/core/tools/tool-definition-wrapper.ts`.
 //!
-//! The wrapper caps tool results before they reach the model: when the concatenated text
-//! exceeds the tail-truncation limits, the full text is spilled to a temp file and the
-//! result is replaced with the truncated tail plus a footer. In Rust the coding-agent tools
-//! already implement [`AgentTool`], so [`wrap_agent_tool`] applies the same capping instead
-//! of adapting a separate `ToolDefinition` type (that type belongs to `core/extensions`).
+//! The wrapper converts an extension `ToolDefinition` into an [`AgentTool`]: it injects the
+//! runner context and execution identity, caps partial updates plus the final result, and
+//! spills oversized text to a temp file. Built-in tools already implement [`AgentTool`], so
+//! [`wrap_agent_tool`] applies the same capping without a definition adapter.
 
 use std::sync::{Arc, Mutex};
 
+use pi_agent_core::AgentToolExecutionContext;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
@@ -15,7 +15,7 @@ use serde_json::{Map, Value};
 
 use super::node_fs::node_fs_error;
 use super::truncate::{TruncationOptions, format_size, truncate_tail};
-use crate::core::extensions::types::{HandlerError, ToolDefinition};
+use crate::core::extensions::types::{ExtensionContext, HandlerError, ToolDefinition};
 
 /// Shared spill state for one tool call: the temp file is created at most once.
 ///
@@ -74,6 +74,8 @@ pub fn cap_tool_result_output(
 /// `createToolDefinitionFromAgentTool`: synthesize a minimal definition from an [`AgentTool`].
 pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolDefinition {
     let execute_tool = Arc::clone(&tool);
+    let prepare_arguments_tool = Arc::clone(&tool);
+    let prepare_execution_tool = Arc::clone(&tool);
     ToolDefinition {
         name: tool.name().to_owned(),
         label: tool.label().to_owned(),
@@ -85,8 +87,19 @@ pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolD
         parameters: tool.parameters().clone(),
         constrained_sampling: tool.constrained_sampling(),
         render_shell: None,
-        prepare_arguments: None,
-        prepare_execution: None,
+        prepare_arguments: Some(Arc::new(move |args: &Value| {
+            prepare_arguments_tool
+                .prepare_arguments(args.clone())
+                .map_err(|error| HandlerError::new(error.message))
+        })),
+        prepare_execution: Some(Arc::new(move |tool_call_id, signal, _context| {
+            let tool = Arc::clone(&prepare_execution_tool);
+            Box::pin(async move {
+                tool.prepare_execution(tool_call_id, signal)
+                    .await
+                    .map_err(|error| HandlerError::new(error.message))
+            })
+        })),
         execution_mode: tool.execution_mode(),
         execute: Arc::new(move |tool_call_id, params, signal, on_update, _context| {
             let tool = Arc::clone(&execute_tool);
@@ -100,6 +113,131 @@ pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolD
         render_call: None,
         render_result: None,
     }
+}
+
+/// Supplies the extension context for a wrapped definition (`ctxFactory`).
+pub type ToolContextFactory = Arc<dyn Fn() -> ExtensionContext + Send + Sync>;
+
+/// `createToolExecutionContext`: the base context plus the execution identity.
+pub fn create_tool_execution_context(
+    factory: &ToolContextFactory,
+    execution: Option<&AgentToolExecutionContext>,
+) -> ExtensionContext {
+    let mut context = factory();
+    context.tool_execution_started_at = execution.map(|execution| execution.started_at);
+    context.tool_execution_agent_id = execution.and_then(|execution| execution.agent_id.clone());
+    context
+}
+
+/// `wrapToolDefinition`: a [`ToolDefinition`] exposed as an [`AgentTool`].
+pub struct DefinitionTool {
+    definition: ToolDefinition,
+    context_factory: ToolContextFactory,
+}
+
+impl DefinitionTool {
+    pub fn new(definition: ToolDefinition, context_factory: ToolContextFactory) -> Self {
+        Self {
+            definition,
+            context_factory,
+        }
+    }
+}
+
+impl AgentTool for DefinitionTool {
+    fn name(&self) -> &str {
+        &self.definition.name
+    }
+
+    fn description(&self) -> &str {
+        &self.definition.description
+    }
+
+    fn parameters(&self) -> &Value {
+        &self.definition.parameters
+    }
+
+    fn label(&self) -> &str {
+        &self.definition.label
+    }
+
+    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
+        self.definition.constrained_sampling.clone()
+    }
+
+    fn execution_mode(&self) -> Option<pi_agent_core::harness::types::ToolExecutionMode> {
+        self.definition.execution_mode
+    }
+
+    fn prepare_arguments(&self, args: Value) -> Result<Value, ToolError> {
+        match &self.definition.prepare_arguments {
+            Some(prepare) => prepare(&args).map_err(|error| ToolError::new(error.message)),
+            None => Ok(args),
+        }
+    }
+
+    fn prepare_execution(
+        &self,
+        tool_call_id: String,
+        signal: Option<tokio_util::sync::CancellationToken>,
+    ) -> BoxFuture<'static, Result<Option<pi_ai::types::ToolCallExecution>, ToolError>> {
+        let Some(prepare) = self.definition.prepare_execution.clone() else {
+            return Box::pin(async { Ok(None) });
+        };
+        let context = (self.context_factory)();
+        Box::pin(async move {
+            prepare(tool_call_id, signal, context)
+                .await
+                .map_err(|error| ToolError::new(error.message))
+        })
+    }
+
+    fn execute(
+        &self,
+        tool_call_id: String,
+        params: Value,
+        signal: Option<tokio_util::sync::CancellationToken>,
+        on_update: pi_agent_core::agent::AgentToolUpdateCallback,
+        execution: Option<AgentToolExecutionContext>,
+    ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
+        let definition = self.definition.clone();
+        let context = create_tool_execution_context(&self.context_factory, execution.as_ref());
+        let spill = Arc::new(Mutex::new(ToolOutputSpill::default()));
+        let update_spill = Arc::clone(&spill);
+        let capped_update: pi_agent_core::agent::AgentToolUpdateCallback = Arc::new(move |partial| {
+            let mut spill = update_spill.lock().expect("tool output spill lock");
+            match cap_tool_result_output(partial, &mut spill) {
+                Ok(capped) => (on_update)(capped),
+                Err(error) => spill.error = Some(error.message),
+            }
+        });
+        Box::pin(async move {
+            let result = (definition.execute)(tool_call_id, params, signal, Some(capped_update), context)
+                .await
+                .map_err(|error| ToolError::new(error.message))?;
+            let mut spill = spill.lock().expect("tool output spill lock");
+            if let Some(message) = spill.error.take() {
+                return Err(ToolError::new(message));
+            }
+            cap_tool_result_output(result, &mut spill)
+        })
+    }
+}
+
+/// Wrap one definition into an [`AgentTool`] with the shared result cap.
+pub fn wrap_definition(definition: ToolDefinition, context_factory: ToolContextFactory) -> Arc<dyn AgentTool> {
+    Arc::new(DefinitionTool::new(definition, context_factory))
+}
+
+/// Wrap definitions into [`AgentTool`]s with the shared result cap.
+pub fn wrap_definitions(
+    definitions: Vec<ToolDefinition>,
+    context_factory: ToolContextFactory,
+) -> Vec<Arc<dyn AgentTool>> {
+    definitions
+        .into_iter()
+        .map(|definition| wrap_definition(definition, Arc::clone(&context_factory)))
+        .collect()
 }
 
 /// `wrapToolDefinition`: cap partial updates and the final result of an [`AgentTool`].
@@ -142,7 +280,7 @@ impl AgentTool for CappedTool {
         self.inner.execution_mode()
     }
 
-    fn prepare_arguments(&self, args: Value) -> Value {
+    fn prepare_arguments(&self, args: Value) -> Result<Value, pi_agent_core::agent::ToolError> {
         self.inner.prepare_arguments(args)
     }
 

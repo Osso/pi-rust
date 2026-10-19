@@ -18,7 +18,7 @@ use std::sync::Arc;
 use super::result::terminating_text_result;
 use crate::core::extensions::types::{
     ExtensionContext, SwitchSessionOptions, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
-    UserMessageContent,
+    UserMessageContent, infallible_render_call, infallible_render_result,
 };
 use crate::core::session_control_db::{
     SessionMetadata, find_active_session_metadata_by_id, find_active_session_metadata_by_name,
@@ -70,7 +70,7 @@ pub fn parameters() -> &'static Value {
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Path to a Pi session .jsonl file to resume."
+                    "description": "Path to a Pi .jsonl session file to resume."
                 },
                 "id": {
                     "type": "string",
@@ -78,11 +78,11 @@ pub fn parameters() -> &'static Value {
                 },
                 "name": {
                     "type": "string",
-                    "description": "Exact session name to resume."
+                    "description": "Unique named Pi session to resume."
                 },
                 "starter_prompt": {
                     "type": "string",
-                    "description": "Optional instructions to send after the target session is active."
+                    "description": "Optional caller-provided instructions to send after the target session is resumed."
                 }
             }
         })
@@ -492,7 +492,7 @@ pub fn create_resume_session_tool_definition() -> ToolDefinition {
     let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(ResumeSessionTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
-    definition.render_call = Some(Arc::new(render_call));
-    definition.render_result = Some(Arc::new(render_result));
+    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_result = Some(infallible_render_result(render_result));
     definition
 }

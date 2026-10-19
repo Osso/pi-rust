@@ -13,7 +13,10 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::result::text_result;
-use crate::core::extensions::types::{ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::core::extensions::types::{
+    ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call,
+    infallible_render_result,
+};
 use crate::core::session_control_db::{
     PostSharedChannelMessageInput, RuntimeMailboxAddress, advance_shared_channel_cursor, post_shared_channel_message,
 };
@@ -158,7 +161,7 @@ pub fn create_channel_post_tool_definition() -> ToolDefinition {
     let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(ChannelPostTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
-    definition.render_call = Some(Arc::new(render_call));
-    definition.render_result = Some(Arc::new(render_result));
+    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_result = Some(infallible_render_result(render_result));
     definition
 }

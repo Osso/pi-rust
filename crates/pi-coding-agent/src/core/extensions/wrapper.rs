@@ -14,47 +14,48 @@ use tokio_util::sync::CancellationToken;
 
 use super::runner::ExtensionRunner;
 use super::types::{BoxFuture, ExtensionContext, HandlerError, RegisteredTool, ToolDefinition};
+use crate::core::tools::tool_definition_wrapper::{ToolContextFactory, wrap_definition};
 
 struct WrappedExtensionTool {
-    definition: ToolDefinition,
+    inner: Arc<dyn AgentTool>,
     runner: ExtensionRunner,
 }
 
 impl AgentTool for WrappedExtensionTool {
     fn name(&self) -> &str {
-        &self.definition.name
+        self.inner.name()
     }
 
     fn description(&self) -> &str {
-        &self.definition.description
+        self.inner.description()
     }
 
     fn parameters(&self) -> &Value {
-        &self.definition.parameters
+        self.inner.parameters()
     }
 
     fn label(&self) -> &str {
-        &self.definition.label
+        self.inner.label()
     }
 
     fn constrained_sampling(&self) -> Option<ConstrainedSampling> {
-        self.definition.constrained_sampling.clone()
+        self.inner.constrained_sampling()
     }
 
     fn execution_mode(&self) -> Option<ToolExecutionMode> {
-        self.definition.execution_mode
+        self.inner.execution_mode()
+    }
+
+    fn prepare_arguments(&self, args: Value) -> Result<Value, ToolError> {
+        self.inner.prepare_arguments(args)
     }
 
     fn prepare_execution(
         &self,
         tool_call_id: String,
         signal: Option<CancellationToken>,
-    ) -> BoxFuture<'static, Option<ToolCallExecution>> {
-        let Some(prepare) = self.definition.prepare_execution.clone() else {
-            return Box::pin(async { None });
-        };
-        let ctx = self.runner.create_context();
-        Box::pin(async move { prepare(tool_call_id, signal, ctx).await.ok().flatten() })
+    ) -> BoxFuture<'static, Result<Option<ToolCallExecution>, ToolError>> {
+        self.inner.prepare_execution(tool_call_id, signal)
     }
 
     fn execute(
@@ -65,21 +66,15 @@ impl AgentTool for WrappedExtensionTool {
         on_update: AgentToolUpdateCallback,
         execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
-        let definition = self.definition.clone();
+        let inner = Arc::clone(&self.inner);
         let runner = self.runner.clone();
         Box::pin(async move {
-            let mut context = runner.create_context();
-            if let Some(execution) = execution {
-                context.tool_execution_started_at = Some(execution.started_at);
-                context.tool_execution_agent_id = execution.agent_id;
-            }
-
             let active_before = runner
                 .get_active_tools()
                 .map_err(|error| ToolError::new(error.message))?;
-            let result = (definition.execute)(tool_call_id, params, signal, Some(on_update), context)
-                .await
-                .map_err(|error| ToolError::new(error.message))?;
+            let result = inner
+                .execute(tool_call_id, params, signal, on_update, execution)
+                .await?;
             let active_after = runner
                 .get_active_tools()
                 .map_err(|error| ToolError::new(error.message))?;
@@ -117,8 +112,10 @@ pub fn wrap_registered_tool(registered_tool: RegisteredTool, runner: &ExtensionR
 
 /// Wrap a bare tool definition into an `AgentTool` bound to the runner context.
 pub fn wrap_definition_tool(definition: ToolDefinition, runner: &ExtensionRunner) -> Arc<dyn AgentTool> {
+    let context_runner = runner.clone();
+    let context_factory: ToolContextFactory = Arc::new(move || context_runner.create_context());
     Arc::new(WrappedExtensionTool {
-        definition,
+        inner: wrap_definition(definition, context_factory),
         runner: runner.clone(),
     })
 }

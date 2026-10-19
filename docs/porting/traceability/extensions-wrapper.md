@@ -8,20 +8,15 @@ Rust: `crates/pi-coding-agent/src/core/extensions/wrapper.rs`.
 | `wrapRegisteredTool` | `wrap_registered_tool` | `wrapper_reports_tools_added_during_execution` |
 | `wrapRegisteredTools` | `wrap_registered_tools` | same |
 | active-tools diff / `addedToolNames` merge | `WrappedExtensionTool::execute` | same |
-| `wrapToolDefinition` delegation | `WrappedExtensionTool` adapter | same |
+| `wrapToolDefinition` delegation | `wrap_definition_tool` composes `tool_definition_wrapper::wrap_definition` with `runner.createContext()` | `wrapped_definitions_*`; `WrappedExtensionTool` delegates `prepareArguments`/`prepareExecution` to the adapter |
 
 ## Gaps
 
-- `tool-definition-wrapper.ts` lives in `core::tools::tool_definition_wrapper`
-  (matching the source path), not in this module. The wrapper calls
-  `ToolDefinition.execute` directly with the runner context and passes
-  `tool_execution_started_at` / `tool_execution_agent_id`.
-- `prepareArguments` is not applied by the wrapper (agent-core default identity)
-  until the tools wrapper lands.
-- `prepareExecution` errors map to `None` because `AgentTool::prepare_execution`
-  cannot return an error.
+- None. `prepareArguments`, `prepareExecution`, execution-context injection, and result capping
+  come from the shared `DefinitionTool` adapter; `WrappedExtensionTool` only adds the
+  added-tool-name diff around the wrapped execution and delegates the prepare hooks.
 
 ## Discrepancies
 
-None beyond the gaps above; the added-tool diff matches the source, including
-"all previously active tools still active" and de-duplicated append order.
+None; the added-tool diff matches the source, including "all previously active tools still
+active" and de-duplicated append order.

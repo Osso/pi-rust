@@ -191,7 +191,7 @@ pub trait ChildAgentSession: Send + Sync {
     fn prompt(&self, text: String) -> BoxFuture<'static, Result<(), String>>;
     fn transcript(&self) -> Option<AgentTranscriptMetadata>;
     /// Live mutation surface when this session supports the `model`/`effort` commands.
-    fn session_mutation_target(&self) -> Option<Arc<crate::core::extensions::types::ViewedSessionMutationTarget>> {
+    fn session_mutation_target(&self) -> Option<Arc<dyn crate::core::extensions::types::ViewedSessionMutationTarget>> {
         None
     }
 }

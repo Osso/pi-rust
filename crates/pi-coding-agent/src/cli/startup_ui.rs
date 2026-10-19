@@ -4,9 +4,7 @@
 //! theme loading, the startup TUI (`createStartupTui`, `startStartupTui`,
 //! `applyDetectedStartupTheme`, `clearStartupTui`), and `showStartupSelector`.
 //!
-//! Blocked (documented in the traceability doc): `showStartupInput` and
-//! `showFirstTimeSetup` need `ExtensionInputComponent` and
-//! `FirstTimeSetupComponent`.
+//! Also ported: `showStartupInput` and `showFirstTimeSetup`.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
@@ -30,6 +28,7 @@ use crate::core::package_manager::{
     DefaultPackageManager, MissingSourceAction, ResolvedResource, SettingsManagerStore,
 };
 use crate::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
+use crate::modes::interactive::components::extension_input::{ExtensionInputComponent, ExtensionInputOptions};
 use crate::modes::interactive::components::extension_selector::{ExtensionSelectorComponent, ExtensionSelectorOptions};
 use crate::modes::interactive::theme::{
     TerminalAutoThemeDetector, TerminalBackgroundThemeDetector, TerminalTheme, Theme, ThemeQueryError,
@@ -241,6 +240,39 @@ pub fn clear_startup_tui(ui: &TuiMainScreen) {
     ui.clear();
     ui.request_render(false);
     std::thread::sleep(CLEAR_DELAY);
+}
+
+/// `showStartupInput`.
+pub async fn show_startup_input(
+    settings_manager: &SettingsManager,
+    terminal: Rc<RefCell<dyn Terminal>>,
+    env: &BTreeMap<String, String>,
+    title: &str,
+    placeholder: Option<&str>,
+) -> Result<Option<String>, String> {
+    let ui = create_startup_tui(settings_manager, terminal, env).await?;
+    let (sender, receiver) = channel::<Option<String>>();
+    let submit_sender = sender.clone();
+    let cancel_sender = sender;
+    let input = ExtensionInputComponent::new(
+        title,
+        placeholder,
+        Rc::new(move |value: String| {
+            let _ = submit_sender.send(Some(value));
+        }),
+        Rc::new(move || {
+            let _ = cancel_sender.send(None);
+        }),
+        ExtensionInputOptions::default(),
+    );
+    let input: ComponentRef = component(input);
+    ui.add_child(Rc::clone(&input));
+    ui.set_focus(Some(input));
+    start_startup_tui(&ui, settings_manager, env)?;
+    let value = wait_for_selection(&ui, &receiver);
+    clear_startup_tui(&ui);
+    ui.stop();
+    Ok(value)
 }
 
 /// `showStartupSelector`.

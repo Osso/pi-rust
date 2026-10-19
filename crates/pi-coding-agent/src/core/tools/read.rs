@@ -23,7 +23,9 @@ use super::render_utils::{get_text_output, render_tool_path, replace_tabs, str_v
 use super::truncate::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, TruncationOptions, TruncationResult, format_size, truncate_head,
 };
-use crate::core::extensions::types::{ToolRenderContext, ToolRenderResultOptions};
+use crate::core::extensions::types::{
+    ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
+};
 use crate::modes::interactive::components::keybinding_hints::{key_hint, key_text};
 use crate::modes::interactive::theme::{Theme, ThemeColor, get_language_from_path, highlight_code};
 use crate::utils::image_process::{ProcessImageOptions, ProcessImageResult, process_image};
@@ -185,6 +187,10 @@ impl AgentTool for ReadTool {
 
     fn label(&self) -> &str {
         "read"
+    }
+
+    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
+        crate::core::experimental::get_experimental_tool_constrained_sampling()
     }
 
     fn execute(
@@ -786,8 +792,18 @@ pub fn create_read_tool_definition(
 ) -> crate::core::extensions::types::ToolDefinition {
     let tool: std::sync::Arc<dyn AgentTool> = std::sync::Arc::new(ReadTool::with_options(cwd, options));
     let mut definition = super::tool_definition_wrapper::create_tool_definition_from_agent_tool(tool);
-    definition.render_call = Some(std::sync::Arc::new(render_call));
-    definition.render_result = Some(std::sync::Arc::new(render_result));
+    definition.prompt_snippet = Some(READ_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
+    definition.prompt_guidelines = Some(
+        READ_TOOL_SYSTEM_PROMPT_CONTRIBUTION
+            .guidelines
+            .iter()
+            .map(|line| (*line).to_owned())
+            .collect(),
+    );
+    definition.approval_required = Some(false);
+    definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
+    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_result = Some(infallible_render_result(render_result));
     definition
 }
 

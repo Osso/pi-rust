@@ -1,6 +1,9 @@
 //! Behavioral tests for `core/sdk.ts` and `core/agent-session-services.ts`.
 
-use std::sync::Arc;
+#[path = "support/extensions.rs"]
+mod extensions_support;
+
+use std::sync::{Arc, Mutex};
 
 use pi_ai::providers::faux::{
     FauxAssistantMessageOptions, FauxModelDefinition, FauxProviderHandle, RegisterFauxProviderOptions,
@@ -309,4 +312,128 @@ async fn create_agent_session_forwards_multi_agent_identity_to_extensions() {
         Some("parent-session".to_owned())
     );
     assert!(context.multi_agent_requires_agent_id().expect("requires agent id"));
+}
+
+#[tokio::test]
+async fn create_agent_session_wires_extension_provider_hooks() {
+    use pi_ai::types::ProviderHeaders;
+    use pi_coding_agent::core::extensions::{
+        AfterProviderResponseEvent, BeforeProviderHeadersEvent, BoxFuture, ContextEvent, ContextEventResult,
+        ExtensionContext, HandlerError, LoadExtensionsResult,
+    };
+
+    let temp = tempfile::tempdir().expect("temp dir");
+    let faux = faux();
+    let runtime = faux_runtime(&faux).await;
+    let model = faux.get_model(None).expect("model");
+    let logs = Arc::new(Mutex::new(Vec::<String>::new()));
+    let seen_context = Arc::new(Mutex::new(Vec::<String>::new()));
+
+    let context_recorder = Arc::clone(&seen_context);
+    faux.set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+        move |context, _options, _state, _model| {
+            let recorder = Arc::clone(&context_recorder);
+            Box::pin(async move {
+                let serialized = serde_json::to_string(&context.messages).expect("context serializes");
+                recorder.lock().unwrap().push(serialized);
+                Ok(faux_assistant_message("hooked", FauxAssistantMessageOptions::default()))
+            })
+        },
+    ))]);
+
+    let extension_runtime = extensions_support::runtime();
+    let extension_cwd = temp.path().display().to_string();
+    let extension = {
+        let logs = Arc::clone(&logs);
+        extensions_support::extension(&extension_runtime, &extension_cwd, "<inline:hooks>", move |api| {
+            let header_logs = Arc::clone(&logs);
+            api.on_before_provider_headers(move |event: BeforeProviderHeadersEvent, _context: ExtensionContext| {
+                let logs = Arc::clone(&header_logs);
+                Box::pin(async move {
+                    logs.lock().unwrap().push(format!("headers:{}", event.headers.len()));
+                    let mut headers = event.headers;
+                    headers.insert("x-extension".to_owned(), Some("yes".to_owned()));
+                    Ok(Some(headers))
+                }) as BoxFuture<'static, Result<Option<ProviderHeaders>, HandlerError>>
+            })
+            .expect("headers handler");
+
+            let response_logs = Arc::clone(&logs);
+            api.on_after_provider_response(move |event: AfterProviderResponseEvent, _context: ExtensionContext| {
+                let logs = Arc::clone(&response_logs);
+                Box::pin(async move {
+                    logs.lock().unwrap().push(format!("response:{}", event.status));
+                    Ok(None)
+                }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
+            })
+            .expect("response handler");
+
+            let context_logs = Arc::clone(&logs);
+            api.on_context(move |event: ContextEvent, _context: ExtensionContext| {
+                let logs = Arc::clone(&context_logs);
+                Box::pin(async move {
+                    logs.lock().unwrap().push(format!("context:{}", event.messages.len()));
+                    let mut messages = event.messages;
+                    messages.push(extensions_support::custom_message_with("custom", "hook", "injected", 7));
+                    Ok(Some(ContextEventResult {
+                        messages: Some(messages),
+                    }))
+                }) as BoxFuture<'static, Result<Option<ContextEventResult>, HandlerError>>
+            })
+            .expect("context handler");
+        })
+        .await
+    };
+
+    let loader = Arc::new(StaticResourceLoader {
+        extensions: Some(LoadExtensionsResult {
+            extensions: vec![extension],
+            errors: Vec::new(),
+            runtime: extension_runtime,
+        }),
+        ..Default::default()
+    });
+    let session_dir = temp.path().join("sessions").display().to_string();
+    let mut session_manager =
+        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let control_db = temp.path().join("control.db").display().to_string();
+    session_manager
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
+    let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(temp.path().display().to_string()),
+        agent_dir: Some(temp.path().display().to_string()),
+        model_runtime: Some(runtime),
+        model: Some(model),
+        resource_loader: Some(loader),
+        session_manager: Some(session_manager),
+        ..Default::default()
+    })
+    .await
+    .expect("session");
+
+    result
+        .session
+        .prompt("hi", PromptOptions::default())
+        .await
+        .expect("prompt");
+
+    let logs = logs.lock().unwrap().clone();
+    assert!(
+        logs.iter().any(|entry| entry.starts_with("headers:")),
+        "before_provider_headers must run: {logs:?}"
+    );
+    assert!(
+        logs.iter().any(|entry| entry == "response:200"),
+        "after_provider_response must observe the provider status: {logs:?}"
+    );
+    assert!(
+        logs.iter().any(|entry| entry == "context:1"),
+        "transformContext must see the user message: {logs:?}"
+    );
+    let contexts = seen_context.lock().unwrap().clone();
+    assert!(
+        contexts.iter().any(|context| context.contains("injected")),
+        "the context patch must reach the provider request: {contexts:?}"
+    );
 }

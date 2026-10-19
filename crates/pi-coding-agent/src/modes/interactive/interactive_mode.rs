@@ -6,25 +6,29 @@
 //! deviations are recorded in `docs/porting/traceability/interactive-mode.md`.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 use pi_agent_core::agent::types::{AgentEvent, AgentMessage};
+use pi_ai::auth::types::{AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, AuthType};
+use pi_ai::request::CallbackError;
 use pi_ai::types::{AssistantMessage, ImageContent, Model};
 use pi_tui::EditorComponent;
-use pi_tui::components::editor::EditorOptions;
-use pi_tui::components::scroll_view::{
-    ScrollFollow, ScrollOverscroll, ScrollView, ScrollViewOptions, ScrollViewScrollbar,
+use pi_tui::autocomplete::{
+    AutocompleteItem, AutocompleteProvider, CombinedAutocompleteProvider, CommandEntry, SlashCommand,
 };
+use pi_tui::components::editor::EditorOptions;
+use pi_tui::components::scroll_view::{ScrollFollow, ScrollOverscroll, ScrollView, ScrollViewOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::stack::StackOptions;
 use pi_tui::components::text::Text;
 use pi_tui::components::v_stack::VStack;
+use pi_tui::fuzzy::fuzzy_filter;
 use pi_tui::layout_node::StackLayoutEntry;
 use pi_tui::terminal::Terminal;
 use pi_tui::tui::{
@@ -38,14 +42,21 @@ use crate::core::agent_session::{AgentSession, AgentSessionEvent, CycleDirection
 use crate::core::agent_session_runtime::AgentSessionRuntime;
 use crate::core::diagnostics::{ResourceDiagnostic, ResourceDiagnosticType};
 use crate::core::extensions::types::{
-    BoxFuture, ExtensionUiComponent, ExtensionUiComponentFactory, ExtensionUiContext, ExtensionUiCustomFactory,
-    ExtensionUiCustomOptions, ExtensionUiDialogOptions, ExtensionUiDone, ExtensionUiFooterFactory, ExtensionUiTui,
-    ExtensionUiTuiBackend, ExtensionWidgetOptions, NotifyType, TerminalInputHandler, ThemeInfo, ThemeSetResult,
-    WidgetPlacement, WorkingIndicatorOptions,
+    BoxFuture, ExtensionAutocompleteProviderFactory, ExtensionEditorFactory, ExtensionUiComponent,
+    ExtensionUiComponentFactory, ExtensionUiContext, ExtensionUiCustomFactory, ExtensionUiCustomOptions,
+    ExtensionUiDialogOptions, ExtensionUiDone, ExtensionUiFooterFactory, ExtensionUiTui, ExtensionUiTuiBackend,
+    ExtensionWidgetOptions, NotifyType, TerminalInputHandler, ThemeInfo, ThemeSetResult, WidgetPlacement,
+    WorkingIndicatorOptions,
 };
 use crate::core::footer_data_provider::FooterDataProvider;
 use crate::core::keybindings::KeybindingsManager;
+use crate::core::model_resolver::{ModelScopeCode, resolve_model_scope_from_models};
+use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
+use crate::core::session_manager::{CompactionEntry, SessionEntry};
+use crate::core::settings_manager::TreeFilterMode;
 use crate::core::source_info::{SourceInfo, SourceScope};
+use crate::core::trust_manager::ProjectTrustStore;
+use crate::modes::interactive::components::approval_selector::{ApprovalSelectorComponent, ApprovalSelectorOptions};
 use crate::modes::interactive::components::assistant_message::AssistantMessageComponent;
 use crate::modes::interactive::components::bash_execution::{BashExecutionComponent, BashExecutionOptions};
 use crate::modes::interactive::components::branch_summary_message::BranchSummaryMessageComponent;
@@ -56,18 +67,43 @@ use crate::modes::interactive::components::extension_editor::{ExtensionEditorCom
 use crate::modes::interactive::components::extension_input::{ExtensionInputComponent, ExtensionInputOptions};
 use crate::modes::interactive::components::extension_selector::{ExtensionSelectorComponent, ExtensionSelectorOptions};
 use crate::modes::interactive::components::footer::FooterComponent;
+use crate::modes::interactive::components::login_dialog::LoginDialogComponent;
+use crate::modes::interactive::components::oauth_selector::{
+    AuthSelectorMode, AuthSelectorProvider, OAuthSelectorComponent,
+};
+use crate::modes::interactive::components::sandbox_selector::{
+    SandboxScope, SandboxSelectorComponent, SandboxSelectorOptions, SandboxSelectorSelection,
+};
+use crate::modes::interactive::components::scoped_models_selector::{
+    EnabledIds, ModelsCallbacks, ModelsConfig, RefreshStatusKind, ScopedModelsSelectorComponent,
+};
+use crate::modes::interactive::components::session_selector::{
+    ProgressCallback, RenameSessionFn, SessionListLoader, SessionSelectorComponent,
+};
+use crate::modes::interactive::components::settings_selector::{
+    SettingsCallbacks, SettingsConfig, SettingsSelectorComponent, SteeringMode, tui_mode_name,
+};
 use crate::modes::interactive::components::skill_invocation_message::SkillInvocationMessageComponent;
 use crate::modes::interactive::components::thinking_selector::ThinkingSelectorComponent;
 use crate::modes::interactive::components::tool_execution::{
     ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
 };
+use crate::modes::interactive::components::tree_selector::{FilterMode, TreeSelectorComponent};
+use crate::modes::interactive::components::trust_selector::{TrustSelectorComponent, TrustSelectorOptions};
 use crate::modes::interactive::components::user_message::UserMessageComponent;
+use crate::modes::interactive::components::user_message_selector::{UserMessageItem, UserMessageSelectorComponent};
 use crate::modes::interactive::interactive_root_compositor::{
     InteractiveRootCompositorOptions, create_interactive_root_compositor,
 };
+use crate::modes::interactive::login_options::get_logout_provider_options;
+use crate::modes::interactive::login_options::{
+    format_login_provider_completion_description, get_login_provider_completion_options, get_login_provider_options,
+    get_login_provider_search_text,
+};
+use crate::modes::interactive::model_search::{ModelSearchItem, get_model_search_candidates};
 use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor, with_theme};
 use crate::utils::git::parse_git_url;
-use crate::utils::paths::{get_cwd_relative_path, relative_path};
+use crate::utils::paths::{PathInputOptions, get_cwd_relative_path, relative_path, resolve_path};
 use serde_json::Value;
 
 pub(crate) const PARTIAL_UPDATE_RENDER_THROTTLE_MS: u64 = 50;
@@ -75,6 +111,155 @@ pub(crate) const FOLLOW_UP_BODY_PREVIEW_LENGTH: usize = 50;
 
 pub(crate) fn is_unknown_model(model: Option<&pi_ai::types::Model>) -> bool {
     model.is_some_and(|model| model.provider == "unknown" && model.id == "unknown" && model.api == "unknown")
+}
+
+/// `getDirectoryCompletions`: directories under `prefix` resolved against `cwd`.
+pub(crate) fn get_directory_completions(prefix: &str, cwd: &str) -> Vec<AutocompleteItem> {
+    let quoted = prefix.starts_with('"');
+    let raw_prefix = if quoted { &prefix[1..] } else { prefix };
+    let normalized_prefix = raw_prefix.replace(std::path::MAIN_SEPARATOR, "/");
+    if let Some(item) = directory_root_completion(&normalized_prefix, quoted) {
+        return vec![item];
+    }
+    let ends_with_slash = normalized_prefix.ends_with('/');
+    let typed_dir = if ends_with_slash {
+        normalized_prefix.clone()
+    } else {
+        pi_tui::autocomplete::posix_dirname(&normalized_prefix)
+    };
+    let typed_name = if ends_with_slash || normalized_prefix.is_empty() {
+        String::new()
+    } else {
+        pi_tui::autocomplete::posix_basename(&normalized_prefix)
+    };
+    let display_dir = if typed_dir == "." { String::new() } else { typed_dir };
+    let search_dir = if display_dir.is_empty() {
+        "."
+    } else {
+        display_dir.as_str()
+    };
+    let Ok(search_dir) = resolve_path(search_dir, cwd, &PathInputOptions::default()) else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(&search_dir) else {
+        return Vec::new();
+    };
+    let typed_name_lower = typed_name.to_lowercase();
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|file_type| file_type.is_dir()))
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.to_lowercase().starts_with(&typed_name_lower))
+        .collect();
+    names.sort_by(|a, b| pi_js_compat::locale_compare(a, b));
+    names
+        .iter()
+        .map(|name| directory_completion_item(name, &display_dir, quoted))
+        .collect()
+}
+
+fn directory_root_completion(normalized_prefix: &str, quoted: bool) -> Option<AutocompleteItem> {
+    match normalized_prefix {
+        "~" => Some(directory_completion_value("~/", quoted, "~/")),
+        ".." => Some(directory_completion_value("../", quoted, "../")),
+        "." => Some(directory_completion_value("./", quoted, "./")),
+        _ => None,
+    }
+}
+
+fn directory_completion_item(entry_name: &str, display_dir: &str, quoted: bool) -> AutocompleteItem {
+    let display_path = join_display_directory(display_dir, entry_name);
+    directory_completion_value(&display_path, quoted, &format!("{entry_name}/"))
+}
+
+fn directory_completion_value(display_path: &str, quoted: bool, label: &str) -> AutocompleteItem {
+    let needs_quote = quoted || display_path.chars().any(char::is_whitespace);
+    let escaped_path = display_path.replace('"', "\\\"");
+    let value = if needs_quote {
+        format!("\"{escaped_path}\"")
+    } else {
+        display_path.to_owned()
+    };
+    AutocompleteItem {
+        value,
+        label: label.to_owned(),
+        description: None,
+    }
+}
+
+fn join_display_directory(display_dir: &str, entry_name: &str) -> String {
+    if display_dir == "/" {
+        return format!("/{entry_name}/");
+    }
+    if display_dir.ends_with('/') {
+        return format!("{display_dir}{entry_name}/");
+    }
+    if display_dir.is_empty() {
+        format!("{entry_name}/")
+    } else {
+        format!("{display_dir}/{entry_name}/")
+    }
+}
+
+fn model_argument_completions(models: &[Model], prefix: &str) -> Option<Vec<AutocompleteItem>> {
+    if models.is_empty() {
+        return None;
+    }
+    let items: Vec<ModelSearchItem> = models
+        .iter()
+        .map(|model| ModelSearchItem {
+            id: model.id.clone(),
+            provider: model.provider.clone(),
+            name: Some(model.name.clone()),
+        })
+        .collect();
+    let filtered = fuzzy_filter(&items, prefix, get_model_search_candidates);
+    if filtered.is_empty() {
+        return None;
+    }
+    Some(
+        filtered
+            .iter()
+            .map(|item| AutocompleteItem {
+                value: format!("{}/{}", item.provider, item.id),
+                label: item.id.clone(),
+                description: Some(item.provider.clone()),
+            })
+            .collect(),
+    )
+}
+
+fn login_argument_completions(
+    runtime: &crate::core::model_runtime::ModelRuntime,
+    prefix: &str,
+) -> Option<Vec<AutocompleteItem>> {
+    let providers = get_login_provider_options(runtime, None);
+    let options = get_login_provider_completion_options(&providers);
+    let filtered = fuzzy_filter(&options, prefix, get_login_provider_search_text);
+    if filtered.is_empty() {
+        return None;
+    }
+    Some(
+        filtered
+            .iter()
+            .map(|provider| AutocompleteItem {
+                value: provider.id.clone(),
+                label: provider.id.clone(),
+                description: Some(format_login_provider_completion_description(provider)),
+            })
+            .collect(),
+    )
+}
+
+fn autocomplete_item_from_value(value: &Value) -> Option<AutocompleteItem> {
+    let object = value.as_object()?;
+    let item_value = object.get("value")?.as_str()?;
+    let label = object.get("label").and_then(Value::as_str).unwrap_or(item_value);
+    Some(AutocompleteItem {
+        value: item_value.to_owned(),
+        label: label.to_owned(),
+        description: object.get("description").and_then(Value::as_str).map(str::to_owned),
+    })
 }
 
 /// Shell-quote a value the way the source resume hint does.
@@ -931,6 +1116,16 @@ pub enum Renderer {
 }
 
 impl Renderer {
+    /// Clones the renderer handle so callers never hold the `RefCell` borrow
+    /// across a call that can re-enter the mode (for example input handlers
+    /// that switch TUI mode).
+    fn clone_ref(&self) -> Self {
+        match self {
+            Self::Main(tui) => Self::Main(Rc::clone(tui)),
+            Self::Fullscreen(tui) => Self::Fullscreen(Rc::clone(tui)),
+        }
+    }
+
     pub fn mode(&self) -> TuiMode {
         match self {
             Self::Main(_) => TuiMode::Regular,
@@ -1042,11 +1237,11 @@ impl InteractiveTuiHandle {
     }
 
     pub fn mode(&self) -> TuiMode {
-        self.renderer.borrow().mode()
+        self.renderer.borrow().clone_ref().mode()
     }
 
     pub fn terminal(&self) -> Rc<RefCell<dyn Terminal>> {
-        self.renderer.borrow().terminal()
+        self.renderer.borrow().clone_ref().terminal()
     }
 
     pub fn add_child(&self, child: ComponentRef) {
@@ -1099,11 +1294,19 @@ impl InteractiveTuiHandle {
     }
 
     pub fn start(&self) -> Result<(), TerminalRawModeError> {
-        self.renderer.borrow().start()
+        self.renderer.borrow().clone_ref().start()
     }
 
     pub fn stop(&self) {
-        self.renderer.borrow().stop();
+        self.renderer.borrow().clone_ref().stop();
+    }
+
+    pub fn stop_with(&self, options: pi_tui::tui::TuiStopOptions) {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
+            Renderer::Main(tui) => TuiExt::stop_with(tui.as_ref(), options),
+            Renderer::Fullscreen(tui) => TuiExt::stop_with(tui.as_ref(), options),
+        }
     }
 
     pub fn flush_pending(&self) {
@@ -1134,10 +1337,87 @@ impl InteractiveTuiHandle {
         }
     }
 
+    pub fn set_show_hardware_cursor(&self, enabled: bool) {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
+            Renderer::Main(tui) => TuiExt::set_show_hardware_cursor(tui.as_ref(), enabled),
+            Renderer::Fullscreen(tui) => TuiExt::set_show_hardware_cursor(tui.as_ref(), enabled),
+        }
+    }
+
     pub fn set_clear_on_shrink(&self, enabled: bool) {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::set_clear_on_shrink(tui.as_ref(), enabled),
             Renderer::Fullscreen(tui) => TuiExt::set_clear_on_shrink(tui.as_ref(), enabled),
+        }
+    }
+
+    pub fn request_render_force(&self) {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
+            Renderer::Main(tui) => TuiExt::request_render(tui.as_ref(), true),
+            Renderer::Fullscreen(tui) => TuiExt::request_render(tui.as_ref(), true),
+        }
+    }
+
+    pub fn set_terminal_color_scheme_notifications(&self, enabled: bool) {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
+            Renderer::Main(tui) => TuiExt::set_terminal_color_scheme_notifications(tui.as_ref(), enabled),
+            Renderer::Fullscreen(tui) => TuiExt::set_terminal_color_scheme_notifications(tui.as_ref(), enabled),
+        }
+    }
+
+    pub fn on_terminal_color_scheme_change(
+        &self,
+        listener: Rc<dyn Fn(pi_tui::terminal_colors::TerminalColorScheme)>,
+    ) -> usize {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
+            Renderer::Main(tui) => TuiExt::on_terminal_color_scheme_change(tui.as_ref(), listener),
+            Renderer::Fullscreen(tui) => TuiExt::on_terminal_color_scheme_change(tui.as_ref(), listener),
+        }
+    }
+
+    pub fn remove_terminal_color_scheme_listener(&self, id: usize) {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
+            Renderer::Main(tui) => tui.base().remove_terminal_color_scheme_listener(id),
+            Renderer::Fullscreen(tui) => tui.base().remove_terminal_color_scheme_listener(id),
+        }
+    }
+
+    pub fn query_terminal_background_color(
+        &self,
+        timeout: Duration,
+    ) -> Option<Option<pi_tui::terminal_colors::RgbColor>> {
+        let renderer = self.renderer.borrow().clone_ref();
+        let query = match &renderer {
+            Renderer::Main(tui) => TuiExt::query_terminal_background_color(tui.as_ref(), timeout),
+            Renderer::Fullscreen(tui) => TuiExt::query_terminal_background_color(tui.as_ref(), timeout),
+        };
+        self.wait_for_terminal_query(|| query.result())
+    }
+
+    pub fn query_terminal_color_scheme(
+        &self,
+        timeout: Duration,
+    ) -> Option<Option<pi_tui::terminal_colors::TerminalColorScheme>> {
+        let renderer = self.renderer.borrow().clone_ref();
+        let query = match &renderer {
+            Renderer::Main(tui) => TuiExt::query_terminal_color_scheme(tui.as_ref(), timeout),
+            Renderer::Fullscreen(tui) => TuiExt::query_terminal_color_scheme(tui.as_ref(), timeout),
+        };
+        self.wait_for_terminal_query(|| query.result())
+    }
+
+    fn wait_for_terminal_query<T>(&self, result: impl Fn() -> Option<T>) -> Option<T> {
+        loop {
+            self.process_events();
+            if let Some(value) = result() {
+                return Some(value);
+            }
+            std::thread::sleep(Duration::from_millis(1));
         }
     }
 
@@ -1241,6 +1521,72 @@ impl ExtensionEditorHost for InteractiveTuiHost {
     }
 }
 
+/// `TUI` surface consumed by the interactive theme controller.
+struct InteractiveThemeUi(Rc<InteractiveTuiHandle>);
+
+impl crate::modes::interactive::theme::ThemeUi for InteractiveThemeUi {
+    fn invalidate(&self) {
+        self.0.invalidate();
+    }
+
+    fn request_render(&self) {
+        self.0.request_render();
+    }
+
+    fn set_terminal_color_scheme_notifications(&self, enabled: bool) {
+        self.0.set_terminal_color_scheme_notifications(enabled);
+    }
+
+    fn on_terminal_color_scheme_change(
+        &self,
+        listener: Rc<dyn Fn(crate::modes::interactive::theme::TerminalTheme)>,
+    ) -> usize {
+        self.0.on_terminal_color_scheme_change(Rc::new(move |scheme| {
+            let theme = match scheme {
+                pi_tui::terminal_colors::TerminalColorScheme::Dark => {
+                    crate::modes::interactive::theme::TerminalTheme::Dark
+                }
+                pi_tui::terminal_colors::TerminalColorScheme::Light => {
+                    crate::modes::interactive::theme::TerminalTheme::Light
+                }
+            };
+            listener(theme);
+        }))
+    }
+
+    fn remove_terminal_color_scheme_listener(&self, id: usize) {
+        self.0.remove_terminal_color_scheme_listener(id);
+    }
+
+    fn query_terminal_background_color(
+        &self,
+        timeout: Duration,
+    ) -> Result<Option<pi_tui::terminal_colors::RgbColor>, crate::modes::interactive::theme::ThemeQueryError> {
+        Ok(self.0.query_terminal_background_color(timeout).flatten())
+    }
+
+    fn query_terminal_color_scheme(
+        &self,
+        timeout: Duration,
+    ) -> Option<
+        Result<
+            Option<crate::modes::interactive::theme::TerminalTheme>,
+            crate::modes::interactive::theme::ThemeQueryError,
+        >,
+    > {
+        Some(Ok(self.0.query_terminal_color_scheme(timeout).flatten().map(
+            |scheme| match scheme {
+                pi_tui::terminal_colors::TerminalColorScheme::Dark => {
+                    crate::modes::interactive::theme::TerminalTheme::Dark
+                }
+                pi_tui::terminal_colors::TerminalColorScheme::Light => {
+                    crate::modes::interactive::theme::TerminalTheme::Light
+                }
+            },
+        )))
+    }
+}
+
 /// Component adapter so the mode can hold a typed container and mount it.
 pub struct SharedContainer(pub Rc<RefCell<Container>>);
 
@@ -1266,16 +1612,167 @@ impl Component for SharedContainer {
     }
 }
 
-/// Adapter exposing [`CustomEditor`] through both component contracts.
-pub struct EditorHandle(pub Rc<RefCell<CustomEditor>>);
+/// Component adapter so the mode can hold the fullscreen transcript scroll view.
+pub struct SharedScrollView(pub Rc<RefCell<ScrollView>>);
 
-impl Component for EditorHandle {
+impl Component for SharedScrollView {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0.borrow_mut().render(width)
+    }
+
+    fn wants_input(&self) -> bool {
+        false
+    }
+}
+
+/// Adapter mounting the scoped-models selector while its async refresh mutates it.
+pub struct SharedScopedModelsSelector(pub Rc<RefCell<ScopedModelsSelectorComponent>>);
+
+impl Component for SharedScopedModelsSelector {
     fn render(&mut self, width: usize) -> Vec<String> {
         self.0.borrow_mut().render(width)
     }
 
     fn handle_input(&mut self, data: &str) {
-        let callbacks = self.0.borrow_mut().collect_input_callbacks(data);
+        self.0.borrow_mut().handle_input(data);
+    }
+
+    fn wants_input(&self) -> bool {
+        self.0.borrow().wants_input()
+    }
+
+    fn invalidate(&mut self) {
+        self.0.borrow_mut().invalidate();
+    }
+
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
+}
+
+impl Focusable for SharedScopedModelsSelector {
+    fn focused(&self) -> bool {
+        self.0.try_borrow().map(|selector| selector.focused()).unwrap_or(false)
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        if let Ok(mut selector) = self.0.try_borrow_mut() {
+            selector.set_focused(focused);
+        }
+    }
+}
+
+/// Adapter mounting the login dialog while the auth bridge mutates it.
+pub struct SharedLoginDialog(pub Rc<RefCell<LoginDialogComponent>>);
+
+impl Component for SharedLoginDialog {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0
+            .try_borrow_mut()
+            .map(|mut dialog| dialog.render(width))
+            .unwrap_or_default()
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        if let Ok(mut dialog) = self.0.try_borrow_mut() {
+            dialog.handle_input(data);
+        }
+    }
+
+    fn invalidate(&mut self) {
+        if let Ok(mut dialog) = self.0.try_borrow_mut() {
+            dialog.invalidate();
+        }
+    }
+
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
+}
+
+impl Focusable for SharedLoginDialog {
+    fn focused(&self) -> bool {
+        self.0.try_borrow().map(|dialog| dialog.focused()).unwrap_or(false)
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        if let Ok(mut dialog) = self.0.try_borrow_mut() {
+            dialog.set_focused(focused);
+        }
+    }
+}
+
+/// Adapter mounting the session selector while its async loads mutate it.
+pub struct SharedSessionSelector(pub Rc<tokio::sync::Mutex<SessionSelectorComponent>>);
+
+impl Component for SharedSessionSelector {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0
+            .try_lock()
+            .map(|mut selector| selector.render(width))
+            .unwrap_or_default()
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        if let Ok(mut selector) = self.0.try_lock() {
+            selector.handle_input(data);
+        }
+    }
+
+    fn wants_input(&self) -> bool {
+        self.0.try_lock().map(|selector| selector.wants_input()).unwrap_or(true)
+    }
+
+    fn invalidate(&mut self) {
+        if let Ok(mut selector) = self.0.try_lock() {
+            selector.invalidate();
+        }
+    }
+
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
+}
+
+impl Focusable for SharedSessionSelector {
+    fn focused(&self) -> bool {
+        self.0.try_lock().map(|selector| selector.focused()).unwrap_or(false)
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        if let Ok(mut selector) = self.0.try_lock() {
+            selector.set_focused(focused);
+        }
+    }
+}
+
+/// Adapter mounting the settings selector while its callbacks mutate it.
+pub struct SharedSettingsSelector(pub Rc<RefCell<SettingsSelectorComponent>>);
+
+impl Component for SharedSettingsSelector {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0.borrow_mut().render(width)
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        self.0.borrow_mut().handle_input(data);
+    }
+
+    fn invalidate(&mut self) {
+        self.0.borrow_mut().invalidate();
+    }
+}
+
+/// Adapter mounting the current editor through the component contract.
+pub struct AnyEditorHandle(pub Rc<RefCell<dyn EditorComponent>>);
+
+impl Component for AnyEditorHandle {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0.borrow_mut().render(width)
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        let callbacks = self.0.borrow_mut().handle_input_deferred(data);
         for callback in callbacks {
             callback();
         }
@@ -1391,6 +1888,11 @@ enum UiRequest {
         content: Option<Vec<String>>,
         placement: WidgetPlacement,
     },
+    SetWidgetComponent {
+        key: String,
+        content: Option<ExtensionUiComponentFactory>,
+        placement: WidgetPlacement,
+    },
     SetTitle(String),
     PasteToEditor(String),
     SetEditorText(String),
@@ -1408,6 +1910,11 @@ enum UiRequest {
         respond: std::sync::mpsc::Sender<usize>,
     },
     RemoveTerminalInput(usize),
+    AddAutocompleteProvider(ExtensionAutocompleteProviderFactory),
+    SetEditorComponent(Option<ExtensionEditorFactory>),
+    GetEditorComponent {
+        respond: std::sync::mpsc::Sender<Option<ExtensionEditorFactory>>,
+    },
     ShowApprovalSelector,
     ShowSandboxSelector,
     RuntimeNewSession {
@@ -1454,6 +1961,67 @@ fn register_mode(mode: &Rc<InteractiveMode>) -> usize {
         });
         id
     })
+}
+
+/// `resolveEnabledModelsPersistTarget`.
+fn resolve_enabled_models_persist_target(
+    project_enabled_models: Option<&Value>,
+    patterns: Option<Vec<String>>,
+) -> (Option<Vec<String>>, crate::core::settings_manager::SettingsScope) {
+    use crate::core::settings_manager::SettingsScope;
+    if project_enabled_models.is_none() {
+        return (patterns, SettingsScope::Global);
+    }
+    (Some(patterns.unwrap_or_default()), SettingsScope::Project)
+}
+
+/// `applyControlSessionNames`: overlay control-db names and sort named sessions first.
+fn apply_control_session_names(
+    control_db_path: Option<&str>,
+    sessions: Vec<crate::core::session_manager::SessionInfo>,
+) -> Vec<crate::core::session_manager::SessionInfo> {
+    let Some(control_db_path) = control_db_path else {
+        return sessions;
+    };
+    let Ok(named) = crate::core::session_control_db::list_named_sessions(control_db_path) else {
+        return sessions;
+    };
+    let names: HashMap<String, String> = named
+        .into_iter()
+        .map(|session| (session.session_path, session.name))
+        .collect();
+    let mut sessions: Vec<crate::core::session_manager::SessionInfo> = sessions
+        .into_iter()
+        .map(|mut session| {
+            if let Some(name) = names.get(&session.path) {
+                session.name = Some(name.clone());
+            }
+            session
+        })
+        .collect();
+    sessions.sort_by(|a, b| {
+        let a_named = names.contains_key(&a.path);
+        let b_named = names.contains_key(&b.path);
+        if a_named != b_named {
+            return if a_named {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            };
+        }
+        b.modified.cmp(&a.modified)
+    });
+    sessions
+}
+
+fn tree_filter_mode(mode: TreeFilterMode) -> FilterMode {
+    match mode {
+        TreeFilterMode::Default => FilterMode::Default,
+        TreeFilterMode::NoTools => FilterMode::NoTools,
+        TreeFilterMode::UserOnly => FilterMode::UserOnly,
+        TreeFilterMode::LabeledOnly => FilterMode::LabeledOnly,
+        TreeFilterMode::All => FilterMode::All,
+    }
 }
 
 fn with_mode<R>(id: usize, f: impl FnOnce(Rc<InteractiveMode>) -> R) -> Option<R> {
@@ -1586,26 +2154,15 @@ impl ExtensionUiContext for InteractiveUiContext {
         &self,
         key: &str,
         content: Option<ExtensionUiComponentFactory>,
-        _options: Option<&ExtensionWidgetOptions>,
+        options: Option<&ExtensionWidgetOptions>,
     ) {
-        if let Some(factory) = content {
-            let (respond, receiver) = tokio::sync::oneshot::channel();
-            self.send(UiRequest::Custom {
-                factory: Arc::new(move |context, done| {
-                    done.call(None);
-                    factory(context)
-                }),
-                options: Some(ExtensionUiCustomOptions {
-                    overlay: Some(false),
-                    ..ExtensionUiCustomOptions::default()
-                }),
-                respond,
-            });
-            drop(receiver);
-            // The widget key/placement are handled by the interactive adapter
-            // in a later slice; the factory is still mounted as a focused view.
-            self.set_status(key, Some("component widget"));
-        }
+        self.send(UiRequest::SetWidgetComponent {
+            key: key.to_owned(),
+            content,
+            placement: options
+                .and_then(|options| options.placement)
+                .unwrap_or(WidgetPlacement::AboveEditor),
+        });
     }
 
     fn set_footer(&self, factory: Option<ExtensionUiFooterFactory>) {
@@ -1647,7 +2204,21 @@ impl ExtensionUiContext for InteractiveUiContext {
     }
 
     fn get_editor_text(&self) -> String {
-        with_mode(self.id, |mode| mode.editor.borrow().get_expanded_text()).unwrap_or_default()
+        with_mode(self.id, |mode| mode.editor().borrow().get_expanded_text()).unwrap_or_default()
+    }
+
+    fn add_autocomplete_provider(&self, factory: ExtensionAutocompleteProviderFactory) {
+        self.send(UiRequest::AddAutocompleteProvider(factory));
+    }
+
+    fn set_editor_component(&self, factory: Option<ExtensionEditorFactory>) {
+        self.send(UiRequest::SetEditorComponent(factory));
+    }
+
+    fn get_editor_component(&self) -> Option<ExtensionEditorFactory> {
+        let (respond, receiver) = std::sync::mpsc::channel();
+        self.send(UiRequest::GetEditorComponent { respond });
+        receiver.recv().ok().flatten()
     }
 
     fn editor<'a>(&'a self, title: &str, prefill: Option<&str>) -> BoxFuture<'a, Result<Option<String>, String>> {
@@ -1679,6 +2250,13 @@ impl ExtensionUiContext for InteractiveUiContext {
 
     fn set_theme(&self, name: &str) -> ThemeSetResult {
         with_mode(self.id, |mode| mode.set_theme_name(name)).unwrap_or(ThemeSetResult {
+            success: false,
+            error: Some("UI not available".to_owned()),
+        })
+    }
+
+    fn set_theme_object(&self, theme: Arc<Theme>) -> ThemeSetResult {
+        with_mode(self.id, |mode| mode.set_theme_instance(theme)).unwrap_or(ThemeSetResult {
             success: false,
             error: Some("UI not available".to_owned()),
         })
@@ -1725,6 +2303,15 @@ impl ExtensionUiTuiBackend for InteractiveUiTuiBackend {
     }
 }
 
+/// Extension widget content: string lines or a factory-built component.
+enum ExtensionWidget {
+    Lines(Vec<String>),
+    Component(ComponentRef),
+}
+
+/// Maximum widget lines before the truncation marker (source `MAX_WIDGET_LINES`).
+const MAX_WIDGET_LINES: usize = 10;
+
 /// Adapts a thread-safe extension component to the `pi-tui` component contract.
 struct ExtensionComponentAdapter {
     inner: Box<dyn ExtensionUiComponent>,
@@ -1752,6 +2339,64 @@ impl Component for ExtensionComponentAdapter {
 // InteractiveMode
 // ============================================================================
 
+/// UI work produced by a provider auth flow running off the TUI thread.
+enum AuthUiEvent {
+    Prompt(AuthPrompt, tokio::sync::oneshot::Sender<Result<String, String>>),
+    Notify(AuthEvent),
+}
+
+/// `AuthInteraction` backed by the mode's UI loop.
+struct InteractiveAuthInteraction {
+    sender: std::sync::Mutex<std::sync::mpsc::Sender<AuthUiEvent>>,
+    signal: tokio_util::sync::CancellationToken,
+}
+
+impl InteractiveAuthInteraction {
+    fn send(&self, event: AuthUiEvent) -> Result<(), CallbackError> {
+        self.sender
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .send(event)
+            .map_err(|_| CallbackError::new("Login cancelled"))
+    }
+}
+
+impl AuthInteraction for InteractiveAuthInteraction {
+    fn signal(&self) -> tokio_util::sync::CancellationToken {
+        self.signal.clone()
+    }
+
+    fn prompt(&self, prompt: AuthPrompt) -> pi_ai::request::BoxFuture<'_, Result<String, CallbackError>> {
+        Box::pin(async move {
+            let prompt_signal = prompt.signal.clone();
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            self.send(AuthUiEvent::Prompt(prompt, sender))?;
+            let result = match prompt_signal {
+                Some(signal) => tokio::select! {
+                    result = receiver => result,
+                    _ = signal.cancelled() => return Err(CallbackError::new("Login cancelled")),
+                },
+                None => receiver.await,
+            };
+            match result {
+                Ok(Ok(value)) => Ok(value),
+                Ok(Err(message)) => Err(CallbackError::new(message)),
+                Err(_) => Err(CallbackError::new("Login cancelled")),
+            }
+        })
+    }
+
+    fn notify(&self, event: AuthEvent) {
+        let _ = self.send(AuthUiEvent::Notify(event));
+    }
+}
+
+/// Active auth flow UI state polled by the mode loop.
+struct AuthUiState {
+    receiver: std::sync::mpsc::Receiver<AuthUiEvent>,
+    dialog: Rc<RefCell<LoginDialogComponent>>,
+}
+
 /// `InteractiveMode`: TUI rendering and user interaction for the coding agent.
 pub struct InteractiveMode {
     runtime: tokio::sync::Mutex<AgentSessionRuntime>,
@@ -1772,8 +2417,9 @@ pub struct InteractiveMode {
     fullscreen_layout_root: RefCell<Option<ComponentRef>>,
     transcript_tail_region: RefCell<Option<FlowRenderRegion>>,
     status_render_region: RefCell<Option<RenderRegion>>,
-    editor: Rc<RefCell<CustomEditor>>,
-    editor_handle: ComponentRef,
+    editor: RefCell<Rc<RefCell<dyn EditorComponent>>>,
+    default_editor: Rc<RefCell<CustomEditor>>,
+    editor_handle: RefCell<ComponentRef>,
     footer: Rc<RefCell<FooterComponent>>,
     footer_data_provider: Arc<FooterDataProvider>,
     keybindings: KeybindingsManager,
@@ -1797,8 +2443,8 @@ pub struct InteractiveMode {
     executing_tool_names: RefCell<IndexMap<String, String>>,
     executing_tool_started_at: RefCell<IndexMap<String, f64>>,
     extension_statuses: RefCell<IndexMap<String, String>>,
-    extension_widgets_above: RefCell<IndexMap<String, Vec<String>>>,
-    extension_widgets_below: RefCell<IndexMap<String, Vec<String>>>,
+    extension_widgets_above: RefCell<IndexMap<String, ExtensionWidget>>,
+    extension_widgets_below: RefCell<IndexMap<String, ExtensionWidget>>,
     on_input_callback: RefCell<Option<InputCallback>>,
     last_status_spacer: RefCell<Option<ComponentRef>>,
     last_status_text: RefCell<Option<ComponentRef>>,
@@ -1815,6 +2461,19 @@ pub struct InteractiveMode {
     custom_header: RefCell<Option<ComponentRef>>,
     changelog_markdown: RefCell<Option<String>>,
     terminal_current_directory: RefCell<Option<String>>,
+    theme_controller: RefCell<crate::modes::interactive::theme::InteractiveThemeController>,
+    transcript_scroll_view: RefCell<Option<Rc<RefCell<ScrollView>>>>,
+    debug_handler: RefCell<Option<Rc<dyn Fn()>>>,
+    terminal_input_listeners: RefCell<Vec<(usize, TerminalInputHandler)>>,
+    autocomplete_provider: RefCell<Option<Rc<dyn pi_tui::autocomplete::AutocompleteProvider>>>,
+    autocomplete_provider_wrappers: RefCell<Vec<ExtensionAutocompleteProviderFactory>>,
+    editor_component_factory: RefCell<Option<ExtensionEditorFactory>>,
+    fd_path: RefCell<Option<String>>,
+    clipboard_temp_files: RefCell<crate::utils::clipboard_temp_files::ClipboardTempFileTracker>,
+    pending_compaction_summary_edit_id: RefCell<Option<String>>,
+    active_session_selector: RefCell<Option<Rc<tokio::sync::Mutex<SessionSelectorComponent>>>>,
+    auth_ui: RefCell<Option<AuthUiState>>,
+    session_selector_loaded: Cell<bool>,
 }
 
 impl InteractiveMode {
@@ -1826,6 +2485,7 @@ impl InteractiveMode {
         terminal: Option<Rc<RefCell<dyn Terminal>>>,
     ) -> Result<Rc<Self>, String> {
         let session = runtime.session().clone();
+        let settings_handle = session.settings_manager_handle();
         let settings = session.settings_manager();
         let tui_mode = options.tui_mode.unwrap_or_else(|| settings.get_tui_mode());
         let show_hardware_cursor = settings.get_show_hardware_cursor();
@@ -1835,17 +2495,47 @@ impl InteractiveMode {
         let hide_thinking_block = settings.get_hide_thinking_block();
         let _output_pad = settings.get_output_pad();
         let theme_name = settings.get_theme().map(str::to_owned);
+        let agent_dir = session.agent_dir().to_owned();
         drop(settings);
 
+        let mode_slot: Rc<RefCell<Option<std::rc::Weak<InteractiveMode>>>> = Rc::new(RefCell::new(None));
+        let right_click_slot = Rc::clone(&mode_slot);
         let renderer = create_interactive_tui(InteractiveTuiOptions {
             tui_mode,
             show_hardware_cursor,
-            log_directory: crate::config::get_agent_dir().display().to_string(),
+            log_directory: agent_dir.clone(),
             terminal,
-            on_right_click_paste: None,
+            on_right_click_paste: Some(Rc::new(move || {
+                if let Some(mode) = right_click_slot.borrow().as_ref().and_then(std::rc::Weak::upgrade) {
+                    tokio::task::spawn_local(async move {
+                        mode.handle_right_click_paste().await;
+                    });
+                }
+            })),
         });
         let ui = InteractiveTuiHandle::new(renderer);
         ui.set_clear_on_shrink(clear_on_shrink);
+
+        let loader_themes = session.resource_loader().get_themes();
+        let registered: Vec<Arc<Theme>> = loader_themes.themes.into_iter().map(Arc::new).collect();
+        if !registered.is_empty() {
+            let _ = crate::modes::interactive::theme::set_registered_themes(registered);
+        }
+        let error_slot = Rc::clone(&mode_slot);
+        let theme_controller = crate::modes::interactive::theme::InteractiveThemeController::new(
+            Rc::new(InteractiveThemeUi(Rc::clone(&ui))),
+            Arc::clone(&settings_handle),
+            Rc::new(move |message: &str| {
+                if let Some(mode) = error_slot.borrow().as_ref().and_then(std::rc::Weak::upgrade) {
+                    mode.show_error(message);
+                }
+            }),
+            Rc::new({
+                let ui = Rc::clone(&ui);
+                move || ui.request_render()
+            }),
+        )
+        .map_err(|error| error.to_string())?;
 
         let (header_container, header_ref) = SharedContainer::create();
         let (loaded_resources_container, loaded_ref) = SharedContainer::create();
@@ -1858,10 +2548,10 @@ impl InteractiveMode {
         let (editor_container, editor_ref) = SharedContainer::create();
         let (footer_container, footer_ref) = SharedContainer::create();
 
-        let keybindings = KeybindingsManager::create(Some(&crate::config::get_agent_dir()));
+        let keybindings = KeybindingsManager::create(Some(Path::new(&agent_dir)));
         keybindings.clone().install();
 
-        let editor = Rc::new(RefCell::new(
+        let default_editor = Rc::new(RefCell::new(
             CustomEditor::new(
                 Rc::new(InteractiveTuiHost(Rc::clone(&ui))),
                 crate::modes::interactive::theme::get_editor_theme(),
@@ -1871,14 +2561,17 @@ impl InteractiveMode {
                         padding_x: Some(editor_padding_x),
                         autocomplete_max_visible: Some(autocomplete_max_visible),
                     },
-                    legacy_prompt_history_path: Some(crate::config::get_prompt_history_path().display().to_string()),
+                    legacy_prompt_history_path: Some(
+                        Path::new(&agent_dir).join("prompt-history.json").display().to_string(),
+                    ),
                     prompt_history_control_db_path: None,
                     prompt_history_filter: Some(Rc::new(|text: &str| !is_skill_invocation(text, &[]))),
                 },
             )
             .map_err(|error| error.to_string())?,
         ));
-        let editor_handle: ComponentRef = component(EditorHandle(Rc::clone(&editor)));
+        let editor: Rc<RefCell<dyn EditorComponent>> = default_editor.clone();
+        let editor_handle: ComponentRef = component(AnyEditorHandle(Rc::clone(&editor)));
 
         let footer_data_provider = Arc::new(FooterDataProvider::new(session.cwd()));
         let footer = Rc::new(RefCell::new(FooterComponent::new(
@@ -1911,8 +2604,9 @@ impl InteractiveMode {
             fullscreen_layout_root: RefCell::new(None),
             transcript_tail_region: RefCell::new(None),
             status_render_region: RefCell::new(None),
-            editor,
-            editor_handle,
+            editor: RefCell::new(editor),
+            default_editor,
+            editor_handle: RefCell::new(editor_handle),
             footer,
             footer_data_provider,
             keybindings,
@@ -1953,14 +2647,29 @@ impl InteractiveMode {
             custom_header: RefCell::new(None),
             changelog_markdown: RefCell::new(None),
             terminal_current_directory: RefCell::new(None),
+            theme_controller: RefCell::new(theme_controller),
+            transcript_scroll_view: RefCell::new(None),
+            debug_handler: RefCell::new(None),
+            terminal_input_listeners: RefCell::new(Vec::new()),
+            autocomplete_provider: RefCell::new(None),
+            autocomplete_provider_wrappers: RefCell::new(Vec::new()),
+            editor_component_factory: RefCell::new(None),
+            fd_path: RefCell::new(None),
+            clipboard_temp_files: RefCell::new(crate::utils::clipboard_temp_files::ClipboardTempFileTracker::new()),
+            pending_compaction_summary_edit_id: RefCell::new(None),
+            active_session_selector: RefCell::new(None),
+            auth_ui: RefCell::new(None),
+            session_selector_loaded: Cell::new(false),
         });
+
+        *mode_slot.borrow_mut() = Some(Rc::downgrade(&mode));
 
         let id = register_mode(&mode);
         mode.ui_id.set(id);
 
         mode.editor_container
             .borrow_mut()
-            .add_child(Rc::clone(&mode.editor_handle));
+            .add_child(Rc::clone(&mode.editor_handle.borrow()));
         mode.footer_container
             .borrow_mut()
             .add_child(component(FooterHandle(Rc::clone(&mode.footer))));
@@ -1989,6 +2698,11 @@ impl InteractiveMode {
 
     fn session(&self) -> AgentSession {
         self.session.borrow().clone()
+    }
+
+    /// The editor currently mounted in the editor container.
+    fn editor(&self) -> Rc<RefCell<dyn EditorComponent>> {
+        Rc::clone(&self.editor.borrow())
     }
 
     fn settings<R>(&self, f: impl FnOnce(&crate::core::settings_manager::SettingsManager) -> R) -> R {
@@ -2045,6 +2759,89 @@ impl InteractiveMode {
         *self.root_compositor.borrow_mut() = Some(component(root));
     }
 
+    /// `switchTuiMode`: swaps the regular/fullscreen renderer on the shared handle.
+    fn switch_tui_mode(&self, mode: TuiMode, restore_progress: bool, start_renderer: bool) -> bool {
+        if mode == self.ui.mode() {
+            return true;
+        }
+        if self.ui.has_overlay_entries() {
+            return false;
+        }
+        if mode == TuiMode::Fullscreen {
+            crate::modes::interactive::working_editor::clear_working_editor_position(&mut *self.editor().borrow_mut());
+        }
+
+        let focus = self.ui.get_focused_component();
+        let terminal = self.ui.terminal();
+        let show_hardware_cursor = self.ui.get_show_hardware_cursor();
+        let clear_on_shrink = self.ui.get_clear_on_shrink();
+
+        self.ui.stop_with(pi_tui::tui::TuiStopOptions { preserve_screen: true });
+        self.ui.set_focus(None);
+        self.ui.clear();
+        self.ui.set_layout_root(None);
+
+        let renderer = create_interactive_tui(InteractiveTuiOptions {
+            tui_mode: mode,
+            show_hardware_cursor,
+            log_directory: self.session().agent_dir().to_owned(),
+            terminal: Some(terminal),
+            on_right_click_paste: None,
+        });
+        self.ui.replace_renderer(renderer);
+        self.ui.set_clear_on_shrink(clear_on_shrink);
+        if let Some(handler) = self.debug_handler.borrow().clone() {
+            self.ui.set_on_debug(handler);
+        }
+        if mode == TuiMode::Fullscreen {
+            self.build_fullscreen_layout();
+        }
+        self.mount_interactive_tui();
+        self.ui.invalidate();
+        self.ui.set_focus(focus);
+        if !start_renderer {
+            return true;
+        }
+        let _ = self.ui.start();
+        self.theme_controller.borrow_mut().rebind_tui();
+        self.rebind_extension_terminal_input_listeners();
+        if restore_progress
+            && self.settings(|settings| settings.get_show_terminal_progress())
+            && (self.session().is_streaming() || self.session().is_compacting())
+        {
+            let terminal = self.ui.terminal();
+            terminal.borrow_mut().set_progress(true);
+        }
+        true
+    }
+
+    fn rebind_extension_terminal_input_listeners(&self) {
+        let listeners = self.terminal_input_listeners.borrow().clone();
+        let mut rebound = Vec::with_capacity(listeners.len());
+        for (_, handler) in listeners {
+            let handler = Arc::clone(&handler);
+            let listener_handler = Arc::clone(&handler);
+            let id = self
+                .ui
+                .add_input_listener(Rc::new(move |data: &str| match listener_handler(data) {
+                    Some(result) => TuiInputListenerResult {
+                        consume: result.consume.unwrap_or(false),
+                        data: result.data,
+                    },
+                    None => TuiInputListenerResult::default(),
+                }));
+            rebound.push((id, handler));
+        }
+        *self.terminal_input_listeners.borrow_mut() = rebound;
+    }
+
+    fn apply_fullscreen_scrollbar_setting(&self) {
+        let scrollbar = self.settings(|settings| settings.get_fullscreen_scrollbar());
+        if let Some(scroll_view) = self.transcript_scroll_view.borrow().clone() {
+            scroll_view.borrow_mut().set_scrollbar(scrollbar);
+        }
+    }
+
     fn mount_interactive_tui(&self) {
         if self.ui.mode() == TuiMode::Fullscreen {
             for child in [
@@ -2072,17 +2869,20 @@ impl InteractiveMode {
     }
 
     fn build_fullscreen_layout(&self) {
-        let scroll_view = ScrollView::new(
+        let scrollbar = self.settings(|settings| settings.get_fullscreen_scrollbar());
+        let scroll_view = Rc::new(RefCell::new(ScrollView::new(
             component(SharedContainer(Rc::clone(&self.chat_container))),
             ScrollViewOptions {
                 follow: Some(ScrollFollow::End),
                 primary: true,
                 overscroll: Some(ScrollOverscroll::Chain),
-                scrollbar: Some(ScrollViewScrollbar::Hidden),
+                scrollbar: Some(scrollbar),
                 scrollbar_style: None,
                 scrollbar_hide_delay_ms: None,
             },
-        );
+        )));
+        *self.transcript_scroll_view.borrow_mut() = Some(Rc::clone(&scroll_view));
+        let scroll_view = component(SharedScrollView(scroll_view));
         let dock = VStack::new(
             vec![
                 stack_entry(
@@ -2133,7 +2933,7 @@ impl InteractiveMode {
         let root = VStack::new(
             vec![
                 stack_entry(
-                    component(scroll_view),
+                    scroll_view,
                     Some(pi_tui::layout_node::StackBasis::Cells(0)),
                     Some(1),
                     Some(1),
@@ -2746,19 +3546,26 @@ impl InteractiveMode {
             .add_child(component(Spacer::new(1)));
     }
 
+    fn set_theme_instance(&self, theme: Arc<Theme>) -> ThemeSetResult {
+        crate::modes::interactive::theme::set_theme_instance(theme);
+        self.ui.invalidate();
+        self.update_editor_border_color();
+        self.ui.request_render();
+        ThemeSetResult {
+            success: true,
+            error: None,
+        }
+    }
+
     fn set_theme_name(&self, name: &str) -> ThemeSetResult {
-        let result = crate::modes::interactive::theme::set_theme(name, false).unwrap_or_else(|error| {
-            crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string())
-        });
+        let result = self.theme_controller.borrow_mut().set_theme_name(name, false);
         if result.success {
             self.settings_mut(|settings| {
                 if settings.get_theme() != Some(name) {
                     settings.set_theme(name);
                 }
             });
-            self.ui.invalidate();
             self.update_editor_border_color();
-            self.ui.request_render();
         }
         ThemeSetResult {
             success: result.success,
@@ -2770,6 +3577,231 @@ impl InteractiveMode {
         f(&mut self.session.borrow().settings_manager())
     }
 
+    /// `getAutocompleteSourceTag`.
+    fn get_autocomplete_source_tag(&self, source_info: Option<&SourceInfo>) -> Option<String> {
+        let source_info = source_info?;
+        let scope_prefix = match source_info.scope {
+            SourceScope::User => "u",
+            SourceScope::Project => "p",
+            SourceScope::Temporary => "t",
+        };
+        let source = pi_js_compat::string::js_trim(&source_info.source);
+        if matches!(source, "auto" | "local" | "cli") {
+            return Some(scope_prefix.to_owned());
+        }
+        if source.starts_with("npm:") {
+            return Some(format!("{scope_prefix}:{source}"));
+        }
+        if let Some(git_source) = parse_git_url(source) {
+            let reference = git_source
+                .reference
+                .map(|reference| format!("@{reference}"))
+                .unwrap_or_default();
+            return Some(format!(
+                "{scope_prefix}:git:{}/{}{reference}",
+                git_source.host, git_source.path
+            ));
+        }
+        Some(scope_prefix.to_owned())
+    }
+
+    /// `prefixAutocompleteDescription`.
+    fn prefix_autocomplete_description(
+        &self,
+        description: Option<&str>,
+        source_info: Option<&SourceInfo>,
+    ) -> Option<String> {
+        let Some(tag) = self.get_autocomplete_source_tag(source_info) else {
+            return description.map(str::to_owned);
+        };
+        Some(match description {
+            Some(description) => format!("[{tag}] {description}"),
+            None => format!("[{tag}]"),
+        })
+    }
+
+    /// `createBaseAutocompleteProvider`.
+    fn create_base_autocomplete_provider(&self) -> Rc<dyn AutocompleteProvider> {
+        let mut commands: Vec<CommandEntry> = Vec::new();
+        for command in crate::core::slash_commands::builtin_slash_commands() {
+            let mut slash = SlashCommand::new(command.name);
+            slash.description = Some(command.description);
+            slash.argument_hint = command.argument_hint.map(str::to_owned);
+            if command.name == "cd" {
+                slash.argument_hint = Some("<path>".to_owned());
+                let cwd = self.cwd();
+                slash.get_argument_completions = Some(Box::new(move |prefix: &str| {
+                    Some(get_directory_completions(prefix, &cwd))
+                }));
+            }
+            if command.name == "model" {
+                let session = self.session();
+                let scoped = session.scoped_models();
+                let models: Vec<Model> = if scoped.is_empty() {
+                    session.model_runtime().get_available_snapshot()
+                } else {
+                    scoped.into_iter().map(|scoped| scoped.model).collect()
+                };
+                slash.get_argument_completions = Some(Box::new(move |prefix: &str| {
+                    model_argument_completions(&models, prefix)
+                }));
+            }
+            if command.name == "login" {
+                let runtime = self.session().model_runtime().clone();
+                slash.get_argument_completions = Some(Box::new(move |prefix: &str| {
+                    login_argument_completions(&runtime, prefix)
+                }));
+            }
+            commands.push(CommandEntry::Command(slash));
+        }
+
+        let templates = self.session().prompt_templates();
+        for template in templates {
+            let mut slash = SlashCommand::new(&template.name);
+            slash.description =
+                self.prefix_autocomplete_description(Some(&template.description), Some(&template.source_info));
+            slash.argument_hint = template.argument_hint.clone();
+            commands.push(CommandEntry::Command(slash));
+        }
+
+        let builtin_names: Vec<&'static str> = crate::core::slash_commands::builtin_slash_commands()
+            .iter()
+            .map(|command| command.name)
+            .collect();
+        for command in self.session().extension_runner().get_registered_commands() {
+            if builtin_names.contains(&command.name.as_str()) {
+                continue;
+            }
+            let mut slash = SlashCommand::new(&command.invocation_name);
+            slash.description =
+                self.prefix_autocomplete_description(command.description.as_deref(), Some(&command.source_info));
+            if let Some(completions) = command.get_argument_completions.clone() {
+                slash.get_argument_completions = Some(Box::new(move |prefix: &str| {
+                    completions(prefix).map(|items| {
+                        items
+                            .into_iter()
+                            .filter_map(|item| autocomplete_item_from_value(&item))
+                            .collect()
+                    })
+                }));
+            }
+            commands.push(CommandEntry::Command(slash));
+        }
+
+        if self.settings(|settings| settings.get_enable_skill_commands()) {
+            let skills = self.session().resource_loader().get_skills();
+            for skill in skills.skills {
+                let mut slash = SlashCommand::new(format!("skill:{}", skill.name));
+                slash.description =
+                    self.prefix_autocomplete_description(Some(&skill.description), Some(&skill.source_info));
+                commands.push(CommandEntry::Command(slash));
+            }
+        }
+
+        Rc::new(CombinedAutocompleteProvider::new(
+            commands,
+            self.cwd(),
+            self.fd_path.borrow().clone(),
+        ))
+    }
+
+    /// `setupAutocompleteProvider`.
+    fn setup_autocomplete_provider(&self) {
+        let mut provider = self.create_base_autocomplete_provider();
+        for factory in self.autocomplete_provider_wrappers.borrow().iter() {
+            provider = factory(Rc::clone(&provider));
+        }
+        *self.autocomplete_provider.borrow_mut() = Some(Rc::clone(&provider));
+        self.default_editor
+            .borrow_mut()
+            .set_autocomplete_provider(Rc::clone(&provider));
+        let current = self.editor();
+        let is_default = Rc::ptr_eq(
+            &current,
+            &(self.default_editor.clone() as Rc<RefCell<dyn EditorComponent>>),
+        );
+        if !is_default {
+            current.borrow_mut().set_autocomplete_provider(provider);
+        }
+    }
+
+    /// `setCustomEditorComponent`.
+    fn set_custom_editor_component(&self, factory: Option<ExtensionEditorFactory>) {
+        *self.editor_component_factory.borrow_mut() = factory.clone();
+
+        let current_text = self.editor().borrow().get_text();
+        crate::modes::interactive::working_editor::clear_working_editor(&mut *self.editor().borrow_mut());
+        self.editor_container.borrow_mut().clear();
+
+        let next_editor: Rc<RefCell<dyn EditorComponent>> = match factory {
+            Some(factory) => {
+                let new_editor = factory(
+                    ExtensionUiTui::new(Arc::new(InteractiveUiTuiBackend {
+                        shared: Arc::clone(&self.ui_shared),
+                        sender: self.ui_sender.clone(),
+                    })),
+                    crate::modes::interactive::theme::get_editor_theme(),
+                    self.keybindings.clone(),
+                );
+                {
+                    let mut default_editor = self.default_editor.borrow_mut();
+                    let on_submit = default_editor.editor_mut().on_submit.clone();
+                    let on_change = default_editor.editor_mut().on_change.clone();
+                    let border_color = default_editor.get_border_color();
+                    let padding_x = default_editor.get_padding_x();
+                    let autocomplete_max_visible = default_editor.get_autocomplete_max_visible();
+                    let on_escape = default_editor.on_escape.clone();
+                    let on_ctrl_d = default_editor.on_ctrl_d.clone();
+                    let on_paste_image = default_editor.on_paste_image.clone();
+                    let on_extension_shortcut = default_editor.on_extension_shortcut.clone();
+                    let action_handlers = default_editor.action_handlers.clone();
+                    drop(default_editor);
+
+                    let mut editor = new_editor.borrow_mut();
+                    editor.set_text(&current_text);
+                    editor.set_border_color(border_color);
+                    editor.set_padding_x(padding_x);
+                    editor.set_autocomplete_max_visible(autocomplete_max_visible);
+                    if let Some(provider) = self.autocomplete_provider.borrow().clone() {
+                        editor.set_autocomplete_provider(provider);
+                    }
+                    if let Some(custom) = editor.as_any_mut().and_then(|any| any.downcast_mut::<CustomEditor>()) {
+                        custom.editor_mut().on_submit = on_submit;
+                        custom.editor_mut().on_change = on_change;
+                        if custom.on_escape.is_none() {
+                            custom.on_escape = on_escape;
+                        }
+                        if custom.on_ctrl_d.is_none() {
+                            custom.on_ctrl_d = on_ctrl_d;
+                        }
+                        if custom.on_paste_image.is_none() {
+                            custom.on_paste_image = on_paste_image;
+                        }
+                        if custom.on_extension_shortcut.is_none() {
+                            custom.on_extension_shortcut = on_extension_shortcut;
+                        }
+                        for (action, handler) in action_handlers {
+                            custom.action_handlers.insert(action, handler);
+                        }
+                    }
+                }
+                new_editor
+            }
+            None => {
+                self.default_editor.borrow_mut().set_text(&current_text);
+                self.default_editor.clone()
+            }
+        };
+
+        let handle: ComponentRef = component(AnyEditorHandle(Rc::clone(&next_editor)));
+        *self.editor.borrow_mut() = next_editor;
+        *self.editor_handle.borrow_mut() = Rc::clone(&handle);
+        self.editor_container.borrow_mut().add_child(Rc::clone(&handle));
+        self.update_editor_border_color();
+        self.ui.set_focus(Some(handle));
+        self.ui.request_render();
+    }
+
     fn update_editor_border_color(&self) {
         let color = if self.is_bash_mode.get() {
             ThemeColor::BashMode
@@ -2778,42 +3810,77 @@ impl InteractiveMode {
         };
         let style: pi_tui::components::text::StyleFn =
             Rc::new(move |text: &str| with_theme(|theme| theme.fg(color, text)));
-        self.editor.borrow_mut().set_border_color(style);
+        self.editor().borrow_mut().set_border_color(style);
     }
 
     fn render_widgets(&self) {
-        self.render_widget_container(&self.widget_container_above, &self.extension_widgets_above.borrow());
-        self.render_widget_container(&self.widget_container_below, &self.extension_widgets_below.borrow());
+        self.render_widget_container(
+            &self.widget_container_above,
+            &self.extension_widgets_above.borrow(),
+            true,
+            true,
+        );
+        self.render_widget_container(
+            &self.widget_container_below,
+            &self.extension_widgets_below.borrow(),
+            false,
+            false,
+        );
     }
 
-    fn render_widget_container(&self, container: &Rc<RefCell<Container>>, widgets: &IndexMap<String, Vec<String>>) {
+    fn render_widget_container(
+        &self,
+        container: &Rc<RefCell<Container>>,
+        widgets: &IndexMap<String, ExtensionWidget>,
+        spacer_when_empty: bool,
+        leading_spacer: bool,
+    ) {
         let mut container = container.borrow_mut();
         container.clear();
         if widgets.is_empty() {
-            container.add_child(component(Spacer::new(1)));
+            if spacer_when_empty {
+                container.add_child(component(Spacer::new(1)));
+            }
             return;
         }
-        container.add_child(component(Spacer::new(1)));
-        for lines in widgets.values() {
-            container.add_child(component(Text::new(lines.join("\n"), 1, 0)));
+        if leading_spacer {
+            container.add_child(component(Spacer::new(1)));
+        }
+        for widget in widgets.values() {
+            match widget {
+                ExtensionWidget::Lines(lines) => {
+                    container.add_child(component(Text::new(lines.join("\n"), 1, 0)));
+                }
+                ExtensionWidget::Component(widget) => container.add_child(Rc::clone(widget)),
+            }
         }
     }
 
-    fn add_extension_widget(&self, key: &str, content: Option<Vec<String>>, placement: WidgetPlacement) {
+    fn add_extension_widget(&self, key: &str, content: Option<ExtensionWidget>, placement: WidgetPlacement) {
+        self.extension_widgets_above.borrow_mut().shift_remove(key);
+        self.extension_widgets_below.borrow_mut().shift_remove(key);
+        let Some(content) = content else {
+            self.render_widgets();
+            self.ui.request_render();
+            return;
+        };
         let widgets = match placement {
             WidgetPlacement::AboveEditor => &self.extension_widgets_above,
             WidgetPlacement::BelowEditor => &self.extension_widgets_below,
         };
-        match content {
-            Some(lines) => {
-                widgets.borrow_mut().insert(key.to_owned(), lines);
-            }
-            None => {
-                widgets.borrow_mut().shift_remove(key);
-            }
-        }
+        widgets.borrow_mut().insert(key.to_owned(), content);
         self.render_widgets();
         self.ui.request_render();
+    }
+
+    fn string_widget_lines(content: &[String]) -> Vec<String> {
+        let mut lines: Vec<String> = content.iter().take(MAX_WIDGET_LINES).cloned().collect();
+        if content.len() > MAX_WIDGET_LINES {
+            lines.push(with_theme(|theme| {
+                theme.fg(ThemeColor::Muted, "... (widget truncated)")
+            }));
+        }
+        lines
     }
 
     fn clear_extension_widgets(&self) {
@@ -2868,11 +3935,14 @@ impl InteractiveMode {
     }
 
     fn add_submitted_text_to_history(&self, text: &str) {
-        self.editor.borrow_mut().add_to_history_without_persistence(text);
+        if is_skill_invocation(text, &self.session().prompt_templates()) {
+            return;
+        }
+        self.editor().borrow_mut().add_to_history(text);
     }
 
     fn clear_editor(&self) {
-        self.editor.borrow_mut().set_text("");
+        self.editor().borrow_mut().set_text("");
         self.ui.request_render();
     }
 
@@ -2918,8 +3988,105 @@ impl InteractiveMode {
     }
 
     fn handle_ctrl_d(&self) {
-        if self.editor.borrow().get_text().is_empty() {
+        if self.editor().borrow().get_text().is_empty() {
             self.actions.borrow_mut().push_back(ModeAction::Shutdown);
+        }
+    }
+
+    /// `handleCtrlZ`: restore the terminal and suspend the process group.
+    fn handle_ctrl_z(self: &Rc<Self>) {
+        self.handle_ctrl_z_for_platform(std::env::consts::OS);
+    }
+
+    fn handle_ctrl_z_for_platform(self: &Rc<Self>, platform: &str) {
+        if platform == "windows" {
+            self.show_status("Suspend to background is not supported on Windows");
+            return;
+        }
+        self.suspend_to_background();
+    }
+
+    fn suspend_to_background(self: &Rc<Self>) {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+
+            let (Ok(sigint), Ok(mut sigcont)) = (signal(SignalKind::interrupt()), signal(SignalKind::from_raw(18)))
+            else {
+                self.show_error("Could not install suspend signal handlers");
+                return;
+            };
+            let mode = Rc::clone(self);
+            tokio::task::spawn_local(async move {
+                let _ = sigcont.recv().await;
+                drop(sigint);
+                let _ = mode.ui.start();
+                mode.ui.request_render_force();
+            });
+
+            self.ui.stop();
+            let Some(pid) = rustix::process::Pid::from_raw(0) else {
+                self.show_error("Could not suspend the process group");
+                let _ = self.ui.start();
+                return;
+            };
+            if let Err(error) = rustix::process::kill_process_group(pid, rustix::process::Signal::TSTP) {
+                self.show_error(&std::io::Error::from(error).to_string());
+                let _ = self.ui.start();
+            }
+        }
+        #[cfg(not(unix))]
+        self.show_status("Suspend to background is not supported on Windows");
+    }
+
+    /// `handleRightClickPaste`.
+    async fn handle_right_click_paste(self: &Rc<Self>) {
+        let Some(target) = self.ui.get_focused_component() else {
+            return;
+        };
+        let environment = crate::utils::clipboard_image::ClipboardEnvironment::from_process();
+        let native = crate::utils::clipboard_native::clipboard();
+        let text = crate::utils::clipboard::read_clipboard_text(&environment, native.as_deref()).await;
+        let Some(text) = text.filter(|text| !text.is_empty()) else {
+            return;
+        };
+        let still_focused = self
+            .ui
+            .get_focused_component()
+            .is_some_and(|current| Rc::ptr_eq(&current, &target));
+        if !still_focused {
+            return;
+        }
+        target.borrow_mut().handle_input(&format!("\x1b[200~{text}\x1b[201~"));
+        self.ui.request_render();
+    }
+
+    /// `handleClipboardPaste`: insert clipboard image paths, otherwise text.
+    async fn handle_clipboard_paste(&self) {
+        let environment = crate::utils::clipboard_image::ClipboardEnvironment::from_process();
+        let native = crate::utils::clipboard_native::clipboard();
+        let native = native.as_deref();
+        if let Ok(Some(image)) = crate::utils::clipboard_image::read_clipboard_image(&environment, native).await {
+            let extension =
+                crate::utils::clipboard_image::extension_for_image_mime_type(&image.mime_type).unwrap_or("png");
+            let file_path = std::env::temp_dir().join(format!(
+                "pi-clipboard-{}.{extension}",
+                pi_ai::utils::uuid::random_uuid()
+            ));
+            if std::fs::write(&file_path, &image.bytes).is_ok() {
+                self.clipboard_temp_files.borrow_mut().track(file_path.clone());
+                self.editor()
+                    .borrow_mut()
+                    .insert_text_at_cursor(&file_path.display().to_string());
+                self.ui.request_render();
+                return;
+            }
+        }
+        if let Some(text) = crate::utils::clipboard::read_clipboard_text(&environment, native).await
+            && !text.is_empty()
+        {
+            self.editor().borrow_mut().insert_text_at_cursor(&text);
+            self.ui.request_render();
         }
     }
 
@@ -2939,7 +4106,7 @@ impl InteractiveMode {
             self.actions.borrow_mut().push_back(ModeAction::Shutdown);
         } else {
             self.last_escape_time.set(now);
-            self.editor.borrow_mut().set_text("");
+            self.editor().borrow_mut().set_text("");
             self.ui.request_render();
         }
     }
@@ -2950,6 +4117,7 @@ impl InteractiveMode {
             self.session.borrow().unsubscribe(id);
             self.unsubscribe.set(None);
         }
+        self.clipboard_temp_files.borrow_mut().cleanup_all();
         self.ui.stop();
     }
 
@@ -3083,21 +4251,21 @@ impl InteractiveMode {
     /// Installs synchronous TUI callbacks that enqueue async work.
     fn bind_callbacks(self: &Rc<Self>) {
         let mode = Rc::clone(self);
-        self.editor.borrow_mut().editor_mut().on_submit = Some(Rc::new(move |text: &str| {
+        self.default_editor.borrow_mut().editor_mut().on_submit = Some(Rc::new(move |text: &str| {
             mode.actions.borrow_mut().push_back(ModeAction::Submit(text.to_owned()));
         }));
 
         let mode = Rc::clone(self);
-        self.editor.borrow_mut().editor_mut().on_change = Some(Rc::new(move |text: &str| {
+        self.default_editor.borrow_mut().editor_mut().on_change = Some(Rc::new(move |text: &str| {
             mode.is_bash_mode.set(text.trim_start().starts_with('!'));
         }));
 
         let mode = Rc::clone(self);
-        self.editor.borrow_mut().on_escape = Some(Rc::new(move || {
+        self.default_editor.borrow_mut().on_escape = Some(Rc::new(move || {
             mode.handle_editor_escape();
         }));
         let mode = Rc::clone(self);
-        self.editor.borrow_mut().on_ctrl_d = Some(Rc::new(move || {
+        self.default_editor.borrow_mut().on_ctrl_d = Some(Rc::new(move || {
             mode.handle_ctrl_d();
         }));
 
@@ -3109,20 +4277,28 @@ impl InteractiveMode {
             })
         }
 
-        self.editor
+        self.default_editor
             .borrow_mut()
             .on_action("app.clear", action(self, |mode| mode.handle_ctrl_c()));
-        self.editor.borrow_mut().on_action(
-            "app.suspend",
-            action(self, |mode| {
-                mode.show_status("Suspend is not supported by the Rust TUI host.")
-            }),
-        );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action("app.suspend", {
+            let mode = Rc::clone(self);
+            Rc::new(move || {
+                mode.handle_ctrl_z();
+                true
+            })
+        });
+        let paste_mode = Rc::clone(self);
+        self.default_editor.borrow_mut().on_paste_image = Some(Rc::new(move || {
+            let mode = Rc::clone(&paste_mode);
+            tokio::task::spawn_local(async move {
+                mode.handle_clipboard_paste().await;
+            });
+        }));
+        self.default_editor.borrow_mut().on_action(
             "app.thinking.cycle",
             action(self, InteractiveMode::cycle_thinking_level),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.model.cycleForward",
             action(self, |mode| {
                 mode.actions
@@ -3130,7 +4306,7 @@ impl InteractiveMode {
                     .push_back(ModeAction::CycleModel(CycleDirection::Forward));
             }),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.model.cycleBackward",
             action(self, |mode| {
                 mode.actions
@@ -3138,21 +4314,21 @@ impl InteractiveMode {
                     .push_back(ModeAction::CycleModel(CycleDirection::Backward));
             }),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.tools.expand",
             action(self, InteractiveMode::toggle_tool_output_expansion),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.thinking.toggle",
             action(self, InteractiveMode::toggle_thinking_block_visibility),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.editor.external",
             action(self, |mode| {
                 mode.actions.borrow_mut().push_back(ModeAction::ExternalEditor);
             }),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.message.copy",
             action(self, |mode| {
                 mode.actions.borrow_mut().push_back(ModeAction::Copy {
@@ -3160,50 +4336,51 @@ impl InteractiveMode {
                 });
             }),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.message.followUp",
             action(self, |mode| {
                 mode.actions.borrow_mut().push_back(ModeAction::FollowUp);
             }),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.message.dequeue",
             action(self, |mode| {
                 mode.actions.borrow_mut().push_back(ModeAction::Dequeue);
             }),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.session.new",
             action(self, |mode| {
                 mode.actions.borrow_mut().push_back(ModeAction::NewSession);
             }),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.session.tree",
-            action(self, |mode| mode.show_status("Tree selector is not ported yet.")),
+            action(self, |mode| mode.show_tree_selector(None, None)),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.session.fork",
-            action(self, |mode| mode.show_status("Fork selector is not ported yet.")),
+            action(self, |mode| mode.show_user_message_selector()),
         );
-        self.editor.borrow_mut().on_action(
-            "app.session.resume",
-            action(self, |mode| mode.show_status("Session selector is not ported yet.")),
-        );
-        self.editor.borrow_mut().on_action(
+        self.default_editor
+            .borrow_mut()
+            .on_action("app.session.resume", action(self, |mode| mode.show_session_selector()));
+        self.default_editor.borrow_mut().on_action(
             "app.agent.select",
             action(self, |mode| mode.show_status("Agent switcher is not ported yet.")),
         );
 
         let mode = Rc::clone(self);
-        self.ui.set_on_debug(Rc::new(move || {
+        let debug_handler: Rc<dyn Fn()> = Rc::new(move || {
             let mode = Rc::clone(&mode);
             tokio::task::spawn_local(async move {
                 if let Err(error) = mode.session().prompt("/debug", PromptOptions::default()).await {
                     mode.show_error(error.message());
                 }
             });
-        }));
+        });
+        *self.debug_handler.borrow_mut() = Some(Rc::clone(&debug_handler));
+        self.ui.set_on_debug(debug_handler);
         self.update_editor_border_color();
     }
 
@@ -3213,25 +4390,26 @@ impl InteractiveMode {
             return Ok(());
         }
 
-        if crate::modes::interactive::theme::current_theme_if_initialized().is_none() {
-            crate::modes::interactive::theme::init_theme(None, false).map_err(|error| error.to_string())?;
-        }
-        let loader_themes = self.session.borrow().resource_loader().get_themes();
-        let registered: Vec<Arc<Theme>> = loader_themes.themes.into_iter().map(Arc::new).collect();
-        if !registered.is_empty() {
-            let _ = crate::modes::interactive::theme::set_registered_themes(registered);
-        }
-
         self.bind_callbacks();
+
+        let http_idle_timeout_ms = self
+            .settings(|settings| settings.get_http_idle_timeout_ms())
+            .map_err(|error| error.to_string())?;
+        let fetch = crate::core::http_dispatcher::configure_http_dispatcher(http_idle_timeout_ms as f64)?;
+        let mut fd_manager = crate::utils::tools_manager::ToolsManager::for_process(Arc::clone(&fetch));
+        let mut rg_manager = crate::utils::tools_manager::ToolsManager::for_process(fetch);
+        let (fd_path, _rg_path) = tokio::join!(fd_manager.ensure_tool("fd"), rg_manager.ensure_tool("rg"));
+        *self.fd_path.borrow_mut() = fd_path;
         self.build_fullscreen_layout();
         self.render_widgets();
         self.mount_interactive_tui();
-        let editor_ref = Rc::clone(&self.editor_handle);
+        let editor_ref = Rc::clone(&self.editor_handle.borrow());
         self.ui.set_focus(Some(editor_ref));
         self.ui.start().map_err(|error| error.to_string())?;
         self.is_initialized.set(true);
         self.update_terminal_current_directory();
         self.update_terminal_title();
+        self.theme_controller.borrow_mut().apply_from_settings();
         self.build_header();
         self.show_loaded_resources(false, false);
         self.bind_extensions().await;
@@ -3444,6 +4622,7 @@ impl InteractiveMode {
                 on_error: None,
             })
             .await;
+        self.setup_autocomplete_provider();
         self.footer.borrow_mut().invalidate();
         self.ui.request_render();
     }
@@ -3624,7 +4803,7 @@ impl InteractiveMode {
             if !command.is_empty() {
                 if self.session.borrow().is_bash_running() {
                     self.show_warning("A bash command is already running. Press Esc to cancel it first.");
-                    self.editor.borrow_mut().set_text(&text);
+                    self.editor().borrow_mut().set_text(&text);
                     return;
                 }
                 self.add_submitted_text_to_history(&text);
@@ -3633,6 +4812,10 @@ impl InteractiveMode {
                 self.update_editor_border_color();
                 return;
             }
+        }
+
+        if self.submit_pending_compaction_summary_edit(&text) {
+            return;
         }
 
         let session = self.session();
@@ -3686,6 +4869,8 @@ impl InteractiveMode {
             .await
         {
             self.show_error(error.message());
+        } else {
+            self.clipboard_temp_files.borrow_mut().cleanup_referenced_in(&text);
         }
     }
 
@@ -3703,10 +4888,10 @@ impl InteractiveMode {
                 self.show_status("Esc interrupt · Ctrl+C clear · Ctrl+D exit · Ctrl+O tools · Ctrl+T thinking");
             }
             "settings" => {
-                self.show_status("Settings selector is not ported yet; edit settings.json directly.");
+                self.show_settings_selector();
             }
-            "scoped-models" | "models" => {
-                self.show_status("Scoped-models selector is not ported yet.");
+            "scoped-models" => {
+                self.show_models_selector().await;
             }
             "model" => {
                 let search = (!args.is_empty()).then(|| args.to_owned());
@@ -3739,12 +4924,12 @@ impl InteractiveMode {
             "tools" => self.handle_tools_command(),
             "extensions" => self.handle_extensions_command(),
             "changelog" => self.handle_changelog_command(),
-            "fork" => self.show_status("Fork selector is not ported yet."),
+            "fork" => self.show_user_message_selector(),
             "clone" => self.handle_clone_command().await,
-            "tree" => self.show_status("Tree selector is not ported yet."),
-            "trust" => self.show_status("Trust selector is not ported yet."),
-            "login" => self.show_status("Provider login is not ported yet."),
-            "logout" => self.show_status("Provider logout is not ported yet."),
+            "tree" => self.show_tree_selector(None, None),
+            "trust" => self.show_trust_selector(),
+            "login" => self.handle_login_command(Some(args)).await,
+            "logout" => self.show_oauth_selector(true).await,
             "new" => self.handle_clear_command().await,
             "continue" => {
                 if self.session.borrow().is_streaming() {
@@ -3761,9 +4946,8 @@ impl InteractiveMode {
                 self.handle_compact_command(instructions).await;
             }
             "reload" => self.handle_reload_command().await,
-            "resume" => self.show_status("Session selector is not ported yet."),
+            "resume" => self.show_session_selector(),
             "agents" => self.show_status("Agent switcher is not ported yet."),
-            "sandbox" => self.show_status("Sandbox selector is not ported yet."),
             "quit" => self.shutdown_requested.set(true),
             "arminsayshi" | "dementedelves" | "daxnuts" => {
                 self.show_status("Easter egg commands are not ported.");
@@ -3844,10 +5028,373 @@ impl InteractiveMode {
         self.show_selector(component(selector));
     }
 
+    fn steering_mode(&self) -> SteeringMode {
+        match self.session().steering_mode() {
+            pi_agent_core::harness::QueueMode::All => SteeringMode::All,
+            pi_agent_core::harness::QueueMode::OneAtATime => SteeringMode::OneAtATime,
+        }
+    }
+
+    fn follow_up_mode(&self) -> SteeringMode {
+        match self.session().follow_up_mode() {
+            pi_agent_core::harness::QueueMode::All => SteeringMode::All,
+            pi_agent_core::harness::QueueMode::OneAtATime => SteeringMode::OneAtATime,
+        }
+    }
+
+    fn clear_status_indicator(&self) {
+        self.status_container.borrow_mut().clear();
+    }
+
+    fn rebuild_chat_from_messages(&self) {
+        self.chat_container.borrow_mut().clear();
+        self.render_initial_messages();
+    }
+
+    fn show_settings_selector(&self) {
+        let session = self.session();
+        let Ok(http_idle_timeout_ms) = self.settings(|settings| settings.get_http_idle_timeout_ms()) else {
+            self.show_error("Invalid httpIdleTimeoutMs setting");
+            return;
+        };
+        let config = SettingsConfig {
+            auto_compact: session.auto_compaction_enabled(),
+            show_images: self.settings(|settings| settings.get_show_images()),
+            image_width_cells: self.settings(|settings| settings.get_image_width_cells()) as i64,
+            auto_resize_images: self.settings(|settings| settings.get_image_auto_resize()),
+            block_images: self.settings(|settings| settings.get_block_images()),
+            enable_skill_commands: self.settings(|settings| settings.get_enable_skill_commands()),
+            steering_mode: self.steering_mode(),
+            follow_up_mode: self.follow_up_mode(),
+            transport: self.settings(|settings| settings.get_transport()),
+            http_idle_timeout_ms,
+            thinking_level: session.thinking_level(),
+            available_thinking_levels: session.get_available_thinking_levels(),
+            current_theme: self
+                .settings(|settings| settings.get_theme_setting().map(str::to_owned))
+                .unwrap_or_else(|| "dark".to_owned()),
+            terminal_theme: self.theme_controller.borrow().get_terminal_theme(),
+            available_themes: match crate::modes::interactive::theme::get_available_themes() {
+                Ok(themes) => themes,
+                Err(error) => {
+                    self.show_error(&error.to_string());
+                    return;
+                }
+            },
+            hide_thinking_block: self.hide_thinking_block.get(),
+            mermaid_rendering_mode: self.settings(|settings| settings.get_mermaid_rendering_mode()),
+            show_cache_miss_notices: self.settings(|settings| settings.get_show_cache_miss_notices()),
+            collapse_changelog: self.settings(|settings| settings.get_collapse_changelog()),
+            enable_install_telemetry: self.settings(|settings| settings.get_enable_install_telemetry()),
+            double_escape_action: self.settings(|settings| settings.get_double_escape_action()),
+            tree_filter_mode: self.settings(|settings| settings.get_tree_filter_mode()),
+            show_hardware_cursor: self.settings(|settings| settings.get_show_hardware_cursor()),
+            editor_padding_x: self.settings(|settings| settings.get_editor_padding_x()) as i64,
+            output_pad: self.settings(|settings| settings.get_output_pad()),
+            autocomplete_max_visible: self.settings(|settings| settings.get_autocomplete_max_visible()) as i64,
+            quiet_startup: self.settings(|settings| settings.get_quiet_startup()),
+            default_project_trust: self.settings(|settings| settings.get_default_project_trust()),
+            clear_on_shrink: self.settings(|settings| settings.get_clear_on_shrink()),
+            show_terminal_progress: self.settings(|settings| settings.get_show_terminal_progress()),
+            tui_mode: self.ui.mode(),
+            fullscreen_exit_output: self.settings(|settings| settings.get_fullscreen_exit_output()),
+            fullscreen_scrollbar: self.settings(|settings| settings.get_fullscreen_scrollbar()),
+            warnings: {
+                let warnings = self.settings(|settings| settings.get_warnings());
+                crate::core::settings_manager::WarningSettings {
+                    anthropic_extra_usage: warnings.get("anthropicExtraUsage").and_then(Value::as_bool),
+                }
+            },
+        };
+
+        let mode_id = self.ui_id.get();
+        let selector_slot: Rc<RefCell<Option<Rc<RefCell<SettingsSelectorComponent>>>>> = Rc::new(RefCell::new(None));
+
+        macro_rules! callback {
+            ($body:expr) => {
+                Rc::new(move |value| {
+                    with_mode(mode_id, |mode| $body(mode, value));
+                })
+            };
+        }
+
+        let callbacks = SettingsCallbacks {
+            on_auto_compact_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.session().set_auto_compaction_enabled(enabled);
+                mode.footer.borrow_mut().set_auto_compact_enabled(enabled);
+            }),
+            on_show_images_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_show_images(enabled));
+                for child in mode.chat_container.borrow().children().to_vec() {
+                    if let Some(component) = child
+                        .borrow_mut()
+                        .as_any_mut()
+                        .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
+                    {
+                        component.set_show_images(enabled);
+                    }
+                }
+            }),
+            on_image_width_cells_change: callback!(|mode: Rc<InteractiveMode>, width: i64| {
+                mode.settings_mut(|settings| settings.set_image_width_cells(width as f64));
+                for child in mode.chat_container.borrow().children().to_vec() {
+                    if let Some(component) = child
+                        .borrow_mut()
+                        .as_any_mut()
+                        .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
+                    {
+                        component.set_image_width_cells(width.max(0) as usize);
+                    }
+                }
+            }),
+            on_auto_resize_images_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_image_auto_resize(enabled));
+            }),
+            on_block_images_change: callback!(|mode: Rc<InteractiveMode>, blocked: bool| {
+                mode.settings_mut(|settings| settings.set_block_images(blocked));
+            }),
+            on_enable_skill_commands_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_enable_skill_commands(enabled));
+                mode.setup_autocomplete_provider();
+            }),
+            on_steering_mode_change: callback!(|mode: Rc<InteractiveMode>, steering: SteeringMode| {
+                mode.session().set_steering_mode(match steering {
+                    SteeringMode::All => pi_agent_core::harness::QueueMode::All,
+                    SteeringMode::OneAtATime => pi_agent_core::harness::QueueMode::OneAtATime,
+                });
+            }),
+            on_follow_up_mode_change: callback!(|mode: Rc<InteractiveMode>, follow_up: SteeringMode| {
+                mode.session().set_follow_up_mode(match follow_up {
+                    SteeringMode::All => pi_agent_core::harness::QueueMode::All,
+                    SteeringMode::OneAtATime => pi_agent_core::harness::QueueMode::OneAtATime,
+                });
+            }),
+            on_transport_change: callback!(|mode: Rc<InteractiveMode>, transport: pi_ai::types::Transport| {
+                mode.settings_mut(|settings| settings.set_transport(transport));
+                mode.session().agent().set_transport(transport);
+            }),
+            on_http_idle_timeout_ms_change: callback!(|mode: Rc<InteractiveMode>, timeout_ms: u64| {
+                if let Err(error) = mode.settings_mut(|settings| settings.set_http_idle_timeout_ms(timeout_ms as f64)) {
+                    mode.show_error(&error.to_string());
+                    return;
+                }
+                let _ = crate::core::http_dispatcher::configure_http_dispatcher(timeout_ms as f64);
+                mode.show_status(&format!(
+                    "HTTP idle timeout: {}",
+                    crate::core::http_dispatcher::format_http_idle_timeout_ms(timeout_ms)
+                ));
+            }),
+            on_thinking_level_change: callback!(
+                |mode: Rc<InteractiveMode>, level: pi_agent_core::harness::ThinkingLevel| {
+                    match mode.session().set_thinking_level(level) {
+                        Ok(()) => {
+                            mode.footer.borrow_mut().invalidate();
+                            mode.update_editor_border_color();
+                        }
+                        Err(error) => mode.show_error(&error.to_string()),
+                    }
+                }
+            ),
+            on_theme_change: callback!(|mode: Rc<InteractiveMode>, theme_setting: &str| {
+                mode.settings_mut(|settings| settings.set_theme(theme_setting));
+                mode.theme_controller.borrow_mut().apply_from_settings();
+            }),
+            on_theme_preview: Some(Rc::new({
+                move |theme_name: &str| {
+                    with_mode(mode_id, |mode| {
+                        mode.theme_controller.borrow_mut().preview(theme_name);
+                    });
+                }
+            })),
+            on_hide_thinking_block_change: callback!(|mode: Rc<InteractiveMode>, hidden: bool| {
+                mode.hide_thinking_block.set(hidden);
+                mode.settings_mut(|settings| settings.set_hide_thinking_block(hidden));
+                for child in mode.chat_container.borrow().children().to_vec() {
+                    if let Some(component) = child
+                        .borrow_mut()
+                        .as_any_mut()
+                        .and_then(|any| any.downcast_mut::<AssistantMessageComponent>())
+                    {
+                        component.set_hide_thinking_block(hidden);
+                    }
+                }
+                mode.rebuild_chat_from_messages();
+            }),
+            on_mermaid_rendering_mode_change: callback!(
+                |mode: Rc<InteractiveMode>, mermaid: crate::core::settings_manager::MermaidRenderingMode| {
+                    mode.settings_mut(|settings| settings.set_mermaid_rendering_mode(mermaid));
+                    mode.chat_container.borrow_mut().invalidate();
+                    mode.ui.request_render();
+                }
+            ),
+            on_show_cache_miss_notices_change: callback!(|mode: Rc<InteractiveMode>, shown: bool| {
+                mode.settings_mut(|settings| settings.set_show_cache_miss_notices(shown));
+                mode.rebuild_chat_from_messages();
+            }),
+            on_collapse_changelog_change: callback!(|mode: Rc<InteractiveMode>, collapsed: bool| {
+                mode.settings_mut(|settings| settings.set_collapse_changelog(collapsed));
+            }),
+            on_enable_install_telemetry_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_enable_install_telemetry(enabled));
+            }),
+            on_quiet_startup_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_quiet_startup(enabled));
+            }),
+            on_default_project_trust_change: callback!(
+                |mode: Rc<InteractiveMode>, trust: crate::core::settings_manager::DefaultProjectTrust| {
+                    mode.settings_mut(|settings| settings.set_default_project_trust(trust));
+                }
+            ),
+            on_double_escape_action_change: callback!(
+                |mode: Rc<InteractiveMode>, action: crate::core::settings_manager::DoubleEscapeAction| {
+                    mode.settings_mut(|settings| settings.set_double_escape_action(action));
+                }
+            ),
+            on_tree_filter_mode_change: callback!(
+                |mode: Rc<InteractiveMode>, filter: crate::core::settings_manager::TreeFilterMode| {
+                    mode.settings_mut(|settings| settings.set_tree_filter_mode(filter));
+                }
+            ),
+            on_show_hardware_cursor_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_show_hardware_cursor(enabled));
+                mode.ui.set_show_hardware_cursor(enabled);
+            }),
+            on_editor_padding_x_change: callback!(|mode: Rc<InteractiveMode>, padding: i64| {
+                mode.settings_mut(|settings| settings.set_editor_padding_x(padding as f64));
+                mode.default_editor.borrow_mut().set_padding_x(padding.max(0) as usize);
+                let current = mode.editor();
+                let default: Rc<RefCell<dyn EditorComponent>> = mode.default_editor.clone();
+                if !Rc::ptr_eq(&current, &default) {
+                    current.borrow_mut().set_padding_x(padding.max(0) as usize);
+                }
+            }),
+            on_output_pad_change: callback!(|mode: Rc<InteractiveMode>, padding: u8| {
+                mode.settings_mut(|settings| settings.set_output_pad(padding));
+                let streaming = mode.streaming_component.borrow().is_some() || mode.session().is_streaming();
+                if streaming {
+                    for child in mode.chat_container.borrow().children().to_vec() {
+                        if let Some(component) = child
+                            .borrow_mut()
+                            .as_any_mut()
+                            .and_then(|any| any.downcast_mut::<AssistantMessageComponent>())
+                        {
+                            component.set_output_pad(padding as usize);
+                            continue;
+                        }
+                        if let Some(component) = child
+                            .borrow_mut()
+                            .as_any_mut()
+                            .and_then(|any| any.downcast_mut::<CustomMessageComponent>())
+                        {
+                            component.set_output_pad(padding as usize);
+                            continue;
+                        }
+                        if let Some(component) = child
+                            .borrow_mut()
+                            .as_any_mut()
+                            .and_then(|any| any.downcast_mut::<UserMessageComponent>())
+                        {
+                            component.set_output_pad(padding as usize);
+                        }
+                    }
+                    mode.ui.request_render();
+                    return;
+                }
+                mode.rebuild_chat_from_messages();
+            }),
+            on_autocomplete_max_visible_change: callback!(|mode: Rc<InteractiveMode>, max_visible: i64| {
+                mode.settings_mut(|settings| settings.set_autocomplete_max_visible(max_visible as f64));
+                mode.default_editor
+                    .borrow_mut()
+                    .set_autocomplete_max_visible(max_visible.max(0) as usize);
+                let current = mode.editor();
+                let default: Rc<RefCell<dyn EditorComponent>> = mode.default_editor.clone();
+                if !Rc::ptr_eq(&current, &default) {
+                    current
+                        .borrow_mut()
+                        .set_autocomplete_max_visible(max_visible.max(0) as usize);
+                }
+            }),
+            on_clear_on_shrink_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_clear_on_shrink(enabled));
+                mode.ui.set_clear_on_shrink(enabled);
+            }),
+            on_show_terminal_progress_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_show_terminal_progress(enabled));
+            }),
+            on_tui_mode_change: {
+                let selector_slot = Rc::clone(&selector_slot);
+                Rc::new(move |mode_value: TuiMode| {
+                    let Some(mode) = with_mode(mode_id, |mode| mode) else {
+                        return;
+                    };
+                    let selector_slot = Rc::clone(&selector_slot);
+                    tokio::task::spawn_local(async move {
+                        if !mode.switch_tui_mode(mode_value, true, true) {
+                            if let Some(selector) = selector_slot.borrow().clone() {
+                                selector
+                                    .borrow_mut()
+                                    .get_settings_list_mut()
+                                    .update_value("tui-mode", tui_mode_name(mode.ui.mode()));
+                            }
+                            mode.show_status("Close active overlays before changing TUI mode");
+                            return;
+                        }
+                        mode.settings_mut(|settings| settings.set_tui_mode(mode_value));
+                        mode.clear_status_indicator();
+                        mode.show_status(&format!("TUI mode: {}", tui_mode_name(mode_value)));
+                    });
+                })
+            },
+            on_fullscreen_exit_output_change: callback!(
+                |mode: Rc<InteractiveMode>, output: crate::core::settings_manager::FullscreenExitOutput| {
+                    mode.settings_mut(|settings| settings.set_fullscreen_exit_output(output));
+                }
+            ),
+            on_fullscreen_scrollbar_change: callback!(
+                |mode: Rc<InteractiveMode>, scrollbar: pi_tui::ScrollViewScrollbar| {
+                    mode.settings_mut(|settings| settings.set_fullscreen_scrollbar(scrollbar));
+                    mode.apply_fullscreen_scrollbar_setting();
+                }
+            ),
+            on_warnings_change: callback!(
+                |mode: Rc<InteractiveMode>, warnings: crate::core::settings_manager::WarningSettings| {
+                    let mut value = serde_json::Map::new();
+                    if let Some(anthropic) = warnings.anthropic_extra_usage {
+                        value.insert("anthropicExtraUsage".to_owned(), Value::Bool(anthropic));
+                    }
+                    mode.settings_mut(|settings| settings.set_warnings(&value));
+                }
+            ),
+            on_cancel: {
+                Rc::new(move || {
+                    with_mode(mode_id, |mode| {
+                        mode.restore_editor();
+                        mode.ui.request_render();
+                    });
+                })
+            },
+        };
+        *selector_slot.borrow_mut() = Some(Rc::new(RefCell::new(SettingsSelectorComponent::new(
+            config,
+            Rc::new(callbacks),
+        ))));
+        let selector = selector_slot
+            .borrow()
+            .clone()
+            .expect("settings selector must be installed");
+        self.show_selector(component(SharedSettingsSelector(selector)));
+    }
+
     fn show_selector(&self, selector: ComponentRef) {
+        let focus = Rc::clone(&selector);
+        self.show_selector_with_focus(selector, focus);
+    }
+
+    fn show_selector_with_focus(&self, selector: ComponentRef, focus: ComponentRef) {
         self.editor_container.borrow_mut().clear();
         self.editor_container.borrow_mut().add_child(Rc::clone(&selector));
-        self.ui.set_focus(Some(selector));
+        self.ui.set_focus(Some(focus));
         self.ui.request_render();
     }
 
@@ -3855,10 +5402,253 @@ impl InteractiveMode {
         self.editor_container.borrow_mut().clear();
         self.editor_container
             .borrow_mut()
-            .add_child(Rc::clone(&self.editor_handle));
-        let editor_ref = Rc::clone(&self.editor_handle);
+            .add_child(Rc::clone(&self.editor_handle.borrow()));
+        let editor_ref = Rc::clone(&self.editor_handle.borrow());
         self.ui.set_focus(Some(editor_ref));
         self.ui.request_render();
+    }
+
+    fn update_available_provider_count(&self) {
+        let session = self.session();
+        let scoped = session.scoped_models();
+        let models: Vec<Model> = if scoped.is_empty() {
+            session.model_runtime().get_available_snapshot()
+        } else {
+            scoped.into_iter().map(|scoped| scoped.model).collect()
+        };
+        let unique_providers: HashSet<&str> = models.iter().map(|model| model.provider.as_str()).collect();
+        self.footer_data_provider
+            .set_available_provider_count(unique_providers.len());
+    }
+
+    fn persist_enabled_models_for_selector(&self, enabled_ids: EnabledIds, available_model_count: usize) {
+        let enabled_patterns = match enabled_ids {
+            None => None,
+            Some(ids) if ids.len() == available_model_count => None,
+            Some(ids) => Some(ids),
+        };
+        let project_enabled_models =
+            self.settings(|settings| settings.get_project_settings().get("enabledModels").cloned());
+        let (patterns, scope) =
+            resolve_enabled_models_persist_target(project_enabled_models.as_ref(), enabled_patterns);
+        if let Err(error) = self.settings_mut(|settings| settings.set_enabled_models(patterns.as_deref(), scope)) {
+            self.show_error(&error.to_string());
+            return;
+        }
+        self.show_status("Model selection saved to settings");
+    }
+
+    async fn show_models_selector(&self) {
+        let session = self.session();
+        let runtime = session.model_runtime().clone();
+        if let Err(error) = runtime.reload_config().await {
+            self.show_error(&error.to_string());
+            return;
+        }
+        let available_models = match runtime
+            .get_available(None, pi_ai::auth::types::AuthOperationOptions::new(None))
+            .await
+        {
+            Ok(models) => models,
+            Err(error) => {
+                self.show_error(&error.to_string());
+                return;
+            }
+        };
+        if available_models.is_empty() {
+            self.show_status("No models available");
+            return;
+        }
+
+        let configured_patterns = self.settings(|settings| settings.get_enabled_models());
+        let session_scoped_models = session.scoped_models();
+        let configured_enabled_ids = {
+            let configured_patterns = configured_patterns.clone();
+            Rc::new(move |models: &[Model]| -> EnabledIds {
+                let patterns = configured_patterns.as_ref()?;
+                if patterns.is_empty() {
+                    return None;
+                }
+                let resolved = resolve_model_scope_from_models(patterns, models);
+                let mut ids: Vec<String> = resolved
+                    .scoped_models
+                    .iter()
+                    .map(|scoped| format!("{}/{}", scoped.model.provider, scoped.model.id))
+                    .collect();
+                for diagnostic in &resolved.diagnostics {
+                    if diagnostic.code == ModelScopeCode::NoMatch && !ids.contains(&diagnostic.pattern) {
+                        ids.push(diagnostic.pattern.clone());
+                    }
+                }
+                Some(ids)
+            })
+        };
+
+        let current_enabled_ids: EnabledIds = if !session_scoped_models.is_empty() {
+            Some(
+                session_scoped_models
+                    .iter()
+                    .map(|scoped| format!("{}/{}", scoped.model.provider, scoped.model.id))
+                    .collect(),
+            )
+        } else {
+            configured_enabled_ids(&available_models)
+        };
+
+        let available_models_cell = Rc::new(RefCell::new(available_models.clone()));
+        let available_model_ids_cell = Rc::new(RefCell::new(
+            available_models
+                .iter()
+                .map(|model| format!("{}/{}", model.provider, model.id))
+                .collect::<Vec<String>>(),
+        ));
+        let current_enabled = Rc::new(RefCell::new(current_enabled_ids.clone()));
+        let selection_changed = Rc::new(Cell::new(false));
+        let disposed = Rc::new(Cell::new(false));
+        let timed_out = Rc::new(Cell::new(false));
+        let abort = tokio_util::sync::CancellationToken::new();
+
+        let mode_id = self.ui_id.get();
+        let update_session_models: Rc<dyn Fn(EnabledIds)> = {
+            let session = session.clone();
+            let available_models_cell = Rc::clone(&available_models_cell);
+            let available_model_ids_cell = Rc::clone(&available_model_ids_cell);
+            let current_enabled = Rc::clone(&current_enabled);
+            Rc::new(move |enabled_ids: EnabledIds| {
+                *current_enabled.borrow_mut() = enabled_ids.clone();
+                let models = available_models_cell.borrow().clone();
+                let available_ids = available_model_ids_cell.borrow().clone();
+                let has_enabled_available = enabled_ids
+                    .as_ref()
+                    .is_some_and(|ids| ids.iter().any(|id| available_ids.contains(id)));
+                let all_available_enabled = enabled_ids
+                    .as_ref()
+                    .is_some_and(|ids| available_ids.iter().all(|id| ids.contains(id)));
+                if let Some(ids) = &enabled_ids
+                    && has_enabled_available
+                    && !all_available_enabled
+                {
+                    let resolved = resolve_model_scope_from_models(ids, &models);
+                    session.set_scoped_models(resolved.scoped_models);
+                } else {
+                    session.set_scoped_models(Vec::new());
+                }
+                with_mode(mode_id, |mode| {
+                    mode.update_available_provider_count();
+                    mode.ui.request_render();
+                });
+            })
+        };
+
+        let callbacks = ModelsCallbacks {
+            on_change: {
+                let selection_changed = Rc::clone(&selection_changed);
+                let update_session_models = Rc::clone(&update_session_models);
+                Rc::new(move |enabled_ids: EnabledIds| {
+                    selection_changed.set(true);
+                    update_session_models(enabled_ids);
+                })
+            },
+            on_persist: {
+                let available_models_cell = Rc::clone(&available_models_cell);
+                Rc::new(move |enabled_ids: EnabledIds| {
+                    let available_model_count = available_models_cell.borrow().len();
+                    with_mode(mode_id, |mode| {
+                        mode.persist_enabled_models_for_selector(enabled_ids, available_model_count);
+                    });
+                })
+            },
+            on_cancel: {
+                let disposed = Rc::clone(&disposed);
+                let abort = abort.clone();
+                Rc::new(move || {
+                    disposed.set(true);
+                    abort.cancel();
+                    with_mode(mode_id, |mode| {
+                        mode.restore_editor();
+                        mode.ui.request_render();
+                    });
+                })
+            },
+        };
+
+        let selector = Rc::new(RefCell::new(ScopedModelsSelectorComponent::new(
+            ModelsConfig {
+                all_models: available_models.clone(),
+                enabled_model_ids: current_enabled_ids,
+                refresh_status: Some("Refreshing model catalogs…".to_owned()),
+            },
+            callbacks,
+        )));
+        self.show_selector(component(SharedScopedModelsSelector(Rc::clone(&selector))));
+
+        let timeout_task = {
+            let abort = abort.clone();
+            let timed_out = Rc::clone(&timed_out);
+            tokio::task::spawn_local(async move {
+                tokio::time::sleep(Duration::from_secs(15)).await;
+                timed_out.set(true);
+                abort.cancel();
+            })
+        };
+        let result = runtime
+            .refresh(pi_ai::models::ModelsRefreshOptions {
+                signal: Some(abort),
+                ..Default::default()
+            })
+            .await;
+        timeout_task.abort();
+        if disposed.get() {
+            return;
+        }
+
+        let refreshed_models = runtime.get_available_snapshot();
+        *available_models_cell.borrow_mut() = refreshed_models.clone();
+        *available_model_ids_cell.borrow_mut() = refreshed_models
+            .iter()
+            .map(|model| format!("{}/{}", model.provider, model.id))
+            .collect();
+        let refreshed_enabled_ids = if !selection_changed.get() && session_scoped_models.is_empty() {
+            configured_enabled_ids(&refreshed_models)
+        } else {
+            None
+        };
+        let update_enabled_ids =
+            (!selection_changed.get() && session_scoped_models.is_empty()).then(|| refreshed_enabled_ids.clone());
+        if !selection_changed.get() && session_scoped_models.is_empty() {
+            *current_enabled.borrow_mut() = refreshed_enabled_ids.clone();
+        }
+        selector
+            .borrow_mut()
+            .update_models(&refreshed_models, update_enabled_ids);
+        if let Some(enabled_ids) = current_enabled.borrow().clone() {
+            update_session_models(Some(enabled_ids));
+        }
+
+        let (message, kind) = match &result {
+            Ok(result) if result.aborted && timed_out.get() => (
+                "Model refresh timed out; showing cached models.".to_owned(),
+                RefreshStatusKind::Warning,
+            ),
+            Ok(result) if !result.errors.is_empty() => {
+                let providers = result.errors.keys().cloned().collect::<Vec<String>>().join(", ");
+                (
+                    format!("Could not refresh {providers}; showing cached models."),
+                    RefreshStatusKind::Warning,
+                )
+            }
+            Ok(_) => ("Model catalogs refreshed.".to_owned(), RefreshStatusKind::Success),
+            Err(_) if timed_out.get() => (
+                "Model refresh timed out; showing cached models.".to_owned(),
+                RefreshStatusKind::Warning,
+            ),
+            Err(error) => (
+                format!("Could not refresh model catalogs: {error}"),
+                RefreshStatusKind::Warning,
+            ),
+        };
+        selector.borrow().set_refresh_status(&message, kind);
+        with_mode(mode_id, |mode| mode.ui.request_render());
     }
 
     async fn handle_model_command(&self, search_term: Option<String>) {
@@ -3948,7 +5738,7 @@ impl InteractiveMode {
     }
 
     async fn handle_open_external_editor(&self) {
-        let text = self.editor.borrow().get_text();
+        let text = self.editor().borrow().get_text();
         let command = self.settings(|settings| settings.get_external_editor_command());
         let result = crate::modes::interactive::external_editor::edit_in_external_editor(
             &crate::modes::interactive::external_editor::ExternalEditorOptions { command, content: text },
@@ -3956,7 +5746,7 @@ impl InteractiveMode {
         .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error));
         match result {
             crate::modes::interactive::external_editor::ExternalEditorResult::Complete { content } => {
-                self.editor.borrow_mut().set_text(&content);
+                self.editor().borrow_mut().set_text(&content);
                 self.ui.request_render();
             }
             crate::modes::interactive::external_editor::ExternalEditorResult::Failed => {
@@ -3966,7 +5756,7 @@ impl InteractiveMode {
     }
 
     fn handle_follow_up(&self) {
-        let text = self.editor.borrow().get_text().trim().to_owned();
+        let text = self.editor().borrow().get_text().trim().to_owned();
         if text.is_empty() {
             return;
         }
@@ -4002,14 +5792,14 @@ impl InteractiveMode {
         if count == 0 {
             return 0;
         }
-        let mut text = self.editor.borrow().get_text();
+        let mut text = self.editor().borrow().get_text();
         for message in steering.into_iter().chain(follow_up) {
             if !text.is_empty() {
                 text.push('\n');
             }
             text.push_str(&message);
         }
-        self.editor.borrow_mut().set_text(&text);
+        self.editor().borrow_mut().set_text(&text);
         self.update_pending_messages_display();
         self.ui.request_render();
         count
@@ -4351,7 +6141,7 @@ impl InteractiveMode {
     async fn handle_clone_command(&self) {
         let leaf_id = self.session.borrow().session_manager().get_leaf_id().map(str::to_owned);
         let Some(leaf_id) = leaf_id else {
-            self.show_error("No active entry to clone");
+            self.show_status("Nothing to clone yet");
             return;
         };
         let mut runtime = self.runtime.lock().await;
@@ -4363,13 +6153,1439 @@ impl InteractiveMode {
                 let session = runtime.session().clone();
                 drop(runtime);
                 self.adopt_session(session);
-                self.chat_container.borrow_mut().clear();
-                self.render_initial_messages();
-                self.show_status("Cloned session");
+                self.editor().borrow_mut().set_text("");
+                self.show_status("Cloned to new session");
             }
-            Ok(_) => {}
+            Ok(_) => {
+                drop(runtime);
+                self.ui.request_render();
+            }
             Err(error) => self.show_error(&error),
         }
+    }
+
+    fn show_user_message_selector(&self) {
+        let session = self.session();
+        let user_messages = session.get_user_messages_for_forking();
+        if user_messages.is_empty() {
+            self.show_status("No messages to fork from");
+            return;
+        }
+        let initial_selected_id = user_messages.last().map(|message| message.entry_id.clone());
+        let messages: Vec<UserMessageItem> = user_messages
+            .into_iter()
+            .map(|message| UserMessageItem {
+                id: message.entry_id,
+                text: message.text,
+            })
+            .collect();
+        let mode_id = self.ui_id.get();
+        let on_select: Rc<dyn Fn(String)> = Rc::new(move |entry_id: String| {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                tokio::task::spawn_local(async move {
+                    mode.fork_from_entry(&entry_id).await;
+                });
+            });
+        });
+        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                mode.ui.request_render();
+            });
+        });
+        let selector =
+            UserMessageSelectorComponent::new(messages, on_select, on_cancel, initial_selected_id.as_deref());
+        let focus = selector.get_message_list();
+        self.show_selector_with_focus(component(selector), focus);
+    }
+
+    async fn fork_from_entry(&self, entry_id: &str) {
+        let mut runtime = self.runtime.lock().await;
+        match runtime
+            .fork(entry_id, crate::core::agent_session_runtime::ForkPosition::Before, None)
+            .await
+        {
+            Ok(result) if !result.cancelled => {
+                let session = runtime.session().clone();
+                drop(runtime);
+                self.adopt_session(session);
+                self.editor()
+                    .borrow_mut()
+                    .set_text(result.selected_text.as_deref().unwrap_or_default());
+                self.show_status("Forked to new session");
+            }
+            Ok(_) => {
+                drop(runtime);
+                self.ui.request_render();
+            }
+            Err(error) => self.show_error(&error),
+        }
+    }
+
+    fn show_tree_selector(&self, initial_selected_id: Option<String>, filter_mode: Option<TreeFilterMode>) {
+        let session = self.session();
+        let (tree, real_leaf_id) = {
+            let manager = session.session_manager();
+            (manager.get_tree(), manager.get_leaf_id().map(str::to_owned))
+        };
+        let initial_filter_mode =
+            filter_mode.unwrap_or_else(|| self.settings(|settings| settings.get_tree_filter_mode()));
+        if tree.is_empty() {
+            self.show_status("No entries in session");
+            return;
+        }
+
+        let mode_id = self.ui_id.get();
+        let leaf_for_select = real_leaf_id.clone();
+        let on_select: Rc<dyn Fn(String)> = Rc::new(move |entry_id: String| {
+            let leaf = leaf_for_select.clone();
+            with_mode(mode_id, |mode| {
+                tokio::task::spawn_local(async move {
+                    mode.handle_tree_selection(entry_id, leaf, initial_filter_mode).await;
+                });
+            });
+        });
+        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                mode.ui.request_render();
+            });
+        });
+        let on_label_change: crate::modes::interactive::components::tree_selector::LabelEditHandler =
+            Rc::new(move |entry_id: &str, label: Option<&str>| {
+                with_mode(mode_id, |mode| {
+                    if let Err(error) = mode.session().session_manager().append_label_change(entry_id, label) {
+                        mode.show_error(&error.to_string());
+                    }
+                    mode.ui.request_render();
+                });
+            });
+        let mut selector = TreeSelectorComponent::new(
+            tree,
+            real_leaf_id,
+            self.ui.terminal().borrow().rows(),
+            on_select,
+            on_cancel,
+            Some(on_label_change),
+            initial_selected_id,
+            Some(tree_filter_mode(initial_filter_mode)),
+        );
+        selector.set_on_copy(Some(Rc::new(move |text: Option<String>| {
+            with_mode(mode_id, |mode| {
+                tokio::task::spawn_local(async move {
+                    mode.copy_tree_selection(text).await;
+                });
+            });
+        })));
+        self.show_selector(component(selector));
+    }
+
+    async fn copy_tree_selection(&self, text: Option<String>) {
+        let Some(text) = text.filter(|text| !text.is_empty()) else {
+            self.show_error("Selected entry has no text to copy");
+            return;
+        };
+        match crate::utils::clipboard::copy_to_clipboard(
+            &text,
+            &crate::utils::clipboard_image::ClipboardEnvironment::from_process(),
+            None,
+        )
+        .await
+        {
+            Ok(()) => self.show_status("Copied selected message to clipboard"),
+            Err(error) => self.show_error(&error.to_string()),
+        }
+    }
+
+    async fn handle_tree_selection(
+        &self,
+        entry_id: String,
+        real_leaf_id: Option<String>,
+        initial_filter_mode: TreeFilterMode,
+    ) {
+        let selected_entry = self.session().session_manager().get_entry(&entry_id).cloned();
+        if let Some(entry) = selected_entry.as_ref().and_then(SessionEntry::as_compaction).cloned() {
+            self.restore_editor();
+            if entry.provider_native.is_some() {
+                self.materialize_compaction_summary_for_edit(entry, initial_filter_mode)
+                    .await;
+            } else {
+                self.start_compaction_summary_edit(&entry, entry.summary.clone());
+            }
+            return;
+        }
+        if real_leaf_id.as_deref() == Some(entry_id.as_str()) {
+            self.restore_editor();
+            self.show_status("Already at this point");
+            return;
+        }
+
+        self.restore_editor();
+        let mut wants_summary = false;
+        let mut custom_instructions: Option<String> = None;
+        if !self.settings(|settings| settings.get_branch_summary_skip_prompt()) {
+            loop {
+                let choice = self
+                    .show_extension_selector(
+                        "Summarize branch?",
+                        &[
+                            "No summary".to_owned(),
+                            "Summarize".to_owned(),
+                            "Summarize with custom prompt".to_owned(),
+                        ],
+                    )
+                    .await;
+                let Some(choice) = choice else {
+                    self.show_tree_selector(Some(entry_id), Some(initial_filter_mode));
+                    return;
+                };
+                wants_summary = choice != "No summary";
+                if choice == "Summarize with custom prompt" {
+                    match self
+                        .show_extension_editor("Custom summarization instructions", None)
+                        .await
+                    {
+                        Some(text) => custom_instructions = Some(text),
+                        None => continue,
+                    }
+                }
+                break;
+            }
+        }
+
+        if self.session().is_streaming() {
+            self.restore_queued_messages_to_editor(true);
+            if let Err(error) = self.session().abort().await {
+                self.show_error(error.message());
+            }
+        }
+
+        let mode_id = self.ui_id.get();
+        let original_on_escape = self.default_editor.borrow().on_escape.clone();
+        let summary_loader: Option<ComponentRef> = if wants_summary {
+            self.default_editor.borrow_mut().on_escape = Some(Rc::new(move || {
+                with_mode(mode_id, |mode| mode.session().abort_branch_summary());
+            }));
+            self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
+            let request_render: Rc<dyn Fn()> = Rc::new(move || {
+                with_mode(mode_id, |mode| mode.ui.request_render());
+            });
+            let loader = component(pi_tui::components::loader::Loader::new(
+                request_render,
+                Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Accent, text))),
+                Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
+                format!(
+                    "Summarizing branch... ({} to cancel)",
+                    crate::modes::interactive::components::keybinding_hints::key_text("app.interrupt")
+                ),
+                None,
+            ));
+            if let Some(loader) = loader
+                .borrow_mut()
+                .as_any_mut()
+                .and_then(|any| any.downcast_mut::<pi_tui::components::loader::Loader>())
+            {
+                loader.start();
+            }
+            self.status_container.borrow_mut().add_child(Rc::clone(&loader));
+            self.ui.request_render();
+            Some(loader)
+        } else {
+            None
+        };
+
+        let result = self
+            .session()
+            .navigate_tree(
+                &entry_id,
+                crate::core::agent_session::NavigateTreeOptions {
+                    summarize: Some(wants_summary),
+                    custom_instructions,
+                    replace_instructions: None,
+                    label: None,
+                },
+            )
+            .await;
+
+        match result {
+            Ok(result) if result.aborted == Some(true) => {
+                self.show_status("Branch summarization cancelled");
+                self.show_tree_selector(Some(entry_id), Some(initial_filter_mode));
+            }
+            Ok(result) if result.cancelled => {
+                self.show_status("Navigation cancelled");
+            }
+            Ok(result) => {
+                *self.pending_compaction_summary_edit_id.borrow_mut() = None;
+                self.chat_container.borrow_mut().clear();
+                self.render_initial_messages();
+                if let Some(editor_text) = &result.editor_text
+                    && self.editor().borrow().get_text().trim().is_empty()
+                {
+                    self.editor().borrow_mut().set_text(editor_text);
+                }
+                self.show_status("Navigated to selected point");
+                self.flush_compaction_queue(false).await;
+            }
+            Err(error) => self.show_error(error.message()),
+        }
+
+        if let Some(loader) = summary_loader {
+            if let Some(loader) = loader
+                .borrow_mut()
+                .as_any_mut()
+                .and_then(|any| any.downcast_mut::<pi_tui::components::loader::Loader>())
+            {
+                loader.stop();
+            }
+            self.status_container.borrow_mut().clear();
+        }
+        self.default_editor.borrow_mut().on_escape = original_on_escape;
+    }
+
+    fn start_compaction_summary_edit(&self, entry: &CompactionEntry, summary: String) {
+        if !self.editor().borrow().get_text().trim().is_empty() {
+            self.show_warning("Clear the editor before editing a compaction summary");
+            return;
+        }
+        *self.pending_compaction_summary_edit_id.borrow_mut() = Some(entry.id.clone());
+        self.editor().borrow_mut().set_text(&summary);
+        self.show_status("Editing compaction summary");
+        self.ui.request_render();
+    }
+
+    fn submit_pending_compaction_summary_edit(&self, summary: &str) -> bool {
+        let Some(entry_id) = self.pending_compaction_summary_edit_id.borrow().clone() else {
+            return false;
+        };
+        self.session().update_compaction_summary(&entry_id, summary);
+        *self.pending_compaction_summary_edit_id.borrow_mut() = None;
+        self.add_submitted_text_to_history(summary);
+        self.editor().borrow_mut().set_text("");
+        self.chat_container.borrow_mut().clear();
+        self.render_initial_messages();
+        self.show_status("Compaction summary updated");
+        self.ui.request_render();
+        true
+    }
+
+    async fn materialize_compaction_summary_for_edit(
+        &self,
+        entry: CompactionEntry,
+        initial_filter_mode: TreeFilterMode,
+    ) {
+        let mode_id = self.ui_id.get();
+        let original_on_escape = self.default_editor.borrow().on_escape.clone();
+        self.default_editor.borrow_mut().on_escape = Some(Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                mode.session().abort_compaction_summary_materialization()
+            });
+        }));
+        self.status_container.borrow_mut().clear();
+        let request_render: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| mode.ui.request_render());
+        });
+        let loader = component(pi_tui::components::loader::Loader::new(
+            request_render,
+            Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Accent, text))),
+            Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
+            format!(
+                "Loading compaction summary... ({} to cancel)",
+                crate::modes::interactive::components::keybinding_hints::key_text("app.interrupt")
+            ),
+            None,
+        ));
+        if let Some(loader) = loader
+            .borrow_mut()
+            .as_any_mut()
+            .and_then(|any| any.downcast_mut::<pi_tui::components::loader::Loader>())
+        {
+            loader.start();
+        }
+        self.status_container.borrow_mut().add_child(Rc::clone(&loader));
+        self.ui.request_render();
+
+        let outcome = match self.session().materialize_compaction_summary(&entry.id).await {
+            Ok(crate::core::compaction::MaterializeCompactionSummaryResult::Summary(summary)) => Ok(summary),
+            Ok(crate::core::compaction::MaterializeCompactionSummaryResult::Aborted) => {
+                Err(Some("Compaction summary loading cancelled".to_owned()))
+            }
+            Err(error) => Err(Some(error.message().to_owned())),
+        };
+        if let Some(loader) = loader
+            .borrow_mut()
+            .as_any_mut()
+            .and_then(|any| any.downcast_mut::<pi_tui::components::loader::Loader>())
+        {
+            loader.stop();
+        }
+        self.status_container.borrow_mut().clear();
+        self.default_editor.borrow_mut().on_escape = original_on_escape;
+
+        match outcome {
+            Ok(summary) => self.start_compaction_summary_edit(&entry, summary),
+            Err(message) => {
+                if let Some(message) = message {
+                    if message == "Compaction summary loading cancelled" {
+                        self.show_status(&message);
+                    } else {
+                        self.show_error(&message);
+                    }
+                }
+                self.show_tree_selector(Some(entry.id), Some(initial_filter_mode));
+            }
+        }
+    }
+
+    async fn show_extension_selector(&self, title: &str, options: &[String]) -> Option<String> {
+        let (respond, receiver) = tokio::sync::oneshot::channel();
+        let _ = self.ui_sender.send(UiRequest::Select {
+            title: title.to_owned(),
+            options: options.to_vec(),
+            timeout: None,
+            respond,
+        });
+        receiver.await.ok().flatten()
+    }
+
+    async fn show_extension_editor(&self, title: &str, prefill: Option<&str>) -> Option<String> {
+        let (respond, receiver) = tokio::sync::oneshot::channel();
+        let _ = self.ui_sender.send(UiRequest::Editor {
+            title: title.to_owned(),
+            prefill: prefill.map(str::to_owned),
+            respond,
+        });
+        receiver.await.ok().flatten()
+    }
+
+    fn show_session_selector(&self) {
+        let session = self.session();
+        let (cwd, session_dir, uses_default_dir, current_file) = {
+            let manager = session.session_manager();
+            (
+                manager.get_cwd().to_owned(),
+                manager.get_session_dir().to_owned(),
+                manager.uses_default_session_dir(),
+                manager.get_session_file().map(str::to_owned),
+            )
+        };
+        let control_db_path = self.options.control_db_path.clone();
+        let mode_id = self.ui_id.get();
+        let apply = {
+            let control_db_path = control_db_path.clone();
+            Rc::new(move |sessions| apply_control_session_names(control_db_path.as_deref(), sessions))
+        };
+
+        let current_loader: SessionListLoader = {
+            let apply = Rc::clone(&apply);
+            let cwd = cwd.clone();
+            let session_dir = session_dir.clone();
+            let control_db_path = control_db_path.clone();
+            Rc::new(move |progress: Option<ProgressCallback>| {
+                let mut progress_fn =
+                    progress.map(|callback| move |loaded: usize, total: usize| callback(loaded, total));
+                let result = crate::core::session_manager::SessionManager::list(
+                    &cwd,
+                    Some(&session_dir),
+                    progress_fn
+                        .as_mut()
+                        .map(|callback| callback as &mut dyn FnMut(usize, usize)),
+                    control_db_path.as_deref(),
+                )
+                .map_err(|error| error.to_string());
+                let applied = result.map(|sessions| apply(sessions));
+                Box::pin(async move { applied })
+            })
+        };
+        let all_loader: SessionListLoader = {
+            let apply = Rc::clone(&apply);
+            let session_dir = session_dir.clone();
+            let control_db_path = control_db_path.clone();
+            Rc::new(move |progress: Option<ProgressCallback>| {
+                let mut progress_fn =
+                    progress.map(|callback| move |loaded: usize, total: usize| callback(loaded, total));
+                let dir = (!uses_default_dir).then(|| session_dir.clone());
+                let result = crate::core::session_manager::SessionManager::list_all(
+                    dir.as_deref(),
+                    progress_fn
+                        .as_mut()
+                        .map(|callback| callback as &mut dyn FnMut(usize, usize)),
+                    control_db_path.as_deref(),
+                )
+                .map_err(|error| error.to_string());
+                let applied = result.map(|sessions| apply(sessions));
+                Box::pin(async move { applied })
+            })
+        };
+        let archived_loader: SessionListLoader = {
+            let apply = Rc::clone(&apply);
+            let session_dir = session_dir.clone();
+            let control_db_path = control_db_path.clone();
+            Rc::new(move |_progress: Option<ProgressCallback>| {
+                let dir = (!uses_default_dir).then(|| session_dir.clone());
+                let result = crate::core::session_manager::SessionManager::list_archived(
+                    dir.as_deref(),
+                    control_db_path.as_deref(),
+                )
+                .map_err(|error| error.to_string());
+                let applied = result.map(|sessions| apply(sessions));
+                Box::pin(async move { applied })
+            })
+        };
+
+        let on_select: Rc<dyn Fn(String)> = Rc::new(move |path: String| {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                *mode.active_session_selector.borrow_mut() = None;
+                tokio::task::spawn_local(async move {
+                    mode.handle_resume_session(&path).await;
+                });
+            });
+        });
+        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                *mode.active_session_selector.borrow_mut() = None;
+                mode.restore_editor();
+                mode.ui.request_render();
+            });
+        });
+        let on_exit: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                tokio::task::spawn_local(async move {
+                    mode.shutdown().await;
+                });
+            });
+        });
+        let request_render: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| mode.ui.request_render());
+        });
+        let rename_session: RenameSessionFn = {
+            let control_db_path = control_db_path.clone();
+            Rc::new(move |path: String, next_name: Option<String>| {
+                let control_db_path = control_db_path.clone();
+                Box::pin(async move {
+                    let next = next_name.unwrap_or_default().trim().to_owned();
+                    let Some(control_db_path) = control_db_path else {
+                        return Ok(());
+                    };
+                    if next.is_empty() {
+                        crate::core::session_control_db::remove_named_session(&control_db_path, &path)
+                            .map_err(|error| error.to_string())?;
+                        return Ok(());
+                    }
+                    crate::core::session_control_db::set_named_session(&control_db_path, &path, &next)
+                        .map_err(|error| error.to_string())?;
+                    let mut manager = crate::core::session_manager::SessionManager::open(&path, None, None)
+                        .map_err(|error| error.to_string())?;
+                    manager.append_session_info(&next).map_err(|error| error.to_string())?;
+                    Ok(())
+                })
+            })
+        };
+
+        let selector = Rc::new(tokio::sync::Mutex::new(SessionSelectorComponent::new(
+            current_loader,
+            all_loader,
+            on_select,
+            on_cancel,
+            on_exit,
+            request_render,
+            Some(rename_session),
+            Some(true),
+            Some(self.keybindings.clone()),
+            control_db_path,
+            Some(archived_loader),
+            current_file.as_deref(),
+        )));
+        *self.active_session_selector.borrow_mut() = Some(Rc::clone(&selector));
+        self.session_selector_loaded.set(false);
+        self.show_selector(component(SharedSessionSelector(selector)));
+    }
+
+    async fn poll_active_session_selector(&self) {
+        let Some(selector) = self.active_session_selector.borrow().clone() else {
+            return;
+        };
+        if !self.session_selector_loaded.get() {
+            selector.lock().await.load_current_sessions().await;
+            self.session_selector_loaded.set(true);
+            self.ui.request_render();
+        }
+        while selector.lock().await.has_pending_action() {
+            selector.lock().await.run_pending_action().await;
+            self.ui.request_render();
+        }
+        if selector.lock().await.poll(Instant::now()) {
+            self.ui.request_render();
+        }
+    }
+
+    async fn continue_interrupted_resumed_session(&self) {
+        let extension_requested_continuation = self.session().consume_resume_continuation_request();
+        if !extension_requested_continuation
+            && !crate::core::agent_session::should_continue_interrupted_session(&self.session().messages())
+        {
+            return;
+        }
+        if let Err(error) = self.session().continue_run().await {
+            self.show_error(error.message());
+        }
+    }
+
+    async fn handle_resume_session(&self, session_path: &str) {
+        self.status_container.borrow_mut().clear();
+        let switched = {
+            let mut runtime = self.runtime.lock().await;
+            match runtime.switch_session(session_path, None, None).await {
+                Ok(result) if result.cancelled => return,
+                Ok(_) => Ok(runtime.session().clone()),
+                Err(error) => Err(error),
+            }
+        };
+        match switched {
+            Ok(session) => {
+                self.adopt_session(session);
+                self.continue_interrupted_resumed_session().await;
+                self.show_status("Resumed session");
+            }
+            Err(error) => {
+                let issue = self.missing_session_cwd_issue(session_path);
+                let Some(issue) = issue else {
+                    self.show_error(&format!("Failed to resume session: {error}"));
+                    self.stop();
+                    self.shutdown_requested.set(true);
+                    return;
+                };
+                let confirmed = self
+                    .show_extension_confirm(
+                        "Session cwd not found",
+                        &crate::core::session_cwd::format_missing_session_cwd_prompt(&issue),
+                    )
+                    .await;
+                if !confirmed {
+                    self.show_status("Resume cancelled");
+                    return;
+                }
+                let switched = {
+                    let mut runtime = self.runtime.lock().await;
+                    match runtime
+                        .switch_session(session_path, Some(&issue.fallback_cwd), None)
+                        .await
+                    {
+                        Ok(result) if result.cancelled => return,
+                        Ok(_) => Ok(runtime.session().clone()),
+                        Err(error) => Err(error),
+                    }
+                };
+                match switched {
+                    Ok(session) => {
+                        self.adopt_session(session);
+                        self.continue_interrupted_resumed_session().await;
+                        self.show_status("Resumed session in current cwd");
+                    }
+                    Err(error) => {
+                        self.show_error(&format!("Failed to resume session: {error}"));
+                        self.stop();
+                        self.shutdown_requested.set(true);
+                    }
+                }
+            }
+        }
+    }
+
+    fn missing_session_cwd_issue(&self, session_path: &str) -> Option<crate::core::session_cwd::SessionCwdIssue> {
+        let manager = crate::core::session_manager::SessionManager::open(session_path, None, None).ok()?;
+        crate::core::session_cwd::get_missing_session_cwd_issue(&manager, self.session().cwd())
+    }
+
+    async fn show_extension_confirm(&self, title: &str, message: &str) -> bool {
+        let (respond, receiver) = tokio::sync::oneshot::channel();
+        let _ = self.ui_sender.send(UiRequest::Confirm {
+            title: title.to_owned(),
+            message: message.to_owned(),
+            timeout: None,
+            respond,
+        });
+        receiver.await.unwrap_or(false)
+    }
+
+    fn poll_auth_ui(&self) {
+        loop {
+            let (event, dialog) = {
+                let auth = self.auth_ui.borrow();
+                let Some(state) = auth.as_ref() else {
+                    return;
+                };
+                (state.receiver.try_recv().ok(), Rc::clone(&state.dialog))
+            };
+            let Some(event) = event else {
+                return;
+            };
+            match event {
+                AuthUiEvent::Notify(event) => self.notify_auth_dialog(&dialog, event),
+                AuthUiEvent::Prompt(prompt, respond) => self.show_auth_prompt(&dialog, prompt, respond),
+            }
+        }
+    }
+
+    fn mount_auth_dialog(&self, dialog: &Rc<RefCell<LoginDialogComponent>>) {
+        self.editor_container.borrow_mut().clear();
+        let component: ComponentRef = component(SharedLoginDialog(Rc::clone(dialog)));
+        self.editor_container.borrow_mut().add_child(Rc::clone(&component));
+        self.ui.set_focus(Some(component));
+        self.ui.request_render();
+    }
+
+    fn restore_auth_dialog(&self, dialog: &Rc<RefCell<LoginDialogComponent>>) {
+        self.mount_auth_dialog(dialog);
+    }
+
+    fn notify_auth_dialog(&self, dialog: &Rc<RefCell<LoginDialogComponent>>, event: AuthEvent) {
+        let dialog = dialog.borrow();
+        match event {
+            AuthEvent::AuthUrl { url, instructions } => {
+                dialog.show_auth(&url, instructions.as_deref());
+            }
+            AuthEvent::DeviceCode {
+                user_code,
+                verification_uri,
+                interval_seconds,
+                expires_in_seconds,
+            } => {
+                dialog.show_device_code(&pi_ai::OAuthDeviceCodeInfo {
+                    user_code,
+                    verification_uri,
+                    interval_seconds,
+                    expires_in_seconds,
+                });
+                dialog.show_waiting("Waiting for authentication...");
+            }
+            AuthEvent::Info { message, links } => {
+                dialog.show_info(&message, links.as_deref().unwrap_or(&[]), false);
+            }
+            AuthEvent::Progress { message } => dialog.show_progress(&message),
+        }
+    }
+
+    fn show_auth_prompt(
+        &self,
+        dialog: &Rc<RefCell<LoginDialogComponent>>,
+        prompt: AuthPrompt,
+        respond: tokio::sync::oneshot::Sender<Result<String, String>>,
+    ) {
+        match prompt.kind {
+            AuthPromptKind::Select { message, options } => {
+                let mode_id = self.ui_id.get();
+                let dialog = Rc::clone(dialog);
+                let respond = Rc::new(RefCell::new(Some(respond)));
+                let labels: Vec<String> = options.iter().map(|option| option.label.clone()).collect();
+                let select_respond = Rc::clone(&respond);
+                let select_dialog = Rc::clone(&dialog);
+                let on_select: Rc<dyn Fn(String)> = Rc::new(move |label: String| {
+                    if let Some(respond) = select_respond.borrow_mut().take() {
+                        let id = options
+                            .iter()
+                            .find(|option| option.label == label)
+                            .map(|option| option.id.clone());
+                        let _ = respond.send(match id {
+                            Some(id) => Ok(id),
+                            None => Err("Login cancelled".to_owned()),
+                        });
+                    }
+                    with_mode(mode_id, |mode| mode.restore_auth_dialog(&select_dialog));
+                });
+                let cancel_respond = Rc::clone(&respond);
+                let cancel_dialog = Rc::clone(&dialog);
+                let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+                    if let Some(respond) = cancel_respond.borrow_mut().take() {
+                        let _ = respond.send(Err("Login cancelled".to_owned()));
+                    }
+                    with_mode(mode_id, |mode| mode.restore_auth_dialog(&cancel_dialog));
+                });
+                let selector = ExtensionSelectorComponent::new(
+                    &message,
+                    labels,
+                    on_select,
+                    on_cancel,
+                    ExtensionSelectorOptions::default(),
+                );
+                self.editor_container.borrow_mut().clear();
+                let component: ComponentRef = component(selector);
+                self.editor_container.borrow_mut().add_child(Rc::clone(&component));
+                self.ui.set_focus(Some(component));
+                self.ui.request_render();
+            }
+            kind => {
+                self.mount_auth_dialog(dialog);
+                let receiver = match kind {
+                    AuthPromptKind::Text { message, placeholder } => {
+                        dialog.borrow().show_prompt(&message, placeholder.as_deref())
+                    }
+                    AuthPromptKind::Secret { message, placeholder } => {
+                        dialog.borrow().show_prompt(&message, placeholder.as_deref())
+                    }
+                    AuthPromptKind::ManualCode { message, .. } => dialog.borrow().show_manual_input(&message),
+                    AuthPromptKind::Select { .. } => unreachable!(),
+                };
+                tokio::task::spawn_local(async move {
+                    let result = match receiver.await {
+                        Ok(Ok(value)) => Ok(value),
+                        Ok(Err(error)) => Err(error.0),
+                        Err(_) => Err("Login cancelled".to_owned()),
+                    };
+                    let _ = respond.send(result);
+                });
+            }
+        }
+    }
+
+    async fn handle_login_command(&self, provider_ref: Option<&str>) {
+        let provider_ref = provider_ref
+            .map(str::trim)
+            .filter(|provider_ref| !provider_ref.is_empty());
+        let Some(provider_ref) = provider_ref else {
+            self.show_login_auth_type_selector(None);
+            return;
+        };
+        let provider_options = self.find_login_provider_options(provider_ref);
+        if provider_options.len() == 1 {
+            self.start_provider_login(provider_options[0].clone()).await;
+            return;
+        }
+        if provider_options.len() > 1 {
+            let unique_ids: HashSet<&str> = provider_options.iter().map(|option| option.id.as_str()).collect();
+            if unique_ids.len() == 1 {
+                self.show_login_auth_type_selector(Some(provider_options));
+                return;
+            }
+        }
+        self.show_login_provider_selector(None, Some(provider_ref.to_owned()));
+    }
+
+    fn find_login_provider_options(&self, provider_ref: &str) -> Vec<AuthSelectorProvider> {
+        let normalized = provider_ref.trim().to_lowercase();
+        if normalized.is_empty() {
+            return Vec::new();
+        }
+        get_login_provider_options(self.session().model_runtime(), None)
+            .into_iter()
+            .filter(|provider| provider.id.to_lowercase() == normalized || provider.name.to_lowercase() == normalized)
+            .collect()
+    }
+
+    fn get_login_auth_type_selector_options(
+        provider_options: Option<&[AuthSelectorProvider]>,
+    ) -> (String, Vec<String>) {
+        let oauth_label = provider_options
+            .and_then(|options| options.iter().find(|provider| provider.auth_type == AuthType::Oauth))
+            .and_then(|provider| provider.method_name.clone());
+        let subscription_label = oauth_label.unwrap_or_else(|| "Sign in with an account".to_owned());
+        let available: Vec<AuthType> = match provider_options {
+            Some(options) => options.iter().map(|provider| provider.auth_type).collect(),
+            None => vec![AuthType::Oauth, AuthType::ApiKey],
+        };
+        let mut options = Vec::new();
+        if available.contains(&AuthType::Oauth) {
+            options.push(subscription_label.clone());
+        }
+        if available.contains(&AuthType::ApiKey) {
+            options.push("Sign in with an API key".to_owned());
+        }
+        (subscription_label, options)
+    }
+
+    fn show_login_auth_type_selector(&self, provider_options: Option<Vec<AuthSelectorProvider>>) {
+        let (subscription_label, options) = Self::get_login_auth_type_selector_options(provider_options.as_deref());
+        if options.is_empty() {
+            self.show_status("No login methods available.");
+            return;
+        }
+        let first_provider_option = provider_options.as_ref().and_then(|options| options.first().cloned());
+        if let Some(first_provider_option) = first_provider_option.clone()
+            && options.len() == 1
+        {
+            let mode_id = self.ui_id.get();
+            tokio::task::spawn_local(async move {
+                if let Some(mode) = with_mode(mode_id, |mode| mode) {
+                    mode.start_provider_login(first_provider_option).await;
+                }
+            });
+            return;
+        }
+        let title = match &first_provider_option {
+            Some(provider) => format!("Select authentication method for {}:", provider.name),
+            None => "Select authentication method:".to_owned(),
+        };
+        let mode_id = self.ui_id.get();
+        let options_for_select = provider_options.clone();
+        let subscription_for_select = subscription_label.clone();
+        let on_select: Rc<dyn Fn(String)> = Rc::new(move |option: String| {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                let auth_type = if option == subscription_for_select {
+                    AuthType::Oauth
+                } else {
+                    AuthType::ApiKey
+                };
+                match &options_for_select {
+                    None => mode.show_login_provider_selector(Some(auth_type), None),
+                    Some(providers) => {
+                        if let Some(provider_option) = providers
+                            .iter()
+                            .find(|provider| provider.auth_type == auth_type)
+                            .cloned()
+                        {
+                            tokio::task::spawn_local(async move {
+                                mode.start_provider_login(provider_option).await;
+                            });
+                        }
+                    }
+                }
+            });
+        });
+        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                mode.ui.request_render();
+            });
+        });
+        self.show_selector(component(ExtensionSelectorComponent::new(
+            &title,
+            options,
+            on_select,
+            on_cancel,
+            ExtensionSelectorOptions::default(),
+        )));
+    }
+
+    fn show_login_provider_selector(&self, auth_type: Option<AuthType>, initial_search: Option<String>) {
+        let provider_options = get_login_provider_options(self.session().model_runtime(), auth_type);
+        if provider_options.is_empty() {
+            let message = match auth_type {
+                Some(AuthType::Oauth) => "No subscription providers available.",
+                Some(AuthType::ApiKey) => "No API key providers available.",
+                None => "No login providers available.",
+            };
+            self.show_status(message);
+            return;
+        }
+        let mode_id = self.ui_id.get();
+        let options_for_select = provider_options.clone();
+        let on_select: Rc<dyn Fn(String, AuthType)> =
+            Rc::new(move |provider_id: String, selected_auth_type: AuthType| {
+                with_mode(mode_id, |mode| {
+                    mode.restore_editor();
+                    if let Some(provider_option) = options_for_select
+                        .iter()
+                        .find(|provider| provider.id == provider_id && provider.auth_type == selected_auth_type)
+                        .cloned()
+                    {
+                        tokio::task::spawn_local(async move {
+                            mode.start_provider_login(provider_option).await;
+                        });
+                    }
+                });
+            });
+        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                if auth_type.is_some() {
+                    mode.show_login_auth_type_selector(None);
+                } else {
+                    mode.ui.request_render();
+                }
+            });
+        });
+        self.show_selector(component(OAuthSelectorComponent::new(
+            AuthSelectorMode::Login,
+            provider_options,
+            on_select,
+            on_cancel,
+            initial_search.as_deref(),
+        )));
+    }
+
+    async fn show_oauth_selector(&self, logout: bool) {
+        if !logout {
+            self.show_login_auth_type_selector(None);
+            return;
+        }
+        let provider_options = match get_logout_provider_options(self.session().model_runtime()).await {
+            Ok(options) => options,
+            Err(error) => {
+                self.show_error(&format!("Could not read stored credentials: {error}"));
+                return;
+            }
+        };
+        if provider_options.is_empty() {
+            self.show_status(
+                "No stored credentials to remove. /logout only removes credentials saved by /login; environment variables and models.json config are unchanged.",
+            );
+            return;
+        }
+        let mode_id = self.ui_id.get();
+        let options_for_select = provider_options.clone();
+        let on_select: Rc<dyn Fn(String, AuthType)> = Rc::new(move |provider_id: String, _auth_type: AuthType| {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                let Some(provider_option) = options_for_select
+                    .iter()
+                    .find(|provider| provider.id == provider_id)
+                    .cloned()
+                else {
+                    return;
+                };
+                tokio::task::spawn_local(async move {
+                    let runtime = mode.session().model_runtime().clone();
+                    let timeout = crate::main_runner::TimeoutSignal::new(15_000);
+                    match runtime
+                        .logout(
+                            &provider_option.id,
+                            pi_ai::auth::types::AuthOperationOptions::new(Some(timeout.token())),
+                        )
+                        .await
+                    {
+                        Ok(()) => {
+                            mode.update_available_provider_count();
+                            let message = if provider_option.auth_type == AuthType::Oauth {
+                                format!("Logged out of {}", provider_option.name)
+                            } else {
+                                format!(
+                                    "Removed stored API key for {}. Environment variables and models.json config are unchanged.",
+                                    provider_option.name
+                                )
+                            };
+                            mode.show_status(&message);
+                        }
+                        Err(error) => {
+                            let message = error.to_string();
+                            if matches!(error, crate::core::model_runtime::ModelRuntimeError::CredentialSync(_)) {
+                                mode.show_error(&format!(
+                                    "Credentials removed for {}, but local model state could not be synchronized: {message}",
+                                    provider_option.name
+                                ));
+                            } else {
+                                mode.show_error(&format!("Logout failed: {message}"));
+                            }
+                        }
+                    }
+                });
+            });
+        });
+        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                mode.ui.request_render();
+            });
+        });
+        self.show_selector(component(OAuthSelectorComponent::new(
+            AuthSelectorMode::Logout,
+            provider_options,
+            on_select,
+            on_cancel,
+            None,
+        )));
+    }
+
+    async fn start_provider_login(&self, provider_option: AuthSelectorProvider) {
+        match provider_option.auth_type {
+            AuthType::Oauth => {
+                self.show_login_dialog(&provider_option.id, &provider_option.name).await;
+            }
+            AuthType::ApiKey => {
+                if provider_option.method_name.is_some() {
+                    self.show_api_key_login_dialog(&provider_option.id, &provider_option.name)
+                        .await;
+                } else {
+                    self.show_ambient_auth_dialog(&provider_option);
+                }
+            }
+        }
+    }
+
+    async fn show_login_dialog(&self, provider_id: &str, provider_name: &str) {
+        if let Err(error) = self
+            .run_provider_login(provider_id, provider_name, AuthType::Oauth)
+            .await
+        {
+            let message = error.to_string();
+            if matches!(error, crate::core::model_runtime::ModelRuntimeError::CredentialSync(_)) {
+                self.show_error(&format!(
+                    "Logged in to {provider_name}, but local model state could not be synchronized: {message}"
+                ));
+            } else if message != "Login cancelled" {
+                self.show_error(&format!("Failed to login to {provider_name}: {message}"));
+            }
+        }
+    }
+
+    async fn show_api_key_login_dialog(&self, provider_id: &str, provider_name: &str) {
+        if let Err(error) = self
+            .run_provider_login(provider_id, provider_name, AuthType::ApiKey)
+            .await
+        {
+            let message = error.to_string();
+            if message.contains("does not support api_key login") {
+                self.show_ambient_auth_dialog(&AuthSelectorProvider {
+                    id: provider_id.to_owned(),
+                    name: provider_name.to_owned(),
+                    auth_type: AuthType::ApiKey,
+                    method_name: None,
+                    status: None,
+                });
+                return;
+            }
+            if matches!(error, crate::core::model_runtime::ModelRuntimeError::CredentialSync(_)) {
+                self.show_error(&format!(
+                    "Logged in to {provider_name}, but local model state could not be synchronized: {message}"
+                ));
+            } else if message != "Login cancelled" {
+                self.show_error(&format!("Failed to save API key for {provider_name}: {message}"));
+            }
+        }
+    }
+
+    async fn run_provider_login(
+        &self,
+        provider_id: &str,
+        provider_name: &str,
+        auth_type: AuthType,
+    ) -> Result<(), crate::core::model_runtime::ModelRuntimeError> {
+        let previous_model = self.session().model();
+        let mode_id = self.ui_id.get();
+        let request_render: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| mode.ui.request_render());
+        });
+        let dialog = Rc::new(RefCell::new(LoginDialogComponent::new(
+            request_render,
+            provider_id,
+            Rc::new(|_, _| {}),
+            Some(provider_name),
+            None,
+        )));
+        if provider_id == "amazon-bedrock" {
+            let docs_path = crate::config::get_docs_path().join("providers.md");
+            dialog.borrow().show_details(&[
+                with_theme(|theme| {
+                    theme.fg(
+                        ThemeColor::Text,
+                        "You can also use an AWS profile, IAM keys, or role-based credentials.",
+                    )
+                }),
+                with_theme(|theme| theme.fg(ThemeColor::Muted, "See:")),
+                with_theme(|theme| theme.fg(ThemeColor::Accent, &format!("  {}", docs_path.display()))),
+            ]);
+        }
+        self.mount_auth_dialog(&dialog);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let signal = dialog.borrow().signal();
+        *self.auth_ui.borrow_mut() = Some(AuthUiState {
+            receiver,
+            dialog: Rc::clone(&dialog),
+        });
+        let interaction = Arc::new(InteractiveAuthInteraction {
+            sender: std::sync::Mutex::new(sender),
+            signal,
+        });
+        let runtime = self.session().model_runtime().clone();
+        let result = runtime.login(provider_id, auth_type, interaction).await;
+        *self.auth_ui.borrow_mut() = None;
+        self.restore_editor();
+        result?;
+        self.complete_provider_authentication(provider_id, provider_name, auth_type, previous_model)
+            .await;
+        Ok(())
+    }
+
+    fn show_ambient_auth_dialog(&self, provider_option: &AuthSelectorProvider) {
+        let mode_id = self.ui_id.get();
+        let request_render: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| mode.ui.request_render());
+        });
+        let dialog = Rc::new(RefCell::new(LoginDialogComponent::new(
+            request_render,
+            &provider_option.id,
+            Rc::new(|_, _| {}),
+            Some(&provider_option.name),
+            Some(&format!("{} setup", provider_option.name)),
+        )));
+        dialog.borrow().show_info(
+            &format!(
+                "{} is configured outside pi.",
+                provider_option.method_name.as_deref().unwrap_or("Authentication")
+            ),
+            &[],
+            true,
+        );
+        self.mount_auth_dialog(&dialog);
+    }
+
+    async fn complete_provider_authentication(
+        &self,
+        provider_id: &str,
+        provider_name: &str,
+        auth_type: AuthType,
+        previous_model: Model,
+    ) {
+        let action_label = if auth_type == AuthType::Oauth {
+            format!("Logged in to {provider_name}")
+        } else {
+            format!("Saved API key for {provider_name}")
+        };
+        let mut selected_model: Option<Model> = None;
+        let mut selection_error: Option<String> = None;
+        if is_unknown_model(Some(&previous_model)) {
+            let available_models = self.session().model_runtime().get_available_snapshot();
+            let provider_models: Vec<Model> = available_models
+                .into_iter()
+                .filter(|model| model.provider == provider_id)
+                .collect();
+            match crate::core::model_resolver::default_model_for_provider(provider_id) {
+                None => {
+                    selection_error = Some(format!(
+                        "{action_label}, but no default model is configured for provider \"{provider_id}\". Use /model to select a model."
+                    ));
+                }
+                Some(_default_model_id) if provider_models.is_empty() => {
+                    selection_error = Some(format!(
+                        "{action_label}, but no models are available for that provider. Use /model to select a model."
+                    ));
+                }
+                Some(default_model_id) => {
+                    selected_model = provider_models
+                        .iter()
+                        .find(|model| model.id == default_model_id)
+                        .cloned();
+                    match selected_model.clone() {
+                        None => {
+                            selection_error = Some(format!(
+                                "{action_label}, but its default model \"{default_model_id}\" is not available. Use /model to select a model."
+                            ));
+                        }
+                        Some(model) => {
+                            if let Err(error) = self.session().set_model(model).await {
+                                selected_model = None;
+                                selection_error = Some(format!(
+                                    "{action_label}, but selecting its default model failed: {}. Use /model to select a model.",
+                                    error.message()
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        self.update_available_provider_count();
+        self.footer.borrow_mut().invalidate();
+        self.update_editor_border_color();
+        let auth_path = crate::config::get_auth_path().display().to_string();
+        if let Some(model) = &selected_model {
+            self.show_status(&format!(
+                "{action_label}. Selected {}. Credentials saved to {auth_path}",
+                model.id
+            ));
+        } else {
+            self.show_status(&format!("{action_label}. Credentials saved to {auth_path}"));
+            if let Some(error) = selection_error {
+                self.show_error(&error);
+            }
+        }
+
+        let mode_id = self.ui_id.get();
+        let runtime = self.session().model_runtime().clone();
+        let provider_id = provider_id.to_owned();
+        tokio::task::spawn_local(async move {
+            let abort = tokio_util::sync::CancellationToken::new();
+            let timed_out = Rc::new(Cell::new(false));
+            let timeout_task = {
+                let abort = abort.clone();
+                let timed_out = Rc::clone(&timed_out);
+                tokio::task::spawn_local(async move {
+                    tokio::time::sleep(Duration::from_secs(15)).await;
+                    timed_out.set(true);
+                    abort.cancel();
+                })
+            };
+            let result = runtime
+                .refresh(pi_ai::models::ModelsRefreshOptions {
+                    providers: Some(vec![provider_id]),
+                    signal: Some(abort),
+                    ..Default::default()
+                })
+                .await;
+            timeout_task.abort();
+            let warning = match &result {
+                Ok(result) if result.aborted && timed_out.get() => Some(format!(
+                    "{action_label}, but its model catalog refresh timed out; using cached models."
+                )),
+                Ok(result) if result.aborted => None,
+                Ok(result) if !result.errors.is_empty() => Some(format!(
+                    "{action_label}, but its model catalog could not be refreshed; using cached models."
+                )),
+                Err(error) => Some(format!(
+                    "{action_label}, but its model catalog could not be refreshed: {error}"
+                )),
+                Ok(_) => None,
+            };
+            with_mode(mode_id, |mode| {
+                if let Some(warning) = warning {
+                    mode.show_warning(&warning);
+                }
+                mode.update_available_provider_count();
+                mode.footer.borrow_mut().invalidate();
+                mode.ui.request_render();
+            });
+        });
+    }
+
+    fn set_extension_status(&self, key: &str, text: Option<&str>) {
+        self.footer_data_provider.set_extension_status(key, text);
+        self.ui.request_render();
+    }
+
+    fn show_trust_selector(&self) {
+        let session = self.session();
+        let cwd = session.cwd().to_owned();
+        let trust_store = ProjectTrustStore::new(session.agent_dir());
+        let saved_decision = match trust_store.get_entry(&cwd) {
+            Ok(decision) => decision,
+            Err(error) => {
+                self.show_error(&error.to_string());
+                return;
+            }
+        };
+        let mode_id = self.ui_id.get();
+        let options = TrustSelectorOptions {
+            cwd,
+            saved_decision,
+            project_trusted: self.settings(|settings| settings.is_project_trusted()),
+            on_select: Rc::new(move |selection| {
+                with_mode(mode_id, |mode| {
+                    let trust_store = ProjectTrustStore::new(mode.session().agent_dir());
+                    if let Err(error) = trust_store.set_many(&selection.updates) {
+                        mode.show_error(&error.to_string());
+                        return;
+                    }
+                    mode.restore_editor();
+                    mode.show_status(&format!(
+                        "Saved trust decision: {}. Restart pi for this to take effect.",
+                        if selection.trusted { "trusted" } else { "untrusted" }
+                    ));
+                });
+            }),
+            on_cancel: Rc::new(move || {
+                with_mode(mode_id, |mode| {
+                    mode.restore_editor();
+                    mode.ui.request_render();
+                });
+            }),
+        };
+        self.show_selector(component(TrustSelectorComponent::new(options)));
+    }
+
+    fn show_approval_selector(&self) {
+        let mode_id = self.ui_id.get();
+        let options = ApprovalSelectorOptions {
+            current_preset: self.settings(|settings| settings.get_approval_preset()),
+            on_select: Rc::new(move |selection| {
+                with_mode(mode_id, |mode| {
+                    let scope = match selection.scope {
+                        crate::modes::interactive::components::approval_selector::ApprovalScope::Global => {
+                            crate::core::settings_manager::SettingsScope::Global
+                        }
+                        crate::modes::interactive::components::approval_selector::ApprovalScope::Project => {
+                            crate::core::settings_manager::SettingsScope::Project
+                        }
+                    };
+                    if let Err(error) =
+                        mode.settings_mut(|settings| settings.set_approval_preset(selection.preset, scope))
+                    {
+                        mode.show_error(&error.to_string());
+                        return;
+                    }
+                    mode.restore_editor();
+                    mode.show_status(&format!(
+                        "Saved approval preset to {} settings. Restart pi for this to take effect.",
+                        selection.scope.as_str()
+                    ));
+                });
+            }),
+            on_cancel: Rc::new(move || {
+                with_mode(mode_id, |mode| {
+                    mode.restore_editor();
+                    mode.ui.request_render();
+                });
+            }),
+        };
+        self.show_selector(component(ApprovalSelectorComponent::new(options)));
+    }
+
+    fn update_bwrap_status_for_sandbox_profile(&self) {
+        let profile = self.settings(|settings| settings.get_explicit_sandbox_profile());
+        let profile = profile.filter(|profile| *profile != SandboxProfileName::FullAccess);
+        let Some(profile) = profile else {
+            self.set_extension_status(
+                "bwrap",
+                Some(&with_theme(|theme| theme.fg(ThemeColor::Muted, "bwrap: full access"))),
+            );
+            return;
+        };
+        let bwrap_available = std::process::Command::new("bwrap")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        let text = if bwrap_available {
+            with_theme(|theme| theme.fg(ThemeColor::Accent, &format!("bwrap: {}", profile.as_str())))
+        } else {
+            with_theme(|theme| theme.fg(ThemeColor::Error, "bwrap unavailable"))
+        };
+        self.set_extension_status("bwrap", Some(&text));
+    }
+
+    fn show_sandbox_selector(&self) {
+        let mode_id = self.ui_id.get();
+        let options = SandboxSelectorOptions {
+            current_profile: self.settings(|settings| settings.get_configured_sandbox_profile()),
+            session_profile: self.settings(|settings| settings.get_session_sandbox_profile()),
+            on_select: Rc::new(move |selection| {
+                with_mode(mode_id, |mode| {
+                    let (profile, scope) = match selection {
+                        SandboxSelectorSelection::Saved { profile, scope } => (
+                            Some(profile),
+                            match scope {
+                                SandboxScope::Global => SandboxProfileScope::Global,
+                                SandboxScope::Project => SandboxProfileScope::Project,
+                                SandboxScope::Session => SandboxProfileScope::Session,
+                            },
+                        ),
+                        SandboxSelectorSelection::Session { profile } => (profile, SandboxProfileScope::Session),
+                    };
+                    if let Err(error) = mode.session().set_sandbox_profile(profile, scope) {
+                        mode.show_error(&error.to_string());
+                        return;
+                    }
+                    mode.restore_editor();
+                    mode.update_bwrap_status_for_sandbox_profile();
+                    mode.show_status(&format!(
+                        "Saved sandbox profile {} to {} scope.",
+                        profile.map(SandboxProfileName::as_str).unwrap_or("inherit"),
+                        scope.as_str()
+                    ));
+                });
+            }),
+            on_cancel: Rc::new(move || {
+                with_mode(mode_id, |mode| {
+                    mode.restore_editor();
+                    mode.ui.request_render();
+                });
+            }),
+        };
+        self.show_selector(component(SandboxSelectorComponent::new(options)));
     }
 
     async fn shutdown(&self) {
@@ -4384,6 +7600,8 @@ impl InteractiveMode {
     }
 
     async fn handle_ui_requests(&self) {
+        self.poll_auth_ui();
+        self.poll_active_session_selector().await;
         loop {
             let request = {
                 let mut slot = self.ui_requests.borrow_mut();
@@ -4595,16 +7813,33 @@ impl InteractiveMode {
                 key,
                 content,
                 placement,
-            } => self.add_extension_widget(&key, content, placement),
+            } => self.add_extension_widget(
+                &key,
+                content.map(|lines| ExtensionWidget::Lines(Self::string_widget_lines(&lines))),
+                placement,
+            ),
+            UiRequest::SetWidgetComponent {
+                key,
+                content,
+                placement,
+            } => {
+                let widget = content.map(|factory| {
+                    let component_ref = component(ExtensionComponentAdapter {
+                        inner: factory(self.extension_factory_context()),
+                    });
+                    ExtensionWidget::Component(component_ref)
+                });
+                self.add_extension_widget(&key, widget, placement);
+            }
             UiRequest::SetTitle(title) => self.ui.terminal().borrow_mut().set_title(&title),
             UiRequest::PasteToEditor(text) => {
-                self.editor
+                self.editor()
                     .borrow_mut()
                     .handle_input(&format!("\x1b[200~{text}\x1b[201~"));
                 self.ui.request_render();
             }
             UiRequest::SetEditorText(text) => {
-                self.editor.borrow_mut().set_text(&text);
+                self.editor().borrow_mut().set_text(&text);
                 self.ui.request_render();
             }
             UiRequest::SetToolsExpanded(expanded) => self.set_tools_expanded(expanded),
@@ -4622,6 +7857,7 @@ impl InteractiveMode {
             } => self.show_extension_custom(factory, options, respond),
             UiRequest::AddTerminalInput { handler, respond } => {
                 let handler = Arc::new(handler);
+                let registered: TerminalInputHandler = Arc::clone(&handler);
                 let id = self.ui.add_input_listener(Rc::new(move |data: &str| {
                     let result = handler(data);
                     match result {
@@ -4632,9 +7868,23 @@ impl InteractiveMode {
                         None => TuiInputListenerResult::default(),
                     }
                 }));
+                self.terminal_input_listeners.borrow_mut().push((id, registered));
                 let _ = respond.send(id);
             }
-            UiRequest::RemoveTerminalInput(id) => self.ui.remove_input_listener(id),
+            UiRequest::RemoveTerminalInput(id) => {
+                self.ui.remove_input_listener(id);
+                self.terminal_input_listeners
+                    .borrow_mut()
+                    .retain(|(listener_id, _)| *listener_id != id);
+            }
+            UiRequest::AddAutocompleteProvider(factory) => {
+                self.autocomplete_provider_wrappers.borrow_mut().push(factory);
+                self.setup_autocomplete_provider();
+            }
+            UiRequest::SetEditorComponent(factory) => self.set_custom_editor_component(factory),
+            UiRequest::GetEditorComponent { respond } => {
+                let _ = respond.send(self.editor_component_factory.borrow().clone());
+            }
             UiRequest::AbortAndRestoreQueued => {
                 self.restore_queued_messages_to_editor(true);
             }
@@ -4642,10 +7892,10 @@ impl InteractiveMode {
                 self.shutdown_requested.set(true);
             }
             UiRequest::ShowApprovalSelector => {
-                self.show_status("Approval selector is not ported yet.");
+                self.show_approval_selector();
             }
             UiRequest::ShowSandboxSelector => {
-                self.show_status("Sandbox selector is not ported yet.");
+                self.show_sandbox_selector();
             }
             UiRequest::RuntimeNewSession { options, respond } => {
                 let options = options.map(|options| {
@@ -4828,21 +8078,24 @@ impl InteractiveMode {
         })
     }
 
+    fn extension_factory_context(&self) -> crate::core::extensions::types::ExtensionUiFactoryContext {
+        crate::core::extensions::types::ExtensionUiFactoryContext {
+            tui: ExtensionUiTui::new(Arc::new(InteractiveUiTuiBackend {
+                shared: Arc::clone(&self.ui_shared),
+                sender: self.ui_sender.clone(),
+            })),
+            theme: crate::modes::interactive::theme::current_theme(),
+            keybindings: self.keybindings.clone(),
+        }
+    }
+
     fn set_extension_header(&self, factory: Option<ExtensionUiComponentFactory>) {
         self.custom_header.borrow_mut().take();
         self.header_container.borrow_mut().clear();
         match factory {
             Some(factory) => {
-                let context = crate::core::extensions::types::ExtensionUiFactoryContext {
-                    tui: ExtensionUiTui::new(Arc::new(InteractiveUiTuiBackend {
-                        shared: Arc::clone(&self.ui_shared),
-                        sender: self.ui_sender.clone(),
-                    })),
-                    theme: crate::modes::interactive::theme::current_theme(),
-                    keybindings: self.keybindings.clone(),
-                };
                 let component_ref = component(ExtensionComponentAdapter {
-                    inner: factory(context),
+                    inner: factory(self.extension_factory_context()),
                 });
                 *self.custom_header.borrow_mut() = Some(Rc::clone(&component_ref));
                 self.header_container.borrow_mut().add_child(component_ref);
@@ -4858,14 +8111,7 @@ impl InteractiveMode {
         options: Option<ExtensionUiCustomOptions>,
         respond: tokio::sync::oneshot::Sender<Option<Value>>,
     ) {
-        let context = crate::core::extensions::types::ExtensionUiFactoryContext {
-            tui: ExtensionUiTui::new(Arc::new(InteractiveUiTuiBackend {
-                shared: Arc::clone(&self.ui_shared),
-                sender: self.ui_sender.clone(),
-            })),
-            theme: crate::modes::interactive::theme::current_theme(),
-            keybindings: self.keybindings.clone(),
-        };
+        let context = self.extension_factory_context();
         let respond = Arc::new(std::sync::Mutex::new(Some(respond)));
         let done_respond = Arc::clone(&respond);
         let mode = self.ui_id.get();
@@ -5308,21 +8554,50 @@ mod ui_tests {
         Arc<pi_ai::providers::faux::FauxProviderHandle>,
         tempfile::TempDir,
     ) {
+        build_mode_with_settings(
+            loader,
+            initial_active_tool_names,
+            SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default()),
+        )
+        .await
+    }
+
+    async fn build_mode_with_settings(
+        loader: Arc<dyn crate::core::resource_loader::ResourceLoader>,
+        initial_active_tool_names: Option<Vec<String>>,
+        settings: SettingsManager,
+    ) -> (
+        Rc<InteractiveMode>,
+        Rc<RefCell<CaptureTerminal>>,
+        Arc<pi_ai::providers::faux::FauxProviderHandle>,
+        tempfile::TempDir,
+    ) {
         init_dark_theme();
         let temp = tempfile::tempdir().expect("temp dir");
         let cwd = temp.path().display().to_string();
         let faux = Arc::new(faux_provider(RegisterFauxProviderOptions {
             provider: Some("faux".to_owned()),
             api: Some("faux".to_owned()),
-            models: Some(vec![FauxModelDefinition {
-                id: "faux-1".to_owned(),
-                name: Some("Faux Model".to_owned()),
-                reasoning: Some(true),
-                input: None,
-                cost: None,
-                context_window: Some(100_000.0),
-                max_tokens: Some(4096.0),
-            }]),
+            models: Some(vec![
+                FauxModelDefinition {
+                    id: "faux-1".to_owned(),
+                    name: Some("Faux Model".to_owned()),
+                    reasoning: Some(true),
+                    input: None,
+                    cost: None,
+                    context_window: Some(100_000.0),
+                    max_tokens: Some(4096.0),
+                },
+                FauxModelDefinition {
+                    id: "faux-2".to_owned(),
+                    name: Some("Faux Second Model".to_owned()),
+                    reasoning: Some(false),
+                    input: None,
+                    cost: None,
+                    context_window: Some(100_000.0),
+                    max_tokens: Some(4096.0),
+                },
+            ]),
             ..Default::default()
         }));
         faux.set_responses(vec![
@@ -5351,10 +8626,12 @@ mod ui_tests {
             let model_runtime = model_runtime.clone();
             let faux = faux.clone();
             let loader = Arc::clone(&loader);
+            let settings = Arc::new(Mutex::new(settings));
             Arc::new(move |request: CreateAgentSessionRuntimeOptions| {
                 let model_runtime = model_runtime.clone();
                 let faux = faux.clone();
                 let loader = Arc::clone(&loader);
+                let settings = Arc::clone(&settings);
                 let initial_active_tool_names = initial_active_tool_names.clone();
                 Box::pin(async move {
                     let model = faux.get_model(None).expect("faux model");
@@ -5376,10 +8653,7 @@ mod ui_tests {
                         ..Default::default()
                     })
                     .expect("agent");
-                    let settings_manager = Arc::new(Mutex::new(SettingsManager::in_memory(
-                        Default::default(),
-                        SettingsManagerCreateOptions::default(),
-                    )));
+                    let settings_manager = Arc::clone(&settings);
                     let session = AgentSession::new(AgentSessionConfig {
                         agent,
                         session_manager: Arc::new(Mutex::new(request.session_manager)),
@@ -5393,7 +8667,7 @@ mod ui_tests {
                         excluded_tool_names: None,
                         permission_prompt_tool: None,
                         agent_dir: Some(request.agent_dir.clone()),
-                        control_db_path: None,
+                        control_db_path: Some(format!("{}/control.sqlite", request.agent_dir)),
                         base_tools: Vec::new(),
                         custom_tools: Vec::new(),
                         custom_tool_definitions: Vec::new(),
@@ -5452,12 +8726,17 @@ mod ui_tests {
     }
 
     fn init_dark_theme() {
-        let theme = crate::modes::interactive::theme::load_theme_from_path(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("theme").join("dark.json"),
-            None,
-        )
-        .expect("dark theme");
-        crate::modes::interactive::theme::set_theme_instance(std::sync::Arc::new(theme));
+        let theme_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("theme");
+        let dark = crate::modes::interactive::theme::load_theme_from_path(&theme_dir.join("dark.json"), None)
+            .expect("dark theme");
+        let light = crate::modes::interactive::theme::load_theme_from_path(&theme_dir.join("light.json"), None)
+            .expect("light theme");
+        crate::modes::interactive::theme::set_registered_themes(vec![
+            std::sync::Arc::new(dark),
+            std::sync::Arc::new(light),
+        ])
+        .expect("register fixture themes");
+        crate::modes::interactive::theme::init_theme(Some("dark"), false).expect("dark theme");
     }
 
     async fn pump(
@@ -5519,7 +8798,7 @@ mod ui_tests {
 
                 terminal.borrow_mut().send_input("hi");
                 mode.ui.process_events();
-                assert_eq!(mode.editor.borrow().get_text(), "hi");
+                assert_eq!(mode.editor().borrow().get_text(), "hi");
                 terminal.borrow_mut().send_input("\r");
                 mode.ui.process_events();
                 assert!(
@@ -5633,7 +8912,7 @@ mod ui_tests {
                         .borrow()
                         .children()
                         .first()
-                        .is_some_and(|child| !Rc::ptr_eq(child, &mode.editor_handle));
+                        .is_some_and(|child| !Rc::ptr_eq(child, &mode.editor_handle.borrow()));
                     if mounted {
                         break;
                     }
@@ -5661,6 +8940,703 @@ mod ui_tests {
             })
             .await;
     }
+
+    struct StaticWidget;
+
+    impl ExtensionUiComponent for StaticWidget {
+        fn render(&self, _width: usize) -> Vec<String> {
+            vec!["custom widget".to_owned()]
+        }
+
+        fn wants_input(&self) -> bool {
+            false
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_string_widgets_truncate_at_ten_lines() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let lines: Vec<String> = (0..12).map(|index| format!("line-{index}")).collect();
+                mode.ui_sender
+                    .send(UiRequest::SetWidget {
+                        key: "status".to_owned(),
+                        content: Some(lines),
+                        placement: WidgetPlacement::AboveEditor,
+                    })
+                    .expect("widget request");
+                mode.handle_ui_requests().await;
+                let rendered = mode.widget_container_above.borrow_mut().render(80).join("\n");
+                assert!(rendered.contains("line-0"), "{rendered}");
+                assert!(rendered.contains("line-9"), "{rendered}");
+                assert!(!rendered.contains("line-10"), "{rendered}");
+                assert!(rendered.contains("... (widget truncated)"), "{rendered}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_component_widgets_render_factory_components() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let factory: ExtensionUiComponentFactory = Arc::new(|_context| Box::new(StaticWidget));
+                mode.ui_sender
+                    .send(UiRequest::SetWidgetComponent {
+                        key: "custom".to_owned(),
+                        content: Some(factory),
+                        placement: WidgetPlacement::AboveEditor,
+                    })
+                    .expect("widget request");
+                mode.handle_ui_requests().await;
+                let rendered = mode.widget_container_above.borrow_mut().render(80).join("\n");
+                assert!(rendered.contains("custom widget"), "{rendered}");
+
+                mode.ui_sender
+                    .send(UiRequest::SetWidgetComponent {
+                        key: "custom".to_owned(),
+                        content: None,
+                        placement: WidgetPlacement::BelowEditor,
+                    })
+                    .expect("widget removal");
+                mode.handle_ui_requests().await;
+                let rendered = mode.widget_container_above.borrow_mut().render(80).join("\n");
+                assert!(!rendered.contains("custom widget"), "{rendered}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn set_theme_object_installs_the_instance() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let theme = std::sync::Arc::new(
+                    crate::modes::interactive::theme::load_theme_from_path(
+                        &Path::new(env!("CARGO_MANIFEST_DIR")).join("theme").join("light.json"),
+                        None,
+                    )
+                    .expect("light theme"),
+                );
+                let result = mode.set_theme_instance(std::sync::Arc::clone(&theme));
+                assert!(result.success, "{result:?}");
+                assert!(std::sync::Arc::ptr_eq(
+                    &crate::modes::interactive::theme::current_theme(),
+                    &theme
+                ));
+            })
+            .await;
+    }
+
+    async fn open_settings(
+        mode: &Rc<InteractiveMode>,
+        events: &mut tokio::sync::mpsc::UnboundedReceiver<AgentSessionEvent>,
+        terminal: &Rc<RefCell<CaptureTerminal>>,
+    ) {
+        terminal.borrow_mut().send_input("/settings");
+        mode.ui.process_events();
+        terminal.borrow_mut().send_input("\r");
+        mode.ui.process_events();
+        for _ in 0..100 {
+            mode.drain_actions().await;
+            mode.handle_ui_requests().await;
+            mode.ui.flush_pending();
+            let mounted = mode
+                .editor_container
+                .borrow()
+                .children()
+                .first()
+                .is_some_and(|child| !Rc::ptr_eq(child, &mode.editor_handle.borrow()));
+            if mounted {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        let _ = pump(mode, events, terminal, |_| true).await;
+        assert!(
+            mode.editor_container
+                .borrow()
+                .children()
+                .first()
+                .is_some_and(|child| !Rc::ptr_eq(child, &mode.editor_handle.borrow())),
+            "settings selector must be mounted"
+        );
+    }
+
+    fn activate_setting(mode: &Rc<InteractiveMode>, terminal: &Rc<RefCell<CaptureTerminal>>, label: &str) {
+        for _ in 0..64 {
+            terminal.borrow_mut().send_input("\u{7f}");
+        }
+        mode.ui.process_events();
+        terminal.borrow_mut().send_input(label);
+        mode.ui.process_events();
+        terminal.borrow_mut().send_input("\r");
+        mode.ui.process_events();
+    }
+
+    fn settings_file(agent_dir: &Path) -> serde_json::Value {
+        let path = agent_dir.join("settings.json");
+        let content = std::fs::read_to_string(&path).expect("settings.json must be written");
+        serde_json::from_str(&content).expect("settings.json must be valid JSON")
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn settings_selector_updates_http_timeout_and_writes_settings_file() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                init_dark_theme();
+                let agent_dir = tempfile::tempdir().expect("agent dir");
+                let cwd = tempfile::tempdir().expect("cwd");
+                let settings = SettingsManager::create(
+                    &cwd.path().display().to_string(),
+                    Some(agent_dir.path()),
+                    SettingsManagerCreateOptions::default(),
+                )
+                .expect("settings manager");
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                    None,
+                    settings,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+                open_settings(&mode, &mut events, &terminal).await;
+
+                activate_setting(&mode, &terminal, "HTTP idle timeout");
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("HTTP idle timeout: disabled")
+                })
+                .await;
+                assert!(output.contains("HTTP idle timeout: disabled"));
+
+                let value = settings_file(agent_dir.path());
+                assert_eq!(value.get("httpIdleTimeoutMs"), Some(&serde_json::json!(0)));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn settings_selector_switches_tui_mode_and_reports_status() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                init_dark_theme();
+                let agent_dir = tempfile::tempdir().expect("agent dir");
+                let cwd = tempfile::tempdir().expect("cwd");
+                let settings = SettingsManager::create(
+                    &cwd.path().display().to_string(),
+                    Some(agent_dir.path()),
+                    SettingsManagerCreateOptions::default(),
+                )
+                .expect("settings manager");
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                    None,
+                    settings,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+                open_settings(&mode, &mut events, &terminal).await;
+
+                activate_setting(&mode, &terminal, "TUI mode");
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("TUI mode: fullscreen")
+                })
+                .await;
+                assert!(output.contains("TUI mode: fullscreen"));
+                assert_eq!(mode.ui.mode(), TuiMode::Fullscreen);
+
+                let value = settings_file(agent_dir.path());
+                assert_eq!(value.get("tuiMode"), Some(&serde_json::json!("fullscreen")));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn trust_selector_saves_decision_and_reports_status() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                init_dark_theme();
+                let agent_dir = tempfile::tempdir().expect("agent dir");
+                let cwd = tempfile::tempdir().expect("cwd");
+                let settings = SettingsManager::create(
+                    &cwd.path().display().to_string(),
+                    Some(agent_dir.path()),
+                    SettingsManagerCreateOptions::default(),
+                )
+                .expect("settings manager");
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                    None,
+                    settings,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                terminal.borrow_mut().send_input("/trust");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| output.contains("Project trust")).await;
+                assert!(output.contains("Project trust"));
+
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Saved trust decision: trusted.")
+                })
+                .await;
+                assert!(output.contains("Saved trust decision: trusted. Restart pi for this to take effect."));
+
+                let session_cwd = mode.session().cwd().to_owned();
+                let session_agent_dir = mode.session().agent_dir().to_owned();
+                let store = crate::core::trust_manager::ProjectTrustStore::new(&session_agent_dir);
+                let entry = store
+                    .get_entry(&session_cwd)
+                    .expect("trust entry read")
+                    .expect("saved trust entry");
+                assert_eq!(
+                    entry.decision,
+                    crate::core::trust_manager::ProjectTrustDecision::Trusted
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn sandbox_selector_saves_profile_and_updates_bwrap_status() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                init_dark_theme();
+                let agent_dir = tempfile::tempdir().expect("agent dir");
+                let cwd = tempfile::tempdir().expect("cwd");
+                let settings = SettingsManager::create(
+                    &cwd.path().display().to_string(),
+                    Some(agent_dir.path()),
+                    SettingsManagerCreateOptions::default(),
+                )
+                .expect("settings manager");
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                    None,
+                    settings,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                mode.show_sandbox_selector();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Sandbox profiles")
+                })
+                .await;
+                terminal.borrow_mut().send_input("\u{1b}[B");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Saved sandbox profile full-access to global scope.")
+                })
+                .await;
+                assert!(output.contains("Saved sandbox profile full-access to global scope."));
+
+                let value = settings_file(agent_dir.path());
+                assert_eq!(value.get("sandboxProfile"), Some(&serde_json::json!("full-access")));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn approval_selector_saves_preset_and_reports_status() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                init_dark_theme();
+                let agent_dir = tempfile::tempdir().expect("agent dir");
+                let cwd = tempfile::tempdir().expect("cwd");
+                let settings = SettingsManager::create(
+                    &cwd.path().display().to_string(),
+                    Some(agent_dir.path()),
+                    SettingsManagerCreateOptions::default(),
+                )
+                .expect("settings manager");
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                    None,
+                    settings,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                mode.show_approval_selector();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Approval presets")
+                })
+                .await;
+                terminal.borrow_mut().send_input("\u{1b}[B");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Saved approval preset to global settings.")
+                })
+                .await;
+                assert!(
+                    output.contains("Saved approval preset to global settings. Restart pi for this to take effect.")
+                );
+
+                let value = settings_file(agent_dir.path());
+                assert_eq!(
+                    value.get("approvalPreset"),
+                    Some(&serde_json::json!("llm-approved-deny"))
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn resume_selector_switches_to_the_selected_session() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                let session = mode.session();
+                let cwd = session.cwd().to_owned();
+                let session_dir = tempfile::tempdir().expect("session dir").keep();
+                let session_dir = session_dir.display().to_string();
+                {
+                    let mut manager = session.session_manager();
+                    *manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("persisted manager");
+                }
+                let mut target = SessionManager::create(&cwd, Some(&session_dir), None).expect("target session");
+                target.append_session_info("resume-target").expect("append name");
+                target
+                    .append_message(pi_agent_core::agent::types::AgentMessage::User(
+                        pi_ai::types::UserMessage {
+                            role: pi_ai::types::UserRole::Tag,
+                            content: pi_ai::types::UserContent::Text("resume target prompt".to_owned()),
+                            input_source: None,
+                            provider_native: None,
+                            timestamp: 1,
+                        },
+                    ))
+                    .expect("append message");
+                target.persist_for_recovery().expect("persist target session");
+                let target_id = target.get_session_id().to_owned();
+                let target_file = target.get_session_file().expect("target file");
+                assert!(std::path::Path::new(&target_file).exists());
+
+                terminal.borrow_mut().send_input("/resume");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Resume Session")
+                })
+                .await;
+                let mut ready = false;
+                for _ in 0..200 {
+                    mode.ui.process_events();
+                    mode.ui.flush_pending();
+                    mode.handle_ui_requests().await;
+                    ready = mode.active_session_selector.borrow().as_ref().is_some_and(|selector| {
+                        selector
+                            .try_lock()
+                            .map(|selector| selector.session_list().get_selected_session_path().is_some())
+                            .unwrap_or(false)
+                    });
+                    if ready {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                assert!(ready, "session selector must list the target session");
+
+                let selector = mode.active_session_selector.borrow().clone();
+                if let Some(selector) = selector {
+                    selector.lock().await.handle_input("\r");
+                }
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Resumed session")
+                })
+                .await;
+                assert!(output.contains("Resumed session"));
+                assert_eq!(mode.session().session_id(), target_id);
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn login_selector_opens_the_ambient_auth_dialog() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                terminal.borrow_mut().send_input("/login");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Select authentication method")
+                })
+                .await;
+
+                terminal.borrow_mut().send_input("\u{1b}[B");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Select provider to configure")
+                })
+                .await;
+
+                terminal.borrow_mut().send_input("faux");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("is configured outside pi.")
+                })
+                .await;
+                assert!(output.contains("Authentication is configured outside pi."));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn logout_selector_removes_the_stored_api_key() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                terminal.borrow_mut().send_input("/logout");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux")).await;
+
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Removed stored API key for faux.")
+                })
+                .await;
+                assert!(output.contains("Removed stored API key for faux."));
+                let remaining = mode
+                    .session()
+                    .model_runtime()
+                    .list_credentials(pi_ai::auth::types::AuthOperationOptions::new(None))
+                    .await
+                    .expect("credentials");
+                assert!(remaining.iter().all(|credential| credential.provider_id != "faux"));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn tree_selector_navigates_to_the_selected_entry() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                init_dark_theme();
+                let mut settings_map = serde_json::Map::new();
+                settings_map.insert("branchSummary".to_owned(), serde_json::json!({"skipPrompt": true}));
+                let settings = SettingsManager::in_memory(settings_map, SettingsManagerCreateOptions::default());
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                    None,
+                    settings,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                terminal.borrow_mut().send_input("hi");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("hello from faux")
+                })
+                .await;
+                assert!(mode.session().messages().len() >= 2);
+
+                terminal.borrow_mut().send_input("/tree");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| output.contains("Session Tree")).await;
+                assert!(output.contains("Session Tree"));
+
+                terminal.borrow_mut().send_input("\u{1b}[A");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Navigated to selected point")
+                })
+                .await;
+                assert!(output.contains("Navigated to selected point"));
+                assert_eq!(mode.session().messages().len(), 2);
+                assert_eq!(
+                    mode.session().get_last_assistant_text().as_deref(),
+                    Some("hello from faux")
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn fork_selector_forks_from_the_selected_user_message() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                terminal.borrow_mut().send_input("hi");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("hello from faux")
+                })
+                .await;
+
+                terminal.borrow_mut().send_input("/fork");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Fork from Message")
+                })
+                .await;
+
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Forked to new session")
+                })
+                .await;
+                assert!(output.contains("Forked to new session"));
+                assert_eq!(mode.editor().borrow().get_text(), "hi");
+                assert!(mode.session().messages().is_empty());
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn scoped_models_selector_updates_session_scope_and_persists_selection() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                init_dark_theme();
+                let agent_dir = tempfile::tempdir().expect("agent dir");
+                let cwd = tempfile::tempdir().expect("cwd");
+                let settings = SettingsManager::create(
+                    &cwd.path().display().to_string(),
+                    Some(agent_dir.path()),
+                    SettingsManagerCreateOptions::default(),
+                )
+                .expect("settings manager");
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                    None,
+                    settings,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                terminal.borrow_mut().send_input("/scoped-models");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Refreshing model catalogs")
+                })
+                .await;
+                assert!(output.contains("Model Configuration"));
+
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let scoped = mode.session().scoped_models();
+                assert_eq!(scoped.len(), 1, "first toggle keeps only the selected model");
+                assert_eq!(scoped[0].model.id, "faux-1");
+
+                terminal.borrow_mut().send_input("\x13");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Model selection saved to settings")
+                })
+                .await;
+                assert!(output.contains("Model selection saved to settings"));
+                let value = settings_file(agent_dir.path());
+                assert_eq!(value.get("enabledModels"), Some(&serde_json::json!(["faux/faux-1"])));
+
+                terminal.borrow_mut().send_input("\u{1b}");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |_| true).await;
+                assert!(Rc::ptr_eq(
+                    mode.editor_container
+                        .borrow()
+                        .children()
+                        .first()
+                        .expect("editor mounted"),
+                    &mode.editor_handle.borrow()
+                ));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn settings_selector_updates_session_auto_compact_and_thinking_level() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+                assert!(mode.session().auto_compaction_enabled());
+                open_settings(&mode, &mut events, &terminal).await;
+
+                activate_setting(&mode, &terminal, "Auto-compact");
+                pump(&mode, &mut events, &terminal, |_| true).await;
+                assert!(!mode.session().auto_compaction_enabled());
+
+                let before = mode.session().thinking_level();
+                activate_setting(&mode, &terminal, "Thinking level");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\x1b[B");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |_| true).await;
+                assert_ne!(mode.session().thinking_level(), before);
+            })
+            .await;
+    }
 }
 
 #[cfg(test)]
@@ -5668,12 +9644,17 @@ mod tests {
     use super::*;
 
     fn init_dark_theme() {
-        let theme = crate::modes::interactive::theme::load_theme_from_path(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("theme").join("dark.json"),
-            None,
-        )
-        .expect("dark theme");
-        crate::modes::interactive::theme::set_theme_instance(std::sync::Arc::new(theme));
+        let theme_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("theme");
+        let dark = crate::modes::interactive::theme::load_theme_from_path(&theme_dir.join("dark.json"), None)
+            .expect("dark theme");
+        let light = crate::modes::interactive::theme::load_theme_from_path(&theme_dir.join("light.json"), None)
+            .expect("light theme");
+        crate::modes::interactive::theme::set_registered_themes(vec![
+            std::sync::Arc::new(dark),
+            std::sync::Arc::new(light),
+        ])
+        .expect("register fixture themes");
+        crate::modes::interactive::theme::init_theme(Some("dark"), false).expect("dark theme");
     }
 
     fn source_info(path: &str, source: &str, scope: SourceScope, base_dir: Option<&str>) -> SourceInfo {

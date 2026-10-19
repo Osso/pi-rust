@@ -4,13 +4,17 @@ import { requireCases, runOracle } from "./coding-agent-utils-oracle-support.ts"
 
 type Case =
 	| { kind: "edit"; cwd: string; params: Record<string, unknown> }
-	| { kind: "write"; cwd: string; params: Record<string, unknown> };
+	| { kind: "write"; cwd: string; params: Record<string, unknown> }
+	| { kind: "prepare"; cwd: string; params: unknown };
+
+type Definition = { prepareArguments?: (input: unknown) => unknown };
 
 type Tool = { execute(id: string, params: unknown): Promise<unknown> };
 
 type Api = {
 	createEditTool(cwd: string): Tool;
 	createWriteTool(cwd: string): Tool;
+	createEditToolDefinition(cwd: string): Definition;
 };
 
 async function loadSibling(): Promise<Api> {
@@ -21,6 +25,7 @@ async function loadSibling(): Promise<Api> {
 	return {
 		createEditTool: editModule.createEditTool,
 		createWriteTool: writeModule.createWriteTool,
+		createEditToolDefinition: editModule.createEditToolDefinition,
 	};
 }
 
@@ -32,6 +37,11 @@ void runOracle(async (_module, request) => {
 	for (const value of requireCases(request)) {
 		const input = value as Case;
 		try {
+			if (input.kind === "prepare") {
+				const definition = api.createEditToolDefinition(input.cwd);
+				results.push({ ok: true, value: definition.prepareArguments?.(input.params) });
+				continue;
+			}
 			const tool = input.kind === "edit" ? api.createEditTool(input.cwd) : api.createWriteTool(input.cwd);
 			const result = await tool.execute(`${input.kind}-differential`, input.params);
 			results.push({ ok: true, value: result });

@@ -10,7 +10,7 @@ idioms map to the documented Rust replacements.
 | TypeScript source | Observable contract | Rust export |
 |---|---|---|
 | `index.ts:3` | Re-export `uuidv7` | `pi_ai::utils::uuid::uuidv7` |
-| `index.ts:4-31` | Re-export telemetry types from `@earendil-works/pi-telemetry` | `pi_telemetry` runtime/schema types re-exported from `lib.rs` (`AttributeValue`, `SpanAttributes`, `SpanOptions`, `SpanStatus`, `TelemetryContext`, `TelemetrySpan`, `TelemetrySchemaDefinition`, `TelemetrySpanDefinition`, `TelemetryAttributeDefinition`, `TelemetryAttributeMetadata`, `TelemetryAttributeType`, `TelemetryEventAttributeDefinition`, `TelemetryEventDefinition`, `TelemetryParentDefinition`, `TelemetryStartAttributeDefinition`, `RecordedTelemetryEvent`, `RecordedTelemetrySpan`, `TypedSpanStarter`) |
+| `index.ts:4-31` | Re-export telemetry types from `@earendil-works/pi-telemetry` | `pi_telemetry` runtime/schema types re-exported from `lib.rs` (`AttributeValue`, `SpanAttributes`, `SpanOptions`, `SpanStatus`, `TelemetryContext`, `TelemetrySpan`, `TelemetrySchemaDefinition`, `TelemetrySpanDefinition`, `TelemetryAttributeDefinition`, `TelemetryAttributeMetadata`, `TelemetryAttributeType`, `TelemetryEventAttributeDefinition`, `TelemetryEventDefinition`, `TelemetryParentDefinition`, `TelemetryStartAttributeDefinition`, `RecordedTelemetryEvent`, `RecordedTelemetrySpan`, `TelemetrySpanAttributes` (`SpanAttributes` alias), `TypedSpanStarter`) |
 | `index.ts:32-37` | Re-export `createTypedSpanStarter`, `defineTelemetrySchema`, `InMemoryTelemetryContext`, `NOOP_TELEMETRY_CONTEXT` | Same names from `pi_telemetry` |
 | `index.ts:38` | `export * from "./agent.ts"` | `Agent`, `AgentInitialState`, `AgentListener`, `AgentOptions`, `ContinueOptions`, `PrepareNextTurnSignalHook`, `PromptInput` |
 | `index.ts:40` | `export * from "./agent-loop.ts"` | `AgentEventSink`, `AgentEventStream`, `ScriptedAssistantStream`, `agent_loop`, `agent_loop_continue`, `run_agent_loop`, `run_agent_loop_continue` |
@@ -34,13 +34,15 @@ idioms map to the documented Rust replacements.
 | `index.ts:143` | `export { setDefaultStreamFn }` | `set_default_stream_fn` |
 | `index.ts:145` | `export * from "./types.ts"` | `agent::types::*` (`AgentMessage`, `AgentTool`, `AgentEvent`, loop hooks/context, and related records) |
 
-## Gaps / discrepancies
+## Approved typed-boundary exclusions
 
 - `ok`, `err`, `getOrThrow`, `getOrUndefined`, `toError`, and the `Result`
   namespace object are JavaScript idioms; Rust uses `Result`, `Ok`, `Err`, `?`,
   and `Option`. See `result.md` and `harness-types.md`.
 - Telemetry conditional-type helpers (`ExactTelemetryAttributes`, `Infer*`,
-  `SchemaTelemetrySpan`, `TelemetrySchemaSpan*`) have no Rust equivalent. See
+  `SchemaTelemetrySpan`, `TelemetrySchemaSpan*`, `AiSpanEventName`,
+  `AiSpanEventAttributes`, `HarnessSpanEventName`, `HarnessSpanEventAttributes`)
+  have no Rust equivalent; concrete span types alias `SpanAttributes`. See
   `harness-telemetry.md` and `telemetry.md`.
 - `AGENT_TELEMETRY_SCHEMAS`, `AI_TELEMETRY_SCHEMA`, and
   `HARNESS_TELEMETRY_SCHEMA` are exposed as functions because populated maps

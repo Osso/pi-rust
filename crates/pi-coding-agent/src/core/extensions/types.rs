@@ -4,9 +4,11 @@
 //! The event payloads, handler ordering, and result merging match the source;
 //! the extension entry point is a Rust factory receiving [`ExtensionApi`].
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
@@ -330,6 +332,24 @@ pub type ExtensionUiComponentFactory =
 pub type ExtensionUiFooterFactory =
     Arc<dyn Fn(ExtensionUiFooterContext) -> Box<dyn ExtensionUiComponent> + Send + Sync>;
 
+/// `addAutocompleteProvider` wrapper: wraps the active provider on the TUI thread.
+pub type ExtensionAutocompleteProviderFactory = Arc<
+    dyn Fn(Rc<dyn pi_tui::autocomplete::AutocompleteProvider>) -> Rc<dyn pi_tui::autocomplete::AutocompleteProvider>
+        + Send
+        + Sync,
+>;
+
+/// `setEditorComponent` factory: builds an editor on the TUI thread.
+pub type ExtensionEditorFactory = Arc<
+    dyn Fn(
+            ExtensionUiTui,
+            pi_tui::components::editor::EditorTheme,
+            crate::core::keybindings::KeybindingsManager,
+        ) -> Rc<RefCell<dyn pi_tui::EditorComponent>>
+        + Send
+        + Sync,
+>;
+
 /// `done` callback passed to `custom` factories.
 #[derive(Clone)]
 pub struct ExtensionUiDone(Arc<dyn Fn(Option<Value>) + Send + Sync>);
@@ -536,15 +556,80 @@ pub trait ExtensionUiContext: Send + Sync {
         }
     }
 
+    /// `setTheme(theme: Theme)`: install an in-memory theme object.
+    fn set_theme_object(&self, _theme: Arc<Theme>) -> ThemeSetResult {
+        ThemeSetResult {
+            success: false,
+            error: Some("UI not available".to_owned()),
+        }
+    }
+
     fn get_tools_expanded(&self) -> bool {
         false
     }
 
     fn set_tools_expanded(&self, _expanded: bool) {}
 
+    /// Wrap the active autocomplete provider (`addAutocompleteProvider`).
+    fn add_autocomplete_provider(&self, _factory: ExtensionAutocompleteProviderFactory) {}
+
+    /// Install a custom editor component, or `None` to restore the default.
+    fn set_editor_component(&self, _factory: Option<ExtensionEditorFactory>) {}
+
+    fn get_editor_component(&self) -> Option<ExtensionEditorFactory> {
+        None
+    }
+
     fn theme(&self) -> Arc<Theme> {
         current_theme()
     }
+}
+
+/// `BeforeProviderRequestEventResult` (`unknown` in the source): the handler
+/// returns the replacement payload.
+pub type BeforeProviderRequestEventResult = Value;
+
+/// `AutocompleteProviderFactory`: wraps the current provider.
+///
+/// The source factory is `(current: AutocompleteProvider) => AutocompleteProvider`;
+/// Rust hands the shared trait object through.
+pub type AutocompleteProviderFactory = Arc<
+    dyn Fn(Rc<dyn pi_tui::autocomplete::AutocompleteProvider>) -> Rc<dyn pi_tui::autocomplete::AutocompleteProvider>
+        + Send
+        + Sync,
+>;
+
+/// `EditorFactory`: builds a custom editor component.
+///
+/// The source returns `EditorComponent`; Rust returns a shared trait object.
+pub type EditorFactory = Arc<
+    dyn Fn(
+            ExtensionUiTui,
+            pi_tui::components::editor::EditorTheme,
+            crate::core::keybindings::KeybindingsManager,
+        ) -> Rc<RefCell<dyn pi_tui::EditorComponent>>
+        + Send
+        + Sync,
+>;
+
+/// `SessionMutationTarget`: the session a multi-agent selection points at.
+///
+/// TypeScript declares a plain object with a getter pair and mutators; Rust
+/// models it as a trait so the resolver can hand out a live handle.
+pub trait SessionMutationTarget: Send + Sync {
+    fn model(&self) -> Option<Model>;
+    fn thinking_level(&self) -> pi_agent_core::harness::types::ThinkingLevel;
+    /// Applies the model and reports whether the target accepted it, matching
+    /// the source `setModel(): boolean` contract.
+    fn set_model(&self, model: Model) -> BoxFuture<'static, Result<bool, HandlerError>>;
+    fn set_thinking_level(&self, level: pi_agent_core::harness::types::ThinkingLevel) -> Result<(), HandlerError>;
+}
+
+/// `ViewedSessionMutationTarget`: adds the registry and scoped models the
+/// interactive session viewer exposes.
+pub trait ViewedSessionMutationTarget: SessionMutationTarget {
+    fn model_registry(&self) -> Arc<crate::core::model_registry::ModelRegistry>;
+    fn scoped_models(&self) -> Vec<crate::core::model_resolver::ScopedModel>;
 }
 
 /// The source `noOpUIContext`.
@@ -808,20 +893,8 @@ pub struct ExtensionContext {
     viewed_session_target: Option<ViewedSessionMutationTargetResolver>,
 }
 
-/// `ViewedSessionMutationTarget`: the live child session a `model`/`effort`
-/// command should mutate while the main session views it.
-#[derive(Clone)]
-pub struct ViewedSessionMutationTarget {
-    pub model: Option<Model>,
-    pub model_registry: Arc<ModelRegistry>,
-    pub scoped_models: Vec<ScopedModel>,
-    pub thinking_level: ThinkingLevel,
-    pub set_model: SetModelHandler,
-    pub set_thinking_level: Arc<dyn Fn(ThinkingLevel) -> Result<(), HandlerError> + Send + Sync>,
-}
-
 pub type ViewedSessionMutationTargetResolver =
-    Arc<dyn Fn() -> Result<Option<Arc<ViewedSessionMutationTarget>>, HandlerError> + Send + Sync>;
+    Arc<dyn Fn() -> Result<Option<Arc<dyn ViewedSessionMutationTarget>>, HandlerError> + Send + Sync>;
 
 impl ExtensionContext {
     pub(super) fn new(state: Arc<Mutex<ExtensionContextState>>) -> Self {
@@ -840,7 +913,7 @@ impl ExtensionContext {
         self
     }
 
-    fn viewed_session_target(&self) -> Result<Option<Arc<ViewedSessionMutationTarget>>, HandlerError> {
+    fn viewed_session_target(&self) -> Result<Option<Arc<dyn ViewedSessionMutationTarget>>, HandlerError> {
         match &self.viewed_session_target {
             Some(resolver) => resolver(),
             None => Ok(None),
@@ -903,7 +976,7 @@ impl ExtensionContext {
 
     pub fn model_registry(&self) -> Result<Arc<ModelRegistry>, HandlerError> {
         if let Some(target) = self.viewed_session_target()? {
-            return Ok(Arc::clone(&target.model_registry));
+            return Ok(target.model_registry());
         }
         self.read(|state| Arc::clone(&state.model_registry))
     }
@@ -942,7 +1015,7 @@ impl ExtensionContext {
 
     pub fn model(&self) -> Result<Option<Model>, HandlerError> {
         if let Some(target) = self.viewed_session_target()? {
-            return Ok(target.model.clone());
+            return Ok(target.model());
         }
         self.callback(|state| Arc::clone(&state.get_model))
     }
@@ -953,7 +1026,7 @@ impl ExtensionContext {
             Err(error) => return Box::pin(async move { Err(error) }),
         };
         if let Some(target) = target {
-            return (target.set_model)(model);
+            return target.set_model(model);
         }
         let handler = self.read(|state| Arc::clone(&state.set_model_fn));
         match handler {
@@ -964,14 +1037,14 @@ impl ExtensionContext {
 
     pub fn scoped_models(&self) -> Result<Vec<ScopedModel>, HandlerError> {
         if let Some(target) = self.viewed_session_target()? {
-            return Ok(target.scoped_models.clone());
+            return Ok(target.scoped_models());
         }
         self.callback(|state| Arc::clone(&state.get_scoped_models))
     }
 
     pub fn thinking_level(&self) -> Result<ThinkingLevel, HandlerError> {
         if let Some(target) = self.viewed_session_target()? {
-            return Ok(target.thinking_level);
+            return Ok(target.thinking_level());
         }
         self.callback(|state| Arc::clone(&state.get_thinking_level_fn))
     }
@@ -982,7 +1055,7 @@ impl ExtensionContext {
 
     pub fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), HandlerError> {
         if let Some(target) = self.viewed_session_target()? {
-            return (target.set_thinking_level)(level);
+            return target.set_thinking_level(level);
         }
         let setter = self.read(|state| Arc::clone(&state.set_thinking_level_fn))?;
         setter(level)
@@ -1207,13 +1280,45 @@ pub struct ToolRenderResultOptions {
     pub is_partial: bool,
 }
 
+/// Shared renderer state for one tool row (`ToolRenderContext.state`).
+///
+/// The TypeScript context carries the same mutable object across call and result
+/// renders for one tool call.
+#[derive(Clone)]
+pub struct ToolRenderState(Arc<std::sync::Mutex<Value>>);
+
+impl Default for ToolRenderState {
+    fn default() -> Self {
+        Self(Arc::new(std::sync::Mutex::new(Value::Object(serde_json::Map::new()))))
+    }
+}
+
+impl ToolRenderState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Snapshot of the current state.
+    pub fn get(&self) -> Value {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    /// Mutates the state in place.
+    pub fn update(&self, update: impl FnOnce(&mut Value)) {
+        let mut state = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        update(&mut state);
+    }
+}
+
 #[derive(Clone)]
 pub struct ToolRenderContext {
     pub args: Value,
     pub tool_call_id: String,
     pub invalidate: Arc<dyn Fn() + Send + Sync>,
     pub last_component: Option<ComponentRef>,
-    pub state: Value,
+    /// Component returned by the last `renderCall` (`EditRenderState.callComponent`).
+    pub call_component: Option<ComponentRef>,
+    pub state: ToolRenderState,
     pub cwd: String,
     pub execution_started: bool,
     pub args_complete: bool,
@@ -1247,10 +1352,33 @@ pub type ToolExecute = Arc<
         + Sync,
 >;
 
-pub type ToolRenderer = Arc<dyn Fn(&Value, &Theme, &ToolRenderContext) -> ComponentRef + Send + Sync>;
+pub type ToolRenderer =
+    Arc<dyn Fn(&Value, &Theme, &ToolRenderContext) -> Result<ComponentRef, HandlerError> + Send + Sync>;
 
-pub type ToolResultRenderer =
-    Arc<dyn Fn(&AgentToolResult, &ToolRenderResultOptions, &Theme, &ToolRenderContext) -> ComponentRef + Send + Sync>;
+pub type ToolResultRenderer = Arc<
+    dyn Fn(&AgentToolResult, &ToolRenderResultOptions, &Theme, &ToolRenderContext) -> Result<ComponentRef, HandlerError>
+        + Send
+        + Sync,
+>;
+
+/// Adapts a built-in renderer, which cannot fail, to the fallible renderer type.
+pub fn infallible_render_call<F>(renderer: F) -> ToolRenderer
+where
+    F: Fn(&Value, &Theme, &ToolRenderContext) -> ComponentRef + Send + Sync + 'static,
+{
+    Arc::new(move |args, theme, context| Ok(renderer(args, theme, context)))
+}
+
+/// Adapts a built-in result renderer, which cannot fail, to the fallible renderer type.
+pub fn infallible_render_result<F>(renderer: F) -> ToolResultRenderer
+where
+    F: Fn(&AgentToolResult, &ToolRenderResultOptions, &Theme, &ToolRenderContext) -> ComponentRef
+        + Send
+        + Sync
+        + 'static,
+{
+    Arc::new(move |result, options, theme, context| Ok(renderer(result, options, theme, context)))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

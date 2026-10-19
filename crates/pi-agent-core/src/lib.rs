@@ -11,6 +11,7 @@ pub mod search;
 pub mod unicode;
 
 pub use pi_ai::utils::uuid::uuidv7;
+pub use pi_telemetry::SpanAttributes as TelemetrySpanAttributes;
 pub use pi_telemetry::{
     AttributeValue, InMemoryTelemetryContext, NOOP_TELEMETRY_CONTEXT, RecordedTelemetryEvent, RecordedTelemetrySpan,
     SpanAttributes, SpanOptions, SpanStatus, TelemetryAttributeDefinition, TelemetryAttributeMetadata,

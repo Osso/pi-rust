@@ -6,6 +6,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use pi_agent_core::harness::ThinkingLevel;
@@ -33,6 +34,14 @@ const SETTINGS_LOCK_DELAY: Duration = Duration::from_millis(20);
 
 /// A settings document. Insertion order is preserved for byte-identical files.
 pub type Settings = Map<String, Value>;
+
+/// The settings handle owned by `AgentSession` and shared with the interactive mode.
+pub type SharedSettingsManager = Arc<Mutex<SettingsManager>>;
+
+/// Locks the shared settings handle, recovering the guard from a poisoned mutex.
+pub fn lock_settings_manager(handle: &SharedSettingsManager) -> std::sync::MutexGuard<'_, SettingsManager> {
+    handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SettingsScope {

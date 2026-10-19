@@ -124,10 +124,13 @@ fn seed_compactable_session(manager: &mut SessionManager) {
         .expect("older assistant message");
 }
 
+type BeforeHook = Arc<dyn Fn(&SessionBeforeCompactEvent) -> Option<SessionBeforeCompactResult> + Send + Sync>;
+type CompactionHook = Arc<dyn Fn(&CompactionEvent) -> Option<CompactionEventResult> + Send + Sync>;
+
 async fn env_with(
     compaction: serde_json::Value,
-    before: Option<Arc<dyn Fn(&SessionBeforeCompactEvent) -> Option<SessionBeforeCompactResult> + Send + Sync>>,
-    compaction_hook: Option<Arc<dyn Fn(&CompactionEvent) -> Option<CompactionEventResult> + Send + Sync>>,
+    before: Option<BeforeHook>,
+    compaction_hook: Option<CompactionHook>,
 ) -> Env {
     let dir = tempfile::tempdir().expect("temp dir");
     let cwd = dir.path().join("repo").display().to_string();

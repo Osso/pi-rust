@@ -273,14 +273,13 @@ struct Captured {
     calls: Mutex<usize>,
 }
 
-fn create_child_session(
-    captured: Arc<Captured>,
-    summary: &'static str,
-) -> Arc<
+type TestCreateSession = Arc<
     dyn Fn(CreateAgentSessionOptions) -> BoxFuture<'static, Result<Arc<dyn UnboundChildAgentSession>, String>>
         + Send
         + Sync,
-> {
+>;
+
+fn create_child_session(captured: Arc<Captured>, summary: &'static str) -> TestCreateSession {
     Arc::new(move |options: CreateAgentSessionOptions| {
         *captured.calls.lock().expect("calls") += 1;
         let manager = Arc::new(Mutex::new(options.session_manager.clone().expect("session manager")));

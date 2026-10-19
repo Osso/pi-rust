@@ -26,6 +26,44 @@ use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, create_agent_session
 use pi_coding_agent::core::session_manager::SessionManager;
 use serde_json::json;
 
+struct TestMutationTarget {
+    model: Option<pi_ai::types::Model>,
+    model_registry: Arc<pi_coding_agent::core::model_registry::ModelRegistry>,
+    scoped_models: Vec<pi_coding_agent::core::model_resolver::ScopedModel>,
+    thinking_level: pi_agent_core::harness::types::ThinkingLevel,
+    set_model: Arc<dyn Fn(pi_ai::types::Model) -> BoxFuture<'static, Result<bool, HandlerError>> + Send + Sync>,
+    set_thinking_level:
+        Arc<dyn Fn(pi_agent_core::harness::types::ThinkingLevel) -> Result<(), HandlerError> + Send + Sync>,
+}
+
+impl pi_coding_agent::core::extensions::types::SessionMutationTarget for TestMutationTarget {
+    fn model(&self) -> Option<pi_ai::types::Model> {
+        self.model.clone()
+    }
+
+    fn thinking_level(&self) -> pi_agent_core::harness::types::ThinkingLevel {
+        self.thinking_level
+    }
+
+    fn set_model(&self, model: pi_ai::types::Model) -> BoxFuture<'static, Result<bool, HandlerError>> {
+        (self.set_model)(model)
+    }
+
+    fn set_thinking_level(&self, level: pi_agent_core::harness::types::ThinkingLevel) -> Result<(), HandlerError> {
+        (self.set_thinking_level)(level)
+    }
+}
+
+impl pi_coding_agent::core::extensions::types::ViewedSessionMutationTarget for TestMutationTarget {
+    fn model_registry(&self) -> Arc<pi_coding_agent::core::model_registry::ModelRegistry> {
+        Arc::clone(&self.model_registry)
+    }
+
+    fn scoped_models(&self) -> Vec<pi_coding_agent::core::model_resolver::ScopedModel> {
+        self.scoped_models.clone()
+    }
+}
+
 fn faux() -> FauxProviderHandle {
     faux_provider(RegisterFauxProviderOptions {
         provider: Some("faux".to_owned()),
@@ -150,7 +188,7 @@ fn store_with(agents: &[AgentSnapshot]) -> Arc<MultiAgentStore> {
     store
 }
 
-fn error_text(result: Result<Option<Arc<ViewedSessionMutationTarget>>, HandlerError>) -> String {
+fn error_text(result: Result<Option<Arc<dyn ViewedSessionMutationTarget>>, HandlerError>) -> String {
     match result {
         Ok(_) => panic!("expected an error"),
         Err(error) => error.message,
@@ -238,14 +276,14 @@ async fn resolve_selected_session_mutation_target_requires_a_live_mutable_sessio
     let target = resolve_selected_session_mutation_target(&store, &handles)
         .expect("target")
         .expect("target");
-    assert_eq!(target.model.as_ref().map(|model| model.id.as_str()), Some("faux-1"));
+    assert_eq!(target.model().as_ref().map(|model| model.id.as_str()), Some("faux-1"));
     assert_eq!(
-        target.thinking_level,
+        target.thinking_level(),
         pi_agent_core::harness::types::ThinkingLevel::Medium
     );
-    assert!(target.scoped_models.is_empty());
+    assert!(target.scoped_models().is_empty());
     assert_eq!(
-        target.model_registry.find("faux", "faux-1").map(|model| model.id),
+        target.model_registry().find("faux", "faux-1").map(|model| model.id),
         Some("faux-1".to_owned())
     );
 }
@@ -262,7 +300,7 @@ async fn viewed_context_shadows_model_and_thinking_accessors() {
     let set_model_calls = Arc::new(Mutex::new(Vec::new()));
     let set_thinking_calls = Arc::new(Mutex::new(Vec::new()));
     let target_model = env.faux.get_model(Some("faux-2")).expect("faux-2");
-    let target = Arc::new(ViewedSessionMutationTarget {
+    let target: Arc<dyn ViewedSessionMutationTarget> = Arc::new(TestMutationTarget {
         model: Some(target_model),
         model_registry: Arc::new(env.session.model_registry().clone()),
         scoped_models: Vec::new(),
@@ -314,7 +352,7 @@ async fn model_command_targets_the_viewed_session() {
     let env = test_env().await;
     let set_model_calls = Arc::new(Mutex::new(Vec::new()));
     let target_model = env.faux.get_model(Some("faux-2")).expect("faux-2");
-    let target = Arc::new(ViewedSessionMutationTarget {
+    let target: Arc<dyn ViewedSessionMutationTarget> = Arc::new(TestMutationTarget {
         model: Some(target_model),
         model_registry: Arc::new(env.session.model_registry().clone()),
         scoped_models: Vec::new(),
@@ -353,7 +391,7 @@ async fn model_command_reports_a_missing_api_key_for_the_viewed_session() {
         })
         .await;
     let target_model = env.faux.get_model(Some("faux-2")).expect("faux-2");
-    let target = Arc::new(ViewedSessionMutationTarget {
+    let target: Arc<dyn ViewedSessionMutationTarget> = Arc::new(TestMutationTarget {
         model: Some(target_model),
         model_registry: Arc::new(env.session.model_registry().clone()),
         scoped_models: Vec::new(),

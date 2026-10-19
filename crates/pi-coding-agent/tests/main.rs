@@ -489,7 +489,7 @@ fn first_party_factory_list_partitions_the_source_names() {
         handles,
         fetch,
         "/tmp/pi-test-agent".to_owned(),
-        std::sync::Arc::new(|| Vec::new()),
+        std::sync::Arc::new(Vec::new),
         None,
     );
     let registered: Vec<String> = factories
@@ -527,7 +527,7 @@ async fn first_party_factories_load_and_register_agent_tools() {
         handles,
         fetch,
         "/tmp/pi-test-agent".to_owned(),
-        std::sync::Arc::new(|| Vec::new()),
+        std::sync::Arc::new(Vec::new),
         None,
     );
     let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {

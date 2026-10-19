@@ -1,11 +1,70 @@
 //! Resident console command (`cli/resident-console-command.ts`).
 //!
-//! `parseResidentConsoleArgs` is ported and tested. `runResidentConsoleCommand`
-//! and `ResidentConsoleUi` are blocked on `AgentSessionEvent`
-//! (`core/agent-session.ts`) and the `AssistantMessageComponent` /
-//! `UserMessageComponent` components.
+//! `parseResidentConsoleArgs`, `runResidentConsoleCommand`, and
+//! `ResidentConsoleUi` are ported. The TypeScript TUI owns its render loop;
+//! the Rust runner pumps `process_events`/`flush_pending` every 5 ms, matching
+//! the startup-selector deviation.
 
-use crate::core::resident_console_transport::ResidentConsoleService;
+use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
+use std::io::IsTerminal;
+use std::rc::Rc;
+use std::sync::mpsc::{Receiver, TryRecvError, channel};
+use std::time::Duration;
+
+use pi_agent_core::agent::types::AgentMessage;
+use pi_ai::types::{TextOrImageContent, UserContent};
+use pi_js_compat::string::js_trim;
+use pi_tui::components::input::InputOptions;
+use pi_tui::tui::{ComponentRef, TuiExt, TuiMainScreen, component};
+use pi_tui::{Component, Container, Focusable, Input, Spacer, Text};
+use serde::Deserialize;
+use serde_json::Value;
+
+use crate::cli::startup_ui::{create_startup_tui, start_startup_tui};
+use crate::config::{get_agent_dir, get_user_state_root};
+use crate::core::resident_console_transport::{ResidentConsoleClient, ResidentConsoleService, ResidentConsoleSnapshot};
+use crate::core::runtime_message_markers::{
+    RuntimeMessageMarker, is_duplicate_turn_assistant_message, is_duplicate_turn_guard_message,
+};
+use crate::core::session_control_db::get_control_db_path;
+use crate::core::session_manager::{SessionEntry, session_entry_to_context_messages};
+use crate::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
+use crate::modes::interactive::components::assistant_message::AssistantMessageComponent;
+use crate::modes::interactive::components::user_message::UserMessageComponent;
+use crate::modes::interactive::theme::{ThemeColor, with_theme};
+use crate::supervisor::response_tool::SUPERVISOR_RESPONSE_TOOL_NAME;
+
+const POLL_INTERVAL: Duration = Duration::from_millis(5);
+
+/// Wire subset of `AgentSessionEvent` the console renders.
+///
+/// The source types the client with the full `AgentSessionEvent` union; Rust
+/// deserializes only the events this UI consumes (and ignores the rest).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
+pub enum ResidentConsoleEvent {
+    EntryAppended {
+        entry: SessionEntry,
+    },
+    AgentStart,
+    AgentEnd,
+    MessageStart {
+        message: AgentMessage,
+        #[serde(default)]
+        runtime_message_marker: Option<RuntimeMessageMarker>,
+    },
+    MessageUpdate {
+        message: AgentMessage,
+    },
+    MessageEnd {
+        message: AgentMessage,
+        #[serde(default)]
+        runtime_message_marker: Option<RuntimeMessageMarker>,
+    },
+    #[serde(other)]
+    Other,
+}
 
 /// `ResidentConsoleCommand`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,4 +112,469 @@ pub fn parse_resident_console_args(args: &[String]) -> Result<Option<ResidentCon
         service,
         initial_prompt,
     }))
+}
+
+/// `runResidentConsoleCommand`.
+pub async fn run_resident_console_command(command: ResidentConsoleCommand) -> Result<(), String> {
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return Err(format!(
+            "--{} requires an interactive terminal",
+            command.service.as_str()
+        ));
+    }
+    let agent_dir = get_agent_dir();
+    let socket_path = format!(
+        "{}.{}-console.sock",
+        get_control_db_path(&get_user_state_root()),
+        command.service.as_str()
+    );
+    let client =
+        ResidentConsoleClient::<SessionEntry, ResidentConsoleEvent>::connect(&socket_path, command.service).await?;
+    let cwd = std::env::current_dir()
+        .map_err(|error| error.to_string())?
+        .display()
+        .to_string();
+    let settings_manager = SettingsManager::create(
+        &cwd,
+        Some(&agent_dir),
+        SettingsManagerCreateOptions {
+            project_trusted: Some(false),
+        },
+    )
+    .map_err(|error| error.to_string())?;
+    let env: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
+    let terminal = Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new()));
+    let ui = create_startup_tui(&settings_manager, terminal, &env).await?;
+    let console = ResidentConsoleUi::new(command.service, client.snapshot());
+    let console_component = component(ConsoleComponent {
+        ui: Rc::clone(&console),
+    });
+    ui.add_child(Rc::clone(&console_component));
+    ui.set_focus(Some(console_component));
+    start_startup_tui(&ui, &settings_manager, &env)?;
+
+    let (event_sender, event_receiver) = channel();
+    let _event_subscription = client.on_event(std::sync::Arc::new(move |event| {
+        let _ = event_sender.send(event.event.clone());
+    }));
+    let (disconnect_sender, disconnect_receiver) = channel();
+    let _disconnect_subscription = client.on_disconnect(std::sync::Arc::new(move |error| {
+        let _ = disconnect_sender.send(error);
+    }));
+    let (submit_sender, submit_receiver) = channel::<String>();
+    console.set_on_submit(Rc::new(move |value: &str| {
+        let _ = submit_sender.send(value.to_owned());
+    }));
+
+    pump_console(
+        &ui,
+        &console,
+        &client,
+        command.initial_prompt.as_deref(),
+        &event_receiver,
+        &disconnect_receiver,
+        &submit_receiver,
+    )
+    .await;
+
+    ui.stop();
+    client.close().await;
+    Ok(())
+}
+
+async fn pump_console(
+    ui: &TuiMainScreen,
+    console: &ResidentConsoleUi,
+    client: &ResidentConsoleClient<SessionEntry, ResidentConsoleEvent>,
+    initial_prompt: Option<&str>,
+    events: &Receiver<ResidentConsoleEvent>,
+    disconnects: &Receiver<Option<String>>,
+    submissions: &Receiver<String>,
+) {
+    if let Some(prompt) = initial_prompt {
+        submit(ui, console, client, prompt).await;
+    }
+    loop {
+        ui.process_events();
+        ui.flush_pending();
+        while let Ok(event) = events.try_recv() {
+            console.handle_event(event);
+            ui.request_render(false);
+        }
+        while let Ok(value) = submissions.try_recv() {
+            submit(ui, console, client, &value).await;
+        }
+        match disconnects.try_recv() {
+            Ok(error) => {
+                console.set_status(&error.unwrap_or_else(|| "Resident service disconnected".to_owned()));
+                console.close();
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {}
+        }
+        if console.is_closed() {
+            return;
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
+async fn submit(
+    ui: &TuiMainScreen,
+    console: &ResidentConsoleUi,
+    client: &ResidentConsoleClient<SessionEntry, ResidentConsoleEvent>,
+    value: &str,
+) {
+    let text = js_trim(value).to_owned();
+    if text.is_empty() {
+        return;
+    }
+    console.clear_input();
+    console.set_status(&with_theme(|theme| theme.fg(ThemeColor::Muted, "Queued…")));
+    ui.request_render(false);
+    match client.prompt(&pi_ai::utils::uuid::random_uuid(), &text).await {
+        Ok(()) => console.set_status(&with_theme(|theme| theme.fg(ThemeColor::Muted, "Working…"))),
+        Err(error) => console.set_status(&with_theme(|theme| theme.fg(ThemeColor::Error, &error))),
+    }
+    ui.request_render(false);
+}
+
+/// `ResidentConsoleUi`: chat transcript, status line, and prompt input.
+pub struct ResidentConsoleUi {
+    root: Rc<RefCell<Container>>,
+    input: Rc<RefCell<Input>>,
+    chat: Rc<RefCell<Container>>,
+    status: Rc<RefCell<Text>>,
+    streaming_assistant: RefCell<Option<(Rc<RefCell<AssistantMessageComponent>>, ComponentRef)>>,
+    closed: Cell<bool>,
+}
+
+impl ResidentConsoleUi {
+    /// Builds the console from the attach snapshot.
+    pub fn new(service: ResidentConsoleService, snapshot: &ResidentConsoleSnapshot<SessionEntry>) -> Rc<Self> {
+        let (root, _) = SharedContainer::create();
+        let (chat, chat_ref) = SharedContainer::create();
+        let status = Rc::new(RefCell::new(Text::new("", 1, 0)));
+        let status_ref = component(SharedText(Rc::clone(&status)));
+        let input = Rc::new(RefCell::new(Input::new(InputOptions::default())));
+        let input_ref = component(SharedInput(Rc::clone(&input)));
+
+        {
+            let mut root = root.borrow_mut();
+            root.add_child(component(Text::new(
+                with_theme(|theme| theme.fg(ThemeColor::Accent, &format!("{} resident console", service.as_str()))),
+                1,
+                0,
+            )));
+            root.add_child(component(Text::new(
+                with_theme(|theme| {
+                    theme.fg(
+                        ThemeColor::Dim,
+                        &format!("{} · pid {}", snapshot.cwd, snapshot.generation),
+                    )
+                }),
+                1,
+                0,
+            )));
+            root.add_child(component(Spacer::new(1)));
+            root.add_child(chat_ref);
+            root.add_child(status_ref);
+            root.add_child(component(Spacer::new(1)));
+            root.add_child(input_ref);
+        }
+
+        let console = Rc::new(Self {
+            root,
+            input,
+            chat,
+            status,
+            streaming_assistant: RefCell::new(None),
+            closed: Cell::new(false),
+        });
+        for entry in &snapshot.branch {
+            console.append_entry(entry);
+        }
+        console
+    }
+
+    pub fn set_on_submit(&self, on_submit: Rc<dyn Fn(&str)>) {
+        self.input.borrow_mut().on_submit = Some(on_submit);
+    }
+
+    /// Renders the console root at `width`.
+    pub fn render(&self, width: usize) -> Vec<String> {
+        self.root.borrow_mut().render(width)
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.closed.get()
+    }
+
+    pub fn close(&self) {
+        self.closed.set(true);
+    }
+
+    fn clear_input(&self) {
+        self.input.borrow_mut().set_value("");
+    }
+
+    fn set_status(&self, text: &str) {
+        self.status.borrow_mut().set_text(text.to_owned());
+    }
+
+    fn handle_input(&self, data: &str) {
+        if pi_tui::matches_key(data, &pi_tui::Key::ctrl("c")) || pi_tui::matches_key(data, &pi_tui::Key::ctrl("d")) {
+            self.close();
+            return;
+        }
+        self.input.borrow_mut().handle_input(data);
+    }
+
+    /// `handleEvent`.
+    /// `handleEvent`: applies one wire event to the transcript.
+    pub fn handle_event(&self, event: ResidentConsoleEvent) {
+        match event {
+            ResidentConsoleEvent::EntryAppended { entry } => self.append_entry(&entry),
+            ResidentConsoleEvent::AgentStart => {
+                self.set_status(&with_theme(|theme| theme.fg(ThemeColor::Muted, "Working…")));
+            }
+            ResidentConsoleEvent::AgentEnd => self.set_status(""),
+            ResidentConsoleEvent::MessageStart {
+                message,
+                runtime_message_marker,
+            } => self.start_message(&message, runtime_message_marker),
+            ResidentConsoleEvent::MessageUpdate { message, .. } => {
+                if let AgentMessage::Assistant(assistant) = &message {
+                    self.update_streaming_assistant(assistant);
+                }
+            }
+            ResidentConsoleEvent::MessageEnd {
+                message,
+                runtime_message_marker,
+            } => {
+                if let AgentMessage::Assistant(assistant) = &message {
+                    if is_duplicate_turn_assistant_message(None, runtime_message_marker) {
+                        self.remove_streaming_assistant();
+                    } else {
+                        self.update_streaming_assistant(assistant);
+                        *self.streaming_assistant.borrow_mut() = None;
+                    }
+                }
+            }
+            ResidentConsoleEvent::Other => {}
+        }
+    }
+
+    fn start_message(&self, message: &AgentMessage, marker: Option<RuntimeMessageMarker>) {
+        match message {
+            AgentMessage::User(user) => {
+                if is_duplicate_turn_guard_message(None, marker) {
+                    return;
+                }
+                self.chat.borrow_mut().add_child(component(UserMessageComponent::new(
+                    read_user_content(&user.content),
+                    None,
+                    1,
+                    Vec::new(),
+                )));
+            }
+            AgentMessage::ToolResult(result) if result.tool_name == SUPERVISOR_RESPONSE_TOOL_NAME => {
+                self.chat
+                    .borrow_mut()
+                    .add_child(component(Text::new(read_blocks(&result.content), 1, 0)));
+            }
+            AgentMessage::Assistant(assistant) => {
+                let assistant_component = Rc::new(RefCell::new(AssistantMessageComponent::new(
+                    Some(assistant.as_ref().clone()),
+                    false,
+                    None,
+                    None,
+                    1,
+                    Vec::new(),
+                )));
+                let handle = component(SharedAssistant(Rc::clone(&assistant_component)));
+                self.chat.borrow_mut().add_child(Rc::clone(&handle));
+                *self.streaming_assistant.borrow_mut() = Some((assistant_component, handle));
+            }
+            _ => {}
+        }
+    }
+
+    fn update_streaming_assistant(&self, assistant: &pi_ai::types::AssistantMessage) {
+        if let Some((component, _)) = self.streaming_assistant.borrow().as_ref() {
+            component.borrow_mut().update_content(assistant.clone(), false);
+        }
+    }
+
+    fn remove_streaming_assistant(&self) {
+        if let Some((_, handle)) = self.streaming_assistant.borrow_mut().take() {
+            self.chat.borrow_mut().remove_child(&handle);
+        }
+    }
+
+    fn append_entry(&self, entry: &SessionEntry) {
+        for message in session_entry_to_context_messages(entry) {
+            match message {
+                AgentMessage::Assistant(assistant) => {
+                    self.chat
+                        .borrow_mut()
+                        .add_child(component(AssistantMessageComponent::new(
+                            Some(assistant.as_ref().clone()),
+                            false,
+                            None,
+                            None,
+                            1,
+                            Vec::new(),
+                        )));
+                }
+                AgentMessage::User(user) => {
+                    self.chat.borrow_mut().add_child(component(UserMessageComponent::new(
+                        read_user_content(&user.content),
+                        None,
+                        1,
+                        Vec::new(),
+                    )));
+                }
+                AgentMessage::ToolResult(result) => {
+                    self.chat
+                        .borrow_mut()
+                        .add_child(component(Text::new(read_blocks(&result.content), 1, 0)));
+                }
+                AgentMessage::Custom(object) => {
+                    let content = object.get("content").map(read_value_content).unwrap_or_default();
+                    self.chat.borrow_mut().add_child(component(Text::new(content, 1, 0)));
+                }
+            }
+        }
+    }
+}
+
+fn read_user_content(content: &UserContent) -> String {
+    match content {
+        UserContent::Text(text) => text.clone(),
+        UserContent::Blocks(blocks) => read_blocks(blocks),
+    }
+}
+
+fn read_blocks(blocks: &[TextOrImageContent]) -> String {
+    blocks
+        .iter()
+        .filter_map(|block| match block {
+            TextOrImageContent::Text(text) => Some(text.text.clone()),
+            TextOrImageContent::Image(_) => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn read_value_content(content: &Value) -> String {
+    match content {
+        Value::String(text) => text.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|part| {
+                let object = part.as_object()?;
+                if object.get("type")?.as_str()? != "text" {
+                    return None;
+                }
+                object.get("text")?.as_str().map(str::to_owned)
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+struct ConsoleComponent {
+    ui: Rc<ResidentConsoleUi>,
+}
+
+impl Component for ConsoleComponent {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.ui.root.borrow_mut().render(width)
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        self.ui.handle_input(data);
+    }
+
+    fn invalidate(&mut self) {
+        self.ui.root.borrow_mut().invalidate();
+    }
+}
+
+struct SharedContainer(Rc<RefCell<Container>>);
+
+impl SharedContainer {
+    fn create() -> (Rc<RefCell<Container>>, ComponentRef) {
+        let container = Rc::new(RefCell::new(Container::new()));
+        let component = component(Self(Rc::clone(&container)));
+        (container, component)
+    }
+}
+
+impl Component for SharedContainer {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0.borrow_mut().render(width)
+    }
+
+    fn wants_input(&self) -> bool {
+        false
+    }
+
+    fn invalidate(&mut self) {
+        self.0.borrow_mut().invalidate();
+    }
+}
+
+struct SharedText(Rc<RefCell<Text>>);
+
+impl Component for SharedText {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0.borrow_mut().render(width)
+    }
+
+    fn wants_input(&self) -> bool {
+        false
+    }
+
+    fn invalidate(&mut self) {
+        self.0.borrow_mut().invalidate();
+    }
+}
+
+struct SharedInput(Rc<RefCell<Input>>);
+
+impl Component for SharedInput {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0.borrow_mut().render(width)
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        self.0.borrow_mut().handle_input(data);
+    }
+
+    fn wants_input(&self) -> bool {
+        self.0.borrow().focused()
+    }
+
+    fn invalidate(&mut self) {
+        self.0.borrow_mut().invalidate();
+    }
+}
+
+struct SharedAssistant(Rc<RefCell<AssistantMessageComponent>>);
+
+impl Component for SharedAssistant {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0.borrow_mut().render(width)
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        self.0.borrow_mut().handle_input(data);
+    }
+
+    fn invalidate(&mut self) {
+        self.0.borrow_mut().invalidate();
+    }
 }

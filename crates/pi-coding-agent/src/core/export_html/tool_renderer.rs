@@ -8,7 +8,7 @@ use std::sync::Arc;
 use pi_ai::types::TextOrImageContent;
 use pi_tui::tui::ComponentRef;
 use regex::Regex;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use super::ansi_to_html::ansi_lines_to_html;
 use super::index::{RenderedToolResult, ToolHtmlRenderer};
@@ -33,7 +33,7 @@ pub struct ToolHtmlRendererDeps {
 struct RendererState {
     rendered_call_components: HashMap<String, ComponentRef>,
     rendered_result_components: HashMap<String, ComponentRef>,
-    rendered_states: HashMap<String, Value>,
+    rendered_states: HashMap<String, crate::core::extensions::types::ToolRenderState>,
     rendered_args: HashMap<String, Value>,
 }
 
@@ -47,12 +47,12 @@ pub struct ExtensionToolHtmlRenderer {
 }
 
 impl ExtensionToolHtmlRenderer {
-    fn state_for(&self, tool_call_id: &str) -> Value {
+    fn state_for(&self, tool_call_id: &str) -> crate::core::extensions::types::ToolRenderState {
         self.state
             .borrow_mut()
             .rendered_states
             .entry(tool_call_id.to_owned())
-            .or_insert_with(|| Value::Object(Map::new()))
+            .or_default()
             .clone()
     }
 
@@ -72,11 +72,13 @@ impl ExtensionToolHtmlRenderer {
             .cloned()
             .unwrap_or(Value::Null);
         let state = self.state_for(tool_call_id);
+        let call_component = self.state.borrow().rendered_call_components.get(tool_call_id).cloned();
         ToolRenderContext {
             args,
             tool_call_id: tool_call_id.to_owned(),
             invalidate: Arc::new(|| {}),
             last_component,
+            call_component,
             state,
             cwd: self.cwd.clone(),
             execution_started: true,
@@ -125,7 +127,10 @@ impl ToolHtmlRenderer for ExtensionToolHtmlRenderer {
 
         let last_component = self.state.borrow().rendered_call_components.get(tool_call_id).cloned();
         let context = self.render_context(tool_call_id, last_component, false, true, false);
-        let component = render_call(args, self.theme.as_ref(), &context);
+        let component = match render_call(args, self.theme.as_ref(), &context) {
+            Ok(component) => component,
+            Err(_) => return None,
+        };
         self.state
             .borrow_mut()
             .rendered_call_components
@@ -161,7 +166,7 @@ impl ToolHtmlRenderer for ExtensionToolHtmlRenderer {
             .get(tool_call_id)
             .cloned();
         let context = self.render_context(tool_call_id, last_component, false, false, is_error);
-        let collapsed_component = render_result(
+        let collapsed_component = match render_result(
             &agent_tool_result,
             &ToolRenderResultOptions {
                 expanded: false,
@@ -169,7 +174,10 @@ impl ToolHtmlRenderer for ExtensionToolHtmlRenderer {
             },
             self.theme.as_ref(),
             &context,
-        );
+        ) {
+            Ok(component) => component,
+            Err(_) => return None,
+        };
         self.state
             .borrow_mut()
             .rendered_result_components
@@ -186,7 +194,7 @@ impl ToolHtmlRenderer for ExtensionToolHtmlRenderer {
             .get(tool_call_id)
             .cloned();
         let context = self.render_context(tool_call_id, last_component, true, false, is_error);
-        let expanded_component = render_result(
+        let expanded_component = match render_result(
             &agent_tool_result,
             &ToolRenderResultOptions {
                 expanded: true,
@@ -194,7 +202,10 @@ impl ToolHtmlRenderer for ExtensionToolHtmlRenderer {
             },
             self.theme.as_ref(),
             &context,
-        );
+        ) {
+            Ok(component) => component,
+            Err(_) => return None,
+        };
         self.state
             .borrow_mut()
             .rendered_result_components

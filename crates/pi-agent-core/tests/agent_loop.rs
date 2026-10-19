@@ -26,6 +26,20 @@ fn context(messages: Vec<AgentMessage>, tools: Vec<Arc<dyn pi_agent_core::agent:
     }
 }
 
+async fn collect_events_allowing_failure(
+    mut stream: pi_ai::utils::event_stream::EventStream<AgentEvent, Vec<AgentMessage>>,
+) -> (Vec<AgentEvent>, Option<String>) {
+    let mut events = Vec::new();
+    let mut failure = None;
+    while let Some(event) = stream.next().await {
+        match event {
+            Ok(event) => events.push(event),
+            Err(error) => failure = Some(error.message().to_owned()),
+        }
+    }
+    (events, failure)
+}
+
 fn config() -> AgentLoopConfig {
     AgentLoopConfig::new(model(), identity_convert())
 }
@@ -421,13 +435,13 @@ async fn prepares_tool_arguments_for_validation() {
     });
     tool.prepare_arguments = Some(Arc::new(|args: serde_json::Value| {
         let Some(object) = args.as_object() else {
-            return args;
+            return Ok(args);
         };
         let (Some(old_text), Some(new_text)) = (
             object.get("oldText").and_then(|value| value.as_str()),
             object.get("newText").and_then(|value| value.as_str()),
         ) else {
-            return args;
+            return Ok(args);
         };
         let mut edits = object
             .get("edits")
@@ -435,7 +449,7 @@ async fn prepares_tool_arguments_for_validation() {
             .cloned()
             .unwrap_or_default();
         edits.push(json!({"oldText": old_text, "newText": new_text}));
-        json!({"edits": edits})
+        Ok(json!({"edits": edits}))
     }));
     let stream = agent_loop(
         vec![agent_message(user("edit something"))],
@@ -459,6 +473,67 @@ async fn prepares_tool_arguments_for_validation() {
 }
 
 #[tokio::test]
+async fn prepare_arguments_errors_become_error_tool_results_and_the_run_continues() {
+    let executed = Arc::new(AtomicBool::new(false));
+    let executed_hook = Arc::clone(&executed);
+    let mut tool = TestTool::new("edit", move |_id, _params| {
+        executed_hook.store(true, Ordering::SeqCst);
+        text_result("edited")
+    });
+    tool.parameters = json!({"type": "object"});
+    tool.prepare_arguments = Some(Arc::new(|_args: serde_json::Value| {
+        Err(pi_agent_core::agent::ToolError::new("prepareArguments exploded"))
+    }));
+    let stream = agent_loop(
+        vec![agent_message(user("edit something"))],
+        context(Vec::new(), vec![Arc::new(tool)]),
+        config(),
+        None,
+        Some(scripted_stream_fn(vec![
+            Script::message(tool_use(vec![AssistantContent::ToolCall(tool_call(
+                "tool-1",
+                "edit",
+                json!({"value": 1}),
+            ))])),
+            Script::message(text_assistant("done")),
+        ])),
+    );
+    let (_, result) = collect_events(stream).await;
+    let messages = result.unwrap();
+    let tool_result = messages
+        .iter()
+        .find_map(|message| message.as_tool_result())
+        .expect("tool result");
+    assert!(!executed.load(Ordering::SeqCst));
+    assert!(tool_result.is_error);
+    assert_eq!(
+        tool_result.content,
+        vec![TextOrImageContent::Text(TextContent::new("prepareArguments exploded"))]
+    );
+    assert_eq!(messages.iter().filter_map(|message| message.as_assistant()).count(), 2);
+}
+
+#[tokio::test]
+async fn prepare_execution_errors_abort_the_run() {
+    let mut tool = TestTool::new("echo", |_id, _params| text_result("ok"));
+    tool.parameters = json!({"type": "object", "properties": {"value": {"type": "string"}}});
+    tool.prepare_execution = Some(Arc::new(|_id, _signal| {
+        Box::pin(async { Err(pi_agent_core::agent::ToolError::new("prepareExecution exploded")) })
+    }));
+    let stream = agent_loop(
+        vec![agent_message(user("echo"))],
+        context(Vec::new(), vec![Arc::new(tool)]),
+        config(),
+        None,
+        Some(scripted_stream_fn(vec![Script::message(tool_use(vec![
+            AssistantContent::ToolCall(tool_call("tool-1", "echo", json!({"value": "x"}))),
+        ]))])),
+    );
+    let (_, failure) = collect_events_allowing_failure(stream).await;
+    assert_eq!(failure.as_deref(), Some("prepareExecution exploded"));
+}
+
+#[tokio::test]
 async fn persists_prepared_agent_id_and_passes_it_to_execution() {
     let executed_agent_ids = Arc::new(Mutex::new(Vec::<String>::new()));
     let executed_hook = Arc::clone(&executed_agent_ids);
@@ -471,9 +546,9 @@ async fn persists_prepared_agent_id_and_passes_it_to_execution() {
     tool.prepare_execution = Some(Arc::new(move |_id, _signal| {
         preparation_hook.fetch_add(1, Ordering::SeqCst);
         Box::pin(async {
-            Some(ToolCallExecution {
+            Ok(Some(ToolCallExecution {
                 agent_id: "known-agent".to_owned(),
-            })
+            }))
         })
     }));
     tool.execute = Arc::new(move |_id, _params, _signal, _on_update| {
@@ -1558,9 +1633,9 @@ async fn reuses_persisted_agent_id_when_continuing_interrupted_tool_call() {
     tool.prepare_execution = Some(Arc::new(move |_id, _signal| {
         preparation_hook.fetch_add(1, Ordering::SeqCst);
         Box::pin(async {
-            Some(ToolCallExecution {
+            Ok(Some(ToolCallExecution {
                 agent_id: "new-agent".to_owned(),
-            })
+            }))
         })
     }));
     tool.execute = Arc::new(move |_id, _params, _signal, _on_update| {
