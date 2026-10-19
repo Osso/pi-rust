@@ -13,18 +13,17 @@ use pi_coding_agent::bundled_extensions::default_footer::{
     DefaultFooterAgentLifecycleCounts, DefaultFooterComponentInput, count_default_footer_agents,
     create_default_footer_component, default_footer_extension,
 };
+use pi_coding_agent::core::extensions::create_extension_runtime;
 use pi_coding_agent::core::extensions::types::{
     ContextUsage, ExtensionEvent, ExtensionUiComponent, ExtensionUiFooterContext, ExtensionUiTui,
-    ExtensionUiTuiBackend, SessionStartEvent,
-    SessionStartReason,
+    ExtensionUiTuiBackend, SessionStartEvent, SessionStartReason,
 };
-use pi_coding_agent::core::extensions::create_extension_runtime;
 use pi_coding_agent::core::footer_data_provider::{FooterDataProvider, FooterSessionOverride, GitBranchRunner};
 use pi_coding_agent::core::multi_agent_store::{
     AgentLifecycle, AgentPermission, AgentSlot, AgentSnapshot, MultiAgentStore, MultiAgentStoreOptions,
 };
 use pi_coding_agent::core::session_manager::SessionManager;
-use pi_coding_agent::modes::interactive::theme::{current_theme_if_initialized, ThemeColor};
+use pi_coding_agent::modes::interactive::theme::{ThemeColor, current_theme_if_initialized};
 use pi_coding_agent::utils::ansi::strip_ansi;
 use pi_tui::utils::visible_width;
 
@@ -35,10 +34,7 @@ impl GitBranchRunner for StubGit {
         Some("main".to_owned())
     }
 
-    fn resolve_async(
-        &self,
-        _repo_dir: &std::path::Path,
-    ) -> pi_ai::request::BoxFuture<'static, Option<String>> {
+    fn resolve_async(&self, _repo_dir: &std::path::Path) -> pi_ai::request::BoxFuture<'static, Option<String>> {
         Box::pin(async { Some("main".to_owned()) })
     }
 }
@@ -113,10 +109,7 @@ async fn fixture(
     let harness = Harness::new(Vec::new(), runtime, options).await;
     let repo = git_fixture_dir();
     let footer_data = Arc::new(FooterDataProvider::with_git_runner(repo, Arc::new(StubGit)));
-    Fixture {
-        harness,
-        footer_data,
-    }
+    Fixture { harness, footer_data }
 }
 
 fn component(
@@ -154,7 +147,10 @@ async fn renders_stats_without_cache_or_auto_fields() {
     );
     let lines = footer.render(160);
     let stats = strip_ansi(&lines[1]);
-    assert!(stats.contains("agents 6 in 412k out 33k cost $9.39 ctx 60.9%/272k"), "{stats}");
+    assert!(
+        stats.contains("agents 6 in 412k out 33k cost $9.39 ctx 60.9%/272k"),
+        "{stats}"
+    );
     assert!(!stats.contains("R13M"));
     assert!(!stats.contains("CH99.6%"));
     assert!(!stats.contains("auto"));
@@ -272,9 +268,7 @@ async fn extension_status_lines_group_goal_separately() {
         Some(test_model(false)),
     )
     .await;
-    fixture
-        .footer_data
-        .set_extension_status("bwrap", Some("bwrap ready"));
+    fixture.footer_data.set_extension_status("bwrap", Some("bwrap ready"));
     fixture
         .footer_data
         .set_extension_status("goal", Some("goal: ship footer"));

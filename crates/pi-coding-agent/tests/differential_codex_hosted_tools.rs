@@ -1,12 +1,12 @@
 //! Differential tests for the bundled `codex-web-search` and
 //! `codex-image-generation` extensions.
 
+#[path = "support/bundled.rs"]
+mod bundled;
 #[path = "support/oracle.rs"]
 mod oracle;
 #[path = "support/extensions.rs"]
 mod support;
-#[path = "support/bundled.rs"]
-mod bundled;
 
 use std::sync::{Arc, Mutex};
 
@@ -29,11 +29,7 @@ const SOURCE: &str = "packages/coding-agent/extensions/codex-web-search/src/inde
 
 fn model(case: &Value) -> pi_ai::types::Model {
     let mut model = test_model(false);
-    model.api = case
-        .get("api")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
+    model.api = case.get("api").and_then(Value::as_str).unwrap_or_default().to_owned();
     model.provider = case
         .get("provider")
         .and_then(Value::as_str)
@@ -85,27 +81,17 @@ async fn load_image_generation(
     runtime: &ExtensionRuntime,
     options: ImageGenerationToolOptions,
 ) -> pi_coding_agent::core::extensions::Extension {
-    support::extension(
-        runtime,
-        "/repo",
-        "<first-party:codex-image-generation>",
-        move |pi| {
-            pi_coding_agent::bundled_extensions::codex_image_generation::codex_image_generation_extension(
-                pi, &options,
-            )
+    support::extension(runtime, "/repo", "<first-party:codex-image-generation>", move |pi| {
+        pi_coding_agent::bundled_extensions::codex_image_generation::codex_image_generation_extension(pi, &options)
             .expect("image generation extension")
-        },
-    )
+    })
     .await
 }
 
 async fn run_web_execute(case: &Value) -> Value {
     let captured: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
     let capture = Arc::clone(&captured);
-    let run_error = case
-        .get("runError")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
+    let run_error = case.get("runError").and_then(Value::as_str).map(str::to_owned);
     let run_result = case
         .get("runResult")
         .and_then(Value::as_str)
@@ -177,10 +163,7 @@ async fn run_web_execute(case: &Value) -> Value {
 async fn run_image_execute(case: &Value) -> Value {
     let captured: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
     let capture = Arc::clone(&captured);
-    let run_error = case
-        .get("runError")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
+    let run_error = case.get("runError").and_then(Value::as_str).map(str::to_owned);
     let run_generation: RunImageGeneration = Arc::new(move |request: ImageGenerationRequest, _ctx| {
         *capture.lock().unwrap() = Some(json!({
             "prompt": request.prompt,
@@ -204,11 +187,7 @@ async fn run_image_execute(case: &Value) -> Value {
         },
     )
     .await;
-    let cwd = case
-        .get("cwd")
-        .and_then(Value::as_str)
-        .unwrap_or("/tmp")
-        .to_owned();
+    let cwd = case.get("cwd").and_then(Value::as_str).unwrap_or("/tmp").to_owned();
     let mut options = HarnessOptions::new(&cwd);
     let model_case = case.get("model").cloned().unwrap_or(Value::Null);
     options.model = Some(model(&model_case));
@@ -257,16 +236,12 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
     for case in cases {
         let kind = case.get("kind").and_then(Value::as_str).unwrap_or_default();
         let mut output = Map::new();
-        output.insert(
-            "name".to_owned(),
-            case.get("name").cloned().unwrap_or(Value::Null),
-        );
+        output.insert("name".to_owned(), case.get("name").cloned().unwrap_or(Value::Null));
         match kind {
             "web_payload" => {
                 output.insert(
                     "value".to_owned(),
-                    add_web_search_tool_to_payload(case.get("payload").unwrap_or(&Value::Null))
-                        .unwrap_or(Value::Null),
+                    add_web_search_tool_to_payload(case.get("payload").unwrap_or(&Value::Null)).unwrap_or(Value::Null),
                 );
             }
             "image_payload" => {
@@ -359,8 +334,7 @@ async fn differential_codex_hosted_tools() {
     let mut ts = TsOracle::spawn("codex-hosted-tools-oracle.ts", SOURCE);
     let response = ts.request(&json!({"id": 1, "operation": "cases", "cases": cases}));
     assert_eq!(response["ok"], true, "oracle failed: {response}");
-    let expected: Vec<Value> =
-        serde_json::from_value(response["output"]["results"].clone()).expect("oracle results");
+    let expected: Vec<Value> = serde_json::from_value(response["output"]["results"].clone()).expect("oracle results");
     let actual = rust_results(&cases).await;
     assert_eq!(actual.len(), expected.len());
     for (index, (actual, expected)) in actual.iter().zip(expected.iter()).enumerate() {

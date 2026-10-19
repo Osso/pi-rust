@@ -152,10 +152,8 @@ pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &Sma
     registry.register(
         "<first-party:claude-bash-hook>",
         Arc::new(|pi| {
-            let result = claude_bash_hook::claude_bash_hook_extension(
-                pi,
-                &claude_bash_hook::ClaudeBashHookOptions::default(),
-            );
+            let result =
+                claude_bash_hook::claude_bash_hook_extension(pi, &claude_bash_hook::ClaudeBashHookOptions::default());
             Box::pin(async move { result })
         }),
     );
@@ -182,9 +180,7 @@ pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &Sma
     registry.register("<first-party:codex-usage>", {
         let fetch = options.fetch.clone();
         Arc::new(move |pi| {
-            let options = codex_usage::CodexUsageOptions {
-                fetch: fetch.clone(),
-            };
+            let options = codex_usage::CodexUsageOptions { fetch: fetch.clone() };
             let result = codex_usage::codex_usage_extension(pi, &options);
             Box::pin(async move { result })
         })
@@ -192,10 +188,8 @@ pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &Sma
     registry.register(
         "<first-party:codex-web-search>",
         Arc::new(|pi| {
-            let result = codex_web_search::codex_web_search_extension(
-                pi,
-                &codex_web_search::WebSearchToolOptions::default(),
-            );
+            let result =
+                codex_web_search::codex_web_search_extension(pi, &codex_web_search::WebSearchToolOptions::default());
             Box::pin(async move { result })
         }),
     );

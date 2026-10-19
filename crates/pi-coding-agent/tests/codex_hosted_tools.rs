@@ -1,10 +1,10 @@
 //! Behavioral tests for the bundled `codex-web-search` and
 //! `codex-image-generation` extensions.
 
-#[path = "support/extensions.rs"]
-mod support;
 #[path = "support/bundled.rs"]
 mod bundled;
+#[path = "support/extensions.rs"]
+mod support;
 
 use std::sync::{Arc, Mutex};
 
@@ -41,10 +41,7 @@ fn text_of(result: &pi_agent_core::AgentToolResult) -> String {
     text.text.clone()
 }
 
-async fn load_web_search(
-    runtime: &ExtensionRuntime,
-    options: WebSearchToolOptions,
-) -> Extension {
+async fn load_web_search(runtime: &ExtensionRuntime, options: WebSearchToolOptions) -> Extension {
     support::extension(runtime, "/repo", "<first-party:codex-web-search>", move |pi| {
         pi_coding_agent::bundled_extensions::codex_web_search::codex_web_search_extension(pi, &options)
             .expect("web search extension")
@@ -52,21 +49,11 @@ async fn load_web_search(
     .await
 }
 
-async fn load_image_gen(
-    runtime: &ExtensionRuntime,
-    options: ImageGenerationToolOptions,
-) -> Extension {
-    support::extension(
-        runtime,
-        "/repo",
-        "<first-party:codex-image-generation>",
-        move |pi| {
-            pi_coding_agent::bundled_extensions::codex_image_generation::codex_image_generation_extension(
-                pi, &options,
-            )
+async fn load_image_gen(runtime: &ExtensionRuntime, options: ImageGenerationToolOptions) -> Extension {
+    support::extension(runtime, "/repo", "<first-party:codex-image-generation>", move |pi| {
+        pi_coding_agent::bundled_extensions::codex_image_generation::codex_image_generation_extension(pi, &options)
             .expect("image generation extension")
-        },
-    )
+    })
     .await
 }
 
@@ -132,9 +119,7 @@ fn image_generation_payload_injection_matches_source() {
         }))
     );
     assert_eq!(
-        add_image_generation_tool_to_payload(
-            &json!({"tools": [{"type": "image_generation", "output_format": "png"}]})
-        ),
+        add_image_generation_tool_to_payload(&json!({"tools": [{"type": "image_generation", "output_format": "png"}]})),
         None
     );
 }
@@ -308,10 +293,7 @@ async fn web_search_times_out_with_source_message() {
     tokio::time::advance(std::time::Duration::from_millis(10)).await;
     tokio::task::yield_now().await;
     let error = handle.await.expect("join").unwrap_err();
-    assert_eq!(
-        error.message,
-        "OpenAI hosted web_search timed out after 10ms"
-    );
+    assert_eq!(error.message, "OpenAI hosted web_search timed out after 10ms");
     assert!(
         captured_signal
             .lock()
@@ -409,9 +391,7 @@ async fn image_generation_saves_png_and_returns_content() {
     let output = tempfile::tempdir().expect("temp dir");
     let run_generation: RunImageGeneration = Arc::new(|request, _ctx| {
         assert_eq!(request.prompt, "A simple blue circle");
-        Box::pin(async {
-            Ok(ImageContent::new("aW1hZ2U=", "image/png"))
-        })
+        Box::pin(async { Ok(ImageContent::new("aW1hZ2U=", "image/png")) })
     });
     let runtime = create_extension_runtime();
     let extension = load_image_gen(

@@ -32,9 +32,7 @@ pub struct ImageGenerationRequest {
 }
 
 pub type RunImageGeneration = Arc<
-    dyn Fn(ImageGenerationRequest, ExtensionContext) -> BoxFuture<'static, Result<ImageContent, String>>
-        + Send
-        + Sync,
+    dyn Fn(ImageGenerationRequest, ExtensionContext) -> BoxFuture<'static, Result<ImageContent, String>> + Send + Sync,
 >;
 
 #[derive(Clone, Default)]
@@ -62,10 +60,7 @@ pub fn add_image_generation_tool_to_payload(payload: &Value) -> Option<Value> {
         .filter(|tool| !is_function_image_generation_tool(tool))
         .cloned()
         .collect();
-    if tools_without_function
-        .iter()
-        .any(is_hosted_image_generation_tool)
-    {
+    if tools_without_function.iter().any(is_hosted_image_generation_tool) {
         if tools_without_function.len() == tools.len() {
             return None;
         }
@@ -119,12 +114,7 @@ async fn execute_image_generation(
     run_generation: &RunImageGeneration,
     timeout_ms: u64,
 ) -> Result<ImageContent, HandlerError> {
-    let prompt = js_trim(
-        params
-            .get("prompt")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-    );
+    let prompt = js_trim(params.get("prompt").and_then(Value::as_str).unwrap_or_default());
     if prompt.is_empty() {
         return Err(HandlerError::new("image_gen prompt is required"));
     }
@@ -137,10 +127,7 @@ async fn execute_image_generation(
     let auth = ctx.model_registry()?.get_api_key_and_headers(&model).await;
     let (api_key, headers, env) = match auth {
         ResolvedRequestAuth::Ok {
-            api_key,
-            headers,
-            env,
-            ..
+            api_key, headers, env, ..
         } => (api_key, headers, env),
         ResolvedRequestAuth::Err { error } => return Err(HandlerError::new(error)),
     };
@@ -166,10 +153,7 @@ async fn execute_image_generation(
 fn save_generated_image(image: &ImageContent, cwd: &str) -> Result<String, HandlerError> {
     let mut random = [0u8; 8];
     getrandom::fill(&mut random).expect("OS random source must be available");
-    let name = random
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let name = random.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
     let output_path = Path::new(cwd).join(format!("image-gen-{name}.png"));
     let bytes = pi_js_compat::base64::buffer_from_base64(&image.data);
     let mut file = std::fs::OpenOptions::new()
@@ -228,12 +212,11 @@ async fn run_hosted_image_generation(request: ImageGenerationRequest) -> Result<
 }
 
 pub fn create_image_generation_tool_definition(options: &ImageGenerationToolOptions) -> ToolDefinition {
-    let run_generation = options.run_generation.clone().unwrap_or_else(|| {
-        Arc::new(|request, _ctx| Box::pin(run_hosted_image_generation(request)))
-    });
-    let timeout_ms = options
-        .timeout_ms
-        .unwrap_or(DEFAULT_IMAGE_GENERATION_TIMEOUT_MS);
+    let run_generation = options
+        .run_generation
+        .clone()
+        .unwrap_or_else(|| Arc::new(|request, _ctx| Box::pin(run_hosted_image_generation(request))));
+    let timeout_ms = options.timeout_ms.unwrap_or(DEFAULT_IMAGE_GENERATION_TIMEOUT_MS);
     ToolDefinition {
         name: "image_gen".to_owned(),
         label: "Image Generation".to_owned(),
@@ -241,8 +224,7 @@ pub fn create_image_generation_tool_definition(options: &ImageGenerationToolOpti
         prompt_snippet: Some("Generate an image from a detailed prompt.".to_owned()),
         prompt_guidelines: Some(vec![
             "Use image_gen when the user asks to create a new image.".to_owned(),
-            "Describe composition, subject, style, lighting, palette, and constraints in the prompt."
-                .to_owned(),
+            "Describe composition, subject, style, lighting, palette, and constraints in the prompt.".to_owned(),
         ]),
         approval_required: Some(true),
         approval_kind: None,
@@ -268,9 +250,7 @@ pub fn create_image_generation_tool_definition(options: &ImageGenerationToolOpti
                 let output_path = save_generated_image(&image, &ctx.cwd()?)?;
                 Ok(AgentToolResult {
                     content: vec![
-                        TextOrImageContent::Text(TextContent::new(format!(
-                            "Generated image: {output_path}"
-                        ))),
+                        TextOrImageContent::Text(TextContent::new(format!("Generated image: {output_path}"))),
                         TextOrImageContent::Image(image),
                     ],
                     details: None,
@@ -300,8 +280,7 @@ pub fn register(registry: &mut crate::core::extensions::loader::ExtensionRegistr
     registry.register(
         "<first-party:codex-image-generation>",
         Arc::new(|pi| {
-            let result =
-                codex_image_generation_extension(pi, &ImageGenerationToolOptions::default());
+            let result = codex_image_generation_extension(pi, &ImageGenerationToolOptions::default());
             Box::pin(async move { result })
         }),
     );

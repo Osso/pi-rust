@@ -49,8 +49,7 @@ pub struct DefaultFooterSelectedAgent {
 pub struct DefaultFooterComponentInput {
     pub ctx: ExtensionContext,
     pub footer_data: Arc<FooterDataProvider>,
-    pub get_agent_counts:
-        Option<Arc<dyn Fn() -> Option<DefaultFooterAgentLifecycleCounts> + Send + Sync>>,
+    pub get_agent_counts: Option<Arc<dyn Fn() -> Option<DefaultFooterAgentLifecycleCounts> + Send + Sync>>,
     pub get_selected_agent: Option<Arc<dyn Fn() -> Option<DefaultFooterSelectedAgent> + Send + Sync>>,
     pub theme: Arc<Theme>,
 }
@@ -76,11 +75,14 @@ fn footer_session(input: &DefaultFooterComponentInput) -> Result<FooterSessionOv
         session_manager: Some(session_manager),
         model: input.ctx.model()?,
         thinking_level: input.ctx.get_thinking_level()?.as_str().to_owned(),
-        context_usage: input.ctx.get_context_usage()?.map(|usage| crate::core::footer_data_provider::ContextUsage {
-            tokens: usage.tokens,
-            context_window: usage.context_window,
-            percent: usage.percent,
-        }),
+        context_usage: input
+            .ctx
+            .get_context_usage()?
+            .map(|usage| crate::core::footer_data_provider::ContextUsage {
+                tokens: usage.tokens,
+                context_window: usage.context_window,
+                percent: usage.percent,
+            }),
     })
 }
 
@@ -114,10 +116,7 @@ fn format_agent_lifecycle(lifecycle: AgentLifecycle) -> String {
 
 fn format_selected_agent(agent: Option<DefaultFooterSelectedAgent>) -> Option<String> {
     let agent = agent?;
-    let slot = agent
-        .slot_index
-        .map(|index| format!(" #{index}"))
-        .unwrap_or_default();
+    let slot = agent.slot_index.map(|index| format!(" #{index}")).unwrap_or_default();
     Some(sanitize_footer_status_text(&format!(
         "selected{slot} {} {}",
         agent.display_name,
@@ -213,11 +212,7 @@ fn format_stats(input: &DefaultFooterComponentInput) -> Result<String, HandlerEr
     }
     parts.push(Some(format_context_usage(&session, &input.theme)));
 
-    Ok(parts
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" "))
+    Ok(parts.into_iter().flatten().collect::<Vec<_>>().join(" "))
 }
 
 fn format_right_side(input: &DefaultFooterComponentInput) -> Result<String, HandlerError> {
@@ -233,7 +228,11 @@ fn format_right_side(input: &DefaultFooterComponentInput) -> Result<String, Hand
         _ => String::new(),
     };
     if input.footer_data.get_available_provider_count() > 1 && session.model.is_some() {
-        let provider = session.model.as_ref().map(|model| model.provider.as_str()).unwrap_or_default();
+        let provider = session
+            .model
+            .as_ref()
+            .map(|model| model.provider.as_str())
+            .unwrap_or_default();
         return Ok(format!("({provider}) {model_name}{effort_suffix}"));
     }
     Ok(format!("{model_name}{effort_suffix}"))
@@ -371,40 +370,43 @@ pub fn default_footer_extension(
     let store = options.multi_agent_store.clone();
     pi.on_session_start(
         move |_event, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
-        let store = store.clone();
-        Box::pin(async move {
-            let ui = ctx.ui()?;
-            let factory: ExtensionUiFooterFactory = {
-                let ctx = ctx.clone();
-                let store = store.clone();
-                Arc::new(move |footer: ExtensionUiFooterContext| -> Box<dyn ExtensionUiComponent> {
-                    let tui = footer.tui.clone();
-                    let unsubscribe = footer.footer_data.on_branch_change(move || tui.request_render());
-                    let get_agent_counts = store.clone().map(|store| {
-                        let store = Arc::clone(&store);
-                        Arc::new(move || Some(count_default_footer_agents(&store)))
-                            as Arc<dyn Fn() -> Option<DefaultFooterAgentLifecycleCounts> + Send + Sync>
-                    });
-                    let get_selected_agent = store.clone().map(|store| {
-                        let store = Arc::clone(&store);
-                        Arc::new(move || selected_agent_for_footer(&store))
-                            as Arc<dyn Fn() -> Option<DefaultFooterSelectedAgent> + Send + Sync>
-                    });
-                    let footer_data = Arc::new(footer.footer_data.clone());
-                    let component = create_default_footer_component(DefaultFooterComponentInput {
-                        ctx: ctx.clone(),
-                        footer_data,
-                        get_agent_counts,
-                        get_selected_agent,
-                        theme: Arc::clone(&footer.theme),
-                    });
-                    component.add_branch_change_subscription(unsubscribe);
-                    Box::new(component)
-                })
-            };
-            ui.set_default_footer(Some(factory));
-            Ok(None)
-        })
-    })?;
+            let store = store.clone();
+            Box::pin(async move {
+                let ui = ctx.ui()?;
+                let factory: ExtensionUiFooterFactory = {
+                    let ctx = ctx.clone();
+                    let store = store.clone();
+                    Arc::new(
+                        move |footer: ExtensionUiFooterContext| -> Box<dyn ExtensionUiComponent> {
+                            let tui = footer.tui.clone();
+                            let unsubscribe = footer.footer_data.on_branch_change(move || tui.request_render());
+                            let get_agent_counts = store.clone().map(|store| {
+                                let store = Arc::clone(&store);
+                                Arc::new(move || Some(count_default_footer_agents(&store)))
+                                    as Arc<dyn Fn() -> Option<DefaultFooterAgentLifecycleCounts> + Send + Sync>
+                            });
+                            let get_selected_agent = store.clone().map(|store| {
+                                let store = Arc::clone(&store);
+                                Arc::new(move || selected_agent_for_footer(&store))
+                                    as Arc<dyn Fn() -> Option<DefaultFooterSelectedAgent> + Send + Sync>
+                            });
+                            let footer_data = Arc::new(footer.footer_data.clone());
+                            let component = create_default_footer_component(DefaultFooterComponentInput {
+                                ctx: ctx.clone(),
+                                footer_data,
+                                get_agent_counts,
+                                get_selected_agent,
+                                theme: Arc::clone(&footer.theme),
+                            });
+                            component.add_branch_change_subscription(unsubscribe);
+                            Box::new(component)
+                        },
+                    )
+                };
+                ui.set_default_footer(Some(factory));
+                Ok(None)
+            })
+        },
+    )?;
     Ok(())
 }

@@ -42,9 +42,7 @@ pub struct WebSearchToolOptions {
 }
 
 pub fn is_openai_hosted_web_search_model(model: Option<&Model>) -> bool {
-    model.is_some_and(|model| {
-        model.api == "openai-responses" || model.api == "openai-codex-responses"
-    })
+    model.is_some_and(|model| model.api == "openai-responses" || model.api == "openai-codex-responses")
 }
 
 pub fn add_web_search_tool_to_payload(payload: &Value) -> Option<Value> {
@@ -112,32 +110,20 @@ async fn execute_web_search(
     run_search: &RunWebSearch,
     timeout_ms: u64,
 ) -> Result<String, HandlerError> {
-    let query = js_trim(
-        params
-            .get("query")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-    );
+    let query = js_trim(params.get("query").and_then(Value::as_str).unwrap_or_default());
     if query.is_empty() {
         return Err(HandlerError::new("web_search query is required"));
     }
     let Some(model) = ctx.model()? else {
-        return Err(HandlerError::new(
-            "web_search requires an OpenAI Responses model",
-        ));
+        return Err(HandlerError::new("web_search requires an OpenAI Responses model"));
     };
     if !is_openai_hosted_web_search_model(Some(&model)) {
-        return Err(HandlerError::new(
-            "web_search requires an OpenAI Responses model",
-        ));
+        return Err(HandlerError::new("web_search requires an OpenAI Responses model"));
     }
     let auth = ctx.model_registry()?.get_api_key_and_headers(&model).await;
     let (api_key, headers, env) = match auth {
         ResolvedRequestAuth::Ok {
-            api_key,
-            headers,
-            env,
-            ..
+            api_key, headers, env, ..
         } => (api_key, headers, env),
         ResolvedRequestAuth::Err { error } => return Err(HandlerError::new(error)),
     };
@@ -307,24 +293,21 @@ pub fn create_web_search_tool_definition(options: &WebSearchToolOptions) -> Tool
 }
 
 /// Bundled `codex-web-search` extension.
-pub fn codex_web_search_extension(
-    pi: &ExtensionApi,
-    options: &WebSearchToolOptions,
-) -> Result<(), HandlerError> {
+pub fn codex_web_search_extension(pi: &ExtensionApi, options: &WebSearchToolOptions) -> Result<(), HandlerError> {
     pi.register_tool(create_web_search_tool_definition(options))
         .map_err(HandlerError::new)?;
     pi.on_before_provider_request(
-        move |event: BeforeProviderRequestEvent, ctx: ExtensionContext| -> BoxFuture<
-            'static,
-            Result<Option<Value>, HandlerError>,
-        > {
-        Box::pin(async move {
-            if !is_openai_hosted_web_search_model(ctx.model()?.as_ref()) {
-                return Ok(None);
-            }
-            Ok(add_web_search_tool_to_payload(&event.payload))
-        })
-    })
+        move |event: BeforeProviderRequestEvent,
+              ctx: ExtensionContext|
+              -> BoxFuture<'static, Result<Option<Value>, HandlerError>> {
+            Box::pin(async move {
+                if !is_openai_hosted_web_search_model(ctx.model()?.as_ref()) {
+                    return Ok(None);
+                }
+                Ok(add_web_search_tool_to_payload(&event.payload))
+            })
+        },
+    )
     .map_err(HandlerError::new)?;
     Ok(())
 }

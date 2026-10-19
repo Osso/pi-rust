@@ -12,19 +12,19 @@ use std::sync::{Arc, Mutex};
 use bundled::{Harness, HarnessOptions};
 use oracle::TsOracle;
 use pi_agent_core::harness::ThinkingLevel;
+use pi_ai::types::{Model, ModelCost, ModelCostRates};
 use pi_coding_agent::bundled_extensions::default_footer::{
     DefaultFooterAgentLifecycleCounts, DefaultFooterComponentInput, DefaultFooterSelectedAgent,
     create_default_footer_component,
 };
-use pi_coding_agent::core::extensions::types::{ContextUsage, ExtensionUiComponent};
 use pi_coding_agent::core::extensions::create_extension_runtime;
+use pi_coding_agent::core::extensions::types::{ContextUsage, ExtensionUiComponent};
 use pi_coding_agent::core::footer_data_provider::{
     ContextUsage as FooterContextUsage, FooterDataProvider, FooterSessionOverride,
 };
 use pi_coding_agent::core::multi_agent_store::AgentLifecycle;
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::modes::interactive::theme::current_theme_if_initialized;
-use pi_ai::types::{Model, ModelCost, ModelCostRates};
 use serde_json::{Value, json};
 
 const SOURCE: &str = "packages/coding-agent/extensions/default-footer/src/index.ts";
@@ -113,20 +113,14 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                 percent: usage.get("percent").and_then(Value::as_f64),
             })
         });
-        let model_value = case
-            .get("model")
-            .and_then(|value| value.as_object())
-            .map(|value| {
-                model(
-                    value.get("id").and_then(Value::as_str).unwrap_or("test-model"),
-                    value.get("provider").and_then(Value::as_str).unwrap_or("test"),
-                    value
-                        .get("contextWindow")
-                        .and_then(Value::as_f64)
-                        .unwrap_or(272_000.0),
-                    value.get("reasoning").and_then(Value::as_bool).unwrap_or(false),
-                )
-            });
+        let model_value = case.get("model").and_then(|value| value.as_object()).map(|value| {
+            model(
+                value.get("id").and_then(Value::as_str).unwrap_or("test-model"),
+                value.get("provider").and_then(Value::as_str).unwrap_or("test"),
+                value.get("contextWindow").and_then(Value::as_f64).unwrap_or(272_000.0),
+                value.get("reasoning").and_then(Value::as_bool).unwrap_or(false),
+            )
+        });
         let thinking_level = match case.get("thinkingLevel").and_then(Value::as_str) {
             Some("high") => ThinkingLevel::High,
             _ => ThinkingLevel::Off,
@@ -139,19 +133,15 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
         options.context_usage = context_usage;
         let harness = Harness::new(Vec::new(), runtime, options).await;
 
-        let footer_data = Arc::new(FooterDataProvider::new(if case
-            .get("gitBranch")
-            .and_then(Value::as_str)
-            .is_some()
-        {
-            git_fixture_dir()
-        } else {
-            non_git_dir()
-        }));
+        let footer_data = Arc::new(FooterDataProvider::new(
+            if case.get("gitBranch").and_then(Value::as_str).is_some() {
+                git_fixture_dir()
+            } else {
+                non_git_dir()
+            },
+        ));
         footer_data.set_available_provider_count(
-            case.get("availableProviderCount")
-                .and_then(Value::as_u64)
-                .unwrap_or(1) as usize,
+            case.get("availableProviderCount").and_then(Value::as_u64).unwrap_or(1) as usize,
         );
         if let Some(statuses) = case.get("extensionStatuses").and_then(Value::as_object) {
             for (key, text) in statuses {
@@ -159,8 +149,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
             }
         }
         if let Some(override_value) = case.get("override") {
-            let mut override_session =
-                SessionManager::in_memory(Some("/tmp/child"), None).expect("child session");
+            let mut override_session = SessionManager::in_memory(Some("/tmp/child"), None).expect("child session");
             let override_usage = override_value.get("usage").cloned().unwrap_or_else(|| json!({}));
             override_session
                 .append_message(assistant_message(
@@ -170,9 +159,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                 ))
                 .expect("child assistant");
             if let Some(name) = override_value.get("sessionName").and_then(Value::as_str) {
-                override_session
-                    .append_session_info(name)
-                    .expect("child session name");
+                override_session.append_session_info(name).expect("child session name");
             }
             let override_model = override_value.get("model").and_then(|value| {
                 Some(model(
