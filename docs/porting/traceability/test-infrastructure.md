@@ -86,8 +86,8 @@ timers that keep the event loop alive after stdin EOF.
 `bundled_extensions_context.rs` mutated the process-global `pi_js_compat::process_env` overlay
 (`PI_CLAUDE_MEMORY`, `XDG_CACHE_HOME`) in two tests that ran concurrently; one test's `clear()` could
 make the other spawn the real `claude-memory` CLI, producing a huge, environment-dependent enrichment
-string against the oracle's `Null`. A `static Mutex` (`ENV_LOCK`) now serializes the two env-mutating
-tests. Not caused by the errno/watchdog changes, but it blocked the required 20× parallel proof.
+string against the oracle's `Null`. A static async mutex (`ENV_LOCK`) now serializes the two
+env-mutating tests. Not caused by the errno/watchdog changes, but it blocked the required 20× parallel proof.
 
 ## 5. Non-UTF-8 environment entries
 
