@@ -4659,6 +4659,43 @@ fn read_pipe_text(pipe: Option<impl std::io::Read>) -> String {
     text
 }
 
+struct GhGistRun {
+    status: std::process::ExitStatus,
+    stdout: String,
+    stderr: String,
+}
+
+async fn run_gh_gist(
+    gh_program: &str,
+    tmp_path: &str,
+    pid: &std::sync::atomic::AtomicU32,
+) -> Result<GhGistRun, String> {
+    let mut child = std::process::Command::new(gh_program)
+        .args(["gist", "create", "--public=false", tmp_path])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|error| node_spawn_error_message("gh", &error))?;
+    pid.store(child.id(), std::sync::atomic::Ordering::SeqCst);
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let stdout_task = tokio::task::spawn_blocking(move || read_pipe_text(stdout));
+    let stderr_task = tokio::task::spawn_blocking(move || read_pipe_text(stderr));
+    let wait_task = tokio::task::spawn_blocking(move || child.wait());
+    let (stdout, stderr, status) = tokio::join!(stdout_task, stderr_task, wait_task);
+    pid.store(0, std::sync::atomic::Ordering::SeqCst);
+    let status = match status {
+        Ok(Ok(status)) => status,
+        Ok(Err(error)) => return Err(node_spawn_error_message("gh", &error)),
+        Err(error) => return Err(error.to_string()),
+    };
+    Ok(GhGistRun {
+        status,
+        stdout: stdout.unwrap_or_default(),
+        stderr: stderr.unwrap_or_default(),
+    })
+}
+
 fn node_spawn_error_message(command: &str, error: &std::io::Error) -> String {
     match error.kind() {
         std::io::ErrorKind::NotFound => format!("spawn {command} ENOENT"),
@@ -6641,59 +6678,23 @@ impl InteractiveMode {
             });
         })));
 
-        let mut command = std::process::Command::new(gh_program);
-        command
-            .args(["gist", "create", "--public=false", &tmp_path])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(error) => {
+        let run = match run_gh_gist(gh_program, &tmp_path, &pid).await {
+            Ok(run) => run,
+            Err(message) => {
                 if !signal.is_cancelled() {
-                    self.restore_editor();
-                    loader.borrow_mut().dispose();
-                    let _ = std::fs::remove_file(&tmp_path);
-                    self.show_error(&format!(
-                        "Failed to create gist: {}",
-                        node_spawn_error_message("gh", &error)
-                    ));
+                    self.finish_share_loader(&loader, &tmp_path);
+                    self.show_error(&format!("Failed to create gist: {message}"));
                 }
                 return;
             }
         };
-        pid.store(child.id(), std::sync::atomic::Ordering::SeqCst);
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        let stdout_task = tokio::task::spawn_blocking(move || read_pipe_text(stdout));
-        let stderr_task = tokio::task::spawn_blocking(move || read_pipe_text(stderr));
-        let wait_task = tokio::task::spawn_blocking(move || child.wait());
-        let (stdout, stderr, status) = tokio::join!(stdout_task, stderr_task, wait_task);
-        pid.store(0, std::sync::atomic::Ordering::SeqCst);
         if signal.is_cancelled() {
             return;
         }
-        self.restore_editor();
-        loader.borrow_mut().dispose();
-        let _ = std::fs::remove_file(&tmp_path);
+        self.finish_share_loader(&loader, &tmp_path);
 
-        let status = match status {
-            Ok(Ok(status)) => status,
-            Ok(Err(error)) => {
-                self.show_error(&format!(
-                    "Failed to create gist: {}",
-                    node_spawn_error_message("gh", &error)
-                ));
-                return;
-            }
-            Err(error) => {
-                self.show_error(&format!("Failed to create gist: {error}"));
-                return;
-            }
-        };
-        let stdout = stdout.ok().unwrap_or_default();
-        let stderr = stderr.ok().unwrap_or_default();
-        if !status.success() {
-            let error_message = match stderr.trim() {
+        if !run.status.success() {
+            let error_message = match run.stderr.trim() {
                 "" => "Unknown error",
                 message => message,
             };
@@ -6701,6 +6702,7 @@ impl InteractiveMode {
             return;
         }
 
+        let stdout = run.stdout;
         let gist_url = stdout.trim().to_owned();
         let gist_id = gist_url.split('/').next_back().filter(|id| !id.is_empty());
         let Some(gist_id) = gist_id else {
@@ -6709,6 +6711,12 @@ impl InteractiveMode {
         };
         let preview_url = crate::config::get_share_viewer_url(gist_id);
         self.show_status(&format!("Share URL: {preview_url}\nGist: {gist_url}"));
+    }
+
+    fn finish_share_loader(&self, loader: &Rc<RefCell<BorderedLoader>>, tmp_path: &str) {
+        self.restore_editor();
+        loader.borrow_mut().dispose();
+        let _ = std::fs::remove_file(tmp_path);
     }
 
     async fn handle_copy_command(&self, flash_confirmation: bool) {
