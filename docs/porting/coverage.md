@@ -268,7 +268,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/fuzzy.ts` | 161 | 0 | done | `crates/pi-tui/src/fuzzy.rs` | exact score-bit differential |
 | `tui/src/keys.ts` | 1404 | 0 | done | `crates/pi-tui/src/keys.rs` | differential legacy/Kitty/modifyOther matrix; Key helper gap |
 | `tui/src/kill-ring.ts` | 46 | 0 | done | `crates/pi-tui/src/kill_ring.rs` | differential ring operations |
-| `tui/src/native-modifiers.ts` | 66 | 0 | partial | `crates/pi-tui/src/native_modifiers.rs` | constant false; Node N-API addon path unported (gap) |
+| `tui/src/native-modifiers.ts` | 66 | 0 | gap | `crates/pi-tui/src/native_modifiers.rs` | Linux behavior identical (no native helper → `false`); macOS/Windows N-API modifier addons not ported — user-approved Linux-only parity 2026-10-19. |
 | `tui/src/stdin-buffer.ts` | 444 | 0 | done | `crates/pi-tui/src/stdin_buffer.rs` | differential chunk/paste matrix; driver-owned timer API |
 | `tui/src/terminal-colors.ts` | 73 | 0 | done | `crates/pi-tui/src/terminal_colors.rs` | differential parse matrix; TUI query method out of leaf scope |
 | `tui/src/terminal-image.ts` | 657 | 0 | done | `crates/pi-tui/src/terminal_image.rs` + `pi-js-compat` Base64 | differential encode/detect/render/placement/dimensions; WebP <30 source bug preserved |
@@ -375,7 +375,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/goal/src/goal-objective.ts` | 14 | 0 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_objective.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
 | `coding-agent/extensions/goal/src/stale-context.ts` | 5 | 0 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/stale_context.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
 | `coding-agent/extensions/pyrun/src/runner.ts` | 311 | 0 | done | `crates/pi-coding-agent/src/bundled_extensions/pyrun/runner.rs` | Behavioral `pyrun_extension`/`detached_pyrun`; differential `differential_pyrun`; traceability `pyrun-extension.md`. |
-| `coding-agent/src/bun/restore-sandbox-env.ts` | 36 | 0 | gap | — | Bun-only workaround for oven-sh/bun#27802 (empty `process.env` in sandboxes); Rust has no Bun runtime and no empty-env bug to repair. |
+| `coding-agent/src/bun/restore-sandbox-env.ts` | 36 | 0 | gap | — | Bun-only workaround for oven-sh/bun#27802 (empty `process.env` in sandboxes); Rust has no Bun runtime and no empty-env bug to repair. User-approved gap 2026-10-19. |
 | `coding-agent/src/cli/experimental/auth.ts` | 21 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/auth.rs` | Token/file auth source parsing; differential `27007`. |
 | `coding-agent/src/cli/experimental/command.ts` | 205 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/command.rs` | Typed command/option/subcommand parser; differential `27010`; programmer throws return `CommandError` ([throw-audit](porting/traceability/throw-audit.md)). |
 | `coding-agent/src/cli/experimental/transport-address.ts` | 48 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/transport_address.rs` | Unix transport address validation; differential `27009`. |
@@ -440,7 +440,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/exif-orientation.ts` | 183 | 1 | done | `crates/pi-coding-agent/src/utils/exif_orientation.rs` | Differential 27100 (25 fixtures, orientations 1-8 LE/BE JPEG + WebP); matches upstream 098356ef6 bounds fix |
 | `coding-agent/src/utils/git-project.ts` | 13 | 1 | done | `crates/pi-coding-agent/src/utils/git_project.rs` | Real git repository tests |
 | `coding-agent/src/utils/paths.ts` | 139 | 1 | done | `crates/pi-coding-agent/src/utils/paths.rs` | Differential 26009 (76 cases); focused tests |
-| `coding-agent/src/utils/syntax-highlight.ts` | 146 | 1 | complete | `crates/pi-coding-agent/src/utils/syntax_highlight/` | render + engine; all 189 generated grammars raw-differentialed; themed cases per grammar |
+| `coding-agent/src/utils/syntax-highlight.ts` | 146 | 1 | done | `crates/pi-coding-agent/src/utils/syntax_highlight/` | render + engine; all 189 generated grammars raw-differentialed; themed cases per grammar |
 | `coding-agent/src/utils/version-check.ts` | 109 | 1 | done | `crates/pi-coding-agent/src/utils/version_check.rs` | Differential 676 semver pairs + 676 newer checks + error fixtures; injected-Fetch release tests |
 | `coding-agent/src/config.ts` | 595 | 2 | done | `crates/pi-coding-agent/src/config.rs` | Compiled-binary runtime mapping (PI_PACKAGE_DIR/exe dir); embedded package.json without override; install branches via injected context; differential config oracle (4 path + 13 install scenarios); package load errors carry Node text ([traceability](porting/traceability/config.md)) |
 | `coding-agent/src/core/model-config.ts` | 298 | 2 | done | `crates/pi-coding-agent/src/core/model_config.rs` | TypeBox-equivalent schema via the shared validation engine; differential 21 fixtures (provider maps + exact error text) |

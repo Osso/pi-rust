@@ -6,6 +6,7 @@
 - Extensions are Rust-native: bundled extensions are ported to a Rust extension API; loading TypeScript extensions is an approved deviation (2026-10-18).
 - `packages/ai/src/cli.ts` (`pi-ai` bin) is a gap (2026-10-18).
 - `grok-mermaid` (third-party) is not ported; mermaid.ts is a gap, mermaid blocks render as code (2026-10-18).
+- `bun/restore-sandbox-env.ts` is a gap (Bun-only bug); `tui/native-modifiers.ts` has Linux-only parity, macOS/Windows addons are a gap (2026-10-19).
 - Without `PI_PACKAGE_DIR`, `package.json` and the built-in themes are embedded in the binary (approved deviation 2026-10-18).
 - `toLocaleString()` number grouping is pinned to en-US regardless of host locale (approved deviation 2026-10-19).
 - Word segmentation uses ICU4X; CJK/Thai dictionary-word mismatches vs Node ICU are an approved deviation (2026-10-18).
