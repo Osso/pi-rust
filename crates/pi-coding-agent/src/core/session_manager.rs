@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::config::{get_agent_dir, get_sessions_dir};
+use crate::core::permissions::presets::SandboxProfileName;
 use crate::core::session_control_db::{
     SessionMetadata, WritableSessionMetadata, clear_session_sandbox_profile, list_active_session_metadata,
     list_archived_session_metadata, list_session_metadata, read_session_goal, read_session_metadata,
@@ -2634,27 +2635,23 @@ impl SessionManager {
         write_session_thinking_level(control_db_path, session_file, thinking_level).map_err(control_db_error)
     }
 
-    /// `setSessionSandboxProfile`. Returns `false` when no control database or
-    /// session file is attached.
+    /// `setSessionSandboxProfile`. Returns `false` for an unpersisted session.
     pub fn set_session_sandbox_profile(
         &mut self,
-        profile: Option<crate::core::permissions::presets::SandboxProfileName>,
+        profile: Option<SandboxProfileName>,
     ) -> Result<bool, SessionManagerError> {
-        let Some((control_db_path, session_file)) = self
-            .metadata_target()
-            .map(|(control_db_path, session_file)| (control_db_path.to_owned(), session_file.to_owned()))
+        let (Some(control_db_path), Some(session_file)) =
+            (self.metadata_control_db_path.clone(), self.session_file.clone())
         else {
             return Ok(false);
         };
-        let session_id = self.session_id.clone();
         self.persist_for_recovery()?;
         self.write_metadata_snapshot()?;
         match profile {
-            Some(profile) => write_session_sandbox_profile(&control_db_path, &session_file, &session_id, profile)
-                .map_err(control_db_error)?,
-            None => {
-                clear_session_sandbox_profile(&control_db_path, &session_file, &session_id).map_err(control_db_error)?
-            }
+            Some(profile) => write_session_sandbox_profile(&control_db_path, &session_file, &self.session_id, profile)
+                .map_err(|error| SessionManagerError::new(error.to_string()))?,
+            None => clear_session_sandbox_profile(&control_db_path, &session_file, &self.session_id)
+                .map_err(|error| SessionManagerError::new(error.to_string()))?,
         }
         Ok(true)
     }

@@ -260,7 +260,7 @@ fn node_resolve(base: &str, tail: &str) -> String {
     lexical_normalize(&resolved)
 }
 
-fn node_join(base: &str, tail: &str) -> String {
+pub(crate) fn node_join(base: &str, tail: &str) -> String {
     lexical_normalize(Path::new(&format!("{base}/{tail}")))
 }
 

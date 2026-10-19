@@ -32,18 +32,20 @@ use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
+use crate::core::extensions::types::NoOpUiContext;
 use crate::core::model_registry::ModelRegistry;
 use crate::core::model_resolver::{ScopedModel, find_exact_model_reference_match, resolve_model_scope};
 use crate::core::model_runtime::ModelRuntime;
 use crate::core::permissions::policy::ApprovalPolicy;
-use crate::core::permissions::presets::ApprovalPresetName;
+use crate::core::permissions::presets::{ApprovalPresetName, SandboxProfileName, SandboxProfileScope};
 use crate::core::prompt_templates::expand_prompt_template;
 use crate::core::resource_loader::{LoadedPrompts, ResourceLoader};
 use crate::core::session_manager::{SessionEntry, SessionManager, SessionManagerError, get_latest_compaction_entry};
-use crate::core::settings_manager::SettingsManager;
+use crate::core::settings_manager::{SettingsManager, SettingsScope};
 use crate::core::slash_commands::builtin_slash_commands;
 use crate::core::source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::core::system_prompt::{BuildSystemPromptOptions, build_system_prompt};
+use crate::modes::interactive::theme::ThemeColor;
 use crate::utils::frontmatter::strip_frontmatter;
 
 const BUILT_IN_COMPACTION_DISABLED_MESSAGE: &str =
@@ -3489,6 +3491,52 @@ impl AgentSession {
         lock(&self.inner.settings_manager)
     }
 
+    /// `ExtensionRunner.setSandboxProfile`.
+    pub fn set_sandbox_profile(
+        &self,
+        profile: Option<SandboxProfileName>,
+        scope: SandboxProfileScope,
+    ) -> Result<(), AgentSessionError> {
+        if scope == SandboxProfileScope::Session {
+            let persisted = self.session_manager().set_session_sandbox_profile(profile)?;
+            if !persisted {
+                return Err(error("Session sandbox profiles require a persisted session"));
+            }
+            self.settings_manager().set_session_sandbox_profile(profile);
+        } else {
+            let Some(profile) = profile else {
+                return Err(error("Only session sandbox profiles can inherit configured settings"));
+            };
+            let settings_scope = match scope {
+                SandboxProfileScope::Global => SettingsScope::Global,
+                SandboxProfileScope::Project => SettingsScope::Project,
+                SandboxProfileScope::Session => unreachable!(),
+            };
+            self.settings_manager()
+                .set_sandbox_profile(profile, settings_scope)
+                .map_err(|failure| error(failure.to_string()))?;
+        }
+
+        let effective_profile = self.settings_manager().get_explicit_sandbox_profile();
+        let full_access = effective_profile.is_none() || effective_profile == Some(SandboxProfileName::FullAccess);
+        let status_text = if full_access {
+            "bwrap: full access".to_owned()
+        } else {
+            format!("bwrap: {}", effective_profile.expect("checked above").as_str())
+        };
+        let ui = lock(&self.inner.extension_ui_context)
+            .clone()
+            .unwrap_or_else(|| Arc::new(NoOpUiContext));
+        let color = if full_access {
+            ThemeColor::Muted
+        } else {
+            ThemeColor::Accent
+        };
+        let styled = ui.theme().fg(color, &status_text);
+        ui.set_status("bwrap", Some(&styled));
+        Ok(())
+    }
+
     pub fn model_runtime(&self) -> &ModelRuntime {
         &self.inner.model_runtime
     }
@@ -4789,11 +4837,12 @@ use crate::core::extensions::types::ToolCallEvent;
 use crate::core::extensions::types::{
     AgentEndEvent as ExtensionAgentEndEvent, AgentSettledEvent as ExtensionAgentSettledEvent, AgentStartEvent,
     ExtensionActions, ExtensionCommandContext, ExtensionCommandContextActions, ExtensionContextActions, ExtensionEvent,
-    ExtensionMode, ExtensionUiContext, InputEventResult, InputSource as ExtensionInputSource, MessageDelivery,
-    MessageEndEvent, MessageStartEvent, MessageUpdateEvent, ModelSelectEvent, ModelSelectSource, ProviderActions,
-    SessionShutdownEvent, SessionStartEvent, StreamingBehavior as ExtensionStreamingBehavior, ThinkingLevelSelectEvent,
-    ToolExecutionEndEvent, ToolExecutionStartEvent, ToolExecutionUpdateEvent, ToolInfo as ExtensionToolInfo,
-    TurnEndEvent, TurnStartEvent, UserMessageContent, UserMessageDelivery,
+    ExtensionMode, ExtensionUiContext, HandlerError, InputEventResult, InputSource as ExtensionInputSource,
+    MessageDelivery, MessageEndEvent, MessageStartEvent, MessageUpdateEvent, ModelSelectEvent, ModelSelectSource,
+    ProviderActions, SessionShutdownEvent, SessionStartEvent, SetThinkingLevelHandler,
+    StreamingBehavior as ExtensionStreamingBehavior, ThinkingLevelSelectEvent, ToolExecutionEndEvent,
+    ToolExecutionStartEvent, ToolExecutionUpdateEvent, ToolInfo as ExtensionToolInfo, TurnEndEvent, TurnStartEvent,
+    UserMessageContent, UserMessageDelivery,
 };
 use crate::core::extensions::wrapper::wrap_registered_tool;
 use crate::core::footer_data_provider::FooterDataProvider;
@@ -5561,6 +5610,15 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
             Some(inner) => AgentSession { inner }.thinking_level(),
             None => ThinkingLevel::Off,
         }));
+    let set_thinking_weak = weak.clone();
+    let set_thinking_level: Option<SetThinkingLevelHandler> = Some(Arc::new(move |level| {
+        let inner = set_thinking_weak
+            .upgrade()
+            .ok_or_else(|| HandlerError::new("Session is disposed"))?;
+        AgentSession { inner }
+            .set_thinking_level(level)
+            .map_err(|error| HandlerError::new(error.to_string()))
+    }));
     let scoped_weak = weak.clone();
     let get_scoped_models: Option<Arc<dyn Fn() -> Vec<ScopedModel> + Send + Sync>> =
         Some(Arc::new(move || match scoped_weak.upgrade() {
@@ -5703,6 +5761,7 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
     ExtensionContextActions {
         get_model,
         get_thinking_level,
+        set_thinking_level,
         get_scoped_models,
         get_footer_data,
         is_idle,

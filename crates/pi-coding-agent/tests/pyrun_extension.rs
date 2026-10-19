@@ -426,6 +426,7 @@ fn context_actions() -> ExtensionContextActions {
     ExtensionContextActions {
         get_model: Arc::new(|| None),
         get_thinking_level: None,
+        set_thinking_level: None,
         get_scoped_models: Some(Arc::new(Vec::new)),
         get_footer_data: None,
         is_idle: Arc::new(|| true),

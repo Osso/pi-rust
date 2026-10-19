@@ -59,6 +59,8 @@ pub struct ProcessOutput {
 pub fn spawn_process(command: &str, args: &[&str]) -> io::Result<Child> {
     Command::new(command)
         .args(args)
+        .env_clear()
+        .envs(pi_js_compat::process_env::vars())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -70,6 +72,8 @@ pub fn spawn_process_sync(command: &str, args: &[&str], cwd: Option<&Path>) -> i
     let mut process = std::process::Command::new(command);
     process
         .args(args)
+        .env_clear()
+        .envs(pi_js_compat::process_env::vars())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

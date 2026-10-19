@@ -103,7 +103,10 @@ pub use experimental::are_experimental_features_enabled;
 pub use extensions::{
     AgentEndEvent, AgentSettledEvent, AgentStartEvent, BeforeAgentStartEvent, BeforeAgentStartEventResult,
     ContextEvent, Extension, ExtensionApi, ExtensionCommandContext, ExtensionContext, ExtensionError, ExtensionEvent,
-    ExtensionFactory, ExtensionFlag, ExtensionRunner, ExtensionShortcut, ExtensionUiContext, LoadExtensionsResult,
+    ExtensionFactory, ExtensionFlag, ExtensionRunner, ExtensionShortcut, ExtensionUiComponent,
+    ExtensionUiComponentFactory, ExtensionUiContext, ExtensionUiCustomFactory, ExtensionUiCustomOptions,
+    ExtensionUiDone, ExtensionUiFactoryContext, ExtensionUiFooterContext, ExtensionUiFooterFactory,
+    ExtensionUiOverlayHandle, ExtensionUiOverlayOptions, ExtensionUiTui, ExtensionUiTuiBackend, LoadExtensionsResult,
     MessageRenderer, RegisteredCommand, SessionBeforeCompactEvent, SessionBeforeForkEvent, SessionBeforeSwitchEvent,
     SessionBeforeTreeEvent, SessionCompactEvent, SessionShutdownEvent, SessionStartEvent, SessionTreeEvent,
     ToolCallEvent, ToolCallEventResult, ToolDefinition, ToolRenderResultOptions, ToolResultEvent, TurnEndEvent,

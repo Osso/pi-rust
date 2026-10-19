@@ -81,9 +81,14 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 
 - `AgentSession::compact` returns `core::compaction::CompactionResult` instead of
   `unknown`; typed API excludes the JS loose shape (approved typed-core rule).
-- Differential normalizes provider usage-derived numbers (message usage and context
-  usage `tokens`/`percent`) because the Rust differential session uses a reduced tool
-  set/system prompt; event order, deltas, messages, session JSONL, fork selector,
-  navigation, and export JSONL are compared exactly.
+- Differential `differential_agent_session` compares provider usage
+  (`input`/`output`/`cacheRead`/`cacheWrite`/`totalTokens`), context usage
+  `tokens`/`percent`, events, messages, stats, fork selector, navigation, and
+  session/export JSONL byte-for-byte with no numeric normalization. Both sides run
+  one active `end_turn` tool and a fixed custom system prompt
+  (`"Differential system prompt"`). The oracle's stream adapter removes the
+  TS-only `AgentTool` fields `label` and `executionMode` before handing the
+  context to the faux provider, matching the provider-facing `Tool` shape Rust
+  sends; real provider adapters drop those fields too.
 - `getUserMessagesForForking` returns typed `UserMessageForForking` objects matching
   the TS `{entryId,text}` wire shape.
