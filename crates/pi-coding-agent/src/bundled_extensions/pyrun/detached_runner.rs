@@ -542,7 +542,8 @@ async fn dispatch_foreground_pyrun_bridge_request(
     }
 }
 
-fn claim_foreground_bridge_request(directory: &str, request_id: &str) -> Result<bool, String> {
+/// `claimForegroundBridgeRequest` (identical in both TypeScript modules).
+pub(crate) fn claim_foreground_bridge_request(directory: &str, request_id: &str) -> Result<bool, String> {
     let path = Path::new(directory).join(format!("bridge-claim-{request_id}"));
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);

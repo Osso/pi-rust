@@ -28,9 +28,9 @@ use crate::core::session_manager::lock_session_manager;
 use crate::core::tool_detach_registry::{ToolDetachHandle, ToolDetachRegistry};
 
 use super::detached_runner::{
-    DetachedPyrunLaunchManifest, DetachedPyrunLaunchManifestData, launch_detached_pyrun_runner,
-    read_detached_pyrun_activation, read_detached_pyrun_launch_manifest, write_detached_pyrun_activation,
-    write_detached_pyrun_launch_manifest,
+    DetachedPyrunLaunchManifest, DetachedPyrunLaunchManifestData, claim_foreground_bridge_request,
+    launch_detached_pyrun_runner, read_detached_pyrun_activation, read_detached_pyrun_launch_manifest,
+    write_detached_pyrun_activation, write_detached_pyrun_launch_manifest,
 };
 use super::eval_tool::{
     PyrunEvalParams, PyrunPiRequestDispatcher, PyrunProgressUpdateCallback, create_canonical_pyrun_eval_params,
@@ -834,7 +834,7 @@ async fn respond_to_foreground_bridge_request(
     let Some(request_id) = request.get("requestId").and_then(Value::as_str) else {
         return Ok(());
     };
-    if !claim_foreground_bridge_request(&runner.artifacts.directory, request_id)? {
+    if !claim_foreground_bridge_request(&runner.artifacts.directory, request_id).map_err(HandlerError::new)? {
         return Ok(());
     }
     let mut claimed = Map::new();
@@ -868,22 +868,6 @@ async fn respond_to_foreground_bridge_request(
     }
     append_artifact_record(&runner.bridge_response_path, &Value::Object(body))
         .map_err(|error| HandlerError::new(error.to_string()))
-}
-
-fn claim_foreground_bridge_request(directory: &str, request_id: &str) -> Result<bool, HandlerError> {
-    let path = Path::new(directory).join(format!("bridge-claim-{request_id}"));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    match options.open(path) {
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
-        Err(error) => Err(HandlerError::new(error.to_string())),
-    }
 }
 
 struct DetachFn {
