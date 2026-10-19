@@ -797,7 +797,7 @@ pub(crate) fn thinking_level_from_model(level: pi_ai::types::ModelThinkingLevel)
     }
 }
 
-fn model_thinking_level(level: ThinkingLevel) -> pi_ai::types::ModelThinkingLevel {
+pub(crate) fn model_thinking_level(level: ThinkingLevel) -> pi_ai::types::ModelThinkingLevel {
     match level {
         ThinkingLevel::Off => pi_ai::types::ModelThinkingLevel::Off,
         ThinkingLevel::Minimal => pi_ai::types::ModelThinkingLevel::Minimal,
