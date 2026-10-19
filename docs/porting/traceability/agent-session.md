@@ -128,6 +128,9 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 - Runtime coordination `hasConfiguredAuth` uses the model-runtime snapshot, matching
   the source; a runtime created with `refreshOnCreate: false` must refresh before
   mailbox prompt delivery.
+- The `Allow always` spawn failure path logs `Failed to spawn allow-always agent:`
+  plus the tool error message; the source's `console.error` also prints the JS
+  error stack.
 - Differential `differential_agent_session` compares provider usage
   (`input`/`output`/`cacheRead`/`cacheWrite`/`totalTokens`), context usage
   `tokens`/`percent`, events, messages, stats, fork selector, navigation, and
