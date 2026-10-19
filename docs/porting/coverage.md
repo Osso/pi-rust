@@ -587,17 +587,17 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/browser-cli/src/index.ts` | 169 | 22 | todo |  |  |
 | `coding-agent/extensions/bwrap/src/backend.ts` | 394 | 22 | todo |  |  |
 | `coding-agent/extensions/bwrap/src/index.ts` | 466 | 22 | todo |  |  |
-| `coding-agent/extensions/claude-bash-hook/src/index.ts` | 194 | 22 | todo |  |  |
+| `coding-agent/extensions/claude-bash-hook/src/index.ts` | 194 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/claude_bash_hook/mod.rs` | Approval reviewer, hook process protocol, decision mapping, ENOENT/unavailable paths; 7 behavioral tests and 11 differential cases ([traceability](traceability/claude-bash-hook.md)). |
 | `coding-agent/extensions/claude-memory-enrich/src/index.ts` | 162 | 22 | todo |  |  |
 | `coding-agent/extensions/claude-memory-session-end/src/index.ts` | 61 | 22 | todo |  |  |
-| `coding-agent/extensions/codex-fast/src/index.ts` | 148 | 22 | todo |  |  |
-| `coding-agent/extensions/codex-image-generation/src/index.ts` | 190 | 22 | todo |  |  |
-| `coding-agent/extensions/codex-usage/src/index.ts` | 375 | 22 | todo |  |  |
-| `coding-agent/extensions/codex-web-search/src/index.ts` | 209 | 22 | todo |  |  |
+| `coding-agent/extensions/codex-fast/src/index.ts` | 148 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/codex_fast/mod.rs` | Command/tool/event parity, shared authority, persisted + configured restore, payload injection; 10 behavioral tests and 10 differential cases ([traceability](traceability/codex-fast.md)). |
+| `coding-agent/extensions/codex-image-generation/src/index.ts` | 190 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/codex_image_generation/mod.rs` | Tool registration, payload injection, model guard, PNG save, timeout signal; 6 behavioral tests and 4 differential cases ([traceability](traceability/codex-image-generation.md)). |
+| `coding-agent/extensions/codex-usage/src/index.ts` | 375 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/codex_usage/mod.rs` | Token claims, payload mapping/formatting, `/usage` and reset flows through injected `Fetch`; 13 behavioral tests and 21 differential cases ([traceability](traceability/codex-usage.md)). |
+| `coding-agent/extensions/codex-web-search/src/index.ts` | 209 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/codex_web_search/mod.rs` | Tool + payload injection, model guard, auth, timeout/abort, hosted search; 6 behavioral tests and 19 differential cases ([traceability](traceability/codex-web-search.md)). |
 | `coding-agent/extensions/debug/src/index.ts` | 29 | 22 | todo |  |  |
 | `coding-agent/extensions/default-footer/src/index.ts` | 278 | 22 | todo |  |  |
 | `coding-agent/extensions/docs-tree-context/src/index.ts` | 101 | 22 | todo |  |  |
-| `coding-agent/extensions/effort/src/index.ts` | 234 | 22 | todo |  |  |
+| `coding-agent/extensions/effort/src/index.ts` | 234 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/effort/mod.rs` | Effort + multi-agent commands, delegation policy injection/removal, persisted mode restore, status theme; 15 behavioral tests and 14 differential cases ([traceability](traceability/effort.md)). |
 | `coding-agent/extensions/goal/src/completion-scheduling.ts` | 103 | 22 | todo |  |  |
 | `coding-agent/extensions/goal/src/empty-response-scheduling.ts` | 60 | 22 | todo |  |  |
 | `coding-agent/extensions/goal/src/error-status-scheduling.ts` | 72 | 22 | todo |  |  |
@@ -617,7 +617,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/goal/src/supervisor-review.ts` | 63 | 22 | todo |  |  |
 | `coding-agent/extensions/goal/src/wait-countdown.ts` | 49 | 22 | todo |  |  |
 | `coding-agent/extensions/goal/src/wait-status.ts` | 23 | 22 | todo |  |  |
-| `coding-agent/extensions/loop/src/index.ts` | 189 | 22 | todo |  |  |
+| `coding-agent/extensions/loop/src/index.ts` | 189 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/loop/mod.rs` | Command + tool, interval parsing/formatting, timer injection, shutdown stop; 7 behavioral tests and 14 differential cases ([traceability](traceability/loop.md)). |
 | `coding-agent/extensions/openai-remote-compact/src/index.ts` | 673 | 22 | todo |  |  |
 | `coding-agent/extensions/pyrun/src/detached-evaluation.ts` | 695 | 22 | todo |  |  |
 | `coding-agent/extensions/pyrun/src/eval-tool.ts` | 274 | 22 | todo |  |  |
