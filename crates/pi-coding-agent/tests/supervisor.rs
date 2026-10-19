@@ -388,8 +388,8 @@ struct SharedSession {
 }
 
 impl SupervisorSession for SharedSession {
-    fn abort(&self) -> BoxFuture<'static, ()> {
-        Box::pin(async {})
+    fn abort(&self) -> BoxFuture<'static, Result<(), String>> {
+        Box::pin(async { Ok(()) })
     }
 
     fn prompt(&self, _content: String) -> BoxFuture<'static, Result<(), String>> {
@@ -523,4 +523,136 @@ fn assistant_text_with_a_structured_response_is_rejected() {
         read_current_supervisor_response(&manager.get_branch(None), previous_leaf.as_deref()).unwrap_err(),
         "Supervisor model emitted assistant text with structured response"
     );
+}
+
+async fn faux_codex_runtime() -> pi_coding_agent::core::model_runtime::ModelRuntime {
+    use pi_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions, faux_provider};
+    let faux = faux_provider(RegisterFauxProviderOptions {
+        provider: Some("openai-codex".to_owned()),
+        models: Some(vec![FauxModelDefinition {
+            id: "gpt-5.6-sol".to_owned(),
+            name: Some("Sol".to_owned()),
+            reasoning: Some(true),
+            input: None,
+            cost: None,
+            context_window: Some(200_000.0),
+            max_tokens: Some(8192.0),
+        }]),
+        ..Default::default()
+    });
+    let runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
+        pi_coding_agent::core::model_runtime::CreateModelRuntimeOptions {
+            credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
+                serde_json::Map::new(),
+            ))),
+            models_path: Some(None),
+            refresh_on_create: Some(false),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("runtime");
+    runtime.register_native_provider(Arc::clone(&faux.provider));
+    runtime
+}
+
+#[tokio::test]
+async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
+    use pi_coding_agent::core::extensions::types::{ToolCallEvent, ToolName};
+    use pi_coding_agent::core::model_registry::ModelRegistry;
+    use pi_coding_agent::core::resource_loader::ResourceLoader;
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_coding_agent::supervisor::main::create_supervisor_resource_loader;
+
+    let temp = tempfile::tempdir().unwrap();
+    let kb = temp.path().join("kb");
+    let agent = temp.path().join("agent");
+    std::fs::create_dir_all(kb.join("notes")).unwrap();
+    std::fs::create_dir_all(&agent).unwrap();
+    std::fs::write(kb.join("notes").join("inside.md"), "inside").unwrap();
+    std::fs::write(temp.path().join("outside.md"), "outside").unwrap();
+    let settings = Arc::new(Mutex::new(create_supervisor_settings_manager()));
+    let loader = create_supervisor_resource_loader(&agent.display().to_string(), &kb.display().to_string(), settings)
+        .await
+        .expect("loader");
+    let extensions = loader.get_extensions();
+    assert!(extensions.errors.is_empty());
+    assert_eq!(extensions.extensions.len(), 2);
+    assert_eq!(extensions.extensions[0].tool_gates.len(), 1);
+    assert_eq!(extensions.extensions[1].handlers.compaction.len(), 1);
+
+    let runtime = faux_codex_runtime().await;
+    let runner = pi_coding_agent::core::extensions::ExtensionRunner::new(
+        extensions.extensions.clone(),
+        extensions.runtime.clone(),
+        kb.display().to_string(),
+        Arc::new(Mutex::new(
+            SessionManager::in_memory(Some(&kb.display().to_string()), None).unwrap(),
+        )),
+        Arc::new(ModelRegistry::new(runtime)),
+        None,
+    );
+    let context = runner.create_context();
+    let gate = Arc::clone(&extensions.extensions[0].tool_gates[0]);
+    let event = |path: &str| ToolCallEvent {
+        tool_name: ToolName::Read,
+        tool_call_id: "call".to_owned(),
+        bypass_permissions: false,
+        input: serde_json::Map::from_iter([("path".to_owned(), serde_json::json!(path))]),
+    };
+    let blocked = gate
+        .call(
+            event(&temp.path().join("outside.md").display().to_string()),
+            context.clone(),
+        )
+        .await
+        .unwrap()
+        .expect("block result");
+    assert_eq!(blocked.block, Some(true));
+    assert_eq!(
+        blocked.reason.as_deref(),
+        Some("Pi Supervisor may access files only inside the configured KB directory.")
+    );
+    let allowed = gate
+        .call(
+            event(&kb.join("notes").join("inside.md").display().to_string()),
+            context,
+        )
+        .await
+        .unwrap();
+    assert!(allowed.is_none());
+}
+
+#[tokio::test]
+async fn supervisor_session_uses_the_sol_model_and_supervisor_tool_set() {
+    use pi_coding_agent::core::resource_loader::StaticResourceLoader;
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_coding_agent::supervisor::main::{CreateSupervisorSessionOptions, create_supervisor_session};
+
+    let temp = tempfile::tempdir().unwrap();
+    let cwd = temp.path().display().to_string();
+    let runtime = faux_codex_runtime().await;
+    let session_manager = SessionManager::in_memory(Some(&cwd), None).unwrap();
+    let result = create_supervisor_session(CreateSupervisorSessionOptions {
+        agent_dir: cwd.clone(),
+        kb_dir: cwd.clone(),
+        model_runtime: runtime,
+        resource_loader: StaticResourceLoader::new(),
+        session_manager,
+        settings_manager: Arc::new(Mutex::new(create_supervisor_settings_manager())),
+    })
+    .await
+    .expect("session");
+    assert_eq!(result.session.model().provider, "openai-codex");
+    assert_eq!(result.session.model().id, "gpt-5.6-sol");
+    assert_eq!(
+        result.session.thinking_level(),
+        pi_agent_core::harness::types::ThinkingLevel::Low
+    );
+    assert_eq!(
+        result.session.get_active_tool_names(),
+        vec!["read", "edit", "write", "supervisor_response", "end_turn"]
+    );
+    assert!(result.session.get_tool_definition("supervisor_response").is_some());
+    assert!(result.session.get_tool_definition("bash").is_none());
 }

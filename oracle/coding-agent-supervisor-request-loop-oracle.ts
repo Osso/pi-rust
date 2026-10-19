@@ -1,0 +1,212 @@
+import { readFileSync, mkdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+
+const supervisorMainPath = process.argv[2];
+const packagesRoot = resolve(dirname(supervisorMainPath), "../../..");
+
+type Request = { id: string | number; operation: string; dir: string };
+
+function createResourceLoader(runtime: unknown) {
+	return {
+		getExtensions: () => ({ extensions: [], errors: [], runtime }),
+		getSkills: () => ({ skills: [], diagnostics: [] }),
+		getPrompts: () => ({ prompts: [], diagnostics: [] }),
+		getThemes: () => ({ themes: [], diagnostics: [] }),
+		getAgentsFiles: () => ({ agentsFiles: [] }),
+		getRulesFiles: () => ({ rulesFiles: [] }),
+		getRulesContent: () => undefined,
+		getSystemPrompt: () => undefined,
+		getSystemPromptSource: () => undefined,
+		getAppendSystemPrompt: () => [],
+		getAppendSystemPromptSources: () => [],
+		extendResources: () => {},
+		reload: async () => {},
+	};
+}
+
+async function loadModules() {
+	const main = await import(supervisorMainPath);
+	const { SessionManager } = await import(`${packagesRoot}/coding-agent/src/core/session-manager.ts`);
+	const { AuthStorage } = await import(`${packagesRoot}/coding-agent/src/core/auth-storage.ts`);
+	const { ModelRuntime } = await import(`${packagesRoot}/coding-agent/src/core/model-runtime.ts`);
+	const controlDb = await import(`${packagesRoot}/coding-agent/src/core/session-control-db.ts`);
+	const sqlite = await import(`${packagesRoot}/coding-agent/src/core/sqlite.ts`);
+	const { registerFauxProvider, fauxAssistantMessage, fauxToolCall } = await import(
+		`${packagesRoot}/ai/src/compat.ts`
+	);
+	const { createExtensionRuntime } = await import(`${packagesRoot}/coding-agent/src/core/extensions/index.ts`);
+	return {
+		main,
+		SessionManager,
+		AuthStorage,
+		ModelRuntime,
+		controlDb,
+		sqlite,
+		registerFauxProvider,
+		fauxAssistantMessage,
+		fauxToolCall,
+		createExtensionRuntime,
+	};
+}
+
+function normalizeSessionFile(text: string): unknown[] {
+	return text
+		.split("\n")
+		.filter((line) => line.length > 0)
+		.map((line) => {
+			const value = JSON.parse(line) as Record<string, unknown>;
+			const normalize = (node: unknown): unknown => {
+				if (Array.isArray(node)) return node.map(normalize);
+				if (typeof node !== "object" || node === null) return node;
+				const object = node as Record<string, unknown>;
+				const result: Record<string, unknown> = {};
+				for (const [key, child] of Object.entries(object)) {
+					if (key === "id" || key === "parentId" || key === "toolCallId") result[key] = "<id>";
+					else if (key === "timestamp") result[key] = "<timestamp>";
+					else if (key === "cwd") result[key] = "<cwd>";
+					else if (key === "input" || key === "output" || key === "cacheRead" || key === "cacheWrite" || key === "totalTokens") result[key] = "<number>";
+					else result[key] = normalize(child);
+				}
+				return result;
+			};
+			return normalize(value);
+		});
+}
+
+function dumpControlDb(controlDbPath: string, sqlite: { createSqliteDatabase: (path: string) => {
+	prepare: (sql: string) => { all: () => unknown[] };
+	close: () => void;
+} }) {
+	const db = sqlite.createSqliteDatabase(controlDbPath);
+	try {
+		return db
+			.prepare("SELECT id, kind, status, response_json FROM supervisor_requests ORDER BY id")
+			.all() as unknown[];
+	} finally {
+		db.close();
+	}
+}
+
+async function run(request: Request) {
+	const {
+		main,
+		SessionManager,
+		AuthStorage,
+		ModelRuntime,
+		controlDb,
+		sqlite,
+		registerFauxProvider,
+		fauxAssistantMessage,
+		fauxToolCall,
+		createExtensionRuntime,
+	} = await loadModules();
+	const dir = request.dir;
+	mkdirSync(dir, { recursive: true });
+	const controlDbPath = join(dir, "control.sqlite");
+	const sessionDir = join(dir, "sessions");
+	const faux = registerFauxProvider({
+		api: "faux",
+		models: [
+			{
+				id: "gpt-5.6-sol",
+				name: "Sol",
+				reasoning: true,
+				contextWindow: 200000,
+				maxTokens: 8192,
+			},
+		],
+		provider: "openai-codex",
+		tokenSize: { max: 1, min: 1 },
+		tokensPerSecond: 1_000_000,
+	});
+	faux.setResponses([
+		fauxAssistantMessage([fauxToolCall("supervisor_response", { kind: "approve", reason: "ok" })], {
+			stopReason: "toolUse",
+		}),
+	]);
+	const authStorage = AuthStorage.inMemory();
+	await authStorage.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
+	const modelRuntime = await ModelRuntime.create({
+		credentials: authStorage,
+		modelsPath: join(dir, "models.json"),
+	});
+	const model = faux.getModel();
+	modelRuntime.registerProvider(model.provider, {
+		api: model.api,
+		apiKey: "faux-key",
+		baseUrl: model.baseUrl,
+		models: [
+			{
+				api: model.api,
+				baseUrl: model.baseUrl,
+				cost: model.cost,
+				contextWindow: model.contextWindow,
+				id: model.id,
+				input: model.input,
+				maxTokens: model.maxTokens,
+				name: model.name,
+				reasoning: model.reasoning,
+			},
+		],
+	});
+	const sessionManager = SessionManager.create(dir, sessionDir, { id: "supervisor" });
+	sessionManager.setMetadataControlDbPath(controlDbPath, { indexMessageText: false });
+	const { session } = await main.createSupervisorSession({
+		agentDir: dir,
+		kbDir: dir,
+		modelRuntime,
+		resourceLoader: createResourceLoader(createExtensionRuntime()),
+		sessionManager,
+		settingsManager: main.createSupervisorSettingsManager(),
+	});
+	controlDb.postSupervisorRequest(controlDbPath, {
+		deadlineAt: "2099-01-01T00:00:00.000Z",
+		kind: "approval_review",
+		payload: { toolName: "read" },
+		projectId: "pi",
+		senderSessionId: "requester",
+	});
+	const controller = new AbortController();
+	await main.runSupervisorRequestLoop({
+		claimToken: "claim-token",
+		consolePrompts: { enqueue: () => {}, take: () => undefined },
+		controlDbPath,
+		processRequest: async (dbPath: string, supervisorRequest: unknown, activeSession: unknown) => {
+			await main.processSupervisorRequest(dbPath, supervisorRequest, activeSession);
+			controller.abort();
+		},
+		session,
+		signal: controller.signal,
+		wakeServer: {
+			currentGeneration: () => 0,
+			waitForWakeAfter: async () => {
+				await new Promise((resolvePromise) => setTimeout(resolvePromise, 5));
+			},
+		},
+	});
+	const sessionFile = sessionManager.getSessionFile();
+	return {
+		controlRows: dumpControlDb(controlDbPath, sqlite as unknown as { createSqliteDatabase: (path: string) => { prepare: (sql: string) => { all: () => unknown[] }; close: () => void } }),
+		session: sessionFile ? normalizeSessionFile(readFileSync(sessionFile, "utf8")) : [],
+	};
+}
+
+let buffer = "";
+process.stdin.on("data", (chunk) => {
+	buffer += String(chunk);
+	while (true) {
+		const newline = buffer.indexOf("\n");
+		if (newline === -1) return;
+		const line = buffer.slice(0, newline);
+		buffer = buffer.slice(newline + 1);
+		const request = JSON.parse(line) as Request;
+		run(request)
+			.then((output) => {
+				process.stdout.write(`${JSON.stringify({ id: request.id, ok: true, output })}\n`);
+			})
+			.catch((error: unknown) => {
+				const message = error instanceof Error ? error.message : String(error);
+				process.stdout.write(`${JSON.stringify({ id: request.id, ok: false, error: { message } })}\n`);
+			});
+	}
+});

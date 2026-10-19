@@ -23,6 +23,7 @@ pub mod debug;
 pub mod docs_tree_context;
 pub mod goal;
 pub mod llama;
+pub mod openai_remote_compact;
 pub mod pyrun;
 pub mod run_plan;
 pub mod safe;
