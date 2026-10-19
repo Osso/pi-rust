@@ -32,11 +32,14 @@ CLDR collation data for the tested locales.
 | `Number.parseFloat(string)` (leading numeric prefix, exponent rollback) | `parse_float` | `tests/number.rs`, `tests/differential_number.rs` |
 | ECMA-262 `Number::toString` (shortest round-trip digits, exponent thresholds) | `js_number_to_string` | `tests/number.rs`, `tests/differential_number.rs` (`String(Number(s))`) |
 | `JSON.stringify`-style `f64` serialization | `serialize`, `serialize_option` | consumed by `pi-ai`/`pi-agent-core` wire records; existing differential suites |
+| `JSON.stringify(number)` value (integer notation, `null` for non-finite) | `js_number_value` | `tests/number.rs::js_number_value_matches_json_stringify_numbers`; loop extension differential |
 
 Differential: 36 `Number` inputs, 28 `parseFloat` inputs, 21 `parseInt` pairs, and
 26 `String(Number(s))` inputs against Node 26.
 
 ## `Date.parse` (`src/date.rs`)
+
+| `Date#getUTC*` fields | `utc_date_fields` (`local_date_fields_in` with `TimeZone::UTC`) | `src/date.rs::tests::utc_fields_match_javascript_get_utc_getters`; codex-usage differential |
 
 | Source behaviour | Rust item | Proof |
 |---|---|---|

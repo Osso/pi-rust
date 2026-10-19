@@ -7,6 +7,7 @@ All direct dependencies are exact-pinned.
 ### `pi-js-compat`
 
 - `serde = 1.0.229` — `serialize`/`serialize_option` helpers keep integral `f64` wire values printing like `JSON.stringify`.
+- `serde_json = 1.0.151` — `js_number_value` builds `JSON.stringify(number)`-shaped `Value`s (integer notation for integral numbers, `null` for non-finite) for extension tool details.
 - `httpdate = 1.0.3` — parses the HTTP-date forms accepted by `Date.parse`.
 - `jiff = 0.2.38` (`std`, `tz-system`) — resolves the system UTC offset for zone-less `Date.parse` values, matching V8's local-time interpretation (including DST gap/fold disambiguation). Development adds `tzdb-zoneinfo` for `TimeZone::get` in the explicit-zone differential tests.
 - `icu_collator = 2.3.1` (`compiled_data`) and `icu_locale_core = 2.3.0` — reproduce `String.prototype.localeCompare` / `Intl.Collator` ordering with the host locale, the single implementation shared by `pi-coding-agent`, `pi-agent-core`, and `pi-tui`.

@@ -93,6 +93,15 @@ pub trait Fetch: Send + Sync {
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>>;
 }
 
+/// Reads a streaming response body as UTF-8 text (`Response#text`).
+pub async fn read_body_text(mut body: Box<dyn HttpBody>) -> Result<String, CallbackError> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = body.next_chunk().await {
+        bytes.extend_from_slice(&chunk?);
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 /// `ProviderRequestOptions`: auth, transport, and lifecycle callbacks shared by provider requests.
 #[derive(Clone, Default)]
 pub struct ProviderRequestOptions {

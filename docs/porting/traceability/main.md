@@ -47,7 +47,7 @@ registration are wired.
 | `promptForMissingSessionCwd` | `prompt_for_missing_session_cwd` | interactive-only; uses `showStartupSelector` |
 | `firstPartyExtensionFactory` | `first_party_extension_factory` | `first_party_factory_list_partitions_the_source_names`, `first_party_factories_load_and_register_agent_tools` |
 | `runtimeExtensionFactory` | `InlineExtension::Factory` | extension loader tests |
-| `createFirstPartyExtensionFactories` | `create_first_party_extension_factories` (registry-backed, emitted in source order) | `first_party_factory_list_partitions_the_source_names`, `first_party_factories_load_and_register_agent_tools`, `extensions_command_lists_the_ported_first_party_extensions` |
+| `createFirstPartyExtensionFactories` | `create_first_party_extension_factories` (registry-backed, emitted in source order; takes the startup `Fetch`) | `first_party_factory_list_partitions_the_source_names`, `first_party_factories_load_and_register_agent_tools`, `extensions_command_lists_the_ported_first_party_extensions` |
 | `builtInExtensions` | `built_in_extensions` | package/config command paths; `extensions` inventory excludes it |
 | `createRuntime` (closure in `main`) | `create_runtime_factory` / `create_runtime` | `runtime_factory_creates_services_and_reports_missing_models`, print/json differentials |
 | `selectSession` call | `select_session_for_process` / `MainSessionsLoader` | `resume_flag_opens_the_session_picker_and_cancels_with_escape` |
@@ -86,9 +86,11 @@ registration are wired.
   from `process_env::vars()`.
 - First-party factories are registered in an `ExtensionRegistry` under their
   `<first-party:...>` ids and emitted in `main.ts` order. `register_small_extensions`
-  and `register_bundled_extensions` provide the ported factories; `pyrun` is
-  re-registered with the multi-agent Pi request handler. `builtInExtensions`
-  (hidden `llama.cpp`) feeds only the package/config command factories.
+  (source order), `register_agents_extensions`, and `register_bundled_extensions`
+  provide the factories; `pyrun` is re-registered with the multi-agent Pi request
+  handler. `SmallExtensionsOptions` carries the shared fast-mode authority, the
+  startup HTTP client, and the multi-agent store. `builtInExtensions` (hidden
+  `llama.cpp`) feeds only the package/config command factories.
 - `--resume` builds `SessionManager::{list,list_all,list_archived}` loaders,
   validates the selection with `assert_main_session_runtime_available`, and maps
   cancel/exit to `No session selected`/exit 0.
@@ -103,11 +105,9 @@ registration are wired.
   registered; its controller provider returns the gap error
   (`Debug REPL is not ported (core/debug-repl.ts)`) from `enable`/`disable`
   instead of a fake REPL (`debug_repl_provider_reports_the_documented_gap`).
-- First-party factories: 20 of 28 source names are registered.
-  `PENDING_FIRST_PARTY_EXTENSIONS` lists the remaining factories
-  (claude-bash-hook, codex-fast, codex-image-generation, codex-usage,
-  codex-web-search, default-footer, effort, loop). A test enforces that
-  registered and pending names partition `FIRST_PARTY_EXTENSION_NAMES`.
+- First-party factories: all 28 source names are registered in source order.
+  `FIRST_PARTY_EXTENSION_NAMES` is the reference list; tests assert the factory
+  list, the loaded extension order, and the `pi extensions` inventory.
 - Interactive multi-agent options (`multiAgentStore`, `wakeWaitAgentsAfterSteering`,
   `steerMultiAgent`, `cancelMultiAgent`), `bindInteractiveModeSessionMutationTargetResolver`,
   and `interactiveAgentViewSelector` are not wired (child-orchestration gap).
@@ -116,6 +116,9 @@ registration are wired.
   installs the same manager in both places.
 - First-time setup and the picker use `ProcessTerminal`; the pty tests drive the
   real binary, so terminal wiring is covered.
+- Extension HTTP (`codex-usage`) captures the startup dispatcher client; the
+  settings-driven idle timeout applied after runtime creation is not visible to
+  already-registered factories (Rust has no global fetch).
 - `bindAgentSessionMutationTargetResolver` is not ported; the store is restored but
   mutation-target resolution for interactive views is skipped.
 - Production child/attached session factories remain unavailable (documented

@@ -531,16 +531,12 @@ fn offline_environment_reaches_child_processes_differential() {
 /// list, not registration order (covered by `tests/main.rs`).
 #[test]
 fn extensions_command_lists_the_ported_first_party_extensions() {
-    use pi_coding_agent::main_runner::{FIRST_PARTY_EXTENSION_NAMES, PENDING_FIRST_PARTY_EXTENSIONS};
+    use pi_coding_agent::main_runner::FIRST_PARTY_EXTENSION_NAMES;
 
     let fixture = fixture(&source_lock());
     let output = run_rust(&fixture, &["extensions"]);
     assert_eq!(output.code, 0, "stderr: {}", output.stderr);
-    let expected: Vec<&str> = FIRST_PARTY_EXTENSION_NAMES
-        .iter()
-        .filter(|name| !PENDING_FIRST_PARTY_EXTENSIONS.contains(name))
-        .copied()
-        .collect();
+    let expected: Vec<&str> = FIRST_PARTY_EXTENSION_NAMES.to_vec();
     assert!(
         output
             .stdout
@@ -548,9 +544,6 @@ fn extensions_command_lists_the_ported_first_party_extensions() {
     );
     for name in expected {
         assert!(output.stdout.contains(name), "missing {name}:\n{}", output.stdout);
-    }
-    for name in PENDING_FIRST_PARTY_EXTENSIONS {
-        assert!(!output.stdout.contains(name), "unexpected {name}:\n{}", output.stdout);
     }
 }
 

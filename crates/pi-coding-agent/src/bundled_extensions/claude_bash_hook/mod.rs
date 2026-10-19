@@ -1,0 +1,225 @@
+//! Bundled `claude-bash-hook` extension
+//! (`packages/coding-agent/extensions/claude-bash-hook/src/index.ts`).
+
+use std::path::Path;
+use std::process::Stdio;
+use std::sync::Arc;
+use std::time::Duration;
+
+use pi_js_compat::string::js_trim;
+use serde_json::{Map, Value, json};
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
+
+use crate::core::extensions::types::{
+    ApprovalReviewerResult, BoxFuture, ExtensionApi, ExtensionContext, HandlerError, ToolCallEvent,
+};
+
+const DEFAULT_HOOK_PATH: &str = "/home/osso/.cargo/bin/claude-bash-hook";
+const HOOK_TIMEOUT_MS: u64 = 30_000;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClaudeBashHookReviewResult {
+    Allow { updated_input: Option<Map<String, Value>> },
+    Ask { reason: String },
+    Deny { reason: String },
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ClaudeBashHookOptions {
+    /// Test seam for `PI_CLAUDE_BASH_HOOK`; `None` follows the source lookup.
+    pub command: Option<String>,
+    /// Test seam for the fixed 30s timeout.
+    pub timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HookProcessResult {
+    stdout: String,
+    stderr: String,
+}
+
+fn to_claude_bash_hook_tool_name(tool_name: &str) -> Option<&'static str> {
+    match tool_name {
+        "bash" => Some("Bash"),
+        "pyrun_eval" => Some("pyrun_eval"),
+        _ => None,
+    }
+}
+
+fn has_reviewable_input(tool_name: &str, input: &Map<String, Value>) -> bool {
+    if tool_name == "Bash" {
+        return input
+            .get("command")
+            .and_then(Value::as_str)
+            .is_some_and(|command| !command.is_empty());
+    }
+    input
+        .get("code")
+        .and_then(Value::as_str)
+        .is_some_and(|code| !code.is_empty())
+}
+
+fn map_hook_output(hook_output: &Map<String, Value>) -> ClaudeBashHookReviewResult {
+    let decision = hook_output.get("permissionDecision").and_then(Value::as_str);
+    match decision {
+        Some("allow") => {
+            let updated_input = hook_output.get("updatedInput").and_then(Value::as_object).cloned();
+            ClaudeBashHookReviewResult::Allow { updated_input }
+        }
+        Some("deny" | "block") => ClaudeBashHookReviewResult::Deny {
+            reason: format_hook_reason(hook_output.get("permissionDecisionReason")),
+        },
+        Some("ask") => ClaudeBashHookReviewResult::Ask {
+            reason: format_hook_reason(hook_output.get("permissionDecisionReason")),
+        },
+        _ => ClaudeBashHookReviewResult::Unavailable,
+    }
+}
+
+fn read_claude_bash_hook_command(options: &ClaudeBashHookOptions) -> Option<String> {
+    if let Some(command) = &options.command {
+        return Some(command.clone());
+    }
+    let configured = std::env::var("PI_CLAUDE_BASH_HOOK").ok();
+    if let Some(configured) = configured.filter(|command| !command.is_empty()) {
+        return Some(configured);
+    }
+    Path::new(DEFAULT_HOOK_PATH)
+        .exists()
+        .then(|| DEFAULT_HOOK_PATH.to_owned())
+}
+
+fn format_hook_reason(reason: Option<&Value>) -> String {
+    reason
+        .and_then(Value::as_str)
+        .filter(|reason| !js_trim(reason).is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| "Blocked by claude-bash-hook".to_owned())
+}
+
+async fn run_hook_process(command: &str, input: &Value, timeout_ms: u64) -> Result<HookProcessResult, HandlerError> {
+    let child = Command::new(command)
+        .arg("--harness")
+        .arg("codex")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn();
+    let mut child = match child {
+        Ok(child) => child,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(HookProcessResult {
+                stdout: String::new(),
+                stderr: String::new(),
+            });
+        }
+        Err(error) => return Err(HandlerError::new(error.to_string())),
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        let body = serde_json::to_vec(input).expect("hook input serializes");
+        stdin
+            .write_all(&body)
+            .await
+            .map_err(|error| HandlerError::new(error.to_string()))?;
+        drop(stdin);
+    }
+    let output = match tokio::time::timeout(Duration::from_millis(timeout_ms), child.wait_with_output()).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => return Err(HandlerError::new(error.to_string())),
+        Err(_) => return Err(HandlerError::new("claude-bash-hook timed out")),
+    };
+    Ok(HookProcessResult {
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
+fn parse_hook_specific_output(stdout: &str) -> Option<Map<String, Value>> {
+    let trimmed = js_trim(stdout);
+    if trimmed.is_empty() {
+        return None;
+    }
+    let parsed: Value = serde_json::from_str(trimmed).ok()?;
+    let object = parsed.as_object()?;
+    object.get("hookSpecificOutput").and_then(Value::as_object).cloned()
+}
+
+pub async fn review_tool_with_claude_bash_hook(
+    event: &ToolCallEvent,
+    cwd: &str,
+    options: &ClaudeBashHookOptions,
+) -> Result<ClaudeBashHookReviewResult, HandlerError> {
+    let tool_name = event.tool_name.as_str();
+    let Some(hook_tool_name) = to_claude_bash_hook_tool_name(tool_name) else {
+        return Ok(ClaudeBashHookReviewResult::Unavailable);
+    };
+    if !has_reviewable_input(hook_tool_name, &event.input) {
+        return Ok(ClaudeBashHookReviewResult::Unavailable);
+    }
+    let Some(hook_command) = read_claude_bash_hook_command(options) else {
+        return Ok(ClaudeBashHookReviewResult::Unavailable);
+    };
+
+    let mut tool_input = event.input.clone();
+    tool_input.insert("cwd".to_owned(), Value::String(cwd.to_owned()));
+    let hook_input = json!({
+        "access_mode": "supervised",
+        "approval_policy": "on-request",
+        "cwd": cwd,
+        "supports_updated_input": true,
+        "tool_input": tool_input,
+        "tool_name": hook_tool_name,
+    });
+
+    let result = run_hook_process(
+        &hook_command,
+        &hook_input,
+        options.timeout_ms.unwrap_or(HOOK_TIMEOUT_MS),
+    )
+    .await?;
+    let Some(hook_output) = parse_hook_specific_output(&result.stdout) else {
+        return Ok(ClaudeBashHookReviewResult::Unavailable);
+    };
+    Ok(map_hook_output(&hook_output))
+}
+
+fn to_reviewer_result(result: ClaudeBashHookReviewResult) -> Option<ApprovalReviewerResult> {
+    match result {
+        ClaudeBashHookReviewResult::Unavailable => None,
+        ClaudeBashHookReviewResult::Allow { updated_input } => Some(ApprovalReviewerResult::Allow { updated_input }),
+        ClaudeBashHookReviewResult::Ask { reason } => Some(ApprovalReviewerResult::Ask { reason: Some(reason) }),
+        ClaudeBashHookReviewResult::Deny { reason } => Some(ApprovalReviewerResult::Deny { reason }),
+    }
+}
+
+/// Bundled `claude-bash-hook` extension.
+pub fn claude_bash_hook_extension(pi: &ExtensionApi, options: &ClaudeBashHookOptions) -> Result<(), HandlerError> {
+    let options = options.clone();
+    pi.register_approval_reviewer(Arc::new(
+        move |event: ToolCallEvent,
+              ctx: ExtensionContext|
+              -> BoxFuture<'static, Result<Option<ApprovalReviewerResult>, HandlerError>> {
+            let options = options.clone();
+            Box::pin(async move {
+                let cwd = ctx.cwd()?;
+                let result = review_tool_with_claude_bash_hook(&event, &cwd, &options).await?;
+                Ok(to_reviewer_result(result))
+            })
+        },
+    ))
+    .map_err(HandlerError::new)
+}
+
+/// Registers the extension factory under `<first-party:claude-bash-hook>`.
+pub fn register(registry: &mut crate::core::extensions::loader::ExtensionRegistry) {
+    registry.register(
+        "<first-party:claude-bash-hook>",
+        Arc::new(|pi| {
+            let result = claude_bash_hook_extension(pi, &ClaudeBashHookOptions::default());
+            Box::pin(async move { result })
+        }),
+    );
+}

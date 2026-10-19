@@ -143,20 +143,6 @@ pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
     "session-id",
 ];
 
-/// First-party extensions whose TypeScript factories are not ported on this
-/// branch yet. `main.ts` registers every name in this list unconditionally;
-/// the registry wiring lands with each extension slice.
-pub const PENDING_FIRST_PARTY_EXTENSIONS: &[&str] = &[
-    "claude-bash-hook",
-    "codex-fast",
-    "codex-image-generation",
-    "codex-usage",
-    "codex-web-search",
-    "default-footer",
-    "effort",
-    "loop",
-];
-
 /// `builtInExtensions` from `extensions/index.ts` (the hidden llama.cpp
 /// extension, registered for package/config commands only).
 pub fn built_in_extensions() -> Vec<InlineExtension> {
@@ -181,14 +167,15 @@ pub fn first_party_extension_factory(name: &str, factory: ExtensionFactory) -> I
     }
 }
 
-/// `createFirstPartyExtensionFactories` for the bundled extensions ported on
-/// this branch. The shared store and runtime handles are created by `main`.
+/// `createFirstPartyExtensionFactories`. The shared store, runtime handles,
+/// fast-mode authority, and HTTP client are created by `main`.
 ///
 /// The factories are registered under their source ids and then emitted in
 /// `main.ts` order, so loading order matches the TypeScript list.
 pub fn create_first_party_extension_factories(
     store: Arc<MultiAgentStore>,
     runtime_handles: crate::bundled_extensions::agents_core::runtime::MultiAgentRuntimeHandles,
+    fetch: Arc<dyn pi_ai::request::Fetch>,
 ) -> Vec<InlineExtension> {
     let options = crate::bundled_extensions::agents_core::runtime::MultiAgentExtensionOptions {
         runtime_handles: Some(runtime_handles),
@@ -200,6 +187,9 @@ pub fn create_first_party_extension_factories(
         &mut registry,
         &crate::bundled_extensions::SmallExtensionsOptions {
             get_debug_repl: debug_repl_gap_provider(),
+            fast_mode_authority: crate::bundled_extensions::codex_fast::FastModeAuthority::default(),
+            fetch: Some(fetch),
+            multi_agent_store: Some(Arc::clone(&store)),
         },
     );
     crate::bundled_extensions::register_agents_extensions(&mut registry, &options);
@@ -1953,8 +1943,11 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     let multi_agent_store = create_first_party_multi_agent_store();
     let multi_agent_runtime_handles =
         crate::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
-    let first_party_extension_factories =
-        create_first_party_extension_factories(Arc::clone(&multi_agent_store), multi_agent_runtime_handles.clone());
+    let first_party_extension_factories = create_first_party_extension_factories(
+        Arc::clone(&multi_agent_store),
+        multi_agent_runtime_handles.clone(),
+        Arc::clone(&fetch),
+    );
     let extension_factories = if parsed.no_extensions.is_some_and(|value| value) {
         options.extension_factories.clone()
     } else {

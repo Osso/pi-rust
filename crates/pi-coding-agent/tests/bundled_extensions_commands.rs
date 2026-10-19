@@ -280,6 +280,9 @@ async fn registers_all_small_extensions_under_source_ids() {
         &mut registry,
         &pi_coding_agent::bundled_extensions::SmallExtensionsOptions {
             get_debug_repl: Arc::new(|| Arc::new(RecordingDebugRepl(Arc::new(Mutex::new(Calls::default()))))),
+            multi_agent_store: None,
+            fast_mode_authority: pi_coding_agent::bundled_extensions::codex_fast::FastModeAuthority::new(),
+            fetch: None,
         },
     );
     // Registration order follows `main.ts` `createFirstPartyExtensionFactories`.
@@ -289,17 +292,25 @@ async fn registers_all_small_extensions_under_source_ids() {
             "<first-party:approval-controls>",
             "<first-party:ask-secret>",
             "<first-party:browser-cli>",
+            "<first-party:claude-bash-hook>",
             "<first-party:claude-memory-enrich>",
             "<first-party:claude-memory-session-end>",
+            "<first-party:codex-fast>",
+            "<first-party:codex-image-generation>",
+            "<first-party:codex-usage>",
+            "<first-party:codex-web-search>",
             "<first-party:debug>",
             "<first-party:docs-tree-context>",
+            "<first-party:default-footer>",
+            "<first-party:effort>",
+            "<first-party:loop>",
             "<first-party:openai-remote-compact>",
             "<first-party:run-plan>",
             "<first-party:safe>",
-            "<first-party:self-restart>",
-            "<first-party:session-archive>",
-            "<first-party:session-id>",
             "<first-party:spec-validation>",
+            "<first-party:session-archive>",
+            "<first-party:self-restart>",
+            "<first-party:session-id>",
         ]
     );
     let (extensions, errors) = registry
@@ -311,12 +322,22 @@ async fn registers_all_small_extensions_under_source_ids() {
         )
         .await;
     assert!(errors.is_empty(), "{errors:?}");
-    assert_eq!(extensions.len(), 14);
+    assert_eq!(extensions.len(), 22);
     let tool_names: Vec<&str> = extensions
         .iter()
         .flat_map(|extension| extension.tools.keys().map(String::as_str))
         .collect();
-    assert_eq!(tool_names, vec!["ask_secret", "browser-cli", "restart_self"]);
+    assert_eq!(
+        tool_names,
+        vec![
+            "ask_secret",
+            "browser-cli",
+            "image_gen",
+            "web_search",
+            "loop",
+            "restart_self",
+        ]
+    );
     let command_names: Vec<&str> = extensions
         .iter()
         .flat_map(|extension| extension.commands.keys().map(String::as_str))
@@ -326,13 +347,18 @@ async fn registers_all_small_extensions_under_source_ids() {
         vec![
             "approvals",
             "sandbox",
+            "fast",
+            "usage",
             "debug",
+            "multi-agent",
+            "effort",
+            "loop",
             "run-plan",
             "safe",
-            "restart",
-            "archive",
-            "session-id",
             "spec-validation",
+            "archive",
+            "restart",
+            "session-id",
         ]
     );
 }

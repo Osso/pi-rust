@@ -100,6 +100,12 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 - `AgentSessionRuntime::bind_session_runtime_actions` has no caller yet (main/interactive
   slices own runtime construction); the session-level binding is tested.
 
+## Deviations
+
+- `set_sandbox_profile` reads the status color through `try_current_theme()` and
+  returns `Theme not initialized. Call initTheme() first.` as a session error;
+  the source's `ctx.ui.theme` throws and the caller reports it.
+
 ## Discrepancies
 
 - `AgentSession::compact` returns `core::compaction::CompactionResult` instead of

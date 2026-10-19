@@ -699,7 +699,7 @@ fn normalize_message_content(message: AgentMessage) -> AgentMessage {
     }
 }
 
-fn thinking_level_from_model(level: pi_ai::types::ModelThinkingLevel) -> ThinkingLevel {
+pub(crate) fn thinking_level_from_model(level: pi_ai::types::ModelThinkingLevel) -> ThinkingLevel {
     match level {
         pi_ai::types::ModelThinkingLevel::Off => ThinkingLevel::Off,
         pi_ai::types::ModelThinkingLevel::Minimal => ThinkingLevel::Minimal,
@@ -4572,7 +4572,9 @@ impl AgentSession {
         } else {
             ThemeColor::Accent
         };
-        let styled = ui.theme().fg(color, &status_text);
+        let theme = crate::modes::interactive::theme::try_current_theme()
+            .map_err(|theme_error| error(theme_error.to_string()))?;
+        let styled = theme.fg(color, &status_text);
         ui.set_status("bwrap", Some(&styled));
         Ok(())
     }

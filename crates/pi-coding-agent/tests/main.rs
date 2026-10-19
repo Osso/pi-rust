@@ -27,8 +27,8 @@ use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::settings_manager::{DefaultProjectTrust, SettingsManager, SettingsManagerCreateOptions};
 use pi_coding_agent::core::trust_manager::ProjectTrustStore;
 use pi_coding_agent::main_runner::{
-    DEBUG_REPL_GAP, FIRST_PARTY_EXTENSION_NAMES, MainExit, PENDING_FIRST_PARTY_EXTENSIONS, ResolvedSession,
-    RuntimeFactoryOptions, build_session_options, collect_settings_diagnostics, create_first_party_extension_factories,
+    DEBUG_REPL_GAP, FIRST_PARTY_EXTENSION_NAMES, MainExit, ResolvedSession, RuntimeFactoryOptions,
+    build_session_options, collect_settings_diagnostics, create_first_party_extension_factories,
     create_first_party_multi_agent_store, create_runtime_factory, create_session_manager, debug_repl_gap_provider,
     fork_flag_conflict, is_plain_runtime_metadata_command, is_truthy_env_flag, prepare_initial_message,
     resolve_app_mode, resolve_cli_paths, resolve_session_path, run_cli_action_or_report_error,
@@ -483,7 +483,8 @@ fn diagnostics_are_serialized_with_the_ts_type_field() {
 fn first_party_factory_list_partitions_the_source_names() {
     let store = create_first_party_multi_agent_store();
     let handles = pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
-    let factories = create_first_party_extension_factories(store, handles);
+    let fetch = pi_ai::http::default_fetch();
+    let factories = create_first_party_extension_factories(store, handles, fetch);
     let registered: Vec<String> = factories
         .iter()
         .map(|factory| match factory {
@@ -502,21 +503,8 @@ fn first_party_factory_list_partitions_the_source_names() {
         registered,
         FIRST_PARTY_EXTENSION_NAMES
             .iter()
-            .filter(|name| !PENDING_FIRST_PARTY_EXTENSIONS.contains(name))
-            .copied()
+            .map(|name| (*name).to_owned())
             .collect::<Vec<_>>()
-    );
-
-    for name in &registered {
-        assert!(FIRST_PARTY_EXTENSION_NAMES.contains(&name.as_str()), "{name}");
-        assert!(!PENDING_FIRST_PARTY_EXTENSIONS.contains(&name.as_str()), "{name}");
-    }
-    for name in PENDING_FIRST_PARTY_EXTENSIONS {
-        assert!(FIRST_PARTY_EXTENSION_NAMES.contains(name), "{name}");
-    }
-    assert_eq!(
-        registered.len() + PENDING_FIRST_PARTY_EXTENSIONS.len(),
-        FIRST_PARTY_EXTENSION_NAMES.len()
     );
 }
 
@@ -526,7 +514,8 @@ async fn first_party_factories_load_and_register_agent_tools() {
     let cwd = root.path().display().to_string();
     let store = create_first_party_multi_agent_store();
     let handles = pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
-    let factories = create_first_party_extension_factories(store, handles);
+    let fetch = pi_ai::http::default_fetch();
+    let factories = create_first_party_extension_factories(store, handles, fetch);
     let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
         cwd: cwd.clone(),
         agent_dir: cwd,
@@ -541,15 +530,16 @@ async fn first_party_factories_load_and_register_agent_tools() {
     loader.reload_with_options(None).await.expect("reload");
     let result = loader.get_extensions();
     assert!(result.errors.is_empty(), "{:?}", result.errors);
-    let paths: Vec<&str> = result
+    let paths: Vec<String> = result
         .extensions
         .iter()
-        .map(|extension| extension.path.as_str())
+        .map(|extension| extension.path.clone())
         .collect();
-    assert_eq!(
-        paths.len(),
-        FIRST_PARTY_EXTENSION_NAMES.len() - PENDING_FIRST_PARTY_EXTENSIONS.len()
-    );
+    let expected: Vec<String> = FIRST_PARTY_EXTENSION_NAMES
+        .iter()
+        .map(|name| format!("<first-party:{name}>"))
+        .collect();
+    assert_eq!(paths, expected);
     let core = result
         .extensions
         .iter()
