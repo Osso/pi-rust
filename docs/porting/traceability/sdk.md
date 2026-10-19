@@ -21,14 +21,18 @@ Rust: `crates/pi-coding-agent/src/core/sdk.rs`.
 - `DefaultResourceLoader` is created and reloaded when `resourceLoader` is omitted;
   `extensionFactories` and `rulesScope` are forwarded.
 - Persisted sandbox profile, model, and thinking level are restored from control-db
-  metadata before model selection.
+  metadata before model selection; control-db read failures propagate instead of
+  being dropped.
 - `streamFn` wires settings timeouts, provider retry, attribution headers, and the
   provider-retry notifier; `convertToLlm` honors `images.blockImages`.
 - `extensions_result` comes from the resource loader.
 
 ## Gaps
 
-- `createAllToolDefinitions` is not created here; `base_tools` remains the injected
-  tool seam (tool-definition slice).
+- `base_tools` remains the injected tool override seam; when empty, `AgentSession`
+  builds `createAllToolDefinitions` from current settings.
 - Extension runner ref for `before_provider_headers` / `before_provider_request` /
   `after_provider_response` and `transformContext` are not wired.
+- `multiAgentStore`, `onSharedChannelMessageDelivered`, and `sessionStartEvent` are
+  forwarded to `AgentSession`; mutation-target resolver binding remains in `main`
+  (gap).

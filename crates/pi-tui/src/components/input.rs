@@ -85,6 +85,14 @@ impl Input {
         self.cursor
     }
 
+    /// Restores a cursor position, clamped to the current value length.
+    ///
+    /// Extension components are `Send + Sync` and cannot retain the `Rc`-based
+    /// [`Input`]; they reconstruct it from value and cursor for each keystroke.
+    pub fn set_cursor(&mut self, cursor: usize) {
+        self.cursor = cursor.min(self.value.len());
+    }
+
     fn push_undo(&mut self) {
         self.undo_stack.push(&InputState {
             value: self.value.clone(),

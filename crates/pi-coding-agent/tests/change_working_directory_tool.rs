@@ -103,9 +103,10 @@ impl Fixture {
             .to_owned();
         let reader =
             SessionManager::open(&current_path, Some(self.session_dir.as_str()), None).expect("reopen current session");
-        let (mut runner, context) = crate::tool_context::TestContextBuilder::new(&self.root_cwd, Arc::new(reader))
-            .build()
-            .await;
+        let (mut runner, context) =
+            crate::tool_context::TestContextBuilder::new(&self.root_cwd, Arc::new(Mutex::new(reader)))
+                .build()
+                .await;
         if let Some(recorder) = relocate {
             runner.set_tool_result_relocation_handlers(relocate_callback(recorder), Arc::new(|| Box::pin(async {})));
         }

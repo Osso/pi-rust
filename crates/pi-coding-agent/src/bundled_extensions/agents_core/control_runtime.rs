@@ -15,6 +15,7 @@ use crate::core::multi_agent_store::{
 };
 use crate::core::runtime_process::is_process_identity_alive;
 use crate::core::session_control_db::{MultiAgentRuntimeOwnership, read_multi_agent_runtime_ownership};
+use crate::core::session_manager::lock_session_manager;
 
 use super::lifecycle_runtime::{create_lifecycle_coordinator, publish_coordinator_snapshot};
 use super::mailbox_runtime::current_message_sender_id;
@@ -282,7 +283,9 @@ pub fn steer_agent(
     let Some(sender_id) = sender_id else {
         return Ok(steering_identity_unavailable(params));
     };
-    let session_manager = ctx.session_manager()?;
+    let session_id = lock_session_manager(&ctx.session_manager()?)
+        .get_session_id()
+        .to_owned();
     let steered = request_agent_steering(
         store,
         &AgentSteeringRequest {
@@ -298,7 +301,7 @@ pub fn steer_agent(
                 Some(sender_id)
             },
             control_db_path,
-            session_id: session_manager.get_session_id().to_owned(),
+            session_id,
         },
         Some(runtime_handles),
     )

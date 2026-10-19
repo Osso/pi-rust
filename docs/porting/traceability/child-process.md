@@ -11,6 +11,7 @@ Differential test skipped: behavior depends on process lifetime, pipes, and timi
 | `child-process.ts:29-100` | After exit, keep reading until both pipes end or the idle grace expires; re-arm on every chunk; report exit code; destroy pipes | `wait_for_child_process` with a 100 ms re-armed deadline; focused post-exit descendant and quiet-descendant tests |
 | `child-process.ts:222-227` | Process errors reject | `spawn_process` returns `io::Error`; focused `spawn_failures_are_reported` |
 | `child-process.ts:229-241` | Exit and close report the exit code; signal termination reports null | Focused signal test (`status == None`) |
+| `child-process.ts:222-227` | Spawn errors carry Node's `spawn <command> <ERRNO>` text | `node_spawn_error_message` maps `io::Error` errno codes through the Linux errno-name table; `package_manager` tests assert `spawn <path> ENOENT` and `spawn <path> EACCES` |
 
 ## Discrepancies
 

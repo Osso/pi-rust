@@ -7,6 +7,8 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 
+use rustix::io::Errno;
+
 pub const EXIT_STDIO_GRACE_MS: u64 = 100;
 
 /// Node reports signal names (`SIGTERM`), not numbers.
@@ -57,6 +59,8 @@ pub struct ProcessOutput {
 pub fn spawn_process(command: &str, args: &[&str]) -> io::Result<Child> {
     Command::new(command)
         .args(args)
+        .env_clear()
+        .envs(pi_js_compat::process_env::vars())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -68,6 +72,8 @@ pub fn spawn_process_sync(command: &str, args: &[&str], cwd: Option<&Path>) -> i
     let mut process = std::process::Command::new(command);
     process
         .args(args)
+        .env_clear()
+        .envs(pi_js_compat::process_env::vars())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -238,3 +244,156 @@ fn append(output: &mut ProcessOutput, stream: Stream, bytes: Vec<u8>) {
         Stream::Stderr => output.stderr.extend(bytes),
     }
 }
+
+/// Node error text for a failed `spawn`: `spawn <command> <ERRNO>`.
+///
+/// Node reports the `uv_err_name` code, not the OS description, so the errno name is looked up
+/// from the Linux errno table instead of using `io::Error`'s display text.
+pub fn node_spawn_error_message(prefix: &str, command: &str, error: &io::Error) -> String {
+    match error.raw_os_error().and_then(errno_name) {
+        Some(name) => format!("{prefix} {command} {name}"),
+        None => error.to_string(),
+    }
+}
+
+fn errno_name(code: i32) -> Option<&'static str> {
+    let errno = Errno::from_raw_os_error(code);
+    ERRNO_NAMES
+        .iter()
+        .find_map(|(candidate, name)| (*candidate == errno).then_some(*name))
+}
+
+static ERRNO_NAMES: &[(Errno, &str)] = &[
+    (Errno::ACCESS, "EACCES"),
+    (Errno::ADDRINUSE, "EADDRINUSE"),
+    (Errno::ADDRNOTAVAIL, "EADDRNOTAVAIL"),
+    (Errno::ADV, "EADV"),
+    (Errno::AFNOSUPPORT, "EAFNOSUPPORT"),
+    (Errno::AGAIN, "EAGAIN"),
+    (Errno::ALREADY, "EALREADY"),
+    (Errno::BADE, "EBADE"),
+    (Errno::BADF, "EBADF"),
+    (Errno::BADFD, "EBADFD"),
+    (Errno::BADMSG, "EBADMSG"),
+    (Errno::BADR, "EBADR"),
+    (Errno::BADRQC, "EBADRQC"),
+    (Errno::BADSLT, "EBADSLT"),
+    (Errno::BFONT, "EBFONT"),
+    (Errno::BUSY, "EBUSY"),
+    (Errno::CANCELED, "ECANCELED"),
+    (Errno::CHILD, "ECHILD"),
+    (Errno::CHRNG, "ECHRNG"),
+    (Errno::COMM, "ECOMM"),
+    (Errno::CONNABORTED, "ECONNABORTED"),
+    (Errno::CONNREFUSED, "ECONNREFUSED"),
+    (Errno::CONNRESET, "ECONNRESET"),
+    (Errno::DEADLK, "EDEADLK"),
+    (Errno::DEADLOCK, "EDEADLOCK"),
+    (Errno::DESTADDRREQ, "EDESTADDRREQ"),
+    (Errno::DOM, "EDOM"),
+    (Errno::DOTDOT, "EDOTDOT"),
+    (Errno::DQUOT, "EDQUOT"),
+    (Errno::EXIST, "EEXIST"),
+    (Errno::FAULT, "EFAULT"),
+    (Errno::FBIG, "EFBIG"),
+    (Errno::HOSTDOWN, "EHOSTDOWN"),
+    (Errno::HOSTUNREACH, "EHOSTUNREACH"),
+    (Errno::HWPOISON, "EHWPOISON"),
+    (Errno::IDRM, "EIDRM"),
+    (Errno::ILSEQ, "EILSEQ"),
+    (Errno::INPROGRESS, "EINPROGRESS"),
+    (Errno::INVAL, "EINVAL"),
+    (Errno::IO, "EIO"),
+    (Errno::ISCONN, "EISCONN"),
+    (Errno::ISDIR, "EISDIR"),
+    (Errno::ISNAM, "EISNAM"),
+    (Errno::KEYEXPIRED, "EKEYEXPIRED"),
+    (Errno::KEYREJECTED, "EKEYREJECTED"),
+    (Errno::KEYREVOKED, "EKEYREVOKED"),
+    (Errno::L2HLT, "EL2HLT"),
+    (Errno::L2NSYNC, "EL2NSYNC"),
+    (Errno::L3HLT, "EL3HLT"),
+    (Errno::L3RST, "EL3RST"),
+    (Errno::LIBACC, "ELIBACC"),
+    (Errno::LIBBAD, "ELIBBAD"),
+    (Errno::LIBEXEC, "ELIBEXEC"),
+    (Errno::LIBMAX, "ELIBMAX"),
+    (Errno::LIBSCN, "ELIBSCN"),
+    (Errno::LNRNG, "ELNRNG"),
+    (Errno::LOOP, "ELOOP"),
+    (Errno::MEDIUMTYPE, "EMEDIUMTYPE"),
+    (Errno::MFILE, "EMFILE"),
+    (Errno::MLINK, "EMLINK"),
+    (Errno::MSGSIZE, "EMSGSIZE"),
+    (Errno::MULTIHOP, "EMULTIHOP"),
+    (Errno::NAMETOOLONG, "ENAMETOOLONG"),
+    (Errno::NAVAIL, "ENAVAIL"),
+    (Errno::NETDOWN, "ENETDOWN"),
+    (Errno::NETRESET, "ENETRESET"),
+    (Errno::NETUNREACH, "ENETUNREACH"),
+    (Errno::NFILE, "ENFILE"),
+    (Errno::NOANO, "ENOANO"),
+    (Errno::NOBUFS, "ENOBUFS"),
+    (Errno::NOCSI, "ENOCSI"),
+    (Errno::NODATA, "ENODATA"),
+    (Errno::NODEV, "ENODEV"),
+    (Errno::NOENT, "ENOENT"),
+    (Errno::NOEXEC, "ENOEXEC"),
+    (Errno::NOKEY, "ENOKEY"),
+    (Errno::NOLCK, "ENOLCK"),
+    (Errno::NOLINK, "ENOLINK"),
+    (Errno::NOMEDIUM, "ENOMEDIUM"),
+    (Errno::NOMEM, "ENOMEM"),
+    (Errno::NOMSG, "ENOMSG"),
+    (Errno::NONET, "ENONET"),
+    (Errno::NOPKG, "ENOPKG"),
+    (Errno::NOPROTOOPT, "ENOPROTOOPT"),
+    (Errno::NOSPC, "ENOSPC"),
+    (Errno::NOSR, "ENOSR"),
+    (Errno::NOSTR, "ENOSTR"),
+    (Errno::NOSYS, "ENOSYS"),
+    (Errno::NOTBLK, "ENOTBLK"),
+    (Errno::NOTCONN, "ENOTCONN"),
+    (Errno::NOTDIR, "ENOTDIR"),
+    (Errno::NOTEMPTY, "ENOTEMPTY"),
+    (Errno::NOTNAM, "ENOTNAM"),
+    (Errno::NOTRECOVERABLE, "ENOTRECOVERABLE"),
+    (Errno::NOTSOCK, "ENOTSOCK"),
+    (Errno::NOTTY, "ENOTTY"),
+    (Errno::NOTUNIQ, "ENOTUNIQ"),
+    (Errno::NXIO, "ENXIO"),
+    (Errno::OPNOTSUPP, "EOPNOTSUPP"),
+    (Errno::OVERFLOW, "EOVERFLOW"),
+    (Errno::OWNERDEAD, "EOWNERDEAD"),
+    (Errno::PERM, "EPERM"),
+    (Errno::PFNOSUPPORT, "EPFNOSUPPORT"),
+    (Errno::PIPE, "EPIPE"),
+    (Errno::PROTO, "EPROTO"),
+    (Errno::PROTONOSUPPORT, "EPROTONOSUPPORT"),
+    (Errno::PROTOTYPE, "EPROTOTYPE"),
+    (Errno::RANGE, "ERANGE"),
+    (Errno::REMCHG, "EREMCHG"),
+    (Errno::REMOTE, "EREMOTE"),
+    (Errno::REMOTEIO, "EREMOTEIO"),
+    (Errno::RESTART, "ERESTART"),
+    (Errno::RFKILL, "ERFKILL"),
+    (Errno::ROFS, "EROFS"),
+    (Errno::SHUTDOWN, "ESHUTDOWN"),
+    (Errno::SOCKTNOSUPPORT, "ESOCKTNOSUPPORT"),
+    (Errno::SPIPE, "ESPIPE"),
+    (Errno::SRCH, "ESRCH"),
+    (Errno::SRMNT, "ESRMNT"),
+    (Errno::STALE, "ESTALE"),
+    (Errno::STRPIPE, "ESTRPIPE"),
+    (Errno::TIME, "ETIME"),
+    (Errno::TIMEDOUT, "ETIMEDOUT"),
+    (Errno::TOOBIG, "E2BIG"),
+    (Errno::TOOMANYREFS, "ETOOMANYREFS"),
+    (Errno::TXTBSY, "ETXTBSY"),
+    (Errno::UCLEAN, "EUCLEAN"),
+    (Errno::UNATCH, "EUNATCH"),
+    (Errno::USERS, "EUSERS"),
+    (Errno::WOULDBLOCK, "EWOULDBLOCK"),
+    (Errno::XDEV, "EXDEV"),
+    (Errno::XFULL, "EXFULL"),
+];

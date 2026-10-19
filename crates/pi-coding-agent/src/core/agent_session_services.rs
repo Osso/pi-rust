@@ -3,9 +3,16 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use indexmap::IndexMap;
+use tokio_util::sync::CancellationToken;
+
+use crate::cli::args::UnknownFlagValue;
 use crate::config::get_agent_dir;
+use crate::core::extensions::types::{FlagType, FlagValue};
 use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
-use crate::core::resource_loader::ResourceLoader;
+use crate::core::resource_loader::{
+    DefaultResourceLoader, DefaultResourceLoaderOptions, ResolveProjectTrust, ResourceLoader,
+};
 use crate::core::sdk::{CreateAgentSessionOptions, CreateAgentSessionResult, NoTools, create_agent_session};
 use crate::core::session_manager::SessionManager;
 use crate::core::settings_manager::SettingsManager;
@@ -26,8 +33,15 @@ pub struct CreateAgentSessionServicesOptions {
     pub agent_dir: Option<String>,
     pub settings_manager: Option<SettingsManager>,
     pub model_runtime: Option<ModelRuntime>,
-    /// Rust carrier for `DefaultResourceLoader` (owned by `ca-cli`).
+    pub model_runtime_signal: Option<CancellationToken>,
+    /// CLI values for extension-declared flags, in argument order.
+    pub extension_flag_values: Option<IndexMap<String, UnknownFlagValue>>,
+    /// `DefaultResourceLoaderOptions` minus `cwd`/`agentDir`/`settingsManager`.
+    pub resource_loader_options: Option<DefaultResourceLoaderOptions>,
+    /// Rust carrier for an already-built loader (tests and SDK callers).
     pub resource_loader: Option<Arc<dyn ResourceLoader>>,
+    /// `ResourceLoaderReloadOptions.resolveProjectTrust`.
+    pub resource_loader_reload_options: Option<ResolveProjectTrust>,
 }
 
 /// Inputs for creating an AgentSession from already-created services.
@@ -41,8 +55,13 @@ pub struct CreateAgentSessionFromServicesOptions {
     pub exclude_tools: Option<Vec<String>>,
     pub no_tools: Option<NoTools>,
     pub permission_prompt_tool: Option<String>,
+    pub multi_agent_runtime_role: Option<crate::core::agent_session::MultiAgentRuntimeRole>,
+    pub multi_agent_execution_capability: Option<crate::core::agent_session::MultiAgentExecutionCapability>,
     pub custom_tools: Vec<crate::core::agent_session::ToolDefinition>,
     pub base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
+    pub multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
+    pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
+    pub session_start_event: Option<crate::core::extensions::types::SessionStartEvent>,
 }
 
 /// Coherent cwd-bound runtime services for one effective session cwd.
@@ -56,9 +75,102 @@ pub struct AgentSessionServices {
     pub diagnostics: Vec<AgentSessionRuntimeDiagnostic>,
 }
 
+fn build_resource_loader(
+    options: CreateAgentSessionServicesOptions,
+    cwd: &str,
+    agent_dir: &str,
+    settings_manager: &Arc<Mutex<SettingsManager>>,
+) -> Result<Arc<dyn ResourceLoader>, String> {
+    if let Some(loader) = options.resource_loader {
+        return Ok(loader);
+    }
+    let mut loader_options = options.resource_loader_options.unwrap_or_default();
+    loader_options.cwd = cwd.to_owned();
+    loader_options.agent_dir = agent_dir.to_owned();
+    loader_options.settings_manager = Some(Arc::clone(settings_manager));
+    let loader = DefaultResourceLoader::new(loader_options).map_err(|error| error.to_string())?;
+    Ok(Arc::new(loader))
+}
+
+/// `applyExtensionFlagValues`.
+fn apply_extension_flag_values(
+    resource_loader: &Arc<dyn ResourceLoader>,
+    extension_flag_values: Option<&IndexMap<String, UnknownFlagValue>>,
+) -> Vec<AgentSessionRuntimeDiagnostic> {
+    let Some(extension_flag_values) = extension_flag_values else {
+        return Vec::new();
+    };
+    let mut diagnostics = Vec::new();
+    let extensions_result = resource_loader.get_extensions();
+    let mut registered_flags: IndexMap<String, FlagType> = IndexMap::new();
+    for extension in &extensions_result.extensions {
+        for (name, flag) in &extension.flags {
+            registered_flags.insert(name.clone(), flag.flag_type);
+        }
+    }
+
+    let mut unknown_flags = Vec::new();
+    for (name, value) in extension_flag_values {
+        let Some(flag_type) = registered_flags.get(name) else {
+            unknown_flags.push(name.clone());
+            continue;
+        };
+        match flag_type {
+            FlagType::Boolean => {
+                extensions_result.runtime.set_flag_value(name, FlagValue::Boolean(true));
+            }
+            FlagType::String => match value {
+                UnknownFlagValue::String(value) => {
+                    extensions_result
+                        .runtime
+                        .set_flag_value(name, FlagValue::String(value.clone()));
+                }
+                UnknownFlagValue::Boolean(_) => diagnostics.push(AgentSessionRuntimeDiagnostic {
+                    diagnostic_type: "error".to_owned(),
+                    message: format!("Extension flag \"--{name}\" requires a value"),
+                }),
+            },
+        }
+    }
+
+    if !unknown_flags.is_empty() {
+        let plural = if unknown_flags.len() == 1 { "" } else { "s" };
+        diagnostics.push(AgentSessionRuntimeDiagnostic {
+            diagnostic_type: "error".to_owned(),
+            message: format!(
+                "Unknown option{plural}: {}",
+                unknown_flags
+                    .iter()
+                    .map(|name| format!("--{name}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        });
+    }
+    diagnostics
+}
+
+fn register_pending_providers(
+    model_runtime: &ModelRuntime,
+    resource_loader: &Arc<dyn ResourceLoader>,
+) -> Vec<AgentSessionRuntimeDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let extensions_result = resource_loader.get_extensions();
+    for registration in extensions_result.runtime.pending_provider_registrations() {
+        if let Err(error) = model_runtime.register_provider(&registration.name, registration.config) {
+            diagnostics.push(AgentSessionRuntimeDiagnostic {
+                diagnostic_type: "error".to_owned(),
+                message: format!("Extension \"{}\" error: {error}", registration.extension_path),
+            });
+        }
+    }
+    extensions_result.runtime.clear_pending_provider_registrations();
+    diagnostics
+}
+
 /// Creates cwd-bound runtime services.
 pub async fn create_agent_session_services(
-    options: CreateAgentSessionServicesOptions,
+    mut options: CreateAgentSessionServicesOptions,
 ) -> Result<AgentSessionServices, String> {
     let cwd =
         resolve_path(&options.cwd, &process_cwd(), &PathInputOptions::default()).map_err(|error| error.to_string())?;
@@ -68,25 +180,32 @@ pub async fn create_agent_session_services(
         .map(|dir| resolve_path(dir, &process_cwd(), &PathInputOptions::default()).map_err(|error| error.to_string()))
         .transpose()?
         .unwrap_or_else(|| get_agent_dir().display().to_string());
-    let model_runtime = match options.model_runtime {
+    let model_runtime = match options.model_runtime.clone() {
         Some(runtime) => runtime,
         None => ModelRuntime::create(CreateModelRuntimeOptions {
             auth_path: Some(Path::new(&agent_dir).join("auth.json").display().to_string()),
             models_path: Some(Some(Path::new(&agent_dir).join("models.json").display().to_string())),
+            signal: options.model_runtime_signal.clone(),
             ..Default::default()
         })
         .await
         .map_err(|error| error.to_string())?,
     };
-    let settings_manager = options.settings_manager.unwrap_or_else(|| {
+    let settings_manager = options.settings_manager.take().unwrap_or_else(|| {
         SettingsManager::create(&cwd, Some(Path::new(&agent_dir)), Default::default())
             .expect("settings manager must initialize")
     });
     let settings_manager = Arc::new(Mutex::new(settings_manager));
-    let resource_loader = options
-        .resource_loader
-        .ok_or_else(|| "DefaultResourceLoader is not ported; pass resourceLoader".to_owned())?;
-    resource_loader.reload().await?;
+    let extension_flag_values = options.extension_flag_values.take();
+    let reload_options = options.resource_loader_reload_options.take();
+    let resource_loader = build_resource_loader(options, &cwd, &agent_dir, &settings_manager)?;
+    resource_loader.reload_with_options(reload_options).await?;
+
+    let mut diagnostics = register_pending_providers(&model_runtime, &resource_loader);
+    diagnostics.extend(apply_extension_flag_values(
+        &resource_loader,
+        extension_flag_values.as_ref(),
+    ));
 
     Ok(AgentSessionServices {
         cwd,
@@ -94,7 +213,7 @@ pub async fn create_agent_session_services(
         model_runtime,
         settings_manager,
         resource_loader,
-        diagnostics: Vec::new(),
+        diagnostics,
     })
 }
 
@@ -117,8 +236,13 @@ pub async fn create_agent_session_from_services(
         exclude_tools: options.exclude_tools,
         no_tools: options.no_tools,
         permission_prompt_tool: options.permission_prompt_tool,
+        multi_agent_runtime_role: options.multi_agent_runtime_role,
+        multi_agent_execution_capability: options.multi_agent_execution_capability,
         custom_tools: options.custom_tools,
         base_tools: options.base_tools,
+        multi_agent_store: options.multi_agent_store,
+        on_shared_channel_message_delivered: options.on_shared_channel_message_delivered,
+        session_start_event: options.session_start_event,
         ..Default::default()
     })
     .await

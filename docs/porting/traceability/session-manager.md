@@ -3,8 +3,8 @@
 Pinned source: `packages/coding-agent/src/core/session-manager.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 Rust module: `crates/pi-coding-agent/src/core/session_manager.rs`.
-Focused tests: `crates/pi-coding-agent/tests/session_manager.rs` (34).
-Differential: `crates/pi-coding-agent/tests/differential_session_manager.rs` (8) against `oracle/session-manager-oracle.ts`, requests `41000..=41062`.
+Focused tests: `crates/pi-coding-agent/tests/session_manager.rs` (39).
+Differential: `crates/pi-coding-agent/tests/differential_session_manager.rs` (9) against `oracle/session-manager-oracle.ts`, requests `41000..=41070`.
 
 The session file is the shared contract with TypeScript Pi. Request `41000` proves byte-identical serialization of every entry shape (including omitted optional fields, `parentId: null`, legacy `firstKeptEntryIndex`, unknown entry types, and multibyte content). Requests `41001..=41013` compare parsed entries, context messages, headers, and loaded entries as exact JSON strings in source order (the oracle performs no sorting or canonicalization). Requests `41020..=41030` prove cross-implementation reads: TS writes → Rust reads, Rust writes → TS reads, and Rust appends that TS reads back. Request `41060..=41062` proves interleaved TS/Rust appends on one file. The migration differential substitutes only the randomly generated ids in place, then compares exact serialized strings.
 
@@ -33,13 +33,14 @@ The session file is the shared contract with TypeScript Pi. Request `41000` prov
 | `SessionManager.create/open/continueRecent/inMemory/forkFrom` | persisted/in-memory construction, explicit ids, fork parent + active slice | constructors; `persists_only_after_the_first_assistant_message`, `continues_most_recent_session`, `forks_only_the_active_compacted_slice`, `fork_selection_all_none_and_from` |
 | `setSessionFile` | reverse-scan v3 active slice; repair empty file; reject non-session file | `set_session_file`; `loads_active_compacted_slice`, `rewrites_empty_files_and_rejects_non_session_files`, `active_slice_errors_and_truncated_tail` |
 | `newSession` | uuidv7 id or validated custom id, timestamped file name, no file until assistant | `new_session`; `custom_session_ids_round_trip`, persistence test |
-| `isPersisted/getCwd/getSessionDir/usesDefaultSessionDir/getSessionId/getSessionFile/getMetadataControlDbPath` | accessors | same-named methods; used across tests (`getMetadataControlDbPath` blocked with the control-db gap) |
-| `readPersistedSessionSettings` | model/sandbox/thinking from control db | `read_persisted_session_settings`; `control_db_metadata_persists_model_and_thinking_level` |
+| `isPersisted/getCwd/getSessionDir/usesDefaultSessionDir/getSessionId/getSessionFile/getMetadataControlDbPath` | accessors | same-named methods; used across tests |
+| `readPersistedSessionSettings` | model/sandbox/thinking from control db; throws on control-db errors; empty provider/model ids count as unset (JS truthiness) | `read_persisted_session_settings` returns `Result`; `control_db_metadata_persists_model_and_thinking_level`, `control_db_metadata_errors_propagate`, `metadata_empty_paths_and_model_fields_use_js_truthiness` |
 | `isSubagentSession/getSubagentName` | subagent flags | `is_subagent_session` / `get_subagent_name`; fork test |
-| `getSessionGoalJson*`, `set/clearSessionGoalJson` | control-db goal payload, in-memory fallback | `get_session_goal_json` / `set_session_goal_json` / `clear_session_goal_json` |
-| `setSessionModel/ThinkingLevel` | control-db session settings | `set_session_model` / `set_session_thinking_level`; metadata test |
-| `setMetadataControlDbPath`, `restorePersistedMetadata`, `writeMetadataSnapshot` | metadata cache and incremental writes | `set_metadata_control_db_path` / `restore_persisted_metadata` / `write_metadata_snapshot`; metadata test |
-| `relocate` | move default-dir file, preserve bytes/header, reject existing destination | `relocate`; `relocation_preserves_the_complete_jsonl`. Control-data relocation is blocked |
+| `getSessionGoalJson*`, `set/clearSessionGoalJson` | control-db goal payload, in-memory fallback, throws on control-db errors | `get_session_goal_json` / `get_session_goal_json_for_session` / `set_session_goal_json` / `clear_session_goal_json` (all `Result`); `control_db_metadata_errors_propagate`, `metadata_empty_paths_and_model_fields_use_js_truthiness`, differential `41070` |
+| `setSessionModel/ThinkingLevel` | control-db session settings, throws on errors | `set_session_model` / `set_session_thinking_level` (`Result`); `control_db_metadata_persists_model_and_thinking_level`, `control_db_metadata_errors_propagate` |
+| `setMetadataControlDbPath`, `restorePersistedMetadata`, `writeMetadataSnapshot` | metadata cache and incremental writes; throws on control-db errors; `cwdOverride` uses JS truthiness | `set_metadata_control_db_path` / `restore_persisted_metadata` / `write_metadata_snapshot`; metadata tests + `metadata_empty_paths_and_model_fields_use_js_truthiness` |
+| `_appendEntry` → `writeMetadataSnapshot` when `affectsSessionInfo` | message/session_info appends refresh control-db metadata | `append_entry`; `appending_messages_writes_the_metadata_snapshot` |
+| `relocate` | move default-dir file, preserve bytes/header, reject existing destination, relocate control-db rows, final metadata snapshot | `relocate`; `relocation_preserves_the_complete_jsonl`, `relocation_moves_control_db_rows` |
 | `persistForRecovery` | write before first assistant | `persist_for_recovery`; exercised by branch dedup test |
 | `appendMessage/ThinkingLevelChange/ModelChange/Compaction/CustomEntry/SessionInfo/CustomMessageEntry/LabelChange` | leaf-child append, persist, id generation | same-named methods; tree/label/save-entry tests |
 | `updateCompactionSummary` | trim, non-empty, drop provider-native fields, restore on write failure | `update_compaction_summary`; two focused tests |
@@ -50,13 +51,15 @@ The session file is the shared contract with TypeScript Pi. Request `41000` prov
 
 ## Gaps
 
-- Control-db metadata writes/reads are implemented, but metadata-backed `list`/`listAll`/`listArchived` and subagent exclusion still scan files. `relocate` moves the session file but not control-db rows (`relocate_session_control_data` is ported and unused). `setSessionSandboxProfile` persistence (writeSessionSandboxProfile/clearPersistedSessionSandboxProfile) is not wired here; sdk restores the profile read-only.
+- Control-db metadata writes/reads are implemented, but metadata-backed `list`/`listAll`/`listArchived` and subagent exclusion still scan files. `setSessionSandboxProfile` persistence (writeSessionSandboxProfile/clearPersistedSessionSandboxProfile) is not wired here; sdk restores the profile read-only.
 - `SessionInfo.created`/`modified` are epoch milliseconds (`i64`) instead of JavaScript `Date`; invalid timestamps map to `0` instead of an invalid Date.
 - Listing loads session files sequentially; TypeScript uses at most 10 concurrent loads. Observable only through progress-callback interleaving.
 - `truncateMessageToFit` measures JavaScript UTF-16 lengths. Rust truncates at whole-char boundaries, so a cut inside a surrogate pair yields one fewer character than `String#slice` would; the source data (text content) does not rely on lone surrogates.
 - Typed boundary: a `type:"session"` first line whose header fields do not match `SessionHeader` (for example a non-string `timestamp`) is rejected, where TypeScript only requires `type` and string `id`. Unknown *entry* types are preserved as raw JSON.
 
 ## Discrepancies
+
+- `AgentSession`'s approval reviewer reads the goal inside an `Option`-returning hook, so it cannot reject like the source. A control-db goal read error blocks the tool call with the error message (fail closed) instead of rejecting the hook promise.
 
 - `SessionHeader` records the parsed JSON key order and replays it when serializing, so migrated v1 headers append `version` exactly like TypeScript. `serde_json::Map` uses swap-removal, so the legacy `firstKeptEntryIndex` conversion uses `shift_remove` to preserve TypeScript's deletion order.
 - `migrateToolResultSessionFiles` traversal order differs (stack pop vs. deterministic walk); the report counters are order-independent.

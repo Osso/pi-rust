@@ -49,7 +49,7 @@ pub struct ResolveProjectTrustedOptions<'a> {
     pub default_project_trust: Option<DefaultProjectTrust>,
     pub extensions_result: Option<&'a LoadExtensionsResult>,
     pub project_trust_context: &'a ProjectTrustContext,
-    pub on_extension_error: Option<&'a dyn Fn(String)>,
+    pub on_extension_error: Option<&'a (dyn Fn(String) + Send + Sync)>,
 }
 
 /// `formatProjectTrustPrompt`.

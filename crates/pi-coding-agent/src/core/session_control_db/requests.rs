@@ -81,7 +81,7 @@ pub enum SupervisorRequestStatus {
     Completed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", rename_all_fields = "camelCase")]
 pub enum SupervisorResponse {
     Approve { reason: String },
@@ -93,6 +93,59 @@ pub enum SupervisorResponse {
     Set { objective: String, reason: String },
     Advisory { answer: String },
     Error { reason: String },
+}
+
+impl Serialize for SupervisorResponse {
+    /// Serializes in the TypeScript object-literal key order for each decision branch.
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+
+        let mut map = serializer.serialize_map(None)?;
+        match self {
+            Self::Approve { reason } => {
+                map.serialize_entry("kind", "approve")?;
+                map.serialize_entry("reason", reason)?;
+            }
+            Self::Reject { reason } => {
+                map.serialize_entry("kind", "reject")?;
+                map.serialize_entry("reason", reason)?;
+            }
+            Self::Complete { reason } => {
+                map.serialize_entry("kind", "complete")?;
+                map.serialize_entry("reason", reason)?;
+            }
+            Self::Continue { instructions, reason } => {
+                map.serialize_entry("instructions", instructions)?;
+                map.serialize_entry("kind", "continue")?;
+                map.serialize_entry("reason", reason)?;
+            }
+            Self::Pause { reason } => {
+                map.serialize_entry("kind", "pause")?;
+                map.serialize_entry("reason", reason)?;
+            }
+            Self::Wait { reason } => {
+                map.serialize_entry("kind", "wait")?;
+                map.serialize_entry("reason", reason)?;
+            }
+            Self::Set { objective, reason } => {
+                map.serialize_entry("kind", "set")?;
+                map.serialize_entry("objective", objective)?;
+                map.serialize_entry("reason", reason)?;
+            }
+            Self::Advisory { answer } => {
+                map.serialize_entry("answer", answer)?;
+                map.serialize_entry("kind", "advisory")?;
+            }
+            Self::Error { reason } => {
+                map.serialize_entry("kind", "error")?;
+                map.serialize_entry("reason", reason)?;
+            }
+        }
+        map.end()
+    }
 }
 
 impl SupervisorResponse {

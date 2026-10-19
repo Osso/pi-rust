@@ -32,18 +32,24 @@ use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
+use crate::core::extensions::types::NoOpUiContext;
 use crate::core::model_registry::ModelRegistry;
 use crate::core::model_resolver::{ScopedModel, find_exact_model_reference_match, resolve_model_scope};
 use crate::core::model_runtime::ModelRuntime;
 use crate::core::permissions::policy::ApprovalPolicy;
-use crate::core::permissions::presets::ApprovalPresetName;
+use crate::core::permissions::presets::{ApprovalPresetName, SandboxProfileName, SandboxProfileScope};
 use crate::core::prompt_templates::expand_prompt_template;
 use crate::core::resource_loader::{LoadedPrompts, ResourceLoader};
 use crate::core::session_manager::{SessionEntry, SessionManager, SessionManagerError, get_latest_compaction_entry};
-use crate::core::settings_manager::SettingsManager;
+use crate::core::settings_manager::{SettingsManager, SettingsScope};
 use crate::core::slash_commands::builtin_slash_commands;
 use crate::core::source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::core::system_prompt::{BuildSystemPromptOptions, build_system_prompt};
+use crate::core::tool_detach_registry::ToolDetachRegistry;
+use crate::core::tools::bash::{BashBackgroundJobs, BashToolOptions};
+use crate::core::tools::read::ReadToolOptions;
+use crate::core::tools::{ToolsOptions, create_all_tool_definitions};
+use crate::modes::interactive::theme::ThemeColor;
 use crate::utils::frontmatter::strip_frontmatter;
 
 const BUILT_IN_COMPACTION_DISABLED_MESSAGE: &str =
@@ -158,6 +164,18 @@ impl ToolDefinition {
             tool,
         }
     }
+}
+
+fn builtin_source_info(name: &str) -> crate::core::source_info::SourceInfo {
+    create_synthetic_source_info(
+        &format!("<builtin:{name}>"),
+        &SyntheticSourceInfoOptions {
+            source: "builtin".to_owned(),
+            scope: None,
+            origin: None,
+            base_dir: None,
+        },
+    )
 }
 
 /// `ToolInfo` returned by `getAllTools`.
@@ -813,7 +831,10 @@ struct Inner {
     model_runtime: ModelRuntime,
     model_registry: ModelRegistry,
     custom_tools: Vec<ToolDefinition>,
-    base_tool_definitions: Vec<(String, ToolDefinition)>,
+    /// `_baseToolsOverride`: `Some` replaces the built-in definitions.
+    base_tools_override: Option<Vec<(String, crate::core::extensions::types::ToolDefinition)>>,
+    base_tool_definitions: Mutex<Vec<(String, crate::core::extensions::types::ToolDefinition)>>,
+    tool_detach_registry: Arc<ToolDetachRegistry>,
     tool_definitions: Mutex<Vec<(String, ToolDefinitionEntry)>>,
     tool_prompt_snippets: Mutex<HashMap<String, String>>,
     tool_prompt_guidelines: Mutex<HashMap<String, Vec<String>>>,
@@ -887,11 +908,27 @@ impl AgentSession {
 
         let model_runtime = config.model_runtime.clone();
         let model_registry = ModelRegistry::new(model_runtime.clone());
-        let base_tool_definitions = config
-            .base_tools
-            .iter()
-            .map(|tool| (tool.name().to_owned(), ToolDefinition::from_tool(Arc::clone(tool))))
-            .collect::<Vec<_>>();
+        let base_tools_override = (!config.base_tools.is_empty()).then(|| {
+            let mut definitions = config
+                .base_tools
+                .iter()
+                .filter(|tool| tool.name() != crate::core::tools::end_turn::NAME)
+                .map(|tool| {
+                    (
+                        tool.name().to_owned(),
+                        crate::core::tools::tool_definition_wrapper::create_tool_definition_from_agent_tool(
+                            Arc::clone(tool),
+                        ),
+                    )
+                })
+                .collect::<Vec<_>>();
+            definitions.push((
+                crate::core::tools::end_turn::NAME.to_owned(),
+                crate::core::tools::end_turn::create_end_turn_tool_definition(),
+            ));
+            definitions
+        });
+        let tool_detach_registry = Arc::new(ToolDetachRegistry::new());
         let agent_dir = config
             .agent_dir
             .clone()
@@ -905,13 +942,7 @@ impl AgentSession {
             Vec::new(),
             crate::core::extensions::extension_runtime::create_extension_runtime(),
             config.cwd.clone(),
-            Arc::new(
-                config
-                    .session_manager
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .clone(),
-            ),
+            Arc::clone(&config.session_manager),
             Arc::new(ModelRegistry::new(model_runtime.clone())),
             Some(Arc::clone(&config.settings_manager)),
         );
@@ -925,7 +956,9 @@ impl AgentSession {
                 .unwrap_or_else(|| {
                     crate::core::session_control_db::get_control_db_path(&crate::config::get_user_state_root())
                 });
-            manager.set_metadata_control_db_path(Some(&path), Default::default());
+            manager
+                .set_metadata_control_db_path(Some(&path), Default::default())
+                .map_err(|error| AgentSessionError::new(error.to_string()))?;
             path
         };
 
@@ -963,7 +996,9 @@ impl AgentSession {
             model_runtime,
             model_registry,
             custom_tools: config.custom_tools,
-            base_tool_definitions,
+            base_tools_override,
+            base_tool_definitions: Mutex::new(Vec::new()),
+            tool_detach_registry,
             tool_definitions: Mutex::new(Vec::new()),
             tool_prompt_snippets: Mutex::new(HashMap::new()),
             tool_prompt_guidelines: Mutex::new(HashMap::new()),
@@ -1029,7 +1064,24 @@ impl AgentSession {
         session.install_agent_next_turn_refresh();
         session.install_duplicate_turn_stop();
         session.subscribe_agent();
-        session.build_runtime(session.inner.initial_active_tool_names.clone(), None, true);
+        let default_active_tool_names = match &session.inner.base_tools_override {
+            Some(definitions) => definitions.iter().map(|(name, _)| name.clone()).collect(),
+            None => crate::core::tools::DEFAULT_ACTIVE_TOOL_NAMES
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect(),
+        };
+        session.build_runtime(
+            Some(
+                session
+                    .inner
+                    .initial_active_tool_names
+                    .clone()
+                    .unwrap_or(default_active_tool_names),
+            ),
+            None,
+            true,
+        );
         Ok(session)
     }
 
@@ -1148,18 +1200,13 @@ impl AgentSession {
         _flag_values: Option<BTreeMap<String, Value>>,
         include_all_extension_tools: bool,
     ) {
+        self.rebuild_base_tool_definitions();
         let extensions = self.inner.resource_loader.get_extensions();
         let mut runner = ExtensionRunner::new(
             extensions.extensions,
             extensions.runtime,
             self.inner.cwd.clone(),
-            Arc::new(
-                self.inner
-                    .session_manager
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .clone(),
-            ),
+            Arc::clone(&self.inner.session_manager),
             Arc::new(self.inner.model_registry.clone()),
             Some(Arc::clone(&self.inner.settings_manager)),
         );
@@ -1179,6 +1226,50 @@ impl AgentSession {
         self.refresh_tool_registry(active_tool_names, include_all_extension_tools);
     }
 
+    /// `_buildRuntime` base definitions: overrides, or every built-in tool with
+    /// the current settings.
+    fn rebuild_base_tool_definitions(&self) {
+        if self.inner.base_tools_override.is_some() {
+            lock(&self.inner.base_tool_definitions).clear();
+            return;
+        }
+        let (auto_resize_images, command_prefix, shell_path) = {
+            let settings = lock(&self.inner.settings_manager);
+            (
+                settings.get_image_auto_resize(),
+                settings.get_shell_command_prefix().map(str::to_owned),
+                settings.get_shell_path(),
+            )
+        };
+        let session = self.clone();
+        let background_jobs = self.inner.multi_agent_store.as_ref().map(|_| {
+            Arc::new(BashBackgroundJobs {
+                get_lifecycle: Arc::new(move || session.get_detached_job_lifecycle_controller()),
+            })
+        });
+        let definitions = create_all_tool_definitions(
+            &self.inner.cwd,
+            ToolsOptions {
+                read: Some(ReadToolOptions {
+                    auto_resize_images: Some(auto_resize_images),
+                    ..Default::default()
+                }),
+                bash: Some(BashToolOptions {
+                    command_prefix,
+                    shell_path,
+                    detach_registry: Some(Arc::clone(&self.inner.tool_detach_registry)),
+                    background_jobs,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )
+        .into_iter()
+        .map(|(name, definition)| (name.to_owned(), definition))
+        .collect();
+        *lock(&self.inner.base_tool_definitions) = definitions;
+    }
+
     fn refresh_tool_registry(&self, active_tool_names: Option<Vec<String>>, include_all_extension_tools: bool) {
         let previous_registry_names: HashSet<String> = lock(&self.inner.tool_registry).keys().cloned().collect();
         let previous_active_tool_names = self.get_active_tool_names();
@@ -1186,32 +1277,43 @@ impl AgentSession {
         let excluded = self.inner.excluded_tool_names.clone();
         let is_allowed = |name: &str| is_allowed_session_tool(name, allowed.as_ref(), excluded.as_ref());
 
-        let mut definition_registry: Vec<(String, ToolDefinitionEntry)> = self
-            .inner
-            .base_tool_definitions
+        let runner = self.runner();
+        let base_definitions: Vec<(String, crate::core::extensions::types::ToolDefinition)> =
+            match &self.inner.base_tools_override {
+                Some(overrides) => overrides.clone(),
+                None => lock(&self.inner.base_tool_definitions).clone(),
+            };
+        let mut definition_registry: Vec<(String, ToolDefinitionEntry)> = base_definitions
             .iter()
             .filter(|(name, _)| is_allowed(name))
             .map(|(name, definition)| {
+                let source_info = builtin_source_info(name);
+                let wrapped = wrap_registered_tool(
+                    crate::core::extensions::types::RegisteredTool {
+                        definition: definition.clone(),
+                        source_info: source_info.clone(),
+                    },
+                    &runner,
+                );
                 (
                     name.clone(),
                     ToolDefinitionEntry {
-                        definition: definition.clone(),
-                        source_info: create_synthetic_source_info(
-                            &format!("<builtin:{name}>"),
-                            &SyntheticSourceInfoOptions {
-                                source: "builtin".to_owned(),
-                                scope: None,
-                                origin: None,
-                                base_dir: None,
-                            },
-                        ),
+                        definition: ToolDefinition {
+                            name: definition.name.clone(),
+                            description: definition.description.clone(),
+                            parameters: definition.parameters.clone(),
+                            prompt_snippet: definition.prompt_snippet.clone(),
+                            prompt_guidelines: definition.prompt_guidelines.clone().unwrap_or_default(),
+                            approval_required: definition.approval_required.unwrap_or(true),
+                            tool: wrapped,
+                        },
+                        source_info,
                     },
                 )
             })
             .collect();
 
         let extension_tools = {
-            let runner = self.runner();
             runner
                 .get_all_registered_tools()
                 .into_iter()
@@ -1318,10 +1420,10 @@ impl AgentSession {
         }
 
         next_active_tool_names.push("end_turn".to_owned());
+        let mut seen = HashSet::new();
         let unique: Vec<String> = next_active_tool_names
             .into_iter()
-            .collect::<HashSet<_>>()
-            .into_iter()
+            .filter(|name| seen.insert(name.clone()))
             .collect();
 
         *lock(&self.inner.tool_definitions) = definition_registry;
@@ -1680,7 +1782,18 @@ impl AgentSession {
                     &kb_dir,
                 )
                 .unwrap_or_default();
-                let active_goal = lock(&session.inner.session_manager).get_session_goal_json();
+                let active_goal = match lock(&session.inner.session_manager).get_session_goal_json() {
+                    Ok(goal) => goal,
+                    Err(error) => {
+                        // The source throws here, aborting the tool call; fail closed.
+                        return Some(crate::core::extensions::types::ToolCallEventResult {
+                            block: Some(true),
+                            input: None,
+                            reason: Some(error.to_string()),
+                            terminate: None,
+                        });
+                    }
+                };
                 let mut payload = Map::new();
                 payload.insert(
                     "activeGoal".to_owned(),
@@ -1830,12 +1943,11 @@ impl AgentSession {
         let persistence = store.get_persistence_target()?;
         let control_db_path = self.runtime_mailbox_control_db_path()?;
         let id_store = Arc::clone(store);
-        let process_identity = serde_json::from_str(crate::core::session_control_db::get_runtime_process_instance_id())
-            .unwrap_or(crate::core::runtime_process::ProcessIdentity {
-                pid: std::process::id(),
-                start_time_ticks: 0,
-                incarnation: None,
-            });
+        // TS parses this when the session is constructed and lets a failure throw.
+        let instance_id = crate::core::session_control_db::get_runtime_process_instance_id()
+            .expect("runtime process identity must be readable");
+        let process_identity: crate::core::runtime_process::ProcessIdentity =
+            serde_json::from_str(instance_id).expect("runtime process identity must be valid JSON");
         let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
             control_db_path: control_db_path.clone(),
             create_agent_id: Arc::new(move || id_store.allocate_agent_id_for_lifecycle_coordinator("agent")),
@@ -2233,7 +2345,7 @@ impl AgentSession {
         }
         loop {
             let guard = self.inner.turn_start_lock.lock().await;
-            let Some(kind) = self.handle_post_agent_run().await else {
+            let Some(kind) = self.handle_post_agent_run().await? else {
                 return Ok(());
             };
             drop(guard);
@@ -2241,25 +2353,27 @@ impl AgentSession {
         }
     }
 
-    async fn handle_post_agent_run(&self) -> Option<&'static str> {
+    async fn handle_post_agent_run(&self) -> Result<Option<&'static str>, AgentSessionError> {
         if self.inner.disposed.load(Ordering::SeqCst) {
-            return None;
+            return Ok(None);
         }
-        let message = lock(&self.inner.last_assistant_message).take()?;
-        if self.prepare_quota_fallback(&message).await {
-            return Some("normal");
+        let Some(message) = lock(&self.inner.last_assistant_message).take() else {
+            return Ok(None);
+        };
+        if self.prepare_quota_fallback(&message).await? {
+            return Ok(Some("normal"));
         }
         if self.is_retryable_error(&message) && self.prepare_retry(&message).await {
-            return Some("normal");
+            return Ok(Some("normal"));
         }
         self.finish_exhausted_retry(&message);
         if self.check_compaction(&message, true).await {
-            return Some("normal");
+            return Ok(Some("normal"));
         }
         if self.inner.agent.has_queued_messages() {
-            return Some("queued");
+            return Ok(Some("queued"));
         }
-        None
+        Ok(None)
     }
 
     /// Validates that the active model has configured auth.
@@ -2856,9 +2970,11 @@ impl AgentSession {
         let previous_model = self.inner.agent.model();
         let thinking_level = self.get_thinking_level_for_model_switch(None);
         self.inner.agent.set_model(model.clone());
-        lock(&self.inner.session_manager).set_session_model(&model.provider, &model.id);
+        lock(&self.inner.session_manager)
+            .set_session_model(&model.provider, &model.id)
+            .map_err(|error| AgentSessionError::new(error.to_string()))?;
         lock(&self.inner.settings_manager).set_default_model_and_provider(&model.provider, &model.id);
-        self.set_thinking_level(thinking_level);
+        self.set_thinking_level(thinking_level)?;
         self.emit_model_select(&model, Some(&previous_model), ModelSelectSource::Set)
             .await;
         Ok(())
@@ -2949,9 +3065,11 @@ impl AgentSession {
         let thinking_level = self.get_thinking_level_for_model_switch(next.thinking_level);
         let previous_model = self.inner.agent.model();
         self.inner.agent.set_model(next.model.clone());
-        lock(&self.inner.session_manager).set_session_model(&next.model.provider, &next.model.id);
+        lock(&self.inner.session_manager)
+            .set_session_model(&next.model.provider, &next.model.id)
+            .map_err(|error| AgentSessionError::new(error.to_string()))?;
         lock(&self.inner.settings_manager).set_default_model_and_provider(&next.model.provider, &next.model.id);
-        self.set_thinking_level(thinking_level);
+        self.set_thinking_level(thinking_level)?;
         self.emit_model_select(&next.model, Some(&previous_model), ModelSelectSource::Cycle)
             .await;
         Ok(Some(ModelCycleResult {
@@ -2966,7 +3084,7 @@ impl AgentSession {
     // =========================================================================
 
     /// Sets the thinking level, clamped to the model capabilities.
-    pub fn set_thinking_level(&self, level: ThinkingLevel) {
+    pub fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), AgentSessionError> {
         let available = self.get_available_thinking_levels();
         let effective = if available.contains(&level) {
             level
@@ -2977,7 +3095,9 @@ impl AgentSession {
         let is_changing = effective != previous;
         self.inner.agent.set_thinking_level(effective);
         if is_changing {
-            lock(&self.inner.session_manager).set_session_thinking_level(effective.as_str());
+            lock(&self.inner.session_manager)
+                .set_session_thinking_level(effective.as_str())
+                .map_err(|error| AgentSessionError::new(error.to_string()))?;
             if self.supports_thinking() || effective != ThinkingLevel::Off {
                 lock(&self.inner.settings_manager).set_default_thinking_level(effective);
             }
@@ -2992,19 +3112,20 @@ impl AgentSession {
                 });
             }
         }
+        Ok(())
     }
 
     /// Cycles to the next thinking level.
-    pub fn cycle_thinking_level(&self) -> Option<ThinkingLevel> {
+    pub fn cycle_thinking_level(&self) -> Result<Option<ThinkingLevel>, AgentSessionError> {
         if !self.supports_thinking() {
-            return None;
+            return Ok(None);
         }
         let levels = self.get_available_thinking_levels();
         let current = self.thinking_level();
         let index = levels.iter().position(|level| *level == current).unwrap_or(0);
         let next = levels[(index + 1) % levels.len()];
-        self.set_thinking_level(next);
-        Some(next)
+        self.set_thinking_level(next)?;
+        Ok(Some(next))
     }
 
     /// Available thinking levels for the current model.
@@ -3078,9 +3199,9 @@ impl AgentSession {
             .then_some(fallback)
     }
 
-    async fn prepare_quota_fallback(&self, message: &AssistantMessage) -> bool {
+    async fn prepare_quota_fallback(&self, message: &AssistantMessage) -> Result<bool, AgentSessionError> {
         let Some(fallback_model) = self.find_quota_fallback_model(message) else {
-            return false;
+            return Ok(false);
         };
         self.inner.quota_fallback_attempted.store(true, Ordering::SeqCst);
         let mut messages = self.inner.agent.messages();
@@ -3089,8 +3210,10 @@ impl AgentSession {
             self.inner.agent.set_messages(messages);
         }
         self.inner.agent.set_model(fallback_model.clone());
-        lock(&self.inner.session_manager).set_session_model(&fallback_model.provider, &fallback_model.id);
-        true
+        lock(&self.inner.session_manager)
+            .set_session_model(&fallback_model.provider, &fallback_model.id)
+            .map_err(|error| AgentSessionError::new(error.to_string()))?;
+        Ok(true)
     }
 
     async fn prepare_retry(&self, message: &AssistantMessage) -> bool {
@@ -3476,6 +3599,52 @@ impl AgentSession {
 
     pub fn settings_manager(&self) -> MutexGuard<'_, SettingsManager> {
         lock(&self.inner.settings_manager)
+    }
+
+    /// `ExtensionRunner.setSandboxProfile`.
+    pub fn set_sandbox_profile(
+        &self,
+        profile: Option<SandboxProfileName>,
+        scope: SandboxProfileScope,
+    ) -> Result<(), AgentSessionError> {
+        if scope == SandboxProfileScope::Session {
+            let persisted = self.session_manager().set_session_sandbox_profile(profile)?;
+            if !persisted {
+                return Err(error("Session sandbox profiles require a persisted session"));
+            }
+            self.settings_manager().set_session_sandbox_profile(profile);
+        } else {
+            let Some(profile) = profile else {
+                return Err(error("Only session sandbox profiles can inherit configured settings"));
+            };
+            let settings_scope = match scope {
+                SandboxProfileScope::Global => SettingsScope::Global,
+                SandboxProfileScope::Project => SettingsScope::Project,
+                SandboxProfileScope::Session => unreachable!(),
+            };
+            self.settings_manager()
+                .set_sandbox_profile(profile, settings_scope)
+                .map_err(|failure| error(failure.to_string()))?;
+        }
+
+        let effective_profile = self.settings_manager().get_explicit_sandbox_profile();
+        let full_access = effective_profile.is_none() || effective_profile == Some(SandboxProfileName::FullAccess);
+        let status_text = if full_access {
+            "bwrap: full access".to_owned()
+        } else {
+            format!("bwrap: {}", effective_profile.expect("checked above").as_str())
+        };
+        let ui = lock(&self.inner.extension_ui_context)
+            .clone()
+            .unwrap_or_else(|| Arc::new(NoOpUiContext));
+        let color = if full_access {
+            ThemeColor::Muted
+        } else {
+            ThemeColor::Accent
+        };
+        let styled = ui.theme().fg(color, &status_text);
+        ui.set_status("bwrap", Some(&styled));
+        Ok(())
     }
 
     pub fn model_runtime(&self) -> &ModelRuntime {
@@ -5513,7 +5682,9 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
     let set_thinking_level: crate::core::extensions::types::SetThinkingLevelHandler =
         Arc::new(move |level: ThinkingLevel| {
             if let Some(inner) = set_thinking_weak.upgrade() {
-                AgentSession { inner }.set_thinking_level(level);
+                AgentSession { inner }
+                    .set_thinking_level(level)
+                    .map_err(|error| crate::core::extensions::types::HandlerError::new(error.message()))?;
             }
             Ok(())
         });
@@ -5554,8 +5725,9 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
         let inner = set_thinking_weak
             .upgrade()
             .ok_or_else(|| HandlerError::new("Session is disposed"))?;
-        AgentSession { inner }.set_thinking_level(level);
-        Ok(())
+        AgentSession { inner }
+            .set_thinking_level(level)
+            .map_err(|error| HandlerError::new(error.to_string()))
     }));
     let scoped_weak = weak.clone();
     let get_scoped_models: Option<Arc<dyn Fn() -> Vec<ScopedModel> + Send + Sync>> =

@@ -1,0 +1,317 @@
+//! Process differentials for the `pi` binary against the pinned `cli.ts`.
+//!
+//! Only startup paths that do not depend on still-unported bundled extensions or
+//! network providers are compared; `--help`, `tools`, and `extensions` diverge
+//! until the pending first-party factories land.
+
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::Duration;
+
+use serde_json::Value;
+
+const SOURCE_LOCK: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../docs/porting/source-lock.json"
+));
+
+struct SourceLock {
+    worktree: PathBuf,
+    commit: String,
+}
+
+fn source_lock() -> SourceLock {
+    let value: Value = serde_json::from_str(SOURCE_LOCK).expect("source lock must be valid JSON");
+    SourceLock {
+        worktree: PathBuf::from(value["worktree"].as_str().expect("source lock worktree")),
+        commit: value["commit"].as_str().expect("source lock commit").to_owned(),
+    }
+}
+
+fn verify_source_head(lock: &SourceLock) {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(&lock.worktree)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .expect("git must verify the pinned TypeScript source HEAD");
+    assert!(output.status.success(), "git rev-parse failed");
+    let actual = String::from_utf8(output.stdout).expect("git HEAD must be UTF-8");
+    assert_eq!(
+        actual.trim(),
+        lock.commit,
+        "TypeScript source HEAD must equal docs/porting/source-lock.json"
+    );
+}
+
+struct ProcessOutput {
+    stdout: String,
+    stderr: String,
+    code: i32,
+}
+
+struct Fixture {
+    _temp: tempfile::TempDir,
+    work: PathBuf,
+    agent_dir: PathBuf,
+    state_dir: PathBuf,
+    home: PathBuf,
+    package_dir: PathBuf,
+}
+
+fn fixture(lock: &SourceLock) -> Fixture {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let work = temp.path().join("work");
+    let agent_dir = temp.path().join("agent");
+    let state_dir = temp.path().join("state");
+    let home = temp.path().join("home");
+    let package_dir = temp.path().join("package");
+    for directory in [&work, &agent_dir, &state_dir, &home, &package_dir] {
+        std::fs::create_dir_all(directory).expect("fixture directory");
+    }
+    std::fs::write(
+        package_dir.join("package.json"),
+        r#"{"name":"@earendil-works/pi-coding-agent","version":"0.84.1"}"#,
+    )
+    .expect("package.json");
+    copy_directory(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("theme"),
+        &package_dir.join("theme"),
+    );
+    let _ = lock;
+    Fixture {
+        _temp: temp,
+        work,
+        agent_dir,
+        state_dir,
+        home,
+        package_dir,
+    }
+}
+
+fn copy_directory(source: &Path, target: &Path) {
+    std::fs::create_dir_all(target).expect("theme directory");
+    for entry in std::fs::read_dir(source).expect("theme entries") {
+        let entry = entry.expect("theme entry");
+        std::fs::copy(entry.path(), target.join(entry.file_name())).expect("theme file copy");
+    }
+}
+
+fn environment(fixture: &Fixture, package_dir: &Path) -> Vec<(String, String)> {
+    vec![
+        (
+            "PI_CODING_AGENT_DIR".to_owned(),
+            fixture.agent_dir.display().to_string(),
+        ),
+        (
+            "PI_CODING_AGENT_STATE_DIR".to_owned(),
+            fixture.state_dir.display().to_string(),
+        ),
+        ("HOME".to_owned(), fixture.home.display().to_string()),
+        ("PI_PACKAGE_DIR".to_owned(), package_dir.display().to_string()),
+        ("PI_OFFLINE".to_owned(), "1".to_owned()),
+        ("NO_COLOR".to_owned(), "1".to_owned()),
+    ]
+}
+
+fn run(command: &mut Command, env: &[(String, String)]) -> ProcessOutput {
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    let output = command.output().expect("process must run");
+    ProcessOutput {
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        code: output.status.code().unwrap_or(-1),
+    }
+}
+
+fn run_rust(fixture: &Fixture, args: &[&str]) -> ProcessOutput {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pi"));
+    command.args(args).current_dir(&fixture.work);
+    run(&mut command, &environment(fixture, &fixture.package_dir))
+}
+
+fn run_typescript(lock: &SourceLock, fixture: &Fixture, args: &[&str]) -> ProcessOutput {
+    let package_dir = lock.worktree.join("packages/coding-agent");
+    let mut command = Command::new(lock.worktree.join("node_modules/.bin/tsx"));
+    command
+        .arg("--tsconfig")
+        .arg(lock.worktree.join("tsconfig.json"))
+        .arg(package_dir.join("src/cli.ts"))
+        .args(args)
+        .current_dir(&fixture.work);
+    run(&mut command, &environment(fixture, &package_dir))
+}
+
+fn assert_matches(lock: &SourceLock, args: &[&str]) {
+    verify_source_head(lock);
+    let rust_fixture = fixture(lock);
+    let ts_fixture = fixture(lock);
+    let rust = run_rust(&rust_fixture, args);
+    let typescript = run_typescript(lock, &ts_fixture, args);
+    let rust_stdout = rust.stdout.replace(&rust_fixture.work.display().to_string(), "<work>");
+    let rust_stderr = rust.stderr.replace(&rust_fixture.work.display().to_string(), "<work>");
+    let ts_stdout = typescript
+        .stdout
+        .replace(&ts_fixture.work.display().to_string(), "<work>");
+    let ts_stderr = typescript
+        .stderr
+        .replace(&ts_fixture.work.display().to_string(), "<work>");
+    assert_eq!(typescript.code, rust.code, "exit code for {args:?}");
+    assert_eq!(ts_stdout, rust_stdout, "stdout for {args:?}");
+    assert_eq!(ts_stderr, rust_stderr, "stderr for {args:?}");
+}
+
+#[test]
+fn version_differential() {
+    assert_matches(&source_lock(), &["--version"]);
+}
+
+#[test]
+fn package_list_differential() {
+    assert_matches(&source_lock(), &["list"]);
+}
+
+#[test]
+fn invalid_session_id_differential() {
+    assert_matches(&source_lock(), &["--session-id", "-bad"]);
+}
+
+#[test]
+fn missing_session_differential() {
+    assert_matches(&source_lock(), &["--fork", "--continue"]);
+}
+
+#[test]
+fn fork_conflict_differential() {
+    assert_matches(&source_lock(), &["--fork", "--session", "x"]);
+}
+
+#[test]
+fn missing_export_file_differential() {
+    assert_matches(&source_lock(), &["--export", "missing.jsonl"]);
+}
+
+#[test]
+fn remove_missing_package_differential() {
+    assert_matches(&source_lock(), &["remove", "npm:not-installed"]);
+}
+
+#[test]
+fn install_without_source_differential() {
+    assert_matches(&source_lock(), &["install"]);
+}
+
+const SSE_BODY: &str = concat!(
+    "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"demo-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"demo-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"end_turn\",\"arguments\":\"{\\\"reason\\\":\\\"done\\\"}\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"demo-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n",
+    "data: [DONE]\n\n",
+);
+
+fn spawn_sse_server() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("mock provider listener");
+    let port = listener.local_addr().expect("mock provider address").port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { continue };
+            std::thread::spawn(move || serve_sse(stream));
+        }
+    });
+    port
+}
+
+fn serve_sse(mut stream: TcpStream) {
+    stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
+    let mut request = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    loop {
+        let Ok(read) = stream.read(&mut buffer) else {
+            return;
+        };
+        if read == 0 {
+            return;
+        }
+        request.extend_from_slice(&buffer[..read]);
+        let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n") else {
+            continue;
+        };
+        let headers = String::from_utf8_lossy(&request[..header_end]).to_ascii_lowercase();
+        let content_length = headers
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+        if request.len() >= header_end + 4 + content_length {
+            break;
+        }
+    }
+    let response = format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        SSE_BODY.len(),
+        SSE_BODY
+    );
+    let _ = stream.write_all(response.as_bytes());
+}
+
+fn write_models(fixture: &Fixture, port: u16) {
+    let models = format!(
+        r#"{{"providers":{{"demo":{{"baseUrl":"http://127.0.0.1:{port}/v1","api":"openai-completions","models":[{{"id":"demo-model","name":"Demo","reasoning":false,"input":["text"],"contextWindow":64000,"maxTokens":4096}}]}}}}"#
+    );
+    std::fs::write(fixture.agent_dir.join("models.json"), models).expect("models.json");
+}
+
+fn normalize_process_output(text: &str, fixture: &Fixture) -> String {
+    let text = text.replace(&fixture._temp.path().display().to_string(), "<tmp>");
+    let uuid = regex::Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").unwrap();
+    let text = uuid.replace_all(&text, "<uuid>").into_owned();
+    let timestamp = regex::Regex::new(r#""timestamp":("[^"]*"|-?\d+(?:\.\d+)?)"#).unwrap();
+    let text = timestamp
+        .replace_all(&text, r#""timestamp":"<timestamp>""#)
+        .into_owned();
+    let duration = regex::Regex::new(r#""(startedAt|finishedAt|durationMs)":-?\d+(?:\.\d+)?"#).unwrap();
+    duration.replace_all(&text, r#""$1":<duration>"#).into_owned()
+}
+
+fn assert_model_differential(lock: &SourceLock, mode_args: &[&str]) {
+    verify_source_head(lock);
+    let port = spawn_sse_server();
+    let rust_fixture = fixture(lock);
+    let ts_fixture = fixture(lock);
+    write_models(&rust_fixture, port);
+    write_models(&ts_fixture, port);
+    let mut args = vec!["-ne"];
+    args.extend_from_slice(mode_args);
+    args.extend_from_slice(&["--model", "demo/demo-model", "--api-key", "test", "hello"]);
+    let rust = run_rust(&rust_fixture, &args);
+    let typescript = run_typescript(lock, &ts_fixture, &args);
+    assert_eq!(typescript.code, rust.code, "exit code for {args:?}");
+    assert_eq!(
+        normalize_process_output(&typescript.stderr, &ts_fixture),
+        normalize_process_output(&rust.stderr, &rust_fixture),
+        "stderr for {args:?}"
+    );
+    assert_eq!(
+        normalize_process_output(&typescript.stdout, &ts_fixture),
+        normalize_process_output(&rust.stdout, &rust_fixture),
+        "stdout for {args:?}"
+    );
+}
+
+#[test]
+fn print_mode_differential() {
+    assert_model_differential(&source_lock(), &[]);
+}
+
+#[test]
+fn json_mode_differential() {
+    assert_model_differential(&source_lock(), &["--mode", "json"]);
+}
+
+#[test]
+fn rpc_mode_empty_stdin_differential() {
+    assert_model_differential(&source_lock(), &["--mode", "rpc"]);
+}

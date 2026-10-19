@@ -5,7 +5,6 @@
 
 use std::sync::{Arc, Mutex};
 
-use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use pi_ai::auth::types::{Credential, ProviderAuth};
 use pi_ai::models::{ModelsPublication, PersistAction, Provider, RefreshModelsContext};
 use pi_ai::models_store::ModelsStoreEntry;
@@ -23,18 +22,6 @@ use crate::utils::pi_user_agent::get_pi_user_agent;
 const DEFAULT_CATALOG_BASE_URL: &str = "https://pi.dev";
 /// Catalogs are revalidated at most every four hours unless forced.
 pub const REMOTE_CATALOG_REFRESH_INTERVAL_MS: f64 = 4.0 * 60.0 * 60.0 * 1000.0;
-
-/// `encodeURIComponent` leaves these ASCII characters unescaped.
-const URI_COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
-    .remove(b'-')
-    .remove(b'_')
-    .remove(b'.')
-    .remove(b'!')
-    .remove(b'~')
-    .remove(b'*')
-    .remove(b'\'')
-    .remove(b'(')
-    .remove(b')');
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -116,7 +103,7 @@ pub fn with_remote_catalog(
 
 impl RemoteCatalogProvider {
     fn catalog_url(&self, provider_id: &str) -> String {
-        let encoded = utf8_percent_encode(provider_id, URI_COMPONENT).to_string();
+        let encoded = crate::utils::url_encoding::encode_uri_component(provider_id);
         format!(
             "{}/api/models/providers/{encoded}",
             self.catalog_base_url.trim_end_matches('/')

@@ -14,16 +14,17 @@ use pi_ai::auth::types::CredentialStore;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::{
     ExtensionActions, ExtensionCommandContext, ExtensionCommandContextActions, ExtensionContext,
-    ExtensionContextActions, ExtensionMode, ExtensionRunner, ExtensionUiContext, ReplacedSessionContext,
-    SessionTransitionResult, SwitchSessionCallback, UserMessageContent, create_extension_runtime,
+    ExtensionContextActions, ExtensionMode, ExtensionRunner, ExtensionRuntime, ExtensionUiContext, ProviderActions,
+    ReplacedSessionContext, SessionTransitionResult, SwitchSessionCallback, UserMessageContent,
+    create_extension_runtime,
 };
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
-use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionManager};
+use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionManager, SharedSessionManager};
 use serde_json::{Map, Value};
 
-pub fn in_memory_session(cwd: &str, id: &str) -> Arc<SessionManager> {
-    Arc::new(
+pub fn in_memory_session(cwd: &str, id: &str) -> SharedSessionManager {
+    Arc::new(Mutex::new(
         SessionManager::in_memory(
             Some(cwd),
             Some(NewSessionOptions {
@@ -32,11 +33,11 @@ pub fn in_memory_session(cwd: &str, id: &str) -> Arc<SessionManager> {
             }),
         )
         .expect("in-memory session manager"),
-    )
+    ))
 }
 
-pub fn persisted_session(cwd: &str, session_dir: &str, id: &str) -> Arc<SessionManager> {
-    Arc::new(
+pub fn persisted_session(cwd: &str, session_dir: &str, id: &str) -> SharedSessionManager {
+    Arc::new(Mutex::new(
         SessionManager::create(
             cwd,
             Some(session_dir),
@@ -46,13 +47,14 @@ pub fn persisted_session(cwd: &str, session_dir: &str, id: &str) -> Arc<SessionM
             }),
         )
         .expect("persisted session manager"),
-    )
+    ))
 }
 
 pub fn command_context_actions(switch_session: SwitchSessionCallback) -> ExtensionCommandContextActions {
     ExtensionCommandContextActions {
         show_approval_selector: Arc::new(|| Ok(())),
         show_sandbox_selector: Arc::new(|| Ok(())),
+        set_sandbox_profile: Arc::new(|_, _| Ok(())),
         wait_for_idle: Arc::new(|| Box::pin(async {})),
         new_session: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         fork: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
@@ -96,16 +98,18 @@ pub fn recording_switch_session(
 
 pub struct TestContextBuilder {
     cwd: String,
-    session: Arc<SessionManager>,
+    session: SharedSessionManager,
     control_db_path: Option<String>,
     mode: ExtensionMode,
     ui: Option<Arc<dyn ExtensionUiContext>>,
     agent_id: Option<String>,
     requires_agent_id: bool,
+    model_registry: Option<Arc<ModelRegistry>>,
+    provider_actions: Option<ProviderActions>,
 }
 
 impl TestContextBuilder {
-    pub fn new(cwd: &str, session: Arc<SessionManager>) -> Self {
+    pub fn new(cwd: &str, session: SharedSessionManager) -> Self {
         Self {
             cwd: cwd.to_owned(),
             session,
@@ -114,6 +118,8 @@ impl TestContextBuilder {
             ui: None,
             agent_id: None,
             requires_agent_id: false,
+            model_registry: None,
+            provider_actions: None,
         }
     }
 
@@ -142,24 +148,44 @@ impl TestContextBuilder {
         self
     }
 
+    pub fn model_registry(mut self, registry: Arc<ModelRegistry>) -> Self {
+        self.model_registry = Some(registry);
+        self
+    }
+
+    pub fn provider_actions(mut self, actions: ProviderActions) -> Self {
+        self.provider_actions = Some(actions);
+        self
+    }
+
     pub async fn build(self) -> (ExtensionRunner, ExtensionContext) {
+        let (runner, context, _) = self.build_with_runtime().await;
+        (runner, context)
+    }
+
+    pub async fn build_with_runtime(self) -> (ExtensionRunner, ExtensionContext, ExtensionRuntime) {
+        let runtime = create_extension_runtime();
+        let registry = match self.model_registry {
+            Some(registry) => registry,
+            None => model_registry().await,
+        };
         let mut runner = ExtensionRunner::new(
             Vec::new(),
-            create_extension_runtime(),
+            runtime.clone(),
             self.cwd,
             Arc::clone(&self.session),
-            model_registry().await,
+            registry,
             None,
         );
         runner.bind_core(
             actions(),
             context_actions(self.control_db_path, self.agent_id, self.requires_agent_id),
-            None,
+            self.provider_actions,
         );
         runner.set_ui_context(self.ui, self.mode);
         runner.bind_command_context(None);
         let context = runner.create_context();
-        (runner, context)
+        (runner, context, runtime)
     }
 }
 

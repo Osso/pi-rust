@@ -57,3 +57,9 @@ and two-way conflict. It compares `getKeys` for every definition,
 - `getKeybindings` returns a clone instead of a shared mutable singleton. The global
   registry is not exercised because tests run in parallel and the source behavior is
   process-global.
+
+## Order audit
+
+`migrateKeybindingsConfig` uses a `serde_json::Map` (`preserve_order`) and `js_json::object_entries`,
+so JavaScript array-index key ordering and extras' default `Array.prototype.sort` (UTF-16 code units)
+are preserved. No reordering remains.

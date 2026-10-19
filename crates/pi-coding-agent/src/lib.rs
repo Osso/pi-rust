@@ -1,16 +1,21 @@
 #![deny(clippy::print_stdout)]
 
+pub mod architect;
 pub mod bun;
 pub mod bundled_extensions;
 pub mod cli;
 pub mod cli_entry;
+pub mod client;
 pub mod config;
 pub mod core;
 pub mod internal_runner;
+#[path = "main.rs"]
+pub mod main_runner;
 pub mod migrations;
 pub mod modes;
 pub mod package_manager_cli;
 pub mod rpc_entry;
+pub mod server;
 pub mod supervisor;
 pub mod utils;
 

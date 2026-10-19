@@ -337,6 +337,8 @@ async fn run_fd(fd_path: &str, args: &[String], signal: Option<&CancellationToke
     let mut command = tokio::process::Command::new(fd_path);
     command
         .args(args)
+        .env_clear()
+        .envs(pi_js_compat::process_env::vars())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

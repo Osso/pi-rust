@@ -6,12 +6,20 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish = false
+# `src/main.rs` is the ported `main.ts` library module; the executable target is
+# declared explicitly as `pi`.
+autobins = false
+default-run = "pi"
 
 [dependencies]
 # Supplies typed agent-harness values and the shared truncation size formatter.
 pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }
 # Supplies the shared HTTP `Fetch` contract and default client.
 pi-ai = { version = "=0.0.0", path = "../pi-ai" }
+# Protocol snapshots/transcripts projected by `client::transcript` and `client::remote_session`.
+pi-protocol = { version = "=0.0.0", path = "../pi-protocol" }
+# Transport-neutral client used by `client::remote_session`.
+pi-client = { version = "=0.0.0", path = "../pi-client" }
 # Shared JS semantics: Date.parse, localeCompare, Base64, numbers, minimatch.
 pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }
 # Insertion-ordered registries matching TypeScript `Map` iteration in extensions
@@ -71,6 +79,11 @@ futures-util = "=0.3.34"
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
 # `mkdtempSync`-style private directory for the external editor prompt.
 tempfile = "=3.27.0"
+
+[[bin]]
+# The `pi` CLI (`cli.ts` + `main.ts`).
+name = "pi"
+path = "src/bin/pi.rs"
 
 [[bin]]
 # Deterministic mode harness for the print/RPC differential tests.

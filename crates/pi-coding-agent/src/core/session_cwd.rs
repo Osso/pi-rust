@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::core::session_manager::{SessionManager, SessionManagerError};
+use crate::core::session_manager::{SessionManager, SessionManagerError, SetMetadataControlDbPathOptions};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionCwdIssue {
@@ -57,20 +57,27 @@ pub fn get_missing_session_cwd_issue(
     })
 }
 
-/// Reopen a session with an explicit cwd. The control-db cwd override is part of
-/// the blocked `ca-control-db` integration; the in-memory cwd is authoritative.
+/// Reopen a session with an explicit cwd and persist the cwd override.
 pub fn reopen_session_with_cwd(
     issue: &SessionCwdIssue,
     session_dir: Option<&str>,
     selected_cwd: &str,
-    _control_db_path: &str,
+    control_db_path: &str,
 ) -> Result<SessionManager, SessionManagerError> {
     let Some(session_file) = issue.session_file.as_deref() else {
         return Err(SessionManagerError::new(
             "Cannot reopen a session without a session file",
         ));
     };
-    SessionManager::open(session_file, session_dir, Some(selected_cwd))
+    let mut session_manager = SessionManager::open(session_file, session_dir, Some(selected_cwd))?;
+    session_manager.set_metadata_control_db_path(
+        Some(control_db_path),
+        SetMetadataControlDbPathOptions {
+            cwd_override: Some(selected_cwd.to_owned()),
+            ..Default::default()
+        },
+    )?;
+    Ok(session_manager)
 }
 
 pub fn format_missing_session_cwd_error(issue: &SessionCwdIssue) -> String {

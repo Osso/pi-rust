@@ -30,10 +30,10 @@ All direct dependencies are exact-pinned.
 - `serde_yaml_ng = 0.10.0` — parses YAML frontmatter in `utils::frontmatter`.
 - `url = 2.5.8` — parses WHATWG URLs in `utils::git` and `file://` paths in `utils::paths`.
 - `percent-encoding = 2.3.2` — decodes percent-encoded URL components in `utils::git` and `utils::paths`.
-- `tokio = 1.53.3` — provides async sleep, cancellation, and process I/O for `utils::{sleep, abort, child_process}`.
+- `tokio = 1.53.3` (`rt`, `macros`, `time`, `sync`, `process`, `io-util`, `io-std`, `fs`) — provides async sleep, cancellation, process I/O for `utils::{sleep, abort, child_process}`, and the stdin/stdout line read behind `main::prompt_confirm`.
 - `tokio-util = 0.7.20` — supplies `CancellationToken` as the Rust `AbortSignal` mapping.
 - `notify = 8.2.0` — provides the platform file watcher behind `utils::fs_watch`.
-- `fancy-regex = 0.16.2` — compiles the translated highlight.js grammar patterns (lookaround, backreferences) in `utils::syntax_highlight`.
+- `fancy-regex = 0.16.2` — compiles the translated highlight.js grammar patterns (lookaround, backreferences) in `utils::syntax_highlight` and the bwrap `fs-worker` grep patterns, whose Node `RegExp` source accepts lookaround and backreferences.
 - `photon-rs = 0.3.3` (exact, `default-features = false`) — the Rust image library compiled to the `@silvia-odwyer/photon-node` 0.3.4 WASM used by `utils::{photon, exif_orientation, image_convert, image_resize_core}`. Resize (Lanczos3), flips, and `PhotonImage` come from this crate so output bytes match.
 - `image = 0.24.9` (exact, `default-features = false`, codec features mirroring photon-rs) — supplies the fallible `load_from_memory`/`DynamicImage::write_to` calls behind `utils::photon`, replacing photon-rs' panicking wrappers; pinned with the `png 0.17.14`, `jpeg-decoder 0.3.1`, `gif 0.13.1`, `tiff 0.9.1`, `flate2 1.0.34`, `miniz_oxide 0.8.0`, `fdeflate 0.3.6`, `weezl 0.1.8` versions embedded in that WASM build (see `docs/porting/traceability/photon.md`).
 - `clipboard-rs = 0.3.4` (exact) — the release vendored by `@mariozechner/clipboard` 0.3.9, providing the native X11/Wayland/macOS/Windows clipboard behind `utils::clipboard_native`.
@@ -48,6 +48,7 @@ All direct dependencies are exact-pinned.
 ### `pi-ai`
 
 - `pi-js-compat` (path, `=0.0.0`) — `Number`/`parseInt`/`parseFloat`/`Date.parse` and Base64 (`atob`/`btoa`) helpers shared with the rest of the workspace.
+- `indexmap = 2.14.2` (`serde`) — `ProviderEnv`/`ProviderHeaders`, model headers, provider header merges, grammar-tool input properties, and chat-template maps keep TypeScript object insertion order because that order reaches serialized payloads and HTTP request headers.
 - `regex = 1.13.1` — case-insensitive (`(?i)`) provider error classification for `utils/overflow.ts` and `utils/retry.ts`, replacing JavaScript `RegExp(..., "i")`.
 - `serde = 1.0.229` — derives the diagnostics wire records and diagnostic-code enum.
 - `serde_json = 1.0.151` — carries JSON-shaped thrown values, optional diagnostic details, and streaming-parse results; the `preserve_order` feature keeps TypeScript object insertion order (`indexmap` is its transitive implementation) and `float_roundtrip` parses decimal JSON floats with the same correctly-rounded result as JavaScript `JSON.parse`.
@@ -118,7 +119,7 @@ The SQLite slice also relies on the pinned TypeScript toolchain (`tsx`) through 
 
 ### `pi-protocol`
 
-No runtime dependencies. CBOR encoding and decoding are hand-written against the pinned TypeScript subset so encoded bytes match the source byte-for-byte; a general-purpose CBOR crate would not guarantee that parity.
+- `serde_json = 1.0.151` (`preserve_order`) — `JsonValue::from_serde_json` converts execution-boundary JSON (tool-call arguments in `client::transcript`) into the protocol subset while preserving object key order. CBOR encoding and decoding are hand-written against the pinned TypeScript subset so encoded bytes match the source byte-for-byte; a general-purpose CBOR crate would not guarantee that parity.
 
 ### `pi-server`
 
@@ -134,6 +135,15 @@ No runtime dependencies. CBOR encoding and decoding are hand-written against the
 
 - `indexmap = 2.14.2` (`serde`) — `TelemetryMap`, the insertion-ordered map behind schema span/attribute/event maps and `SpanAttributes`, matching TypeScript object key order (already in the lock via `serde_json` `preserve_order`). Also backs extension handler/tool/command/flag/shortcut registries, whose iteration order is the TypeScript `Map` load order.
 - `serde = 1.0.229` — derives the camelCase wire shape for schema definitions and recorded spans/events, including the internally tagged status and parent definitions.
+
+### `pi-agent-core`
+
+- `indexmap = 2.14.2` (`serde`) — `AgentHarnessStreamOptions` headers and the per-request header/metadata patches preserve TypeScript object key order when merged into provider requests.
+
+### `pi-coding-agent` client modules
+
+- `pi-protocol` / `pi-client` (path, `=0.0.0`) — `client::transcript` projects protocol snapshots/transcripts and `client::remote_session` wraps the transport-neutral client lease.
+- `indexmap = 2.14.2` (`serde`) — `TranscriptState` progress items and tool-call buffers preserve TypeScript `Map` insertion order.
 
 ### `pi-client`
 

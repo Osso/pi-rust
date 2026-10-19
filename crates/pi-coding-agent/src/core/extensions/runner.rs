@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 use crate::core::detached_job_runner::DetachedJobLifecycleController;
 use crate::core::diagnostics::{ResourceDiagnostic, ResourceDiagnosticType};
 use crate::core::model_registry::ModelRegistry;
-use crate::core::session_manager::SessionManager;
+use crate::core::session_manager::SharedSessionManager;
 use crate::core::settings_manager::SettingsManager;
 use crate::core::source_info::{SourceInfo, SourceOrigin, SourceScope};
 use crate::core::system_prompt::BuildSystemPromptOptions;
@@ -233,7 +233,7 @@ impl ExtensionRunner {
         extensions: Vec<Extension>,
         runtime: ExtensionRuntime,
         cwd: impl Into<String>,
-        session_manager: Arc<SessionManager>,
+        session_manager: SharedSessionManager,
         model_registry: Arc<ModelRegistry>,
         settings_manager: Option<Arc<Mutex<SettingsManager>>>,
     ) -> Self {
@@ -447,6 +447,8 @@ impl ExtensionRunner {
         let Some(actions) = actions else {
             state.show_approval_selector_handler = Arc::new(|| Ok(()));
             state.show_sandbox_selector_handler = Arc::new(|| Ok(()));
+            state.set_sandbox_profile_handler =
+                Arc::new(|_, _| Err(HandlerError::new("Sandbox profile settings are unavailable")));
             state.wait_for_idle_fn = Arc::new(|| Box::pin(async {}));
             state.new_session_handler =
                 Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) }));
@@ -466,6 +468,7 @@ impl ExtensionRunner {
         };
         state.show_approval_selector_handler = actions.show_approval_selector;
         state.show_sandbox_selector_handler = actions.show_sandbox_selector;
+        state.set_sandbox_profile_handler = actions.set_sandbox_profile;
         state.wait_for_idle_fn = actions.wait_for_idle;
         state.new_session_handler = actions.new_session;
         state.fork_handler = actions.fork;

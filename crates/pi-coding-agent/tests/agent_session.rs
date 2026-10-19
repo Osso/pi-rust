@@ -71,13 +71,14 @@ fn stream_fn(runtime: ModelRuntime) -> pi_agent_core::agent::types::StreamFn {
 }
 
 async fn fixture() -> Fixture {
-    fixture_with(Default::default(), Vec::new(), None).await
+    fixture_with(Default::default(), Vec::new(), None, Some(Vec::new())).await
 }
 
 async fn fixture_with(
     settings: pi_coding_agent::core::settings_manager::Settings,
     base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
     initial_active_tool_names: Option<Vec<String>>,
+    allowed_tool_names: Option<Vec<String>>,
 ) -> Fixture {
     let temp_dir = tempfile::tempdir().expect("temp dir");
     let faux = faux_provider(RegisterFauxProviderOptions {
@@ -111,7 +112,7 @@ async fn fixture_with(
         resource_loader: pi_coding_agent::core::resource_loader::StaticResourceLoader::new(),
         model_runtime: runtime,
         initial_active_tool_names,
-        allowed_tool_names: None,
+        allowed_tool_names,
         excluded_tool_names: None,
         permission_prompt_tool: None,
         agent_dir: Some(temp_dir.path().display().to_string()),
@@ -136,6 +137,27 @@ async fn fixture_with(
         faux,
         _temp_dir: temp_dir,
     }
+}
+
+#[tokio::test]
+async fn default_session_registers_every_builtin_tool() {
+    let fixture = fixture_with(Default::default(), Vec::new(), None, None).await;
+    let names: Vec<String> = fixture
+        .session
+        .get_all_tools()
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect();
+    assert_eq!(names.len(), 19);
+    assert!(names.contains(&"read".to_owned()));
+    assert!(names.contains(&"end_turn".to_owned()));
+    assert_eq!(
+        fixture.session.get_active_tool_names(),
+        pi_coding_agent::core::tools::DEFAULT_ACTIVE_TOOL_NAMES
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect::<Vec<_>>()
+    );
 }
 
 fn event_types(events: &Arc<std::sync::Mutex<Vec<String>>>) -> Vec<String> {
@@ -191,7 +213,18 @@ async fn prompt_persists_user_and_assistant_messages() {
     let fixture = fixture().await;
     let events = record_events(&fixture.session);
     fixture.faux.set_responses(vec![
-        faux_assistant_message("hello", FauxAssistantMessageOptions::default()).into(),
+        faux_assistant_message(
+            vec![
+                pi_ai::providers::faux::faux_text("hello"),
+                pi_ai::providers::faux::faux_tool_call(
+                    "end_turn",
+                    serde_json::Map::from_iter([("reason".to_owned(), serde_json::json!("done"))]),
+                    Some("call-end".to_owned()),
+                ),
+            ],
+            FauxAssistantMessageOptions::default(),
+        )
+        .into(),
     ]);
 
     fixture
@@ -201,12 +234,12 @@ async fn prompt_persists_user_and_assistant_messages() {
         .expect("prompt must succeed");
 
     let messages = fixture.session.messages();
-    assert_eq!(messages.len(), 2, "user + assistant messages");
+    assert_eq!(messages.len(), 3, "user + assistant + end_turn result");
     assert!(matches!(messages[0], AgentMessage::User(_)));
     assert!(matches!(messages[1], AgentMessage::Assistant(_)));
 
     let entries = fixture.session.session_manager().get_entries();
-    assert_eq!(entries.len(), 2, "both messages are persisted");
+    assert_eq!(entries.len(), 3, "every message is persisted");
     assert_eq!(entries[0].entry_type(), "message");
     assert_eq!(entries[1].entry_type(), "message");
 
@@ -359,9 +392,15 @@ async fn clear_queue_returns_pending_messages() {
 #[tokio::test]
 async fn set_thinking_level_clamps_to_model_capabilities() {
     let fixture = fixture().await;
-    fixture.session.set_thinking_level(ThinkingLevel::High);
+    fixture
+        .session
+        .set_thinking_level(ThinkingLevel::High)
+        .expect("set thinking level");
     assert_eq!(fixture.session.thinking_level(), ThinkingLevel::High);
-    fixture.session.set_thinking_level(ThinkingLevel::Ultra);
+    fixture
+        .session
+        .set_thinking_level(ThinkingLevel::Ultra)
+        .expect("set thinking level");
     assert_eq!(fixture.session.thinking_level(), ThinkingLevel::High);
     assert!(fixture.session.supports_thinking());
 }
@@ -369,12 +408,18 @@ async fn set_thinking_level_clamps_to_model_capabilities() {
 #[tokio::test]
 async fn cycle_thinking_level_wraps_available_levels() {
     let fixture = fixture().await;
-    fixture.session.set_thinking_level(ThinkingLevel::Off);
-    let next = fixture.session.cycle_thinking_level();
+    fixture
+        .session
+        .set_thinking_level(ThinkingLevel::Off)
+        .expect("set thinking level");
+    let next = fixture.session.cycle_thinking_level().expect("cycle thinking level");
     assert_eq!(next, Some(ThinkingLevel::Minimal));
-    fixture.session.set_thinking_level(ThinkingLevel::High);
+    fixture
+        .session
+        .set_thinking_level(ThinkingLevel::High)
+        .expect("set thinking level");
     assert_eq!(
-        fixture.session.cycle_thinking_level(),
+        fixture.session.cycle_thinking_level().expect("cycle thinking level"),
         Some(ThinkingLevel::Off),
         "cycling wraps to the first available level"
     );
@@ -446,7 +491,18 @@ async fn session_name_round_trips_through_session_info() {
 async fn session_stats_count_messages_tools_and_usage() {
     let fixture = fixture().await;
     fixture.faux.set_responses(vec![
-        faux_assistant_message("hello", FauxAssistantMessageOptions::default()).into(),
+        faux_assistant_message(
+            vec![
+                pi_ai::providers::faux::faux_text("hello"),
+                pi_ai::providers::faux::faux_tool_call(
+                    "end_turn",
+                    serde_json::Map::from_iter([("reason".to_owned(), serde_json::json!("done"))]),
+                    Some("call-end".to_owned()),
+                ),
+            ],
+            FauxAssistantMessageOptions::default(),
+        )
+        .into(),
     ]);
     fixture
         .session
@@ -456,8 +512,8 @@ async fn session_stats_count_messages_tools_and_usage() {
     let stats = fixture.session.get_session_stats();
     assert_eq!(stats.user_messages, 1);
     assert_eq!(stats.assistant_messages, 1);
-    assert_eq!(stats.tool_calls, 0);
-    assert_eq!(stats.total_messages, 2);
+    assert_eq!(stats.tool_calls, 1);
+    assert_eq!(stats.total_messages, 3);
 }
 
 #[tokio::test]
@@ -465,7 +521,18 @@ async fn get_last_assistant_text_skips_empty_aborted_messages() {
     let fixture = fixture().await;
     assert_eq!(fixture.session.get_last_assistant_text(), None);
     fixture.faux.set_responses(vec![
-        faux_assistant_message("  final answer  ", FauxAssistantMessageOptions::default()).into(),
+        faux_assistant_message(
+            vec![
+                pi_ai::providers::faux::faux_text("  final answer  "),
+                pi_ai::providers::faux::faux_tool_call(
+                    "end_turn",
+                    serde_json::Map::from_iter([("reason".to_owned(), serde_json::json!("done"))]),
+                    Some("call-end".to_owned()),
+                ),
+            ],
+            FauxAssistantMessageOptions::default(),
+        )
+        .into(),
     ]);
     fixture
         .session
@@ -691,6 +758,7 @@ async fn normalizes_oversized_tool_result_images() {
         Default::default(),
         vec![Arc::new(ScreenshotTool)],
         Some(vec!["screenshot".to_owned()]),
+        None,
     )
     .await;
     fixture.faux.set_responses(vec![
@@ -730,6 +798,7 @@ async fn keeps_oversized_tool_result_images_when_auto_resize_is_disabled() {
         settings,
         vec![Arc::new(ScreenshotTool)],
         Some(vec!["screenshot".to_owned()]),
+        None,
     )
     .await;
     fixture.faux.set_responses(vec![
@@ -935,6 +1004,7 @@ async fn permission_fixture(
             "mcp__approval__prompt".to_owned(),
             "mcp__other__approval_prompt".to_owned(),
         ]),
+        None,
     )
     .await;
     fixture.faux.set_responses(vec![
@@ -1007,6 +1077,7 @@ async fn discovers_single_permission_prompt_protocol_tool() {
             "echo".to_owned(),
             "mcp__project-approval__approval_prompt".to_owned(),
         ]),
+        None,
     )
     .await;
     fixture.faux.set_responses(vec![
@@ -1058,6 +1129,7 @@ async fn ambiguous_permission_prompt_tools_fall_back_to_native_approval() {
             "mcp__claude-bash-hook-approval__approval_prompt".to_owned(),
             "mcp__other-approval__approval_prompt".to_owned(),
         ]),
+        None,
     )
     .await;
     fixture.faux.set_responses(vec![
@@ -1188,7 +1260,9 @@ async fn binds_detached_job_lifecycle_when_a_store_is_configured() {
     let session_dir = temp_dir.path().join("sessions").display().to_string();
     let control_db = temp_dir.path().join("control.db").display().to_string();
     let mut session_manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
-    session_manager.set_metadata_control_db_path(Some(&control_db), Default::default());
+    session_manager
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
     session_manager
         .append_message(AgentMessage::User(pi_ai::types::UserMessage {
             role: pi_ai::types::UserRole::Tag,

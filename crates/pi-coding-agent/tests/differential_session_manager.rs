@@ -535,3 +535,61 @@ fn cross_implementation_appends_round_trip() {
         .collect();
     assert_eq!(Value::Array(rust_entries), oracle_read["output"]["entries"]);
 }
+
+#[test]
+fn in_memory_goal_accessors_match_typescript() {
+    let ts_dir = temp_dir("diff-goal-ts");
+    let rust_dir = temp_dir("diff-goal-rust");
+    let ts_cwd = ts_dir.join("cwd").display().to_string();
+    let rust_cwd = rust_dir.join("cwd").display().to_string();
+    fs::create_dir_all(&ts_cwd).unwrap();
+    fs::create_dir_all(&rust_cwd).unwrap();
+
+    let mut oracle = oracle::TsOracle::spawn(
+        "session-manager-oracle.ts",
+        "packages/coding-agent/src/core/session-manager.ts",
+    );
+    let response = oracle.request(&json!({
+        "id": REQUEST_BASE + 70,
+        "operation": "goal_in_memory",
+        "cwd": ts_cwd,
+        "sessionDir": ts_dir.join("sessions").display().to_string(),
+    }));
+    assert_eq!(response["ok"], true, "{response}");
+    let expected = response["output"]["values"].clone();
+
+    let mut manager = SessionManager::create(&rust_cwd, Some(&rust_dir.join("sessions").display().to_string()), None)
+        .expect("session manager");
+    manager
+        .set_session_goal_json("{\"goal\":1}")
+        .expect("set in-memory goal");
+    let set = json!(manager.get_session_goal_json().expect("read goal"));
+    let for_session = json!(
+        manager
+            .get_session_goal_json_for_session("/tmp/other-session.jsonl")
+            .expect("read other goal")
+    );
+    let persisted = match manager.read_persisted_session_settings().expect("read settings") {
+        None => Value::Null,
+        Some(settings) => json!({
+            "model": settings.model.map(|model| json!({"provider": model.provider, "modelId": model.model_id})),
+            "sandboxProfile": settings.sandbox_profile,
+            "thinkingLevel": settings.thinking_level,
+        }),
+    };
+    manager.clear_session_goal_json().expect("clear goal");
+    let cleared = json!(manager.get_session_goal_json().expect("read cleared goal"));
+    manager
+        .set_metadata_control_db_path(
+            None,
+            pi_coding_agent::core::session_manager::SetMetadataControlDbPathOptions {
+                index_message_text: None,
+                cwd_override: Some(String::new()),
+            },
+        )
+        .expect("empty cwd override");
+    let actual = json!([set, for_session, persisted, cleared, manager.get_cwd().to_owned()]);
+    assert_eq!(actual.as_array().unwrap()[..4], expected.as_array().unwrap()[..4]);
+    assert_eq!(expected[4], json!(ts_cwd), "TypeScript keeps its cwd");
+    assert_eq!(actual[4], json!(rust_cwd), "empty cwdOverride is ignored");
+}

@@ -13,6 +13,19 @@ use pi_ai::request::BoxFuture;
 pub const DETACHED_BASH_RUNNER_MODE: &str = "--internal-detached-bash-runner";
 /// `DETACHED_PYRUN_RUNNER_MODE`.
 pub const DETACHED_PYRUN_RUNNER_MODE: &str = "--internal-detached-pyrun-runner";
+/// Rust replacement for bwrap's Node `fs-worker.cjs` (`--internal-bwrap-fs-worker`).
+pub const BWRAP_FS_WORKER_MODE: &str = "--internal-bwrap-fs-worker";
+
+/// Runs the bwrap filesystem worker when the argv selects it. Returns the
+/// worker exit code, or `None` when the argv is not a worker invocation.
+pub fn run_internal_bwrap_fs_worker(args: &[String]) -> Option<i32> {
+    if args.first().map(String::as_str) != Some(BWRAP_FS_WORKER_MODE) {
+        return None;
+    }
+    Some(crate::bundled_extensions::bwrap::worker::run_bwrap_fs_worker(
+        &args[1..],
+    ))
+}
 
 /// The runner bodies this module dispatches to.
 pub trait DetachedRunnerHost: Send + Sync {

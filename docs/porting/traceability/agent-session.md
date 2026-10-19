@@ -6,7 +6,7 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 
 | TS | Rust | Tests |
 | --- | --- | --- |
-| `AgentSession` | `AgentSession` | `tests/agent_session.rs` (27), `tests/differential_agent_session.rs` |
+| `AgentSession` | `AgentSession` | `tests/agent_session.rs` (28), `tests/differential_agent_session.rs` |
 | `AgentSessionConfig` | `AgentSessionConfig` | same |
 | `AgentSessionEvent` | `AgentSessionEvent` + `AgentMessageEvent` | event assertions + differential |
 | `AgentSessionEventListener` | `AgentSessionEventListener` | — |
@@ -25,6 +25,10 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 - Constructor: role/capability validation, tool registry, system prompt rebuild, hooks,
   extension runner construction, control-db path installation, permission rule store,
   supervisor requester default, detached-job lifecycle binding.
+- Base tools: `createAllToolDefinitions` rebuilt on every `_buildRuntime` from current
+  settings (read auto-resize, bash command prefix/shell path/detach registry/background
+  jobs); `baseToolsOverride` path appends `end_turn`; active names are deduplicated in
+  insertion order.
 - Events: `_handleAgentEvent`, persistence on `message_end`, queue removal,
   duplicate-turn guard, `agent_end.willRetry`, extension event emission,
   `agent_settled`, runtime message markers (`AgentSessionEvent::Message`).
@@ -33,7 +37,11 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
   `abort`, `sendCustomMessage`, `sendUserMessage`, `clearQueue`, reservations.
 - Models/thinking: `setModel`, `cycleModel`, scoped models, `setThinkingLevel`
   clamping, `cycleThinkingLevel`, queue modes, extension `model_select` /
-  `thinking_level_select`, control-db model/thinking persistence.
+  `thinking_level_select`, control-db model/thinking persistence. Control-db
+  write failures propagate (`set_model`, `cycle_model`, `set_thinking_level`,
+  `cycle_thinking_level`, quota fallback) as the source throws; the approval
+  reviewer cannot reject through its `Option`-returning hook, so a goal-read
+  error blocks the tool call (fail closed, recorded in `session-manager.md`).
 - Retry: `_isRetryableError`, quota fallback, `_prepareRetry`, `auto_retry_*` events,
   `notifyProviderRetry`.
 - Compaction: `compact`, `_checkCompaction`, `_runAutoCompaction`, `appendCompaction`,
@@ -57,8 +65,8 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 
 - Runtime mailbox, shared-channel delivery/formatting, `wait_agent` wakeups:
   multi-agent store slice.
-- `BashToolOptions` spawn hook / session environment / detach registry / background
-  jobs wiring: owned by the tool-definition factory slice (`createAllToolDefinitions`).
+- `BashToolOptions` spawn hook / session environment wiring: owned by the
+  tool-definition factory slice.
 - `navigateTree` summarization: `session_before_tree` events, branch summary
   generation/attachment, `session_tree` emission. No-summary navigation is ported.
 - Background compaction cache, provider-native compaction source hints: local

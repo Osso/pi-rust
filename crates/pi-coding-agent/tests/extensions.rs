@@ -18,7 +18,7 @@ use pi_coding_agent::core::keybindings::KeybindingsManager;
 use pi_coding_agent::core::model_resolver::ScopedModel;
 use pi_coding_agent::core::provider_composer::ProviderConfigInput;
 use pi_coding_agent::core::session_control_db::RuntimeMailboxMessage;
-use pi_coding_agent::core::session_manager::SessionEntry;
+use pi_coding_agent::core::session_manager::{SessionEntry, lock_session_manager};
 use serde_json::{Map, Value, json};
 
 macro_rules! h {
@@ -319,6 +319,10 @@ async fn dispatch(temp_dir: &str) -> Value {
             cwd: temp_dir.to_owned(),
         })
         .await;
+    let user_bash = user_bash.map(|result| match result.result {
+        Some(result) => json!({"result": result}),
+        None => json!({}),
+    });
     steps.push(json!({"userBash": user_bash}));
 
     let message_end = runner
@@ -1329,6 +1333,7 @@ async fn command_context_passes_fork_options_through() {
     runner.bind_command_context(Some(ExtensionCommandContextActions {
         show_approval_selector: Arc::new(|| Ok(())),
         show_sandbox_selector: Arc::new(|| Ok(())),
+        set_sandbox_profile: Arc::new(|_, _| Ok(())),
         wait_for_idle: Arc::new(|| Box::pin(async {})),
         new_session: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         fork: Arc::new(move |entry_id, options| {
@@ -1930,4 +1935,61 @@ async fn registered_extensions_honor_hidden_and_disabled_ids() {
     assert_eq!(extensions[0].path, "<first-party:a>");
     assert_eq!(extensions[0].hidden, Some(false));
     assert_eq!(extensions[0].source_info.source, "first-party");
+}
+
+#[tokio::test]
+async fn context_session_manager_is_the_live_shared_handle() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let cwd = temp.path().display().to_string();
+    let session_dir = temp.path().join("sessions").display().to_string();
+    let control_db = temp.path().join("control.db").display().to_string();
+    let manager = Arc::new(Mutex::new(
+        pi_coding_agent::core::session_manager::SessionManager::create(&cwd, Some(&session_dir), None)
+            .expect("session manager"),
+    ));
+    lock_session_manager(&manager)
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
+    let runner = support::runner_for_session(
+        &cwd,
+        support::runtime(),
+        Arc::clone(&manager),
+        support::model_registry().await,
+    );
+    let context = runner.create_context();
+    let extension_handle = context.session_manager().expect("session manager");
+    assert!(Arc::ptr_eq(&extension_handle, &manager));
+
+    {
+        let mut extension_manager = lock_session_manager(&extension_handle);
+        extension_manager
+            .set_session_goal_json("{\"objective\":\"shared\"}")
+            .expect("extension goal write");
+    }
+    assert_eq!(
+        lock_session_manager(&manager)
+            .get_session_goal_json()
+            .expect("session goal read"),
+        Some("{\"objective\":\"shared\"}".to_owned())
+    );
+
+    lock_session_manager(&manager)
+        .append_message(pi_agent_core::agent::AgentMessage::User(pi_ai::types::UserMessage {
+            role: pi_ai::types::UserRole::Tag,
+            content: pi_ai::types::UserContent::Text("appended by session".to_owned()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 1_700_000_000_000,
+        }))
+        .expect("session append");
+    let entries = lock_session_manager(&extension_handle).get_entries();
+    assert_eq!(
+        entries.len(),
+        1,
+        "the appended message is visible through the extension handle"
+    );
+    assert!(matches!(
+        entries[0],
+        SessionEntry::Known(pi_coding_agent::core::session_manager::KnownSessionEntry::Message(_))
+    ));
 }
