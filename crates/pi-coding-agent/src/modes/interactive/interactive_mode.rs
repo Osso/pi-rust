@@ -3755,10 +3755,10 @@ impl InteractiveMode {
         let available = session.get_available_thinking_levels();
         let mode = self.ui_id.get();
         let on_select: Rc<dyn Fn(pi_agent_core::harness::types::ThinkingLevel)> = Rc::new(move |level| {
-            if let Some(session) = with_mode(mode, |mode| mode.session()) {
-                if let Err(error) = session.set_thinking_level(level) {
-                    with_mode(mode, |mode| mode.show_error(error.message()));
-                }
+            if let Some(session) = with_mode(mode, |mode| mode.session())
+                && let Err(error) = session.set_thinking_level(level)
+            {
+                with_mode(mode, |mode| mode.show_error(error.message()));
             }
             with_mode(mode, |mode| mode.restore_editor());
         });
