@@ -665,6 +665,10 @@ impl ToolExecutionComponent {
 }
 
 impl Component for ToolExecutionComponent {
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
+
     fn render(&mut self, width: usize) -> Vec<String> {
         if self.invalidate_requested.swap(false, Ordering::SeqCst) {
             self.update_display();

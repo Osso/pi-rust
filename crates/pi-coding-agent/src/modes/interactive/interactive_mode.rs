@@ -1097,6 +1097,13 @@ impl InteractiveTuiHandle {
         self.renderer.borrow().stop();
     }
 
+    pub fn flush_pending(&self) {
+        match &*self.renderer.borrow() {
+            Renderer::Main(tui) => TuiExt::flush_pending(tui.as_ref()),
+            Renderer::Fullscreen(tui) => TuiExt::flush_pending(tui.as_ref()),
+        }
+    }
+
     pub fn process_events(&self) {
         match &*self.renderer.borrow() {
             Renderer::Main(tui) => TuiExt::process_events(tui.as_ref()),
@@ -3059,11 +3066,7 @@ impl InteractiveMode {
 
         let mode = Rc::clone(self);
         self.editor.borrow_mut().editor_mut().on_change = Some(Rc::new(move |text: &str| {
-            let was_bash = mode.is_bash_mode.get();
             mode.is_bash_mode.set(text.trim_start().starts_with('!'));
-            if was_bash != mode.is_bash_mode.get() {
-                mode.update_editor_border_color();
-            }
         }));
 
         let mode = Rc::clone(self);
@@ -3473,6 +3476,7 @@ impl InteractiveMode {
                 _ = tokio::time::sleep(Duration::from_millis(PARTIAL_UPDATE_RENDER_THROTTLE_MS)) => {}
             }
             self.ui.process_events();
+            self.update_editor_border_color();
             self.handle_ui_requests().await;
             self.drain_actions().await;
             if self.shutdown_requested.get() {
@@ -4824,6 +4828,10 @@ impl InteractiveMode {
     }
 
     async fn handle_event(&self, event: AgentSessionEvent) {
+        let event = match event {
+            AgentSessionEvent::Message(message) => AgentSessionEvent::Agent(message.event),
+            other => other,
+        };
         match event {
             AgentSessionEvent::Agent(AgentEvent::AgentStart) => {
                 self.close_response_complete_notification();
@@ -4896,15 +4904,13 @@ impl InteractiveMode {
             AgentSessionEvent::Agent(AgentEvent::MessageEnd { message }) => {
                 if let AgentMessage::Assistant(assistant) = &message {
                     let streaming = self.streaming_component.borrow_mut().take();
-                    if let Some(streaming) = streaming {
-                        if let Some(component_value) = streaming
+                    if let Some(streaming) = streaming
+                        && let Some(component_value) = streaming
                             .borrow_mut()
                             .as_any_mut()
                             .and_then(|any| any.downcast_mut::<AssistantMessageComponent>())
-                        {
-                            component_value.update_content((**assistant).clone(), false);
-                        }
-                        self.chat_container.borrow_mut().add_child(streaming);
+                    {
+                        component_value.update_content((**assistant).clone(), false);
                     }
                     for content in &assistant.content {
                         if let pi_ai::types::AssistantContent::ToolCall(call) = content {
@@ -5136,6 +5142,387 @@ impl InteractiveMode {
             },
         );
         *self.response_complete_notification.borrow_mut() = notification;
+    }
+}
+
+#[cfg(test)]
+mod ui_tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    use pi_agent_core::agent::{Agent, AgentInitialState, AgentOptions};
+    use pi_agent_core::harness::types::ThinkingLevel;
+    use pi_ai::providers::faux::{
+        FauxModelDefinition, RegisterFauxProviderOptions, faux_assistant_message, faux_provider, faux_text,
+    };
+    use pi_ai::request::SimpleStreamOptions;
+    use pi_ai::types::{Context, Model};
+    use pi_tui::terminal::{Terminal, TerminalEvent};
+
+    use super::*;
+    use crate::core::agent_session::{AgentSession, AgentSessionConfig};
+    use crate::core::agent_session_runtime::{
+        CreateAgentSessionRuntimeOptions, CreateAgentSessionRuntimeResult, create_agent_session_runtime,
+    };
+    use crate::core::agent_session_services::AgentSessionServices;
+    use crate::core::auth_storage::AuthStorage;
+    use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+    use crate::core::resource_loader::StaticResourceLoader;
+    use crate::core::session_manager::SessionManager;
+    use crate::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
+
+    struct CaptureTerminal {
+        rows: usize,
+        columns: usize,
+        writes: Vec<String>,
+        events: Vec<TerminalEvent>,
+    }
+
+    impl CaptureTerminal {
+        fn send_input(&mut self, data: &str) {
+            self.events.push(TerminalEvent::Input(data.to_owned()));
+        }
+
+        fn output(&self) -> String {
+            pi_tui::utils::strip_terminal_sequences(&self.writes.concat())
+        }
+    }
+
+    impl Terminal for CaptureTerminal {
+        fn start(&mut self) -> Result<(), TerminalRawModeError> {
+            Ok(())
+        }
+        fn stop(&mut self) {}
+        fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
+        fn write(&mut self, data: &str) {
+            self.writes.push(data.to_owned());
+        }
+        fn columns(&self) -> usize {
+            self.columns
+        }
+        fn rows(&self) -> usize {
+            self.rows
+        }
+        fn kitty_protocol_active(&self) -> bool {
+            false
+        }
+        fn move_by(&mut self, _lines: isize) {}
+        fn hide_cursor(&mut self) {}
+        fn show_cursor(&mut self) {}
+        fn clear_line(&mut self) {}
+        fn clear_from_cursor(&mut self) {}
+        fn clear_screen(&mut self) {}
+        fn set_title(&mut self, _title: &str) {}
+        fn set_progress(&mut self, _active: bool) {}
+        fn poll_events(&mut self) -> Vec<TerminalEvent> {
+            std::mem::take(&mut self.events)
+        }
+    }
+
+    async fn build_mode() -> (
+        Rc<InteractiveMode>,
+        Rc<RefCell<CaptureTerminal>>,
+        Arc<pi_ai::providers::faux::FauxProviderHandle>,
+        tempfile::TempDir,
+    ) {
+        init_dark_theme();
+        let temp = tempfile::tempdir().expect("temp dir");
+        let cwd = temp.path().display().to_string();
+        let faux = Arc::new(faux_provider(RegisterFauxProviderOptions {
+            provider: Some("faux".to_owned()),
+            api: Some("faux".to_owned()),
+            models: Some(vec![FauxModelDefinition {
+                id: "faux-1".to_owned(),
+                name: Some("Faux Model".to_owned()),
+                reasoning: Some(true),
+                input: None,
+                cost: None,
+                context_window: Some(100_000.0),
+                max_tokens: Some(4096.0),
+            }]),
+            ..Default::default()
+        }));
+        faux.set_responses(vec![
+            faux_assistant_message(
+                faux_text("hello from faux"),
+                pi_ai::providers::faux::FauxAssistantMessageOptions::default(),
+            )
+            .into(),
+        ]);
+        let mut credentials = serde_json::Map::new();
+        credentials.insert(
+            "faux".to_owned(),
+            serde_json::json!({"type": "api_key", "key": "faux-key"}),
+        );
+        let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+            credentials: Some(Arc::new(AuthStorage::in_memory(credentials))),
+            models_path: Some(None),
+            refresh_on_create: Some(false),
+            ..Default::default()
+        })
+        .await
+        .expect("model runtime");
+        model_runtime.register_native_provider(Arc::clone(&faux.provider));
+
+        let factory = {
+            let model_runtime = model_runtime.clone();
+            let faux = faux.clone();
+            Arc::new(move |request: CreateAgentSessionRuntimeOptions| {
+                let model_runtime = model_runtime.clone();
+                let faux = faux.clone();
+                Box::pin(async move {
+                    let model = faux.get_model(None).expect("faux model");
+                    let stream_runtime = model_runtime.clone();
+                    let agent = Agent::new(AgentOptions {
+                        initial_state: Some(AgentInitialState {
+                            model: Some(model),
+                            system_prompt: Some(String::new()),
+                            thinking_level: Some(ThinkingLevel::Off),
+                            tools: Some(Vec::new()),
+                            messages: None,
+                        }),
+                        stream_fn: Some(Arc::new(
+                            move |model: Model, context: Context, options: SimpleStreamOptions| {
+                                let runtime = stream_runtime.clone();
+                                Box::pin(async move { runtime.stream_simple(model, context, options) })
+                            },
+                        )),
+                        ..Default::default()
+                    })
+                    .expect("agent");
+                    let settings_manager = Arc::new(Mutex::new(SettingsManager::in_memory(
+                        Default::default(),
+                        SettingsManagerCreateOptions::default(),
+                    )));
+                    let session = AgentSession::new(AgentSessionConfig {
+                        agent,
+                        session_manager: Arc::new(Mutex::new(request.session_manager)),
+                        settings_manager: Arc::clone(&settings_manager),
+                        cwd: request.cwd.clone(),
+                        scoped_models: Vec::new(),
+                        resource_loader: StaticResourceLoader::new()
+                            as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                        model_runtime: model_runtime.clone(),
+                        initial_active_tool_names: Some(Vec::new()),
+                        allowed_tool_names: None,
+                        excluded_tool_names: None,
+                        permission_prompt_tool: None,
+                        agent_dir: Some(request.agent_dir.clone()),
+                        control_db_path: None,
+                        base_tools: Vec::new(),
+                        custom_tools: Vec::new(),
+                        multi_agent_runtime_role: None,
+                        multi_agent_execution_capability: None,
+                        thinking_phase_timeout_ms: None,
+                        supervisor_decision_requester: None,
+                        multi_agent_store: None,
+                        multi_agent_agent_id: None,
+                        multi_agent_parent_session_id: None,
+                        disable_runtime_coordination_inbound: false,
+                        on_shared_channel_message_delivered: None,
+                        extension_runner_ref: None,
+                        session_start_event: None,
+                    })
+                    .map_err(|error| error.message().to_owned())?;
+                    Ok(CreateAgentSessionRuntimeResult {
+                        session,
+                        services: AgentSessionServices {
+                            cwd: request.cwd,
+                            agent_dir: request.agent_dir,
+                            model_runtime,
+                            settings_manager,
+                            resource_loader: StaticResourceLoader::new(),
+                            diagnostics: Vec::new(),
+                        },
+                        diagnostics: Vec::new(),
+                        model_fallback_message: None,
+                    })
+                })
+                    as pi_ai::request::BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, String>>
+            }) as crate::core::agent_session_runtime::CreateAgentSessionRuntimeFactory
+        };
+        let session_manager = SessionManager::in_memory(Some(&cwd), None).expect("session manager");
+        let runtime = create_agent_session_runtime(factory, &cwd, &cwd, session_manager)
+            .await
+            .expect("runtime");
+        let terminal = Rc::new(RefCell::new(CaptureTerminal {
+            rows: 24,
+            columns: 80,
+            writes: Vec::new(),
+            events: Vec::new(),
+        }));
+        let terminal_trait: Rc<RefCell<dyn Terminal>> = terminal.clone();
+        let mode = InteractiveMode::new(
+            runtime,
+            InteractiveModeOptions {
+                tui_mode: Some(TuiMode::Regular),
+                ..Default::default()
+            },
+            Some(terminal_trait),
+        )
+        .expect("interactive mode");
+        (mode, terminal, faux, temp)
+    }
+
+    fn init_dark_theme() {
+        let theme = crate::modes::interactive::theme::load_theme_from_path(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("theme").join("dark.json"),
+            None,
+        )
+        .expect("dark theme");
+        crate::modes::interactive::theme::set_theme_instance(std::sync::Arc::new(theme));
+    }
+
+    async fn pump(
+        mode: &Rc<InteractiveMode>,
+        events: &mut tokio::sync::mpsc::UnboundedReceiver<AgentSessionEvent>,
+        terminal: &Rc<RefCell<CaptureTerminal>>,
+        predicate: impl Fn(&str) -> bool,
+    ) -> String {
+        let mut handled = 0usize;
+        for _ in 0..200 {
+            mode.ui.process_events();
+            mode.ui.flush_pending();
+            while let Ok(event) = events.try_recv() {
+                handled += 1;
+                mode.handle_event(event).await;
+            }
+            mode.handle_ui_requests().await;
+            mode.drain_actions().await;
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            let output = terminal.borrow().output();
+            if predicate(&output) {
+                return output;
+            }
+        }
+        let chat_render = mode
+            .chat_container
+            .try_borrow_mut()
+            .map(|mut chat| chat.render(80).join("\n"))
+            .unwrap_or_default();
+        panic!(
+            "timed out; messages={}; streaming={}; actions={}; events={handled}; chat={}; assistant={:?}; chat_render={chat_render}; output: {}",
+            mode.session().messages().len(),
+            mode.session().is_streaming(),
+            mode.actions.borrow().len(),
+            mode.chat_container.borrow().children().len(),
+            mode.session().get_last_assistant_text(),
+            terminal.borrow().output()
+        );
+    }
+
+    async fn start(mode: &Rc<InteractiveMode>) -> tokio::sync::mpsc::UnboundedReceiver<AgentSessionEvent> {
+        mode.bind_callbacks();
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        *mode.events.borrow_mut() = Some(sender);
+        mode.init().await.expect("init");
+        mode.subscribe_to_agent();
+        receiver
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn renders_startup_screen_and_prompt_submission() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                let output = pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+                assert!(output.contains("faux-1"));
+
+                terminal.borrow_mut().send_input("hi");
+                mode.ui.process_events();
+                assert_eq!(mode.editor.borrow().get_text(), "hi");
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                assert!(
+                    !mode.actions.borrow().is_empty(),
+                    "submit action must be queued after Enter"
+                );
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("hello from faux")
+                })
+                .await;
+                assert!(
+                    !mode.session().messages().is_empty(),
+                    "session must contain the prompt and response"
+                );
+                assert!(output.contains("hello from faux"));
+                assert!(output.contains("hi"));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn bash_mode_executes_and_renders_command_output() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                terminal.borrow_mut().send_input("!printf bash-ok");
+                terminal.borrow_mut().send_input("\r");
+                let output = pump(&mode, &mut events, &terminal, |output| output.contains("bash-ok")).await;
+                assert!(output.contains("printf bash-ok"));
+                assert!(output.contains("bash-ok"));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_select_dialog_resolves_and_restores_editor() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                let ui = mode.ui_context();
+                let selection = Rc::new(RefCell::new(None));
+                let result = Rc::clone(&selection);
+                let handle = tokio::task::spawn_local(async move {
+                    let value = ui
+                        .select("Pick", &["one".to_owned(), "two".to_owned()], None)
+                        .await
+                        .expect("select result");
+                    *result.borrow_mut() = value;
+                });
+                for _ in 0..50 {
+                    mode.handle_ui_requests().await;
+                    let mounted = mode
+                        .editor_container
+                        .borrow()
+                        .children()
+                        .first()
+                        .is_some_and(|child| !Rc::ptr_eq(child, &mode.editor_handle));
+                    if mounted {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(2)).await;
+                }
+                let selector = mode
+                    .editor_container
+                    .borrow()
+                    .children()
+                    .first()
+                    .cloned()
+                    .expect("selector mounted");
+                selector.borrow_mut().handle_input("\r");
+                for _ in 0..50 {
+                    mode.handle_ui_requests().await;
+                    if selection.borrow().is_some() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(2)).await;
+                }
+                let _ = handle.await;
+                assert_eq!(selection.borrow().as_deref(), Some("one"));
+                assert_eq!(mode.editor_container.borrow().children().len(), 1);
+                let _ = pump(&mode, &mut events, &terminal, |_| true).await;
+            })
+            .await;
     }
 }
 
