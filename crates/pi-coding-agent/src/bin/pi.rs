@@ -7,6 +7,7 @@
 use std::process::ExitCode;
 
 use pi_ai::request::BoxFuture;
+use pi_coding_agent::bundled_extensions::pyrun::detached_runner::run_detached_pyrun_runner;
 use pi_coding_agent::cli_entry::{CliMain, run_cli_entry};
 use pi_coding_agent::core::detached_bash_runner::run_detached_bash_runner;
 use pi_coding_agent::internal_runner::DetachedRunnerHost;
@@ -26,10 +27,8 @@ impl DetachedRunnerHost for CliDetachedRunnerHost {
         })
     }
 
-    fn run_pyrun<'a>(&'a self, _manifest_path: &'a str) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async {
-            Err("pyrun detached runner is not ported (extensions/pyrun/src/detached-runner.ts)".to_owned())
-        })
+    fn run_pyrun<'a>(&'a self, manifest_path: &'a str) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move { run_detached_pyrun_runner(manifest_path).await.map(|_| ()) })
     }
 }
 

@@ -2,9 +2,9 @@
 //! protocol.
 
 use pi_coding_agent::bundled_extensions::pyrun::detached_runner::{
-    DETACHED_PYRUN_RUNNER_MODE, DetachedPyrunLaunchManifestData, get_detached_pyrun_runner_invocation,
-    read_detached_pyrun_activation, read_detached_pyrun_launch_manifest, write_detached_pyrun_activation,
-    write_detached_pyrun_launch_manifest,
+    DETACHED_PYRUN_RUNNER_MODE, DetachedPyrunLaunchManifestData, DetachedPyrunRunnerInvocation,
+    DetachedPyrunRunnerInvocationOptions, get_detached_pyrun_runner_invocation, read_detached_pyrun_activation,
+    read_detached_pyrun_launch_manifest, write_detached_pyrun_activation, write_detached_pyrun_launch_manifest,
 };
 use pi_coding_agent::bundled_extensions::pyrun::runner::{CanonicalPyrunEvalParams, PyrunRunnerOptions};
 use pi_coding_agent::core::detached_job_runner::DetachedJobArtifacts;
@@ -82,7 +82,7 @@ fn manifest(dir: &str) -> DetachedPyrunLaunchManifestData {
             start_time_ticks: 100,
             incarnation: None,
         },
-        tool_call_id: "call-1".to_owned(),
+        tool_call_id: Some("call-1".to_owned()),
     }
 }
 
@@ -119,15 +119,82 @@ fn writes_and_reads_a_checksummed_launch_manifest() {
 fn writes_and_reads_the_activation_identity() {
     let dir = temp_dir("activation");
     let path = format!("{dir}/activation.json");
-    assert!(read_detached_pyrun_activation(&path).is_none());
+    assert!(read_detached_pyrun_activation(&path).unwrap().is_none());
     let identity = identity();
     write_detached_pyrun_activation(&path, &identity).unwrap();
-    assert_eq!(read_detached_pyrun_activation(&path), Some(identity));
+    assert_eq!(read_detached_pyrun_activation(&path).unwrap(), Some(identity));
 }
 
 #[test]
 fn uses_the_pi_internal_runner_mode() {
-    let invocation = get_detached_pyrun_runner_invocation("/tmp/launch.json");
-    assert_eq!(invocation.args, vec![DETACHED_PYRUN_RUNNER_MODE, "/tmp/launch.json"]);
-    assert!(invocation.executable.contains("detached_pyrun"));
+    let invocation = get_detached_pyrun_runner_invocation(
+        "/tmp/pyrun/launch.json",
+        &DetachedPyrunRunnerInvocationOptions {
+            compiled: true,
+            executable_path: Some("/tmp/pi".to_owned()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        invocation,
+        DetachedPyrunRunnerInvocation {
+            args: vec![
+                DETACHED_PYRUN_RUNNER_MODE.to_owned(),
+                "/tmp/pyrun/launch.json".to_owned()
+            ],
+            executable: "/tmp/pi".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn keeps_the_source_entry_invocation_for_node() {
+    let script = get_detached_pyrun_runner_invocation(
+        "/tmp/pyrun/launch.json",
+        &DetachedPyrunRunnerInvocationOptions {
+            compiled: false,
+            entry_path: Some("/repo/detached-runner-entry.mjs".to_owned()),
+            executable_path: Some("/usr/bin/node".to_owned()),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        script,
+        DetachedPyrunRunnerInvocation {
+            args: vec![
+                "/repo/detached-runner-entry.mjs".to_owned(),
+                "/tmp/pyrun/launch.json".to_owned(),
+            ],
+            executable: "/usr/bin/node".to_owned(),
+        }
+    );
+
+    let typescript = get_detached_pyrun_runner_invocation(
+        "/tmp/pyrun/launch.json",
+        &DetachedPyrunRunnerInvocationOptions {
+            compiled: false,
+            entry_path: Some("/repo/detached-runner-entry.ts".to_owned()),
+            executable_path: Some("/usr/bin/node".to_owned()),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        typescript.args,
+        vec![
+            "--experimental-strip-types".to_owned(),
+            "/repo/detached-runner-entry.ts".to_owned(),
+            "/tmp/pyrun/launch.json".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn requires_an_entry_path_when_not_compiled() {
+    let error = get_detached_pyrun_runner_invocation(
+        "/tmp/pyrun/launch.json",
+        &DetachedPyrunRunnerInvocationOptions::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error, "Detached Pyrun runner entry path is required");
 }
