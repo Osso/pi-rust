@@ -39,6 +39,7 @@ pub fn create_login_options_for_provider(
         name: provider.name().to_owned(),
         auth_type: AuthType::Oauth,
         method_name: None,
+        login_supported: true,
         status,
     };
     let auth = provider.auth();
@@ -58,6 +59,7 @@ pub fn create_login_options_for_provider(
         options.push(AuthSelectorProvider {
             auth_type: AuthType::ApiKey,
             method_name: Some(api_key.name().to_owned()),
+            login_supported: api_key.supports_login(),
             ..base
         });
     }
@@ -114,6 +116,7 @@ pub async fn get_logout_provider_options(runtime: &ModelRuntime) -> Result<Vec<A
                 id: credential.provider_id,
                 auth_type,
                 method_name: None,
+                login_supported: true,
                 status: Some(AuthCheck {
                     auth_type,
                     source: Some("stored credential".to_owned()),
@@ -177,5 +180,31 @@ pub fn format_login_provider_completion_description(provider: &LoginProviderComp
         auth_types
     } else {
         format!("{} · {auth_types}", provider.name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pi_ai::providers::anthropic::anthropic_provider;
+    use pi_ai::providers::faux::{RegisterFauxProviderOptions, faux_provider};
+
+    #[test]
+    fn api_key_login_availability_follows_the_auth_method() {
+        let faux = faux_provider(RegisterFauxProviderOptions::default());
+        let options = create_login_options_for_provider(faux.provider.as_ref(), Some(AuthType::ApiKey), None);
+        assert_eq!(options.len(), 1);
+        assert!(
+            !options[0].login_supported,
+            "ambient-only provider must not offer login"
+        );
+
+        let anthropic = anthropic_provider();
+        let options = create_login_options_for_provider(anthropic.as_ref(), Some(AuthType::ApiKey), None);
+        assert_eq!(options.len(), 1);
+        assert!(
+            options[0].login_supported,
+            "interactive API key login must be available"
+        );
     }
 }

@@ -17,13 +17,15 @@ use super::dynamic_border::dynamic_border;
 /// One selectable auth provider.
 ///
 /// The TypeScript `method?: ApiKeyAuth | OAuthAuth` union is only read for its
-/// `name`, so the typed Rust carrier stores that resolved name.
+/// `name` and `method?.login`, so the typed Rust carrier stores the resolved
+/// name and the side-effect-free login availability.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuthSelectorProvider {
     pub id: String,
     pub name: String,
     pub auth_type: AuthType,
     pub method_name: Option<String>,
+    pub login_supported: bool,
     pub status: Option<AuthCheck>,
 }
 
@@ -34,12 +36,14 @@ impl AuthSelectorProvider {
             name: name.into(),
             auth_type,
             method_name: None,
+            login_supported: true,
             status: None,
         }
     }
 
     pub fn with_api_key_auth(mut self, auth: &dyn ApiKeyAuth) -> Self {
         self.method_name = Some(auth.name().to_owned());
+        self.login_supported = auth.supports_login();
         self
     }
 

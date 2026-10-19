@@ -412,6 +412,12 @@ pub trait ApiKeyAuth: Send + Sync {
         None
     }
 
+    /// Whether [`ApiKeyAuth::login`] is implemented. Ambient-only providers
+    /// report `false`; callers use this instead of invoking `login`.
+    fn supports_login(&self) -> bool {
+        true
+    }
+
     fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>>;
 }
 

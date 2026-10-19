@@ -16,8 +16,9 @@ use std::time::{Duration, Instant};
 use indexmap::IndexMap;
 use pi_agent_core::agent::types::{AgentEvent, AgentMessage};
 use pi_ai::auth::types::{AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, AuthType};
-use pi_ai::request::CallbackError;
+use pi_ai::request::{CallbackError, Fetch, HttpRequest};
 use pi_ai::types::{AssistantMessage, ImageContent, Model};
+use pi_js_compat::date::js_now_millis;
 use pi_tui::EditorComponent;
 use pi_tui::autocomplete::{
     AutocompleteItem, AutocompleteProvider, CombinedAutocompleteProvider, CommandEntry, SlashCommand,
@@ -60,12 +61,16 @@ use crate::core::trust_manager::ProjectTrustStore;
 use crate::modes::interactive::components::agent_selection_banner::AgentSelectionBannerComponent;
 use crate::modes::interactive::components::agent_switcher::AgentSwitcherComponent;
 use crate::modes::interactive::components::approval_selector::{ApprovalSelectorComponent, ApprovalSelectorOptions};
+use crate::modes::interactive::components::armin::ArminComponent;
 use crate::modes::interactive::components::assistant_message::AssistantMessageComponent;
 use crate::modes::interactive::components::bash_execution::{BashExecutionComponent, BashExecutionOptions};
+use crate::modes::interactive::components::bordered_loader::{BorderedLoader, BorderedLoaderOptions};
 use crate::modes::interactive::components::branch_summary_message::BranchSummaryMessageComponent;
 use crate::modes::interactive::components::compaction_summary_message::CompactionSummaryMessageComponent;
 use crate::modes::interactive::components::custom_editor::{AppActionHandler, CustomEditor, CustomEditorOptions};
 use crate::modes::interactive::components::custom_message::CustomMessageComponent;
+use crate::modes::interactive::components::daxnuts::DaxnutsComponent;
+use crate::modes::interactive::components::earendil_announcement::EarendilAnnouncementComponent;
 use crate::modes::interactive::components::extension_editor::{ExtensionEditorComponent, ExtensionEditorHost};
 use crate::modes::interactive::components::extension_input::{ExtensionInputComponent, ExtensionInputOptions};
 use crate::modes::interactive::components::extension_selector::{ExtensionSelectorComponent, ExtensionSelectorOptions};
@@ -110,6 +115,8 @@ use crate::utils::paths::{PathInputOptions, get_cwd_relative_path, relative_path
 use serde_json::Value;
 
 pub(crate) const PARTIAL_UPDATE_RENDER_THROTTLE_MS: u64 = 50;
+
+const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING: &str = "Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at https://claude.ai/settings/usage. Disable this warning in /settings.";
 pub(crate) const FOLLOW_UP_BODY_PREVIEW_LENGTH: usize = 50;
 
 pub(crate) fn is_unknown_model(model: Option<&pi_ai::types::Model>) -> bool {
@@ -1705,6 +1712,30 @@ impl Focusable for SharedLoginDialog {
     }
 }
 
+/// Adapter mounting the share loader while the command mutates it.
+pub struct SharedBorderedLoader(pub Rc<RefCell<BorderedLoader>>);
+
+impl Component for SharedBorderedLoader {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0
+            .try_borrow_mut()
+            .map(|mut loader| loader.render(width))
+            .unwrap_or_default()
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        if let Ok(mut loader) = self.0.try_borrow_mut() {
+            loader.handle_input(data);
+        }
+    }
+
+    fn invalidate(&mut self) {
+        if let Ok(mut loader) = self.0.try_borrow_mut() {
+            loader.invalidate();
+        }
+    }
+}
+
 /// Adapter mounting the session selector while its async loads mutate it.
 pub struct SharedSessionSelector(pub Rc<tokio::sync::Mutex<SessionSelectorComponent>>);
 
@@ -1825,6 +1856,16 @@ pub struct InteractiveModeOptions {
     pub cancel_multi_agent: Option<CancelMultiAgent>,
     /// Slot filled with the bridge selector used by `agent_viewer`.
     pub agent_view_selector_slot: Option<AgentViewSelectorSlot>,
+}
+
+/// `PromptActivitySource`: non-streaming work that keeps the prompt animated.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum PromptActivitySource {
+    Bash,
+    BranchSummary,
+    Compaction,
+    Retry,
+    SummaryMaterialization,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2439,8 +2480,8 @@ pub struct InteractiveMode {
     footer_container: Rc<RefCell<Container>>,
     root_compositor: RefCell<Option<ComponentRef>>,
     fullscreen_layout_root: RefCell<Option<ComponentRef>>,
-    transcript_tail_region: RefCell<Option<FlowRenderRegion>>,
-    status_render_region: RefCell<Option<RenderRegion>>,
+    transcript_tail_region: RefCell<Option<Rc<FlowRenderRegion>>>,
+    status_render_region: RefCell<Option<Rc<RenderRegion>>>,
     editor: RefCell<Rc<RefCell<dyn EditorComponent>>>,
     default_editor: Rc<RefCell<CustomEditor>>,
     editor_handle: RefCell<ComponentRef>,
@@ -2477,6 +2518,7 @@ pub struct InteractiveMode {
     working_message: RefCell<Option<String>>,
     working_visible: Cell<bool>,
     working_indicator_options: RefCell<Option<WorkingIndicatorOptions>>,
+    prompt_activity_sources: RefCell<std::collections::BTreeSet<PromptActivitySource>>,
     compaction_queued_messages: RefCell<Vec<CompactionQueuedMessage>>,
     response_complete_notification:
         RefCell<Option<Box<dyn crate::core::desktop_notification::DesktopNotificationHandle>>>,
@@ -2484,6 +2526,9 @@ pub struct InteractiveMode {
     default_extension_footer: RefCell<Option<ComponentRef>>,
     custom_header: RefCell<Option<ComponentRef>>,
     changelog_markdown: RefCell<Option<String>>,
+    startup_notices_shown: Cell<bool>,
+    http_fetch: RefCell<Option<Arc<dyn Fetch>>>,
+    anthropic_subscription_warning_shown: Cell<bool>,
     terminal_current_directory: RefCell<Option<String>>,
     theme_controller: RefCell<crate::modes::interactive::theme::InteractiveThemeController>,
     transcript_scroll_view: RefCell<Option<Rc<RefCell<ScrollView>>>>,
@@ -2714,12 +2759,16 @@ impl InteractiveMode {
             working_message: RefCell::new(None),
             working_visible: Cell::new(true),
             working_indicator_options: RefCell::new(None),
+            prompt_activity_sources: RefCell::new(std::collections::BTreeSet::new()),
             compaction_queued_messages: RefCell::new(Vec::new()),
             response_complete_notification: RefCell::new(None),
             custom_footer: RefCell::new(None),
             default_extension_footer: RefCell::new(None),
             custom_header: RefCell::new(None),
             changelog_markdown: RefCell::new(None),
+            startup_notices_shown: Cell::new(false),
+            http_fetch: RefCell::new(None),
+            anthropic_subscription_warning_shown: Cell::new(false),
             terminal_current_directory: RefCell::new(None),
             theme_controller: RefCell::new(theme_controller),
             transcript_scroll_view: RefCell::new(None),
@@ -2792,6 +2841,38 @@ impl InteractiveMode {
     /// The editor currently mounted in the editor container.
     fn editor(&self) -> Rc<RefCell<dyn EditorComponent>> {
         Rc::clone(&self.editor.borrow())
+    }
+
+    /// `setPromptActivity`.
+    fn set_prompt_activity(&self, source: PromptActivitySource, active: bool) {
+        if active {
+            self.prompt_activity_sources.borrow_mut().insert(source);
+        } else {
+            self.prompt_activity_sources.borrow_mut().remove(&source);
+        }
+        self.sync_working_editor_state();
+    }
+
+    /// `syncWorkingEditorState` for the main session (child views are a gap).
+    fn sync_working_editor_state(&self) {
+        let indicator_options = self.working_indicator_options.borrow().clone();
+        let indicator_options = indicator_options.map(|options| pi_tui::LoaderIndicatorOptions {
+            frames: options.frames,
+            interval_ms: options.interval_ms.map(|interval| interval.max(0.0) as u64),
+        });
+        let editor = self.editor();
+        let mut editor_ref = editor.borrow_mut();
+        let can_animate = crate::modes::interactive::working_editor::supports_working_prompt_animation(
+            &*editor_ref,
+            indicator_options.as_ref(),
+        );
+        let has_prompt_activity = self.session().is_streaming() || !self.prompt_activity_sources.borrow().is_empty();
+        let should_show = self.working_visible.get() && has_prompt_activity;
+        crate::modes::interactive::working_editor::sync_working_editor(
+            &mut *editor_ref,
+            should_show && can_animate,
+            indicator_options,
+        );
     }
 
     fn settings<R>(&self, f: impl FnOnce(&crate::core::settings_manager::SettingsManager) -> R) -> R {
@@ -3025,10 +3106,23 @@ impl InteractiveMode {
         let status_ref = component(SharedContainer(Rc::clone(&self.status_container)));
         let tail_region = self.ui.create_flow_render_region(Rc::clone(&transcript_tail_ref));
         let status_region = self.ui.create_render_region(Rc::clone(&status_ref));
-        *self.transcript_tail_region.borrow_mut() = tail_region;
-        *self.status_render_region.borrow_mut() = status_region;
+        let tail_region = tail_region.map(Rc::new);
+        let status_region = status_region.map(Rc::new);
+        *self.transcript_tail_region.borrow_mut() = tail_region.clone();
+        *self.status_render_region.borrow_mut() = status_region.clone();
 
+        let on_transcript_tail_layout: Rc<dyn Fn(pi_tui::tui::FlowRenderRegionLayout)> = match tail_region {
+            Some(region) => Rc::new(move |layout| region.place(layout)),
+            None => Rc::new(|_| {}),
+        };
+        let on_status_layout: Rc<dyn Fn(pi_tui::tui::RenderRegionRect)> = match status_region {
+            Some(region) => Rc::new(move |rect| region.place(rect)),
+            None => Rc::new(|_| {}),
+        };
         let height_ui = Rc::clone(&self.ui);
+        let editor_container = Rc::clone(&self.editor_container);
+        let editor_handle = Rc::clone(&self.editor_handle.borrow());
+        let editor = Rc::clone(&self.editor.borrow());
         let root = create_interactive_root_compositor(InteractiveRootCompositorOptions {
             get_height: Rc::new(move || height_ui.terminal().borrow().rows()),
             header: component(SharedContainer(Rc::clone(&self.header_container))),
@@ -3036,14 +3130,29 @@ impl InteractiveMode {
             chat: component(SharedContainer(Rc::clone(&self.chat_container))),
             transcript_tail: transcript_tail_ref,
             pending_messages: component(SharedContainer(Rc::clone(&self.pending_messages_container))),
-            on_transcript_tail_layout: Rc::new(|_| {}),
+            on_transcript_tail_layout,
             status: status_ref,
             widget_above: component(SharedContainer(Rc::clone(&self.widget_container_above))),
             editor: component(SharedContainer(Rc::clone(&self.editor_container))),
             widget_below: component(SharedContainer(Rc::clone(&self.widget_container_below))),
             footer: component(SharedContainer(Rc::clone(&self.footer_container))),
-            on_status_layout: Rc::new(|_| {}),
-            on_editor_layout: Rc::new(|_| {}),
+            on_status_layout,
+            on_editor_layout: Rc::new(move |rect| {
+                let mounted = editor_container
+                    .borrow()
+                    .children()
+                    .iter()
+                    .any(|child| Rc::ptr_eq(child, &editor_handle));
+                if !mounted {
+                    crate::modes::interactive::working_editor::clear_working_editor_position(&mut *editor.borrow_mut());
+                    return;
+                }
+                crate::modes::interactive::working_editor::position_working_editor(
+                    &mut *editor.borrow_mut(),
+                    rect.row,
+                    rect.col,
+                );
+            }),
         });
         *self.root_compositor.borrow_mut() = Some(component(root));
     }
@@ -3166,7 +3275,9 @@ impl InteractiveMode {
                 primary: true,
                 overscroll: Some(ScrollOverscroll::Chain),
                 scrollbar: Some(scrollbar),
-                scrollbar_style: None,
+                scrollbar_style: Some(Rc::new(|text: &str| {
+                    with_theme(|theme| theme.bg(ThemeBg::ScrollbarThumb, text))
+                })),
                 scrollbar_hide_delay_ms: None,
             },
         )));
@@ -4087,6 +4198,7 @@ impl InteractiveMode {
         *self.editor_handle.borrow_mut() = Rc::clone(&handle);
         self.editor_container.borrow_mut().add_child(Rc::clone(&handle));
         self.update_editor_border_color();
+        self.sync_working_editor_state();
         self.ui.set_focus(Some(handle));
         self.ui.request_render();
     }
@@ -4538,15 +4650,107 @@ pub async fn run_interactive_mode(
         .await
 }
 
+fn read_pipe_text(pipe: Option<impl std::io::Read>) -> String {
+    let Some(mut pipe) = pipe else {
+        return String::new();
+    };
+    let mut text = String::new();
+    let _ = std::io::Read::read_to_string(&mut pipe, &mut text);
+    text
+}
+
+struct GhGistRun {
+    status: std::process::ExitStatus,
+    stdout: String,
+    stderr: String,
+}
+
+async fn run_gh_gist(
+    gh_program: &str,
+    tmp_path: &str,
+    pid: &std::sync::atomic::AtomicU32,
+) -> Result<GhGistRun, String> {
+    let mut child = std::process::Command::new(gh_program)
+        .args(["gist", "create", "--public=false", tmp_path])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|error| node_spawn_error_message("gh", &error))?;
+    pid.store(child.id(), std::sync::atomic::Ordering::SeqCst);
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let stdout_task = tokio::task::spawn_blocking(move || read_pipe_text(stdout));
+    let stderr_task = tokio::task::spawn_blocking(move || read_pipe_text(stderr));
+    let wait_task = tokio::task::spawn_blocking(move || child.wait());
+    let (stdout, stderr, status) = tokio::join!(stdout_task, stderr_task, wait_task);
+    pid.store(0, std::sync::atomic::Ordering::SeqCst);
+    let status = match status {
+        Ok(Ok(status)) => status,
+        Ok(Err(error)) => return Err(node_spawn_error_message("gh", &error)),
+        Err(error) => return Err(error.to_string()),
+    };
+    Ok(GhGistRun {
+        status,
+        stdout: stdout.unwrap_or_default(),
+        stderr: stderr.unwrap_or_default(),
+    })
+}
+
+fn node_spawn_error_message(command: &str, error: &std::io::Error) -> String {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => format!("spawn {command} ENOENT"),
+        _ => error.to_string(),
+    }
+}
+
 fn json_string(object: &serde_json::Map<String, Value>, key: &str) -> String {
     object.get(key).and_then(Value::as_str).unwrap_or_default().to_owned()
 }
 
-fn js_now_millis() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as f64)
-        .unwrap_or_default()
+/// Result of [`changelog_display_for`]: the markdown to show, and whether the
+/// seen version must be recorded (fresh install or new entries).
+struct ChangelogDisplay {
+    markdown: Option<String>,
+    update_version: bool,
+}
+
+fn changelog_display_for(
+    last_version: Option<&str>,
+    changelog_path: &std::path::Path,
+    has_messages: bool,
+) -> ChangelogDisplay {
+    if has_messages {
+        return ChangelogDisplay {
+            markdown: None,
+            update_version: false,
+        };
+    }
+    let entries = crate::utils::changelog::parse_changelog(&changelog_path.display().to_string());
+    let Some(last_version) = last_version else {
+        return ChangelogDisplay {
+            markdown: None,
+            update_version: true,
+        };
+    };
+    let new_entries = crate::utils::changelog::get_new_entries(&entries, last_version);
+    if new_entries.is_empty() {
+        return ChangelogDisplay {
+            markdown: None,
+            update_version: false,
+        };
+    }
+    let markdown = new_entries
+        .iter()
+        .map(|entry| {
+            let entry_version = format!("{}.{}.{}", entry.major, entry.minor, entry.patch);
+            crate::utils::changelog::normalize_changelog_links_for_entry(&entry.content, &entry_version)
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    ChangelogDisplay {
+        markdown: Some(markdown),
+        update_version: true,
+    }
 }
 
 impl InteractiveMode {
@@ -4697,6 +4901,10 @@ impl InteractiveMode {
             .settings(|settings| settings.get_http_idle_timeout_ms())
             .map_err(|error| error.to_string())?;
         let fetch = crate::core::http_dispatcher::configure_http_dispatcher(http_idle_timeout_ms as f64)?;
+        *self.http_fetch.borrow_mut() = Some(Arc::clone(&fetch));
+
+        // Load changelog (only show new entries, skip for resumed sessions).
+        *self.changelog_markdown.borrow_mut() = self.get_changelog_for_display();
         let mut fd_manager = crate::utils::tools_manager::ToolsManager::for_process(Arc::clone(&fetch));
         let mut rg_manager = crate::utils::tools_manager::ToolsManager::for_process(fetch);
         let (fd_path, _rg_path) = tokio::join!(fd_manager.ensure_tool("fd"), rg_manager.ensure_tool("rg"));
@@ -4713,7 +4921,8 @@ impl InteractiveMode {
         self.theme_controller.borrow_mut().apply_from_settings();
         self.render_widgets();
         self.build_header();
-        self.show_loaded_resources(false, false);
+        self.show_loaded_resources(false, true);
+        self.show_startup_notices_if_needed();
         self.bind_extensions().await;
         self.render_initial_messages();
         self.subscribe_to_agent();
@@ -5259,9 +5468,9 @@ impl InteractiveMode {
             "resume" => self.show_session_selector(),
             "agents" => self.show_agent_switcher(),
             "quit" => self.shutdown_requested.set(true),
-            "arminsayshi" | "dementedelves" | "daxnuts" => {
-                self.show_status("Easter egg commands are not ported.");
-            }
+            "arminsayshi" => self.handle_armin_says_hi(),
+            "dementedelves" => self.handle_demented_delves(),
+            "daxnuts" => self.handle_daxnuts(),
             _ => {
                 if self.session.borrow().extension_runner().get_command(name).is_some() {
                     let text = if args.is_empty() {
@@ -6027,8 +6236,16 @@ impl InteractiveMode {
                 .collect();
             if matches.len() == 1 {
                 let model = matches[0].clone();
-                if let Err(error) = session.set_model(model).await {
-                    self.show_error(error.message());
+                match session.set_model(model.clone()).await {
+                    Ok(()) => {
+                        self.footer.borrow_mut().invalidate();
+                        self.update_editor_border_color();
+                        self.show_status(&format!("Model: {}", model.id));
+                        self.maybe_warn_about_anthropic_subscription_auth(Some(model.clone()))
+                            .await;
+                        self.check_daxnuts_easter_egg(&model);
+                    }
+                    Err(error) => self.show_error(error.message()),
                 }
                 return;
             }
@@ -6049,8 +6266,16 @@ impl InteractiveMode {
                 if let Some(model) = model {
                     let mode = Rc::clone(&mode);
                     tokio::task::spawn_local(async move {
-                        if let Err(error) = mode.session().set_model(model).await {
-                            mode.show_error(error.message());
+                        match mode.session().set_model(model.clone()).await {
+                            Ok(()) => {
+                                mode.footer.borrow_mut().invalidate();
+                                mode.update_editor_border_color();
+                                mode.show_status(&format!("Model: {}", model.id));
+                                mode.maybe_warn_about_anthropic_subscription_auth(Some(model.clone()))
+                                    .await;
+                                mode.check_daxnuts_easter_egg(&model);
+                            }
+                            Err(error) => mode.show_error(error.message()),
                         }
                     });
                 }
@@ -6077,10 +6302,36 @@ impl InteractiveMode {
     }
 
     async fn cycle_model(&self, direction: CycleDirection) {
-        if let Err(error) = self.session().cycle_model(direction).await {
-            self.show_error(error.message());
+        match self.session().cycle_model(direction).await {
+            Ok(Some(result)) => {
+                self.footer.borrow_mut().invalidate();
+                self.update_editor_border_color();
+                let thinking = if result.model.reasoning
+                    && result.thinking_level != pi_agent_core::harness::types::ThinkingLevel::Off
+                {
+                    format!(" (thinking: {})", result.thinking_level.as_str())
+                } else {
+                    String::new()
+                };
+                let name = if result.model.name.is_empty() {
+                    result.model.id.clone()
+                } else {
+                    result.model.name.clone()
+                };
+                self.show_status(&format!("Switched to {name}{thinking}"));
+                self.maybe_warn_about_anthropic_subscription_auth(Some(result.model))
+                    .await;
+            }
+            Ok(None) => {
+                let message = if self.session().scoped_models().is_empty() {
+                    "Only one model available"
+                } else {
+                    "Only one model in scope"
+                };
+                self.show_status(message);
+            }
+            Err(error) => self.show_error(error.message()),
         }
-        self.footer.borrow_mut().invalidate();
         self.ui.request_render();
     }
 
@@ -6176,6 +6427,7 @@ impl InteractiveMode {
         self.pending_messages_container
             .borrow_mut()
             .add_child(Rc::clone(&bash_ref));
+        self.set_prompt_activity(PromptActivitySource::Bash, true);
         self.ui.request_render();
         let result = session
             .execute_bash(
@@ -6228,6 +6480,7 @@ impl InteractiveMode {
         if let Some(mode) = with_mode(mode, |mode| mode) {
             let _ = mode;
         }
+        self.set_prompt_activity(PromptActivitySource::Bash, false);
         self.ui.request_render();
     }
 
@@ -6356,7 +6609,114 @@ impl InteractiveMode {
     }
 
     async fn handle_share_command(&self) {
-        self.show_status("Share viewer is not ported yet.");
+        self.handle_share_command_with_program("gh").await;
+    }
+
+    /// Share flow with an explicit `gh` program; production passes `"gh"`.
+    async fn handle_share_command_with_program(&self, gh_program: &str) {
+        let auth = std::process::Command::new(gh_program)
+            .args(["auth", "status"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        match auth {
+            Err(_) => {
+                self.show_error("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/");
+                return;
+            }
+            Ok(status) if !status.success() => {
+                self.show_error("GitHub CLI is not logged in. Run 'gh auth login' first.");
+                return;
+            }
+            Ok(_) => {}
+        }
+
+        let tmp_file = std::env::temp_dir().join("session.html");
+        let tmp_path = tmp_file.display().to_string();
+        if let Err(error) = self.session().export_to_html(Some(&tmp_path)).await {
+            self.show_error(&format!("Failed to export session: {}", error.message()));
+            return;
+        }
+
+        let request_render: Rc<dyn Fn()> = Rc::new({
+            let ui = Rc::clone(&self.ui);
+            move || ui.request_render()
+        });
+        let loader = Rc::new(RefCell::new(BorderedLoader::new(
+            request_render,
+            "Creating gist...",
+            BorderedLoaderOptions::default(),
+        )));
+        let signal = loader.borrow().signal();
+        self.editor_container.borrow_mut().clear();
+        let loader_component: ComponentRef = component(SharedBorderedLoader(Rc::clone(&loader)));
+        self.editor_container
+            .borrow_mut()
+            .add_child(Rc::clone(&loader_component));
+        self.ui.set_focus(Some(loader_component));
+        self.ui.request_render();
+
+        let pid = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let mode_id = self.ui_id.get();
+        let abort_pid = Arc::clone(&pid);
+        let abort_loader = Rc::downgrade(&loader);
+        let abort_tmp = tmp_path.clone();
+        loader.borrow_mut().set_on_abort(Some(Rc::new(move || {
+            let child_pid = abort_pid.swap(0, std::sync::atomic::Ordering::SeqCst);
+            if child_pid != 0
+                && let Some(child_pid) = rustix::process::Pid::from_raw(child_pid as i32)
+            {
+                let _ = rustix::process::kill_process(child_pid, rustix::process::Signal::KILL);
+            }
+            if let Some(loader) = abort_loader.upgrade() {
+                loader.borrow_mut().dispose();
+            }
+            let _ = std::fs::remove_file(&abort_tmp);
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                mode.show_status("Share cancelled");
+            });
+        })));
+
+        let run = match run_gh_gist(gh_program, &tmp_path, &pid).await {
+            Ok(run) => run,
+            Err(message) => {
+                if !signal.is_cancelled() {
+                    self.finish_share_loader(&loader, &tmp_path);
+                    self.show_error(&format!("Failed to create gist: {message}"));
+                }
+                return;
+            }
+        };
+        if signal.is_cancelled() {
+            return;
+        }
+        self.finish_share_loader(&loader, &tmp_path);
+
+        if !run.status.success() {
+            let error_message = match run.stderr.trim() {
+                "" => "Unknown error",
+                message => message,
+            };
+            self.show_error(&format!("Failed to create gist: {error_message}"));
+            return;
+        }
+
+        let stdout = run.stdout;
+        let gist_url = stdout.trim().to_owned();
+        let gist_id = gist_url.split('/').next_back().filter(|id| !id.is_empty());
+        let Some(gist_id) = gist_id else {
+            self.show_error("Failed to parse gist ID from gh output");
+            return;
+        };
+        let preview_url = crate::config::get_share_viewer_url(gist_id);
+        self.show_status(&format!("Share URL: {preview_url}\nGist: {gist_url}"));
+    }
+
+    fn finish_share_loader(&self, loader: &Rc<RefCell<BorderedLoader>>, tmp_path: &str) {
+        self.restore_editor();
+        loader.borrow_mut().dispose();
+        let _ = std::fs::remove_file(tmp_path);
     }
 
     async fn handle_copy_command(&self, flash_confirmation: bool) {
@@ -6446,6 +6806,112 @@ impl InteractiveMode {
             .map(|extension| extension.path.clone())
             .collect();
         self.show_status(&format!("Extensions:\n{}", lines.join("\n")));
+    }
+
+    fn get_changelog_for_display(&self) -> Option<String> {
+        let last_version = self.settings(|settings| settings.get_last_changelog_version().map(str::to_owned));
+        let changelog_path = crate::config::get_changelog_path();
+        let version = self.version.clone();
+        let display = changelog_display_for(
+            last_version.as_deref(),
+            &changelog_path,
+            !self.session().messages().is_empty(),
+        );
+        if display.update_version {
+            self.settings_mut(|settings| settings.set_last_changelog_version(&version));
+            self.report_install_telemetry(&version);
+        }
+        display.markdown
+    }
+
+    fn report_install_telemetry(&self, version: &str) {
+        if std::env::var_os("PI_OFFLINE").is_some() {
+            return;
+        }
+        if !crate::core::telemetry::is_install_telemetry_enabled(&self.session.borrow().settings_manager(), None) {
+            return;
+        }
+        let Some(fetch) = self.http_fetch.borrow().clone() else {
+            return;
+        };
+        let url = format!(
+            "https://pi.dev/api/report-install?version={}",
+            crate::utils::url_encoding::encode_uri_component(version)
+        );
+        let user_agent = crate::utils::pi_user_agent::get_pi_user_agent(version);
+        tokio::task::spawn_local(async move {
+            let abort = tokio_util::sync::CancellationToken::new();
+            let timeout = abort.clone();
+            let timeout_task = tokio::task::spawn_local(async move {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                timeout.cancel();
+            });
+            let request = HttpRequest {
+                method: "GET".to_owned(),
+                url,
+                headers: vec![("User-Agent".to_owned(), user_agent)],
+                body: None,
+            };
+            let _ = fetch.fetch(request, Some(abort)).await;
+            timeout_task.abort();
+        });
+    }
+
+    fn show_startup_notices_if_needed(&self) {
+        if self.startup_notices_shown.get() {
+            return;
+        }
+        self.startup_notices_shown.set(true);
+
+        let Some(markdown) = self.changelog_markdown.borrow().clone() else {
+            return;
+        };
+        if !self.chat_container.borrow().children().is_empty() {
+            self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
+        }
+        let border_color = Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Border, text)));
+        self.chat_container
+            .borrow_mut()
+            .add_child(component(pi_tui::components::dynamic_border::DynamicBorder::new(
+                border_color.clone(),
+            )));
+        if self.settings(|settings| settings.get_collapse_changelog()) {
+            let version_match = regex::Regex::new(r"##\s+\[?(\d+\.\d+\.\d+)\]?")
+                .expect("changelog version regex")
+                .captures(&markdown)
+                .and_then(|captures| captures.get(1).map(|value| value.as_str().to_owned()));
+            let latest_version = version_match.unwrap_or_else(|| self.version.clone());
+            let condensed = format!(
+                "Updated to v{latest_version}. Use {} to view full changelog.",
+                with_theme(|theme| theme.bold("/changelog"))
+            );
+            self.chat_container
+                .borrow_mut()
+                .add_child(component(Text::new(condensed, 1, 0)));
+        } else {
+            self.chat_container.borrow_mut().add_child(component(Text::new(
+                with_theme(|theme| theme.bold(&theme.fg(ThemeColor::Accent, "What's New"))),
+                1,
+                0,
+            )));
+            self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
+            self.chat_container.borrow_mut().add_child(component(
+                pi_tui::components::markdown::Markdown::with_shared_theme(
+                    markdown.trim().to_owned(),
+                    1,
+                    0,
+                    self.markdown_theme(),
+                    None,
+                    pi_tui::components::markdown::MarkdownOptions::default(),
+                ),
+            ));
+            self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
+        }
+        self.chat_container
+            .borrow_mut()
+            .add_child(component(pi_tui::components::dynamic_border::DynamicBorder::new(
+                border_color,
+            )));
     }
 
     fn handle_changelog_command(&self) {
@@ -6736,6 +7202,7 @@ impl InteractiveMode {
                 loader.start();
             }
             self.status_container.borrow_mut().add_child(Rc::clone(&loader));
+            self.set_prompt_activity(PromptActivitySource::BranchSummary, true);
             self.ui.request_render();
             Some(loader)
         } else {
@@ -6787,6 +7254,7 @@ impl InteractiveMode {
                 loader.stop();
             }
             self.status_container.borrow_mut().clear();
+            self.set_prompt_activity(PromptActivitySource::BranchSummary, false);
         }
         self.default_editor.borrow_mut().on_escape = original_on_escape;
     }
@@ -6806,7 +7274,10 @@ impl InteractiveMode {
         let Some(entry_id) = self.pending_compaction_summary_edit_id.borrow().clone() else {
             return false;
         };
-        self.session().update_compaction_summary(&entry_id, summary);
+        if let Err(error) = self.session().update_compaction_summary(&entry_id, summary) {
+            self.show_error(error.message());
+            return true;
+        }
         *self.pending_compaction_summary_edit_id.borrow_mut() = None;
         self.add_submitted_text_to_history(summary);
         self.editor().borrow_mut().set_text("");
@@ -6851,6 +7322,7 @@ impl InteractiveMode {
             loader.start();
         }
         self.status_container.borrow_mut().add_child(Rc::clone(&loader));
+        self.set_prompt_activity(PromptActivitySource::SummaryMaterialization, true);
         self.ui.request_render();
 
         let outcome = match self.session().materialize_compaction_summary(&entry.id).await {
@@ -6868,6 +7340,7 @@ impl InteractiveMode {
             loader.stop();
         }
         self.status_container.borrow_mut().clear();
+        self.set_prompt_activity(PromptActivitySource::SummaryMaterialization, false);
         self.default_editor.borrow_mut().on_escape = original_on_escape;
 
         match outcome {
@@ -7541,7 +8014,7 @@ impl InteractiveMode {
                 self.show_login_dialog(&provider_option.id, &provider_option.name).await;
             }
             AuthType::ApiKey => {
-                if provider_option.method_name.is_some() {
+                if provider_option.login_supported {
                     self.show_api_key_login_dialog(&provider_option.id, &provider_option.name)
                         .await;
                 } else {
@@ -7573,16 +8046,6 @@ impl InteractiveMode {
             .await
         {
             let message = error.to_string();
-            if message.contains("does not support api_key login") {
-                self.show_ambient_auth_dialog(&AuthSelectorProvider {
-                    id: provider_id.to_owned(),
-                    name: provider_name.to_owned(),
-                    auth_type: AuthType::ApiKey,
-                    method_name: None,
-                    status: None,
-                });
-                return;
-            }
             if matches!(error, crate::core::model_runtime::ModelRuntimeError::CredentialSync(_)) {
                 self.show_error(&format!(
                     "Logged in to {provider_name}, but local model state could not be synchronized: {message}"
@@ -7643,6 +8106,86 @@ impl InteractiveMode {
         self.complete_provider_authentication(provider_id, provider_name, auth_type, previous_model)
             .await;
         Ok(())
+    }
+
+    async fn maybe_warn_about_anthropic_subscription_auth(&self, model: Option<Model>) {
+        let warnings_disabled = self.settings(|settings| {
+            settings
+                .get_warnings()
+                .get("anthropicExtraUsage")
+                .and_then(Value::as_bool)
+        }) == Some(false);
+        if warnings_disabled || self.anthropic_subscription_warning_shown.get() {
+            return;
+        }
+        let model = model.unwrap_or_else(|| self.session().model());
+        if model.provider != "anthropic" {
+            return;
+        }
+        let runtime = self.session().model_runtime().clone();
+        let check = runtime
+            .check_auth("anthropic", pi_ai::auth::types::AuthOperationOptions::new(None))
+            .await;
+        if let Ok(Some(check)) = check
+            && check.auth_type == AuthType::Oauth
+        {
+            self.anthropic_subscription_warning_shown.set(true);
+            self.show_warning(ANTHROPIC_SUBSCRIPTION_AUTH_WARNING);
+            return;
+        }
+        let auth = runtime
+            .get_auth("anthropic", pi_ai::auth::resolve::AuthResolutionOverrides::default())
+            .await;
+        if let Ok(Some(auth)) = auth
+            && auth
+                .auth
+                .api_key
+                .as_deref()
+                .is_some_and(|api_key| api_key.starts_with("sk-ant-oat"))
+        {
+            self.anthropic_subscription_warning_shown.set(true);
+            self.show_warning(ANTHROPIC_SUBSCRIPTION_AUTH_WARNING);
+        }
+    }
+
+    fn handle_armin_says_hi(&self) {
+        self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
+        let request_render: Rc<dyn Fn()> = Rc::new({
+            let ui = Rc::clone(&self.ui);
+            move || ui.request_render()
+        });
+        self.chat_container
+            .borrow_mut()
+            .add_child(component(ArminComponent::new(request_render)));
+        self.ui.request_render();
+    }
+
+    fn handle_demented_delves(&self) {
+        self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
+        self.chat_container
+            .borrow_mut()
+            .add_child(component(EarendilAnnouncementComponent::new(
+                crate::modes::interactive::theme::current_theme(),
+            )));
+        self.ui.request_render();
+    }
+
+    fn handle_daxnuts(&self) {
+        self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
+        let request_render: Rc<dyn Fn()> = Rc::new({
+            let ui = Rc::clone(&self.ui);
+            move || ui.request_render()
+        });
+        self.chat_container
+            .borrow_mut()
+            .add_child(component(DaxnutsComponent::new(request_render)));
+        self.ui.request_render();
+    }
+
+    fn check_daxnuts_easter_egg(&self, model: &Model) {
+        if model.provider == "opencode" && model.id.to_lowercase().contains("kimi-k2.5") {
+            self.handle_daxnuts();
+        }
     }
 
     fn show_ambient_auth_dialog(&self, provider_option: &AuthSelectorProvider) {
@@ -7733,10 +8276,15 @@ impl InteractiveMode {
                 "{action_label}. Selected {}. Credentials saved to {auth_path}",
                 model.id
             ));
+            self.maybe_warn_about_anthropic_subscription_auth(Some(model.clone()))
+                .await;
+            self.check_daxnuts_easter_egg(model);
         } else {
             self.show_status(&format!("{action_label}. Credentials saved to {auth_path}"));
             if let Some(error) = selection_error {
                 self.show_error(&error);
+            } else {
+                self.maybe_warn_about_anthropic_subscription_auth(None).await;
             }
         }
 
@@ -8150,6 +8698,7 @@ impl InteractiveMode {
             }
             UiRequest::SetWorkingVisible(visible) => {
                 self.working_visible.set(visible);
+                self.sync_working_editor_state();
                 self.ui.request_render();
             }
             UiRequest::SetWorkingIndicator(options) => {
@@ -8499,6 +9048,7 @@ impl InteractiveMode {
                 self.clear_pending_tools();
                 self.executing_tool_names.borrow_mut().clear();
                 self.executing_tool_started_at.borrow_mut().clear();
+                self.sync_working_editor_state();
                 self.ui.request_render();
             }
             AgentSessionEvent::Agent(AgentEvent::ModelRequestStart) => {
@@ -8587,12 +9137,23 @@ impl InteractiveMode {
                 tool_call_id,
                 tool_name,
                 args,
-                ..
+                started_at,
             }) => {
                 self.executing_tool_names
                     .borrow_mut()
                     .insert(tool_call_id.clone(), tool_name.clone());
+                self.executing_tool_started_at
+                    .borrow_mut()
+                    .insert(tool_call_id.clone(), started_at);
                 self.ensure_tool_component(&tool_name, &tool_call_id, args);
+                if let Some(component_ref) = self.pending_tools.borrow().get(&tool_call_id).cloned()
+                    && let Some(component_value) = component_ref
+                        .borrow_mut()
+                        .as_any_mut()
+                        .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
+                {
+                    component_value.mark_execution_started(started_at);
+                }
                 self.ui.request_render();
             }
             AgentSessionEvent::Agent(AgentEvent::ToolExecutionUpdate {
@@ -8622,6 +9183,8 @@ impl InteractiveMode {
                 tool_call_id,
                 result,
                 is_error,
+                started_at,
+                finished_at,
                 ..
             }) => {
                 let component_ref = self.pending_tools.borrow_mut().shift_remove(&tool_call_id);
@@ -8631,6 +9194,7 @@ impl InteractiveMode {
                         .as_any_mut()
                         .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
                 {
+                    component_value.mark_execution_started(started_at);
                     component_value.update_result(
                         ToolExecutionResult {
                             content: result.content.clone(),
@@ -8638,7 +9202,7 @@ impl InteractiveMode {
                             is_error,
                         },
                         false,
-                        None,
+                        Some(finished_at),
                     );
                 }
                 self.executing_tool_names.borrow_mut().shift_remove(&tool_call_id);
@@ -8649,6 +9213,7 @@ impl InteractiveMode {
                 self.clear_pending_tools();
                 self.executing_tool_names.borrow_mut().clear();
                 self.executing_tool_started_at.borrow_mut().clear();
+                self.sync_working_editor_state();
                 self.ui.request_render();
                 if !event.will_retry {
                     self.notify_response_complete();
@@ -8665,6 +9230,7 @@ impl InteractiveMode {
             }
             AgentSessionEvent::AgentSettled(_) => {}
             AgentSessionEvent::CompactionStart(event) => {
+                self.set_prompt_activity(PromptActivitySource::Compaction, true);
                 self.status_container.borrow_mut().clear();
                 self.status_container.borrow_mut().add_child(component(Text::new(
                     with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("Compacting ({})...", event.reason))),
@@ -8674,6 +9240,7 @@ impl InteractiveMode {
                 self.ui.request_render();
             }
             AgentSessionEvent::CompactionEnd(event) => {
+                self.set_prompt_activity(PromptActivitySource::Compaction, false);
                 self.status_container.borrow_mut().clear();
                 if event.aborted {
                     if event.reason == "manual" {
@@ -8696,6 +9263,7 @@ impl InteractiveMode {
                 self.ui.request_render();
             }
             AgentSessionEvent::AutoRetryStart(event) => {
+                self.set_prompt_activity(PromptActivitySource::Retry, true);
                 self.status_container.borrow_mut().clear();
                 self.status_container.borrow_mut().add_child(component(Text::new(
                     with_theme(|theme| {
@@ -8715,6 +9283,7 @@ impl InteractiveMode {
                 self.ui.request_render();
             }
             AgentSessionEvent::AutoRetryEnd(event) => {
+                self.set_prompt_activity(PromptActivitySource::Retry, false);
                 self.status_container.borrow_mut().clear();
                 if !event.success
                     && let Some(error) = &event.final_error
@@ -8927,6 +9496,47 @@ mod ui_tests {
         Arc<pi_ai::providers::faux::FauxProviderHandle>,
         tempfile::TempDir,
     ) {
+        build_mode_with_extra_providers(
+            loader,
+            initial_active_tool_names,
+            settings,
+            Vec::new(),
+            serde_json::Map::new(),
+            false,
+        )
+        .await
+    }
+
+    async fn build_mode_with_persisted_session() -> (
+        Rc<InteractiveMode>,
+        Rc<RefCell<CaptureTerminal>>,
+        Arc<pi_ai::providers::faux::FauxProviderHandle>,
+        tempfile::TempDir,
+    ) {
+        build_mode_with_extra_providers(
+            StaticResourceLoader::new(),
+            None,
+            SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default()),
+            Vec::new(),
+            serde_json::Map::new(),
+            true,
+        )
+        .await
+    }
+
+    async fn build_mode_with_extra_providers(
+        loader: Arc<dyn crate::core::resource_loader::ResourceLoader>,
+        initial_active_tool_names: Option<Vec<String>>,
+        settings: SettingsManager,
+        extra_providers: Vec<Arc<dyn pi_ai::models::Provider>>,
+        extra_credentials: serde_json::Map<String, Value>,
+        persist_session: bool,
+    ) -> (
+        Rc<InteractiveMode>,
+        Rc<RefCell<CaptureTerminal>>,
+        Arc<pi_ai::providers::faux::FauxProviderHandle>,
+        tempfile::TempDir,
+    ) {
         init_dark_theme();
         let temp = tempfile::tempdir().expect("temp dir");
         let cwd = temp.path().display().to_string();
@@ -8962,7 +9572,7 @@ mod ui_tests {
             )
             .into(),
         ]);
-        let mut credentials = serde_json::Map::new();
+        let mut credentials = extra_credentials;
         credentials.insert(
             "faux".to_owned(),
             serde_json::json!({"type": "api_key", "key": "faux-key"}),
@@ -8976,6 +9586,9 @@ mod ui_tests {
         .await
         .expect("model runtime");
         model_runtime.register_native_provider(Arc::clone(&faux.provider));
+        for provider in extra_providers {
+            model_runtime.register_native_provider(provider);
+        }
 
         let factory = {
             let model_runtime = model_runtime.clone();
@@ -9057,7 +9670,12 @@ mod ui_tests {
                     as pi_ai::request::BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, String>>
             }) as crate::core::agent_session_runtime::CreateAgentSessionRuntimeFactory
         };
-        let session_manager = SessionManager::in_memory(Some(&cwd), None).expect("session manager");
+        let session_manager = if persist_session {
+            let session_dir = temp.path().join("sessions").display().to_string();
+            SessionManager::create(&cwd, Some(&session_dir), None).expect("persisted session manager")
+        } else {
+            SessionManager::in_memory(Some(&cwd), None).expect("session manager")
+        };
         let runtime = create_agent_session_runtime(factory, &cwd, &cwd, session_manager)
             .await
             .expect("runtime");
@@ -9770,7 +10388,7 @@ mod ui_tests {
                     output.contains("is configured outside pi.")
                 })
                 .await;
-                assert!(output.contains("Authentication is configured outside pi."));
+                assert!(output.contains("Faux is configured outside pi."));
             })
             .await;
     }
@@ -9989,6 +10607,351 @@ mod ui_tests {
                 mode.ui.process_events();
                 pump(&mode, &mut events, &terminal, |_| true).await;
                 assert_ne!(mode.session().thinking_level(), before);
+            })
+            .await;
+    }
+
+    struct EmptyBody;
+
+    impl pi_ai::request::HttpBody for EmptyBody {
+        fn next_chunk(&mut self) -> pi_ai::request::BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
+            Box::pin(async { None })
+        }
+    }
+
+    struct RecordingFetch {
+        requests: Arc<Mutex<Vec<HttpRequest>>>,
+    }
+
+    impl Fetch for RecordingFetch {
+        fn fetch(
+            &self,
+            request: HttpRequest,
+            _signal: Option<tokio_util::sync::CancellationToken>,
+        ) -> pi_ai::request::BoxFuture<'_, Result<pi_ai::request::HttpResponse, CallbackError>> {
+            self.requests.lock().expect("requests").push(request);
+            Box::pin(async {
+                Ok(pi_ai::request::HttpResponse {
+                    status: 200,
+                    status_text: "OK".to_owned(),
+                    headers: Vec::new(),
+                    body: Box::new(EmptyBody),
+                })
+            })
+        }
+    }
+
+    #[test]
+    fn changelog_display_returns_only_entries_newer_than_the_seen_version() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let path = temp.path().join("CHANGELOG.md");
+        std::fs::write(&path, "## [1.1.0]\n- Added feature\n\n## [1.0.0]\n- Older feature\n").expect("changelog");
+
+        let display = changelog_display_for(Some("1.0.0"), &path, false);
+        assert!(display.update_version);
+        let markdown = display.markdown.expect("new entry markdown");
+        assert!(markdown.contains("Added feature"), "{markdown}");
+        assert!(!markdown.contains("Older feature"), "{markdown}");
+
+        let display = changelog_display_for(Some("1.1.0"), &path, false);
+        assert!(!display.update_version);
+        assert!(display.markdown.is_none());
+
+        let display = changelog_display_for(None, &path, false);
+        assert!(display.update_version);
+        assert!(display.markdown.is_none(), "fresh installs record without rendering");
+
+        let display = changelog_display_for(None, &path, true);
+        assert!(!display.update_version);
+        assert!(display.markdown.is_none());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn startup_notices_render_new_changelog_entries() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                *mode.changelog_markdown.borrow_mut() = Some("## [1.2.3]\n- Added feature".to_owned());
+                mode.startup_notices_shown.set(false);
+                mode.show_startup_notices_if_needed();
+                let rendered =
+                    pi_tui::utils::strip_terminal_sequences(&mode.chat_container.borrow_mut().render(120).join("\n"));
+                assert!(rendered.contains("What's New"), "{rendered}");
+                assert!(rendered.contains("Added feature"), "{rendered}");
+                let children = mode.chat_container.borrow().children().len();
+                mode.show_startup_notices_if_needed();
+                assert_eq!(mode.chat_container.borrow().children().len(), children);
+
+                mode.chat_container.borrow_mut().clear();
+                mode.settings_mut(|settings| settings.set_collapse_changelog(true));
+                mode.startup_notices_shown.set(false);
+                mode.show_startup_notices_if_needed();
+                let rendered =
+                    pi_tui::utils::strip_terminal_sequences(&mode.chat_container.borrow_mut().render(120).join("\n"));
+                assert!(
+                    rendered.contains("Updated to v1.2.3. Use /changelog to view full changelog."),
+                    "{rendered}"
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn install_telemetry_reports_the_version_through_the_configured_fetch() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let requests = Arc::new(Mutex::new(Vec::new()));
+                *mode.http_fetch.borrow_mut() = Some(Arc::new(RecordingFetch {
+                    requests: Arc::clone(&requests),
+                }));
+                mode.report_install_telemetry("0.84.1");
+                for _ in 0..50 {
+                    if !requests.lock().expect("requests").is_empty() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                {
+                    let recorded = requests.lock().expect("requests");
+                    assert_eq!(recorded.len(), 1);
+                    assert_eq!(recorded[0].url, "https://pi.dev/api/report-install?version=0.84.1");
+                    assert_eq!(
+                        recorded[0].headers,
+                        vec![(
+                            "User-Agent".to_owned(),
+                            crate::utils::pi_user_agent::get_pi_user_agent("0.84.1")
+                        )]
+                    );
+                }
+                requests.lock().expect("requests").clear();
+                mode.settings_mut(|settings| settings.set_enable_install_telemetry(false));
+                mode.report_install_telemetry("0.84.1");
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                assert!(requests.lock().expect("requests").is_empty());
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn prompt_activity_animates_the_prompt_until_the_source_finishes() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                let working = |mode: &Rc<InteractiveMode>| {
+                    let editor = mode.editor();
+                    let rendered = pi_tui::utils::strip_terminal_sequences(&editor.borrow_mut().render(80).join("\n"));
+                    pi_tui::components::loader::DEFAULT_FRAMES
+                        .iter()
+                        .any(|frame| rendered.contains(frame))
+                };
+                assert!(!working(&mode));
+                mode.set_prompt_activity(PromptActivitySource::SummaryMaterialization, true);
+                assert!(working(&mode));
+                mode.set_prompt_activity(PromptActivitySource::SummaryMaterialization, false);
+                assert!(!working(&mode));
+
+                mode.working_visible.set(false);
+                mode.set_prompt_activity(PromptActivitySource::Compaction, true);
+                assert!(!working(&mode), "hidden working state must not animate");
+                mode.working_visible.set(true);
+                mode.set_prompt_activity(PromptActivitySource::Compaction, false);
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn fullscreen_scroll_view_uses_the_scrollbar_thumb_background() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                mode.build_fullscreen_layout();
+                let scroll_view = mode
+                    .transcript_scroll_view
+                    .borrow()
+                    .clone()
+                    .expect("fullscreen scroll view");
+                let style = scroll_view.borrow().state().borrow().scrollbar_style().clone();
+                assert_eq!(
+                    style("block"),
+                    with_theme(|theme| theme.bg(ThemeBg::ScrollbarThumb, "block"))
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn editor_layout_callback_positions_the_working_editor() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+                let position = mode.default_editor.borrow_mut().editor_mut().get_prompt_position();
+                assert!(position.is_some(), "editor layout must place the prompt cell");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn anthropic_subscription_auth_warning_is_shown_once() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let mut credentials = serde_json::Map::new();
+                credentials.insert(
+                    "anthropic".to_owned(),
+                    serde_json::json!({"type": "oauth", "access": "token", "refresh": "refresh", "expires": 0}),
+                );
+                let (mode, terminal, _faux, _temp) = build_mode_with_extra_providers(
+                    StaticResourceLoader::new(),
+                    None,
+                    SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default()),
+                    vec![pi_ai::providers::anthropic::anthropic_provider()],
+                    credentials,
+                    false,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+                let model = mode
+                    .session()
+                    .model_runtime()
+                    .get_provider("anthropic")
+                    .expect("anthropic provider")
+                    .get_models()
+                    .into_iter()
+                    .next()
+                    .expect("anthropic model");
+
+                mode.maybe_warn_about_anthropic_subscription_auth(Some(model.clone()))
+                    .await;
+                let rendered =
+                    pi_tui::utils::strip_terminal_sequences(&mode.chat_container.borrow_mut().render(200).join("\n"));
+                assert!(
+                    rendered.contains("Anthropic subscription auth is active."),
+                    "{rendered}"
+                );
+                assert!(mode.anthropic_subscription_warning_shown.get());
+
+                mode.chat_container.borrow_mut().clear();
+                mode.maybe_warn_about_anthropic_subscription_auth(Some(model)).await;
+                let rendered =
+                    pi_tui::utils::strip_terminal_sequences(&mode.chat_container.borrow_mut().render(200).join("\n"));
+                assert!(!rendered.contains("Anthropic subscription auth is active."));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn anthropic_subscription_auth_warning_respects_the_settings_opt_out() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let mut settings = serde_json::Map::new();
+                settings.insert("warnings".to_owned(), serde_json::json!({"anthropicExtraUsage": false}));
+                let mut credentials = serde_json::Map::new();
+                credentials.insert(
+                    "anthropic".to_owned(),
+                    serde_json::json!({"type": "oauth", "access": "token", "refresh": "refresh", "expires": 0}),
+                );
+                let (mode, _terminal, _faux, _temp) = build_mode_with_extra_providers(
+                    StaticResourceLoader::new(),
+                    None,
+                    SettingsManager::in_memory(settings, SettingsManagerCreateOptions::default()),
+                    vec![pi_ai::providers::anthropic::anthropic_provider()],
+                    credentials,
+                    false,
+                )
+                .await;
+                let model = mode
+                    .session()
+                    .model_runtime()
+                    .get_provider("anthropic")
+                    .expect("anthropic provider")
+                    .get_models()
+                    .into_iter()
+                    .next()
+                    .expect("anthropic model");
+                mode.maybe_warn_about_anthropic_subscription_auth(Some(model)).await;
+                assert!(!mode.anthropic_subscription_warning_shown.get());
+                assert!(mode.chat_container.borrow().children().is_empty());
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn share_command_creates_a_gist_and_reports_the_viewer_url() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let temp = tempfile::tempdir().expect("temp dir");
+                let gh = temp.path().join("gh");
+                std::fs::write(
+                    &gh,
+                    "#!/bin/sh\nif [ \"$1\" = \"auth\" ]; then exit 0; fi\nif [ \"$1\" = \"gist\" ]; then printf 'https://gist.github.com/alice/abc123\\n'; exit 0; fi\nexit 1\n",
+                )
+                .expect("gh script");
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755))
+                        .expect("gh executable");
+                }
+
+                let (mode, terminal, _faux, _temp) = build_mode_with_persisted_session().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+                mode.session()
+                    .prompt("share-me", PromptOptions::default())
+                    .await
+                    .expect("session message");
+
+                mode.handle_share_command_with_program(&gh.display().to_string())
+                    .await;
+
+                let rendered = pi_tui::utils::strip_terminal_sequences(
+                    &mode.chat_container.borrow_mut().render(200).join("\n"),
+                );
+                assert!(
+                    rendered.contains("Share URL: https://pi.dev/session/#abc123"),
+                    "{rendered}"
+                );
+                assert!(
+                    rendered.contains("Gist: https://gist.github.com/alice/abc123"),
+                    "{rendered}"
+                );
+                assert!(!std::env::temp_dir().join("session.html").exists());
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn daxnuts_easter_egg_triggers_for_opencode_kimi_models() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let mut model = mode.session().model();
+                model.provider = "opencode".to_owned();
+                model.id = "kimi-k2.5-preview".to_owned();
+                let before = mode.chat_container.borrow().children().len();
+                mode.check_daxnuts_easter_egg(&model);
+                let after = mode.chat_container.borrow().children().len();
+                assert_eq!(after, before + 2, "spacer plus the daxnuts component");
+
+                let mut other = model.clone();
+                other.id = "kimi-k2".to_owned();
+                mode.check_daxnuts_easter_egg(&other);
+                assert_eq!(mode.chat_container.borrow().children().len(), after);
             })
             .await;
     }

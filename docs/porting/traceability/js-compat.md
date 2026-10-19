@@ -40,6 +40,7 @@ Differential: 36 `Number` inputs, 28 `parseFloat` inputs, 21 `parseInt` pairs, a
 ## `Date.parse` (`src/date.rs`)
 
 | `Date#getUTC*` fields | `utc_date_fields` (`local_date_fields_in` with `TimeZone::UTC`) | `src/date.rs::tests::utc_fields_match_javascript_get_utc_getters`; codex-usage differential |
+| `Date.now()` | `js_now_millis` | `src/date.rs::tests::now_millis_tracks_the_system_clock`; tool elapsed timers and interactive idle timers |
 
 | Source behaviour | Rust item | Proof |
 |---|---|---|
