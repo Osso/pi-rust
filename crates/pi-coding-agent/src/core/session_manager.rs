@@ -1660,6 +1660,11 @@ fn message_activity_time(entry: &SessionMessageEntry) -> Option<i64> {
     pi_js_compat::date::date_parse_millis(&entry.timestamp)
 }
 
+/// `affectsSessionInfo`: entries whose append refreshes control-db metadata.
+fn affects_session_info(entry: &SessionEntry) -> bool {
+    matches!(entry.entry_type(), "message" | "session_info")
+}
+
 fn apply_session_info_entry(accumulator: &mut SessionInfoAccumulator, entry: &SessionEntry) {
     if let Some(info) = entry.as_session_info() {
         accumulator.name = info
@@ -2500,7 +2505,7 @@ impl SessionManager {
         self.by_id.insert(id.clone(), position);
         self.leaf_id = Some(id.clone());
         self.persist_entry(&entry)?;
-        if matches!(entry.entry_type(), "message" | "session_info") {
+        if affects_session_info(&entry) {
             self.write_metadata_snapshot()?;
         }
         Ok(id)
