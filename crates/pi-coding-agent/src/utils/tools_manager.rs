@@ -130,7 +130,7 @@ impl ToolsManager {
             platform: pi_ai_platform(),
             architecture: pi_ai_arch(),
             path_env: None,
-            offline: std::env::var("PI_OFFLINE").is_ok_and(|value| is_offline_value(&value)),
+            offline: pi_js_compat::process_env::get("PI_OFFLINE").is_some_and(|value| is_offline_value(&value)),
             silent: false,
             chalk: Chalk::stdout(),
             output: Arc::new(Mutex::new(Vec::new())),

@@ -2,7 +2,9 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -27,8 +29,11 @@ use crate::utils::paths::canonicalize_path;
 pub type ProgressCallback = Rc<dyn Fn(usize, usize)>;
 
 /// Async session-list loader (`SessionListProgress => Promise<SessionInfo[]>`).
+///
+/// The interactive TUI runs on a single-threaded local set, so the loader
+/// future carries no `Send` bound (a TS promise has none either).
 pub type SessionListLoader =
-    Rc<dyn Fn(Option<ProgressCallback>) -> BoxFuture<'static, Result<Vec<SessionInfo>, String>>>;
+    Rc<dyn Fn(Option<ProgressCallback>) -> Pin<Box<dyn Future<Output = Result<Vec<SessionInfo>, String>> + 'static>>>;
 
 /// Async rename callback (`(sessionPath, currentName) => Promise<void>`).
 pub type RenameSessionFn = Rc<dyn Fn(String, Option<String>) -> BoxFuture<'static, Result<(), String>>>;
@@ -1043,6 +1048,18 @@ impl SessionSelectorComponent {
 
     pub fn session_list(&self) -> &SessionList {
         &self.session_list
+    }
+
+    /// `showError`: surface a validation error in the header.
+    pub fn show_error(&mut self, message: &str) {
+        self.header.set_status_message(
+            Some(StatusMessage {
+                kind: StatusKind::Error,
+                message: message.to_owned(),
+            }),
+            Some(4000),
+        );
+        (self.request_render)();
     }
 
     pub fn header(&self) -> &SessionSelectorHeader {

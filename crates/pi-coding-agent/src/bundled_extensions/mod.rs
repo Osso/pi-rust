@@ -43,26 +43,13 @@ pub struct SmallExtensionsOptions {
     pub get_debug_repl: DebugReplControllerProvider,
 }
 
-/// Registers the small first-party extensions under their source ids.
+/// Registers the small first-party extensions under their source ids, in the
+/// order `main.ts` lists them in `createFirstPartyExtensionFactories`.
 pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &SmallExtensionsOptions) {
     registry.register(
-        "<first-party:claude-memory-enrich>",
+        "<first-party:approval-controls>",
         Arc::new(|pi| {
-            let result = claude_memory_enrich::claude_memory_enrich_extension(pi);
-            Box::pin(async move { result })
-        }),
-    );
-    registry.register(
-        "<first-party:claude-memory-session-end>",
-        Arc::new(|pi| {
-            let result = claude_memory_session_end::claude_memory_session_end_extension(pi);
-            Box::pin(async move { result })
-        }),
-    );
-    registry.register(
-        "<first-party:docs-tree-context>",
-        Arc::new(|pi| {
-            let result = docs_tree_context::docs_tree_context_extension(pi);
+            let result = approval_controls::approval_controls_extension(pi);
             Box::pin(async move { result })
         }),
     );
@@ -81,9 +68,16 @@ pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &Sma
         }),
     );
     registry.register(
-        "<first-party:approval-controls>",
+        "<first-party:claude-memory-enrich>",
         Arc::new(|pi| {
-            let result = approval_controls::approval_controls_extension(pi);
+            let result = claude_memory_enrich::claude_memory_enrich_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register(
+        "<first-party:claude-memory-session-end>",
+        Arc::new(|pi| {
+            let result = claude_memory_session_end::claude_memory_session_end_extension(pi);
             Box::pin(async move { result })
         }),
     );
@@ -94,6 +88,13 @@ pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &Sma
             Box::pin(async move { result })
         })
     });
+    registry.register(
+        "<first-party:docs-tree-context>",
+        Arc::new(|pi| {
+            let result = docs_tree_context::docs_tree_context_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
     registry.register(
         "<first-party:run-plan>",
         Arc::new(|pi| {

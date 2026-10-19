@@ -1294,6 +1294,7 @@ pub struct InteractiveModeOptions {
     pub initial_message: Option<String>,
     pub initial_images: Vec<ImageContent>,
     pub initial_messages: Vec<String>,
+    pub control_message: Option<crate::core::session_control_db::IncomingControlMessage>,
     pub verbose: bool,
     pub tui_mode: Option<TuiMode>,
     pub control_db_path: Option<String>,
@@ -2926,7 +2927,8 @@ impl InteractiveMode {
         }
     }
 
-    fn stop(&self) {
+    /// `InteractiveMode.stop`: releases the session subscription and stops the TUI.
+    pub fn stop(&self) {
         if let Some(id) = self.unsubscribe.get() {
             self.session.borrow().unsubscribe(id);
             self.unsubscribe.set(None);
@@ -3452,6 +3454,8 @@ impl InteractiveMode {
         *self.events.borrow_mut() = Some(event_sender);
         self.init().await?;
 
+        self.process_control_message().await?;
+
         if let Some(message) = self.options.initial_message.clone() {
             let mode = Rc::clone(&self);
             let images = self.options.initial_images.clone();
@@ -3497,6 +3501,29 @@ impl InteractiveMode {
         }
 
         self.shutdown().await;
+        Ok(())
+    }
+
+    /// `processControlMessage`: submits a claimed control-DB message and records
+    /// its completion or failure.
+    async fn process_control_message(&self) -> Result<(), String> {
+        let Some(message) = self.options.control_message.clone() else {
+            return Ok(());
+        };
+        let Some(control_db_path) = self.options.control_db_path.as_deref() else {
+            self.show_error("Cannot submit control message without a control DB path");
+            return Ok(());
+        };
+        let result = match self.session().prompt(&message.content, PromptOptions::default()).await {
+            Ok(()) => crate::core::session_control_db::complete_incoming_message(control_db_path, message.id)
+                .map_err(|error| error.to_string()),
+            Err(error) => Err(error.message().to_owned()),
+        };
+        if let Err(error_message) = result {
+            crate::core::session_control_db::fail_incoming_message(control_db_path, message.id, &error_message)
+                .map_err(|error| error.to_string())?;
+            self.show_error(&error_message);
+        }
         Ok(())
     }
 

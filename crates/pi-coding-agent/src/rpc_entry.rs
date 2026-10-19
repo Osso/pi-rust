@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use pi_ai::request::{BoxFuture, Fetch};
 
-use crate::cli_entry::CLI_PROCESS_ENV;
+use crate::cli_entry::{CLI_PROCESS_ENV, apply_process_env};
 use crate::core::http_dispatcher::{DEFAULT_HTTP_IDLE_TIMEOUT_MS, configure_http_dispatcher};
 
 /// Environment the TypeScript RPC entry point sets before running `main`.
@@ -24,6 +24,7 @@ pub type RpcMain<'a> = Box<dyn FnOnce(Vec<String>) -> BoxFuture<'a, Result<(), S
 
 /// Configures the HTTP dispatcher and runs `main` with the RPC arguments.
 pub async fn run_rpc_entry<'a>(args: &[String], main: RpcMain<'a>) -> Result<Arc<dyn Fetch>, String> {
+    apply_process_env(&RPC_PROCESS_ENV);
     let fetch = configure_http_dispatcher(DEFAULT_HTTP_IDLE_TIMEOUT_MS as f64)?;
     let mut main_args: Vec<String> = RPC_MODE_ARGS.iter().map(|arg| (*arg).to_owned()).collect();
     main_args.extend(args.iter().cloned());

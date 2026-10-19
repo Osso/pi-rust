@@ -244,7 +244,7 @@ pub fn build_self_restart_env(
 }
 
 fn current_environment() -> BTreeMap<String, String> {
-    std::env::vars().collect()
+    pi_js_compat::process_env::vars().into_iter().collect()
 }
 
 /// `execSelfRestart`: replaces the current process image via `execve`.

@@ -462,7 +462,7 @@ fn resource_precedence_rank(metadata: &PathMetadata) -> u8 {
 }
 
 fn is_offline_mode_enabled() -> bool {
-    let Some(value) = std::env::var("PI_OFFLINE").ok().filter(|value| !value.is_empty()) else {
+    let Some(value) = pi_js_compat::process_env::get("PI_OFFLINE").filter(|value| !value.is_empty()) else {
         return false;
     };
     value == "1" || value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("yes")

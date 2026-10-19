@@ -249,7 +249,7 @@ pub struct LatestPiReleaseOptions {
 }
 
 fn offline_mode_enabled() -> bool {
-    std::env::var("PI_OFFLINE").is_ok_and(|value| !value.is_empty())
+    pi_js_compat::process_env::get("PI_OFFLINE").is_some_and(|value| !value.is_empty())
 }
 
 /// `getLatestPiRelease`: one request, optionally retried, `None` when offline or unusable.
@@ -324,7 +324,7 @@ pub async fn get_latest_pi_version(
 
 /// `checkForNewPiVersion`: automatic check honoring `PI_SKIP_VERSION_CHECK`; errors are swallowed.
 pub async fn check_for_new_pi_version(fetch: &dyn Fetch, current_version: &str) -> Option<LatestPiRelease> {
-    if std::env::var("PI_SKIP_VERSION_CHECK").is_ok_and(|value| !value.is_empty()) {
+    if pi_js_compat::process_env::get("PI_SKIP_VERSION_CHECK").is_some_and(|value| !value.is_empty()) {
         return None;
     }
     let release = get_latest_pi_release(fetch, current_version, &LatestPiReleaseOptions::default()).await?;
