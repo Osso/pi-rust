@@ -5228,6 +5228,22 @@ mod ui_tests {
         Arc<pi_ai::providers::faux::FauxProviderHandle>,
         tempfile::TempDir,
     ) {
+        build_mode_with_loader(
+            StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+            None,
+        )
+        .await
+    }
+
+    async fn build_mode_with_loader(
+        loader: Arc<dyn crate::core::resource_loader::ResourceLoader>,
+        initial_active_tool_names: Option<Vec<String>>,
+    ) -> (
+        Rc<InteractiveMode>,
+        Rc<RefCell<CaptureTerminal>>,
+        Arc<pi_ai::providers::faux::FauxProviderHandle>,
+        tempfile::TempDir,
+    ) {
         init_dark_theme();
         let temp = tempfile::tempdir().expect("temp dir");
         let cwd = temp.path().display().to_string();
@@ -5270,9 +5286,12 @@ mod ui_tests {
         let factory = {
             let model_runtime = model_runtime.clone();
             let faux = faux.clone();
+            let loader = Arc::clone(&loader);
             Arc::new(move |request: CreateAgentSessionRuntimeOptions| {
                 let model_runtime = model_runtime.clone();
                 let faux = faux.clone();
+                let loader = Arc::clone(&loader);
+                let initial_active_tool_names = initial_active_tool_names.clone();
                 Box::pin(async move {
                     let model = faux.get_model(None).expect("faux model");
                     let stream_runtime = model_runtime.clone();
@@ -5303,10 +5322,9 @@ mod ui_tests {
                         settings_manager: Arc::clone(&settings_manager),
                         cwd: request.cwd.clone(),
                         scoped_models: Vec::new(),
-                        resource_loader: StaticResourceLoader::new()
-                            as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                        resource_loader: Arc::clone(&loader),
                         model_runtime: model_runtime.clone(),
-                        initial_active_tool_names: Some(Vec::new()),
+                        initial_active_tool_names,
                         allowed_tool_names: None,
                         excluded_tool_names: None,
                         permission_prompt_tool: None,
@@ -5334,7 +5352,7 @@ mod ui_tests {
                             agent_dir: request.agent_dir,
                             model_runtime,
                             settings_manager,
-                            resource_loader: StaticResourceLoader::new(),
+                            resource_loader: loader,
                             diagnostics: Vec::new(),
                         },
                         diagnostics: Vec::new(),
@@ -5452,6 +5470,59 @@ mod ui_tests {
                 );
                 assert!(output.contains("hello from faux"));
                 assert!(output.contains("hi"));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn loaded_resources_show_context_rules_and_skills() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let loader = Arc::new(StaticResourceLoader {
+                    skills: crate::core::resource_loader::LoadedSkills {
+                        skills: vec![crate::core::skills::Skill {
+                            name: "commit".to_owned(),
+                            description: "commit work".to_owned(),
+                            file_path: "/tmp/skill/SKILL.md".to_owned(),
+                            base_dir: "/tmp/skill".to_owned(),
+                            source_info: crate::core::source_info::SourceInfo {
+                                path: "/tmp/skill/SKILL.md".to_owned(),
+                                source: "local".to_owned(),
+                                scope: crate::core::source_info::SourceScope::Project,
+                                origin: crate::core::source_info::SourceOrigin::TopLevel,
+                                base_dir: Some("/tmp/skill".to_owned()),
+                            },
+                            disable_model_invocation: false,
+                        }],
+                        diagnostics: Vec::new(),
+                    },
+                    agents_files: crate::core::resource_loader::LoadedAgentsFiles {
+                        agents_files: vec![crate::core::system_prompt::ContextFile {
+                            path: "/tmp/project/AGENTS.md".to_owned(),
+                            content: String::new(),
+                        }],
+                    },
+                    rules_files: crate::core::resource_loader::LoadedRulesFiles {
+                        rules_files: vec![crate::core::resource_loader::RuleFile {
+                            path: "/tmp/rules/01-identity.md".to_owned(),
+                            content: String::new(),
+                        }],
+                    },
+                    ..StaticResourceLoader::default()
+                }) as Arc<dyn crate::core::resource_loader::ResourceLoader>;
+                let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader, None).await;
+                let _events = start(&mode).await;
+                mode.show_loaded_resources(false, false);
+                let rendered = pi_tui::utils::strip_terminal_sequences(
+                    &mode.loaded_resources_container.borrow_mut().render(220).join("\n"),
+                );
+                assert!(rendered.contains("[Context]"), "{rendered}");
+                assert!(rendered.contains("AGENTS.md"), "{rendered}");
+                assert!(rendered.contains("[User Rules]"), "{rendered}");
+                assert!(rendered.contains("01-identity.md"), "{rendered}");
+                assert!(rendered.contains("[Skills]"), "{rendered}");
+                assert!(rendered.contains("commit"), "{rendered}");
             })
             .await;
     }
