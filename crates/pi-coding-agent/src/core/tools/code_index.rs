@@ -93,6 +93,8 @@ async fn run_code_index_command(
     command
         .args(args)
         .current_dir(cwd)
+        .env_clear()
+        .envs(pi_js_compat::process_env::vars())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

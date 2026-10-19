@@ -154,7 +154,7 @@ fn unix_shell_config() -> Result<ShellConfig, ShellError> {
 /// `getShellEnv`: the process environment with the managed binary directory on `PATH`.
 pub fn get_shell_env() -> BTreeMap<String, String> {
     let bin_dir = get_bin_dir().display().to_string();
-    let mut environment: BTreeMap<String, String> = std::env::vars().collect();
+    let mut environment: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
     let path_key = environment
         .keys()
         .find(|key| key.eq_ignore_ascii_case("path"))

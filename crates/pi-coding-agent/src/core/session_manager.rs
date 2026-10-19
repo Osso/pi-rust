@@ -22,9 +22,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::config::{get_agent_dir, get_sessions_dir};
+use crate::core::permissions::presets::SandboxProfileName;
 use crate::core::session_control_db::{
-    WritableSessionMetadata, read_session_goal, read_session_metadata, read_session_sandbox_profile,
-    write_session_goal, write_session_metadata, write_session_model, write_session_thinking_level,
+    WritableSessionMetadata, clear_session_sandbox_profile, read_session_goal, read_session_metadata,
+    read_session_sandbox_profile, write_session_goal, write_session_metadata, write_session_model,
+    write_session_sandbox_profile, write_session_thinking_level,
 };
 use crate::core::session_tool_output::serialize_session_entry_for_persistence;
 use crate::utils::iso_time;
@@ -2630,6 +2632,27 @@ impl SessionManager {
         };
         self.write_metadata_snapshot()?;
         write_session_thinking_level(control_db_path, session_file, thinking_level).map_err(control_db_error)
+    }
+
+    /// `setSessionSandboxProfile`. Returns `false` for an unpersisted session.
+    pub fn set_session_sandbox_profile(
+        &mut self,
+        profile: Option<SandboxProfileName>,
+    ) -> Result<bool, SessionManagerError> {
+        let (Some(control_db_path), Some(session_file)) =
+            (self.metadata_control_db_path.clone(), self.session_file.clone())
+        else {
+            return Ok(false);
+        };
+        self.persist_for_recovery()?;
+        self.write_metadata_snapshot()?;
+        match profile {
+            Some(profile) => write_session_sandbox_profile(&control_db_path, &session_file, &self.session_id, profile)
+                .map_err(|error| SessionManagerError::new(error.to_string()))?,
+            None => clear_session_sandbox_profile(&control_db_path, &session_file, &self.session_id)
+                .map_err(|error| SessionManagerError::new(error.to_string()))?,
+        }
+        Ok(true)
     }
 
     /// `setMetadataControlDbPath`.

@@ -314,6 +314,8 @@ async fn collect_matches(
     let mut command = tokio::process::Command::new(rg_path);
     command
         .args(&args)
+        .env_clear()
+        .envs(pi_js_compat::process_env::vars())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

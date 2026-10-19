@@ -31,7 +31,7 @@ use crate::core::footer_data_provider::FooterDataProvider;
 use crate::core::model_registry::ModelRegistry;
 use crate::core::model_resolver::ScopedModel;
 use crate::core::multi_agent_store::MultiAgentStore;
-use crate::core::permissions::presets::SandboxProfileScope;
+use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
 use crate::core::provider_composer::ProviderConfigInput;
 use crate::core::session_control_db::RuntimeMailboxMessage;
 use crate::core::session_manager::{
@@ -644,6 +644,9 @@ pub type ExtensionFooterDataProvider = FooterDataProvider;
 /// TypeScript's `createContext()` returns getters that call
 /// `runner.assertActive()` and then read current runner fields. Rust contexts
 /// hold this shared state and expose the same members as fallible methods.
+pub type SetSandboxProfileCallback =
+    Arc<dyn Fn(Option<SandboxProfileName>, SandboxProfileScope) -> Result<(), HandlerError> + Send + Sync>;
+
 pub struct ExtensionContextState {
     pub(super) stale_message: Option<String>,
     pub(super) ui_context: Arc<dyn ExtensionUiContext>,
@@ -684,6 +687,7 @@ pub struct ExtensionContextState {
     pub(super) pending_tool_result_relocations: IndexMap<String, String>,
     pub(super) show_approval_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub(super) show_sandbox_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
+    pub(super) set_sandbox_profile_handler: SetSandboxProfileCallback,
     pub(super) wait_for_idle_fn: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     pub(super) new_session_handler: NewSessionCallback,
     pub(super) fork_handler: ForkCallback,
@@ -750,6 +754,9 @@ impl ExtensionContextState {
             pending_tool_result_relocations: IndexMap::new(),
             show_approval_selector_handler: Arc::new(|| Ok(())),
             show_sandbox_selector_handler: Arc::new(|| Ok(())),
+            set_sandbox_profile_handler: Arc::new(|_, _| {
+                Err(HandlerError::new("Sandbox profile settings are unavailable"))
+            }),
             wait_for_idle_fn: Arc::new(|| Box::pin(async {})),
             new_session_handler: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
             fork_handler: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
@@ -1027,6 +1034,17 @@ impl ExtensionCommandContext {
             .context
             .read(|state| Arc::clone(&state.show_sandbox_selector_handler))?;
         handler()
+    }
+
+    pub fn set_sandbox_profile(
+        &self,
+        profile: Option<SandboxProfileName>,
+        scope: SandboxProfileScope,
+    ) -> Result<(), HandlerError> {
+        let handler = self
+            .context
+            .read(|state| Arc::clone(&state.set_sandbox_profile_handler))?;
+        handler(profile, scope)
     }
 
     pub fn wait_for_idle(&self) -> BoxFuture<'static, ()> {
@@ -2491,6 +2509,7 @@ pub struct ExtensionContextActions {
 pub struct ExtensionCommandContextActions {
     pub show_approval_selector: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub show_sandbox_selector: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
+    pub set_sandbox_profile: SetSandboxProfileCallback,
     pub wait_for_idle: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     pub new_session: NewSessionCallback,
     pub fork: ForkCallback,
