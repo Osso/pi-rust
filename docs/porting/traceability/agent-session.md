@@ -57,6 +57,13 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 - Detached jobs: `bind_detached_job_lifecycle` provider from `MultiAgentStore`,
   terminal-outbox projection delivery on prompt.
 
+## Definition carriers
+
+- `AgentSessionConfig.base_tool_definitions` / `custom_tool_definitions` carry extension-style tool definitions
+  that the session wraps with its live `ExtensionRunner` context (source info `<builtin:name>` / `<sdk:name>`).
+  They preserve prompt snippets/guidelines and let coordination tools run with the runner context; `base_tools`
+  remains the AgentTool seam used by tests.
+
 ## Gaps (explicit)
 
 - Runtime mailbox, shared-channel delivery/formatting, `wait_agent` wakeups:

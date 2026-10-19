@@ -57,6 +57,10 @@ pub struct CreateAgentSessionOptions {
     pub exclude_tools: Option<Vec<String>>,
     pub permission_prompt_tool: Option<String>,
     pub custom_tools: Vec<ToolDefinition>,
+    /// Rust carrier for `createAllToolDefinitions` built-ins.
+    pub base_tool_definitions: Vec<crate::core::extensions::types::ToolDefinition>,
+    /// Rust carrier for SDK custom definitions executed with the runner context.
+    pub custom_tool_definitions: Vec<crate::core::extensions::types::ToolDefinition>,
     /// Rust carrier for the unported `createAllToolDefinitions` default.
     pub base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
     pub resource_loader: Option<Arc<dyn ResourceLoader>>,
@@ -446,7 +450,9 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         agent_dir: Some(agent_dir),
         control_db_path: options.control_db_path,
         base_tools: options.base_tools,
+        base_tool_definitions: options.base_tool_definitions,
         custom_tools: options.custom_tools,
+        custom_tool_definitions: options.custom_tool_definitions,
         multi_agent_runtime_role: options.multi_agent_runtime_role,
         multi_agent_execution_capability: options.multi_agent_execution_capability,
         thinking_phase_timeout_ms: None,

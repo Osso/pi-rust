@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/architect/*.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 Rust: `crates/pi-coding-agent/src/architect/` (`prompt.rs`, `observer.rs`, `project_spec.rs`, `main.rs`).
-Focused tests: `crates/pi-coding-agent/tests/architect.rs` (16).
+Focused tests: `crates/pi-coding-agent/tests/architect.rs` (17), `tests/differential_architect_request_loop.rs` (1).
 
 ## prompt.ts
 
@@ -44,13 +44,15 @@ Focused tests: `crates/pi-coding-agent/tests/architect.rs` (16).
 | `createArchitectStopHandler` | idempotent stop, abort, 5s force exit | `create_architect_stop_handler` |
 | `waitForArchitectInterval` | 30s or abort | `wait_for_architect_interval` |
 | `runArchitectServiceLoop` | console lifecycle + cycles + prompt drain | `run_architect_service_loop` |
-| `createArchitectConsoleServer`, `runArchitectService` | resident console + session creation | **blocked** on `AgentSessionEvent` and `createAgentSession` |
+| `createArchitectConsoleServer` | resident console host: snapshot, prompt queue, session subscription | `create_architect_console_server`; `console_server_exposes_the_architect_snapshot_and_prompt_queue` |
+| `runArchitectService` | session open, sol model, mailbox/bwrap/architect extensions, observer role + architect rules, console lifecycle | `run_architect_service` |
 
 ## Gaps
 
-- `createArchitectConsoleServer` needs the `AgentSessionEvent` type from the agent-session slice; the queue and
-  snapshot contracts it wraps are ported.
-- `runArchitectService` needs `createAgentSession`, `ModelRuntime`, the mailbox extension, and the bwrap extension.
+- `runArchitectService` is process-level (signal handlers, real model runtime); its wiring is compiled and exercised
+  through the console-server test and the differential request cycle.
+- The architect cycle/request claim differential uses the real observer and control DB; the live model turn is not
+  exercised (no external services).
 
 ## Discrepancies
 

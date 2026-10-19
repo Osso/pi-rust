@@ -685,3 +685,97 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
         "Architect project spec path must reference a relative Markdown file inside docs/specs"
     );
 }
+
+#[tokio::test]
+async fn console_server_exposes_the_architect_snapshot_and_prompt_queue() {
+    use pi_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions, faux_provider};
+    use pi_coding_agent::architect::main::{
+        ArchitectConsolePrompt, CreateArchitectConsoleServerInput, create_architect_console_server,
+    };
+    use pi_coding_agent::core::auth_storage::AuthStorage;
+    use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+    use pi_coding_agent::core::resident_console_transport::{ResidentConsoleClient, ResidentConsoleService};
+    use pi_coding_agent::core::resource_loader::StaticResourceLoader;
+    use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, create_agent_session};
+    use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionEntry, SessionManager};
+
+    let temp = TempDir::new().unwrap();
+    let cwd = temp.path().display().to_string();
+    let faux = faux_provider(RegisterFauxProviderOptions {
+        provider: Some("openai-codex".to_owned()),
+        models: Some(vec![FauxModelDefinition {
+            id: "gpt-5.6-sol".to_owned(),
+            name: Some("Sol".to_owned()),
+            reasoning: Some(true),
+            input: None,
+            cost: None,
+            context_window: Some(200_000.0),
+            max_tokens: Some(8192.0),
+        }]),
+        ..Default::default()
+    });
+    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+        credentials: Some(Arc::new(AuthStorage::in_memory(serde_json::Map::new()))),
+        models_path: Some(None),
+        refresh_on_create: Some(false),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let model = runtime.get_model("openai-codex", "gpt-5.6-sol").unwrap();
+    let session_manager = SessionManager::create(
+        &cwd,
+        Some(&temp.path().join("sessions").display().to_string()),
+        Some(NewSessionOptions {
+            id: Some("architect".to_owned()),
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    let session = create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(cwd),
+        agent_dir: Some(temp.path().display().to_string()),
+        control_db_path: Some(temp.path().join("control.sqlite").display().to_string()),
+        model_runtime: Some(runtime),
+        model: Some(model),
+        resource_loader: Some(StaticResourceLoader::new()),
+        session_manager: Some(session_manager),
+        thinking_level: Some(pi_agent_core::harness::types::ThinkingLevel::High),
+        ..Default::default()
+    })
+    .await
+    .unwrap()
+    .session;
+    let control_db_path = temp.path().join("control.sqlite").display().to_string();
+    let prompt_queue = Arc::new(ArchitectConsolePromptQueue::new());
+    let server = create_architect_console_server(CreateArchitectConsoleServerInput {
+        control_db_path: control_db_path.clone(),
+        cwd: "/fixed/architect".to_owned(),
+        generation: 17,
+        prompt_queue: Arc::clone(&prompt_queue),
+        session,
+    });
+    server.start().await.unwrap();
+    let client = ResidentConsoleClient::<SessionEntry, serde_json::Value>::connect(
+        &format!("{control_db_path}.architect-console.sock"),
+        ResidentConsoleService::Architect,
+    )
+    .await
+    .unwrap();
+    let snapshot = client.snapshot();
+    assert_eq!(snapshot.service, ResidentConsoleService::Architect);
+    assert_eq!(snapshot.session_id, "architect");
+    assert_eq!(snapshot.cwd, "/fixed/architect");
+    assert_eq!(snapshot.generation, 17);
+    client.prompt("prompt-1", "inspect this").await.unwrap();
+    assert_eq!(
+        prompt_queue.take(),
+        Some(ArchitectConsolePrompt {
+            id: "prompt-1".to_owned(),
+            text: "inspect this".to_owned(),
+        })
+    );
+    client.close().await;
+    server.close().await.unwrap();
+}

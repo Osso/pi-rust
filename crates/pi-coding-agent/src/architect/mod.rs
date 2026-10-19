@@ -6,10 +6,11 @@ pub mod prompt;
 pub use main::{
     ARCHITECT_EXCLUDED_TOOL_NAMES, ARCHITECT_REQUEST_THREAD_PREFIX, ARCHITECT_RULES_SCOPE, ARCHITECT_SESSION_ID,
     ArchitectConsolePrompt, ArchitectConsolePromptQueue, ArchitectConsoleServer, ArchitectCycleObserver,
-    OBSERVER_INTERVAL_MS, REQUEST_CLAIM_RENEW_INTERVAL_MS, SentArchitectMessage, block_architect_global_broadcast,
-    complete_sent_architect_request, create_architect_console_snapshot, create_architect_multi_agent_store,
-    create_architect_settings_manager, create_architect_stop_handler, run_architect_cycle, run_architect_service_loop,
-    wait_for_architect_interval,
+    CreateArchitectConsoleServerInput, OBSERVER_INTERVAL_MS, REQUEST_CLAIM_RENEW_INTERVAL_MS, SentArchitectMessage,
+    SharedArchitectConsoleServer, block_architect_global_broadcast, complete_sent_architect_request,
+    create_architect_console_server, create_architect_console_snapshot, create_architect_multi_agent_store,
+    create_architect_settings_manager, create_architect_stop_handler, run_architect_cycle, run_architect_service,
+    run_architect_service_loop, wait_for_architect_interval,
 };
 pub use observer::{
     ARCHITECT_SESSION_ID as OBSERVER_ARCHITECT_SESSION_ID, ArchitectChannelMessage, ArchitectObservation,

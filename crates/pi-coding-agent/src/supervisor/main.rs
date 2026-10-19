@@ -16,15 +16,30 @@ use pi_ai::types::{AssistantContent, StopReason};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::core::resident_console_transport::{ResidentConsoleService, ResidentConsoleSnapshot};
+use crate::core::agent_session::{AgentSession, AgentSessionEvent, PromptOptions};
+use crate::core::extensions::loader::ExtensionFactory;
+use crate::core::extensions::types::{
+    ExtensionContext, HandlerError, ToolCallEvent, ToolCallEventResult, ToolGateHandle,
+};
+use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use crate::core::resident_console_transport::{
+    ResidentConsoleHost, ResidentConsoleServer, ResidentConsoleServerOptions, ResidentConsoleService,
+    ResidentConsoleSnapshot, Unsubscribe,
+};
+use crate::core::resource_loader::{
+    DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader,
+};
+use crate::core::sdk::{CreateAgentSessionOptions, CreateAgentSessionResult, create_agent_session};
 use crate::core::session_control_db::{
     ControlDbError, SupervisorRequest, SupervisorResponse, claim_next_supervisor_request, complete_supervisor_request,
     recover_supervisor_requests,
 };
 use crate::core::session_manager::{SessionEntry, SessionManager};
 use crate::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
-use crate::supervisor::request_wake::SupervisorRequestWakeServer;
-use crate::supervisor::response_tool::SUPERVISOR_RESPONSE_TOOL_NAME;
+use crate::core::tools::{ToolsOptions, create_all_tool_definitions};
+use crate::supervisor::project_resolver::DEFAULT_SUPERVISOR_KB_DIR;
+use crate::supervisor::request_wake::{SupervisorRequestWakeServer, notify_supervisor_request};
+use crate::supervisor::response_tool::{SUPERVISOR_RESPONSE_TOOL_NAME, create_supervisor_response_tool};
 use crate::supervisor::service::{RunSupervisorRequestInput, SupervisorEvaluator, run_supervisor_request};
 use crate::utils::paths::resolve_path;
 
@@ -242,7 +257,7 @@ pub fn open_supervisor_session(agent_dir: &str, kb_dir: &str, control_db_path: &
 
 /// Session surface needed by the request loop and request processing.
 pub trait SupervisorSession: Send + Sync {
-    fn abort(&self) -> BoxFuture<'static, ()>;
+    fn abort(&self) -> BoxFuture<'static, Result<(), String>>;
     fn prompt(&self, content: String) -> BoxFuture<'static, Result<(), String>>;
     /// `None` when the source session has no `compact` method.
     fn compact(&self, _instructions: &str) -> Option<BoxFuture<'static, Result<(), String>>> {
@@ -356,7 +371,7 @@ async fn evaluate_supervisor_prompt(
     signal: CancellationToken,
 ) -> Result<Value, String> {
     if signal.is_cancelled() {
-        session.abort().await;
+        session.abort().await?;
         return Err("Supervisor request aborted".to_owned());
     }
     let context_percent = session.context_percent();
@@ -375,7 +390,7 @@ async fn evaluate_supervisor_prompt(
     tokio::select! {
         result = session.prompt(prompt) => result?,
         () = signal.cancelled() => {
-            session.abort().await;
+            session.abort().await?;
             return Err("Supervisor request aborted".to_owned());
         }
     }
@@ -485,4 +500,271 @@ fn stop_reason_name(stop_reason: StopReason) -> &'static str {
         StopReason::Aborted => "aborted",
         StopReason::Deferred => "deferred",
     }
+}
+
+/// `createSupervisorResourceLoader`.
+pub async fn create_supervisor_resource_loader(
+    agent_dir: &str,
+    kb_dir: &str,
+    settings_manager: Arc<Mutex<SettingsManager>>,
+) -> Result<Arc<DefaultResourceLoader>, String> {
+    let gate_kb_dir = kb_dir.to_owned();
+    let gate: ExtensionFactory = Arc::new(move |api| {
+        let gate_kb_dir = gate_kb_dir.clone();
+        let gate: ToolGateHandle = Arc::new(move |event: ToolCallEvent, _context: ExtensionContext| {
+            let gate_kb_dir = gate_kb_dir.clone();
+            Box::pin(async move {
+                let input = Value::Object(event.input.clone());
+                Ok(
+                    block_supervisor_file_access(&gate_kb_dir, event.tool_name.as_str(), &input).map(|result| {
+                        ToolCallEventResult {
+                            block: result.block,
+                            input: None,
+                            reason: result.reason,
+                            terminate: result.terminate,
+                        }
+                    }),
+                )
+            }) as BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>>
+        });
+        let result = api.register_tool_gate(gate);
+        Box::pin(async move { result.map_err(HandlerError::new) })
+    });
+    let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+        cwd: kb_dir.to_owned(),
+        agent_dir: agent_dir.to_owned(),
+        extension_factories: vec![
+            InlineExtension::Factory {
+                extension_path: None,
+                factory: gate,
+            },
+            InlineExtension::Factory {
+                extension_path: None,
+                factory: crate::bundled_extensions::openai_remote_compact::openai_remote_compact_extension_factory(),
+            },
+        ],
+        no_context_files: true,
+        no_extensions: true,
+        no_prompt_templates: true,
+        no_skills: true,
+        no_themes: true,
+        settings_manager: Some(settings_manager),
+        ..Default::default()
+    })?;
+    loader.reload().await?;
+    let extensions = loader.get_extensions();
+    let errors: Vec<(String, String)> = extensions
+        .errors
+        .iter()
+        .map(|error| (error.path.clone(), error.error.clone()))
+        .collect();
+    validate_supervisor_extension_load(&errors)?;
+    Ok(Arc::new(loader))
+}
+
+/// Options for [`create_supervisor_session`].
+pub struct CreateSupervisorSessionOptions {
+    pub agent_dir: String,
+    pub kb_dir: String,
+    pub model_runtime: ModelRuntime,
+    pub resource_loader: Arc<dyn ResourceLoader>,
+    pub session_manager: SessionManager,
+    pub settings_manager: Arc<Mutex<SettingsManager>>,
+}
+
+/// `createSupervisorSession`.
+pub async fn create_supervisor_session(
+    options: CreateSupervisorSessionOptions,
+) -> Result<CreateAgentSessionResult, String> {
+    let model = options
+        .model_runtime
+        .get_model("openai-codex", "gpt-5.6-sol")
+        .ok_or_else(|| "Pi Supervisor requires openai-codex/gpt-5.6-sol".to_owned())?;
+    let base_tool_definitions = create_all_tool_definitions(&options.kb_dir, ToolsOptions::default())
+        .into_iter()
+        .map(|(_, definition)| definition)
+        .collect();
+    let mut tools: Vec<String> = SUPERVISOR_TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
+    tools.push(SUPERVISOR_RESPONSE_TOOL_NAME.to_owned());
+    create_agent_session(CreateAgentSessionOptions {
+        agent_dir: Some(options.agent_dir),
+        cwd: Some(options.kb_dir),
+        custom_tool_definitions: vec![create_supervisor_response_tool()],
+        disable_runtime_coordination_inbound: true,
+        exclude_tools: Some(
+            SUPERVISOR_EXCLUDED_TOOL_NAMES
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect(),
+        ),
+        model: Some(model),
+        model_runtime: Some(options.model_runtime),
+        resource_loader: Some(options.resource_loader),
+        session_manager: Some(options.session_manager),
+        settings_manager: Some(options.settings_manager),
+        thinking_level: Some(pi_agent_core::harness::types::ThinkingLevel::Low),
+        tools: Some(tools),
+        base_tool_definitions,
+        ..Default::default()
+    })
+    .await
+}
+
+impl SupervisorSession for AgentSession {
+    fn abort(&self) -> BoxFuture<'static, Result<(), String>> {
+        let session = self.clone();
+        Box::pin(async move { session.abort().await.map_err(|error| error.message().to_owned()) })
+    }
+
+    fn prompt(&self, content: String) -> BoxFuture<'static, Result<(), String>> {
+        let session = self.clone();
+        Box::pin(async move {
+            session
+                .prompt(&content, PromptOptions::default())
+                .await
+                .map_err(|error| error.message().to_owned())
+        })
+    }
+
+    fn compact(&self, instructions: &str) -> Option<BoxFuture<'static, Result<(), String>>> {
+        let session = self.clone();
+        let instructions = instructions.to_owned();
+        Some(Box::pin(async move {
+            session
+                .compact(Some(&instructions))
+                .await
+                .map(|_| ())
+                .map_err(|error| error.message().to_owned())
+        }))
+    }
+
+    fn context_percent(&self) -> Option<f64> {
+        self.get_context_usage().map(|usage| usage.percent)
+    }
+
+    fn session_id(&self) -> Option<String> {
+        Some(AgentSession::session_id(self))
+    }
+
+    fn get_branch(&self) -> Vec<SessionEntry> {
+        self.session_manager().get_branch(None)
+    }
+
+    fn get_leaf_id(&self) -> Option<String> {
+        self.session_manager().get_leaf_id().map(str::to_owned)
+    }
+}
+
+struct SupervisorConsoleHost {
+    session: AgentSession,
+    cwd: String,
+    generation: u64,
+    prompts: Arc<Mutex<SupervisorConsolePromptQueue>>,
+    control_db_path: String,
+}
+
+impl ResidentConsoleHost<SessionEntry, AgentSessionEvent> for SupervisorConsoleHost {
+    fn get_snapshot(&self) -> ResidentConsoleSnapshot<SessionEntry> {
+        create_supervisor_console_snapshot(
+            &self.cwd,
+            self.generation,
+            Some(&AgentSession::session_id(&self.session)),
+            self.session.session_manager().get_branch(None),
+        )
+    }
+
+    fn enqueue_prompt(&self, text: String, id: String) -> pi_ai::request::BoxFuture<'static, Result<(), String>> {
+        self.prompts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .enqueue(text, id);
+        notify_supervisor_request(&self.control_db_path);
+        Box::pin(async { Ok(()) })
+    }
+
+    fn subscribe(&self, listener: Arc<dyn Fn(AgentSessionEvent) + Send + Sync>) -> Unsubscribe {
+        let id = self.session.subscribe(Arc::new(move |event: &AgentSessionEvent| {
+            listener(event.clone());
+        }));
+        let session = self.session.clone();
+        Box::new(move || session.unsubscribe(id))
+    }
+}
+
+/// `runSupervisorService`.
+pub async fn run_supervisor_service() -> Result<(), String> {
+    let agent_dir = crate::config::get_agent_dir().display().to_string();
+    let kb_dir = std::env::var("PI_KB_DIR").unwrap_or_else(|_| DEFAULT_SUPERVISOR_KB_DIR.to_owned());
+    let control_db_path = crate::core::session_control_db::get_control_db_path(&crate::config::get_user_state_root());
+    let session_manager = open_supervisor_session(&agent_dir, &kb_dir, &control_db_path)?;
+    let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+        auth_path: Some(Path::new(&agent_dir).join("auth.json").display().to_string()),
+        models_path: Some(Some(Path::new(&agent_dir).join("models.json").display().to_string())),
+        ..Default::default()
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    let settings_manager = Arc::new(Mutex::new(create_supervisor_settings_manager()));
+    let resource_loader = create_supervisor_resource_loader(&agent_dir, &kb_dir, Arc::clone(&settings_manager)).await?;
+    let session = create_supervisor_session(CreateSupervisorSessionOptions {
+        agent_dir,
+        kb_dir: kb_dir.clone(),
+        model_runtime,
+        resource_loader,
+        session_manager,
+        settings_manager,
+    })
+    .await?
+    .session;
+    let wake_server = Arc::new(SupervisorRequestWakeServer::new(&control_db_path));
+    let console_prompts = Arc::new(Mutex::new(SupervisorConsolePromptQueue::new()));
+    let console_server = Arc::new(ResidentConsoleServer::new(ResidentConsoleServerOptions {
+        socket_path: PathBuf::from(format!("{control_db_path}.supervisor-console.sock")),
+        service: ResidentConsoleService::Supervisor,
+        host: Arc::new(SupervisorConsoleHost {
+            session: session.clone(),
+            cwd: kb_dir,
+            generation: std::process::id() as u64,
+            prompts: Arc::clone(&console_prompts),
+            control_db_path: control_db_path.clone(),
+        }),
+    }));
+    wake_server.start().await?;
+    console_server.start().await?;
+    let signal = CancellationToken::new();
+    install_stop_signals(&signal);
+    let loop_result = run_supervisor_request_loop(RunSupervisorRequestLoopInput {
+        claim_token: pi_ai::utils::uuid::random_uuid(),
+        console_prompts,
+        control_db_path,
+        session: Arc::new(session.clone()),
+        signal,
+        wake_server: Arc::clone(&wake_server),
+        claim_next_request: None,
+        process_request: None,
+    })
+    .await;
+    console_server.close().await?;
+    wake_server.close().await?;
+    session.abort().await.map_err(|error| error.message().to_owned())?;
+    loop_result.map_err(|error| error.to_string())
+}
+
+fn install_stop_signals(signal: &CancellationToken) {
+    let signal = signal.clone();
+    tokio::spawn(async move {
+        let mut interrupt = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()) {
+            Ok(signal) => signal,
+            Err(_) => return,
+        };
+        let mut terminate = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(signal) => signal,
+            Err(_) => return,
+        };
+        tokio::select! {
+            _ = interrupt.recv() => {}
+            _ = terminate.recv() => {}
+        }
+        signal.cancel();
+    });
 }
