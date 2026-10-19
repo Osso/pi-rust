@@ -34,7 +34,7 @@ use pi_coding_agent::core::multi_agent_store::{
 use pi_coding_agent::core::session_control_db::{
     get_control_db_path, list_runtime_mailbox_messages, read_multi_agent_agent,
 };
-use pi_coding_agent::core::session_manager::SessionManager;
+use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager, lock_session_manager};
 use serde_json::{Value, json};
 
 struct TestPersistence {
@@ -199,13 +199,15 @@ async fn test_context(
     agent_id: Option<String>,
     requires_agent_id: bool,
 ) -> (ExtensionRunner, ExtensionContext) {
-    let session_manager = Arc::new(SessionManager::in_memory(Some(&test.cwd), None).expect("session"));
+    let session_manager = Arc::new(Mutex::new(
+        SessionManager::in_memory(Some(&test.cwd), None).expect("session"),
+    ));
     test_context_with(test, session_manager, ui, agent_id, requires_agent_id).await
 }
 
 async fn test_context_with(
     test: &TestDir,
-    session_manager: Arc<SessionManager>,
+    session_manager: SharedSessionManager,
     ui: Option<Arc<dyn ExtensionUiContext>>,
     agent_id: Option<String>,
     requires_agent_id: bool,
@@ -215,7 +217,7 @@ async fn test_context_with(
 
 async fn test_context_with_extensions(
     test: &TestDir,
-    session_manager: Arc<SessionManager>,
+    session_manager: SharedSessionManager,
     ui: Option<Arc<dyn ExtensionUiContext>>,
     agent_id: Option<String>,
     requires_agent_id: bool,
@@ -713,7 +715,7 @@ async fn contact_parent_delivers_to_parent_session() {
     assert_eq!(runtime_rows[0].recipient.agent_id, None);
     assert_eq!(
         runtime_rows[0].recipient.session_id,
-        ctx.session_manager().expect("session").get_session_id()
+        lock_session_manager(&ctx.session_manager().expect("session")).get_session_id()
     );
     assert_eq!(runtime_rows[0].sender.agent_id.as_deref(), Some("child"));
 }
@@ -794,7 +796,7 @@ async fn request_handler_returns_last_session_message_summary() {
     session_manager
         .append_message(AgentMessage::Assistant(Box::new(assistant)))
         .expect("append message");
-    let (_runner, ctx) = test_context_with(&test, Arc::new(session_manager), None, None, false).await;
+    let (_runner, ctx) = test_context_with(&test, Arc::new(Mutex::new(session_manager)), None, None, false).await;
     let details = handler
         .handle(&json!({"method": "messages.last"}), &ctx, None, None)
         .await
@@ -907,7 +909,9 @@ async fn background_command_reports_unavailable_and_validation_errors() {
     )
     .await
     .expect("extension");
-    let session_manager = Arc::new(SessionManager::in_memory(Some(&test.cwd), None).expect("session"));
+    let session_manager = Arc::new(Mutex::new(
+        SessionManager::in_memory(Some(&test.cwd), None).expect("session"),
+    ));
     let (runner, _ctx) = test_context_with_extensions(
         &test,
         session_manager,

@@ -34,7 +34,9 @@ use crate::core::multi_agent_store::MultiAgentStore;
 use crate::core::permissions::presets::SandboxProfileScope;
 use crate::core::provider_composer::ProviderConfigInput;
 use crate::core::session_control_db::RuntimeMailboxMessage;
-use crate::core::session_manager::{BranchSummaryEntry, CompactionEntry, CustomEntry, SessionEntry, SessionManager};
+use crate::core::session_manager::{
+    BranchSummaryEntry, CompactionEntry, CustomEntry, SessionEntry, SessionManager, SharedSessionManager,
+};
 use crate::core::settings_manager::SettingsManager;
 use crate::core::slash_commands::SlashCommandInfo;
 use crate::core::source_info::SourceInfo;
@@ -477,7 +479,7 @@ pub struct ExtensionContextState {
     pub(super) has_ui: bool,
     pub(super) mode: ExtensionMode,
     pub(super) cwd: String,
-    pub(super) session_manager: Arc<SessionManager>,
+    pub(super) session_manager: SharedSessionManager,
     pub(super) model_registry: Arc<ModelRegistry>,
     pub(super) settings_manager: Option<Arc<Mutex<SettingsManager>>>,
     pub(super) get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync>,
@@ -521,7 +523,7 @@ pub struct ExtensionContextState {
 impl ExtensionContextState {
     pub(super) fn new(
         cwd: impl Into<String>,
-        session_manager: Arc<SessionManager>,
+        session_manager: SharedSessionManager,
         model_registry: Arc<ModelRegistry>,
         settings_manager: Option<Arc<Mutex<SettingsManager>>>,
     ) -> Self {
@@ -681,7 +683,9 @@ impl ExtensionContext {
         self.read(|state| state.cwd.clone())
     }
 
-    pub fn session_manager(&self) -> Result<Arc<SessionManager>, HandlerError> {
+    /// The same handle the owning `AgentSession` uses, so extension reads and
+    /// writes observe live session state (`ctx.sessionManager` in the source).
+    pub fn session_manager(&self) -> Result<SharedSessionManager, HandlerError> {
         self.read(|state| Arc::clone(&state.session_manager))
     }
 
@@ -1728,13 +1732,11 @@ pub struct ToolCallEventResult {
     pub terminate: Option<bool>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Default)]
 pub struct UserBashEventResult {
-    /// Custom operations are owned by the bash-tool port; stored as JSON.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub operations: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Custom operations used by `AgentSession::execute_bash` (`BashOperations`).
+    pub operations: Option<Arc<dyn crate::core::tools::bash::BashOperations>>,
+    /// Full replacement: the extension handled execution and supplies the result.
     pub result: Option<Value>,
 }
 

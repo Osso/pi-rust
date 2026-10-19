@@ -1,14 +1,14 @@
 //! Port of `packages/coding-agent/src/core/session-manager.ts`.
 //!
-//! Sessions are append-only trees stored as JSONL. The control-db metadata
-//! integration (`setMetadataControlDbPath`, goal/model/sandbox accessors and
-//! metadata-backed listing) is owned by the parallel `ca-control-db` slice and
-//! is intentionally absent here; see `docs/porting/traceability/session-manager.md`.
+//! Sessions are append-only trees stored as JSONL. Control-db metadata
+//! (`setMetadataControlDbPath`, goal/model/sandbox accessors and
+//! metadata-backed listing) is persisted through `session_control_db`.
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use pi_agent_core::agent::AgentMessage;
 use pi_agent_core::harness::messages::{
@@ -59,6 +59,10 @@ impl std::fmt::Display for SessionManagerError {
 }
 
 impl std::error::Error for SessionManagerError {}
+
+fn control_db_error(cause: impl std::fmt::Display) -> SessionManagerError {
+    error(cause.to_string())
+}
 
 fn error(message: impl Into<String>) -> SessionManagerError {
     SessionManagerError::new(message)
@@ -1656,6 +1660,11 @@ fn message_activity_time(entry: &SessionMessageEntry) -> Option<i64> {
     pi_js_compat::date::date_parse_millis(&entry.timestamp)
 }
 
+/// `affectsSessionInfo`: entries whose append refreshes control-db metadata.
+fn affects_session_info(entry: &SessionEntry) -> bool {
+    matches!(entry.entry_type(), "message" | "session_info")
+}
+
 fn apply_session_info_entry(accumulator: &mut SessionInfoAccumulator, entry: &SessionEntry) {
     if let Some(info) = entry.as_session_info() {
         accumulator.name = info
@@ -2081,6 +2090,15 @@ pub struct SetMetadataControlDbPathOptions {
     pub cwd_override: Option<String>,
 }
 
+/// Handle shared by `AgentSession` and `ExtensionContext`, mirroring the single
+/// `SessionManager` object the source passes to both.
+pub type SharedSessionManager = Arc<Mutex<SessionManager>>;
+
+/// Locks a shared session handle, recovering from a poisoned mutex.
+pub fn lock_session_manager(handle: &SharedSessionManager) -> MutexGuard<'_, SessionManager> {
+    handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// Manages conversation sessions as append-only trees stored in JSONL files.
 #[derive(Clone)]
 pub struct SessionManager {
@@ -2487,6 +2505,9 @@ impl SessionManager {
         self.by_id.insert(id.clone(), position);
         self.leaf_id = Some(id.clone());
         self.persist_entry(&entry)?;
+        if affects_session_info(&entry) {
+            self.write_metadata_snapshot()?;
+        }
         Ok(id)
     }
 
@@ -2523,79 +2544,92 @@ impl SessionManager {
         self.metadata_control_db_path.as_deref()
     }
 
+    /// The control DB and session file when both are set; TS tests each with
+    /// truthiness, so empty strings count as unset.
+    fn metadata_target(&self) -> Option<(&str, &str)> {
+        let control_db_path = self
+            .metadata_control_db_path
+            .as_deref()
+            .filter(|path| !path.is_empty())?;
+        let session_file = self.session_file.as_deref().filter(|path| !path.is_empty())?;
+        Some((control_db_path, session_file))
+    }
+
     /// `getSessionGoalJson`.
-    pub fn get_session_goal_json(&self) -> Option<String> {
-        let (Some(control_db_path), Some(session_file)) =
-            (self.metadata_control_db_path.as_deref(), self.session_file.as_deref())
-        else {
-            return self.in_memory_goal_json.clone();
+    pub fn get_session_goal_json(&self) -> Result<Option<String>, SessionManagerError> {
+        let Some((control_db_path, session_file)) = self.metadata_target() else {
+            return Ok(self.in_memory_goal_json.clone());
         };
-        read_session_goal(control_db_path, session_file).ok().flatten()
+        read_session_goal(control_db_path, session_file).map_err(control_db_error)
+    }
+
+    /// `getSessionGoalJsonForSession`.
+    pub fn get_session_goal_json_for_session(&self, session_file: &str) -> Result<Option<String>, SessionManagerError> {
+        let Some(control_db_path) = self.metadata_control_db_path.as_deref().filter(|path| !path.is_empty()) else {
+            return Ok(None);
+        };
+        read_session_goal(control_db_path, &resolve(session_file)?).map_err(control_db_error)
     }
 
     /// `setSessionGoalJson`.
-    pub fn set_session_goal_json(&mut self, goal_json: &str) {
-        let (Some(control_db_path), Some(session_file)) =
-            (self.metadata_control_db_path.as_deref(), self.session_file.as_deref())
-        else {
+    pub fn set_session_goal_json(&mut self, goal_json: &str) -> Result<(), SessionManagerError> {
+        let Some((control_db_path, session_file)) = self.metadata_target() else {
             self.in_memory_goal_json = Some(goal_json.to_owned());
-            return;
+            return Ok(());
         };
-        self.write_metadata_snapshot();
-        let _ = write_session_goal(control_db_path, session_file, Some(goal_json));
+        self.write_metadata_snapshot()?;
+        write_session_goal(control_db_path, session_file, Some(goal_json)).map_err(control_db_error)
     }
 
     /// `clearSessionGoalJson`.
-    pub fn clear_session_goal_json(&mut self) {
-        let (Some(control_db_path), Some(session_file)) =
-            (self.metadata_control_db_path.as_deref(), self.session_file.as_deref())
-        else {
+    pub fn clear_session_goal_json(&mut self) -> Result<(), SessionManagerError> {
+        let Some((control_db_path, session_file)) = self.metadata_target() else {
             self.in_memory_goal_json = None;
-            return;
+            return Ok(());
         };
-        self.write_metadata_snapshot();
-        let _ = write_session_goal(control_db_path, session_file, None);
+        self.write_metadata_snapshot()?;
+        write_session_goal(control_db_path, session_file, None).map_err(control_db_error)
     }
 
     /// `readPersistedSessionSettings`.
-    pub fn read_persisted_session_settings(&self) -> Option<PersistedSessionSettings> {
-        let control_db_path = self.metadata_control_db_path.as_deref()?;
-        let session_file = self.session_file.as_deref()?;
-        let sandbox_profile = read_session_sandbox_profile(control_db_path, session_file, &self.session_id)
-            .ok()
-            .flatten();
-        let metadata = read_session_metadata(control_db_path, session_file).ok().flatten()?;
+    pub fn read_persisted_session_settings(&self) -> Result<Option<PersistedSessionSettings>, SessionManagerError> {
+        let Some((control_db_path, session_file)) = self.metadata_target() else {
+            return Ok(None);
+        };
+        let sandbox_profile =
+            read_session_sandbox_profile(control_db_path, session_file, &self.session_id).map_err(control_db_error)?;
+        let Some(metadata) = read_session_metadata(control_db_path, session_file).map_err(control_db_error)? else {
+            return Ok(None);
+        };
         let model = match (metadata.model_provider, metadata.model_id) {
-            (Some(provider), Some(model_id)) => Some(PersistedSessionModel { provider, model_id }),
+            (Some(provider), Some(model_id)) if !provider.is_empty() && !model_id.is_empty() => {
+                Some(PersistedSessionModel { provider, model_id })
+            }
             _ => None,
         };
-        Some(PersistedSessionSettings {
+        Ok(Some(PersistedSessionSettings {
             model,
             sandbox_profile,
             thinking_level: metadata.thinking_level,
-        })
+        }))
     }
 
     /// `setSessionModel`.
-    pub fn set_session_model(&mut self, provider: &str, model_id: &str) {
-        let (Some(control_db_path), Some(session_file)) =
-            (self.metadata_control_db_path.as_deref(), self.session_file.as_deref())
-        else {
-            return;
+    pub fn set_session_model(&mut self, provider: &str, model_id: &str) -> Result<(), SessionManagerError> {
+        let Some((control_db_path, session_file)) = self.metadata_target() else {
+            return Ok(());
         };
-        self.write_metadata_snapshot();
-        let _ = write_session_model(control_db_path, session_file, provider, model_id);
+        self.write_metadata_snapshot()?;
+        write_session_model(control_db_path, session_file, provider, model_id).map_err(control_db_error)
     }
 
     /// `setSessionThinkingLevel`.
-    pub fn set_session_thinking_level(&mut self, thinking_level: &str) {
-        let (Some(control_db_path), Some(session_file)) =
-            (self.metadata_control_db_path.as_deref(), self.session_file.as_deref())
-        else {
-            return;
+    pub fn set_session_thinking_level(&mut self, thinking_level: &str) -> Result<(), SessionManagerError> {
+        let Some((control_db_path, session_file)) = self.metadata_target() else {
+            return Ok(());
         };
-        self.write_metadata_snapshot();
-        let _ = write_session_thinking_level(control_db_path, session_file, thinking_level);
+        self.write_metadata_snapshot()?;
+        write_session_thinking_level(control_db_path, session_file, thinking_level).map_err(control_db_error)
     }
 
     /// `setMetadataControlDbPath`.
@@ -2603,49 +2637,40 @@ impl SessionManager {
         &mut self,
         control_db_path: Option<&str>,
         options: SetMetadataControlDbPathOptions,
-    ) {
+    ) -> Result<(), SessionManagerError> {
         self.metadata_control_db_path = control_db_path.map(str::to_owned);
         if let Some(index_message_text) = options.index_message_text {
             self.index_message_text = index_message_text;
         }
-        self.restore_persisted_metadata();
-        if let Some(cwd_override) = options.cwd_override
-            && let Ok(resolved) = resolve(&cwd_override)
-        {
-            self.cwd = resolved;
+        self.restore_persisted_metadata()?;
+        if let Some(cwd_override) = options.cwd_override.filter(|cwd| !cwd.is_empty()) {
+            self.cwd = resolve(&cwd_override)?;
         }
-        self.write_metadata_snapshot();
+        self.write_metadata_snapshot()
     }
 
-    fn restore_persisted_metadata(&mut self) {
-        let (Some(control_db_path), Some(session_file)) =
-            (self.metadata_control_db_path.as_deref(), self.session_file.as_deref())
-        else {
-            return;
+    fn restore_persisted_metadata(&mut self) -> Result<(), SessionManagerError> {
+        let Some((control_db_path, session_file)) = self.metadata_target() else {
+            return Ok(());
         };
-        let Some(metadata) = read_session_metadata(control_db_path, session_file).ok().flatten() else {
-            return;
+        let Some(metadata) = read_session_metadata(control_db_path, session_file).map_err(control_db_error)? else {
+            return Ok(());
         };
-        if let Ok(resolved) = resolve(&metadata.cwd) {
-            self.cwd = resolved;
-        }
+        self.cwd = resolve(&metadata.cwd)?;
         if metadata.is_subagent != Some(true) {
-            return;
+            return Ok(());
         }
         self.is_subagent = true;
         self.subagent_name = metadata.subagent_name;
+        Ok(())
     }
 
-    fn write_metadata_snapshot(&self) {
-        let (Some(control_db_path), true, Some(session_file)) = (
-            self.metadata_control_db_path.as_deref(),
-            self.persist,
-            self.session_file.as_deref(),
-        ) else {
-            return;
+    fn write_metadata_snapshot(&self) -> Result<(), SessionManagerError> {
+        let Some((control_db_path, session_file)) = self.metadata_target().filter(|_| self.persist) else {
+            return Ok(());
         };
         let Some(FileEntry::Header(header)) = self.file_entries.first() else {
-            return;
+            return Ok(());
         };
         let mut accumulator = SessionInfoAccumulator::default();
         for entry in self.file_entries.iter().skip(1) {
@@ -2674,7 +2699,7 @@ impl SessionManager {
             all_messages_text: info.all_messages_text,
             index_message_text: Some(self.index_message_text),
         };
-        let _ = write_session_metadata(control_db_path, &metadata);
+        write_session_metadata(control_db_path, &metadata).map_err(control_db_error)
     }
 
     pub fn is_subagent_session(&self) -> bool {
@@ -2685,7 +2710,6 @@ impl SessionManager {
         self.subagent_name.as_deref()
     }
 
-    /// Move a persisted session to another cwd's default session directory.
     pub fn relocate(&mut self, target_cwd: &str, agent_dir: Option<&str>) -> Result<(), SessionManagerError> {
         let resolved_target_cwd = resolve(target_cwd)?;
         let agent_dir = agent_dir
@@ -2740,6 +2764,12 @@ impl SessionManager {
             file.write_all(&content)
                 .map_err(|error| SessionManagerError::new(error.to_string()))?;
         }
+        if let Some(control_db_path) = self.metadata_control_db_path.as_deref().filter(|path| !path.is_empty())
+            && let (Some(old), Some(destination)) = (old_session_file.as_deref(), destination.as_deref())
+        {
+            crate::core::session_control_db::relocate_session_control_data(control_db_path, old, destination)
+                .map_err(|error| SessionManagerError::new(error.to_string()))?;
+        }
 
         self.cwd = resolved_target_cwd;
         self.session_dir = target_session_dir;
@@ -2752,7 +2782,7 @@ impl SessionManager {
         {
             fs::remove_file(old).map_err(|error| SessionManagerError::new(error.to_string()))?;
         }
-        Ok(())
+        self.write_metadata_snapshot()
     }
 
     pub fn get_leaf_id(&self) -> Option<&str> {

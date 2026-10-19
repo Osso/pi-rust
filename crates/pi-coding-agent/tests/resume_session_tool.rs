@@ -117,7 +117,7 @@ impl Fixture {
             .to_owned();
         let reader =
             SessionManager::open(&current_path, Some(self.session_dir.as_str()), None).expect("reopen current session");
-        let mut builder = tool_context::TestContextBuilder::new(self.current.get_cwd(), Arc::new(reader))
+        let mut builder = tool_context::TestContextBuilder::new(self.current.get_cwd(), Arc::new(Mutex::new(reader)))
             .control_db_path(&self.control_db_path);
         if let Some(agent_id) = agent_id {
             builder = builder.agent_id(agent_id);

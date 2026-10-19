@@ -26,6 +26,14 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
   (`BashToolInput`, `ReadToolInput`, …, `BashToolDetails`, …); this module does
   not duplicate them. Type guards (`isToolCallEventType`, `is*ToolResult`) are
   preserved as functions.
+- `UserBashEventResult.operations` carries a typed
+  `Arc<dyn BashOperations>` instead of serialized JSON, so `user_bash`
+  extensions can replace execution like the source.
+- `ctx.sessionManager` is the owning `AgentSession`'s live
+  `Arc<Mutex<SessionManager>>` (`SharedSessionManager`), not a snapshot: reads
+  observe session-side mutations and goal writes persist through the same
+  manager. Tests: `context_session_manager_is_the_live_shared_handle`,
+  `session_replacement_rebinds_the_shared_extension_handle`.
 - `CustomMessage` (`core/messages.ts`, owned by the session slice) is
   represented by `CustomMessagePayload` (`customType`/`content`/`display`/
   `details`), the exact `Pick<>` shape used by the API.

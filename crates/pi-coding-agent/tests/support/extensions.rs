@@ -12,7 +12,7 @@ use pi_coding_agent::core::extensions::{
 };
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
-use pi_coding_agent::core::session_manager::SessionManager;
+use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager};
 use serde_json::{Map, Value, json};
 
 pub fn event_bus() -> Arc<dyn EventBus> {
@@ -31,8 +31,10 @@ pub async fn model_registry() -> Arc<ModelRegistry> {
     Arc::new(ModelRegistry::new(runtime))
 }
 
-pub fn session_manager(cwd: &str) -> Arc<SessionManager> {
-    Arc::new(SessionManager::in_memory(Some(cwd), None).expect("in-memory session manager"))
+pub fn session_manager(cwd: &str) -> SharedSessionManager {
+    Arc::new(Mutex::new(
+        SessionManager::in_memory(Some(cwd), None).expect("in-memory session manager"),
+    ))
 }
 
 pub fn actions() -> ExtensionActions {
@@ -165,6 +167,15 @@ pub fn runner_for(
     registry: Arc<ModelRegistry>,
 ) -> ExtensionRunner {
     ExtensionRunner::new(extensions, runtime, cwd, session_manager(cwd), registry, None)
+}
+
+pub fn runner_for_session(
+    cwd: &str,
+    runtime: ExtensionRuntime,
+    session_manager: SharedSessionManager,
+    registry: Arc<ModelRegistry>,
+) -> ExtensionRunner {
+    ExtensionRunner::new(Vec::new(), runtime, cwd, session_manager, registry, None)
 }
 
 pub fn bind(runner: &mut ExtensionRunner) {

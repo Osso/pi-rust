@@ -7,7 +7,7 @@ use serde_json::{Map, Value, json};
 
 use crate::core::extensions::types::{ExtensionApi, ExtensionContext, HandlerError};
 use crate::core::multi_agent_store::{AgentLifecycle, AgentSnapshot, MultiAgentStore};
-use crate::core::session_manager::{FileEntry, SessionEntry, load_entries_from_file};
+use crate::core::session_manager::{FileEntry, SessionEntry, load_entries_from_file, lock_session_manager};
 
 const AGENT_START_CUSTOM_TYPE: &str = "agent_start";
 const AGENT_COMPLETE_CUSTOM_TYPE: &str = "agent_complete";
@@ -143,8 +143,9 @@ pub fn read_active_parent_agent_ids_from_session_entries(entries: &[SessionEntry
 
 pub fn read_active_parent_agent_ids(ctx: &ExtensionContext) -> Result<HashSet<String>, HandlerError> {
     let session_manager = ctx.session_manager()?;
+    let manager = lock_session_manager(&session_manager);
     Ok(read_active_parent_agent_ids_from_session_entries(
-        &session_manager.get_entries(),
+        &manager.get_entries(),
     ))
 }
 
@@ -209,11 +210,15 @@ pub fn restore_compacted_parent_agent_records(
     if missing_journal_agents.is_empty() {
         return Ok(());
     }
-    let session_manager = ctx.session_manager()?;
-    let Some(session_file) = session_manager.get_session_file() else {
-        return Ok(());
+    let session_file = {
+        let session_manager = ctx.session_manager()?;
+        let manager = lock_session_manager(&session_manager);
+        let Some(session_file) = manager.get_session_file() else {
+            return Ok(());
+        };
+        session_file.to_owned()
     };
-    let persisted_agent_ids = read_active_parent_agent_ids_from_entries(&load_entries_from_file(session_file));
+    let persisted_agent_ids = read_active_parent_agent_ids_from_entries(&load_entries_from_file(&session_file));
     let persisted_missing_journal_agents: Vec<AgentSnapshot> = missing_journal_agents
         .into_iter()
         .filter(|agent| persisted_agent_ids.contains(&agent.id))

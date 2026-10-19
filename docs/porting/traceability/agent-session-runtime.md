@@ -13,6 +13,7 @@ Rust: `crates/pi-coding-agent/src/core/agent_session_runtime.rs`.
 | `relocate` | `relocate` | cwd + `cwd_changed` note |
 | `restart` | `restart` | process path injected; default restarter uses `core::self_restart` |
 | `importFromJsonl` | `import_from_jsonl` | import test |
+| Session replacement re-binds the extension runner's `sessionManager` | `create_runtime` builds a new `AgentSession`, whose `build_runtime` passes the new shared handle | `session_replacement_rebinds_the_shared_extension_handle` |
 | `dispose` | `dispose` | — |
 | `prepare/activateToolResultRelocation` | same | — |
 | `emitBeforeSwitch` / `emitBeforeFork` | `emit_before_switch` / `emit_before_fork` | cancellation test |

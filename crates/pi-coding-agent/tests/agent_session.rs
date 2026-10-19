@@ -359,9 +359,15 @@ async fn clear_queue_returns_pending_messages() {
 #[tokio::test]
 async fn set_thinking_level_clamps_to_model_capabilities() {
     let fixture = fixture().await;
-    fixture.session.set_thinking_level(ThinkingLevel::High);
+    fixture
+        .session
+        .set_thinking_level(ThinkingLevel::High)
+        .expect("set thinking level");
     assert_eq!(fixture.session.thinking_level(), ThinkingLevel::High);
-    fixture.session.set_thinking_level(ThinkingLevel::Ultra);
+    fixture
+        .session
+        .set_thinking_level(ThinkingLevel::Ultra)
+        .expect("set thinking level");
     assert_eq!(fixture.session.thinking_level(), ThinkingLevel::High);
     assert!(fixture.session.supports_thinking());
 }
@@ -369,12 +375,18 @@ async fn set_thinking_level_clamps_to_model_capabilities() {
 #[tokio::test]
 async fn cycle_thinking_level_wraps_available_levels() {
     let fixture = fixture().await;
-    fixture.session.set_thinking_level(ThinkingLevel::Off);
-    let next = fixture.session.cycle_thinking_level();
+    fixture
+        .session
+        .set_thinking_level(ThinkingLevel::Off)
+        .expect("set thinking level");
+    let next = fixture.session.cycle_thinking_level().expect("cycle thinking level");
     assert_eq!(next, Some(ThinkingLevel::Minimal));
-    fixture.session.set_thinking_level(ThinkingLevel::High);
+    fixture
+        .session
+        .set_thinking_level(ThinkingLevel::High)
+        .expect("set thinking level");
     assert_eq!(
-        fixture.session.cycle_thinking_level(),
+        fixture.session.cycle_thinking_level().expect("cycle thinking level"),
         Some(ThinkingLevel::Off),
         "cycling wraps to the first available level"
     );
@@ -1188,7 +1200,9 @@ async fn binds_detached_job_lifecycle_when_a_store_is_configured() {
     let session_dir = temp_dir.path().join("sessions").display().to_string();
     let control_db = temp_dir.path().join("control.db").display().to_string();
     let mut session_manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
-    session_manager.set_metadata_control_db_path(Some(&control_db), Default::default());
+    session_manager
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
     session_manager
         .append_message(AgentMessage::User(pi_ai::types::UserMessage {
             role: pi_ai::types::UserRole::Tag,

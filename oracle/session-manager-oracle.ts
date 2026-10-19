@@ -125,6 +125,17 @@ async function handle(api: OracleApi, request: any): Promise<unknown> {
 				contextMessageLines: context.messages.map((message: unknown) => JSON.stringify(message)),
 			};
 		}
+		case "goal_in_memory": {
+			const manager = api.SessionManager.create(request.cwd, request.sessionDir);
+			manager.setSessionGoalJson('{"goal":1}');
+			const set = manager.getSessionGoalJson() ?? null;
+			const forSession = manager.getSessionGoalJsonForSession("/tmp/other-session.jsonl") ?? null;
+			const persisted = manager.readPersistedSessionSettings() ?? null;
+			manager.clearSessionGoalJson();
+			const cleared = manager.getSessionGoalJson() ?? null;
+			manager.setMetadataControlDbPath(undefined, { cwdOverride: "" });
+			return { values: [set, forSession, persisted, cleared, manager.getCwd()] };
+		}
 		case "truncate_tool_result": {
 			const entry = api.truncateToolResultForPersistence(request.entry);
 			return { entry, entryJson: JSON.stringify(entry) };
