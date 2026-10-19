@@ -287,7 +287,7 @@ async fn main() {
     let session_dir = env("PI_HARNESS_SESSION_DIR");
     let responses: Vec<Value> = serde_json::from_str(&env("PI_HARNESS_RESPONSES")).expect("responses JSON");
     let handle = faux_handle(&responses);
-    pi_coding_agent::modes::interactive::theme::init_theme(None, false);
+    pi_coding_agent::modes::interactive::theme::init_theme(None, false).expect("theme");
     let runtime = build_runtime(&handle, &cwd, &agent_dir, &session_dir).await;
     if std::env::var("PI_HARNESS_RESUME").as_deref() == Ok("1") {
         runtime

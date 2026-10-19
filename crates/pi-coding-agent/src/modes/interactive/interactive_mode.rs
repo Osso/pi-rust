@@ -1649,6 +1649,9 @@ impl ExtensionUiContext for InteractiveUiContext {
 
     fn get_all_themes(&self) -> Vec<ThemeInfo> {
         crate::modes::interactive::theme::get_available_themes_with_paths()
+            .unwrap_or_else(|error| {
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string())
+            })
             .into_iter()
             .map(|info| crate::core::extensions::types::ThemeInfo {
                 name: info.name,
@@ -2731,7 +2734,9 @@ impl InteractiveMode {
     }
 
     fn set_theme_name(&self, name: &str) -> ThemeSetResult {
-        let result = crate::modes::interactive::theme::set_theme(name, false);
+        let result = crate::modes::interactive::theme::set_theme(name, false).unwrap_or_else(|error| {
+            crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string())
+        });
         if result.success {
             self.settings_mut(|settings| {
                 if settings.get_theme() != Some(name) {
@@ -3195,7 +3200,7 @@ impl InteractiveMode {
         }
 
         if crate::modes::interactive::theme::current_theme_if_initialized().is_none() {
-            crate::modes::interactive::theme::init_theme(None, false);
+            crate::modes::interactive::theme::init_theme(None, false).map_err(|error| error.to_string())?;
         }
         let loader_themes = self.session.borrow().resource_loader().get_themes();
         let registered: Vec<Arc<Theme>> = loader_themes.themes.into_iter().map(Arc::new).collect();

@@ -132,7 +132,7 @@ pub async fn create_startup_tui(
     let terminal_theme = detect_terminal_background_from_env(env).theme;
     let theme_name = resolve_theme_setting(settings_manager.get_theme_setting(), terminal_theme)
         .unwrap_or_else(|| terminal_theme.as_str().to_owned());
-    init_theme(Some(&theme_name), false);
+    init_theme(Some(&theme_name), false).map_err(|error| error.to_string())?;
     let agent_dir = config::get_agent_dir();
     KeybindingsManager::create(Some(&agent_dir)).install();
     let ui = TuiMainScreen::with_options(
@@ -169,7 +169,9 @@ pub fn apply_detected_startup_theme(
     let terminal_theme = detect_terminal_theme_for_auto(&detector, THEME_DETECTION_TIMEOUT, env);
     let name =
         resolve_theme_setting(theme_setting, terminal_theme).unwrap_or_else(|| terminal_theme.as_str().to_owned());
-    set_theme(&name, false);
+    set_theme(&name, false).unwrap_or_else(|error| {
+        crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string())
+    });
     ui.invalidate();
     ui.request_render(false);
 }

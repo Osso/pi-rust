@@ -33,6 +33,7 @@ use serde_json::{Map, Value};
 
 use crate::config::{get_custom_themes_dir, get_themes_dir};
 use crate::core::source_info::SourceInfo;
+use crate::core::tools::node_fs::node_fs_error;
 use crate::utils::chalk::{Chalk, Style};
 use crate::utils::fs_watch::{WatchEventKind, close_watcher, watch_with_error_handler};
 use crate::utils::syntax_highlight::{
@@ -384,10 +385,13 @@ pub enum ThemeError {
     CircularVariableReference(String),
     VariableReferenceNotFound(String),
     Parse { label: String, message: String },
+    Syntax { message: String },
+    Io { message: String },
     Invalid { label: String, message: String },
     NameWithSlash(String),
     NotFound(String),
     NoSourcePath(String),
+    NotInitialized,
 }
 
 impl std::fmt::Display for ThemeError {
@@ -400,6 +404,8 @@ impl std::fmt::Display for ThemeError {
             }
             Self::VariableReferenceNotFound(name) => write!(formatter, "Variable reference not found: {name}"),
             Self::Parse { label, message } => write!(formatter, "Failed to parse theme {label}: {message}"),
+            Self::Syntax { message } => write!(formatter, "SyntaxError: {message}"),
+            Self::Io { message } => formatter.write_str(message),
             Self::Invalid { message, .. } => formatter.write_str(message),
             Self::NameWithSlash(name) => write!(
                 formatter,
@@ -409,6 +415,7 @@ impl std::fmt::Display for ThemeError {
             Self::NoSourcePath(name) => {
                 write!(formatter, "Theme \"{name}\" does not have a source path for export")
             }
+            Self::NotInitialized => formatter.write_str("Theme not initialized. Call initTheme() first."),
         }
     }
 }
@@ -760,36 +767,44 @@ static WATCH_CONTROL: Mutex<WatchControl> = Mutex::new(WatchControl {
 });
 
 fn read_theme_file(path: &Path) -> Result<String, ThemeError> {
-    fs::read_to_string(path).map_err(|error| ThemeError::Parse {
-        label: path.display().to_string(),
-        message: error.to_string(),
+    fs::read_to_string(path).map_err(|error| ThemeError::Io {
+        message: node_fs_error(&error, read_syscall(&error), &path.display().to_string()),
     })
 }
 
-fn get_builtin_themes() -> Map<String, Value> {
+/// `readFileSync` reports `EISDIR` with the `read` syscall, every other failure with `open`.
+fn read_syscall(error: &std::io::Error) -> &'static str {
+    if error.kind() == std::io::ErrorKind::IsADirectory {
+        "read"
+    } else {
+        "open"
+    }
+}
+
+fn get_builtin_themes() -> Result<Map<String, Value>, ThemeError> {
     if let Some(builtin) = with_state(|state| state.builtin.clone()) {
-        return builtin;
+        return Ok(builtin);
     }
     let themes_dir = get_themes_dir();
     let mut builtin = Map::new();
     for name in ["dark", "light"] {
         let path = themes_dir.join(format!("{name}.json"));
-        let content = fs::read_to_string(&path)
-            .unwrap_or_else(|error| panic!("Failed to read built-in theme {}: {error}", path.display()));
-        let value: Value = serde_json::from_str(&content)
-            .unwrap_or_else(|error| panic!("Failed to parse built-in theme {}: {error}", path.display()));
+        let content = read_theme_file(&path)?;
+        let value: Value = crate::utils::js_json::parse(&content).map_err(|error| ThemeError::Syntax {
+            message: error.to_string(),
+        })?;
         builtin.insert(name.to_owned(), value);
     }
     with_state(|state| state.builtin = Some(builtin.clone()));
-    builtin
+    Ok(builtin)
 }
 
 /// Names of all built-in, custom, and registered themes, sorted by name.
-pub fn get_available_themes() -> Vec<String> {
-    get_available_themes_with_paths()
+pub fn get_available_themes() -> Result<Vec<String>, ThemeError> {
+    Ok(get_available_themes_with_paths()?
         .into_iter()
         .map(|info| info.name)
-        .collect()
+        .collect())
 }
 
 /// Theme name/path pairs; built-in themes first, then custom and registered.
@@ -799,7 +814,7 @@ pub struct ThemeInfo {
     pub path: Option<PathBuf>,
 }
 
-pub fn get_available_themes_with_paths() -> Vec<ThemeInfo> {
+pub fn get_available_themes_with_paths() -> Result<Vec<ThemeInfo>, ThemeError> {
     let themes_dir = get_themes_dir();
     let mut result: Vec<ThemeInfo> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
@@ -811,14 +826,14 @@ pub fn get_available_themes_with_paths() -> Vec<ThemeInfo> {
         result.push(theme_info);
     };
 
-    for name in get_builtin_themes().keys() {
+    for name in get_builtin_themes()?.keys() {
         add_theme(ThemeInfo {
             name: name.clone(),
             path: Some(themes_dir.join(format!("{name}.json"))),
         });
     }
 
-    for theme_info in get_custom_theme_infos() {
+    for theme_info in get_custom_theme_infos()? {
         add_theme(theme_info);
     }
 
@@ -835,16 +850,22 @@ pub fn get_available_themes_with_paths() -> Vec<ThemeInfo> {
 
     let locale = pi_js_compat::host_locale();
     result.sort_by(|left, right| compare_in_locale(&left.name, &right.name, &locale));
-    result
+    Ok(result)
 }
 
-fn get_custom_theme_infos() -> Vec<ThemeInfo> {
+fn get_custom_theme_infos() -> Result<Vec<ThemeInfo>, ThemeError> {
     let custom_themes_dir = get_custom_themes_dir();
     let mut result = Vec::new();
-    let Ok(entries) = fs::read_dir(&custom_themes_dir) else {
-        return result;
-    };
-    for entry in entries.flatten() {
+    if !custom_themes_dir.exists() {
+        return Ok(result);
+    }
+    let entries = fs::read_dir(&custom_themes_dir).map_err(|error| ThemeError::Io {
+        message: node_fs_error(&error, "scandir", &custom_themes_dir.display().to_string()),
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| ThemeError::Io {
+            message: node_fs_error(&error, "scandir", &custom_themes_dir.display().to_string()),
+        })?;
         let file = entry.file_name().to_string_lossy().into_owned();
         if !file.ends_with(".json") {
             continue;
@@ -859,7 +880,7 @@ fn get_custom_theme_infos() -> Vec<ThemeInfo> {
             });
         }
     }
-    result
+    Ok(result)
 }
 
 fn assert_theme_name_is_valid(name: &str) -> Result<(), ThemeError> {
@@ -1071,15 +1092,15 @@ fn parse_theme_json(label: &str, json: &Value) -> Result<ThemeJson, ThemeError> 
 }
 
 fn parse_theme_json_content(label: &str, content: &str) -> Result<ThemeJson, ThemeError> {
-    let json: Value = serde_json::from_str(content).map_err(|error| ThemeError::Parse {
+    let json: Value = crate::utils::js_json::parse(content).map_err(|error| ThemeError::Parse {
         label: label.to_owned(),
-        message: error.to_string(),
+        message: format!("SyntaxError: {error}"),
     })?;
     parse_theme_json(label, &json)
 }
 
 fn load_theme_json(name: &str) -> Result<ThemeJson, ThemeError> {
-    let builtin_themes = get_builtin_themes();
+    let builtin_themes = get_builtin_themes()?;
     if let Some(builtin) = builtin_themes.get(name) {
         return Ok(theme_json_from_value(builtin));
     }
@@ -1382,12 +1403,18 @@ fn process_env() -> BTreeMap<String, String> {
 // Global Theme Instance
 // ============================================================================
 
-/// Theme lookup used by components; panics with the TypeScript message when the
-/// global theme has not been initialized.
+/// Theme lookup used by components. An uninitialized theme is an uncaught
+/// TypeScript throw (`theme` proxy), so it reaches the process-level handler.
 pub fn current_theme() -> Arc<Theme> {
+    try_current_theme().unwrap_or_else(|error| {
+        crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string())
+    })
+}
+
+/// Fallible [`current_theme`]: `Err` when `initTheme` has not installed a theme.
+pub fn try_current_theme() -> Result<Arc<Theme>, ThemeError> {
     apply_pending_reload();
-    with_state(|state| state.global_theme.clone())
-        .unwrap_or_else(|| panic!("Theme not initialized. Call initTheme() first."))
+    with_state(|state| state.global_theme.clone()).ok_or(ThemeError::NotInitialized)
 }
 
 /// Non-panicking [`current_theme`] for callers that surface the error.
@@ -1437,7 +1464,10 @@ fn set_global_theme(theme: Arc<Theme>) {
 }
 
 /// Initialize the global theme, falling back to `dark` on load failure.
-pub fn init_theme(theme_name: Option<&str>, enable_watcher: bool) {
+///
+/// The fallback can fail too (missing built-in themes); TypeScript lets that
+/// second throw escape `initTheme`, so the error is returned to the caller.
+pub fn init_theme(theme_name: Option<&str>, enable_watcher: bool) -> Result<(), ThemeError> {
     let name = theme_name
         .map(str::to_owned)
         .unwrap_or_else(|| get_default_theme().as_str().to_owned());
@@ -1451,10 +1481,11 @@ pub fn init_theme(theme_name: Option<&str>, enable_watcher: bool) {
         }
         Err(_) => {
             with_state(|state| state.current_theme_name = Some("dark".to_owned()));
-            let dark = load_theme("dark", None).expect("built-in dark theme must load");
+            let dark = load_theme("dark", None)?;
             set_global_theme(dark);
         }
     }
+    Ok(())
 }
 
 /// Result of [`set_theme`].
@@ -1465,7 +1496,10 @@ pub struct SetThemeResult {
 }
 
 /// Switch the global theme, falling back to `dark` and reporting the failure.
-pub fn set_theme(name: &str, enable_watcher: bool) -> SetThemeResult {
+///
+/// The dark fallback is loaded outside the `try` in TypeScript, so its failure
+/// escapes `setTheme` and is returned here.
+pub fn set_theme(name: &str, enable_watcher: bool) -> Result<SetThemeResult, ThemeError> {
     with_state(|state| state.current_theme_name = Some(name.to_owned()));
     match load_theme(name, None) {
         Ok(theme) => {
@@ -1477,19 +1511,19 @@ pub fn set_theme(name: &str, enable_watcher: bool) -> SetThemeResult {
             if let Some(callback) = callback {
                 callback();
             }
-            SetThemeResult {
+            Ok(SetThemeResult {
                 success: true,
                 error: None,
-            }
+            })
         }
         Err(error) => {
             with_state(|state| state.current_theme_name = Some("dark".to_owned()));
-            let dark = load_theme("dark", None).expect("built-in dark theme must load");
+            let dark = load_theme("dark", None)?;
             set_global_theme(dark);
-            SetThemeResult {
+            Ok(SetThemeResult {
                 success: false,
                 error: Some(error.to_string()),
-            }
+            })
         }
     }
 }
