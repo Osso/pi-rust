@@ -27,7 +27,7 @@ Tests: `crates/pi-coding-agent/tests/self_restart.rs`, `self_restart_exec_env.rs
 | `appendSelfRestartNotice` / `formatRestartNotice` | `append_self_restart_notice` | notice tests, exec and spawn PID variants |
 | `restartCurrentProcess` → `execve` (pid/foreground group preserved) | `restart_current_process` → `exec_self_restart` → `nix::unistd::execve` | real `/bin/sh` exec child test; failed-exec error-kind test |
 | `spawnSelfRestart` fallback (cwd, env, stdio inherit, optional wait/unref) | `spawn_self_restart` | spawn/wait and immediate-return tests |
-| `buildSelfRestartEnv` over `process.env` | `build_self_restart_env` over `pi_js_compat::process_env::vars()` | env tests; non-UTF-8 lossy test in `process_env` |
+| `buildSelfRestartEnv` over `process.env` | `build_self_restart_env` over `pi_js_compat::process_env::vars()` | env tests; non-UTF-8 lossy test in `process_env`; non-Unicode restart child test |
 | `getSelfRestartArgs` / Bun virtual entrypoint filter | `get_self_restart_args` | argv tests |
 
 Deviation: the TS source calls `process.execve` directly. Rust previously used

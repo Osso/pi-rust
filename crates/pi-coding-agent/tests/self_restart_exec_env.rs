@@ -9,7 +9,52 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use pi_coding_agent::core::self_restart::{RestartTarget, SelfRestartRequest, exec_self_restart};
+use pi_coding_agent::core::self_restart::{RestartTarget, SelfRestartRequest, exec_self_restart, spawn_self_restart};
+
+const NON_UNICODE_CHILD: &str = "PI_SELF_RESTART_NON_UNICODE_CHILD";
+
+fn request() -> SelfRestartRequest {
+    SelfRestartRequest {
+        session_file: "/tmp/session.jsonl".to_owned(),
+        prompt: None,
+        old_pid: None,
+    }
+}
+
+/// Child mode: a non-UTF-8 process environment must not panic the restart path.
+#[test]
+fn non_unicode_environment_child() {
+    if std::env::var(NON_UNICODE_CHILD).is_err() {
+        return;
+    }
+    let target = RestartTarget {
+        argv: vec!["/bin/sh".to_owned(), "-c".to_owned(), "exit 0".to_owned()],
+        executable: Some("/bin/sh".to_owned()),
+        ..RestartTarget::default()
+    };
+    let exit_code = spawn_self_restart(&request(), &target, true).expect("restart must spawn");
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn spawns_a_restart_when_the_environment_has_non_unicode_entries() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
+        .args(["--exact", "non_unicode_environment_child", "--nocapture"])
+        .env(NON_UNICODE_CHILD, "1")
+        .env(
+            "PI_SELF_RESTART_NON_UNICODE_VALUE",
+            std::ffi::OsString::from_vec(vec![0xff]),
+        )
+        .output()
+        .expect("non-Unicode restart child must run");
+    assert!(
+        output.status.success(),
+        "restart child failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
 
 fn is_valid_environment_entry(key: &std::ffi::OsStr, value: &std::ffi::OsStr) -> bool {
     use std::os::unix::ffi::OsStrExt;

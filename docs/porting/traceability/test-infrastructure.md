@@ -131,8 +131,10 @@ Node's `process.execve`), environment contents, and error kinds are preserved.
 
 Regression proof: `tests/self_restart_exec_env.rs` runs 5,000 failing restarts while a reader thread
 validates every environment entry. With the old `Command::exec` implementation the test fails with
-1,173 invalid observations; with `execve` it observes 0. The parallel `self_restart` stress (4
-concurrent test binaries × 20 iterations) then passes without failures.
+1,173 invalid observations; with `execve` it observes 0. The same file also re-executes itself with a
+non-UTF-8 `PI_SELF_RESTART_NON_UNICODE_VALUE` and completes a real restart, proving
+`current_environment()` no longer panics. The parallel `self_restart` stress (4 concurrent test
+binaries × 20 iterations) then passes without failures.
 
 ## Files
 
