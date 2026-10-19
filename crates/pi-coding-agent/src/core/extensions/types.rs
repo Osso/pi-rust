@@ -332,6 +332,24 @@ pub type ExtensionUiComponentFactory =
 pub type ExtensionUiFooterFactory =
     Arc<dyn Fn(ExtensionUiFooterContext) -> Box<dyn ExtensionUiComponent> + Send + Sync>;
 
+/// `addAutocompleteProvider` wrapper: wraps the active provider on the TUI thread.
+pub type ExtensionAutocompleteProviderFactory = Arc<
+    dyn Fn(Rc<dyn pi_tui::autocomplete::AutocompleteProvider>) -> Rc<dyn pi_tui::autocomplete::AutocompleteProvider>
+        + Send
+        + Sync,
+>;
+
+/// `setEditorComponent` factory: builds an editor on the TUI thread.
+pub type ExtensionEditorFactory = Arc<
+    dyn Fn(
+            ExtensionUiTui,
+            pi_tui::components::editor::EditorTheme,
+            crate::core::keybindings::KeybindingsManager,
+        ) -> Rc<RefCell<dyn pi_tui::EditorComponent>>
+        + Send
+        + Sync,
+>;
+
 /// `done` callback passed to `custom` factories.
 #[derive(Clone)]
 pub struct ExtensionUiDone(Arc<dyn Fn(Option<Value>) + Send + Sync>);
@@ -551,6 +569,16 @@ pub trait ExtensionUiContext: Send + Sync {
     }
 
     fn set_tools_expanded(&self, _expanded: bool) {}
+
+    /// Wrap the active autocomplete provider (`addAutocompleteProvider`).
+    fn add_autocomplete_provider(&self, _factory: ExtensionAutocompleteProviderFactory) {}
+
+    /// Install a custom editor component, or `None` to restore the default.
+    fn set_editor_component(&self, _factory: Option<ExtensionEditorFactory>) {}
+
+    fn get_editor_component(&self) -> Option<ExtensionEditorFactory> {
+        None
+    }
 
     fn theme(&self) -> Arc<Theme> {
         current_theme()

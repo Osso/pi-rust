@@ -161,6 +161,17 @@ pub enum SandboxProfileScope {
     Session,
 }
 
+impl SandboxProfileScope {
+    /// Returns the exact TypeScript source literal.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Global => "global",
+            Self::Project => "project",
+            Self::Session => "session",
+        }
+    }
+}
+
 /// String-only form of `isSandboxProfileName`; non-string inputs are excluded by type.
 pub fn is_sandbox_profile_name(value: &str) -> bool {
     SandboxProfileName::parse(value).is_some()

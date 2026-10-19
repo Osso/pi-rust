@@ -16,6 +16,15 @@ pub trait EditorComponent: Component {
 
     fn set_text(&mut self, text: &str);
 
+    /// Rust-only: handles `data` and returns the app callbacks it triggered,
+    /// for hosts that hold the editor in a `RefCell` and must run callbacks that
+    /// re-enter the editor after releasing the borrow. Editors without
+    /// re-entrant callbacks handle the input directly.
+    fn handle_input_deferred(&mut self, data: &str) -> Vec<Rc<dyn Fn()>> {
+        self.handle_input(data);
+        Vec::new()
+    }
+
     fn add_to_history(&mut self, _text: &str) {}
 
     fn insert_text_at_cursor(&mut self, _text: &str) {}

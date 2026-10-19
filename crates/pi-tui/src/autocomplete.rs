@@ -850,7 +850,7 @@ fn posix_join(parts: &[&str]) -> String {
     normalize_path(&parts.join("/"))
 }
 
-fn posix_dirname(path: &str) -> String {
+pub fn posix_dirname(path: &str) -> String {
     if path.is_empty() {
         return ".".to_string();
     }
@@ -876,7 +876,7 @@ fn posix_dirname(path: &str) -> String {
     }
 }
 
-fn posix_basename(path: &str) -> String {
+pub fn posix_basename(path: &str) -> String {
     if path.is_empty() {
         return String::new();
     }

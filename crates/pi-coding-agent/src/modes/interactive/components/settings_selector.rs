@@ -266,7 +266,7 @@ fn parse_tree_filter(value: &str) -> Option<TreeFilterMode> {
     }
 }
 
-fn tui_mode_name(mode: TuiMode) -> &'static str {
+pub(crate) fn tui_mode_name(mode: TuiMode) -> &'static str {
     match mode {
         TuiMode::Regular => "regular",
         TuiMode::Fullscreen => "fullscreen",

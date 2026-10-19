@@ -388,6 +388,10 @@ impl Editor {
         self.padding_x
     }
 
+    pub fn get_border_color(&self) -> StyleFn {
+        Rc::clone(&self.border_color)
+    }
+
     pub fn set_padding_x(&mut self, padding: usize) {
         if self.padding_x != padding {
             self.padding_x = padding;

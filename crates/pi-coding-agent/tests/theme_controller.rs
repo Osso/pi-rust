@@ -96,7 +96,6 @@ fn theme_controller_auto_probe() {
     }
     use pi_coding_agent::modes::interactive::theme::{TerminalTheme, current_theme};
     use pi_tui::terminal_colors::RgbColor;
-
     let (mut controller, ui, _changed, _settings) = build_controller(Some("light/dark"));
     ui.background.set(Some(Ok(Some(RgbColor { r: 250, g: 250, b: 250 }))));
     controller.apply_from_settings();
@@ -127,6 +126,7 @@ fn theme_controller_detect_probe() {
     if !env_probe::in_probe() {
         return;
     }
+    use pi_coding_agent::core::settings_manager::lock_settings_manager;
     use pi_coding_agent::modes::interactive::theme::current_theme;
     use pi_tui::terminal_colors::RgbColor;
 
@@ -134,7 +134,7 @@ fn theme_controller_detect_probe() {
     ui.background.set(Some(Ok(Some(RgbColor { r: 8, g: 8, b: 8 }))));
     controller.apply_from_settings();
     assert_eq!(current_theme().name.as_deref(), Some("dark"));
-    assert_eq!(settings.borrow().get_theme_setting(), Some("dark"));
+    assert_eq!(lock_settings_manager(&settings).get_theme_setting(), Some("dark"));
 
     ui.background.set(Some(Ok(None)));
     controller.apply_from_settings();
@@ -241,11 +241,12 @@ type ControllerParts = (
     pi_coding_agent::modes::interactive::theme::InteractiveThemeController,
     std::rc::Rc<FakeUi>,
     std::rc::Rc<std::cell::Cell<usize>>,
-    std::rc::Rc<std::cell::RefCell<pi_coding_agent::core::settings_manager::SettingsManager>>,
+    pi_coding_agent::core::settings_manager::SharedSettingsManager,
 );
 
 fn build_controller(theme_setting: Option<&str>) -> ControllerParts {
     use std::rc::Rc;
+    use std::sync::{Arc, Mutex};
 
     use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
     use pi_coding_agent::modes::interactive::theme::InteractiveThemeController;
@@ -261,7 +262,7 @@ fn build_controller(theme_setting: Option<&str>) -> ControllerParts {
     if let Some(theme_setting) = theme_setting {
         settings.set_theme(theme_setting);
     }
-    let settings = Rc::new(std::cell::RefCell::new(settings));
+    let settings = Arc::new(Mutex::new(settings));
 
     let ui = Rc::new(FakeUi::default());
     let ui_handle: Rc<dyn pi_coding_agent::modes::interactive::theme::ThemeUi> = ui.clone();
@@ -270,7 +271,7 @@ fn build_controller(theme_setting: Option<&str>) -> ControllerParts {
     let error_ui = Rc::clone(&ui);
     let controller = InteractiveThemeController::new(
         ui_handle,
-        Rc::clone(&settings),
+        Arc::clone(&settings),
         Rc::new(move |message: &str| error_ui.errors.borrow_mut().push(message.to_owned())),
         Rc::new(move || changed_sink.set(changed_sink.get() + 1)),
     )

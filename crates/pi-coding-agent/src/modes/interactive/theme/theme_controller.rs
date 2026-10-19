@@ -13,7 +13,7 @@ use super::{
     detect_terminal_background_theme, detect_terminal_theme_for_auto, init_theme, parse_auto_theme_setting,
     resolve_theme_setting, set_theme, set_theme_instance,
 };
-use crate::core::settings_manager::SettingsManager;
+use crate::core::settings_manager::{SharedSettingsManager, lock_settings_manager};
 use crate::utils::uncaught::throw_uncaught;
 
 /// The TUI surface used by the theme controller.
@@ -49,7 +49,7 @@ impl super::TerminalAutoThemeDetector for BackgroundDetector {
 
 struct ControllerCore {
     ui: Rc<dyn ThemeUi>,
-    settings_manager: Rc<RefCell<SettingsManager>>,
+    settings_manager: SharedSettingsManager,
     show_error: Rc<dyn Fn(&str)>,
     on_changed: Rc<dyn Fn()>,
     terminal_theme: TerminalTheme,
@@ -96,7 +96,7 @@ impl ControllerCore {
             return;
         }
         self.terminal_theme = terminal_theme;
-        let auto_theme = parse_auto_theme_setting(self.settings_manager.borrow().get_theme_setting());
+        let auto_theme = parse_auto_theme_setting(lock_settings_manager(&self.settings_manager).get_theme_setting());
         let Some(auto_theme) = auto_theme else {
             self.set_auto_sync(false);
             return;
@@ -120,12 +120,15 @@ pub struct InteractiveThemeController {
 impl InteractiveThemeController {
     pub fn new(
         ui: Rc<dyn ThemeUi>,
-        settings_manager: Rc<RefCell<SettingsManager>>,
+        settings_manager: SharedSettingsManager,
         show_error: Rc<dyn Fn(&str)>,
         on_changed: Rc<dyn Fn()>,
     ) -> Result<Self, ThemeError> {
         let terminal_theme = detect_terminal_background_from_env(&process_env()).theme;
-        let active_theme_name = resolve_theme_setting(settings_manager.borrow().get_theme_setting(), terminal_theme);
+        let active_theme_name = resolve_theme_setting(
+            lock_settings_manager(&settings_manager).get_theme_setting(),
+            terminal_theme,
+        );
         init_theme(active_theme_name.as_deref(), true)?;
         let core = Rc::new(RefCell::new(ControllerCore {
             ui,
@@ -152,11 +155,7 @@ impl InteractiveThemeController {
     }
 
     pub fn apply_from_settings(&mut self) {
-        let theme_setting = self
-            .core
-            .borrow()
-            .settings_manager
-            .borrow()
+        let theme_setting = lock_settings_manager(&self.core.borrow().settings_manager)
             .get_theme_setting()
             .map(str::to_owned);
         let env = process_env();
@@ -193,9 +192,10 @@ impl InteractiveThemeController {
             }
         }
         if detection.confidence == super::ThemeDetectionConfidence::High {
-            let settings = Rc::clone(&self.core.borrow().settings_manager);
-            settings.borrow_mut().set_theme(detection.theme.as_str());
-            settings.borrow().flush();
+            let settings = Arc::clone(&self.core.borrow().settings_manager);
+            let mut settings = lock_settings_manager(&settings);
+            settings.set_theme(detection.theme.as_str());
+            settings.flush();
         }
     }
 
