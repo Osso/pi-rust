@@ -10,9 +10,9 @@ the TypeScript code (or a Node API it calls) throws. The Rust port must return a
 error to the same boundary: a `try/catch` in the caller, a rejected promise, or
 the process-level uncaught handler.
 
-Census after this slice: **446 sites** (297 coding-agent, 73 ai, 28 agent-core,
+Census after this slice: **449 sites** (300 coding-agent, 73 ai, 28 agent-core,
 48 tui), of which **23** are `panic!`/`unreachable!` (see
-[Kept panics](#kept-panics)) and **423** are `unwrap`/`expect`:
+[Kept panics](#kept-panics)) and **426** are `unwrap`/`expect`:
 
 | Category | Count | Why it is not a ported throw |
 |---|---:|---|
@@ -22,7 +22,7 @@ Census after this slice: **446 sites** (297 coding-agent, 73 ai, 28 agent-core,
 | `try_into` on length-checked slices | 10 | Frame/prelude parsing after an explicit length check |
 | `getrandom::fill` | 9 | OS entropy; Node `randomBytes` has the same failure mode |
 | `from_utf8` on `valid_up_to` prefixes | 8 | `Utf8Error::valid_up_to` guarantees the prefix |
-| Option/Result after an explicit check (`expect("checked above")`, `is_some_and` guards) | 184 | Typed-API exclusion (August 12, 2026 decision) |
+| Option/Result after an explicit check (`expect("checked above")`, `is_some_and` guards) | 187 | Typed-API exclusion (August 12, 2026 decision) |
 
 ## Scope notes
 
