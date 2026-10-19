@@ -25,5 +25,5 @@ Differential: `oracle/coding-agent-bash-tool-oracle.ts` (request `27800`, 7 case
   source's per-row `setInterval(() => context.invalidate(), 1000)` is not created by the renderer;
   the tool-execution component's driver-polled one-second timer already invalidates the row while
   the call is partial.
-- `PI_*` session values come from `BashToolOptions.session_environment` instead of the extension context; `core::agent_session` must provide the provider (owned by ca-agent-session-2).
+- `PI_*` session values come from `BashToolOptions.session_environment`, supplied by `AgentSession::rebuild_base_tool_definitions` (live session id/file, model provider/id, thinking level). The source reads the same values from the extension context inside `execute`; the provider is the typed equivalent because Rust core tools do not receive the extension context. Proof: `agent_session::bash_tool_exposes_live_session_environment_variables`.
 - Local shell executables containing a path separator are resolved against the execution `cwd` (matching Windows `spawn` and POSIX `execve` semantics for relative paths).
