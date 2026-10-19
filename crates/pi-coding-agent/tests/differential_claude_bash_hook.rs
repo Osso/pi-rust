@@ -1,9 +1,10 @@
 //! Differential tests for the bundled `claude-bash-hook` extension.
 
+#[path = "support/executable_script.rs"]
+mod executable_script;
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use oracle::TsOracle;
@@ -29,8 +30,7 @@ fn result_value(result: ClaudeBashHookReviewResult) -> Value {
 
 fn write_script(dir: &std::path::Path, name: &str, output: &str) -> PathBuf {
     let path = dir.join(name);
-    std::fs::write(&path, format!("#!/bin/sh\nprintf '%s' '{output}'\n")).expect("script");
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    executable_script::write_executable_script(&path, &format!("#!/bin/sh\nprintf '%s' '{output}'\n"));
     path
 }
 

@@ -2,10 +2,11 @@
 
 #[path = "support/bundled.rs"]
 mod bundled;
+#[path = "support/executable_script.rs"]
+mod executable_script;
 #[path = "support/extensions.rs"]
 mod support;
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use pi_coding_agent::bundled_extensions::claude_bash_hook::{
@@ -40,8 +41,7 @@ impl TestDir {
             .map(|capture| format!("cat > '{}'\n", capture.display()))
             .unwrap_or_default();
         let body = format!("#!/bin/sh\n{capture_line}printf '%s' '{output}'\n");
-        std::fs::write(&path, body).expect("script");
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        executable_script::write_executable_script(&path, &body);
         path
     }
 }
