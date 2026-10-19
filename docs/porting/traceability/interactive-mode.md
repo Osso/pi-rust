@@ -3,10 +3,10 @@
 Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
 Status: **partial**. The mode core (construction, TUI layout, startup resources,
-session event rendering, editor submission, key handlers, core slash commands,
-extension UI dialogs) is implemented and behavior-tested. Selector-heavy
-features that depend on unshared `Rc<RefCell<SettingsManager>>` ownership or on
-multi-agent child transcripts are explicit gaps below.
+session event rendering, editor submission, key handlers, slash commands,
+extension UI dialogs, selector components, login/logout, suspend and clipboard
+paste) is implemented and behavior-tested. Multi-agent child transcripts and
+the share viewer remain explicit gaps below.
 
 ## Exported symbols
 
@@ -19,6 +19,18 @@ multi-agent child transcripts are explicit gaps below.
 | `bindInteractiveModeSessionMutationTargetResolver` | not ported | gap: no `ViewedSessionMutationTarget` API |
 | `formatResumeCommand` | `format_resume_command` | unit tests for quoting; TTY-dependent branch not covered |
 | `ExtensionUIContext` implementation | `InteractiveUiContext` | `ui_tests::extension_select_dialog_resolves_and_restores_editor` (select); confirm/input/editor share the same broker |
+| `showSettingsSelector` | `show_settings_selector` | `ui_tests::settings_selector_updates_http_timeout_and_writes_settings_file`, `ui_tests::settings_selector_switches_tui_mode_and_reports_status`, `ui_tests::settings_selector_updates_session_auto_compact_and_thinking_level` |
+| `showModelsSelector` / `persistEnabledModelsForSelector` | `show_models_selector` / `persist_enabled_models_for_selector` | `ui_tests::scoped_models_selector_updates_session_scope_and_persists_selection` |
+| `showTrustSelector` | `show_trust_selector` | `ui_tests::trust_selector_saves_decision_and_reports_status` |
+| `showSandboxSelector` / `updateBwrapStatusForSandboxProfile` | `show_sandbox_selector` / `update_bwrap_status_for_sandbox_profile` | `ui_tests::sandbox_selector_saves_profile_and_updates_bwrap_status` |
+| `showApprovalSelector` | `show_approval_selector` | `ui_tests::approval_selector_saves_preset_and_reports_status` |
+| `showUserMessageSelector` | `show_user_message_selector` / `fork_from_entry` | `ui_tests::fork_selector_forks_from_the_selected_user_message` |
+| `showTreeSelector` / `handleTreeSelectionWithoutNavigation` / `startCompactionSummaryEdit` / `materializeCompactionSummaryForEdit` | `show_tree_selector` / `handle_tree_selection` / `start_compaction_summary_edit` / `materialize_compaction_summary_for_edit` | `ui_tests::tree_selector_navigates_to_the_selected_entry` |
+| `showSessionSelector` / `handleResumeSession` / `continueInterruptedResumedSession` | `show_session_selector` / `handle_resume_session` / `continue_interrupted_resumed_session` | `ui_tests::resume_selector_switches_to_the_selected_session` |
+| `handleLoginCommand` / `showLoginAuthTypeSelector` / `showLoginProviderSelector` / `startProviderLogin` / `showLoginDialog` / `showApiKeyLoginDialog` / `completeProviderAuthentication` | `handle_login_command` / `show_login_auth_type_selector` / `show_login_provider_selector` / `start_provider_login` / `show_login_dialog` / `show_api_key_login_dialog` / `complete_provider_authentication` | `ui_tests::login_selector_opens_the_ambient_auth_dialog` |
+| `showOAuthSelector` (logout) | `show_oauth_selector(true)` | `ui_tests::logout_selector_removes_the_stored_api_key` |
+| `setEditorComponent` / `getEditorComponent` / `addAutocompleteProvider` | `set_custom_editor_component` / `UiRequest::GetEditorComponent` / `add_autocomplete_provider` | `ui_tests::extension_select_dialog_resolves_and_restores_editor` plus component tests in `tests/differential_interactive_components.rs` |
+| `handleCtrlZ` / `suspendToBackground` | `handle_ctrl_z` / `suspend_to_background` | no direct test (sends SIGTSTP) |
 
 ## Implemented branches
 
@@ -37,13 +49,14 @@ multi-agent child transcripts are explicit gaps below.
   level changes, bash-message commits.
 - Editor submission: slash-command dispatch, bash mode (`!`/`!!`), streaming
   steering, compaction queueing, plain prompts.
-- Slash commands implemented: `/help`, `/hotkeys`, `/model`, `/thinking`,
-  `/theme`, `/session`, `/tools`, `/extensions`, `/changelog`, `/copy`,
-  `/name`, `/unname`, `/compact`, `/reload`, `/export`, `/import`, `/cd`,
-  `/clone`, `/new`, `/continue`, `/quit`, extension commands, prompt templates.
-- Key actions: clear/exit/suspend message, thinking cycle/toggle, model cycle,
-  tools expand, external editor, copy, follow-up, dequeue, new session,
-  tree/fork/resume/agent-select gap messages.
+- Slash commands implemented: `/help`, `/hotkeys`, `/settings`, `/scoped-models`,
+  `/model`, `/thinking`, `/theme`, `/session`, `/tools`, `/extensions`,
+  `/changelog`, `/copy`, `/name`, `/unname`, `/compact`, `/reload`, `/export`,
+  `/import`, `/cd`, `/clone`, `/new`, `/continue`, `/quit`, `/fork`, `/tree`,
+  `/trust`, `/login`, `/logout`, `/resume`, extension commands, prompt templates.
+- Key actions: clear/exit/suspend, thinking cycle/toggle, model cycle, tools
+  expand, external editor, copy, follow-up, dequeue, new session, tree, fork,
+  resume; the agent-select action remains a gap message.
 - Extension UI: select, confirm, input, editor, notify, requestRender,
   onTerminalInput, setStatus, working message/visibility/indicator,
   hidden-thinking label, string widgets, setTitle, paste/set/get editor text,
@@ -56,20 +69,14 @@ multi-agent child transcripts are explicit gaps below.
 - Multi-agent child view: `selectAgentView`, child transcript watching/reload,
   agent slots, agent switcher, banner updates, `steerMultiAgent`,
   `cancelMultiAgent`. Requires the child `SessionManager`/transcript API.
-- Selector components that require `Rc<RefCell<SettingsManager>>` sharing:
-  `/settings`, `/scoped-models`, trust, sandbox, login/logout, model selector
-  (search UI), session selector, tree selector, user-message/fork selector.
-  The mode shows an explicit "not ported yet" status for these commands.
-- `setEditorComponent` / `getEditorComponent` (custom editor factories).
-- `addAutocompleteProvider` (wrapper factories).
+- Share viewer (`/share`).
 - Startup changelog rendering and install telemetry network call.
-- Clipboard image paste (`Ctrl+V`), right-click paste, suspend (`Ctrl+Z`),
-  signal handlers, process restart.
+- Prompt-activity counters (`setPromptActivity`) used by the tree
+  compaction-summary loaders; loaders and escape cancellation are implemented.
 - Fullscreen render regions/scroll view: the fullscreen renderer is selected
   and mounted, but scroll-region layout callbacks are no-ops.
-- `resolvedEnabledModelsPersistTarget` helper: removed with the scoped-models
-  selector gap.
-- Anthropic subscription-auth warning: helper removed with the auth gap.
+- Anthropic subscription-auth warning and the daxnuts easter egg hooks in
+  `completeProviderAuthentication`.
 
 ## Discrepancies
 
@@ -81,6 +88,14 @@ multi-agent child transcripts are explicit gaps below.
 - `MessageEnd` updates the component created at `MessageStart` in place; the
   source moves the component from the transcript tail into the chat container.
   Rendering is equivalent in regular mode.
+- Ambient API-key providers are detected by attempting the login dialog and
+  falling back to the ambient info dialog when the runtime reports
+  `"<provider> does not support api_key login"`. The Rust provider-auth traits
+  expose `login()` but no side-effect-free availability query, unlike the
+  TypeScript method object.
+- `AgentSession::update_compaction_summary` logs failures instead of returning
+  them (existing agent-session gap), so the compaction-summary edit path cannot
+  surface update errors.
 
 ## Differential
 
@@ -89,3 +104,7 @@ Not implemented for the whole mode: driving the real TypeScript
 build. Deterministic helpers are covered by unit tests; the interactive
 behavior tests drive the real Rust mode in a capture terminal with the faux
 provider. This is recorded as a coverage gap in `coverage.md`.
+
+Behavior tests drive the real mode through a capture terminal: startup,
+prompt submission, bash mode, settings, scoped models, trust, sandbox,
+approval, fork, tree, resume, login and logout.
