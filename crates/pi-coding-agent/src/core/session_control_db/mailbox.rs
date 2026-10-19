@@ -1186,9 +1186,9 @@ fn notify_runtime_mailbox_listener(listener: Option<&RuntimeMailboxListenerRow>)
     if !is_verified_pi_runtime_process(listener.pid) {
         return;
     }
-    if listener.pid == std::process::id() {
-        // The Rust runtime installs no SIGUSR2 wake handler; signalling ourselves would
-        // terminate the process. Polling delivers the message instead.
+    if listener.pid == std::process::id() && !runtime_mailbox_signal_keepalive_installed() {
+        // Signalling ourselves before a SIGUSR2 handler exists would terminate the
+        // process (OS default action). Polling delivers the message instead.
         return;
     }
     let Some(pid) = i32::try_from(listener.pid)
@@ -1198,6 +1198,19 @@ fn notify_runtime_mailbox_listener(listener: Option<&RuntimeMailboxListenerRow>)
         return;
     };
     let _ = rustix::process::kill_process(pid, rustix::process::Signal::USR2);
+}
+
+/// `installRuntimeMailboxSignalKeepalive`: once this process advertises itself as a
+/// runtime mailbox listener, stray SIGUSR2 wakes must not terminate it.
+static RUNTIME_MAILBOX_SIGNAL_KEEPALIVE_INSTALLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub fn mark_runtime_mailbox_signal_keepalive_installed() {
+    RUNTIME_MAILBOX_SIGNAL_KEEPALIVE_INSTALLED.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn runtime_mailbox_signal_keepalive_installed() -> bool {
+    RUNTIME_MAILBOX_SIGNAL_KEEPALIVE_INSTALLED.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 /// `markRuntimeMailboxMessageDelivered`.

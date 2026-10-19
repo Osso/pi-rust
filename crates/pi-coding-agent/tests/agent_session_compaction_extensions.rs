@@ -1,0 +1,508 @@
+//! Behavioral tests for the compaction extension boundary in
+//! `core/agent-session.ts`: the `session_before_compact` preflight, the
+//! `compaction` provider event, and the background-cache `compaction` override.
+
+use std::sync::{Arc, Mutex};
+
+use pi_agent_core::harness::types::ThinkingLevel;
+use pi_ai::providers::faux::{
+    FauxAssistantMessageOptions, FauxModelDefinition, FauxProviderHandle, RegisterFauxProviderOptions,
+    faux_assistant_message, faux_provider,
+};
+use pi_coding_agent::core::agent_session::{AgentSession, AgentSessionEvent};
+use pi_coding_agent::core::auth_storage::AuthStorage;
+use pi_coding_agent::core::compaction::{CompactionResult, CompactionSourceInfo, CompactionSourceType};
+use pi_coding_agent::core::extensions::types::HandlerError;
+use pi_coding_agent::core::extensions::types::{
+    CompactionEvent, CompactionEventResult, CompactionReason, SessionBeforeCompactEvent, SessionBeforeCompactResult,
+};
+use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::resource_loader::InlineExtension;
+use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, NoTools, create_agent_session};
+use pi_coding_agent::core::session_manager::{SessionEntry, SessionManager, lock_session_manager};
+use pi_coding_agent::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
+use serde_json::json;
+
+const DISABLED_MESSAGE: &str = "Built-in compaction is disabled; enable compaction or configure a compaction extension";
+
+fn faux_model() -> FauxModelDefinition {
+    FauxModelDefinition {
+        id: "faux-1".to_owned(),
+        name: Some("Faux Model".to_owned()),
+        reasoning: Some(true),
+        input: None,
+        cost: None,
+        context_window: Some(100_000.0),
+        max_tokens: Some(4096.0),
+    }
+}
+
+async fn model_runtime(faux: &FauxProviderHandle) -> ModelRuntime {
+    let mut data = serde_json::Map::new();
+    data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
+    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+        credentials: Some(Arc::new(AuthStorage::in_memory(data))),
+        models_path: Some(None),
+        refresh_on_create: Some(false),
+        ..Default::default()
+    })
+    .await
+    .expect("model runtime");
+    runtime.register_native_provider(Arc::clone(&faux.provider));
+    runtime
+}
+
+fn settings(compaction: serde_json::Value) -> Settings {
+    let mut map = serde_json::Map::new();
+    map.insert("compaction".to_owned(), compaction);
+    map
+}
+
+struct Captured {
+    before: Vec<SessionBeforeCompactEvent>,
+    compaction: Vec<CompactionEvent>,
+}
+
+impl Captured {
+    fn new() -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(Self {
+            before: Vec::new(),
+            compaction: Vec::new(),
+        }))
+    }
+}
+
+fn extension_result(
+    summary: &str,
+    preparation: &pi_coding_agent::core::compaction::CompactionPreparation,
+) -> CompactionResult {
+    CompactionResult {
+        summary: summary.to_owned(),
+        first_kept_entry_id: preparation.first_kept_entry_id.clone(),
+        tokens_before: preparation.tokens_before,
+        duration_ms: None,
+        estimated_tokens_after: None,
+        kept_from_previous_context_tokens: None,
+        compacted_result_tokens: None,
+        compacted_result_bytes: None,
+        source: Some(CompactionSourceInfo {
+            r#type: CompactionSourceType::Local,
+            provider: "faux".to_owned(),
+            model: "faux-1".to_owned(),
+            endpoint: None,
+        }),
+        usage: None,
+        provider_native: None,
+        details: Some(json!({"origin": "extension"})),
+    }
+}
+
+struct Env {
+    session: AgentSession,
+    faux: FauxProviderHandle,
+    captured: Arc<Mutex<Captured>>,
+    events: Arc<Mutex<Vec<AgentSessionEvent>>>,
+    _dir: tempfile::TempDir,
+}
+
+fn seed_compactable_session(manager: &mut SessionManager) {
+    manager
+        .append_message(pi_agent_core::agent::types::AgentMessage::User(
+            pi_ai::types::UserMessage {
+                role: pi_ai::types::UserRole::Tag,
+                content: pi_ai::types::UserContent::Text("older message to compact".to_owned()),
+                input_source: None,
+                provider_native: None,
+                timestamp: 0,
+            },
+        ))
+        .expect("older user message");
+    manager
+        .append_message(pi_agent_core::agent::types::AgentMessage::Assistant(Box::new(
+            faux_assistant_message("assistant response to compact", FauxAssistantMessageOptions::default()),
+        )))
+        .expect("older assistant message");
+}
+
+type BeforeHook = Arc<dyn Fn(&SessionBeforeCompactEvent) -> Option<SessionBeforeCompactResult> + Send + Sync>;
+type CompactionHook = Arc<dyn Fn(&CompactionEvent) -> Option<CompactionEventResult> + Send + Sync>;
+
+async fn env_with(
+    compaction: serde_json::Value,
+    before: Option<BeforeHook>,
+    compaction_hook: Option<CompactionHook>,
+) -> Env {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let cwd = dir.path().join("repo").display().to_string();
+    std::fs::create_dir_all(&cwd).expect("cwd");
+    let agent_dir = dir.path().join("agent").display().to_string();
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    let session_dir = dir.path().join("sessions").display().to_string();
+    let faux = faux_provider(RegisterFauxProviderOptions {
+        provider: Some("faux".to_owned()),
+        models: Some(vec![faux_model()]),
+        ..Default::default()
+    });
+    let runtime = model_runtime(&faux).await;
+    let model = faux.get_model(None).expect("model");
+    let mut manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
+    seed_compactable_session(&mut manager);
+
+    let captured = Captured::new();
+    let before_capture = Arc::clone(&captured);
+    let compaction_capture = Arc::clone(&captured);
+    let factory = Arc::new(move |api: &pi_coding_agent::core::extensions::ExtensionApi| {
+        let before_capture = Arc::clone(&before_capture);
+        let compaction_capture = Arc::clone(&compaction_capture);
+        let before = before.clone();
+        let compaction_hook = compaction_hook.clone();
+        let registered = (|| -> Result<(), String> {
+            api.on_session_before_compact(move |event: SessionBeforeCompactEvent, _ctx| {
+                let before_capture = Arc::clone(&before_capture);
+                let before = before.clone();
+                Box::pin(async move {
+                    before_capture.lock().expect("captured").before.push(event.clone());
+                    Ok(before.as_ref().and_then(|before| before(&event)))
+                })
+                    as pi_coding_agent::core::extensions::BoxFuture<
+                        'static,
+                        Result<Option<SessionBeforeCompactResult>, HandlerError>,
+                    >
+            })?;
+            api.on_compaction(move |event: CompactionEvent, _ctx| {
+                let compaction_capture = Arc::clone(&compaction_capture);
+                let compaction_hook = compaction_hook.clone();
+                Box::pin(async move {
+                    compaction_capture
+                        .lock()
+                        .expect("captured")
+                        .compaction
+                        .push(event.clone());
+                    Ok(compaction_hook.as_ref().and_then(|hook| hook(&event)))
+                })
+                    as pi_coding_agent::core::extensions::BoxFuture<
+                        'static,
+                        Result<Option<CompactionEventResult>, HandlerError>,
+                    >
+            })?;
+            Ok(())
+        })();
+        Box::pin(async move { registered.map_err(HandlerError::new) })
+            as pi_coding_agent::core::extensions::BoxFuture<'static, Result<(), HandlerError>>
+    });
+
+    let settings_manager = SettingsManager::in_memory(settings(compaction), SettingsManagerCreateOptions::default());
+    let result = create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(cwd.clone()),
+        agent_dir: Some(agent_dir),
+        model_runtime: Some(runtime),
+        model: Some(model),
+        thinking_level: Some(ThinkingLevel::Off),
+        no_tools: Some(NoTools::All),
+        session_manager: Some(manager),
+        settings_manager: Some(Arc::new(Mutex::new(settings_manager))),
+        extension_factories: vec![InlineExtension::Factory {
+            extension_path: Some("<inline:compaction-test>".to_owned()),
+            factory,
+        }],
+        ..Default::default()
+    })
+    .await
+    .expect("session");
+    assert!(
+        result.extensions_result.errors.is_empty(),
+        "{:?}",
+        result.extensions_result.errors
+    );
+
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&events);
+    result.session.subscribe(Arc::new(move |event: &AgentSessionEvent| {
+        sink.lock().expect("events").push(event.clone());
+    }));
+    Env {
+        session: result.session,
+        faux,
+        captured,
+        events,
+        _dir: dir,
+    }
+}
+
+fn compaction_entry(session: &AgentSession) -> SessionEntry {
+    lock_session_manager(&session.session_manager_handle())
+        .get_entries()
+        .into_iter()
+        .find(|entry| entry.entry_type() == "compaction")
+        .expect("compaction entry")
+}
+
+#[tokio::test]
+async fn manual_compaction_uses_the_compaction_hook_and_marks_from_hook() {
+    let env = env_with(
+        json!({"keepRecentTokens": 1}),
+        None,
+        Some(Arc::new(|event: &CompactionEvent| {
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("summary from extension", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+
+    let result = env.session.compact(None).await.expect("compact");
+    assert_eq!(result.summary, "summary from extension");
+    assert_eq!(
+        result.source,
+        Some(CompactionSourceInfo {
+            r#type: CompactionSourceType::Local,
+            provider: "faux".to_owned(),
+            model: "faux-1".to_owned(),
+            endpoint: None,
+        })
+    );
+    assert_eq!(result.details, Some(json!({"origin": "extension"})));
+
+    let entry = compaction_entry(&env.session);
+    let SessionEntry::Known(pi_coding_agent::core::session_manager::KnownSessionEntry::Compaction(entry)) = entry
+    else {
+        panic!("expected a compaction entry");
+    };
+    assert_eq!(entry.summary, "summary from extension");
+    assert_eq!(entry.from_hook, Some(true));
+    assert_eq!(entry.details.as_deref(), Some(&json!({"origin": "extension"})));
+
+    let captured = env.captured.lock().expect("captured");
+    assert_eq!(captured.before.len(), 1);
+    assert_eq!(captured.before[0].reason, CompactionReason::Manual);
+    assert!(!captured.before[0].will_retry);
+    assert_eq!(captured.compaction.len(), 1);
+    assert_eq!(captured.compaction[0].reason, CompactionReason::Manual);
+    assert!(!captured.compaction[0].branch_entries.is_empty());
+}
+
+#[tokio::test]
+async fn manual_compaction_preflight_overrides_and_forwards_custom_instructions() {
+    let env = env_with(
+        json!({"keepRecentTokens": 1}),
+        Some(Arc::new(|event: &SessionBeforeCompactEvent| {
+            assert_eq!(event.custom_instructions.as_deref(), Some("keep decisions"));
+            Some(SessionBeforeCompactResult {
+                cancel: None,
+                compaction: Some(extension_result("preflight summary", &event.preparation)),
+            })
+        })),
+        None,
+    )
+    .await;
+
+    let result = env.session.compact(Some("keep decisions")).await.expect("compact");
+    assert_eq!(result.summary, "preflight summary");
+    let SessionEntry::Known(pi_coding_agent::core::session_manager::KnownSessionEntry::Compaction(entry)) =
+        compaction_entry(&env.session)
+    else {
+        panic!("expected a compaction entry");
+    };
+    assert_eq!(entry.from_hook, Some(true));
+}
+
+#[tokio::test]
+async fn manual_compaction_preflight_cancel_reports_cancelled() {
+    let env = env_with(
+        json!({"keepRecentTokens": 1}),
+        Some(Arc::new(|_: &SessionBeforeCompactEvent| {
+            Some(SessionBeforeCompactResult {
+                cancel: Some(true),
+                compaction: None,
+            })
+        })),
+        None,
+    )
+    .await;
+
+    let error = env.session.compact(None).await.expect_err("cancelled");
+    assert_eq!(error.message(), "Compaction cancelled");
+    let events = env.events.lock().expect("events");
+    assert!(events.iter().any(|event| matches!(
+        event,
+        AgentSessionEvent::CompactionEnd(end) if end.aborted && end.result.is_none() && end.error_message.is_none()
+    )));
+    assert!(
+        !lock_session_manager(&env.session.session_manager_handle())
+            .get_entries()
+            .iter()
+            .any(|entry| entry.entry_type() == "compaction")
+    );
+}
+
+#[tokio::test]
+async fn disabled_builtin_compaction_uses_an_extension_result() {
+    let env = env_with(
+        json!({"enabled": false, "keepRecentTokens": 1}),
+        None,
+        Some(Arc::new(|event: &CompactionEvent| {
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result(
+                    "disabled local compaction summary",
+                    &event.preparation,
+                )),
+            })
+        })),
+    )
+    .await;
+
+    let result = env.session.compact(None).await.expect("compact");
+    assert_eq!(result.summary, "disabled local compaction summary");
+}
+
+#[tokio::test]
+async fn disabled_builtin_compaction_without_extension_result_fails_explicitly() {
+    let env = env_with(json!({"enabled": false, "keepRecentTokens": 1}), None, None).await;
+
+    let error = env.session.compact(None).await.expect_err("disabled");
+    assert_eq!(error.message(), DISABLED_MESSAGE);
+}
+
+#[tokio::test]
+async fn local_compaction_marks_the_entry_as_not_from_a_hook() {
+    let env = env_with(json!({"keepRecentTokens": 1}), None, None).await;
+    env.faux.set_responses(vec![
+        faux_assistant_message("local summary", FauxAssistantMessageOptions::default()).into(),
+        faux_assistant_message("local summary", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    let result = env.session.compact(None).await.expect("compact");
+    assert!(
+        result.summary.ends_with("local summary"),
+        "unexpected summary: {}",
+        result.summary
+    );
+    let SessionEntry::Known(pi_coding_agent::core::session_manager::KnownSessionEntry::Compaction(entry)) =
+        compaction_entry(&env.session)
+    else {
+        panic!("expected a compaction entry");
+    };
+    assert_eq!(entry.from_hook, Some(false));
+}
+
+#[tokio::test]
+async fn auto_compaction_runs_extension_handlers_when_builtin_is_disabled() {
+    let env = env_with(
+        json!({"enabled": false, "keepRecentTokens": 1, "reserveTokens": 99_000}),
+        None,
+        Some(Arc::new(|event: &CompactionEvent| {
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("auto extension summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+
+    env.faux.set_responses(vec![
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    env.session
+        .prompt("go", pi_coding_agent::core::agent_session::PromptOptions::default())
+        .await
+        .expect("prompt");
+
+    assert_eq!(env.captured.lock().expect("captured").compaction.len(), 1);
+    let entry = compaction_entry(&env.session);
+    let SessionEntry::Known(pi_coding_agent::core::session_manager::KnownSessionEntry::Compaction(entry)) = entry
+    else {
+        panic!("expected a compaction entry");
+    };
+    assert_eq!(entry.summary, "auto extension summary");
+    assert_eq!(entry.from_hook, Some(true));
+}
+
+#[tokio::test]
+async fn auto_compaction_reports_the_disabled_message_when_no_extension_result_exists() {
+    let env = env_with(
+        json!({"enabled": false, "keepRecentTokens": 1, "reserveTokens": 99_000}),
+        None,
+        None,
+    )
+    .await;
+
+    env.faux.set_responses(vec![
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    env.session
+        .prompt("go", pi_coding_agent::core::agent_session::PromptOptions::default())
+        .await
+        .expect("prompt");
+
+    let events = env.events.lock().expect("events");
+    let end = events
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            AgentSessionEvent::CompactionEnd(end) if end.reason == "threshold" => Some(end),
+            _ => None,
+        })
+        .expect("compaction_end");
+    let expected = format!("Auto-compaction failed: {DISABLED_MESSAGE}");
+    assert_eq!(end.error_message.as_deref(), Some(expected.as_str()));
+}
+
+#[tokio::test]
+async fn background_compaction_cache_uses_the_compaction_hook() {
+    let env = env_with(
+        json!({"keepRecentTokens": 1, "reserveTokens": 0}),
+        None,
+        Some(Arc::new(|event: &CompactionEvent| {
+            assert_eq!(event.reason, CompactionReason::Threshold);
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("background extension summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+
+    env.faux.set_responses(vec![
+        faux_assistant_message("first", FauxAssistantMessageOptions::default()).into(),
+    ]);
+    env.session
+        .prompt(
+            &"x".repeat(320_000),
+            pi_coding_agent::core::agent_session::PromptOptions::default(),
+        )
+        .await
+        .expect("first prompt");
+
+    for _ in 0..100 {
+        if env.captured.lock().expect("captured").compaction.len() == 1 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(env.captured.lock().expect("captured").compaction.len(), 1);
+
+    env.faux.set_responses(vec![
+        faux_assistant_message("second", FauxAssistantMessageOptions::default()).into(),
+    ]);
+    env.session
+        .prompt(
+            &"y".repeat(160_000),
+            pi_coding_agent::core::agent_session::PromptOptions::default(),
+        )
+        .await
+        .expect("second prompt");
+
+    let captured = env.captured.lock().expect("captured");
+    assert_eq!(captured.compaction.len(), 1, "the cache must not regenerate");
+    let SessionEntry::Known(pi_coding_agent::core::session_manager::KnownSessionEntry::Compaction(entry)) =
+        compaction_entry(&env.session)
+    else {
+        panic!("expected a compaction entry");
+    };
+    assert_eq!(entry.summary, "background extension summary");
+    assert_eq!(entry.from_hook, Some(true));
+}

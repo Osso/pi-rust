@@ -52,11 +52,14 @@ use crate::core::extensions::types::{
 use crate::core::footer_data_provider::FooterDataProvider;
 use crate::core::keybindings::KeybindingsManager;
 use crate::core::model_resolver::{ModelScopeCode, resolve_model_scope_from_models};
+use crate::core::multi_agent_store::{AgentLifecycle, AgentSnapshot, MultiAgentStore, lifecycle_name};
 use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
-use crate::core::session_manager::{CompactionEntry, SessionEntry};
+use crate::core::session_manager::{CompactionEntry, SessionEntry, SessionManager};
 use crate::core::settings_manager::TreeFilterMode;
 use crate::core::source_info::{SourceInfo, SourceScope};
 use crate::core::trust_manager::ProjectTrustStore;
+use crate::modes::interactive::components::agent_selection_banner::AgentSelectionBannerComponent;
+use crate::modes::interactive::components::agent_switcher::AgentSwitcherComponent;
 use crate::modes::interactive::components::approval_selector::{ApprovalSelectorComponent, ApprovalSelectorOptions};
 use crate::modes::interactive::components::armin::ArminComponent;
 use crate::modes::interactive::components::assistant_message::AssistantMessageComponent;
@@ -1826,6 +1829,11 @@ impl Component for AnyEditorHandle {
 pub type InputCallback = Rc<dyn Fn(String)>;
 
 /// `InteractiveModeOptions`.
+pub type SteerMultiAgent = Arc<dyn Fn(String, String, String) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
+pub type CancelMultiAgent = Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
+pub type AgentViewSelectorSlot =
+    Arc<std::sync::Mutex<Option<crate::bundled_extensions::agents_core::runtime::SelectAgentView>>>;
+
 #[derive(Default)]
 pub struct InteractiveModeOptions {
     pub migrated_providers: Vec<String>,
@@ -1838,6 +1846,16 @@ pub struct InteractiveModeOptions {
     pub verbose: bool,
     pub tui_mode: Option<TuiMode>,
     pub control_db_path: Option<String>,
+    /// Shared first-party multi-agent store for agent slot selection.
+    pub multi_agent_store: Option<Arc<MultiAgentStore>>,
+    /// Wake an active multi-agent wait after main-session steering is queued.
+    pub wake_wait_agents_after_steering: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Submit editor text to the selected agent through the lifecycle coordinator.
+    pub steer_multi_agent: Option<SteerMultiAgent>,
+    /// Request cancellation of the selected agent's runtime.
+    pub cancel_multi_agent: Option<CancelMultiAgent>,
+    /// Slot filled with the bridge selector used by `agent_viewer`.
+    pub agent_view_selector_slot: Option<AgentViewSelectorSlot>,
 }
 
 /// `PromptActivitySource`: non-streaming work that keeps the prompt animated.
@@ -1887,6 +1905,10 @@ impl UiShared {
 
 /// Requests crossing from extension threads into the TUI thread.
 enum UiRequest {
+    SelectAgentView {
+        agent_id: String,
+        respond: tokio::sync::oneshot::Sender<bool>,
+    },
     Select {
         title: String,
         options: Vec<String>,
@@ -2443,6 +2465,8 @@ pub struct InteractiveMode {
     runtime: tokio::sync::Mutex<AgentSessionRuntime>,
     session: RefCell<AgentSession>,
     options: InteractiveModeOptions,
+    multi_agent_store: Option<Arc<MultiAgentStore>>,
+    child_view: RefCell<Option<ChildAgentView>>,
     ui: Rc<InteractiveTuiHandle>,
     header_container: Rc<RefCell<Container>>,
     loaded_resources_container: Rc<RefCell<Container>>,
@@ -2519,6 +2543,53 @@ pub struct InteractiveMode {
     active_session_selector: RefCell<Option<Rc<tokio::sync::Mutex<SessionSelectorComponent>>>>,
     auth_ui: RefCell<Option<AuthUiState>>,
     session_selector_loaded: Cell<bool>,
+}
+
+/// Selected child agent transcript shown in place of the main conversation.
+struct ChildAgentView {
+    transcript_path: Option<String>,
+    stamp: Option<(u64, u64)>,
+}
+
+/// Reads a child agent transcript for the selected-agent view.
+pub fn read_child_transcript(path: &str, session_dir: &str) -> Option<Vec<AgentMessage>> {
+    if !std::path::Path::new(path).exists() {
+        return None;
+    }
+    let manager = SessionManager::open(path, Some(session_dir), None).ok()?;
+    Some(manager.build_session_context().messages)
+}
+
+fn is_steerable_agent(agent: &AgentSnapshot) -> bool {
+    let has_parent = agent.parent_id.as_deref() == Some("main");
+    let has_transcript = agent
+        .transcript
+        .as_ref()
+        .is_some_and(|transcript| !transcript.session_id.is_empty());
+    has_parent
+        && has_transcript
+        && matches!(
+            agent.lifecycle,
+            AgentLifecycle::Running | AgentLifecycle::WaitingForInput | AgentLifecycle::SteeringPending
+        )
+}
+
+fn is_interruptible_lifecycle(lifecycle: AgentLifecycle) -> bool {
+    matches!(
+        lifecycle,
+        AgentLifecycle::Running | AgentLifecycle::SteeringPending | AgentLifecycle::Cancelling
+    )
+}
+
+fn transcript_stamp(path: &str) -> Option<(u64, u64)> {
+    let metadata = std::fs::metadata(path).ok()?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_default();
+    Some((metadata.len(), modified))
 }
 
 impl InteractiveMode {
@@ -2629,11 +2700,14 @@ impl InteractiveMode {
 
         let (ui_sender, ui_receiver) = std::sync::mpsc::channel();
         let shared = Arc::new(UiShared::new());
+        let multi_agent_store = options.multi_agent_store.clone();
 
         let mode = Rc::new(Self {
             runtime: tokio::sync::Mutex::new(runtime),
             session: RefCell::new(session),
             options,
+            multi_agent_store,
+            child_view: RefCell::new(None),
             ui,
             header_container,
             loaded_resources_container,
@@ -2716,6 +2790,21 @@ impl InteractiveMode {
         let id = register_mode(&mode);
         mode.ui_id.set(id);
 
+        if let Some(slot) = mode.options.agent_view_selector_slot.as_ref() {
+            let sender = mode.ui_sender.clone();
+            *slot.lock().expect("agent view selector") = Some(Arc::new(move |agent_id: &str| {
+                let sender = sender.clone();
+                let agent_id = agent_id.to_owned();
+                Box::pin(async move {
+                    let (respond, receiver) = tokio::sync::oneshot::channel();
+                    if sender.send(UiRequest::SelectAgentView { agent_id, respond }).is_err() {
+                        return Some(false);
+                    }
+                    receiver.await.ok()
+                })
+            }));
+        }
+
         mode.editor_container
             .borrow_mut()
             .add_child(Rc::clone(&mode.editor_handle.borrow()));
@@ -2792,6 +2881,206 @@ impl InteractiveMode {
 
     fn cwd(&self) -> String {
         self.session.borrow().cwd().to_owned()
+    }
+
+    /// `selectAgentViewFromBridge`: opens a child transcript or restores the main view.
+    pub fn select_agent_view_from_bridge(&self, agent_id: &str) -> bool {
+        let Some(store) = self.multi_agent_store.as_ref() else {
+            return false;
+        };
+        if agent_id == "main" {
+            store.clear_selected_agent_view();
+            self.clear_child_agent_view();
+            self.loaded_resources_container.borrow_mut().clear();
+            self.chat_container.borrow_mut().clear();
+            self.render_initial_messages();
+            self.ui.request_render();
+            return true;
+        }
+        let Some(agent) = store.get_agent(agent_id) else {
+            return false;
+        };
+        let previous = store.get_selected_agent_id();
+        if !matches!(
+            store.select_agent_view_with_status(agent_id),
+            crate::core::multi_agent_store::AgentViewSelectionResult::Ok(_)
+        ) {
+            return false;
+        }
+        if !self.open_child_agent_view(&agent) {
+            self.restore_previous_agent_selection(previous.as_deref());
+            return false;
+        }
+        self.loaded_resources_container.borrow_mut().clear();
+        self.ui.request_render();
+        true
+    }
+
+    fn restore_previous_agent_selection(&self, agent_id: Option<&str>) {
+        let Some(store) = self.multi_agent_store.as_ref() else {
+            return;
+        };
+        match agent_id {
+            Some(agent_id) => {
+                if !matches!(
+                    store.select_agent_view_with_status(agent_id),
+                    crate::core::multi_agent_store::AgentViewSelectionResult::Ok(_)
+                ) {
+                    store.clear_selected_agent_view();
+                }
+            }
+            None => store.clear_selected_agent_view(),
+        }
+    }
+
+    fn open_child_agent_view(&self, agent: &AgentSnapshot) -> bool {
+        let transcript_path = agent.transcript.as_ref().and_then(|transcript| transcript.path.clone());
+        self.clear_child_agent_view();
+        let stamp = transcript_path.as_deref().and_then(transcript_stamp);
+        *self.child_view.borrow_mut() = Some(ChildAgentView { transcript_path, stamp });
+        if self.render_child_agent_view() {
+            return true;
+        }
+        self.render_live_agent_placeholder(agent);
+        true
+    }
+
+    fn render_child_agent_view(&self) -> bool {
+        self.chat_container.borrow_mut().clear();
+        let session_dir = self.session.borrow().session_manager().get_session_dir().to_owned();
+        let messages = self
+            .child_view
+            .borrow()
+            .as_ref()
+            .and_then(|view| view.transcript_path.as_deref())
+            .and_then(|path| read_child_transcript(path, &session_dir))
+            .unwrap_or_default();
+        if messages.is_empty() {
+            return false;
+        }
+        for message in &messages {
+            self.add_message_to_chat(message);
+        }
+        self.ui.request_render();
+        true
+    }
+
+    fn render_live_agent_placeholder(&self, agent: &AgentSnapshot) {
+        let transcript = agent
+            .transcript
+            .as_ref()
+            .and_then(|transcript| transcript.path.as_deref())
+            .map(|path| format!(" (transcript: {path})"))
+            .unwrap_or_default();
+        self.show_status(&format!(
+            "{} is {}{transcript}",
+            agent.display_name,
+            lifecycle_name(agent.lifecycle)
+        ));
+        self.ui.request_render();
+    }
+
+    fn clear_child_agent_view(&self) {
+        *self.child_view.borrow_mut() = None;
+    }
+
+    /// Reloads the selected child transcript when its file changes (polling
+    /// replaces `fs.watch`; the TUI loop already ticks).
+    fn reload_child_view_if_changed(&self) {
+        let Some((path, current_stamp)) = self
+            .child_view
+            .borrow()
+            .as_ref()
+            .and_then(|view| view.transcript_path.clone().map(|path| (path, view.stamp)))
+        else {
+            return;
+        };
+        let stamp = transcript_stamp(&path);
+        if stamp.is_none() || stamp == current_stamp {
+            return;
+        }
+        if let Some(view) = self.child_view.borrow_mut().as_mut() {
+            view.stamp = stamp;
+            self.render_child_agent_view();
+        }
+    }
+
+    async fn submit_selected_agent_steering(&self, message: &str, submitted_text: &str) -> bool {
+        let Some(store) = self.multi_agent_store.as_ref() else {
+            return false;
+        };
+        let Some(agent_id) = store.get_selected_agent_id() else {
+            return false;
+        };
+        let Some(agent) = store.get_agent(&agent_id) else {
+            return false;
+        };
+        if !is_steerable_agent(&agent) {
+            self.show_error(&format!(
+                "Could not steer {}: agent is not steerable",
+                agent.display_name
+            ));
+            self.editor().borrow_mut().set_text(submitted_text);
+            return true;
+        }
+        let Some(steer) = self.options.steer_multi_agent.clone() else {
+            self.show_error(&format!(
+                "Could not steer {}: lifecycle coordinator unavailable",
+                agent.display_name
+            ));
+            self.editor().borrow_mut().set_text(submitted_text);
+            return true;
+        };
+        let session_id = self.session.borrow().session_manager().get_session_id().to_owned();
+        match steer(agent_id, message.to_owned(), session_id).await {
+            Ok(()) => {
+                self.add_submitted_text_to_history(message);
+                self.clear_editor();
+                self.ui.request_render();
+            }
+            Err(error) => {
+                self.show_error(&format!("Could not steer {}: {error}", agent.display_name));
+                self.editor().borrow_mut().set_text(submitted_text);
+            }
+        }
+        true
+    }
+
+    fn cancel_selected_agent_turn(&self) -> bool {
+        let Some(store) = self.multi_agent_store.as_ref() else {
+            return false;
+        };
+        let Some(agent_id) = store.get_selected_agent_id() else {
+            return false;
+        };
+        let Some(agent) = store.get_agent(&agent_id) else {
+            return false;
+        };
+        if !is_interruptible_lifecycle(agent.lifecycle) {
+            return false;
+        }
+        let Some(cancel) = self.options.cancel_multi_agent.clone() else {
+            self.show_status(&format!(
+                "Could not cancel {}: lifecycle coordinator unavailable",
+                agent.display_name
+            ));
+            self.ui.request_render();
+            return true;
+        };
+        self.show_status(&format!("Requesting cancellation for {}...", agent.display_name));
+        let display_name = agent.display_name.clone();
+        let id = self.ui_id.get();
+        tokio::task::spawn_local(async move {
+            let cancelled = cancel(agent_id).await;
+            with_mode(id, |mode| {
+                match cancelled {
+                    Ok(()) => mode.show_status(&format!("Cancellation requested for {display_name}.")),
+                    Err(error) => mode.show_status(&format!("Could not cancel {display_name}: {error}")),
+                }
+                mode.ui.request_render();
+            });
+        });
+        true
     }
 
     fn markdown_theme(&self) -> Rc<dyn pi_tui::components::markdown::MarkdownTheme> {
@@ -3932,6 +4221,16 @@ impl InteractiveMode {
             true,
             true,
         );
+        if let Some(store) = self.multi_agent_store.as_ref()
+            && let Some(theme) = crate::modes::interactive::theme::current_theme_if_initialized()
+        {
+            self.widget_container_above
+                .borrow_mut()
+                .add_child(component(AgentSelectionBannerComponent::new(
+                    Some(Arc::clone(store)),
+                    theme,
+                )));
+        }
         self.render_widget_container(
             &self.widget_container_below,
             &self.extension_widgets_below.borrow(),
@@ -4206,6 +4505,9 @@ impl InteractiveMode {
         if self.is_bash_mode.get() {
             self.is_bash_mode.set(false);
             self.update_editor_border_color();
+            return;
+        }
+        if self.cancel_selected_agent_turn() {
             return;
         }
         let session = self.session.borrow().clone();
@@ -4532,10 +4834,9 @@ impl InteractiveMode {
         self.default_editor
             .borrow_mut()
             .on_action("app.session.resume", action(self, |mode| mode.show_session_selector()));
-        self.default_editor.borrow_mut().on_action(
-            "app.agent.select",
-            action(self, |mode| mode.show_status("Agent switcher is not ported yet.")),
-        );
+        self.default_editor
+            .borrow_mut()
+            .on_action("app.agent.select", action(self, InteractiveMode::show_agent_switcher));
 
         let mode = Rc::clone(self);
         let debug_handler: Rc<dyn Fn()> = Rc::new(move || {
@@ -4581,6 +4882,7 @@ impl InteractiveMode {
         self.update_terminal_current_directory();
         self.update_terminal_title();
         self.theme_controller.borrow_mut().apply_from_settings();
+        self.render_widgets();
         self.build_header();
         self.show_loaded_resources(false, true);
         self.show_startup_notices_if_needed();
@@ -4861,6 +5163,7 @@ impl InteractiveMode {
             }
             self.ui.process_events();
             self.ui.flush_pending();
+            self.reload_child_view_if_changed();
             self.update_editor_border_color();
             self.handle_ui_requests().await;
             self.drain_actions().await;
@@ -4951,6 +5254,13 @@ impl InteractiveMode {
         self.close_response_complete_notification();
         if text.starts_with('/') {
             self.add_submitted_text_to_history(&text);
+        }
+
+        if !text.starts_with('/')
+            && !text.starts_with('!')
+            && self.submit_selected_agent_steering(&text, &submitted_text).await
+        {
+            return;
         }
 
         if let Some(command) = text.strip_prefix('/') {
@@ -5119,7 +5429,7 @@ impl InteractiveMode {
             }
             "reload" => self.handle_reload_command().await,
             "resume" => self.show_session_selector(),
-            "agents" => self.show_status("Agent switcher is not ported yet."),
+            "agents" => self.show_agent_switcher(),
             "quit" => self.shutdown_requested.set(true),
             "arminsayshi" => self.handle_armin_says_hi(),
             "dementedelves" => self.handle_demented_delves(),
@@ -5556,6 +5866,43 @@ impl InteractiveMode {
             .clone()
             .expect("settings selector must be installed");
         self.show_selector(component(SharedSettingsSelector(selector)));
+    }
+
+    fn show_agent_switcher(&self) {
+        let Some(store) = self.multi_agent_store.as_ref() else {
+            self.show_status("Agent switcher is unavailable: no multi-agent store.");
+            return;
+        };
+        let agents = store.list_agents();
+        if agents.is_empty() {
+            self.show_status("No agents to show.");
+            return;
+        }
+        let selected = store.get_selected_agent_id();
+        let mode = self.ui_id.get();
+        let on_select: Rc<dyn Fn(String)> = Rc::new(move |agent_id| {
+            with_mode(mode, |mode| {
+                mode.select_agent_view_from_bridge(&agent_id);
+                mode.restore_editor();
+            });
+        });
+        let mode = self.ui_id.get();
+        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode, |mode| mode.restore_editor());
+        });
+        let mode = self.ui_id.get();
+        let on_inactive: Rc<dyn Fn(AgentSnapshot)> = Rc::new(move |agent| {
+            with_mode(mode, |mode| {
+                mode.show_status(&format!(
+                    "{} is {}",
+                    agent.display_name,
+                    lifecycle_name(agent.lifecycle)
+                ));
+                mode.restore_editor();
+            });
+        });
+        let switcher = AgentSwitcherComponent::new(agents, selected, on_select, on_cancel, on_inactive);
+        self.show_selector(component(switcher));
     }
 
     fn show_selector(&self, selector: ComponentRef) {
@@ -8160,6 +8507,10 @@ impl InteractiveMode {
 
     async fn handle_ui_request(&self, request: UiRequest) {
         match request {
+            UiRequest::SelectAgentView { agent_id, respond } => {
+                let selected = self.select_agent_view_from_bridge(&agent_id);
+                let _ = respond.send(selected);
+            }
             UiRequest::Select {
                 title,
                 options,
@@ -8864,7 +9215,11 @@ impl InteractiveMode {
                 self.update_pending_messages_display();
                 self.ui.request_render();
             }
-            AgentSessionEvent::SteeringMessageQueued(_) => {}
+            AgentSessionEvent::SteeringMessageQueued(_) => {
+                if let Some(wake) = self.options.wake_wait_agents_after_steering.as_ref() {
+                    wake();
+                }
+            }
             AgentSessionEvent::AgentSettled(_) => {}
             AgentSessionEvent::CompactionStart(event) => {
                 self.set_prompt_activity(PromptActivitySource::Compaction, true);
@@ -9283,6 +9638,7 @@ mod ui_tests {
                         multi_agent_store: None,
                         multi_agent_agent_id: None,
                         multi_agent_parent_session_id: None,
+                        multi_agent_requires_agent_id: false,
                         disable_runtime_coordination_inbound: false,
                         on_shared_channel_message_delivered: None,
                         extension_runner_ref: None,

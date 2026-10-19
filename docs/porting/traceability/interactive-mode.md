@@ -67,7 +67,15 @@ behavior-tested. Multi-agent child transcripts remain an explicit gap below.
   `/trust`, `/login`, `/logout`, `/resume`, extension commands, prompt templates.
 - Key actions: clear/exit/suspend, thinking cycle/toggle, model cycle, tools
   expand, external editor, copy, follow-up, dequeue, new session, tree, fork,
-  resume; the agent-select action remains a gap message.
+  resume, and the agent switcher (`/agents`, `app.agent.select`).
+- Multi-agent child view: `selectAgentViewFromBridge` selects a store view and
+  renders the child transcript in the chat container (or a lifecycle
+  placeholder when no transcript exists); `/agents` opens the ported
+  `AgentSwitcherComponent`; the selection banner is mounted above the widgets;
+  plain-text submissions steer the selected agent; Escape requests cancellation;
+  `steering_message_queued` wakes waiting agents. Proof:
+  `interactive_child_view` (transcript boundary), `interactive_components`
+  (banner/switcher), `agents_core_runtime` (async selector routing).
 - Tool timers: `ToolExecutionStart.startedAt` / `ToolExecutionEnd.finishedAt`
   epoch milliseconds flow into `ToolExecutionComponent`; elapsed text is
   `finishedAt ?? Date.now() - startedAt` (`pi_js_compat::date::js_now_millis`).
@@ -98,22 +106,30 @@ actions, breaking when shutdown is requested, then `shutdown`.
 
 ## Gaps (explicit)
 
-- Multi-agent child view: `selectAgentView`, child transcript watching/reload,
-  agent slots, agent switcher, banner updates, `steerMultiAgent`,
-  `cancelMultiAgent`. Requires the child `SessionManager`/transcript API.
+- Agent slots (1-9 selection bindings) are not wired; the switcher covers agent
+  selection.
 - Working loader (`syncWorkingLoaderVisibility`, thinking/tool waiting timers,
   retry countdown) is not ported; prompt activity currently drives the editor
   prompt animation only.
-- `bindInteractiveModeSessionMutationTargetResolver` / viewed-session target
-  redirection.
-- Fullscreen scroll view `scrollbar_style` is wired; region placement for the
-  fullscreen dock is handled by the layout root rather than render regions
-  (the source also uses the layout root).
+- The fullscreen dock is placed by the layout root; the fullscreen renderer has
+  no separate render-region callbacks (the source also uses the layout root).
 
 ## Discrepancies
 
+- Child transcript updates use a metadata poll on the existing TUI tick instead
+  of `fs.watch` plus a debounce timer; the visible reload behavior is the same.
+- `SelectAgentView` is async (`BoxFuture<Option<bool>>`) because the TUI lives on
+  a `LocalSet` thread; the bridge selector sends a `UiRequest` and awaits the
+  UI-thread result instead of calling the mode synchronously.
+- The child view does not override the footer session (model/token display);
+  the footer keeps showing the main session.
+- `bindInteractiveModeSessionMutationTargetResolver` has no Rust analogue: the
+  session-level resolver bound in `main.rs` already resolves the selected child
+  through the shared store and runtime handles, so `/model` and `/effort`
+  target the viewed child without a second resolver.
 - `toLocaleString()` token counts are rendered with `en-US` grouping. The
-  TypeScript output depends on the host locale; this port pins `en-US`.
+  TypeScript output depends on the host locale; this port pins `en-US`
+  (approved deviation, user decision 2026-10-19).
 - `MessageEnd` updates the component created at `MessageStart` in place; the
   source moves the component from the transcript tail into the chat container.
   Rendering is equivalent in regular mode.

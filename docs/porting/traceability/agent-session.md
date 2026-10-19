@@ -63,9 +63,19 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 - Multi-agent: activity publishing for `agent_start`, `tool_execution_start/end`, and
   `agent_end` with exact runtime ownership; relocation continuation via
   `AgentEndSessionContinuation::CwdRelocation` and `activateToolResultRelocation`.
+- Runtime mailbox timers and steering: the 30s polling timer, 60s listener heartbeat,
+  SIGUSR2 signal wake with the keepalive guard, dynamic metadata control-db
+  resolution, steering delivery acknowledgement, and runtime-mailbox steering turn
+  finalization (including deferred terminal results for active descendants).
+  Proof: `agent_session_runtime_mailbox` (5), `agent_session_signal_wake` (1).
 - Background compaction: speculative cache generated during tool turns at 70% of the
   context window, reused by the next threshold compaction, invalidated on session/model/
-  prompt/settings drift.
+  prompt/settings drift. The cache snapshots branch entries and the extension runner
+  and honors the `compaction` hook before the local summarizer.
+- Compaction extension boundary: `session_before_compact` preflight and the
+  `compaction` provider event for manual and automatic compaction, cancel handling,
+  extension-provided results when built-in compaction is disabled, and `fromHook` on
+  every compaction entry. Proof: `agent_session_compaction_extensions` (9).
 - Extensions: runner construction, `bind_core` actions/context/provider actions,
   `bind_extensions`, tool gates/reviewers/tool_call/tool_result hooks,
   `before_agent_start`, `input`, resources discovery, internal `model` command,
@@ -84,14 +94,6 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 
 - `BashToolOptions` spawn hook / session environment wiring: owned by the
   tool-definition factory slice.
-- Runtime mailbox polling timer (30s), heartbeat (60s), SIGUSR2 wake, and steering
-  delivery acknowledgement/finalization (`_completeRuntimeMailboxSteeringTurn`).
-  Drains run at prompt completion, post-agent-run, and after-tool-result checkpoints;
-  listeners register on the first drain.
-- Extension `compaction` override in the background cache and `session_before_compact`
-  preflight: the cache always uses the local summarizer.
-- Background compaction cache has no dedicated test; it is exercised only through the
-  compaction/agent-session suites.
 - `spawn_allow_always` agent for the human "Allow always" choice (the selection is
   accepted without spawning the config agent).
 - Read-only `approvalKind` auto-approval in the LLM reviewer: session tool definitions

@@ -101,28 +101,32 @@ registration are wired.
 
 - `--supervisor` / `--architect` resident console is not wired; the `architect` /
   `supervisor` subcommands call the ported service entries.
+- Extension HTTP (`codex-usage`) captures the startup dispatcher client; the
+  settings-driven idle timeout applied after runtime creation is not visible to
+  already-registered factories (Rust has no global fetch).
 - `core/debug-repl.ts` is a documented gap (`node:vm`). The `debug` extension is
   registered; its controller provider returns the gap error
   (`Debug REPL is not ported (core/debug-repl.ts)`) from `enable`/`disable`
   instead of a fake REPL (`debug_repl_provider_reports_the_documented_gap`).
 - First-party factories: all 28 source names are registered in source order.
   `FIRST_PARTY_EXTENSION_NAMES` is the reference list; tests assert the factory
-  list, the loaded extension order, and the `pi extensions` inventory.
-- Interactive multi-agent options (`multiAgentStore`, `wakeWaitAgentsAfterSteering`,
-  `steerMultiAgent`, `cancelMultiAgent`), `bindInteractiveModeSessionMutationTargetResolver`,
-  and `interactiveAgentViewSelector` are not wired (child-orchestration gap).
+  list, the loaded extension order, and the `pi extensions` inventory. The
+  `agents-core` factory is built with the production child/attached session
+  factories, the shared store/handles, and the interactive agent-view selector
+  slot; `create_agent_session` receives the same store and the shared-channel
+  wake callback. The session mutation-target resolver is bound to the shared
+  store and runtime handles (`bind_agent_session_mutation_target_resolver`).
+- Interactive multi-agent options are wired: `InteractiveModeOptions` carries
+  the shared store, `wakeWaitAgentsAfterSteering`, `steerMultiAgent`,
+  `cancelMultiAgent`, and the agent-view selector slot; the mode fills the slot
+  with the async bridge selector. `bindInteractiveModeSessionMutationTargetResolver`
+  has no Rust analogue because the session-level resolver bound here already
+  targets the selected child through the store and runtime handles.
 - `selectSession` keybindings: `create_startup_tui` installs
   `KeybindingsManager::create()`; the component receives a clone. The source
   installs the same manager in both places.
 - First-time setup and the picker use `ProcessTerminal`; the pty tests drive the
   real binary, so terminal wiring is covered.
-- Extension HTTP (`codex-usage`) captures the startup dispatcher client; the
-  settings-driven idle timeout applied after runtime creation is not visible to
-  already-registered factories (Rust has no global fetch).
-- `bindAgentSessionMutationTargetResolver` is not ported; the store is restored but
-  mutation-target resolution for interactive views is skipped.
-- Production child/attached session factories remain unavailable (documented
-  "child orchestration unavailable" path).
 
 ## Deviations
 
