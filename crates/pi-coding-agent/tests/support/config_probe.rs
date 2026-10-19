@@ -60,6 +60,21 @@ pub(crate) fn guidance_payload() -> Value {
     })
 }
 
+pub(crate) fn package_error_payload() -> Value {
+    use pi_coding_agent::config;
+    match config::try_package_config() {
+        Ok(package) => json!({
+            "ok": true,
+            "packageName": package.package_name,
+            "version": package.version,
+            "appName": package.app_name,
+            "appTitle": package.app_title,
+            "configDirName": package.config_dir_name,
+        }),
+        Err(error) => json!({"ok": false, "label": error.label(), "message": error.to_string()}),
+    }
+}
+
 pub(crate) fn spawn_child_probe(mode: &str, env_pairs: &[(&str, OsString)]) -> Value {
     let output = child_probe_command(mode, env_pairs)
         .output()
@@ -106,6 +121,7 @@ pub(crate) fn run_child_probe() {
     let payload = match mode.as_str() {
         "paths" => paths_payload(),
         "guidance" => guidance_payload(),
+        "package-error" => package_error_payload(),
         other => panic!("unknown config probe mode {other}"),
     };
     println!("{OUTPUT_PREFIX}{}", serde_json::to_string(&payload).unwrap());
