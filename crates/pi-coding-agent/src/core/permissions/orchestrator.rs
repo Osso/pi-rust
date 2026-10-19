@@ -5,10 +5,12 @@ use std::sync::Arc;
 use pi_ai::request::BoxFuture;
 
 use super::policy::{ApprovalPolicy, ApprovalPolicyContext, ApprovalPolicyDecision, evaluate_approval_policy};
-use crate::core::extensions::types::ToolCallEventResult;
+use crate::core::extensions::types::{HandlerError, ToolCallEventResult};
 
-/// Async approval reviewer.
-pub type ApprovalReviewer = Arc<dyn Fn() -> BoxFuture<'static, Option<ToolCallEventResult>> + Send + Sync>;
+/// Async approval reviewer. A failure propagates like the source's thrown
+/// reviewer promise and aborts the tool call.
+pub type ApprovalReviewer =
+    Arc<dyn Fn() -> BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>> + Send + Sync>;
 
 /// Inputs for [`orchestrate_tool_approval`].
 #[derive(Clone)]
@@ -21,7 +23,9 @@ pub struct ApprovalOrchestratorOptions {
 }
 
 /// Run the approval policy, then the hook, LLM and generic reviewers in order.
-pub async fn orchestrate_tool_approval(options: &ApprovalOrchestratorOptions) -> Option<ToolCallEventResult> {
+pub async fn orchestrate_tool_approval(
+    options: &ApprovalOrchestratorOptions,
+) -> Result<Option<ToolCallEventResult>, HandlerError> {
     let decision = evaluate_approval_policy(
         options.policy,
         ApprovalPolicyContext {
@@ -30,25 +34,25 @@ pub async fn orchestrate_tool_approval(options: &ApprovalOrchestratorOptions) ->
     );
 
     match decision {
-        ApprovalPolicyDecision::Allow => None,
-        ApprovalPolicyDecision::Block { reason } => Some(ToolCallEventResult {
+        ApprovalPolicyDecision::Allow => Ok(None),
+        ApprovalPolicyDecision::Block { reason } => Ok(Some(ToolCallEventResult {
             block: Some(true),
             input: None,
             reason: Some(reason),
             terminate: None,
-        }),
+        })),
         ApprovalPolicyDecision::Review => {
             if let Some(hook_reviewer) = &options.hook_reviewer
-                && let Some(decision) = hook_reviewer().await
+                && let Some(decision) = hook_reviewer().await?
             {
-                return Some(decision);
+                return Ok(Some(decision));
             }
             if let Some(llm_reviewer) = &options.llm_reviewer {
                 return llm_reviewer().await;
             }
             match &options.reviewer {
                 Some(reviewer) => reviewer().await,
-                None => None,
+                None => Ok(None),
             }
         }
     }

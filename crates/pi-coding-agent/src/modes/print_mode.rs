@@ -85,11 +85,12 @@ impl PrintState {
 }
 
 /// Runs print mode and returns the process exit code.
-pub async fn run_print_mode(runtime_host: AgentSessionRuntime, options: PrintModeOptions) -> i32 {
+pub async fn run_print_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>, options: PrintModeOptions) -> i32 {
+    let session = runtime.lock().await.session().clone();
     let state = Arc::new(PrintState {
         mode: options.mode,
-        session: Mutex::new(runtime_host.session().clone()),
-        runtime: Arc::new(tokio::sync::Mutex::new(runtime_host)),
+        session: Mutex::new(session),
+        runtime,
         last_completed_assistant_message: Mutex::new(None),
         last_completed_end_turn_reason: Mutex::new(None),
         subscriptions: Mutex::new(Subscriptions::default()),

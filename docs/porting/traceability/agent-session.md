@@ -6,7 +6,7 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 
 | TS | Rust | Tests |
 | --- | --- | --- |
-| `AgentSession` | `AgentSession` | `tests/agent_session.rs` (28), `tests/differential_agent_session.rs` |
+| `AgentSession` | `AgentSession` | `tests/agent_session.rs` (42), `tests/differential_agent_session.rs` |
 | `AgentSessionConfig` | `AgentSessionConfig` | same |
 | `AgentSessionEvent` | `AgentSessionEvent` + `AgentMessageEvent` | event assertions + differential |
 | `AgentSessionEventListener` | `AgentSessionEventListener` | — |
@@ -27,8 +27,9 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
   supervisor requester default, detached-job lifecycle binding.
 - Base tools: `createAllToolDefinitions` rebuilt on every `_buildRuntime` from current
   settings (read auto-resize, bash command prefix/shell path/detach registry/background
-  jobs); `baseToolsOverride` path appends `end_turn`; active names are deduplicated in
-  insertion order.
+  jobs, live session environment); `baseToolsOverride` path appends `end_turn`; active
+  names are deduplicated in insertion order. Proof:
+  `bash_tool_exposes_live_session_environment_variables`.
 - Events: `_handleAgentEvent`, persistence on `message_end`, queue removal,
   duplicate-turn guard, `agent_end.willRetry`, extension event emission,
   `agent_settled`, runtime message markers (`AgentSessionEvent::Message`).
@@ -51,7 +52,17 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
   `abortBash`.
 - Permissions: tool gates, auto-approve reviewers, approval orchestrator, MCP
   permission-prompt protocol tool (discovery/config, rule-store skip, updated input
-  write-back), human UI reviewer, supervisor LLM reviewer.
+  write-back), human UI reviewer (including the `Allow always` background
+  `permission-config` spawn), supervisor LLM reviewer with read-only
+  `approvalKind` auto-approval. Reviewer, UI-dialog, and Supervisor request
+  failures propagate through `ApprovalReviewer` and become error tool results via
+  the agent loop's `prepareToolCall` catch, matching the source instead of
+  allowing or blocking the call. Proof:
+  `human_allow_always_spawns_the_permission_config_agent`,
+  `llm_reviewer_auto_approves_read_only_builtin_tools`,
+  `llm_reviewer_does_not_auto_approve_extension_tools_reusing_a_read_only_name`,
+  `human_approval_ui_errors_abort_the_tool_call`,
+  `supervisor_requester_errors_abort_the_tool_call`.
 - Session: names, compaction summary edits, `navigateTree` (no-summary and
   summarization paths with `session_before_tree`/`session_tree` and branch-summary
   attachment), fork selector, stats, context usage, `exportToJsonl`, `exportToHtml`,
@@ -63,6 +74,16 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 - Multi-agent: activity publishing for `agent_start`, `tool_execution_start/end`, and
   `agent_end` with exact runtime ownership; relocation continuation via
   `AgentEndSessionContinuation::CwdRelocation` and `activateToolResultRelocation`.
+  Publication failures propagate out of the agent event listener and fail the run,
+  matching the source throw boundary
+  (`activity_publication_errors_fail_the_agent_run`).
+- Thinking-phase deadline: the 15-minute timer is armed on `agent_start` and after the
+  last tool result, cleared on tool start/`agent_end`/abort/dispose, restarted by idle
+  steering, skipped for observer runtimes and non-positive timeouts, and the recorded
+  timeout error replaces the aborted run error. Proof:
+  `thinking_phase_deadline_caps_main_session_thinking_but_not_tools`,
+  `thinking_phase_deadline_reports_the_child_subject`,
+  `thinking_phase_deadline_skips_observer_sessions`.
 - Runtime mailbox timers and steering: the 30s polling timer, 60s listener heartbeat,
   SIGUSR2 signal wake with the keepalive guard, dynamic metadata control-db
   resolution, steering delivery acknowledgement, and runtime-mailbox steering turn
@@ -92,15 +113,7 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 
 ## Gaps (explicit)
 
-- `BashToolOptions` spawn hook / session environment wiring: owned by the
-  tool-definition factory slice.
-- `spawn_allow_always` agent for the human "Allow always" choice (the selection is
-  accepted without spawning the config agent).
-- Read-only `approvalKind` auto-approval in the LLM reviewer: session tool definitions
-  do not carry `approvalKind`.
-- `_startThinkingPhaseDeadline` 15-minute timers.
-- `AgentSessionRuntime::bind_session_runtime_actions` has no caller yet (main/interactive
-  slices own runtime construction); the session-level binding is tested.
+- None.
 
 ## Deviations
 
@@ -112,11 +125,12 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 
 - `AgentSession::compact` returns `core::compaction::CompactionResult` instead of
   `unknown`; typed API excludes the JS loose shape (approved typed-core rule).
-- Activity publication errors are reported to stderr: TypeScript throws from the
-  infallible agent event listener, Rust listeners cannot return an error.
 - Runtime coordination `hasConfiguredAuth` uses the model-runtime snapshot, matching
   the source; a runtime created with `refreshOnCreate: false` must refresh before
   mailbox prompt delivery.
+- The `Allow always` spawn failure path logs `Failed to spawn allow-always agent:`
+  plus the tool error message; the source's `console.error` also prints the JS
+  error stack.
 - Differential `differential_agent_session` compares provider usage
   (`input`/`output`/`cacheRead`/`cacheWrite`/`totalTokens`), context usage
   `tokens`/`percent`, events, messages, stats, fork selector, navigation, and

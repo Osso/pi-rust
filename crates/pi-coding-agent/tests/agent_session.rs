@@ -3,6 +3,7 @@
 #[path = "support/image_fixtures.rs"]
 mod image_fixtures;
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -17,10 +18,11 @@ use pi_ai::providers::faux::{
 use pi_ai::request::SimpleStreamOptions;
 use pi_ai::types::{Context, Model};
 use pi_coding_agent::core::agent_session::{
-    AgentSession, AgentSessionConfig, AgentSessionEvent, CycleDirection, NavigateTreeOptions, PromptOptions,
-    StreamingBehavior, ToolDefinition,
+    AgentSession, AgentSessionConfig, AgentSessionEvent, CycleDirection, ExtensionBindings, MultiAgentRuntimeRole,
+    NavigateTreeOptions, PromptOptions, StreamingBehavior, SupervisorDecisionRequester, ToolDefinition,
 };
 use pi_coding_agent::core::auth_storage::AuthStorage;
+use pi_coding_agent::core::extensions::types::{ExtensionMode, ExtensionUiContext, ExtensionUiDialogOptions};
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
@@ -85,10 +87,19 @@ async fn fixture_with(
         base_tools,
         initial_active_tool_names,
         allowed_tool_names,
-        None,
-        false,
+        FixtureOverrides::default(),
     )
     .await
+}
+
+#[derive(Default)]
+struct FixtureOverrides {
+    multi_agent: Option<(Arc<pi_coding_agent::core::multi_agent_store::MultiAgentStore>, String)>,
+    persist_session: bool,
+    supervisor_decision_requester: Option<pi_coding_agent::core::agent_session::SupervisorDecisionRequester>,
+    thinking_phase_timeout_ms: Option<u64>,
+    multi_agent_runtime_role: Option<pi_coding_agent::core::agent_session::MultiAgentRuntimeRole>,
+    custom_tool_definitions: Vec<pi_coding_agent::core::extensions::types::ToolDefinition>,
 }
 
 async fn fixture_with_multi_agent(
@@ -96,9 +107,16 @@ async fn fixture_with_multi_agent(
     base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
     initial_active_tool_names: Option<Vec<String>>,
     allowed_tool_names: Option<Vec<String>>,
-    multi_agent: Option<(Arc<pi_coding_agent::core::multi_agent_store::MultiAgentStore>, String)>,
-    persist_session: bool,
+    overrides: FixtureOverrides,
 ) -> Fixture {
+    let FixtureOverrides {
+        multi_agent,
+        persist_session,
+        supervisor_decision_requester,
+        thinking_phase_timeout_ms,
+        multi_agent_runtime_role,
+        custom_tool_definitions,
+    } = overrides;
     let temp_dir = tempfile::tempdir().expect("temp dir");
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("faux".to_owned()),
@@ -142,12 +160,12 @@ async fn fixture_with_multi_agent(
         agent_dir: Some(temp_dir.path().display().to_string()),
         control_db_path: Some(temp_dir.path().join("control.db").display().to_string()),
         base_tools,
-        custom_tool_definitions: Vec::new(),
+        custom_tool_definitions,
         custom_tools: Vec::<ToolDefinition>::new(),
-        multi_agent_runtime_role: None,
+        multi_agent_runtime_role,
         multi_agent_execution_capability: None,
-        thinking_phase_timeout_ms: None,
-        supervisor_decision_requester: None,
+        thinking_phase_timeout_ms,
+        supervisor_decision_requester,
         multi_agent_store: multi_agent.as_ref().map(|(store, _)| Arc::clone(store)),
         multi_agent_agent_id: multi_agent.as_ref().map(|(_, agent_id)| agent_id.clone()),
         multi_agent_parent_session_id: None,
@@ -751,8 +769,10 @@ async fn publishes_multi_agent_activity_across_agent_and_tool_events() {
         vec![Arc::new(EchoTool)],
         Some(vec!["echo".to_owned()]),
         None,
-        Some((Arc::clone(&store), "child-agent".to_owned())),
-        false,
+        FixtureOverrides {
+            multi_agent: Some((Arc::clone(&store), "child-agent".to_owned())),
+            ..Default::default()
+        },
     )
     .await;
     fixture.faux.set_responses(vec![
@@ -813,7 +833,8 @@ async fn binds_extension_relocation_handlers_on_the_session() {
     let recorded = Arc::clone(&calls);
     let activate = Arc::new(move || {
         recorded.lock().unwrap().push("activate".to_owned());
-        Box::pin(async {}) as pi_ai::request::BoxFuture<'static, ()>
+        Box::pin(async { Ok(()) })
+            as pi_ai::request::BoxFuture<'static, Result<(), pi_coding_agent::core::extensions::types::HandlerError>>
     });
     fixture
         .session
@@ -830,7 +851,10 @@ async fn binds_extension_relocation_handlers_on_the_session() {
         .expect("deliver relocation");
     assert!(runner.has_prepared_tool_result_relocation());
     assert_eq!(calls.lock().unwrap().as_slice(), ["prepare:/next"]);
-    runner.activate_tool_result_relocation().await;
+    runner
+        .activate_tool_result_relocation()
+        .await
+        .expect("activate relocation");
     assert_eq!(calls.lock().unwrap().as_slice(), ["prepare:/next", "activate"]);
 }
 
@@ -847,8 +871,10 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_marks_the_message_deli
         Vec::<Arc<dyn pi_agent_core::agent::types::AgentTool>>::new(),
         None,
         None,
-        None,
-        true,
+        FixtureOverrides {
+            persist_session: true,
+            ..Default::default()
+        },
     )
     .await;
     let session_file = fixture.session.session_file().expect("session file");
@@ -938,8 +964,10 @@ async fn shared_channel_delivery_formats_and_queues_messages_after_the_initial_c
         Vec::<Arc<dyn pi_agent_core::agent::types::AgentTool>>::new(),
         None,
         None,
-        None,
-        true,
+        FixtureOverrides {
+            persist_session: true,
+            ..Default::default()
+        },
     )
     .await;
     let control_db_path = fixture.session.control_db_path().expect("control db");
@@ -1738,6 +1766,15 @@ async fn binds_detached_job_lifecycle_when_a_store_is_configured() {
 
     let lifecycle = session.detached_job_lifecycle();
     assert!(lifecycle.is_some(), "expected a bound detached-job lifecycle");
+    let context_lifecycle = session
+        .extension_runner()
+        .create_context()
+        .detached_job_lifecycle()
+        .expect("extension context");
+    assert!(
+        context_lifecycle.is_some(),
+        "extension context must expose the bound detached-job lifecycle"
+    );
 }
 
 #[tokio::test]
@@ -1786,7 +1823,17 @@ async fn prompt_with_streaming_steer_queues_instead_of_failing() {
 
 #[tokio::test]
 async fn bash_tool_exposes_live_session_environment_variables() {
-    let fixture = fixture_with_multi_agent(Default::default(), Vec::new(), None, None, None, true).await;
+    let fixture = fixture_with_multi_agent(
+        Default::default(),
+        Vec::new(),
+        None,
+        None,
+        FixtureOverrides {
+            persist_session: true,
+            ..Default::default()
+        },
+    )
+    .await;
     let (session_id, session_file) = {
         let manager = fixture.session.session_manager();
         (
@@ -1830,7 +1877,17 @@ async fn bash_tool_exposes_live_session_environment_variables() {
 async fn update_compaction_summary_returns_the_persistence_error() {
     use pi_ai::types::{UserContent, UserMessage, UserRole};
 
-    let fixture = fixture_with_multi_agent(Default::default(), Vec::new(), None, None, None, true).await;
+    let fixture = fixture_with_multi_agent(
+        Default::default(),
+        Vec::new(),
+        None,
+        None,
+        FixtureOverrides {
+            persist_session: true,
+            ..Default::default()
+        },
+    )
+    .await;
     let session = &fixture.session;
     let (compaction_id, session_file) = {
         let mut manager = session.session_manager();
@@ -1878,4 +1935,700 @@ async fn update_compaction_summary_returns_the_persistence_error() {
         .cloned()
         .expect("compaction entry");
     assert_eq!(compaction.summary, "original summary");
+}
+
+// ---------------------------------------------------------------------------
+// Human "Allow always" and read-only LLM auto-approval
+// ---------------------------------------------------------------------------
+
+#[derive(Default)]
+struct ScriptedApprovalUi {
+    selections: std::sync::Mutex<VecDeque<Option<String>>>,
+    titles: std::sync::Mutex<Vec<String>>,
+    options: std::sync::Mutex<Vec<Vec<String>>>,
+}
+
+impl ScriptedApprovalUi {
+    fn with_selection(selection: &str) -> Self {
+        let ui = Self::default();
+        ui.selections.lock().unwrap().push_back(Some(selection.to_owned()));
+        ui
+    }
+}
+
+impl ExtensionUiContext for ScriptedApprovalUi {
+    fn select<'a>(
+        &'a self,
+        title: &str,
+        options: &[String],
+        _opts: Option<&ExtensionUiDialogOptions>,
+    ) -> pi_ai::request::BoxFuture<'a, Result<Option<String>, String>> {
+        self.titles.lock().unwrap().push(title.to_owned());
+        self.options.lock().unwrap().push(options.to_vec());
+        let selection = self.selections.lock().unwrap().pop_front().flatten();
+        Box::pin(async move { Ok(selection) })
+    }
+}
+
+struct SpawnRecorderTool {
+    calls: Arc<std::sync::Mutex<Vec<(String, serde_json::Value)>>>,
+}
+
+impl pi_agent_core::agent::types::AgentTool for SpawnRecorderTool {
+    fn name(&self) -> &str {
+        "spawn_agent"
+    }
+
+    fn description(&self) -> &str {
+        "Spawn a background agent"
+    }
+
+    fn parameters(&self) -> &serde_json::Value {
+        static PARAMETERS: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+        PARAMETERS.get_or_init(|| {
+            json!({
+                "type": "object",
+                "properties": {
+                    "agentType": {"type": "string"},
+                    "displayName": {"type": "string"},
+                    "prompt": {"type": "string"}
+                },
+                "required": ["prompt"]
+            })
+        })
+    }
+
+    fn label(&self) -> &str {
+        "Spawn Agent"
+    }
+
+    fn execute(
+        &self,
+        tool_call_id: String,
+        params: serde_json::Value,
+        _signal: Option<tokio_util::sync::CancellationToken>,
+        _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
+        _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
+    ) -> pi_ai::request::BoxFuture<
+        'static,
+        Result<pi_agent_core::agent::types::AgentToolResult, pi_agent_core::agent::types::ToolError>,
+    > {
+        self.calls.lock().unwrap().push((tool_call_id, params));
+        Box::pin(async move { Ok(pi_agent_core::agent::types::AgentToolResult::text("spawned")) })
+    }
+}
+
+#[tokio::test]
+async fn human_allow_always_spawns_the_permission_config_agent() {
+    let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let spawned = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let ui = Arc::new(ScriptedApprovalUi::with_selection("Allow always"));
+    let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
+    settings.insert("approvalPolicy".to_owned(), json!("on-request"));
+    settings.insert("approvalPreset".to_owned(), json!("ask-me"));
+    let fixture = fixture_with(
+        settings,
+        vec![
+            Arc::new(PermissionEchoTool {
+                executed: Arc::clone(&executed),
+            }),
+            Arc::new(SpawnRecorderTool {
+                calls: Arc::clone(&spawned),
+            }),
+        ],
+        Some(vec!["echo".to_owned(), "spawn_agent".to_owned()]),
+        None,
+    )
+    .await;
+    fixture
+        .session
+        .bind_extensions(ExtensionBindings {
+            ui_context: Some(ui.clone() as Arc<dyn ExtensionUiContext>),
+            mode: Some(ExtensionMode::Tui),
+            ..Default::default()
+        })
+        .await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message(
+            permission_tool_call("hello"),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    fixture
+        .session
+        .prompt("hi", PromptOptions::default())
+        .await
+        .expect("prompt");
+
+    assert_eq!(executed.lock().unwrap().as_slice(), ["hello".to_owned()]);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while spawned.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    let spawned = spawned.lock().unwrap().clone();
+    assert_eq!(spawned.len(), 1, "expected one allow-always spawn");
+    let (tool_call_id, params) = &spawned[0];
+    assert_eq!(tool_call_id, "allow-always:call-1");
+    assert_eq!(
+        params.get("agentType").and_then(serde_json::Value::as_str),
+        Some("permission-config")
+    );
+    assert_eq!(
+        params.get("displayName").and_then(serde_json::Value::as_str),
+        Some("Allow command")
+    );
+    let prompt = params
+        .get("prompt")
+        .and_then(serde_json::Value::as_str)
+        .expect("prompt");
+    assert!(
+        prompt.contains("Target project: /syncthing/Sync/Projects/claude/claude-bash-hook"),
+        "prompt: {prompt}"
+    );
+    assert!(prompt.contains("Original cwd: "), "prompt: {prompt}");
+    assert!(prompt.contains("Tool name: echo"), "prompt: {prompt}");
+    assert!(prompt.contains("\"text\": \"hello\""), "prompt: {prompt}");
+    let titles = ui.titles.lock().unwrap().clone();
+    assert_eq!(titles.len(), 1);
+    assert!(titles[0].starts_with("Approve echo?\n"), "title: {}", titles[0]);
+    let options = ui.options.lock().unwrap().clone();
+    assert_eq!(
+        options[0],
+        ["Allow once".to_owned(), "Allow always".to_owned(), "Deny".to_owned()]
+    );
+}
+
+fn recording_supervisor(
+    response: pi_coding_agent::core::session_control_db::SupervisorResponse,
+) -> (SupervisorDecisionRequester, Arc<std::sync::Mutex<Vec<String>>>) {
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&calls);
+    let requester: SupervisorDecisionRequester = Arc::new(move |input| {
+        recorded.lock().unwrap().push(
+            input
+                .payload
+                .get("toolName")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+        );
+        let response = response.clone();
+        Box::pin(async move { Ok(response) })
+    });
+    (requester, calls)
+}
+
+#[tokio::test]
+async fn llm_reviewer_auto_approves_read_only_builtin_tools() {
+    let (requester, supervisor_calls) =
+        recording_supervisor(pi_coding_agent::core::session_control_db::SupervisorResponse::Reject {
+            reason: "should not be consulted".to_owned(),
+        });
+    let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
+    settings.insert("approvalPolicy".to_owned(), json!("on-request"));
+    settings.insert("approvalPreset".to_owned(), json!("llm-approved-ask"));
+    let fixture = fixture_with_multi_agent(
+        settings,
+        Vec::new(),
+        Some(vec!["grep".to_owned()]),
+        None,
+        FixtureOverrides {
+            supervisor_decision_requester: Some(requester),
+            ..Default::default()
+        },
+    )
+    .await;
+    std::fs::write(fixture._temp_dir.path().join("a.txt"), "phpstan composer.json").expect("fixture file");
+    fixture.faux.set_responses(vec![
+        faux_assistant_message(
+            pi_ai::providers::faux::FauxContent::Blocks(vec![pi_ai::providers::faux::faux_tool_call(
+                "grep",
+                json!({"pattern": "phpstan"}).as_object().cloned().expect("arguments"),
+                Some("call-1".to_owned()),
+            )]),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    fixture
+        .session
+        .prompt("search composer.json", PromptOptions::default())
+        .await
+        .expect("prompt");
+
+    assert!(
+        supervisor_calls.lock().unwrap().is_empty(),
+        "read-only tools must not reach the Supervisor"
+    );
+    let tool_result = fixture
+        .session
+        .messages()
+        .into_iter()
+        .find_map(|message| message.as_tool_result().cloned())
+        .expect("tool result");
+    let text = tool_result
+        .content
+        .iter()
+        .filter_map(|content| match content {
+            pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(text.contains("a.txt"), "tool result: {text}");
+    assert!(!tool_result.is_error);
+}
+
+fn custom_grep_definition(
+    executed: Arc<std::sync::Mutex<Vec<String>>>,
+) -> pi_coding_agent::core::extensions::types::ToolDefinition {
+    pi_coding_agent::core::extensions::types::ToolDefinition {
+        name: "grep".to_owned(),
+        label: "Custom Grep".to_owned(),
+        description: "Custom tool using a built-in name".to_owned(),
+        prompt_snippet: None,
+        prompt_guidelines: None,
+        approval_required: None,
+        approval_kind: None,
+        parameters: json!({"type": "object", "properties": {"pattern": {"type": "string"}}}),
+        constrained_sampling: None,
+        render_shell: None,
+        prepare_arguments: None,
+        prepare_execution: None,
+        execution_mode: None,
+        execute: Arc::new(move |_id, _params, _signal, _on_update, _ctx| {
+            let executed = Arc::clone(&executed);
+            Box::pin(async move {
+                executed.lock().unwrap().push("grep".to_owned());
+                Ok(pi_agent_core::AgentToolResult::text("executed"))
+            })
+        }),
+        render_call: None,
+        render_result: None,
+    }
+}
+
+#[tokio::test]
+async fn llm_reviewer_does_not_auto_approve_extension_tools_reusing_a_read_only_name() {
+    let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (requester, supervisor_calls) =
+        recording_supervisor(pi_coding_agent::core::session_control_db::SupervisorResponse::Reject {
+            reason: "custom tool".to_owned(),
+        });
+    let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
+    settings.insert("approvalPolicy".to_owned(), json!("on-request"));
+    settings.insert("approvalPreset".to_owned(), json!("llm-approved-deny"));
+    let fixture = fixture_with_multi_agent(
+        settings,
+        Vec::new(),
+        Some(vec!["grep".to_owned()]),
+        None,
+        FixtureOverrides {
+            supervisor_decision_requester: Some(requester),
+            custom_tool_definitions: vec![custom_grep_definition(Arc::clone(&executed))],
+            ..Default::default()
+        },
+    )
+    .await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message(
+            pi_ai::providers::faux::FauxContent::Blocks(vec![pi_ai::providers::faux::faux_tool_call(
+                "grep",
+                json!({"pattern": "phpstan"}).as_object().cloned().expect("arguments"),
+                Some("call-1".to_owned()),
+            )]),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    fixture
+        .session
+        .prompt("run custom grep", PromptOptions::default())
+        .await
+        .expect("prompt");
+
+    assert!(executed.lock().unwrap().is_empty(), "custom grep must stay blocked");
+    assert_eq!(supervisor_calls.lock().unwrap().as_slice(), ["grep".to_owned()]);
+}
+
+// ---------------------------------------------------------------------------
+// Thinking-phase deadline
+// ---------------------------------------------------------------------------
+
+struct GatedTool {
+    started: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+}
+
+impl pi_agent_core::agent::types::AgentTool for GatedTool {
+    fn name(&self) -> &str {
+        "slow"
+    }
+
+    fn description(&self) -> &str {
+        "Slow tool"
+    }
+
+    fn parameters(&self) -> &serde_json::Value {
+        static PARAMETERS: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+        PARAMETERS.get_or_init(|| json!({"type": "object", "properties": {}}))
+    }
+
+    fn label(&self) -> &str {
+        "Slow"
+    }
+
+    fn execute(
+        &self,
+        _tool_call_id: String,
+        _params: serde_json::Value,
+        _signal: Option<tokio_util::sync::CancellationToken>,
+        _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
+        _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
+    ) -> pi_ai::request::BoxFuture<
+        'static,
+        Result<pi_agent_core::agent::types::AgentToolResult, pi_agent_core::agent::types::ToolError>,
+    > {
+        let started = Arc::clone(&self.started);
+        let release = Arc::clone(&self.release);
+        Box::pin(async move {
+            started.notify_one();
+            release.notified().await;
+            Ok(pi_agent_core::agent::types::AgentToolResult::text("done"))
+        })
+    }
+}
+
+fn pending_response() -> pi_ai::providers::faux::FauxResponseStep {
+    pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(|_context, _options, _state, _model| {
+        Box::pin(std::future::pending())
+    }))
+}
+
+fn tool_call_response(name: &str, arguments: serde_json::Value, id: &str) -> pi_ai::providers::faux::FauxResponseStep {
+    faux_assistant_message(
+        pi_ai::providers::faux::FauxContent::Blocks(vec![pi_ai::providers::faux::faux_tool_call(
+            name,
+            arguments.as_object().cloned().unwrap_or_default(),
+            Some(id.to_owned()),
+        )]),
+        FauxAssistantMessageOptions {
+            stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+            ..Default::default()
+        },
+    )
+    .into()
+}
+
+async fn drive_until_finished(
+    handle: &mut tokio::task::JoinHandle<Result<(), pi_coding_agent::core::agent_session::AgentSessionError>>,
+) {
+    for _ in 0..40 {
+        if handle.is_finished() {
+            return;
+        }
+        tokio::time::advance(std::time::Duration::from_millis(500)).await;
+        tokio::task::yield_now().await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn thinking_phase_deadline_caps_main_session_thinking_but_not_tools() {
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let fixture = fixture_with_multi_agent(
+        Default::default(),
+        vec![Arc::new(GatedTool {
+            started: Arc::clone(&started),
+            release: Arc::clone(&release),
+        })],
+        Some(vec!["slow".to_owned()]),
+        None,
+        FixtureOverrides {
+            thinking_phase_timeout_ms: Some(1_000),
+            ..Default::default()
+        },
+    )
+    .await;
+    fixture.faux.set_responses(vec![
+        tool_call_response("slow", json!({}), "call-1"),
+        pending_response(),
+    ]);
+    let session = fixture.session.clone();
+    let mut handle = tokio::spawn(async move { session.prompt("hi", PromptOptions::default()).await });
+
+    started.notified().await;
+    tokio::time::advance(std::time::Duration::from_secs(60)).await;
+    tokio::task::yield_now().await;
+    assert!(!handle.is_finished(), "tool execution must not be capped");
+
+    release.notify_one();
+    drive_until_finished(&mut handle).await;
+    let error = handle
+        .await
+        .expect("prompt task")
+        .expect_err("thinking deadline must abort the run");
+    assert_eq!(error.message(), "Main session thinking phase exceeded 15 minutes");
+}
+
+#[tokio::test(start_paused = true)]
+async fn thinking_phase_deadline_reports_the_child_subject() {
+    use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
+
+    let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions {
+        now: Some(Arc::new(|| "2026-06-21T00:00:00.000Z".to_owned())),
+    }));
+    store.publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"));
+    let fixture = fixture_with_multi_agent(
+        Default::default(),
+        Vec::new(),
+        None,
+        None,
+        FixtureOverrides {
+            multi_agent: Some((store, "child-agent".to_owned())),
+            thinking_phase_timeout_ms: Some(1_000),
+            ..Default::default()
+        },
+    )
+    .await;
+    fixture.faux.set_responses(vec![pending_response()]);
+    let session = fixture.session.clone();
+    let mut handle = tokio::spawn(async move { session.prompt("hi", PromptOptions::default()).await });
+
+    drive_until_finished(&mut handle).await;
+    let error = handle
+        .await
+        .expect("prompt task")
+        .expect_err("thinking deadline must abort the run");
+    assert_eq!(error.message(), "Child agent thinking phase exceeded 15 minutes");
+}
+
+#[tokio::test(start_paused = true)]
+async fn thinking_phase_deadline_skips_observer_sessions() {
+    let fixture = fixture_with_multi_agent(
+        Default::default(),
+        Vec::new(),
+        None,
+        None,
+        FixtureOverrides {
+            multi_agent_runtime_role: Some(MultiAgentRuntimeRole::Observer),
+            thinking_phase_timeout_ms: Some(1_000),
+            ..Default::default()
+        },
+    )
+    .await;
+    fixture.faux.set_responses(vec![pending_response()]);
+    let session = fixture.session.clone();
+    let handle = tokio::spawn(async move { session.prompt("hi", PromptOptions::default()).await });
+
+    for _ in 0..10 {
+        tokio::time::advance(std::time::Duration::from_secs(10)).await;
+        tokio::task::yield_now().await;
+    }
+    assert!(!handle.is_finished(), "observer thinking must not be capped");
+    fixture.session.abort().await.expect("abort");
+    handle
+        .await
+        .expect("prompt task")
+        .expect("observer run settles without a thinking timeout");
+    let aborted = fixture
+        .session
+        .messages()
+        .into_iter()
+        .rev()
+        .find_map(|message| message.as_assistant().cloned())
+        .expect("assistant message");
+    assert_eq!(aborted.stop_reason, pi_ai::types::StopReason::Aborted);
+}
+
+// ---------------------------------------------------------------------------
+// Activity publication errors surface through the agent event listener
+// ---------------------------------------------------------------------------
+
+struct FakePersistence;
+
+impl pi_coding_agent::core::multi_agent_store::SessionPersistence for FakePersistence {
+    fn metadata_control_db_path(&self) -> Option<String> {
+        Some("/tmp/pi-session-final/control.db".to_owned())
+    }
+
+    fn session_file(&self) -> Option<String> {
+        Some("/tmp/pi-session-final/session.jsonl".to_owned())
+    }
+}
+
+#[tokio::test]
+async fn activity_publication_errors_fail_the_agent_run() {
+    use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
+
+    let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+    store.publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"));
+    store.set_persistence_session_manager(Some(&FakePersistence));
+    let fixture = fixture_with_multi_agent(
+        Default::default(),
+        Vec::new(),
+        None,
+        None,
+        FixtureOverrides {
+            multi_agent: Some((store, "child-agent".to_owned())),
+            ..Default::default()
+        },
+    )
+    .await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    let error = fixture
+        .session
+        .prompt("hi", PromptOptions::default())
+        .await
+        .expect_err("publication failure must abort the run");
+    assert_eq!(
+        error.message(),
+        "Persisted agent child-agent activity update requires exact runtime ownership"
+    );
+}
+
+struct FailingApprovalUi;
+
+impl ExtensionUiContext for FailingApprovalUi {
+    fn select<'a>(
+        &'a self,
+        _title: &str,
+        _options: &[String],
+        _opts: Option<&ExtensionUiDialogOptions>,
+    ) -> pi_ai::request::BoxFuture<'a, Result<Option<String>, String>> {
+        Box::pin(async { Err("dialog failed".to_owned()) })
+    }
+}
+
+fn tool_result_text(fixture: &Fixture) -> (bool, String) {
+    let result = fixture
+        .session
+        .messages()
+        .into_iter()
+        .find_map(|message| message.as_tool_result().cloned())
+        .expect("tool result");
+    let text = result
+        .content
+        .iter()
+        .filter_map(|content| match content {
+            pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    (result.is_error, text)
+}
+
+#[tokio::test]
+async fn human_approval_ui_errors_abort_the_tool_call() {
+    let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
+    settings.insert("approvalPolicy".to_owned(), json!("on-request"));
+    settings.insert("approvalPreset".to_owned(), json!("ask-me"));
+    let fixture = fixture_with(
+        settings,
+        vec![Arc::new(PermissionEchoTool {
+            executed: Arc::clone(&executed),
+        })],
+        Some(vec!["echo".to_owned()]),
+        None,
+    )
+    .await;
+    fixture
+        .session
+        .bind_extensions(ExtensionBindings {
+            ui_context: Some(Arc::new(FailingApprovalUi) as Arc<dyn ExtensionUiContext>),
+            mode: Some(ExtensionMode::Tui),
+            ..Default::default()
+        })
+        .await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message(
+            permission_tool_call("hello"),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    fixture
+        .session
+        .prompt("hi", PromptOptions::default())
+        .await
+        .expect("prompt resolves with the run failure message");
+
+    assert!(executed.lock().unwrap().is_empty(), "tool must not run");
+    let (is_error, text) = tool_result_text(&fixture);
+    assert!(is_error);
+    assert_eq!(text, "dialog failed");
+}
+
+#[tokio::test]
+async fn supervisor_requester_errors_abort_the_tool_call() {
+    let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let requester: SupervisorDecisionRequester =
+        Arc::new(|_input| Box::pin(async { Err("supervisor unavailable".to_owned()) }));
+    let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
+    settings.insert("approvalPolicy".to_owned(), json!("on-request"));
+    settings.insert("approvalPreset".to_owned(), json!("llm-approved-deny"));
+    let fixture = fixture_with_multi_agent(
+        settings,
+        vec![Arc::new(PermissionEchoTool {
+            executed: Arc::clone(&executed),
+        })],
+        Some(vec!["echo".to_owned()]),
+        None,
+        FixtureOverrides {
+            supervisor_decision_requester: Some(requester),
+            ..Default::default()
+        },
+    )
+    .await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message(
+            permission_tool_call("hello"),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    fixture
+        .session
+        .prompt("hi", PromptOptions::default())
+        .await
+        .expect("prompt resolves with the run failure message");
+
+    assert!(
+        executed.lock().unwrap().is_empty(),
+        "supervisor failure must not allow the tool"
+    );
+    let (is_error, text) = tool_result_text(&fixture);
+    assert!(is_error);
+    assert_eq!(text, "supervisor unavailable");
 }

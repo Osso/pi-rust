@@ -21,9 +21,9 @@ fn human(result: Option<ToolCallEventResult>) -> SupervisorHumanReviewer {
         Box::pin(async move {
             if let Some(mut result) = result {
                 result.reason = Some(format!("{reason}:{}", result.reason.unwrap_or_default()));
-                Some(result)
+                Ok(Some(result))
             } else {
-                None
+                Ok(None)
             }
         })
     })

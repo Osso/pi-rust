@@ -1056,7 +1056,7 @@ async fn change_working_directory_tool_differential() {
             .await;
         runner.set_tool_result_relocation_handlers(
             relocate_callback(Arc::clone(&recorder)),
-            Arc::new(|| Box::pin(async {})),
+            Arc::new(|| Box::pin(async { Ok(()) })),
         );
         let result = ChangeWorkingDirectoryTool::new()
             .execute("tool-call".to_owned(), params, None, None, context, None)

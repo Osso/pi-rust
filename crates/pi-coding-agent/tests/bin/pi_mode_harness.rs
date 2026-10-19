@@ -14,7 +14,7 @@ use pi_ai::providers::faux::{
 use pi_ai::types::StopReason;
 use pi_coding_agent::core::agent_session_runtime::{
     AgentSessionRuntime, CreateAgentSessionRuntimeFactory, CreateAgentSessionRuntimeOptions,
-    CreateAgentSessionRuntimeResult,
+    CreateAgentSessionRuntimeResult, share_agent_session_runtime,
 };
 use pi_coding_agent::core::agent_session_services::{
     CreateAgentSessionFromServicesOptions, CreateAgentSessionServicesOptions, create_agent_session_from_services,
@@ -175,7 +175,7 @@ async fn build_runtime(
     cwd: &str,
     agent_dir: &str,
     session_dir: &str,
-) -> AgentSessionRuntime {
+) -> std::sync::Arc<tokio::sync::Mutex<AgentSessionRuntime>> {
     let runtime = model_runtime(handle).await;
     let model = handle.get_model(None).expect("faux model");
     let resource_loader: Arc<dyn pi_coding_agent::core::resource_loader::ResourceLoader> = StaticResourceLoader::new();
@@ -203,6 +203,7 @@ async fn build_runtime(
             "Provide one concise, non-empty reason.".to_owned(),
         ],
         approval_required: std::env::var("PI_HARNESS_APPROVAL").as_deref() == Ok("1"),
+        approval_kind: None,
         tool: Arc::new(EndTurnAgentTool),
     };
     let tools = (Vec::new(), Vec::new(), vec![end_turn]);
@@ -276,7 +277,14 @@ async fn build_runtime(
         })
     });
 
-    AgentSessionRuntime::new(result.session, services, factory, Vec::new(), None)
+    share_agent_session_runtime(AgentSessionRuntime::new(
+        result.session,
+        services,
+        factory,
+        Vec::new(),
+        None,
+    ))
+    .await
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -291,6 +299,8 @@ async fn main() {
     let runtime = build_runtime(&handle, &cwd, &agent_dir, &session_dir).await;
     if std::env::var("PI_HARNESS_RESUME").as_deref() == Ok("1") {
         runtime
+            .lock()
+            .await
             .session()
             .agent()
             .set_messages(vec![pi_agent_core::agent::types::AgentMessage::User(
@@ -306,6 +316,7 @@ async fn main() {
             )]);
     }
     if std::env::var("PI_HARNESS_DEBUG").is_ok() {
+        let runtime = runtime.lock().await;
         eprintln!(
             "debug: tools={:?} pending={} prompt={:?}",
             runtime.session().get_active_tool_names(),

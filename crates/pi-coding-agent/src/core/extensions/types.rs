@@ -130,6 +130,8 @@ pub type SessionSetupCallback =
 pub type WithSessionCallback =
     Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type RelocateCallback = Arc<dyn Fn(&str) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
+pub type ActivateToolResultRelocationHandler =
+    Arc<dyn Fn() -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type NewSessionCallback = Arc<
     dyn Fn(Option<NewSessionOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
         + Send
@@ -769,7 +771,7 @@ pub struct ExtensionContextState {
     pub(super) get_system_prompt_options_fn: Option<Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>>,
     pub(super) relocate_handler: RelocateCallback,
     pub(super) prepare_tool_result_relocation_handler: RelocateCallback,
-    pub(super) activate_tool_result_relocation_handler: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
+    pub(super) activate_tool_result_relocation_handler: ActivateToolResultRelocationHandler,
     pub(super) pending_tool_result_relocations: IndexMap<String, String>,
     pub(super) show_approval_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub(super) show_sandbox_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
@@ -837,7 +839,7 @@ impl ExtensionContextState {
                     ))
                 })
             }),
-            activate_tool_result_relocation_handler: Arc::new(|| Box::pin(async {})),
+            activate_tool_result_relocation_handler: Arc::new(|| Box::pin(async { Ok(()) })),
             pending_tool_result_relocations: IndexMap::new(),
             show_approval_selector_handler: Arc::new(|| Ok(())),
             show_sandbox_selector_handler: Arc::new(|| Ok(())),

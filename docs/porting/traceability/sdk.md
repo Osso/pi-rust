@@ -31,16 +31,16 @@ Rust: `crates/pi-coding-agent/src/core/sdk.rs`.
   (`after_provider_response`), and `transformContext` (`context`), matching the
   source closure reads. Test: `create_agent_session_wires_extension_provider_hooks`
   (headers/response/context handlers, patched context reaches the provider).
-- `multiAgentAgentId`, `multiAgentParentSessionId`, and
-  `supervisorDecisionRequester` are forwarded to `AgentSessionConfig`.
+- `multiAgentAgentId`, `multiAgentParentSessionId`, `multiAgentRequiresAgentId`, and
+  `supervisorDecisionRequester` are forwarded to `AgentSessionConfig`. Proof:
+  `create_agent_session_forwards_multi_agent_identity_to_extensions` (tests/sdk.rs)
+  reads the three identity carriers back through the extension context.
 - `extensions_result` comes from the resource loader.
 
 ## Gaps
 
 - `base_tools` remains the injected tool override seam; when empty, `AgentSession`
   builds `createAllToolDefinitions` from current settings.
-- Extension runner ref for `before_provider_headers` / `before_provider_request` /
-  `after_provider_response` and `transformContext` are not wired.
 - `multiAgentStore`, `onSharedChannelMessageDelivered`, and `sessionStartEvent` are
   forwarded to `AgentSession`; mutation-target resolver binding remains in `main`
   (gap).
