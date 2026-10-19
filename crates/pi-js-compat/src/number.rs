@@ -274,7 +274,7 @@ pub fn js_number_value(value: f64) -> Value {
 
 #[cfg(test)]
 mod to_fixed_tests {
-    use super::to_fixed;
+    use super::{js_number_value, to_fixed};
 
     #[test]
     fn matches_ecmascript_rounding_of_exact_double_values() {
