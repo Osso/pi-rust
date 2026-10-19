@@ -34,7 +34,7 @@ bundled Pyrun extension for sandboxed runner invocations.
 - `fs-worker.cjs` reads files as UTF-8 for grep; the Rust worker uses
   `read_to_string` and skips the same expected read-error codes.
 - Session-start status: the source reads `ctx.ui.theme`, which throws when no
-  theme is initialized (the runner records the error and the status is skipped).
-  The Rust handler uses `current_theme_if_initialized()` and returns early, so
-  `pi extensions`/`tools` do not abort before `initTheme`; no `extension_error`
-  diagnostic is recorded for that case.
+  theme is initialized; the runner records the handler error and skips the
+  status. The Rust handler returns the same error from `try_current_theme()`, so
+  the runner records it identically and `pi extensions`/`tools` do not abort
+  before `initTheme`.
