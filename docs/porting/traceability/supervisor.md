@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/supervisor/*.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 Rust: `crates/pi-coding-agent/src/supervisor/` (`approval_reviewer.rs`, `response_tool.rs`, `service.rs`,
-`client.rs`, `main.rs`). Focused tests: `crates/pi-coding-agent/tests/supervisor.rs` (15).
+`client.rs`, `main.rs`). Focused tests: `crates/pi-coding-agent/tests/supervisor.rs` (13), `tests/differential_supervisor_request_loop.rs` (1).
 
 ## approval-reviewer.ts
 
@@ -17,7 +17,7 @@ Rust: `crates/pi-coding-agent/src/supervisor/` (`approval_reviewer.rs`, `respons
 | `SUPERVISOR_RESPONSE_TOOL_NAME`, prompt metadata | exact literals | same-named constants |
 | `supervisorResponseParameters` | TypeBox object schema in source property order | `supervisor_response_parameters`; asserted indirectly by the parse/prompt tests |
 | `execute` | advisory trimmed answer, else acknowledgement | `supervisor_response_text` |
-| `createSupervisorResponseTool` | tool registration | **blocked** on the Rust extension API (`ca-extensions-api`) |
+| `createSupervisorResponseTool` | tool registration | `create_supervisor_response_tool`; metadata/execution differential in `tests/differential_supervisor_response.rs` |
 
 ## service.ts
 
@@ -47,13 +47,15 @@ Rust: `crates/pi-coding-agent/src/supervisor/` (`approval_reviewer.rs`, `respons
 | `runSupervisorRequestLoop` | recover → claim → console prompt → wake | `run_supervisor_request_loop` |
 | `processSupervisorRequest` | evaluation with abort, compaction at 75%, boundary-scoped response | `process_supervisor_request`, `evaluate_supervisor_prompt`; `process_request_does_not_reuse_a_prior_assistant_response` |
 | `readCurrentSupervisorResponse` | boundary, structured tool call, end_turn fallback, stop reason, text join | `read_current_supervisor_response`; `structured_tool_calls_are_read_without_assistant_text`, `end_turn_tool_use_falls_back_to_the_last_stopped_assistant_message`, `assistant_text_with_a_structured_response_is_rejected` |
-| `createSupervisorResourceLoader`, `createSupervisorSession`, `runSupervisorService`, extension gate registration | session/extension wiring | **blocked** on `createAgentSession`, `DefaultResourceLoader`, and the extension API |
+| `createSupervisorResourceLoader` | gate + remote-compaction inline extensions, no discovery, load validation | `create_supervisor_resource_loader`; `resource_loader_registers_the_kb_gate_and_remote_compaction` |
+| `createSupervisorSession` | sol model, tool allowlist, custom response tool, exclusions, low thinking | `create_supervisor_session`; `supervisor_session_uses_the_sol_model_and_supervisor_tool_set` |
+| `runSupervisorService` | session open, model runtime, wake + console lifecycle, request loop, abort on SIGINT/SIGTERM | `run_supervisor_service` |
+| `runSupervisorRequestLoop` | recover → claim → process → console prompt → wake | `run_supervisor_request_loop`; differential `differential_supervisor_request_loop` (control rows + session file) |
 
 ## Gaps
 
-- `createSupervisorSession`, `createSupervisorResourceLoader`, and `runSupervisorService` need the agent-session,
-  resource-loader, and extension-API slices. `SupervisorSession` is a trait so the loop and request processing are
-  complete and tested with injected sessions.
+- `runSupervisorService` is process-level (signal handlers, real model runtime); its wiring is compiled and exercised
+  indirectly through the resource-loader and session tests. The request loop is differentially covered.
 - The evaluation task is aborted (`JoinHandle::abort`) on deadline/preemption in addition to the cancellation token;
   TypeScript relies on the evaluator honoring its `AbortSignal`.
 

@@ -589,22 +589,41 @@ pub struct StreamOptionsPatch {
 }
 
 /// `HarnessTool`: an agent tool plus its declared replay policy.
+///
+/// `prompt_snippet` and `prompt_guidelines` carry the coding-agent prompt metadata that
+/// TypeScript attaches as extra properties (`CodingAgentHarnessTool`); keeping them on the
+/// tool preserves them through `setTools`/`getTools`.
 #[derive(Clone)]
 pub struct HarnessTool {
     pub tool: Arc<dyn AgentTool>,
     pub replay: Option<ReplaySafety>,
+    pub prompt_snippet: Option<String>,
+    pub prompt_guidelines: Vec<String>,
 }
 
 impl HarnessTool {
     pub fn new(tool: Arc<dyn AgentTool>) -> Self {
-        Self { tool, replay: None }
+        Self {
+            tool,
+            replay: None,
+            prompt_snippet: None,
+            prompt_guidelines: Vec::new(),
+        }
     }
 
     pub fn with_replay(tool: Arc<dyn AgentTool>, replay: ReplaySafety) -> Self {
         Self {
             tool,
             replay: Some(replay),
+            prompt_snippet: None,
+            prompt_guidelines: Vec::new(),
         }
+    }
+
+    pub fn with_prompt_metadata(mut self, prompt_snippet: Option<String>, prompt_guidelines: Vec<String>) -> Self {
+        self.prompt_snippet = prompt_snippet;
+        self.prompt_guidelines = prompt_guidelines;
+        self
     }
 
     pub fn name(&self) -> &str {

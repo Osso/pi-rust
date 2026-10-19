@@ -231,6 +231,8 @@ pub struct AgentSessionConfig {
     pub control_db_path: Option<String>,
     pub base_tools: Vec<Arc<dyn AgentTool>>,
     pub custom_tools: Vec<ToolDefinition>,
+    /// Rust-native carrier for SDK custom definitions executed with the runner context.
+    pub custom_tool_definitions: Vec<crate::core::extensions::types::ToolDefinition>,
     pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
     pub thinking_phase_timeout_ms: Option<u64>,
@@ -831,6 +833,7 @@ struct Inner {
     model_runtime: ModelRuntime,
     model_registry: ModelRegistry,
     custom_tools: Vec<ToolDefinition>,
+    custom_tool_definitions: Vec<crate::core::extensions::types::ToolDefinition>,
     /// `_baseToolsOverride`: `Some` replaces the built-in definitions.
     base_tools_override: Option<Vec<(String, crate::core::extensions::types::ToolDefinition)>>,
     base_tool_definitions: Mutex<Vec<(String, crate::core::extensions::types::ToolDefinition)>>,
@@ -996,6 +999,7 @@ impl AgentSession {
             model_runtime,
             model_registry,
             custom_tools: config.custom_tools,
+            custom_tool_definitions: config.custom_tool_definitions,
             base_tools_override,
             base_tool_definitions: Mutex::new(Vec::new()),
             tool_detach_registry,
@@ -1377,6 +1381,43 @@ impl AgentSession {
             }
         }
 
+        let custom_definition_tools = self
+            .inner
+            .custom_tool_definitions
+            .iter()
+            .filter(|definition| is_allowed(&definition.name))
+            .map(|definition| ToolDefinitionEntry {
+                definition: ToolDefinition {
+                    name: definition.name.clone(),
+                    description: definition.description.clone(),
+                    parameters: definition.parameters.clone(),
+                    prompt_snippet: definition.prompt_snippet.clone(),
+                    prompt_guidelines: definition.prompt_guidelines.clone().unwrap_or_default(),
+                    approval_required: definition.approval_required.unwrap_or(true),
+                    tool: wrap_definition_tool(definition.clone(), &runner),
+                },
+                source_info: create_synthetic_source_info(
+                    &format!("<sdk:{}>", definition.name),
+                    &SyntheticSourceInfoOptions {
+                        source: "sdk".to_owned(),
+                        scope: None,
+                        origin: None,
+                        base_dir: None,
+                    },
+                ),
+            })
+            .collect::<Vec<_>>();
+        for entry in &custom_definition_tools {
+            if let Some(existing) = definition_registry
+                .iter_mut()
+                .find(|(name, _)| *name == entry.definition.name)
+            {
+                existing.1 = entry.clone();
+            } else {
+                definition_registry.push((entry.definition.name.clone(), entry.clone()));
+            }
+        }
+
         let mut snippets = HashMap::new();
         let mut guidelines = HashMap::new();
         for (_, entry) in &definition_registry {
@@ -1409,6 +1450,9 @@ impl AgentSession {
             }
         } else if include_all_extension_tools {
             for entry in &custom_tools {
+                next_active_tool_names.push(entry.definition.name.clone());
+            }
+            for entry in &custom_definition_tools {
                 next_active_tool_names.push(entry.definition.name.clone());
             }
         } else if active_tool_names.is_none() {
@@ -4954,7 +4998,7 @@ use crate::core::extensions::types::{
     ToolExecutionStartEvent, ToolExecutionUpdateEvent, ToolInfo as ExtensionToolInfo, TurnEndEvent, TurnStartEvent,
     UserMessageContent, UserMessageDelivery,
 };
-use crate::core::extensions::wrapper::wrap_registered_tool;
+use crate::core::extensions::wrapper::{wrap_definition_tool, wrap_registered_tool};
 use crate::core::footer_data_provider::FooterDataProvider;
 use crate::core::slash_commands::SlashCommandInfo;
 

@@ -32,6 +32,18 @@ use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor};
 const DESCRIPTION: &str = "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.";
 const DIFF_CONTEXT_LINES: usize = 4;
 
+/// `editToolSystemPromptContribution`.
+pub const EDIT_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribution =
+    super::ToolSystemPromptContribution {
+        snippet: "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+        guidelines: &[
+            "Use edit for precise changes (edits[].oldText must match exactly)",
+            "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+            "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+            "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.",
+        ],
+    };
+
 /// File access used by [`EditTool`]. Override to delegate edits to a remote system.
 pub trait EditOperations: Send + Sync {
     fn read_file<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Vec<u8>>>;

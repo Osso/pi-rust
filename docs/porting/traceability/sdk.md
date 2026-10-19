@@ -6,7 +6,7 @@ Rust: `crates/pi-coding-agent/src/core/sdk.rs`.
 | --- | --- | --- |
 | `createAgentSession` | `create_agent_session` | `tests/sdk.rs` (4), `tests/differential_agent_session.rs` |
 | `createAgentSessionWithInternalOptions` | same | — |
-| `CreateAgentSessionOptions` | same | — |
+| `CreateAgentSessionOptions` | same, plus Rust-native `base_tool_definitions`, `custom_tool_definitions`, `multi_agent_store`, `disable_runtime_coordination_inbound` carriers | `create_agent_session_forwards_observer_coordination_options` |
 | `CreateAgentSessionResult` | same (`extensions_result: LoadExtensionsResult`) | export/runtime tests |
 | `rulesScopeForRuntimeRole` | `rules_scope_for_runtime_role` | DefaultResourceLoader tests |
 | `restorePersistedSessionSettings` | inline restore of sandbox profile | `create_agent_session_*` |

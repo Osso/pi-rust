@@ -26,7 +26,7 @@ use super::tool_results::tool_result;
 
 const MAIN_THREAD_AGENT_ID: &str = "main";
 
-pub type OnSessionMessageSent = Arc<dyn Fn(&AgentMailboxMessage, &str) + Send + Sync>;
+pub type OnSessionMessageSent = Arc<dyn Fn(&AgentMailboxMessage, &str) -> Result<(), HandlerError> + Send + Sync>;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -236,7 +236,7 @@ fn deliver_sent_agent_message(
         return Ok(tool_result(error, json!({"agent": agent, "message": failed_message})));
     }
     if let (Some(to_session_id), Some(callback)) = (params.to_session_id.as_deref(), on_session_message_sent) {
-        callback(message, to_session_id);
+        callback(message, to_session_id)?;
     }
     Ok(tool_result(
         format!(
@@ -295,7 +295,7 @@ fn send_main_runtime_session_message(
         ));
     }
     if let Some(callback) = on_session_message_sent {
-        callback(&message, &to_session_id);
+        callback(&message, &to_session_id)?;
     }
     Ok(tool_result(
         format!("Sent message to session {to_session_id}."),
