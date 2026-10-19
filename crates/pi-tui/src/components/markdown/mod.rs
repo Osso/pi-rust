@@ -8,6 +8,8 @@ pub mod tokens;
 
 use std::rc::Rc;
 
+use pi_js_compat::string::{is_js_whitespace_char, js_trim};
+
 use crate::latex::{RenderLatexOptions, render_latex};
 use crate::terminal_image::{get_capabilities, hyperlink, is_image_line};
 use crate::tui::Component;
@@ -160,7 +162,7 @@ impl Markdown {
             None => self.text.clone(),
         };
 
-        if lexer::js_trim(&text).is_empty() {
+        if js_trim(&text).is_empty() {
             return Vec::new();
         }
 
@@ -330,10 +332,9 @@ impl Markdown {
             }
             Token::LatexBlock { raw, text, pending, .. } => {
                 let rendered = if !*pending && self.options.render_latex {
-                    render_latex(text, RenderLatexOptions { display: true })
-                        .unwrap_or_else(|| lexer::js_trim(raw).to_string())
+                    render_latex(text, RenderLatexOptions { display: true }).unwrap_or_else(|| js_trim(raw).to_string())
                 } else {
-                    lexer::js_trim(raw).to_string()
+                    js_trim(raw).to_string()
                 };
                 for line in rendered.split('\n') {
                     lines.push(self.apply_default_style(line));
@@ -416,7 +417,7 @@ impl Markdown {
             }
             Token::Html { raw, .. } => {
                 if !raw.is_empty() && !is_html_comment_only(raw) {
-                    lines.push(self.apply_default_style(lexer::js_trim(raw)));
+                    lines.push(self.apply_default_style(js_trim(raw)));
                 }
             }
             Token::Space { .. } => lines.push(String::new()),
@@ -652,7 +653,7 @@ impl Markdown {
 
     fn get_longest_word_width(text: &str, max_width: Option<usize>) -> usize {
         let longest = text
-            .split(lexer::is_js_whitespace)
+            .split(is_js_whitespace_char)
             .filter(|word| !word.is_empty())
             .map(visible_width)
             .max()
@@ -881,7 +882,7 @@ impl Component for Markdown {
 }
 
 fn is_html_comment_only(html: &str) -> bool {
-    let trimmed = lexer::js_trim(html);
+    let trimmed = js_trim(html);
     trimmed.starts_with("<!--") && trimmed.ends_with("-->") && trimmed.len() >= 7
 }
 
