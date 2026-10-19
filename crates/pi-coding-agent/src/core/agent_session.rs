@@ -4778,11 +4778,12 @@ use crate::core::extensions::types::ToolCallEvent;
 use crate::core::extensions::types::{
     AgentEndEvent as ExtensionAgentEndEvent, AgentSettledEvent as ExtensionAgentSettledEvent, AgentStartEvent,
     ExtensionActions, ExtensionCommandContext, ExtensionCommandContextActions, ExtensionContextActions, ExtensionEvent,
-    ExtensionMode, ExtensionUiContext, InputEventResult, InputSource as ExtensionInputSource, MessageDelivery,
-    MessageEndEvent, MessageStartEvent, MessageUpdateEvent, ModelSelectEvent, ModelSelectSource, ProviderActions,
-    SessionShutdownEvent, SessionStartEvent, StreamingBehavior as ExtensionStreamingBehavior, ThinkingLevelSelectEvent,
-    ToolExecutionEndEvent, ToolExecutionStartEvent, ToolExecutionUpdateEvent, ToolInfo as ExtensionToolInfo,
-    TurnEndEvent, TurnStartEvent, UserMessageContent, UserMessageDelivery,
+    ExtensionMode, ExtensionUiContext, HandlerError, InputEventResult, InputSource as ExtensionInputSource,
+    MessageDelivery, MessageEndEvent, MessageStartEvent, MessageUpdateEvent, ModelSelectEvent, ModelSelectSource,
+    ProviderActions, SessionShutdownEvent, SessionStartEvent, SetThinkingLevelHandler,
+    StreamingBehavior as ExtensionStreamingBehavior, ThinkingLevelSelectEvent, ToolExecutionEndEvent,
+    ToolExecutionStartEvent, ToolExecutionUpdateEvent, ToolInfo as ExtensionToolInfo, TurnEndEvent, TurnStartEvent,
+    UserMessageContent, UserMessageDelivery,
 };
 use crate::core::extensions::wrapper::wrap_registered_tool;
 use crate::core::footer_data_provider::FooterDataProvider;
@@ -5548,6 +5549,14 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
             Some(inner) => AgentSession { inner }.thinking_level(),
             None => ThinkingLevel::Off,
         }));
+    let set_thinking_weak = weak.clone();
+    let set_thinking_level: Option<SetThinkingLevelHandler> = Some(Arc::new(move |level| {
+        let inner = set_thinking_weak
+            .upgrade()
+            .ok_or_else(|| HandlerError::new("Session is disposed"))?;
+        AgentSession { inner }.set_thinking_level(level);
+        Ok(())
+    }));
     let scoped_weak = weak.clone();
     let get_scoped_models: Option<Arc<dyn Fn() -> Vec<ScopedModel> + Send + Sync>> =
         Some(Arc::new(move || match scoped_weak.upgrade() {
@@ -5690,6 +5699,7 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
     ExtensionContextActions {
         get_model,
         get_thinking_level,
+        set_thinking_level,
         get_scoped_models,
         get_footer_data,
         is_idle,
