@@ -11,7 +11,7 @@ Status: **done**. Both the data path (`loadSessionsWithControlNames`) and
 
 | TS symbol | Rust | Tests |
 | --- | --- | --- |
-| `selectSession` | `select_session` (+ `SelectSessionOptions`, `SelectSessionOutcome`) | `resume_flag_opens_the_session_picker_and_cancels_with_escape`; component behaviors in `tests/interactive_components_c.rs` |
+| `selectSession` | `select_session` (+ `SelectSessionOptions`, `SelectSessionOutcome`) | `resume_flag_opens_the_session_picker_and_cancels_with_escape`, `resume_flag_selects_a_session_and_starts_interactive_mode`; component behaviors in `tests/interactive_components_c.rs` |
 | private `loadSessionsWithControlNames` | `load_sessions_with_control_names` | 6 tests in `tests/session_picker.rs` |
 
 ## Branches
@@ -50,4 +50,4 @@ the selector open (`SessionSelectorComponent::show_error`).
 ## Proof
 
 `cargo test -p pi-coding-agent --test session_picker` (6 tests) and
-`cargo test -p pi-coding-agent --test main_interactive` (pty picker case).
+`cargo test -p pi-coding-agent --test main_interactive` (pty cancel and select cases).

@@ -275,3 +275,33 @@ fn first_time_setup_persists_theme_and_analytics() {
     assert!(settings.contains(r#""theme": "light""#), "{settings}");
     assert!(settings.contains(r#""enableAnalytics": true"#), "{settings}");
 }
+
+#[test]
+fn resume_flag_selects_a_session_and_starts_interactive_mode() {
+    let fixture = fixture();
+    let work = fixture.work.display().to_string();
+    let session_dir = pi_coding_agent::core::session_manager::get_default_session_dir(
+        &work,
+        Some(&fixture.agent_dir.display().to_string()),
+    )
+    .expect("session dir");
+    std::fs::create_dir_all(&session_dir).expect("session dir");
+    let entries = [
+        serde_json::json!({"type":"session","version":3,"id":"resume-pick","timestamp":"2026-08-04T00:00:00.000Z","cwd":work}),
+        serde_json::json!({"type":"message","id":"m-1","parentId":null,"timestamp":"2026-08-04T00:00:01.000Z","message":{"role":"user","content":"resume-pick-test","timestamp":1}}),
+    ];
+    let jsonl: String = entries.iter().map(|entry| format!("{entry}\n")).collect();
+    std::fs::write(Path::new(&session_dir).join("resume-pick.jsonl"), jsonl).expect("session file");
+
+    let inputs = vec![
+        input("resume-pick-test", "\r"),
+        input("Ctrl+C twice to exit", CTRL_C),
+        input("Ctrl+C twice to exit", CTRL_C),
+    ];
+    let outcome = run_under_pty(&fixture, &["--resume"], &agent_environment(&fixture), &inputs);
+    let text = visible(&outcome.stdout);
+    assert_eq!(outcome.code, 0, "stdout:\n{text}");
+    assert!(text.contains("Resume Session"), "stdout:\n{text}");
+    assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text}");
+    assert!(!text.contains("No session selected"), "stdout:\n{text}");
+}

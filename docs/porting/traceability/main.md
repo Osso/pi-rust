@@ -15,7 +15,7 @@ registration are wired.
 | TypeScript | Rust | Tests |
 | --- | --- | --- |
 | `MainOptions` | `main_runner::MainOptions` | `tests/main.rs`, `tests/main_process.rs` |
-| `main` | `main_runner::main` / `run_main_or_report_error` | process differentials (`tests/main_process.rs`, 16 incl. env/offline and embedded assets), pty tests (`tests/main_interactive.rs`, 3) |
+| `main` | `main_runner::main` / `run_main_or_report_error` | process differentials (`tests/main_process.rs`, 16 incl. env/offline and embedded assets), pty tests (`tests/main_interactive.rs`, 4) |
 | `runCliActionOrReportError` | `main_runner::run_cli_action_or_report_error` | `cli_action_wrappers_map_errors_to_exit_codes` |
 | `runInteractiveActionOrReportTerminalError` | `main_runner::run_interactive_action_or_report_terminal_error` | `cli_action_wrappers_map_errors_to_exit_codes` |
 
@@ -50,7 +50,7 @@ registration are wired.
 | `createFirstPartyExtensionFactories` | `create_first_party_extension_factories` (registry-backed, emitted in source order; takes the startup `Fetch`) | `first_party_factory_list_partitions_the_source_names`, `first_party_factories_load_and_register_agent_tools`, `extensions_command_lists_the_ported_first_party_extensions` |
 | `builtInExtensions` | `built_in_extensions` | package/config command paths; `extensions` inventory excludes it |
 | `createRuntime` (closure in `main`) | `create_runtime_factory` / `create_runtime` | `runtime_factory_creates_services_and_reports_missing_models`, print/json differentials |
-| `selectSession` call | `select_session_for_process` / `MainSessionsLoader` | `resume_flag_opens_the_session_picker_and_cancels_with_escape` |
+| `selectSession` call | `select_session_for_process` / `MainSessionsLoader` | `resume_flag_opens_the_session_picker_and_cancels_with_escape`, `resume_flag_selects_a_session_and_starts_interactive_mode` |
 | `showFirstTimeSetup` call | `cli::startup_ui::show_first_time_setup` | `first_time_setup_persists_theme_and_analytics` |
 | `readPipedStdin` | `read_piped_stdin` | print differential with argv messages; stdin path covered by initial-message test |
 | `sessionStartEvent` (runtime request) | `session_start_event` | print/json differentials |
