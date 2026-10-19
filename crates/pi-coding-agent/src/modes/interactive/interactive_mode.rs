@@ -6,7 +6,7 @@
 //! deviations are recorded in `docs/porting/traceability/interactive-mode.md`.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -48,7 +48,11 @@ use crate::core::extensions::types::{
 };
 use crate::core::footer_data_provider::FooterDataProvider;
 use crate::core::keybindings::KeybindingsManager;
+use crate::core::model_resolver::{ModelScopeCode, resolve_model_scope_from_models};
+use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
 use crate::core::source_info::{SourceInfo, SourceScope};
+use crate::core::trust_manager::ProjectTrustStore;
+use crate::modes::interactive::components::approval_selector::{ApprovalSelectorComponent, ApprovalSelectorOptions};
 use crate::modes::interactive::components::assistant_message::AssistantMessageComponent;
 use crate::modes::interactive::components::bash_execution::{BashExecutionComponent, BashExecutionOptions};
 use crate::modes::interactive::components::branch_summary_message::BranchSummaryMessageComponent;
@@ -59,6 +63,12 @@ use crate::modes::interactive::components::extension_editor::{ExtensionEditorCom
 use crate::modes::interactive::components::extension_input::{ExtensionInputComponent, ExtensionInputOptions};
 use crate::modes::interactive::components::extension_selector::{ExtensionSelectorComponent, ExtensionSelectorOptions};
 use crate::modes::interactive::components::footer::FooterComponent;
+use crate::modes::interactive::components::sandbox_selector::{
+    SandboxScope, SandboxSelectorComponent, SandboxSelectorOptions, SandboxSelectorSelection,
+};
+use crate::modes::interactive::components::scoped_models_selector::{
+    EnabledIds, ModelsCallbacks, ModelsConfig, RefreshStatusKind, ScopedModelsSelectorComponent,
+};
 use crate::modes::interactive::components::settings_selector::{
     SettingsCallbacks, SettingsConfig, SettingsSelectorComponent, SteeringMode, tui_mode_name,
 };
@@ -67,7 +77,9 @@ use crate::modes::interactive::components::thinking_selector::ThinkingSelectorCo
 use crate::modes::interactive::components::tool_execution::{
     ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
 };
+use crate::modes::interactive::components::trust_selector::{TrustSelectorComponent, TrustSelectorOptions};
 use crate::modes::interactive::components::user_message::UserMessageComponent;
+use crate::modes::interactive::components::user_message_selector::{UserMessageItem, UserMessageSelectorComponent};
 use crate::modes::interactive::interactive_root_compositor::{
     InteractiveRootCompositorOptions, create_interactive_root_compositor,
 };
@@ -1612,6 +1624,41 @@ impl Component for SharedScrollView {
     }
 }
 
+/// Adapter mounting the scoped-models selector while its async refresh mutates it.
+pub struct SharedScopedModelsSelector(pub Rc<RefCell<ScopedModelsSelectorComponent>>);
+
+impl Component for SharedScopedModelsSelector {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0.borrow_mut().render(width)
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        self.0.borrow_mut().handle_input(data);
+    }
+
+    fn wants_input(&self) -> bool {
+        self.0.borrow().wants_input()
+    }
+
+    fn invalidate(&mut self) {
+        self.0.borrow_mut().invalidate();
+    }
+
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
+}
+
+impl Focusable for SharedScopedModelsSelector {
+    fn focused(&self) -> bool {
+        self.0.borrow().focused()
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        self.0.borrow_mut().set_focused(focused);
+    }
+}
+
 /// Adapter mounting the settings selector while its callbacks mutate it.
 pub struct SharedSettingsSelector(pub Rc<RefCell<SettingsSelectorComponent>>);
 
@@ -1818,6 +1865,18 @@ fn register_mode(mode: &Rc<InteractiveMode>) -> usize {
         });
         id
     })
+}
+
+/// `resolveEnabledModelsPersistTarget`.
+fn resolve_enabled_models_persist_target(
+    project_enabled_models: Option<&Value>,
+    patterns: Option<Vec<String>>,
+) -> (Option<Vec<String>>, crate::core::settings_manager::SettingsScope) {
+    use crate::core::settings_manager::SettingsScope;
+    if project_enabled_models.is_none() {
+        return (patterns, SettingsScope::Global);
+    }
+    (Some(patterns.unwrap_or_default()), SettingsScope::Project)
 }
 
 fn with_mode<R>(id: usize, f: impl FnOnce(Rc<InteractiveMode>) -> R) -> Option<R> {
@@ -4038,7 +4097,7 @@ impl InteractiveMode {
         );
         self.default_editor.borrow_mut().on_action(
             "app.session.fork",
-            action(self, |mode| mode.show_status("Fork selector is not ported yet.")),
+            action(self, |mode| mode.show_user_message_selector()),
         );
         self.default_editor.borrow_mut().on_action(
             "app.session.resume",
@@ -4539,8 +4598,8 @@ impl InteractiveMode {
             "settings" => {
                 self.show_settings_selector();
             }
-            "scoped-models" | "models" => {
-                self.show_status("Scoped-models selector is not ported yet.");
+            "scoped-models" => {
+                self.show_models_selector().await;
             }
             "model" => {
                 let search = (!args.is_empty()).then(|| args.to_owned());
@@ -4573,10 +4632,10 @@ impl InteractiveMode {
             "tools" => self.handle_tools_command(),
             "extensions" => self.handle_extensions_command(),
             "changelog" => self.handle_changelog_command(),
-            "fork" => self.show_status("Fork selector is not ported yet."),
+            "fork" => self.show_user_message_selector(),
             "clone" => self.handle_clone_command().await,
             "tree" => self.show_status("Tree selector is not ported yet."),
-            "trust" => self.show_status("Trust selector is not ported yet."),
+            "trust" => self.show_trust_selector(),
             "login" => self.show_status("Provider login is not ported yet."),
             "logout" => self.show_status("Provider logout is not ported yet."),
             "new" => self.handle_clear_command().await,
@@ -4597,7 +4656,6 @@ impl InteractiveMode {
             "reload" => self.handle_reload_command().await,
             "resume" => self.show_status("Session selector is not ported yet."),
             "agents" => self.show_status("Agent switcher is not ported yet."),
-            "sandbox" => self.show_status("Sandbox selector is not ported yet."),
             "quit" => self.shutdown_requested.set(true),
             "arminsayshi" | "dementedelves" | "daxnuts" => {
                 self.show_status("Easter egg commands are not ported.");
@@ -5037,9 +5095,14 @@ impl InteractiveMode {
     }
 
     fn show_selector(&self, selector: ComponentRef) {
+        let focus = Rc::clone(&selector);
+        self.show_selector_with_focus(selector, focus);
+    }
+
+    fn show_selector_with_focus(&self, selector: ComponentRef, focus: ComponentRef) {
         self.editor_container.borrow_mut().clear();
         self.editor_container.borrow_mut().add_child(Rc::clone(&selector));
-        self.ui.set_focus(Some(selector));
+        self.ui.set_focus(Some(focus));
         self.ui.request_render();
     }
 
@@ -5051,6 +5114,249 @@ impl InteractiveMode {
         let editor_ref = Rc::clone(&self.editor_handle.borrow());
         self.ui.set_focus(Some(editor_ref));
         self.ui.request_render();
+    }
+
+    fn update_available_provider_count(&self) {
+        let session = self.session();
+        let scoped = session.scoped_models();
+        let models: Vec<Model> = if scoped.is_empty() {
+            session.model_runtime().get_available_snapshot()
+        } else {
+            scoped.into_iter().map(|scoped| scoped.model).collect()
+        };
+        let unique_providers: HashSet<&str> = models.iter().map(|model| model.provider.as_str()).collect();
+        self.footer_data_provider
+            .set_available_provider_count(unique_providers.len());
+    }
+
+    fn persist_enabled_models_for_selector(&self, enabled_ids: EnabledIds, available_model_count: usize) {
+        let enabled_patterns = match enabled_ids {
+            None => None,
+            Some(ids) if ids.len() == available_model_count => None,
+            Some(ids) => Some(ids),
+        };
+        let project_enabled_models =
+            self.settings(|settings| settings.get_project_settings().get("enabledModels").cloned());
+        let (patterns, scope) =
+            resolve_enabled_models_persist_target(project_enabled_models.as_ref(), enabled_patterns);
+        if let Err(error) = self.settings_mut(|settings| settings.set_enabled_models(patterns.as_deref(), scope)) {
+            self.show_error(&error.to_string());
+            return;
+        }
+        self.show_status("Model selection saved to settings");
+    }
+
+    async fn show_models_selector(&self) {
+        let session = self.session();
+        let runtime = session.model_runtime().clone();
+        if let Err(error) = runtime.reload_config().await {
+            self.show_error(&error.to_string());
+            return;
+        }
+        let available_models = match runtime
+            .get_available(None, pi_ai::auth::types::AuthOperationOptions::new(None))
+            .await
+        {
+            Ok(models) => models,
+            Err(error) => {
+                self.show_error(&error.to_string());
+                return;
+            }
+        };
+        if available_models.is_empty() {
+            self.show_status("No models available");
+            return;
+        }
+
+        let configured_patterns = self.settings(|settings| settings.get_enabled_models());
+        let session_scoped_models = session.scoped_models();
+        let configured_enabled_ids = {
+            let configured_patterns = configured_patterns.clone();
+            Rc::new(move |models: &[Model]| -> EnabledIds {
+                let patterns = configured_patterns.as_ref()?;
+                if patterns.is_empty() {
+                    return None;
+                }
+                let resolved = resolve_model_scope_from_models(patterns, models);
+                let mut ids: Vec<String> = resolved
+                    .scoped_models
+                    .iter()
+                    .map(|scoped| format!("{}/{}", scoped.model.provider, scoped.model.id))
+                    .collect();
+                for diagnostic in &resolved.diagnostics {
+                    if diagnostic.code == ModelScopeCode::NoMatch && !ids.contains(&diagnostic.pattern) {
+                        ids.push(diagnostic.pattern.clone());
+                    }
+                }
+                Some(ids)
+            })
+        };
+
+        let current_enabled_ids: EnabledIds = if !session_scoped_models.is_empty() {
+            Some(
+                session_scoped_models
+                    .iter()
+                    .map(|scoped| format!("{}/{}", scoped.model.provider, scoped.model.id))
+                    .collect(),
+            )
+        } else {
+            configured_enabled_ids(&available_models)
+        };
+
+        let available_models_cell = Rc::new(RefCell::new(available_models.clone()));
+        let available_model_ids_cell = Rc::new(RefCell::new(
+            available_models
+                .iter()
+                .map(|model| format!("{}/{}", model.provider, model.id))
+                .collect::<Vec<String>>(),
+        ));
+        let current_enabled = Rc::new(RefCell::new(current_enabled_ids.clone()));
+        let selection_changed = Rc::new(Cell::new(false));
+        let disposed = Rc::new(Cell::new(false));
+        let timed_out = Rc::new(Cell::new(false));
+        let abort = tokio_util::sync::CancellationToken::new();
+
+        let mode_id = self.ui_id.get();
+        let update_session_models: Rc<dyn Fn(EnabledIds)> = {
+            let session = session.clone();
+            let available_models_cell = Rc::clone(&available_models_cell);
+            let available_model_ids_cell = Rc::clone(&available_model_ids_cell);
+            let current_enabled = Rc::clone(&current_enabled);
+            Rc::new(move |enabled_ids: EnabledIds| {
+                *current_enabled.borrow_mut() = enabled_ids.clone();
+                let models = available_models_cell.borrow().clone();
+                let available_ids = available_model_ids_cell.borrow().clone();
+                let has_enabled_available = enabled_ids
+                    .as_ref()
+                    .is_some_and(|ids| ids.iter().any(|id| available_ids.contains(id)));
+                let all_available_enabled = enabled_ids
+                    .as_ref()
+                    .is_some_and(|ids| available_ids.iter().all(|id| ids.contains(id)));
+                if let Some(ids) = &enabled_ids
+                    && has_enabled_available
+                    && !all_available_enabled
+                {
+                    let resolved = resolve_model_scope_from_models(ids, &models);
+                    session.set_scoped_models(resolved.scoped_models);
+                } else {
+                    session.set_scoped_models(Vec::new());
+                }
+                with_mode(mode_id, |mode| {
+                    mode.update_available_provider_count();
+                    mode.ui.request_render();
+                });
+            })
+        };
+
+        let callbacks = ModelsCallbacks {
+            on_change: {
+                let selection_changed = Rc::clone(&selection_changed);
+                let update_session_models = Rc::clone(&update_session_models);
+                Rc::new(move |enabled_ids: EnabledIds| {
+                    selection_changed.set(true);
+                    update_session_models(enabled_ids);
+                })
+            },
+            on_persist: {
+                let available_models_cell = Rc::clone(&available_models_cell);
+                Rc::new(move |enabled_ids: EnabledIds| {
+                    let available_model_count = available_models_cell.borrow().len();
+                    with_mode(mode_id, |mode| {
+                        mode.persist_enabled_models_for_selector(enabled_ids, available_model_count);
+                    });
+                })
+            },
+            on_cancel: {
+                let disposed = Rc::clone(&disposed);
+                let abort = abort.clone();
+                Rc::new(move || {
+                    disposed.set(true);
+                    abort.cancel();
+                    with_mode(mode_id, |mode| {
+                        mode.restore_editor();
+                        mode.ui.request_render();
+                    });
+                })
+            },
+        };
+
+        let selector = Rc::new(RefCell::new(ScopedModelsSelectorComponent::new(
+            ModelsConfig {
+                all_models: available_models.clone(),
+                enabled_model_ids: current_enabled_ids,
+                refresh_status: Some("Refreshing model catalogs…".to_owned()),
+            },
+            callbacks,
+        )));
+        self.show_selector(component(SharedScopedModelsSelector(Rc::clone(&selector))));
+
+        let timeout_task = {
+            let abort = abort.clone();
+            let timed_out = Rc::clone(&timed_out);
+            tokio::task::spawn_local(async move {
+                tokio::time::sleep(Duration::from_secs(15)).await;
+                timed_out.set(true);
+                abort.cancel();
+            })
+        };
+        let result = runtime
+            .refresh(pi_ai::models::ModelsRefreshOptions {
+                signal: Some(abort),
+                ..Default::default()
+            })
+            .await;
+        timeout_task.abort();
+        if disposed.get() {
+            return;
+        }
+
+        let refreshed_models = runtime.get_available_snapshot();
+        *available_models_cell.borrow_mut() = refreshed_models.clone();
+        *available_model_ids_cell.borrow_mut() = refreshed_models
+            .iter()
+            .map(|model| format!("{}/{}", model.provider, model.id))
+            .collect();
+        let refreshed_enabled_ids = if !selection_changed.get() && session_scoped_models.is_empty() {
+            configured_enabled_ids(&refreshed_models)
+        } else {
+            None
+        };
+        let update_enabled_ids =
+            (!selection_changed.get() && session_scoped_models.is_empty()).then(|| refreshed_enabled_ids.clone());
+        if !selection_changed.get() && session_scoped_models.is_empty() {
+            *current_enabled.borrow_mut() = refreshed_enabled_ids.clone();
+        }
+        selector
+            .borrow_mut()
+            .update_models(&refreshed_models, update_enabled_ids);
+        if let Some(enabled_ids) = current_enabled.borrow().clone() {
+            update_session_models(Some(enabled_ids));
+        }
+
+        let (message, kind) = match &result {
+            Ok(result) if result.aborted && timed_out.get() => (
+                "Model refresh timed out; showing cached models.".to_owned(),
+                RefreshStatusKind::Warning,
+            ),
+            Ok(result) if !result.errors.is_empty() => {
+                let providers = result.errors.keys().cloned().collect::<Vec<String>>().join(", ");
+                (
+                    format!("Could not refresh {providers}; showing cached models."),
+                    RefreshStatusKind::Warning,
+                )
+            }
+            Ok(_) => ("Model catalogs refreshed.".to_owned(), RefreshStatusKind::Success),
+            Err(_) if timed_out.get() => (
+                "Model refresh timed out; showing cached models.".to_owned(),
+                RefreshStatusKind::Warning,
+            ),
+            Err(error) => (
+                format!("Could not refresh model catalogs: {error}"),
+                RefreshStatusKind::Warning,
+            ),
+        };
+        selector.borrow().set_refresh_status(&message, kind);
+        with_mode(mode_id, |mode| mode.ui.request_render());
     }
 
     async fn handle_model_command(&self, search_term: Option<String>) {
@@ -5543,7 +5849,7 @@ impl InteractiveMode {
     async fn handle_clone_command(&self) {
         let leaf_id = self.session.borrow().session_manager().get_leaf_id().map(str::to_owned);
         let Some(leaf_id) = leaf_id else {
-            self.show_error("No active entry to clone");
+            self.show_status("Nothing to clone yet");
             return;
         };
         let mut runtime = self.runtime.lock().await;
@@ -5555,13 +5861,222 @@ impl InteractiveMode {
                 let session = runtime.session().clone();
                 drop(runtime);
                 self.adopt_session(session);
-                self.chat_container.borrow_mut().clear();
-                self.render_initial_messages();
-                self.show_status("Cloned session");
+                self.editor().borrow_mut().set_text("");
+                self.show_status("Cloned to new session");
             }
-            Ok(_) => {}
+            Ok(_) => {
+                drop(runtime);
+                self.ui.request_render();
+            }
             Err(error) => self.show_error(&error),
         }
+    }
+
+    fn show_user_message_selector(&self) {
+        let session = self.session();
+        let user_messages = session.get_user_messages_for_forking();
+        if user_messages.is_empty() {
+            self.show_status("No messages to fork from");
+            return;
+        }
+        let initial_selected_id = user_messages.last().map(|message| message.entry_id.clone());
+        let messages: Vec<UserMessageItem> = user_messages
+            .into_iter()
+            .map(|message| UserMessageItem {
+                id: message.entry_id,
+                text: message.text,
+            })
+            .collect();
+        let mode_id = self.ui_id.get();
+        let on_select: Rc<dyn Fn(String)> = Rc::new(move |entry_id: String| {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                tokio::task::spawn_local(async move {
+                    mode.fork_from_entry(&entry_id).await;
+                });
+            });
+        });
+        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                mode.ui.request_render();
+            });
+        });
+        let selector =
+            UserMessageSelectorComponent::new(messages, on_select, on_cancel, initial_selected_id.as_deref());
+        let focus = selector.get_message_list();
+        self.show_selector_with_focus(component(selector), focus);
+    }
+
+    async fn fork_from_entry(&self, entry_id: &str) {
+        let mut runtime = self.runtime.lock().await;
+        match runtime
+            .fork(entry_id, crate::core::agent_session_runtime::ForkPosition::Before, None)
+            .await
+        {
+            Ok(result) if !result.cancelled => {
+                let session = runtime.session().clone();
+                drop(runtime);
+                self.adopt_session(session);
+                self.editor()
+                    .borrow_mut()
+                    .set_text(result.selected_text.as_deref().unwrap_or_default());
+                self.show_status("Forked to new session");
+            }
+            Ok(_) => {
+                drop(runtime);
+                self.ui.request_render();
+            }
+            Err(error) => self.show_error(&error),
+        }
+    }
+
+    fn set_extension_status(&self, key: &str, text: Option<&str>) {
+        self.footer_data_provider.set_extension_status(key, text);
+        self.ui.request_render();
+    }
+
+    fn show_trust_selector(&self) {
+        let session = self.session();
+        let cwd = session.cwd().to_owned();
+        let trust_store = ProjectTrustStore::new(session.agent_dir());
+        let saved_decision = match trust_store.get_entry(&cwd) {
+            Ok(decision) => decision,
+            Err(error) => {
+                self.show_error(&error.to_string());
+                return;
+            }
+        };
+        let mode_id = self.ui_id.get();
+        let options = TrustSelectorOptions {
+            cwd,
+            saved_decision,
+            project_trusted: self.settings(|settings| settings.is_project_trusted()),
+            on_select: Rc::new(move |selection| {
+                with_mode(mode_id, |mode| {
+                    let trust_store = ProjectTrustStore::new(mode.session().agent_dir());
+                    if let Err(error) = trust_store.set_many(&selection.updates) {
+                        mode.show_error(&error.to_string());
+                        return;
+                    }
+                    mode.restore_editor();
+                    mode.show_status(&format!(
+                        "Saved trust decision: {}. Restart pi for this to take effect.",
+                        if selection.trusted { "trusted" } else { "untrusted" }
+                    ));
+                });
+            }),
+            on_cancel: Rc::new(move || {
+                with_mode(mode_id, |mode| {
+                    mode.restore_editor();
+                    mode.ui.request_render();
+                });
+            }),
+        };
+        self.show_selector(component(TrustSelectorComponent::new(options)));
+    }
+
+    fn show_approval_selector(&self) {
+        let mode_id = self.ui_id.get();
+        let options = ApprovalSelectorOptions {
+            current_preset: self.settings(|settings| settings.get_approval_preset()),
+            on_select: Rc::new(move |selection| {
+                with_mode(mode_id, |mode| {
+                    let scope = match selection.scope {
+                        crate::modes::interactive::components::approval_selector::ApprovalScope::Global => {
+                            crate::core::settings_manager::SettingsScope::Global
+                        }
+                        crate::modes::interactive::components::approval_selector::ApprovalScope::Project => {
+                            crate::core::settings_manager::SettingsScope::Project
+                        }
+                    };
+                    if let Err(error) =
+                        mode.settings_mut(|settings| settings.set_approval_preset(selection.preset, scope))
+                    {
+                        mode.show_error(&error.to_string());
+                        return;
+                    }
+                    mode.restore_editor();
+                    mode.show_status(&format!(
+                        "Saved approval preset to {} settings. Restart pi for this to take effect.",
+                        selection.scope.as_str()
+                    ));
+                });
+            }),
+            on_cancel: Rc::new(move || {
+                with_mode(mode_id, |mode| {
+                    mode.restore_editor();
+                    mode.ui.request_render();
+                });
+            }),
+        };
+        self.show_selector(component(ApprovalSelectorComponent::new(options)));
+    }
+
+    fn update_bwrap_status_for_sandbox_profile(&self) {
+        let profile = self.settings(|settings| settings.get_explicit_sandbox_profile());
+        let profile = profile.filter(|profile| *profile != SandboxProfileName::FullAccess);
+        let Some(profile) = profile else {
+            self.set_extension_status(
+                "bwrap",
+                Some(&with_theme(|theme| theme.fg(ThemeColor::Muted, "bwrap: full access"))),
+            );
+            return;
+        };
+        let bwrap_available = std::process::Command::new("bwrap")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        let text = if bwrap_available {
+            with_theme(|theme| theme.fg(ThemeColor::Accent, &format!("bwrap: {}", profile.as_str())))
+        } else {
+            with_theme(|theme| theme.fg(ThemeColor::Error, "bwrap unavailable"))
+        };
+        self.set_extension_status("bwrap", Some(&text));
+    }
+
+    fn show_sandbox_selector(&self) {
+        let mode_id = self.ui_id.get();
+        let options = SandboxSelectorOptions {
+            current_profile: self.settings(|settings| settings.get_configured_sandbox_profile()),
+            session_profile: self.settings(|settings| settings.get_session_sandbox_profile()),
+            on_select: Rc::new(move |selection| {
+                with_mode(mode_id, |mode| {
+                    let (profile, scope) = match selection {
+                        SandboxSelectorSelection::Saved { profile, scope } => (
+                            Some(profile),
+                            match scope {
+                                SandboxScope::Global => SandboxProfileScope::Global,
+                                SandboxScope::Project => SandboxProfileScope::Project,
+                                SandboxScope::Session => SandboxProfileScope::Session,
+                            },
+                        ),
+                        SandboxSelectorSelection::Session { profile } => (profile, SandboxProfileScope::Session),
+                    };
+                    if let Err(error) = mode.session().set_sandbox_profile(profile, scope) {
+                        mode.show_error(&error.to_string());
+                        return;
+                    }
+                    mode.restore_editor();
+                    mode.update_bwrap_status_for_sandbox_profile();
+                    mode.show_status(&format!(
+                        "Saved sandbox profile {} to {} scope.",
+                        profile.map(SandboxProfileName::as_str).unwrap_or("inherit"),
+                        scope.as_str()
+                    ));
+                });
+            }),
+            on_cancel: Rc::new(move || {
+                with_mode(mode_id, |mode| {
+                    mode.restore_editor();
+                    mode.ui.request_render();
+                });
+            }),
+        };
+        self.show_selector(component(SandboxSelectorComponent::new(options)));
     }
 
     async fn shutdown(&self) {
@@ -5849,10 +6364,10 @@ impl InteractiveMode {
                 self.shutdown_requested.set(true);
             }
             UiRequest::ShowApprovalSelector => {
-                self.show_status("Approval selector is not ported yet.");
+                self.show_approval_selector();
             }
             UiRequest::ShowSandboxSelector => {
-                self.show_status("Sandbox selector is not ported yet.");
+                self.show_sandbox_selector();
             }
             UiRequest::RuntimeNewSession { options, respond } => {
                 let options = options.map(|options| {
@@ -6539,15 +7054,26 @@ mod ui_tests {
         let faux = Arc::new(faux_provider(RegisterFauxProviderOptions {
             provider: Some("faux".to_owned()),
             api: Some("faux".to_owned()),
-            models: Some(vec![FauxModelDefinition {
-                id: "faux-1".to_owned(),
-                name: Some("Faux Model".to_owned()),
-                reasoning: Some(true),
-                input: None,
-                cost: None,
-                context_window: Some(100_000.0),
-                max_tokens: Some(4096.0),
-            }]),
+            models: Some(vec![
+                FauxModelDefinition {
+                    id: "faux-1".to_owned(),
+                    name: Some("Faux Model".to_owned()),
+                    reasoning: Some(true),
+                    input: None,
+                    cost: None,
+                    context_window: Some(100_000.0),
+                    max_tokens: Some(4096.0),
+                },
+                FauxModelDefinition {
+                    id: "faux-2".to_owned(),
+                    name: Some("Faux Second Model".to_owned()),
+                    reasoning: Some(false),
+                    input: None,
+                    cost: None,
+                    context_window: Some(100_000.0),
+                    max_tokens: Some(4096.0),
+                },
+            ]),
             ..Default::default()
         }));
         faux.set_responses(vec![
@@ -7013,6 +7539,256 @@ mod ui_tests {
 
                 let value = settings_file(agent_dir.path());
                 assert_eq!(value.get("tuiMode"), Some(&serde_json::json!("fullscreen")));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn trust_selector_saves_decision_and_reports_status() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                init_dark_theme();
+                let agent_dir = tempfile::tempdir().expect("agent dir");
+                let cwd = tempfile::tempdir().expect("cwd");
+                let settings = SettingsManager::create(
+                    &cwd.path().display().to_string(),
+                    Some(agent_dir.path()),
+                    SettingsManagerCreateOptions::default(),
+                )
+                .expect("settings manager");
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                    None,
+                    settings,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                terminal.borrow_mut().send_input("/trust");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| output.contains("Project trust")).await;
+                assert!(output.contains("Project trust"));
+
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Saved trust decision: trusted.")
+                })
+                .await;
+                assert!(output.contains("Saved trust decision: trusted. Restart pi for this to take effect."));
+
+                let session_cwd = mode.session().cwd().to_owned();
+                let session_agent_dir = mode.session().agent_dir().to_owned();
+                let store = crate::core::trust_manager::ProjectTrustStore::new(&session_agent_dir);
+                let entry = store
+                    .get_entry(&session_cwd)
+                    .expect("trust entry read")
+                    .expect("saved trust entry");
+                assert_eq!(
+                    entry.decision,
+                    crate::core::trust_manager::ProjectTrustDecision::Trusted
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn sandbox_selector_saves_profile_and_updates_bwrap_status() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                init_dark_theme();
+                let agent_dir = tempfile::tempdir().expect("agent dir");
+                let cwd = tempfile::tempdir().expect("cwd");
+                let settings = SettingsManager::create(
+                    &cwd.path().display().to_string(),
+                    Some(agent_dir.path()),
+                    SettingsManagerCreateOptions::default(),
+                )
+                .expect("settings manager");
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                    None,
+                    settings,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                mode.show_sandbox_selector();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Sandbox profiles")
+                })
+                .await;
+                terminal.borrow_mut().send_input("\u{1b}[B");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Saved sandbox profile full-access to global scope.")
+                })
+                .await;
+                assert!(output.contains("Saved sandbox profile full-access to global scope."));
+
+                let value = settings_file(agent_dir.path());
+                assert_eq!(value.get("sandboxProfile"), Some(&serde_json::json!("full-access")));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn approval_selector_saves_preset_and_reports_status() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                init_dark_theme();
+                let agent_dir = tempfile::tempdir().expect("agent dir");
+                let cwd = tempfile::tempdir().expect("cwd");
+                let settings = SettingsManager::create(
+                    &cwd.path().display().to_string(),
+                    Some(agent_dir.path()),
+                    SettingsManagerCreateOptions::default(),
+                )
+                .expect("settings manager");
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                    None,
+                    settings,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                mode.show_approval_selector();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Approval presets")
+                })
+                .await;
+                terminal.borrow_mut().send_input("\u{1b}[B");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Saved approval preset to global settings.")
+                })
+                .await;
+                assert!(
+                    output.contains("Saved approval preset to global settings. Restart pi for this to take effect.")
+                );
+
+                let value = settings_file(agent_dir.path());
+                assert_eq!(
+                    value.get("approvalPreset"),
+                    Some(&serde_json::json!("llm-approved-deny"))
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn fork_selector_forks_from_the_selected_user_message() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                terminal.borrow_mut().send_input("hi");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("hello from faux")
+                })
+                .await;
+
+                terminal.borrow_mut().send_input("/fork");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Fork from Message")
+                })
+                .await;
+
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Forked to new session")
+                })
+                .await;
+                assert!(output.contains("Forked to new session"));
+                assert_eq!(mode.editor().borrow().get_text(), "hi");
+                assert!(mode.session().messages().is_empty());
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn scoped_models_selector_updates_session_scope_and_persists_selection() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                init_dark_theme();
+                let agent_dir = tempfile::tempdir().expect("agent dir");
+                let cwd = tempfile::tempdir().expect("cwd");
+                let settings = SettingsManager::create(
+                    &cwd.path().display().to_string(),
+                    Some(agent_dir.path()),
+                    SettingsManagerCreateOptions::default(),
+                )
+                .expect("settings manager");
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                    None,
+                    settings,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                terminal.borrow_mut().send_input("/scoped-models");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Refreshing model catalogs")
+                })
+                .await;
+                assert!(output.contains("Model Configuration"));
+
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let scoped = mode.session().scoped_models();
+                assert_eq!(scoped.len(), 1, "first toggle keeps only the selected model");
+                assert_eq!(scoped[0].model.id, "faux-1");
+
+                terminal.borrow_mut().send_input("\x13");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Model selection saved to settings")
+                })
+                .await;
+                assert!(output.contains("Model selection saved to settings"));
+                let value = settings_file(agent_dir.path());
+                assert_eq!(value.get("enabledModels"), Some(&serde_json::json!(["faux/faux-1"])));
+
+                terminal.borrow_mut().send_input("\u{1b}");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |_| true).await;
+                assert!(Rc::ptr_eq(
+                    mode.editor_container
+                        .borrow()
+                        .children()
+                        .first()
+                        .expect("editor mounted"),
+                    &mode.editor_handle.borrow()
+                ));
             })
             .await;
     }

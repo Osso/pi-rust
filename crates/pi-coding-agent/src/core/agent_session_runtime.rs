@@ -685,7 +685,7 @@ impl AgentSessionRuntime {
                     manager
                         .new_session(Some(crate::core::session_manager::NewSessionOptions {
                             id: None,
-                            parent_session: self.session.session_file(),
+                            parent_session: previous_session_file.clone(),
                             is_subagent: false,
                             subagent_name: None,
                         }))
