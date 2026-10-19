@@ -1,5 +1,7 @@
 //! Differential coverage for the `safe` and `approval-controls` bundled extensions.
 
+#[path = "support/bundled_extension_commands.rs"]
+mod command_support;
 #[path = "support/oracle.rs"]
 mod oracle;
 #[path = "support/bundled_extensions.rs"]

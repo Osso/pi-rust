@@ -6,9 +6,8 @@ use std::sync::{Arc, Mutex};
 use pi_coding_agent::core::event_bus::{EventBus, EventBusController};
 use pi_coding_agent::core::extensions::loader::{ExtensionFactory, load_extension_from_factory};
 use pi_coding_agent::core::extensions::types::{
-    Extension, ExtensionActions, ExtensionApi, ExtensionCommandContext, ExtensionCommandContextActions,
-    ExtensionContextActions, ExtensionMode, ExtensionUiContext, ExtensionUiDialogOptions, NotifyType,
-    SessionTransitionResult, UserMessageContent,
+    Extension, ExtensionActions, ExtensionApi, ExtensionCommandContextActions, ExtensionContextActions, ExtensionMode,
+    ExtensionUiContext, ExtensionUiDialogOptions, NotifyType, SessionTransitionResult, UserMessageContent,
 };
 use pi_coding_agent::core::extensions::{ExtensionRunner, ExtensionRuntime, create_extension_runtime};
 use pi_coding_agent::core::model_registry::ModelRegistry;
@@ -165,29 +164,8 @@ impl Harness {
         }
     }
 
-    pub fn command(&self, name: &str) -> pi_coding_agent::core::extensions::types::RegisteredCommand {
-        self.extension
-            .commands
-            .get(name)
-            .unwrap_or_else(|| panic!("command {name} registered"))
-            .clone()
-    }
-
     pub fn context(&self) -> pi_coding_agent::core::extensions::types::ExtensionContext {
         self.runner.create_context()
-    }
-
-    pub fn command_context(&self) -> ExtensionCommandContext {
-        self.runner.create_command_context()
-    }
-
-    pub async fn run_command(
-        &self,
-        name: &str,
-        args: &str,
-    ) -> Result<(), pi_coding_agent::core::extensions::types::HandlerError> {
-        let handler = self.command(name).handler;
-        handler(args.to_owned(), self.command_context()).await
     }
 
     pub fn registrations(&self) -> Value {

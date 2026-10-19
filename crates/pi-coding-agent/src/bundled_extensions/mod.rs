@@ -8,6 +8,8 @@ pub mod agent_viewer;
 pub mod agents_core;
 pub mod agents_mailbox;
 pub mod approval_controls;
+pub mod ask_secret;
+pub mod browser_cli;
 pub mod debug;
 pub mod safe;
 pub mod self_restart;
@@ -26,6 +28,20 @@ pub struct SmallExtensionsOptions {
 
 /// Registers the small first-party extensions under their source ids.
 pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &SmallExtensionsOptions) {
+    registry.register(
+        "<first-party:ask-secret>",
+        Arc::new(|pi| {
+            let result = ask_secret::ask_secret_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register(
+        "<first-party:browser-cli>",
+        Arc::new(|pi| {
+            let result = browser_cli::browser_cli_extension(pi, browser_cli::BrowserCliExtensionOptions::default());
+            Box::pin(async move { result })
+        }),
+    );
     registry.register(
         "<first-party:approval-controls>",
         Arc::new(|pi| {

@@ -1,5 +1,7 @@
 //! Differential and behavioral coverage for the small command/tool bundled extensions.
 
+#[path = "support/bundled_extension_commands.rs"]
+mod command_support;
 #[path = "support/oracle.rs"]
 mod oracle;
 #[path = "support/bundled_extensions.rs"]
@@ -118,7 +120,7 @@ async fn session_id_matches_typescript() {
         Arc::clone(&manager),
         Arc::new(RecordingUi::default()),
         None,
-        |api| pi_coding_agent::bundled_extensions::session_id::session_id_extension(api),
+        pi_coding_agent::bundled_extensions::session_id::session_id_extension,
     )
     .await;
     let session_id = manager.get_session_id().to_owned();
