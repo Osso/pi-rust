@@ -97,6 +97,13 @@ pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &Sma
         }),
     );
     registry.register(
+        "<first-party:openai-remote-compact>",
+        Arc::new(|pi| {
+            let result = openai_remote_compact::openai_remote_compact_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register(
         "<first-party:run-plan>",
         Arc::new(|pi| {
             let result = run_plan::run_plan_extension(pi);

@@ -513,15 +513,18 @@ fn register_bwrap_session_start(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
         let bwrap_command = bwrap_command.clone();
         Box::pin(async move {
             let profile = read_sandbox_profile(&ctx);
+            // The source reads `ctx.ui.theme`, which throws when no theme is
+            // initialized; the runner records the throw and skips the status.
+            let Some(theme) = crate::modes::interactive::theme::current_theme_if_initialized() else {
+                return Ok(None);
+            };
             let Some(profile) = profile else {
                 if let Ok(ui) = ctx.ui() {
-                    let theme = ui.theme();
                     ui.set_status("bwrap", Some(&theme.fg(ThemeColor::Muted, "bwrap: full access")));
                 }
                 return Ok(None);
             };
             if let Ok(ui) = ctx.ui() {
-                let theme = ui.theme();
                 match run_bwrap_availability_check(&bwrap_command) {
                     Ok(()) => ui.set_status(
                         "bwrap",

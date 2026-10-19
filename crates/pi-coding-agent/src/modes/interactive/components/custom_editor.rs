@@ -169,23 +169,25 @@ fn same_history(left: &[String], right: &[String]) -> bool {
     left.len() == right.len() && left.iter().zip(right).all(|(left, right)| left == right)
 }
 
-impl Component for CustomEditor {
-    fn render(&mut self, width: usize) -> Vec<String> {
-        self.editor.render(width)
-    }
-
-    fn handle_input(&mut self, data: &str) {
+impl CustomEditor {
+    /// Handles one input chunk and returns the app callbacks it matched.
+    ///
+    /// Callers that hold the editor in a `RefCell` run the callbacks after
+    /// dropping the borrow: the callbacks re-enter the editor (clear, border
+    /// color, status), which a live borrow would reject.
+    pub fn collect_input_callbacks(&mut self, data: &str) -> Vec<Rc<dyn Fn()>> {
+        let mut callbacks: Vec<Rc<dyn Fn()>> = Vec::new();
         if let Some(shortcut) = &self.on_extension_shortcut
             && shortcut(data)
         {
-            return;
+            return callbacks;
         }
 
         if self.keybindings.matches(data, "app.clipboard.pasteImage") {
             if let Some(handler) = &self.on_paste_image {
-                handler();
+                callbacks.push(Rc::clone(handler));
             }
-            return;
+            return callbacks;
         }
 
         if self.keybindings.matches(data, "app.interrupt") {
@@ -195,12 +197,12 @@ impl Component for CustomEditor {
                     .clone()
                     .or_else(|| self.action_handlers.get("app.interrupt").map(as_action_fn));
                 if let Some(handler) = handler {
-                    handler();
-                    return;
+                    callbacks.push(handler);
+                    return callbacks;
                 }
             }
             self.editor.handle_input(data);
-            return;
+            return callbacks;
         }
 
         if self.keybindings.matches(data, "app.exit") && self.editor.get_text().is_empty() {
@@ -209,26 +211,39 @@ impl Component for CustomEditor {
                 .clone()
                 .or_else(|| self.action_handlers.get("app.exit").map(as_action_fn));
             if let Some(handler) = handler {
-                handler();
+                callbacks.push(handler);
             }
-            return;
+            return callbacks;
         }
 
         if self.keybindings.matches(data, "tui.editor.historyPrevious")
             || self.keybindings.matches(data, "tui.editor.historyNext")
         {
             self.editor.handle_input(data);
-            return;
+            return callbacks;
         }
 
         for (action, handler) in &self.action_handlers {
-            if action != "app.interrupt" && action != "app.exit" && self.keybindings.matches(data, action) && handler()
-            {
-                return;
+            if action != "app.interrupt" && action != "app.exit" && self.keybindings.matches(data, action) {
+                callbacks.push(as_action_fn(handler));
+                return callbacks;
             }
         }
 
         self.editor.handle_input(data);
+        callbacks
+    }
+}
+
+impl Component for CustomEditor {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.editor.render(width)
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        for callback in self.collect_input_callbacks(data) {
+            callback();
+        }
     }
 
     fn invalidate(&mut self) {

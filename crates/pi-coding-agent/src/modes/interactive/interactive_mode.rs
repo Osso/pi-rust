@@ -1022,6 +1022,15 @@ pub struct InteractiveTuiHandle {
 }
 
 impl InteractiveTuiHandle {
+    /// Clone the active renderer out of the cell so dispatching input or
+    /// rendering cannot re-enter the `RefCell` borrow.
+    fn renderer(&self) -> Renderer {
+        match &*self.renderer.borrow() {
+            Renderer::Main(tui) => Renderer::Main(Rc::clone(tui)),
+            Renderer::Fullscreen(tui) => Renderer::Fullscreen(Rc::clone(tui)),
+        }
+    }
+
     pub fn new(renderer: Renderer) -> Rc<Self> {
         Rc::new(Self {
             renderer: RefCell::new(renderer),
@@ -1041,49 +1050,49 @@ impl InteractiveTuiHandle {
     }
 
     pub fn add_child(&self, child: ComponentRef) {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::add_child(tui.as_ref(), child),
             Renderer::Fullscreen(tui) => TuiExt::add_child(tui.as_ref(), child),
         }
     }
 
     pub fn clear(&self) {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::clear(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::clear(tui.as_ref()),
         }
     }
 
     pub fn set_focus(&self, component: Option<ComponentRef>) {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::set_focus(tui.as_ref(), component),
             Renderer::Fullscreen(tui) => TuiExt::set_focus(tui.as_ref(), component),
         }
     }
 
     pub fn get_focused_component(&self) -> Option<ComponentRef> {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::get_focused_component(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::get_focused_component(tui.as_ref()),
         }
     }
 
     pub fn request_render(&self) {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::request_render(tui.as_ref(), false),
             Renderer::Fullscreen(tui) => TuiExt::request_render(tui.as_ref(), false),
         }
     }
 
     pub fn render_now(&self) {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::render_now(tui.as_ref(), true),
             Renderer::Fullscreen(tui) => TuiExt::render_now(tui.as_ref(), true),
         }
     }
 
     pub fn invalidate(&self) {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::invalidate(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::invalidate(tui.as_ref()),
         }
@@ -1098,98 +1107,98 @@ impl InteractiveTuiHandle {
     }
 
     pub fn flush_pending(&self) {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::flush_pending(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::flush_pending(tui.as_ref()),
         }
     }
 
     pub fn process_events(&self) {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::process_events(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::process_events(tui.as_ref()),
         }
     }
 
     pub fn get_show_hardware_cursor(&self) -> bool {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::get_show_hardware_cursor(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::get_show_hardware_cursor(tui.as_ref()),
         }
     }
 
     pub fn get_clear_on_shrink(&self) -> bool {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::get_clear_on_shrink(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::get_clear_on_shrink(tui.as_ref()),
         }
     }
 
     pub fn set_clear_on_shrink(&self, enabled: bool) {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::set_clear_on_shrink(tui.as_ref(), enabled),
             Renderer::Fullscreen(tui) => TuiExt::set_clear_on_shrink(tui.as_ref(), enabled),
         }
     }
 
     pub fn show_overlay(&self, component: ComponentRef, options: Option<OverlayOptions>) -> OverlayHandle {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::show_overlay(tui.as_ref(), component, options),
             Renderer::Fullscreen(tui) => TuiExt::show_overlay(tui.as_ref(), component, options),
         }
     }
 
     pub fn hide_overlay(&self) {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::hide_overlay(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::hide_overlay(tui.as_ref()),
         }
     }
 
     pub fn has_overlay_entries(&self) -> bool {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => tui.base().has_overlay_entries(),
             Renderer::Fullscreen(tui) => tui.base().has_overlay_entries(),
         }
     }
 
     pub fn add_input_listener(&self, listener: Rc<dyn Fn(&str) -> TuiInputListenerResult>) -> usize {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::add_input_listener(tui.as_ref(), listener),
             Renderer::Fullscreen(tui) => TuiExt::add_input_listener(tui.as_ref(), listener),
         }
     }
 
     pub fn remove_input_listener(&self, id: usize) {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::remove_input_listener(tui.as_ref(), id),
             Renderer::Fullscreen(tui) => TuiExt::remove_input_listener(tui.as_ref(), id),
         }
     }
 
     pub fn set_on_debug(&self, handler: Rc<dyn Fn()>) {
-        match &*self.renderer.borrow() {
+        match self.renderer() {
             Renderer::Main(tui) => TuiExt::set_on_debug(tui.as_ref(), handler),
             Renderer::Fullscreen(tui) => TuiExt::set_on_debug(tui.as_ref(), handler),
         }
     }
 
     pub fn set_layout_root(&self, component: Option<ComponentRef>) {
-        if let Renderer::Fullscreen(tui) = &*self.renderer.borrow() {
+        if let Renderer::Fullscreen(tui) = self.renderer() {
             ViewportTui::set_layout_root(tui.as_ref(), component);
         }
     }
 
     pub fn create_flow_render_region(&self, component: ComponentRef) -> Option<FlowRenderRegion> {
-        match &*self.renderer.borrow() {
-            Renderer::Main(tui) => Some(TuiMainScreen::create_flow_render_region(tui, component)),
+        match self.renderer() {
+            Renderer::Main(tui) => Some(TuiMainScreen::create_flow_render_region(&tui, component)),
             Renderer::Fullscreen(_) => None,
         }
     }
 
     pub fn create_render_region(&self, component: ComponentRef) -> Option<RenderRegion> {
-        match &*self.renderer.borrow() {
-            Renderer::Main(tui) => Some(TuiMainScreen::create_render_region(tui, component)),
+        match self.renderer() {
+            Renderer::Main(tui) => Some(TuiMainScreen::create_render_region(&tui, component)),
             Renderer::Fullscreen(_) => None,
         }
     }
@@ -1266,7 +1275,10 @@ impl Component for EditorHandle {
     }
 
     fn handle_input(&mut self, data: &str) {
-        self.0.borrow_mut().handle_input(data);
+        let callbacks = self.0.borrow_mut().collect_input_callbacks(data);
+        for callback in callbacks {
+            callback();
+        }
     }
 
     fn wants_input(&self) -> bool {
@@ -3492,6 +3504,7 @@ impl InteractiveMode {
                 _ = tokio::time::sleep(Duration::from_millis(PARTIAL_UPDATE_RENDER_THROTTLE_MS)) => {}
             }
             self.ui.process_events();
+            self.ui.flush_pending();
             self.update_editor_border_color();
             self.handle_ui_requests().await;
             self.drain_actions().await;

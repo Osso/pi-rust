@@ -155,7 +155,6 @@ pub const PENDING_FIRST_PARTY_EXTENSIONS: &[&str] = &[
     "default-footer",
     "effort",
     "loop",
-    "openai-remote-compact",
 ];
 
 /// `builtInExtensions` from `extensions/index.ts` (the hidden llama.cpp
@@ -1361,7 +1360,9 @@ impl crate::cli::session_picker::SessionLoader for MainSessionsLoader {
                 }
                 MainSessionsScope::All => SessionManager::list_all(session_dir, on_progress, control_db_path)
                     .map_err(|error| error.to_string()),
-                MainSessionsScope::Archived => Ok(SessionManager::list_archived(session_dir, control_db_path)),
+                MainSessionsScope::Archived => {
+                    SessionManager::list_archived(session_dir, control_db_path).map_err(|error| error.to_string())
+                }
             }
         })
     }
