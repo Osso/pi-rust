@@ -188,6 +188,43 @@ fn edit_args_change_discards_the_previous_preview() {
 }
 
 #[test]
+fn edit_settled_result_reconstructs_the_preview_without_complete_args() {
+    let theme = theme();
+    let temp = tempfile::tempdir().expect("temp dir");
+    std::fs::write(temp.path().join("note.txt"), "hello world\n").expect("fixture");
+    let state = ToolRenderState::new();
+    let args = json!({"path": "note.txt", "edits": [{"oldText": "hello", "newText": "goodbye"}]});
+    let mut context = context(args.clone(), &temp.path().to_string_lossy(), state.clone());
+    context.args_complete = false;
+
+    let pending = edit_render_call(&args, &theme, &context).expect("call renderer");
+    assert_eq!(plain(&pending.borrow_mut().render(80)).trim(), "edit note.txt");
+
+    let diff = "@@ -1,1 +1,1 @@\n-1 hello world\n+1 goodbye world";
+    let result = result(
+        "Successfully replaced 1 block(s) in note.txt.",
+        Some(json!({"diff": diff, "firstChangedLine": 1})),
+        false,
+    );
+    let result_component = edit_render_result(
+        &result,
+        &ToolRenderResultOptions {
+            expanded: false,
+            is_partial: false,
+        },
+        &theme,
+        &context,
+    )
+    .expect("result renderer");
+    assert!(result_component.borrow_mut().render(80).is_empty());
+
+    let settled = edit_render_call(&args, &theme, &context).expect("call renderer");
+    let text = plain(&settled.borrow_mut().render(80));
+    assert!(text.contains("-1 hello world"), "{text}");
+    assert!(text.contains("+1 goodbye world"), "{text}");
+}
+
+#[test]
 fn bash_call_records_the_start_and_result_records_the_end() {
     let theme = theme();
     let state = ToolRenderState::new();
