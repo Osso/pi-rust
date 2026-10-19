@@ -2505,3 +2505,130 @@ async fn activity_publication_errors_fail_the_agent_run() {
         "Persisted agent child-agent activity update requires exact runtime ownership"
     );
 }
+
+struct FailingApprovalUi;
+
+impl ExtensionUiContext for FailingApprovalUi {
+    fn select<'a>(
+        &'a self,
+        _title: &str,
+        _options: &[String],
+        _opts: Option<&ExtensionUiDialogOptions>,
+    ) -> pi_ai::request::BoxFuture<'a, Result<Option<String>, String>> {
+        Box::pin(async { Err("dialog failed".to_owned()) })
+    }
+}
+
+fn tool_result_text(fixture: &Fixture) -> (bool, String) {
+    let result = fixture
+        .session
+        .messages()
+        .into_iter()
+        .find_map(|message| message.as_tool_result().cloned())
+        .expect("tool result");
+    let text = result
+        .content
+        .iter()
+        .filter_map(|content| match content {
+            pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    (result.is_error, text)
+}
+
+#[tokio::test]
+async fn human_approval_ui_errors_abort_the_tool_call() {
+    let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
+    settings.insert("approvalPolicy".to_owned(), json!("on-request"));
+    settings.insert("approvalPreset".to_owned(), json!("ask-me"));
+    let fixture = fixture_with(
+        settings,
+        vec![Arc::new(PermissionEchoTool {
+            executed: Arc::clone(&executed),
+        })],
+        Some(vec!["echo".to_owned()]),
+        None,
+    )
+    .await;
+    fixture
+        .session
+        .bind_extensions(ExtensionBindings {
+            ui_context: Some(Arc::new(FailingApprovalUi) as Arc<dyn ExtensionUiContext>),
+            mode: Some(ExtensionMode::Tui),
+            ..Default::default()
+        })
+        .await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message(
+            permission_tool_call("hello"),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    fixture
+        .session
+        .prompt("hi", PromptOptions::default())
+        .await
+        .expect("prompt resolves with the run failure message");
+
+    assert!(executed.lock().unwrap().is_empty(), "tool must not run");
+    let (is_error, text) = tool_result_text(&fixture);
+    assert!(is_error);
+    assert_eq!(text, "dialog failed");
+}
+
+#[tokio::test]
+async fn supervisor_requester_errors_abort_the_tool_call() {
+    let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let requester: SupervisorDecisionRequester =
+        Arc::new(|_input| Box::pin(async { Err("supervisor unavailable".to_owned()) }));
+    let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
+    settings.insert("approvalPolicy".to_owned(), json!("on-request"));
+    settings.insert("approvalPreset".to_owned(), json!("llm-approved-deny"));
+    let fixture = fixture_with_multi_agent(
+        settings,
+        vec![Arc::new(PermissionEchoTool {
+            executed: Arc::clone(&executed),
+        })],
+        Some(vec!["echo".to_owned()]),
+        None,
+        FixtureOverrides {
+            supervisor_decision_requester: Some(requester),
+            ..Default::default()
+        },
+    )
+    .await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message(
+            permission_tool_call("hello"),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+
+    fixture
+        .session
+        .prompt("hi", PromptOptions::default())
+        .await
+        .expect("prompt resolves with the run failure message");
+
+    assert!(
+        executed.lock().unwrap().is_empty(),
+        "supervisor failure must not allow the tool"
+    );
+    let (is_error, text) = tool_result_text(&fixture);
+    assert!(is_error);
+    assert_eq!(text, "supervisor unavailable");
+}

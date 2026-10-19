@@ -1934,6 +1934,7 @@ impl AgentSession {
             && let Some(result) = self
                 .review_auto_approved_tool_call(&event, &runner, approval_required)
                 .await
+                .map_err(|error| AgentError::new(error.message))?
         {
             return Ok(Some(tool_call_result_to_before(result)));
         }
@@ -1946,7 +1947,8 @@ impl AgentSession {
             reviewer: self.create_tool_approval_human_reviewer(&event, &runner, None, false),
             llm_reviewer: self.create_tool_approval_llm_reviewer(&event, current_user_request),
         })
-        .await;
+        .await
+        .map_err(|error| AgentError::new(error.message))?;
         Ok(result.map(tool_call_result_to_before))
     }
 
@@ -1955,21 +1957,22 @@ impl AgentSession {
         event: &ToolCallEvent,
         runner: &ExtensionRunner,
         approval_required: bool,
-    ) -> Option<crate::core::extensions::types::ToolCallEventResult> {
+    ) -> Result<Option<crate::core::extensions::types::ToolCallEventResult>, crate::core::extensions::types::HandlerError>
+    {
         if !approval_required || !runner.has_approval_reviewers() {
-            return None;
+            return Ok(None);
         }
         let mut reviewed = event.clone();
-        match runner.emit_approval_reviewers(&mut reviewed).await {
-            Ok(Some(crate::core::extensions::types::ApprovalReviewerResult::Deny { reason })) => {
-                Some(crate::core::extensions::types::ToolCallEventResult {
+        match runner.emit_approval_reviewers(&mut reviewed).await? {
+            Some(crate::core::extensions::types::ApprovalReviewerResult::Deny { reason }) => {
+                Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                     block: Some(true),
                     input: None,
                     reason: Some(reason),
                     terminate: None,
-                })
+                }))
             }
-            _ => None,
+            _ => Ok(None),
         }
     }
 
@@ -2005,8 +2008,8 @@ impl AgentSession {
             let args = Arc::clone(&args);
             let permission_prompt_tool = permission_prompt_tool.clone();
             Box::pin(async move {
-                if let Some(result) = session.review_registered_approval_reviewers(&event, &runner).await {
-                    return Some(result);
+                if let Some(result) = session.review_registered_approval_reviewers(&event, &runner).await? {
+                    return Ok(Some(result));
                 }
                 let tool_inner = Arc::downgrade(&session.inner);
                 let call_tool: crate::core::permissions::mcp_permission_prompt::PermissionPromptCaller =
@@ -2048,24 +2051,15 @@ impl AgentSession {
                 let mut reviewed = event.clone();
                 if let Some(result) = handler(&mut reviewed).await {
                     write_back_tool_input(&args, &reviewed.input);
-                    return Some(result);
+                    return Ok(Some(result));
                 }
                 write_back_tool_input(&args, &reviewed.input);
                 if !runner.has_handlers("tool_call") {
-                    return None;
+                    return Ok(None);
                 }
-                match runner.emit_tool_call(&mut reviewed).await {
-                    Ok(result) => {
-                        write_back_tool_input(&args, &reviewed.input);
-                        result
-                    }
-                    Err(error) => Some(crate::core::extensions::types::ToolCallEventResult {
-                        block: Some(true),
-                        input: None,
-                        reason: Some(format!("Extension failed, blocking execution: {error}")),
-                        terminate: None,
-                    }),
-                }
+                let result = runner.emit_tool_call(&mut reviewed).await;
+                write_back_tool_input(&args, &reviewed.input);
+                result
             })
         }))
     }
@@ -2074,39 +2068,42 @@ impl AgentSession {
         &self,
         event: &ToolCallEvent,
         runner: &ExtensionRunner,
-    ) -> Option<crate::core::extensions::types::ToolCallEventResult> {
+    ) -> Result<Option<crate::core::extensions::types::ToolCallEventResult>, crate::core::extensions::types::HandlerError>
+    {
         if !runner.has_approval_reviewers() {
-            return None;
+            return Ok(None);
         }
         let mut reviewed = event.clone();
-        let result = runner.emit_approval_reviewers(&mut reviewed).await.ok().flatten()?;
+        let Some(result) = runner.emit_approval_reviewers(&mut reviewed).await? else {
+            return Ok(None);
+        };
         match result {
             crate::core::extensions::types::ApprovalReviewerResult::Allow { .. } => {
-                Some(crate::core::extensions::types::ToolCallEventResult {
+                Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                     block: Some(false),
                     input: None,
                     reason: None,
                     terminate: None,
-                })
+                }))
             }
             crate::core::extensions::types::ApprovalReviewerResult::Deny { reason } => {
-                Some(crate::core::extensions::types::ToolCallEventResult {
+                Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                     block: Some(true),
                     input: None,
                     reason: Some(reason),
                     terminate: None,
-                })
+                }))
             }
             crate::core::extensions::types::ApprovalReviewerResult::Ask { reason } => {
                 let human = self.create_tool_approval_human_reviewer(event, runner, reason.clone(), false);
                 match human {
                     Some(human) => (human)().await,
-                    None => Some(crate::core::extensions::types::ToolCallEventResult {
+                    None => Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                         block: Some(true),
                         input: None,
                         reason: Some(reason.unwrap_or_else(|| "Approval required".to_owned())),
                         terminate: None,
-                    }),
+                    })),
                 }
             }
         }
@@ -2149,20 +2146,19 @@ impl AgentSession {
                         None,
                     )
                     .await
-                    .ok()
-                    .flatten();
+                    .map_err(crate::core::extensions::types::HandlerError::new)?;
                 match selection.as_deref() {
-                    Some("Allow once") => None,
+                    Some("Allow once") => Ok(None),
                     Some("Allow always") => {
                         session.spawn_allow_always_agent(&event);
-                        None
+                        Ok(None)
                     }
-                    _ => Some(crate::core::extensions::types::ToolCallEventResult {
+                    _ => Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                         block: Some(true),
                         input: None,
                         reason: Some("Tool call rejected by user".to_owned()),
                         terminate: None,
-                    }),
+                    })),
                 }
             })
         }))
@@ -2206,7 +2202,7 @@ impl AgentSession {
             return None;
         }
         if self.is_read_only_auto_approved(event) {
-            return Some(Arc::new(|| Box::pin(async { None })));
+            return Some(Arc::new(|| Box::pin(async { Ok(None) })));
         }
         let session = self.clone();
         let event = event.clone();
@@ -2226,13 +2222,8 @@ impl AgentSession {
                 let active_goal = match lock(&session.inner.session_manager).get_session_goal_json() {
                     Ok(goal) => goal,
                     Err(error) => {
-                        // The source throws here, aborting the tool call; fail closed.
-                        return Some(crate::core::extensions::types::ToolCallEventResult {
-                            block: Some(true),
-                            input: None,
-                            reason: Some(error.to_string()),
-                            terminate: None,
-                        });
+                        // The source throws here, aborting the tool call.
+                        return Err(crate::core::extensions::types::HandlerError::new(error.to_string()));
                     }
                 };
                 let mut payload = Map::new();
@@ -2278,13 +2269,15 @@ impl AgentSession {
                             let human_session = human_session.clone();
                             let human_event = human_event.clone();
                             Box::pin(async move {
-                                let reviewer = human_session.create_tool_approval_human_reviewer(
+                                let Some(reviewer) = human_session.create_tool_approval_human_reviewer(
                                     &human_event,
                                     &human_session.runner(),
                                     Some(reason),
                                     true,
-                                )?;
-                                (reviewer)().await
+                                ) else {
+                                    return Ok(None);
+                                };
+                                (reviewer)().await.map_err(|error| error.message)
                             })
                         }))
                     } else {
@@ -2296,8 +2289,7 @@ impl AgentSession {
                     approval_preset == ApprovalPresetName::LlmApprovedAsk,
                 )
                 .await
-                .ok()
-                .flatten()
+                .map_err(crate::core::extensions::types::HandlerError::new)
             })
         }))
     }

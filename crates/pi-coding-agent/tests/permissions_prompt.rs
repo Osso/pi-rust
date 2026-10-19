@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::desktop_notification::{DesktopNotification, DesktopNotificationHandle, DesktopNotifier};
-use pi_coding_agent::core::extensions::types::{ToolCallEvent, ToolCallEventResult, ToolName};
+use pi_coding_agent::core::extensions::types::{HandlerError, ToolCallEvent, ToolCallEventResult, ToolName};
 use pi_coding_agent::core::permissions::mcp_permission_prompt::{
     PermissionPromptCaller, PermissionPromptDecision, PermissionPromptHandlerOptions, PermissionPromptInput,
     create_permission_prompt_handler, parse_permission_prompt_decision,
@@ -32,7 +32,7 @@ fn bash_event() -> ToolCallEvent {
 fn reviewer(result: Option<ToolCallEventResult>) -> ApprovalReviewer {
     Arc::new(move || {
         let result = result.clone();
-        Box::pin(async move { result }) as BoxFuture<'static, Option<ToolCallEventResult>>
+        Box::pin(async move { Ok(result) }) as BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>>
     })
 }
 
@@ -42,8 +42,8 @@ fn counting_reviewer(result: Option<ToolCallEventResult>, calls: Arc<Mutex<usize
         let calls = Arc::clone(&calls);
         Box::pin(async move {
             *calls.lock().unwrap() += 1;
-            result
-        }) as BoxFuture<'static, Option<ToolCallEventResult>>
+            Ok(result)
+        }) as BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>>
     })
 }
 
@@ -66,7 +66,8 @@ async fn routes_on_request_approvals_to_the_reviewer() {
         hook_reviewer: None,
         llm_reviewer: None,
     })
-    .await;
+    .await
+    .expect("approval");
     assert_eq!(result, blocked("blocked"));
     assert_eq!(*calls.lock().unwrap(), 1);
 }
@@ -81,7 +82,8 @@ async fn blocks_never_without_invoking_the_reviewer() {
         hook_reviewer: None,
         llm_reviewer: None,
     })
-    .await;
+    .await
+    .expect("approval");
     assert_eq!(result, blocked("Blocked by approval policy: never"));
     assert_eq!(*calls.lock().unwrap(), 0);
 }
@@ -96,7 +98,8 @@ async fn allows_auto_approve_without_invoking_the_reviewer() {
         hook_reviewer: None,
         llm_reviewer: None,
     })
-    .await;
+    .await
+    .expect("approval");
     assert_eq!(result, None);
     assert_eq!(*calls.lock().unwrap(), 0);
 }
@@ -116,7 +119,8 @@ async fn allows_actions_that_do_not_require_approval() {
         hook_reviewer: Some(counting_reviewer(blocked("hook blocked"), Arc::clone(&hook_calls))),
         llm_reviewer: Some(counting_reviewer(blocked("llm blocked"), Arc::clone(&llm_calls))),
     })
-    .await;
+    .await
+    .expect("approval");
     assert_eq!(result, None);
     assert_eq!(*hook_calls.lock().unwrap(), 0);
     assert_eq!(*reviewer_calls.lock().unwrap(), 0);
@@ -136,7 +140,8 @@ async fn skips_the_llm_reviewer_when_a_hook_reviewer_decides() {
         }))),
         llm_reviewer: Some(counting_reviewer(blocked("llm blocked"), Arc::clone(&llm_calls))),
     })
-    .await;
+    .await
+    .expect("approval");
     assert_eq!(
         result,
         Some(ToolCallEventResult {
@@ -158,7 +163,8 @@ async fn falls_through_to_the_llm_reviewer_when_hooks_do_not_decide() {
         hook_reviewer: Some(counting_reviewer(None, Arc::clone(&hook_calls))),
         llm_reviewer: Some(counting_reviewer(blocked("llm blocked"), Arc::clone(&llm_calls))),
     })
-    .await;
+    .await
+    .expect("approval");
     assert_eq!(result, blocked("llm blocked"));
     assert_eq!(*hook_calls.lock().unwrap(), 1);
     assert_eq!(*llm_calls.lock().unwrap(), 1);
@@ -173,7 +179,8 @@ async fn uses_the_llm_reviewer_without_a_hook_reviewer() {
         hook_reviewer: None,
         llm_reviewer: Some(reviewer(blocked("llm blocked"))),
     })
-    .await;
+    .await
+    .expect("approval");
     assert_eq!(result, blocked("llm blocked"));
 }
 
@@ -520,4 +527,22 @@ async fn non_session_allow_rules_do_not_skip_follow_up_prompts() {
     let mut second = bash_event();
     assert_eq!(handler(&mut second).await, None);
     assert_eq!(calls.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn reviewer_failures_propagate_instead_of_allowing_the_tool_call() {
+    let failing: ApprovalReviewer = Arc::new(|| {
+        Box::pin(async { Err(HandlerError::new("reviewer unavailable")) })
+            as BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>>
+    });
+    let error = orchestrate_tool_approval(&ApprovalOrchestratorOptions {
+        policy: ApprovalPolicy::OnRequest,
+        approval_required: true,
+        reviewer: Some(failing),
+        hook_reviewer: None,
+        llm_reviewer: None,
+    })
+    .await
+    .expect_err("reviewer failure must propagate");
+    assert_eq!(error.message, "reviewer unavailable");
 }

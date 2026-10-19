@@ -54,9 +54,15 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
   permission-prompt protocol tool (discovery/config, rule-store skip, updated input
   write-back), human UI reviewer (including the `Allow always` background
   `permission-config` spawn), supervisor LLM reviewer with read-only
-  `approvalKind` auto-approval. Proof: `human_allow_always_spawns_the_permission_config_agent`,
+  `approvalKind` auto-approval. Reviewer, UI-dialog, and Supervisor request
+  failures propagate through `ApprovalReviewer` and become error tool results via
+  the agent loop's `prepareToolCall` catch, matching the source instead of
+  allowing or blocking the call. Proof:
+  `human_allow_always_spawns_the_permission_config_agent`,
   `llm_reviewer_auto_approves_read_only_builtin_tools`,
-  `llm_reviewer_does_not_auto_approve_extension_tools_reusing_a_read_only_name`.
+  `llm_reviewer_does_not_auto_approve_extension_tools_reusing_a_read_only_name`,
+  `human_approval_ui_errors_abort_the_tool_call`,
+  `supervisor_requester_errors_abort_the_tool_call`.
 - Session: names, compaction summary edits, `navigateTree` (no-summary and
   summarization paths with `session_before_tree`/`session_tree` and branch-summary
   attachment), fork selector, stats, context usage, `exportToJsonl`, `exportToHtml`,

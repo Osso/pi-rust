@@ -8,7 +8,7 @@ Rust: `crates/pi-coding-agent/src/supervisor/` (`approval_reviewer.rs`, `respons
 
 | TypeScript source | Contract | Rust and proof |
 |---|---|---|
-| `reviewToolCallWithSupervisor` | approve → undefined; reject → block unless escalation; error/invalid → human or block | `review_tool_call_with_supervisor`; `allows_approved_calls_and_blocks_rejected_calls`, `escalates_supervisor_errors_to_the_human_reviewer`, `escalates_rejection_only_for_the_ask_preset` |
+| `reviewToolCallWithSupervisor` | approve → undefined; reject → block unless escalation; error/invalid → human or block; a rejected decision request or human reviewer propagates | `review_tool_call_with_supervisor` (`SupervisorHumanReviewer` is fallible); `allows_approved_calls_and_blocks_rejected_calls`, `escalates_supervisor_errors_to_the_human_reviewer`, `escalates_rejection_only_for_the_ask_preset`, `reviewer_failures_propagate_instead_of_allowing_the_tool_call` |
 
 ## response-tool.ts
 
