@@ -134,8 +134,7 @@ registration are wired.
 - `applyHttpProxySettings` has no process-global equivalent. Settings `httpProxy`
   is not written into the environment; the HTTP client reads the ambient proxy
   environment instead. `resolve_http_proxy_settings` captures the source decision.
-- `--version` reads `package.json` from `PI_PACKAGE_DIR` (or the executable
-  directory), matching the deployed layout. Process differentials stage that file.
+- `--version` and package constants come from the embedded pinned `package.json` unless `PI_PACKAGE_DIR` is set (approved deviation 2026-10-18; see config.md).
 - The JSON mode serializes `startedAt`/`finishedAt` as floats; the differential
   normalizes these duration fields (allowed substitution).
 
