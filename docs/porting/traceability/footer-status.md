@@ -21,3 +21,9 @@ Differential proof: request `26004` executes the real pinned module across 6 san
 
 - Focused cases: 7.
 - Differential request: `26004`, 13 cases.
+
+## Order audit
+
+`formatExtensionStatusTextLines` sorts non-goal keys with `pi_js_compat::locale_compare`, matching
+`localeCompare`; the `BTreeMap` input order is therefore not observable. Differential `26004` covers the
+resulting lines.

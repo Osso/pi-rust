@@ -106,6 +106,13 @@ impl Fixture {
         )
         .expect("target session");
         materialize(&mut manager);
+        // Real runtimes register session metadata; listing prefers it over file scans.
+        manager
+            .set_metadata_control_db_path(
+                Some(&self.control_db_path),
+                pi_coding_agent::core::session_manager::SetMetadataControlDbPathOptions::default(),
+            )
+            .expect("attach control db");
         manager
     }
 

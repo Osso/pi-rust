@@ -110,3 +110,10 @@ tests can use in-memory fakes.
 - `cargo test -p pi-coding-agent --test package_manager_git` (7 passed, 2 ignored probes)
 - `cargo test -p pi-coding-agent --test differential_package_manager` (12 tests)
 - `cargo clippy -p pi-coding-agent --all-targets -- -D warnings`
+
+## Spawn failures
+
+Node reports `spawn <cmd> <ERRNO>` / `spawnSync <cmd> <ERRNO>`. Rust uses
+`utils::child_process::node_spawn_error_message` with the Linux errno-name table;
+`missing_npm_binary_reports_the_node_spawn_error_text` and
+`non_executable_npm_binary_reports_the_node_spawn_error_text` assert `ENOENT` and `EACCES`.

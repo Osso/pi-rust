@@ -285,6 +285,14 @@ impl AssistantTranscriptItem {
     pub const fn order(&self) -> AssistantTranscriptOrder {
         self.order
     }
+
+    /// Returns a copy with replaced content, preserving identity, model, usage, state, and order.
+    pub fn replacing_content(&self, content: Vec<AssistantContent>) -> Self {
+        Self {
+            content,
+            ..self.clone()
+        }
+    }
 }
 
 /// Status-specific tool transcript fields.
@@ -398,6 +406,11 @@ impl ToolTranscriptItem {
     pub const fn is_error(&self) -> bool {
         self.state.is_error()
     }
+
+    /// Returns a copy with a replaced streaming input, preserving all other fields.
+    pub fn replacing_input(&self, input: JsonValue) -> Self {
+        Self { input, ..self.clone() }
+    }
 }
 
 /// One durable transcript entry.
@@ -414,6 +427,14 @@ impl TranscriptItem {
             Self::User(_) => "user",
             Self::Assistant(_) => "assistant",
             Self::Tool(_) => "tool",
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        match self {
+            Self::User(item) => item.id(),
+            Self::Assistant(item) => item.id(),
+            Self::Tool(item) => item.id(),
         }
     }
 }
