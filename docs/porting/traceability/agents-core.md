@@ -72,9 +72,9 @@ Persisted viewing uses `list_session_metadata` + `read_multi_agent_state`, match
 | `isProductionChildSessionFactory` | `is_production_child_session_factory` + factory marker | spawn validation test |
 | `createProductionChildAgentSessionFactory` | `create_production_child_agent_session_factory` | 12 factory tests + end-to-end spawn |
 | `createProductionAttachedSessionFactory` | `create_production_attached_session_factory` | attach open/policy/mismatch tests |
-| `resolveInheritedLeafId` | `resolve_inherited_leaf_id` | inherited branch tests |
-| `createChildSessionManager` | `create_child_session_manager` | fork/leaf selection tests |
-| `forkInheritedChildSessionManager` | `fork_inherited_child_session_manager` | inherited prefix test |
+| `resolveInheritedLeafId` | `resolve_inherited_leaf_selection` | inherited branch tests |
+| `createChildSessionManager` | `create_child_session_manager` (+ `create_child_session_manager_options`) | fork/leaf selection tests |
+| `forkInheritedChildSessionManager` | forked inside `create_child_session_manager` | inherited prefix test |
 | `createChildAgentSessionOptions` | `create_child_agent_session_options` | option/identity/tool tests |
 | `createBoundChildSession` | `create_bound_child_session` | prompt/bind/persist tests |
 | `createProductionChildSession` | `create_production_child_session` | fresh/inherit + goal-validation tests |
@@ -85,7 +85,7 @@ Persisted viewing uses `list_session_metadata` + `read_multi_agent_state`, match
 | `resolveChildAgentProfile`/`Tools` | `resolve_child_agent_profile`, `resolve_child_agent_tools` | profile/tool order tests |
 | `resolveChildExtensionFactories` | `resolve_child_extension_factories` | static/dynamic factory tests |
 | `createSessionStartEvent` | `create_session_start_event` | fork/resume event assertions |
-| `getSessionTranscriptMetadata` | `get_session_transcript_metadata` | transcript assertions |
+| `getSessionTranscriptMetadata` | built inline in `create_bound_child_session` | transcript assertions |
 | `findActiveToolCallEntry` | `find_active_tool_call_entry` | active-tool-call tests |
 | `findUnresolvedTurnParentId` | `find_unresolved_turn_parent_id` | inherited leaf tests |
 | `validatePersistedInheritance` | `validate_persisted_inheritance` | unpersisted-parent test |
