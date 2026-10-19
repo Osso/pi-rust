@@ -167,7 +167,9 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
             SessionManager::create(&cwd, Some(&session_dir), None).map_err(|error| error.to_string())?
         }
     };
-    let persisted_settings = session_manager.read_persisted_session_settings();
+    let persisted_settings = session_manager
+        .read_persisted_session_settings()
+        .map_err(|error| error.to_string())?;
     lock(&settings_manager).set_session_sandbox_profile(
         persisted_settings
             .as_ref()

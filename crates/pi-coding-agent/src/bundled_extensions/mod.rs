@@ -1,12 +1,19 @@
-//! Rust-native bundled extensions.
+//! Bundled first-party extensions, ported from
+//! `packages/coding-agent/extensions/*` as Rust-native modules.
+//!
+//! Each extension is registered under the same `<first-party:<name>>` id that
+//! the TypeScript `main.ts` registers.
 
 use std::sync::Arc;
 
-use crate::core::extensions::loader::{ExtensionFactory, ExtensionRegistry};
+use crate::core::extensions::{ExtensionFactory, ExtensionRegistry};
 
 pub mod agent_viewer;
 pub mod agents_core;
 pub mod agents_mailbox;
+pub mod bwrap;
+pub mod goal;
+pub mod pyrun;
 
 use agents_core::runtime::{MultiAgentExtensionOptions, create_multi_agent_runtime_handles, resolve_multi_agent_store};
 
@@ -55,4 +62,11 @@ pub fn register_agents_extensions(registry: &mut ExtensionRegistry, options: &Mu
     for (name, factory) in agents_extension_factories(options) {
         registry.register(format!("<first-party:{name}>"), factory);
     }
+}
+
+/// Registers every bundled first-party extension.
+pub fn register_bundled_extensions(registry: &mut ExtensionRegistry) {
+    bwrap::register(registry);
+    goal::register(registry);
+    pyrun::register(registry);
 }

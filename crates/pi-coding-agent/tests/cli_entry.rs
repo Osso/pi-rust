@@ -161,7 +161,7 @@ async fn cli_entry_stops_after_an_internal_runner_handles_the_process() {
 
     let result = run_cli_entry(&argv, &host, main).await.unwrap();
 
-    assert!(result.is_none());
+    assert_eq!(result, 0);
     assert!(!*main_called.lock().unwrap());
 }
 
@@ -177,7 +177,7 @@ async fn cli_entry_runs_main_and_returns_its_exit_code() {
 
     let result = run_cli_entry(&argv, &host, main).await.unwrap();
 
-    assert_eq!(result, Some(7));
+    assert_eq!(result, 7);
     assert_eq!(*seen.lock().unwrap(), vec!["--help".to_owned()]);
     assert!(host.calls().is_empty());
 }

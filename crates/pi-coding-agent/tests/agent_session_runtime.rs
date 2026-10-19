@@ -21,7 +21,7 @@ use pi_coding_agent::core::extensions::types::{
 };
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::resource_loader::StaticResourceLoader;
-use pi_coding_agent::core::session_manager::SessionManager;
+use pi_coding_agent::core::session_manager::{SessionManager, lock_session_manager};
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
 use serde_json::json;
 
@@ -403,4 +403,43 @@ async fn import_from_jsonl_switches_to_the_imported_session() {
 #[allow(dead_code)]
 fn assert_extension_event_compiles(event: &ExtensionEvent) -> bool {
     matches!(event, ExtensionEvent::SessionShutdown(_))
+}
+
+#[tokio::test]
+async fn session_replacement_rebinds_the_shared_extension_handle() {
+    let mut harness = build_harness(false, false).await;
+    let original_handle = harness.runtime.session().session_manager_handle();
+
+    let source = tempfile::tempdir().expect("source dir");
+    let source_cwd = source.path().display().to_string();
+    let source_sessions = source.path().join("sessions").display().to_string();
+    let mut source_manager = SessionManager::create(&source_cwd, Some(&source_sessions), None).expect("source manager");
+    source_manager.persist_for_recovery().expect("persist source");
+    let source_file = source_manager.get_session_file().expect("source file").to_owned();
+
+    harness
+        .runtime
+        .switch_session(&source_file, Some(&source_cwd), None)
+        .await
+        .expect("switch");
+
+    let session = harness.runtime.session();
+    let live_handle = session.session_manager_handle();
+    assert!(!Arc::ptr_eq(&original_handle, &live_handle));
+    let context = session.extension_runner().create_context();
+    let extension_handle = context.session_manager().expect("session manager");
+    assert!(Arc::ptr_eq(&extension_handle, &live_handle));
+    let extension_session_id = lock_session_manager(&extension_handle).get_session_id().to_owned();
+    assert_eq!(extension_session_id, session.session_id());
+
+    {
+        let mut manager = lock_session_manager(&extension_handle);
+        manager
+            .append_session_info("renamed-by-extension")
+            .expect("append session info");
+    }
+    assert_eq!(
+        session.session_manager().get_session_name().as_deref(),
+        Some("renamed-by-extension")
+    );
 }

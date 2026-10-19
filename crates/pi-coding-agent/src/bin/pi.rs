@@ -7,9 +7,9 @@
 use std::process::ExitCode;
 
 use pi_ai::request::BoxFuture;
-use pi_coding_agent::cli_entry::{CliMain, run_cli_main};
+use pi_coding_agent::cli_entry::{CliMain, run_cli_entry};
 use pi_coding_agent::core::detached_bash_runner::run_detached_bash_runner;
-use pi_coding_agent::internal_runner::{DetachedRunnerHost, run_internal_detached_runner};
+use pi_coding_agent::internal_runner::DetachedRunnerHost;
 use pi_coding_agent::main_runner::{MainOptions, console_error, run_main_or_report_error};
 use pi_coding_agent::utils::chalk::Chalk;
 
@@ -40,18 +40,9 @@ fn exit_code(code: i32) -> ExitCode {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match run_internal_detached_runner(&args, &CliDetachedRunnerHost).await {
-        Ok(Some(outcome)) => return exit_code(outcome.exit_code.unwrap_or(0)),
-        Ok(None) => {}
-        Err(message) => {
-            console_error(&Chalk::stderr().red(&format!("Error: {message}")));
-            return exit_code(1);
-        }
-    }
-
     let main: CliMain<'_> =
         Box::new(|args| Box::pin(async move { Ok(run_main_or_report_error(args, MainOptions::default()).await) }));
-    match run_cli_main(&args, main).await {
+    match run_cli_entry(&args, &CliDetachedRunnerHost, main).await {
         Ok(code) => exit_code(code),
         Err(message) => {
             console_error(&Chalk::stderr().red(&format!("Error: {message}")));

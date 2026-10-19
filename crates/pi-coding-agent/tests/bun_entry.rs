@@ -46,7 +46,7 @@ async fn bun_cli_entry_registers_and_hands_off_to_the_cli() {
     });
 
     let result = run_bun_cli_entry(&args, &runner, main).await.unwrap();
-    assert!(result.is_none());
+    assert_eq!(result, 0);
     assert!(!*main_called.lock().unwrap());
     assert_eq!(
         runner.calls.lock().unwrap().clone(),
@@ -67,7 +67,7 @@ async fn bun_cli_entry_runs_main_when_no_internal_runner_matches() {
     });
 
     let result = run_bun_cli_entry(&args, &runner, main).await.unwrap();
-    assert_eq!(result, Some(0), "main path returns its exit code");
+    assert_eq!(result, 0, "main path returns its exit code");
     assert_eq!(*seen.lock().unwrap(), vec!["--version".to_owned()]);
     assert!(runner.calls.lock().unwrap().is_empty());
 }

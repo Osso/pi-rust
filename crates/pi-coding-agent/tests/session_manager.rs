@@ -6,11 +6,15 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantRole, StopReason, TextContent, TextOrImageContent, ToolResultMessage,
     ToolResultRole, Usage, UserContent, UserMessage, UserRole,
 };
+use pi_coding_agent::core::session_control_db::{
+    WritableSessionMetadata, read_session_goal, read_session_metadata, write_session_metadata,
+};
 use pi_coding_agent::core::session_manager::{
     CURRENT_SESSION_VERSION, FileEntry, ForkEntrySelection, KnownSessionEntry, LeafSelection, NewSessionOptions,
-    SessionEntry, SessionManager, SessionMessageEntry, SessionTreeNode, assert_valid_session_id, build_context_entries,
-    build_session_context, find_most_recent_session, get_default_session_dir, get_default_session_dir_path,
-    load_entries_from_file, migrate_session_entries, parse_session_entries, read_session_header,
+    SessionEntry, SessionManager, SessionMessageEntry, SessionTreeNode, SetMetadataControlDbPathOptions,
+    assert_valid_session_id, build_context_entries, build_session_context, find_most_recent_session,
+    get_default_session_dir, get_default_session_dir_path, load_entries_from_file, migrate_session_entries,
+    parse_session_entries, read_session_header,
 };
 
 fn user_message(text: &str, timestamp: i64) -> AgentMessage {
@@ -1144,15 +1148,20 @@ fn control_db_metadata_persists_model_and_thinking_level() {
     let sessions = dir.path().join("sessions").display().to_string();
     let control_db = dir.path().join("control.db").display().to_string();
     let mut session = SessionManager::create(&cwd, Some(&sessions), None).unwrap();
-    session.set_metadata_control_db_path(Some(&control_db), Default::default());
+    session
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
     session
         .append_message(user_message("hello", 1_700_000_000_000))
         .unwrap();
 
-    session.set_session_model("faux", "faux-1");
-    session.set_session_thinking_level("high");
+    session.set_session_model("faux", "faux-1").expect("set model");
+    session.set_session_thinking_level("high").expect("set thinking level");
 
-    let settings = session.read_persisted_session_settings().expect("persisted settings");
+    let settings = session
+        .read_persisted_session_settings()
+        .expect("read settings")
+        .expect("persisted settings");
     let model = settings.model.expect("persisted model");
     assert_eq!(model.provider, "faux");
     assert_eq!(model.model_id, "faux-1");
@@ -1171,4 +1180,169 @@ fn custom_session_ids_round_trip() {
     assert_eq!(session.get_session_id(), "abc-123_def.456");
     assert_eq!(session.get_header().unwrap().id, "abc-123_def.456");
     assert_eq!(session.get_header().unwrap().version, Some(CURRENT_SESSION_VERSION));
+}
+
+#[test]
+fn control_db_metadata_errors_propagate() {
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().display().to_string();
+    let sessions = dir.path().join("sessions").display().to_string();
+    let broken_db = dir.path().join("not-a-db").display().to_string();
+    fs::create_dir_all(&broken_db).unwrap();
+    let mut session = SessionManager::create(&cwd, Some(&sessions), None).unwrap();
+    session
+        .set_metadata_control_db_path(Some(&broken_db), Default::default())
+        .expect_err("restore from an unreadable control db throws");
+    let session_file = session.get_session_file().unwrap().to_owned();
+
+    assert!(session.get_session_goal_json().is_err());
+    assert!(session.get_session_goal_json_for_session(&session_file).is_err());
+    assert!(session.set_session_goal_json("{}").is_err());
+    assert!(session.clear_session_goal_json().is_err());
+    assert!(session.read_persisted_session_settings().is_err());
+    assert!(session.set_session_model("faux", "faux-1").is_err());
+    assert!(session.set_session_thinking_level("high").is_err());
+    assert!(
+        session
+            .append_message(user_message("hello", 1_700_000_000_000))
+            .is_err(),
+        "the post-append metadata snapshot write throws"
+    );
+}
+
+#[test]
+fn metadata_empty_paths_and_model_fields_use_js_truthiness() {
+    let mut session = SessionManager::in_memory(Some("/tmp"), None).unwrap();
+    session
+        .set_metadata_control_db_path(Some(""), Default::default())
+        .expect("empty control db path is unset");
+    session.set_session_goal_json("{\"goal\":1}").expect("in-memory goal");
+    assert_eq!(
+        session.get_session_goal_json().unwrap().as_deref(),
+        Some("{\"goal\":1}")
+    );
+    session.clear_session_goal_json().expect("clear in-memory goal");
+    assert_eq!(session.get_session_goal_json().unwrap(), None);
+
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().display().to_string();
+    let sessions = dir.path().join("sessions").display().to_string();
+    let control_db = dir.path().join("control.db").display().to_string();
+    let mut persisted = SessionManager::create(&cwd, Some(&sessions), None).unwrap();
+    let cwd_before = persisted.get_cwd().to_owned();
+    persisted
+        .set_metadata_control_db_path(
+            Some(&control_db),
+            SetMetadataControlDbPathOptions {
+                index_message_text: None,
+                cwd_override: Some(String::new()),
+            },
+        )
+        .expect("empty cwd override is ignored");
+    assert_eq!(persisted.get_cwd(), cwd_before);
+
+    let session_file = persisted.get_session_file().unwrap().to_owned();
+    write_session_metadata(
+        &control_db,
+        &WritableSessionMetadata {
+            session_path: session_file.clone(),
+            id: persisted.get_session_id().to_owned(),
+            cwd: cwd_before,
+            name: None,
+            parent_session_path: None,
+            archived_at: None,
+            is_archived: None,
+            is_subagent: None,
+            subagent_name: None,
+            model_provider: Some(String::new()),
+            model_id: Some(String::new()),
+            thinking_level: None,
+            created_at: "2026-01-01T00:00:00.000Z".to_owned(),
+            modified_at: "2026-01-01T00:00:00.000Z".to_owned(),
+            message_count: 0,
+            first_message: String::new(),
+            all_messages_text: String::new(),
+            index_message_text: Some(true),
+        },
+    )
+    .expect("seed metadata");
+    let settings = persisted
+        .read_persisted_session_settings()
+        .expect("read settings")
+        .expect("metadata row");
+    assert!(settings.model.is_none(), "empty model fields count as unset");
+}
+
+#[test]
+fn appending_messages_writes_the_metadata_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().display().to_string();
+    let sessions = dir.path().join("sessions").display().to_string();
+    let control_db = dir.path().join("control.db").display().to_string();
+    let mut session = SessionManager::create(&cwd, Some(&sessions), None).unwrap();
+    session
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
+    let session_file = session.get_session_file().unwrap().to_owned();
+
+    session
+        .append_message(user_message("hello", 1_700_000_000_000))
+        .expect("append message");
+    let metadata = read_session_metadata(&control_db, &session_file)
+        .expect("read metadata")
+        .expect("snapshot after message append");
+    assert_eq!(metadata.message_count, 1);
+    assert_eq!(metadata.first_message, "hello");
+
+    session
+        .append_session_info("Named session")
+        .expect("append session info");
+    let metadata = read_session_metadata(&control_db, &session_file)
+        .expect("read metadata")
+        .expect("snapshot after session info append");
+    assert_eq!(metadata.name.as_deref(), Some("Named session"));
+}
+
+#[test]
+fn relocation_moves_control_db_rows() {
+    let dir = temp_dir("session-relocate-control-db");
+    let project_a = dir.join("project-a");
+    let project_b = dir.join("project-b");
+    let agent_dir = dir.join("agent");
+    fs::create_dir_all(&project_a).unwrap();
+    fs::create_dir_all(&project_b).unwrap();
+    let source_dir =
+        get_default_session_dir(&project_a.display().to_string(), Some(&agent_dir.display().to_string())).unwrap();
+    let source_file = Path::new(&source_dir).join("relocating.jsonl");
+    write_jsonl(
+        &source_file,
+        &[
+            header_json("relocating-session", &project_a.display().to_string()),
+            serde_json::json!({"type":"message","id":"m-1","parentId":null,"timestamp":"2026-08-04T00:00:00.000Z","message":{"role":"user","content":"hello","timestamp":1}}),
+        ],
+    );
+    let control_db = dir.join("control.db").display().to_string();
+    let mut session = SessionManager::open(&source_file.display().to_string(), Some(&source_dir), None).unwrap();
+    session
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
+    let old_path = session.get_session_file().unwrap().to_owned();
+    session
+        .set_session_goal_json("{\"goal\":\"moved\"}")
+        .expect("goal write");
+
+    session
+        .relocate(&project_b.display().to_string(), Some(&agent_dir.display().to_string()))
+        .expect("relocate");
+    let new_path = session.get_session_file().unwrap().to_owned();
+    assert_ne!(old_path, new_path);
+    assert_eq!(
+        read_session_goal(&control_db, &new_path).expect("read moved goal"),
+        Some("{\"goal\":\"moved\"}".to_owned())
+    );
+    assert_eq!(
+        read_session_goal(&control_db, &old_path).expect("read old goal"),
+        None,
+        "control-db rows move with the session file"
+    );
 }

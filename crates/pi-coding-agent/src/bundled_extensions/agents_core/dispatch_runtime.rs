@@ -18,6 +18,7 @@ use crate::core::multi_agent_store::{
     AgentError, AgentLifecycle, AgentMailboxMessage, AgentResult, AgentSnapshot, MailboxMessageKindValue,
     MailboxMessageStatusValue, MultiAgentStore, is_active_lifecycle,
 };
+use crate::core::session_manager::lock_session_manager;
 
 use super::control_runtime::OwnedAgentRuntime;
 use super::lifecycle_runtime::{create_lifecycle_coordinator, publish_coordinator_snapshot};
@@ -169,8 +170,9 @@ fn reserve_attached_runtime(
     let Some(coordinator) = create_lifecycle_coordinator(&input.store) else {
         return Ok(None);
     };
-    let session_manager = input.ctx.session_manager()?;
-    let owner_session_id = session_manager.get_session_id().to_owned();
+    let owner_session_id = lock_session_manager(&input.ctx.session_manager()?)
+        .get_session_id()
+        .to_owned();
     let acquired = coordinator
         .acquire_attached_runtime(&input.target, &owner_session_id)
         .map_err(|error| HandlerError::new(error.message()))?;

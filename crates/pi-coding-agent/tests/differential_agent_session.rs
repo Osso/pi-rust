@@ -188,7 +188,9 @@ async fn run_rust(dir: &str) -> Value {
         .prompt("hello", PromptOptions::default())
         .await
         .expect("prompt 1");
-    session.set_thinking_level(pi_agent_core::harness::types::ThinkingLevel::High);
+    session
+        .set_thinking_level(pi_agent_core::harness::types::ThinkingLevel::High)
+        .expect("set thinking level");
     session
         .prompt("second", PromptOptions::default())
         .await

@@ -17,6 +17,7 @@ use crate::core::session_directory::{
     BroadcastSessionFilters, BroadcastSessionsInput, SessionDirectoryOptions, broadcast_to_sessions,
 };
 use crate::core::session_health::{SessionBroadcastOutcome, SessionBroadcastResult, SessionLiveStatus};
+use crate::core::session_manager::lock_session_manager;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 pub const NAME: &str = "broadcast";
@@ -151,10 +152,14 @@ impl AgentHarnessTool<ExtensionContext> for BroadcastTool {
             let session = context
                 .session_manager()
                 .map_err(|error| ToolError::new(error.message))?;
-            let session_path = session
-                .get_session_file()
-                .ok_or_else(|| ToolError::new("broadcast requires a persisted session file"))?
-                .to_owned();
+            let (session_id, session_path) = {
+                let manager = lock_session_manager(&session);
+                let session_path = manager
+                    .get_session_file()
+                    .ok_or_else(|| ToolError::new("broadcast requires a persisted session file"))?
+                    .to_owned();
+                (manager.get_session_id().to_owned(), session_path)
+            };
             let params: BroadcastParams =
                 serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
             let results = broadcast_to_sessions(
@@ -167,7 +172,7 @@ impl AgentHarnessTool<ExtensionContext> for BroadcastTool {
                         name: params.name,
                         status: parse_statuses(params.status),
                     }),
-                    sender_session_id: session.get_session_id().to_owned(),
+                    sender_session_id: session_id,
                     sender_session_path: session_path,
                     sender_agent_id: context
                         .multi_agent_agent_id()

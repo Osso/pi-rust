@@ -37,7 +37,11 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
   `abort`, `sendCustomMessage`, `sendUserMessage`, `clearQueue`, reservations.
 - Models/thinking: `setModel`, `cycleModel`, scoped models, `setThinkingLevel`
   clamping, `cycleThinkingLevel`, queue modes, extension `model_select` /
-  `thinking_level_select`, control-db model/thinking persistence.
+  `thinking_level_select`, control-db model/thinking persistence. Control-db
+  write failures propagate (`set_model`, `cycle_model`, `set_thinking_level`,
+  `cycle_thinking_level`, quota fallback) as the source throws; the approval
+  reviewer cannot reject through its `Option`-returning hook, so a goal-read
+  error blocks the tool call (fail closed, recorded in `session-manager.md`).
 - Retry: `_isRetryableError`, quota fallback, `_prepareRetry`, `auto_retry_*` events,
   `notifyProviderRetry`.
 - Compaction: `compact`, `_checkCompaction`, `_runAutoCompaction`, `appendCompaction`,

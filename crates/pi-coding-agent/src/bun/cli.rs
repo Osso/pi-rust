@@ -19,7 +19,7 @@ pub async fn run_bun_cli_entry<'a>(
     args: &'a [String],
     detached_runner: &dyn DetachedRunnerHost,
     main: CliMain<'a>,
-) -> Result<Option<i32>, String> {
+) -> Result<i32, String> {
     pi_ai::bun_oauth::register_bun_oauth_flows();
     super::register_bedrock::register_bedrock();
     run_cli_entry(args, detached_runner, main).await

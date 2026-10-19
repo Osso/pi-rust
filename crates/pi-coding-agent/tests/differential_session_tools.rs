@@ -873,7 +873,7 @@ async fn search_current_session_history_tool_differential() {
             None,
         )
         .expect("open session");
-        let context = tool_context::TestContextBuilder::new(&cwd, std::sync::Arc::new(manager))
+        let context = tool_context::TestContextBuilder::new(&cwd, std::sync::Arc::new(std::sync::Mutex::new(manager)))
             .build()
             .await
             .1;
@@ -964,7 +964,7 @@ async fn resume_session_tool_differential() {
         ));
         let recorder = Recorder::new(name == "cancelled");
         let manager = SessionManager::open(&current_path, Some(&sessions_dir), None).expect("open session");
-        let (mut runner, context) = tool_context::TestContextBuilder::new(&root_path, Arc::new(manager))
+        let (mut runner, context) = tool_context::TestContextBuilder::new(&root_path, Arc::new(Mutex::new(manager)))
             .build()
             .await;
         runner.bind_command_context(Some(tool_context::command_context_actions(
@@ -1049,7 +1049,7 @@ async fn change_working_directory_tool_differential() {
             calls: Mutex::new(Vec::new()),
         });
         let manager = SessionManager::open(&current_path, Some(&sessions_dir), None).expect("open session");
-        let (mut runner, context) = tool_context::TestContextBuilder::new(&root_path, Arc::new(manager))
+        let (mut runner, context) = tool_context::TestContextBuilder::new(&root_path, Arc::new(Mutex::new(manager)))
             .build()
             .await;
         runner.set_tool_result_relocation_handlers(
@@ -1165,7 +1165,7 @@ async fn broadcast_tool_differential() {
     use pi_agent_core::AgentHarnessTool;
     use pi_coding_agent::core::session_manager::SessionManager;
     use pi_coding_agent::core::tools::broadcast::BroadcastTool;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     let setup = vec![
         json!({
@@ -1223,11 +1223,12 @@ async fn broadcast_tool_differential() {
             }),
         ));
         let sender = SessionManager::open(&sender_path, Some(&sessions_dir), None).expect("open sender session");
-        let context = tool_context::TestContextBuilder::new(&root.path().display().to_string(), Arc::new(sender))
-            .control_db_path(&rust_db)
-            .build()
-            .await
-            .1;
+        let context =
+            tool_context::TestContextBuilder::new(&root.path().display().to_string(), Arc::new(Mutex::new(sender)))
+                .control_db_path(&rust_db)
+                .build()
+                .await
+                .1;
         let rust = rust_tool_result(
             BroadcastTool::new()
                 .execute("tool-call".to_owned(), params, None, None, context, None)

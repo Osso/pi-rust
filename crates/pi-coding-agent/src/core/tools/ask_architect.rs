@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 use super::result::text_result;
 use crate::core::extensions::types::ExtensionContext;
 use crate::core::session_control_db::{PostArchitectRequestInput, post_architect_request};
+use crate::core::session_manager::lock_session_manager;
 
 pub const NAME: &str = "ask_architect";
 pub const LABEL: &str = "ask_architect";
@@ -123,11 +124,10 @@ impl AgentHarnessTool<ExtensionContext> for AskArchitectTool {
                 .control_db_path()
                 .map_err(|error| ToolError::new(error.message))?
                 .ok_or_else(|| ToolError::new("ask_architect requires a control database path"))?;
-            let sender_session_id = context
+            let session_manager = context
                 .session_manager()
-                .map_err(|error| ToolError::new(error.message))?
-                .get_session_id()
-                .to_owned();
+                .map_err(|error| ToolError::new(error.message))?;
+            let sender_session_id = lock_session_manager(&session_manager).get_session_id().to_owned();
             if sender_session_id.is_empty() {
                 return Err(ToolError::new("ask_architect requires a persisted session id"));
             }

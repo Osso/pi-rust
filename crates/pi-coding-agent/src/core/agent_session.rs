@@ -940,13 +940,7 @@ impl AgentSession {
             Vec::new(),
             crate::core::extensions::extension_runtime::create_extension_runtime(),
             config.cwd.clone(),
-            Arc::new(
-                config
-                    .session_manager
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .clone(),
-            ),
+            Arc::clone(&config.session_manager),
             Arc::new(ModelRegistry::new(model_runtime.clone())),
             Some(Arc::clone(&config.settings_manager)),
         );
@@ -960,7 +954,9 @@ impl AgentSession {
                 .unwrap_or_else(|| {
                     crate::core::session_control_db::get_control_db_path(&crate::config::get_user_state_root())
                 });
-            manager.set_metadata_control_db_path(Some(&path), Default::default());
+            manager
+                .set_metadata_control_db_path(Some(&path), Default::default())
+                .map_err(|error| AgentSessionError::new(error.to_string()))?;
             path
         };
 
@@ -1208,13 +1204,7 @@ impl AgentSession {
             extensions.extensions,
             extensions.runtime,
             self.inner.cwd.clone(),
-            Arc::new(
-                self.inner
-                    .session_manager
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .clone(),
-            ),
+            Arc::clone(&self.inner.session_manager),
             Arc::new(self.inner.model_registry.clone()),
             Some(Arc::clone(&self.inner.settings_manager)),
         );
@@ -1790,7 +1780,18 @@ impl AgentSession {
                     &kb_dir,
                 )
                 .unwrap_or_default();
-                let active_goal = lock(&session.inner.session_manager).get_session_goal_json();
+                let active_goal = match lock(&session.inner.session_manager).get_session_goal_json() {
+                    Ok(goal) => goal,
+                    Err(error) => {
+                        // The source throws here, aborting the tool call; fail closed.
+                        return Some(crate::core::extensions::types::ToolCallEventResult {
+                            block: Some(true),
+                            input: None,
+                            reason: Some(error.to_string()),
+                            terminate: None,
+                        });
+                    }
+                };
                 let mut payload = Map::new();
                 payload.insert(
                     "activeGoal".to_owned(),
@@ -2343,7 +2344,7 @@ impl AgentSession {
         }
         loop {
             let guard = self.inner.turn_start_lock.lock().await;
-            let Some(kind) = self.handle_post_agent_run().await else {
+            let Some(kind) = self.handle_post_agent_run().await? else {
                 return Ok(());
             };
             drop(guard);
@@ -2351,25 +2352,27 @@ impl AgentSession {
         }
     }
 
-    async fn handle_post_agent_run(&self) -> Option<&'static str> {
+    async fn handle_post_agent_run(&self) -> Result<Option<&'static str>, AgentSessionError> {
         if self.inner.disposed.load(Ordering::SeqCst) {
-            return None;
+            return Ok(None);
         }
-        let message = lock(&self.inner.last_assistant_message).take()?;
-        if self.prepare_quota_fallback(&message).await {
-            return Some("normal");
+        let Some(message) = lock(&self.inner.last_assistant_message).take() else {
+            return Ok(None);
+        };
+        if self.prepare_quota_fallback(&message).await? {
+            return Ok(Some("normal"));
         }
         if self.is_retryable_error(&message) && self.prepare_retry(&message).await {
-            return Some("normal");
+            return Ok(Some("normal"));
         }
         self.finish_exhausted_retry(&message);
         if self.check_compaction(&message, true).await {
-            return Some("normal");
+            return Ok(Some("normal"));
         }
         if self.inner.agent.has_queued_messages() {
-            return Some("queued");
+            return Ok(Some("queued"));
         }
-        None
+        Ok(None)
     }
 
     /// Validates that the active model has configured auth.
@@ -2966,9 +2969,11 @@ impl AgentSession {
         let previous_model = self.inner.agent.model();
         let thinking_level = self.get_thinking_level_for_model_switch(None);
         self.inner.agent.set_model(model.clone());
-        lock(&self.inner.session_manager).set_session_model(&model.provider, &model.id);
+        lock(&self.inner.session_manager)
+            .set_session_model(&model.provider, &model.id)
+            .map_err(|error| AgentSessionError::new(error.to_string()))?;
         lock(&self.inner.settings_manager).set_default_model_and_provider(&model.provider, &model.id);
-        self.set_thinking_level(thinking_level);
+        self.set_thinking_level(thinking_level)?;
         self.emit_model_select(&model, Some(&previous_model), ModelSelectSource::Set)
             .await;
         Ok(())
@@ -3059,9 +3064,11 @@ impl AgentSession {
         let thinking_level = self.get_thinking_level_for_model_switch(next.thinking_level);
         let previous_model = self.inner.agent.model();
         self.inner.agent.set_model(next.model.clone());
-        lock(&self.inner.session_manager).set_session_model(&next.model.provider, &next.model.id);
+        lock(&self.inner.session_manager)
+            .set_session_model(&next.model.provider, &next.model.id)
+            .map_err(|error| AgentSessionError::new(error.to_string()))?;
         lock(&self.inner.settings_manager).set_default_model_and_provider(&next.model.provider, &next.model.id);
-        self.set_thinking_level(thinking_level);
+        self.set_thinking_level(thinking_level)?;
         self.emit_model_select(&next.model, Some(&previous_model), ModelSelectSource::Cycle)
             .await;
         Ok(Some(ModelCycleResult {
@@ -3076,7 +3083,7 @@ impl AgentSession {
     // =========================================================================
 
     /// Sets the thinking level, clamped to the model capabilities.
-    pub fn set_thinking_level(&self, level: ThinkingLevel) {
+    pub fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), AgentSessionError> {
         let available = self.get_available_thinking_levels();
         let effective = if available.contains(&level) {
             level
@@ -3087,7 +3094,9 @@ impl AgentSession {
         let is_changing = effective != previous;
         self.inner.agent.set_thinking_level(effective);
         if is_changing {
-            lock(&self.inner.session_manager).set_session_thinking_level(effective.as_str());
+            lock(&self.inner.session_manager)
+                .set_session_thinking_level(effective.as_str())
+                .map_err(|error| AgentSessionError::new(error.to_string()))?;
             if self.supports_thinking() || effective != ThinkingLevel::Off {
                 lock(&self.inner.settings_manager).set_default_thinking_level(effective);
             }
@@ -3102,19 +3111,20 @@ impl AgentSession {
                 });
             }
         }
+        Ok(())
     }
 
     /// Cycles to the next thinking level.
-    pub fn cycle_thinking_level(&self) -> Option<ThinkingLevel> {
+    pub fn cycle_thinking_level(&self) -> Result<Option<ThinkingLevel>, AgentSessionError> {
         if !self.supports_thinking() {
-            return None;
+            return Ok(None);
         }
         let levels = self.get_available_thinking_levels();
         let current = self.thinking_level();
         let index = levels.iter().position(|level| *level == current).unwrap_or(0);
         let next = levels[(index + 1) % levels.len()];
-        self.set_thinking_level(next);
-        Some(next)
+        self.set_thinking_level(next)?;
+        Ok(Some(next))
     }
 
     /// Available thinking levels for the current model.
@@ -3188,9 +3198,9 @@ impl AgentSession {
             .then_some(fallback)
     }
 
-    async fn prepare_quota_fallback(&self, message: &AssistantMessage) -> bool {
+    async fn prepare_quota_fallback(&self, message: &AssistantMessage) -> Result<bool, AgentSessionError> {
         let Some(fallback_model) = self.find_quota_fallback_model(message) else {
-            return false;
+            return Ok(false);
         };
         self.inner.quota_fallback_attempted.store(true, Ordering::SeqCst);
         let mut messages = self.inner.agent.messages();
@@ -3199,8 +3209,10 @@ impl AgentSession {
             self.inner.agent.set_messages(messages);
         }
         self.inner.agent.set_model(fallback_model.clone());
-        lock(&self.inner.session_manager).set_session_model(&fallback_model.provider, &fallback_model.id);
-        true
+        lock(&self.inner.session_manager)
+            .set_session_model(&fallback_model.provider, &fallback_model.id)
+            .map_err(|error| AgentSessionError::new(error.to_string()))?;
+        Ok(true)
     }
 
     async fn prepare_retry(&self, message: &AssistantMessage) -> bool {
@@ -5622,7 +5634,9 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
     let set_thinking_level: crate::core::extensions::types::SetThinkingLevelHandler =
         Arc::new(move |level: ThinkingLevel| {
             if let Some(inner) = set_thinking_weak.upgrade() {
-                AgentSession { inner }.set_thinking_level(level);
+                AgentSession { inner }
+                    .set_thinking_level(level)
+                    .map_err(|error| crate::core::extensions::types::HandlerError::new(error.message()))?;
             }
             Ok(())
         });

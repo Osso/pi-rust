@@ -506,7 +506,17 @@ fn first_party_factory_list_partitions_the_source_names() {
             _ => panic!("first-party factories carry an extension path"),
         })
         .collect();
-    assert_eq!(registered, vec!["agents-core", "agent-viewer", "agents-mailbox"]);
+    assert_eq!(
+        registered,
+        vec![
+            "agents-core",
+            "agent-viewer",
+            "agents-mailbox",
+            "goal",
+            "bwrap",
+            "pyrun"
+        ]
+    );
 
     for name in &registered {
         assert!(FIRST_PARTY_EXTENSION_NAMES.contains(&name.as_str()), "{name}");
@@ -552,7 +562,10 @@ async fn first_party_factories_load_and_register_agent_tools() {
         vec![
             "<first-party:agents-core>",
             "<first-party:agent-viewer>",
-            "<first-party:agents-mailbox>"
+            "<first-party:agents-mailbox>",
+            "<first-party:goal>",
+            "<first-party:bwrap>",
+            "<first-party:pyrun>"
         ]
     );
     let core = &result.extensions[0];

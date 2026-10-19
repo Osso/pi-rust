@@ -160,9 +160,6 @@ pub const PENDING_FIRST_PARTY_EXTENSIONS: &[&str] = &[
     "default-footer",
     "docs-tree-context",
     "effort",
-    "goal",
-    "bwrap",
-    "pyrun",
     "loop",
     "openai-remote-compact",
     "run-plan",
@@ -189,13 +186,66 @@ pub fn create_first_party_extension_factories(
 ) -> Vec<InlineExtension> {
     let options = crate::bundled_extensions::agents_core::runtime::MultiAgentExtensionOptions {
         runtime_handles: Some(runtime_handles),
-        store: Some(store),
+        store: Some(Arc::clone(&store)),
         ..Default::default()
     };
-    crate::bundled_extensions::agents_extension_factories(&options)
+    let mut factories = crate::bundled_extensions::agents_extension_factories(&options)
         .into_iter()
         .map(|(name, factory)| first_party_extension_factory(name, factory))
-        .collect()
+        .collect::<Vec<_>>();
+    factories.push(first_party_extension_factory(
+        "goal",
+        crate::bundled_extensions::goal::goal_extension_factory(
+            crate::bundled_extensions::goal::goal_types::GoalExtensionOptions::default(),
+        ),
+    ));
+    factories.push(first_party_extension_factory(
+        "bwrap",
+        crate::bundled_extensions::bwrap::bwrap_extension_factory(
+            crate::bundled_extensions::bwrap::BwrapExtensionOptions::default(),
+        ),
+    ));
+    factories.push(first_party_extension_factory("pyrun", pyrun_extension_factory(options)));
+    factories
+}
+
+/// `pyrunExtension(pi, { piRequestHandlers: [multiAgentPiRequestHandler] })`.
+fn pyrun_extension_factory(
+    agent_options: crate::bundled_extensions::agents_core::runtime::MultiAgentExtensionOptions,
+) -> ExtensionFactory {
+    let store = agent_options.store.clone();
+    Arc::new(move |pi| {
+        let mut options = crate::bundled_extensions::pyrun::PyrunExtensionOptions {
+            background_jobs_store: store.clone(),
+            ..Default::default()
+        };
+        let handler = Arc::new(
+            crate::bundled_extensions::agents_core::runtime::create_multi_agent_pi_request_handler(
+                &agent_options,
+                Some(crate::bundled_extensions::agents_core::parent_agent_journal::JournalWriter::from_api(pi)),
+            ),
+        );
+        let dispatcher: crate::bundled_extensions::pyrun::eval_tool::PyrunPiRequestDispatcher =
+            Arc::new(move |request, context, signal, active_tool_call_id| {
+                let handler = Arc::clone(&handler);
+                Box::pin(async move {
+                    if !handler.handles_method(&request.method) {
+                        return Ok(None);
+                    }
+                    let value = serde_json::json!({
+                        "method": request.method,
+                        "params": request.params,
+                    });
+                    handler
+                        .handle(&value, &context, signal, active_tool_call_id)
+                        .await
+                        .map(Some)
+                })
+            });
+        options.pi_request_handlers.push(dispatcher);
+        let result = crate::bundled_extensions::pyrun::install_pyrun_extension(pi, options);
+        Box::pin(async move { result })
+    })
 }
 
 /// `new MultiAgentStore()` as created at module load in the source.
@@ -269,13 +319,15 @@ async fn create_runtime(
 ) -> Result<CreateAgentSessionRuntimeResult, String> {
     let mut session_manager = request.session_manager;
     let parsed = &options.parsed;
-    session_manager.set_metadata_control_db_path(
-        Some(&get_control_db_path(&get_user_state_root())),
-        crate::core::session_manager::SetMetadataControlDbPathOptions {
-            index_message_text: None,
-            cwd_override: None,
-        },
-    );
+    session_manager
+        .set_metadata_control_db_path(
+            Some(&get_control_db_path(&get_user_state_root())),
+            crate::core::session_manager::SetMetadataControlDbPathOptions {
+                index_message_text: None,
+                cwd_override: None,
+            },
+        )
+        .map_err(|error| error.to_string())?;
     options
         .multi_agent_store
         .restore_from_session_manager(&session_manager)
@@ -511,7 +563,10 @@ async fn create_runtime(
 
     let cli_thinking_override = parsed.thinking.is_some() || cli_thinking_from_model;
     if cli_thinking_override {
-        result.session.set_thinking_level(result.session.thinking_level());
+        result
+            .session
+            .set_thinking_level(result.session.thinking_level())
+            .map_err(|error| error.message().to_owned())?;
     }
 
     Ok(CreateAgentSessionRuntimeResult {
@@ -1873,13 +1928,15 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         Ok(manager) => manager,
         Err(MainExit(code)) => return Ok(Some(code)),
     };
-    session_manager.set_metadata_control_db_path(
-        Some(&control_db_path),
-        crate::core::session_manager::SetMetadataControlDbPathOptions {
-            index_message_text: None,
-            cwd_override: None,
-        },
-    );
+    session_manager
+        .set_metadata_control_db_path(
+            Some(&control_db_path),
+            crate::core::session_manager::SetMetadataControlDbPathOptions {
+                index_message_text: None,
+                cwd_override: None,
+            },
+        )
+        .map_err(|error| error.to_string())?;
     if let Some(issue) = get_missing_session_cwd_issue(&session_manager, &cwd) {
         if handoff.is_some() {
             session_manager =

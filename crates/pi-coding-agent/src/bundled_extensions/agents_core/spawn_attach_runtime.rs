@@ -20,7 +20,7 @@ use crate::core::multi_agent_store::{
 };
 use crate::core::runtime_process::is_process_identity_alive;
 use crate::core::session_control_db::{CreateMultiAgentAttachmentResult, read_multi_agent_runtime_ownership};
-use crate::core::session_manager::{SessionInfo, SessionManager};
+use crate::core::session_manager::{SessionInfo, SessionManager, lock_session_manager};
 
 use super::control_runtime::OwnedAgentRuntime;
 use super::dispatch_runtime::{
@@ -399,7 +399,7 @@ fn commit_running_child(
         .map_err(|error| tool_result(error.message, json!({})))
         .ok();
     let owner_session_id = match session_manager {
-        Some(session_manager) => session_manager.get_session_id().to_owned(),
+        Some(session_manager) => lock_session_manager(&session_manager).get_session_id().to_owned(),
         None => input
             .store
             .get_persistence_target()
@@ -792,8 +792,9 @@ fn load_attach_session_target(
         ));
     }
     let session_manager = ctx.session_manager()?;
+    let session_dir = lock_session_manager(&session_manager).get_session_dir().to_owned();
     if let Some(path) = selectors.1 {
-        let session = SessionManager::open(path, Some(session_manager.get_session_dir()), None)
+        let session = SessionManager::open(path, Some(&session_dir), None)
             .map_err(|error| HandlerError::new(error.to_string()))?;
         return Ok(Ok(AttachSessionTarget {
             cwd: session.get_cwd().to_owned(),
@@ -802,7 +803,6 @@ fn load_attach_session_target(
             session_id: session.get_session_id().to_owned(),
         }));
     }
-    let session_dir = session_manager.get_session_dir().to_owned();
     let control_db_path = ctx.control_db_path()?;
     let local_sessions = SessionManager::list(&ctx.cwd()?, Some(&session_dir), None, control_db_path.as_deref())
         .map_err(|error| HandlerError::new(error.to_string()))?;
@@ -998,7 +998,9 @@ fn recover_and_publish_dead_agent(input: &RecoverAgentsInput, agent: &AgentSnaps
     let Some(dead_ownership) = dead_ownership else {
         return Ok(());
     };
-    let owner_session_id = input.ctx.session_manager()?.get_session_id().to_owned();
+    let owner_session_id = lock_session_manager(&input.ctx.session_manager()?)
+        .get_session_id()
+        .to_owned();
     let recovered = coordinator
         .recover_dead_child(&crate::core::lifecycle_coordinator::RecoverDeadChildCommandInput {
             agent: agent.clone(),

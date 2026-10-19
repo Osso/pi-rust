@@ -17,6 +17,7 @@ use crate::core::extensions::types::{ExtensionContext, ToolDefinition, ToolRende
 use crate::core::session_control_db::{
     PostSharedChannelMessageInput, RuntimeMailboxAddress, advance_shared_channel_cursor, post_shared_channel_message,
 };
+use crate::core::session_manager::lock_session_manager;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 pub const NAME: &str = "channel_post";
@@ -109,11 +110,10 @@ impl AgentHarnessTool<ExtensionContext> for ChannelPostTool {
             if message.is_empty() {
                 return Err(ToolError::new("channel_post requires a non-empty message"));
             }
-            let session_id = context
+            let session_manager = context
                 .session_manager()
-                .map_err(|error| ToolError::new(error.message))?
-                .get_session_id()
-                .to_owned();
+                .map_err(|error| ToolError::new(error.message))?;
+            let session_id = lock_session_manager(&session_manager).get_session_id().to_owned();
             let sender = RuntimeMailboxAddress { agent_id, session_id };
             let message_id = post_shared_channel_message(
                 &control_db_path,

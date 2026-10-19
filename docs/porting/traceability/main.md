@@ -81,15 +81,17 @@ return an explicit gap error; they are listed under "Explicit gaps".
   subcommands are not wired; the service loops are owned by the hosts slice.
 - `core/debug-repl.ts` is a documented gap (`node:vm`), so the `debug` extension
   factory is not registered.
-- First-party factories: `agents-core`, `agent-viewer`, `agents-mailbox` are wired.
-  `FIRST_PARTY_EXTENSION_NAMES` lists the source names and
-  `PENDING_FIRST_PARTY_EXTENSIONS` the remaining factories
+- First-party factories: `agents-core`, `agent-viewer`, `agents-mailbox`, `goal`,
+  `bwrap`, and `pyrun` are wired. The Pyrun factory constructs the multi-agent Pi
+  request handler from the extension API and falls through to builtin Pyrun
+  requests for unowned methods. `FIRST_PARTY_EXTENSION_NAMES` lists the source
+  names and `PENDING_FIRST_PARTY_EXTENSIONS` the remaining factories
   (approval-controls, ask-secret, browser-cli, claude-bash-hook,
   claude-memory-enrich, claude-memory-session-end, codex-fast,
   codex-image-generation, codex-usage, codex-web-search, debug, default-footer,
-  docs-tree-context, effort, goal, bwrap, pyrun, loop, openai-remote-compact,
-  run-plan, safe, spec-validation, session-archive, self-restart, session-id).
-  A test enforces that registered and pending names partition the source list.
+  docs-tree-context, effort, loop, openai-remote-compact, run-plan, safe,
+  spec-validation, session-archive, self-restart, session-id). A test enforces
+  that registered and pending names partition the source list.
 - `bindAgentSessionMutationTargetResolver` is not ported; the store is restored but
   mutation-target resolution for interactive views is skipped.
 - Production child/attached session factories remain unavailable (documented
@@ -100,9 +102,9 @@ return an explicit gap error; they are listed under "Explicit gaps".
 - `process.title`, `process.emitWarning`, and the `PI_CODING_AGENT`/`AI_AGENT`
   environment writes from `cli.ts` are not applied. Edition 2024 makes
   `std::env::set_var` unsafe and the workspace forbids unsafe code;
-  `cli_entry::CLI_PROCESS_ENV` records the values for a future
-  `pi_js_compat::process_env` overlay. `process.title`/`emitWarning` have no Rust
-  analogue.
+  `cli_entry::CLI_PROCESS_ENV` records the values for the in-flight
+  `pi_js_compat::process_env` overlay. Apply it at startup once that module lands.
+  `process.title`/`emitWarning` have no Rust analogue.
 - `applyHttpProxySettings` has no process-global equivalent. Settings `httpProxy`
   is not written into the environment; the HTTP client reads the ambient proxy
   environment instead. `resolve_http_proxy_settings` captures the source decision.
