@@ -22,7 +22,7 @@ use super::edit_diff::{
 };
 use super::file_mutation_queue::with_file_mutation_queue;
 use super::path_utils::resolve_to_cwd;
-use super::render_utils::{render_tool_path, str_value};
+use super::render_utils::render_tool_path;
 use super::tool_definition_wrapper::{create_tool_definition_from_agent_tool, wrap_agent_tool};
 use crate::core::extensions::types::{
     HandlerError, RenderShell, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
@@ -364,7 +364,11 @@ fn preview_args_key_from_state(state: &Value) -> Option<String> {
 }
 
 fn render_args_path(args: &Value) -> Option<String> {
-    str_value(args.get("file_path").or_else(|| args.get("path")))
+    match args.get("file_path") {
+        Some(Value::Null) | None => args.get("path").and_then(Value::as_str).map(str::to_owned),
+        Some(Value::String(path)) => Some(path.clone()),
+        Some(_) => None,
+    }
 }
 
 fn format_edit_call(args: &Value, theme: &Theme, cwd: &str) -> String {

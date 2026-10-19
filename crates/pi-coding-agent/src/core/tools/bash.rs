@@ -298,6 +298,14 @@ async fn exec_local(
                 if let Some(poller) = &poller {
                     poller.poll_once(&options.on_data);
                 }
+                // The source keeps the timeout handle alive after detaching, so a
+                // backgrounded command is still killed when its timeout expires.
+                if let (Some(deadline), Some(pid)) = (deadline, child_pid) {
+                    tokio::spawn(async move {
+                        tokio::time::sleep_until(deadline).await;
+                        kill_process_tree(pid);
+                    });
+                }
                 detached = Some(BashDetachedResult {
                     job_id: "background".to_owned(),
                     message: "Background job started".to_owned(),

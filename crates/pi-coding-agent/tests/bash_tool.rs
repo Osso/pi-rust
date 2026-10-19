@@ -440,6 +440,43 @@ fn local_operations_detach_uses_the_default_result() {
 }
 
 #[test]
+fn detach_keeps_the_timeout_active() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let directory = temp.path().join("job");
+    std::fs::create_dir_all(&directory).expect("artifact directory");
+    let artifacts = DetachedJobArtifacts {
+        directory: directory.to_string_lossy().into_owned(),
+        output_path: directory.join("output.log").to_string_lossy().into_owned(),
+    };
+    let marker = temp.path().join("alive.txt");
+    let detach_signal = CancellationToken::new();
+    detach_signal.cancel();
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    let result = runtime
+        .block_on(create_local_bash_operations(None).exec(
+            &format!("sleep 0.5; echo alive > {}", marker.to_string_lossy()),
+            &temp.path().to_string_lossy(),
+            BashExecOptions {
+                on_data: Arc::new(|_| {}),
+                signal: None,
+                timeout: Some(0.2),
+                env: BTreeMap::new(),
+                detach: Some(BashDetachOptions {
+                    artifacts: Some(artifacts),
+                    job_id: None,
+                    signal: detach_signal,
+                }),
+            },
+        ))
+        .expect("local command");
+    assert!(result.detached.is_some());
+    runtime.block_on(async {
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    });
+    assert!(!marker.exists(), "detached command must be killed at its timeout");
+}
+
+#[test]
 fn finishes_without_an_extra_update() {
     struct OneChunk;
     impl BashOperations for OneChunk {
