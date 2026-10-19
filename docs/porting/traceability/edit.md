@@ -18,7 +18,7 @@ Rust: `pi_coding_agent::core::tools::edit`.
 | `edit.ts:353-365` | Diff with 4 context lines, unified patch, `Successfully replaced N block(s) in <path>.` | `generate_diff_string`, `generate_unified_patch`, `edit_replaces_text_and_reports_diff_and_patch`. |
 | `edit.ts:366-442` | `renderCall`/`renderResult`/`createEditTool` | `create_edit_tool_definition` exposes both renderers with `renderShell: "self"`; `EditTool` is the `AgentTool` equivalent of `createEditTool`; `constrainedSampling` mirrors `getExperimentalToolSampling()` (`tool_definitions_expose_experimental_constrained_sampling`). |
 
-Differential: `oracle/coding-agent-edit-write-tool-oracle.ts` (request `27300`, 4 edit cases including success, multi-edit, ambiguity, and ENOENT) compares result JSON, error text, and resulting file contents. `oracle/coding-agent-edit-preview-oracle.ts` (request `27950`) renders the pending header, the completed on-disk preview, and result output for 6 cases byte-for-byte.
+Differential: `oracle/coding-agent-edit-write-tool-oracle.ts` (request `27300`, 4 edit cases including success, multi-edit, ambiguity, and ENOENT) compares result JSON, error text, and resulting file contents. Request `27301` compares `definition.prepareArguments` outputs for legacy fields, JSON-string edits, invalid JSON, non-object input, and pass-through cases. `oracle/coding-agent-edit-preview-oracle.ts` (request `27950`) renders the pending header, the completed on-disk preview, and result output for 6 cases byte-for-byte.
 
 ## Gaps / discrepancies
 

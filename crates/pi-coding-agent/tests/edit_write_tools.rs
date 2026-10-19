@@ -231,6 +231,26 @@ fn edit_definition_forwards_prepare_arguments() {
     );
 }
 
+#[test]
+fn edit_reports_eacces_for_read_only_files() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().expect("temp dir");
+    let file = temp.path().join("edit-readonly.txt");
+    std::fs::write(&file, "hello\n").expect("fixture");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).expect("chmod");
+    let tool = EditTool::new(temp.path().to_string_lossy());
+    let error = execute(
+        &tool,
+        json!({"path": file.to_string_lossy(), "edits": [{"oldText": "hello", "newText": "world"}]}),
+    )
+    .expect_err("read-only file");
+    assert_eq!(
+        error,
+        format!("Could not edit file: {}. Error code: EACCES.", file.to_string_lossy())
+    );
+}
+
 struct UnknownAccessError;
 
 impl EditOperations for UnknownAccessError {
