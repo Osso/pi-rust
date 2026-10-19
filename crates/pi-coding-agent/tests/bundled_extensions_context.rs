@@ -338,6 +338,16 @@ async fn claude_memory_session_end_skips_ephemeral_sessions() {
         pi_coding_agent::bundled_extensions::claude_memory_session_end::claude_memory_session_end_extension,
     )
     .await;
+
+    let mut oracle = oracle_for("packages/coding-agent/extensions/claude-memory-session-end/src/index.ts");
+    let response = oracle.request(&json!({
+        "id": 4,
+        "extension": "claude-memory-session-end",
+        "steps": [{"op": "registrations"}]
+    }));
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(harness.registrations(), response["output"]["steps"][0]["result"]);
+
     let event = pi_coding_agent::core::extensions::types::SessionShutdownEvent {
         reason: pi_coding_agent::core::extensions::types::SessionShutdownReason::Quit,
         target_session_file: None,
