@@ -173,7 +173,7 @@ pub fn llama_inference_url(server_url: &str) -> LlamaResult<String> {
 
 fn parse_load_progress(data: Option<&Value>) -> Option<LlamaProgress> {
     let progress = data?.get("progress")?;
-    if !progress.is_object() {
+    if !(progress.is_object() || progress.is_array()) {
         return None;
     }
     let stage = progress
@@ -220,7 +220,7 @@ fn finish_download_progress(done: f64, total: f64) -> Option<LlamaProgress> {
 fn parse_download_progress(data: &Value) -> Option<LlamaProgress> {
     let nested = data.get("progress");
     let files = match nested {
-        Some(nested) if nested.is_object() => nested,
+        Some(nested) if nested.is_object() || nested.is_array() => nested,
         _ => data,
     };
     let entries: Box<dyn Iterator<Item = &Value> + '_> = if let Some(files) = files.as_object() {
