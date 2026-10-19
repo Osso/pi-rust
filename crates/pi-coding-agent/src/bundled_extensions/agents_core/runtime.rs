@@ -63,7 +63,7 @@ impl MultiAgentRuntimeHandles {
     }
 }
 
-pub type SelectAgentView = Arc<dyn Fn(&str) -> Option<bool> + Send + Sync>;
+pub type SelectAgentView = Arc<dyn Fn(&str) -> BoxFuture<'static, Option<bool>> + Send + Sync>;
 
 #[derive(Clone, Default)]
 pub struct MultiAgentExtensionOptions {
@@ -373,11 +373,14 @@ impl MultiAgentPiRequestHandler {
                 Ok(result.details.unwrap_or(Value::Null))
             }
             "agents.current" => select_current_agent(&self.runtime.store),
-            "agents.select" => select_agent(
-                &self.runtime.store,
-                &params,
-                self.runtime.options.select_agent_view.as_ref(),
-            ),
+            "agents.select" => {
+                select_agent(
+                    &self.runtime.store,
+                    &params,
+                    self.runtime.options.select_agent_view.as_ref(),
+                )
+                .await
+            }
             "messages.last" => {
                 let session_manager = ctx.session_manager()?;
                 let manager = lock_session_manager(&session_manager);
@@ -441,35 +444,40 @@ fn select_current_agent(store: &MultiAgentStore) -> Result<Value, HandlerError> 
     })
 }
 
-fn select_agent(
-    store: &MultiAgentStore,
-    params: &Value,
-    select_agent_view: Option<&SelectAgentView>,
-) -> Result<Value, HandlerError> {
-    let agent_id = normalize_select_agent_id(params)?;
-    let rendered = select_agent_view.map(|callback| callback(&agent_id));
-    if rendered == Some(Some(true)) {
+fn select_agent<'a>(
+    store: &'a MultiAgentStore,
+    params: &'a Value,
+    select_agent_view: Option<&'a SelectAgentView>,
+) -> BoxFuture<'a, Result<Value, HandlerError>> {
+    Box::pin(async move {
+        let agent_id = normalize_select_agent_id(params)?;
+        let rendered = match select_agent_view {
+            Some(callback) => callback(&agent_id).await,
+            None => None,
+        };
+        if rendered == Some(true) {
+            if agent_id == MAIN_THREAD_AGENT_ID {
+                return Ok(json!({"agent": create_main_thread_snapshot()}));
+            }
+            if let Some(selected) = store.get_agent(&agent_id) {
+                return Ok(json!({"agent": selected}));
+            }
+            return select_current_agent(store);
+        }
+        if rendered == Some(false) {
+            return Err(HandlerError::new(format!("Agent view selection failed: {agent_id}")));
+        }
         if agent_id == MAIN_THREAD_AGENT_ID {
+            store.clear_selected_agent_view();
             return Ok(json!({"agent": create_main_thread_snapshot()}));
         }
-        if let Some(selected) = store.get_agent(&agent_id) {
-            return Ok(json!({"agent": selected}));
+        match store.select_agent_view_with_status(&agent_id) {
+            crate::core::multi_agent_store::AgentViewSelectionResult::Ok(agent) => Ok(json!({"agent": agent})),
+            crate::core::multi_agent_store::AgentViewSelectionResult::NotFound { .. } => {
+                Err(HandlerError::new(format!("Agent not found: {agent_id}")))
+            }
         }
-        return select_current_agent(store);
-    }
-    if rendered == Some(Some(false)) {
-        return Err(HandlerError::new(format!("Agent view selection failed: {agent_id}")));
-    }
-    if agent_id == MAIN_THREAD_AGENT_ID {
-        store.clear_selected_agent_view();
-        return Ok(json!({"agent": create_main_thread_snapshot()}));
-    }
-    match store.select_agent_view_with_status(&agent_id) {
-        crate::core::multi_agent_store::AgentViewSelectionResult::Ok(agent) => Ok(json!({"agent": agent})),
-        crate::core::multi_agent_store::AgentViewSelectionResult::NotFound { .. } => {
-            Err(HandlerError::new(format!("Agent not found: {agent_id}")))
-        }
-    }
+    })
 }
 
 fn normalize_select_agent_id(params: &Value) -> Result<String, HandlerError> {

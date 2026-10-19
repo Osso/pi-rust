@@ -220,7 +220,10 @@ pub fn create_first_party_extension_factories(
     let select_agent_view = select_agent_view.map(|slot| {
         Arc::new(move |agent_id: &str| {
             let selector = slot.lock().expect("agent view selector").clone();
-            selector.and_then(|selector| selector(agent_id))
+            match selector {
+                Some(selector) => selector(agent_id),
+                None => Box::pin(async { None }),
+            }
         }) as crate::bundled_extensions::agents_core::runtime::SelectAgentView
     });
     let options = crate::bundled_extensions::agents_core::runtime::MultiAgentExtensionOptions {
@@ -2345,6 +2348,56 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
             verbose: parsed.verbose.is_some_and(|value| value),
             tui_mode: parsed.tui_mode,
             control_db_path: Some(control_db_path.clone()),
+            multi_agent_store: Some(Arc::clone(&multi_agent_store)),
+            wake_wait_agents_after_steering: Some(Arc::new({
+                let handles = multi_agent_runtime_handles.clone();
+                move || {
+                    crate::bundled_extensions::agents_core::control_runtime::wake_wait_agents_after_steering(&handles)
+                }
+            })),
+            steer_multi_agent: Some(Arc::new({
+                let store = Arc::clone(&multi_agent_store);
+                let handles = multi_agent_runtime_handles.clone();
+                let control_db_path = control_db_path.clone();
+                move |agent_id: String, message: String, session_id: String| {
+                    let store = Arc::clone(&store);
+                    let handles = handles.clone();
+                    let control_db_path = control_db_path.clone();
+                    Box::pin(async move {
+                        if control_db_path.is_empty() {
+                            return Err("Agent steering is unavailable".to_owned());
+                        }
+                        crate::bundled_extensions::agents_core::control_runtime::request_interactive_agent_steering(
+                            &store,
+                            &handles,
+                            &agent_id,
+                            &message,
+                            &crate::bundled_extensions::agents_core::control_runtime::AgentSteeringRuntimeBinding {
+                                actor_agent_id: None,
+                                control_db_path,
+                                session_id,
+                            },
+                        )
+                    }) as pi_ai::request::BoxFuture<'static, Result<(), String>>
+                }
+            })),
+            cancel_multi_agent: Some(Arc::new({
+                let store = Arc::clone(&multi_agent_store);
+                let handles = multi_agent_runtime_handles.clone();
+                move |agent_id: String| {
+                    let store = Arc::clone(&store);
+                    let handles = handles.clone();
+                    Box::pin(async move {
+                        crate::bundled_extensions::agents_core::control_runtime::cancel_owned_agent_runtime(
+                            &store, &handles, &agent_id, None,
+                        )
+                        .await
+                        .map(|_| ())
+                        .map_err(|error| error.message)
+                    }) as pi_ai::request::BoxFuture<'static, Result<(), String>>
+                }
+            })),
+            agent_view_selector_slot: Some(Arc::clone(&interactive_agent_view_selector)),
         };
         if startup_benchmark {
             let local = tokio::task::LocalSet::new();
