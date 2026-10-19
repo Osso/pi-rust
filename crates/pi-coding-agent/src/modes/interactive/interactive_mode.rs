@@ -3912,7 +3912,8 @@ impl InteractiveMode {
         let command = self.settings(|settings| settings.get_external_editor_command());
         let result = crate::modes::interactive::external_editor::edit_in_external_editor(
             &crate::modes::interactive::external_editor::ExternalEditorOptions { command, content: text },
-        );
+        )
+        .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error));
         match result {
             crate::modes::interactive::external_editor::ExternalEditorResult::Complete { content } => {
                 self.editor.borrow_mut().set_text(&content);
