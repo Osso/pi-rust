@@ -11,6 +11,7 @@ type Definition = {
 	approvalRequired?: boolean;
 	approvalKind?: string;
 	parameters: unknown;
+	constrainedSampling?: unknown;
 	executionMode?: string;
 	renderShell?: string;
 	renderCall?: unknown;
@@ -31,6 +32,7 @@ function describe(definition: Definition) {
 		approvalRequired: definition.approvalRequired ?? null,
 		approvalKind: definition.approvalKind ?? null,
 		parameters: definition.parameters,
+		constrainedSampling: definition.constrainedSampling ?? null,
 		executionMode: definition.executionMode ?? null,
 		renderShell: definition.renderShell ?? null,
 		hasRenderCall: typeof definition.renderCall === "function",

@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult};
+use pi_ai::request::BoxFuture;
 use pi_ai::types::TextOrImageContent;
-use pi_coding_agent::core::tools::edit::EditTool;
+use pi_coding_agent::core::tools::edit::{EditOperations, EditTool, EditToolOptions, create_edit_tool_definition};
 use pi_coding_agent::core::tools::write::WriteTool;
 use serde_json::json;
 
@@ -206,4 +207,78 @@ fn prepare_arguments_accepts_json_strings_and_legacy_fields() {
             {"oldText": "c", "newText": "d"}
         ]})
     );
+}
+
+#[test]
+fn edit_definition_forwards_prepare_arguments() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    std::fs::write(temp.path().join("legacy.txt"), "before\n").expect("fixture");
+    let definition = create_edit_tool_definition(&temp.path().to_string_lossy(), EditToolOptions::default());
+    let prepare = definition
+        .prepare_arguments
+        .as_ref()
+        .expect("prepare arguments forwarded");
+    let prepared =
+        prepare(&json!({"path": "legacy.txt", "oldText": "before", "newText": "after"})).expect("prepare arguments");
+    assert_eq!(
+        prepared,
+        json!({"path": "legacy.txt", "edits": [{"oldText": "before", "newText": "after"}]})
+    );
+    execute(&EditTool::new(temp.path().to_string_lossy()), prepared).expect("prepared edit executes");
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join("legacy.txt")).expect("edited file"),
+        "after\n"
+    );
+}
+
+#[test]
+fn edit_reports_eacces_for_read_only_files() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().expect("temp dir");
+    let file = temp.path().join("edit-readonly.txt");
+    std::fs::write(&file, "hello\n").expect("fixture");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).expect("chmod");
+    let tool = EditTool::new(temp.path().to_string_lossy());
+    let error = execute(
+        &tool,
+        json!({"path": file.to_string_lossy(), "edits": [{"oldText": "hello", "newText": "world"}]}),
+    )
+    .expect_err("read-only file");
+    assert_eq!(
+        error,
+        format!("Could not edit file: {}. Error code: EACCES.", file.to_string_lossy())
+    );
+}
+
+struct UnknownAccessError;
+
+impl EditOperations for UnknownAccessError {
+    fn read_file<'a>(&'a self, _absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
+        Box::pin(async { Ok(b"hello\n".to_vec()) })
+    }
+
+    fn write_file<'a>(&'a self, _absolute_path: &'a str, _content: &'a str) -> BoxFuture<'a, std::io::Result<()>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn access<'a>(&'a self, _absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<()>> {
+        Box::pin(async { Err(std::io::Error::other("disk offline")) })
+    }
+}
+
+#[test]
+fn edit_reports_the_original_message_for_unknown_access_errors() {
+    let tool = EditTool::with_options(
+        ".",
+        EditToolOptions {
+            operations: Some(Arc::new(UnknownAccessError)),
+        },
+    );
+    let error = execute(
+        &tool,
+        json!({"path": "broken.txt", "edits": [{"oldText": "hello", "newText": "world"}]}),
+    )
+    .expect_err("access failure");
+    assert_eq!(error, "Could not edit file: broken.txt. Error: disk offline.");
 }

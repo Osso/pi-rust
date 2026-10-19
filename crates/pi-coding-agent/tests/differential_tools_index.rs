@@ -1,3 +1,6 @@
+#[path = "support/env_probe.rs"]
+mod env_probe;
+
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -21,6 +24,7 @@ fn describe(name: ToolName, cwd: &str) -> Value {
             pi_coding_agent::core::extensions::types::ApprovalKind::ReadOnly => "read-only",
         }),
         "parameters": definition.parameters,
+        "constrainedSampling": definition.constrained_sampling,
         "executionMode": definition.execution_mode.map(|mode| mode.as_str()),
         "renderShell": definition.render_shell.map(|shell| match shell {
             RenderShell::Default => "default",
@@ -114,6 +118,35 @@ fn tools_index_factories_match_the_pinned_typescript_source() {
         })
         .collect::<Vec<_>>();
     assert_eq!(json!(all_keys), expected["allKeys"]);
+}
+
+#[test]
+fn tool_definitions_expose_experimental_constrained_sampling() {
+    env_probe::run_probe(
+        "experimental_sampling_probe",
+        &[("PI_EXPERIMENTAL", std::ffi::OsString::from("1"))],
+    );
+}
+
+#[test]
+#[ignore = "child process probe"]
+fn experimental_sampling_probe() {
+    if !env_probe::in_probe() {
+        return;
+    }
+    let expected = Some(pi_ai::types::ConstrainedSampling::Config(
+        pi_ai::types::ConstrainedSamplingConfig::JsonSchema {
+            strict: pi_ai::types::JsonSchemaStrictness::Prefer,
+        },
+    ));
+    for name in [ToolName::Read, ToolName::Bash, ToolName::Edit, ToolName::Write] {
+        let definition = create_tool_definition(name, "/tmp/pi-tools-index-differential", ToolsOptions::default());
+        assert_eq!(definition.constrained_sampling, expected, "{}", name.as_str());
+    }
+    for name in [ToolName::Grep, ToolName::Find, ToolName::Ls] {
+        let definition = create_tool_definition(name, "/tmp/pi-tools-index-differential", ToolsOptions::default());
+        assert_eq!(definition.constrained_sampling, None, "{}", name.as_str());
+    }
 }
 
 #[test]

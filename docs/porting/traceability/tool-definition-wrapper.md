@@ -17,7 +17,7 @@ tool output. Rust keeps both directions: `wrap_definition`/`wrap_definitions` (d
 | `tool-definition-wrapper.ts:73-99` | `createToolContext` / `createToolExecutionContext` add `toolExecutionAgentId` and `toolExecutionStartedAt` | `create_tool_execution_context`; `wrapped_definitions_inject_execution_identity_and_cap_output`. |
 | `tool-definition-wrapper.ts:101-137` | `wrapToolDefinition` forwards name/label/description/parameters/constrainedSampling/prepareArguments/prepareExecution/executionMode and caps partial updates plus the final result with one shared spill | `DefinitionTool`, `wrap_definition`; `wrapped_definitions_forward_prepare_arguments_and_prepare_execution`, `wrapped_definitions_inject_execution_identity_and_cap_output`. `prepareArguments`/`prepareExecution` are fallible on `AgentTool` (see [agent-loop](agent-loop.md)); errors propagate to the source boundaries. |
 | `tool-definition-wrapper.ts:139-144` | `wrapToolDefinitions` maps definitions | `wrap_definitions`. |
-| `tool-definition-wrapper.ts:146-160` | `createToolDefinitionFromAgentTool` synthesizes a `ToolDefinition` | `create_tool_definition_from_agent_tool`; used by every tool's `create_*_tool_definition`. |
+| `tool-definition-wrapper.ts:146-160` | `createToolDefinitionFromAgentTool` synthesizes a `ToolDefinition` | `create_tool_definition_from_agent_tool`; forwards `prepareArguments` and `prepareExecution` like the source; used by every tool's `create_*_tool_definition`. Proof: `definitions_from_agent_tools_forward_prepare_arguments`, `edit_definition_forwards_prepare_arguments`. |
 
 Differential: not applicable for the module itself (random temp path). The `prepareArguments`
 catch boundary is compared against `packages/agent/src/agent-loop.ts` by the
@@ -25,4 +25,9 @@ catch boundary is compared against `packages/agent/src/agent-loop.ts` by the
 
 ## Discrepancies
 
-- None observed.
+- `createToolContext` returns `undefined` when no factory is supplied; the typed Rust API requires a
+  `ToolContextFactory`, so `create_tool` supplies one for definition-based tools.
+- `createToolDefinitionFromAgentTool` always sets `prepareExecution`; the `AgentTool` default
+  returns `None`, so the observable result matches the source's conditional spread.
+- `DefinitionTool::execute` always passes a callback to the definition because `AgentTool::execute`
+  has no optional update callback.

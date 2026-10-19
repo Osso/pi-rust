@@ -72,11 +72,13 @@ impl ExtensionToolHtmlRenderer {
             .cloned()
             .unwrap_or(Value::Null);
         let state = self.state_for(tool_call_id);
+        let call_component = self.state.borrow().rendered_call_components.get(tool_call_id).cloned();
         ToolRenderContext {
             args,
             tool_call_id: tool_call_id.to_owned(),
             invalidate: Arc::new(|| {}),
             last_component,
+            call_component,
             state,
             cwd: self.cwd.clone(),
             execution_started: true,

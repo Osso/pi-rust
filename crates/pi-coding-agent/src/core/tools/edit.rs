@@ -22,7 +22,7 @@ use super::edit_diff::{
 };
 use super::file_mutation_queue::with_file_mutation_queue;
 use super::path_utils::resolve_to_cwd;
-use super::render_utils::{render_tool_path, str_value};
+use super::render_utils::render_tool_path;
 use super::tool_definition_wrapper::{create_tool_definition_from_agent_tool, wrap_agent_tool};
 use crate::core::extensions::types::{
     HandlerError, RenderShell, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
@@ -146,6 +146,10 @@ impl AgentTool for EditTool {
         "edit"
     }
 
+    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
+        crate::core::experimental::get_experimental_tool_constrained_sampling()
+    }
+
     fn prepare_arguments(&self, args: Value) -> Result<Value, ToolError> {
         Ok(prepare_edit_arguments(args))
     }
@@ -244,8 +248,8 @@ async fn execute_edit(
         if let Err(error) = operations.access(&absolute_path).await {
             check_aborted(signal.as_ref())?;
             return Err(ToolError::new(format!(
-                "Could not edit file: {path}. Error code: {}.",
-                node_error_code(&error)
+                "Could not edit file: {path}. {}.",
+                edit_access_error_message(&error)
             )));
         }
         check_aborted(signal.as_ref())?;
@@ -306,6 +310,16 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
     Ok(())
 }
 
+/// `error instanceof Error && "code" in error ? Error code: <code> : String(error)`.
+///
+/// Custom operations surface plain messages; filesystem errors carry an errno.
+fn edit_access_error_message(error: &io::Error) -> String {
+    if error.raw_os_error().is_some() || error.kind() != io::ErrorKind::Other {
+        return format!("Error code: {}", node_error_code(error));
+    }
+    format!("Error: {error}")
+}
+
 // ============================================================================
 // Renderers
 // ============================================================================
@@ -314,7 +328,6 @@ const PREVIEW_KEY: &str = "preview";
 const PREVIEW_ARGS_KEY: &str = "previewArgsKey";
 const PREVIEW_PENDING_KEY: &str = "previewPending";
 const SETTLED_ERROR_KEY: &str = "settledError";
-const CALL_COMPONENT_KEY: &str = "callComponent";
 
 /// `EditDiffResult | EditDiffError` preview shown in the call header.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -355,7 +368,11 @@ fn preview_args_key_from_state(state: &Value) -> Option<String> {
 }
 
 fn render_args_path(args: &Value) -> Option<String> {
-    str_value(args.get("file_path").or_else(|| args.get("path")))
+    match args.get("file_path") {
+        Some(Value::Null) | None => args.get("path").and_then(Value::as_str).map(str::to_owned),
+        Some(Value::String(path)) => Some(path.clone()),
+        Some(_) => None,
+    }
 }
 
 fn format_edit_call(args: &Value, theme: &Theme, cwd: &str) -> String {
@@ -412,36 +429,54 @@ fn edit_header_bg(preview: Option<&EditPreview>, settled_error: bool) -> ThemeBg
     }
 }
 
-fn build_edit_call_component(
+/// `getEditCallRenderComponent`: reuse the last call component.
+fn get_edit_call_component(context: &ToolRenderContext) -> ComponentRef {
+    if let Some(last_component) = &context.last_component
+        && last_component
+            .borrow_mut()
+            .as_any_mut()
+            .and_then(|component| component.downcast_mut::<BoxComponent>())
+            .is_some()
+    {
+        return Rc::clone(last_component);
+    }
+    Rc::new(RefCell::new(BoxComponent::new(1, 1, None)))
+}
+
+fn fill_edit_call_component(
+    component: &ComponentRef,
     args: &Value,
     preview: Option<&EditPreview>,
     settled_error: bool,
     theme: &Theme,
     cwd: &str,
-) -> ComponentRef {
+) {
     let background = edit_header_bg(preview, settled_error);
     let background_theme = theme.clone();
-    let mut component = BoxComponent::new(
-        1,
-        1,
-        Some(Rc::new(move |text: &str| background_theme.bg(background, text))),
-    );
-    component.add_child(Rc::new(RefCell::new(Text::new(
+    let mut borrowed = component.borrow_mut();
+    let Some(box_component) = borrowed
+        .as_any_mut()
+        .and_then(|component| component.downcast_mut::<BoxComponent>())
+    else {
+        return;
+    };
+    box_component.set_bg_fn(Some(Rc::new(move |text: &str| background_theme.bg(background, text))));
+    box_component.clear();
+    box_component.add_child(Rc::new(RefCell::new(Text::new(
         format_edit_call(args, theme, cwd),
         0,
         0,
     ))));
 
     let Some(preview) = preview else {
-        return Rc::new(RefCell::new(component));
+        return;
     };
     let body = match preview {
         EditPreview::Error(error) => theme.fg(ThemeColor::Error, error),
         EditPreview::Diff { diff, .. } => render_diff(diff),
     };
-    component.add_child(Rc::new(RefCell::new(Spacer::new(1))));
-    component.add_child(Rc::new(RefCell::new(Text::new(body, 0, 0))));
-    Rc::new(RefCell::new(component))
+    box_component.add_child(Rc::new(RefCell::new(Spacer::new(1))));
+    box_component.add_child(Rc::new(RefCell::new(Text::new(body, 0, 0))));
 }
 
 fn set_edit_preview(
@@ -518,15 +553,11 @@ fn request_edit_preview(
 
 /// `renderCall` for the edit tool.
 pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    let component = get_edit_call_component(context);
     let preview_input = get_renderable_preview_input(args);
     let args_key = preview_input
         .as_ref()
         .map(|(path, _, raw_edits)| preview_args_key(path, raw_edits));
-    context.state.update(|state| {
-        if let Value::Object(state) = state {
-            state.insert(CALL_COMPONENT_KEY.to_owned(), Value::Bool(true));
-        }
-    });
 
     let state_snapshot = context.state.get();
     if preview_args_key_from_state(&state_snapshot) != args_key {
@@ -570,13 +601,8 @@ pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> 
         .get(SETTLED_ERROR_KEY)
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    Ok(build_edit_call_component(
-        args,
-        preview.as_ref(),
-        settled_error,
-        theme,
-        &context.cwd,
-    ))
+    fill_edit_call_component(&component, args, preview.as_ref(), settled_error, theme, &context.cwd);
+    Ok(component)
 }
 
 fn format_edit_result(
@@ -633,12 +659,7 @@ pub fn render_result(
     let args_key = preview_input
         .as_ref()
         .map(|(path, _, raw_edits)| preview_args_key(path, raw_edits));
-    let has_call_component = context
-        .state
-        .get()
-        .get(CALL_COMPONENT_KEY)
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let call_component = context.call_component.clone();
     let result_diff = (!context.is_error)
         .then(|| {
             result
@@ -648,37 +669,54 @@ pub fn render_result(
                 .and_then(Value::as_str)
         })
         .flatten();
-    if has_call_component && let Some(result_diff) = result_diff {
-        let first_changed_line = result
-            .details
-            .as_ref()
-            .and_then(|details| details.get("firstChangedLine"))
-            .and_then(Value::as_u64)
-            .map(|line| line as usize);
-        set_edit_preview(
-            &context.state,
-            EditPreview::Diff {
-                diff: result_diff.to_owned(),
-                first_changed_line,
-            },
-            args_key,
-        );
-    }
-    let state_snapshot = context.state.get();
-    let settled_error = state_snapshot
-        .get(SETTLED_ERROR_KEY)
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    if has_call_component && settled_error != context.is_error {
-        context.state.update(|state| {
-            if let Value::Object(state) = state {
-                state.insert(SETTLED_ERROR_KEY.to_owned(), Value::Bool(context.is_error));
-            }
-        });
+    let mut changed = false;
+    if let Some(call_component) = &call_component {
+        if let Some(result_diff) = result_diff {
+            let first_changed_line = result
+                .details
+                .as_ref()
+                .and_then(|details| details.get("firstChangedLine"))
+                .and_then(Value::as_u64)
+                .map(|line| line as usize);
+            changed = set_edit_preview(
+                &context.state,
+                EditPreview::Diff {
+                    diff: result_diff.to_owned(),
+                    first_changed_line,
+                },
+                args_key,
+            ) || changed;
+        }
+        let settled_error = context
+            .state
+            .get()
+            .get(SETTLED_ERROR_KEY)
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if settled_error != context.is_error {
+            context.state.update(|state| {
+                if let Value::Object(state) = state {
+                    state.insert(SETTLED_ERROR_KEY.to_owned(), Value::Bool(context.is_error));
+                }
+            });
+            changed = true;
+        }
+        if changed {
+            let preview = preview_from_state(&context.state.get());
+            fill_edit_call_component(
+                call_component,
+                &context.args,
+                preview.as_ref(),
+                context.is_error,
+                theme,
+                &context.cwd,
+            );
+        }
     }
 
-    let preview = has_call_component
-        .then(|| preview_from_state(&state_snapshot))
+    let preview = call_component
+        .is_some()
+        .then(|| preview_from_state(&context.state.get()))
         .flatten();
     let mut component = Container::new();
     if let Some(output) = format_edit_result(&context.args, preview.as_ref(), result, theme, context.is_error) {

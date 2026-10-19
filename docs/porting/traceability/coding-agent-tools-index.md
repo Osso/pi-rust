@@ -20,7 +20,9 @@ Rust: `pi_coding_agent::core::tools` (`mod.rs`).
 | `createAllTools` | `create_all_tools` | same |
 
 Differential: `oracle/coding-agent-tools-index-oracle.ts` (request `27960`) loads the real
-`tools/index.ts` and compares every factory output and the name lists.
+`tools/index.ts` and compares every factory output, `constrainedSampling`, and the name lists.
+The experimental branch is proven in a child process with `PI_EXPERIMENTAL=1`
+(`tool_definitions_expose_experimental_constrained_sampling`).
 
 ## Deviations
 
@@ -30,6 +32,10 @@ Differential: `oracle/coding-agent-tools-index-oracle.ts` (request `27960`) load
   file/coding tools ignore the factory.
 - `createTool`'s `default: throw new Error("Unknown tool name: …")` is unreachable: `ToolName`
   excludes unknown names (typed-API exclusion).
+- `createBashTool` copies `promptSnippet`/`promptGuidelines` onto the tool object in the source;
+  `AgentTool` has no prompt fields, so they live on `create_bash_tool_definition`'s result.
+- Definition-based tools produced by `createTool` receive the factory context and forward
+  `prepareArguments`/`prepareExecution` through `create_tool_definition_from_agent_tool`.
 
 ## Discrepancies
 

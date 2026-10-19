@@ -1,6 +1,7 @@
 //! Behavioral tests for the edit on-disk preview and the bash elapsed-time state,
 //! both of which keep mutable state across `renderCall`/`renderResult` calls.
 
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -8,9 +9,14 @@ use pi_agent_core::agent::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_coding_agent::core::extensions::types::{ToolRenderContext, ToolRenderResultOptions, ToolRenderState};
 use pi_coding_agent::core::tools::bash::render_call as bash_render_call;
-use pi_coding_agent::core::tools::edit::{render_call as edit_render_call, render_result as edit_render_result};
+use pi_coding_agent::core::tools::edit::{
+    create_edit_tool_definition, render_call as edit_render_call, render_result as edit_render_result,
+};
+use pi_coding_agent::modes::interactive::components::tool_execution::{
+    ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
+};
 use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, ThemeBg, load_theme_from_path, set_theme_instance};
-use pi_tui::strip_terminal_sequences;
+use pi_tui::{Component, strip_terminal_sequences};
 use serde_json::{Value, json};
 
 fn theme() -> Arc<Theme> {
@@ -26,6 +32,7 @@ fn context(args: Value, cwd: &str, state: ToolRenderState) -> ToolRenderContext 
         tool_call_id: "preview-call".to_owned(),
         invalidate: Arc::new(|| {}),
         last_component: None,
+        call_component: None,
         state,
         cwd: cwd.to_owned(),
         execution_started: false,
@@ -106,6 +113,8 @@ fn edit_call_renders_the_pending_header_then_the_on_disk_preview() {
         Some(json!({"diff": preview_diff, "patch": "@@", "firstChangedLine": 1})),
         false,
     );
+    let mut result_context = context.clone();
+    result_context.call_component = Some(Rc::clone(&rendered));
     let result_component = edit_render_result(
         &result,
         &ToolRenderResultOptions {
@@ -113,7 +122,7 @@ fn edit_call_renders_the_pending_header_then_the_on_disk_preview() {
             is_partial: false,
         },
         &theme,
-        &context,
+        &result_context,
     )
     .expect("result renderer");
     assert!(result_component.borrow_mut().render(80).is_empty());
@@ -151,6 +160,7 @@ fn edit_preview_errors_render_in_the_call_header_and_suppress_duplicate_result_t
 
     let mut error_context = context.clone();
     error_context.is_error = true;
+    error_context.call_component = Some(Rc::clone(&rendered));
     let result = result(&preview_error, None, true);
     let result_component = edit_render_result(
         &result,
@@ -185,6 +195,61 @@ fn edit_args_change_discards_the_previous_preview() {
 
     let preview = wait_for_preview(&state);
     assert!(preview["diff"].as_str().expect("diff").contains("+1 hello earth"));
+}
+
+#[test]
+fn edit_settled_result_reconstructs_the_preview_without_complete_args() {
+    let theme = theme();
+    let temp = tempfile::tempdir().expect("temp dir");
+    std::fs::write(temp.path().join("note.txt"), "hello world\n").expect("fixture");
+    let state = ToolRenderState::new();
+    let args = json!({"path": "note.txt", "edits": [{"oldText": "hello", "newText": "goodbye"}]});
+    let mut context = context(args.clone(), &temp.path().to_string_lossy(), state.clone());
+    context.args_complete = false;
+
+    let pending = edit_render_call(&args, &theme, &context).expect("call renderer");
+    assert_eq!(plain(&pending.borrow_mut().render(80)).trim(), "edit note.txt");
+    let mut result_context = context.clone();
+    result_context.call_component = Some(Rc::clone(&pending));
+
+    let diff = "@@ -1,1 +1,1 @@\n-1 hello world\n+1 goodbye world";
+    let result = result(
+        "Successfully replaced 1 block(s) in note.txt.",
+        Some(json!({"diff": diff, "firstChangedLine": 1})),
+        false,
+    );
+    let result_component = edit_render_result(
+        &result,
+        &ToolRenderResultOptions {
+            expanded: false,
+            is_partial: false,
+        },
+        &theme,
+        &result_context,
+    )
+    .expect("result renderer");
+    assert!(result_component.borrow_mut().render(80).is_empty());
+
+    let settled = edit_render_call(&args, &theme, &context).expect("call renderer");
+    let text = plain(&settled.borrow_mut().render(80));
+    assert!(text.contains("-1 hello world"), "{text}");
+    assert!(text.contains("+1 goodbye world"), "{text}");
+}
+
+#[test]
+fn edit_call_falls_back_to_path_for_a_null_file_path() {
+    let theme = theme();
+    let state = ToolRenderState::new();
+    let mut context = context(json!({}), "/repo", state);
+    context.args_complete = false;
+
+    let args = json!({"file_path": "notes.txt", "edits": [{"oldText": "a", "newText": "b"}]});
+    let rendered = edit_render_call(&args, &theme, &context).expect("call renderer");
+    assert_eq!(plain(&rendered.borrow_mut().render(80)).trim(), "edit notes.txt");
+
+    let args = json!({"file_path": null, "path": "notes.txt", "edits": [{"oldText": "a", "newText": "b"}]});
+    let rendered = edit_render_call(&args, &theme, &context).expect("call renderer");
+    assert_eq!(plain(&rendered.borrow_mut().render(80)).trim(), "edit notes.txt");
 }
 
 #[test]
@@ -225,4 +290,44 @@ fn bash_call_records_the_start_and_result_records_the_end() {
     assert!(ended_at >= started_at + 1000.0);
     let final_text = plain(&final_result.borrow_mut().render(80));
     assert!(final_text.contains("Took "), "{final_text}");
+}
+
+#[test]
+fn edit_settled_result_rebuilds_the_rendered_call_component() {
+    let _theme = theme();
+    let temp = tempfile::tempdir().expect("temp dir");
+    let cwd = temp.path().to_string_lossy().into_owned();
+    std::fs::write(temp.path().join("note.txt"), "hello world\n").expect("fixture");
+    let args = json!({"path": "note.txt", "edits": [{"oldText": "hello", "newText": "goodbye"}]});
+    let definition = create_edit_tool_definition(&cwd, Default::default());
+    let mut component = ToolExecutionComponent::new(
+        "edit",
+        "edit-call",
+        args,
+        ToolExecutionOptions::default(),
+        Some(definition),
+        Arc::new(|| {}),
+        &cwd,
+    );
+
+    let pending = plain(&component.render(80));
+    assert_eq!(pending.trim(), "edit note.txt");
+
+    let diff = "@@ -1,1 +1,1 @@\n-1 hello world\n+1 goodbye world";
+    component.update_result(
+        ToolExecutionResult {
+            content: vec![TextOrImageContent::Text(TextContent::new(
+                "Successfully replaced 1 block(s) in note.txt.".to_owned(),
+            ))],
+            details: Some(json!({"diff": diff, "firstChangedLine": 1})),
+            is_error: false,
+        },
+        false,
+        None,
+    );
+
+    let settled = plain(&component.render(80));
+    assert!(settled.contains("-1 hello world"), "{settled}");
+    assert!(settled.contains("+1 goodbye world"), "{settled}");
+    assert!(!settled.contains("Successfully replaced"), "{settled}");
 }

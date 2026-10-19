@@ -74,6 +74,8 @@ pub fn cap_tool_result_output(
 /// `createToolDefinitionFromAgentTool`: synthesize a minimal definition from an [`AgentTool`].
 pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolDefinition {
     let execute_tool = Arc::clone(&tool);
+    let prepare_arguments_tool = Arc::clone(&tool);
+    let prepare_execution_tool = Arc::clone(&tool);
     ToolDefinition {
         name: tool.name().to_owned(),
         label: tool.label().to_owned(),
@@ -85,8 +87,19 @@ pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolD
         parameters: tool.parameters().clone(),
         constrained_sampling: tool.constrained_sampling(),
         render_shell: None,
-        prepare_arguments: None,
-        prepare_execution: None,
+        prepare_arguments: Some(Arc::new(move |args: &Value| {
+            prepare_arguments_tool
+                .prepare_arguments(args.clone())
+                .map_err(|error| HandlerError::new(error.message))
+        })),
+        prepare_execution: Some(Arc::new(move |tool_call_id, signal, _context| {
+            let tool = Arc::clone(&prepare_execution_tool);
+            Box::pin(async move {
+                tool.prepare_execution(tool_call_id, signal)
+                    .await
+                    .map_err(|error| HandlerError::new(error.message))
+            })
+        })),
         execution_mode: tool.execution_mode(),
         execute: Arc::new(move |tool_call_id, params, signal, on_update, _context| {
             let tool = Arc::clone(&execute_tool);

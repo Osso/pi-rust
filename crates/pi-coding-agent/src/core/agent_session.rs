@@ -51,7 +51,9 @@ use crate::core::slash_commands::builtin_slash_commands;
 use crate::core::source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::core::system_prompt::{BuildSystemPromptOptions, build_system_prompt};
 use crate::core::tool_detach_registry::ToolDetachRegistry;
-use crate::core::tools::bash::{BashBackgroundJobs, BashToolOptions};
+use crate::core::tools::bash::{
+    BashBackgroundJobs, BashSessionEnvironment, BashSessionEnvironmentProvider, BashToolOptions,
+};
 use crate::core::tools::read::ReadToolOptions;
 use crate::core::tools::{ToolsOptions, create_all_tool_definitions};
 use crate::modes::interactive::theme::ThemeColor;
@@ -1401,6 +1403,25 @@ impl AgentSession {
         let background_jobs = self.inner.multi_agent_store.as_ref().map(|_| {
             Arc::new(BashBackgroundJobs {
                 get_lifecycle: Arc::new(move || session.get_detached_job_lifecycle_controller()),
+                lifecycle: None,
+            })
+        });
+        let environment_session = self.clone();
+        let session_environment: BashSessionEnvironmentProvider = Arc::new(move || {
+            let (session_id, session_file) = {
+                let manager = environment_session.session_manager();
+                (
+                    manager.get_session_id().to_owned(),
+                    manager.get_session_file().map(str::to_owned),
+                )
+            };
+            let model = environment_session.model();
+            Some(BashSessionEnvironment {
+                session_id,
+                session_file,
+                provider: Some(model.provider),
+                model: Some(model.id),
+                reasoning_level: Some(environment_session.thinking_level().as_str().to_owned()),
             })
         });
         let definitions = create_all_tool_definitions(
@@ -1413,6 +1434,7 @@ impl AgentSession {
                 bash: Some(BashToolOptions {
                     command_prefix,
                     shell_path,
+                    session_environment: Some(session_environment),
                     detach_registry: Some(Arc::clone(&self.inner.tool_detach_registry)),
                     background_jobs,
                     ..Default::default()
