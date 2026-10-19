@@ -226,11 +226,5 @@ Re-export surface only. Rust exports the same items from
    surrogate pair; Rust drops the astral character at the boundary instead of
    emitting a lone surrogate. Only affects 2000-unit truncation boundaries in
    `messages.last`.
-8. **Attach session identity (dependency gap)** — `SessionManager::open` on a
-   session file whose header is not persisted can regenerate the session id and
-   lose the stored name. `attach_session_agent` reads both from the opened
-   manager exactly like the source, so the attach test asserts path/lifecycle
-   and a non-empty session id rather than a stable name. Root cause is the
-   session-manager persistence gap, not this module.
-9. **Background ownership release** — handled in the dispatch-completion task
+8. **Background ownership release** — handled in the dispatch-completion task
    (matching `promise.finally`), including removal from the handles map.

@@ -24,7 +24,8 @@ use serde_json::{Map, Value};
 use crate::config::{get_agent_dir, get_sessions_dir};
 use crate::core::permissions::presets::SandboxProfileName;
 use crate::core::session_control_db::{
-    WritableSessionMetadata, clear_session_sandbox_profile, read_session_goal, read_session_metadata,
+    SessionMetadata, WritableSessionMetadata, clear_session_sandbox_profile, list_active_session_metadata,
+    list_archived_session_metadata, list_session_metadata, read_session_goal, read_session_metadata,
     read_session_sandbox_profile, write_session_goal, write_session_metadata, write_session_model,
     write_session_sandbox_profile, write_session_thinking_level,
 };
@@ -3188,53 +3189,236 @@ impl SessionManager {
         Ok(())
     }
 
-    /// List sessions for a directory. Metadata-backed listing is blocked on
-    /// `ca-control-db`; the file scan is used in every case.
+    /// List sessions for a directory, preferring control-db metadata when present.
     pub fn list(
         cwd: &str,
         session_dir: Option<&str>,
         progress: Option<&mut dyn FnMut(usize, usize)>,
-        _control_db_path: Option<&str>,
+        control_db_path: Option<&str>,
     ) -> Result<Vec<SessionInfo>, SessionManagerError> {
         let dir = match session_dir {
             Some(dir) => normalize(dir)?,
             None => get_default_session_dir(cwd, None)?,
         };
+        if let Some(sessions) = list_metadata_sessions(
+            control_db_path,
+            MetadataScope {
+                cwd: Some(cwd),
+                dir: Some(&dir),
+                archived: Some(false),
+            },
+        )? {
+            return Ok(sessions);
+        }
         let filter_cwd = session_dir.is_some() && !uses_default_session_dir_for(cwd, &dir);
         let resolved_cwd = resolve(cwd)?;
         let mut sessions = list_sessions_from_dir(&dir, progress, 0, None);
         if filter_cwd {
             sessions.retain(|session| session_cwd_matches(Some(&session.cwd), &resolved_cwd));
         }
+        cache_session_metadata(control_db_path, &sessions)?;
+        let mut sessions = exclude_known_subagent_sessions(control_db_path, sessions)?;
         sessions.sort_by_key(|session| std::cmp::Reverse(session.modified));
         Ok(sessions)
     }
 
-    /// List archived sessions. Requires the blocked control-db metadata store.
-    pub fn list_archived(_session_dir: Option<&str>, _control_db_path: Option<&str>) -> Vec<SessionInfo> {
-        Vec::new()
+    /// List archived sessions across all project directories.
+    pub fn list_archived(
+        session_dir: Option<&str>,
+        control_db_path: Option<&str>,
+    ) -> Result<Vec<SessionInfo>, SessionManagerError> {
+        if control_db_path.is_none() {
+            return Ok(Vec::new());
+        }
+        let dir = match session_dir {
+            Some(dir) => Some(normalize(dir)?),
+            None => None,
+        };
+        Ok(list_metadata_sessions(
+            control_db_path,
+            MetadataScope {
+                cwd: None,
+                dir: dir.as_deref(),
+                archived: Some(true),
+            },
+        )?
+        .unwrap_or_default())
     }
 
     /// List sessions across all project directories (or one custom directory).
     pub fn list_all(
         session_dir: Option<&str>,
         progress: Option<&mut dyn FnMut(usize, usize)>,
-        _control_db_path: Option<&str>,
+        control_db_path: Option<&str>,
     ) -> Result<Vec<SessionInfo>, SessionManagerError> {
         if let Some(dir) = session_dir {
             let dir = normalize(dir)?;
-            let mut sessions = match progress {
-                Some(callback) => list_sessions_from_dir(&dir, Some(callback), 0, None),
-                None => list_sessions_from_dir(&dir, None, 0, None),
-            };
+            if let Some(sessions) = list_metadata_sessions(
+                control_db_path,
+                MetadataScope {
+                    cwd: None,
+                    dir: Some(&dir),
+                    archived: Some(false),
+                },
+            )? {
+                return Ok(sessions);
+            }
+            let sessions = list_sessions_from_dir(&dir, progress, 0, None);
+            cache_session_metadata(control_db_path, &sessions)?;
+            let mut sessions = exclude_known_subagent_sessions(control_db_path, sessions)?;
             sessions.sort_by_key(|session| std::cmp::Reverse(session.modified));
             return Ok(sessions);
         }
-        Ok(match progress {
-            Some(callback) => list_default_session_root(Some(callback)),
-            None => list_default_session_root(None),
-        })
+        if let Some(sessions) = list_metadata_sessions(
+            control_db_path,
+            MetadataScope {
+                cwd: None,
+                dir: None,
+                archived: Some(false),
+            },
+        )? {
+            return Ok(sessions);
+        }
+        let sessions = list_default_session_root(progress);
+        cache_session_metadata(control_db_path, &sessions)?;
+        exclude_known_subagent_sessions(control_db_path, sessions)
     }
+}
+
+#[derive(Clone, Copy)]
+struct MetadataScope<'a> {
+    cwd: Option<&'a str>,
+    dir: Option<&'a str>,
+    archived: Option<bool>,
+}
+
+fn session_info_from_metadata(metadata: &SessionMetadata) -> SessionInfo {
+    SessionInfo {
+        path: metadata.session_path.clone(),
+        id: metadata.id.clone(),
+        cwd: metadata.cwd.clone(),
+        name: metadata.name.clone(),
+        is_archived: Some(metadata.archived_at.is_some()),
+        parent_session_path: metadata.parent_session_path.clone(),
+        created: pi_js_compat::date::date_parse_millis(&metadata.created_at).unwrap_or(0),
+        modified: pi_js_compat::date::date_parse_millis(&metadata.modified_at).unwrap_or(0),
+        message_count: usize::try_from(metadata.message_count).unwrap_or(0),
+        first_message: metadata.first_message.clone(),
+        all_messages_text: metadata.all_messages_text.clone(),
+    }
+}
+
+fn metadata_matches_session_dir(metadata: &SessionMetadata, dir: &str) -> Result<bool, SessionManagerError> {
+    Ok(normalize(&metadata.session_path)?.starts_with(&format!("{}/", normalize(dir)?)))
+}
+
+fn list_scoped_session_metadata(
+    control_db_path: &str,
+    scope: MetadataScope<'_>,
+) -> Result<Vec<SessionMetadata>, SessionManagerError> {
+    let sessions = match scope.archived {
+        Some(true) => list_archived_session_metadata(control_db_path).map_err(control_db_error)?,
+        Some(false) => list_active_session_metadata(control_db_path).map_err(control_db_error)?,
+        None => list_session_metadata(control_db_path).map_err(control_db_error)?,
+    };
+    let resolved_cwd = match scope.cwd {
+        Some(cwd) => Some(resolve(cwd)?),
+        None => None,
+    };
+    let mut scoped = Vec::new();
+    for metadata in sessions {
+        if let Some(dir) = scope.dir
+            && !metadata_matches_session_dir(&metadata, dir)?
+        {
+            continue;
+        }
+        if let Some(cwd) = resolved_cwd.as_deref()
+            && !session_cwd_matches(Some(&metadata.cwd), cwd)
+        {
+            continue;
+        }
+        scoped.push(metadata);
+    }
+    Ok(scoped)
+}
+
+fn list_metadata_sessions(
+    control_db_path: Option<&str>,
+    scope: MetadataScope<'_>,
+) -> Result<Option<Vec<SessionInfo>>, SessionManagerError> {
+    let Some(control_db_path) = control_db_path else {
+        return Ok(None);
+    };
+    if list_session_metadata(control_db_path)
+        .map_err(control_db_error)?
+        .is_empty()
+    {
+        return Ok(None);
+    }
+    let resume_sessions: Vec<SessionInfo> = list_scoped_session_metadata(control_db_path, scope)?
+        .iter()
+        .filter(|metadata| metadata.is_subagent != Some(true))
+        .map(session_info_from_metadata)
+        .collect();
+    Ok((!resume_sessions.is_empty()).then_some(resume_sessions))
+}
+
+fn exclude_known_subagent_sessions(
+    control_db_path: Option<&str>,
+    sessions: Vec<SessionInfo>,
+) -> Result<Vec<SessionInfo>, SessionManagerError> {
+    let Some(control_db_path) = control_db_path else {
+        return Ok(sessions);
+    };
+    let mut subagent_paths: Vec<String> = Vec::new();
+    for metadata in list_session_metadata(control_db_path).map_err(control_db_error)? {
+        if metadata.is_subagent == Some(true) {
+            subagent_paths.push(normalize(&metadata.session_path)?);
+        }
+    }
+    if subagent_paths.is_empty() {
+        return Ok(sessions);
+    }
+    let mut filtered = Vec::new();
+    for session in sessions {
+        if !subagent_paths.contains(&normalize(&session.path)?) {
+            filtered.push(session);
+        }
+    }
+    Ok(filtered)
+}
+
+fn cache_session_metadata(control_db_path: Option<&str>, sessions: &[SessionInfo]) -> Result<(), SessionManagerError> {
+    let Some(control_db_path) = control_db_path else {
+        return Ok(());
+    };
+    for session in sessions {
+        write_session_metadata(
+            control_db_path,
+            &WritableSessionMetadata {
+                session_path: session.path.clone(),
+                id: session.id.clone(),
+                cwd: session.cwd.clone(),
+                name: session.name.clone(),
+                parent_session_path: session.parent_session_path.clone(),
+                archived_at: None,
+                is_archived: session.is_archived,
+                is_subagent: None,
+                subagent_name: None,
+                model_provider: None,
+                model_id: None,
+                thinking_level: None,
+                created_at: iso_time::format_iso_millis(session.created),
+                modified_at: iso_time::format_iso_millis(session.modified),
+                message_count: i64::try_from(session.message_count).unwrap_or(i64::MAX),
+                first_message: session.first_message.clone(),
+                all_messages_text: session.all_messages_text.clone(),
+                index_message_text: None,
+            },
+        )
+        .map_err(control_db_error)?;
+    }
+    Ok(())
 }
 
 fn uses_default_session_dir_for(cwd: &str, dir: &str) -> bool {

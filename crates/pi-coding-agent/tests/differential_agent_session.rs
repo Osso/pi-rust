@@ -23,6 +23,19 @@ use serde_json::{Value, json};
 
 struct EndTurnTool;
 
+fn end_turn_parameters() -> Value {
+    json!({
+        "type": "object",
+        "required": ["reason"],
+        "properties": {
+            "reason": {
+                "type": "string",
+                "description": "Required non-empty reason for ending the current turn."
+            }
+        }
+    })
+}
+
 impl pi_agent_core::agent::types::AgentTool for EndTurnTool {
     fn name(&self) -> &str {
         "end_turn"
@@ -34,13 +47,7 @@ impl pi_agent_core::agent::types::AgentTool for EndTurnTool {
 
     fn parameters(&self) -> &Value {
         static PARAMETERS: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
-        PARAMETERS.get_or_init(|| {
-            json!({
-                "type": "object",
-                "properties": {"reason": {"type": "string"}},
-                "required": ["reason"]
-            })
-        })
+        PARAMETERS.get_or_init(end_turn_parameters)
     }
 
     fn label(&self) -> &str {
@@ -63,13 +70,7 @@ impl pi_agent_core::agent::types::AgentTool for EndTurnTool {
                 .get("reason")
                 .and_then(Value::as_str)
                 .unwrap_or_default()
-                .trim()
                 .to_owned();
-            if reason.is_empty() {
-                return Err(pi_agent_core::agent::types::ToolError::new(
-                    "end_turn reason must be a non-empty string",
-                ));
-            }
             let mut result = pi_agent_core::agent::types::AgentToolResult::text(format!("Turn ended: {reason}"));
             result.details = Some(json!({"reason": reason}));
             result.terminate = Some(true);
@@ -158,11 +159,15 @@ async fn run_rust(dir: &str) -> Value {
         agent_dir: Some(dir.to_owned()),
         model_runtime: Some(runtime),
         model: Some(model),
-        resource_loader: Some(StaticResourceLoader::new()),
+        resource_loader: Some(std::sync::Arc::new(StaticResourceLoader {
+            system_prompt: Some("Differential system prompt".to_owned()),
+            ..Default::default()
+        })),
         session_manager: Some(session_manager),
         settings_manager: Some(Arc::new(std::sync::Mutex::new(settings_manager))),
         control_db_path: Some(std::path::Path::new(dir).join("control.db").display().to_string()),
         base_tools: vec![Arc::new(EndTurnTool)],
+        tools: Some(vec!["end_turn".to_owned()]),
         ..Default::default()
     })
     .await
@@ -409,27 +414,12 @@ fn normalize(value: &Value, ids: &mut std::collections::HashMap<String, String>,
             }
         }
         Value::Array(items) => Value::Array(items.iter().map(|item| normalize(item, ids, dir)).collect()),
-        Value::Object(object) => {
-            let is_usage = object.contains_key("totalTokens");
-            let is_context_usage = object.contains_key("contextWindow") && object.contains_key("tokens");
-            Value::Object(
-                object
-                    .iter()
-                    .map(|(key, value)| {
-                        if (is_usage
-                            && matches!(
-                                key.as_str(),
-                                "input" | "output" | "cacheRead" | "cacheWrite" | "totalTokens"
-                            ))
-                            || (is_context_usage && matches!(key.as_str(), "tokens" | "percent"))
-                        {
-                            return (key.clone(), Value::String("<n>".to_owned()));
-                        }
-                        (key.clone(), normalize(value, ids, dir))
-                    })
-                    .collect(),
-            )
-        }
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| (key.clone(), normalize(value, ids, dir)))
+                .collect(),
+        ),
         other => other.clone(),
     }
 }

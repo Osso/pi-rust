@@ -38,6 +38,7 @@ The session file is the shared contract with TypeScript Pi. Request `41000` prov
 | `isSubagentSession/getSubagentName` | subagent flags | `is_subagent_session` / `get_subagent_name`; fork test |
 | `getSessionGoalJson*`, `set/clearSessionGoalJson` | control-db goal payload, in-memory fallback, throws on control-db errors | `get_session_goal_json` / `get_session_goal_json_for_session` / `set_session_goal_json` / `clear_session_goal_json` (all `Result`); `control_db_metadata_errors_propagate`, `metadata_empty_paths_and_model_fields_use_js_truthiness`, differential `41070` |
 | `setSessionModel/ThinkingLevel` | control-db session settings, throws on errors | `set_session_model` / `set_session_thinking_level` (`Result`); `control_db_metadata_persists_model_and_thinking_level`, `control_db_metadata_errors_propagate` |
+| `setSessionSandboxProfile` | recovery persist, metadata snapshot, then write/clear the per-session profile; `false` without a control db or session file | `set_session_sandbox_profile`; `set_session_sandbox_profile_persists_and_clears` |
 | `setMetadataControlDbPath`, `restorePersistedMetadata`, `writeMetadataSnapshot` | metadata cache and incremental writes; throws on control-db errors; `cwdOverride` uses JS truthiness | `set_metadata_control_db_path` / `restore_persisted_metadata` / `write_metadata_snapshot`; metadata tests + `metadata_empty_paths_and_model_fields_use_js_truthiness` |
 | `_appendEntry` → `writeMetadataSnapshot` when `affectsSessionInfo` | message/session_info appends refresh control-db metadata | `append_entry`; `appending_messages_writes_the_metadata_snapshot` |
 | `relocate` | move default-dir file, preserve bytes/header, reject existing destination, relocate control-db rows, final metadata snapshot | `relocate`; `relocation_preserves_the_complete_jsonl`, `relocation_moves_control_db_rows` |
@@ -46,12 +47,12 @@ The session file is the shared contract with TypeScript Pi. Request `41000` prov
 | `updateCompactionSummary` | trim, non-empty, drop provider-native fields, restore on write failure | `update_compaction_summary`; two focused tests |
 | `getLeafId/getLeafEntry/getEntry/getChildren/getLabel/getBranch/buildContextEntries/buildSessionContext/getHeader/getEntries/getTree` | traversal and defensive copies | same-named methods; tree/label tests |
 | `branch/resetLeaf/branchWithSummary/createBranchedSession` | leaf pointer, branch summary, path extraction with label rewiring | same-named methods; `tree_traversal_and_branching`, `branched_session_*` tests |
-| `SessionManager.list/listArchived/listAll` | directory scan, cwd filter, metadata-backed fast path, archived/subagent exclusion | `list` / `list_archived` / `list_all`; `lists_sessions_scoped_by_cwd`. Metadata path, archived listing, and subagent exclusion are **blocked** on `ca-control-db`; the file scan is used |
+| `SessionManager.list/listArchived/listAll` | metadata-backed fast path (control-db order, cwd/dir/archive scope, subagent exclusion), else directory scan plus metadata cache, cwd filter, subagent exclusion, modified-desc sort | `list` / `list_archived` / `list_all`; `lists_sessions_scoped_by_cwd`, `metadata_backed_listing_prefers_control_db_and_excludes_subagents`, `metadata_listing_scopes_by_cwd_and_returns_control_db_order` |
+| `SessionManager.open` | resolves the header before construction; a persisted header keeps id/cwd/name/parent, a missing or empty file regenerates identity like the source | `open`; `open_preserves_a_freshly_persisted_header`, `reads_files_and_headers`, `rewrites_empty_files_and_rejects_non_session_files` |
 | `getDefaultSessionDirPath` private helper | resolved cwd + agent dir | `get_default_session_dir_path` (public in Rust) |
 
 ## Gaps
 
-- Control-db metadata writes/reads are implemented, but metadata-backed `list`/`listAll`/`listArchived` and subagent exclusion still scan files. `setSessionSandboxProfile` persistence (writeSessionSandboxProfile/clearPersistedSessionSandboxProfile) is not wired here; sdk restores the profile read-only.
 - `SessionInfo.created`/`modified` are epoch milliseconds (`i64`) instead of JavaScript `Date`; invalid timestamps map to `0` instead of an invalid Date.
 - Listing loads session files sequentially; TypeScript uses at most 10 concurrent loads. Observable only through progress-callback interleaving.
 - `truncateMessageToFit` measures JavaScript UTF-16 lengths. Rust truncates at whole-char boundaries, so a cut inside a surrogate pair yields one fewer character than `String#slice` would; the source data (text content) does not rely on lone surrogates.
@@ -60,6 +61,7 @@ The session file is the shared contract with TypeScript Pi. Request `41000` prov
 ## Discrepancies
 
 - `AgentSession`'s approval reviewer reads the goal inside an `Option`-returning hook, so it cannot reject like the source. A control-db goal read error blocks the tool call with the error message (fail closed) instead of rejecting the hook promise.
+- `open` on a session path whose header was never persisted (missing or empty file) regenerates the session id and drops the metadata name exactly like the source; callers that need identity must persist the header first (`persistForRecovery`). The agents-core attach test now persists like the TypeScript test and asserts the stable id/name.
 
 - `SessionHeader` records the parsed JSON key order and replays it when serializing, so migrated v1 headers append `version` exactly like TypeScript. `serde_json::Map` uses swap-removal, so the legacy `firstKeptEntryIndex` conversion uses `shift_remove` to preserve TypeScript's deletion order.
 - `migrateToolResultSessionFiles` traversal order differs (stack pop vs. deterministic walk); the report counters are order-independent.
