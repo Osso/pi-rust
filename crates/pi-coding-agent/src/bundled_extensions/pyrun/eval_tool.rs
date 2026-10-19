@@ -431,10 +431,14 @@ pub fn create_pyrun_eval_executor(
             };
             let eval_context = eval_context(&ctx)?;
             let canonical_params = create_canonical_pyrun_eval_params(&params, &eval_context, enable_pi_bridge);
+            let report_progress = create_pyrun_progress_reporter(on_update);
             let result = runner
                 .evaluate(
                     canonical_params,
-                    Some(create_pyrun_progress_reporter(on_update)),
+                    Some(Arc::new(move |update| {
+                        report_progress(update);
+                        Ok(())
+                    })),
                     signal,
                     on_pi_request,
                 )

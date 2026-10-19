@@ -25,11 +25,11 @@ use crate::utils::child_process::node_spawn_error_message;
 pub struct CanonicalPyrunEvalParams {
     pub code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pi: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pi_bridge: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_console: Option<bool>,
 }
@@ -209,10 +209,15 @@ impl std::fmt::Display for PyrunRunnerError {
 
 impl std::error::Error for PyrunRunnerError {}
 
+/// `onProgress`: a callback failure rejects the pending evaluation, like the
+/// TypeScript `try`/`catch` around `pending.onProgress?.(message)`.
+pub type PyrunProgressCallback =
+    Arc<dyn Fn(CanonicalPyrunProgressUpdate) -> Result<(), PyrunRunnerError> + Send + Sync>;
+
 struct PendingRequest {
     generation: u64,
     on_pi_request: Option<PyrunPiRequestHandler>,
-    on_progress: Option<Arc<dyn Fn(CanonicalPyrunProgressUpdate) + Send + Sync>>,
+    on_progress: Option<PyrunProgressCallback>,
     resolve: oneshot::Sender<Result<CanonicalPyrunEvalResult, PyrunRunnerError>>,
     abort_task: Option<tokio::task::JoinHandle<()>>,
 }
@@ -264,7 +269,7 @@ impl PyrunRunnerClient {
     pub async fn evaluate(
         &self,
         params: CanonicalPyrunEvalParams,
-        on_progress: Option<Arc<dyn Fn(CanonicalPyrunProgressUpdate) + Send + Sync>>,
+        on_progress: Option<PyrunProgressCallback>,
         signal: Option<CancellationToken>,
         on_pi_request: Option<PyrunPiRequestHandler>,
     ) -> Result<CanonicalPyrunEvalResult, PyrunRunnerError> {
@@ -588,7 +593,7 @@ async fn handle_stdout_line(
         .to_owned();
     enum LineAction {
         Pi(Option<PyrunPiRequestHandler>, String, Value),
-        Progress(Option<Arc<dyn Fn(CanonicalPyrunProgressUpdate) + Send + Sync>>),
+        Progress(Option<PyrunProgressCallback>),
     }
     let action = {
         let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -653,8 +658,11 @@ async fn handle_stdout_line(
             let _ = stdin.flush().await;
         }
         LineAction::Progress(callback) => {
-            if let Some(callback) = callback {
-                callback(CanonicalPyrunProgressUpdate { raw: parsed });
+            if let Some(callback) = callback
+                && let Err(error) = callback(CanonicalPyrunProgressUpdate { raw: parsed })
+            {
+                let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                reject_generation_locked(&mut state, generation, error);
             }
         }
     }

@@ -1,0 +1,232 @@
+//! Differential coverage for the detached Pyrun launch manifest and activation
+//! formats against the pinned TypeScript module: byte-identical files, read-back
+//! serialization, and identical validation errors.
+
+#[path = "support/oracle.rs"]
+mod oracle;
+
+use std::path::Path;
+
+use pi_coding_agent::bundled_extensions::pyrun::detached_runner::{
+    DetachedPyrunLaunchManifestData, read_detached_pyrun_activation, read_detached_pyrun_launch_manifest,
+    write_detached_pyrun_activation, write_detached_pyrun_launch_manifest,
+};
+use pi_coding_agent::core::detached_job_runner::DetachedJobArtifacts;
+use pi_coding_agent::core::runtime_process::ProcessIdentity;
+use pi_coding_agent::core::session_control_db::{
+    DetachedJobOwnershipIdentity, MultiAgentRuntimeOwnerIdentity, RuntimeMailboxAddress,
+};
+use serde_json::{Value, json};
+use tempfile::TempDir;
+
+fn oracle() -> oracle::TsOracle {
+    oracle::TsOracle::spawn(
+        "coding-agent-pyrun-detached-oracle.ts",
+        "packages/coding-agent/extensions/pyrun/src/detached-runner.ts",
+    )
+}
+
+fn identity(pid: u32, incarnation: Option<&str>) -> DetachedJobOwnershipIdentity {
+    DetachedJobOwnershipIdentity {
+        job_id: "pyrun_1".to_owned(),
+        owner: MultiAgentRuntimeOwnerIdentity {
+            session_id: "main".to_owned(),
+            agent_id: None,
+        },
+        process_identity: ProcessIdentity {
+            pid,
+            start_time_ticks: 1_700,
+            incarnation: incarnation.map(str::to_owned),
+        },
+        output_label: "Pyrun output".to_owned(),
+    }
+}
+
+fn manifest(directory: &str, code: &str, tool_call_id: Option<&str>) -> DetachedPyrunLaunchManifestData {
+    DetachedPyrunLaunchManifestData {
+        activation_path: format!("{directory}/activation.json"),
+        artifacts: DetachedJobArtifacts {
+            directory: directory.to_owned(),
+            output_path: format!("{directory}/output.log"),
+        },
+        bridge_request_path: format!("{directory}/bridge-requests.jsonl"),
+        bridge_response_path: format!("{directory}/bridge-responses.jsonl"),
+        control_db_path: format!("{directory}/control.sqlite"),
+        foreground_completion_path: format!("{directory}/foreground-completed"),
+        params: pi_coding_agent::bundled_extensions::pyrun::runner::CanonicalPyrunEvalParams {
+            code: code.to_owned(),
+            session_id: Some("session-1".to_owned()),
+            pi: Some(json!({"footer": {"availableProviderCount": 2}})),
+            pi_bridge: Some(true),
+            stream_console: Some(true),
+        },
+        runner_address: RuntimeMailboxAddress {
+            agent_id: Some("pyrun_1".to_owned()),
+            session_id: "session-1".to_owned(),
+        },
+        runner_options: pi_coding_agent::bundled_extensions::pyrun::runner::PyrunRunnerOptions {
+            args: Some(vec!["--flag".to_owned()]),
+            command: Some("pyrun-jsonl".to_owned()),
+            detached: Some(false),
+            env: Some(vec![("PATH".to_owned(), "/bin".to_owned())]),
+            inherit_env: Some(false),
+        },
+        runner_process_identity: ProcessIdentity {
+            pid: 43,
+            start_time_ticks: 101,
+            incarnation: Some("run".to_owned()),
+        },
+        session_path: format!("{directory}/session.jsonl"),
+        started_at: 1_700_000_000_000.0,
+        supervisor_process_identity: ProcessIdentity {
+            pid: 42,
+            start_time_ticks: 100,
+            incarnation: None,
+        },
+        tool_call_id: tool_call_id.map(str::to_owned),
+    }
+}
+
+fn json_data(data: &DetachedPyrunLaunchManifestData) -> Value {
+    serde_json::to_value(data).expect("manifest data")
+}
+
+/// Writes the case through the TypeScript module in `directory` and returns its
+/// observable output. The directory is cleared afterwards so Rust can write to
+/// the same paths (the manifest checksum covers absolute paths).
+fn write_via_oracle(
+    oracle: &mut oracle::TsOracle,
+    directory: &Path,
+    data: &DetachedPyrunLaunchManifestData,
+    identity: &DetachedJobOwnershipIdentity,
+) -> Value {
+    let _ = std::fs::remove_dir_all(directory);
+    std::fs::create_dir_all(directory).expect("case dir");
+    let response = oracle.request(&json!({
+        "id": 1,
+        "operation": "write",
+        "cases": [{
+            "dir": directory.to_string_lossy(),
+            "data": json_data(data),
+            "identity": serde_json::to_value(identity).expect("identity"),
+        }],
+    }));
+    assert_eq!(response["ok"], true, "{response}");
+    let output = response["output"][0].clone();
+    std::fs::remove_dir_all(directory).expect("clear oracle dir");
+    std::fs::create_dir_all(directory).expect("case dir");
+    output
+}
+
+#[test]
+fn manifests_and_activations_match_the_typescript_bytes() {
+    let directory = TempDir::new().expect("temp dir");
+    let variants = [
+        ("full", "6 * 7", Some("call-1"), 42, None),
+        ("legacy", "1 + 1", None, 43, Some("incarnated")),
+        ("unicode", "print('héllo — ✓')", Some("call-3"), 44, None),
+    ];
+    let mut oracle = oracle();
+    for (name, code, tool_call_id, pid, incarnation) in variants {
+        let case_dir = directory.path().join(name);
+        let data = manifest(&case_dir.to_string_lossy(), code, tool_call_id);
+        let case_identity = identity(pid, incarnation);
+        let output = write_via_oracle(&mut oracle, &case_dir, &data, &case_identity);
+
+        let manifest_path = case_dir.join("launch.json");
+        write_detached_pyrun_launch_manifest(&manifest_path.to_string_lossy(), &data).expect("write manifest");
+        assert_eq!(
+            std::fs::read_to_string(&manifest_path).expect("manifest content"),
+            output["content"].as_str().expect("oracle content"),
+            "case {name} manifest bytes"
+        );
+
+        let activation_path = case_dir.join("activation.json");
+        write_detached_pyrun_activation(&activation_path.to_string_lossy(), &case_identity).expect("write activation");
+        assert_eq!(
+            std::fs::read_to_string(&activation_path).expect("activation content"),
+            output["activation"].as_str().expect("oracle activation"),
+            "case {name} activation bytes"
+        );
+        assert_eq!(
+            serde_json::to_string(&read_detached_pyrun_activation(&activation_path.to_string_lossy()).expect("read"))
+                .expect("serialize"),
+            output["readActivation"].as_str().expect("oracle read activation"),
+            "case {name} activation read-back"
+        );
+        let read_back = read_detached_pyrun_launch_manifest(&manifest_path.to_string_lossy()).expect("read");
+        assert_eq!(
+            serde_json::to_string(&read_back).expect("serialize"),
+            output["readManifest"].as_str().expect("oracle read manifest"),
+            "case {name} manifest read-back"
+        );
+    }
+}
+
+#[test]
+fn invalid_manifests_throw_the_typescript_message() {
+    let directory = TempDir::new().expect("temp dir");
+    let case_dir = directory.path().join("invalid");
+    let mut oracle = oracle();
+    let data = manifest(&case_dir.to_string_lossy(), "6 * 7", Some("call-1"));
+    let output = write_via_oracle(&mut oracle, &case_dir, &data, &identity(42, None));
+    let valid = output["content"].as_str().expect("oracle manifest").to_owned();
+
+    let tampered: Vec<(&str, String)> = vec![
+        ("version", valid.replace("\"version\":3", "\"version\":2")),
+        ("checksum", valid.replace("\"checksum\":\"", "\"checksum\":\"0")),
+        (
+            "startedAt",
+            valid.replace("\"startedAt\":1700000000000", "\"startedAt\":\"nope\""),
+        ),
+        ("missing", "{\"version\":3}".to_owned()),
+    ];
+    for (name, content) in &tampered {
+        let case_dir = directory.path().join(name);
+        std::fs::create_dir_all(&case_dir).expect("case dir");
+        let manifest_path = case_dir.join("launch.json");
+        std::fs::write(&manifest_path, content).expect("tampered manifest");
+        let response = oracle.request(&json!({
+            "id": 2,
+            "operation": "readInvalid",
+            "cases": [{"dir": case_dir.to_string_lossy(), "content": content}],
+        }));
+        assert_eq!(response["ok"], true, "{response}");
+        let expected = response["output"][0]["error"]
+            .as_str()
+            .unwrap_or_else(|| panic!("case {name} unexpectedly read: {}", response["output"][0]));
+        let error = read_detached_pyrun_launch_manifest(&manifest_path.to_string_lossy()).expect_err("invalid");
+        assert_eq!(error, expected, "case {name}");
+    }
+}
+
+/// `JSON.parse` error text comes from the host parser (V8 vs `serde_json`), so
+/// this compares the failure boundary instead of the message.
+#[test]
+fn truncated_manifests_throw_a_json_parse_error_in_both_runtimes() {
+    let directory = TempDir::new().expect("temp dir");
+    let case_dir = directory.path().join("truncated");
+    let mut oracle = oracle();
+    let data = manifest(&case_dir.to_string_lossy(), "6 * 7", Some("call-1"));
+    let output = write_via_oracle(&mut oracle, &case_dir, &data, &identity(42, None));
+    let valid = output["content"].as_str().expect("oracle manifest");
+    let truncated = valid[..valid.len() / 2].to_owned();
+    let response = oracle.request(&json!({
+        "id": 2,
+        "operation": "readInvalid",
+        "cases": [{"dir": case_dir.to_string_lossy(), "content": truncated}],
+    }));
+    assert_eq!(response["ok"], true, "{response}");
+    assert!(
+        response["output"][0]["error"].is_string(),
+        "TypeScript must reject the truncated manifest: {response}"
+    );
+
+    let manifest_path = case_dir.join("launch.json");
+    std::fs::write(&manifest_path, truncated).expect("truncated manifest");
+    let error = read_detached_pyrun_launch_manifest(&manifest_path.to_string_lossy()).expect_err("invalid");
+    assert!(
+        !error.starts_with("Invalid detached Pyrun launch manifest"),
+        "a truncated document is a JSON.parse failure, not a manifest validation failure: {error}"
+    );
+}
