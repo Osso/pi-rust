@@ -267,6 +267,68 @@ async fn debug_matches_typescript() {
     }
 }
 
+#[tokio::test]
+async fn registers_all_small_extensions_under_source_ids() {
+    let mut registry = pi_coding_agent::core::extensions::loader::ExtensionRegistry::new();
+    pi_coding_agent::bundled_extensions::register_small_extensions(
+        &mut registry,
+        &pi_coding_agent::bundled_extensions::SmallExtensionsOptions {
+            get_debug_repl: Arc::new(|| Arc::new(RecordingDebugRepl(Arc::new(Mutex::new(Calls::default()))))),
+        },
+    );
+    assert_eq!(
+        registry.ids(),
+        vec![
+            "<first-party:claude-memory-enrich>",
+            "<first-party:claude-memory-session-end>",
+            "<first-party:docs-tree-context>",
+            "<first-party:ask-secret>",
+            "<first-party:browser-cli>",
+            "<first-party:approval-controls>",
+            "<first-party:debug>",
+            "<first-party:run-plan>",
+            "<first-party:safe>",
+            "<first-party:self-restart>",
+            "<first-party:session-archive>",
+            "<first-party:session-id>",
+            "<first-party:spec-validation>",
+        ]
+    );
+    let (extensions, errors) = registry
+        .load_registered(
+            &[],
+            "/tmp",
+            Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
+            pi_coding_agent::core::extensions::create_extension_runtime(),
+        )
+        .await;
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(extensions.len(), 13);
+    let tool_names: Vec<&str> = extensions
+        .iter()
+        .flat_map(|extension| extension.tools.keys().map(String::as_str))
+        .collect();
+    assert_eq!(tool_names, vec!["ask_secret", "browser-cli", "restart_self"]);
+    let command_names: Vec<&str> = extensions
+        .iter()
+        .flat_map(|extension| extension.commands.keys().map(String::as_str))
+        .collect();
+    assert_eq!(
+        command_names,
+        vec![
+            "approvals",
+            "sandbox",
+            "debug",
+            "run-plan",
+            "safe",
+            "restart",
+            "archive",
+            "session-id",
+            "spec-validation",
+        ]
+    );
+}
+
 struct RecordingDebugRepl(Arc<Mutex<Calls>>);
 
 impl pi_coding_agent::bundled_extensions::debug::DebugReplController for RecordingDebugRepl {
