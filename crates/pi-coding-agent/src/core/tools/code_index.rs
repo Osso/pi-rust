@@ -17,7 +17,6 @@ use serde_json::{Map, Value, json};
 use tokio::io::AsyncReadExt;
 use tokio_util::sync::CancellationToken;
 
-use super::node_fs::node_error_code;
 use super::render_utils::{get_text_output, invalid_arg_text, shorten_path, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
@@ -25,6 +24,7 @@ use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, fo
 use crate::core::extensions::types::{ToolDefinition, ToolRenderContext, ToolRenderResultOptions, ToolRenderer};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
+use crate::utils::child_process::node_error_code;
 
 const MAX_SAFE_INTEGER: usize = 9_007_199_254_740_991;
 const SYMBOL_KINDS: [&str; 9] = [

@@ -1,5 +1,7 @@
 //! Differential tests for `core/package-manager.ts` against the pinned TypeScript module.
 
+#[path = "support/executable_script.rs"]
+mod executable_script;
 #[path = "support/oracle.rs"]
 #[allow(dead_code)]
 mod oracle;
@@ -503,7 +505,7 @@ fn differential_add_and_remove_sources() {
 fn write_recording_npm(dir: &Path) -> String {
     fs::create_dir_all(dir).unwrap();
     let npm = dir.join("npm");
-    fs::write(
+    executable_script::write_executable_script(
         &npm,
         r#"#!/bin/sh
 here=$(dirname "$0")
@@ -520,13 +522,7 @@ if [ "$1" = "install" ]; then
 fi
 exit 0
 "#,
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&npm, fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    );
     npm.to_string_lossy().into_owned()
 }
 

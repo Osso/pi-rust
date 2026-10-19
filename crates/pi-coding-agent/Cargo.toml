@@ -79,6 +79,9 @@ futures-util = "=0.3.34"
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
 # `mkdtempSync`-style private directory for the external editor prompt.
 tempfile = "=3.27.0"
+# `execve` with an explicit environment for self-restart; std's `CommandExt::exec`
+# swaps the process-global environ under a read lock and races with env readers.
+nix = { version = "=0.30.1", features = ["process"] }
 
 [[bin]]
 # The `pi` CLI (`cli.ts` + `main.ts`).

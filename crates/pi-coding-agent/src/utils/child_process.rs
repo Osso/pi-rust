@@ -250,17 +250,43 @@ fn append(output: &mut ProcessOutput, stream: Stream, bytes: Vec<u8>) {
 /// Node reports the `uv_err_name` code, not the OS description, so the errno name is looked up
 /// from the Linux errno table instead of using `io::Error`'s display text.
 pub fn node_spawn_error_message(prefix: &str, command: &str, error: &io::Error) -> String {
-    match error.raw_os_error().and_then(errno_name) {
+    match error.raw_os_error().and_then(node_errno_name) {
         Some(name) => format!("{prefix} {command} {name}"),
         None => error.to_string(),
     }
 }
 
-fn errno_name(code: i32) -> Option<&'static str> {
+/// Node `error.code` for an `io::Error`: the raw OS errno name first, then the
+/// `ErrorKind` mapping for errors std constructs without an errno.
+pub fn node_error_code(error: &io::Error) -> &'static str {
+    error
+        .raw_os_error()
+        .and_then(node_errno_name)
+        .unwrap_or_else(|| error_kind_code(error.kind()))
+}
+
+/// Node/libuv `uv_err_name` for a raw OS error number.
+pub fn node_errno_name(code: i32) -> Option<&'static str> {
+    if !(0..=4095).contains(&code) {
+        return None;
+    }
     let errno = Errno::from_raw_os_error(code);
     ERRNO_NAMES
         .iter()
         .find_map(|(candidate, name)| (*candidate == errno).then_some(*name))
+}
+
+fn error_kind_code(kind: io::ErrorKind) -> &'static str {
+    match kind {
+        io::ErrorKind::NotFound => "ENOENT",
+        io::ErrorKind::PermissionDenied => "EACCES",
+        io::ErrorKind::IsADirectory => "EISDIR",
+        io::ErrorKind::NotADirectory => "ENOTDIR",
+        io::ErrorKind::AlreadyExists => "EEXIST",
+        io::ErrorKind::InvalidInput => "EINVAL",
+        io::ErrorKind::DirectoryNotEmpty => "ENOTEMPTY",
+        _ => "EIO",
+    }
 }
 
 static ERRNO_NAMES: &[(Errno, &str)] = &[

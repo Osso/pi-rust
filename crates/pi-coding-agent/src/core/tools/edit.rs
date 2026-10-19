@@ -21,13 +21,13 @@ use super::edit_diff::{
     normalize_to_lf, restore_line_endings, strip_bom,
 };
 use super::file_mutation_queue::with_file_mutation_queue;
-use super::node_fs::node_error_code;
 use super::path_utils::resolve_to_cwd;
 use super::render_utils::{render_tool_path, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use crate::core::extensions::types::{RenderShell, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::modes::interactive::components::diff::render_diff;
 use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor};
+use crate::utils::child_process::node_error_code;
 
 const DESCRIPTION: &str = "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.";
 const DIFF_CONTEXT_LINES: usize = 4;

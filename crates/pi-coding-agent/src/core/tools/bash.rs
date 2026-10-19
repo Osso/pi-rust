@@ -24,7 +24,6 @@ use serde_json::{Map, Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 
-use super::node_fs::node_error_code;
 use super::output_accumulator::{OutputAccumulator, OutputAccumulatorOptions, SnapshotOptions};
 use super::render_utils::{get_text_output, invalid_arg_text, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
@@ -44,6 +43,7 @@ use crate::core::tool_detach_registry::{ToolDetachHandle, ToolDetachRegistry};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::components::visual_truncate::truncate_to_visual_lines;
 use crate::modes::interactive::theme::{Theme, ThemeColor, current_theme};
+use crate::utils::child_process::node_error_code;
 use crate::utils::shell::{
     CommandTransport, get_shell_config, get_shell_env, kill_process_tree, track_detached_child_pid,
     untrack_detached_child_pid,

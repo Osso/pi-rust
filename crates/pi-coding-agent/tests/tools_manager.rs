@@ -1,6 +1,9 @@
 //! Behavioral tests for `utils/tools-manager.ts`: asset naming, tool discovery, offline handling, and
 //! a full download/extract/install cycle against an injected `Fetch` with a real tar.gz archive.
 
+#[path = "support/executable_script.rs"]
+mod executable_script;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -329,12 +332,7 @@ fn unsupported_platforms_report_the_pair() {
 }
 
 fn write_executable(path: &Path, content: &str) {
-    fs::write(path, content).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    executable_script::write_executable_script(path, content);
 }
 
 /// Builds `<dir>/<asset>.tar.gz` containing `<top>/<binary>`.

@@ -2,6 +2,9 @@
 //! `packages/coding-agent/test/config.test.ts` using an injected install context (package dir,
 //! exec path, argv entrypoint, platform, PATH) instead of mutating process globals.
 
+#[path = "support/executable_script.rs"]
+mod executable_script;
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -47,13 +50,7 @@ fn with_empty_path(mut context: InstallContext) -> InstallContext {
 
 fn write_script(dir: &Path, name: &str, body: &str) {
     fs::create_dir_all(dir).unwrap();
-    let path = dir.join(name);
-    fs::write(&path, body).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    executable_script::write_executable_script(&dir.join(name), body);
 }
 
 fn create_npm_prefix_install(template: &str) -> (PathBuf, PathBuf) {

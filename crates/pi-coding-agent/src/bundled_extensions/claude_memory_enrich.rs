@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use crate::core::extensions::types::{
     BeforeAgentStartEvent, BeforeAgentStartEventResult, BoxFuture, ExtensionApi, ExtensionContext, HandlerError,
 };
+use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::js_json;
 
 const DEFAULT_CLAUDE_MEMORY: &str = "/home/osso/.cargo/bin/claude-memory";
@@ -180,9 +181,5 @@ fn append_enrichment(system_prompt: &str, additional_context: &str) -> String {
 }
 
 fn spawn_error_message(command: &str, error: &std::io::Error) -> String {
-    match error.kind() {
-        std::io::ErrorKind::NotFound => format!("spawn {command} ENOENT"),
-        std::io::ErrorKind::PermissionDenied => format!("spawn {command} EACCES"),
-        _ => error.to_string(),
-    }
+    node_spawn_error_message("spawn", command, error)
 }

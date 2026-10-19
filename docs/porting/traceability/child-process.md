@@ -13,6 +13,32 @@ Differential test skipped: behavior depends on process lifetime, pipes, and timi
 | `child-process.ts:229-241` | Exit and close report the exit code; signal termination reports null | Focused signal test (`status == None`) |
 | `child-process.ts:222-227` | Spawn errors carry Node's `spawn <command> <ERRNO>` text | `node_spawn_error_message` maps `io::Error` errno codes through the Linux errno-name table; `package_manager` tests assert `spawn <path> ENOENT` and `spawn <path> EACCES` |
 
+## Shared Node errno mapping (ca-errno)
+
+Node/libuv reports `uv_err_name` (`ETXTBSY`, `ENOTDIR`, ...), not the OS description. One Rust
+mapping serves every spawn and filesystem caller:
+
+| Item | Contract | Proof |
+|---|---|---|
+| `utils::child_process::node_errno_name(i32)` | Raw errno number to Node code, full Linux table, `None` outside `0..=4095` | `tests/errno_codes.rs` (ETXTBSY 26, ENOENT 2, EACCES 13, ENOTDIR 20) |
+| `utils::child_process::node_error_code(&io::Error)` | Raw errno first; `ErrorKind` mapping only for errors std constructs without an errno | `tests/errno_codes.rs` |
+| `node_spawn_error_message(prefix, command, error)` | `<prefix> <command> <ERRNO>`, falling back to the error display text only when there is no errno | `tests/errno_codes.rs`; package-manager spawn tests |
+| Callers: pyrun runner, bwrap availability check, browser-cli, ask-secret, claude-memory enrich/session-end, rpc client, config spawnSync, session-selector trash, ls rtk, bwrap fs worker | All use the shared mapping instead of hand-rolled 2-3 entry matches that collapsed unknown codes to `EIO` | `tests/errno_codes.rs` (pyrun + bwrap at the real exec boundary); focused caller suites |
+
+Discrepancy: `core::tools::node_fs::node_fs_error` uses Node's lowercase libuv descriptions only for
+`ENOENT`/`EACCES`/`EISDIR`/`ENOTDIR`/`EEXIST`/`EINVAL`/`ENOTEMPTY`. Other codes now report the
+correct Node code but keep std's description (for example `ETXTBSY: Text file busy (os error 26), open 'x'`
+instead of Node's `ETXTBSY: text file busy, open 'x'`). The code itself matches; a full `uv_strerror`
+table is out of this slice's scope.
+
+### Root cause
+
+Three production callers (`pyrun/runner.rs::spawn_error`, `bwrap/backend.rs::spawn_sync_error`,
+`core/tools/node_fs.rs::node_error_code`) and six further call sites duplicated a 2-3 entry
+`ErrorKind` match ending in `_ => "EIO"`. Any real errno outside those entries (notably `ETXTBSY`
+from the test-script spawn race) was reported as `EIO`, hiding the cause. The full table already
+existed in `child_process.rs`; the fix exposes it and deletes the ad-hoc maps.
+
 ## Discrepancies
 
 - The source leaves stdout/stderr consumption to callers listening on the streams. Rust ownership prevents shared pipe listeners, so `wait_for_child_process` drains and returns stdout/stderr together with the exit status.
@@ -22,3 +48,4 @@ Differential test skipped: behavior depends on process lifetime, pipes, and timi
 ## Proof inventory
 
 - Focused cases: 6 (output/status, post-exit writes, quiet descendant, signal, spawn failure, sync spawn).
+- Errno mapping: 6 behavioral cases in `tests/errno_codes.rs` (ENOENT, EACCES, ETXTBSY, ENOTDIR; pyrun and bwrap spawn paths).

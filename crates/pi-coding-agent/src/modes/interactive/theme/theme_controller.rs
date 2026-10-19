@@ -269,5 +269,5 @@ impl Drop for InteractiveThemeController {
 }
 
 fn process_env() -> BTreeMap<String, String> {
-    std::env::vars().collect()
+    pi_js_compat::process_env::vars().into_iter().collect()
 }

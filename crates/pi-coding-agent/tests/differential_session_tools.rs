@@ -1,5 +1,7 @@
 //! Differential tests: session directory and session/coordination tools against the pinned TypeScript source.
 
+#[path = "support/executable_script.rs"]
+mod executable_script;
 #[path = "support/oracle.rs"]
 mod oracle;
 #[path = "support/tool_context.rs"]
@@ -1277,9 +1279,7 @@ async fn ask_questions_tool_differential() {
 
     let bin_dir = temp_root("pi-fake-notify-send-");
     let notify_send = bin_dir.path().join("notify-send");
-    std::fs::write(&notify_send, "#!/bin/sh\nexit 0\n").expect("write notify-send");
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&notify_send, std::fs::Permissions::from_mode(0o755)).expect("chmod notify-send");
+    executable_script::write_executable_script(&notify_send, "#!/bin/sh\nexit 0\n");
     let path = format!(
         "{}:{}",
         bin_dir.path().display(),

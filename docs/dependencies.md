@@ -2,6 +2,10 @@
 
 All direct dependencies are exact-pinned.
 
+## Test infrastructure
+
+- `rustix = 1.1.5` (`process`; development dependency of `pi-ai`, `pi-client`, `pi-js-compat`, `pi-protocol`, `pi-server`, `pi-session-sqlite`, and `pi-telemetry`) — `process::kill_process_group` tears down the tsx oracle process group in `tests/support/oracle.rs`; oracle children are spawned with `process_group(0)` so a dead test process cannot leave Node/esbuild descendants behind. Crates that already depend on `rustix` at runtime reuse the same pinned release.
+
 ## Runtime
 
 ### `pi-js-compat`
@@ -38,6 +42,7 @@ All direct dependencies are exact-pinned.
 - `image = 0.24.9` (exact, `default-features = false`, codec features mirroring photon-rs) — supplies the fallible `load_from_memory`/`DynamicImage::write_to` calls behind `utils::photon`, replacing photon-rs' panicking wrappers; pinned with the `png 0.17.14`, `jpeg-decoder 0.3.1`, `gif 0.13.1`, `tiff 0.9.1`, `flate2 1.0.34`, `miniz_oxide 0.8.0`, `fdeflate 0.3.6`, `weezl 0.1.8` versions embedded in that WASM build (see `docs/porting/traceability/photon.md`).
 - `clipboard-rs = 0.3.4` (exact) — the release vendored by `@mariozechner/clipboard` 0.3.9, providing the native X11/Wayland/macOS/Windows clipboard behind `utils::clipboard_native`.
 - `rustix = 1.1.5` (`fs`, `process`) — supplies `fs::access(WRITE_OK)` for the install-path writability check (`fs.accessSync` parity), `process::kill_process_group` for `utils::shell::kill_process_tree` (`process.kill(-pid)` parity), `SIGTERM`/`SIGKILL` for `core::exec` termination, and the `kill(pid, 0)` existence check in `core::runtime_process`; the crate is already pinned in the workspace by `pi-tui`.
+- `nix = 0.30.1` (`process`, exact) — safe `unistd::execve` for `core::self_restart` (`process.execve` parity). `std::os::unix::process::CommandExt::exec` temporarily replaces the process-global `environ` pointer under a read lock, so a concurrent `std::env::vars()`/`Command::spawn` can read the freed temporary array (observed as corrupted env entries in the `self_restart` suite); `execve` takes an explicit environment and never mutates `environ`.
 - `core::http_dispatcher` adds no dependency: it configures the shared `pi-ai` client through `pi_ai::http::fetch_with_options` (`http1_only`, `read_timeout`), keeping one HTTP stack.
 - `pi-ai` (path) — `utils::management_http` uses the shared `Fetch` contract and default reqwest client (one HTTP stack).
 - `pi-tui` (path) — supplies the TUI keybinding registry (`TUI_KEYBINDINGS`, `KeybindingsManager`) that `core::keybindings` extends with the `app.*` bindings instead of redefining the TUI table.

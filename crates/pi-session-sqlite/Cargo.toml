@@ -17,6 +17,8 @@ tokio = { version = "=1.53.3", features = ["macros", "rt", "sync", "time"] }
 tokio-util = { version = "=0.7.20", features = ["rt"] }
 
 [dev-dependencies]
+# Process-group teardown for tsx oracle children in tests.
+rustix = { version = "=1.1.5", features = ["process"] }
 tempfile = "=3.27.0"
 tokio = { version = "=1.53.3", features = ["macros", "rt-multi-thread", "sync", "time"] }
 

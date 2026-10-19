@@ -381,14 +381,7 @@ fn term_name_level(term: &str) -> Option<Level> {
 }
 
 fn process_environment() -> BTreeMap<String, String> {
-    std::env::vars_os()
-        .map(|(name, value)| {
-            (
-                name.to_string_lossy().into_owned(),
-                value.to_string_lossy().into_owned(),
-            )
-        })
-        .collect()
+    pi_js_compat::process_env::vars().into_iter().collect()
 }
 
 fn level_from_min(min: i64) -> Level {

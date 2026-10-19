@@ -9,6 +9,7 @@ use pi_js_compat::process_env;
 
 use crate::core::extensions::types::{BoxFuture, ExtensionApi, ExtensionContext, HandlerError, SessionShutdownEvent};
 use crate::core::session_manager::lock_session_manager;
+use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::iso_time::now_iso_string;
 
 const CLAUDE_MEMORY: &str = "/home/osso/.cargo/bin/claude-memory";
@@ -106,11 +107,7 @@ fn launch_index_with(session_path: &str, executable: &str, log_path: &Path) -> R
 }
 
 fn spawn_error_message(executable: &str, error: &std::io::Error) -> String {
-    match error.kind() {
-        std::io::ErrorKind::NotFound => format!("spawn {executable} ENOENT"),
-        std::io::ErrorKind::PermissionDenied => format!("spawn {executable} EACCES"),
-        _ => error.to_string(),
-    }
+    node_spawn_error_message("spawn", executable, error)
 }
 
 fn error_message(error: &std::io::Error) -> String {

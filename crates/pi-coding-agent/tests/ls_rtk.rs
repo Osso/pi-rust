@@ -1,10 +1,12 @@
-use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult};
 use pi_ai::types::TextOrImageContent;
 use pi_coding_agent::core::tools::ls::LsTool;
 use serde_json::json;
+
+#[path = "support/executable_script.rs"]
+mod executable_script;
 
 const MODE_VAR: &str = "PI_LS_RTK_MODE";
 const DIR_VAR: &str = "PI_LS_RTK_DIR";
@@ -30,10 +32,7 @@ fn text(result: &AgentToolResult) -> String {
 
 fn fake_rtk(directory: &std::path::Path, body: &str) {
     let path = directory.join("rtk");
-    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("fake rtk");
-    let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(&path, permissions).expect("chmod");
+    executable_script::write_executable_script(&path, &format!("#!/bin/sh\n{body}\n"));
 }
 
 #[test]

@@ -1,5 +1,8 @@
 //! Behavioral tests for the bundled Pyrun runner, eval tool, and extension.
 
+#[path = "support/executable_script.rs"]
+mod executable_script;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -43,10 +46,8 @@ fn temp_dir(name: &str) -> String {
 }
 
 fn write_runner(dir: &str, name: &str, body: &str) -> String {
-    use std::os::unix::fs::PermissionsExt;
     let path = std::path::Path::new(dir).join(name);
-    std::fs::write(&path, format!("#!/usr/bin/env python3\n{body}")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    executable_script::write_executable_script(&path, &format!("#!/usr/bin/env python3\n{body}"));
     path.display().to_string()
 }
 

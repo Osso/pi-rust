@@ -24,6 +24,7 @@ use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, fo
 use crate::core::extensions::types::{ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
+use crate::utils::child_process::node_spawn_error_message;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -317,7 +318,7 @@ async fn run_rtk_ls(cwd: &str, path: &str, signal: Option<&CancellationToken>) -
             RtkError::MissingExecutable
         } else {
             RtkError::Failed {
-                message: format!("spawn rtk ENOENT: {error}"),
+                message: node_spawn_error_message("spawn", "rtk", &error),
                 stdout: String::new(),
                 stderr: String::new(),
             }

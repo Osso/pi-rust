@@ -6,7 +6,9 @@
 
 #![allow(dead_code)] // Each integration test compiles its own copy and uses a subset.
 
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
@@ -52,7 +54,7 @@ pub(crate) fn verify_source_head(lock: &SourceLock) {
 }
 
 pub(crate) struct ModeHarness {
-    child: Child,
+    child: Option<Child>,
     stdin: Option<ChildStdin>,
     lines: Receiver<Option<String>>,
     stderr: Arc<Mutex<String>>,
@@ -64,6 +66,7 @@ impl ModeHarness {
         let tsx = lock.worktree.join("node_modules/.bin/tsx");
         let tsconfig = lock.worktree.join("tsconfig.json");
         let harness = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../oracle/modes-harness.ts");
+        let watchdog = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../oracle/parent-watchdog.mjs");
         let mut command = Command::new(tsx);
         command
             .arg("--tsconfig")
@@ -73,10 +76,14 @@ impl ModeHarness {
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .process_group(0);
         for (name, value) in env {
             command.env(name, value);
         }
+        command
+            .env("PI_ORACLE_PARENT_PID", std::process::id().to_string())
+            .env("NODE_OPTIONS", watchdog_node_options(&watchdog));
         Self::spawn(command)
     }
 
@@ -86,7 +93,8 @@ impl ModeHarness {
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .process_group(0);
         for (name, value) in env {
             command.env(name, value);
         }
@@ -118,7 +126,7 @@ impl ModeHarness {
             *stderr_sink.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = buffer;
         });
         Self {
-            child,
+            child: Some(child),
             stdin: Some(stdin),
             lines,
             stderr: collected_stderr,
@@ -171,10 +179,11 @@ impl ModeHarness {
         while let Ok(Some(line)) = self.lines.recv_timeout(LINE_TIMEOUT) {
             self.collected.push(line);
         }
-        let status = self.child.wait().expect("harness must exit");
+        let mut child = self.child.take().expect("harness child must be present");
+        let status = child.wait().expect("harness must exit");
         std::thread::sleep(Duration::from_millis(50));
         let stderr = self.stderr();
-        (self.collected, status.code().unwrap_or(-1), stderr)
+        (std::mem::take(&mut self.collected), status.code().unwrap_or(-1), stderr)
     }
 
     pub(crate) fn stderr(&self) -> String {
@@ -183,6 +192,34 @@ impl ModeHarness {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
+}
+
+impl Drop for ModeHarness {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            kill_harness_process_group(&mut child);
+            let _ = child.wait();
+        }
+    }
+}
+
+fn kill_harness_process_group(child: &mut Child) {
+    use rustix::process::{Pid, Signal, kill_process_group};
+
+    if let Some(pid) = Pid::from_raw(child.id() as i32) {
+        let _ = kill_process_group(pid, Signal::KILL);
+    }
+    let _ = child.kill();
+}
+
+fn watchdog_node_options(watchdog: &Path) -> OsString {
+    let mut options = std::env::var_os("NODE_OPTIONS").unwrap_or_default();
+    if !options.is_empty() {
+        options.push(" ");
+    }
+    options.push("--import ");
+    options.push(watchdog);
+    options
 }
 
 /// Substitutions allowed by the slice brief: ids, timestamps, durations, temp paths.

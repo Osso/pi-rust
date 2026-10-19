@@ -67,7 +67,10 @@ pub fn should_run_first_time_setup(settings_path: &Path, env: &BTreeMap<String, 
 
 /// `shouldRunFirstTimeSetup()` with the process environment.
 pub fn should_run_first_time_setup_for_process() -> bool {
-    should_run_first_time_setup(&config::get_settings_path(), &std::env::vars().collect())
+    should_run_first_time_setup(
+        &config::get_settings_path(),
+        &pi_js_compat::process_env::vars().into_iter().collect(),
+    )
 }
 
 /// `loadThemes`: enabled resources, broken themes skipped, names deduped.

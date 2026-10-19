@@ -1,12 +1,21 @@
 //! Differential coverage for docs-tree-context, claude-memory-enrich, and claude-memory-session-end.
 
+#[path = "support/executable_script.rs"]
+mod executable_script;
 #[path = "support/oracle.rs"]
 mod oracle;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+
+/// `process_env` overrides are process-global, so tests that mutate them must
+/// not run concurrently inside this binary.
+static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn lock_env() -> tokio::sync::MutexGuard<'static, ()> {
+    ENV_LOCK.lock().await
+}
 
 use pi_coding_agent::core::event_bus::{EventBus, EventBusController};
 use pi_coding_agent::core::extensions::loader::{ExtensionFactory, load_extension_from_factory};
@@ -251,15 +260,13 @@ async fn docs_tree_context_matches_typescript() {
 
 fn write_enrich_script(root: &Path, name: &str, body: &str) -> String {
     let path = root.join(name);
-    fs::write(&path, body).unwrap();
-    let mut permissions = fs::metadata(&path).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&path, permissions).unwrap();
+    executable_script::write_executable_script(&path, body);
     path.to_string_lossy().into_owned()
 }
 
 #[tokio::test]
 async fn claude_memory_enrich_matches_typescript() {
+    let _env = lock_env().await;
     let temp = TempDir::new().unwrap();
     let ok = write_enrich_script(
         temp.path(),
@@ -336,6 +343,7 @@ async fn claude_memory_enrich_matches_typescript() {
 
 #[tokio::test]
 async fn claude_memory_session_end_skips_ephemeral_sessions() {
+    let _env = lock_env().await;
     let temp = TempDir::new().unwrap();
     process_env::set("XDG_CACHE_HOME", &temp.path().to_string_lossy());
     let harness = load(
