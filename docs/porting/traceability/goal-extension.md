@@ -26,7 +26,7 @@ the source basename converted to snake_case.
 | `parseGoalArgs` command dispatch, set/view/pause/resume/clear | `index::handle_goal_command` | command tests |
 | `manageGoal` set/pause/resume/complete/clear/status | `index::manage_goal` | tool tests |
 | Supervisor decision handling (idle + completion) | `index::apply_goal_idle_decision`, `apply_completion_decision` | agent-end, completion, and wait tests |
-| Evidence scheduling, completion scheduling, empty-response retry, error-status settlement | `completion_scheduling`, `empty_response_scheduling`, `error_status_scheduling`, `goal_scheduling` | `idle_review_with_wait_schedules_a_five_minute_review_status`, `emits_abort_and_error_skips_without_reviewing` |
+| Evidence scheduling, completion scheduling, empty-response retry, error-status settlement | `completion_scheduling`, `empty_response_scheduling`, `error_status_scheduling`, `goal_scheduling` | `idle_review_with_wait_schedules_a_five_minute_review_status`, `emits_abort_and_error_skips_without_reviewing`; non-stale timer errors reach the process-level uncaught handler ([throw-audit](throw-audit.md)) |
 | Session start/fork inheritance, shutdown, input/tool-result evidence, agent start/end, before-agent-start injection | `index::register_*` | `session_start_restores_running_goal_and_requests_continuation`, `injects_the_running_objective_into_the_system_prompt` |
 | Supervisor status/message renderers, instruction wrapper, countdown formatting | `rendering::*` | module tests `wraps_and_unwraps_supervisor_instructions`, `formats_review_countdown`; behavioral status tests |
 | Countdown refresher | `wait_countdown::*` | exercised through status append/restore paths; timer behavior is OS-time dependent and not differentially compared |

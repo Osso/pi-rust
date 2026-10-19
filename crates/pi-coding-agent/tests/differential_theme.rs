@@ -244,6 +244,10 @@ fn load_cases(package_dir: &Path) -> Vec<Value> {
         theme_case("no-name-bad-colors", &no_name_with_bad_colors.to_string(), "truecolor"),
         theme_case("root-array", "[]", "truecolor"),
         theme_case("root-string", "\"nope\"", "truecolor"),
+        theme_case("invalid-json", "{ not json", "truecolor"),
+        theme_case("truncated-json", "{\"name\": \"x\"", "truecolor"),
+        theme_case("trailing-json", "[]x", "truecolor"),
+        theme_case("empty-json", "", "truecolor"),
     ]
 }
 

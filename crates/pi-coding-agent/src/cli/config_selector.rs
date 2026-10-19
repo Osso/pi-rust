@@ -45,7 +45,7 @@ pub fn select_config(
     terminal: Rc<RefCell<dyn Terminal>>,
 ) -> Result<SelectConfigOutcome, String> {
     let theme = options.settings_manager.borrow().get_theme_setting().map(str::to_owned);
-    init_theme(theme.as_deref(), true);
+    init_theme(theme.as_deref(), true).map_err(|error| error.to_string())?;
 
     let agent_dir = options.agent_dir.clone();
     let ui = TuiMainScreen::with_options(terminal, None, Some(PathBuf::from(&agent_dir)));

@@ -41,6 +41,38 @@ impl<T: std::fmt::Debug> std::fmt::Debug for CommandParseResult<T> {
 
 type OptionParser<T> = Arc<dyn Fn(&str) -> Result<T, String> + Send + Sync>;
 
+/// A programmer error that TypeScript throws from the command builder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandError {
+    pub message: String,
+}
+
+impl std::fmt::Display for CommandError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for CommandError {}
+
+/// Failure of [`Command::execute`]: parse errors or a programmer error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandExecuteError {
+    Parse(Vec<String>),
+    Command(CommandError),
+}
+
+impl std::fmt::Display for CommandExecuteError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Parse(errors) => formatter.write_str(&errors.join("\n")),
+            Self::Command(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for CommandExecuteError {}
+
 pub struct CommandOption<T> {
     name: String,
     parse: OptionParser<T>,
@@ -122,8 +154,8 @@ impl ParsedCommandInput<'_> {
 
 type Builder<TOwn> = Box<dyn for<'a> Fn(&ParsedCommandInput<'a>) -> CommandParseResult<TOwn> + Send + Sync>;
 type Action<TOwn, TCtx> = Box<dyn Fn(&TOwn, &mut TCtx) + Send + Sync>;
-type ParseFn<TOwn> = Box<dyn Fn(&[String]) -> CommandParseResult<TOwn> + Send + Sync>;
-type ExecuteFn<TOwn, TCtx> = Box<dyn Fn(&[String], &mut TCtx) -> Result<TOwn, Vec<String>> + Send + Sync>;
+type ParseFn<TOwn> = Box<dyn Fn(&[String]) -> Result<CommandParseResult<TOwn>, CommandError> + Send + Sync>;
+type ExecuteFn<TOwn, TCtx> = Box<dyn Fn(&[String], &mut TCtx) -> Result<TOwn, CommandExecuteError> + Send + Sync>;
 
 struct Subcommand<TOwn, TCtx> {
     name: String,
@@ -155,12 +187,14 @@ impl<TOwn: NamedCommandInvocation + 'static, TCtx: 'static> Command<TOwn, TCtx> 
     }
 
     /// Register an option; a duplicate name is a programmer error, as in the source.
-    pub fn option<T: Any + Send + Sync>(&mut self, option: CommandOption<T>) -> &mut Self {
+    pub fn option<T: Any + Send + Sync>(&mut self, option: CommandOption<T>) -> Result<&mut Self, CommandError> {
         if self.options.iter().any(|existing| existing.name() == option.name()) {
-            panic!("Option {} is already registered for {}", option.name(), self.name);
+            return Err(CommandError {
+                message: format!("Option {} is already registered for {}", option.name(), self.name),
+            });
         }
         self.options.push(Box::new(option));
-        self
+        Ok(self)
     }
 
     pub fn build(
@@ -181,9 +215,11 @@ impl<TOwn: NamedCommandInvocation + 'static, TCtx: 'static> Command<TOwn, TCtx> 
         &mut self,
         subcommand: Command<TSub, TCtx>,
         convert: impl Fn(TSub) -> TOwn + Send + Sync + 'static,
-    ) -> &mut Self {
+    ) -> Result<&mut Self, CommandError> {
         if self.subcommands.iter().any(|existing| existing.name == subcommand.name) {
-            panic!("Command {} is already registered", subcommand.name);
+            return Err(CommandError {
+                message: format!("Command {} is already registered", subcommand.name),
+            });
         }
         let name = subcommand.name.clone();
         let subcommand = Arc::new(subcommand);
@@ -194,9 +230,11 @@ impl<TOwn: NamedCommandInvocation + 'static, TCtx: 'static> Command<TOwn, TCtx> 
         let convert_execute = Arc::clone(&convert);
         self.subcommands.push(Subcommand {
             name,
-            parse: Box::new(move |argv| match parse_subcommand.parse(argv) {
-                CommandParseResult::Ok(invocation) => CommandParseResult::Ok(convert_parse(invocation)),
-                CommandParseResult::Errors(errors) => CommandParseResult::Errors(errors),
+            parse: Box::new(move |argv| {
+                Ok(match parse_subcommand.parse(argv)? {
+                    CommandParseResult::Ok(invocation) => CommandParseResult::Ok(convert_parse(invocation)),
+                    CommandParseResult::Errors(errors) => CommandParseResult::Errors(errors),
+                })
             }),
             execute: Box::new(move |argv, context| {
                 execute_subcommand
@@ -204,28 +242,29 @@ impl<TOwn: NamedCommandInvocation + 'static, TCtx: 'static> Command<TOwn, TCtx> 
                     .map(|invocation| convert_execute(invocation))
             }),
         });
-        self
+        Ok(self)
     }
 
-    pub fn parse(&self, argv: &[String]) -> CommandParseResult<TOwn> {
+    pub fn parse(&self, argv: &[String]) -> Result<CommandParseResult<TOwn>, CommandError> {
         if let Some(subcommand) = self.select(argv) {
             return (subcommand.parse)(&argv[1..]);
         }
         self.parse_own(argv)
     }
 
-    pub fn execute(&self, argv: &[String], context: &mut TCtx) -> Result<TOwn, Vec<String>> {
+    pub fn execute(&self, argv: &[String], context: &mut TCtx) -> Result<TOwn, CommandExecuteError> {
         if let Some(subcommand) = self.select(argv) {
             return (subcommand.execute)(&argv[1..], context);
         }
-        let command = match self.parse_own(argv) {
+        let command = match self.parse_own(argv).map_err(CommandExecuteError::Command)? {
             CommandParseResult::Ok(command) => command,
-            CommandParseResult::Errors(errors) => return Err(errors),
+            CommandParseResult::Errors(errors) => return Err(CommandExecuteError::Parse(errors)),
         };
-        let action = self
-            .action
-            .as_ref()
-            .unwrap_or_else(|| panic!("Command {} does not define an action", self.name));
+        let action = self.action.as_ref().ok_or_else(|| {
+            CommandExecuteError::Command(CommandError {
+                message: format!("Command {} does not define an action", self.name),
+            })
+        })?;
         action(&command, context);
         Ok(command)
     }
@@ -235,11 +274,10 @@ impl<TOwn: NamedCommandInvocation + 'static, TCtx: 'static> Command<TOwn, TCtx> 
         self.subcommands.iter().find(|subcommand| &subcommand.name == candidate)
     }
 
-    fn parse_own(&self, argv: &[String]) -> CommandParseResult<TOwn> {
-        let builder = self
-            .builder
-            .as_ref()
-            .unwrap_or_else(|| panic!("Command {} does not define a builder", self.name));
+    fn parse_own(&self, argv: &[String]) -> Result<CommandParseResult<TOwn>, CommandError> {
+        let builder = self.builder.as_ref().ok_or_else(|| CommandError {
+            message: format!("Command {} does not define a builder", self.name),
+        })?;
         let ParsedOptions {
             values,
             remaining_args,
@@ -251,15 +289,17 @@ impl<TOwn: NamedCommandInvocation + 'static, TCtx: 'static> Command<TOwn, TCtx> 
             values: &values,
         };
         match builder(&input) {
-            CommandParseResult::Ok(command) if errors.is_empty() => CommandParseResult::Ok(command),
-            CommandParseResult::Ok(_) => CommandParseResult::Errors(errors),
+            CommandParseResult::Ok(command) if errors.is_empty() => Ok(CommandParseResult::Ok(command)),
+            CommandParseResult::Ok(_) => Ok(CommandParseResult::Errors(errors)),
             CommandParseResult::Errors(mut builder_errors) => {
                 let mut all = errors;
                 all.append(&mut builder_errors);
                 if all.is_empty() {
-                    panic!("Command {} failed without an error", self.name);
+                    return Err(CommandError {
+                        message: format!("Command {} failed without an error", self.name),
+                    });
                 }
-                CommandParseResult::Errors(all)
+                Ok(CommandParseResult::Errors(all))
             }
         }
     }

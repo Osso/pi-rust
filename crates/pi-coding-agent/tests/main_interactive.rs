@@ -85,12 +85,29 @@ struct PtyOutcome {
     stdout: String,
 }
 
-/// Runs the `pi` binary under `script` and writes `inputs` on a schedule.
+/// One scheduled pty write: wait until the rendered output contains
+/// `wait_for`, pause briefly, then write `send`.
+struct PtyInput {
+    wait_for: &'static str,
+    send: &'static str,
+    pause: Duration,
+}
+
+fn input(wait_for: &'static str, send: &'static str) -> PtyInput {
+    PtyInput {
+        wait_for,
+        send,
+        pause: Duration::from_millis(150),
+    }
+}
+
+/// Runs the `pi` binary under `script` and writes `inputs` once their markers
+/// appear, so parallel test load cannot race the TUI startup.
 fn run_under_pty(
     fixture: &Fixture,
     args: &[&str],
     environment: &[(String, String)],
-    inputs: &[(Duration, &str)],
+    inputs: &[PtyInput],
 ) -> PtyOutcome {
     let binary = env!("CARGO_BIN_EXE_pi");
     let mut command_line = binary.to_owned();
@@ -113,27 +130,57 @@ fn run_under_pty(
     let mut child = command.spawn().expect("script must allocate a pty");
 
     let stdout = child.stdout.take().expect("pty stdout");
+    let output = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let buffer = std::sync::Arc::clone(&output);
     let reader = std::thread::spawn(move || {
-        let mut buffer = Vec::new();
         let mut stdout = stdout;
-        stdout.read_to_end(&mut buffer).ok();
-        buffer
+        let mut bytes = [0_u8; 4096];
+        loop {
+            let Ok(read) = stdout.read(&mut bytes) else {
+                return;
+            };
+            if read == 0 {
+                return;
+            }
+            buffer
+                .lock()
+                .expect("pty buffer")
+                .push_str(&String::from_utf8_lossy(&bytes[..read]));
+        }
     });
 
     let mut stdin = child.stdin.take().expect("pty stdin");
-    for (delay, input) in inputs {
-        std::thread::sleep(*delay);
-        stdin.write_all(input.as_bytes()).expect("pty input");
+    for step in inputs {
+        wait_for_marker(&output, step.wait_for);
+        std::thread::sleep(step.pause);
+        if let Err(error) = stdin.write_all(step.send.as_bytes()) {
+            if error.kind() == std::io::ErrorKind::BrokenPipe {
+                break;
+            }
+            panic!("pty input: {error}");
+        }
         stdin.flush().ok();
     }
     drop(stdin);
 
-    let code = wait_with_timeout(&mut child, Duration::from_secs(20));
-    let output = reader.join().expect("pty reader");
-    PtyOutcome {
-        code,
-        stdout: String::from_utf8_lossy(&output).into_owned(),
+    let code = wait_with_timeout(&mut child, Duration::from_secs(25));
+    reader.join().expect("pty reader");
+    let stdout = output.lock().expect("pty buffer").clone();
+    PtyOutcome { code, stdout }
+}
+
+fn wait_for_marker(output: &std::sync::Arc<std::sync::Mutex<String>>, marker: &str) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+        if output.lock().expect("pty buffer").contains(marker) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
     }
+    panic!(
+        "marker {marker:?} not rendered; output:\n{}",
+        output.lock().expect("pty buffer")
+    );
 }
 
 fn wait_with_timeout(child: &mut Child, timeout: Duration) -> i32 {
@@ -155,17 +202,19 @@ fn visible(output: &str) -> String {
     pi_tui::utils::strip_terminal_sequences(output)
 }
 
-fn double_ctrl_c() -> Vec<(Duration, &'static str)> {
-    vec![
-        (Duration::from_millis(1500), CTRL_C),
-        (Duration::from_millis(150), CTRL_C),
-    ]
+fn double_ctrl_c(marker: &'static str) -> Vec<PtyInput> {
+    vec![input(marker, CTRL_C), input(marker, CTRL_C)]
 }
 
 #[test]
 fn interactive_mode_starts_the_tui_and_exits_on_double_ctrl_c() {
     let fixture = fixture();
-    let outcome = run_under_pty(&fixture, &[], &agent_environment(&fixture), &double_ctrl_c());
+    let outcome = run_under_pty(
+        &fixture,
+        &[],
+        &agent_environment(&fixture),
+        &double_ctrl_c("Ctrl+C twice to exit"),
+    );
     let text = visible(&outcome.stdout);
     assert_eq!(outcome.code, 0, "stdout:\n{text}");
     assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text}");
@@ -180,7 +229,16 @@ fn resume_flag_opens_the_session_picker_and_cancels_with_escape() {
         &fixture,
         &["--resume"],
         &agent_environment(&fixture),
-        &[(Duration::from_millis(1500), ESCAPE)],
+        // Startup theme detection reads terminal replies for up to 100 ms and
+        // would swallow an immediate ESC; the cancel handler ignores repeats.
+        &[
+            PtyInput {
+                wait_for: "Resume Session",
+                send: ESCAPE,
+                pause: Duration::from_millis(500),
+            },
+            input("Resume Session", ESCAPE),
+        ],
     );
     let text = visible(&outcome.stdout);
     assert_eq!(outcome.code, 0, "stdout:\n{text}");
@@ -199,11 +257,11 @@ fn first_time_setup_persists_theme_and_analytics() {
         fixture.state_dir.display().to_string(),
     ));
     let inputs = vec![
-        (Duration::from_millis(1500), "j"),
-        (Duration::from_millis(150), "\r"),
-        (Duration::from_millis(250), "\r"),
-        (Duration::from_millis(1200), CTRL_C),
-        (Duration::from_millis(150), CTRL_C),
+        input("Pick a theme.", "j"),
+        input("Pick a theme.", "\r"),
+        input("Opt-in to anonymous usage data sharing?", "\r"),
+        input("Ctrl+C twice to exit", CTRL_C),
+        input("Ctrl+C twice to exit", CTRL_C),
     ];
     let outcome = run_under_pty(&fixture, &[], &environment, &inputs);
     let text = visible(&outcome.stdout);

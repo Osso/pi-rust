@@ -273,6 +273,7 @@ fn build_controller(theme_setting: Option<&str>) -> ControllerParts {
         Rc::clone(&settings),
         Rc::new(move |message: &str| error_ui.errors.borrow_mut().push(message.to_owned())),
         Rc::new(move || changed_sink.set(changed_sink.get() + 1)),
-    );
+    )
+    .expect("theme controller");
     (controller, ui, changed, settings)
 }

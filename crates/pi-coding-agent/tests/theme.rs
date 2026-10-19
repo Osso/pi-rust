@@ -402,6 +402,7 @@ fn theme_picker_probe() {
 
     let output_path = std::env::var("THEME_PROBE_OUT").expect("THEME_PROBE_OUT");
     let with_paths: Vec<serde_json::Value> = get_available_themes_with_paths()
+        .expect("available themes")
         .into_iter()
         .map(|info| {
             serde_json::json!({
@@ -411,7 +412,7 @@ fn theme_picker_probe() {
         })
         .collect();
     let output = serde_json::json!({
-        "names": get_available_themes(),
+        "names": get_available_themes().expect("available themes"),
         "withPaths": with_paths,
     });
     fs::write(output_path, serde_json::to_string(&output).unwrap()).expect("write probe output");
@@ -534,19 +535,19 @@ fn theme_global_probe() {
             .starts_with("\x1b[38;2;")
     );
 
-    init_theme(Some("missing-theme"), false);
+    init_theme(Some("missing-theme"), false).expect("dark fallback");
     assert_eq!(current_theme().name.as_deref(), Some("dark"));
 
     let changes = Rc::new(Cell::new(0));
     let counter = Rc::clone(&changes);
     on_theme_change(Rc::new(move || counter.set(counter.get() + 1)));
-    let result = set_theme("light", false);
+    let result = set_theme("light", false).expect("light theme");
     assert!(result.success);
     assert_eq!(result.error, None);
     assert_eq!(current_theme().name.as_deref(), Some("light"));
     assert_eq!(changes.get(), 1);
 
-    let failure = set_theme("does-not-exist", false);
+    let failure = set_theme("does-not-exist", false).expect("dark fallback");
     assert!(!failure.success);
     assert_eq!(failure.error.as_deref(), Some("Theme not found: does-not-exist"));
     assert_eq!(current_theme().name.as_deref(), Some("dark"));
@@ -555,7 +556,7 @@ fn theme_global_probe() {
     set_theme_instance(in_memory);
     assert_eq!(current_theme().name.as_deref(), Some("light"));
 
-    let slash = set_theme("bad/name", false);
+    let slash = set_theme("bad/name", false).expect("dark fallback");
     assert!(!slash.success);
     assert_eq!(slash.error.as_deref(), Some("Theme not found: bad/name"));
 }
@@ -718,4 +719,43 @@ fn theme_language_probe() {
     assert!(is_light_theme(Some("light")));
     assert!(!is_light_theme(Some("dark")));
     assert!(!is_light_theme(None));
+}
+
+#[test]
+fn missing_builtin_themes_return_errors() {
+    let package = tempfile::tempdir().expect("package fixture dir");
+    let agent = fixture_agent_dir();
+    run_theme_probe("theme_missing_builtin_probe", package.path(), agent.path(), &[]);
+}
+
+#[test]
+#[ignore = "child process probe"]
+fn theme_missing_builtin_probe() {
+    if !env_probe::in_probe() {
+        return;
+    }
+    use pi_coding_agent::modes::interactive::theme::{
+        ThemeError, get_available_themes, get_available_themes_with_paths, get_theme_by_name, init_theme, set_theme,
+        try_current_theme,
+    };
+
+    let package_dir = std::env::var("PI_PACKAGE_DIR").expect("PI_PACKAGE_DIR");
+    let expected = format!("ENOENT: no such file or directory, open '{package_dir}/theme/dark.json'");
+
+    assert_eq!(init_theme(None, false).unwrap_err().to_string(), expected);
+    assert_eq!(get_available_themes().unwrap_err().to_string(), expected);
+    assert_eq!(get_available_themes_with_paths().unwrap_err().to_string(), expected);
+    // `getThemeByName` catches, so it returns undefined instead of throwing.
+    assert!(get_theme_by_name("dark").is_none());
+    // `setTheme` catches the requested theme, then the dark fallback re-throws.
+    assert_eq!(set_theme("light", false).unwrap_err().to_string(), expected);
+    assert_eq!(
+        try_current_theme().unwrap_err(),
+        ThemeError::NotInitialized,
+        "failed init must not install a theme"
+    );
+    assert_eq!(
+        ThemeError::NotInitialized.to_string(),
+        "Theme not initialized. Call initTheme() first."
+    );
 }

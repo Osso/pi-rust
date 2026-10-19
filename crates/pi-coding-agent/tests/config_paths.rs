@@ -29,8 +29,12 @@ fn write_package(dir: &Path, content: &str) {
 }
 
 fn probe(env: &[(&str, String)]) -> Value {
+    probe_mode("paths", env)
+}
+
+fn probe_mode(mode: &str, env: &[(&str, String)]) -> Value {
     let pairs: Vec<(&str, std::ffi::OsString)> = env.iter().map(|(name, value)| (*name, value.into())).collect();
-    spawn_child_probe("paths", &pairs)
+    spawn_child_probe(mode, &pairs)
 }
 
 #[test]
@@ -182,4 +186,64 @@ fn default_payload_matches_this_process() {
     // The direct payload helper is what the child prints; keep it covered in-process too.
     let payload = paths_payload();
     assert!(payload["agentDir"].is_string());
+}
+
+#[test]
+fn invalid_package_json_surfaces_as_a_node_syntax_error() {
+    let package = temp_dir("package-syntax-error");
+    write_package(&package, "{ not json");
+    let payload = probe_mode(
+        "package-error",
+        &[
+            ("HOME", "/home/tester".to_owned()),
+            ("PI_PACKAGE_DIR", package.display().to_string()),
+        ],
+    );
+    assert_eq!(payload["ok"], false);
+    assert_eq!(payload["label"], "SyntaxError");
+    assert_eq!(
+        payload["message"],
+        "Expected property name or '}' in JSON at position 2 (line 1 column 3)"
+    );
+}
+
+#[test]
+fn unreadable_package_json_surfaces_as_a_node_fs_error() {
+    let package = temp_dir("package-fs-error");
+    fs::create_dir(package.join("package.json")).unwrap();
+    let payload = probe_mode(
+        "package-error",
+        &[
+            ("HOME", "/home/tester".to_owned()),
+            ("PI_PACKAGE_DIR", package.display().to_string()),
+        ],
+    );
+    assert_eq!(payload["ok"], false);
+    assert_eq!(payload["label"], "Error");
+    assert_eq!(
+        payload["message"],
+        format!(
+            "EISDIR: illegal operation on a directory, read '{}/package.json'",
+            package.display()
+        )
+    );
+}
+
+#[test]
+fn non_string_package_fields_fall_back_to_the_defaults() {
+    let package = temp_dir("package-non-string");
+    write_package(
+        &package,
+        "{\"name\":5,\"version\":null,\"piConfig\":{\"name\":[],\"configDir\":7}}",
+    );
+    let payload = probe_mode(
+        "package-error",
+        &[
+            ("HOME", "/home/tester".to_owned()),
+            ("PI_PACKAGE_DIR", package.display().to_string()),
+        ],
+    );
+    assert_eq!(payload["packageName"], "@earendil-works/pi-coding-agent");
+    assert_eq!(payload["appName"], "pi");
+    assert_eq!(payload["configDirName"], ".pi");
 }

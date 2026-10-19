@@ -9,11 +9,12 @@ use std::time::Duration;
 use pi_tui::terminal_colors::RgbColor;
 
 use super::{
-    TerminalTheme, Theme, ThemeQueryError, detect_terminal_background_from_env, detect_terminal_background_theme,
-    detect_terminal_theme_for_auto, init_theme, parse_auto_theme_setting, resolve_theme_setting, set_theme,
-    set_theme_instance,
+    TerminalTheme, Theme, ThemeError, ThemeQueryError, detect_terminal_background_from_env,
+    detect_terminal_background_theme, detect_terminal_theme_for_auto, init_theme, parse_auto_theme_setting,
+    resolve_theme_setting, set_theme, set_theme_instance,
 };
 use crate::core::settings_manager::SettingsManager;
+use crate::utils::uncaught::throw_uncaught;
 
 /// The TUI surface used by the theme controller.
 pub trait ThemeUi {
@@ -71,7 +72,8 @@ impl ControllerCore {
     }
 
     fn apply_theme_name(&mut self, theme_name: &str, show_error: bool) -> super::SetThemeResult {
-        let result = set_theme(theme_name, true);
+        let result =
+            set_theme(theme_name, true).unwrap_or_else(|error| throw_uncaught(error.label(), error.to_string()));
         self.active_theme_name = Some(if result.success {
             theme_name.to_owned()
         } else {
@@ -121,10 +123,10 @@ impl InteractiveThemeController {
         settings_manager: Rc<RefCell<SettingsManager>>,
         show_error: Rc<dyn Fn(&str)>,
         on_changed: Rc<dyn Fn()>,
-    ) -> Self {
+    ) -> Result<Self, ThemeError> {
         let terminal_theme = detect_terminal_background_from_env(&process_env()).theme;
         let active_theme_name = resolve_theme_setting(settings_manager.borrow().get_theme_setting(), terminal_theme);
-        init_theme(active_theme_name.as_deref(), true);
+        init_theme(active_theme_name.as_deref(), true)?;
         let core = Rc::new(RefCell::new(ControllerCore {
             ui,
             settings_manager,
@@ -139,7 +141,7 @@ impl InteractiveThemeController {
             terminal_color_scheme_unsubscribe: None,
         };
         controller.bind_terminal_color_scheme_listener();
-        controller
+        Ok(controller)
     }
 
     pub fn rebind_tui(&mut self) {
@@ -226,7 +228,10 @@ impl InteractiveThemeController {
         let Some(theme_name) = theme_name else {
             return;
         };
-        if set_theme(&theme_name, true).success {
+        if set_theme(&theme_name, true)
+            .unwrap_or_else(|error| throw_uncaught(error.label(), error.to_string()))
+            .success
+        {
             let ui = Rc::clone(&self.core.borrow().ui);
             ui.invalidate();
             ui.request_render();

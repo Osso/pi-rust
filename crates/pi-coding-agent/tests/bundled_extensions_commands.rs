@@ -282,16 +282,18 @@ async fn registers_all_small_extensions_under_source_ids() {
             get_debug_repl: Arc::new(|| Arc::new(RecordingDebugRepl(Arc::new(Mutex::new(Calls::default()))))),
         },
     );
+    // Registration order follows `main.ts` `createFirstPartyExtensionFactories`.
     assert_eq!(
         registry.ids(),
         vec![
-            "<first-party:claude-memory-enrich>",
-            "<first-party:claude-memory-session-end>",
-            "<first-party:docs-tree-context>",
+            "<first-party:approval-controls>",
             "<first-party:ask-secret>",
             "<first-party:browser-cli>",
-            "<first-party:approval-controls>",
+            "<first-party:claude-memory-enrich>",
+            "<first-party:claude-memory-session-end>",
             "<first-party:debug>",
+            "<first-party:docs-tree-context>",
+            "<first-party:openai-remote-compact>",
             "<first-party:run-plan>",
             "<first-party:safe>",
             "<first-party:self-restart>",
@@ -309,7 +311,7 @@ async fn registers_all_small_extensions_under_source_ids() {
         )
         .await;
     assert!(errors.is_empty(), "{errors:?}");
-    assert_eq!(extensions.len(), 13);
+    assert_eq!(extensions.len(), 14);
     let tool_names: Vec<&str> = extensions
         .iter()
         .flat_map(|extension| extension.tools.keys().map(String::as_str))

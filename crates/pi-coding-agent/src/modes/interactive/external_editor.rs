@@ -4,6 +4,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
+use crate::core::tools::node_fs::{node_fs_error, node_read_error};
+
 /// `ExternalEditorOptions`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalEditorOptions {
@@ -19,14 +21,19 @@ pub enum ExternalEditorResult {
 }
 
 /// Edits `content` in the user's external editor and returns the saved text.
-pub fn edit_in_external_editor(options: &ExternalEditorOptions) -> ExternalEditorResult {
+///
+/// `mkdtempSync`/`writeFileSync`/`readFileSync` throws escape the TypeScript
+/// function as a rejected promise; callers that do not catch them reach the
+/// process-level uncaught handler.
+pub fn edit_in_external_editor(options: &ExternalEditorOptions) -> Result<ExternalEditorResult, String> {
     let directory = tempfile::Builder::new()
         .prefix("pi-editor-")
         .tempdir()
-        .expect("temporary editor directory must be creatable");
-    set_private_directory_permissions(directory.path());
+        .map_err(|error| node_fs_error(&error, "mkdtemp", &std::env::temp_dir().display().to_string()))?;
+    set_private_directory_permissions(directory.path())?;
     let file_path = directory.path().join("prompt.md");
-    std::fs::write(&file_path, &options.content).expect("prompt file must be writable");
+    std::fs::write(&file_path, &options.content)
+        .map_err(|error| node_fs_error(&error, "open", &file_path.display().to_string()))?;
     let _ = std::io::stdout().write_all(
         format!(
             "Launching external editor: {}\nPi will resume when the editor exits.\n",
@@ -37,29 +44,31 @@ pub fn edit_in_external_editor(options: &ExternalEditorOptions) -> ExternalEdito
 
     let status = spawn_editor(&options.command, &file_path);
     let Some(status) = status else {
-        return ExternalEditorResult::Failed;
+        return Ok(ExternalEditorResult::Failed);
     };
     if !status.success() {
-        return ExternalEditorResult::Failed;
+        return Ok(ExternalEditorResult::Failed);
     }
 
-    let content = std::fs::read(&file_path).expect("prompt file must be readable");
+    let content =
+        std::fs::read(&file_path).map_err(|error| node_read_error(&error, &file_path.display().to_string()))?;
     let content = String::from_utf8_lossy(&content);
-    ExternalEditorResult::Complete {
+    Ok(ExternalEditorResult::Complete {
         content: content.strip_suffix('\n').unwrap_or(&content).to_string(),
-    }
+    })
 }
 
 /// `mkdtempSync` creates the directory with mode 0700.
-fn set_private_directory_permissions(path: &std::path::Path) {
+fn set_private_directory_permissions(path: &std::path::Path) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
-            .expect("temporary editor directory must be private");
+            .map_err(|error| node_fs_error(&error, "chmod", &path.display().to_string()))?;
     }
     #[cfg(not(unix))]
     let _ = path;
+    Ok(())
 }
 
 fn spawn_editor(command: &str, file_path: &PathBuf) -> Option<std::process::ExitStatus> {

@@ -158,7 +158,8 @@ impl ExtensionEditorComponent {
         let result = edit_in_external_editor(&ExternalEditorOptions {
             command: self.external_editor_command.clone(),
             content,
-        });
+        })
+        .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error));
         if let ExternalEditorResult::Complete { content } = result {
             self.set_editor_text(&content);
         }
