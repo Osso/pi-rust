@@ -116,13 +116,12 @@ registration are wired.
   slot; `create_agent_session` receives the same store and the shared-channel
   wake callback. The session mutation-target resolver is bound to the shared
   store and runtime handles (`bind_agent_session_mutation_target_resolver`).
-- Interactive multi-agent options (`wakeWaitAgentsAfterSteering`,
-  `steerMultiAgent`, `cancelMultiAgent`), `bindInteractiveModeSessionMutationTargetResolver`,
-  and the populated `interactiveAgentViewSelector` remain gated on the
-  `interactive_mode.rs` slice (`port/ca-interactive-2`): that file has no
-  multi-agent child view, agent switcher, or selected-agent mutation surface yet,
-  and this slice must not edit its selectors. The selector slot is passed through
-  the factories and stays empty until that slice fills it.
+- Interactive multi-agent options are wired: `InteractiveModeOptions` carries
+  the shared store, `wakeWaitAgentsAfterSteering`, `steerMultiAgent`,
+  `cancelMultiAgent`, and the agent-view selector slot; the mode fills the slot
+  with the async bridge selector. `bindInteractiveModeSessionMutationTargetResolver`
+  has no Rust analogue because the session-level resolver bound here already
+  targets the selected child through the store and runtime handles.
 - `selectSession` keybindings: `create_startup_tui` installs
   `KeybindingsManager::create()`; the component receives a clone. The source
   installs the same manager in both places.

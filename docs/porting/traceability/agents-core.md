@@ -236,6 +236,11 @@ Re-export surface only. Rust exports the same items from
 8. **Background ownership release** — handled in the dispatch-completion task
    (matching `promise.finally`), including removal from the handles map.
 
+9. **Async `SelectAgentView`** — the source selector is synchronous; Rust returns
+   a `BoxFuture<Option<bool>>` because the interactive TUI owns the mode on a
+   `LocalSet` thread and the bridge must await a `UiRequest` response. The
+   `agent_viewer` select path awaits it.
+
 Resolved discrepancy: the session-factories gap (the ninth recorded item) is
 closed; `CreateAgentSessionOptions` now carries the multi-agent identity, store,
 runtime role, session-start event and extension factories.
