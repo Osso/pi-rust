@@ -10,7 +10,10 @@ pub mod agents_mailbox;
 pub mod approval_controls;
 pub mod ask_secret;
 pub mod browser_cli;
+pub mod claude_memory_enrich;
+pub mod claude_memory_session_end;
 pub mod debug;
+pub mod docs_tree_context;
 pub mod run_plan;
 pub mod safe;
 pub mod self_restart;
@@ -29,6 +32,27 @@ pub struct SmallExtensionsOptions {
 
 /// Registers the small first-party extensions under their source ids.
 pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &SmallExtensionsOptions) {
+    registry.register(
+        "<first-party:claude-memory-enrich>",
+        Arc::new(|pi| {
+            let result = claude_memory_enrich::claude_memory_enrich_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register(
+        "<first-party:claude-memory-session-end>",
+        Arc::new(|pi| {
+            let result = claude_memory_session_end::claude_memory_session_end_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register(
+        "<first-party:docs-tree-context>",
+        Arc::new(|pi| {
+            let result = docs_tree_context::docs_tree_context_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
     registry.register(
         "<first-party:ask-secret>",
         Arc::new(|pi| {

@@ -1,0 +1,159 @@
+//! Bundled `claude-memory-session-end` extension (`extensions/claude-memory-session-end/src/index.ts`).
+
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::Path;
+use std::process::Stdio;
+
+use pi_js_compat::process_env;
+
+use crate::core::extensions::types::{BoxFuture, ExtensionApi, ExtensionContext, HandlerError, SessionShutdownEvent};
+use crate::utils::iso_time::now_iso_string;
+
+const CLAUDE_MEMORY: &str = "/home/osso/.cargo/bin/claude-memory";
+
+pub fn claude_memory_session_end_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
+    pi.on_session_shutdown(
+        move |_event: SessionShutdownEvent,
+              ctx: ExtensionContext|
+              -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            Box::pin(async move {
+                let session_file = ctx.session_manager()?.get_session_file().map(str::to_owned);
+                if let Some(session_file) = session_file {
+                    launch_index(&session_file)?;
+                }
+                Ok(None)
+            })
+        },
+    )
+    .map_err(HandlerError::new)
+}
+
+fn format_log_line(message: &str) -> String {
+    format!("[{}] {message}\n", now_iso_string())
+}
+
+fn append_log_line(log_path: &Path, message: &str) -> std::io::Result<()> {
+    if let Some(parent) = log_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut file = OpenOptions::new().create(true).append(true).open(log_path)?;
+    file.write_all(format_log_line(message).as_bytes())
+}
+
+fn report_launch_failure(log_path: &Path, session_path: &str, executable: &str, error: &std::io::Error) {
+    let message = format!(
+        "failed to launch index-file for session {session_path}: {}",
+        spawn_error_message(executable, error)
+    );
+    if let Err(log_error) = append_log_line(log_path, &message) {
+        eprintln!(
+            "{message}; failed to write {}: {}",
+            log_path.display(),
+            error_message(&log_error)
+        );
+    }
+}
+
+fn launch_index(session_path: &str) -> Result<(), HandlerError> {
+    let cache_home = process_env::get("XDG_CACHE_HOME")
+        .unwrap_or_else(|| format!("{}/.cache", std::env::var("HOME").unwrap_or_default()));
+    let log_path = Path::new(&cache_home).join("claude-memory").join("pi-index.log");
+    launch_index_with(session_path, CLAUDE_MEMORY, &log_path)
+}
+
+fn launch_index_with(session_path: &str, executable: &str, log_path: &Path) -> Result<(), HandlerError> {
+    if let Some(parent) = log_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| HandlerError::new(error_message(&error)))?;
+    }
+    let mut log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+        .map_err(|error| HandlerError::new(error_message(&error)))?;
+    log_file
+        .write_all(format_log_line(&format!("starting index-file for session {session_path}")).as_bytes())
+        .map_err(|error| HandlerError::new(error_message(&error)))?;
+
+    let spawn = {
+        use std::os::unix::process::CommandExt;
+        std::process::Command::new(executable)
+            .arg("index-file")
+            .arg(session_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(
+                log_file
+                    .try_clone()
+                    .map_err(|error| HandlerError::new(error_message(&error)))?,
+            ))
+            .stderr(Stdio::from(log_file))
+            .process_group(0)
+            .spawn()
+    };
+    match spawn {
+        Ok(child) => {
+            drop(child);
+            Ok(())
+        }
+        Err(error) => {
+            report_launch_failure(log_path, session_path, executable, &error);
+            Ok(())
+        }
+    }
+}
+
+fn spawn_error_message(executable: &str, error: &std::io::Error) -> String {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => format!("spawn {executable} ENOENT"),
+        std::io::ErrorKind::PermissionDenied => format!("spawn {executable} EACCES"),
+        _ => error.to_string(),
+    }
+}
+
+fn error_message(error: &std::io::Error) -> String {
+    error.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    use tempfile::TempDir;
+
+    use super::*;
+
+    fn write_script(directory: &Path, body: &str) -> String {
+        let path = directory.join("fake-claude-memory");
+        fs::write(&path, body).unwrap();
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn launches_index_file_detached_and_logs_the_start() {
+        let temp = TempDir::new().unwrap();
+        let script = write_script(temp.path(), "#!/bin/sh\nsleep 5\n");
+        let log_path = temp.path().join("claude-memory/pi-index.log");
+
+        launch_index_with("/tmp/pi fixture/session.jsonl", &script, &log_path).unwrap();
+
+        let log = fs::read_to_string(&log_path).unwrap();
+        assert!(log.contains("starting index-file for session /tmp/pi fixture/session.jsonl"));
+        assert!(log.contains("] starting index-file"));
+    }
+
+    #[test]
+    fn logs_spawn_failures_without_failing() {
+        let temp = TempDir::new().unwrap();
+        let log_path = temp.path().join("claude-memory/pi-index.log");
+
+        launch_index_with("/tmp/failure.jsonl", "/definitely/missing/claude-memory", &log_path).unwrap();
+
+        let log = fs::read_to_string(&log_path).unwrap();
+        assert!(log.contains("failed to launch index-file for session /tmp/failure.jsonl"));
+        assert!(log.contains("spawn /definitely/missing/claude-memory ENOENT"));
+    }
+}
