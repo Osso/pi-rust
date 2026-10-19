@@ -1409,6 +1409,44 @@ async fn context_members_read_live_runner_state() {
 }
 
 #[tokio::test]
+async fn context_set_thinking_level_invokes_the_session_setter() {
+    let runtime = support::runtime();
+    let current = Arc::new(Mutex::new(ThinkingLevel::Off));
+    let getter = Arc::clone(&current);
+    let setter_target = Arc::clone(&current);
+    let mut runner = ExtensionRunner::new(
+        Vec::new(),
+        runtime,
+        "/tmp",
+        support::session_manager("/tmp"),
+        support::model_registry().await,
+        None,
+    );
+    runner.bind_core(
+        support::actions(),
+        ExtensionContextActions {
+            get_thinking_level: Some(Arc::new(move || *getter.lock().unwrap())),
+            set_thinking_level: Some(Arc::new(move |level| {
+                *setter_target.lock().unwrap() = level;
+                Ok(())
+            })),
+            ..support::context_actions()
+        },
+        None,
+    );
+    let ctx = runner.create_context();
+
+    ctx.set_thinking_level(ThinkingLevel::Ultra).unwrap();
+
+    assert_eq!(ctx.get_thinking_level().unwrap(), ThinkingLevel::Ultra);
+    runner.invalidate(None);
+    assert_eq!(
+        ctx.set_thinking_level(ThinkingLevel::Low).unwrap_err().message,
+        STALE_CONTEXT_MESSAGE
+    );
+}
+
+#[tokio::test]
 async fn stale_context_reads_throw_the_typescript_error_text() {
     let runtime = support::runtime();
     let runner = support::runner_for(Vec::new(), "/tmp", runtime, support::model_registry().await);

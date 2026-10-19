@@ -379,8 +379,11 @@ pub struct ExtensionUiOverlayOptions {
 pub struct ExtensionUiCustomOptions {
     pub overlay: Option<bool>,
     pub overlay_options: Option<Arc<dyn Fn() -> ExtensionUiOverlayOptions + Send + Sync>>,
-    pub on_handle: Option<Arc<dyn Fn(Arc<dyn ExtensionUiOverlayHandle>) + Send + Sync>>,
+    pub on_handle: Option<ExtensionUiOnHandle>,
 }
+
+/// `onHandle` callback receiving the overlay handle.
+pub type ExtensionUiOnHandle = Arc<dyn Fn(Arc<dyn ExtensionUiOverlayHandle>) + Send + Sync>;
 
 pub type TerminalInputHandler = Arc<dyn Fn(&str) -> Option<TerminalInputResult> + Send + Sync>;
 
@@ -650,6 +653,7 @@ pub struct ExtensionContextState {
     pub(super) settings_manager: Option<Arc<Mutex<SettingsManager>>>,
     pub(super) get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync>,
     pub(super) get_thinking_level_fn: Arc<dyn Fn() -> ThinkingLevel + Send + Sync>,
+    pub(super) set_thinking_level_fn: Arc<dyn Fn(ThinkingLevel) -> Result<(), HandlerError> + Send + Sync>,
     pub(super) get_scoped_models: Arc<dyn Fn() -> Vec<ScopedModel> + Send + Sync>,
     pub(super) get_footer_data: Arc<dyn Fn() -> Option<Arc<FooterDataProvider>> + Send + Sync>,
     pub(super) is_idle_fn: Arc<dyn Fn() -> bool + Send + Sync>,
@@ -704,6 +708,7 @@ impl ExtensionContextState {
             settings_manager,
             get_model: Arc::new(|| None),
             get_thinking_level_fn: Arc::new(|| ThinkingLevel::Off),
+            set_thinking_level_fn: Arc::new(|_| Ok(())),
             get_scoped_models: Arc::new(Vec::new),
             get_footer_data: Arc::new(|| None),
             is_idle_fn: Arc::new(|| true),
@@ -903,6 +908,11 @@ impl ExtensionContext {
 
     pub fn get_thinking_level(&self) -> Result<ThinkingLevel, HandlerError> {
         self.thinking_level()
+    }
+
+    pub fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), HandlerError> {
+        let setter = self.read(|state| Arc::clone(&state.set_thinking_level_fn))?;
+        setter(level)
     }
 
     pub fn get_scoped_models(&self) -> Result<Vec<ScopedModel>, HandlerError> {
@@ -2452,6 +2462,7 @@ pub struct ExtensionActions {
 pub struct ExtensionContextActions {
     pub get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync>,
     pub get_thinking_level: Option<Arc<dyn Fn() -> ThinkingLevel + Send + Sync>>,
+    pub set_thinking_level: Option<SetThinkingLevelHandler>,
     pub get_scoped_models: Option<Arc<dyn Fn() -> Vec<ScopedModel> + Send + Sync>>,
     pub get_footer_data: Option<Arc<dyn Fn() -> Option<Arc<FooterDataProvider>> + Send + Sync>>,
     pub is_idle: Arc<dyn Fn() -> bool + Send + Sync>,
