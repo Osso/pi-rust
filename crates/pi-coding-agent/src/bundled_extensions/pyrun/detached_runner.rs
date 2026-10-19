@@ -186,20 +186,59 @@ pub struct DetachedPyrunRunnerInvocation {
     pub executable: String,
 }
 
-/// `getDetachedPyrunRunnerInvocation` (compiled mode).
-pub fn get_detached_pyrun_runner_invocation(manifest_path: &str) -> DetachedPyrunRunnerInvocation {
-    let executable = std::env::current_exe()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|_| "pi".to_owned());
-    DetachedPyrunRunnerInvocation {
-        args: vec![DETACHED_PYRUN_RUNNER_MODE.to_owned(), manifest_path.to_owned()],
-        executable,
+/// `getDetachedPyrunRunnerInvocation` options.
+#[derive(Debug, Clone, Default)]
+pub struct DetachedPyrunRunnerInvocationOptions {
+    pub compiled: bool,
+    pub entry_path: Option<String>,
+    pub executable_path: Option<String>,
+}
+
+/// `getDetachedPyrunRunnerInvocation`.
+pub fn get_detached_pyrun_runner_invocation(
+    manifest_path: &str,
+    options: &DetachedPyrunRunnerInvocationOptions,
+) -> Result<DetachedPyrunRunnerInvocation, String> {
+    let executable = match &options.executable_path {
+        Some(executable) => executable.clone(),
+        None => std::env::current_exe()
+            .map_err(|error| error.to_string())?
+            .to_string_lossy()
+            .into_owned(),
+    };
+    if options.compiled && options.entry_path.is_none() {
+        return Ok(DetachedPyrunRunnerInvocation {
+            args: vec![DETACHED_PYRUN_RUNNER_MODE.to_owned(), manifest_path.to_owned()],
+            executable,
+        });
     }
+    let Some(entry_path) = &options.entry_path else {
+        return Err("Detached Pyrun runner entry path is required".to_owned());
+    };
+    let args = if Path::new(entry_path)
+        .extension()
+        .is_some_and(|extension| extension == "ts")
+    {
+        vec![
+            "--experimental-strip-types".to_owned(),
+            entry_path.clone(),
+            manifest_path.to_owned(),
+        ]
+    } else {
+        vec![entry_path.clone(), manifest_path.to_owned()]
+    };
+    Ok(DetachedPyrunRunnerInvocation { args, executable })
 }
 
 /// `launchDetachedPyrunRunner`.
 pub fn launch_detached_pyrun_runner(manifest_path: &str) -> Result<u32, String> {
-    let invocation = get_detached_pyrun_runner_invocation(manifest_path);
+    let invocation = get_detached_pyrun_runner_invocation(
+        manifest_path,
+        &DetachedPyrunRunnerInvocationOptions {
+            compiled: true,
+            ..Default::default()
+        },
+    )?;
     let mut command = Command::new(&invocation.executable);
     command
         .args(&invocation.args)
