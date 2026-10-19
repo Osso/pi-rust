@@ -27,9 +27,8 @@ impl ThemeSelectorComponent {
         on_cancel: Rc<dyn Fn()>,
         on_preview: Rc<dyn Fn(String)>,
     ) -> Self {
-        let themes = get_available_themes().unwrap_or_else(|error| {
-            crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string())
-        });
+        let themes = get_available_themes()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught(error.label(), error.to_string()));
         let theme_items: Vec<SelectItem> = themes
             .iter()
             .map(|name| {

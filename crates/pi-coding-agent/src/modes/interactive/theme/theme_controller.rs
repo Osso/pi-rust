@@ -14,7 +14,7 @@ use super::{
     resolve_theme_setting, set_theme, set_theme_instance,
 };
 use crate::core::settings_manager::SettingsManager;
-use crate::utils::uncaught::{ERROR, throw_uncaught};
+use crate::utils::uncaught::throw_uncaught;
 
 /// The TUI surface used by the theme controller.
 pub trait ThemeUi {
@@ -72,7 +72,8 @@ impl ControllerCore {
     }
 
     fn apply_theme_name(&mut self, theme_name: &str, show_error: bool) -> super::SetThemeResult {
-        let result = set_theme(theme_name, true).unwrap_or_else(|error| throw_uncaught(ERROR, error.to_string()));
+        let result =
+            set_theme(theme_name, true).unwrap_or_else(|error| throw_uncaught(error.label(), error.to_string()));
         self.active_theme_name = Some(if result.success {
             theme_name.to_owned()
         } else {
@@ -228,7 +229,7 @@ impl InteractiveThemeController {
             return;
         };
         if set_theme(&theme_name, true)
-            .unwrap_or_else(|error| throw_uncaught(ERROR, error.to_string()))
+            .unwrap_or_else(|error| throw_uncaught(error.label(), error.to_string()))
             .success
         {
             let ui = Rc::clone(&self.core.borrow().ui);

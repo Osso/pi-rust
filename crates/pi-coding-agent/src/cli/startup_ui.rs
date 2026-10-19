@@ -169,9 +169,8 @@ pub fn apply_detected_startup_theme(
     let terminal_theme = detect_terminal_theme_for_auto(&detector, THEME_DETECTION_TIMEOUT, env);
     let name =
         resolve_theme_setting(theme_setting, terminal_theme).unwrap_or_else(|| terminal_theme.as_str().to_owned());
-    set_theme(&name, false).unwrap_or_else(|error| {
-        crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string())
-    });
+    set_theme(&name, false)
+        .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught(error.label(), error.to_string()));
     ui.invalidate();
     ui.request_render(false);
 }

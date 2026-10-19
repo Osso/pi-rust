@@ -404,7 +404,7 @@ impl std::fmt::Display for ThemeError {
             }
             Self::VariableReferenceNotFound(name) => write!(formatter, "Variable reference not found: {name}"),
             Self::Parse { label, message } => write!(formatter, "Failed to parse theme {label}: {message}"),
-            Self::Syntax { message } => write!(formatter, "SyntaxError: {message}"),
+            Self::Syntax { message } => formatter.write_str(message),
             Self::Io { message } => formatter.write_str(message),
             Self::Invalid { message, .. } => formatter.write_str(message),
             Self::NameWithSlash(name) => write!(
@@ -421,6 +421,16 @@ impl std::fmt::Display for ThemeError {
 }
 
 impl std::error::Error for ThemeError {}
+
+impl ThemeError {
+    /// Node error name: raw `JSON.parse` failures from `getBuiltinThemes` are SyntaxErrors.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Syntax { .. } => "SyntaxError",
+            _ => crate::utils::uncaught::ERROR,
+        }
+    }
+}
 
 /// Validated (or built-in raw) theme JSON.
 #[derive(Clone, Debug)]

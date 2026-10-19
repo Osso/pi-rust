@@ -449,3 +449,42 @@ fn missing_builtin_theme_differential() {
     );
     assert_eq!(rust.code, 1, "Rust exits with the TypeScript exit code");
 }
+
+/// `pi -p hi` with a corrupt built-in theme: `getBuiltinThemes` throws a V8
+/// `SyntaxError`, the `initTheme` fallback re-throws, and the CLI handler prints
+/// `Error: <message>`.
+#[test]
+fn invalid_builtin_theme_differential() {
+    let lock = source_lock();
+    verify_source_head(&lock);
+
+    let rust_fixture = fixture(&lock);
+    std::fs::write(rust_fixture.package_dir.join("theme/dark.json"), "{ not json").expect("corrupt theme");
+    let rust = run_rust(&rust_fixture, &["-p", "hi"]);
+
+    let ts_package = rust_fixture._temp.path().join("ts-bad-package");
+    let ts_theme_dir = ts_package.join("dist/modes/interactive/theme");
+    std::fs::create_dir_all(&ts_theme_dir).expect("ts theme dir");
+    std::fs::write(ts_theme_dir.join("dark.json"), "{ not json").expect("corrupt theme");
+    let ts_fixture = fixture(&lock);
+    let package_dir = lock.worktree.join("packages/coding-agent");
+    let mut command = Command::new(lock.worktree.join("node_modules/.bin/tsx"));
+    command
+        .arg("--tsconfig")
+        .arg(lock.worktree.join("tsconfig.json"))
+        .arg(package_dir.join("src/cli.ts"))
+        .args(["-p", "hi"])
+        .current_dir(&ts_fixture.work);
+    for (name, value) in environment(&ts_fixture, &ts_package) {
+        command.env(name, value);
+    }
+    let ts_line = first_error_line(command, Duration::from_secs(120));
+
+    let rust_line = rust
+        .stderr
+        .lines()
+        .find(|line| line.starts_with("Error: "))
+        .expect("rust prints the theme error");
+    assert_eq!(rust_line, ts_line, "theme parse error must match the pinned CLI");
+    assert_eq!(rust.code, 1, "Rust exits with the TypeScript exit code");
+}
