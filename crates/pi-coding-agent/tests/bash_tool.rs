@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::TextOrImageContent;
 use pi_coding_agent::core::tools::bash::{
-    BashExecOptions, BashExecResult, BashOperations, BashTool, BashToolOptions, create_local_bash_operations,
+    BashDetachOptions, BashDetachedResult, BashExecOptions, BashExecResult, BashOperations, BashTool, BashToolOptions,
+    DetachedJobArtifacts, create_local_bash_operations,
 };
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -324,4 +325,250 @@ fn abort_signal_reports_command_aborted() {
         ))
         .expect_err("aborted");
     assert_eq!(error.message, "Command aborted");
+}
+
+#[test]
+fn detached_output_keeps_the_truncation_footer() {
+    struct Detaching;
+    impl BashOperations for Detaching {
+        fn exec<'a>(
+            &'a self,
+            _command: &'a str,
+            _cwd: &'a str,
+            options: BashExecOptions,
+        ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
+            Box::pin(async move {
+                let output = (1..=2500).map(|line| format!("line {line}\n")).collect::<String>();
+                (options.on_data)(output.as_bytes());
+                Ok(BashExecResult {
+                    exit_code: None,
+                    detached: Some(BashDetachedResult {
+                        job_id: "background".to_owned(),
+                        message: "Background job started".to_owned(),
+                        log_path: None,
+                    }),
+                })
+            })
+        }
+    }
+    let temp = tempfile::tempdir().expect("temp dir");
+    let tool = BashTool::with_options(
+        temp.path().to_string_lossy(),
+        BashToolOptions {
+            operations: Some(Arc::new(Detaching)),
+            ..Default::default()
+        },
+    );
+    let result = execute(&tool, json!({"command": "detach"})).expect("detached result");
+    let output = text(&result);
+    assert!(
+        output.contains("[Showing lines 1477-2500 of 2500 (10.0KB limit). Full output: "),
+        "{output}"
+    );
+    assert!(
+        output.contains("Command moved to background as job background. Background job started"),
+        "{output}"
+    );
+    assert_eq!(result.details.expect("details")["backgroundJobId"], json!("background"));
+}
+
+#[test]
+fn local_operations_remove_artifacts_when_not_detached() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let directory = temp.path().join("job");
+    std::fs::create_dir_all(&directory).expect("artifact directory");
+    let artifacts = DetachedJobArtifacts {
+        directory: directory.to_string_lossy().into_owned(),
+        output_path: directory.join("output.log").to_string_lossy().into_owned(),
+    };
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    let result = runtime
+        .block_on(create_local_bash_operations(None).exec(
+            "true",
+            &temp.path().to_string_lossy(),
+            BashExecOptions {
+                on_data: Arc::new(|_| {}),
+                signal: None,
+                timeout: None,
+                env: BTreeMap::new(),
+                detach: Some(BashDetachOptions {
+                    artifacts: Some(artifacts),
+                    job_id: None,
+                    signal: CancellationToken::new(),
+                }),
+            },
+        ))
+        .expect("local command");
+    assert_eq!(result.exit_code, Some(0));
+    assert!(result.detached.is_none());
+    assert!(!directory.exists(), "artifacts directory must be removed");
+}
+
+#[test]
+fn local_operations_detach_uses_the_default_result() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let directory = temp.path().join("job");
+    std::fs::create_dir_all(&directory).expect("artifact directory");
+    let artifacts = DetachedJobArtifacts {
+        directory: directory.to_string_lossy().into_owned(),
+        output_path: directory.join("output.log").to_string_lossy().into_owned(),
+    };
+    let detach_signal = CancellationToken::new();
+    detach_signal.cancel();
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    let result = runtime
+        .block_on(create_local_bash_operations(None).exec(
+            "sleep 0.2",
+            &temp.path().to_string_lossy(),
+            BashExecOptions {
+                on_data: Arc::new(|_| {}),
+                signal: None,
+                timeout: None,
+                env: BTreeMap::new(),
+                detach: Some(BashDetachOptions {
+                    artifacts: Some(artifacts),
+                    job_id: None,
+                    signal: detach_signal,
+                }),
+            },
+        ))
+        .expect("local command");
+    let detached = result.detached.expect("detached result");
+    assert_eq!(detached.job_id, "background");
+    assert_eq!(detached.message, "Background job started");
+    assert_eq!(detached.log_path, None);
+}
+
+#[test]
+fn detach_keeps_the_timeout_active() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let directory = temp.path().join("job");
+    std::fs::create_dir_all(&directory).expect("artifact directory");
+    let artifacts = DetachedJobArtifacts {
+        directory: directory.to_string_lossy().into_owned(),
+        output_path: directory.join("output.log").to_string_lossy().into_owned(),
+    };
+    let marker = temp.path().join("alive.txt");
+    let detach_signal = CancellationToken::new();
+    detach_signal.cancel();
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    let result = runtime
+        .block_on(create_local_bash_operations(None).exec(
+            &format!("sleep 0.5; echo alive > {}", marker.to_string_lossy()),
+            &temp.path().to_string_lossy(),
+            BashExecOptions {
+                on_data: Arc::new(|_| {}),
+                signal: None,
+                timeout: Some(0.2),
+                env: BTreeMap::new(),
+                detach: Some(BashDetachOptions {
+                    artifacts: Some(artifacts),
+                    job_id: None,
+                    signal: detach_signal,
+                }),
+            },
+        ))
+        .expect("local command");
+    assert!(result.detached.is_some());
+    runtime.block_on(async {
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    });
+    assert!(!marker.exists(), "detached command must be killed at its timeout");
+}
+
+#[test]
+fn finishes_without_an_extra_update() {
+    struct OneChunk;
+    impl BashOperations for OneChunk {
+        fn exec<'a>(
+            &'a self,
+            _command: &'a str,
+            _cwd: &'a str,
+            options: BashExecOptions,
+        ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
+            Box::pin(async move {
+                (options.on_data)(b"line\n");
+                Ok(BashExecResult {
+                    exit_code: Some(0),
+                    detached: None,
+                })
+            })
+        }
+    }
+    let temp = tempfile::tempdir().expect("temp dir");
+    let tool = BashTool::with_options(
+        temp.path().to_string_lossy(),
+        BashToolOptions {
+            operations: Some(Arc::new(OneChunk)),
+            ..Default::default()
+        },
+    );
+    let updates = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::clone(&updates);
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    runtime
+        .block_on(tool.execute(
+            "call".to_owned(),
+            json!({"command": "one-chunk"}),
+            None,
+            Arc::new(move |result| {
+                captured.lock().expect("updates lock").push(result);
+            }),
+            None,
+        ))
+        .expect("bash result");
+    let updates = updates.lock().expect("updates lock");
+    assert_eq!(updates.len(), 2);
+    assert!(updates[0].content.is_empty());
+    assert!(updates[0].details.is_none());
+    assert!(text(&updates[1]).contains("line"));
+}
+
+#[test]
+fn does_not_emit_updates_after_completion() {
+    struct TwoChunks;
+    impl BashOperations for TwoChunks {
+        fn exec<'a>(
+            &'a self,
+            _command: &'a str,
+            _cwd: &'a str,
+            options: BashExecOptions,
+        ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
+            Box::pin(async move {
+                (options.on_data)(b"a\n");
+                (options.on_data)(b"b\n");
+                Ok(BashExecResult {
+                    exit_code: Some(0),
+                    detached: None,
+                })
+            })
+        }
+    }
+    let temp = tempfile::tempdir().expect("temp dir");
+    let tool = BashTool::with_options(
+        temp.path().to_string_lossy(),
+        BashToolOptions {
+            operations: Some(Arc::new(TwoChunks)),
+            ..Default::default()
+        },
+    );
+    let updates = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = Arc::clone(&updates);
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    runtime
+        .block_on(tool.execute(
+            "call".to_owned(),
+            json!({"command": "two-chunks"}),
+            None,
+            Arc::new(move |_result| {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }),
+            None,
+        ))
+        .expect("bash result");
+    let completed = updates.load(std::sync::atomic::Ordering::SeqCst);
+    runtime.block_on(async {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    });
+    assert_eq!(updates.load(std::sync::atomic::Ordering::SeqCst), completed);
 }

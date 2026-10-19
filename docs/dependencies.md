@@ -4,7 +4,7 @@ All direct dependencies are exact-pinned.
 
 ## Test infrastructure
 
-- `rustix = 1.1.5` (`process`; development dependency of `pi-ai`, `pi-client`, `pi-js-compat`, `pi-protocol`, `pi-server`, `pi-session-sqlite`, and `pi-telemetry`) — `process::kill_process_group` tears down the tsx oracle process group in `tests/support/oracle.rs`; oracle children are spawned with `process_group(0)` so a dead test process cannot leave Node/esbuild descendants behind. Crates that already depend on `rustix` at runtime reuse the same pinned release.
+- `rustix = 1.1.5` (`process`; development dependency of `pi-ai`, `pi-client`, `pi-evals`, `pi-js-compat`, `pi-protocol`, `pi-server`, `pi-session-sqlite`, `pi-telemetry`, and `pi-tui`) — `process::kill_process_group` tears down the tsx oracle process group in `tests/support/oracle.rs`; oracle children are spawned with `process_group(0)` so a dead test process cannot leave Node/esbuild descendants behind. Crates that already depend on `rustix` at runtime reuse the same pinned release.
 
 ## Runtime
 
@@ -49,6 +49,20 @@ All direct dependencies are exact-pinned.
 - HTML export embeds the pinned source assets `marked` 18.0.5 and `highlight.js` 11.9.0 (plus `template.html`/`template.css`/`template.js`) as `include_str!` data; they are vendored source files, not Cargo dependencies. See `docs/porting/traceability/coding-agent-export-html.md` for hashes.
 - `tempfile = 3.27.0` (development) — creates isolated temporary files, symlinks, and git repositories for path and process tests.
 - `core::package_manager` adds `pi-js-compat` (path, `=0.0.0`) for `minimatch` 10.2.5 pattern matching in package resource filters, `semver = 1.0.28` for npm version validation/range matching (exact, caret, tilde, wildcard, comparator ranges), `globset = 0.4.20` for `glob`-style manifest-entry expansion (dot entries skipped, filesystem order preserved), `ignore = 0.4.23` for `.gitignore`/`.ignore`/`.fdignore` handling with the same matcher as the skill loader, `sha2 = 0.10.9` for the `createHash("sha256")` temporary-directory name, and `futures-util = 0.3.34` for bounded-concurrency update checks, git updates, and the `Shared` dispatch future that mirrors a TypeScript `Promise` observed by waiters. `serde_json` gains the `preserve_order` feature so settings/auth/keybindings files and package-filter objects keep TypeScript insertion order. `utils::paths::relative_path` is now `pub` so package sources reuse the ported path-relative implementation instead of duplicating it.
+
+### `pi-evals`
+
+- `pi-coding-agent` (path) — drives the real `AgentSession` through `create_agent_session_services`/`create_agent_session_from_services`, reuses `SessionManager`, `SettingsManager`, `ModelRuntime`, `ResourceLoader`, extension types, `NoTools`, and the JavaScript-compatible `js_json::stringify` for `runs.jsonl` and canonical eval keys.
+- `pi-ai` (path) — model/usage/message types, `contentText`, faux-provider support in tests, and `crypto.randomUUID` (`utils::uuid::random_uuid`).
+- `pi-agent-core` (path) — `AgentMessage`/`ThinkingLevel` types used by the transcript adapter and session creation.
+- `pi-js-compat` (path, `=0.0.0`) — `String.prototype.trim`, `localeCompare` ordering, JavaScript number serialization, and the `process.env` model used for `PI_PROVIDER`/`PI_MODEL`/`PI_EVAL_ARTIFACT_DIR`/color detection.
+- `serde = 1.0.229` / `serde_json = 1.0.151` (`preserve_order`, `float_roundtrip`) — wire records with TypeScript field order and JavaScript number serialization.
+- `indexmap = 2.14.2` — insertion-ordered observation groups and result lookup, matching TypeScript `Map` iteration.
+- `sha2 = 0.10.9` — `createHash("sha256")` for eval group keys and artifact directories.
+- `tempfile = 3.27.0` — `mkdtemp(join(tmpdir(), "pi-eval-"))` isolated eval workspaces.
+- `regex = 1.13.1` — extension-import scanning in the extension-authoring judge.
+- `tokio = 1.53.3` (`rt`, `macros`, `sync`, `time`, `fs`) — async session runs, file I/O, and cancellation waits.
+- `tokio-util = 0.7.20` — `CancellationToken` as the `AbortSignal` mapping.
 
 ### `pi-ai`
 
@@ -118,7 +132,7 @@ The SQLite slice also relies on the pinned TypeScript toolchain (`tsx`) through 
 - `tokio-util = 0.7.20` (`rt`) — `CancellationToken` maps the `AbortSignal` passed to autocomplete suggestions and kills an in-flight `fd` child; the editor aborts superseded requests and `CancellableLoader` maps its abort signal.
 - `tempfile = 3.27.0` (development) — creates isolated directory trees and symlinks for autocomplete tests.
 - `pi-js-compat` (path, `=0.0.0`) — shared ECMAScript string whitespace, `Number`, `Buffer` Base64, and `localeCompare`; `terminal_image` no longer carries a crate-local Base64 implementation.
-- `rustix = 1.1.5` (exact, `termios` feature) — safe termios raw-mode and window-size syscalls for `ProcessTerminal`; `unsafe_code = "forbid"` rules out `libc`/`nix` wrappers that need unsafe call sites.
+- `rustix = 1.1.5` (exact, `termios` feature; `process` as a development feature) — safe termios raw-mode and window-size syscalls for `ProcessTerminal`, plus `process::kill_process_group` for the shared tsx oracle teardown; `unsafe_code = "forbid"` rules out `libc`/`nix` wrappers that need unsafe call sites.
 - `src/unicode_tables.rs` is generated data, not a dependency: Unicode 17.0 emoji sequences, character-property ranges, and `get-east-asian-width` 1.6.0 width ranges (see `docs/porting/traceability/utils.md`).
 - The editor adds no dependency: it reuses `unicode-segmentation`, `regex`, `tokio`, and `tokio-util`.
 

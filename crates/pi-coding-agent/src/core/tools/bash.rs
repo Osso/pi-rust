@@ -9,13 +9,14 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Stdio;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::number::js_number_to_string;
 use pi_js_compat::string::{js_trim, js_trim_end};
 use pi_tui::Text;
 use pi_tui::tui::{Component, ComponentRef, Container};
@@ -37,7 +38,9 @@ use crate::core::detached_job_runner::{
     DetachedJobAgentType, DetachedJobLifecycleController, DetachedJobOwnership, LaunchDetachedBashInput,
     RegisterDetachedJobInput,
 };
-use crate::core::extensions::types::{ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::core::extensions::types::{
+    ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
+};
 use crate::core::multi_agent_store::{AgentLifecycle, is_active_lifecycle};
 use crate::core::tool_detach_registry::{ToolDetachHandle, ToolDetachRegistry};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
@@ -61,6 +64,9 @@ pub const BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribut
         snippet: "Execute bash commands (ls, grep, find, etc.)",
         guidelines: &["You can inspect PI_* environment variables for current model and session details."],
     };
+
+/// `BashToolDetachRegistry`: the shared detach registry for bash tool calls.
+pub type BashToolDetachRegistry = ToolDetachRegistry;
 
 /// Output artifact paths for a detached job.
 pub use crate::core::detached_job_runner::DetachedJobArtifacts;
@@ -109,6 +115,8 @@ pub type BashSessionEnvironmentProvider = Arc<dyn Fn() -> Option<BashSessionEnvi
 #[derive(Clone)]
 pub struct BashBackgroundJobs {
     pub get_lifecycle: Arc<dyn Fn() -> Option<Arc<DetachedJobLifecycleController>> + Send + Sync>,
+    /// Fixed lifecycle used when `get_lifecycle` yields nothing.
+    pub lifecycle: Option<Arc<DetachedJobLifecycleController>>,
 }
 
 /// Result of executing one shell command.
@@ -176,7 +184,8 @@ fn resolve_timeout_ms(timeout: Option<f64>) -> Result<Option<f64>, ToolError> {
     let timeout_ms = timeout * 1000.0;
     if timeout_ms > MAX_TIMEOUT_MS {
         return Err(ToolError::new(format!(
-            "Invalid timeout: maximum is {MAX_TIMEOUT_SECONDS} seconds"
+            "Invalid timeout: maximum is {} seconds",
+            js_number_to_string(MAX_TIMEOUT_SECONDS)
         )));
     }
     Ok(Some(timeout_ms))
@@ -263,7 +272,7 @@ async fn exec_local(
             readers.push(spawn_reader(stderr, Arc::clone(&options.on_data)));
         }
     }
-    let mut poll_task = output_file.as_ref().and_then(|_| {
+    let mut poller = output_file.as_ref().and_then(|_| {
         options.detach.as_ref().and_then(|detach| {
             detach
                 .artifacts
@@ -290,18 +299,21 @@ async fn exec_local(
                 None
             }
             () = cancellation(detach_signal) => {
+                if let Some(poller) = &poller {
+                    poller.poll_once(&options.on_data);
+                }
+                // The source keeps the timeout handle alive after detaching, so a
+                // backgrounded command is still killed when its timeout expires.
+                if let (Some(deadline), Some(pid)) = (deadline, child_pid) {
+                    tokio::spawn(async move {
+                        tokio::time::sleep_until(deadline).await;
+                        kill_process_tree(pid);
+                    });
+                }
                 detached = Some(BashDetachedResult {
-                    job_id: options
-                        .detach
-                        .as_ref()
-                        .and_then(|detach| detach.job_id.clone())
-                        .unwrap_or_else(|| "background".to_owned()),
+                    job_id: "background".to_owned(),
                     message: "Background job started".to_owned(),
-                    log_path: options
-                        .detach
-                        .as_ref()
-                        .and_then(|detach| detach.artifacts.as_ref())
-                        .map(|artifacts| artifacts.output_path.clone()),
+                    log_path: None,
                 });
                 None
             }
@@ -316,8 +328,8 @@ async fn exec_local(
         }
     };
 
-    if let Some(task) = poll_task.take() {
-        task.abort();
+    if let Some(poller) = poller.take() {
+        poller.task.abort();
     }
     if detached.is_some() {
         for reader in readers {
@@ -334,14 +346,17 @@ async fn exec_local(
     if let Some(pid) = child_pid {
         untrack_detached_child_pid(pid);
     }
-    if timed_out {
-        return Err(ToolError::new(format!(
-            "timeout:{}",
-            options.timeout.unwrap_or_default()
-        )));
+    if let Some(artifacts) = options.detach.as_ref().and_then(|detach| detach.artifacts.as_ref()) {
+        let _ = std::fs::remove_dir_all(&artifacts.directory);
     }
     if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
         return Err(ToolError::new("aborted"));
+    }
+    if timed_out {
+        return Err(ToolError::new(format!(
+            "timeout:{}",
+            js_number_to_string(options.timeout.unwrap_or_default())
+        )));
     }
     let status = match exit_status {
         Some(Ok(status)) => status,
@@ -387,20 +402,49 @@ where
     })
 }
 
-fn spawn_output_poller(path: String, on_data: BashDataCallback) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut offset = 0_u64;
+fn spawn_output_poller(path: String, on_data: BashDataCallback) -> DurableOutputPoller {
+    let offset = Arc::new(AtomicU64::new(0));
+    let poll_offset = Arc::clone(&offset);
+    let poll_path = path.clone();
+    let task = tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(25)).await;
-            let Ok(bytes) = std::fs::read(&path) else {
-                continue;
-            };
-            if bytes.len() as u64 > offset {
-                on_data(&bytes[offset as usize..]);
-                offset = bytes.len() as u64;
-            }
+            poll_durable_output(&poll_path, &poll_offset, &on_data);
         }
-    })
+    });
+    DurableOutputPoller { path, offset, task }
+}
+
+struct DurableOutputPoller {
+    path: String,
+    offset: Arc<AtomicU64>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl DurableOutputPoller {
+    fn poll_once(&self, on_data: &BashDataCallback) {
+        poll_durable_output(&self.path, &self.offset, on_data);
+    }
+}
+
+fn poll_durable_output(path: &str, offset: &AtomicU64, on_data: &BashDataCallback) {
+    let Ok(bytes) = std::fs::read(path) else {
+        return;
+    };
+    loop {
+        let current = offset.load(Ordering::SeqCst);
+        let length = bytes.len() as u64;
+        if length <= current {
+            return;
+        }
+        if offset
+            .compare_exchange(current, length, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            on_data(&bytes[current as usize..]);
+            return;
+        }
+    }
 }
 
 async fn cancellation(signal: Option<&CancellationToken>) {
@@ -447,6 +491,7 @@ pub struct BashTool {
     operations: Arc<dyn BashOperations>,
     custom_operations: bool,
     command_prefix: Option<String>,
+    shell_path: Option<String>,
     expose_session_environment: bool,
     spawn_hook: Option<BashSpawnHook>,
     session_environment: Option<BashSessionEnvironmentProvider>,
@@ -462,6 +507,7 @@ impl BashTool {
 
     pub fn with_options(cwd: impl Into<String>, options: BashToolOptions) -> Self {
         let custom_operations = options.operations.is_some();
+        let shell_path = options.shell_path.clone();
         let operations = options
             .operations
             .unwrap_or_else(|| Arc::new(create_local_bash_operations(options.shell_path.as_deref())));
@@ -471,6 +517,7 @@ impl BashTool {
             operations,
             custom_operations,
             command_prefix: options.command_prefix,
+            shell_path,
             expose_session_environment: options.expose_session_environment.unwrap_or(true),
             spawn_hook: options.spawn_hook,
             session_environment: options.session_environment,
@@ -516,6 +563,10 @@ impl AgentTool for BashTool {
         "bash"
     }
 
+    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
+        crate::core::experimental::get_experimental_tool_constrained_sampling()
+    }
+
     fn execute(
         &self,
         tool_call_id: String,
@@ -528,6 +579,7 @@ impl AgentTool for BashTool {
         let operations = Arc::clone(&self.operations);
         let custom_operations = self.custom_operations;
         let command_prefix = self.command_prefix.clone();
+        let shell_path = self.shell_path.clone();
         let expose_session_environment = self.expose_session_environment;
         let spawn_hook = self.spawn_hook.clone();
         let session_environment = self.session_environment.clone();
@@ -541,6 +593,7 @@ impl AgentTool for BashTool {
                     operations,
                     custom_operations,
                     command_prefix,
+                    shell_path,
                     expose_session_environment,
                     spawn_hook,
                     session_environment,
@@ -562,6 +615,7 @@ struct BashExecutionOptions {
     operations: Arc<dyn BashOperations>,
     custom_operations: bool,
     command_prefix: Option<String>,
+    shell_path: Option<String>,
     expose_session_environment: bool,
     spawn_hook: Option<BashSpawnHook>,
     session_environment: Option<BashSessionEnvironmentProvider>,
@@ -636,7 +690,10 @@ async fn execute_bash(
         options.expose_session_environment,
         options.session_environment.as_ref(),
     );
-    let lifecycle = options.background_jobs.as_ref().and_then(|jobs| (jobs.get_lifecycle)());
+    let lifecycle = options
+        .background_jobs
+        .as_ref()
+        .and_then(|jobs| (jobs.get_lifecycle)().or_else(|| jobs.lifecycle.clone()));
     let detach_controller =
         if options.configured_detach.is_none() && lifecycle.is_some() && options.detach_registry.is_some() {
             Some(CancellationToken::new())
@@ -658,7 +715,7 @@ async fn execute_bash(
     });
     let operations = Arc::clone(&options.operations);
     let custom_operations = options.custom_operations;
-    let shell_path = None::<String>;
+    let shell_path = options.shell_path.clone();
     let env = spawn_context.env.clone();
     let command = spawn_context.command.clone();
     let output = Arc::new(Mutex::new(OutputAccumulator::new(OutputAccumulatorOptions {
@@ -727,7 +784,7 @@ async fn execute_bash(
     match result {
         Ok(result) if result.detached.is_some() => {
             let detached = result.detached.expect("detached result");
-            Ok(format_detached_output(snapshot, detached))
+            Ok(format_detached_output(&output, snapshot, detached))
         }
         Ok(result) => {
             let (text, details) = format_output(&output, &snapshot, "(no output)");
@@ -897,11 +954,7 @@ fn result_from_terminal_bash_agent(
 }
 
 fn format_timeout_seconds(timeout: f64) -> String {
-    if timeout.fract() == 0.0 {
-        format!("{}", timeout as i64)
-    } else {
-        format!("{timeout}")
-    }
+    js_number_to_string(timeout)
 }
 
 async fn observe_foreground_bash_runner(
@@ -1040,10 +1093,13 @@ fn finish_output(
 ) -> super::output_accumulator::OutputSnapshot {
     let mut accumulator = output.lock().expect("output lock");
     accumulator.finish();
+    throttle.mark_finished();
     let snapshot = accumulator.snapshot(SnapshotOptions {
         persist_if_truncated: true,
     });
-    throttle.emit_snapshot(&snapshot);
+    if throttle.take_dirty() {
+        throttle.emit_snapshot(&snapshot);
+    }
     let _ = accumulator.close_temp_file();
     snapshot
 }
@@ -1103,10 +1159,12 @@ fn append_status(text: &str, status: &str) -> String {
 }
 
 fn format_detached_output(
+    output: &Arc<Mutex<OutputAccumulator>>,
     snapshot: super::output_accumulator::OutputSnapshot,
     detached: BashDetachedResult,
 ) -> AgentToolResult {
-    let text = snapshot.content.trim_end().to_owned();
+    let (text, _) = format_output(output, &snapshot, "");
+    let text = js_trim_end(&text).to_owned();
     let mut details = Map::new();
     details.insert("backgroundJobId".to_owned(), Value::String(detached.job_id.clone()));
     if let Some(log_path) = &detached.log_path {
@@ -1132,6 +1190,8 @@ struct UpdateThrottle {
     on_update: AgentToolUpdateCallback,
     last_update_at: Mutex<Instant>,
     timer_running: AtomicBool,
+    dirty: AtomicBool,
+    finished: AtomicBool,
 }
 
 impl UpdateThrottle {
@@ -1144,6 +1204,8 @@ impl UpdateThrottle {
                     .unwrap_or_else(Instant::now),
             ),
             timer_running: AtomicBool::new(false),
+            dirty: AtomicBool::new(false),
+            finished: AtomicBool::new(false),
         }
     }
 
@@ -1158,7 +1220,19 @@ impl UpdateThrottle {
         });
     }
 
+    fn mark_finished(&self) {
+        self.finished.store(true, Ordering::SeqCst);
+    }
+
+    fn take_dirty(&self) -> bool {
+        self.dirty.swap(false, Ordering::SeqCst)
+    }
+
     fn schedule(self: &Arc<Self>, output: &Arc<Mutex<OutputAccumulator>>) {
+        if self.finished.load(Ordering::SeqCst) {
+            return;
+        }
+        self.dirty.store(true, Ordering::SeqCst);
         let elapsed = self.last_update_at.lock().expect("throttle lock").elapsed();
         if elapsed.as_millis() >= u128::from(BASH_UPDATE_THROTTLE_MS) {
             self.emit_now(output);
@@ -1178,6 +1252,10 @@ impl UpdateThrottle {
     }
 
     fn emit_now(&self, output: &Arc<Mutex<OutputAccumulator>>) {
+        if self.finished.load(Ordering::SeqCst) {
+            return;
+        }
+        self.dirty.store(false, Ordering::SeqCst);
         let snapshot = output.lock().expect("output lock").snapshot(SnapshotOptions {
             persist_if_truncated: true,
         });
@@ -1216,9 +1294,9 @@ fn format_bash_call(args: &Value) -> String {
     let command = str_value(args.get("command"));
     let timeout = args.get("timeout").and_then(Value::as_f64);
     let timeout_suffix = match timeout {
-        Some(timeout) if timeout != 0.0 => theme.fg(
+        Some(timeout) if timeout != 0.0 && !timeout.is_nan() => theme.fg(
             ThemeColor::Muted,
-            &format!(" (timeout {}s)", pi_js_compat::number::js_number_to_string(timeout)),
+            &format!(" (timeout {}s)", js_number_to_string(timeout)),
         ),
         _ => String::new(),
     };
@@ -1234,8 +1312,18 @@ fn format_bash_call(args: &Value) -> String {
 }
 
 /// `renderCall` for the bash tool.
-pub fn render_call(args: &Value, _theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
-    Rc::new(RefCell::new(Text::new(format_bash_call(args), 0, 0)))
+pub fn render_call(args: &Value, _theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+    if context.execution_started {
+        context.state.update(|state| {
+            if let Value::Object(state) = state
+                && !state.contains_key("startedAt")
+            {
+                state.insert("startedAt".to_owned(), json!(now_millis()));
+                state.remove("endedAt");
+            }
+        });
+    }
+    super::render_text_component(context, format_bash_call(args))
 }
 
 const BASH_PREVIEW_LINES: usize = 5;
@@ -1388,12 +1476,18 @@ pub fn render_result(
         ))));
     }
 
-    if let Some(started_at) = context.state.get("startedAt").and_then(Value::as_f64) {
-        let ended_at = context
-            .state
-            .get("endedAt")
-            .and_then(Value::as_f64)
-            .unwrap_or_else(now_millis);
+    if !options.is_partial || context.is_error {
+        context.state.update(|state| {
+            if let Value::Object(state) = state
+                && !state.contains_key("endedAt")
+            {
+                state.insert("endedAt".to_owned(), json!(now_millis()));
+            }
+        });
+    }
+    let state = context.state.get();
+    if let Some(started_at) = state.get("startedAt").and_then(Value::as_f64) {
+        let ended_at = state.get("endedAt").and_then(Value::as_f64).unwrap_or_else(now_millis);
         let label = if options.is_partial { "Elapsed" } else { "Took" };
         component.add_child(Rc::new(RefCell::new(Text::new(
             format!(
@@ -1413,10 +1507,19 @@ pub fn render_result(
 
 /// `createBashToolDefinition`: the bash tool plus its renderers.
 pub fn create_bash_tool_definition(cwd: &str, options: BashToolOptions) -> ToolDefinition {
+    let expose_session_environment = options.expose_session_environment.unwrap_or(true);
     let tool: Arc<dyn AgentTool> = Arc::new(BashTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
-    definition.render_call = Some(Arc::new(render_call));
-    definition.render_result = Some(Arc::new(render_result));
+    definition.prompt_snippet = Some(BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
+    definition.prompt_guidelines = expose_session_environment.then(|| {
+        BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION
+            .guidelines
+            .iter()
+            .map(|line| (*line).to_owned())
+            .collect()
+    });
+    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_result = Some(infallible_render_result(render_result));
     definition
 }
 

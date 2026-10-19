@@ -16,6 +16,51 @@ struct Case {
 }
 
 #[test]
+fn coding_agent_edit_prepare_arguments_match_the_pinned_typescript_source() {
+    let cwd = "/tmp/pi-edit-prepare-differential";
+    let cases = [
+        json!(null),
+        json!("garbage"),
+        json!({"path": "file.txt", "oldText": "before", "newText": "after"}),
+        json!({
+            "path": "file.txt",
+            "edits": [{"oldText": "a", "newText": "b"}],
+            "oldText": "c",
+            "newText": "d"
+        }),
+        json!({"path": "file.txt", "edits": "[{\"oldText\":\"a\",\"newText\":\"b\"}]"}),
+        json!({"path": "file.txt", "edits": "not json"}),
+        json!({"path": "file.txt", "oldText": 1, "newText": "b"}),
+    ];
+
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-edit-write-tool-oracle.ts",
+        "packages/coding-agent/src/core/tools/edit.ts",
+    );
+    let expected = oracle.request(&json!({
+        "id": 27_301,
+        "operation": "coding_agent_edit_prepare_arguments",
+        "cases": cases
+            .iter()
+            .map(|params| json!({"kind": "prepare", "cwd": cwd, "params": params}))
+            .collect::<Vec<_>>(),
+    }));
+    assert_eq!(expected["ok"], Value::Bool(true), "{expected}");
+    let expected_results = expected["output"].as_array().expect("oracle output array");
+    assert_eq!(expected_results.len(), cases.len());
+
+    let definition = pi_coding_agent::core::tools::edit::create_edit_tool_definition(
+        cwd,
+        pi_coding_agent::core::tools::edit::EditToolOptions::default(),
+    );
+    let prepare = definition.prepare_arguments.expect("prepare arguments forwarded");
+    for (index, (case, expected)) in cases.iter().zip(expected_results).enumerate() {
+        let actual = prepare(case).expect("prepare arguments");
+        assert_eq!(json!({"ok": true, "value": actual}), *expected, "case {index}");
+    }
+}
+
+#[test]
 fn coding_agent_edit_and_write_tools_match_the_pinned_typescript_source() {
     let temp = tempfile::tempdir().expect("temp dir");
     let cwd = temp.path().to_string_lossy().into_owned();

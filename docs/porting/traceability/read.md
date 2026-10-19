@@ -23,6 +23,8 @@ Rust: `pi_coding_agent::core::tools::read`.
 | `read.ts:416-430` | Abort listeners removed; the promise rejects with the original error | Rust checks cancellation before and after each await. |
 | `read.ts:431-465` | `renderCall`/`renderResult`/`createReadTool` | `render_call`, `render_result`, `create_read_tool_definition`, `create_read_tool`; renderer differential and `tool_definitions_expose_renderers`. |
 
+`constrainedSampling` mirrors `getExperimentalToolSampling()` (`differential_tools_index::tool_definitions_expose_experimental_constrained_sampling`).
+
 Differential: `oracle/coding-agent-read-tool-oracle.ts` executes the real pinned tool over shared temp fixtures (request `27200`, 11 cases) and compares content blocks, details, and error messages.
 
 ## Discrepancies

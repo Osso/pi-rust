@@ -12,8 +12,24 @@ Rust: `crates/pi-coding-agent/src/core/runtime_message_markers.rs`.
 
 ## Deviation (approved by parent slice assignment, recorded here)
 
-The source stores markers in a `WeakMap` keyed by message object identity. Rust `AgentMessage` is an owned value with no stable identity, so the port takes the stored marker as an explicit parameter. The owner (`AgentSession`) supplies it when emitting events; the source itself already forwards it as `runtimeMessageMarker`. `markDuplicateTurnAssistantMessage`, `markDuplicateTurnGuardMessage`, and `getRuntimeMessageMarker` therefore have no Rust counterparts; marker attachment belongs to the agent-session slice's message records.
+The source stores markers in a `WeakMap` keyed by message object identity. Rust
+`AgentMessage` is an owned value with no stable identity, so the port takes the
+stored marker as an explicit parameter. The owner (`AgentSession`) supplies it
+when emitting events:
+
+- Duplicate assistant messages: `AgentSession::mark_duplicate_assistant_message_for_presentation`
+  recomputes the source fingerprint check at `message_end` and sets
+  `AgentMessageEvent.runtime_message_marker`, which is the source's
+  `addRuntimeMessageMarker` read.
+- Guard messages: `AgentSession` created the message itself, so
+  `stored_runtime_message_marker` recognizes the exact content and
+  `inputSource: "extension"` it wrote and feeds it to
+  `is_duplicate_turn_guard_message`.
+
+`markDuplicateTurnAssistantMessage`, `markDuplicateTurnGuardMessage`, and
+`getRuntimeMessageMarker` therefore have no Rust counterparts; marker
+attachment belongs to the owner's message records.
 
 ## Discrepancies
 
-None beyond the identity-map deviation above.
+None beyond the identity-map deviation above. Markers are never serialized, matching the source WeakMap.

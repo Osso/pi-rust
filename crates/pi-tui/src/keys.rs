@@ -1106,6 +1106,149 @@ pub fn is_key_repeat(data: &str) -> bool {
         .any(|marker| data.contains(marker))
 }
 
+/// Typed key-identifier helpers, mirroring the source `Key` object.
+///
+/// TypeScript builds the identifiers with a const object; Rust exposes them as
+/// associated constants and functions on a namespace type.
+pub struct Key;
+
+impl Key {
+    pub const ESCAPE: &'static str = "escape";
+    pub const ESC: &'static str = "esc";
+    pub const ENTER: &'static str = "enter";
+    pub const RETURN: &'static str = "return";
+    pub const TAB: &'static str = "tab";
+    pub const SPACE: &'static str = "space";
+    pub const BACKSPACE: &'static str = "backspace";
+    pub const DELETE: &'static str = "delete";
+    pub const INSERT: &'static str = "insert";
+    pub const CLEAR: &'static str = "clear";
+    pub const HOME: &'static str = "home";
+    pub const END: &'static str = "end";
+    pub const PAGE_UP: &'static str = "pageUp";
+    pub const PAGE_DOWN: &'static str = "pageDown";
+    pub const UP: &'static str = "up";
+    pub const DOWN: &'static str = "down";
+    pub const LEFT: &'static str = "left";
+    pub const RIGHT: &'static str = "right";
+    pub const F1: &'static str = "f1";
+    pub const F2: &'static str = "f2";
+    pub const F3: &'static str = "f3";
+    pub const F4: &'static str = "f4";
+    pub const F5: &'static str = "f5";
+    pub const F6: &'static str = "f6";
+    pub const F7: &'static str = "f7";
+    pub const F8: &'static str = "f8";
+    pub const F9: &'static str = "f9";
+    pub const F10: &'static str = "f10";
+    pub const F11: &'static str = "f11";
+    pub const F12: &'static str = "f12";
+
+    pub const BACKTICK: &'static str = "`";
+    pub const HYPHEN: &'static str = "-";
+    pub const EQUALS: &'static str = "=";
+    pub const LEFT_BRACKET: &'static str = "[";
+    pub const RIGHT_BRACKET: &'static str = "]";
+    pub const BACKSLASH: &'static str = "\\";
+    pub const SEMICOLON: &'static str = ";";
+    pub const QUOTE: &'static str = "'";
+    pub const COMMA: &'static str = ",";
+    pub const PERIOD: &'static str = ".";
+    pub const SLASH: &'static str = "/";
+    pub const EXCLAMATION: &'static str = "!";
+    pub const AT: &'static str = "@";
+    pub const HASH: &'static str = "#";
+    pub const DOLLAR: &'static str = "$";
+    pub const PERCENT: &'static str = "%";
+    pub const CARET: &'static str = "^";
+    pub const AMPERSAND: &'static str = "&";
+    pub const ASTERISK: &'static str = "*";
+    pub const LEFT_PAREN: &'static str = "(";
+    pub const RIGHT_PAREN: &'static str = ")";
+    pub const UNDERSCORE: &'static str = "_";
+    pub const PLUS: &'static str = "+";
+    pub const PIPE: &'static str = "|";
+    pub const TILDE: &'static str = "~";
+    pub const LEFT_BRACE: &'static str = "{";
+    pub const RIGHT_BRACE: &'static str = "}";
+    pub const COLON: &'static str = ":";
+    pub const LESS_THAN: &'static str = "<";
+    pub const GREATER_THAN: &'static str = ">";
+    pub const QUESTION: &'static str = "?";
+
+    pub fn ctrl(key: &str) -> String {
+        format!("ctrl+{key}")
+    }
+
+    pub fn shift(key: &str) -> String {
+        format!("shift+{key}")
+    }
+
+    pub fn alt(key: &str) -> String {
+        format!("alt+{key}")
+    }
+
+    pub fn super_key(key: &str) -> String {
+        format!("super+{key}")
+    }
+
+    pub fn ctrl_shift(key: &str) -> String {
+        format!("ctrl+shift+{key}")
+    }
+
+    pub fn shift_ctrl(key: &str) -> String {
+        format!("shift+ctrl+{key}")
+    }
+
+    pub fn ctrl_alt(key: &str) -> String {
+        format!("ctrl+alt+{key}")
+    }
+
+    pub fn alt_ctrl(key: &str) -> String {
+        format!("alt+ctrl+{key}")
+    }
+
+    pub fn shift_alt(key: &str) -> String {
+        format!("shift+alt+{key}")
+    }
+
+    pub fn alt_shift(key: &str) -> String {
+        format!("alt+shift+{key}")
+    }
+
+    pub fn ctrl_super(key: &str) -> String {
+        format!("ctrl+super+{key}")
+    }
+
+    pub fn super_ctrl(key: &str) -> String {
+        format!("super+ctrl+{key}")
+    }
+
+    pub fn shift_super(key: &str) -> String {
+        format!("shift+super+{key}")
+    }
+
+    pub fn super_shift(key: &str) -> String {
+        format!("super+shift+{key}")
+    }
+
+    pub fn alt_super(key: &str) -> String {
+        format!("alt+super+{key}")
+    }
+
+    pub fn super_alt(key: &str) -> String {
+        format!("super+alt+{key}")
+    }
+
+    pub fn ctrl_shift_alt(key: &str) -> String {
+        format!("ctrl+shift+alt+{key}")
+    }
+
+    pub fn ctrl_shift_super(key: &str) -> String {
+        format!("ctrl+shift+super+{key}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::windows_terminal_session;

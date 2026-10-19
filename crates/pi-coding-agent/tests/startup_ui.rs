@@ -8,7 +8,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use pi_coding_agent::cli::startup_ui::{
-    is_official_distribution, load_startup_themes, load_themes, should_run_first_time_setup, show_startup_selector,
+    is_official_distribution, load_startup_themes, load_themes, should_run_first_time_setup, show_startup_input,
+    show_startup_selector,
 };
 use pi_coding_agent::config;
 use pi_coding_agent::core::package_manager::ResolvedResource;
@@ -271,4 +272,64 @@ fn startup_selector_returns_the_selected_value() {
 #[test]
 fn startup_selector_returns_none_when_cancelled() {
     assert_eq!(run_selector_probe("\u{1b}"), "cancelled");
+}
+
+#[test]
+#[ignore = "child probe entry point"]
+fn startup_input_probe_child() {
+    if !env_probe::in_probe() {
+        return;
+    }
+    let keys: Vec<String> =
+        serde_json::from_str(&std::env::var("PI_STARTUP_INPUT_KEYS").expect("probe keys")).expect("probe keys json");
+    let out = std::env::var("PI_STARTUP_INPUT_OUT").expect("probe out path");
+    let settings_manager = in_memory_settings();
+    let terminal = Rc::new(RefCell::new(ScriptedTerminal::new(keys)));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let value = runtime
+        .block_on(show_startup_input(
+            &settings_manager,
+            terminal,
+            &env(&[("COLORFGBG", "0;15")]),
+            "Your name",
+            Some("name"),
+        ))
+        .expect("input runs");
+    fs::write(out, serde_json::to_string(&json!({ "value": value })).unwrap()).unwrap();
+}
+
+fn run_input_probe(keys: &[&str]) -> Option<String> {
+    let dir = temp_dir("input-probe");
+    let out = dir.join("outcome.json");
+    let output = env_probe::run_probe(
+        "startup_input_probe_child",
+        &[
+            ("PI_STARTUP_INPUT_KEYS", json!(keys).to_string().into()),
+            ("PI_STARTUP_INPUT_OUT", out.as_os_str().to_owned()),
+            (
+                "PI_PACKAGE_DIR",
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).into_os_string(),
+            ),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "startup input probe failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_str(&fs::read_to_string(&out).expect("input outcome")).unwrap();
+    value["value"].as_str().map(str::to_owned)
+}
+
+#[test]
+fn startup_input_returns_the_typed_text() {
+    assert_eq!(run_input_probe(&["hello", "\r"]).as_deref(), Some("hello"));
+}
+
+#[test]
+fn startup_input_returns_none_when_cancelled() {
+    assert_eq!(run_input_probe(&["\u{1b}"]), None);
 }

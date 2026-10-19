@@ -62,11 +62,11 @@ drives the real TypeScript runner through 13 scripted scenarios (`dispatch`,
 
 ## Gaps
 
-- `setSandboxProfile` is not ported: `SessionManager` lacks
-  `setSessionSandboxProfile`, and the interactive theme object is not ported.
-- `relocate`/`relocateAfterToolResult` are callbacks; default errors match the
-  source strings.
-- `DetachedJobLifecycleController` is absent from context actions.
+- None. `setSandboxProfile` is bound through
+  `ExtensionCommandContextActions::set_sandbox_profile` (the session persists it
+  and updates the bwrap status); `relocate`/`relocateAfterToolResult` are
+  callbacks with the source default errors; `getDetachedJobLifecycle` is bound
+  through `ExtensionRunner::bind_detached_job_lifecycle`.
 
 ## Discrepancies
 

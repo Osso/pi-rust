@@ -1590,14 +1590,14 @@ fn custom_tool_definition(call: &'static str, result: &'static str, shell: Rende
             })
         }),
         render_call: Some(Arc::new(move |_args, _theme, _context| {
-            Rc::new(RefCell::new(Text::new(call, 0, 0)))
+            Ok(Rc::new(RefCell::new(Text::new(call, 0, 0))))
         })),
         render_result: Some(Arc::new(move |_result, options, _theme, _context| {
-            Rc::new(RefCell::new(Text::new(
+            Ok(Rc::new(RefCell::new(Text::new(
                 format!("{result} expanded={}", options.expanded),
                 0,
                 0,
-            )))
+            ))))
         })),
     }
 }
@@ -1791,7 +1791,7 @@ fn tool_renderer_cases() -> Vec<(Value, Value)> {
         let tool = case.get("tool").and_then(Value::as_str).expect("tool name");
         let definition = definitions
             .iter()
-            .find(|(name, _)| *name == tool)
+            .find(|(name, _)| name.as_str() == tool)
             .map(|(_, definition)| definition)
             .expect("definition");
         let context = ToolRenderContext {
@@ -1799,7 +1799,8 @@ fn tool_renderer_cases() -> Vec<(Value, Value)> {
             tool_call_id: "call-1".to_owned(),
             invalidate: Arc::new(|| {}),
             last_component: None,
-            state: Value::Null,
+            call_component: None,
+            state: pi_coding_agent::core::extensions::types::ToolRenderState::new(),
             cwd: "/tmp/pi-tool-renderers".to_owned(),
             execution_started: false,
             args_complete: true,
@@ -1827,6 +1828,7 @@ fn tool_renderer_cases() -> Vec<(Value, Value)> {
             };
             renderer(&result, &options, &theme, &context)
         };
+        let component = component.expect("renderer failure");
         renders.push(json!(component.borrow_mut().render(width)));
     }
     let request = json!({

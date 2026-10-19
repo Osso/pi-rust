@@ -475,12 +475,21 @@ async fn launches_an_independent_runner_that_remains_the_payload_parent() {
         .join("foreground-completed")
         .to_string_lossy()
         .into_owned();
+    // The payload blocks until the test has inspected its parent, so a loaded
+    // machine cannot let it exit before `/proc/<pid>/status` is read.
+    let release_path = fixture.directory.path().join("release-payload");
     let data = manifest(
         &fixture,
         job_id,
         &activation_path,
         &foreground_completion_path,
-        vec!["-c".to_owned(), "sleep 0.3; printf independent".to_owned()],
+        vec![
+            "-c".to_owned(),
+            format!(
+                "while [ ! -e '{}' ]; do sleep 0.01; done; printf independent",
+                release_path.display()
+            ),
+        ],
     );
     let manifest_path = fixture
         .directory
@@ -516,6 +525,7 @@ async fn launches_an_independent_runner_that_remains_the_payload_parent() {
         status.contains(&format!("PPid:\t{runner_pid}")),
         "payload must remain a child of the runner: {status}"
     );
+    fs::write(&release_path, "").expect("release payload");
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let agent = read_multi_agent_agent(&fixture.control_db_path, &fixture.session_path, job_id)

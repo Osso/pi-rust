@@ -21,6 +21,15 @@ Rust: `crates/pi-coding-agent/src/core/agent_session_runtime.rs`.
 | `finishSessionReplacement` | `finish_session_replacement` | `withSession` receives `ReplacedSessionContext` |
 | `runDetachedJobArtifactCleanup` | `run_detached_job_artifact_cleanup` | invoked by `create_agent_session_runtime` |
 
+## Port fixes
+
+- `fork` captures the current session file before locking the shared
+  `SessionManager`; the earlier Rust body called `AgentSession::session_file()`
+  while holding the manager guard for `newSession`, which deadlocked on the
+  in-memory fork path. The TypeScript source reads `sessionFile` through the
+  manager getter, so this is a port bug, not a source discrepancy. Covered by
+  `ui_tests::fork_selector_forks_from_the_selected_user_message`.
+
 ## Gaps
 
 - Extension runner relocate handlers (`set_relocate_handler`,

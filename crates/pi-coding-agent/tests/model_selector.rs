@@ -10,7 +10,9 @@ use pi_ai::types::Model;
 use pi_coding_agent::core::model_resolver::ScopedModel;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::provider_composer::ProviderConfigInput;
-use pi_coding_agent::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
+use pi_coding_agent::core::settings_manager::{
+    Settings, SettingsManager, SettingsManagerCreateOptions, SharedSettingsManager, lock_settings_manager,
+};
 use pi_coding_agent::modes::interactive::components::model_selector::{ModelSelectorComponent, ModelSelectorUi};
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, REQUIRED_COLORS, Theme, set_theme_instance};
 use pi_tui::{Component, KeybindingsManager, set_keybindings, strip_terminal_sequences};
@@ -90,8 +92,8 @@ async fn runtime() -> ModelRuntime {
     runtime
 }
 
-fn settings() -> Rc<RefCell<SettingsManager>> {
-    Rc::new(RefCell::new(SettingsManager::in_memory(
+fn settings() -> SharedSettingsManager {
+    std::sync::Arc::new(std::sync::Mutex::new(SettingsManager::in_memory(
         Settings::new(),
         SettingsManagerCreateOptions::default(),
     )))
@@ -103,7 +105,7 @@ fn selector(
     scoped_models: Vec<ScopedModel>,
     on_select: Rc<dyn Fn(&Model)>,
     on_cancel: Rc<dyn Fn()>,
-) -> (ModelSelectorComponent, Rc<TestUi>, Rc<RefCell<SettingsManager>>) {
+) -> (ModelSelectorComponent, Rc<TestUi>, SharedSettingsManager) {
     set_keybindings(KeybindingsManager::new(
         pi_coding_agent::core::keybindings::keybindings(),
         Vec::new(),
@@ -213,8 +215,8 @@ async fn confirm_saves_the_default_model_and_reports_the_selection() {
     component.handle_input("\u{1b}[B");
     component.handle_input("\r");
     assert_eq!(*selected.borrow(), vec![("alpha".to_string(), "alpha-one".to_string())]);
-    assert_eq!(settings.borrow().get_default_provider(), Some("alpha"));
-    assert_eq!(settings.borrow().get_default_model(), Some("alpha-one"));
+    assert_eq!(lock_settings_manager(&settings).get_default_provider(), Some("alpha"));
+    assert_eq!(lock_settings_manager(&settings).get_default_model(), Some("alpha-one"));
 }
 
 #[tokio::test]

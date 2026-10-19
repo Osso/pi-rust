@@ -13,6 +13,8 @@ Rust: `pi_coding_agent::core::tools::write`.
 | `write.ts:202-239` | Resolve path, serialize on the file mutation queue, abort checks before/after each await, create parent directories, write UTF-8, report `content.length` bytes | `execute_write`; `writes_file_contents_and_creates_parent_directories`, `write_reports_utf16_code_unit_length`, differential case. `utf16_len` supplies JavaScript `.length`. |
 | `write.ts:240-273` | `renderCall`/`renderResult`/`createWriteTool` | `render_call`, `render_result`, `create_write_tool_definition`, `create_write_tool`; renderer differential and `tool_definitions_expose_renderers`. |
 
+`constrainedSampling` mirrors `getExperimentalToolSampling()` (`differential_tools_index::tool_definitions_expose_experimental_constrained_sampling`).
+
 Differential: `oracle/coding-agent-edit-write-tool-oracle.ts` (request `27300`, 1 write case) compares the result JSON and the resulting file contents byte-for-byte.
 
 ## Discrepancies

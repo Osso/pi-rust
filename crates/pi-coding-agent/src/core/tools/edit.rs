@@ -17,14 +17,16 @@ use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::edit_diff::{
-    Edit, apply_edits_to_normalized_content, detect_line_ending, generate_diff_string, generate_unified_patch,
-    normalize_to_lf, restore_line_endings, strip_bom,
+    Edit, EditDiffOutcome, apply_edits_to_normalized_content, compute_edits_diff, detect_line_ending,
+    generate_diff_string, generate_unified_patch, normalize_to_lf, restore_line_endings, strip_bom,
 };
 use super::file_mutation_queue::with_file_mutation_queue;
 use super::path_utils::resolve_to_cwd;
-use super::render_utils::{render_tool_path, str_value};
-use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
-use crate::core::extensions::types::{RenderShell, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use super::render_utils::render_tool_path;
+use super::tool_definition_wrapper::{create_tool_definition_from_agent_tool, wrap_agent_tool};
+use crate::core::extensions::types::{
+    HandlerError, RenderShell, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
+};
 use crate::modes::interactive::components::diff::render_diff;
 use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor};
 use crate::utils::child_process::node_error_code;
@@ -144,8 +146,12 @@ impl AgentTool for EditTool {
         "edit"
     }
 
-    fn prepare_arguments(&self, args: Value) -> Value {
-        prepare_edit_arguments(args)
+    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
+        crate::core::experimental::get_experimental_tool_constrained_sampling()
+    }
+
+    fn prepare_arguments(&self, args: Value) -> Result<Value, ToolError> {
+        Ok(prepare_edit_arguments(args))
     }
 
     fn execute(
@@ -242,8 +248,8 @@ async fn execute_edit(
         if let Err(error) = operations.access(&absolute_path).await {
             check_aborted(signal.as_ref())?;
             return Err(ToolError::new(format!(
-                "Could not edit file: {path}. Error code: {}.",
-                node_error_code(&error)
+                "Could not edit file: {path}. {}.",
+                edit_access_error_message(&error)
             )));
         }
         check_aborted(signal.as_ref())?;
@@ -304,12 +310,69 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
     Ok(())
 }
 
+/// `error instanceof Error && "code" in error ? Error code: <code> : String(error)`.
+///
+/// Custom operations surface plain messages; filesystem errors carry an errno.
+fn edit_access_error_message(error: &io::Error) -> String {
+    if error.raw_os_error().is_some() || error.kind() != io::ErrorKind::Other {
+        return format!("Error code: {}", node_error_code(error));
+    }
+    format!("Error: {error}")
+}
+
 // ============================================================================
 // Renderers
 // ============================================================================
 
+const PREVIEW_KEY: &str = "preview";
+const PREVIEW_ARGS_KEY: &str = "previewArgsKey";
+const PREVIEW_PENDING_KEY: &str = "previewPending";
+const SETTLED_ERROR_KEY: &str = "settledError";
+
+/// `EditDiffResult | EditDiffError` preview shown in the call header.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum EditPreview {
+    Diff {
+        diff: String,
+        first_changed_line: Option<usize>,
+    },
+    Error(String),
+}
+
+fn preview_from_state(state: &Value) -> Option<EditPreview> {
+    let preview = state.get(PREVIEW_KEY)?;
+    match preview.get("error").and_then(Value::as_str) {
+        Some(error) => Some(EditPreview::Error(error.to_owned())),
+        None => Some(EditPreview::Diff {
+            diff: preview.get("diff")?.as_str()?.to_owned(),
+            first_changed_line: preview
+                .get("firstChangedLine")
+                .and_then(Value::as_u64)
+                .map(|line| line as usize),
+        }),
+    }
+}
+
+fn preview_to_state(preview: &EditPreview) -> Value {
+    match preview {
+        EditPreview::Diff {
+            diff,
+            first_changed_line,
+        } => json!({"diff": diff, "firstChangedLine": first_changed_line}),
+        EditPreview::Error(error) => json!({"error": error}),
+    }
+}
+
+fn preview_args_key_from_state(state: &Value) -> Option<String> {
+    state.get(PREVIEW_ARGS_KEY).and_then(Value::as_str).map(str::to_owned)
+}
+
 fn render_args_path(args: &Value) -> Option<String> {
-    str_value(args.get("file_path").or_else(|| args.get("path")))
+    match args.get("file_path") {
+        Some(Value::Null) | None => args.get("path").and_then(Value::as_str).map(str::to_owned),
+        Some(Value::String(path)) => Some(path.clone()),
+        Some(_) => None,
+    }
 }
 
 fn format_edit_call(args: &Value, theme: &Theme, cwd: &str) -> String {
@@ -320,7 +383,243 @@ fn format_edit_call(args: &Value, theme: &Theme, cwd: &str) -> String {
     )
 }
 
-fn format_edit_result(_args: &Value, result: &AgentToolResult, theme: &Theme, is_error: bool) -> Option<String> {
+/// `getRenderablePreviewInput`: the path plus the edits that can be previewed.
+fn get_renderable_preview_input(args: &Value) -> Option<(String, Vec<Edit>, Value)> {
+    let path = args
+        .get("path")
+        .and_then(Value::as_str)
+        .or_else(|| args.get("file_path").and_then(Value::as_str))?
+        .to_owned();
+
+    if let Some(Value::Array(edits)) = args.get("edits")
+        && !edits.is_empty()
+        && edits.iter().all(|edit| {
+            edit.get("oldText").is_some_and(Value::is_string) && edit.get("newText").is_some_and(Value::is_string)
+        })
+    {
+        let parsed = edits
+            .iter()
+            .map(|edit| Edit {
+                old_text: edit["oldText"].as_str().unwrap_or_default().to_owned(),
+                new_text: edit["newText"].as_str().unwrap_or_default().to_owned(),
+            })
+            .collect();
+        return Some((path, parsed, Value::Array(edits.clone())));
+    }
+
+    let old_text = args.get("oldText").and_then(Value::as_str)?;
+    let new_text = args.get("newText").and_then(Value::as_str)?;
+    let edits = vec![Edit {
+        old_text: old_text.to_owned(),
+        new_text: new_text.to_owned(),
+    }];
+    Some((path, edits, json!([{"oldText": old_text, "newText": new_text}])))
+}
+
+fn preview_args_key(path: &str, raw_edits: &Value) -> String {
+    serde_json::to_string(&json!({"path": path, "edits": raw_edits})).expect("preview key must serialize")
+}
+
+fn edit_header_bg(preview: Option<&EditPreview>, settled_error: bool) -> ThemeBg {
+    match preview {
+        Some(EditPreview::Error(_)) => ThemeBg::ToolErrorBg,
+        Some(EditPreview::Diff { .. }) => ThemeBg::ToolSuccessBg,
+        None if settled_error => ThemeBg::ToolErrorBg,
+        None => ThemeBg::ToolPendingBg,
+    }
+}
+
+/// `getEditCallRenderComponent`: reuse the last call component.
+fn get_edit_call_component(context: &ToolRenderContext) -> ComponentRef {
+    if let Some(last_component) = &context.last_component
+        && last_component
+            .borrow_mut()
+            .as_any_mut()
+            .and_then(|component| component.downcast_mut::<BoxComponent>())
+            .is_some()
+    {
+        return Rc::clone(last_component);
+    }
+    Rc::new(RefCell::new(BoxComponent::new(1, 1, None)))
+}
+
+fn fill_edit_call_component(
+    component: &ComponentRef,
+    args: &Value,
+    preview: Option<&EditPreview>,
+    settled_error: bool,
+    theme: &Theme,
+    cwd: &str,
+) {
+    let background = edit_header_bg(preview, settled_error);
+    let background_theme = theme.clone();
+    let mut borrowed = component.borrow_mut();
+    let Some(box_component) = borrowed
+        .as_any_mut()
+        .and_then(|component| component.downcast_mut::<BoxComponent>())
+    else {
+        return;
+    };
+    box_component.set_bg_fn(Some(Rc::new(move |text: &str| background_theme.bg(background, text))));
+    box_component.clear();
+    box_component.add_child(Rc::new(RefCell::new(Text::new(
+        format_edit_call(args, theme, cwd),
+        0,
+        0,
+    ))));
+
+    let Some(preview) = preview else {
+        return;
+    };
+    let body = match preview {
+        EditPreview::Error(error) => theme.fg(ThemeColor::Error, error),
+        EditPreview::Diff { diff, .. } => render_diff(diff),
+    };
+    box_component.add_child(Rc::new(RefCell::new(Spacer::new(1))));
+    box_component.add_child(Rc::new(RefCell::new(Text::new(body, 0, 0))));
+}
+
+fn set_edit_preview(
+    state: &crate::core::extensions::types::ToolRenderState,
+    preview: EditPreview,
+    args_key: Option<String>,
+) -> bool {
+    let current = preview_from_state(&state.get());
+    let changed = match (&current, &preview) {
+        (None, _) => true,
+        (Some(EditPreview::Error(current)), EditPreview::Error(next)) => current != next,
+        (Some(EditPreview::Diff { .. }), EditPreview::Error(_)) => true,
+        (Some(EditPreview::Error(_)), EditPreview::Diff { .. }) => true,
+        (
+            Some(EditPreview::Diff {
+                diff: current_diff,
+                first_changed_line: current_line,
+            }),
+            EditPreview::Diff {
+                diff: next_diff,
+                first_changed_line: next_line,
+            },
+        ) => current_diff != next_diff || current_line != next_line,
+    };
+    state.update(|state| {
+        let Value::Object(state) = state else {
+            return;
+        };
+        state.insert(PREVIEW_KEY.to_owned(), preview_to_state(&preview));
+        match &args_key {
+            Some(key) => state.insert(PREVIEW_ARGS_KEY.to_owned(), Value::String(key.clone())),
+            None => state.remove(PREVIEW_ARGS_KEY),
+        };
+        state.insert(PREVIEW_PENDING_KEY.to_owned(), Value::Bool(false));
+    });
+    changed
+}
+
+fn request_edit_preview(
+    state: &crate::core::extensions::types::ToolRenderState,
+    path: String,
+    edits: Vec<Edit>,
+    cwd: String,
+    args_key: Option<String>,
+    invalidate: Arc<dyn Fn() + Send + Sync>,
+) {
+    state.update(|state| {
+        if let Value::Object(state) = state {
+            state.insert(PREVIEW_PENDING_KEY.to_owned(), Value::Bool(true));
+        }
+    });
+    let state = state.clone();
+    std::thread::spawn(move || {
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+            return;
+        };
+        let Ok(outcome) = runtime.block_on(compute_edits_diff(&path, &edits, &cwd)) else {
+            return;
+        };
+        let preview = match outcome {
+            EditDiffOutcome::Diff(result) => EditPreview::Diff {
+                diff: result.diff,
+                first_changed_line: result.first_changed_line,
+            },
+            EditDiffOutcome::Error(error) => EditPreview::Error(error),
+        };
+        if preview_args_key_from_state(&state.get()) != args_key {
+            return;
+        }
+        set_edit_preview(&state, preview, args_key);
+        invalidate();
+    });
+}
+
+/// `renderCall` for the edit tool.
+pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    let component = get_edit_call_component(context);
+    let preview_input = get_renderable_preview_input(args);
+    let args_key = preview_input
+        .as_ref()
+        .map(|(path, _, raw_edits)| preview_args_key(path, raw_edits));
+
+    let state_snapshot = context.state.get();
+    if preview_args_key_from_state(&state_snapshot) != args_key {
+        context.state.update(|state| {
+            if let Value::Object(state) = state {
+                state.remove(PREVIEW_KEY);
+                match &args_key {
+                    Some(key) => state.insert(PREVIEW_ARGS_KEY.to_owned(), Value::String(key.clone())),
+                    None => state.remove(PREVIEW_ARGS_KEY),
+                };
+                state.insert(PREVIEW_PENDING_KEY.to_owned(), Value::Bool(false));
+                state.insert(SETTLED_ERROR_KEY.to_owned(), Value::Bool(false));
+            }
+        });
+    }
+
+    let state_snapshot = context.state.get();
+    let has_preview = state_snapshot.get(PREVIEW_KEY).is_some();
+    let preview_pending = state_snapshot
+        .get(PREVIEW_PENDING_KEY)
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if context.args_complete
+        && let Some((path, edits, _)) = preview_input
+        && !has_preview
+        && !preview_pending
+    {
+        request_edit_preview(
+            &context.state,
+            path,
+            edits,
+            context.cwd.clone(),
+            args_key,
+            Arc::clone(&context.invalidate),
+        );
+    }
+
+    let state_snapshot = context.state.get();
+    let preview = preview_from_state(&state_snapshot);
+    let settled_error = state_snapshot
+        .get(SETTLED_ERROR_KEY)
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    fill_edit_call_component(&component, args, preview.as_ref(), settled_error, theme, &context.cwd);
+    Ok(component)
+}
+
+fn format_edit_result(
+    _args: &Value,
+    preview: Option<&EditPreview>,
+    result: &AgentToolResult,
+    theme: &Theme,
+    is_error: bool,
+) -> Option<String> {
+    let preview_diff = match preview {
+        Some(EditPreview::Diff { diff, .. }) => Some(diff.as_str()),
+        _ => None,
+    };
+    let preview_error = match preview {
+        Some(EditPreview::Error(error)) => Some(error.as_str()),
+        _ => None,
+    };
     if is_error {
         let error_text = result
             .content
@@ -331,7 +630,7 @@ fn format_edit_result(_args: &Value, result: &AgentToolResult, theme: &Theme, is
             })
             .collect::<Vec<_>>()
             .join("\n");
-        if error_text.is_empty() {
+        if error_text.is_empty() || Some(error_text.as_str()) == preview_error {
             return None;
         }
         return Some(theme.fg(ThemeColor::Error, &error_text));
@@ -343,26 +642,10 @@ fn format_edit_result(_args: &Value, result: &AgentToolResult, theme: &Theme, is
         .and_then(|details| details.get("diff"))
         .and_then(Value::as_str)
         .filter(|diff| !diff.is_empty())?;
+    if Some(result_diff) == preview_diff {
+        return None;
+    }
     Some(render_diff(result_diff))
-}
-
-/// `renderCall` for the edit tool.
-pub fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
-    let theme = Arc::new(theme.clone());
-    let background_theme = Arc::clone(&theme);
-    let mut component = BoxComponent::new(
-        1,
-        1,
-        Some(Rc::new(move |text: &str| {
-            background_theme.bg(ThemeBg::ToolPendingBg, text)
-        })),
-    );
-    component.add_child(Rc::new(RefCell::new(Text::new(
-        format_edit_call(args, theme.as_ref(), &context.cwd),
-        0,
-        0,
-    ))));
-    Rc::new(RefCell::new(component))
 }
 
 /// `renderResult` for the edit tool.
@@ -371,21 +654,97 @@ pub fn render_result(
     _options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
+) -> Result<ComponentRef, HandlerError> {
+    let preview_input = get_renderable_preview_input(&context.args);
+    let args_key = preview_input
+        .as_ref()
+        .map(|(path, _, raw_edits)| preview_args_key(path, raw_edits));
+    let call_component = context.call_component.clone();
+    let result_diff = (!context.is_error)
+        .then(|| {
+            result
+                .details
+                .as_ref()
+                .and_then(|details| details.get("diff"))
+                .and_then(Value::as_str)
+        })
+        .flatten();
+    let mut changed = false;
+    if let Some(call_component) = &call_component {
+        if let Some(result_diff) = result_diff {
+            let first_changed_line = result
+                .details
+                .as_ref()
+                .and_then(|details| details.get("firstChangedLine"))
+                .and_then(Value::as_u64)
+                .map(|line| line as usize);
+            changed = set_edit_preview(
+                &context.state,
+                EditPreview::Diff {
+                    diff: result_diff.to_owned(),
+                    first_changed_line,
+                },
+                args_key,
+            ) || changed;
+        }
+        let settled_error = context
+            .state
+            .get()
+            .get(SETTLED_ERROR_KEY)
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if settled_error != context.is_error {
+            context.state.update(|state| {
+                if let Value::Object(state) = state {
+                    state.insert(SETTLED_ERROR_KEY.to_owned(), Value::Bool(context.is_error));
+                }
+            });
+            changed = true;
+        }
+        if changed {
+            let preview = preview_from_state(&context.state.get());
+            fill_edit_call_component(
+                call_component,
+                &context.args,
+                preview.as_ref(),
+                context.is_error,
+                theme,
+                &context.cwd,
+            );
+        }
+    }
+
+    let preview = call_component
+        .is_some()
+        .then(|| preview_from_state(&context.state.get()))
+        .flatten();
     let mut component = Container::new();
-    if let Some(output) = format_edit_result(&context.args, result, theme, context.is_error) {
+    if let Some(output) = format_edit_result(&context.args, preview.as_ref(), result, theme, context.is_error) {
         component.add_child(Rc::new(RefCell::new(Spacer::new(1))));
         component.add_child(Rc::new(RefCell::new(Text::new(output, 1, 0))));
     }
-    Rc::new(RefCell::new(component))
+    Ok(Rc::new(RefCell::new(component)))
 }
 
 /// `createEditToolDefinition`: the edit tool plus its renderers.
 pub fn create_edit_tool_definition(cwd: &str, options: EditToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(EditTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
+    definition.prompt_snippet = Some(EDIT_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
+    definition.prompt_guidelines = Some(
+        EDIT_TOOL_SYSTEM_PROMPT_CONTRIBUTION
+            .guidelines
+            .iter()
+            .map(|line| (*line).to_owned())
+            .collect(),
+    );
     definition.render_shell = Some(RenderShell::SelfRender);
     definition.render_call = Some(Arc::new(render_call));
     definition.render_result = Some(Arc::new(render_result));
     definition
+}
+
+/// `createEditTool`: the edit tool wrapped with the shared result cap.
+pub fn create_edit_tool(cwd: &str, options: EditToolOptions) -> Arc<dyn AgentTool> {
+    wrap_agent_tool(Arc::new(EditTool::with_options(cwd, options)))
 }

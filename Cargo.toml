@@ -10,6 +10,7 @@ members = [
     "crates/pi-server",
     "crates/pi-session-sqlite",
     "crates/pi-js-compat",
+    "crates/pi-evals",
 ]
 # `cargo run` at the workspace root builds the `pi` executable.
 default-members = ["crates/pi-coding-agent"]

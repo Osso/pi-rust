@@ -180,7 +180,7 @@ async fn default_session_registers_every_builtin_tool() {
         fixture.session.get_active_tool_names(),
         pi_coding_agent::core::tools::DEFAULT_ACTIVE_TOOL_NAMES
             .iter()
-            .map(|name| (*name).to_owned())
+            .map(|name| name.as_str().to_owned())
             .collect::<Vec<_>>()
     );
 }
@@ -1780,4 +1780,46 @@ async fn prompt_with_streaming_steer_queues_instead_of_failing() {
     gate.notify_one();
     prompt_task.await.expect("prompt task");
     assert!(fixture.session.get_steering_messages().is_empty());
+}
+
+#[tokio::test]
+async fn bash_tool_exposes_live_session_environment_variables() {
+    let fixture = fixture_with_multi_agent(Default::default(), Vec::new(), None, None, None, true).await;
+    let (session_id, session_file) = {
+        let manager = fixture.session.session_manager();
+        (
+            manager.get_session_id().to_owned(),
+            manager.get_session_file().map(str::to_owned),
+        )
+    };
+    let definition = fixture.session.get_tool_definition("bash").expect("bash definition");
+    let result = definition
+        .tool
+        .execute(
+            "call-1".to_owned(),
+            json!({
+                "command": "printf '%s|%s|%s|%s|%s' \"$PI_SESSION_ID\" \"$PI_SESSION_FILE\" \"$PI_PROVIDER\" \"$PI_MODEL\" \"$PI_REASONING_LEVEL\""
+            }),
+            None,
+            Arc::new(|_result| {}),
+            None,
+        )
+        .await
+        .expect("bash execution");
+    let text = result
+        .content
+        .iter()
+        .filter_map(|entry| match entry {
+            pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
+            pi_ai::types::TextOrImageContent::Image(_) => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(
+        text,
+        format!(
+            "{session_id}|{}|faux|faux-1|off",
+            session_file.expect("persisted session file")
+        )
+    );
 }

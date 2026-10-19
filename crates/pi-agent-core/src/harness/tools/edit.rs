@@ -70,8 +70,8 @@ impl AgentTool for EditTool {
         "edit"
     }
 
-    fn prepare_arguments(&self, args: Value) -> Value {
-        prepare_edit_arguments(args)
+    fn prepare_arguments(&self, args: Value) -> Result<Value, crate::agent::ToolError> {
+        Ok(prepare_edit_arguments(args))
     }
 
     fn execute(

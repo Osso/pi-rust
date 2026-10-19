@@ -24,7 +24,9 @@ use super::path_utils::resolve_to_cwd;
 use super::render_utils::{normalize_display_text, render_tool_path, replace_tabs, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
-use crate::core::extensions::types::{ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::core::extensions::types::{
+    ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
+};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor, get_language_from_path, highlight_code};
 
@@ -111,6 +113,10 @@ impl AgentTool for WriteTool {
 
     fn label(&self) -> &str {
         "write"
+    }
+
+    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
+        crate::core::experimental::get_experimental_tool_constrained_sampling()
     }
 
     fn execute(
@@ -309,8 +315,16 @@ pub fn render_result(
 pub fn create_write_tool_definition(cwd: &str, options: WriteToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(WriteTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
-    definition.render_call = Some(Arc::new(render_call));
-    definition.render_result = Some(Arc::new(render_result));
+    definition.prompt_snippet = Some(WRITE_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
+    definition.prompt_guidelines = Some(
+        WRITE_TOOL_SYSTEM_PROMPT_CONTRIBUTION
+            .guidelines
+            .iter()
+            .map(|line| (*line).to_owned())
+            .collect(),
+    );
+    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_result = Some(infallible_render_result(render_result));
     definition
 }
 

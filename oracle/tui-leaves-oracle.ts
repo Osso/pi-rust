@@ -127,6 +127,7 @@ type KeysApi = {
 	decodePrintableKey(data: string): string | undefined;
 	isKeyRelease(data: string): boolean;
 	isKeyRepeat(data: string): boolean;
+	Key: Record<string, unknown>;
 };
 
 type StdinBufferApi = {
@@ -414,6 +415,21 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 					}
 				}),
 			};
+		}
+		case "keys_constants": {
+			const api = (await loadApi(sourceDirectory, "keys.ts")) as KeysApi;
+			const cases = requireArray<{ name: string; args?: string[] }>(request, "cases");
+			const constants: Record<string, unknown> = {};
+			const calls: Record<string, unknown> = {};
+			for (const testCase of cases) {
+				const value = api.Key[testCase.name];
+				if (typeof value === "function") {
+					calls[testCase.name] = (value as (...args: string[]) => string)(...(testCase.args ?? []));
+				} else {
+					constants[testCase.name] = value;
+				}
+			}
+			return { constants, calls };
 		}
 		case "keys_decode": {
 			const api = (await loadApi(sourceDirectory, "keys.ts")) as KeysApi;
