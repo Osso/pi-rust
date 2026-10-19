@@ -218,3 +218,35 @@ async fn excluded_tools_are_removed_from_initial_active_names() {
     .expect("session");
     assert!(result.session.get_active_tool_names().is_empty());
 }
+
+#[tokio::test]
+async fn create_agent_session_forwards_observer_coordination_options() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let faux = faux();
+    let runtime = faux_runtime(&faux).await;
+    let model = faux.get_model(None).expect("model");
+    let session_dir = temp.path().join("sessions").display().to_string();
+    let mut session_manager =
+        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let control_db = temp.path().join("control.db").display().to_string();
+    session_manager
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
+    let store = std::sync::Arc::new(pi_coding_agent::core::multi_agent_store::MultiAgentStore::new(
+        pi_coding_agent::core::multi_agent_store::MultiAgentStoreOptions::default(),
+    ));
+    let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(temp.path().display().to_string()),
+        agent_dir: Some(temp.path().display().to_string()),
+        model_runtime: Some(runtime),
+        model: Some(model),
+        resource_loader: Some(StaticResourceLoader::new()),
+        session_manager: Some(session_manager),
+        multi_agent_store: Some(store),
+        disable_runtime_coordination_inbound: true,
+        ..Default::default()
+    })
+    .await
+    .expect("session");
+    assert!(result.session.runtime_coordination_inbound_disabled());
+}
