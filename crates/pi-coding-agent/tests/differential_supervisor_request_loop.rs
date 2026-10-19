@@ -5,14 +5,21 @@ mod oracle;
 
 use std::sync::{Arc, Mutex};
 
-use pi_agent_core::agent::AgentMessage;
-use pi_ai::request::BoxFuture;
+use pi_ai::providers::faux::{
+    FauxAssistantMessageOptions, FauxContent, FauxModelDefinition, RegisterFauxProviderOptions, faux_assistant_message,
+    faux_provider, faux_tool_call,
+};
+use pi_ai::types::StopReason;
+use pi_coding_agent::core::auth_storage::AuthStorage;
+use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::resource_loader::StaticResourceLoader;
 use pi_coding_agent::core::session_control_db::{
     SupervisorRequestKind, post_supervisor_request, read_supervisor_request,
 };
-use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionEntry, SessionManager};
+use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionManager};
 use pi_coding_agent::supervisor::main::{
-    RunSupervisorRequestLoopInput, SupervisorConsolePromptQueue, SupervisorSession, process_supervisor_request,
+    CreateSupervisorSessionOptions, RunSupervisorRequestLoopInput, SupervisorConsolePromptQueue,
+    create_supervisor_session, create_supervisor_settings_manager, process_supervisor_request,
     run_supervisor_request_loop,
 };
 use pi_coding_agent::supervisor::request_wake::SupervisorRequestWakeServer;
@@ -20,50 +27,6 @@ use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 const SOURCE_MODULE: &str = "packages/coding-agent/src/supervisor/main.ts";
-
-struct FakeSession {
-    manager: Arc<Mutex<SessionManager>>,
-}
-
-impl SupervisorSession for FakeSession {
-    fn abort(&self) -> BoxFuture<'static, Result<(), String>> {
-        Box::pin(async { Ok(()) })
-    }
-
-    fn prompt(&self, _content: String) -> BoxFuture<'static, Result<(), String>> {
-        let manager = Arc::clone(&self.manager);
-        Box::pin(async move {
-            let message: AgentMessage = serde_json::from_value(json!({
-                "role": "assistant",
-                "content": [{"type": "text", "text": "{\"kind\":\"approve\",\"reason\":\"ok\"}"}],
-                "api": "faux",
-                "provider": "faux",
-                "model": "faux",
-                "usage": {
-                    "input": 0,
-                    "output": 0,
-                    "cacheRead": 0,
-                    "cacheWrite": 0,
-                    "totalTokens": 0,
-                    "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}
-                },
-                "stopReason": "stop",
-                "timestamp": 0
-            }))
-            .expect("assistant message");
-            manager.lock().unwrap().append_message(message).expect("append");
-            Ok(())
-        })
-    }
-
-    fn get_branch(&self) -> Vec<SessionEntry> {
-        self.manager.lock().unwrap().get_branch(None)
-    }
-
-    fn get_leaf_id(&self) -> Option<String> {
-        self.manager.lock().unwrap().get_leaf_id().map(str::to_owned)
-    }
-}
 
 fn normalize_session_file(path: &str) -> Vec<Value> {
     let content = std::fs::read_to_string(path).expect("session file");
@@ -87,12 +50,17 @@ fn normalize_entry(value: &mut Value) {
         }
         Value::Object(object) => {
             for (key, child) in object.iter_mut() {
-                if key == "id" || key == "parentId" {
+                if key == "id" || key == "parentId" || key == "toolCallId" {
                     *child = Value::String("<id>".to_owned());
                 } else if key == "timestamp" {
                     *child = Value::String("<timestamp>".to_owned());
                 } else if key == "cwd" {
                     *child = Value::String("<cwd>".to_owned());
+                } else if matches!(
+                    key.as_str(),
+                    "input" | "output" | "cacheRead" | "cacheWrite" | "totalTokens"
+                ) {
+                    *child = Value::String("<number>".to_owned());
                 } else {
                     normalize_entry(child);
                 }
@@ -105,7 +73,52 @@ fn normalize_entry(value: &mut Value) {
 async fn run_rust(dir: &str) -> Value {
     let control_db_path = format!("{dir}/control.sqlite");
     let session_dir = format!("{dir}/sessions");
-    let manager = SessionManager::create(
+    let faux = faux_provider(RegisterFauxProviderOptions {
+        provider: Some("openai-codex".to_owned()),
+        api: Some("faux".to_owned()),
+        models: Some(vec![FauxModelDefinition {
+            id: "gpt-5.6-sol".to_owned(),
+            name: Some("Sol".to_owned()),
+            reasoning: Some(true),
+            input: None,
+            cost: None,
+            context_window: Some(200_000.0),
+            max_tokens: Some(8192.0),
+        }]),
+        token_size: Some(pi_ai::providers::faux::FauxTokenSize {
+            min: Some(1.0),
+            max: Some(1.0),
+        }),
+        tokens_per_second: Some(1_000_000.0),
+        ..Default::default()
+    });
+    faux.set_responses(vec![
+        faux_assistant_message(
+            FauxContent::Blocks(vec![faux_tool_call(
+                "supervisor_response",
+                serde_json::Map::from_iter([
+                    ("kind".to_owned(), Value::String("approve".to_owned())),
+                    ("reason".to_owned(), Value::String("ok".to_owned())),
+                ]),
+                Some("call-1".to_owned()),
+            )]),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+    ]);
+    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+        credentials: Some(Arc::new(AuthStorage::in_memory(serde_json::Map::new()))),
+        models_path: Some(None),
+        refresh_on_create: Some(false),
+        ..Default::default()
+    })
+    .await
+    .expect("runtime");
+    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let mut manager = SessionManager::create(
         dir,
         Some(&session_dir),
         Some(NewSessionOptions {
@@ -114,6 +127,9 @@ async fn run_rust(dir: &str) -> Value {
         }),
     )
     .expect("session manager");
+    manager
+        .set_metadata_control_db_path(Some(&control_db_path), Default::default())
+        .expect("metadata control db");
     post_supervisor_request(
         &control_db_path,
         &pi_coding_agent::core::session_control_db::PostSupervisorRequestInput {
@@ -126,11 +142,20 @@ async fn run_rust(dir: &str) -> Value {
     )
     .expect("post request");
     let session_file = manager.get_session_file().expect("session file").to_owned();
-    let manager = Arc::new(Mutex::new(manager));
+    let session = Arc::new(
+        create_supervisor_session(CreateSupervisorSessionOptions {
+            agent_dir: dir.to_owned(),
+            kb_dir: dir.to_owned(),
+            model_runtime: runtime,
+            resource_loader: StaticResourceLoader::new(),
+            session_manager: manager,
+            settings_manager: Arc::new(Mutex::new(create_supervisor_settings_manager())),
+        })
+        .await
+        .expect("session")
+        .session,
+    );
     let signal = CancellationToken::new();
-    let session: Arc<dyn SupervisorSession> = Arc::new(FakeSession {
-        manager: Arc::clone(&manager),
-    });
     let wake_server = Arc::new(SupervisorRequestWakeServer::new(&control_db_path));
     wake_server.start().await.expect("wake server");
     let process_signal = signal.clone();
@@ -138,7 +163,7 @@ async fn run_rust(dir: &str) -> Value {
         claim_token: "claim-token".to_owned(),
         console_prompts: Arc::new(Mutex::new(SupervisorConsolePromptQueue::new())),
         control_db_path: control_db_path.clone(),
-        session: Arc::clone(&session),
+        session: session.clone(),
         signal: signal.clone(),
         wake_server: Arc::clone(&wake_server),
         claim_next_request: None,

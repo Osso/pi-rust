@@ -6,12 +6,47 @@ const packagesRoot = resolve(dirname(supervisorMainPath), "../../..");
 
 type Request = { id: string | number; operation: string; dir: string };
 
+function createResourceLoader(runtime: unknown) {
+	return {
+		getExtensions: () => ({ extensions: [], errors: [], runtime }),
+		getSkills: () => ({ skills: [], diagnostics: [] }),
+		getPrompts: () => ({ prompts: [], diagnostics: [] }),
+		getThemes: () => ({ themes: [], diagnostics: [] }),
+		getAgentsFiles: () => ({ agentsFiles: [] }),
+		getRulesFiles: () => ({ rulesFiles: [] }),
+		getRulesContent: () => undefined,
+		getSystemPrompt: () => undefined,
+		getSystemPromptSource: () => undefined,
+		getAppendSystemPrompt: () => [],
+		getAppendSystemPromptSources: () => [],
+		extendResources: () => {},
+		reload: async () => {},
+	};
+}
+
 async function loadModules() {
 	const main = await import(supervisorMainPath);
 	const { SessionManager } = await import(`${packagesRoot}/coding-agent/src/core/session-manager.ts`);
+	const { AuthStorage } = await import(`${packagesRoot}/coding-agent/src/core/auth-storage.ts`);
+	const { ModelRuntime } = await import(`${packagesRoot}/coding-agent/src/core/model-runtime.ts`);
 	const controlDb = await import(`${packagesRoot}/coding-agent/src/core/session-control-db.ts`);
 	const sqlite = await import(`${packagesRoot}/coding-agent/src/core/sqlite.ts`);
-	return { main, SessionManager, controlDb, sqlite };
+	const { registerFauxProvider, fauxAssistantMessage, fauxToolCall } = await import(
+		`${packagesRoot}/ai/src/compat.ts`
+	);
+	const { createExtensionRuntime } = await import(`${packagesRoot}/coding-agent/src/core/extensions/index.ts`);
+	return {
+		main,
+		SessionManager,
+		AuthStorage,
+		ModelRuntime,
+		controlDb,
+		sqlite,
+		registerFauxProvider,
+		fauxAssistantMessage,
+		fauxToolCall,
+		createExtensionRuntime,
+	};
 }
 
 function normalizeSessionFile(text: string): unknown[] {
@@ -26,9 +61,10 @@ function normalizeSessionFile(text: string): unknown[] {
 				const object = node as Record<string, unknown>;
 				const result: Record<string, unknown> = {};
 				for (const [key, child] of Object.entries(object)) {
-					if (key === "id" || key === "parentId") result[key] = "<id>";
+					if (key === "id" || key === "parentId" || key === "toolCallId") result[key] = "<id>";
 					else if (key === "timestamp") result[key] = "<timestamp>";
 					else if (key === "cwd") result[key] = "<cwd>";
+					else if (key === "input" || key === "output" || key === "cacheRead" || key === "cacheWrite" || key === "totalTokens") result[key] = "<number>";
 					else result[key] = normalize(child);
 				}
 				return result;
@@ -52,38 +88,79 @@ function dumpControlDb(controlDbPath: string, sqlite: { createSqliteDatabase: (p
 }
 
 async function run(request: Request) {
-	const { main, SessionManager, controlDb, sqlite } = await loadModules();
+	const {
+		main,
+		SessionManager,
+		AuthStorage,
+		ModelRuntime,
+		controlDb,
+		sqlite,
+		registerFauxProvider,
+		fauxAssistantMessage,
+		fauxToolCall,
+		createExtensionRuntime,
+	} = await loadModules();
 	const dir = request.dir;
 	mkdirSync(dir, { recursive: true });
 	const controlDbPath = join(dir, "control.sqlite");
 	const sessionDir = join(dir, "sessions");
+	const faux = registerFauxProvider({
+		api: "faux",
+		models: [
+			{
+				id: "gpt-5.6-sol",
+				name: "Sol",
+				reasoning: true,
+				contextWindow: 200000,
+				maxTokens: 8192,
+			},
+		],
+		provider: "openai-codex",
+		tokenSize: { max: 1, min: 1 },
+		tokensPerSecond: 1_000_000,
+	});
+	faux.setResponses([
+		fauxAssistantMessage([fauxToolCall("supervisor_response", { kind: "approve", reason: "ok" })], {
+			stopReason: "toolUse",
+		}),
+	]);
+	const authStorage = AuthStorage.inMemory();
+	await authStorage.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
+	const modelRuntime = await ModelRuntime.create({
+		credentials: authStorage,
+		modelsPath: join(dir, "models.json"),
+	});
+	const model = faux.getModel();
+	modelRuntime.registerProvider(model.provider, {
+		api: model.api,
+		apiKey: "faux-key",
+		baseUrl: model.baseUrl,
+		models: [
+			{
+				api: model.api,
+				baseUrl: model.baseUrl,
+				cost: model.cost,
+				contextWindow: model.contextWindow,
+				id: model.id,
+				input: model.input,
+				maxTokens: model.maxTokens,
+				name: model.name,
+				reasoning: model.reasoning,
+			},
+		],
+	});
 	const sessionManager = SessionManager.create(dir, sessionDir, { id: "supervisor" });
-	const session = {
-		abort: async () => {},
-		prompt: async () => {
-			sessionManager.appendMessage({
-				role: "assistant",
-				content: [{ type: "text", text: '{"kind":"approve","reason":"ok"}' }],
-				api: "faux",
-				provider: "faux",
-				model: "faux",
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
-				stopReason: "stop",
-				timestamp: 0,
-			});
-		},
-		sessionId: "supervisor",
+	sessionManager.setMetadataControlDbPath(controlDbPath, { indexMessageText: false });
+	const { session } = await main.createSupervisorSession({
+		agentDir: dir,
+		kbDir: dir,
+		modelRuntime,
+		resourceLoader: createResourceLoader(createExtensionRuntime()),
 		sessionManager,
-	};
+		settingsManager: main.createSupervisorSettingsManager(),
+	});
 	controlDb.postSupervisorRequest(controlDbPath, {
-		deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+		deadlineAt: "2099-01-01T00:00:00.000Z",
 		kind: "approval_review",
 		payload: { toolName: "read" },
 		projectId: "pi",
