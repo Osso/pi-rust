@@ -77,7 +77,7 @@ impl ErrorStatusScheduler {
         if let Err(error) = (self.options.on_status)(ctx, &message)
             && !is_stale_context_error(&error.to_string())
         {
-            panic!("{error}");
+            crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string());
         }
     }
 

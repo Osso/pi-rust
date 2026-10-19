@@ -19,7 +19,10 @@ fn args(values: &[&str]) -> Vec<String> {
 }
 
 fn parse(values: &[&str]) -> CommandParseResult<ExperimentalCommand> {
-    experimental_cli().parse(&args(values))
+    experimental_cli()
+        .expect("experimental cli builds")
+        .parse(&args(values))
+        .expect("parse")
 }
 
 fn ok(values: &[&str]) -> ExperimentalCommand {
@@ -366,7 +369,7 @@ fn executes_the_parsed_command() {
         }),
     };
 
-    let cli = experimental_cli();
+    let cli = experimental_cli().expect("experimental cli builds");
     for (argv, expected) in [
         (vec![], ("pi", 1, 0, 0)),
         (vec!["server"], ("server", 1, 1, 0)),

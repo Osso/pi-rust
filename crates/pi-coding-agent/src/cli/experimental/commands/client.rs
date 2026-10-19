@@ -1,7 +1,9 @@
 //! Experimental `client` command (`cli/experimental/commands/client.ts`).
 
 use crate::cli::experimental::auth::AuthInput;
-use crate::cli::experimental::command::{Command, CommandParseResult, NamedCommandInvocation, ParsedCommandInput};
+use crate::cli::experimental::command::{
+    Command, CommandError, CommandParseResult, NamedCommandInvocation, ParsedCommandInput,
+};
 use crate::cli::experimental::command_options::{
     AUTH_TOKEN_FILE_OPTION, AUTH_TOKEN_OPTION, parse_auth, parse_legacy_options, transport_option,
     unsupported_legacy_options,
@@ -22,16 +24,16 @@ impl NamedCommandInvocation for ClientCommand {
     }
 }
 
-pub fn client_command() -> Command<ClientCommand, ExperimentalCliContext> {
+pub fn client_command() -> Result<Command<ClientCommand, ExperimentalCliContext>, CommandError> {
     let connect_option = transport_option("--connect");
     let mut command: Command<ClientCommand, ExperimentalCliContext> = Command::new("client");
     command
-        .option(connect_option.clone())
-        .option(AUTH_TOKEN_OPTION.clone())
-        .option(AUTH_TOKEN_FILE_OPTION.clone())
+        .option(connect_option.clone())?
+        .option(AUTH_TOKEN_OPTION.clone())?
+        .option(AUTH_TOKEN_FILE_OPTION.clone())?
         .build(move |input| build_client(input, &connect_option))
         .action(|command, context| (context.run_client)(command));
-    command
+    Ok(command)
 }
 
 fn build_client(

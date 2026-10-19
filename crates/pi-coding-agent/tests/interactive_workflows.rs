@@ -165,7 +165,7 @@ fn external_editor_edits_a_prompt_inside_a_private_temporary_directory() {
         content: "original".to_string(),
     });
     assert_eq!(
-        result,
+        result.expect("external editor"),
         ExternalEditorResult::Complete {
             content: "edited".to_string()
         }
@@ -198,7 +198,7 @@ fn external_editor_keeps_the_original_content_when_the_editor_fails() {
         command: fixture_command(&capture, " --fail"),
         content: "original".to_string(),
     });
-    assert_eq!(result, ExternalEditorResult::Failed);
+    assert_eq!(result.expect("external editor"), ExternalEditorResult::Failed);
 
     let capture: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&capture).expect("capture")).expect("capture json");
@@ -217,7 +217,10 @@ fn external_editor_returns_empty_content_when_the_editor_clears_the_prompt() {
         command: fixture_command(&capture, " --empty"),
         content: "original".to_string(),
     });
-    assert_eq!(result, ExternalEditorResult::Complete { content: String::new() });
+    assert_eq!(
+        result.expect("external editor"),
+        ExternalEditorResult::Complete { content: String::new() }
+    );
 }
 
 struct TestComponent {

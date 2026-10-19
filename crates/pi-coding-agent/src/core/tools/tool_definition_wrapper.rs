@@ -8,24 +8,33 @@
 
 use std::sync::{Arc, Mutex};
 
-use pi_agent_core::agent::{AgentTool, AgentToolResult};
+use pi_agent_core::agent::{AgentTool, AgentToolResult, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
 use serde_json::{Map, Value};
 
+use super::node_fs::node_fs_error;
 use super::truncate::{TruncationOptions, format_size, truncate_tail};
 use crate::core::extensions::types::{HandlerError, ToolDefinition};
 
 /// Shared spill state for one tool call: the temp file is created at most once.
+///
+/// A failed partial-update spill is recorded here: the update callback cannot
+/// return an error, so the failure surfaces from the final `execute`, where the
+/// TypeScript `writeFileSync` throw would have aborted the tool call.
 #[derive(Debug, Default)]
 pub struct ToolOutputSpill {
     pub full_output_path: Option<String>,
+    pub error: Option<String>,
 }
 
 /// `capToolResultOutput`: spill truncated text and replace the result with its tail.
-pub fn cap_tool_result_output(mut result: AgentToolResult, spill: &mut ToolOutputSpill) -> AgentToolResult {
+pub fn cap_tool_result_output(
+    mut result: AgentToolResult,
+    spill: &mut ToolOutputSpill,
+) -> Result<AgentToolResult, ToolError> {
     if has_existing_output_details(result.details.as_ref()) {
-        return result;
+        return Ok(result);
     }
 
     let full_text = result
@@ -39,14 +48,15 @@ pub fn cap_tool_result_output(mut result: AgentToolResult, spill: &mut ToolOutpu
         .join("\n");
     let truncation = truncate_tail(&full_text, TruncationOptions::default());
     if !truncation.truncated {
-        return result;
+        return Ok(result);
     }
 
     let full_output_path = spill
         .full_output_path
         .get_or_insert_with(create_full_output_path)
         .clone();
-    std::fs::write(&full_output_path, &full_text).expect("tool output spill file must be writable");
+    std::fs::write(&full_output_path, &full_text)
+        .map_err(|error| ToolError::new(node_fs_error(&error, "open", &full_output_path)))?;
     let footer = format!(
         "[Showing last {} of {}. Full output: {}]",
         format_size(truncation.output_bytes),
@@ -58,7 +68,7 @@ pub fn cap_tool_result_output(mut result: AgentToolResult, spill: &mut ToolOutpu
         truncation.content
     )))];
     result.details = Some(merge_output_details(result.details, &truncation, &full_output_path));
-    result
+    Ok(result)
 }
 
 /// `createToolDefinitionFromAgentTool`: synthesize a minimal definition from an [`AgentTool`].
@@ -148,7 +158,10 @@ impl AgentTool for CappedTool {
         let update_spill = Arc::clone(&spill);
         let capped_update: pi_agent_core::agent::AgentToolUpdateCallback = Arc::new(move |partial| {
             let mut spill = update_spill.lock().expect("tool output spill lock");
-            (on_update)(cap_tool_result_output(partial, &mut spill));
+            match cap_tool_result_output(partial, &mut spill) {
+                Ok(capped) => (on_update)(capped),
+                Err(error) => spill.error = Some(error.message),
+            }
         });
         let result = self
             .inner
@@ -156,7 +169,10 @@ impl AgentTool for CappedTool {
         Box::pin(async move {
             let result = result.await?;
             let mut spill = spill.lock().expect("tool output spill lock");
-            Ok(cap_tool_result_output(result, &mut spill))
+            if let Some(message) = spill.error.take() {
+                return Err(ToolError::new(message));
+            }
+            cap_tool_result_output(result, &mut spill)
         })
     }
 }

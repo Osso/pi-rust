@@ -1,7 +1,9 @@
 //! Experimental `server` command (`cli/experimental/commands/server.ts`).
 
 use crate::cli::experimental::auth::AuthInput;
-use crate::cli::experimental::command::{Command, CommandParseResult, NamedCommandInvocation, ParsedCommandInput};
+use crate::cli::experimental::command::{
+    Command, CommandError, CommandParseResult, NamedCommandInvocation, ParsedCommandInput,
+};
 use crate::cli::experimental::command_options::{
     AUTH_TOKEN_FILE_OPTION, AUTH_TOKEN_OPTION, parse_auth, parse_legacy_options, transport_option,
     unsupported_legacy_options,
@@ -22,16 +24,16 @@ impl NamedCommandInvocation for ServerCommand {
     }
 }
 
-pub fn server_command() -> Command<ServerCommand, ExperimentalCliContext> {
+pub fn server_command() -> Result<Command<ServerCommand, ExperimentalCliContext>, CommandError> {
     let listen_option = transport_option("--listen");
     let mut command: Command<ServerCommand, ExperimentalCliContext> = Command::new("server");
     command
-        .option(listen_option.clone())
-        .option(AUTH_TOKEN_OPTION.clone())
-        .option(AUTH_TOKEN_FILE_OPTION.clone())
+        .option(listen_option.clone())?
+        .option(AUTH_TOKEN_OPTION.clone())?
+        .option(AUTH_TOKEN_FILE_OPTION.clone())?
         .build(move |input| build_server(input, &listen_option))
         .action(|command, context| (context.run_server)(command));
-    command
+    Ok(command)
 }
 
 fn build_server(

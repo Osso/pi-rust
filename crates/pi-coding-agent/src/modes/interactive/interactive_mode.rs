@@ -2040,6 +2040,9 @@ impl ExtensionUiContext for InteractiveUiContext {
 
     fn get_all_themes(&self) -> Vec<ThemeInfo> {
         crate::modes::interactive::theme::get_available_themes_with_paths()
+            .unwrap_or_else(|error| {
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string())
+            })
             .into_iter()
             .map(|info| crate::core::extensions::types::ThemeInfo {
                 name: info.name,
@@ -2260,7 +2263,8 @@ impl InteractiveMode {
                 let ui = Rc::clone(&ui);
                 move || ui.request_render()
             }),
-        );
+        )
+        .map_err(|error| error.to_string())?;
 
         let (header_container, header_ref) = SharedContainer::create();
         let (loaded_resources_container, loaded_ref) = SharedContainer::create();
@@ -4720,7 +4724,13 @@ impl InteractiveMode {
                 .settings(|settings| settings.get_theme_setting().map(str::to_owned))
                 .unwrap_or_else(|| "dark".to_owned()),
             terminal_theme: self.theme_controller.borrow().get_terminal_theme(),
-            available_themes: crate::modes::interactive::theme::get_available_themes(),
+            available_themes: match crate::modes::interactive::theme::get_available_themes() {
+                Ok(themes) => themes,
+                Err(error) => {
+                    self.show_error(&error.to_string());
+                    return;
+                }
+            },
             hide_thinking_block: self.hide_thinking_block.get(),
             mermaid_rendering_mode: self.settings(|settings| settings.get_mermaid_rendering_mode()),
             show_cache_miss_notices: self.settings(|settings| settings.get_show_cache_miss_notices()),
@@ -5134,7 +5144,8 @@ impl InteractiveMode {
         let command = self.settings(|settings| settings.get_external_editor_command());
         let result = crate::modes::interactive::external_editor::edit_in_external_editor(
             &crate::modes::interactive::external_editor::ExternalEditorOptions { command, content: text },
-        );
+        )
+        .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error));
         match result {
             crate::modes::interactive::external_editor::ExternalEditorResult::Complete { content } => {
                 self.editor().borrow_mut().set_text(&content);
@@ -6674,7 +6685,7 @@ mod ui_tests {
             std::sync::Arc::new(light),
         ])
         .expect("register fixture themes");
-        crate::modes::interactive::theme::init_theme(Some("dark"), false);
+        crate::modes::interactive::theme::init_theme(Some("dark"), false).expect("dark theme");
     }
 
     async fn pump(
@@ -7050,7 +7061,7 @@ mod tests {
             std::sync::Arc::new(light),
         ])
         .expect("register fixture themes");
-        crate::modes::interactive::theme::init_theme(Some("dark"), false);
+        crate::modes::interactive::theme::init_theme(Some("dark"), false).expect("dark theme");
     }
 
     fn source_info(path: &str, source: &str, scope: SourceScope, base_dir: Option<&str>) -> SourceInfo {
