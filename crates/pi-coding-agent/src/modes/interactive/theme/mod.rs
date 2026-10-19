@@ -1379,7 +1379,7 @@ pub fn get_default_theme() -> TerminalTheme {
 }
 
 fn process_env() -> BTreeMap<String, String> {
-    std::env::vars().collect()
+    pi_js_compat::process_env::vars().into_iter().collect()
 }
 
 // ============================================================================

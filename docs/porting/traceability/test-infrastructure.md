@@ -89,6 +89,51 @@ make the other spawn the real `claude-memory` CLI, producing a huge, environment
 string against the oracle's `Null`. A `static Mutex` (`ENV_LOCK`) now serializes the two env-mutating
 tests. Not caused by the errno/watchdog changes, but it blocked the required 20× parallel proof.
 
+## 5. Non-UTF-8 environment entries
+
+`std::env::vars()` panics on a non-UTF-8 entry: `Vars::next` calls `into_string().unwrap()`
+(`library/std/src/env.rs:168`). Node decodes `process.env` lossily instead: each invalid byte becomes
+U+FFFD and entries whose **key** is not valid UTF-8 are dropped (verified against Node 26).
+
+- `pi_js_compat::process_env::{get, vars}` now use `var_os`/`vars_os` with `to_string_lossy`, dropping
+  invalid keys.
+- `core::self_restart::current_environment` and every other production `std::env::vars()` snapshot use
+  `process_env::vars()`; `pi_agent_core`'s harness env applies the same rule.
+- `pi-js-compat/tests/process_env.rs` launches a child with `OsString::from_vec` values covering a
+  complete invalid byte, a truncated multi-byte prefix, and an overlong encoding, plus an invalid key.
+
+## 6. `self_restart` suite corruption flake (root cause: `CommandExt::exec`)
+
+### Symptom
+
+Running the `self_restart` binary with parallel tests intermittently failed with
+`ErrorKind::InvalidInput` / `nul byte found in provided data` from `Command::spawn`, and once with
+`std::env::vars()` panicking on a non-UTF-8 entry (`Err("\xE0...")`). The suite passed in isolation.
+
+### Root cause
+
+`std::os::unix::process::CommandExt::exec` with a changed environment temporarily replaces the
+process-global `environ` pointer with its own `CStringArray` while holding the **read** lock
+(`library/std/src/sys/process/unix/unix.rs`, `do_exec`). `std::env::vars_os()` also takes the read
+lock, so it can start iterating that temporary array and outlive the `exec` call; when `exec` returns
+(the target is missing), the array is freed and the reader walks freed memory. The garbage then
+reaches `Command::spawn`'s inherited-environment capture, which reports the NUL as `InvalidInput`.
+
+Reproduction: 20,000 failing `Command::new("/definitely/missing/pi").env(...).exec()` calls in one
+thread while another iterates `std::env::vars_os()` observed 4,953 invalid entries.
+
+### Fix
+
+`core::self_restart::exec_self_restart` now calls `nix::unistd::execve` with an explicit `argv`/`envp`
+(`nix = 0.30.1`, `process` feature). `execve` never touches `environ`, so no other thread can observe a
+temporary environment. The argv0 override, argument list, PATH-free executable resolution (matching
+Node's `process.execve`), environment contents, and error kinds are preserved.
+
+Regression proof: `tests/self_restart_exec_env.rs` runs 5,000 failing restarts while a reader thread
+validates every environment entry. With the old `Command::exec` implementation the test fails with
+1,173 invalid observations; with `execve` it observes 0. The parallel `self_restart` stress (4
+concurrent test binaries × 20 iterations) then passes without failures.
+
 ## Files
 
 - Production: `crates/pi-coding-agent/src/utils/child_process.rs`, `core/tools/node_fs.rs`, and the

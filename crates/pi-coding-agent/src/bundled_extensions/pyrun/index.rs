@@ -107,7 +107,7 @@ fn settings_profile(ctx: &ExtensionContext) -> SandboxProfileName {
 }
 
 fn process_env() -> indexmap::IndexMap<String, String> {
-    std::env::vars().collect()
+    pi_js_compat::process_env::vars().into_iter().collect()
 }
 
 fn create_executor_state(

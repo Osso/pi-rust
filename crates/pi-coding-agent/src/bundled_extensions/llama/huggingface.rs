@@ -152,8 +152,8 @@ pub async fn find_hugging_face_token(env: &ProviderEnv, home: &str) -> Option<St
 
 /// `findHuggingFaceToken()` with `process.env`.
 pub async fn find_hugging_face_token_from_process() -> Option<String> {
-    let env: ProviderEnv = std::env::vars().collect();
-    let home = std::env::var("HOME").unwrap_or_default();
+    let env: ProviderEnv = pi_js_compat::process_env::vars().into_iter().collect();
+    let home = pi_js_compat::process_env::get("HOME").unwrap_or_default();
     find_hugging_face_token(&env, &home).await
 }
 

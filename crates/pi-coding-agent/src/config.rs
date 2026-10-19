@@ -453,7 +453,7 @@ pub struct InstallContext {
 impl InstallContext {
     /// Runtime facts of this process. The Rust binary is always a compiled binary.
     pub fn for_process() -> Self {
-        let env = std::env::vars().collect();
+        let env = pi_js_compat::process_env::vars().into_iter().collect();
         Self {
             package_dir: get_package_dir(),
             exec_path: std::env::current_exe()

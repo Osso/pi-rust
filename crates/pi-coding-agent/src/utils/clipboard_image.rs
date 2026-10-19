@@ -45,7 +45,10 @@ impl ClipboardEnvironment {
     }
 
     pub fn from_process() -> Self {
-        Self::new(node_platform_name(std::env::consts::OS), std::env::vars().collect())
+        Self::new(
+            node_platform_name(std::env::consts::OS),
+            pi_js_compat::process_env::vars().into_iter().collect(),
+        )
     }
 
     pub fn platform(&self) -> &str {

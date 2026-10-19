@@ -1643,7 +1643,7 @@ async fn prompt_for_missing_session_cwd(
     issue: &crate::core::session_cwd::SessionCwdIssue,
     settings_manager: &SettingsManager,
 ) -> Option<String> {
-    let env: BTreeMap<String, String> = std::env::vars().collect();
+    let env: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
     let terminal = Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new()));
     let options = vec![
         ("Continue".to_owned(), Some(issue.fallback_cwd.clone())),
@@ -1811,7 +1811,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     }
 
     let mut parsed = parse_args(args);
-    let mut env: BTreeMap<String, String> = std::env::vars().collect();
+    let mut env: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
     let handoff = consume_self_restart_request(&mut env, std::process::id(), parent_process_id());
     apply_self_restart_request(&mut parsed, handoff.as_ref());
     wait_for_self_restart_parent_exit(handoff.as_ref(), &SelfRestartWaitDependencies::default()).await;

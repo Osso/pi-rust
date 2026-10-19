@@ -30,7 +30,8 @@ pub fn get(name: &str) -> Option<String> {
     let override_value = lock().values.get(name).cloned();
     match override_value {
         Some(value) => value,
-        None => std::env::var(name).ok(),
+        // Node decodes the process environment lossily; invalid bytes become U+FFFD.
+        None => std::env::var_os(name).map(|value| value.to_string_lossy().into_owned()),
     }
 }
 
@@ -62,9 +63,16 @@ pub fn clear() {
 /// Snapshot of `process.env` with overrides applied.
 ///
 /// Existing keys keep `std::env` order; keys introduced by [`set`] are appended
-/// in insertion order. Tombstoned keys are omitted.
+/// in insertion order. Tombstoned keys are omitted. Like Node, entries whose
+/// key is not valid UTF-8 are dropped and values are decoded lossily (each
+/// invalid byte becomes U+FFFD).
 pub fn vars() -> Vec<(String, String)> {
-    let process: Vec<(String, String)> = std::env::vars().collect();
+    let process: Vec<(String, String)> = std::env::vars_os()
+        .filter_map(|(name, value)| {
+            let name = name.into_string().ok()?;
+            Some((name, value.to_string_lossy().into_owned()))
+        })
+        .collect();
     let overlay = lock();
     let mut result = Vec::with_capacity(process.len() + overlay.order.len());
     for (name, value) in &process {

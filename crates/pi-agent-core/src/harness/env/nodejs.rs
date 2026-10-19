@@ -767,7 +767,7 @@ fn build_env(
         return extra_env.cloned().unwrap_or_default();
     }
     let mut environment = std::env::vars_os()
-        .map(|(key, value)| (key.to_string_lossy().into_owned(), value.to_string_lossy().into_owned()))
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.to_string_lossy().into_owned())))
         .collect::<HashMap<_, _>>();
     environment.extend(shell_env.iter().map(|(key, value)| (key.clone(), value.clone())));
     if let Some(extra_env) = extra_env {

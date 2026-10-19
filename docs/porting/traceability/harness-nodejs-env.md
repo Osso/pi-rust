@@ -14,7 +14,7 @@ Rust: `crates/pi-agent-core/src/harness/env/nodejs.rs` (`NodeExecutionEnv`). Beh
 | `nodejs.ts:130-136` | `pathExists` via `access(F_OK)` | `path_exists` (metadata follows symlinks); used by shell discovery |
 | `nodejs.ts:138-176` | `which bash` discovery with 5s timeout and first-line validation | `find_bash_on_path`/`run_command`; exercised by every bash test |
 | `nodejs.ts:178-232` | Custom shell path, `/bin/bash`, PATH fallback, then `sh -c`; unavailable error message | `get_shell_config`; `returns_shell_unavailable_and_spawn_errors` |
-| `nodejs.ts:234-247` | Environment merge: process env → `shellEnv` → call env; `inheritEnv: false` keeps only call env | `build_env`; shell-environment and replace-not-inherit tests |
+| `nodejs.ts:234-247` | Environment merge: process env → `shellEnv` → call env; `inheritEnv: false` keeps only call env | `build_env`; shell-environment and replace-not-inherit tests; inherited entries use Node's lossy decoding (invalid values become U+FFFD, invalid keys are dropped) |
 | `nodejs.ts:249-269` | Kill the process group with SIGKILL on timeout/abort/cleanup | `kill_process_tree` (rustix `kill_process_group`), `process_group(0)` spawn; timeout, abort, cleanup tests |
 | `nodejs.ts:271-337` | Settle after exit and stdio end, or 100 ms after exit with no data | `exec_command` exit wait plus fixed 100 ms reader grace before aborting readers; deterministic exec tests and differential bash fixtures |
 | `nodejs.ts:352-356` | Constructor options cwd/shellPath/shellEnv | `NodeExecutionEnvOptions`/`NodeExecutionEnv::new` |

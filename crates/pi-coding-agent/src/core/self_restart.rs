@@ -1,8 +1,8 @@
 //! Self-restart request handoff (`core/self-restart.ts`).
 
 use std::collections::BTreeMap;
+use std::ffi::CString;
 use std::io;
-use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -244,10 +244,15 @@ pub fn build_self_restart_env(
 }
 
 fn current_environment() -> BTreeMap<String, String> {
-    std::env::vars().collect()
+    pi_js_compat::process_env::vars().into_iter().collect()
 }
 
 /// `execSelfRestart`: replaces the current process image via `execve`.
+///
+/// Uses `nix::unistd::execve` instead of `CommandExt::exec`: std's `exec`
+/// temporarily swaps the process-global `environ` pointer under a read lock,
+/// so a concurrent `std::env::vars()` can read the temporary array after it is
+/// freed. `execve` receives an explicit environment and never touches `environ`.
 pub fn exec_self_restart(request: &SelfRestartRequest, target: &RestartTarget) -> io::Error {
     let executable = match &target.executable {
         Some(executable) => executable.clone(),
@@ -258,12 +263,33 @@ pub fn exec_self_restart(request: &SelfRestartRequest, target: &RestartTarget) -
     };
     let args = get_self_restart_args(&target.exec_argv, &target.argv);
     let env = build_self_restart_env(request, &current_environment(), std::process::id());
-    let mut command = Command::new(executable);
-    if let Some(argv0) = &target.argv0 {
-        command.arg0(argv0);
+    match execve(&executable, target.argv0.as_deref(), &args, &env) {
+        Ok(never) => match never {},
+        Err(error) => error,
     }
-    command.args(args).env_clear().envs(env);
-    command.exec()
+}
+
+fn execve(
+    executable: &str,
+    argv0: Option<&str>,
+    args: &[String],
+    env: &BTreeMap<String, String>,
+) -> io::Result<std::convert::Infallible> {
+    let path = nul_terminated(executable)?;
+    let mut argv = Vec::with_capacity(args.len() + 1);
+    argv.push(nul_terminated(argv0.unwrap_or(executable))?);
+    for argument in args {
+        argv.push(nul_terminated(argument)?);
+    }
+    let mut environment = Vec::with_capacity(env.len());
+    for (name, value) in env {
+        environment.push(nul_terminated(&format!("{name}={value}"))?);
+    }
+    nix::unistd::execve(&path, &argv, &environment).map_err(|errno| io::Error::from_raw_os_error(errno as i32))
+}
+
+fn nul_terminated(value: &str) -> io::Result<CString> {
+    CString::new(value).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "nul byte found in provided data"))
 }
 
 /// `restartCurrentProcess`.
