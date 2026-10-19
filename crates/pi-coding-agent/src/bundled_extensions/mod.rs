@@ -17,12 +17,21 @@ pub mod approval_controls;
 pub mod ask_secret;
 pub mod browser_cli;
 pub mod bwrap;
+pub mod claude_bash_hook;
 pub mod claude_memory_enrich;
 pub mod claude_memory_session_end;
+pub mod codex_fast;
+pub mod codex_image_generation;
+pub mod codex_usage;
+pub mod codex_web_search;
 pub mod debug;
+pub mod default_footer;
 pub mod docs_tree_context;
+pub mod effort;
 pub mod goal;
 pub mod llama;
+#[path = "loop/mod.rs"]
+pub mod r#loop;
 pub mod openai_remote_compact;
 pub mod pyrun;
 pub mod run_plan;
@@ -42,6 +51,9 @@ pub fn register_builtin_extensions(registry: &mut ExtensionRegistry) {
 /// Options for the small first-party extensions.
 pub struct SmallExtensionsOptions {
     pub get_debug_repl: DebugReplControllerProvider,
+    pub multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
+    pub fast_mode_authority: codex_fast::FastModeAuthority,
+    pub fetch: Option<Arc<dyn pi_ai::request::Fetch>>,
 }
 
 /// Registers the small first-party extensions under their source ids.
@@ -134,6 +146,74 @@ pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &Sma
         "<first-party:spec-validation>",
         Arc::new(|pi| {
             let result = spec_validation::spec_validation_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register(
+        "<first-party:claude-bash-hook>",
+        Arc::new(|pi| {
+            let result =
+                claude_bash_hook::claude_bash_hook_extension(pi, &claude_bash_hook::ClaudeBashHookOptions::default());
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register("<first-party:codex-fast>", {
+        let authority = options.fast_mode_authority.clone();
+        Arc::new(move |pi| {
+            let options = codex_fast::CodexFastOptions {
+                authority: authority.clone(),
+            };
+            let result = codex_fast::codex_fast_extension(pi, &options);
+            Box::pin(async move { result })
+        })
+    });
+    registry.register(
+        "<first-party:codex-image-generation>",
+        Arc::new(|pi| {
+            let result = codex_image_generation::codex_image_generation_extension(
+                pi,
+                &codex_image_generation::ImageGenerationToolOptions::default(),
+            );
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register("<first-party:codex-usage>", {
+        let fetch = options.fetch.clone();
+        Arc::new(move |pi| {
+            let options = codex_usage::CodexUsageOptions { fetch: fetch.clone() };
+            let result = codex_usage::codex_usage_extension(pi, &options);
+            Box::pin(async move { result })
+        })
+    });
+    registry.register(
+        "<first-party:codex-web-search>",
+        Arc::new(|pi| {
+            let result =
+                codex_web_search::codex_web_search_extension(pi, &codex_web_search::WebSearchToolOptions::default());
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register("<first-party:default-footer>", {
+        let store = options.multi_agent_store.clone();
+        Arc::new(move |pi| {
+            let options = default_footer::DefaultFooterExtensionOptions {
+                multi_agent_store: store.clone(),
+            };
+            let result = default_footer::default_footer_extension(pi, &options);
+            Box::pin(async move { result })
+        })
+    });
+    registry.register(
+        "<first-party:effort>",
+        Arc::new(|pi| {
+            let result = effort::effort_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register(
+        "<first-party:loop>",
+        Arc::new(|pi| {
+            let result = r#loop::loop_extension(pi);
             Box::pin(async move { result })
         }),
     );
