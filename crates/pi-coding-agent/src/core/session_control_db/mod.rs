@@ -78,10 +78,10 @@ pub use mailbox::{
     consume_runtime_mailbox_message, consume_runtime_mailbox_message_by_store_ref, deliver_runtime_mailbox_message,
     enqueue_runtime_mailbox_message, enqueue_stored_runtime_mailbox_message, fail_runtime_mailbox_message,
     list_runtime_mailbox_listeners, list_runtime_mailbox_messages, mark_runtime_mailbox_message_delivered,
-    read_runtime_mailbox_listener, read_runtime_mailbox_message, read_runtime_mailbox_message_for_delivery,
-    recover_dead_runtime_mailbox_claims, register_runtime_mailbox_listener, release_runtime_mailbox_message_claim,
-    resolve_own_main_runtime_coordination_recipient, retire_runtime_mailbox_listener,
-    take_runtime_mailbox_messages_for_delivery,
+    mark_runtime_mailbox_signal_keepalive_installed, read_runtime_mailbox_listener, read_runtime_mailbox_message,
+    read_runtime_mailbox_message_for_delivery, recover_dead_runtime_mailbox_claims, register_runtime_mailbox_listener,
+    release_runtime_mailbox_message_claim, resolve_own_main_runtime_coordination_recipient,
+    retire_runtime_mailbox_listener, take_runtime_mailbox_messages_for_delivery,
 };
 pub use requests::{
     ArchitectRequest, ArchitectRequestStatus, PostArchitectRequestInput, PostSupervisorRequestInput, SupervisorRequest,

@@ -36,7 +36,7 @@ use crate::core::extensions::types::NoOpUiContext;
 use crate::core::model_registry::ModelRegistry;
 use crate::core::model_resolver::{ScopedModel, find_exact_model_reference_match, resolve_model_scope};
 use crate::core::model_runtime::ModelRuntime;
-use crate::core::multi_agent_store::SteeringCheckpoint;
+use crate::core::multi_agent_store::{AgentLifecycle, SteeringCheckpoint};
 use crate::core::permissions::policy::ApprovalPolicy;
 use crate::core::permissions::presets::{ApprovalPresetName, SandboxProfileName, SandboxProfileScope};
 use crate::core::prompt_templates::expand_prompt_template;
@@ -59,6 +59,8 @@ const BUILT_IN_COMPACTION_DISABLED_MESSAGE: &str =
 const DUPLICATE_TURN_GUARD_PROMPT: &str =
     "You repeated the same response. Stop looping. Call `end_turn` with a concise reason describing the current state.";
 const THINKING_PHASE_TIMEOUT_MS: u64 = 15 * 60 * 1000;
+const RUNTIME_MAILBOX_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+const RUNTIME_MAILBOX_HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Standard thinking levels.
 pub const THINKING_LEVELS: [ThinkingLevel; 5] = [
@@ -640,6 +642,47 @@ pub fn get_assistant_message_text(message: &AssistantMessage) -> String {
         .collect()
 }
 
+/// `_isTerminalMultiAgentLifecycle`.
+fn is_terminal_multi_agent_lifecycle(lifecycle: AgentLifecycle) -> bool {
+    matches!(
+        lifecycle,
+        AgentLifecycle::Completed | AgentLifecycle::Failed | AgentLifecycle::Aborted
+    )
+}
+
+fn lifecycle_name(lifecycle: AgentLifecycle) -> &'static str {
+    match lifecycle {
+        AgentLifecycle::Running => "running",
+        AgentLifecycle::WaitingForInput => "waiting_for_input",
+        AgentLifecycle::SteeringPending => "steering_pending",
+        AgentLifecycle::Cancelling => "cancelling",
+        AgentLifecycle::Completed => "completed",
+        AgentLifecycle::Failed => "failed",
+        AgentLifecycle::Aborted => "aborted",
+    }
+}
+
+fn last_runtime_mailbox_assistant(messages: &[AgentMessage]) -> Option<&AssistantMessage> {
+    messages.iter().rev().find_map(|message| match message {
+        AgentMessage::Assistant(assistant) => Some(assistant.as_ref()),
+        _ => None,
+    })
+}
+
+fn runtime_mailbox_steering_lifecycle(messages: &[AgentMessage]) -> AgentLifecycle {
+    match last_runtime_mailbox_assistant(messages).map(|assistant| assistant.stop_reason) {
+        Some(StopReason::Aborted) => AgentLifecycle::Aborted,
+        Some(StopReason::Error) => AgentLifecycle::Failed,
+        _ => AgentLifecycle::Completed,
+    }
+}
+
+fn last_runtime_mailbox_assistant_text(messages: &[AgentMessage]) -> Option<String> {
+    let assistant = last_runtime_mailbox_assistant(messages)?;
+    let text = pi_js_compat::string::js_trim(&get_assistant_message_text(assistant)).to_owned();
+    (!text.is_empty()).then_some(text)
+}
+
 fn user_message_text(content: &UserContent) -> String {
     match content {
         UserContent::Text(text) => text.clone(),
@@ -910,7 +953,21 @@ struct Inner {
     multi_agent_active_tools: Mutex<Vec<(String, ActiveTool)>>,
     background_compaction_cache: Mutex<Option<BackgroundCompactionCache>>,
     runtime_mailbox_drain_lock: tokio::sync::Mutex<()>,
+    runtime_mailbox_steering_agent_ids: Mutex<Vec<String>>,
+    runtime_mailbox_pending_terminal: Mutex<indexmap::IndexMap<String, PendingSteeringTerminal>>,
+    runtime_mailbox_pending_terminal_unsubscribe: Mutex<Option<crate::core::multi_agent_store::AgentSubscription>>,
+    runtime_mailbox_poll_token: Mutex<Option<CancellationToken>>,
+    runtime_mailbox_heartbeat_token: Mutex<Option<CancellationToken>>,
+    runtime_mailbox_signal_token: Mutex<Option<CancellationToken>>,
+    runtime_mailbox_control_db_path: Mutex<Option<String>>,
+    runtime_mailbox_control_db_release: Mutex<Option<crate::core::session_control_db::RetainedControlDbGuard>>,
     shared_channel_drain_in_progress: AtomicBool,
+}
+
+#[derive(Clone)]
+struct PendingSteeringTerminal {
+    lifecycle: crate::core::multi_agent_store::AgentLifecycle,
+    summary: Option<String>,
 }
 
 struct ActiveTool {
@@ -1201,6 +1258,14 @@ impl AgentSession {
             multi_agent_active_tools: Mutex::new(Vec::new()),
             background_compaction_cache: Mutex::new(None),
             runtime_mailbox_drain_lock: tokio::sync::Mutex::new(()),
+            runtime_mailbox_steering_agent_ids: Mutex::new(Vec::new()),
+            runtime_mailbox_pending_terminal: Mutex::new(indexmap::IndexMap::new()),
+            runtime_mailbox_pending_terminal_unsubscribe: Mutex::new(None),
+            runtime_mailbox_poll_token: Mutex::new(None),
+            runtime_mailbox_heartbeat_token: Mutex::new(None),
+            runtime_mailbox_signal_token: Mutex::new(None),
+            runtime_mailbox_control_db_path: Mutex::new(None),
+            runtime_mailbox_control_db_release: Mutex::new(None),
             shared_channel_drain_in_progress: AtomicBool::new(false),
         });
 
@@ -1227,6 +1292,8 @@ impl AgentSession {
             None,
             true,
         );
+        session.start_runtime_mailbox_signal_wake();
+        session.start_runtime_mailbox_polling();
         Ok(session)
     }
 
@@ -2124,9 +2191,11 @@ impl AgentSession {
     }
 
     fn runtime_mailbox_control_db_path(&self) -> Option<String> {
-        lock(&self.inner.extension_control_db_path)
-            .clone()
-            .or_else(|| self.inner.control_db_path.clone())
+        lock(&self.inner.extension_control_db_path).clone().or_else(|| {
+            lock(&self.inner.session_manager)
+                .get_metadata_control_db_path()
+                .map(str::to_owned)
+        })
     }
 
     /// Builds the detached-job lifecycle controller from the multi-agent store.
@@ -2280,21 +2349,8 @@ impl AgentSession {
             }
         }
         let recipient = self.runtime_mailbox_recipient();
-        let mut listener = crate::core::session_control_db::read_runtime_mailbox_listener(control_db_path, &recipient)
+        let listener = crate::core::session_control_db::read_runtime_mailbox_listener(control_db_path, &recipient)
             .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
-        if listener.is_none() {
-            let session_file = self.session_file();
-            crate::core::session_control_db::register_runtime_mailbox_listener(
-                control_db_path,
-                &recipient,
-                std::process::id(),
-                session_file.as_deref(),
-                Default::default(),
-            )
-            .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
-            listener = crate::core::session_control_db::read_runtime_mailbox_listener(control_db_path, &recipient)
-                .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
-        }
         if listener
             .as_ref()
             .is_none_or(|listener| listener.pid != std::process::id())
@@ -2356,6 +2412,7 @@ impl AgentSession {
         for message in &prompt_messages {
             self.mark_store_mailbox_message_delivered(message);
         }
+        self.complete_runtime_mailbox_steering_turn(&self.messages());
         result.map(|_| false)
     }
 
@@ -2421,17 +2478,20 @@ impl AgentSession {
 
     fn mark_store_mailbox_message_delivered(&self, message: &RuntimeMailboxMessage) {
         let store_ref = &message.store_ref;
+        let is_steer = message.kind == crate::core::session_control_db::RuntimeMailboxMessageKind::Steer;
         if let Some(store) = self.inner.multi_agent_store.as_ref()
             && store
                 .get_persistence_target()
                 .is_some_and(|persistence| persistence.session_path == store_ref.session_path)
         {
-            if message.kind != crate::core::session_control_db::RuntimeMailboxMessageKind::Steer {
+            if is_steer {
+                self.mark_store_steering_delivered(message, &store_ref.message_id);
+            } else {
                 store.mark_mailbox_message_delivered(&store_ref.message_id);
             }
             return;
         }
-        if message.kind == crate::core::session_control_db::RuntimeMailboxMessageKind::Steer {
+        if is_steer {
             return;
         }
         let Some(control_db_path) = self.runtime_mailbox_control_db_path() else {
@@ -2446,26 +2506,463 @@ impl AgentSession {
         }
     }
 
+    /// Acknowledges a steering delivery through the lifecycle coordinator and
+    /// tracks the agent for completion once its turn finishes.
+    fn mark_store_steering_delivered(&self, message: &RuntimeMailboxMessage, message_id: &str) -> Option<String> {
+        use crate::core::lifecycle_coordinator::{SteeringCommandResult, SteeringDeliveryCommandInput};
+
+        let agent_id = message.recipient.agent_id.as_deref()?;
+        let store = self.inner.multi_agent_store.as_ref()?;
+        let current = store.get_agent(agent_id)?;
+        let persistence = store.get_persistence_target()?;
+        let ownership = match crate::core::session_control_db::read_multi_agent_runtime_ownership(
+            &persistence.control_db_path,
+            &persistence.session_path,
+            agent_id,
+        ) {
+            Ok(ownership) => ownership?,
+            Err(error) => {
+                eprintln!("Failed to read multi-agent runtime ownership: {error}");
+                return None;
+            }
+        };
+        let coordinator = crate::core::lifecycle_coordinator::LifecycleCoordinator::new(
+            crate::core::lifecycle_coordinator::LifecycleCoordinatorOptions {
+                control_db_path: persistence.control_db_path.clone(),
+                create_agent_id: Arc::new({
+                    let store = Arc::clone(store);
+                    move || store.allocate_agent_id_for_lifecycle_coordinator("agent")
+                }),
+                now: Arc::new(crate::utils::iso_time::now_iso_string),
+                process_identity: crate::bundled_extensions::agents_core::lifecycle_runtime::runtime_process_identity()
+                    .clone(),
+                session_path: persistence.session_path.clone(),
+            },
+        );
+        let delivered = match coordinator.acknowledge_steering_delivery(&SteeringDeliveryCommandInput {
+            agent: current,
+            ownership,
+            message_id: message_id.to_owned(),
+        }) {
+            Ok(delivered) => delivered,
+            Err(error) => {
+                eprintln!("Failed to acknowledge steering delivery: {error}");
+                return None;
+            }
+        };
+        let SteeringCommandResult::Ok { agent, message } = delivered else {
+            return None;
+        };
+        store.publish_lifecycle_coordinator_steering_delivery(&agent, &message);
+        let mut steering = lock(&self.inner.runtime_mailbox_steering_agent_ids);
+        if !steering.iter().any(|tracked| tracked == agent_id) {
+            steering.push(agent_id.to_owned());
+        }
+        Some(agent_id.to_owned())
+    }
+
     fn fail_store_mailbox_delivery(&self, message: &RuntimeMailboxMessage, failure: &str) {
         let store_ref = &message.store_ref;
+        let is_steer = message.kind == crate::core::session_control_db::RuntimeMailboxMessageKind::Steer;
         if let Some(store) = self.inner.multi_agent_store.as_ref()
             && store
                 .get_persistence_target()
                 .is_some_and(|persistence| persistence.session_path == store_ref.session_path)
         {
             store.mark_mailbox_message_failed(&store_ref.message_id, failure);
+        } else {
+            let Some(control_db_path) = self.runtime_mailbox_control_db_path() else {
+                return;
+            };
+            if let Err(error) = crate::core::session_control_db::mark_multi_agent_mailbox_message_failed(
+                &control_db_path,
+                &store_ref.session_path,
+                &store_ref.message_id,
+                failure,
+            ) {
+                eprintln!("Failed to mark mailbox message failed: {error}");
+            }
+        }
+        if !is_steer {
+            return;
+        }
+        let Some(agent_id) = message.recipient.agent_id.as_deref() else {
+            return;
+        };
+        let Some(store) = self.inner.multi_agent_store.as_ref() else {
+            return;
+        };
+        lock(&self.inner.runtime_mailbox_steering_agent_ids).retain(|tracked| tracked != agent_id);
+        let Some(current) = store.get_agent(agent_id) else {
+            return;
+        };
+        if !is_terminal_multi_agent_lifecycle(current.lifecycle) {
+            let error = crate::core::multi_agent_store::AgentError {
+                message: failure.to_owned(),
+                code: None,
+            };
+            self.finalize_reserved_multi_agent(&current, "failed", Some(&error), None);
+        }
+    }
+
+    /// `_completeRuntimeMailboxSteeringTurn`.
+    fn complete_runtime_mailbox_steering_turn(&self, messages: &[AgentMessage]) {
+        let Some(store) = self.inner.multi_agent_store.as_ref() else {
+            return;
+        };
+        let agent_ids = lock(&self.inner.runtime_mailbox_steering_agent_ids).clone();
+        if agent_ids.is_empty() {
+            return;
+        }
+        let lifecycle = runtime_mailbox_steering_lifecycle(messages);
+        let summary = (lifecycle == AgentLifecycle::Completed)
+            .then(|| last_runtime_mailbox_assistant_text(messages))
+            .flatten();
+        for agent_id in &agent_ids {
+            if self.complete_runtime_mailbox_steered_agent(agent_id, lifecycle, summary.as_deref()) {
+                continue;
+            }
+            if !is_terminal_multi_agent_lifecycle(lifecycle) {
+                continue;
+            }
+            let has_active_descendants = store
+                .list_descendants(agent_id)
+                .iter()
+                .any(|agent| !is_terminal_multi_agent_lifecycle(agent.lifecycle));
+            if has_active_descendants {
+                self.defer_runtime_mailbox_steered_terminal(agent_id, lifecycle, summary.clone());
+            }
+        }
+        lock(&self.inner.runtime_mailbox_steering_agent_ids).clear();
+    }
+
+    fn complete_runtime_mailbox_steered_agent(
+        &self,
+        agent_id: &str,
+        lifecycle: AgentLifecycle,
+        summary: Option<&str>,
+    ) -> bool {
+        let Some(store) = self.inner.multi_agent_store.as_ref() else {
+            return false;
+        };
+        let Some(current) = store.get_agent(agent_id) else {
+            return true;
+        };
+        if is_terminal_multi_agent_lifecycle(current.lifecycle) {
+            return true;
+        }
+        if !is_terminal_multi_agent_lifecycle(lifecycle) {
+            return true;
+        }
+        let result = summary.map(|summary| crate::core::multi_agent_store::AgentResult {
+            summary: Some(summary.to_owned()),
+            file_refs: None,
+            duration_ms: None,
+            tool_call_id: None,
+        });
+        let error = (lifecycle == AgentLifecycle::Failed).then(|| crate::core::multi_agent_store::AgentError {
+            message: "Runtime mailbox steering turn failed".to_owned(),
+            code: None,
+        });
+        self.finalize_reserved_multi_agent(&current, lifecycle_name(lifecycle), error.as_ref(), result.as_ref())
+    }
+
+    fn defer_runtime_mailbox_steered_terminal(
+        &self,
+        agent_id: &str,
+        lifecycle: AgentLifecycle,
+        summary: Option<String>,
+    ) {
+        let Some(store) = self.inner.multi_agent_store.as_ref() else {
+            return;
+        };
+        lock(&self.inner.runtime_mailbox_pending_terminal)
+            .insert(agent_id.to_owned(), PendingSteeringTerminal { lifecycle, summary });
+        if lock(&self.inner.runtime_mailbox_pending_terminal_unsubscribe).is_some() {
+            return;
+        }
+        let weak = Arc::downgrade(&self.inner);
+        let subscription = store.subscribe_agent_updates(move |_previous, _current| {
+            if let Some(inner) = weak.upgrade() {
+                AgentSession { inner }.retry_runtime_mailbox_steered_terminals();
+            }
+        });
+        *lock(&self.inner.runtime_mailbox_pending_terminal_unsubscribe) = Some(subscription);
+    }
+
+    fn retry_runtime_mailbox_steered_terminals(&self) {
+        let Some(store) = self.inner.multi_agent_store.as_ref() else {
+            return;
+        };
+        let pending: Vec<(String, PendingSteeringTerminal)> = lock(&self.inner.runtime_mailbox_pending_terminal)
+            .iter()
+            .map(|(agent_id, pending)| (agent_id.clone(), pending.clone()))
+            .collect();
+        for (agent_id, pending) in pending {
+            let has_active_descendants = store
+                .list_descendants(&agent_id)
+                .iter()
+                .any(|agent| !is_terminal_multi_agent_lifecycle(agent.lifecycle));
+            if has_active_descendants {
+                continue;
+            }
+            lock(&self.inner.runtime_mailbox_pending_terminal).shift_remove(&agent_id);
+            if !self.complete_runtime_mailbox_steered_agent(&agent_id, pending.lifecycle, pending.summary.as_deref()) {
+                lock(&self.inner.runtime_mailbox_pending_terminal).insert(agent_id, pending);
+            }
+        }
+        if !lock(&self.inner.runtime_mailbox_pending_terminal).is_empty() {
+            return;
+        }
+        *lock(&self.inner.runtime_mailbox_pending_terminal_unsubscribe) = None;
+    }
+
+    /// `_finalizeReservedMultiAgent`.
+    fn finalize_reserved_multi_agent(
+        &self,
+        agent: &crate::core::multi_agent_store::AgentSnapshot,
+        terminal_lifecycle: &str,
+        error: Option<&crate::core::multi_agent_store::AgentError>,
+        result: Option<&crate::core::multi_agent_store::AgentResult>,
+    ) -> bool {
+        use crate::core::lifecycle_coordinator::{FinalizeChildCommandInput, LifecycleCommandResult};
+
+        let Some(store) = self.inner.multi_agent_store.as_ref() else {
+            return false;
+        };
+        let Some(persistence) = store.get_persistence_target() else {
+            return false;
+        };
+        let ownership = match crate::core::session_control_db::read_multi_agent_runtime_ownership(
+            &persistence.control_db_path,
+            &persistence.session_path,
+            &agent.id,
+        ) {
+            Ok(ownership) => ownership,
+            Err(error) => {
+                eprintln!("Failed to read multi-agent runtime ownership: {error}");
+                return false;
+            }
+        };
+        let Some(ownership) = ownership else {
+            return false;
+        };
+        let coordinator = crate::core::lifecycle_coordinator::LifecycleCoordinator::new(
+            crate::core::lifecycle_coordinator::LifecycleCoordinatorOptions {
+                control_db_path: persistence.control_db_path.clone(),
+                create_agent_id: Arc::new({
+                    let store = Arc::clone(store);
+                    move || store.allocate_agent_id_for_lifecycle_coordinator("agent")
+                }),
+                now: Arc::new(crate::utils::iso_time::now_iso_string),
+                process_identity: crate::bundled_extensions::agents_core::lifecycle_runtime::runtime_process_identity()
+                    .clone(),
+                session_path: persistence.session_path.clone(),
+            },
+        );
+        let finalized = match coordinator.finalize_child(&FinalizeChildCommandInput {
+            agent: agent.clone(),
+            ownership,
+            error: error.cloned(),
+            result: result.cloned(),
+            terminal_lifecycle: terminal_lifecycle.to_owned(),
+        }) {
+            Ok(finalized) => finalized,
+            Err(error) => {
+                eprintln!("Failed to finalize steered agent: {error}");
+                return false;
+            }
+        };
+        if !matches!(finalized, LifecycleCommandResult::Ok { .. }) {
+            return false;
+        }
+        self.drain_terminal_outbox_projections();
+        true
+    }
+
+    fn start_runtime_mailbox_polling(&self) {
+        if self.inner.disable_runtime_coordination_inbound {
             return;
         }
         let Some(control_db_path) = self.runtime_mailbox_control_db_path() else {
             return;
         };
-        if let Err(error) = crate::core::session_control_db::mark_multi_agent_mailbox_message_failed(
-            &control_db_path,
-            &store_ref.session_path,
-            &store_ref.message_id,
-            failure,
+        if lock(&self.inner.runtime_mailbox_poll_token).is_some()
+            && lock(&self.inner.runtime_mailbox_control_db_path).as_deref() == Some(control_db_path.as_str())
+        {
+            return;
+        }
+        self.stop_runtime_mailbox_polling();
+        *lock(&self.inner.terminal_outbox_last_cleanup_at) = None;
+        *lock(&self.inner.runtime_mailbox_control_db_path) = Some(control_db_path.clone());
+        let release = crate::core::session_control_db::retain_control_db_connection(&control_db_path)
+            .expect("control db connection must be retainable");
+        *lock(&self.inner.runtime_mailbox_control_db_release) = Some(release);
+        let token = CancellationToken::new();
+        *lock(&self.inner.runtime_mailbox_poll_token) = Some(token.clone());
+        let weak = Arc::downgrade(&self.inner);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval_at(
+                tokio::time::Instant::now() + RUNTIME_MAILBOX_POLL_INTERVAL,
+                RUNTIME_MAILBOX_POLL_INTERVAL,
+            );
+            loop {
+                tokio::select! {
+                    () = token.cancelled() => break,
+                    _ = interval.tick() => {
+                        let Some(inner) = weak.upgrade() else { break };
+                        let session = AgentSession { inner };
+                        if let Err(error) = session
+                            .drain_runtime_coordination_messages(DrainCoordinationOptions {
+                                checkpoint: None,
+                                include_next_model_call: false,
+                                trigger_if_idle: true,
+                            })
+                            .await
+                        {
+                            eprintln!("Failed to drain runtime coordination messages: {}", error.message());
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    fn stop_runtime_mailbox_polling(&self) {
+        if let Some(token) = lock(&self.inner.runtime_mailbox_poll_token).take() {
+            token.cancel();
+        }
+        lock(&self.inner.runtime_mailbox_control_db_release).take();
+        *lock(&self.inner.runtime_mailbox_control_db_path) = None;
+    }
+
+    fn start_runtime_mailbox_signal_wake(&self) {
+        if self.inner.disable_runtime_coordination_inbound {
+            return;
+        }
+        let Some(control_db_path) = self.runtime_mailbox_control_db_path() else {
+            return;
+        };
+        let agent_id = self.inner.multi_agent_agent_id.clone();
+        self.register_runtime_mailbox_listeners(&control_db_path, agent_id.as_deref());
+        let recipient = self.runtime_mailbox_recipient();
+        if let Err(error) =
+            crate::core::session_control_db::initialize_shared_channel_cursor_at_tail(&control_db_path, &recipient)
+        {
+            eprintln!("Failed to initialize shared channel cursor: {error}");
+        }
+        self.start_runtime_mailbox_heartbeat();
+        self.start_runtime_mailbox_signal_handler();
+    }
+
+    fn register_runtime_mailbox_listeners(&self, control_db_path: &str, agent_id: Option<&str>) {
+        let recipient = self.runtime_mailbox_recipient();
+        let session_file = if agent_id.is_none() { self.session_file() } else { None };
+        if let Err(error) = crate::core::session_control_db::register_runtime_mailbox_listener(
+            control_db_path,
+            &recipient,
+            std::process::id(),
+            session_file.as_deref(),
+            Default::default(),
         ) {
-            eprintln!("Failed to mark mailbox message failed: {error}");
+            eprintln!("Failed to refresh runtime mailbox listeners: {error}");
+        }
+    }
+
+    fn start_runtime_mailbox_heartbeat(&self) {
+        if lock(&self.inner.runtime_mailbox_heartbeat_token).is_some() {
+            return;
+        }
+        let token = CancellationToken::new();
+        *lock(&self.inner.runtime_mailbox_heartbeat_token) = Some(token.clone());
+        let agent_id = self.inner.multi_agent_agent_id.clone();
+        let weak = Arc::downgrade(&self.inner);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval_at(
+                tokio::time::Instant::now() + RUNTIME_MAILBOX_HEARTBEAT_INTERVAL,
+                RUNTIME_MAILBOX_HEARTBEAT_INTERVAL,
+            );
+            loop {
+                tokio::select! {
+                    () = token.cancelled() => break,
+                    _ = interval.tick() => {
+                        let Some(inner) = weak.upgrade() else { break };
+                        let session = AgentSession { inner };
+                        let Some(control_db_path) = session.runtime_mailbox_control_db_path() else {
+                            continue;
+                        };
+                        session.register_runtime_mailbox_listeners(&control_db_path, agent_id.as_deref());
+                    }
+                }
+            }
+        });
+    }
+
+    fn stop_runtime_mailbox_signal_wake(&self) {
+        if let Some(token) = lock(&self.inner.runtime_mailbox_heartbeat_token).take() {
+            token.cancel();
+        }
+        self.retire_runtime_mailbox_listeners();
+        if let Some(token) = lock(&self.inner.runtime_mailbox_signal_token).take() {
+            token.cancel();
+        }
+    }
+
+    fn retire_runtime_mailbox_listeners(&self) {
+        let Some(control_db_path) = self.runtime_mailbox_control_db_path() else {
+            return;
+        };
+        let recipient = self.runtime_mailbox_recipient();
+        if let Err(error) = crate::core::session_control_db::retire_runtime_mailbox_listener(
+            &control_db_path,
+            &recipient,
+            std::process::id(),
+        ) {
+            eprintln!("Failed to retire runtime mailbox listeners: {error}");
+        }
+    }
+
+    fn start_runtime_mailbox_signal_handler(&self) {
+        #[cfg(unix)]
+        {
+            if lock(&self.inner.runtime_mailbox_signal_token).is_some() {
+                return;
+            }
+            let mut signal = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::user_defined2()) {
+                Ok(signal) => signal,
+                Err(error) => {
+                    eprintln!("Failed to install runtime mailbox signal handler: {error}");
+                    return;
+                }
+            };
+            crate::core::session_control_db::mark_runtime_mailbox_signal_keepalive_installed();
+            let token = CancellationToken::new();
+            *lock(&self.inner.runtime_mailbox_signal_token) = Some(token.clone());
+            let weak = Arc::downgrade(&self.inner);
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        () = token.cancelled() => break,
+                        received = signal.recv() => {
+                            if received.is_none() {
+                                break;
+                            }
+                            let Some(inner) = weak.upgrade() else { break };
+                            let session = AgentSession { inner };
+                            if let Err(error) = session
+                                .drain_runtime_coordination_messages(DrainCoordinationOptions {
+                                    checkpoint: None,
+                                    include_next_model_call: false,
+                                    trigger_if_idle: true,
+                                })
+                                .await
+                            {
+                                eprintln!("Failed to drain runtime coordination messages: {}", error.message());
+                            }
+                        }
+                    }
+                }
+            });
         }
     }
 
@@ -3366,7 +3863,9 @@ impl AgentSession {
             ));
         }
         drop(guard);
-        self.run_agent_continuation().await
+        let result = self.run_agent_continuation().await;
+        self.complete_runtime_mailbox_steering_turn(&self.messages());
+        result
     }
 
     /// Sends a prompt to the agent.
@@ -3387,6 +3886,7 @@ impl AgentSession {
         }
         let guard = self.inner.turn_start_lock.lock().await;
         let result = self.prompt_turn(text, options, guard).await;
+        self.complete_runtime_mailbox_steering_turn(&self.messages());
         if result.is_ok() {
             self.drain_runtime_coordination_messages(DrainCoordinationOptions {
                 checkpoint: None,
@@ -4734,6 +5234,8 @@ impl AgentSession {
         self.abort_compaction_summary_materialization();
         self.abort_branch_summary();
         self.abort_bash();
+        self.stop_runtime_mailbox_polling();
+        self.stop_runtime_mailbox_signal_wake();
         self.inner.agent.abort();
         if let Some(subscription) = lock(&self.inner.agent_subscription).take() {
             self.inner.agent.unsubscribe(subscription);
@@ -6121,6 +6623,8 @@ impl AgentSession {
         if let Some(control_db_path) = bindings.control_db_path {
             *lock(&self.inner.extension_control_db_path) = Some(control_db_path);
         }
+        self.start_runtime_mailbox_signal_wake();
+        self.start_runtime_mailbox_polling();
         if let Some(actions) = bindings.command_context_actions {
             *lock(&self.inner.extension_command_context_actions) = Some(actions);
         }
