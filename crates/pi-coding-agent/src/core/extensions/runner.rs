@@ -1478,7 +1478,7 @@ impl ExtensionRunner {
     pub async fn emit_input(
         &self,
         text: &str,
-        images: Option<Vec<ImageContent>>,
+        images: Option<InputImages>,
         source: InputSource,
         streaming_behavior: Option<StreamingBehavior>,
     ) -> InputEventResult {
@@ -1508,7 +1508,12 @@ impl ExtensionRunner {
             }
         }
 
-        if current_text != text || current_images != images {
+        let images_changed = match (&current_images, &images) {
+            (Some(current), Some(original)) => !current.ptr_eq(original),
+            (None, None) => false,
+            _ => true,
+        };
+        if current_text != text || images_changed {
             InputEventResult::Transform {
                 text: current_text,
                 images: current_images,

@@ -4115,7 +4115,7 @@ impl AgentSession {
             InputEventResult::Transform { text, images } => {
                 current_text = text;
                 if let Some(images) = images {
-                    current_images = images;
+                    current_images = images.into_vec();
                 }
             }
             InputEventResult::Continue => {}
@@ -7270,7 +7270,7 @@ impl AgentSession {
         runner
             .emit_input(
                 text,
-                (!images.is_empty()).then(|| images.to_vec()),
+                (!images.is_empty()).then(|| crate::core::extensions::types::InputImages::new(images.to_vec())),
                 match source.unwrap_or(InputSource::Interactive) {
                     InputSource::Interactive => ExtensionInputSource::Interactive,
                     InputSource::Rpc => ExtensionInputSource::Rpc,

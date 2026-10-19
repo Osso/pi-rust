@@ -2,12 +2,13 @@
 
 Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
-Status: **partial**. The mode core (construction, TUI layout, startup resources,
-session event rendering, editor submission, key handlers, slash commands,
-extension UI dialogs, selector components, login/logout, suspend, clipboard
-paste, share viewer, startup changelog/telemetry, prompt activity, render-region
-layout callbacks, subscription warning and easter eggs) is implemented and
-behavior-tested. Multi-agent child transcripts remain an explicit gap below.
+Status: **done** for this module. The mode core (construction, TUI layout,
+startup resources, session event rendering, editor submission, key handlers,
+slash commands, extension UI dialogs, selector components, login/logout,
+suspend, clipboard paste, share viewer, startup changelog/telemetry, prompt
+activity, render-region layout callbacks, subscription warning and easter
+eggs) plus agent slots, the working loader, child footer overrides and
+notify-based child transcript reloads are implemented and behavior-tested.
 
 ## Exported symbols
 
@@ -40,7 +41,20 @@ behavior-tested. Multi-agent child transcripts remain an explicit gap below.
 | `applyFullscreenScrollbarSetting` / `scrollbarStyle` | `build_fullscreen_layout` `scrollbar_style` | `ui_tests::fullscreen_scroll_view_uses_the_scrollbar_thumb_background` |
 | `handleArminSaysHi` / `handleDementedDelves` / `handleDaxnuts` / `checkDaxnutsEasterEgg` | `handle_armin_says_hi` / `handle_demented_delves` / `handle_daxnuts` / `check_daxnuts_easter_egg` | `ui_tests::daxnuts_easter_egg_triggers_for_opencode_kimi_models` |
 | `showOAuthSelector` (logout) | `show_oauth_selector(true)` | `ui_tests::logout_selector_removes_the_stored_api_key` |
-| `setEditorComponent` / `getEditorComponent` / `addAutocompleteProvider` | `set_custom_editor_component` / `UiRequest::GetEditorComponent` / `add_autocomplete_provider` | `ui_tests::extension_select_dialog_resolves_and_restores_editor` plus component tests in `tests/differential_interactive_components.rs` |
+| `setEditorComponent` / `getEditorComponent` / `addAutocompleteProvider` | `set_custom_editor_component` / `get_editor_component` (shared factory cell) / `add_autocomplete_provider` | `ui_tests::extension_context_exposes_autocomplete_and_editor_factories`, `ui_tests::extension_select_dialog_resolves_and_restores_editor`, `tests/differential_interactive_components.rs` |
+| `AGENT_SLOT_KEYBINDINGS` / `registerAgentSlotKeyHandlers` / `registerGlobalAgentSlotInputHandler` / `selectAgentSlot` | `AGENT_SLOT_KEYBINDINGS` / `register_agent_slot_key_handlers` / `register_global_agent_slot_input_handler` / `select_agent_slot` | `ui_tests::agent_slot_keybindings_select_active_agents_and_main`, `ui_tests::inactive_agent_slot_reports_status_without_switching` |
+| `syncWorkingLoaderVisibility` / `createWorkingLoader` / `stopWorkingLoader` / `getWorkingLoaderMessage` | `sync_working_loader_visibility` / `create_working_loader` / `stop_working_loader` / `get_working_loader_message` | `ui_tests::thinking_and_tool_waiting_timers_update_the_working_loader`, `ui_tests::child_view_overrides_the_footer_session` |
+| `getToolWaitingMessage` / `setDefaultWorkingMessage` / `setWorkingMessageForActiveTools` / `startToolWaitingTimer` / `stopToolWaitingTimerIfIdle` | `get_tool_waiting_message` / `set_default_working_message` / `set_working_message_for_active_tools` / `start_tool_waiting_timer` / `stop_tool_waiting_timer_if_idle` | `ui_tests::thinking_and_tool_waiting_timers_update_the_working_loader` |
+| `getThinkingWorkingMessage` / `startThinkingTimer` / `stopThinkingTimer` / `addCompletedThinkingDurationBeforeToolCall` | `get_thinking_working_message` / `start_thinking_timer` / `stop_thinking_timer` / `add_completed_thinking_duration_before_tool_call` | `ui_tests::thinking_and_tool_waiting_timers_update_the_working_loader` |
+| `startChildActivityTimer` / `stopChildActivityTimer` / `isSelectedChildWorking` | `start_child_activity_timer` / `stop_child_activity_timer` / `is_selected_child_working` | `ui_tests::child_view_overrides_the_footer_session` |
+| `auto_retry_start` loader + `retryCountdown` / `stopRetryLoader` / retry escape handler | `AutoRetryStart` branch / `CountdownTimer` / `stop_retry_loader` / `retry_escape_handler` | `ui_tests::retry_loader_counts_down_and_reports_final_failure` |
+| `handleHiddenMainSessionDisplayEvent` / `syncToolExecutionTrackingForHiddenMainEvent` | `handle_hidden_main_session_display_event` / `sync_tool_execution_tracking_for_hidden_main_event` | `ui_tests::agent_slot_keybindings_select_active_agents_and_main` (main events suppressed while viewing a child) |
+| `subscribeToMultiAgentStore` / `poll` of store updates | `subscribe_to_multi_agent_store` / `poll_multi_agent_updates` | `ui_tests::agent_slot_keybindings_select_active_agents_and_main` |
+| `openChildAgentView` / `watchSelectedAgentTranscript` / `scheduleSelectedAgentTranscriptReload` / `reloadSelectedAgentTranscript` / `retrySelectedAgentTranscriptReload` | `open_child_agent_view` / `watch_selected_agent_transcript` / `schedule_selected_agent_transcript_reload` / `reload_selected_agent_transcript` / `retry_selected_agent_transcript_reload` | `ui_tests::child_transcript_reloads_after_a_watched_file_change` |
+| `renderSelectedAgentView` / `renderLiveAgentPlaceholder` / `findReadableAgentLogPath` / `readAgentLogPreview` | `render_selected_agent_view` / `render_live_agent_placeholder` / `find_readable_agent_log_path` / `read_agent_log_preview` | `ui_tests::child_view_overrides_the_footer_session`, `tests/interactive_child_view.rs` |
+| `moveStreamingComponentToChat` / `discardStreamingComponent` | `move_streaming_component_to_chat` / `discard_streaming_component` | `ui_tests::message_end_moves_the_streaming_component_into_the_chat_container`, `ui_tests::fullscreen_message_start_renders_directly_in_the_chat_container` |
+| `maybeShowCacheMissNotice` / `addCacheMissNotice` | `maybe_show_cache_miss_notice` / `add_cache_miss_notice` | covered by the `MessageEnd` branch tests; `detect_cache_miss` differential in `tests/cache_stats.rs` |
+| `updateSelectedAgentSelectionWidgets` | `update_selected_agent_selection_widgets` | `ui_tests::agent_slot_keybindings_select_active_agents_and_main` |
 | `handleCtrlZ` / `suspendToBackground` | `handle_ctrl_z` / `suspend_to_background` | no direct test (sends SIGTSTP) |
 
 ## Implemented branches
@@ -106,23 +120,15 @@ actions, breaking when shutdown is requested, then `shutdown`.
 
 ## Gaps (explicit)
 
-- Agent slots (1-9 selection bindings) are not wired; the switcher covers agent
-  selection.
-- Working loader (`syncWorkingLoaderVisibility`, thinking/tool waiting timers,
-  retry countdown) is not ported; prompt activity currently drives the editor
-  prompt animation only.
-- The fullscreen dock is placed by the layout root; the fullscreen renderer has
-  no separate render-region callbacks (the source also uses the layout root).
+None for this module. The fullscreen dock and transcript-tail layout are placed
+by the layout root in the source as well; the fullscreen renderer intentionally
+has no separate render-region callbacks.
 
 ## Discrepancies
 
-- Child transcript updates use a metadata poll on the existing TUI tick instead
-  of `fs.watch` plus a debounce timer; the visible reload behavior is the same.
 - `SelectAgentView` is async (`BoxFuture<Option<bool>>`) because the TUI lives on
   a `LocalSet` thread; the bridge selector sends a `UiRequest` and awaits the
   UI-thread result instead of calling the mode synchronously.
-- The child view does not override the footer session (model/token display);
-  the footer keeps showing the main session.
 - `bindInteractiveModeSessionMutationTargetResolver` has no Rust analogue: the
   session-level resolver bound in `main.rs` already resolves the selected child
   through the shared store and runtime handles, so `/model` and `/effort`
@@ -130,9 +136,17 @@ actions, breaking when shutdown is requested, then `shutdown`.
 - `toLocaleString()` token counts are rendered with `en-US` grouping. The
   TypeScript output depends on the host locale; this port pins `en-US`
   (approved deviation, user decision 2026-10-19).
-- `MessageEnd` updates the component created at `MessageStart` in place; the
-  source moves the component from the transcript tail into the chat container.
-  Rendering is equivalent in regular mode.
+- `setInterval` timers and the retry `CountdownTimer` are deadline-driven:
+  `poll_timers` runs from the TUI loop and advances thinking, tool-waiting,
+  child-activity and retry messages once per elapsed second. Observable text
+  matches the source; the tick count is not observable.
+- `fs.watch` events cross from the notify thread through an `mpsc` channel and
+  are drained by `poll_child_view_events`; the 50 ms reload debounce, the
+  3-retry schedule and the 5 s watch retry match the source.
+- The child transcript is rendered from `SessionManager::buildSessionContext`
+  messages (the mode's existing session renderer); branch-summary/compaction
+  entry rendering for child sessions follows the same message path as the
+  main-session renderer.
 - The share flow accepts an explicit `gh` program path
   (`handle_share_command_with_program`) so tests can run a recording script
   without mutating the process `PATH`; production passes `"gh"` exactly like
@@ -149,6 +163,9 @@ provider. This is recorded as a coverage gap in `coverage.md`.
 Behavior tests drive the real mode through a capture terminal: startup,
 prompt submission, bash mode, settings, scoped models, trust, sandbox,
 approval, fork, tree, resume, login, logout, changelog notices, telemetry,
-prompt activity, editor layout, subscription warning, easter eggs and share.
+prompt activity, editor layout, subscription warning, easter eggs, share,
+agent slots, working-loader timers, retry countdown, child footer override,
+MessageEnd placement (regular and fullscreen), notify-based child transcript
+reloads, and the extension autocomplete/editor factories.
 `main_interactive` drives `/share` dispatch through the real binary under a
 pty with a fake `gh` on `PATH`.
