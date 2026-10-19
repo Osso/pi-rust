@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult, ToolError};
 use pi_ai::request::BoxFuture;
@@ -503,21 +503,25 @@ fn finishes_without_an_extra_update() {
             ..Default::default()
         },
     );
-    let updates = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let counter = Arc::clone(&updates);
+    let updates = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::clone(&updates);
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     runtime
         .block_on(tool.execute(
             "call".to_owned(),
             json!({"command": "one-chunk"}),
             None,
-            Arc::new(move |_result| {
-                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Arc::new(move |result| {
+                captured.lock().expect("updates lock").push(result);
             }),
             None,
         ))
         .expect("bash result");
-    assert_eq!(updates.load(std::sync::atomic::Ordering::SeqCst), 2);
+    let updates = updates.lock().expect("updates lock");
+    assert_eq!(updates.len(), 2);
+    assert!(updates[0].content.is_empty());
+    assert!(updates[0].details.is_none());
+    assert!(text(&updates[1]).contains("line"));
 }
 
 #[test]

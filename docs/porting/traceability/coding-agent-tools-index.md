@@ -30,6 +30,10 @@ Differential: `oracle/coding-agent-tools-index-oracle.ts` (request `27960`) load
   file/coding tools ignore the factory.
 - `createTool`'s `default: throw new Error("Unknown tool name: …")` is unreachable: `ToolName`
   excludes unknown names (typed-API exclusion).
+- `createBashTool` copies `promptSnippet`/`promptGuidelines` onto the tool object in the source;
+  `AgentTool` has no prompt fields, so they live on `create_bash_tool_definition`'s result.
+- Definition-based tools produced by `createTool` receive the factory context and forward
+  `prepareArguments`/`prepareExecution` through `create_tool_definition_from_agent_tool`.
 
 ## Discrepancies
 

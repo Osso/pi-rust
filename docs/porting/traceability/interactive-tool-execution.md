@@ -46,3 +46,6 @@ Port: `crates/pi-coding-agent/src/modes/interactive/components/tool_execution.rs
   (call → tool-title fallback, result → text fallback); `core/export-html/tool-renderer.ts`
   returns `None` on `Err`. A Rust panic is not converted; the typed error path is the port of the
   TS `catch` (throw-audit rule).
+- The call component is passed to the result renderer as `ToolRenderContext.call_component`
+  (the component returned by the last `renderCall`) instead of living in the renderer state object.
+  This lets the edit result renderer rebuild the call preview in place; observable output matches.

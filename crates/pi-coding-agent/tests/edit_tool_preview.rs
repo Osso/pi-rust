@@ -237,6 +237,22 @@ fn edit_settled_result_reconstructs_the_preview_without_complete_args() {
 }
 
 #[test]
+fn edit_call_falls_back_to_path_for_a_null_file_path() {
+    let theme = theme();
+    let state = ToolRenderState::new();
+    let mut context = context(json!({}), "/repo", state);
+    context.args_complete = false;
+
+    let args = json!({"file_path": "notes.txt", "edits": [{"oldText": "a", "newText": "b"}]});
+    let rendered = edit_render_call(&args, &theme, &context).expect("call renderer");
+    assert_eq!(plain(&rendered.borrow_mut().render(80)).trim(), "edit notes.txt");
+
+    let args = json!({"file_path": null, "path": "notes.txt", "edits": [{"oldText": "a", "newText": "b"}]});
+    let rendered = edit_render_call(&args, &theme, &context).expect("call renderer");
+    assert_eq!(plain(&rendered.borrow_mut().render(80)).trim(), "edit notes.txt");
+}
+
+#[test]
 fn bash_call_records_the_start_and_result_records_the_end() {
     let theme = theme();
     let state = ToolRenderState::new();

@@ -65,6 +65,9 @@ pub const BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribut
         guidelines: &["You can inspect PI_* environment variables for current model and session details."],
     };
 
+/// `BashToolDetachRegistry`: the shared detach registry for bash tool calls.
+pub type BashToolDetachRegistry = ToolDetachRegistry;
+
 /// Output artifact paths for a detached job.
 pub use crate::core::detached_job_runner::DetachedJobArtifacts;
 
