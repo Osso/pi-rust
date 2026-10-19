@@ -10403,6 +10403,27 @@ mod ui_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn fullscreen_scroll_view_uses_the_scrollbar_thumb_background() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                mode.build_fullscreen_layout();
+                let scroll_view = mode
+                    .transcript_scroll_view
+                    .borrow()
+                    .clone()
+                    .expect("fullscreen scroll view");
+                let style = scroll_view.borrow().state().borrow().scrollbar_style().clone();
+                assert_eq!(
+                    style("block"),
+                    with_theme(|theme| theme.bg(ThemeBg::ScrollbarThumb, "block"))
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn editor_layout_callback_positions_the_working_editor() {
         let local = tokio::task::LocalSet::new();
         local
