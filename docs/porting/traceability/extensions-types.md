@@ -69,7 +69,7 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 | Agent events (`Context` … `ToolExecutionEnd`) | same names (`AgentMessage`, `AssistantMessageEvent`, `ToolResultMessage` reused) | differential `dispatch`, `errors` |
 | `ModelSelectEvent`, `ThinkingLevelSelectEvent` | same names (`ThinkingLevel` from agent-core) | compile-time |
 | `UserBashEvent/Result` | same names; operations/result are JSON until the bash tool port | differential `dispatch` |
-| `InputEvent`, `InputEventResult`, `InputSource` | same names | differential `input` |
+| `InputEvent`, `InputEventResult`, `InputSource` | same names; `InputImages` carries array identity | differential `input`, `input_images` |
 | `ToolCallEvent`, `ToolResultEvent`, unions, guards | single structs + `ToolName` + guards | differential `dispatch`, `errors`; `gates_and_reviewers_patch_tool_input` |
 | Result records (`ToolCallEventResult` … `SessionBeforeTreeResult`) | same names; `ToolCallEventResult.input` is the Rust patch channel | differential |
 | Renderers (`MessageRenderer`, `EntryRenderer`, `MarkdownTransformer`) | same aliases returning `ComponentRef` | `collects_renderers_and_transformers_in_load_order` |
@@ -91,10 +91,11 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
   source (above: leading spacer and empty spacer; below: none), and removing a
   key clears both placements.
 - `addAutocompleteProvider`, `setEditorComponent`, and `getEditorComponent`
-  are owned by ca-interactive-2 (in flight, `interactive_mode.rs`): the base
-  autocomplete provider and the `Rc<RefCell<dyn EditorComponent>>` editor
-  abstraction land there. `AutocompleteProviderFactory` and `EditorFactory`
-  are the Rust contract.
+  are implemented by the interactive mode (ca-interactive-2, `e66a0b7`).
+  `getEditorComponent` reads the shared factory cell directly so handlers
+  running on the TUI thread cannot deadlock on a UI request. Proof:
+  `ui_tests::extension_context_exposes_autocomplete_and_editor_factories`
+  drives all three through `ExtensionContext::ui()`.
 - `DetachedJobLifecycleController` is exposed as `ExtensionContext::detached_job_lifecycle()`
   and bound by `ExtensionRunner::bind_detached_job_lifecycle`. `core::agent_session`
   (owned by ca-agent-session-2) must call that binder with the session controller.
@@ -104,9 +105,16 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
 ## Discrepancies
 
-- `emitInput` compares images by value where TypeScript compares array identity
-  (`currentImages !== images`). Scripted handlers that return the same array do
-  not produce a transform in Rust when the contents are unchanged.
+- `emitInput` image identity is modeled by `InputImages` (an `Arc<Vec<ImageContent>>`
+  with `ptr_eq`). TypeScript compares `currentImages !== images`; cloning the
+  event images preserves the reference and yields `continue`, while a freshly
+  built `InputImages` with equal contents yields `transform`. In-place mutation
+  of the shared array is not expressible through the Rust contract (contents
+  are immutable); a Rust handler returns a new value instead, which produces
+  `transform` rather than TypeScript's identity-preserving `continue`. That is
+  an API-shape deviation, not a dropped observable result: the transformed
+  value still reaches the prompt. Evidence: differential `input_images` in
+  `tests/extensions.rs` runs both cases against the pinned TS runner.
 
 ## Representation
 

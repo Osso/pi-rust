@@ -601,8 +601,42 @@ async fn input_scenario(temp_dir: &str) -> Value {
     json!({
         "steps": [
             {"continue": runner.emit_input("x", None, InputSource::Interactive, None).await},
-            {"transform": runner.emit_input("hi", Some(images), InputSource::Interactive, None).await},
+            {"transform": runner.emit_input("hi", Some(InputImages::new(images)), InputSource::Interactive, None).await},
             {"handled": runner.emit_input("h", None, InputSource::Interactive, None).await},
+        ],
+        "errors": []
+    })
+}
+
+async fn input_images_scenario(temp_dir: &str) -> Value {
+    let runtime = support::runtime();
+    let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "images.ts"), |api| {
+        api.on_input(h!(InputEvent, |e, _c| {
+            match e.text.as_str() {
+                "same" => Ok(Some(InputEventResult::Transform {
+                    text: e.text.clone(),
+                    images: e.images.clone(),
+                })),
+                "copy" => Ok(Some(InputEventResult::Transform {
+                    text: e.text.clone(),
+                    images: e
+                        .images
+                        .as_ref()
+                        .map(|images| InputImages::new(images.as_slice().to_vec())),
+                })),
+                _ => Ok(None),
+            }
+        }))
+        .unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![a], temp_dir, runtime, support::model_registry().await);
+    support::bind(&mut runner);
+    let images = vec![pi_ai::types::ImageContent::new("orig", "image/png")];
+    json!({
+        "steps": [
+            {"same": runner.emit_input("same", Some(InputImages::new(images.clone())), InputSource::Interactive, None).await},
+            {"copy": runner.emit_input("copy", Some(InputImages::new(images)), InputSource::Interactive, None).await},
         ],
         "errors": []
     })
@@ -1201,6 +1235,11 @@ async fn extensions_match_the_pinned_typescript_runner() {
     let dir = temp_dir("input");
     let actual = support::normalize(&input_scenario(&dir).await, &dir);
     compare("input", &mut oracle, actual);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = temp_dir("input_images");
+    let actual = support::normalize(&input_images_scenario(&dir).await, &dir);
+    compare("input_images", &mut oracle, actual);
     std::fs::remove_dir_all(&dir).ok();
 
     let dir = temp_dir("project_trust");

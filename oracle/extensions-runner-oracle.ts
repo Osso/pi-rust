@@ -352,6 +352,17 @@ async function inputScenario(harness: Harness) {
 	return { steps: normalize(steps, tempDir), errors: harness.errors.map((error) => normalize(error, tempDir)) };
 }
 
+async function inputImagesScenario(harness: Harness) {
+	const { runner, tempDir } = harness;
+	harness.bind();
+	const images = [{ type: "image" as const, data: "orig", mimeType: "image/png" }];
+	const steps = [
+		{ same: await runner.emitInput("same", images, "interactive") },
+		{ copy: await runner.emitInput("copy", images, "interactive") },
+	];
+	return { steps: normalize(steps, tempDir), errors: harness.errors.map((error) => normalize(error, tempDir)) };
+}
+
 async function projectTrustScenario(harness: Harness) {
 	const modules = await loadModules();
 	const { emitProjectTrustEvent } = modules.runner;
@@ -660,6 +671,15 @@ const SCENARIOS: Record<string, Array<[string, string]>> = {
 		["a.ts", `export default function(pi) { pi.on("input", (e) => e.text === "h" ? ({ action: "handled" }) : ({ action: "transform", text: e.text + "[1]" })); }`],
 		["b.ts", `export default function(pi) { pi.on("input", (e) => ({ action: "transform", text: e.text + "[2]" })); }`],
 	],
+	input_images: [
+		["images.ts", `export default function(pi) {
+	pi.on("input", (e) => {
+		if (e.text === "same") return { action: "transform", text: e.text, images: e.images };
+		if (e.text === "copy") return { action: "transform", text: e.text, images: [...(e.images ?? [])] };
+		return undefined;
+	});
+}`],
+	],
 	project_trust: [
 		["a.ts", `export default function(pi) { pi.on("project_trust", () => ({ trusted: "undecided", remember: true })); }`],
 		["b.ts", `export default function(pi) { pi.on("project_trust", () => ({ trusted: "no", remember: true })); }`],
@@ -726,6 +746,8 @@ async function executeScenario(name: string): Promise<unknown> {
 				return await flagsScenario(harness);
 			case "input":
 				return await inputScenario(harness);
+			case "input_images":
+				return await inputImagesScenario(harness);
 			case "project_trust":
 				return await projectTrustScenario(harness);
 			case "providers":

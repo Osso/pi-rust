@@ -4282,7 +4282,7 @@ impl AgentSession {
             InputEventResult::Transform { text, images } => {
                 current_text = text;
                 if let Some(images) = images {
-                    current_images = images;
+                    current_images = images.into_vec();
                 }
             }
             InputEventResult::Continue => {}
@@ -5435,12 +5435,13 @@ impl AgentSession {
         self.inner.agent.is_streaming()
     }
 
-    pub fn system_prompt(&self) -> String {
-        self.inner.agent.system_prompt()
-    }
-
+    /// `session.retryAttempt`.
     pub fn retry_attempt(&self) -> u64 {
         self.inner.retry_attempt.load(Ordering::SeqCst)
+    }
+
+    pub fn system_prompt(&self) -> String {
+        self.inner.agent.system_prompt()
     }
 
     pub fn request_resume_continuation(&self) {
@@ -7440,7 +7441,7 @@ impl AgentSession {
         runner
             .emit_input(
                 text,
-                (!images.is_empty()).then(|| images.to_vec()),
+                (!images.is_empty()).then(|| crate::core::extensions::types::InputImages::new(images.to_vec())),
                 match source.unwrap_or(InputSource::Interactive) {
                     InputSource::Interactive => ExtensionInputSource::Interactive,
                     InputSource::Rpc => ExtensionInputSource::Rpc,

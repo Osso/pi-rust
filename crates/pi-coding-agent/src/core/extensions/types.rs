@@ -1855,12 +1855,52 @@ pub enum StreamingBehavior {
     FollowUp,
 }
 
+/// Input images with reference identity.
+///
+/// TypeScript compares `currentImages !== images`, so a handler that returns
+/// the same array produces no transform. Handlers preserve identity by
+/// cloning the event images (`event.images.clone()`); a freshly built
+/// [`InputImages`] is a new reference.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct InputImages(Arc<Vec<ImageContent>>);
+
+impl InputImages {
+    pub fn new(images: Vec<ImageContent>) -> Self {
+        Self(Arc::new(images))
+    }
+
+    pub fn as_slice(&self) -> &[ImageContent] {
+        &self.0
+    }
+
+    pub fn into_vec(self) -> Vec<ImageContent> {
+        Arc::try_unwrap(self.0).unwrap_or_else(|images| (*images).clone())
+    }
+
+    /// Whether both values are the same reference (`===`).
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Serialize for InputImages {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.as_slice().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for InputImages {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Vec::<ImageContent>::deserialize(deserializer).map(Self::new)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InputEvent {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub images: Option<Vec<ImageContent>>,
+    pub images: Option<InputImages>,
     pub source: InputSource,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub streaming_behavior: Option<StreamingBehavior>,
@@ -2303,7 +2343,7 @@ pub enum InputEventResult {
     Transform {
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        images: Option<Vec<ImageContent>>,
+        images: Option<InputImages>,
     },
     Handled,
 }
