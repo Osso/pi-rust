@@ -484,7 +484,14 @@ fn first_party_factory_list_partitions_the_source_names() {
     let store = create_first_party_multi_agent_store();
     let handles = pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
     let fetch = pi_ai::http::default_fetch();
-    let factories = create_first_party_extension_factories(store, handles, fetch);
+    let factories = create_first_party_extension_factories(
+        store,
+        handles,
+        fetch,
+        "/tmp/pi-test-agent".to_owned(),
+        std::sync::Arc::new(Vec::new),
+        None,
+    );
     let registered: Vec<String> = factories
         .iter()
         .map(|factory| match factory {
@@ -515,7 +522,14 @@ async fn first_party_factories_load_and_register_agent_tools() {
     let store = create_first_party_multi_agent_store();
     let handles = pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
     let fetch = pi_ai::http::default_fetch();
-    let factories = create_first_party_extension_factories(store, handles, fetch);
+    let factories = create_first_party_extension_factories(
+        store,
+        handles,
+        fetch,
+        "/tmp/pi-test-agent".to_owned(),
+        std::sync::Arc::new(Vec::new),
+        None,
+    );
     let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
         cwd: cwd.clone(),
         agent_dir: cwd,

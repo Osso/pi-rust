@@ -275,6 +275,46 @@ async fn create_agent_session_forwards_observer_coordination_options() {
 }
 
 #[tokio::test]
+async fn create_agent_session_forwards_multi_agent_identity_to_extensions() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let faux = faux();
+    let runtime = faux_runtime(&faux).await;
+    let model = faux.get_model(None).expect("model");
+    let session_dir = temp.path().join("sessions").display().to_string();
+    let mut session_manager =
+        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let control_db = temp.path().join("control.db").display().to_string();
+    session_manager
+        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .expect("metadata control db");
+    let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(temp.path().display().to_string()),
+        agent_dir: Some(temp.path().display().to_string()),
+        model_runtime: Some(runtime),
+        model: Some(model),
+        resource_loader: Some(StaticResourceLoader::new()),
+        session_manager: Some(session_manager),
+        multi_agent_agent_id: Some("agent_child".to_owned()),
+        multi_agent_parent_session_id: Some("parent-session".to_owned()),
+        multi_agent_requires_agent_id: true,
+        multi_agent_runtime_role: Some(pi_coding_agent::core::agent_session::MultiAgentRuntimeRole::Child),
+        ..Default::default()
+    })
+    .await
+    .expect("session");
+    let context = result.session.extension_runner().create_context();
+    assert_eq!(
+        context.multi_agent_agent_id().expect("agent id"),
+        Some("agent_child".to_owned())
+    );
+    assert_eq!(
+        context.multi_agent_parent_session_id().expect("parent session"),
+        Some("parent-session".to_owned())
+    );
+    assert!(context.multi_agent_requires_agent_id().expect("requires agent id"));
+}
+
+#[tokio::test]
 async fn create_agent_session_wires_extension_provider_hooks() {
     use pi_ai::types::ProviderHeaders;
     use pi_coding_agent::core::extensions::{

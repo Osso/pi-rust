@@ -1072,8 +1072,12 @@ async fn request_handler_lists_agents_and_routes_select_callback() {
     let mut options = MultiAgentExtensionOptions {
         store: Some(Arc::clone(&store)),
         select_agent_view: Some(Arc::new(move |agent_id| {
-            selected_clone.lock().expect("selected").push(agent_id.to_owned());
-            Some(true)
+            let selected_clone = Arc::clone(&selected_clone);
+            let agent_id = agent_id.to_owned();
+            Box::pin(async move {
+                selected_clone.lock().expect("selected").push(agent_id);
+                Some(true)
+            })
         })),
         ..Default::default()
     };

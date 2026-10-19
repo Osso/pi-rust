@@ -59,7 +59,15 @@ the share viewer remain explicit gaps below.
   `/trust`, `/login`, `/logout`, `/resume`, extension commands, prompt templates.
 - Key actions: clear/exit/suspend, thinking cycle/toggle, model cycle, tools
   expand, external editor, copy, follow-up, dequeue, new session, tree, fork,
-  resume; the agent-select action remains a gap message.
+  resume, and the agent switcher (`/agents`, `app.agent.select`).
+- Multi-agent child view: `selectAgentViewFromBridge` selects a store view and
+  renders the child transcript in the chat container (or a lifecycle
+  placeholder when no transcript exists); `/agents` opens the ported
+  `AgentSwitcherComponent`; the selection banner is mounted above the widgets;
+  plain-text submissions steer the selected agent; Escape requests cancellation;
+  `steering_message_queued` wakes waiting agents. Proof:
+  `interactive_child_view` (transcript boundary), `interactive_components`
+  (banner/switcher), `agents_core_runtime` (async selector routing).
 - Extension UI: select, confirm, input, editor, notify, requestRender,
   onTerminalInput, setStatus, working message/visibility/indicator,
   hidden-thinking label, string widgets, setTitle, paste/set/get editor text,
@@ -76,9 +84,8 @@ actions, breaking when shutdown is requested, then `shutdown`.
 
 ## Gaps (explicit)
 
-- Multi-agent child view: `selectAgentView`, child transcript watching/reload,
-  agent slots, agent switcher, banner updates, `steerMultiAgent`,
-  `cancelMultiAgent`. Requires the child `SessionManager`/transcript API.
+- Agent slots (1-9 selection bindings) are not wired; the switcher covers agent
+  selection.
 - Share viewer (`/share`).
 - Startup changelog rendering and install telemetry network call.
 - Prompt-activity counters (`setPromptActivity`) used by the tree
@@ -90,8 +97,20 @@ actions, breaking when shutdown is requested, then `shutdown`.
 
 ## Discrepancies
 
+- Child transcript updates use a metadata poll on the existing TUI tick instead
+  of `fs.watch` plus a debounce timer; the visible reload behavior is the same.
+- `SelectAgentView` is async (`BoxFuture<Option<bool>>`) because the TUI lives on
+  a `LocalSet` thread; the bridge selector sends a `UiRequest` and awaits the
+  UI-thread result instead of calling the mode synchronously.
+- The child view does not override the footer session (model/token display);
+  the footer keeps showing the main session.
+- `bindInteractiveModeSessionMutationTargetResolver` has no Rust analogue: the
+  session-level resolver bound in `main.rs` already resolves the selected child
+  through the shared store and runtime handles, so `/model` and `/effort`
+  target the viewed child without a second resolver.
 - `toLocaleString()` token counts are rendered with `en-US` grouping. The
-  TypeScript output depends on the host locale; this port pins `en-US`.
+  TypeScript output depends on the host locale; this port pins `en-US`
+  (approved deviation, user decision 2026-10-19).
 - Tool elapsed timers use `Instant::now()` when the event carries an epoch
   timestamp, because `Instant` has no epoch mapping. Elapsed values are
   therefore relative to event receipt rather than the reported start.

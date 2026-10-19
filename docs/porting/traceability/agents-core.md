@@ -70,23 +70,30 @@ Persisted viewing uses `list_session_metadata` + `read_multi_agent_state`, match
 | `spawnPromptValidationMessage` | `spawn_prompt_validation_message` | differential |
 | `backgroundPromptValidationMessage` | `background_prompt_validation_message` | differential |
 | `isProductionChildSessionFactory` | `is_production_child_session_factory` + factory marker | spawn validation test |
+| `createProductionChildAgentSessionFactory` | `create_production_child_agent_session_factory` | 12 factory tests + end-to-end spawn |
+| `createProductionAttachedSessionFactory` | `create_production_attached_session_factory` | attach open/policy/mismatch tests |
+| `resolveInheritedLeafId` | `resolve_inherited_leaf_selection` | inherited branch tests |
+| `createChildSessionManager` | `create_child_session_manager` (+ `create_child_session_manager_options`) | fork/leaf selection tests |
+| `forkInheritedChildSessionManager` | forked inside `create_child_session_manager` | inherited prefix test |
+| `createChildAgentSessionOptions` | `create_child_agent_session_options` | option/identity/tool tests |
+| `createBoundChildSession` | `create_bound_child_session` | prompt/bind/persist tests |
+| `createProductionChildSession` | `create_production_child_session` | fresh/inherit + goal-validation tests |
+| `createProductionAttachedSession` | `create_production_attached_session` | attach tests |
+| `openAttachedSessionManager` | `open_attached_session_manager` | attach tests |
+| `createAttachedSettingsManager` | `create_attached_settings_manager` | attached policy test |
+| `validateAttachedSessionIdentity` | `validate_attached_session_identity` | mismatch tests |
+| `resolveChildAgentProfile`/`Tools` | `resolve_child_agent_profile`, `resolve_child_agent_tools` | profile/tool order tests |
+| `resolveChildExtensionFactories` | `resolve_child_extension_factories` | static/dynamic factory tests |
+| `createSessionStartEvent` | `create_session_start_event` | fork/resume event assertions |
+| `getSessionTranscriptMetadata` | built inline in `create_bound_child_session` | transcript assertions |
+| `findActiveToolCallEntry` | `find_active_tool_call_entry` | active-tool-call tests |
+| `findUnresolvedTurnParentId` | `find_unresolved_turn_parent_id` | inherited leaf tests |
+| `validatePersistedInheritance` | `validate_persisted_inheritance` | unpersisted-parent test |
 
-Gap (blocked): `createProductionChildAgentSessionFactory`,
-`createProductionAttachedSessionFactory`, `resolveInheritedLeafId`,
-`createChildSessionManager`, `forkInheritedChildSessionManager`,
-`createChildAgentSessionOptions`, `createBoundChildSession`,
-`createProductionChildSession`, `createProductionAttachedSession`,
-`openAttachedSessionManager`, `createAttachedSettingsManager`,
-`validateAttachedSessionIdentity`, `resolveChildAgentProfile/Tools`,
-`resolveChildExtensionFactories`, `createSessionStartEvent`,
-`getSessionTranscriptMetadata`, `findActiveToolCallEntry`,
-`findUnresolvedTurnParentId`, `validatePersistedInheritance`.
-Reason: `core::sdk::CreateAgentSessionOptions` has no `multiAgentAgentId`,
-`multiAgentParentSessionId`, `multiAgentRequiresAgentId`,
-`multiAgentRuntimeRole`, `multiAgentStore`, `sessionStartEvent`, or
-`extensionFactories`, and `AgentSession` has no multi-agent mailbox/control-db
-identity (tracked as an agent-session coverage gap). The extension accepts
-injected factories, so tool/runtime behavior is unaffected.
+The factory tests cover fresh and inherited child sessions, attached sessions,
+goal-extension exclusion, and the child control-tool list. The end-to-end test
+(`agents_core_end_to_end`) spawns a real child through the production factory
+against a faux provider and a temporary control DB.
 
 ## lifecycle-runtime.ts
 
@@ -181,7 +188,7 @@ the source throws from the interval callback (see discrepancy 4).
 | `deliverTerminalOutboxForStore` | `deliver_terminal_outbox_for_store` | implemented via ca-detached core module |
 | `registerAgentsCoreTools`/`registerAgentViewerTools`/`registerAgentsMailboxTools` | same names | registration/tool metadata differential |
 | default `multiAgentExtension` | `multi_agent_extension` | registration differential |
-| `resolveSelectedSessionMutationTarget` | **gap** | Needs unported `ViewedSessionMutationTarget` from `core/extensions/types.ts` (interactive model/thinking mutation surface). |
+| `resolveSelectedSessionMutationTarget` | `resolve_selected_session_mutation_target` | mutation-target tests + main binding |
 
 ## registration.ts
 
@@ -216,7 +223,7 @@ Re-export surface only. Rust exports the same items from
 4. **Wait watcher errors** — `reconcileDeadDetachedRuntimes` and terminal
    outbox delivery throw in the source (uncaught inside `setInterval`); Rust
    returns `WaitNotificationsWake::Error { message }` so the wait tool reports
-   `Wait failed: ...`.
+   `Wait failed: ...`. Approved deviation (user decision 2026-10-19).
 5. **Dispatch cleanup identity** — the source deletes a dispatch only when the
    map still holds the same promise; Rust deletes by agent id (agent ids are
    unique and never re-dispatched).
@@ -228,3 +235,19 @@ Re-export surface only. Rust exports the same items from
    `messages.last`.
 8. **Background ownership release** — handled in the dispatch-completion task
    (matching `promise.finally`), including removal from the handles map.
+
+9. **Async `SelectAgentView`** — the source selector is synchronous; Rust returns
+   a `BoxFuture<Option<bool>>` because the interactive TUI owns the mode on a
+   `LocalSet` thread and the bridge must await a `UiRequest` response. The
+   `agent_viewer` select path awaits it.
+
+Resolved discrepancy: the session-factories gap (the ninth recorded item) is
+closed; `CreateAgentSessionOptions` now carries the multi-agent identity, store,
+runtime role, session-start event and extension factories.
+
+Port bug fixed (not a source discrepancy): `JournalWriter::from_api` originally
+snapshotted `runtime.actions().append_entry` while the extension was still
+loading, so every production spawn failed to journal `agent_start` with
+"Extension runtime not initialized". The writer now resolves the runtime action
+when `appendEntry` is called, matching the source `pi.appendEntry` boundary
+(`parent_agent_journal.rs`, end-to-end spawn test).

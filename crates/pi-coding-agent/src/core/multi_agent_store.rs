@@ -730,9 +730,9 @@ pub struct MultiAgentStoreOptions {
     pub now: Option<Arc<dyn Fn() -> String + Send + Sync>>,
 }
 
-type AgentTransitionListener = Box<dyn Fn(&AgentSnapshot, &AgentSnapshot) + Send + Sync>;
-type AgentUpdateListener = Box<dyn Fn(&AgentSnapshot, &AgentSnapshot) + Send + Sync>;
-type LifecycleNotificationListener = Box<dyn Fn(&AgentMailboxMessage) + Send + Sync>;
+type AgentTransitionListener = Arc<dyn Fn(&AgentSnapshot, &AgentSnapshot) + Send + Sync>;
+type AgentUpdateListener = Arc<dyn Fn(&AgentSnapshot, &AgentSnapshot) + Send + Sync>;
+type LifecycleNotificationListener = Arc<dyn Fn(&AgentMailboxMessage) + Send + Sync>;
 struct AbortHandler {
     token: Arc<()>,
     handler: Box<dyn Fn() + Send + Sync>,
@@ -767,6 +767,16 @@ impl<T> ListenerList<T> {
             .expect("listener mutex")
             .retain(|(listener_id, _)| *listener_id != id);
     }
+}
+
+/// Copies registered listeners so callbacks can publish without holding the registry lock.
+fn listener_snapshot<T: Clone>(list: &ListenerList<T>) -> Vec<T> {
+    list.listeners
+        .lock()
+        .expect("listener mutex")
+        .iter()
+        .map(|(_, listener)| listener.clone())
+        .collect()
 }
 
 /// Handle returned by `subscribe_*`; dropping it unsubscribes, matching the TS closure.
@@ -851,7 +861,7 @@ impl MultiAgentStore {
         &self,
         listener: impl Fn(&AgentMailboxMessage) + Send + Sync + 'static,
     ) -> AgentSubscription {
-        let id = self.lifecycle_notifications.insert(Box::new(listener));
+        let id = self.lifecycle_notifications.insert(Arc::new(listener));
         subscription(
             ListenerList::subscription_remover(self.lifecycle_notifications.clone()),
             id,
@@ -862,7 +872,7 @@ impl MultiAgentStore {
         &self,
         listener: impl Fn(&AgentSnapshot, &AgentSnapshot) + Send + Sync + 'static,
     ) -> AgentSubscription {
-        let id = self.transitions.insert(Box::new(listener));
+        let id = self.transitions.insert(Arc::new(listener));
         subscription(ListenerList::subscription_remover(self.transitions.clone()), id)
     }
 
@@ -870,7 +880,7 @@ impl MultiAgentStore {
         &self,
         listener: impl Fn(&AgentSnapshot, &AgentSnapshot) + Send + Sync + 'static,
     ) -> AgentSubscription {
-        let id = self.updates.insert(Box::new(listener));
+        let id = self.updates.insert(Arc::new(listener));
         subscription(ListenerList::subscription_remover(self.updates.clone()), id)
     }
 
@@ -1935,8 +1945,8 @@ impl MultiAgentStore {
 
     fn notify_lifecycle_notification_listeners(&self, message: &AgentMailboxMessage) {
         let snapshot = copy_message(message);
-        let listeners = self.lifecycle_notifications.listeners.lock().expect("listener mutex");
-        for (_, listener) in listeners.iter() {
+        let listeners = listener_snapshot(&self.lifecycle_notifications);
+        for listener in listeners {
             listener(&snapshot);
         }
     }
@@ -1950,8 +1960,8 @@ impl MultiAgentStore {
     fn notify_transition_listeners(&self, previous: &AgentNode, current: &AgentNode) {
         let previous_snapshot = copy_agent(previous);
         let current_snapshot = copy_agent(current);
-        let listeners = self.transitions.listeners.lock().expect("listener mutex");
-        for (_, listener) in listeners.iter() {
+        let listeners = listener_snapshot(&self.transitions);
+        for listener in listeners {
             listener(&previous_snapshot, &current_snapshot);
         }
     }
@@ -1959,8 +1969,8 @@ impl MultiAgentStore {
     fn notify_agent_update_listeners(&self, previous: &AgentNode, current: &AgentNode) {
         let previous_snapshot = copy_agent(previous);
         let current_snapshot = copy_agent(current);
-        let listeners = self.updates.listeners.lock().expect("listener mutex");
-        for (_, listener) in listeners.iter() {
+        let listeners = listener_snapshot(&self.updates);
+        for listener in listeners {
             listener(&previous_snapshot, &current_snapshot);
         }
     }
