@@ -190,6 +190,10 @@ pub trait ChildAgentSession: Send + Sync {
     fn messages(&self) -> Vec<AgentMessage>;
     fn prompt(&self, text: String) -> BoxFuture<'static, Result<(), String>>;
     fn transcript(&self) -> Option<AgentTranscriptMetadata>;
+    /// Live mutation surface when this session supports the `model`/`effort` commands.
+    fn session_mutation_target(&self) -> Option<Arc<dyn crate::core::extensions::types::ViewedSessionMutationTarget>> {
+        None
+    }
 }
 
 type ChildFactoryFn =

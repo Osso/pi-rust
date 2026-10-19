@@ -31,8 +31,14 @@ pub struct JournalWriter {
 
 impl JournalWriter {
     pub fn from_api(pi: &ExtensionApi) -> Self {
+        let runtime = pi.runtime.clone();
         Self {
-            append_entry: pi.runtime.actions().append_entry,
+            append_entry: Arc::new(move |custom_type, data| {
+                runtime
+                    .assert_active()
+                    .map_err(crate::core::extensions::types::HandlerError::new)?;
+                (runtime.actions().append_entry)(custom_type, data)
+            }),
         }
     }
 

@@ -502,6 +502,14 @@ pub enum InlineExtension {
 }
 
 impl InlineExtension {
+    /// `extensionPath` property, when the factory carries one.
+    pub fn explicit_extension_path(&self) -> Option<&str> {
+        match self {
+            Self::Factory { extension_path, .. } => extension_path.as_deref(),
+            Self::Named { .. } => None,
+        }
+    }
+
     fn factory(&self) -> ExtensionFactory {
         match self {
             Self::Factory { factory, .. } | Self::Named { factory, .. } => Arc::clone(factory),

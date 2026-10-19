@@ -266,8 +266,9 @@ impl ExtensionRunner {
         context_actions: ExtensionContextActions,
         provider_actions: Option<ProviderActions>,
     ) {
+        let set_model = Arc::clone(&actions.set_model);
         self.bind_runtime_actions(actions);
-        self.bind_context_actions(context_actions);
+        self.bind_context_actions(context_actions, set_model);
         self.flush_pending_provider_registrations(provider_actions.as_ref());
         self.bind_immediate_provider_actions(provider_actions);
     }
@@ -276,9 +277,10 @@ impl ExtensionRunner {
         self.runtime.set_actions(actions);
     }
 
-    fn bind_context_actions(&mut self, actions: ExtensionContextActions) {
+    fn bind_context_actions(&mut self, actions: ExtensionContextActions, set_model: SetModelHandler) {
         let mut state = self.live();
         state.get_model = actions.get_model;
+        state.set_model_fn = set_model;
         state.get_thinking_level_fn = actions
             .get_thinking_level
             .unwrap_or_else(|| Arc::new(|| ThinkingLevel::Off));
