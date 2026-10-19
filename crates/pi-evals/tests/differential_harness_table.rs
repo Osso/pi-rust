@@ -3,13 +3,13 @@
 #[path = "support/oracle.rs"]
 mod support;
 
-use pi_coding_agent::utils::js_json;
 use pi_evals::error::PiEvalError;
 use pi_evals::harness::{Harness, HarnessRun, NormalizedSession, TranscriptEvent, TranscriptRole};
 use pi_evals::vitest_evals::harness_table::{
     EvalHarnessTableCandidatesOptions, EvalHarnessTableOptions, EvalHarnessTablePairOptions, derive_eval_group_key,
     eval_harness_table, parse_eval_harness_iteration_artifact,
 };
+use pi_js_compat::js_json;
 use serde_json::{Map, Value, json};
 
 const SOURCE_MODULE: &str = "packages/evals/src/vitest-evals/harness-table.ts";

@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use pi_coding_agent::utils::js_json;
+use pi_js_compat::js_json;
 use pi_js_compat::string::js_trim;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
