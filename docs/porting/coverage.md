@@ -404,8 +404,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/tool-detach-registry.ts` | 58 | 0 | done | `crates/pi-coding-agent/src/core/tool_detach_registry.rs` | Newest-first detach, running count, cancellable auto-detach timers. |
 | `coding-agent/src/core/tools/file-mutation-queue.ts` | 61 | 0 | done | `crates/pi-coding-agent/src/core/tools/file_mutation_queue.rs` | TS queue tests ported; no oracle (ordering contract) |
 | `coding-agent/src/core/tools/truncate.ts` | 276 | 0 | done | `crates/pi-coding-agent/src/core/tools/truncate.rs` | re-exports agent-core truncation (identical on valid Unicode); differential |
-| `coding-agent/src/extensions/llama/client.ts` | 332 | 0 | todo |  |  |
-| `coding-agent/src/extensions/llama/huggingface.ts` | 158 | 0 | todo |  |  |
+| `coding-agent/src/extensions/llama/client.ts` | 332 | 0 | done | `crates/pi-coding-agent/src/bundled_extensions/llama/client.rs` | Management/inference URLs, catalog parsing, load/download polling, SSE progress; differential leaves/requests/errors + 11 behavioral cases ([traceability](traceability/llama-client.md)). |
+| `coding-agent/src/extensions/llama/huggingface.ts` | 158 | 0 | done | `crates/pi-coding-agent/src/bundled_extensions/llama/huggingface.rs` | Token discovery, GGUF search, quantization aggregation, rate-limit messages; differential + 8 behavioral cases ([traceability](traceability/llama-huggingface.md)). |
 | `coding-agent/src/modes/interactive/components/elapsed-time.ts` | 30 | 0 | done | `crates/pi-coding-agent/src/modes/interactive/components/elapsed_time.rs` | formatting branches; differential `interactive-components-oracle.ts` |
 | `coding-agent/src/modes/interactive/external-editor.ts` | 45 | 0 | done | `crates/pi-coding-agent/src/modes/interactive/external_editor.rs` | temp dir, editor spawn, failure/empty branches; behavioral fixture |
 | `coding-agent/src/modes/interactive/model-search.ts` | 27 | 0 | done | `crates/pi-coding-agent/src/modes/interactive/model_search.rs` | `getModelSearchCandidates` candidate order; covered by scoped-models differential search. |
@@ -471,7 +471,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/utils/tool-result-images.ts` | 62 | 5 | done | `crates/pi-coding-agent/src/utils/tool_result_images.rs` | Differential 27107 (7 fixtures); Cow preserves the unchanged-reference contract |
 | `coding-agent/src/core/models-store.ts` | 146 | 6 | done | `crates/pi-coding-agent/src/core/models_store.rs` | Coalesced reloads, canonical entry order documented |
 | `coding-agent/src/bun/register-bedrock.ts` | 4 | 7 | done | `crates/pi-coding-agent/src/bun/register_bedrock.rs` | `set_bedrock_provider_module(bedrock_provider_module())`; idempotence test ([traceability](traceability/bun-entry.md)). |
-| `coding-agent/src/extensions/llama/provider.ts` | 150 | 7 | todo |  |  |
+| `coding-agent/src/extensions/llama/provider.ts` | 150 | 7 | done | `crates/pi-coding-agent/src/bundled_extensions/llama/provider.rs` | Native provider, API-key auth/login, catalog mapping, stored restore + network refresh; differential + 9 behavioral cases ([traceability](traceability/llama-provider.md)). |
 | `coding-agent/src/core/keybindings.ts` | 434 | 8 | done | `crates/pi-coding-agent/src/core/keybindings.rs` | `KEYBINDINGS` layered on `pi-tui`, legacy-name migration/ordering, file load/reload; differential `coding-agent-keybindings-oracle.ts`. |
 | `coding-agent/src/modes/interactive/components/countdown-timer.ts` | 39 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/components/countdown_timer.rs` | `setInterval` mapped to `poll(now)`/`next_deadline`; tick/expire/request-render covered by `tests/components.rs`. |
 | `coding-agent/src/modes/interactive/components/visual-truncate.ts` | 50 | 8 | done | `crates/pi-coding-agent/src/modes/interactive/components/visual_truncate.rs` | wrap-aware tail truncation; differential; `slice(-0)` quirk preserved |
@@ -677,9 +677,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/tools/search-current-session-history.ts` | 196 | 22 | done | `crates/pi-coding-agent/src/core/tools/search_current_session_history.rs` | 7 ported tests + differential (6 cases) with byte-exact pretty JSON; query call renderer and result renderer. |
 | `coding-agent/src/core/tools/tool-definition-wrapper.ts` | 160 | 22 | partial | `crates/pi-coding-agent/src/core/tools/tool_definition_wrapper.rs` | `capToolResultOutput`, `wrap_agent_tool`, `create_tool_definition_from_agent_tool`; execution-context injection is provided by the runner context |
 | `coding-agent/src/core/tools/write.ts` | 274 | 22 | done | `crates/pi-coding-agent/src/core/tools/write.rs` | Execution + renderers; differential execution + renderer cases |
-| `coding-agent/src/extensions/index.ts` | 4 | 22 | todo |  |  |
-| `coding-agent/src/extensions/llama/index.ts` | 228 | 22 | todo |  |  |
-| `coding-agent/src/extensions/llama/ui.ts` | 542 | 22 | todo |  |  |
+| `coding-agent/src/extensions/index.ts` | 4 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/mod.rs` | `register_builtin_extensions` registers the hidden inline llama.cpp factory; registry test ([traceability](traceability/llama-index.md)). |
+| `coding-agent/src/extensions/llama/index.ts` | 228 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/llama/index.rs` | `/llama` command loop, load/unload/download helpers, configured client, extension registration; 5 behavioral cases incl. TUI unload flow ([traceability](traceability/llama-index.md)). |
+| `coding-agent/src/extensions/llama/ui.ts` | 542 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/llama/ui.rs` | Thread-safe LlamaView, search/progress/select rendering, showLlamaUi factory, runWithProgress; differential 4 scenarios + 6 behavioral cases ([traceability](traceability/llama-ui.md)). |
 | `coding-agent/src/index.ts` | 444 | 22 | partial |  |  |
 | `coding-agent/src/main.ts` | 1364 | 22 | todo |  |  |
 | `coding-agent/src/modes/index.ts` | 22 | 22 | done | `crates/pi-coding-agent/src/modes/mod.rs` | Re-export surface; `InteractiveMode` remains with the interactive slice ([traceability](traceability/modes-index.md)). |

@@ -282,6 +282,7 @@ impl ExtensionRunner {
         state.get_thinking_level_fn = actions
             .get_thinking_level
             .unwrap_or_else(|| Arc::new(|| ThinkingLevel::Off));
+        state.set_thinking_level_fn = actions.set_thinking_level.unwrap_or_else(|| Arc::new(|_| Ok(())));
         state.get_footer_data = actions.get_footer_data.unwrap_or_else(|| Arc::new(|| None));
         state.get_scoped_models = actions.get_scoped_models.unwrap_or_else(|| Arc::new(Vec::new));
         state.is_idle_fn = actions.is_idle;

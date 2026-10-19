@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+use agents_core::runtime::{MultiAgentExtensionOptions, create_multi_agent_runtime_handles, resolve_multi_agent_store};
+
 use crate::core::extensions::ExtensionRegistry;
 
 pub mod agent_viewer;
@@ -13,9 +15,13 @@ pub mod agents_core;
 pub mod agents_mailbox;
 pub mod bwrap;
 pub mod goal;
+pub mod llama;
 pub mod pyrun;
 
-use agents_core::runtime::{MultiAgentExtensionOptions, create_multi_agent_runtime_handles, resolve_multi_agent_store};
+/// Registers the inline built-in extensions (`extensions/index.ts`).
+pub fn register_builtin_extensions(registry: &mut ExtensionRegistry) {
+    llama::index::register_builtin_extensions(registry);
+}
 
 /// Registers the first-party agents extensions under their source ids.
 ///
