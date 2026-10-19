@@ -20,6 +20,7 @@ Differential: `oracle/coding-agent-bash-tool-oracle.ts` (request `27800`, 7 case
 ## Discrepancies
 
 - `BashDetachOptions.adopt` is not modeled: it receives a live `ChildProcess`, exit promise, and timeout handle that the typed Rust API cannot expose. No source caller sets it; the default detach result is ported.
+- `bash-close-hang-windows.test.ts` exercises a Windows close-event hang; the crate depends on `rustix`/`nix` and implements Unix process groups, so there is no Windows execution path.
 - The tool-level runner-owned detach path (`useDetachedRunner`, `backgroundJobs`, `detachRegistry`) is wired, including restored-tool-call replay, but integration tests cannot exercise it end-to-end: `launch_detached_bash_runner` starts the compiled binary's internal runner mode, and the workspace has no `pi` binary target. The runner loop itself is proven with real processes in `tests/detached_bash_runner.rs`.
 - `renderResult` rebuilds its `BashResultRenderComponent` each render instead of caching visual lines on the component; observable output is identical.
 - `createBashTool` cannot copy `promptSnippet`/`promptGuidelines` onto the tool because `AgentTool` has no prompt fields; the definition created by `createBashToolDefinition` carries them.
