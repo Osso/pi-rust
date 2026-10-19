@@ -7,11 +7,11 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use pi_agent_core::agent::types::{AgentMessage, ConvertToLlm, StreamFn};
+use pi_agent_core::agent::types::{AgentError, AgentMessage, ConvertToLlm, StreamFn, TransformContext};
 use pi_agent_core::agent::{Agent, AgentInitialState, AgentOptions};
 use pi_agent_core::harness::messages::convert_to_llm;
 use pi_agent_core::harness::types::ThinkingLevel;
-use pi_ai::request::{CallbackError, SimpleStreamOptions};
+use pi_ai::request::SimpleStreamOptions;
 use pi_ai::types::{Message, Model, ProviderHeaders, TextContent, TextOrImageContent, UserContent};
 use pi_ai::utils::event_stream::StreamFailure;
 use serde_json::Value;
@@ -22,6 +22,8 @@ use crate::core::agent_session::{
 };
 use crate::core::auth_guidance::format_no_models_available_message;
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
+use crate::core::extensions::runner::ExtensionRunner;
+use crate::core::extensions::types::{AfterProviderResponseEvent, ExtensionEvent};
 use crate::core::model_resolver::{FindInitialModelOptions, find_initial_model};
 use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use crate::core::provider_attribution::merge_provider_attribution_headers;
@@ -70,11 +72,14 @@ pub struct CreateAgentSessionOptions {
     pub settings_manager: Option<Arc<Mutex<SettingsManager>>>,
     pub control_db_path: Option<String>,
     pub multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
+    pub multi_agent_agent_id: Option<String>,
+    pub multi_agent_parent_session_id: Option<String>,
     pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
     pub disable_runtime_coordination_inbound: bool,
     pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
     pub session_start_event: Option<crate::core::extensions::types::SessionStartEvent>,
+    pub supervisor_decision_requester: Option<crate::core::agent_session::SupervisorDecisionRequester>,
 }
 
 /// `CreateAgentSessionResult`.
@@ -312,16 +317,20 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         })
     };
 
+    let extension_runner_ref: Arc<Mutex<Option<ExtensionRunner>>> = Arc::new(Mutex::new(None));
+
     let stream_fn: StreamFn = {
         let settings = Arc::clone(&settings);
         let model_runtime = model_runtime.clone();
         let session_ref = Arc::clone(&session_ref);
         let session_id = session_id.clone();
+        let extension_runner_ref = Arc::clone(&extension_runner_ref);
         Arc::new(move |model: Model, context, mut options: SimpleStreamOptions| {
             let settings = Arc::clone(&settings);
             let model_runtime = model_runtime.clone();
             let session_ref = Arc::clone(&session_ref);
             let session_id = session_id.clone();
+            let extension_runner_ref = Arc::clone(&extension_runner_ref);
             Box::pin(async move {
                 let provider_retry = lock(&settings).get_provider_retry_settings();
                 let http_idle_timeout_ms = match lock(&settings).get_http_idle_timeout_ms() {
@@ -363,10 +372,12 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
                 let model_for_headers = model.clone();
                 let settings_for_headers = Arc::clone(&settings);
                 let session_id_for_headers = options.stream.session_id.clone();
+                let runner_for_headers = Arc::clone(&extension_runner_ref);
                 options.stream.request.transform_headers = Some(Arc::new(move |request_headers: ProviderHeaders| {
                     let model = model_for_headers.clone();
                     let settings = Arc::clone(&settings_for_headers);
                     let session_id = session_id_for_headers.clone();
+                    let extension_runner_ref = Arc::clone(&runner_for_headers);
                     Box::pin(async move {
                         let model_headers = model.headers.as_ref().map(|headers| {
                             headers
@@ -381,9 +392,45 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
                             &[model_headers, Some(request_headers)],
                         )
                         .unwrap_or_default();
-                        Ok(merged)
+                        let runner = lock(&extension_runner_ref).clone();
+                        match runner {
+                            Some(runner) if runner.has_handlers("before_provider_headers") => {
+                                Ok(runner.emit_before_provider_headers(merged).await)
+                            }
+                            _ => Ok(merged),
+                        }
                     })
                 }));
+                let runner_for_payload = Arc::clone(&extension_runner_ref);
+                options.stream.request.on_payload = Some(Arc::new(move |payload: Value, _model: Model| {
+                    let runner = lock(&runner_for_payload).clone();
+                    Box::pin(async move {
+                        match runner {
+                            Some(runner) if runner.has_handlers("before_provider_request") => {
+                                Ok(Some(runner.emit_before_provider_request(payload).await))
+                            }
+                            _ => Ok(None),
+                        }
+                    })
+                }));
+                let runner_for_response = Arc::clone(&extension_runner_ref);
+                options.stream.request.on_response = Some(Arc::new(
+                    move |response: pi_ai::types::ProviderResponse, _model: Model| {
+                        let runner = lock(&runner_for_response).clone();
+                        Box::pin(async move {
+                            if let Some(runner) = runner
+                                && runner.has_handlers("after_provider_response")
+                            {
+                                let mut event = ExtensionEvent::AfterProviderResponse(AfterProviderResponseEvent {
+                                    status: response.status as u16,
+                                    headers: response.headers,
+                                });
+                                runner.emit(&mut event).await;
+                            }
+                            Ok(())
+                        })
+                    },
+                ));
                 let session_for_retry = Arc::clone(&session_ref);
                 options.stream.on_retry = Some(Arc::new(
                     move |event: pi_ai::types::ProviderRetryEvent, _model: &Model| {
@@ -407,6 +454,21 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         .and_then(|budgets| serde_json::to_value(budgets).ok())
         .and_then(|value| serde_json::from_value(value).ok());
     let max_retry_delay_ms = lock(&settings).get_provider_retry_settings().max_retry_delay_ms;
+    let transform_context: TransformContext = {
+        let extension_runner_ref = Arc::clone(&extension_runner_ref);
+        Arc::new(move |messages, _signal| {
+            let runner = lock(&extension_runner_ref).clone();
+            Box::pin(async move {
+                match runner {
+                    Some(runner) => runner
+                        .emit_context(messages)
+                        .await
+                        .map_err(|error| AgentError::new(error.message)),
+                    None => Ok(messages),
+                }
+            })
+        })
+    };
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {
             system_prompt: Some(String::new()),
@@ -423,6 +485,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         transport: Some(transport),
         thinking_budgets,
         max_retry_delay_ms: Some(max_retry_delay_ms),
+        transform_context: Some(transform_context),
         ..Default::default()
     })
     .map_err(|error| error.message().to_owned())?;
@@ -455,13 +518,13 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         multi_agent_runtime_role: options.multi_agent_runtime_role,
         multi_agent_execution_capability: options.multi_agent_execution_capability,
         thinking_phase_timeout_ms: None,
-        supervisor_decision_requester: None,
+        supervisor_decision_requester: options.supervisor_decision_requester,
         multi_agent_store: options.multi_agent_store,
-        multi_agent_agent_id: None,
-        multi_agent_parent_session_id: None,
+        multi_agent_agent_id: options.multi_agent_agent_id,
+        multi_agent_parent_session_id: options.multi_agent_parent_session_id,
         disable_runtime_coordination_inbound: options.disable_runtime_coordination_inbound,
         on_shared_channel_message_delivered: options.on_shared_channel_message_delivered,
-        extension_runner_ref: None,
+        extension_runner_ref: Some(extension_runner_ref),
         session_start_event: options.session_start_event,
     })
     .map_err(|error| error.message().to_owned())?;
@@ -567,11 +630,4 @@ fn model_thinking_level(level: ThinkingLevel) -> pi_ai::types::ModelThinkingLeve
         ThinkingLevel::Max => pi_ai::types::ModelThinkingLevel::Max,
         ThinkingLevel::Ultra => pi_ai::types::ModelThinkingLevel::Ultra,
     }
-}
-
-/// Marker so partial-port imports stay visible during review.
-#[allow(dead_code)]
-fn _unused_markers() {
-    let _ = CallbackError::new("");
-    let _: Option<Value> = None;
 }

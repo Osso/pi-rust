@@ -547,6 +547,24 @@ pub trait ExtensionUiContext: Send + Sync {
     }
 }
 
+/// `SessionMutationTarget`: the session a multi-agent selection points at.
+///
+/// TypeScript declares a plain object with a getter pair and mutators; Rust
+/// models it as a trait so the resolver can hand out a live handle.
+pub trait SessionMutationTarget: Send + Sync {
+    fn model(&self) -> Option<Model>;
+    fn thinking_level(&self) -> pi_agent_core::harness::types::ThinkingLevel;
+    fn set_model(&self, model: Model) -> BoxFuture<'_, ()>;
+    fn set_thinking_level(&self, level: pi_agent_core::harness::types::ThinkingLevel);
+}
+
+/// `ViewedSessionMutationTarget`: adds the registry and scoped models the
+/// interactive session viewer exposes.
+pub trait ViewedSessionMutationTarget: SessionMutationTarget {
+    fn model_registry(&self) -> Arc<crate::core::model_registry::ModelRegistry>;
+    fn scoped_models(&self) -> Vec<crate::core::model_resolver::ScopedModel>;
+}
+
 /// The source `noOpUIContext`.
 pub struct NoOpUiContext;
 
