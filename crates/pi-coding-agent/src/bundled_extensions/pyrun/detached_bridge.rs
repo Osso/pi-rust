@@ -22,7 +22,9 @@ pub struct DetachedPyrunBridgeRequest {
     pub protocol: String,
     pub reply_to: RuntimeMailboxAddress,
     pub request_id: String,
-    pub tool_call_id: String,
+    /// Absent when the launching tool call had no ID (legacy manifests).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 pub struct EnqueueDetachedPyrunBridgeRequestInput {
@@ -32,7 +34,7 @@ pub struct EnqueueDetachedPyrunBridgeRequestInput {
     pub params: Value,
     pub runner_address: RuntimeMailboxAddress,
     pub session_path: String,
-    pub tool_call_id: String,
+    pub tool_call_id: Option<String>,
     pub supervisor_address: RuntimeMailboxAddress,
 }
 
@@ -65,7 +67,10 @@ pub fn enqueue_detached_pyrun_bridge_request(input: EnqueueDetachedPyrunBridgeRe
 /// `parseDetachedPyrunBridgeRequest`.
 pub fn parse_detached_pyrun_bridge_request(message: &RuntimeMailboxMessage) -> Option<DetachedPyrunBridgeRequest> {
     let parsed: DetachedPyrunBridgeRequest = serde_json::from_str(&message.body).ok()?;
-    let has_valid_tool_call_id = !pi_js_compat::string::js_trim(&parsed.tool_call_id).is_empty();
+    let has_valid_tool_call_id = parsed
+        .tool_call_id
+        .as_deref()
+        .is_some_and(|tool_call_id| !pi_js_compat::string::js_trim(tool_call_id).is_empty());
     if parsed.protocol != DETACHED_PYRUN_BRIDGE_PROTOCOL || parsed.command != "request" || !has_valid_tool_call_id {
         return None;
     }
