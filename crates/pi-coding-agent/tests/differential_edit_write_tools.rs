@@ -18,7 +18,7 @@ struct Case {
 #[test]
 fn coding_agent_edit_prepare_arguments_match_the_pinned_typescript_source() {
     let cwd = "/tmp/pi-edit-prepare-differential";
-    let cases = vec![
+    let cases = [
         json!(null),
         json!("garbage"),
         json!({"path": "file.txt", "oldText": "before", "newText": "after"}),
