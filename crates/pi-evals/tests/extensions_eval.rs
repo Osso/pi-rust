@@ -6,13 +6,11 @@ mod faux_support;
 use pi_coding_agent::core::model_runtime::ModelRuntime;
 use pi_evals::evals::extensions::{
     BASELINE_HARNESS, CANDIDATE_HARNESS, EVAL_SET, EXTENSION_AUTHORING_JUDGE, ExtensionAuthoringOutput,
-    LoadedExtensionSummary, exclude_guidelines_and_documentation, extension_authoring_judge, extension_harness_table,
-    prepare_default_prompt_override,
+    LoadedExtensionSummary, create_extension_authoring_harness, exclude_guidelines_and_documentation,
+    extension_authoring_judge, extension_harness_table, prepare_default_prompt_override,
 };
 use pi_evals::harness::{HarnessContext, ToolCall, ToolCallStatus};
-use pi_evals::pi_harness::{
-    ModelSelection, PiCodingAgentHarnessOptions, PiCodingAgentInput, PiCodingAgentStep, create_pi_coding_agent_harness,
-};
+use pi_evals::pi_harness::{ModelSelection, PiCodingAgentHarnessOptions, PiCodingAgentInput, PiCodingAgentStep};
 use serde_json::json;
 
 fn output(source: Option<&str>) -> ExtensionAuthoringOutput {
@@ -286,13 +284,13 @@ async fn extension_authoring_eval_requires_a_live_model_when_opted_in() {
         );
         return;
     }
-    let harness = create_pi_coding_agent_harness(PiCodingAgentHarnessOptions {
-        name: Some(CANDIDATE_HARNESS.to_owned()),
-        transform_system_prompt: Some(std::sync::Arc::new(|prompt: &str| {
+    let harness = create_extension_authoring_harness(
+        CANDIDATE_HARNESS,
+        Some(std::sync::Arc::new(|prompt: &str| {
             prepare_default_prompt_override(prompt)
         })),
-        ..Default::default()
-    });
+        PiCodingAgentHarnessOptions::default(),
+    );
     let run = harness
         .run(
             PiCodingAgentInput::Steps(vec![
