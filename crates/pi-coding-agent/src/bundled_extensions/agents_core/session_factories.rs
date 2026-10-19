@@ -163,6 +163,35 @@ impl ChildAgentSession for AgentSessionChildSession {
     fn transcript(&self) -> Option<AgentTranscriptMetadata> {
         None
     }
+
+    fn session_mutation_target(&self) -> Option<Arc<crate::core::extensions::types::ViewedSessionMutationTarget>> {
+        use crate::core::extensions::types::{HandlerError, ViewedSessionMutationTarget};
+
+        let session = self.session.clone();
+        let set_model_session = self.session.clone();
+        let set_thinking_session = self.session.clone();
+        Some(Arc::new(ViewedSessionMutationTarget {
+            model: Some(session.model()),
+            model_registry: Arc::new(session.model_registry().clone()),
+            scoped_models: session.scoped_models(),
+            thinking_level: session.thinking_level(),
+            set_model: Arc::new(move |model| {
+                let session = set_model_session.clone();
+                Box::pin(async move {
+                    session
+                        .set_model(model)
+                        .await
+                        .map(|()| true)
+                        .map_err(|error| HandlerError::new(error.message()))
+                })
+            }),
+            set_thinking_level: Arc::new(move |level| {
+                set_thinking_session
+                    .set_thinking_level(level)
+                    .map_err(|error| HandlerError::new(error.to_string()))
+            }),
+        }))
+    }
 }
 
 impl UnboundChildAgentSession for AgentSessionChildSession {

@@ -133,6 +133,14 @@ pub fn create_multi_agent_execution_capability() -> MultiAgentExecutionCapabilit
     MultiAgentExecutionCapability { _private: () }
 }
 
+/// `bindAgentSessionMutationTargetResolver`.
+pub fn bind_agent_session_mutation_target_resolver(
+    session: &AgentSession,
+    resolver: crate::core::extensions::types::ViewedSessionMutationTargetResolver,
+) {
+    *lock(&session.inner.session_mutation_target_resolver) = Some(resolver);
+}
+
 /// `streamingBehavior`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamingBehavior {
@@ -961,6 +969,8 @@ struct Inner {
     runtime_mailbox_signal_token: Mutex<Option<CancellationToken>>,
     runtime_mailbox_control_db_path: Mutex<Option<String>>,
     runtime_mailbox_control_db_release: Mutex<Option<crate::core::session_control_db::RetainedControlDbGuard>>,
+    session_mutation_target_resolver:
+        Mutex<Option<crate::core::extensions::types::ViewedSessionMutationTargetResolver>>,
     shared_channel_drain_in_progress: AtomicBool,
 }
 
@@ -1266,6 +1276,7 @@ impl AgentSession {
             runtime_mailbox_signal_token: Mutex::new(None),
             runtime_mailbox_control_db_path: Mutex::new(None),
             runtime_mailbox_control_db_release: Mutex::new(None),
+            session_mutation_target_resolver: Mutex::new(None),
             shared_channel_drain_in_progress: AtomicBool::new(false),
         });
 
@@ -6772,18 +6783,16 @@ impl AgentSession {
     fn create_internal_commands(
         &self,
     ) -> indexmap::IndexMap<String, crate::core::extensions::types::InternalCommandHandler> {
-        let weak = Arc::downgrade(&self.inner);
         let handler: crate::core::extensions::types::InternalCommandHandler =
             Arc::new(move |args: String, ctx: ExtensionCommandContext| {
                 let model_reference = args.trim().to_owned();
-                let weak = weak.clone();
                 Box::pin(async move {
                     if model_reference.is_empty() {
                         return Ok(());
                     }
-                    let scoped = ctx.context.get_scoped_models()?;
+                    let scoped = ctx.get_scoped_models()?;
                     let models = if scoped.is_empty() {
-                        ctx.context.model_registry()?.get_available()
+                        ctx.model_registry()?.get_available()
                     } else {
                         scoped.into_iter().map(|scoped| scoped.model).collect()
                     };
@@ -6794,14 +6803,11 @@ impl AgentSession {
                     };
                     let provider = model.provider.clone();
                     let model_id = model.id.clone();
-                    let Some(inner) = weak.upgrade() else {
-                        return Err(crate::core::extensions::types::HandlerError::new("Session is disposed"));
-                    };
-                    AgentSession { inner }
-                        .set_model(model)
-                        .await
-                        .map_err(|error| crate::core::extensions::types::HandlerError::new(error.message()))?;
-                    let _ = (provider, model_id);
+                    if !ctx.set_model(model).await? {
+                        return Err(crate::core::extensions::types::HandlerError::new(format!(
+                            "No API key for {provider}/{model_id}"
+                        )));
+                    }
                     Ok(())
                 })
             });
@@ -6972,7 +6978,7 @@ impl AgentSession {
         let Some(command) = runner.get_prompt_command(command_name) else {
             return false;
         };
-        let context = self.create_command_context();
+        let context = self.create_command_context_for(command_name);
         if let Err(error) = (command.handler)(args.to_owned(), context).await {
             runner.emit_error(crate::core::extensions::types::ExtensionError {
                 extension_path: format!("command:{command_name}"),
@@ -7271,7 +7277,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
                         "Command not found: {name}"
                     )));
                 };
-                let context = session.create_command_context();
+                let context = session.create_command_context_for(&name);
                 (command.handler)(args.unwrap_or_default(), context)
                     .await
                     .map(|()| Value::Null)
@@ -7587,6 +7593,22 @@ fn refresh_current_model_from_registry(inner: &Arc<Inner>) {
 impl AgentSession {
     fn create_command_context(&self) -> ExtensionCommandContext {
         self.runner().create_command_context()
+    }
+
+    /// `_createCommandContext`: `model` and `effort` commands from a main
+    /// session act on the selected child session when one is being viewed.
+    fn create_command_context_for(&self, command_name: &str) -> ExtensionCommandContext {
+        let context = self.create_command_context();
+        if self.inner.multi_agent_agent_id.is_some() || (command_name != "model" && command_name != "effort") {
+            return context;
+        }
+        let resolver = lock(&self.inner.session_mutation_target_resolver).clone();
+        let Some(resolver) = resolver else {
+            return context;
+        };
+        ExtensionCommandContext {
+            context: context.context.with_viewed_session_mutation_target(resolver),
+        }
     }
 
     /// `createReplacedSessionContext`.

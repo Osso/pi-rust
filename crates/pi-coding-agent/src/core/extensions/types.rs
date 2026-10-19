@@ -657,6 +657,7 @@ pub struct ExtensionContextState {
     pub(super) model_registry: Arc<ModelRegistry>,
     pub(super) settings_manager: Option<Arc<Mutex<SettingsManager>>>,
     pub(super) get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync>,
+    pub(super) set_model_fn: SetModelHandler,
     pub(super) get_thinking_level_fn: Arc<dyn Fn() -> ThinkingLevel + Send + Sync>,
     pub(super) set_thinking_level_fn: Arc<dyn Fn(ThinkingLevel) -> Result<(), HandlerError> + Send + Sync>,
     pub(super) get_scoped_models: Arc<dyn Fn() -> Vec<ScopedModel> + Send + Sync>,
@@ -713,6 +714,7 @@ impl ExtensionContextState {
             model_registry,
             settings_manager,
             get_model: Arc::new(|| None),
+            set_model_fn: Arc::new(|_| Box::pin(async { Ok(false) })),
             get_thinking_level_fn: Arc::new(|| ThinkingLevel::Off),
             set_thinking_level_fn: Arc::new(|_| Ok(())),
             get_scoped_models: Arc::new(Vec::new),
@@ -803,7 +805,23 @@ pub struct ExtensionContext {
     pub tool_execution_agent_id: Option<String>,
     state: Arc<Mutex<ExtensionContextState>>,
     system_prompt_override: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    viewed_session_target: Option<ViewedSessionMutationTargetResolver>,
 }
+
+/// `ViewedSessionMutationTarget`: the live child session a `model`/`effort`
+/// command should mutate while the main session views it.
+#[derive(Clone)]
+pub struct ViewedSessionMutationTarget {
+    pub model: Option<Model>,
+    pub model_registry: Arc<ModelRegistry>,
+    pub scoped_models: Vec<ScopedModel>,
+    pub thinking_level: ThinkingLevel,
+    pub set_model: SetModelHandler,
+    pub set_thinking_level: Arc<dyn Fn(ThinkingLevel) -> Result<(), HandlerError> + Send + Sync>,
+}
+
+pub type ViewedSessionMutationTargetResolver =
+    Arc<dyn Fn() -> Result<Option<Arc<ViewedSessionMutationTarget>>, HandlerError> + Send + Sync>;
 
 impl ExtensionContext {
     pub(super) fn new(state: Arc<Mutex<ExtensionContextState>>) -> Self {
@@ -812,6 +830,20 @@ impl ExtensionContext {
             tool_execution_agent_id: None,
             state,
             system_prompt_override: None,
+            viewed_session_target: None,
+        }
+    }
+
+    /// Shadows model and thinking accessors with a viewed child session's live state.
+    pub fn with_viewed_session_mutation_target(mut self, resolver: ViewedSessionMutationTargetResolver) -> Self {
+        self.viewed_session_target = Some(resolver);
+        self
+    }
+
+    fn viewed_session_target(&self) -> Result<Option<Arc<ViewedSessionMutationTarget>>, HandlerError> {
+        match &self.viewed_session_target {
+            Some(resolver) => resolver(),
+            None => Ok(None),
         }
     }
 
@@ -870,6 +902,9 @@ impl ExtensionContext {
     }
 
     pub fn model_registry(&self) -> Result<Arc<ModelRegistry>, HandlerError> {
+        if let Some(target) = self.viewed_session_target()? {
+            return Ok(Arc::clone(&target.model_registry));
+        }
         self.read(|state| Arc::clone(&state.model_registry))
     }
 
@@ -906,14 +941,38 @@ impl ExtensionContext {
     }
 
     pub fn model(&self) -> Result<Option<Model>, HandlerError> {
+        if let Some(target) = self.viewed_session_target()? {
+            return Ok(target.model.clone());
+        }
         self.callback(|state| Arc::clone(&state.get_model))
     }
 
+    pub fn set_model(&self, model: Model) -> BoxFuture<'static, Result<bool, HandlerError>> {
+        let target = match self.viewed_session_target() {
+            Ok(target) => target,
+            Err(error) => return Box::pin(async move { Err(error) }),
+        };
+        if let Some(target) = target {
+            return (target.set_model)(model);
+        }
+        let handler = self.read(|state| Arc::clone(&state.set_model_fn));
+        match handler {
+            Ok(handler) => handler(model),
+            Err(error) => Box::pin(async move { Err(error) }),
+        }
+    }
+
     pub fn scoped_models(&self) -> Result<Vec<ScopedModel>, HandlerError> {
+        if let Some(target) = self.viewed_session_target()? {
+            return Ok(target.scoped_models.clone());
+        }
         self.callback(|state| Arc::clone(&state.get_scoped_models))
     }
 
     pub fn thinking_level(&self) -> Result<ThinkingLevel, HandlerError> {
+        if let Some(target) = self.viewed_session_target()? {
+            return Ok(target.thinking_level);
+        }
         self.callback(|state| Arc::clone(&state.get_thinking_level_fn))
     }
 
@@ -922,6 +981,9 @@ impl ExtensionContext {
     }
 
     pub fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), HandlerError> {
+        if let Some(target) = self.viewed_session_target()? {
+            return (target.set_thinking_level)(level);
+        }
         let setter = self.read(|state| Arc::clone(&state.set_thinking_level_fn))?;
         setter(level)
     }

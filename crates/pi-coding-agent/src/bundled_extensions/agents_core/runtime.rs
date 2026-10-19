@@ -93,6 +93,44 @@ pub fn wake_wait_agents_after_coordination(runtime_handles: &MultiAgentRuntimeHa
         .emit(&super::shared::WaitAgentsWakeUp::coordination(prompt.to_owned()));
 }
 
+/// `resolveSelectedSessionMutationTarget`.
+pub fn resolve_selected_session_mutation_target(
+    store: &MultiAgentStore,
+    runtime_handles: &MultiAgentRuntimeHandles,
+) -> Result<Option<Arc<crate::core::extensions::types::ViewedSessionMutationTarget>>, HandlerError> {
+    use crate::core::multi_agent_store::format_inactive_agent_selection_message;
+
+    let Some(selected_agent_id) = store.get_selected_agent_id() else {
+        return Ok(None);
+    };
+    if selected_agent_id == MAIN_THREAD_AGENT_ID {
+        return Ok(None);
+    }
+    let Some(agent) = store.get_agent(&selected_agent_id) else {
+        return Err(HandlerError::new(format!("Agent not found: {selected_agent_id}")));
+    };
+    if agent.agent_type == "background" {
+        return Err(HandlerError::new(format!(
+            "Agent {selected_agent_id} is detached and not a live child session"
+        )));
+    }
+    if !is_active_lifecycle(agent.lifecycle) {
+        return Err(HandlerError::new(format_inactive_agent_selection_message(&agent)));
+    }
+    let sessions = runtime_handles.sessions.lock().expect("sessions");
+    let Some(session) = sessions.get(&selected_agent_id) else {
+        return Err(HandlerError::new(format!(
+            "Agent {selected_agent_id} is not a live child session"
+        )));
+    };
+    let Some(target) = session.session_mutation_target() else {
+        return Err(HandlerError::new(format!(
+            "Agent {selected_agent_id} does not support live session mutation"
+        )));
+    };
+    Ok(Some(target))
+}
+
 pub fn assert_no_wait_agents_params(params: &Value, api_name: &str) -> Result<(), HandlerError> {
     let empty = match params {
         Value::Null => true,
