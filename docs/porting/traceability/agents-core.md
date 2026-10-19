@@ -223,7 +223,9 @@ Re-export surface only. Rust exports the same items from
 4. **Wait watcher errors** — `reconcileDeadDetachedRuntimes` and terminal
    outbox delivery throw in the source (uncaught inside `setInterval`); Rust
    returns `WaitNotificationsWake::Error { message }` so the wait tool reports
-   `Wait failed: ...`. Approved deviation (user decision 2026-10-19).
+   `Wait failed: ...`. Source bug at the pinned revision (uncaught throw from a
+   timer crashes Node); fixed upstream in Pi `9cb4142bb`, which the Rust behavior
+   matches (user decision 2026-10-19).
 5. **Dispatch cleanup identity** — the source deletes a dispatch only when the
    map still holds the same promise; Rust deletes by agent id (agent ids are
    unique and never re-dispatched).
