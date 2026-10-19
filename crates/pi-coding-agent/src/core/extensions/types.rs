@@ -4,6 +4,7 @@
 //! The event payloads, handler ordering, and result merging match the source;
 //! the extension entry point is a Rust factory receiving [`ExtensionApi`].
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -537,6 +538,14 @@ pub trait ExtensionUiContext: Send + Sync {
         }
     }
 
+    /// `setTheme(theme: Theme)`: install an in-memory theme object.
+    fn set_theme_object(&self, _theme: Arc<Theme>) -> ThemeSetResult {
+        ThemeSetResult {
+            success: false,
+            error: Some("UI not available".to_owned()),
+        }
+    }
+
     fn get_tools_expanded(&self) -> bool {
         false
     }
@@ -558,6 +567,19 @@ pub type BeforeProviderRequestEventResult = Value;
 /// Rust hands the shared trait object through.
 pub type AutocompleteProviderFactory = Arc<
     dyn Fn(Rc<dyn pi_tui::autocomplete::AutocompleteProvider>) -> Rc<dyn pi_tui::autocomplete::AutocompleteProvider>
+        + Send
+        + Sync,
+>;
+
+/// `EditorFactory`: builds a custom editor component.
+///
+/// The source returns `EditorComponent`; Rust returns a shared trait object.
+pub type EditorFactory = Arc<
+    dyn Fn(
+            ExtensionUiTui,
+            pi_tui::components::editor::EditorTheme,
+            crate::core::keybindings::KeybindingsManager,
+        ) -> Rc<RefCell<dyn pi_tui::EditorComponent>>
         + Send
         + Sync,
 >;

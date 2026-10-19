@@ -83,16 +83,17 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
 ## Gaps
 
-- Component-factory UI contracts are defined in `types` (`ExtensionUiComponent`,
-  `ExtensionUiTui`, factory contexts, `setWidget` factory overload, `setFooter`,
-  `setDefaultFooter`, `setHeader`, `custom`, `getTheme`) but the interactive
-  implementation lands with `port/ca-interactive-mode`. `theme()`, string-array
-  widgets, status/working state, titles, editor text, theme listing and
-  `setTheme(name)` are implemented.
-- `addAutocompleteProvider`, `setEditorComponent`, `getEditorComponent`, and the
-  `setTheme(Theme)` object accessor remain gaps.
-- `AutocompleteProviderFactory`/`EditorFactory` aliases are omitted with the
-  same dependency.
+- Component-factory UI contracts are implemented in the interactive mode:
+  `setWidget` (string arrays truncated at 10 lines and factory components),
+  `setFooter`, `setDefaultFooter`, `setHeader`, `custom`, `getTheme`, and
+  `setTheme(Theme)` (`set_theme_object`). Widget placement rendering matches the
+  source (above: leading spacer and empty spacer; below: none), and removing a
+  key clears both placements.
+- `addAutocompleteProvider`, `setEditorComponent`, and `getEditorComponent`
+  remain gaps: the interactive mode has no base autocomplete provider and holds
+  a concrete `CustomEditor`, so swapping in an arbitrary `EditorComponent`
+  requires the interactive-mode editor abstraction (ca-interactive-2).
+  `AutocompleteProviderFactory` and `EditorFactory` aliases exist.
 - `DetachedJobLifecycleController` is exposed as `ExtensionContext::detached_job_lifecycle()`
   and bound by `ExtensionRunner::bind_detached_job_lifecycle`. `core::agent_session`
   (owned by ca-agent-session-2) must call that binder with the session controller.

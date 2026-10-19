@@ -1391,6 +1391,11 @@ enum UiRequest {
         content: Option<Vec<String>>,
         placement: WidgetPlacement,
     },
+    SetWidgetComponent {
+        key: String,
+        content: Option<ExtensionUiComponentFactory>,
+        placement: WidgetPlacement,
+    },
     SetTitle(String),
     PasteToEditor(String),
     SetEditorText(String),
@@ -1586,26 +1591,15 @@ impl ExtensionUiContext for InteractiveUiContext {
         &self,
         key: &str,
         content: Option<ExtensionUiComponentFactory>,
-        _options: Option<&ExtensionWidgetOptions>,
+        options: Option<&ExtensionWidgetOptions>,
     ) {
-        if let Some(factory) = content {
-            let (respond, receiver) = tokio::sync::oneshot::channel();
-            self.send(UiRequest::Custom {
-                factory: Arc::new(move |context, done| {
-                    done.call(None);
-                    factory(context)
-                }),
-                options: Some(ExtensionUiCustomOptions {
-                    overlay: Some(false),
-                    ..ExtensionUiCustomOptions::default()
-                }),
-                respond,
-            });
-            drop(receiver);
-            // The widget key/placement are handled by the interactive adapter
-            // in a later slice; the factory is still mounted as a focused view.
-            self.set_status(key, Some("component widget"));
-        }
+        self.send(UiRequest::SetWidgetComponent {
+            key: key.to_owned(),
+            content,
+            placement: options
+                .and_then(|options| options.placement)
+                .unwrap_or(WidgetPlacement::AboveEditor),
+        });
     }
 
     fn set_footer(&self, factory: Option<ExtensionUiFooterFactory>) {
@@ -1684,6 +1678,13 @@ impl ExtensionUiContext for InteractiveUiContext {
         })
     }
 
+    fn set_theme_object(&self, theme: Arc<Theme>) -> ThemeSetResult {
+        with_mode(self.id, |mode| mode.set_theme_instance(theme)).unwrap_or(ThemeSetResult {
+            success: false,
+            error: Some("UI not available".to_owned()),
+        })
+    }
+
     fn get_tools_expanded(&self) -> bool {
         with_mode(self.id, |mode| mode.tool_output_expanded.get()).unwrap_or(false)
     }
@@ -1724,6 +1725,15 @@ impl ExtensionUiTuiBackend for InteractiveUiTuiBackend {
         }
     }
 }
+
+/// Extension widget content: string lines or a factory-built component.
+enum ExtensionWidget {
+    Lines(Vec<String>),
+    Component(ComponentRef),
+}
+
+/// Maximum widget lines before the truncation marker (source `MAX_WIDGET_LINES`).
+const MAX_WIDGET_LINES: usize = 10;
 
 /// Adapts a thread-safe extension component to the `pi-tui` component contract.
 struct ExtensionComponentAdapter {
@@ -1797,8 +1807,8 @@ pub struct InteractiveMode {
     executing_tool_names: RefCell<IndexMap<String, String>>,
     executing_tool_started_at: RefCell<IndexMap<String, f64>>,
     extension_statuses: RefCell<IndexMap<String, String>>,
-    extension_widgets_above: RefCell<IndexMap<String, Vec<String>>>,
-    extension_widgets_below: RefCell<IndexMap<String, Vec<String>>>,
+    extension_widgets_above: RefCell<IndexMap<String, ExtensionWidget>>,
+    extension_widgets_below: RefCell<IndexMap<String, ExtensionWidget>>,
     on_input_callback: RefCell<Option<InputCallback>>,
     last_status_spacer: RefCell<Option<ComponentRef>>,
     last_status_text: RefCell<Option<ComponentRef>>,
@@ -2746,6 +2756,17 @@ impl InteractiveMode {
             .add_child(component(Spacer::new(1)));
     }
 
+    fn set_theme_instance(&self, theme: Arc<Theme>) -> ThemeSetResult {
+        crate::modes::interactive::theme::set_theme_instance(theme);
+        self.ui.invalidate();
+        self.update_editor_border_color();
+        self.ui.request_render();
+        ThemeSetResult {
+            success: true,
+            error: None,
+        }
+    }
+
     fn set_theme_name(&self, name: &str) -> ThemeSetResult {
         let result = crate::modes::interactive::theme::set_theme(name, false).unwrap_or_else(|error| {
             crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string())
@@ -2782,38 +2803,73 @@ impl InteractiveMode {
     }
 
     fn render_widgets(&self) {
-        self.render_widget_container(&self.widget_container_above, &self.extension_widgets_above.borrow());
-        self.render_widget_container(&self.widget_container_below, &self.extension_widgets_below.borrow());
+        self.render_widget_container(
+            &self.widget_container_above,
+            &self.extension_widgets_above.borrow(),
+            true,
+            true,
+        );
+        self.render_widget_container(
+            &self.widget_container_below,
+            &self.extension_widgets_below.borrow(),
+            false,
+            false,
+        );
     }
 
-    fn render_widget_container(&self, container: &Rc<RefCell<Container>>, widgets: &IndexMap<String, Vec<String>>) {
+    fn render_widget_container(
+        &self,
+        container: &Rc<RefCell<Container>>,
+        widgets: &IndexMap<String, ExtensionWidget>,
+        spacer_when_empty: bool,
+        leading_spacer: bool,
+    ) {
         let mut container = container.borrow_mut();
         container.clear();
         if widgets.is_empty() {
-            container.add_child(component(Spacer::new(1)));
+            if spacer_when_empty {
+                container.add_child(component(Spacer::new(1)));
+            }
             return;
         }
-        container.add_child(component(Spacer::new(1)));
-        for lines in widgets.values() {
-            container.add_child(component(Text::new(lines.join("\n"), 1, 0)));
+        if leading_spacer {
+            container.add_child(component(Spacer::new(1)));
+        }
+        for widget in widgets.values() {
+            match widget {
+                ExtensionWidget::Lines(lines) => {
+                    container.add_child(component(Text::new(lines.join("\n"), 1, 0)));
+                }
+                ExtensionWidget::Component(widget) => container.add_child(Rc::clone(widget)),
+            }
         }
     }
 
-    fn add_extension_widget(&self, key: &str, content: Option<Vec<String>>, placement: WidgetPlacement) {
+    fn add_extension_widget(&self, key: &str, content: Option<ExtensionWidget>, placement: WidgetPlacement) {
+        self.extension_widgets_above.borrow_mut().shift_remove(key);
+        self.extension_widgets_below.borrow_mut().shift_remove(key);
+        let Some(content) = content else {
+            self.render_widgets();
+            self.ui.request_render();
+            return;
+        };
         let widgets = match placement {
             WidgetPlacement::AboveEditor => &self.extension_widgets_above,
             WidgetPlacement::BelowEditor => &self.extension_widgets_below,
         };
-        match content {
-            Some(lines) => {
-                widgets.borrow_mut().insert(key.to_owned(), lines);
-            }
-            None => {
-                widgets.borrow_mut().shift_remove(key);
-            }
-        }
+        widgets.borrow_mut().insert(key.to_owned(), content);
         self.render_widgets();
         self.ui.request_render();
+    }
+
+    fn string_widget_lines(content: &[String]) -> Vec<String> {
+        let mut lines: Vec<String> = content.iter().take(MAX_WIDGET_LINES).cloned().collect();
+        if content.len() > MAX_WIDGET_LINES {
+            lines.push(with_theme(|theme| {
+                theme.fg(ThemeColor::Muted, "... (widget truncated)")
+            }));
+        }
+        lines
     }
 
     fn clear_extension_widgets(&self) {
@@ -4595,7 +4651,24 @@ impl InteractiveMode {
                 key,
                 content,
                 placement,
-            } => self.add_extension_widget(&key, content, placement),
+            } => self.add_extension_widget(
+                &key,
+                content.map(|lines| ExtensionWidget::Lines(Self::string_widget_lines(&lines))),
+                placement,
+            ),
+            UiRequest::SetWidgetComponent {
+                key,
+                content,
+                placement,
+            } => {
+                let widget = content.map(|factory| {
+                    let component_ref = component(ExtensionComponentAdapter {
+                        inner: factory(self.extension_factory_context()),
+                    });
+                    ExtensionWidget::Component(component_ref)
+                });
+                self.add_extension_widget(&key, widget, placement);
+            }
             UiRequest::SetTitle(title) => self.ui.terminal().borrow_mut().set_title(&title),
             UiRequest::PasteToEditor(text) => {
                 self.editor
@@ -4828,21 +4901,24 @@ impl InteractiveMode {
         })
     }
 
+    fn extension_factory_context(&self) -> crate::core::extensions::types::ExtensionUiFactoryContext {
+        crate::core::extensions::types::ExtensionUiFactoryContext {
+            tui: ExtensionUiTui::new(Arc::new(InteractiveUiTuiBackend {
+                shared: Arc::clone(&self.ui_shared),
+                sender: self.ui_sender.clone(),
+            })),
+            theme: crate::modes::interactive::theme::current_theme(),
+            keybindings: self.keybindings.clone(),
+        }
+    }
+
     fn set_extension_header(&self, factory: Option<ExtensionUiComponentFactory>) {
         self.custom_header.borrow_mut().take();
         self.header_container.borrow_mut().clear();
         match factory {
             Some(factory) => {
-                let context = crate::core::extensions::types::ExtensionUiFactoryContext {
-                    tui: ExtensionUiTui::new(Arc::new(InteractiveUiTuiBackend {
-                        shared: Arc::clone(&self.ui_shared),
-                        sender: self.ui_sender.clone(),
-                    })),
-                    theme: crate::modes::interactive::theme::current_theme(),
-                    keybindings: self.keybindings.clone(),
-                };
                 let component_ref = component(ExtensionComponentAdapter {
-                    inner: factory(context),
+                    inner: factory(self.extension_factory_context()),
                 });
                 *self.custom_header.borrow_mut() = Some(Rc::clone(&component_ref));
                 self.header_container.borrow_mut().add_child(component_ref);
@@ -4858,14 +4934,7 @@ impl InteractiveMode {
         options: Option<ExtensionUiCustomOptions>,
         respond: tokio::sync::oneshot::Sender<Option<Value>>,
     ) {
-        let context = crate::core::extensions::types::ExtensionUiFactoryContext {
-            tui: ExtensionUiTui::new(Arc::new(InteractiveUiTuiBackend {
-                shared: Arc::clone(&self.ui_shared),
-                sender: self.ui_sender.clone(),
-            })),
-            theme: crate::modes::interactive::theme::current_theme(),
-            keybindings: self.keybindings.clone(),
-        };
+        let context = self.extension_factory_context();
         let respond = Arc::new(std::sync::Mutex::new(Some(respond)));
         let done_respond = Arc::clone(&respond);
         let mode = self.ui_id.get();
@@ -5657,6 +5726,97 @@ mod ui_tests {
                 assert_eq!(selection.borrow().as_deref(), Some("one"));
                 assert_eq!(mode.editor_container.borrow().children().len(), 1);
                 let _ = pump(&mode, &mut events, &terminal, |_| true).await;
+            })
+            .await;
+    }
+
+    struct StaticWidget;
+
+    impl ExtensionUiComponent for StaticWidget {
+        fn render(&self, _width: usize) -> Vec<String> {
+            vec!["custom widget".to_owned()]
+        }
+
+        fn wants_input(&self) -> bool {
+            false
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_string_widgets_truncate_at_ten_lines() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let lines: Vec<String> = (0..12).map(|index| format!("line-{index}")).collect();
+                mode.ui_sender
+                    .send(UiRequest::SetWidget {
+                        key: "status".to_owned(),
+                        content: Some(lines),
+                        placement: WidgetPlacement::AboveEditor,
+                    })
+                    .expect("widget request");
+                mode.handle_ui_requests().await;
+                let rendered = mode.widget_container_above.borrow_mut().render(80).join("\n");
+                assert!(rendered.contains("line-0"), "{rendered}");
+                assert!(rendered.contains("line-9"), "{rendered}");
+                assert!(!rendered.contains("line-10"), "{rendered}");
+                assert!(rendered.contains("... (widget truncated)"), "{rendered}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_component_widgets_render_factory_components() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let factory: ExtensionUiComponentFactory = Arc::new(|_context| Box::new(StaticWidget));
+                mode.ui_sender
+                    .send(UiRequest::SetWidgetComponent {
+                        key: "custom".to_owned(),
+                        content: Some(factory),
+                        placement: WidgetPlacement::AboveEditor,
+                    })
+                    .expect("widget request");
+                mode.handle_ui_requests().await;
+                let rendered = mode.widget_container_above.borrow_mut().render(80).join("\n");
+                assert!(rendered.contains("custom widget"), "{rendered}");
+
+                mode.ui_sender
+                    .send(UiRequest::SetWidgetComponent {
+                        key: "custom".to_owned(),
+                        content: None,
+                        placement: WidgetPlacement::BelowEditor,
+                    })
+                    .expect("widget removal");
+                mode.handle_ui_requests().await;
+                let rendered = mode.widget_container_above.borrow_mut().render(80).join("\n");
+                assert!(!rendered.contains("custom widget"), "{rendered}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn set_theme_object_installs_the_instance() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let theme = std::sync::Arc::new(
+                    crate::modes::interactive::theme::load_theme_from_path(
+                        &Path::new(env!("CARGO_MANIFEST_DIR")).join("theme").join("light.json"),
+                        None,
+                    )
+                    .expect("light theme"),
+                );
+                let result = mode.set_theme_instance(std::sync::Arc::clone(&theme));
+                assert!(result.success, "{result:?}");
+                assert!(std::sync::Arc::ptr_eq(
+                    &crate::modes::interactive::theme::current_theme(),
+                    &theme
+                ));
             })
             .await;
     }
