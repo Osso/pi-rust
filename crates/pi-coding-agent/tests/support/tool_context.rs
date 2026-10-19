@@ -14,8 +14,9 @@ use pi_ai::auth::types::CredentialStore;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::{
     ExtensionActions, ExtensionCommandContext, ExtensionCommandContextActions, ExtensionContext,
-    ExtensionContextActions, ExtensionMode, ExtensionRunner, ExtensionUiContext, ReplacedSessionContext,
-    SessionTransitionResult, SwitchSessionCallback, UserMessageContent, create_extension_runtime,
+    ExtensionContextActions, ExtensionMode, ExtensionRunner, ExtensionRuntime, ExtensionUiContext, ProviderActions,
+    ReplacedSessionContext, SessionTransitionResult, SwitchSessionCallback, UserMessageContent,
+    create_extension_runtime,
 };
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
@@ -53,6 +54,7 @@ pub fn command_context_actions(switch_session: SwitchSessionCallback) -> Extensi
     ExtensionCommandContextActions {
         show_approval_selector: Arc::new(|| Ok(())),
         show_sandbox_selector: Arc::new(|| Ok(())),
+        set_sandbox_profile: Arc::new(|_, _| Ok(())),
         wait_for_idle: Arc::new(|| Box::pin(async {})),
         new_session: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         fork: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
@@ -102,6 +104,8 @@ pub struct TestContextBuilder {
     ui: Option<Arc<dyn ExtensionUiContext>>,
     agent_id: Option<String>,
     requires_agent_id: bool,
+    model_registry: Option<Arc<ModelRegistry>>,
+    provider_actions: Option<ProviderActions>,
 }
 
 impl TestContextBuilder {
@@ -114,6 +118,8 @@ impl TestContextBuilder {
             ui: None,
             agent_id: None,
             requires_agent_id: false,
+            model_registry: None,
+            provider_actions: None,
         }
     }
 
@@ -142,24 +148,44 @@ impl TestContextBuilder {
         self
     }
 
+    pub fn model_registry(mut self, registry: Arc<ModelRegistry>) -> Self {
+        self.model_registry = Some(registry);
+        self
+    }
+
+    pub fn provider_actions(mut self, actions: ProviderActions) -> Self {
+        self.provider_actions = Some(actions);
+        self
+    }
+
     pub async fn build(self) -> (ExtensionRunner, ExtensionContext) {
+        let (runner, context, _) = self.build_with_runtime().await;
+        (runner, context)
+    }
+
+    pub async fn build_with_runtime(self) -> (ExtensionRunner, ExtensionContext, ExtensionRuntime) {
+        let runtime = create_extension_runtime();
+        let registry = match self.model_registry {
+            Some(registry) => registry,
+            None => model_registry().await,
+        };
         let mut runner = ExtensionRunner::new(
             Vec::new(),
-            create_extension_runtime(),
+            runtime.clone(),
             self.cwd,
             Arc::clone(&self.session),
-            model_registry().await,
+            registry,
             None,
         );
         runner.bind_core(
             actions(),
             context_actions(self.control_db_path, self.agent_id, self.requires_agent_id),
-            None,
+            self.provider_actions,
         );
         runner.set_ui_context(self.ui, self.mode);
         runner.bind_command_context(None);
         let context = runner.create_context();
-        (runner, context)
+        (runner, context, runtime)
     }
 }
 
@@ -216,6 +242,7 @@ fn context_actions(
     ExtensionContextActions {
         get_model: Arc::new(|| None),
         get_thinking_level: None,
+        set_thinking_level: None,
         get_scoped_models: None,
         get_footer_data: None,
         is_idle: Arc::new(|| true),

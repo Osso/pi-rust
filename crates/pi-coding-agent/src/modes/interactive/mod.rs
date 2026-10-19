@@ -2,7 +2,13 @@
 
 pub mod components;
 pub mod external_editor;
+pub mod interactive_mode;
 pub mod interactive_root_compositor;
 pub mod model_search;
 pub mod theme;
 pub mod working_editor;
+
+pub use interactive_mode::{
+    ExpandableText, InteractiveMode, InteractiveModeOptions, InteractiveTuiHandle, InteractiveTuiOptions, Renderer,
+    create_interactive_tui, format_resume_command, run_interactive_mode,
+};

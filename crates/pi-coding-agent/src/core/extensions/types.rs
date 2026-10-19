@@ -31,7 +31,7 @@ use crate::core::footer_data_provider::FooterDataProvider;
 use crate::core::model_registry::ModelRegistry;
 use crate::core::model_resolver::ScopedModel;
 use crate::core::multi_agent_store::MultiAgentStore;
-use crate::core::permissions::presets::SandboxProfileScope;
+use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
 use crate::core::provider_composer::ProviderConfigInput;
 use crate::core::session_control_db::RuntimeMailboxMessage;
 use crate::core::session_manager::{
@@ -249,6 +249,144 @@ pub struct TerminalInputResult {
     pub data: Option<String>,
 }
 
+/// Thread-safe component surface returned by extension component factories.
+///
+/// The TypeScript factories return `pi-tui` components, which are `Rc`-based.
+/// Extensions cross the `Send + Sync` boundary of [`ExtensionUiContext`], so the
+/// interactive mode adapts these handles to `pi-tui` components on the UI thread.
+/// `render` takes `&self`; implementors use interior mutability when rendering
+/// mutates state, matching the source component contract.
+pub trait ExtensionUiComponent: Send + Sync {
+    fn render(&self, width: usize) -> Vec<String>;
+
+    fn handle_input(&self, _data: &str) {}
+
+    fn invalidate(&self) {}
+
+    fn wants_input(&self) -> bool {
+        true
+    }
+
+    fn dispose(&self) {}
+}
+
+/// Backend behind the [`ExtensionUiTui`] handle passed to factories.
+pub trait ExtensionUiTuiBackend: Send + Sync {
+    fn request_render(&self);
+    fn terminal_rows(&self) -> usize;
+    fn terminal_columns(&self) -> usize;
+    fn mode(&self) -> pi_tui::tui::TuiMode;
+}
+
+/// Thread-safe `TUI` handle passed to extension factories.
+#[derive(Clone)]
+pub struct ExtensionUiTui {
+    backend: Arc<dyn ExtensionUiTuiBackend>,
+}
+
+impl ExtensionUiTui {
+    pub fn new(backend: Arc<dyn ExtensionUiTuiBackend>) -> Self {
+        Self { backend }
+    }
+
+    pub fn request_render(&self) {
+        self.backend.request_render();
+    }
+
+    pub fn terminal_rows(&self) -> usize {
+        self.backend.terminal_rows()
+    }
+
+    pub fn terminal_columns(&self) -> usize {
+        self.backend.terminal_columns()
+    }
+
+    pub fn mode(&self) -> pi_tui::tui::TuiMode {
+        self.backend.mode()
+    }
+}
+
+/// Arguments passed to `setWidget`/`setHeader`/`custom` component factories.
+#[derive(Clone)]
+pub struct ExtensionUiFactoryContext {
+    pub tui: ExtensionUiTui,
+    pub theme: Arc<Theme>,
+    pub keybindings: crate::core::keybindings::KeybindingsManager,
+}
+
+/// Arguments passed to `setFooter`/`setDefaultFooter` component factories.
+#[derive(Clone)]
+pub struct ExtensionUiFooterContext {
+    pub tui: ExtensionUiTui,
+    pub theme: Arc<Theme>,
+    pub footer_data: FooterDataProvider,
+}
+
+/// Component factory used by `setWidget`, `setHeader`, and `custom`.
+pub type ExtensionUiComponentFactory =
+    Arc<dyn Fn(ExtensionUiFactoryContext) -> Box<dyn ExtensionUiComponent> + Send + Sync>;
+
+/// Component factory used by `setFooter` and `setDefaultFooter`.
+pub type ExtensionUiFooterFactory =
+    Arc<dyn Fn(ExtensionUiFooterContext) -> Box<dyn ExtensionUiComponent> + Send + Sync>;
+
+/// `done` callback passed to `custom` factories.
+#[derive(Clone)]
+pub struct ExtensionUiDone(Arc<dyn Fn(Option<Value>) + Send + Sync>);
+
+impl ExtensionUiDone {
+    pub fn new(callback: Arc<dyn Fn(Option<Value>) + Send + Sync>) -> Self {
+        Self(callback)
+    }
+
+    pub fn call(&self, value: Option<Value>) {
+        (self.0)(value);
+    }
+}
+
+/// Custom-UI factory: `(tui, theme, keybindings, done) => Component`.
+pub type ExtensionUiCustomFactory =
+    Arc<dyn Fn(ExtensionUiFactoryContext, ExtensionUiDone) -> Box<dyn ExtensionUiComponent> + Send + Sync>;
+
+/// Thread-safe overlay handle passed to `custom`'s `onHandle` callback.
+pub trait ExtensionUiOverlayHandle: Send + Sync {
+    fn hide(&self);
+    fn set_hidden(&self, hidden: bool);
+    fn is_hidden(&self) -> bool;
+    fn focus(&self);
+    fn unfocus(&self);
+}
+
+/// Overlay positioning/sizing options accepted by `custom`.
+///
+/// Mirrors `OverlayOptions`; `visible` uses a `Send + Sync` callback so the
+/// options can cross the extension boundary.
+#[derive(Clone, Default)]
+pub struct ExtensionUiOverlayOptions {
+    pub width: Option<pi_tui::tui::SizeValue>,
+    pub min_width: Option<i64>,
+    pub max_height: Option<pi_tui::tui::SizeValue>,
+    pub anchor: Option<pi_tui::tui::OverlayAnchor>,
+    pub offset_x: Option<i64>,
+    pub offset_y: Option<i64>,
+    pub row: Option<pi_tui::tui::SizeValue>,
+    pub col: Option<pi_tui::tui::SizeValue>,
+    pub margin: Option<pi_tui::tui::OverlayMargin>,
+    pub visible: Option<Arc<dyn Fn(usize, usize) -> bool + Send + Sync>>,
+    pub non_capturing: bool,
+}
+
+/// `custom` options: overlay mode, dynamic overlay options, and handle callback.
+#[derive(Clone, Default)]
+pub struct ExtensionUiCustomOptions {
+    pub overlay: Option<bool>,
+    pub overlay_options: Option<Arc<dyn Fn() -> ExtensionUiOverlayOptions + Send + Sync>>,
+    pub on_handle: Option<ExtensionUiOnHandle>,
+}
+
+/// `onHandle` callback receiving the overlay handle.
+pub type ExtensionUiOnHandle = Arc<dyn Fn(Arc<dyn ExtensionUiOverlayHandle>) + Send + Sync>;
+
 pub type TerminalInputHandler = Arc<dyn Fn(&str) -> Option<TerminalInputResult> + Send + Sync>;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -337,8 +475,36 @@ pub trait ExtensionUiContext: Send + Sync {
 
     fn set_hidden_thinking_label(&self, _label: Option<&str>) {}
 
-    /// String-array widget overload. The component-factory overload is a gap.
+    /// String-array widget overload. The component-factory overload is
+    /// [`ExtensionUiContext::set_widget_component`].
     fn set_widget(&self, _key: &str, _content: Option<&[String]>, _options: Option<&ExtensionWidgetOptions>) {}
+
+    /// Component-factory `setWidget` overload.
+    fn set_widget_component(
+        &self,
+        _key: &str,
+        _content: Option<ExtensionUiComponentFactory>,
+        _options: Option<&ExtensionWidgetOptions>,
+    ) {
+    }
+
+    /// Set a custom footer component, or `None` to restore the built-in footer.
+    fn set_footer(&self, _factory: Option<ExtensionUiFooterFactory>) {}
+
+    /// Set the default footer component. Custom footers override it.
+    fn set_default_footer(&self, _factory: Option<ExtensionUiFooterFactory>) {}
+
+    /// Set a custom header component, or `None` to restore the built-in header.
+    fn set_header(&self, _factory: Option<ExtensionUiComponentFactory>) {}
+
+    /// Show a custom component with keyboard focus and return the `done` value.
+    fn custom<'a>(
+        &'a self,
+        _factory: ExtensionUiCustomFactory,
+        _options: Option<ExtensionUiCustomOptions>,
+    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+        Box::pin(async { Ok(None) })
+    }
 
     fn set_title(&self, _title: &str) {}
 
@@ -356,6 +522,11 @@ pub trait ExtensionUiContext: Send + Sync {
 
     fn get_all_themes(&self) -> Vec<ThemeInfo> {
         Vec::new()
+    }
+
+    /// Load a theme by name without switching to it.
+    fn get_theme(&self, _name: &str) -> Option<Arc<Theme>> {
+        None
     }
 
     fn set_theme(&self, _theme: &str) -> ThemeSetResult {
@@ -473,6 +644,9 @@ pub type ExtensionFooterDataProvider = FooterDataProvider;
 /// TypeScript's `createContext()` returns getters that call
 /// `runner.assertActive()` and then read current runner fields. Rust contexts
 /// hold this shared state and expose the same members as fallible methods.
+pub type SetSandboxProfileCallback =
+    Arc<dyn Fn(Option<SandboxProfileName>, SandboxProfileScope) -> Result<(), HandlerError> + Send + Sync>;
+
 pub struct ExtensionContextState {
     pub(super) stale_message: Option<String>,
     pub(super) ui_context: Arc<dyn ExtensionUiContext>,
@@ -484,6 +658,7 @@ pub struct ExtensionContextState {
     pub(super) settings_manager: Option<Arc<Mutex<SettingsManager>>>,
     pub(super) get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync>,
     pub(super) get_thinking_level_fn: Arc<dyn Fn() -> ThinkingLevel + Send + Sync>,
+    pub(super) set_thinking_level_fn: Arc<dyn Fn(ThinkingLevel) -> Result<(), HandlerError> + Send + Sync>,
     pub(super) get_scoped_models: Arc<dyn Fn() -> Vec<ScopedModel> + Send + Sync>,
     pub(super) get_footer_data: Arc<dyn Fn() -> Option<Arc<FooterDataProvider>> + Send + Sync>,
     pub(super) is_idle_fn: Arc<dyn Fn() -> bool + Send + Sync>,
@@ -512,6 +687,7 @@ pub struct ExtensionContextState {
     pub(super) pending_tool_result_relocations: IndexMap<String, String>,
     pub(super) show_approval_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub(super) show_sandbox_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
+    pub(super) set_sandbox_profile_handler: SetSandboxProfileCallback,
     pub(super) wait_for_idle_fn: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     pub(super) new_session_handler: NewSessionCallback,
     pub(super) fork_handler: ForkCallback,
@@ -538,6 +714,7 @@ impl ExtensionContextState {
             settings_manager,
             get_model: Arc::new(|| None),
             get_thinking_level_fn: Arc::new(|| ThinkingLevel::Off),
+            set_thinking_level_fn: Arc::new(|_| Ok(())),
             get_scoped_models: Arc::new(Vec::new),
             get_footer_data: Arc::new(|| None),
             is_idle_fn: Arc::new(|| true),
@@ -577,6 +754,9 @@ impl ExtensionContextState {
             pending_tool_result_relocations: IndexMap::new(),
             show_approval_selector_handler: Arc::new(|| Ok(())),
             show_sandbox_selector_handler: Arc::new(|| Ok(())),
+            set_sandbox_profile_handler: Arc::new(|_, _| {
+                Err(HandlerError::new("Sandbox profile settings are unavailable"))
+            }),
             wait_for_idle_fn: Arc::new(|| Box::pin(async {})),
             new_session_handler: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
             fork_handler: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
@@ -741,6 +921,11 @@ impl ExtensionContext {
         self.thinking_level()
     }
 
+    pub fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), HandlerError> {
+        let setter = self.read(|state| Arc::clone(&state.set_thinking_level_fn))?;
+        setter(level)
+    }
+
     pub fn get_scoped_models(&self) -> Result<Vec<ScopedModel>, HandlerError> {
         self.scoped_models()
     }
@@ -849,6 +1034,17 @@ impl ExtensionCommandContext {
             .context
             .read(|state| Arc::clone(&state.show_sandbox_selector_handler))?;
         handler()
+    }
+
+    pub fn set_sandbox_profile(
+        &self,
+        profile: Option<SandboxProfileName>,
+        scope: SandboxProfileScope,
+    ) -> Result<(), HandlerError> {
+        let handler = self
+            .context
+            .read(|state| Arc::clone(&state.set_sandbox_profile_handler))?;
+        handler(profile, scope)
     }
 
     pub fn wait_for_idle(&self) -> BoxFuture<'static, ()> {
@@ -2286,6 +2482,7 @@ pub struct ExtensionActions {
 pub struct ExtensionContextActions {
     pub get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync>,
     pub get_thinking_level: Option<Arc<dyn Fn() -> ThinkingLevel + Send + Sync>>,
+    pub set_thinking_level: Option<SetThinkingLevelHandler>,
     pub get_scoped_models: Option<Arc<dyn Fn() -> Vec<ScopedModel> + Send + Sync>>,
     pub get_footer_data: Option<Arc<dyn Fn() -> Option<Arc<FooterDataProvider>> + Send + Sync>>,
     pub is_idle: Arc<dyn Fn() -> bool + Send + Sync>,
@@ -2312,6 +2509,7 @@ pub struct ExtensionContextActions {
 pub struct ExtensionCommandContextActions {
     pub show_approval_selector: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub show_sandbox_selector: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
+    pub set_sandbox_profile: SetSandboxProfileCallback,
     pub wait_for_idle: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     pub new_session: NewSessionCallback,
     pub fork: ForkCallback,

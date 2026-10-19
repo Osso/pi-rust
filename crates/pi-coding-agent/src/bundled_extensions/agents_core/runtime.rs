@@ -235,6 +235,22 @@ impl MultiAgentPiRequestHandler {
         self.mirror.dispose();
     }
 
+    /// Whether this handler owns `method`; unowned methods fall through to the
+    /// next Pi request dispatcher.
+    pub fn handles_method(&self, method: &str) -> bool {
+        matches!(
+            method,
+            "agents.spawn"
+                | "agents.wait"
+                | "agents.attachSession"
+                | "agents.list"
+                | "agents.current"
+                | "agents.select"
+                | "messages.last"
+                | "messages.send"
+        )
+    }
+
     pub async fn handle(
         &self,
         request: &Value,

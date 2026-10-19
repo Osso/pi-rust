@@ -285,7 +285,6 @@ async fn export_agent_session_probe() {
         agent_dir: Some("/tmp".to_owned()),
         control_db_path: Some(dir.path().join("control.db").display().to_string()),
         base_tools: Vec::new(),
-        base_tool_definitions: Vec::new(),
         custom_tool_definitions: Vec::new(),
         custom_tools: Vec::new(),
         multi_agent_runtime_role: None,

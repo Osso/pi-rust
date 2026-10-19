@@ -29,7 +29,7 @@ All direct dependencies are exact-pinned.
 - `serde_yaml_ng = 0.10.0` — parses YAML frontmatter in `utils::frontmatter`.
 - `url = 2.5.8` — parses WHATWG URLs in `utils::git` and `file://` paths in `utils::paths`.
 - `percent-encoding = 2.3.2` — decodes percent-encoded URL components in `utils::git` and `utils::paths`.
-- `tokio = 1.53.3` — provides async sleep, cancellation, and process I/O for `utils::{sleep, abort, child_process}`.
+- `tokio = 1.53.3` (`rt`, `macros`, `time`, `sync`, `process`, `io-util`, `io-std`, `fs`) — provides async sleep, cancellation, process I/O for `utils::{sleep, abort, child_process}`, and the stdin/stdout line read behind `main::prompt_confirm`.
 - `tokio-util = 0.7.20` — supplies `CancellationToken` as the Rust `AbortSignal` mapping.
 - `notify = 8.2.0` — provides the platform file watcher behind `utils::fs_watch`.
 - `fancy-regex = 0.16.2` — compiles the translated highlight.js grammar patterns (lookaround, backreferences) in `utils::syntax_highlight` and the bwrap `fs-worker` grep patterns, whose Node `RegExp` source accepts lookaround and backreferences.

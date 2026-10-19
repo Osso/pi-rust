@@ -6,6 +6,10 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish = false
+# `src/main.rs` is the ported `main.ts` library module; the executable target is
+# declared explicitly as `pi`.
+autobins = false
+default-run = "pi"
 
 [dependencies]
 # Supplies typed agent-harness values and the shared truncation size formatter.
@@ -75,6 +79,11 @@ futures-util = "=0.3.34"
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
 # `mkdtempSync`-style private directory for the external editor prompt.
 tempfile = "=3.27.0"
+
+[[bin]]
+# The `pi` CLI (`cli.ts` + `main.ts`).
+name = "pi"
+path = "src/bin/pi.rs"
 
 [[bin]]
 # Deterministic mode harness for the print/RPC differential tests.

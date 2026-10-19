@@ -29,7 +29,10 @@ Rust: `crates/pi-coding-agent/src/core/sdk.rs`.
 
 ## Gaps
 
-- `createAllToolDefinitions` is not created here; `base_tools` remains the injected
-  tool seam (tool-definition slice).
+- `base_tools` remains the injected tool override seam; when empty, `AgentSession`
+  builds `createAllToolDefinitions` from current settings.
 - Extension runner ref for `before_provider_headers` / `before_provider_request` /
   `after_provider_response` and `transformContext` are not wired.
+- `multiAgentStore`, `onSharedChannelMessageDelivered`, and `sessionStartEvent` are
+  forwarded to `AgentSession`; mutation-target resolver binding remains in `main`
+  (gap).

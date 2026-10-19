@@ -306,6 +306,8 @@ async fn run_rtk_ls(cwd: &str, path: &str, signal: Option<&CancellationToken>) -
         .arg("ls")
         .arg(path)
         .current_dir(cwd)
+        .env_clear()
+        .envs(pi_js_compat::process_env::vars())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

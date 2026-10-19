@@ -282,6 +282,7 @@ impl ExtensionRunner {
         state.get_thinking_level_fn = actions
             .get_thinking_level
             .unwrap_or_else(|| Arc::new(|| ThinkingLevel::Off));
+        state.set_thinking_level_fn = actions.set_thinking_level.unwrap_or_else(|| Arc::new(|_| Ok(())));
         state.get_footer_data = actions.get_footer_data.unwrap_or_else(|| Arc::new(|| None));
         state.get_scoped_models = actions.get_scoped_models.unwrap_or_else(|| Arc::new(Vec::new));
         state.is_idle_fn = actions.is_idle;
@@ -446,6 +447,8 @@ impl ExtensionRunner {
         let Some(actions) = actions else {
             state.show_approval_selector_handler = Arc::new(|| Ok(()));
             state.show_sandbox_selector_handler = Arc::new(|| Ok(()));
+            state.set_sandbox_profile_handler =
+                Arc::new(|_, _| Err(HandlerError::new("Sandbox profile settings are unavailable")));
             state.wait_for_idle_fn = Arc::new(|| Box::pin(async {}));
             state.new_session_handler =
                 Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) }));
@@ -465,6 +468,7 @@ impl ExtensionRunner {
         };
         state.show_approval_selector_handler = actions.show_approval_selector;
         state.show_sandbox_selector_handler = actions.show_sandbox_selector;
+        state.set_sandbox_profile_handler = actions.set_sandbox_profile;
         state.wait_for_idle_fn = actions.wait_for_idle;
         state.new_session_handler = actions.new_session;
         state.fork_handler = actions.fork;

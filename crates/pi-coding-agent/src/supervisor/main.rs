@@ -36,7 +36,6 @@ use crate::core::session_control_db::{
 };
 use crate::core::session_manager::{SessionEntry, SessionManager};
 use crate::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
-use crate::core::tools::{ToolsOptions, create_all_tool_definitions};
 use crate::supervisor::project_resolver::DEFAULT_SUPERVISOR_KB_DIR;
 use crate::supervisor::request_wake::{SupervisorRequestWakeServer, notify_supervisor_request};
 use crate::supervisor::response_tool::{SUPERVISOR_RESPONSE_TOOL_NAME, create_supervisor_response_tool};
@@ -580,10 +579,6 @@ pub async fn create_supervisor_session(
         .model_runtime
         .get_model("openai-codex", "gpt-5.6-sol")
         .ok_or_else(|| "Pi Supervisor requires openai-codex/gpt-5.6-sol".to_owned())?;
-    let base_tool_definitions = create_all_tool_definitions(&options.kb_dir, ToolsOptions::default())
-        .into_iter()
-        .map(|(_, definition)| definition)
-        .collect();
     let mut tools: Vec<String> = SUPERVISOR_TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
     tools.push(SUPERVISOR_RESPONSE_TOOL_NAME.to_owned());
     create_agent_session(CreateAgentSessionOptions {
@@ -604,7 +599,6 @@ pub async fn create_supervisor_session(
         settings_manager: Some(options.settings_manager),
         thinking_level: Some(pi_agent_core::harness::types::ThinkingLevel::Low),
         tools: Some(tools),
-        base_tool_definitions,
         ..Default::default()
     })
     .await

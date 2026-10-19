@@ -184,7 +184,11 @@ async fn build_runtime(
         agent_dir: Some(agent_dir.to_owned()),
         settings_manager: None,
         model_runtime: Some(runtime),
+        model_runtime_signal: None,
+        extension_flag_values: None,
+        resource_loader_options: None,
         resource_loader: Some(Arc::clone(&resource_loader)),
+        resource_loader_reload_options: None,
     })
     .await
     .expect("services");
@@ -213,8 +217,13 @@ async fn build_runtime(
         exclude_tools: None,
         no_tools: None,
         permission_prompt_tool: None,
+        multi_agent_runtime_role: None,
+        multi_agent_execution_capability: None,
         custom_tools: tools.2.clone(),
         base_tools: tools.1.clone(),
+        multi_agent_store: None,
+        on_shared_channel_message_delivered: None,
+        session_start_event: None,
     })
     .await
     .expect("session");
@@ -232,7 +241,11 @@ async fn build_runtime(
                 agent_dir: Some(options.agent_dir),
                 settings_manager: None,
                 model_runtime: Some(runtime),
+                model_runtime_signal: None,
+                extension_flag_values: None,
+                resource_loader_options: None,
                 resource_loader: Some(loader),
+                resource_loader_reload_options: None,
             })
             .await?;
             let created = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
@@ -245,8 +258,13 @@ async fn build_runtime(
                 exclude_tools: None,
                 no_tools: None,
                 permission_prompt_tool: None,
+                multi_agent_runtime_role: None,
+                multi_agent_execution_capability: None,
                 custom_tools: tools.2.clone(),
                 base_tools: tools.1.clone(),
+                multi_agent_store: None,
+                on_shared_channel_message_delivered: None,
+                session_start_event: None,
             })
             .await?;
             Ok(CreateAgentSessionRuntimeResult {

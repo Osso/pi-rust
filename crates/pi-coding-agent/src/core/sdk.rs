@@ -57,11 +57,9 @@ pub struct CreateAgentSessionOptions {
     pub exclude_tools: Option<Vec<String>>,
     pub permission_prompt_tool: Option<String>,
     pub custom_tools: Vec<ToolDefinition>,
-    /// Rust carrier for `createAllToolDefinitions` built-ins.
-    pub base_tool_definitions: Vec<crate::core::extensions::types::ToolDefinition>,
     /// Rust carrier for SDK custom definitions executed with the runner context.
     pub custom_tool_definitions: Vec<crate::core::extensions::types::ToolDefinition>,
-    /// Rust carrier for the unported `createAllToolDefinitions` default.
+    /// Override the built-in tool definitions.
     pub base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
     pub resource_loader: Option<Arc<dyn ResourceLoader>>,
     /// Override runtime-role rule discovery when creating the default loader.
@@ -75,6 +73,8 @@ pub struct CreateAgentSessionOptions {
     pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
     pub disable_runtime_coordination_inbound: bool,
+    pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
+    pub session_start_event: Option<crate::core::extensions::types::SessionStartEvent>,
 }
 
 /// `CreateAgentSessionResult`.
@@ -450,7 +450,6 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         agent_dir: Some(agent_dir),
         control_db_path: options.control_db_path,
         base_tools: options.base_tools,
-        base_tool_definitions: options.base_tool_definitions,
         custom_tools: options.custom_tools,
         custom_tool_definitions: options.custom_tool_definitions,
         multi_agent_runtime_role: options.multi_agent_runtime_role,
@@ -461,9 +460,9 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         multi_agent_agent_id: None,
         multi_agent_parent_session_id: None,
         disable_runtime_coordination_inbound: options.disable_runtime_coordination_inbound,
-        on_shared_channel_message_delivered: None,
+        on_shared_channel_message_delivered: options.on_shared_channel_message_delivered,
         extension_runner_ref: None,
-        session_start_event: None,
+        session_start_event: options.session_start_event,
     })
     .map_err(|error| error.message().to_owned())?;
     let notifier_session = session.clone();

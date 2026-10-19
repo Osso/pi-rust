@@ -389,6 +389,11 @@ pub trait ResourceLoader: Send + Sync {
     fn get_append_system_prompt_sources(&self) -> Vec<LoadedPathSource>;
     fn extend_resources(&self, paths: ResourceExtensionPaths);
     fn reload(&self) -> BoxFuture<'_, Result<(), String>>;
+    /// `reload(options)` from the source interface.
+    fn reload_with_options(
+        &self,
+        resolve_project_trust: Option<ResolveProjectTrust>,
+    ) -> BoxFuture<'_, Result<(), String>>;
 }
 
 /// Empty loader used by tests and callers without resource discovery.
@@ -465,6 +470,13 @@ impl ResourceLoader for StaticResourceLoader {
     fn extend_resources(&self, _paths: ResourceExtensionPaths) {}
 
     fn reload(&self) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn reload_with_options(
+        &self,
+        _resolve_project_trust: Option<ResolveProjectTrust>,
+    ) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(async { Ok(()) })
     }
 }
@@ -1749,6 +1761,13 @@ impl ResourceLoader for DefaultResourceLoader {
 
     fn reload(&self) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(async move { self.reload_with(None).await })
+    }
+
+    fn reload_with_options(
+        &self,
+        resolve_project_trust: Option<ResolveProjectTrust>,
+    ) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(self.reload_with(resolve_project_trust))
     }
 }
 

@@ -10,6 +10,7 @@ pub mod collator;
 pub mod date;
 pub mod minimatch;
 pub mod number;
+pub mod process_env;
 pub mod string;
 
 pub use collator::{compare_in_locale, host_locale, locale_compare};

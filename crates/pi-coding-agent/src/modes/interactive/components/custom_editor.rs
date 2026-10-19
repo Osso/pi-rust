@@ -236,6 +236,66 @@ impl Component for CustomEditor {
     }
 }
 
+impl pi_tui::EditorComponent for CustomEditor {
+    fn get_text(&self) -> String {
+        self.editor.get_text()
+    }
+
+    fn set_text(&mut self, text: &str) {
+        self.editor.set_text(text);
+    }
+
+    fn add_to_history(&mut self, text: &str) {
+        let _ = CustomEditor::add_to_history(self, text);
+    }
+
+    fn insert_text_at_cursor(&mut self, text: &str) {
+        self.editor.insert_text_at_cursor(text);
+    }
+
+    fn get_expanded_text(&self) -> String {
+        self.editor.get_expanded_text()
+    }
+
+    fn set_autocomplete_provider(&mut self, provider: Rc<dyn pi_tui::autocomplete::AutocompleteProvider>) {
+        self.editor.set_autocomplete_provider(provider);
+    }
+
+    fn set_border_color(&mut self, border_color: pi_tui::components::text::StyleFn) {
+        self.editor.set_border_color(border_color);
+    }
+
+    fn set_padding_x(&mut self, padding: usize) {
+        self.editor.set_padding_x(padding);
+    }
+
+    fn set_autocomplete_max_visible(&mut self, max_visible: usize) {
+        self.editor.set_autocomplete_max_visible(max_visible);
+    }
+
+    fn supports_working_prompt(&self) -> bool {
+        true
+    }
+
+    fn set_working(&mut self, working: bool) {
+        self.editor.set_working(working);
+    }
+
+    fn set_working_indicator(&mut self, options: Option<pi_tui::components::loader::LoaderIndicatorOptions>) {
+        self.editor
+            .set_working_indicator(options)
+            .expect("working indicator frames must occupy one cell; callers validate first");
+    }
+
+    fn set_screen_origin(&mut self, row: i64, col: i64) {
+        self.editor.set_screen_origin(row, col);
+    }
+
+    fn clear_screen_origin(&mut self) {
+        self.editor.clear_screen_origin();
+    }
+}
+
 impl pi_tui::tui::Focusable for CustomEditor {
     fn focused(&self) -> bool {
         pi_tui::tui::Focusable::focused(&self.editor)

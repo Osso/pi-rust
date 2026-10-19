@@ -32,6 +32,8 @@ pub async fn exec_command(command: &str, args: &[&str], cwd: &str, options: &Exe
     let spawned = Command::new(command)
         .args(args)
         .current_dir(cwd)
+        .env_clear()
+        .envs(pi_js_compat::process_env::vars())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

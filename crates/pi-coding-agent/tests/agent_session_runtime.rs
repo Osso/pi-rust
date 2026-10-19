@@ -222,7 +222,6 @@ async fn build_harness(cancel_switch: bool, cancel_fork: bool) -> Harness {
                     agent_dir: Some(request.agent_dir.clone()),
                     control_db_path: Some((*control_db).clone()),
                     base_tools: Vec::<Arc<dyn AgentTool>>::new(),
-                    base_tool_definitions: Vec::new(),
                     custom_tool_definitions: Vec::new(),
                     custom_tools: Vec::<ToolDefinition>::new(),
                     multi_agent_runtime_role: None,

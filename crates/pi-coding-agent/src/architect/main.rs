@@ -38,7 +38,6 @@ use crate::core::sdk::{CreateAgentSessionOptions, create_agent_session};
 use crate::core::session_control_db::{archive_session, get_control_db_path};
 use crate::core::session_manager::{SessionEntry, SessionManager, SetMetadataControlDbPathOptions};
 use crate::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
-use crate::core::tools::{ToolsOptions, create_all_tool_definitions};
 
 pub const OBSERVER_INTERVAL_MS: u64 = 30_000;
 pub const REQUEST_CLAIM_RENEW_INTERVAL_MS: u64 = 30_000;
@@ -535,10 +534,6 @@ pub async fn run_architect_service() -> Result<(), String> {
         Box::pin(async move { result.map_err(HandlerError::new) })
     });
 
-    let base_tool_definitions = create_all_tool_definitions(&cwd, ToolsOptions::default())
-        .into_iter()
-        .map(|(_, definition)| definition)
-        .collect();
     let result = create_agent_session(CreateAgentSessionOptions {
         agent_dir: Some(agent_dir),
         cwd: Some(cwd.clone()),
@@ -571,7 +566,6 @@ pub async fn run_architect_service() -> Result<(), String> {
         session_manager: Some(session_manager),
         settings_manager: Some(settings_manager),
         thinking_level: Some(pi_agent_core::harness::types::ThinkingLevel::High),
-        base_tool_definitions,
         ..Default::default()
     })
     .await?;

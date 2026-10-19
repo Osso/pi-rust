@@ -11,10 +11,6 @@
 //! - `process.title` and `process.emitWarning` are documented in
 //!   [`crate::cli_entry`].
 
-use std::sync::Arc;
-
-use pi_ai::request::Fetch;
-
 use crate::cli_entry::{CliMain, run_cli_entry};
 use crate::internal_runner::DetachedRunnerHost;
 
@@ -23,7 +19,7 @@ pub async fn run_bun_cli_entry<'a>(
     args: &'a [String],
     detached_runner: &dyn DetachedRunnerHost,
     main: CliMain<'a>,
-) -> Result<Option<Arc<dyn Fetch>>, String> {
+) -> Result<i32, String> {
     pi_ai::bun_oauth::register_bun_oauth_flows();
     super::register_bedrock::register_bedrock();
     run_cli_entry(args, detached_runner, main).await

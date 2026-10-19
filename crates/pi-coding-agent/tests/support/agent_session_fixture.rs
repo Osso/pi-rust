@@ -89,7 +89,6 @@ pub async fn fixture(cwd: &std::path::Path, thinking_level: ThinkingLevel) -> Se
         agent_dir: Some(cwd),
         control_db_path: None,
         base_tools: Vec::new(),
-        base_tool_definitions: Vec::new(),
         custom_tool_definitions: Vec::new(),
         custom_tools: Vec::new(),
         multi_agent_runtime_role: None,
