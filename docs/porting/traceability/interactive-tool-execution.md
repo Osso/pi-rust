@@ -22,6 +22,7 @@ Port: `crates/pi-coding-agent/src/modes/interactive/components/tool_execution.rs
 | custom definition, `renderShell: "self"` | self shell: blank line, children, timer, images | differential `custom_tool` self |
 | custom definition, default shell | box padding + pending/success background | differential `custom_tool` default |
 | `updateArgs` | re-renders fallback args | differential events (args) |
+| renderer state | one mutable state object per tool row shared by call/result renders | `tool_renderer::shares_render_state_between_calls`, `edit_tool_preview` |
 | `setArgsComplete` | updates context `argsComplete` | differential events |
 | `setExpanded` | result renderer receives `expanded` | differential `custom_tool` self |
 | result content > 100 lines | head 50, hidden marker, tail 50 | `tool_execution_limits_long_text_blocks`, differential 150-line case |

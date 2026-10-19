@@ -8,7 +8,7 @@ use std::sync::Arc;
 use pi_ai::types::TextOrImageContent;
 use pi_tui::tui::ComponentRef;
 use regex::Regex;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use super::ansi_to_html::ansi_lines_to_html;
 use super::index::{RenderedToolResult, ToolHtmlRenderer};
@@ -33,7 +33,7 @@ pub struct ToolHtmlRendererDeps {
 struct RendererState {
     rendered_call_components: HashMap<String, ComponentRef>,
     rendered_result_components: HashMap<String, ComponentRef>,
-    rendered_states: HashMap<String, Value>,
+    rendered_states: HashMap<String, crate::core::extensions::types::ToolRenderState>,
     rendered_args: HashMap<String, Value>,
 }
 
@@ -47,12 +47,12 @@ pub struct ExtensionToolHtmlRenderer {
 }
 
 impl ExtensionToolHtmlRenderer {
-    fn state_for(&self, tool_call_id: &str) -> Value {
+    fn state_for(&self, tool_call_id: &str) -> crate::core::extensions::types::ToolRenderState {
         self.state
             .borrow_mut()
             .rendered_states
             .entry(tool_call_id.to_owned())
-            .or_insert_with(|| Value::Object(Map::new()))
+            .or_default()
             .clone()
     }
 

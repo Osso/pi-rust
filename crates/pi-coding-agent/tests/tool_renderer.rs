@@ -178,7 +178,7 @@ fn shares_render_state_between_calls() {
     let observed_log = Arc::clone(&observed);
     let widths = Arc::new(Mutex::new(Vec::new()));
     let render_call: RenderCall = Arc::new(move |_args, _theme, context| {
-        observed_log.lock().unwrap().push(context.state.clone());
+        observed_log.lock().unwrap().push(context.state.get());
         Ok(make_component(Vec::new(), Arc::clone(&widths)))
     });
     let renderer = make_renderer(Some(tool_definition(Some(render_call), None)), None);

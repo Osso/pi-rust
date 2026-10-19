@@ -1799,7 +1799,7 @@ fn tool_renderer_cases() -> Vec<(Value, Value)> {
             tool_call_id: "call-1".to_owned(),
             invalidate: Arc::new(|| {}),
             last_component: None,
-            state: Value::Null,
+            state: pi_coding_agent::core::extensions::types::ToolRenderState::new(),
             cwd: "/tmp/pi-tool-renderers".to_owned(),
             execution_started: false,
             args_complete: true,
