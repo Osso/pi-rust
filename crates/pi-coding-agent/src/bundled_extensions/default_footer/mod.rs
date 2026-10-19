@@ -47,7 +47,7 @@ pub struct DefaultFooterComponentInput {
 }
 
 fn format_cost(cost: f64) -> Option<String> {
-    if cost == 0.0 {
+    if cost == 0.0 || cost.is_nan() {
         return None;
     }
     Some(format!("cost ${}", to_fixed(cost, 2)))
@@ -185,6 +185,14 @@ fn format_stats(input: &DefaultFooterComponentInput) -> Result<String, HandlerEr
         selected_agent.map(|agent| input.theme.fg(ThemeColor::Dim, &agent)),
         format_agent_counts(input.get_agent_counts.as_ref().and_then(|get| get())),
     ];
+    parts.extend(usage_parts(input, &usage));
+    parts.push(Some(format_context_usage(&session, &input.theme)));
+
+    Ok(parts.into_iter().flatten().collect::<Vec<_>>().join(" "))
+}
+
+fn usage_parts(input: &DefaultFooterComponentInput, usage: &SessionUsage) -> Vec<Option<String>> {
+    let mut parts = Vec::new();
     if usage.input > 0.0 {
         parts.push(Some(
             input
@@ -202,9 +210,7 @@ fn format_stats(input: &DefaultFooterComponentInput) -> Result<String, HandlerEr
     if let Some(cost) = format_cost(usage.cost) {
         parts.push(Some(input.theme.fg(ThemeColor::Dim, &cost)));
     }
-    parts.push(Some(format_context_usage(&session, &input.theme)));
-
-    Ok(parts.into_iter().flatten().collect::<Vec<_>>().join(" "))
+    parts
 }
 
 fn format_right_side(input: &DefaultFooterComponentInput) -> Result<String, HandlerError> {
@@ -325,14 +331,8 @@ impl DefaultFooterComponent {
 
     fn render_lines(&self, width: usize) -> Vec<String> {
         let mut lines = Vec::new();
-        match format_pwd_line(&self.input, width) {
-            Ok(line) => lines.push(line),
-            Err(_) => lines.push(String::new()),
-        }
-        match format_stats_line(&self.input, width) {
-            Ok(line) => lines.push(line),
-            Err(_) => lines.push(String::new()),
-        }
+        lines.push(format_pwd_line(&self.input, width).expect("default footer context access"));
+        lines.push(format_stats_line(&self.input, width).expect("default footer context access"));
         lines.extend(extension_status_lines(&self.input, width));
         lines
     }
@@ -355,6 +355,34 @@ pub fn create_default_footer_component(input: DefaultFooterComponentInput) -> De
     DefaultFooterComponent::new(input)
 }
 
+fn build_footer_factory(ctx: ExtensionContext, store: Option<Arc<MultiAgentStore>>) -> ExtensionUiFooterFactory {
+    Arc::new(
+        move |footer: ExtensionUiFooterContext| -> Box<dyn ExtensionUiComponent> {
+            let tui = footer.tui.clone();
+            let unsubscribe = footer.footer_data.on_branch_change(move || tui.request_render());
+            let get_agent_counts = store.clone().map(|store| {
+                let store = Arc::clone(&store);
+                Arc::new(move || Some(count_default_footer_agents(&store)))
+                    as Arc<dyn Fn() -> Option<DefaultFooterAgentLifecycleCounts> + Send + Sync>
+            });
+            let get_selected_agent = store.clone().map(|store| {
+                let store = Arc::clone(&store);
+                Arc::new(move || selected_agent_for_footer(&store))
+                    as Arc<dyn Fn() -> Option<DefaultFooterSelectedAgent> + Send + Sync>
+            });
+            let component = create_default_footer_component(DefaultFooterComponentInput {
+                ctx: ctx.clone(),
+                footer_data: Arc::new(footer.footer_data.clone()),
+                get_agent_counts,
+                get_selected_agent,
+                theme: Arc::clone(&footer.theme),
+            });
+            component.add_branch_change_subscription(unsubscribe);
+            Box::new(component)
+        },
+    )
+}
+
 pub fn default_footer_extension(
     pi: &ExtensionApi,
     options: &DefaultFooterExtensionOptions,
@@ -364,38 +392,8 @@ pub fn default_footer_extension(
         move |_event, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
             let store = store.clone();
             Box::pin(async move {
-                let ui = ctx.ui()?;
-                let factory: ExtensionUiFooterFactory = {
-                    let ctx = ctx.clone();
-                    let store = store.clone();
-                    Arc::new(
-                        move |footer: ExtensionUiFooterContext| -> Box<dyn ExtensionUiComponent> {
-                            let tui = footer.tui.clone();
-                            let unsubscribe = footer.footer_data.on_branch_change(move || tui.request_render());
-                            let get_agent_counts = store.clone().map(|store| {
-                                let store = Arc::clone(&store);
-                                Arc::new(move || Some(count_default_footer_agents(&store)))
-                                    as Arc<dyn Fn() -> Option<DefaultFooterAgentLifecycleCounts> + Send + Sync>
-                            });
-                            let get_selected_agent = store.clone().map(|store| {
-                                let store = Arc::clone(&store);
-                                Arc::new(move || selected_agent_for_footer(&store))
-                                    as Arc<dyn Fn() -> Option<DefaultFooterSelectedAgent> + Send + Sync>
-                            });
-                            let footer_data = Arc::new(footer.footer_data.clone());
-                            let component = create_default_footer_component(DefaultFooterComponentInput {
-                                ctx: ctx.clone(),
-                                footer_data,
-                                get_agent_counts,
-                                get_selected_agent,
-                                theme: Arc::clone(&footer.theme),
-                            });
-                            component.add_branch_change_subscription(unsubscribe);
-                            Box::new(component)
-                        },
-                    )
-                };
-                ui.set_default_footer(Some(factory));
+                let factory = build_footer_factory(ctx.clone(), store);
+                ctx.ui()?.set_default_footer(Some(factory));
                 Ok(None)
             })
         },
