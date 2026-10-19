@@ -4559,14 +4559,14 @@ impl InteractiveMode {
 
         self.bind_callbacks();
 
-        // Load changelog (only show new entries, skip for resumed sessions).
-        *self.changelog_markdown.borrow_mut() = self.get_changelog_for_display();
-
         let http_idle_timeout_ms = self
             .settings(|settings| settings.get_http_idle_timeout_ms())
             .map_err(|error| error.to_string())?;
         let fetch = crate::core::http_dispatcher::configure_http_dispatcher(http_idle_timeout_ms as f64)?;
         *self.http_fetch.borrow_mut() = Some(Arc::clone(&fetch));
+
+        // Load changelog (only show new entries, skip for resumed sessions).
+        *self.changelog_markdown.borrow_mut() = self.get_changelog_for_display();
         let mut fd_manager = crate::utils::tools_manager::ToolsManager::for_process(Arc::clone(&fetch));
         let mut rg_manager = crate::utils::tools_manager::ToolsManager::for_process(fetch);
         let (fd_path, _rg_path) = tokio::join!(fd_manager.ensure_tool("fd"), rg_manager.ensure_tool("rg"));
