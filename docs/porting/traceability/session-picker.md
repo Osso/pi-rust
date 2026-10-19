@@ -3,15 +3,15 @@
 Source: `packages/coding-agent/src/cli/session-picker.ts` (96 lines, pinned revision in
 `docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent/src/cli/session_picker.rs`.
 
-Status: partial. The data path (`loadSessionsWithControlNames`) is ported and tested.
-`selectSession` is blocked on `SessionSelectorComponent`
-(`modes/interactive/components/session-selector.ts`) and `cli/startup-ui.ts`.
+Status: **done**. Both the data path (`loadSessionsWithControlNames`) and
+`selectSession` are ported. The picker is driven by the real binary in
+`tests/main_interactive.rs`.
 
 ## Exported symbols
 
 | TS symbol | Rust | Tests |
 | --- | --- | --- |
-| `selectSession` | not ported (blocked) | — |
+| `selectSession` | `select_session` (+ `SelectSessionOptions`, `SelectSessionOutcome`) | `resume_flag_opens_the_session_picker_and_cancels_with_escape`; component behaviors in `tests/interactive_components_c.rs` |
 | private `loadSessionsWithControlNames` | `load_sessions_with_control_names` | 6 tests in `tests/session_picker.rs` |
 
 ## Branches
@@ -27,24 +27,27 @@ Status: partial. The data path (`loadSessionsWithControlNames`) is ported and te
 | 7 | loader rejection propagates | `loader_errors_propagate` |
 | 8 | control-db read failure propagates | covered by `list_named_sessions`'s own tests; the picker maps the error to `String` |
 
-## Blocked part
+## `selectSession` mapping
 
-`selectSession` constructs `SessionSelectorComponent` with the two loaders, a selection
-validator, cancel/exit callbacks, render requests, and options
-(`showRenameHint: false`, keybindings, `controlDbPath`, archived loader). It also needs
-`createStartupTui`/`startStartupTui` from `cli/startup-ui.ts` (blocked on
-`FirstTimeSetupComponent` and `ExtensionInputComponent`). When those land, `selectSession`
-is a thin adapter over `load_sessions_with_control_names`.
+`select_session` builds `SessionSelectorComponent` with
+`load_sessions_with_control_names` wrappers for the current/all/archived loaders,
+`showRenameHint: false`, an installed `KeybindingsManager`, the control DB path,
+and a selection validator. `create_startup_tui`/`start_startup_tui` provide the
+TUI; the poll loop calls `process_events`/`flush_pending`, takes the component
+out of its host while `run_pending_action` awaits, and maps select/cancel/exit to
+`SelectSessionOutcome`. Validation failures re-render the header error and keep
+the selector open (`SessionSelectorComponent::show_error`).
 
 ## Deviations
 
-- **Progress callback type** — the shared `SessionListProgress` alias is
-  `&mut dyn FnMut(usize, usize)`, which is not `Send`; the picker's loader futures are
-  `Send`, so `session_picker::SessionListProgress` adds `+ Send`. Callers pass a `Send`
-  closure (the TUI progress renderer is).
+- **Loader futures are local** — the TUI runs on a single-threaded `LocalSet`, so
+  `SessionLoader::load` returns a non-`Send` future and reuses
+  `core::session_manager::SessionListProgress` (no duplicate alias, no `Send`
+  bound). The component's `SessionListLoader` has the same shape.
 - **`isArchived` truthiness** — `Option<bool>::unwrap_or(false)` matches the TypeScript
   truthy check.
 
 ## Proof
 
-`cargo test -p pi-coding-agent --test session_picker` (6 tests).
+`cargo test -p pi-coding-agent --test session_picker` (6 tests) and
+`cargo test -p pi-coding-agent --test main_interactive` (pty picker case).

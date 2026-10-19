@@ -3,8 +3,9 @@
 Source: `packages/coding-agent/src/cli/startup-ui.ts` (239 lines, pinned revision in
 `docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent/src/cli/startup_ui.rs`.
 
-Status: partial. Predicates, theme loading, the startup TUI, and the selector dialog are
-ported and tested; the input and first-time-setup dialogs are blocked.
+Status: partial. Predicates, theme loading, the startup TUI, the selector dialog,
+and the first-time-setup dialog are ported and tested; `showStartupInput` is blocked
+on `ExtensionInputComponent` wiring (the component exists; no caller needs it).
 
 ## Exported symbols
 
@@ -14,7 +15,7 @@ ported and tested; the input and first-time-setup dialogs are blocked.
 | `createStartupTui` | `create_startup_tui` | selector probes (create + start + clear) |
 | `startStartupTui` | `start_startup_tui` | selector probes |
 | `showStartupSelector` | `show_startup_selector` | `startup_selector_returns_the_selected_value`, `startup_selector_returns_none_when_cancelled` |
-| `showFirstTimeSetup` | blocked | — |
+| `showFirstTimeSetup` | `show_first_time_setup` | `first_time_setup_persists_theme_and_analytics` (pty, real binary) |
 | `showStartupInput` | blocked | — |
 | private `isOfficialDistribution` | `is_official_distribution` | `official_distribution_requires_all_three_identifiers` |
 | private `loadThemes` | `load_themes` | `load_themes_skips_disabled_and_broken_entries_and_dedupes_names` |
@@ -37,6 +38,7 @@ ported and tested; the input and first-time-setup dialogs are blocked.
 | 9 | fixed theme setting skips auto detection; auto/unset runs the 100 ms query then `setTheme` | selector probes with no theme setting |
 | 10 | selector value lookup by label; cancel resolves `undefined` | `startup_selector_returns_the_selected_value`, `..._none_when_cancelled` |
 | 11 | clear (25 ms) + `ui.stop()` before resolving | selector probes |
+| 12 | setup: start TUI, 100 ms theme detection, `setTheme`, preview re-render, submit persists theme/analytics + `flush`, cancel persists nothing, clear+stop | `first_time_setup_persists_theme_and_analytics` |
 
 ## Blocked parts
 
