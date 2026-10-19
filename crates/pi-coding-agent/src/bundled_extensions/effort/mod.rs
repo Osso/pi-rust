@@ -10,7 +10,7 @@ use crate::core::extensions::types::{
     BeforeAgentStartEvent, BeforeAgentStartEventResult, BoxFuture, ExtensionApi, ExtensionCommandContext,
     ExtensionContext, HandlerError, NotifyType, SessionTreeEvent, ThinkingLevelSelectEvent,
 };
-use crate::core::session_manager::{KnownSessionEntry, SessionEntry};
+use crate::core::session_manager::{KnownSessionEntry, SessionEntry, lock_session_manager};
 use crate::modes::interactive::theme::ThemeColor;
 
 const DELEGATION_MODE_ENTRY: &str = "multi-agent-mode";
@@ -110,7 +110,8 @@ fn clear_editor(ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
 
 fn restore_delegation_mode(state: &DelegationState, ctx: &ExtensionContext) -> Result<(), HandlerError> {
     state.set_mode(MultiAgentMode::Proactive);
-    for entry in ctx.session_manager()?.get_branch(None) {
+    let session_manager = ctx.session_manager()?;
+    for entry in lock_session_manager(&session_manager).get_branch(None) {
         let SessionEntry::Known(KnownSessionEntry::Custom(custom)) = entry else {
             continue;
         };

@@ -25,6 +25,7 @@ pub mod codex_image_generation;
 pub mod codex_usage;
 pub mod codex_web_search;
 pub mod debug;
+pub mod default_footer;
 pub mod docs_tree_context;
 pub mod effort;
 pub mod goal;
@@ -197,6 +198,16 @@ pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &Sma
             Box::pin(async move { result })
         }),
     );
+    registry.register("<first-party:default-footer>", {
+        let store = options.multi_agent_store.clone();
+        Arc::new(move |pi| {
+            let options = default_footer::DefaultFooterExtensionOptions {
+                multi_agent_store: store.clone(),
+            };
+            let result = default_footer::default_footer_extension(pi, &options);
+            Box::pin(async move { result })
+        })
+    });
     registry.register(
         "<first-party:effort>",
         Arc::new(|pi| {

@@ -22,7 +22,7 @@ use pi_coding_agent::core::extensions::{
 use pi_coding_agent::core::footer_data_provider::FooterDataProvider;
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
-use pi_coding_agent::core::session_manager::SessionManager;
+use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager};
 use pi_coding_agent::core::settings_manager::{Settings, SettingsManager};
 use pi_coding_agent::modes::interactive::theme::{
     current_theme_if_initialized, load_theme_from_path, set_theme_instance,
@@ -172,7 +172,7 @@ pub struct RecordedActions {
 
 pub struct HarnessOptions {
     pub cwd: String,
-    pub session_manager: Arc<SessionManager>,
+    pub session_manager: SharedSessionManager,
     pub model: Option<Model>,
     pub thinking_level: ThinkingLevel,
     pub settings: Option<Settings>,
@@ -186,7 +186,9 @@ impl HarnessOptions {
     pub fn new(cwd: &str) -> Self {
         Self {
             cwd: cwd.to_owned(),
-            session_manager: Arc::new(SessionManager::in_memory(Some(cwd), None).expect("in-memory session manager")),
+            session_manager: Arc::new(Mutex::new(
+                SessionManager::in_memory(Some(cwd), None).expect("in-memory session manager"),
+            )),
             model: None,
             thinking_level: ThinkingLevel::Off,
             settings: None,

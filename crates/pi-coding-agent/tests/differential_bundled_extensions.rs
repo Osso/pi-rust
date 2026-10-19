@@ -159,7 +159,7 @@ async fn differential_loop_registration_and_handlers() {
         json!({"name": "tool-start", "tool": {"action": "start", "intervalSeconds": 3, "prompt": "continue"}}),
         json!({"name": "tool-unknown-action", "tool": {"action": "bogus"}}),
     ];
-    let mut ts = TsOracle::spawn("bundled-extensions-oracle.ts", LOOP_SOURCE);
+    let mut ts = TsOracle::spawn("bundled-extensions-a-oracle.ts", LOOP_SOURCE);
     let response = ts.request(&json!({"id": 1, "operation": "loop", "cases": cases}));
     assert_eq!(response["ok"], true, "oracle failed: {response}");
     let expected: Vec<Value> = serde_json::from_value(response["output"]["results"].clone()).expect("oracle results");
@@ -191,7 +191,7 @@ fn fast_model(case: &Value) -> Option<pi_ai::types::Model> {
     Some(test_model)
 }
 
-fn fast_session(case: &Value) -> Arc<pi_coding_agent::core::session_manager::SessionManager> {
+fn fast_session(case: &Value) -> pi_coding_agent::core::session_manager::SharedSessionManager {
     let mut session =
         pi_coding_agent::core::session_manager::SessionManager::in_memory(Some("/repo"), None).expect("session");
     if let Some(branch) = case.get("branch").and_then(Value::as_array) {
@@ -204,7 +204,7 @@ fn fast_session(case: &Value) -> Arc<pi_coding_agent::core::session_manager::Ses
                 .expect("custom entry");
         }
     }
-    Arc::new(session)
+    Arc::new(std::sync::Mutex::new(session))
 }
 
 async fn rust_fast_results(cases: &[Value]) -> Vec<Value> {
@@ -328,7 +328,7 @@ async fn differential_codex_fast_handlers() {
         json!({"name": "model-switch", "model": {}, "ops": [{"kind": "command", "args": "on"}, {"kind": "model_select", "model": {"provider": "anthropic", "api": "anthropic-messages"}}, {"kind": "model_select", "model": {}}]}),
         json!({"name": "openai-provider", "model": {"provider": "openai", "api": "openai-responses"}, "ops": [{"kind": "command", "args": "on"}]}),
     ];
-    let mut ts = TsOracle::spawn("bundled-extensions-oracle.ts", LOOP_SOURCE);
+    let mut ts = TsOracle::spawn("bundled-extensions-a-oracle.ts", LOOP_SOURCE);
     let response = ts.request(&json!({"id": 2, "operation": "fast", "cases": cases}));
     assert_eq!(response["ok"], true, "oracle failed: {response}");
     let expected: Vec<Value> = serde_json::from_value(response["output"]["results"].clone()).expect("oracle results");
@@ -346,7 +346,7 @@ fn effort_model(case: &Value) -> Option<pi_ai::types::Model> {
     ))
 }
 
-fn effort_session(case: &Value) -> Arc<pi_coding_agent::core::session_manager::SessionManager> {
+fn effort_session(case: &Value) -> pi_coding_agent::core::session_manager::SharedSessionManager {
     let mut session =
         pi_coding_agent::core::session_manager::SessionManager::in_memory(Some("/repo"), None).expect("session");
     if let Some(branch) = case.get("branch").and_then(Value::as_array) {
@@ -359,7 +359,7 @@ fn effort_session(case: &Value) -> Arc<pi_coding_agent::core::session_manager::S
                 .expect("custom entry");
         }
     }
-    Arc::new(session)
+    Arc::new(std::sync::Mutex::new(session))
 }
 
 async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
@@ -483,7 +483,7 @@ async fn differential_effort_handlers() {
         json!({"name": "invalid-mode", "model": {}, "ops": [{"kind": "command", "command": "multi-agent", "args": "bogus"}]}),
         json!({"name": "selector-mode", "model": {}, "selectResult": "explicit", "ops": [{"kind": "command", "command": "multi-agent", "args": ""}]}),
     ];
-    let mut ts = TsOracle::spawn("bundled-extensions-oracle.ts", LOOP_SOURCE);
+    let mut ts = TsOracle::spawn("bundled-extensions-a-oracle.ts", LOOP_SOURCE);
     let response = ts.request(&json!({"id": 3, "operation": "effort", "cases": cases}));
     assert_eq!(response["ok"], true, "oracle failed: {response}");
     let expected: Vec<Value> = serde_json::from_value(response["output"]["results"].clone()).expect("oracle results");

@@ -459,7 +459,7 @@ async fn fast_restores_persisted_and_configured_modes() {
     let extension = load_fast(&runtime, cwd, &authority).await;
     let mut options = HarnessOptions::new(cwd);
     options.model = Some(test_model(true));
-    options.session_manager = Arc::new(session);
+    options.session_manager = Arc::new(std::sync::Mutex::new(session));
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
 
     let mut event = ExtensionEvent::SessionStart(SessionStartEvent {
@@ -678,7 +678,7 @@ async fn effort_restores_mode_from_branch() {
     let extension = load_effort(&runtime, cwd).await;
     let mut options = HarnessOptions::new(cwd);
     options.model = Some(test_model(true));
-    options.session_manager = Arc::new(session);
+    options.session_manager = Arc::new(std::sync::Mutex::new(session));
     let harness = build_harness(extension.clone(), runtime.clone(), options).await;
 
     let mut event = ExtensionEvent::SessionStart(SessionStartEvent {
