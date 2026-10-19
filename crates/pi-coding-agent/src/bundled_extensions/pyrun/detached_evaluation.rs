@@ -812,7 +812,9 @@ async fn restore_foreground_pyrun_runner(
             candidate.manifest_path
         )));
     }
-    let tool_call_id = input.tool_call_id.clone().unwrap_or_default();
+    // TypeScript template interpolation renders a missing tool call id as
+    // `undefined` in the collision message.
+    let tool_call_id = input.tool_call_id.clone().unwrap_or_else(|| "undefined".to_owned());
     if let Some(agent) = settle_cancelled_pyrun_candidate(persistence, &candidate, &tool_call_id, &agent_id).await? {
         return Ok(Some(RestoredRunner::Aborted(Box::new(agent))));
     }

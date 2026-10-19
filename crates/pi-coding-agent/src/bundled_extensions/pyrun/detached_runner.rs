@@ -489,7 +489,7 @@ async fn dispatch_detached_pyrun_bridge_request(
             agent_id: None,
             session_id: manifest.data.runner_address.session_id.clone(),
         },
-        tool_call_id: manifest.data.tool_call_id.clone().unwrap_or_default(),
+        tool_call_id: manifest.data.tool_call_id.clone(),
     })?;
     let (sender, receiver) = tokio::sync::oneshot::channel();
     pending

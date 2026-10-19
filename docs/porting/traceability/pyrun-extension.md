@@ -75,6 +75,10 @@ Registered as `<first-party:pyrun>`; bwrap profiles use the ported
   `try`/`catch` around `pending.onProgress`); this is why
   `PyrunRunnerClient::evaluate` takes a fallible progress callback.
 - Legacy manifests written without `toolCallId` deserialize as `None` and
-  correlate with any replayed call.
+  correlate with any replayed call; a detached bridge request from such a
+  launch omits `toolCallId` (TS `undefined`) and is rejected by
+  `parse_detached_pyrun_bridge_request` like any other missing id.
+- A missing tool call id interpolates as `undefined` in the artifact-collision
+  message, matching the TypeScript template literal.
 - The bwrap sandbox path uses the approved pi-internal fs worker; see
   `bwrap-extension.md`.

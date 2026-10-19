@@ -72,7 +72,7 @@ async fn round_trips_a_durable_request_and_exact_identity_response() {
         params: serde_json::Value::Null,
         runner_address: runner_address.clone(),
         session_path: session_path.clone(),
-        tool_call_id: "pyrun-call-1".to_owned(),
+        tool_call_id: Some("pyrun-call-1".to_owned()),
         supervisor_address: supervisor_address.clone(),
     })
     .expect("bridge request");
@@ -81,7 +81,7 @@ async fn round_trips_a_durable_request_and_exact_identity_response() {
     let request = parse_detached_pyrun_bridge_request(message).expect("valid bridge request");
     assert_eq!(request.method, "models.scoped");
     assert_eq!(request.request_id, request_id);
-    assert_eq!(request.tool_call_id, "pyrun-call-1");
+    assert_eq!(request.tool_call_id.as_deref(), Some("pyrun-call-1"));
     assert_eq!(request.params, serde_json::Value::Null);
 
     for tool_call_id in [json!(42), json!("")] {
