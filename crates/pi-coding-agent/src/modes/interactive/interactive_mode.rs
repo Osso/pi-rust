@@ -24,6 +24,7 @@ use pi_tui::autocomplete::{
     AutocompleteItem, AutocompleteProvider, CombinedAutocompleteProvider, CommandEntry, SlashCommand,
 };
 use pi_tui::components::editor::EditorOptions;
+use pi_tui::components::loader::Loader;
 use pi_tui::components::scroll_view::{ScrollFollow, ScrollOverscroll, ScrollView, ScrollViewOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::stack::StackOptions;
@@ -49,11 +50,12 @@ use crate::core::extensions::types::{
     ExtensionWidgetOptions, NotifyType, TerminalInputHandler, ThemeInfo, ThemeSetResult, WidgetPlacement,
     WorkingIndicatorOptions,
 };
-use crate::core::footer_data_provider::FooterDataProvider;
+use crate::core::footer_data_provider::{ContextUsage, FooterDataProvider, FooterSessionOverride};
 use crate::core::keybindings::KeybindingsManager;
 use crate::core::model_resolver::{ModelScopeCode, resolve_model_scope_from_models};
 use crate::core::multi_agent_store::{AgentLifecycle, AgentSnapshot, MultiAgentStore, lifecycle_name};
 use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
+use crate::core::runtime_message_markers::is_duplicate_turn_assistant_message;
 use crate::core::session_manager::{CompactionEntry, SessionEntry, SessionManager};
 use crate::core::settings_manager::TreeFilterMode;
 use crate::core::source_info::{SourceInfo, SourceScope};
@@ -67,14 +69,16 @@ use crate::modes::interactive::components::bash_execution::{BashExecutionCompone
 use crate::modes::interactive::components::bordered_loader::{BorderedLoader, BorderedLoaderOptions};
 use crate::modes::interactive::components::branch_summary_message::BranchSummaryMessageComponent;
 use crate::modes::interactive::components::compaction_summary_message::CompactionSummaryMessageComponent;
+use crate::modes::interactive::components::countdown_timer::CountdownTimer;
 use crate::modes::interactive::components::custom_editor::{AppActionHandler, CustomEditor, CustomEditorOptions};
 use crate::modes::interactive::components::custom_message::CustomMessageComponent;
 use crate::modes::interactive::components::daxnuts::DaxnutsComponent;
 use crate::modes::interactive::components::earendil_announcement::EarendilAnnouncementComponent;
+use crate::modes::interactive::components::elapsed_time::{MIN_VISIBLE_ELAPSED_MS, format_elapsed_duration};
 use crate::modes::interactive::components::extension_editor::{ExtensionEditorComponent, ExtensionEditorHost};
 use crate::modes::interactive::components::extension_input::{ExtensionInputComponent, ExtensionInputOptions};
 use crate::modes::interactive::components::extension_selector::{ExtensionSelectorComponent, ExtensionSelectorOptions};
-use crate::modes::interactive::components::footer::FooterComponent;
+use crate::modes::interactive::components::footer::{FooterComponent, format_tokens};
 use crate::modes::interactive::components::login_dialog::LoginDialogComponent;
 use crate::modes::interactive::components::oauth_selector::{
     AuthSelectorMode, AuthSelectorProvider, OAuthSelectorComponent,
@@ -110,6 +114,7 @@ use crate::modes::interactive::login_options::{
 };
 use crate::modes::interactive::model_search::{ModelSearchItem, get_model_search_candidates};
 use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor, with_theme};
+use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, watch_with_error_handler};
 use crate::utils::git::parse_git_url;
 use crate::utils::paths::{PathInputOptions, get_cwd_relative_path, relative_path, resolve_path};
 use serde_json::Value;
@@ -1891,6 +1896,7 @@ pub struct UiShared {
     rows: std::sync::atomic::AtomicUsize,
     columns: std::sync::atomic::AtomicUsize,
     fullscreen: std::sync::atomic::AtomicBool,
+    editor_component_factory: std::sync::Mutex<Option<ExtensionEditorFactory>>,
 }
 
 impl UiShared {
@@ -1899,6 +1905,7 @@ impl UiShared {
             rows: std::sync::atomic::AtomicUsize::new(24),
             columns: std::sync::atomic::AtomicUsize::new(80),
             fullscreen: std::sync::atomic::AtomicBool::new(false),
+            editor_component_factory: std::sync::Mutex::new(None),
         }
     }
 }
@@ -1975,9 +1982,6 @@ enum UiRequest {
     RemoveTerminalInput(usize),
     AddAutocompleteProvider(ExtensionAutocompleteProviderFactory),
     SetEditorComponent(Option<ExtensionEditorFactory>),
-    GetEditorComponent {
-        respond: std::sync::mpsc::Sender<Option<ExtensionEditorFactory>>,
-    },
     ShowApprovalSelector,
     ShowSandboxSelector,
     RuntimeNewSession {
@@ -2098,6 +2102,7 @@ fn with_mode<R>(id: usize, f: impl FnOnce(Rc<InteractiveMode>) -> R) -> Option<R
 struct InteractiveUiContext {
     id: usize,
     sender: std::sync::mpsc::Sender<UiRequest>,
+    shared: Arc<UiShared>,
 }
 
 impl InteractiveUiContext {
@@ -2279,9 +2284,11 @@ impl ExtensionUiContext for InteractiveUiContext {
     }
 
     fn get_editor_component(&self) -> Option<ExtensionEditorFactory> {
-        let (respond, receiver) = std::sync::mpsc::channel();
-        self.send(UiRequest::GetEditorComponent { respond });
-        receiver.recv().ok().flatten()
+        self.shared
+            .editor_component_factory
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     fn editor<'a>(&'a self, title: &str, prefill: Option<&str>) -> BoxFuture<'a, Result<Option<String>, String>> {
@@ -2460,6 +2467,24 @@ struct AuthUiState {
     dialog: Rc<RefCell<LoginDialogComponent>>,
 }
 
+/// Which session the status loader reflects (`workingLoaderView`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkingLoaderView {
+    Main,
+    Child,
+}
+
+/// Sets the text of a mounted `Loader` component.
+fn set_loader_message(loader: &ComponentRef, message: impl Into<String>) {
+    if let Some(loader) = loader
+        .borrow_mut()
+        .as_any_mut()
+        .and_then(|any| any.downcast_mut::<Loader>())
+    {
+        loader.set_message(message);
+    }
+}
+
 /// `InteractiveMode`: TUI rendering and user interaction for the coding agent.
 pub struct InteractiveMode {
     runtime: tokio::sync::Mutex<AgentSessionRuntime>,
@@ -2467,6 +2492,11 @@ pub struct InteractiveMode {
     options: InteractiveModeOptions,
     multi_agent_store: Option<Arc<MultiAgentStore>>,
     child_view: RefCell<Option<ChildAgentView>>,
+    child_view_watch_events: RefCell<Option<std::sync::mpsc::Receiver<ChildViewWatchEvent>>>,
+    child_view_watch_sender: std::sync::mpsc::Sender<ChildViewWatchEvent>,
+    multi_agent_updates: RefCell<Option<tokio::sync::mpsc::UnboundedReceiver<AgentSnapshot>>>,
+    multi_agent_subscription: RefCell<Option<crate::core::multi_agent_store::AgentSubscription>>,
+    agent_slot_input_listener: Cell<Option<usize>>,
     ui: Rc<InteractiveTuiHandle>,
     header_container: Rc<RefCell<Container>>,
     loaded_resources_container: Rc<RefCell<Container>>,
@@ -2516,6 +2546,18 @@ pub struct InteractiveMode {
     last_sigint_time: Cell<f64>,
     last_escape_time: Cell<f64>,
     working_message: RefCell<Option<String>>,
+    current_working_default_message: RefCell<String>,
+    loading_animation: RefCell<Option<ComponentRef>>,
+    working_loader_view: RefCell<Option<WorkingLoaderView>>,
+    retry_loader: RefCell<Option<ComponentRef>>,
+    retry_countdown: RefCell<Option<CountdownTimer>>,
+    retry_escape_handler: RefCell<Option<Rc<dyn Fn()>>>,
+    thinking_started_at: Cell<Option<f64>>,
+    thinking_follows_tool: Cell<bool>,
+    thinking_timer_next: Cell<Option<f64>>,
+    tool_waiting_timer_next: Cell<Option<f64>>,
+    child_activity_timer_next: Cell<Option<f64>>,
+    now_millis: RefCell<Rc<dyn Fn() -> f64>>,
     working_visible: Cell<bool>,
     working_indicator_options: RefCell<Option<WorkingIndicatorOptions>>,
     prompt_activity_sources: RefCell<std::collections::BTreeSet<PromptActivitySource>>,
@@ -2545,10 +2587,69 @@ pub struct InteractiveMode {
     session_selector_loaded: Cell<bool>,
 }
 
+/// A selected child transcript watch event delivered from the notify thread.
+enum ChildViewWatchEvent {
+    Changed,
+    Error,
+}
+
 /// Selected child agent transcript shown in place of the main conversation.
 struct ChildAgentView {
     transcript_path: Option<String>,
-    stamp: Option<(u64, u64)>,
+    agent_id: String,
+    session_manager: Option<Arc<std::sync::Mutex<SessionManager>>>,
+    watcher: Option<notify::RecommendedWatcher>,
+    watch_path: Option<String>,
+    reload_deadline: Option<Instant>,
+    watch_retry_deadline: Option<Instant>,
+    reload_retries: u32,
+}
+
+/// Agent slot selection keybindings (`AGENT_SLOT_KEYBINDINGS`).
+const AGENT_SLOT_KEYBINDINGS: [(&str, i64); 9] = [
+    ("app.agent.slot1", 0),
+    ("app.agent.slot2", 1),
+    ("app.agent.slot3", 2),
+    ("app.agent.slot4", 3),
+    ("app.agent.slot5", 4),
+    ("app.agent.slot6", 5),
+    ("app.agent.slot7", 6),
+    ("app.agent.slot8", 7),
+    ("app.agent.slot9", 8),
+];
+
+/// Maximum number of child transcript reload retries after a partial write.
+const MAX_CHILD_TRANSCRIPT_RELOAD_RETRIES: u32 = 3;
+/// Maximum agent log bytes rendered in the live placeholder.
+const MAX_AGENT_LOG_VIEW_BYTES: usize = 64 * 1024;
+
+/// `findReadableAgentFilePath`.
+fn find_readable_agent_file_path(agent: &AgentSnapshot, label: &str) -> Option<String> {
+    agent
+        .result
+        .as_ref()
+        .and_then(|result| result.file_refs.as_ref())
+        .and_then(|file_refs| {
+            file_refs
+                .iter()
+                .find(|file_ref| file_ref.label.as_deref() == Some(label) && Path::new(&file_ref.path).exists())
+                .map(|file_ref| file_ref.path.clone())
+        })
+}
+
+/// `isCompleteJsonlFile`: an empty file or one ending in a newline.
+fn is_complete_jsonl_file(path: &str) -> std::io::Result<bool> {
+    let metadata = std::fs::metadata(path)?;
+    let size = metadata.len();
+    if size == 0 {
+        return Ok(true);
+    }
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path)?;
+    file.seek(SeekFrom::Start(size - 1))?;
+    let mut last = [0u8; 1];
+    file.read_exact(&mut last)?;
+    Ok(last[0] == b'\n')
 }
 
 /// Reads a child agent transcript for the selected-agent view.
@@ -2579,17 +2680,6 @@ fn is_interruptible_lifecycle(lifecycle: AgentLifecycle) -> bool {
         lifecycle,
         AgentLifecycle::Running | AgentLifecycle::SteeringPending | AgentLifecycle::Cancelling
     )
-}
-
-fn transcript_stamp(path: &str) -> Option<(u64, u64)> {
-    let metadata = std::fs::metadata(path).ok()?;
-    let modified = metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or_default();
-    Some((metadata.len(), modified))
 }
 
 impl InteractiveMode {
@@ -2701,6 +2791,7 @@ impl InteractiveMode {
         let (ui_sender, ui_receiver) = std::sync::mpsc::channel();
         let shared = Arc::new(UiShared::new());
         let multi_agent_store = options.multi_agent_store.clone();
+        let (child_view_watch_sender, child_view_watch_events) = std::sync::mpsc::channel();
 
         let mode = Rc::new(Self {
             runtime: tokio::sync::Mutex::new(runtime),
@@ -2708,6 +2799,11 @@ impl InteractiveMode {
             options,
             multi_agent_store,
             child_view: RefCell::new(None),
+            child_view_watch_events: RefCell::new(Some(child_view_watch_events)),
+            child_view_watch_sender,
+            multi_agent_updates: RefCell::new(None),
+            multi_agent_subscription: RefCell::new(None),
+            agent_slot_input_listener: Cell::new(None),
             ui,
             header_container,
             loaded_resources_container,
@@ -2757,6 +2853,18 @@ impl InteractiveMode {
             last_sigint_time: Cell::new(0.0),
             last_escape_time: Cell::new(0.0),
             working_message: RefCell::new(None),
+            current_working_default_message: RefCell::new("Thinking...".to_owned()),
+            loading_animation: RefCell::new(None),
+            working_loader_view: RefCell::new(None),
+            retry_loader: RefCell::new(None),
+            retry_countdown: RefCell::new(None),
+            retry_escape_handler: RefCell::new(None),
+            thinking_started_at: Cell::new(None),
+            thinking_follows_tool: Cell::new(false),
+            thinking_timer_next: Cell::new(None),
+            tool_waiting_timer_next: Cell::new(None),
+            child_activity_timer_next: Cell::new(None),
+            now_millis: RefCell::new(Rc::new(js_now_millis)),
             working_visible: Cell::new(true),
             working_indicator_options: RefCell::new(None),
             prompt_activity_sources: RefCell::new(std::collections::BTreeSet::new()),
@@ -2831,6 +2939,7 @@ impl InteractiveMode {
         Arc::new(InteractiveUiContext {
             id: self.ui_id.get(),
             sender: self.ui_sender.clone(),
+            shared: Arc::clone(&self.ui_shared),
         })
     }
 
@@ -2853,7 +2962,7 @@ impl InteractiveMode {
         self.sync_working_editor_state();
     }
 
-    /// `syncWorkingEditorState` for the main session (child views are a gap).
+    /// `syncWorkingEditorState`.
     fn sync_working_editor_state(&self) {
         let indicator_options = self.working_indicator_options.borrow().clone();
         let indicator_options = indicator_options.map(|options| pi_tui::LoaderIndicatorOptions {
@@ -2861,18 +2970,444 @@ impl InteractiveMode {
             interval_ms: options.interval_ms.map(|interval| interval.max(0.0) as u64),
         });
         let editor = self.editor();
+        let is_mounted = self
+            .editor_container
+            .borrow()
+            .children()
+            .iter()
+            .any(|child| Rc::ptr_eq(child, &self.editor_handle.borrow()));
         let mut editor_ref = editor.borrow_mut();
         let can_animate = crate::modes::interactive::working_editor::supports_working_prompt_animation(
             &*editor_ref,
             indicator_options.as_ref(),
         );
-        let has_prompt_activity = self.session().is_streaming() || !self.prompt_activity_sources.borrow().is_empty();
+        let selected_session_is_working = if self.is_viewing_agent_session() {
+            self.is_selected_child_working()
+        } else {
+            self.session().is_streaming()
+        };
+        let has_prompt_activity = selected_session_is_working || !self.prompt_activity_sources.borrow().is_empty();
         let should_show = self.working_visible.get() && has_prompt_activity;
         crate::modes::interactive::working_editor::sync_working_editor(
             &mut *editor_ref,
             should_show && can_animate,
             indicator_options,
         );
+        if !is_mounted {
+            crate::modes::interactive::working_editor::clear_working_editor_position(&mut *editor_ref);
+        }
+    }
+
+    /// `isViewingAgentSession`.
+    fn is_viewing_agent_session(&self) -> bool {
+        let Some(store) = self.multi_agent_store.as_ref() else {
+            return false;
+        };
+        store
+            .get_selected_agent_id()
+            .is_some_and(|agent_id| store.get_agent(&agent_id).is_some())
+    }
+
+    /// `isSelectedChildWorking`.
+    fn is_selected_child_working(&self) -> bool {
+        let Some(store) = self.multi_agent_store.as_ref() else {
+            return false;
+        };
+        let Some(agent_id) = store.get_selected_agent_id() else {
+            return false;
+        };
+        store.get_agent(&agent_id).is_some_and(|agent| {
+            matches!(
+                agent.lifecycle,
+                AgentLifecycle::Running | AgentLifecycle::SteeringPending | AgentLifecycle::Cancelling
+            )
+        })
+    }
+
+    fn now_millis(&self) -> f64 {
+        (self.now_millis.borrow())()
+    }
+
+    /// `getWorkingLoaderMessage`.
+    fn get_working_loader_message(&self) -> String {
+        let Some(store) = self.multi_agent_store.as_ref() else {
+            return self
+                .working_message
+                .borrow()
+                .clone()
+                .unwrap_or_else(|| self.current_working_default_message.borrow().clone());
+        };
+        let Some(selected_agent_id) = store.get_selected_agent_id() else {
+            return self
+                .working_message
+                .borrow()
+                .clone()
+                .unwrap_or_else(|| self.current_working_default_message.borrow().clone());
+        };
+        let Some(activity) = store
+            .get_agent(&selected_agent_id)
+            .and_then(|agent| agent.current_activity)
+        else {
+            return "Working...".to_owned();
+        };
+        match activity {
+            crate::core::multi_agent_store::AgentCurrentActivity::Thinking { started_at } => {
+                let started_at = pi_js_compat::date::date_parse(&started_at);
+                if started_at.is_nan() {
+                    return "Working...".to_owned();
+                }
+                format!(
+                    "Thinking... {}",
+                    format_elapsed_duration(self.now_millis() - started_at)
+                )
+            }
+            crate::core::multi_agent_store::AgentCurrentActivity::Tool {
+                started_at,
+                tool_call_id,
+                tool_name,
+            } => {
+                let started_at = pi_js_compat::date::date_parse(&started_at);
+                if started_at.is_nan() {
+                    return "Working...".to_owned();
+                }
+                self.get_tool_waiting_message(
+                    &tool_name,
+                    Some(started_at),
+                    !self.tool_component_owns_elapsed(&tool_call_id),
+                )
+            }
+        }
+    }
+
+    /// `getThinkingWorkingMessage`.
+    fn get_thinking_working_message(&self) -> String {
+        let Some(started_at) = self.thinking_started_at.get() else {
+            return "Thinking...".to_owned();
+        };
+        let elapsed_ms = self.now_millis() - started_at;
+        let duration = if elapsed_ms < MIN_VISIBLE_ELAPSED_MS {
+            "0s".to_owned()
+        } else {
+            format_elapsed_duration(elapsed_ms)
+        };
+        format!("Thinking... {duration}")
+    }
+
+    /// `getToolWaitingMessage`.
+    fn get_tool_waiting_message(&self, tool_name: &str, started_at: Option<f64>, show_elapsed: bool) -> String {
+        let base_message = if tool_name == "bash" {
+            "Waiting for command...".to_owned()
+        } else {
+            format!("Waiting for tool: {tool_name}...")
+        };
+        if !show_elapsed {
+            return base_message;
+        }
+        let Some(started_at) = started_at else {
+            return base_message;
+        };
+        let elapsed_ms = self.now_millis() - started_at;
+        if elapsed_ms < MIN_VISIBLE_ELAPSED_MS {
+            return base_message;
+        }
+        format!("{base_message} Elapsed: {}", format_elapsed_duration(elapsed_ms))
+    }
+
+    /// `setDefaultWorkingMessage`.
+    fn set_default_working_message(&self, message: &str) {
+        *self.current_working_default_message.borrow_mut() = message.to_owned();
+        let has_loader = self.loading_animation.borrow().is_some();
+        let has_override = self.working_message.borrow().is_some();
+        let is_child_view = *self.working_loader_view.borrow() == Some(WorkingLoaderView::Child);
+        if has_loader
+            && !has_override
+            && !is_child_view
+            && let Some(loader) = self.loading_animation.borrow().as_ref()
+        {
+            set_loader_message(loader, message);
+        }
+    }
+
+    /// `toolComponentOwnsElapsed`.
+    fn tool_component_owns_elapsed(&self, tool_call_id: &str) -> bool {
+        let component = self.pending_tools.borrow().get(tool_call_id).cloned();
+        component.is_some_and(|component| {
+            component
+                .borrow_mut()
+                .as_any_mut()
+                .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
+                .is_some_and(|component| component.has_elapsed_timing())
+        })
+    }
+
+    /// `setWorkingMessageForActiveTools`.
+    fn set_working_message_for_active_tools(&self) {
+        let first_tool = self
+            .executing_tool_names
+            .borrow()
+            .iter()
+            .next()
+            .map(|(tool_call_id, tool_name)| (tool_call_id.clone(), tool_name.clone()));
+        let Some((tool_call_id, tool_name)) = first_tool else {
+            self.set_default_working_message(&self.get_thinking_working_message());
+            return;
+        };
+        let started_at = self.executing_tool_started_at.borrow().get(&tool_call_id).copied();
+        self.set_default_working_message(&self.get_tool_waiting_message(
+            &tool_name,
+            started_at,
+            !self.tool_component_owns_elapsed(&tool_call_id),
+        ));
+    }
+
+    /// `updateThinkingWorkingMessage`.
+    fn update_thinking_working_message(&self) {
+        if !self.executing_tool_names.borrow().is_empty() {
+            return;
+        }
+        self.set_default_working_message(&self.get_thinking_working_message());
+    }
+
+    /// `startThinkingTimer`.
+    fn start_thinking_timer(&self) {
+        self.stop_thinking_timer();
+        self.thinking_started_at.set(Some(self.now_millis()));
+        self.update_thinking_working_message();
+        self.thinking_timer_next
+            .set(Some(self.now_millis() + MIN_VISIBLE_ELAPSED_MS));
+    }
+
+    /// `stopThinkingTimer`.
+    fn stop_thinking_timer(&self) {
+        self.thinking_timer_next.set(None);
+        self.thinking_started_at.set(None);
+    }
+
+    /// `startToolWaitingTimer`.
+    fn start_tool_waiting_timer(&self) {
+        if self.tool_waiting_timer_next.get().is_some() {
+            return;
+        }
+        self.tool_waiting_timer_next
+            .set(Some(self.now_millis() + MIN_VISIBLE_ELAPSED_MS));
+    }
+
+    /// `stopToolWaitingTimerIfIdle`.
+    fn stop_tool_waiting_timer_if_idle(&self) {
+        if !self.executing_tool_names.borrow().is_empty() || self.tool_waiting_timer_next.get().is_none() {
+            return;
+        }
+        self.tool_waiting_timer_next.set(None);
+    }
+
+    /// `startChildActivityTimer`.
+    fn start_child_activity_timer(&self) {
+        if self.child_activity_timer_next.get().is_some() {
+            return;
+        }
+        self.child_activity_timer_next
+            .set(Some(self.now_millis() + MIN_VISIBLE_ELAPSED_MS));
+    }
+
+    /// `stopChildActivityTimer`.
+    fn stop_child_activity_timer(&self) {
+        self.child_activity_timer_next.set(None);
+    }
+
+    /// Drives the ported `setInterval` callbacks and the retry countdown.
+    fn poll_timers(&self) {
+        let now = self.now_millis();
+        if let Some(next) = self.thinking_timer_next.get()
+            && now >= next
+        {
+            self.thinking_timer_next.set(Some(now + MIN_VISIBLE_ELAPSED_MS));
+            self.update_thinking_working_message();
+        }
+        if let Some(next) = self.tool_waiting_timer_next.get()
+            && now >= next
+        {
+            self.tool_waiting_timer_next.set(Some(now + MIN_VISIBLE_ELAPSED_MS));
+            self.set_working_message_for_active_tools();
+        }
+        if let Some(next) = self.child_activity_timer_next.get()
+            && now >= next
+        {
+            self.child_activity_timer_next.set(Some(now + MIN_VISIBLE_ELAPSED_MS));
+            if *self.working_loader_view.borrow() == Some(WorkingLoaderView::Child)
+                && let Some(loader) = self.loading_animation.borrow().as_ref()
+            {
+                set_loader_message(loader, self.get_working_loader_message());
+            }
+        }
+        let mut countdown = self.retry_countdown.borrow_mut().take();
+        if let Some(timer) = countdown.as_mut()
+            && !timer.poll(Instant::now())
+        {
+            *self.retry_countdown.borrow_mut() = countdown;
+        }
+        for loader in [
+            self.loading_animation.borrow().clone(),
+            self.retry_loader.borrow().clone(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(loader) = loader
+                .borrow_mut()
+                .as_any_mut()
+                .and_then(|any| any.downcast_mut::<Loader>())
+            {
+                loader.poll(Instant::now());
+            }
+        }
+    }
+
+    /// `getWorkingLoaderIndicator`.
+    fn get_working_loader_indicator(&self, _view: WorkingLoaderView) -> pi_tui::LoaderIndicatorOptions {
+        pi_tui::LoaderIndicatorOptions {
+            frames: Some(Vec::new()),
+            interval_ms: None,
+        }
+    }
+
+    /// `updateWorkingLoaderIndicator`.
+    fn update_working_loader_indicator(&self) {
+        if self.loading_animation.borrow().is_none() || self.working_loader_view.borrow().is_none() {
+            return;
+        }
+        let indicator =
+            self.get_working_loader_indicator(self.working_loader_view.borrow().unwrap_or(WorkingLoaderView::Main));
+        if let Some(loader) = self.loading_animation.borrow().as_ref()
+            && let Some(loader) = loader
+                .borrow_mut()
+                .as_any_mut()
+                .and_then(|any| any.downcast_mut::<Loader>())
+        {
+            loader.set_indicator(Some(indicator));
+        }
+    }
+
+    /// `createWorkingLoader`.
+    fn create_working_loader(&self, indicator: pi_tui::LoaderIndicatorOptions) -> ComponentRef {
+        let ui = Rc::clone(&self.ui);
+        let request_render: Rc<dyn Fn()> = Rc::new(move || {
+            ui.request_render();
+        });
+        component(Loader::new(
+            request_render,
+            Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Accent, text))),
+            Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
+            self.get_working_loader_message(),
+            Some(indicator),
+        ))
+    }
+
+    /// `stopWorkingLoader`.
+    fn stop_working_loader(&self) {
+        self.stop_child_activity_timer();
+        let Some(loader) = self.loading_animation.borrow_mut().take() else {
+            return;
+        };
+        if let Some(loader) = loader
+            .borrow_mut()
+            .as_any_mut()
+            .and_then(|any| any.downcast_mut::<Loader>())
+        {
+            loader.stop();
+        }
+        *self.working_loader_view.borrow_mut() = None;
+        self.status_container.borrow_mut().remove_child(&loader);
+    }
+
+    /// `stopRetryLoader`.
+    fn stop_retry_loader(&self) {
+        let Some(loader) = self.retry_loader.borrow_mut().take() else {
+            return;
+        };
+        if let Some(loader) = loader
+            .borrow_mut()
+            .as_any_mut()
+            .and_then(|any| any.downcast_mut::<Loader>())
+        {
+            loader.stop();
+        }
+        self.status_container.borrow_mut().remove_child(&loader);
+    }
+
+    /// `syncWorkingLoaderVisibility`.
+    fn sync_working_loader_visibility(&self) {
+        let viewing_child = self.is_viewing_agent_session();
+        let should_show = self.working_visible.get()
+            && if viewing_child {
+                self.is_selected_child_working()
+            } else {
+                self.session().is_streaming()
+            };
+        self.sync_working_editor_state();
+        if !should_show {
+            self.stop_working_loader();
+            return;
+        }
+
+        let desired_view = if viewing_child {
+            WorkingLoaderView::Child
+        } else {
+            WorkingLoaderView::Main
+        };
+        if self.loading_animation.borrow().is_some() && *self.working_loader_view.borrow() == Some(desired_view) {
+            if let Some(loader) = self.loading_animation.borrow().as_ref() {
+                set_loader_message(loader, self.get_working_loader_message());
+            }
+            return;
+        }
+        self.stop_working_loader();
+        let loader = self.create_working_loader(self.get_working_loader_indicator(desired_view));
+        *self.loading_animation.borrow_mut() = Some(Rc::clone(&loader));
+        *self.working_loader_view.borrow_mut() = Some(desired_view);
+        self.status_container.borrow_mut().add_child(loader);
+        if viewing_child {
+            self.start_child_activity_timer();
+        }
+    }
+
+    /// `setWorkingVisible`.
+    fn set_working_visible(&self, visible: bool) {
+        self.working_visible.set(visible);
+        self.sync_working_loader_visibility();
+        self.ui.request_render();
+    }
+
+    /// `setWorkingIndicator`.
+    fn set_working_indicator(&self, options: Option<WorkingIndicatorOptions>) {
+        *self.working_indicator_options.borrow_mut() = options;
+        self.sync_working_editor_state();
+        self.update_working_loader_indicator();
+        self.ui.request_render();
+    }
+
+    /// `addCompletedThinkingDurationBeforeToolCall`.
+    fn add_completed_thinking_duration_before_tool_call(&self, message: &AssistantMessage) {
+        let has_tool_call = message
+            .content
+            .iter()
+            .any(|content| matches!(content, pi_ai::types::AssistantContent::ToolCall(_)));
+        if !has_tool_call || !self.thinking_follows_tool.get() {
+            return;
+        }
+        let Some(started_at) = self.thinking_started_at.get() else {
+            return;
+        };
+        let elapsed_ms = self.now_millis() - started_at;
+        self.thinking_follows_tool.set(false);
+        if elapsed_ms < MIN_VISIBLE_ELAPSED_MS {
+            return;
+        }
+        let duration = format_elapsed_duration(elapsed_ms);
+        self.chat_container.borrow_mut().add_child(component(Text::new(
+            with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("Thought for {duration}"))),
+            1,
+            0,
+        )));
     }
 
     fn settings<R>(&self, f: impl FnOnce(&crate::core::settings_manager::SettingsManager) -> R) -> R {
@@ -2883,8 +3418,13 @@ impl InteractiveMode {
         self.session.borrow().cwd().to_owned()
     }
 
-    /// `selectAgentViewFromBridge`: opens a child transcript or restores the main view.
+    /// `selectAgentViewFromBridge`.
     pub fn select_agent_view_from_bridge(&self, agent_id: &str) -> bool {
+        self.select_agent_view(agent_id)
+    }
+
+    /// `selectAgentView`.
+    fn select_agent_view(&self, agent_id: &str) -> bool {
         let Some(store) = self.multi_agent_store.as_ref() else {
             return false;
         };
@@ -2892,12 +3432,14 @@ impl InteractiveMode {
             store.clear_selected_agent_view();
             self.clear_child_agent_view();
             self.loaded_resources_container.borrow_mut().clear();
+            self.show_loaded_resources(false, true);
             self.chat_container.borrow_mut().clear();
             self.render_initial_messages();
-            self.ui.request_render();
+            self.sync_working_loader_visibility();
+            self.update_selected_agent_selection_widgets();
             return true;
         }
-        let Some(agent) = store.get_agent(agent_id) else {
+        let Some(selected) = store.get_agent(agent_id) else {
             return false;
         };
         let previous = store.get_selected_agent_id();
@@ -2907,13 +3449,86 @@ impl InteractiveMode {
         ) {
             return false;
         }
-        if !self.open_child_agent_view(&agent) {
+        if !self.open_child_agent_view(&selected) {
             self.restore_previous_agent_selection(previous.as_deref());
             return false;
         }
         self.loaded_resources_container.borrow_mut().clear();
-        self.ui.request_render();
+        self.sync_working_loader_visibility();
+        self.update_selected_agent_selection_widgets();
         true
+    }
+
+    /// `selectAgentSlot`.
+    fn select_agent_slot(&self, slot_index: i64) -> bool {
+        if slot_index == 0 {
+            return self.select_agent_view("main");
+        }
+        let Some(store) = self.multi_agent_store.as_ref() else {
+            return false;
+        };
+        let previous_selected_agent_id = store.get_selected_agent_id();
+        match store.select_active_agent_slot_target_with_status(slot_index) {
+            crate::core::multi_agent_store::ActiveAgentTargetSelectionResult::NotFound { .. } => false,
+            crate::core::multi_agent_store::ActiveAgentTargetSelectionResult::Inactive { agent } => {
+                self.show_inactive_agent_selection_status(&agent);
+                true
+            }
+            crate::core::multi_agent_store::ActiveAgentTargetSelectionResult::Ok(agent) => {
+                if !self.open_child_agent_view(&agent) {
+                    self.restore_previous_agent_selection(previous_selected_agent_id.as_deref());
+                    return false;
+                }
+                self.loaded_resources_container.borrow_mut().clear();
+                self.sync_working_loader_visibility();
+                self.update_selected_agent_selection_widgets();
+                true
+            }
+        }
+    }
+
+    /// `showInactiveAgentSelectionStatus`.
+    fn show_inactive_agent_selection_status(&self, agent: &AgentSnapshot) {
+        self.show_status(&crate::core::multi_agent_store::format_inactive_agent_selection_message(agent));
+    }
+
+    /// `registerAgentSlotKeyHandlers`.
+    fn register_agent_slot_key_handlers(self: &Rc<Self>) {
+        for (keybinding, slot_index) in AGENT_SLOT_KEYBINDINGS {
+            let mode = Rc::clone(self);
+            self.default_editor.borrow_mut().on_action(
+                keybinding,
+                Rc::new(move || {
+                    mode.select_agent_slot(slot_index);
+                    true
+                }),
+            );
+        }
+    }
+
+    /// `registerGlobalAgentSlotInputHandler`.
+    fn register_global_agent_slot_input_handler(&self) {
+        if let Some(id) = self.agent_slot_input_listener.take() {
+            self.ui.remove_input_listener(id);
+        }
+        let id = self.ui_id.get();
+        let listener_id = self.ui.add_input_listener(Rc::new(move |data: &str| {
+            let consumed = with_mode(id, |mode| {
+                AGENT_SLOT_KEYBINDINGS.into_iter().any(|(keybinding, slot_index)| {
+                    mode.keybindings.matches(data, keybinding) && mode.select_agent_slot(slot_index)
+                })
+            })
+            .unwrap_or(false);
+            if consumed {
+                TuiInputListenerResult {
+                    consume: true,
+                    data: None,
+                }
+            } else {
+                TuiInputListenerResult::default()
+            }
+        }));
+        self.agent_slot_input_listener.set(Some(listener_id));
     }
 
     fn restore_previous_agent_selection(&self, agent_id: Option<&str>) {
@@ -2933,75 +3548,468 @@ impl InteractiveMode {
         }
     }
 
+    /// `updateSelectedAgentSelectionWidgets`.
+    fn update_selected_agent_selection_widgets(&self) {
+        self.render_widgets();
+        self.footer.borrow_mut().invalidate();
+        self.ui.request_render();
+    }
+
+    /// `openChildAgentView`.
     fn open_child_agent_view(&self, agent: &AgentSnapshot) -> bool {
         let transcript_path = agent.transcript.as_ref().and_then(|transcript| transcript.path.clone());
         self.clear_child_agent_view();
-        let stamp = transcript_path.as_deref().and_then(transcript_stamp);
-        *self.child_view.borrow_mut() = Some(ChildAgentView { transcript_path, stamp });
-        if self.render_child_agent_view() {
+        *self.child_view.borrow_mut() = Some(ChildAgentView {
+            transcript_path: transcript_path.clone(),
+            agent_id: agent.id.clone(),
+            session_manager: None,
+            watcher: None,
+            watch_path: None,
+            reload_deadline: None,
+            watch_retry_deadline: None,
+            reload_retries: 0,
+        });
+        let Some(path) = transcript_path.as_deref() else {
+            self.render_live_agent_placeholder(agent, None);
+            return true;
+        };
+        if !Path::new(path).exists() {
+            self.render_live_agent_placeholder(agent, Some(path));
             return true;
         }
-        self.render_live_agent_placeholder(agent);
-        true
-    }
-
-    fn render_child_agent_view(&self) -> bool {
-        self.chat_container.borrow_mut().clear();
         let session_dir = self.session.borrow().session_manager().get_session_dir().to_owned();
-        let messages = self
+        match SessionManager::open(path, Some(&session_dir), None) {
+            Ok(manager) => {
+                if let Some(view) = self.child_view.borrow_mut().as_mut() {
+                    view.session_manager = Some(Arc::new(std::sync::Mutex::new(manager)));
+                }
+            }
+            Err(_) => {
+                self.render_live_agent_placeholder(agent, Some(path));
+                self.schedule_selected_agent_transcript_reload(false);
+                return true;
+            }
+        }
+        self.watch_selected_agent_transcript(path);
+        self.render_selected_agent_view()
+    }
+
+    /// `watchSelectedAgentTranscript`.
+    fn watch_selected_agent_transcript(&self, transcript_path: &str) {
+        let watch_path = if Path::new(transcript_path).exists() {
+            transcript_path.to_owned()
+        } else {
+            Path::new(transcript_path)
+                .parent()
+                .map(|parent| parent.display().to_string())
+                .unwrap_or_default()
+        };
+        let target_name = Path::new(transcript_path)
+            .file_name()
+            .map(|name| name.to_os_string())
+            .unwrap_or_default();
+        let is_file_watch = watch_path == transcript_path;
+        let sender = self.child_view_watch_sender.clone();
+        let listener_sender = sender.clone();
+        let watcher = watch_with_error_handler(
+            Path::new(&watch_path),
+            move |_kind: WatchEventKind, path: Option<PathBuf>| {
+                let matches_target = path
+                    .as_ref()
+                    .and_then(|path| path.file_name())
+                    .is_none_or(|name| name == target_name);
+                if is_file_watch || matches_target {
+                    let _ = listener_sender.send(ChildViewWatchEvent::Changed);
+                }
+            },
+            move || {
+                let _ = sender.send(ChildViewWatchEvent::Error);
+            },
+        );
+        if let Some(view) = self.child_view.borrow_mut().as_mut() {
+            view.watcher = watcher;
+            view.watch_path = Some(watch_path);
+        }
+    }
+
+    /// `scheduleSelectedAgentTranscriptReload`.
+    fn schedule_selected_agent_transcript_reload(&self, reset_retries: bool) {
+        if let Some(view) = self.child_view.borrow_mut().as_mut() {
+            if reset_retries {
+                view.reload_retries = 0;
+            }
+            view.reload_deadline = Some(Instant::now() + Duration::from_millis(50));
+        }
+    }
+
+    /// Drives `fs.watch` events, the reload debounce, and the watch retry.
+    fn poll_child_view_events(&self) {
+        let events: Vec<ChildViewWatchEvent> = self
+            .child_view_watch_events
+            .borrow()
+            .as_ref()
+            .map(|receiver| receiver.try_iter().collect())
+            .unwrap_or_default();
+        for event in events {
+            match event {
+                ChildViewWatchEvent::Changed => self.schedule_selected_agent_transcript_reload(true),
+                ChildViewWatchEvent::Error => {
+                    if let Some(view) = self.child_view.borrow_mut().as_mut() {
+                        view.watcher = None;
+                        view.watch_path = None;
+                        view.watch_retry_deadline =
+                            Some(Instant::now() + Duration::from_millis(FS_WATCH_RETRY_DELAY_MS));
+                    }
+                }
+            }
+        }
+
+        let retry_due = self
             .child_view
             .borrow()
             .as_ref()
-            .and_then(|view| view.transcript_path.as_deref())
-            .and_then(|path| read_child_transcript(path, &session_dir))
-            .unwrap_or_default();
-        if messages.is_empty() {
+            .and_then(|view| view.watch_retry_deadline)
+            .is_some_and(|deadline| Instant::now() >= deadline);
+        if retry_due {
+            let retry = self.child_view.borrow_mut().as_mut().and_then(|view| {
+                view.watch_retry_deadline = None;
+                view.transcript_path.clone()
+            });
+            if let Some(path) = retry
+                && self.selected_child_view_matches()
+            {
+                self.watch_selected_agent_transcript(&path);
+                self.schedule_selected_agent_transcript_reload(true);
+            }
+        }
+
+        let reload_due = self
+            .child_view
+            .borrow()
+            .as_ref()
+            .and_then(|view| view.reload_deadline)
+            .is_some_and(|deadline| Instant::now() >= deadline);
+        if reload_due {
+            if let Some(view) = self.child_view.borrow_mut().as_mut() {
+                view.reload_deadline = None;
+            }
+            self.reload_selected_agent_transcript();
+        }
+    }
+
+    fn selected_child_view_matches(&self) -> bool {
+        let Some(store) = self.multi_agent_store.as_ref() else {
             return false;
-        }
-        for message in &messages {
-            self.add_message_to_chat(message);
-        }
-        self.ui.request_render();
-        true
-    }
-
-    fn render_live_agent_placeholder(&self, agent: &AgentSnapshot) {
-        let transcript = agent
-            .transcript
+        };
+        self.child_view
+            .borrow()
             .as_ref()
-            .and_then(|transcript| transcript.path.as_deref())
-            .map(|path| format!(" (transcript: {path})"))
-            .unwrap_or_default();
-        self.show_status(&format!(
-            "{} is {}{transcript}",
-            agent.display_name,
-            lifecycle_name(agent.lifecycle)
-        ));
-        self.ui.request_render();
+            .is_some_and(|view| store.get_selected_agent_id().as_deref() == Some(view.agent_id.as_str()))
     }
 
-    fn clear_child_agent_view(&self) {
-        *self.child_view.borrow_mut() = None;
-    }
-
-    /// Reloads the selected child transcript when its file changes (polling
-    /// replaces `fs.watch`; the TUI loop already ticks).
-    fn reload_child_view_if_changed(&self) {
-        let Some((path, current_stamp)) = self
+    /// `reloadSelectedAgentTranscript`.
+    fn reload_selected_agent_transcript(&self) {
+        if self.child_view.borrow().is_none() || !self.selected_child_view_matches() {
+            return;
+        }
+        let Some(path) = self
             .child_view
             .borrow()
             .as_ref()
-            .and_then(|view| view.transcript_path.clone().map(|path| (path, view.stamp)))
+            .and_then(|view| view.transcript_path.clone())
         else {
             return;
         };
-        let stamp = transcript_stamp(&path);
-        if stamp.is_none() || stamp == current_stamp {
+        if !Path::new(&path).exists() {
+            let rewatch = self
+                .child_view
+                .borrow()
+                .as_ref()
+                .is_some_and(|view| view.watch_path.as_deref() == Some(path.as_str()));
+            if rewatch {
+                self.watch_selected_agent_transcript(&path);
+            }
             return;
         }
-        if let Some(view) = self.child_view.borrow_mut().as_mut() {
-            view.stamp = stamp;
-            self.render_child_agent_view();
+        if !is_complete_jsonl_file(&path).unwrap_or(false) {
+            self.retry_selected_agent_transcript_reload();
+            return;
+        }
+        let session_dir = self.session.borrow().session_manager().get_session_dir().to_owned();
+        let Ok(manager) = SessionManager::open(&path, Some(&session_dir), None) else {
+            self.retry_selected_agent_transcript_reload();
+            return;
+        };
+        let watch_path = {
+            let mut view = self.child_view.borrow_mut();
+            let Some(view) = view.as_mut() else {
+                return;
+            };
+            view.session_manager = Some(Arc::new(std::sync::Mutex::new(manager)));
+            view.reload_retries = 0;
+            view.watch_path.clone()
+        };
+        if watch_path.as_deref() != Some(path.as_str()) {
+            self.watch_selected_agent_transcript(&path);
+        }
+        if self.render_selected_agent_view() {
+            self.ui.request_render();
+        }
+    }
+
+    /// `retrySelectedAgentTranscriptReload`.
+    fn retry_selected_agent_transcript_reload(&self) {
+        let should_retry = {
+            let mut view = self.child_view.borrow_mut();
+            let Some(view) = view.as_mut() else {
+                return;
+            };
+            if view.reload_retries >= MAX_CHILD_TRANSCRIPT_RELOAD_RETRIES {
+                false
+            } else {
+                view.reload_retries += 1;
+                true
+            }
+        };
+        if should_retry {
+            self.schedule_selected_agent_transcript_reload(false);
+        }
+    }
+
+    /// `renderSelectedAgentView`.
+    fn render_selected_agent_view(&self) -> bool {
+        let Some(session_manager) = self
+            .child_view
+            .borrow()
+            .as_ref()
+            .and_then(|view| view.session_manager.clone())
+        else {
+            return false;
+        };
+        let agent_id = self
+            .child_view
+            .borrow()
+            .as_ref()
+            .map(|view| view.agent_id.clone())
+            .unwrap_or_default();
+        let manager = session_manager
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let session_context = manager.build_session_context();
+        let persisted_settings = manager.read_persisted_session_settings().ok().flatten();
+        let selected_agent = self
+            .multi_agent_store
+            .as_ref()
+            .and_then(|store| store.get_agent(&agent_id));
+        let thinking_level = persisted_settings
+            .and_then(|settings| settings.thinking_level)
+            .or_else(|| {
+                selected_agent
+                    .as_ref()
+                    .and_then(|agent| agent.model.as_ref())
+                    .and_then(|model| model.thinking_level.clone())
+            })
+            .unwrap_or_else(|| session_context.thinking_level.clone());
+        let model = session_context.model.as_ref().and_then(|model| {
+            self.session
+                .borrow()
+                .model_runtime()
+                .get_model(&model.provider, &model.model_id)
+        });
+        let context_window = model.as_ref().map_or(0.0, |model| model.context_window);
+        let estimate = crate::core::compaction::estimate_context_tokens(&session_context.messages);
+        let context_usage = (context_window > 0.0).then(|| ContextUsage {
+            tokens: Some(estimate.tokens),
+            context_window,
+            percent: Some(estimate.tokens / context_window * 100.0),
+        });
+        let footer_override = FooterSessionOverride {
+            cwd: manager.get_cwd().to_owned(),
+            session_manager: Some(Arc::clone(&session_manager)),
+            model,
+            thinking_level,
+            context_usage,
+        };
+        drop(manager);
+        self.footer.borrow_mut().set_session_override(footer_override.clone());
+        self.footer_data_provider.set_session_override(footer_override);
+        self.chat_container.borrow_mut().clear();
+        for message in &session_context.messages {
+            self.add_message_to_chat(message);
+        }
+        true
+    }
+
+    /// `findReadableAgentLogPath`.
+    fn find_readable_agent_log_path(&self, agent: &AgentSnapshot) -> Option<String> {
+        let known_output = find_readable_agent_file_path(agent, "Pyrun output")
+            .or_else(|| find_readable_agent_file_path(agent, "Bash output"));
+        if known_output.is_some() {
+            return known_output;
+        }
+        agent
+            .result
+            .as_ref()
+            .and_then(|result| result.file_refs.as_ref())
+            .and_then(|file_refs| {
+                file_refs
+                    .iter()
+                    .find(|file_ref| {
+                        file_ref.label.as_deref() != Some("Pyrun script") && Path::new(&file_ref.path).exists()
+                    })
+                    .map(|file_ref| file_ref.path.clone())
+            })
+    }
+
+    /// `readAgentLogPreview`.
+    fn read_agent_log_preview(&self, log_path: &str) -> String {
+        self.read_agent_log_preview_unchecked(log_path)
+            .unwrap_or_else(|error| format!("Unable to read log: {error}"))
+    }
+
+    /// `readAgentLogPreviewUnchecked`.
+    fn read_agent_log_preview_unchecked(&self, log_path: &str) -> std::io::Result<String> {
+        let log_size = std::fs::metadata(log_path)?.len() as usize;
+        if log_size <= MAX_AGENT_LOG_VIEW_BYTES {
+            return std::fs::read_to_string(log_path);
+        }
+        let start_offset = log_size - MAX_AGENT_LOG_VIEW_BYTES;
+        let bytes = std::fs::read(log_path)?;
+        let tail = String::from_utf8_lossy(&bytes[start_offset..]);
+        Ok(format!("[Showing last {MAX_AGENT_LOG_VIEW_BYTES} bytes]\n{tail}"))
+    }
+
+    /// `renderLiveAgentPlaceholder`.
+    fn render_live_agent_placeholder(&self, agent: &AgentSnapshot, transcript_path: Option<&str>) {
+        let footer_override = FooterSessionOverride {
+            cwd: agent.cwd.clone(),
+            session_manager: None,
+            model: None,
+            thinking_level: "off".to_owned(),
+            context_usage: None,
+        };
+        self.footer.borrow_mut().set_session_override(footer_override.clone());
+        self.footer_data_provider.set_session_override(footer_override);
+        if let Some(path) = transcript_path {
+            self.watch_selected_agent_transcript(path);
+        }
+        let transcript_status = transcript_path.map_or_else(
+            || "Transcript file has not been assigned yet.".to_owned(),
+            |path| format!("Transcript file has not been written yet: {path}"),
+        );
+        let script_path = find_readable_agent_file_path(agent, "Pyrun script");
+        let log_path = self.find_readable_agent_log_path(agent);
+        let chat = Rc::clone(&self.chat_container);
+        chat.borrow_mut().clear();
+        chat.borrow_mut().add_child(component(Text::new(
+            with_theme(|theme| {
+                theme.bold(&theme.fg(
+                    ThemeColor::Accent,
+                    &format!("Viewing live agent: {}", agent.display_name),
+                ))
+            }),
+            1,
+            0,
+        )));
+        chat.borrow_mut().add_child(component(Spacer::new(1)));
+        chat.borrow_mut().add_child(component(Text::new(
+            with_theme(|theme| {
+                theme.fg(
+                    ThemeColor::Dim,
+                    &format!("{} {}", agent.id, lifecycle_name(agent.lifecycle)),
+                )
+            }),
+            1,
+            0,
+        )));
+        chat.borrow_mut().add_child(component(Text::new(
+            with_theme(|theme| theme.fg(ThemeColor::Dim, &transcript_status)),
+            1,
+            0,
+        )));
+        if let Some(script_path) = script_path {
+            chat.borrow_mut().add_child(component(Spacer::new(1)));
+            chat.borrow_mut().add_child(component(Text::new(
+                with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("Script: {script_path}"))),
+                1,
+                0,
+            )));
+            chat.borrow_mut()
+                .add_child(component(Text::new(self.read_agent_log_preview(&script_path), 1, 0)));
+        }
+        if let Some(log_path) = log_path {
+            chat.borrow_mut().add_child(component(Spacer::new(1)));
+            chat.borrow_mut().add_child(component(Text::new(
+                with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("Log: {log_path}"))),
+                1,
+                0,
+            )));
+            chat.borrow_mut()
+                .add_child(component(Text::new(self.read_agent_log_preview(&log_path), 1, 0)));
+        }
+    }
+
+    /// `clearChildAgentView`.
+    fn clear_child_agent_view(&self) {
+        self.footer.borrow_mut().clear_session_override();
+        self.footer_data_provider.clear_session_override();
+        *self.child_view.borrow_mut() = None;
+    }
+
+    /// `subscribeToMultiAgentStore`.
+    fn subscribe_to_multi_agent_store(&self) {
+        if let Some(subscription) = self.multi_agent_subscription.borrow_mut().take() {
+            subscription.unsubscribe();
+        }
+        *self.multi_agent_updates.borrow_mut() = None;
+        let Some(store) = self.multi_agent_store.as_ref() else {
+            return;
+        };
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        let subscription = store.subscribe_agent_updates(move |_previous, current| {
+            let _ = sender.send(current.clone());
+        });
+        *self.multi_agent_updates.borrow_mut() = Some(receiver);
+        *self.multi_agent_subscription.borrow_mut() = Some(subscription);
+    }
+
+    /// Handles `subscribeAgentUpdates` callbacks on the UI thread.
+    fn poll_multi_agent_updates(&self) {
+        let mut updates: Vec<AgentSnapshot> = Vec::new();
+        if let Some(receiver) = self.multi_agent_updates.borrow_mut().as_mut() {
+            while let Ok(update) = receiver.try_recv() {
+                updates.push(update);
+            }
+        }
+        for current in updates {
+            let Some(store) = self.multi_agent_store.as_ref() else {
+                continue;
+            };
+            if store.get_selected_agent_id().as_deref() != Some(current.id.as_str()) {
+                continue;
+            }
+            if matches!(
+                current.lifecycle,
+                AgentLifecycle::Completed | AgentLifecycle::Failed | AgentLifecycle::Aborted
+            ) {
+                self.select_agent_view("main");
+                continue;
+            }
+            let transcript_path = current
+                .transcript
+                .as_ref()
+                .and_then(|transcript| transcript.path.clone());
+            let child_path = self
+                .child_view
+                .borrow()
+                .as_ref()
+                .and_then(|view| view.transcript_path.clone());
+            if transcript_path.is_some() && transcript_path != child_path {
+                self.open_child_agent_view(&current);
+            }
+            self.sync_working_loader_visibility();
+            self.update_selected_agent_selection_widgets();
+            self.ui.request_render();
         }
     }
 
@@ -4128,6 +5136,11 @@ impl InteractiveMode {
     /// `setCustomEditorComponent`.
     fn set_custom_editor_component(&self, factory: Option<ExtensionEditorFactory>) {
         *self.editor_component_factory.borrow_mut() = factory.clone();
+        *self
+            .ui_shared
+            .editor_component_factory
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = factory.clone();
 
         let current_text = self.editor().borrow().get_text();
         crate::modes::interactive::working_editor::clear_working_editor(&mut *self.editor().borrow_mut());
@@ -4531,6 +5544,11 @@ impl InteractiveMode {
             self.session.borrow().unsubscribe(id);
             self.unsubscribe.set(None);
         }
+        if let Some(subscription) = self.multi_agent_subscription.borrow_mut().take() {
+            subscription.unsubscribe();
+        }
+        *self.multi_agent_updates.borrow_mut() = None;
+        self.clear_child_agent_view();
         self.clipboard_temp_files.borrow_mut().cleanup_all();
         self.ui.stop();
     }
@@ -4874,6 +5892,8 @@ impl InteractiveMode {
         self.default_editor
             .borrow_mut()
             .on_action("app.agent.select", action(self, InteractiveMode::show_agent_switcher));
+        self.register_agent_slot_key_handlers();
+        self.register_global_agent_slot_input_handler();
 
         let mode = Rc::clone(self);
         let debug_handler: Rc<dyn Fn()> = Rc::new(move || {
@@ -4916,6 +5936,7 @@ impl InteractiveMode {
         self.ui.set_focus(Some(editor_ref));
         self.ui.start().map_err(|error| error.to_string())?;
         self.is_initialized.set(true);
+        self.subscribe_to_multi_agent_store();
         self.update_terminal_current_directory();
         self.update_terminal_title();
         self.theme_controller.borrow_mut().apply_from_settings();
@@ -5200,7 +6221,9 @@ impl InteractiveMode {
             }
             self.ui.process_events();
             self.ui.flush_pending();
-            self.reload_child_view_if_changed();
+            self.poll_timers();
+            self.poll_child_view_events();
+            self.poll_multi_agent_updates();
             self.update_editor_border_color();
             self.handle_ui_requests().await;
             self.drain_actions().await;
@@ -8694,17 +9717,13 @@ impl InteractiveMode {
             }
             UiRequest::SetWorkingMessage(message) => {
                 *self.working_message.borrow_mut() = message;
+                if let Some(loader) = self.loading_animation.borrow().as_ref() {
+                    set_loader_message(loader, self.get_working_loader_message());
+                }
                 self.ui.request_render();
             }
-            UiRequest::SetWorkingVisible(visible) => {
-                self.working_visible.set(visible);
-                self.sync_working_editor_state();
-                self.ui.request_render();
-            }
-            UiRequest::SetWorkingIndicator(options) => {
-                *self.working_indicator_options.borrow_mut() = options;
-                self.ui.request_render();
-            }
+            UiRequest::SetWorkingVisible(visible) => self.set_working_visible(visible),
+            UiRequest::SetWorkingIndicator(options) => self.set_working_indicator(options),
             UiRequest::SetHiddenThinkingLabel(label) => {
                 *self.hidden_thinking_label.borrow_mut() = label.unwrap_or_else(|| "Thinking...".to_owned());
                 self.ui.request_render();
@@ -8782,9 +9801,6 @@ impl InteractiveMode {
                 self.setup_autocomplete_provider();
             }
             UiRequest::SetEditorComponent(factory) => self.set_custom_editor_component(factory),
-            UiRequest::GetEditorComponent { respond } => {
-                let _ = respond.send(self.editor_component_factory.borrow().clone());
-            }
             UiRequest::AbortAndRestoreQueued => {
                 self.restore_queued_messages_to_editor(true);
             }
@@ -9037,28 +10053,97 @@ impl InteractiveMode {
         }
     }
 
+    /// `handleHiddenMainSessionDisplayEvent`.
+    fn handle_hidden_main_session_display_event(&self, event: &AgentSessionEvent) -> bool {
+        if !self.is_viewing_agent_session() || !is_main_session_display_event(event) {
+            return false;
+        }
+        self.sync_tool_execution_tracking_for_hidden_main_event(event);
+        if !matches!(event, AgentSessionEvent::Agent(AgentEvent::MessageUpdate { .. })) {
+            self.ui.request_render();
+        }
+        true
+    }
+
+    /// `syncToolExecutionTrackingForHiddenMainEvent`.
+    fn sync_tool_execution_tracking_for_hidden_main_event(&self, event: &AgentSessionEvent) {
+        match event {
+            AgentSessionEvent::Agent(AgentEvent::AgentStart | AgentEvent::AgentEnd { .. }) => {
+                self.executing_tool_names.borrow_mut().clear();
+                self.executing_tool_started_at.borrow_mut().clear();
+                self.stop_tool_waiting_timer_if_idle();
+                self.set_working_message_for_active_tools();
+            }
+            AgentSessionEvent::Agent(AgentEvent::ToolExecutionStart {
+                tool_call_id,
+                tool_name,
+                started_at,
+                ..
+            }) => {
+                self.executing_tool_names
+                    .borrow_mut()
+                    .insert(tool_call_id.clone(), tool_name.clone());
+                self.executing_tool_started_at
+                    .borrow_mut()
+                    .insert(tool_call_id.clone(), *started_at);
+            }
+            AgentSessionEvent::Agent(AgentEvent::ToolExecutionEnd { tool_call_id, .. }) => {
+                self.executing_tool_names.borrow_mut().shift_remove(tool_call_id);
+                self.executing_tool_started_at.borrow_mut().shift_remove(tool_call_id);
+                self.stop_tool_waiting_timer_if_idle();
+                self.set_working_message_for_active_tools();
+            }
+            _ => {}
+        }
+    }
+
     async fn handle_event(&self, event: AgentSessionEvent) {
-        let event = match event {
-            AgentSessionEvent::Message(message) => AgentSessionEvent::Agent(message.event),
-            other => other,
+        let (event, runtime_message_marker) = match event {
+            AgentSessionEvent::Message(message) => {
+                (AgentSessionEvent::Agent(message.event), message.runtime_message_marker)
+            }
+            other => (other, None),
         };
+        if self.handle_hidden_main_session_display_event(&event) {
+            return;
+        }
         match event {
             AgentSessionEvent::Agent(AgentEvent::AgentStart) => {
                 self.close_response_complete_notification();
+                self.thinking_follows_tool.set(false);
                 self.clear_pending_tools();
                 self.executing_tool_names.borrow_mut().clear();
                 self.executing_tool_started_at.borrow_mut().clear();
-                self.sync_working_editor_state();
+                self.stop_tool_waiting_timer_if_idle();
+                self.stop_thinking_timer();
+                self.set_default_working_message("Thinking...");
+                if self.settings(|settings| settings.get_show_terminal_progress()) {
+                    self.ui.terminal().borrow_mut().set_progress(true);
+                }
+                if let Some(handler) = self.retry_escape_handler.borrow_mut().take() {
+                    self.default_editor.borrow_mut().on_escape = Some(handler);
+                }
+                self.retry_countdown.borrow_mut().take();
+                self.stop_working_loader();
+                if let Some(loader) = self.retry_loader.borrow_mut().take() {
+                    set_loader_message(&loader, self.get_working_loader_message());
+                    *self.loading_animation.borrow_mut() = Some(loader);
+                    *self.working_loader_view.borrow_mut() = Some(WorkingLoaderView::Main);
+                }
+                self.sync_working_loader_visibility();
                 self.ui.request_render();
             }
             AgentSessionEvent::Agent(AgentEvent::ModelRequestStart) => {
+                self.start_thinking_timer();
                 self.ui.request_render();
             }
             AgentSessionEvent::Agent(AgentEvent::ModelRequestEnd) => {
+                self.stop_thinking_timer();
                 self.ui.request_render();
             }
             AgentSessionEvent::Agent(AgentEvent::MessageStart { message }) => match &message {
                 AgentMessage::Assistant(assistant) => {
+                    self.set_working_message_for_active_tools();
                     let mut component_value = AssistantMessageComponent::new(
                         None,
                         self.hide_thinking_block.get(),
@@ -9069,7 +10154,13 @@ impl InteractiveMode {
                     );
                     component_value.update_content((**assistant).clone(), true);
                     let component_ref = component(component_value);
-                    self.chat_container.borrow_mut().add_child(Rc::clone(&component_ref));
+                    if self.ui.mode() == TuiMode::Regular {
+                        self.transcript_tail_container
+                            .borrow_mut()
+                            .add_child(Rc::clone(&component_ref));
+                    } else {
+                        self.chat_container.borrow_mut().add_child(Rc::clone(&component_ref));
+                    }
                     *self.streaming_component.borrow_mut() = Some(component_ref);
                     *self.streaming_message.borrow_mut() = Some((**assistant).clone());
                     self.ui.request_render();
@@ -9099,6 +10190,8 @@ impl InteractiveMode {
                 if !visible {
                     return;
                 }
+                self.stop_thinking_timer();
+                self.set_default_working_message("Streaming...");
                 let streaming = self.streaming_component.borrow().clone();
                 if let (Some(streaming), AgentMessage::Assistant(assistant)) = (streaming, &message) {
                     *self.streaming_message.borrow_mut() = Some((**assistant).clone());
@@ -9109,28 +10202,117 @@ impl InteractiveMode {
                     {
                         component_value.update_content((**assistant).clone(), true);
                     }
+                    for content in &assistant.content {
+                        if let pi_ai::types::AssistantContent::ToolCall(call) = content {
+                            let existing = self.pending_tools.borrow().contains_key(&call.id);
+                            if existing {
+                                if let Some(component_ref) = self.pending_tools.borrow().get(&call.id).cloned()
+                                    && let Some(component_value) = component_ref
+                                        .borrow_mut()
+                                        .as_any_mut()
+                                        .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
+                                {
+                                    component_value.update_args(Value::Object(call.arguments.clone()));
+                                }
+                            } else {
+                                self.ensure_tool_component(&call.name, &call.id, Value::Object(call.arguments.clone()));
+                            }
+                        }
+                    }
                     self.ui.request_render();
                 }
             }
             AgentSessionEvent::Agent(AgentEvent::MessageEnd { message }) => {
-                if let AgentMessage::Assistant(assistant) = &message {
-                    let streaming = self.streaming_component.borrow_mut().take();
-                    if let Some(streaming) = streaming
+                self.footer.borrow_mut().invalidate();
+                if matches!(message, AgentMessage::User(_)) {
+                    return;
+                }
+                if matches!(message, AgentMessage::Assistant(_))
+                    && is_duplicate_turn_assistant_message(None, runtime_message_marker)
+                {
+                    self.discard_streaming_component();
+                    self.ui.request_render();
+                    return;
+                }
+                if let AgentMessage::Assistant(assistant) = &message
+                    && self.streaming_component.borrow().is_some()
+                {
+                    let mut assistant = (**assistant).clone();
+                    let mut error_message = None;
+                    if assistant.stop_reason == pi_ai::types::StopReason::Aborted {
+                        let retry_attempt = self.session().retry_attempt();
+                        error_message = Some(if retry_attempt > 0 {
+                            format!(
+                                "Aborted after {retry_attempt} retry attempt{}",
+                                if retry_attempt > 1 { "s" } else { "" }
+                            )
+                        } else {
+                            "Operation aborted".to_owned()
+                        });
+                        assistant.error_message = error_message.clone();
+                    }
+                    *self.streaming_message.borrow_mut() = Some(assistant.clone());
+                    if let Some(streaming) = self.streaming_component.borrow().as_ref()
                         && let Some(component_value) = streaming
                             .borrow_mut()
                             .as_any_mut()
                             .and_then(|any| any.downcast_mut::<AssistantMessageComponent>())
                     {
-                        component_value.update_content((**assistant).clone(), false);
+                        component_value.update_content(assistant.clone(), false);
                     }
-                    for content in &assistant.content {
-                        if let pi_ai::types::AssistantContent::ToolCall(call) = content {
-                            self.ensure_tool_component(&call.name, &call.id, Value::Object(call.arguments.clone()));
+                    self.move_streaming_component_to_chat();
+                    self.add_completed_thinking_duration_before_tool_call(&assistant);
+
+                    if matches!(
+                        assistant.stop_reason,
+                        pi_ai::types::StopReason::Aborted | pi_ai::types::StopReason::Error
+                    ) {
+                        let error_message = error_message
+                            .or_else(|| assistant.error_message.clone())
+                            .unwrap_or_else(|| "Error".to_owned());
+                        for component in self.pending_tools.borrow().values() {
+                            if let Some(component_value) = component
+                                .borrow_mut()
+                                .as_any_mut()
+                                .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
+                            {
+                                component_value.update_result(
+                                    ToolExecutionResult {
+                                        content: vec![pi_ai::types::TextOrImageContent::Text(
+                                            pi_ai::types::TextContent::new(error_message.clone()),
+                                        )],
+                                        details: None,
+                                        is_error: true,
+                                    },
+                                    false,
+                                    None,
+                                );
+                            }
                         }
+                        self.clear_pending_tools();
+                        self.executing_tool_names.borrow_mut().clear();
+                        self.executing_tool_started_at.borrow_mut().clear();
+                        self.stop_tool_waiting_timer_if_idle();
+                    } else {
+                        for content in &assistant.content {
+                            if let pi_ai::types::AssistantContent::ToolCall(call) = content {
+                                self.ensure_tool_component(&call.name, &call.id, Value::Object(call.arguments.clone()));
+                            }
+                        }
+                        for component in self.pending_tools.borrow().values() {
+                            if let Some(component_value) = component
+                                .borrow_mut()
+                                .as_any_mut()
+                                .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
+                            {
+                                component_value.set_args_complete();
+                            }
+                        }
+                        self.maybe_show_cache_miss_notice(&assistant);
                     }
+                    *self.streaming_component.borrow_mut() = None;
                     *self.streaming_message.borrow_mut() = None;
                 }
-                self.footer.borrow_mut().invalidate();
                 self.ui.request_render();
             }
             AgentSessionEvent::Agent(AgentEvent::ToolExecutionStart {
@@ -9154,6 +10336,8 @@ impl InteractiveMode {
                 {
                     component_value.mark_execution_started(started_at);
                 }
+                self.start_tool_waiting_timer();
+                self.set_working_message_for_active_tools();
                 self.ui.request_render();
             }
             AgentSessionEvent::Agent(AgentEvent::ToolExecutionUpdate {
@@ -9188,6 +10372,7 @@ impl InteractiveMode {
                 ..
             }) => {
                 let component_ref = self.pending_tools.borrow_mut().shift_remove(&tool_call_id);
+                let had_component = component_ref.is_some();
                 if let Some(component_ref) = component_ref
                     && let Some(component_value) = component_ref
                         .borrow_mut()
@@ -9207,17 +10392,29 @@ impl InteractiveMode {
                 }
                 self.executing_tool_names.borrow_mut().shift_remove(&tool_call_id);
                 self.executing_tool_started_at.borrow_mut().shift_remove(&tool_call_id);
-                self.ui.request_render();
+                self.stop_tool_waiting_timer_if_idle();
+                self.thinking_follows_tool.set(true);
+                self.set_default_working_message("Thinking...");
+                self.set_working_message_for_active_tools();
+                if had_component {
+                    self.ui.request_render();
+                }
             }
-            AgentSessionEvent::AgentEnd(event) => {
-                self.clear_pending_tools();
+            AgentSessionEvent::AgentEnd(_) => {
+                self.notify_response_complete();
+                self.thinking_follows_tool.set(false);
+                self.stop_thinking_timer();
                 self.executing_tool_names.borrow_mut().clear();
                 self.executing_tool_started_at.borrow_mut().clear();
-                self.sync_working_editor_state();
-                self.ui.request_render();
-                if !event.will_retry {
-                    self.notify_response_complete();
+                self.stop_tool_waiting_timer_if_idle();
+                if self.settings(|settings| settings.get_show_terminal_progress()) {
+                    self.ui.terminal().borrow_mut().set_progress(false);
                 }
+                self.stop_working_loader();
+                crate::modes::interactive::working_editor::clear_working_editor(&mut *self.editor().borrow_mut());
+                self.discard_streaming_component();
+                self.clear_pending_tools();
+                self.ui.request_render();
             }
             AgentSessionEvent::QueueUpdate(_) => {
                 self.update_pending_messages_display();
@@ -9263,32 +10460,59 @@ impl InteractiveMode {
                 self.ui.request_render();
             }
             AgentSessionEvent::AutoRetryStart(event) => {
-                self.set_prompt_activity(PromptActivitySource::Retry, true);
+                let previous_escape = self.default_editor.borrow().on_escape.clone();
+                *self.retry_escape_handler.borrow_mut() = previous_escape;
+                let session = self.session();
+                self.default_editor.borrow_mut().on_escape = Some(Rc::new(move || {
+                    session.abort_retry();
+                }));
                 self.status_container.borrow_mut().clear();
-                self.status_container.borrow_mut().add_child(component(Text::new(
-                    with_theme(|theme| {
-                        theme.fg(
-                            ThemeColor::Warning,
-                            &format!(
-                                "Retrying ({}/{}) in {}s... (Esc to cancel)",
-                                event.attempt,
-                                event.max_attempts,
-                                (event.delay_ms / 1000.0).ceil() as u64
-                            ),
-                        )
-                    }),
-                    1,
-                    0,
-                )));
+                self.retry_countdown.borrow_mut().take();
+                let attempt = event.attempt;
+                let max_attempts = event.max_attempts;
+                let retry_message = move |seconds: i64| {
+                    format!(
+                        "Retrying ({attempt}/{max_attempts}) in {seconds}s... ({} to cancel)",
+                        crate::modes::interactive::components::keybinding_hints::key_text("app.interrupt")
+                    )
+                };
+                let ui = Rc::clone(&self.ui);
+                let request_render: Rc<dyn Fn()> = Rc::new(move || {
+                    ui.request_render();
+                });
+                let loader = component(Loader::new(
+                    Rc::clone(&request_render),
+                    Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Warning, text))),
+                    Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
+                    retry_message((event.delay_ms / 1000.0).ceil() as i64),
+                    Some(self.get_working_loader_indicator(WorkingLoaderView::Main)),
+                ));
+                *self.retry_loader.borrow_mut() = Some(Rc::clone(&loader));
+                let tick_loader = Rc::clone(&loader);
+                let countdown = CountdownTimer::new(
+                    event.delay_ms.max(0.0) as u64,
+                    Some(request_render),
+                    Rc::new(move |seconds| set_loader_message(&tick_loader, retry_message(seconds))),
+                    Rc::new(|| {}),
+                );
+                *self.retry_countdown.borrow_mut() = Some(countdown);
+                self.status_container.borrow_mut().add_child(loader);
+                self.set_prompt_activity(PromptActivitySource::Retry, true);
                 self.ui.request_render();
             }
             AgentSessionEvent::AutoRetryEnd(event) => {
+                if let Some(handler) = self.retry_escape_handler.borrow_mut().take() {
+                    self.default_editor.borrow_mut().on_escape = Some(handler);
+                }
+                self.retry_countdown.borrow_mut().take();
+                self.stop_retry_loader();
                 self.set_prompt_activity(PromptActivitySource::Retry, false);
-                self.status_container.borrow_mut().clear();
-                if !event.success
-                    && let Some(error) = &event.final_error
-                {
-                    self.show_error(error);
+                if !event.success {
+                    self.show_error(&format!(
+                        "Retry failed after {} attempts: {}",
+                        event.attempt,
+                        event.final_error.as_deref().unwrap_or("Unknown error")
+                    ));
                 }
                 self.ui.request_render();
             }
@@ -9377,6 +10601,113 @@ impl InteractiveMode {
         );
         *self.response_complete_notification.borrow_mut() = notification;
     }
+
+    /// `clearTranscriptTail`.
+    fn clear_transcript_tail(&self) {
+        if let Some(region) = self.transcript_tail_region.borrow().as_ref() {
+            region.clear();
+        }
+        self.transcript_tail_container.borrow_mut().clear();
+    }
+
+    /// `moveStreamingComponentToChat`.
+    fn move_streaming_component_to_chat(&self) {
+        let Some(component_ref) = self.streaming_component.borrow().clone() else {
+            return;
+        };
+        self.clear_transcript_tail();
+        if !self
+            .chat_container
+            .borrow()
+            .children()
+            .iter()
+            .any(|child| Rc::ptr_eq(child, &component_ref))
+        {
+            self.chat_container.borrow_mut().add_child(component_ref);
+        }
+    }
+
+    /// `discardStreamingComponent`.
+    fn discard_streaming_component(&self) {
+        if self.streaming_component.borrow().is_none() {
+            return;
+        }
+        self.clear_transcript_tail();
+        *self.streaming_component.borrow_mut() = None;
+        *self.streaming_message.borrow_mut() = None;
+    }
+
+    /// `maybeShowCacheMissNotice`.
+    fn maybe_show_cache_miss_notice(&self, message: &AssistantMessage) {
+        if !self.settings(|settings| settings.get_show_cache_miss_notices()) {
+            return;
+        }
+        let session = self.session();
+        let entries = session.session_manager().get_entries();
+        let prices = ModelRuntimePrices(session.model_runtime());
+        if let Some(miss) = crate::core::cache_stats::detect_cache_miss(&entries, message, &prices) {
+            self.add_cache_miss_notice(miss);
+        }
+    }
+
+    /// `addCacheMissNotice`.
+    fn add_cache_miss_notice(&self, miss: crate::core::cache_stats::CacheMiss) {
+        if miss.missed_tokens < 20_000.0 && miss.missed_cost < 0.1 {
+            return;
+        }
+        let cost = if miss.missed_cost >= 0.01 {
+            format!(" (~${})", pi_js_compat::number::to_fixed(miss.missed_cost, 2))
+        } else {
+            String::new()
+        };
+        let re_billed = format!("{} tokens re-billed{cost}", format_tokens(miss.missed_tokens));
+        let mut label = "Cache miss".to_owned();
+        if miss.model_changed {
+            label = "Cache miss after model switch".to_owned();
+        } else if miss.idle_ms >= crate::core::cache_stats::CACHE_TTL_MS as f64 {
+            label = format!("Cache miss after {}m idle", (miss.idle_ms / 60_000.0).round() as i64);
+        }
+        let text = with_theme(|theme| theme.fg(ThemeColor::Warning, &format!("{label}: {re_billed}")));
+        self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
+        self.chat_container
+            .borrow_mut()
+            .add_child(component(Text::new(text, 1, 0)));
+    }
+}
+
+/// `detectCacheMiss` price source backed by the session model runtime.
+struct ModelRuntimePrices<'a>(&'a crate::core::model_runtime::ModelRuntime);
+
+impl crate::core::cache_stats::ModelPriceSource for ModelRuntimePrices<'_> {
+    fn get_model(&self, provider: &str, model_id: &str) -> Option<crate::core::cache_stats::ModelPrice> {
+        self.0
+            .get_model(provider, model_id)
+            .map(|model| crate::core::cache_stats::ModelPrice {
+                cache_read: model.cost.rates.cache_read,
+            })
+    }
+}
+
+/// `isMainSessionDisplayEvent`.
+fn is_main_session_display_event(event: &AgentSessionEvent) -> bool {
+    matches!(
+        event,
+        AgentSessionEvent::Agent(
+            AgentEvent::AgentStart
+                | AgentEvent::AgentEnd { .. }
+                | AgentEvent::MessageStart { .. }
+                | AgentEvent::MessageUpdate { .. }
+                | AgentEvent::MessageEnd { .. }
+                | AgentEvent::ModelRequestStart
+                | AgentEvent::ModelRequestEnd
+                | AgentEvent::ToolExecutionStart { .. }
+                | AgentEvent::ToolExecutionUpdate { .. }
+                | AgentEvent::ToolExecutionEnd { .. }
+        ) | AgentSessionEvent::CompactionStart(_)
+            | AgentSessionEvent::CompactionEnd(_)
+            | AgentSessionEvent::EntryAppended(_)
+            | AgentSessionEvent::QueueUpdate(_)
+    )
 }
 
 #[cfg(test)]
@@ -9503,6 +10834,7 @@ mod ui_tests {
             Vec::new(),
             serde_json::Map::new(),
             false,
+            TestModeSetup::default(),
         )
         .await
     }
@@ -9520,8 +10852,23 @@ mod ui_tests {
             Vec::new(),
             serde_json::Map::new(),
             true,
+            TestModeSetup::default(),
         )
         .await
+    }
+
+    struct TestModeSetup {
+        multi_agent_store: Option<Arc<MultiAgentStore>>,
+        tui_mode: TuiMode,
+    }
+
+    impl Default for TestModeSetup {
+        fn default() -> Self {
+            Self {
+                multi_agent_store: None,
+                tui_mode: TuiMode::Regular,
+            }
+        }
     }
 
     async fn build_mode_with_extra_providers(
@@ -9531,6 +10878,7 @@ mod ui_tests {
         extra_providers: Vec<Arc<dyn pi_ai::models::Provider>>,
         extra_credentials: serde_json::Map<String, Value>,
         persist_session: bool,
+        setup: TestModeSetup,
     ) -> (
         Rc<InteractiveMode>,
         Rc<RefCell<CaptureTerminal>>,
@@ -9689,7 +11037,8 @@ mod ui_tests {
         let mode = InteractiveMode::new(
             runtime,
             InteractiveModeOptions {
-                tui_mode: Some(TuiMode::Regular),
+                tui_mode: Some(setup.tui_mode),
+                multi_agent_store: setup.multi_agent_store,
                 ..Default::default()
             },
             Some(terminal_trait),
@@ -9722,6 +11071,9 @@ mod ui_tests {
         for _ in 0..200 {
             mode.ui.process_events();
             mode.ui.flush_pending();
+            mode.poll_timers();
+            mode.poll_child_view_events();
+            mode.poll_multi_agent_updates();
             while let Ok(event) = events.try_recv() {
                 handled += 1;
                 mode.handle_event(event).await;
@@ -10818,6 +12170,7 @@ mod ui_tests {
                     vec![pi_ai::providers::anthropic::anthropic_provider()],
                     credentials,
                     false,
+                    TestModeSetup::default(),
                 )
                 .await;
                 let mut events = start(&mode).await;
@@ -10870,6 +12223,7 @@ mod ui_tests {
                     vec![pi_ai::providers::anthropic::anthropic_provider()],
                     credentials,
                     false,
+                    TestModeSetup::default(),
                 )
                 .await;
                 let model = mode
@@ -10954,6 +12308,496 @@ mod ui_tests {
                 assert_eq!(mode.chat_container.borrow().children().len(), after);
             })
             .await;
+    }
+
+    #[derive(Clone)]
+    struct FakeClock(Rc<Cell<f64>>);
+
+    impl FakeClock {
+        fn new(millis: f64) -> Self {
+            Self(Rc::new(Cell::new(millis)))
+        }
+
+        fn install(&self, mode: &Rc<InteractiveMode>) {
+            let clock = self.clone();
+            *mode.now_millis.borrow_mut() = Rc::new(move || clock.0.get());
+        }
+
+        fn advance(&self, millis: f64) {
+            self.0.set(self.0.get() + millis);
+        }
+    }
+
+    fn status_text(mode: &Rc<InteractiveMode>) -> String {
+        let rendered = mode.status_container.borrow_mut().render(160).join("\n");
+        pi_tui::utils::strip_terminal_sequences(&rendered)
+    }
+
+    fn chat_text(mode: &Rc<InteractiveMode>) -> String {
+        let rendered = mode.chat_container.borrow_mut().render(160).join("\n");
+        pi_tui::utils::strip_terminal_sequences(&rendered)
+    }
+
+    fn test_store() -> Arc<MultiAgentStore> {
+        Arc::new(MultiAgentStore::new(
+            crate::core::multi_agent_store::MultiAgentStoreOptions {
+                now: Some(Arc::new(|| "2026-06-27T00:00:00.000Z".to_owned())),
+            },
+        ))
+    }
+
+    fn spawn_agent(
+        store: &MultiAgentStore,
+        name: &str,
+        slot: Option<i64>,
+        transcript_path: Option<&str>,
+        model: Option<crate::core::multi_agent_store::AgentModel>,
+    ) -> String {
+        let agent = AgentSnapshot {
+            id: store.allocate_agent_id_for_lifecycle_coordinator("agent"),
+            parent_id: None,
+            display_name: name.to_owned(),
+            agent_type: "worker".to_owned(),
+            origin: None,
+            lifecycle: AgentLifecycle::Running,
+            revision: 1,
+            created_at: "2026-06-27T00:00:00.000Z".to_owned(),
+            updated_at: "2026-06-27T00:00:00.000Z".to_owned(),
+            cwd: "/repo".to_owned(),
+            worktree: None,
+            model,
+            account: None,
+            permission: crate::core::multi_agent_store::AgentPermission {
+                policy: "on-request".to_owned(),
+                inherited_from: None,
+                narrowed: true,
+            },
+            slot: slot.map(|index| crate::core::multi_agent_store::AgentSlot { index, pinned: true }),
+            transcript: transcript_path.map(|path| crate::core::multi_agent_store::AgentTranscriptMetadata {
+                session_id: "child-session".to_owned(),
+                path: Some(path.to_owned()),
+            }),
+            event_stream: None,
+            worker: None,
+            detached: None,
+            current_activity: None,
+            last_activity: None,
+            result: None,
+            error: None,
+            extra: serde_json::Map::new(),
+        };
+        let id = agent.id.clone();
+        store.publish_lifecycle_coordinator_snapshot(&agent);
+        id
+    }
+
+    async fn build_mode_with_store(
+        store: Arc<MultiAgentStore>,
+        tui_mode: TuiMode,
+    ) -> (
+        Rc<InteractiveMode>,
+        Rc<RefCell<CaptureTerminal>>,
+        Arc<pi_ai::providers::faux::FauxProviderHandle>,
+        tempfile::TempDir,
+    ) {
+        build_mode_with_extra_providers(
+            StaticResourceLoader::new(),
+            None,
+            SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default()),
+            Vec::new(),
+            serde_json::Map::new(),
+            false,
+            TestModeSetup {
+                multi_agent_store: Some(store),
+                tui_mode,
+            },
+        )
+        .await
+    }
+
+    fn write_child_session(root: &Path, cwd: &str, messages: &[&str]) -> (String, String) {
+        let session_dir = root.join("child-sessions").display().to_string();
+        let mut manager = SessionManager::create(cwd, Some(&session_dir), None).expect("child session");
+        manager.append_model_change("faux", "faux-2").expect("model change");
+        manager.append_thinking_level_change("high").expect("thinking change");
+        for text in messages {
+            manager
+                .append_message(AgentMessage::User(pi_ai::types::UserMessage {
+                    role: pi_ai::types::UserRole::Tag,
+                    content: pi_ai::types::UserContent::Text((*text).to_owned()),
+                    input_source: None,
+                    provider_native: None,
+                    timestamp: 0,
+                }))
+                .expect("child message");
+        }
+        let mut assistant = faux_assistant_message(
+            "child answer",
+            pi_ai::providers::faux::FauxAssistantMessageOptions::default(),
+        );
+        assistant.provider = "faux".to_owned();
+        assistant.model = "faux-2".to_owned();
+        assistant.usage.input = 1_500.0;
+        assistant.usage.output = 300.0;
+        manager
+            .append_message(AgentMessage::Assistant(Box::new(assistant)))
+            .expect("child assistant");
+        manager.persist_for_recovery().expect("persist child");
+        let path = manager.get_session_file().expect("child file").to_owned();
+        (path, session_dir)
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn agent_slot_keybindings_select_active_agents_and_main() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let store = test_store();
+                let first = spawn_agent(&store, "First", Some(1), None, None);
+                let second = spawn_agent(&store, "Second", Some(2), None, None);
+                let (mode, terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store), TuiMode::Regular).await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                terminal.borrow_mut().send_input("\x1b2");
+                mode.ui.process_events();
+                assert_eq!(store.get_selected_agent_id().as_deref(), Some(first.as_str()));
+                let chat = chat_text(&mode);
+                assert!(chat.contains("Viewing live agent: First"), "{chat}");
+
+                terminal.borrow_mut().send_input("\x1b3");
+                mode.ui.process_events();
+                assert_eq!(store.get_selected_agent_id().as_deref(), Some(second.as_str()));
+                let chat = chat_text(&mode);
+                assert!(chat.contains("Viewing live agent: Second"), "{chat}");
+
+                terminal.borrow_mut().send_input("\x1b1");
+                mode.ui.process_events();
+                assert_eq!(store.get_selected_agent_id(), None);
+                let chat = chat_text(&mode);
+                assert!(!chat.contains("Viewing live agent:"), "{chat}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn inactive_agent_slot_reports_status_without_switching() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let store = test_store();
+                let done = spawn_agent(&store, "Done", Some(1), None, None);
+                let mut snapshot = store.get_agent(&done).expect("agent");
+                snapshot.lifecycle = AgentLifecycle::Completed;
+                snapshot.revision += 1;
+                store.publish_lifecycle_coordinator_snapshot(&snapshot);
+                let active = spawn_agent(&store, "Active", Some(2), None, None);
+                let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store), TuiMode::Regular).await;
+                let _events = start(&mode).await;
+
+                assert!(mode.select_agent_slot(1));
+                assert_eq!(store.get_selected_agent_id().as_deref(), Some(active.as_str()));
+                assert!(!status_text(&mode).contains("not active"));
+
+                assert!(mode.select_agent_slot(2));
+                assert_eq!(store.get_selected_agent_id().as_deref(), Some(active.as_str()));
+                assert!(!mode.select_agent_slot(5));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn thinking_and_tool_waiting_timers_update_the_working_loader() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let clock = FakeClock::new(1_000_000.0);
+                clock.install(&mode);
+                let loader = mode.create_working_loader(mode.get_working_loader_indicator(WorkingLoaderView::Main));
+                *mode.loading_animation.borrow_mut() = Some(Rc::clone(&loader));
+                *mode.working_loader_view.borrow_mut() = Some(WorkingLoaderView::Main);
+                mode.status_container.borrow_mut().add_child(loader);
+
+                mode.handle_event(AgentSessionEvent::Agent(AgentEvent::ModelRequestStart))
+                    .await;
+                let status = status_text(&mode);
+                assert!(status.contains("Thinking... 0s"), "{status}");
+
+                clock.advance(2_000.0);
+                mode.poll_timers();
+                let status = status_text(&mode);
+                assert!(status.contains("Thinking... 2s"), "{status}");
+
+                mode.handle_event(AgentSessionEvent::Agent(AgentEvent::ModelRequestEnd))
+                    .await;
+                clock.advance(2_000.0);
+                mode.poll_timers();
+                let status = status_text(&mode);
+                assert!(status.contains("Thinking... 2s"), "timer must stop: {status}");
+
+                mode.handle_event(AgentSessionEvent::Agent(AgentEvent::ToolExecutionStart {
+                    tool_call_id: "bash-1".to_owned(),
+                    tool_name: "bash".to_owned(),
+                    args: serde_json::json!({"command": "sleep 10"}),
+                    started_at: clock.0.get(),
+                }))
+                .await;
+                let status = status_text(&mode);
+                assert!(status.contains("Waiting for command..."), "{status}");
+                mode.pending_tools.borrow_mut().clear();
+                clock.advance(2_000.0);
+                mode.poll_timers();
+                let status = status_text(&mode);
+                assert!(status.contains("Waiting for command... Elapsed: 2s"), "{status}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn retry_loader_counts_down_and_reports_final_failure() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                mode.handle_event(AgentSessionEvent::AutoRetryStart(
+                    crate::core::agent_session::AutoRetryStartEvent {
+                        event_type: "auto_retry_start",
+                        attempt: 1,
+                        max_attempts: 3,
+                        delay_ms: 3_000.0,
+                        error_message: "boom".to_owned(),
+                    },
+                ))
+                .await;
+                let status = status_text(&mode);
+                assert!(
+                    status.contains("Retrying (1/3) in 3s... (escape to cancel)"),
+                    "{status}"
+                );
+
+                tokio::time::sleep(Duration::from_millis(1_100)).await;
+                mode.poll_timers();
+                let status = status_text(&mode);
+                assert!(
+                    status.contains("Retrying (1/3) in 2s... (escape to cancel)"),
+                    "{status}"
+                );
+
+                mode.handle_event(AgentSessionEvent::AutoRetryEnd(
+                    crate::core::agent_session::AutoRetryEndEvent {
+                        event_type: "auto_retry_end",
+                        success: false,
+                        attempt: 3,
+                        final_error: None,
+                    },
+                ))
+                .await;
+                let status = status_text(&mode);
+                assert!(!status.contains("Retrying ("), "{status}");
+                let chat = chat_text(&mode);
+                assert!(chat.contains("Retry failed after 3 attempts: Unknown error"), "{chat}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn child_view_overrides_the_footer_session() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let temp = tempfile::tempdir().expect("temp dir");
+                let cwd = temp.path().join("repo");
+                std::fs::create_dir_all(&cwd).expect("cwd");
+                let (path, _session_dir) =
+                    write_child_session(temp.path(), &cwd.display().to_string(), &["child prompt"]);
+                let store = test_store();
+                spawn_agent(&store, "Child", Some(1), Some(&path), None);
+                let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store), TuiMode::Regular).await;
+                let _events = start(&mode).await;
+                let main_footer =
+                    pi_tui::utils::strip_terminal_sequences(&mode.footer.borrow_mut().render(200).join("\n"));
+                assert!(main_footer.contains("faux-1"), "{main_footer}");
+
+                assert!(mode.select_agent_slot(1));
+                let footer = pi_tui::utils::strip_terminal_sequences(&mode.footer.borrow_mut().render(200).join("\n"));
+                assert!(footer.contains("faux-2"), "{footer}");
+                assert!(!footer.contains("faux-1"), "{footer}");
+                assert!(footer.contains('↑'), "child usage must be shown: {footer}");
+                let chat = chat_text(&mode);
+                assert!(chat.contains("child prompt"), "{chat}");
+
+                assert!(mode.select_agent_view_from_bridge("main"));
+                let footer = pi_tui::utils::strip_terminal_sequences(&mode.footer.borrow_mut().render(200).join("\n"));
+                assert!(footer.contains("faux-1"), "{footer}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn message_end_moves_the_streaming_component_into_the_chat_container() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let message = AgentMessage::Assistant(Box::new(faux_assistant_message(
+                    "streamed answer",
+                    pi_ai::providers::faux::FauxAssistantMessageOptions::default(),
+                )));
+                mode.handle_event(AgentSessionEvent::Agent(AgentEvent::MessageStart {
+                    message: message.clone(),
+                }))
+                .await;
+                assert_eq!(mode.transcript_tail_container.borrow().children().len(), 1);
+                assert!(mode.chat_container.borrow().children().is_empty());
+
+                mode.handle_event(AgentSessionEvent::Agent(AgentEvent::MessageEnd { message }))
+                    .await;
+                assert!(mode.transcript_tail_container.borrow().children().is_empty());
+                assert_eq!(mode.chat_container.borrow().children().len(), 1);
+                assert!(chat_text(&mode).contains("streamed answer"));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn fullscreen_message_start_renders_directly_in_the_chat_container() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode_with_store(test_store(), TuiMode::Fullscreen).await;
+                let _events = start(&mode).await;
+                assert_eq!(mode.ui.mode(), TuiMode::Fullscreen);
+                let message = AgentMessage::Assistant(Box::new(faux_assistant_message(
+                    "fullscreen answer",
+                    pi_ai::providers::faux::FauxAssistantMessageOptions::default(),
+                )));
+                mode.handle_event(AgentSessionEvent::Agent(AgentEvent::MessageStart {
+                    message: message.clone(),
+                }))
+                .await;
+                assert!(mode.transcript_tail_container.borrow().children().is_empty());
+                assert_eq!(mode.chat_container.borrow().children().len(), 1);
+                mode.handle_event(AgentSessionEvent::Agent(AgentEvent::MessageEnd { message }))
+                    .await;
+                assert!(mode.transcript_tail_container.borrow().children().is_empty());
+                assert_eq!(mode.chat_container.borrow().children().len(), 1);
+                assert!(chat_text(&mode).contains("fullscreen answer"));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn child_transcript_reloads_after_a_watched_file_change() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let temp = tempfile::tempdir().expect("temp dir");
+                let cwd = temp.path().join("repo");
+                std::fs::create_dir_all(&cwd).expect("cwd");
+                let (path, session_dir) =
+                    write_child_session(temp.path(), &cwd.display().to_string(), &["first child message"]);
+                let store = test_store();
+                spawn_agent(&store, "Child", Some(1), Some(&path), None);
+                let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store), TuiMode::Regular).await;
+                let _events = start(&mode).await;
+                assert!(mode.select_agent_slot(1));
+                assert!(chat_text(&mode).contains("first child message"));
+
+                let mut manager = SessionManager::open(&path, Some(&session_dir), None).expect("open child");
+                manager
+                    .append_message(AgentMessage::User(pi_ai::types::UserMessage {
+                        role: pi_ai::types::UserRole::Tag,
+                        content: pi_ai::types::UserContent::Text("second child message".to_owned()),
+                        input_source: None,
+                        provider_native: None,
+                        timestamp: 0,
+                    }))
+                    .expect("append child message");
+                manager.persist_for_recovery().expect("persist child");
+
+                let mut rendered = String::new();
+                for _ in 0..400 {
+                    mode.poll_child_view_events();
+                    rendered = chat_text(&mode);
+                    if rendered.contains("second child message") {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                assert!(rendered.contains("second child message"), "{rendered}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_context_exposes_autocomplete_and_editor_factories() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let runner = mode.session().extension_runner();
+                let context = runner.create_context();
+                let ui = context.ui().expect("ui context");
+
+                let wrapped = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let wrapped_by_factory = Arc::clone(&wrapped);
+                ui.add_autocomplete_provider(Arc::new(move |provider| {
+                    wrapped_by_factory.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    provider
+                }));
+                mode.handle_ui_requests().await;
+                assert_eq!(wrapped.load(std::sync::atomic::Ordering::SeqCst), 1);
+                assert_eq!(mode.autocomplete_provider_wrappers.borrow().len(), 1);
+                assert!(mode.autocomplete_provider.borrow().is_some());
+
+                let factory: ExtensionEditorFactory = Arc::new(|_tui, _theme, _keybindings| {
+                    Rc::new(RefCell::new(TestEditorComponent)) as Rc<RefCell<dyn EditorComponent>>
+                });
+                ui.set_editor_component(Some(Arc::clone(&factory)));
+                mode.handle_ui_requests().await;
+                assert!(ui.get_editor_component().is_some());
+                assert!(
+                    !Rc::ptr_eq(
+                        &mode.editor(),
+                        &(mode.default_editor.clone() as Rc<RefCell<dyn EditorComponent>>)
+                    ),
+                    "custom editor must be mounted"
+                );
+
+                ui.set_editor_component(None);
+                mode.handle_ui_requests().await;
+                assert!(ui.get_editor_component().is_none());
+                assert!(
+                    Rc::ptr_eq(
+                        &mode.editor(),
+                        &(mode.default_editor.clone() as Rc<RefCell<dyn EditorComponent>>)
+                    ),
+                    "default editor must be restored"
+                );
+            })
+            .await;
+    }
+
+    #[derive(Default)]
+    struct TestEditorComponent;
+
+    impl Component for TestEditorComponent {
+        fn render(&mut self, _width: usize) -> Vec<String> {
+            vec!["custom-editor".to_owned()]
+        }
+    }
+
+    impl EditorComponent for TestEditorComponent {
+        fn get_text(&self) -> String {
+            String::new()
+        }
+
+        fn set_text(&mut self, _text: &str) {}
     }
 }
 

@@ -5266,12 +5266,13 @@ impl AgentSession {
         self.inner.agent.is_streaming()
     }
 
-    pub fn system_prompt(&self) -> String {
-        self.inner.agent.system_prompt()
-    }
-
+    /// `session.retryAttempt`.
     pub fn retry_attempt(&self) -> u64 {
         self.inner.retry_attempt.load(Ordering::SeqCst)
+    }
+
+    pub fn system_prompt(&self) -> String {
+        self.inner.agent.system_prompt()
     }
 
     pub fn request_resume_continuation(&self) {
