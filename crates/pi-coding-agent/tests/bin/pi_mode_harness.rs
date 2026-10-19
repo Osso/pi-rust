@@ -221,6 +221,9 @@ async fn build_runtime(
         multi_agent_execution_capability: None,
         custom_tools: tools.2.clone(),
         base_tools: tools.1.clone(),
+        multi_agent_store: None,
+        on_shared_channel_message_delivered: None,
+        session_start_event: None,
     })
     .await
     .expect("session");
@@ -259,6 +262,9 @@ async fn build_runtime(
                 multi_agent_execution_capability: None,
                 custom_tools: tools.2.clone(),
                 base_tools: tools.1.clone(),
+                multi_agent_store: None,
+                on_shared_channel_message_delivered: None,
+                session_start_event: None,
             })
             .await?;
             Ok(CreateAgentSessionRuntimeResult {

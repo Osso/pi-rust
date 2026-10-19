@@ -42,7 +42,7 @@ async fn bun_cli_entry_registers_and_hands_off_to_the_cli() {
     let main_called = Mutex::new(false);
     let main: CliMain<'_> = Box::new(|_args: &[String]| {
         *main_called.lock().unwrap() = true;
-        Box::pin(async { Ok(()) })
+        Box::pin(async { Ok(0) })
     });
 
     let result = run_bun_cli_entry(&args, &runner, main).await.unwrap();
@@ -63,11 +63,11 @@ async fn bun_cli_entry_runs_main_when_no_internal_runner_matches() {
     let seen = Mutex::new(Vec::new());
     let main: CliMain<'_> = Box::new(|args: &[String]| {
         seen.lock().unwrap().extend(args.iter().cloned());
-        Box::pin(async { Ok(()) })
+        Box::pin(async { Ok(0) })
     });
 
     let result = run_bun_cli_entry(&args, &runner, main).await.unwrap();
-    assert!(result.is_some(), "main path returns the configured fetch");
+    assert_eq!(result, Some(0), "main path returns its exit code");
     assert_eq!(*seen.lock().unwrap(), vec!["--version".to_owned()]);
     assert!(runner.calls.lock().unwrap().is_empty());
 }

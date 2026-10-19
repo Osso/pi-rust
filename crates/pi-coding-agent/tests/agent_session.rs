@@ -71,13 +71,7 @@ fn stream_fn(runtime: ModelRuntime) -> pi_agent_core::agent::types::StreamFn {
 }
 
 async fn fixture() -> Fixture {
-    fixture_with(
-        Default::default(),
-        Vec::new(),
-        None,
-        Some(Vec::new()),
-    )
-    .await
+    fixture_with(Default::default(), Vec::new(), None, Some(Vec::new())).await
 }
 
 async fn fixture_with(

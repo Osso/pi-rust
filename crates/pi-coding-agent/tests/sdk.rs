@@ -174,6 +174,9 @@ async fn services_and_from_services_create_a_working_session() {
         multi_agent_execution_capability: None,
         custom_tools: Vec::new(),
         base_tools: Vec::new(),
+        multi_agent_store: None,
+        on_shared_channel_message_delivered: None,
+        session_start_event: None,
     })
     .await
     .expect("session");

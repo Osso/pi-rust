@@ -19,6 +19,7 @@ use pi_coding_agent::core::auth_guidance::format_no_models_available_message;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::model_resolver::ScopedModel;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 use pi_coding_agent::core::project_trust::AppMode;
 use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension};
 use pi_coding_agent::core::sdk::NoTools;
@@ -593,6 +594,9 @@ async fn runtime_factory_creates_services_and_reports_missing_models() {
         additional_prompt_template_paths: Vec::new(),
         additional_theme_paths: Vec::new(),
         extension_factories: Vec::new(),
+        multi_agent_store: Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default())),
+        multi_agent_runtime_handles:
+            pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles(),
     });
     let result = factory(CreateAgentSessionRuntimeOptions {
         cwd: cwd_string.clone(),

@@ -2,19 +2,20 @@
 
 Source: `packages/coding-agent/src/main.ts` (1,364 lines, pinned revision).
 
-Status: **partial** — startup helpers are ported and tested; `main()` orchestration,
-the `pi` binary target, and process-level differentials land with the consolidated
-`master` that contains the print/RPC modes, `DefaultResourceLoader`, and
-`self-restart` (in-flight slices ca-rpc, ca-resource-loader/ca-agent-session-2).
+Rust: `crates/pi-coding-agent/src/main.rs` (module `main_runner`) and the `pi`
+binary at `crates/pi-coding-agent/src/bin/pi.rs`.
+
+Status: **done** for `main.ts`. Dispatch targets that live in unported modules
+return an explicit gap error; they are listed under "Explicit gaps".
 
 ## Exported symbols
 
 | TypeScript | Rust | Tests |
 | --- | --- | --- |
-| `MainOptions` | `main_runner::MainOptions` | compile-time use in `tests/main.rs` |
+| `MainOptions` | `main_runner::MainOptions` | `tests/main.rs`, `tests/main_process.rs` |
+| `main` | `main_runner::main` / `run_main_or_report_error` | process differentials (`tests/main_process.rs`, 11) |
 | `runCliActionOrReportError` | `main_runner::run_cli_action_or_report_error` | `cli_action_wrappers_map_errors_to_exit_codes` |
 | `runInteractiveActionOrReportTerminalError` | `main_runner::run_interactive_action_or_report_terminal_error` | `cli_action_wrappers_map_errors_to_exit_codes` |
-| `main` | pending (orchestration commit) | pending process differential |
 
 ## Private helpers
 
@@ -25,82 +26,95 @@ the `pi` binary target, and process-level differentials land with the consolidat
 | `toPrintOutputMode` | `to_print_output_mode` | `app_mode_follows_mode_print_and_tty_state` |
 | `isPlainRuntimeMetadataCommand` | `is_plain_runtime_metadata_command` | `plain_runtime_metadata_commands_skip_stdout_takeover` |
 | `collectSettingsDiagnostics` | `collect_settings_diagnostics` | `settings_diagnostics_prefix_scope_and_context` |
-| `reportDiagnostics` | `report_diagnostics` | covered by the orchestration process differential (color depends on TTY) |
-| `refreshRpcModelCatalogs` | `refresh_rpc_model_catalogs` | pending RPC process differential |
-| `runAuthCommand` | `run_auth_command` | pending auth process differential |
+| `reportDiagnostics` | `report_diagnostics` | print/json process differentials |
+| `refreshRpcModelCatalogs` | `refresh_rpc_model_catalogs` | rpc process differential |
+| `runAuthCommand` | `run_auth_command` | `tests/main.rs` helpers; auth process paths deterministic |
 | `prepareInitialMessage` | `prepare_initial_message` | `initial_message_concatenates_stdin_and_the_first_cli_message` |
 | `findLocalSessionByExactId` | `find_local_session_by_exact_id` | `create_session_manager_honors_help_in_memory_and_session_ids` |
 | `sessionBelongsToProject` | `session_belongs_to_project` | `session_project_membership_uses_the_git_common_directory` |
 | `resolveSessionPath` | `resolve_session_path` | `session_paths_resolve_locally_globally_and_by_prefix` |
-| `promptConfirm` | `prompt_confirm` | pending `--session` global-fork process differential |
-| `validateForkFlags` | `validate_fork_flags` / `fork_flag_conflict` | `fork_conflicts_list_flags_in_source_order` |
-| `validateSessionIdFlags` | `validate_session_id_flags` / `session_id_flag_conflict` | `session_id_conflicts_and_validation_match_the_source` |
-| `openSessionOrExit` | `open_session_or_exit` | pending process differential |
-| `forkSessionOrExit` | `fork_session_or_exit` | pending process differential |
+| `promptConfirm` | `prompt_confirm` | fork/prompt paths in `tests/main.rs` |
+| `validateForkFlags` | `validate_fork_flags` / `fork_flag_conflict` | `fork_conflicts_list_flags_in_source_order`, fork-conflict differential |
+| `validateSessionIdFlags` | `validate_session_id_flags` / `session_id_flag_conflict` | `session_id_conflicts_and_validation_match_the_source`, invalid-id differential |
+| `openSessionOrExit` | `open_session_or_exit` | missing-session differential |
+| `forkSessionOrExit` | `fork_session_or_exit` | fork-conflict differential |
 | `createSessionManager` | `create_session_manager` | `create_session_manager_honors_help_in_memory_and_session_ids` |
 | `buildSessionOptions` | `build_session_options` | `build_session_options_prefers_cli_model_and_explicit_thinking`, `build_session_options_uses_scoped_models_and_tool_flags` |
 | `resolveCliPaths` | `resolve_cli_paths` | `cli_paths_resolve_local_entries_only` |
-| `promptForMissingSessionCwd` | pending (`showStartupSelector` needs a terminal) | pending interactive slice |
+| `promptForMissingSessionCwd` | `prompt_for_missing_session_cwd` | interactive-only; uses `showStartupSelector` |
 | `firstPartyExtensionFactory` | `first_party_extension_factory` | `first_party_factory_list_partitions_the_source_names`, `first_party_factories_load_and_register_agent_tools` |
-| `runtimeExtensionFactory` | pending (bundled extension registry) | pending |
-| `createFirstPartyExtensionFactories` | `create_first_party_extension_factories` (bundled modules present on master) | `first_party_factory_list_partitions_the_source_names`, `first_party_factories_load_and_register_agent_tools` |
-| `createRuntime` (closure in `main`) | `create_runtime_factory` / `create_runtime` | `runtime_factory_creates_services_and_reports_missing_models` |
-| `readPipedStdin` | pending (orchestration commit) | pending process differential |
+| `runtimeExtensionFactory` | `InlineExtension::Factory` | extension loader tests |
+| `createFirstPartyExtensionFactories` | `create_first_party_extension_factories` | same first-party tests |
+| `createRuntime` (closure in `main`) | `create_runtime_factory` / `create_runtime` | `runtime_factory_creates_services_and_reports_missing_models`, print/json differentials |
+| `readPipedStdin` | `read_piped_stdin` | print differential with argv messages; stdin path covered by initial-message test |
+| `sessionStartEvent` (runtime request) | `session_start_event` | print/json differentials |
+
+## Behavior coverage
+
+- Entry order matches `cli.ts`: internal detached runner, HTTP dispatcher, then
+  `main`. The binary uses `cli_entry::run_cli_main` so the dispatcher step is shared.
+- `main` order: resident-console parse, `architect`/`supervisor` dispatch, timings,
+  package/config commands, auth (twice, as in the source), Windows quarantine,
+  bootstrap settings, login/control/debug/sessions commands, args parse, self-restart
+  handoff, first-party extension factories, diagnostics, version, export, app-mode
+  resolution, fork/session-id validation, worktree, migrations, startup settings,
+  first-time-setup guard, session manager, missing-cwd handling, restart notice,
+  `--name`, stdout takeover, trust resolution, per-cwd runtime factory, runtime
+  creation, dead-runtime reconciliation, help/list commands, piped stdin, initial
+  message, theme, deprecation warnings, runtime diagnostics, no-model check,
+  startup-benchmark guard, RPC catalog refresh, then print/json/RPC dispatch.
+- `createRuntime` restores the shared `MultiAgentStore` from the session manager,
+  resolves project trust with the per-cwd cache, builds loader options, resolves the
+  model scope, applies CLI model/thinking/tools options and `--api-key`, and creates
+  the orchestrator session with the shared store, runtime handles, session-start
+  event, and shared-channel wake handler.
+- Print/JSON/RPC dispatch calls the ported `modes` implementations. Interactive
+  dispatch returns the explicit gap error for `interactive-mode.ts`.
 
 ## Explicit gaps
 
-- `main()` orchestration is pending the consolidated `master`. The call order is
-  recorded from the source and will be implemented verbatim: resident-console
-  dispatch, `architect`/`supervisor` service dispatch, timings reset, package/config
-  commands, auth, migrations, args, self-restart handoff, extension factories,
-  version/export, mode resolution, fork/session-id validation, worktree, settings,
-  session manager, trust, runtime creation, help/list commands, stdin, initial
-  message, theme, diagnostics, model checks, mode dispatch.
-- `--resume` currently returns an explicit error: `selectSession` is blocked on
-  `SessionSelectorComponent` (`cli/session-picker.ts`). This is a recorded gap, not
-  a fallback.
-- Interactive mode dispatch will return an explicit error naming the unported
-  `interactive-mode.ts` (per the slice brief) once `main()` lands.
+- `--resume` returns an explicit error: `cli/session-picker.ts` `selectSession` is
+  unported (`SessionSelectorComponent`).
+- Interactive mode dispatch returns an explicit error naming
+  `modes/interactive/interactive-mode.ts` until the `ca-interactive-mode` slice lands.
 - `--supervisor` / `--architect` resident console and the `architect`/`supervisor`
-  subcommands are blocked on `cli/resident-console-command.ts` UI and the
-  `architect/main.ts` / `supervisor/main.ts` service loops.
-- `core/debug-repl.ts` is a documented gap (`node:vm`); the `debug` extension
-  factory cannot be registered until a Rust-native REPL exists.
-- Bundled extension factories: `agents-core`, `agent-viewer`, and `agents-mailbox`
-  are wired from `src/bundled_extensions/`. `FIRST_PARTY_EXTENSION_NAMES` records
-  the full source list and `PENDING_FIRST_PARTY_EXTENSIONS` records the names whose
-  factories are still in flight (approval-controls, ask-secret, browser-cli,
-  claude-bash-hook, claude-memory-enrich, claude-memory-session-end, codex-fast,
+  subcommands are not wired; the service loops are owned by the hosts slice.
+- `core/debug-repl.ts` is a documented gap (`node:vm`), so the `debug` extension
+  factory is not registered.
+- First-party factories: `agents-core`, `agent-viewer`, `agents-mailbox` are wired.
+  `FIRST_PARTY_EXTENSION_NAMES` lists the source names and
+  `PENDING_FIRST_PARTY_EXTENSIONS` the remaining factories
+  (approval-controls, ask-secret, browser-cli, claude-bash-hook,
+  claude-memory-enrich, claude-memory-session-end, codex-fast,
   codex-image-generation, codex-usage, codex-web-search, debug, default-footer,
   docs-tree-context, effort, goal, bwrap, pyrun, loop, openai-remote-compact,
   run-plan, safe, spec-validation, session-archive, self-restart, session-id).
-  A test enforces that the registered and pending lists partition the source list.
-- `createRuntime` is ported as `create_runtime_factory`: per-cwd settings and
-  services, project-trust resolution with `projectTrustByCwd` caching, loader
-  options, scoped-model resolution, CLI model/thinking/tools options, runtime API
-  key refresh, and orchestrator session creation. `sessionStartEvent === undefined`
-  maps to `session_start_reason == "startup"`.
-- `bindAgentSessionMutationTargetResolver` and `MultiAgentStore` persistence are
-  not ported yet; the store is created empty and mutation-target binding is skipped.
-  `onSharedChannelMessageDelivered` is likewise not carried by the Rust SDK options.
+  A test enforces that registered and pending names partition the source list.
+- `bindAgentSessionMutationTargetResolver` is not ported; the store is restored but
+  mutation-target resolution for interactive views is skipped.
 - Production child/attached session factories remain unavailable (documented
   "child orchestration unavailable" path).
 
-## Source-port discrepancies
+## Deviations
 
-- `bundled_extensions::agents_core::runtime::multi_agent_extension` mirrors the
-  TypeScript `runtime.ts` default export, which registers core, viewer, and
-  mailbox tools. `main.ts` imports the package index default export
-  (`agents-core/src/index.ts`), which calls `registerAgentsCoreTools` only. The
-  first-party factory uses `register_agents_core_tools`; calling
-  `multi_agent_extension` would register duplicate tools and fail extension
-  loading when all three factories are present.
+- `process.title`, `process.emitWarning`, and the `PI_CODING_AGENT`/`AI_AGENT`
+  environment writes from `cli.ts` are not applied. Edition 2024 makes
+  `std::env::set_var` unsafe and the workspace forbids unsafe code;
+  `cli_entry::CLI_PROCESS_ENV` records the values for a future
+  `pi_js_compat::process_env` overlay. `process.title`/`emitWarning` have no Rust
+  analogue.
+- `applyHttpProxySettings` has no process-global equivalent. Settings `httpProxy`
+  is not written into the environment; the HTTP client reads the ambient proxy
+  environment instead. `resolve_http_proxy_settings` captures the source decision.
+- `--version` reads `package.json` from `PI_PACKAGE_DIR` (or the executable
+  directory), matching the deployed layout. Process differentials stage that file.
+- The JSON mode serializes `startedAt`/`finishedAt` as floats; the differential
+  normalizes these duration fields (allowed substitution).
 
 ## Source discrepancies
 
 - `runAuthCommand` is invoked twice in the source (before and after package/config
-  commands). The Rust orchestration will preserve both calls.
-- `sessionManager.setMetadataControlDbPath`, `bindExtensions`,
-  `bindAgentSessionMutationTargetResolver`, and `createMultiAgentRuntimeHandles`
-  are in-flight dependencies; the orchestration will use the merged APIs rather
-  than local substitutes.
+  commands). The Rust orchestration preserves both calls.
+- `format_package_list` previously returned a trailing newline, which produced a
+  blank line through `console_log`; fixed to match `console.log` output. This was a
+  Rust port bug, not a source discrepancy.

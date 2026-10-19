@@ -7,14 +7,10 @@
 use std::process::ExitCode;
 
 use pi_ai::request::BoxFuture;
+use pi_coding_agent::cli_entry::{CliMain, run_cli_main};
 use pi_coding_agent::core::detached_bash_runner::run_detached_bash_runner;
-use pi_coding_agent::core::http_dispatcher::{
-    DEFAULT_HTTP_IDLE_TIMEOUT_MS, configure_http_dispatcher,
-};
 use pi_coding_agent::internal_runner::{DetachedRunnerHost, run_internal_detached_runner};
-use pi_coding_agent::main_runner::{
-    MainOptions, console_error, run_main_or_report_error,
-};
+use pi_coding_agent::main_runner::{MainOptions, console_error, run_main_or_report_error};
 use pi_coding_agent::utils::chalk::Chalk;
 
 /// Internal runner host backed by the ported detached bash runner.
@@ -32,8 +28,7 @@ impl DetachedRunnerHost for CliDetachedRunnerHost {
 
     fn run_pyrun<'a>(&'a self, _manifest_path: &'a str) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async {
-            Err("pyrun detached runner is not ported (extensions/pyrun/src/detached-runner.ts)"
-                .to_owned())
+            Err("pyrun detached runner is not ported (extensions/pyrun/src/detached-runner.ts)".to_owned())
         })
     }
 }
@@ -54,10 +49,13 @@ async fn main() -> ExitCode {
         }
     }
 
-    if let Err(message) = configure_http_dispatcher(DEFAULT_HTTP_IDLE_TIMEOUT_MS as f64) {
-        console_error(&Chalk::stderr().red(&format!("Error: {message}")));
-        return exit_code(1);
+    let main: CliMain<'_> =
+        Box::new(|args| Box::pin(async move { Ok(run_main_or_report_error(args, MainOptions::default()).await) }));
+    match run_cli_main(&args, main).await {
+        Ok(code) => exit_code(code),
+        Err(message) => {
+            console_error(&Chalk::stderr().red(&format!("Error: {message}")));
+            exit_code(1)
+        }
     }
-
-    exit_code(run_main_or_report_error(&args, MainOptions::default()).await)
 }

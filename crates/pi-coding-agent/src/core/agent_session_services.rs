@@ -59,6 +59,9 @@ pub struct CreateAgentSessionFromServicesOptions {
     pub multi_agent_execution_capability: Option<crate::core::agent_session::MultiAgentExecutionCapability>,
     pub custom_tools: Vec<crate::core::agent_session::ToolDefinition>,
     pub base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
+    pub multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
+    pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
+    pub session_start_event: Option<crate::core::extensions::types::SessionStartEvent>,
 }
 
 /// Coherent cwd-bound runtime services for one effective session cwd.
@@ -237,6 +240,9 @@ pub async fn create_agent_session_from_services(
         multi_agent_execution_capability: options.multi_agent_execution_capability,
         custom_tools: options.custom_tools,
         base_tools: options.base_tools,
+        multi_agent_store: options.multi_agent_store,
+        on_shared_channel_message_delivered: options.on_shared_channel_message_delivered,
+        session_start_event: options.session_start_event,
         ..Default::default()
     })
     .await

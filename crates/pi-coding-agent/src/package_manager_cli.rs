@@ -604,7 +604,7 @@ pub fn handle_config_command(args: &[String]) -> Option<CommandOutcome> {
 pub fn format_package_list(packages: &[crate::core::package_manager::ConfiguredPackage]) -> String {
     let chalk = Chalk::stdout();
     if packages.is_empty() {
-        return format!("{}\n", chalk.dim("No packages installed."));
+        return chalk.dim("No packages installed.");
     }
     let mut lines: Vec<String> = Vec::new();
     let user_packages: Vec<_> = packages
@@ -643,7 +643,7 @@ pub fn format_package_list(packages: &[crate::core::package_manager::ConfiguredP
             format_package(package, &mut lines);
         }
     }
-    format!("{}\n", lines.join("\n"))
+    lines.join("\n")
 }
 
 /// `reportProjectTrustWarnings`.

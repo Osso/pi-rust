@@ -788,6 +788,9 @@ pub fn default_runtime_factory(options: DefaultRuntimeFactoryOptions) -> CreateA
                     multi_agent_execution_capability: None,
                     custom_tools: options.custom_tools.clone(),
                     base_tools: options.base_tools.clone(),
+                    multi_agent_store: None,
+                    on_shared_channel_message_delivered: None,
+                    session_start_event: None,
                 },
             )
             .await?;

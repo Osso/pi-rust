@@ -64,9 +64,7 @@ use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use crate::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 use crate::core::output_guard::{restore_stdout, take_over_stdout};
 use crate::core::project_trust::{AppMode, ResolveProjectTrustedOptions, resolve_project_trusted};
-use crate::core::resource_loader::{
-    DefaultResourceLoaderOptions, InlineExtension, ResourceLoader,
-};
+use crate::core::resource_loader::{DefaultResourceLoaderOptions, InlineExtension, ResourceLoader};
 use crate::core::sdk::{CreateAgentSessionOptions, NoTools};
 use crate::core::self_restart::{
     SelfRestartWaitDependencies, append_self_restart_notice, apply_self_restart_request, consume_self_restart_request,
@@ -224,10 +222,32 @@ pub struct RuntimeFactoryOptions {
     pub additional_prompt_template_paths: Vec<String>,
     pub additional_theme_paths: Vec<String>,
     pub extension_factories: Vec<InlineExtension>,
+    pub multi_agent_store: Arc<MultiAgentStore>,
+    pub multi_agent_runtime_handles: crate::bundled_extensions::agents_core::runtime::MultiAgentRuntimeHandles,
 }
 
 fn trust_decision_is_trusted(store: &ProjectTrustStore, cwd: &str) -> bool {
     store.get(cwd) == Ok(ProjectTrustDecision::Trusted)
+}
+
+/// Runtime reason strings mapped to `session_start` metadata.
+fn session_start_event(
+    reason: &str,
+    previous_session_file: Option<String>,
+) -> crate::core::extensions::types::SessionStartEvent {
+    use crate::core::extensions::types::{SessionStartEvent, SessionStartReason};
+    let reason = match reason {
+        "reload" => SessionStartReason::Reload,
+        "new" => SessionStartReason::New,
+        "resume" => SessionStartReason::Resume,
+        "fork" => SessionStartReason::Fork,
+        "restart" => SessionStartReason::Restart,
+        _ => SessionStartReason::Startup,
+    };
+    SessionStartEvent {
+        reason,
+        previous_session_file,
+    }
 }
 
 fn project_trust_context(
@@ -256,6 +276,10 @@ async fn create_runtime(
             cwd_override: None,
         },
     );
+    options
+        .multi_agent_store
+        .restore_from_session_manager(&session_manager)
+        .map_err(|error| error.to_string())?;
 
     let is_initial_runtime = request.session_start_reason == "startup";
     let project_trust_diagnostics = Arc::new(Mutex::new(Vec::new()));
@@ -471,6 +495,17 @@ async fn create_runtime(
         multi_agent_execution_capability: Some(create_multi_agent_execution_capability()),
         custom_tools: Vec::new(),
         base_tools: Vec::new(),
+        multi_agent_store: Some(Arc::clone(&options.multi_agent_store)),
+        on_shared_channel_message_delivered: {
+            let handles = options.multi_agent_runtime_handles.clone();
+            Some(Arc::new(move |prompt: String| {
+                crate::bundled_extensions::agents_core::runtime::wake_wait_agents_after_coordination(&handles, &prompt);
+            }))
+        },
+        session_start_event: Some(session_start_event(
+            &request.session_start_reason,
+            request.previous_session_file.clone(),
+        )),
     })
     .await?;
 
@@ -1528,9 +1563,7 @@ fn extension_flags_from_loader(resource_loader: &Arc<dyn ResourceLoader>) -> Vec
             },
             default: flag.default.as_ref().map(|value| match value {
                 crate::core::extensions::types::FlagValue::Boolean(value) => ExtensionFlagDefault::Boolean(*value),
-                crate::core::extensions::types::FlagValue::String(value) => {
-                    ExtensionFlagDefault::String(value.clone())
-                }
+                crate::core::extensions::types::FlagValue::String(value) => ExtensionFlagDefault::String(value.clone()),
             }),
             extension_path: flag.extension_path.clone(),
         })
@@ -1610,11 +1643,7 @@ pub async fn run_main_or_report_error(args: &[String], options: MainOptions) -> 
     }
 }
 
-async fn run_main_inner(
-    args: &[String],
-    options: MainOptions,
-    exit_code: &mut i32,
-) -> Result<Option<i32>, String> {
+async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i32) -> Result<Option<i32>, String> {
     match parse_resident_console_args(args) {
         Ok(Some(command)) => {
             return Err(format!(
@@ -1660,17 +1689,13 @@ async fn run_main_inner(
         },
     )
     .map_err(|error| error.to_string())?;
-    let fetch = configure_http_dispatcher(
-        crate::core::http_dispatcher::DEFAULT_HTTP_IDLE_TIMEOUT_MS as f64,
-    )?;
+    let fetch = configure_http_dispatcher(crate::core::http_dispatcher::DEFAULT_HTTP_IDLE_TIMEOUT_MS as f64)?;
 
     let package_effects = DefaultPackageCommandEffects {
         cwd: cwd.clone(),
         agent_dir: agent_dir.clone(),
         install_context: InstallContext::for_process(),
-        entrypoint: std::env::current_exe()
-            .ok()
-            .map(|path| path.display().to_string()),
+        entrypoint: std::env::current_exe().ok().map(|path| path.display().to_string()),
         extensions_loader: Arc::new(DefaultProjectTrustExtensionsLoader::default()),
         config_selector: Rc::new(TuiConfigSelector {
             terminal: Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new())),
@@ -1734,20 +1759,15 @@ async fn run_main_inner(
     apply_self_restart_request(&mut parsed, handoff.as_ref());
     wait_for_self_restart_parent_exit(handoff.as_ref(), &SelfRestartWaitDependencies::default()).await;
     if handoff.as_ref().and_then(|handoff| handoff.old_pid) == Some(std::process::id()) {
-        prepare_control_db_for_self_restart(
-            &get_control_db_path(&get_user_state_root()),
-            std::process::id(),
-        )
-        .map_err(|error| error.to_string())?;
+        prepare_control_db_for_self_restart(&get_control_db_path(&get_user_state_root()), std::process::id())
+            .map_err(|error| error.to_string())?;
     }
 
     let multi_agent_store = create_first_party_multi_agent_store();
     let multi_agent_runtime_handles =
         crate::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
-    let first_party_extension_factories = create_first_party_extension_factories(
-        Arc::clone(&multi_agent_store),
-        multi_agent_runtime_handles,
-    );
+    let first_party_extension_factories =
+        create_first_party_extension_factories(Arc::clone(&multi_agent_store), multi_agent_runtime_handles.clone());
     let extension_factories = if parsed.no_extensions.is_some_and(|value| value) {
         options.extension_factories.clone()
     } else {
@@ -1760,12 +1780,8 @@ async fn run_main_inner(
         let chalk = Chalk::stderr();
         for diagnostic in &parsed.diagnostics {
             let message = match diagnostic.kind {
-                crate::cli::args::DiagnosticType::Error => {
-                    chalk.red(&format!("Error: {}", diagnostic.message))
-                }
-                crate::cli::args::DiagnosticType::Warning => {
-                    chalk.yellow(&format!("Warning: {}", diagnostic.message))
-                }
+                crate::cli::args::DiagnosticType::Error => chalk.red(&format!("Error: {}", diagnostic.message)),
+                crate::cli::args::DiagnosticType::Warning => chalk.yellow(&format!("Warning: {}", diagnostic.message)),
             };
             console_error(&message);
         }
@@ -1794,13 +1810,8 @@ async fn run_main_inner(
         return Ok(Some(0));
     }
 
-    let mut app_mode = resolve_app_mode(
-        &parsed,
-        std::io::stdin().is_terminal(),
-        std::io::stdout().is_terminal(),
-    );
-    let should_take_over_stdout =
-        app_mode != AppMode::Interactive && !is_plain_runtime_metadata_command(&parsed);
+    let mut app_mode = resolve_app_mode(&parsed, std::io::stdin().is_terminal(), std::io::stdout().is_terminal());
+    let should_take_over_stdout = app_mode != AppMode::Interactive && !is_plain_runtime_metadata_command(&parsed);
 
     if parsed.mode == Some(Mode::Rpc) && !parsed.file_args.is_empty() {
         console_error(&Chalk::stderr().red("Error: @file arguments are not supported in RPC mode"));
@@ -1825,9 +1836,7 @@ async fn run_main_inner(
     let mut startup_settings_manager = SettingsManager::create(
         &cwd,
         Some(Path::new(&agent_dir)),
-        SettingsManagerCreateOptions {
-            project_trusted: None,
-        },
+        SettingsManagerCreateOptions { project_trusted: None },
     )
     .map_err(|error| error.to_string())?;
     report_diagnostics(&collect_settings_diagnostics(
@@ -1873,26 +1882,15 @@ async fn run_main_inner(
     );
     if let Some(issue) = get_missing_session_cwd_issue(&session_manager, &cwd) {
         if handoff.is_some() {
-            session_manager = reopen_session_with_cwd(
-                &issue,
-                session_dir.as_deref(),
-                &issue.fallback_cwd,
-                &control_db_path,
-            )
-            .map_err(|error| error.to_string())?;
+            session_manager =
+                reopen_session_with_cwd(&issue, session_dir.as_deref(), &issue.fallback_cwd, &control_db_path)
+                    .map_err(|error| error.to_string())?;
         } else if app_mode == AppMode::Interactive {
-            let Some(selected_cwd) =
-                prompt_for_missing_session_cwd(&issue, &startup_settings_manager).await
-            else {
+            let Some(selected_cwd) = prompt_for_missing_session_cwd(&issue, &startup_settings_manager).await else {
                 return Ok(Some(0));
             };
-            session_manager = reopen_session_with_cwd(
-                &issue,
-                session_dir.as_deref(),
-                &selected_cwd,
-                &control_db_path,
-            )
-            .map_err(|error| error.to_string())?;
+            session_manager = reopen_session_with_cwd(&issue, session_dir.as_deref(), &selected_cwd, &control_db_path)
+                .map_err(|error| error.to_string())?;
         } else {
             console_error(&Chalk::stderr().red(&MissingSessionCwdError::new(issue).to_string()));
             return Ok(Some(1));
@@ -1915,8 +1913,7 @@ async fn run_main_inner(
     }
     time("createSessionManager", TimingLabel::Main);
     if app_mode == AppMode::Interactive {
-        let _control_message = claim_latest_incoming_message(&control_db_path)
-            .map_err(|error| error.to_string())?;
+        let _control_message = claim_latest_incoming_message(&control_db_path).map_err(|error| error.to_string())?;
     }
 
     let trust_store = Arc::new(ProjectTrustStore::new(&agent_dir));
@@ -1930,8 +1927,7 @@ async fn run_main_inner(
         app_mode
     };
     let project_trust_by_cwd = Arc::new(Mutex::new(HashMap::new()));
-    let additional_extension_paths =
-        resolve_cli_paths(&cwd, parsed.extensions.as_deref())?.unwrap_or_default();
+    let additional_extension_paths = resolve_cli_paths(&cwd, parsed.extensions.as_deref())?.unwrap_or_default();
     let additional_skill_paths = resolve_cli_paths(&cwd, parsed.skills.as_deref())?.unwrap_or_default();
     let additional_prompt_template_paths =
         resolve_cli_paths(&cwd, parsed.prompt_templates.as_deref())?.unwrap_or_default();
@@ -1950,16 +1946,12 @@ async fn run_main_inner(
         additional_prompt_template_paths,
         additional_theme_paths,
         extension_factories,
+        multi_agent_store: Arc::clone(&multi_agent_store),
+        multi_agent_runtime_handles: multi_agent_runtime_handles.clone(),
     });
     time("createRuntime", TimingLabel::Main);
     let session_cwd = session_manager.get_cwd().to_owned();
-    let runtime = create_agent_session_runtime(
-        create_runtime,
-        &session_cwd,
-        &agent_dir,
-        session_manager,
-    )
-    .await?;
+    let runtime = create_agent_session_runtime(create_runtime, &session_cwd, &agent_dir, session_manager).await?;
     reconcile_session_runtime_bindings(&control_db_path, &SessionDirectoryOptions::default())
         .map_err(|error| error.to_string())?;
     LifecycleCoordinator::reconcile_dead_detached_runtimes(&control_db_path, &now_iso_string())
@@ -1973,9 +1965,7 @@ async fn run_main_inner(
     let session = runtime.session().clone();
     let model_fallback_message = runtime.model_fallback_message().map(str::to_owned);
     let (image_auto_resize, theme, http_idle_timeout_ms) = {
-        let settings = settings_manager
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let settings = settings_manager.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         (
             settings.get_image_auto_resize(),
             settings.get_theme().map(str::to_owned),
@@ -2051,18 +2041,14 @@ async fn run_main_inner(
             .iter()
             .any(|diagnostic| diagnostic.message.contains("Failed to load extension"))
         {
-            console_error(&Chalk::stderr().yellow(
-                "Hint: Start without extensions using \"pi -ne\".",
-            ));
+            console_error(&Chalk::stderr().yellow("Hint: Start without extensions using \"pi -ne\"."));
         }
         return Ok(Some(1));
     }
     time("createAgentSession", TimingLabel::Main);
 
     let no_models_message = format_no_models_available_message();
-    if app_mode != AppMode::Interactive
-        && model_fallback_message.as_deref() == Some(no_models_message.as_str())
-    {
+    if app_mode != AppMode::Interactive && model_fallback_message.as_deref() == Some(no_models_message.as_str()) {
         console_error(&Chalk::stderr().red(&no_models_message));
         return Ok(Some(1));
     }
