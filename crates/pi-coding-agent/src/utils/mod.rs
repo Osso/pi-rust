@@ -38,5 +38,6 @@ pub mod syntax_highlight;
 pub mod terminal_current_directory;
 pub mod tool_result_images;
 pub mod tools_manager;
+pub mod url_encoding;
 pub mod version_check;
 pub mod windows_self_update;

@@ -297,7 +297,7 @@ async fn read_body(
 /// Sends a management request and decodes the JSON payload.
 ///
 /// A JSON decode failure yields `None`, matching the source's empty `catch`.
-async fn request_json(
+pub(crate) async fn request_json(
     fetch: &dyn Fetch,
     request: HttpRequest,
     signal: Option<&CancellationToken>,

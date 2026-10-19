@@ -4,3 +4,4 @@
 //! `llama.cpp` native provider.
 
 pub mod client;
+pub mod huggingface;
