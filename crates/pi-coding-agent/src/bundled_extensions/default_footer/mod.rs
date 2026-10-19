@@ -26,17 +26,9 @@ pub struct DefaultFooterAgentLifecycleCounts {
     pub steering_pending: i64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct DefaultFooterExtensionOptions {
     pub multi_agent_store: Option<Arc<MultiAgentStore>>,
-}
-
-impl Default for DefaultFooterExtensionOptions {
-    fn default() -> Self {
-        Self {
-            multi_agent_store: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]

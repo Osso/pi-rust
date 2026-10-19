@@ -85,7 +85,7 @@ fn is_function_web_search_tool(value: &Value) -> bool {
 }
 
 fn format_timeout(timeout_ms: u64) -> String {
-    if timeout_ms % 1000 == 0 {
+    if timeout_ms.is_multiple_of(1000) {
         format!("{}s", timeout_ms / 1000)
     } else {
         format!("{timeout_ms}ms")
