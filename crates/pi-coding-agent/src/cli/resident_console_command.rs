@@ -21,7 +21,7 @@ use pi_tui::{Component, Container, Focusable, Input, Spacer, Text};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::cli::startup_ui::{clear_startup_tui, create_startup_tui, start_startup_tui};
+use crate::cli::startup_ui::{create_startup_tui, start_startup_tui};
 use crate::config::{get_agent_dir, get_user_state_root};
 use crate::core::resident_console_transport::{ResidentConsoleClient, ResidentConsoleService, ResidentConsoleSnapshot};
 use crate::core::runtime_message_markers::{
@@ -177,7 +177,6 @@ pub async fn run_resident_console_command(command: ResidentConsoleCommand) -> Re
     )
     .await;
 
-    clear_startup_tui(&ui);
     ui.stop();
     client.close().await;
     Ok(())
