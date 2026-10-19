@@ -263,16 +263,22 @@ pub trait AgentTool: Send + Sync {
         None
     }
     /// Compatibility shim for raw tool-call arguments before schema validation.
-    fn prepare_arguments(&self, args: Value) -> Value {
-        args
+    ///
+    /// A failure is returned to the model as an error tool result, matching the
+    /// TypeScript agent loop's `prepareArguments` catch.
+    fn prepare_arguments(&self, args: Value) -> Result<Value, ToolError> {
+        Ok(args)
     }
     /// Prepare durable execution metadata before the assistant tool call is persisted.
+    ///
+    /// A failure aborts the run, matching the TypeScript agent loop, which awaits
+    /// `prepareExecution` without a catch.
     fn prepare_execution(
         &self,
         _tool_call_id: String,
         _signal: Option<CancellationToken>,
-    ) -> BoxFuture<'static, Option<ToolCallExecution>> {
-        Box::pin(async { None })
+    ) -> BoxFuture<'static, Result<Option<ToolCallExecution>, ToolError>> {
+        Box::pin(async { Ok(None) })
     }
     /// Execute the tool call. Failures are returned as [`ToolError`].
     fn execute(

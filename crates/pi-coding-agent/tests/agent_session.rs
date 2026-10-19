@@ -180,7 +180,7 @@ async fn default_session_registers_every_builtin_tool() {
         fixture.session.get_active_tool_names(),
         pi_coding_agent::core::tools::DEFAULT_ACTIVE_TOOL_NAMES
             .iter()
-            .map(|name| (*name).to_owned())
+            .map(|name| name.as_str().to_owned())
             .collect::<Vec<_>>()
     );
 }

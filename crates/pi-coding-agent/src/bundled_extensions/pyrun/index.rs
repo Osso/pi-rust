@@ -20,7 +20,7 @@ use crate::core::extensions::loader::ExtensionFactory;
 use crate::core::extensions::types::{
     BoxFuture, CompactOptions, ExtensionApi, ExtensionContext, HandlerError, PrepareExecution, RestartOptions,
     SendUserMessageOptions, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, ToolRenderer,
-    ToolResultRenderer, UserMessageContent, UserMessageDelivery,
+    ToolResultRenderer, UserMessageContent, UserMessageDelivery, infallible_render_call, infallible_render_result,
 };
 use crate::core::permissions::presets::SandboxProfileName;
 use crate::core::session_manager::{SessionInfo, SessionManager, lock_session_manager};
@@ -766,8 +766,8 @@ pub fn create_pyrun_tool_definition(evaluate: PyrunEvaluate) -> ToolDefinition {
     );
     let prepare_execution: PrepareExecution =
         Arc::new(|_tool_call_id, _signal, _ctx| Box::pin(async { Ok(Some(ToolCallExecution { agent_id: uuidv7() })) }));
-    let render_call: ToolRenderer = Arc::new(render_call);
-    let render_result: ToolResultRenderer = Arc::new(render_result);
+    let render_call: ToolRenderer = infallible_render_call(render_call);
+    let render_result: ToolResultRenderer = infallible_render_result(render_result);
     ToolDefinition {
         name: "pyrun_eval".to_owned(),
         label: "Pyrun Eval".to_owned(),

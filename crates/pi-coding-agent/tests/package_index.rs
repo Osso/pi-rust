@@ -5,16 +5,17 @@
 
 use pi_coding_agent::core::extensions::Handler;
 use pi_coding_agent::{
-    AgentSession, AgentSessionEvent, AgentSessionRuntime, Args, AuthStorage, BashToolOptions, CompactOptions,
-    CompactionSettings, ContextUsage, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, DefaultPackageManager,
-    DefaultResourceLoader, EditDiffResult, ExtensionApi, ExtensionContext, ExtensionRunner, ExtensionUiContext,
-    ExtensionUiDialogOptions, FileOperations, InteractiveMode, ModelRuntime, PromptOptions, ProviderConfig,
-    RegisteredCommand, RegisteredTool, SessionEntry, SessionManager, SettingsManager, Skill, SkillFrontmatter,
-    ToolCallEvent, ToolDefinition, ToolExecutionMode, TruncationOptions, TuiMode, WidgetPlacement, compact,
-    config_dir_name, convert_to_llm, create_agent_session, create_event_bus, create_extension_runtime,
-    create_synthetic_source_info, discover_and_load_extensions, format_size, generate_unified_patch, get_agent_dir,
-    get_markdown_theme, load_skills_from_dir, parse_args, parse_skill_block, render_diff,
-    session_entry_to_context_messages, truncate_head, version,
+    AgentSession, AgentSessionEvent, AgentSessionRuntime, Args, AskArchitectToolDetails, AskArchitectToolInput,
+    AuthStorage, BashToolOptions, CompactOptions, CompactionSettings, ContextUsage, DEFAULT_MAX_BYTES,
+    DEFAULT_MAX_LINES, DefaultPackageManager, DefaultResourceLoader, EditDiffResult, ExtensionApi, ExtensionContext,
+    ExtensionRunner, ExtensionUiContext, ExtensionUiDialogOptions, FileOperations, InteractiveMode, ModelRuntime,
+    PromptOptions, ProviderConfig, RegisteredCommand, RegisteredTool, SessionEntry, SessionManager, SettingsManager,
+    Skill, SkillFrontmatter, ToolCallEvent, ToolDefinition, ToolExecutionMode, TruncationOptions, TuiMode,
+    WidgetPlacement, compact, config_dir_name, convert_to_llm, create_agent_session,
+    create_ask_architect_tool_definition, create_coding_tools, create_edit_tool, create_event_bus,
+    create_extension_runtime, create_read_only_tools, create_synthetic_source_info, discover_and_load_extensions,
+    format_size, generate_unified_patch, get_agent_dir, get_markdown_theme, load_skills_from_dir, parse_args,
+    parse_skill_block, render_diff, session_entry_to_context_messages, truncate_head, version,
 };
 
 fn assert_paths_exist() {
@@ -38,6 +39,10 @@ fn assert_paths_exist() {
     let _ = truncate_head;
     let _ = compact::<pi_agent_core::harness::compaction::NoRetryCallbacks>;
     let _ = create_agent_session;
+    let _ = create_coding_tools;
+    let _ = create_read_only_tools;
+    let _ = create_edit_tool;
+    let _ = create_ask_architect_tool_definition;
     let _ = get_markdown_theme;
     let _: Option<fn()> = None::<fn()>;
     let _: Option<Box<dyn Handler<pi_coding_agent::AgentStartEvent, ()>>> = None;
@@ -85,4 +90,6 @@ fn crate_root_exposes_the_package_index_surface() {
     let _: Option<DefaultPackageManager> = None;
     let _: Option<Skill> = None;
     let _: Option<BashToolOptions> = None;
+    let _: Option<AskArchitectToolInput> = None;
+    let _: Option<AskArchitectToolDetails> = None;
 }
