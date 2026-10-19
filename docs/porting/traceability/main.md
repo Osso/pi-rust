@@ -77,6 +77,7 @@ return an explicit gap error; they are listed under "Explicit gaps".
   unported (`SessionSelectorComponent`).
 - Interactive mode dispatch returns an explicit error naming
   `modes/interactive/interactive-mode.ts` until the `ca-interactive-mode` slice lands.
+  First-time setup (`showFirstTimeSetup`) is likewise an explicit gap error.
 - `--supervisor` / `--architect` resident console and the `architect`/`supervisor`
   subcommands are not wired; the service loops are owned by the hosts slice.
 - `core/debug-repl.ts` is a documented gap (`node:vm`), so the `debug` extension
