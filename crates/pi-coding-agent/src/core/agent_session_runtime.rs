@@ -208,55 +208,12 @@ impl AgentSessionRuntime {
         Self::bind_actions(&session, &weak);
     }
 
-    fn bind_actions(session: &AgentSession, weak: &std::sync::Weak<tokio::sync::Mutex<AgentSessionRuntime>>) {
-        let weak = weak.clone();
-        let relocate_weak = weak.clone();
-        let relocate = Arc::new(move |target_cwd: &str| {
-            let weak = relocate_weak.clone();
-            let target_cwd = target_cwd.to_owned();
-            Box::pin(async move {
-                let shared = weak
-                    .upgrade()
-                    .ok_or_else(|| HandlerError::new("Agent session runtime is not available"))?;
-                shared
-                    .lock()
-                    .await
-                    .relocate(&target_cwd)
-                    .await
-                    .map_err(HandlerError::new)
-            }) as BoxFuture<'static, Result<(), HandlerError>>
-        });
-        let prepare_weak = weak.clone();
-        let prepare = Arc::new(move |target_cwd: &str| {
-            let weak = prepare_weak.clone();
-            let target_cwd = target_cwd.to_owned();
-            Box::pin(async move {
-                let shared = weak
-                    .upgrade()
-                    .ok_or_else(|| HandlerError::new("Agent session runtime is not available"))?;
-                shared
-                    .lock()
-                    .await
-                    .prepare_tool_result_relocation(&target_cwd)
-                    .await
-                    .map_err(HandlerError::new)
-            }) as BoxFuture<'static, Result<(), HandlerError>>
-        });
-        let activate = Arc::new(move || {
-            let weak = weak.clone();
-            Box::pin(async move {
-                let Some(shared) = weak.upgrade() else {
-                    return Ok(());
-                };
-                shared
-                    .lock()
-                    .await
-                    .activate_tool_result_relocation()
-                    .await
-                    .map_err(HandlerError::new)
-            }) as BoxFuture<'static, Result<(), HandlerError>>
-        });
-        session.bind_session_runtime_relocation(relocate, prepare, activate);
+    fn bind_actions(session: &AgentSession, weak: &SharedRuntimeWeak) {
+        session.bind_session_runtime_relocation(
+            build_relocate_handler(weak),
+            build_prepare_tool_result_relocation_handler(weak),
+            build_activate_tool_result_relocation_handler(weak),
+        );
     }
 
     fn apply(&mut self, result: CreateAgentSessionRuntimeResult) {
@@ -795,6 +752,67 @@ impl AgentSessionRuntime {
         }
         self.session.dispose();
     }
+}
+
+type SharedRuntimeWeak = std::sync::Weak<tokio::sync::Mutex<AgentSessionRuntime>>;
+
+fn upgrade_runtime(weak: &SharedRuntimeWeak) -> Result<Arc<tokio::sync::Mutex<AgentSessionRuntime>>, HandlerError> {
+    weak.upgrade()
+        .ok_or_else(|| HandlerError::new("Agent session runtime is not available"))
+}
+
+fn build_relocate_handler(weak: &SharedRuntimeWeak) -> crate::core::extensions::types::RelocateCallback {
+    let weak = weak.clone();
+    Arc::new(move |target_cwd: &str| {
+        let weak = weak.clone();
+        let target_cwd = target_cwd.to_owned();
+        Box::pin(async move {
+            let shared = upgrade_runtime(&weak)?;
+            shared
+                .lock()
+                .await
+                .relocate(&target_cwd)
+                .await
+                .map_err(HandlerError::new)
+        }) as BoxFuture<'static, Result<(), HandlerError>>
+    })
+}
+
+fn build_prepare_tool_result_relocation_handler(
+    weak: &SharedRuntimeWeak,
+) -> crate::core::extensions::types::RelocateCallback {
+    let weak = weak.clone();
+    Arc::new(move |target_cwd: &str| {
+        let weak = weak.clone();
+        let target_cwd = target_cwd.to_owned();
+        Box::pin(async move {
+            let shared = upgrade_runtime(&weak)?;
+            shared
+                .lock()
+                .await
+                .prepare_tool_result_relocation(&target_cwd)
+                .await
+                .map_err(HandlerError::new)
+        }) as BoxFuture<'static, Result<(), HandlerError>>
+    })
+}
+
+fn build_activate_tool_result_relocation_handler(
+    weak: &SharedRuntimeWeak,
+) -> crate::core::extensions::types::ActivateToolResultRelocationHandler {
+    let weak = weak.clone();
+    Arc::new(move || {
+        let weak = weak.clone();
+        Box::pin(async move {
+            let shared = upgrade_runtime(&weak)?;
+            shared
+                .lock()
+                .await
+                .activate_tool_result_relocation()
+                .await
+                .map_err(HandlerError::new)
+        }) as BoxFuture<'static, Result<(), HandlerError>>
+    })
 }
 
 /// Creates the initial runtime from a factory and initial session target.

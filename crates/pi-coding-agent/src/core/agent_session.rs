@@ -1023,6 +1023,17 @@ struct ActiveTool {
     tool_name: String,
 }
 
+fn active_tool_activity(
+    active: Option<&(String, ActiveTool)>,
+) -> Option<crate::core::multi_agent_store::AgentCurrentActivity> {
+    let (_, tool) = active?;
+    Some(crate::core::multi_agent_store::AgentCurrentActivity::Tool {
+        started_at: tool.started_at.clone(),
+        tool_call_id: tool.tool_call_id.clone(),
+        tool_name: tool.tool_name.clone(),
+    })
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BackgroundCompactionState {
     Pending,
@@ -2157,6 +2168,14 @@ impl AgentSession {
         }))
     }
 
+    fn is_read_only_auto_approved(&self, event: &ToolCallEvent) -> bool {
+        let approval_kind = self
+            .find_tool_definition(event.tool_name.as_str())
+            .and_then(|entry| entry.definition.approval_kind);
+        approval_kind == Some(crate::core::extensions::types::ApprovalKind::ReadOnly)
+            && SUPERVISOR_AUTO_APPROVED_READ_ONLY_TOOLS.contains(&event.tool_name.as_str())
+    }
+
     fn spawn_allow_always_agent(&self, event: &ToolCallEvent) {
         let Some(tool) = lock(&self.inner.tool_registry).get("spawn_agent").cloned() else {
             return;
@@ -2186,12 +2205,7 @@ impl AgentSession {
         {
             return None;
         }
-        let approval_kind = self
-            .find_tool_definition(event.tool_name.as_str())
-            .and_then(|entry| entry.definition.approval_kind);
-        if approval_kind == Some(crate::core::extensions::types::ApprovalKind::ReadOnly)
-            && SUPERVISOR_AUTO_APPROVED_READ_ONLY_TOOLS.contains(&event.tool_name.as_str())
-        {
+        if self.is_read_only_auto_approved(event) {
             return Some(Arc::new(|| Box::pin(async { None })));
         }
         let session = self.clone();
@@ -3405,8 +3419,12 @@ impl AgentSession {
     }
 
     fn publish_current_agent_activity(&self, event: &AgentEvent) -> Result<(), AgentError> {
-        use crate::core::multi_agent_store::AgentCurrentActivity;
+        self.update_active_agent_tools(event);
+        self.update_thinking_phase_deadline(event);
+        self.publish_activity_for_event(event)
+    }
 
+    fn update_active_agent_tools(&self, event: &AgentEvent) {
         if matches!(event, AgentEvent::AgentStart | AgentEvent::AgentEnd { .. }) {
             lock(&self.inner.multi_agent_active_tools).clear();
         }
@@ -3429,7 +3447,11 @@ impl AgentSession {
         if let AgentEvent::ToolExecutionEnd { tool_call_id, .. } = event {
             lock(&self.inner.multi_agent_active_tools).retain(|(id, _)| id != tool_call_id);
         }
-        self.update_thinking_phase_deadline(event);
+    }
+
+    fn publish_activity_for_event(&self, event: &AgentEvent) -> Result<(), AgentError> {
+        use crate::core::multi_agent_store::AgentCurrentActivity;
+
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
             return Ok(());
         };
@@ -3446,39 +3468,36 @@ impl AgentSession {
                 }),
                 ownership.as_ref(),
             ),
-            AgentEvent::ToolExecutionStart { .. } => {
-                let active_tools = lock(&self.inner.multi_agent_active_tools);
-                if active_tools.len() == 1
-                    && let Some((_, tool)) = active_tools.first()
-                {
-                    let activity = AgentCurrentActivity::Tool {
-                        started_at: tool.started_at.clone(),
-                        tool_call_id: tool.tool_call_id.clone(),
-                        tool_name: tool.tool_name.clone(),
-                    };
-                    drop(active_tools);
-                    self.publish_agent_activity(store, agent_id, Some(activity), ownership.as_ref())
-                } else {
-                    Ok(())
-                }
-            }
+            AgentEvent::ToolExecutionStart { .. } => match self.sole_active_tool_activity() {
+                Some(activity) => self.publish_agent_activity(store, agent_id, Some(activity), ownership.as_ref()),
+                None => Ok(()),
+            },
             AgentEvent::ToolExecutionEnd { finished_at, .. } => {
-                let next =
-                    lock(&self.inner.multi_agent_active_tools)
-                        .first()
-                        .map(|(_, tool)| AgentCurrentActivity::Tool {
-                            started_at: tool.started_at.clone(),
-                            tool_call_id: tool.tool_call_id.clone(),
-                            tool_name: tool.tool_name.clone(),
-                        });
-                let activity = next.unwrap_or_else(|| AgentCurrentActivity::Thinking {
-                    started_at: crate::utils::iso_time::format_iso_millis(*finished_at as i64),
-                });
+                let activity = self
+                    .first_active_tool_activity()
+                    .unwrap_or_else(|| AgentCurrentActivity::Thinking {
+                        started_at: crate::utils::iso_time::format_iso_millis(*finished_at as i64),
+                    });
                 self.publish_agent_activity(store, agent_id, Some(activity), ownership.as_ref())
             }
             AgentEvent::AgentEnd { .. } => self.publish_agent_activity(store, agent_id, None, ownership.as_ref()),
             _ => Ok(()),
         }
+    }
+
+    /// The active tool's activity when it is the only one running.
+    fn sole_active_tool_activity(&self) -> Option<crate::core::multi_agent_store::AgentCurrentActivity> {
+        let active_tools = lock(&self.inner.multi_agent_active_tools);
+        if active_tools.len() != 1 {
+            return None;
+        }
+        active_tool_activity(active_tools.first())
+    }
+
+    /// The first still-running tool, published when an earlier parallel tool ends.
+    fn first_active_tool_activity(&self) -> Option<crate::core::multi_agent_store::AgentCurrentActivity> {
+        let active_tools = lock(&self.inner.multi_agent_active_tools);
+        active_tool_activity(active_tools.first())
     }
 
     fn start_thinking_phase_deadline(&self) {
@@ -4020,46 +4039,35 @@ impl AgentSession {
 
     async fn run_agent_prompt(&self, messages: Vec<AgentMessage>) -> Result<(), AgentSessionError> {
         *lock(&self.inner.thinking_phase_timeout_error) = None;
-        let result = match self.inner.agent.prompt(messages).await {
-            Ok(()) => Ok(()),
-            Err(error) => Err(self
-                .consume_thinking_phase_timeout_error()
-                .unwrap_or_else(|| error.into())),
-        };
-        let post = match result {
-            Ok(()) => match self.consume_thinking_phase_timeout_error() {
-                Some(error) => Err(error),
-                None => self.continue_post_agent_runs().await,
-            },
-            Err(error) => Err(error),
-        };
-        self.clear_thinking_phase_deadline();
-        *lock(&self.inner.system_prompt_override) = None;
-        self.flush_pending_bash_messages();
-        self.emit_agent_settled().await;
-        post
+        let result = self.inner.agent.prompt(messages).await;
+        self.finish_agent_run(result).await
     }
 
     async fn run_agent_continuation(&self) -> Result<(), AgentSessionError> {
         *lock(&self.inner.thinking_phase_timeout_error) = None;
-        let result = match self.inner.agent.continue_run(Default::default()).await {
-            Ok(()) => Ok(()),
-            Err(error) => Err(self
-                .consume_thinking_phase_timeout_error()
-                .unwrap_or_else(|| error.into())),
-        };
-        let post = match result {
+        let result = self.inner.agent.continue_run(Default::default()).await;
+        self.finish_agent_run(result).await
+    }
+
+    /// Consumes a fired thinking-phase deadline in place of the aborted run error.
+    async fn finish_agent_run(
+        &self,
+        result: Result<(), pi_agent_core::agent::types::AgentError>,
+    ) -> Result<(), AgentSessionError> {
+        let result = match result {
             Ok(()) => match self.consume_thinking_phase_timeout_error() {
                 Some(error) => Err(error),
                 None => self.continue_post_agent_runs().await,
             },
-            Err(error) => Err(error),
+            Err(error) => Err(self
+                .consume_thinking_phase_timeout_error()
+                .unwrap_or_else(|| error.into())),
         };
         self.clear_thinking_phase_deadline();
         *lock(&self.inner.system_prompt_override) = None;
         self.flush_pending_bash_messages();
         self.emit_agent_settled().await;
-        post
+        result
     }
 
     async fn continue_post_agent_runs(&self) -> Result<(), AgentSessionError> {
