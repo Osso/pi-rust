@@ -39,6 +39,13 @@ const DESCRIPTION_PREFIX: &str = "Search file contents for a pattern. Returns ma
 const DEFAULT_LIMIT: usize = 100;
 const MAX_SAFE_INTEGER: usize = 9_007_199_254_740_991;
 
+/// `GREP_TOOL_SYSTEM_PROMPT_CONTRIBUTION`.
+pub const GREP_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribution =
+    super::ToolSystemPromptContribution {
+        snippet: "Search file contents for patterns (respects .gitignore)",
+        guidelines: &[],
+    };
+
 /// Filesystem access used by [`GrepTool`]. Override to delegate reads to a remote system.
 pub trait GrepOperations: Send + Sync {
     fn is_directory<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>>;
@@ -622,6 +629,9 @@ pub fn render_result(
 pub fn create_grep_tool_definition(cwd: &str, options: GrepToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(GrepTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
+    definition.prompt_snippet = Some(GREP_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
+    definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
+    definition.approval_required = Some(false);
     definition.render_call = Some(infallible_render_call(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition

@@ -77,7 +77,13 @@ pub fn parameters() -> &'static Value {
                 },
                 "status": {
                     "type": "array",
-                    "items": { "type": "string", "enum": ["running", "idle", "ended"] },
+                    "items": {
+                        "anyOf": [
+                            {"type": "string", "const": "running"},
+                            {"type": "string", "const": "idle"},
+                            {"type": "string", "const": "ended"}
+                        ]
+                    },
                     "description": "Optional status filter."
                 }
             },

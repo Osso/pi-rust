@@ -286,7 +286,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         None if options.no_tools.is_some() => Vec::new(),
         None => DEFAULT_ACTIVE_TOOL_NAMES
             .iter()
-            .map(|name| (*name).to_owned())
+            .map(|name| name.as_str().to_owned())
             .collect(),
     }
     .into_iter()

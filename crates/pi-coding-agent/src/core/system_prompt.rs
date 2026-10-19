@@ -97,7 +97,7 @@ pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> String {
 
     let tools: Vec<&str> = match &options.selected_tools {
         Some(tools) => tools.iter().map(String::as_str).collect(),
-        None => DEFAULT_ACTIVE_TOOL_NAMES.to_vec(),
+        None => DEFAULT_ACTIVE_TOOL_NAMES.iter().map(|name| name.as_str()).collect(),
     };
     let tool_snippets = options.tool_snippets.as_ref();
     let visible_tools: Vec<&str> = tools

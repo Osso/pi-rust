@@ -137,6 +137,7 @@ pub fn parameters() -> &'static Value {
                 },
                 "metadata": {
                     "type": "object",
+                    "patternProperties": {"^.*$": {}},
                     "description": "Optional metadata for callers. Not displayed to the user."
                 }
             },

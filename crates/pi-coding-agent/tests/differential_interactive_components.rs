@@ -1791,7 +1791,7 @@ fn tool_renderer_cases() -> Vec<(Value, Value)> {
         let tool = case.get("tool").and_then(Value::as_str).expect("tool name");
         let definition = definitions
             .iter()
-            .find(|(name, _)| *name == tool)
+            .find(|(name, _)| name.as_str() == tool)
             .map(|(_, definition)| definition)
             .expect("definition");
         let context = ToolRenderContext {

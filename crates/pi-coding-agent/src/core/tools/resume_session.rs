@@ -70,7 +70,7 @@ pub fn parameters() -> &'static Value {
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Path to a Pi session .jsonl file to resume."
+                    "description": "Path to a Pi .jsonl session file to resume."
                 },
                 "id": {
                     "type": "string",
@@ -78,11 +78,11 @@ pub fn parameters() -> &'static Value {
                 },
                 "name": {
                     "type": "string",
-                    "description": "Exact session name to resume."
+                    "description": "Unique named Pi session to resume."
                 },
                 "starter_prompt": {
                     "type": "string",
-                    "description": "Optional instructions to send after the target session is active."
+                    "description": "Optional caller-provided instructions to send after the target session is resumed."
                 }
             }
         })

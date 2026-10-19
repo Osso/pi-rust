@@ -34,6 +34,13 @@ const DESCRIPTION_PREFIX: &str =
     "List directory contents. Returns token-optimized entries, includes dotfiles, and truncates output to";
 const DEFAULT_LIMIT: usize = 500;
 const MAX_SAFE_INTEGER: usize = 9_007_199_254_740_991;
+
+/// `LS_TOOL_SYSTEM_PROMPT_CONTRIBUTION`.
+pub const LS_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribution =
+    super::ToolSystemPromptContribution {
+        snippet: "List directory contents",
+        guidelines: &[],
+    };
 const RTK_MAX_BUFFER: usize = DEFAULT_MAX_BYTES * 2;
 
 /// Directory access used by [`LsTool`]. Override to delegate listing to a remote system.
@@ -542,6 +549,8 @@ pub fn render_result(
 pub fn create_ls_tool_definition(cwd: &str, options: LsToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(LsTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
+    definition.prompt_snippet = Some(LS_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
+    definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
     definition.render_call = Some(infallible_render_call(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition

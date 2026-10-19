@@ -311,6 +311,14 @@ pub fn render_result(
 pub fn create_write_tool_definition(cwd: &str, options: WriteToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(WriteTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
+    definition.prompt_snippet = Some(WRITE_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
+    definition.prompt_guidelines = Some(
+        WRITE_TOOL_SYSTEM_PROMPT_CONTRIBUTION
+            .guidelines
+            .iter()
+            .map(|line| (*line).to_owned())
+            .collect(),
+    );
     definition.render_call = Some(infallible_render_call(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition

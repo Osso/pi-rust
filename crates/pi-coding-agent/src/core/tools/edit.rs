@@ -23,7 +23,7 @@ use super::edit_diff::{
 use super::file_mutation_queue::with_file_mutation_queue;
 use super::path_utils::resolve_to_cwd;
 use super::render_utils::{render_tool_path, str_value};
-use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
+use super::tool_definition_wrapper::{create_tool_definition_from_agent_tool, wrap_agent_tool};
 use crate::core::extensions::types::{
     HandlerError, RenderShell, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
 };
@@ -692,8 +692,21 @@ pub fn render_result(
 pub fn create_edit_tool_definition(cwd: &str, options: EditToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(EditTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
+    definition.prompt_snippet = Some(EDIT_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
+    definition.prompt_guidelines = Some(
+        EDIT_TOOL_SYSTEM_PROMPT_CONTRIBUTION
+            .guidelines
+            .iter()
+            .map(|line| (*line).to_owned())
+            .collect(),
+    );
     definition.render_shell = Some(RenderShell::SelfRender);
     definition.render_call = Some(Arc::new(render_call));
     definition.render_result = Some(Arc::new(render_result));
     definition
+}
+
+/// `createEditTool`: the edit tool wrapped with the shared result cap.
+pub fn create_edit_tool(cwd: &str, options: EditToolOptions) -> Arc<dyn AgentTool> {
+    wrap_agent_tool(Arc::new(EditTool::with_options(cwd, options)))
 }

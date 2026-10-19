@@ -166,7 +166,7 @@ impl ToolExecutionComponent {
         let cwd = cwd.into();
         let built_in_tool_definition = create_all_tool_definitions(&cwd, ToolsOptions::default())
             .into_iter()
-            .find(|(name, _)| *name == tool_name)
+            .find(|(name, _)| name.as_str() == tool_name)
             .map(|(_, definition)| definition);
 
         let pending_bg = background_fn(ThemeBg::ToolPendingBg);

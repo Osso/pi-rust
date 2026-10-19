@@ -306,13 +306,22 @@ impl SymbolTool {
     }
 }
 
+fn literal_union(kinds: &[&str]) -> Value {
+    json!({
+        "anyOf": kinds
+            .iter()
+            .map(|kind| json!({"type": "string", "const": kind}))
+            .collect::<Vec<_>>()
+    })
+}
+
 fn symbol_schema() -> Value {
     json!({
         "type": "object",
         "required": ["name"],
         "properties": {
             "name": {"type": "string", "description": "Symbol name to find"},
-            "kind": {"type": "string", "enum": SYMBOL_KINDS, "description": "Symbol kind filter"},
+            "kind": literal_union(&SYMBOL_KINDS),
             "file": {"type": "string", "description": "Filter by file path substring"}
         }
     })
@@ -384,7 +393,7 @@ fn references_schema() -> Value {
         "required": ["name"],
         "properties": {
             "name": {"type": "string", "description": "Symbol name to find references for"},
-            "kind": {"type": "string", "enum": REFERENCE_KINDS, "description": "Reference kind filter"}
+            "kind": literal_union(&REFERENCE_KINDS)
         }
     })
 }
@@ -567,8 +576,10 @@ pub fn code_index_render_result(
     )))
 }
 
-fn with_renderers(tool: Arc<dyn AgentTool>, render_call: ToolRenderer) -> ToolDefinition {
+fn with_renderers(tool: Arc<dyn AgentTool>, render_call: ToolRenderer, prompt_snippet: &str) -> ToolDefinition {
     let mut definition = create_tool_definition_from_agent_tool(tool);
+    definition.prompt_snippet = Some(prompt_snippet.to_owned());
+    definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
     definition.render_call = Some(render_call);
     definition.render_result = Some(infallible_render_result(code_index_render_result));
     definition
@@ -579,6 +590,7 @@ pub fn create_outline_tool_definition(cwd: &str, options: CodeIndexToolOptions) 
     with_renderers(
         Arc::new(OutlineTool::with_options(cwd, options)),
         infallible_render_call(outline_render_call),
+        "Show structural outlines for files or directories",
     )
 }
 
@@ -587,6 +599,7 @@ pub fn create_symbol_tool_definition(cwd: &str, options: CodeIndexToolOptions) -
     with_renderers(
         Arc::new(SymbolTool::with_options(cwd, options)),
         infallible_render_call(symbol_render_call),
+        "Find symbol definitions by name",
     )
 }
 
@@ -595,6 +608,7 @@ pub fn create_references_tool_definition(cwd: &str, options: CodeIndexToolOption
     with_renderers(
         Arc::new(ReferencesTool::with_options(cwd, options)),
         infallible_render_call(references_render_call),
+        "Find structural references to a symbol",
     )
 }
 

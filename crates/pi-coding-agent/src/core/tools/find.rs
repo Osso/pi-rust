@@ -33,6 +33,13 @@ const DESCRIPTION_PREFIX: &str = "Search for files by glob pattern. Returns matc
 const DEFAULT_LIMIT: usize = 1000;
 const MAX_SAFE_INTEGER: usize = 9_007_199_254_740_991;
 
+/// `FIND_TOOL_SYSTEM_PROMPT_CONTRIBUTION`.
+pub const FIND_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribution =
+    super::ToolSystemPromptContribution {
+        snippet: "Find files by glob pattern (respects .gitignore)",
+        guidelines: &[],
+    };
+
 /// Filesystem access used by [`FindTool`]. Override to delegate searches to a remote system.
 pub trait FindOperations: Send + Sync {
     fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, bool>;
@@ -535,6 +542,8 @@ pub fn render_result(
 pub fn create_find_tool_definition(cwd: &str, options: FindToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(FindTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
+    definition.prompt_snippet = Some(FIND_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
+    definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
     definition.render_call = Some(infallible_render_call(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition

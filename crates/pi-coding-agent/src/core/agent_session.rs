@@ -1209,7 +1209,7 @@ impl AgentSession {
             Some(definitions) => definitions.iter().map(|(name, _)| name.clone()).collect(),
             None => crate::core::tools::DEFAULT_ACTIVE_TOOL_NAMES
                 .iter()
-                .map(|name| (*name).to_owned())
+                .map(|name| name.as_str().to_owned())
                 .collect(),
         };
         session.build_runtime(
@@ -1418,7 +1418,7 @@ impl AgentSession {
             },
         )
         .into_iter()
-        .map(|(name, definition)| (name.to_owned(), definition))
+        .map(|(name, definition)| (name.as_str().to_owned(), definition))
         .collect();
         *lock(&self.inner.base_tool_definitions) = definitions;
     }
