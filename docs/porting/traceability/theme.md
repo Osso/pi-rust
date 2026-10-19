@@ -11,8 +11,8 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines
 | `Theme.getFgAnsi/getBgAnsi/getColorMode` | same methods | `theme_global_probe`, differential |
 | `Theme.getThinkingBorderColor(level)` | `get_thinking_border_color(ThinkingLevel) -> StyleFn` | traceability-only (callback shape); colors covered by `get_fg_ansi` differential |
 | `Theme.getBashModeBorderColor()` | `get_bash_mode_border_color() -> StyleFn` | traceability-only |
-| `getAvailableThemes()` | `get_available_themes()` | `theme_picker_probe` |
-| `getAvailableThemesWithPaths()` | `get_available_themes_with_paths() -> Vec<ThemeInfo>` | `theme_picker_probe` |
+| `getAvailableThemes()` | `get_available_themes() -> Result<Vec<String>, ThemeError>` | `theme_picker_probe` |
+| `getAvailableThemesWithPaths()` | `get_available_themes_with_paths() -> Result<Vec<ThemeInfo>, ThemeError>` | `theme_picker_probe` |
 | `loadThemeFromPath(path, mode?)` | `load_theme_from_path(&Path, Option<ColorMode>)` | `theme_validation_probe`, `theme_scrollbar_probe`, differential (22 cases) |
 | `getThemeByName(name)` | `get_theme_by_name(&str) -> Option<Arc<Theme>>` | `theme_global_probe` |
 | `parseAutoThemeSetting(setting)` | `parse_auto_theme_setting(Option<&str>)` | `theme_detection_probe`, differential helpers |
@@ -22,10 +22,10 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines
 | `detectTerminalThemeForAuto({ui, timeoutMs, env})` | `detect_terminal_theme_for_auto(&dyn TerminalAutoThemeDetector, ...)` | `theme_detection_probe` |
 | `getThemeForRgbColor(rgb)` | `get_theme_for_rgb_color(RgbColor)` | both |
 | `getDefaultTheme()` | `get_default_theme()` | `theme_global_probe` (via `init_theme(None)` path) |
-| `theme` (global Proxy) | `current_theme() -> Arc<Theme>` / `with_theme` | all probes that render |
+| `theme` (global Proxy) | `current_theme() -> Arc<Theme>` / `try_current_theme() -> Result<Arc<Theme>, ThemeError>` / `with_theme` | `theme_missing_builtin_probe`, all probes that render |
 | `setRegisteredThemes(themes)` | `set_registered_themes(Vec<Arc<Theme>>)` | `theme_global_probe` (registered lookup path covered by differential load) |
-| `initTheme(name?, enableWatcher?)` | `init_theme(Option<&str>, bool)` | `theme_global_probe` (missing-theme fallback) |
-| `setTheme(name, enableWatcher?)` | `set_theme(&str, bool) -> SetThemeResult` | `theme_global_probe` |
+| `initTheme(name?, enableWatcher?)` | `init_theme(Option<&str>, bool) -> Result<(), ThemeError>` | `theme_global_probe` (missing-theme fallback), `theme_missing_builtin_probe`, `main_process::missing_builtin_theme_differential` |
+| `setTheme(name, enableWatcher?)` | `set_theme(&str, bool) -> Result<SetThemeResult, ThemeError>` | `theme_global_probe`, `theme_missing_builtin_probe` |
 | `setThemeInstance(theme)` | `set_theme_instance(Arc<Theme>)` | `theme_global_probe` |
 | `onThemeChange(callback)` | `on_theme_change(Rc<dyn Fn()>)` | `theme_global_probe` |
 | `stopThemeWatcher()` | `stop_theme_watcher()` | traceability-only |
@@ -51,7 +51,9 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines
 | `createTheme` bg key partition | `create_theme` | differential all cases |
 | TypeBox validation (required + union errors, 8-error iterator cap) | `validate_theme_json` + `MAX_VALIDATION_ERRORS` | differential `missing`, `bad-types`, `many-bad`, `required-truncated`, `no-name*` |
 | `assertThemeNameIsValid` (only on parsed files/registration) | `assert_theme_name_is_valid` | differential `slash` |
-| `parseThemeJsonContent` JSON.parse failure | `ThemeError::Parse` (serde message) | gap: Node SyntaxError text differs |
+| `parseThemeJsonContent` JSON.parse failure | `ThemeError::Parse` with `SyntaxError: <V8 message>` | differential `invalid-json`/`truncated-json`/`trailing-json`/`empty-json` |
+| `getBuiltinThemes` read/parse failure | `ThemeError::Io` (Node fs text) / `ThemeError::Syntax` | `theme_missing_builtin_probe`, CLI differential |
+| `getCustomThemeInfos` `readdirSync` failure | `ThemeError::Io` (`scandir`) | `theme_missing_builtin_probe` (absent dir is empty, matching `existsSync`) |
 | builtin cache (`BUILTIN_THEMES`) | `ThemeState.builtin` thread-local cache | `theme_picker_probe`, `theme_resolved_probe` |
 | custom theme discovery, invalid ignored | `get_custom_theme_infos` | `theme_picker_probe` (broken.json ignored) |
 | duplicate-name dedupe + `localeCompare` sort | `get_available_themes_with_paths` | `theme_picker_probe` |
@@ -61,21 +63,20 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines
 | COLORFGBG last-valid-index scan | `get_color_fg_bg_background_index` | differential helpers |
 | luminance thresholds | `get_rgb_color_luminance` | differential helpers |
 | `detectTerminalThemeForAuto` color-scheme preference + fallback | `detect_terminal_theme_for_auto` | `theme_detection_probe` |
-| `initTheme` fallback to dark, no watcher | `init_theme` | `theme_global_probe` |
-| `setTheme` fallback + callback + error text | `set_theme` | `theme_global_probe` |
+| `initTheme` fallback to dark, no watcher; fallback failure escapes | `init_theme` | `theme_global_probe`, `theme_missing_builtin_probe` |
+| `setTheme` fallback + callback + error text; fallback failure escapes | `set_theme` | `theme_global_probe`, `theme_missing_builtin_probe` |
 | `setThemeInstance` sets `<in-memory>` | `set_theme_instance` | `theme_global_probe` |
 | theme file watcher (100 ms debounce, reload, callback) | `start_theme_watcher`/`schedule_theme_reload` | gap: timing-based, not tested; reload applied on next `current_theme()` access |
 
 ## Behavioral notes / deviations
 
 - Module state is `thread_local!` because it holds non-`Send` UI callbacks (`onThemeChange`). The watcher thread parses reloads into a `Mutex` slot that the main thread applies on the next `current_theme()` call; TypeScript applies it from a timer callback. Observable theme values match; the refresh point differs.
-- `current_theme()` panics with the TypeScript message (`Theme not initialized. Call initTheme() first.`) instead of throwing. `ThemeColor`/`ThemeBg` are enums, so `Unknown theme color` is unreachable (typed-API exclusion).
+- `current_theme()` routes an uninitialized theme through the process-level uncaught handler with the TypeScript message (`Theme not initialized. Call initTheme() first.`); `try_current_theme()` exposes the error. `ThemeColor`/`ThemeBg` are enums, so `Unknown theme color` is unreachable (typed-API exclusion).
 - Built-in themes are read without schema validation, exactly like `JSON.parse` in `getBuiltinThemes`.
 - `getLanguageFromPath` keeps TypeScript's extension map semantics, including `Makefile` → `makefile` and `Dockerfile` → `dockerfile` (no-dot names are treated as extensions).
 - `highlightCode`'s `try/catch` fallback is not reproduced: the Rust `syntax_highlight` port returns a `String` and cannot throw. The markdown-theme variant's styled fallback is likewise unreachable.
 
 ## Gaps / exclusions
 
-- JSON syntax-error text: Node `SyntaxError` wording is not reproduced; serde's message is used inside the same `Failed to parse theme <label>: ...` prefix.
 - Theme file watcher behavior is implemented but not covered by a test (timing/filesystem events); `notify` is already a crate dependency.
 - `getThinkingBorderColor`'s `default` arm is unreachable (typed enum); `max`/`ultra` map to `thinkingMax`.
