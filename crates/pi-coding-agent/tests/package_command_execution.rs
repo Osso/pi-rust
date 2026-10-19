@@ -23,6 +23,11 @@ use pi_coding_agent::package_manager_cli::{
 use pi_coding_agent::utils::chalk::Chalk;
 use pi_coding_agent::utils::version_check::LatestPiRelease;
 
+/// The source `VERSION` constant the TypeScript tests interpolate.
+fn current_version() -> String {
+    pi_coding_agent::config::package_config().version.clone()
+}
+
 fn temp_dir(name: &str) -> PathBuf {
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -480,7 +485,7 @@ async fn default_update_notes_skipped_extensions_and_runs_self_update() {
             chalk.dim(&format!(
                 "Updating {app} with bun install -g --ignore-scripts --minimum-release-age=0 @earendil-works/pi-coding-agent@9.9.9..."
             )),
-            chalk.green(&format!("Updated {app} from 0.0.0 to 9.9.9")),
+            chalk.green(&format!("Updated {app} from {} to 9.9.9", current_version())),
         ]
     );
     assert_eq!(outcome.exit_code, None);
@@ -491,7 +496,7 @@ async fn up_to_date_release_prints_the_up_to_date_line() {
     let root = temp_dir("up-to-date");
     let mut effects = FakeEffects::new(&root, &agent_dir("up-to-date"), bun_install_context(&root));
     effects.release = Ok(LatestPiRelease {
-        version: "0.0.0".to_owned(),
+        version: current_version(),
         package_name: None,
         note: None,
     });
@@ -508,7 +513,7 @@ async fn up_to_date_release_prints_the_up_to_date_line() {
             Chalk::stdout().dim(&format!(
                 "Extensions are skipped. Run {app} update --extensions to update extensions."
             )),
-            Chalk::stdout().green(&format!("{app} is already up to date (v0.0.0)")),
+            Chalk::stdout().green(&format!("{app} is already up to date (v{})", current_version())),
         ]
     );
     assert_eq!(effects.calls(), vec!["latest_release"]);
@@ -519,7 +524,7 @@ async fn force_runs_the_self_update_even_when_current() {
     let root = temp_dir("force");
     let mut effects = FakeEffects::new(&root, &agent_dir("force"), bun_install_context(&root));
     effects.release = Ok(LatestPiRelease {
-        version: "0.0.0".to_owned(),
+        version: current_version(),
         package_name: None,
         note: None,
     });
@@ -534,9 +539,10 @@ async fn force_runs_the_self_update_even_when_current() {
         outcome.stdout,
         vec![
             Chalk::stdout().dim(&format!(
-                "Updating {app} with bun install -g --ignore-scripts --minimum-release-age=0 @earendil-works/pi-coding-agent@0.0.0..."
+                "Updating {app} with bun install -g --ignore-scripts --minimum-release-age=0 @earendil-works/pi-coding-agent@{}...",
+                current_version()
             )),
-            Chalk::stdout().green(&format!("Updated {app} from 0.0.0 to 0.0.0")),
+            Chalk::stdout().green(&format!("Updated {app} from {0} to {0}", current_version())),
         ]
     );
 }
@@ -651,7 +657,7 @@ async fn all_updates_extensions_then_self() {
             Chalk::stdout().dim(&format!(
                 "Updating {app} with bun install -g --ignore-scripts --minimum-release-age=0 @earendil-works/pi-coding-agent@9.9.9..."
             )),
-            Chalk::stdout().green(&format!("Updated {app} from 0.0.0 to 9.9.9")),
+            Chalk::stdout().green(&format!("Updated {app} from {} to 9.9.9", current_version())),
         ]
     );
 }
@@ -695,7 +701,7 @@ async fn saved_project_trust_is_used_for_updates() {
         .unwrap();
     let mut effects = FakeEffects::new(&project, &agent, bun_install_context(&root));
     effects.release = Ok(LatestPiRelease {
-        version: "0.0.0".to_owned(),
+        version: current_version(),
         package_name: None,
         note: None,
     });

@@ -80,6 +80,25 @@ async fn fixture_with(
     initial_active_tool_names: Option<Vec<String>>,
     allowed_tool_names: Option<Vec<String>>,
 ) -> Fixture {
+    fixture_with_multi_agent(
+        settings,
+        base_tools,
+        initial_active_tool_names,
+        allowed_tool_names,
+        None,
+        false,
+    )
+    .await
+}
+
+async fn fixture_with_multi_agent(
+    settings: pi_coding_agent::core::settings_manager::Settings,
+    base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
+    initial_active_tool_names: Option<Vec<String>>,
+    allowed_tool_names: Option<Vec<String>>,
+    multi_agent: Option<(Arc<pi_coding_agent::core::multi_agent_store::MultiAgentStore>, String)>,
+    persist_session: bool,
+) -> Fixture {
     let temp_dir = tempfile::tempdir().expect("temp dir");
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("faux".to_owned()),
@@ -100,8 +119,13 @@ async fn fixture_with(
         ..Default::default()
     })
     .expect("agent");
-    let session_manager =
-        SessionManager::in_memory(Some(&temp_dir.path().display().to_string()), None).expect("in-memory session");
+    let cwd = temp_dir.path().display().to_string();
+    let session_manager = if persist_session {
+        let session_dir = temp_dir.path().join("sessions").display().to_string();
+        SessionManager::create(&cwd, Some(&session_dir), None).expect("persisted session")
+    } else {
+        SessionManager::in_memory(Some(&cwd), None).expect("in-memory session")
+    };
     let settings_manager = SettingsManager::in_memory(settings, SettingsManagerCreateOptions::default());
     let session = AgentSession::new(AgentSessionConfig {
         agent,
@@ -124,8 +148,8 @@ async fn fixture_with(
         multi_agent_execution_capability: None,
         thinking_phase_timeout_ms: None,
         supervisor_decision_requester: None,
-        multi_agent_store: None,
-        multi_agent_agent_id: None,
+        multi_agent_store: multi_agent.as_ref().map(|(store, _)| Arc::clone(store)),
+        multi_agent_agent_id: multi_agent.as_ref().map(|(_, agent_id)| agent_id.clone()),
         multi_agent_parent_session_id: None,
         disable_runtime_coordination_inbound: false,
         on_shared_channel_message_delivered: None,
@@ -568,6 +592,407 @@ async fn navigate_tree_moves_leaf_and_returns_editor_text() {
     assert_eq!(result.editor_text.as_deref(), Some("first"));
     assert_eq!(fixture.session.session_manager().get_leaf_id(), None);
     assert!(fixture.session.messages().is_empty());
+}
+
+#[tokio::test]
+async fn navigate_tree_summarizes_the_abandoned_branch_and_attaches_the_summary() {
+    use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry};
+
+    let fixture = fixture().await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message("hello", FauxAssistantMessageOptions::default()).into(),
+        faux_assistant_message("hi", FauxAssistantMessageOptions::default()).into(),
+    ]);
+    fixture
+        .session
+        .prompt("first", PromptOptions::default())
+        .await
+        .expect("first prompt");
+    fixture
+        .session
+        .prompt("second", PromptOptions::default())
+        .await
+        .expect("second prompt");
+    let first_user_entry = fixture.session.session_manager().get_entries()[0]
+        .id()
+        .expect("first user entry")
+        .to_owned();
+
+    fixture.faux.set_responses(vec![
+        faux_assistant_message("BRANCH SUMMARY", FauxAssistantMessageOptions::default()).into(),
+    ]);
+    let result = fixture
+        .session
+        .navigate_tree(
+            &first_user_entry,
+            NavigateTreeOptions {
+                summarize: Some(true),
+                label: Some("abandoned".to_owned()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("navigate with summary");
+    assert!(!result.cancelled);
+    assert_eq!(result.editor_text.as_deref(), Some("first"));
+    let summary_entry = result.summary_entry.expect("branch summary entry");
+    let SessionEntry::Known(KnownSessionEntry::BranchSummary(summary)) = &summary_entry else {
+        panic!("expected a branch summary entry");
+    };
+    assert!(summary.summary.contains("BRANCH SUMMARY"));
+    assert_eq!(summary.parent_id, None);
+    assert_eq!(summary.from_id, "root");
+    assert_eq!(summary.from_hook, Some(false));
+    let manager = fixture.session.session_manager();
+    assert_eq!(manager.get_label(&summary.id), Some("abandoned"));
+    let leaf = manager.get_leaf_entry().expect("label entry leaf");
+    assert_eq!(leaf.entry_type(), "label");
+    assert_eq!(leaf.id(), manager.get_leaf_id());
+    assert_eq!(
+        fixture.session.messages().len(),
+        1,
+        "context is the summary at the root"
+    );
+}
+
+struct EchoTool;
+
+impl pi_agent_core::agent::types::AgentTool for EchoTool {
+    fn name(&self) -> &str {
+        "echo"
+    }
+
+    fn description(&self) -> &str {
+        "Echo text"
+    }
+
+    fn parameters(&self) -> &serde_json::Value {
+        static PARAMETERS: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+        PARAMETERS.get_or_init(|| json!({"type": "object", "properties": {"text": {"type": "string"}}}))
+    }
+
+    fn label(&self) -> &str {
+        "echo"
+    }
+
+    fn execute(
+        &self,
+        _tool_call_id: String,
+        params: serde_json::Value,
+        _signal: Option<tokio_util::sync::CancellationToken>,
+        _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
+        _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
+    ) -> pi_ai::request::BoxFuture<
+        'static,
+        Result<pi_agent_core::agent::types::AgentToolResult, pi_agent_core::agent::types::ToolError>,
+    > {
+        Box::pin(async move {
+            let text = params
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            Ok(pi_agent_core::agent::types::AgentToolResult::text(text))
+        })
+    }
+}
+
+fn running_agent(id: &str) -> pi_coding_agent::core::multi_agent_store::AgentSnapshot {
+    use pi_coding_agent::core::multi_agent_store::{AgentLifecycle, AgentPermission, AgentSnapshot};
+    AgentSnapshot {
+        id: id.to_owned(),
+        parent_id: None,
+        display_name: "Child".to_owned(),
+        agent_type: "worker".to_owned(),
+        origin: None,
+        lifecycle: AgentLifecycle::Running,
+        revision: 1,
+        created_at: "2026-06-21T00:00:00.000Z".to_owned(),
+        updated_at: "2026-06-21T00:00:00.000Z".to_owned(),
+        cwd: "/repo".to_owned(),
+        worktree: None,
+        model: None,
+        account: None,
+        permission: AgentPermission {
+            policy: "on-request".to_owned(),
+            inherited_from: None,
+            narrowed: true,
+        },
+        slot: None,
+        transcript: None,
+        event_stream: None,
+        worker: None,
+        detached: None,
+        current_activity: None,
+        last_activity: None,
+        result: None,
+        error: None,
+        extra: serde_json::Map::new(),
+    }
+}
+
+#[tokio::test]
+async fn publishes_multi_agent_activity_across_agent_and_tool_events() {
+    use pi_coding_agent::core::multi_agent_store::{AgentCurrentActivity, MultiAgentStore, MultiAgentStoreOptions};
+
+    let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions {
+        now: Some(Arc::new(|| "2026-06-21T00:00:00.000Z".to_owned())),
+    }));
+    store.publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"));
+    let activities = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&activities);
+    let _subscription = store.subscribe_agent_updates(move |_previous, current| {
+        recorded.lock().unwrap().push(current.current_activity.clone());
+    });
+
+    let fixture = fixture_with_multi_agent(
+        Default::default(),
+        vec![Arc::new(EchoTool)],
+        Some(vec!["echo".to_owned()]),
+        None,
+        Some((Arc::clone(&store), "child-agent".to_owned())),
+        false,
+    )
+    .await;
+    fixture.faux.set_responses(vec![
+        faux_assistant_message(
+            vec![
+                pi_ai::providers::faux::faux_text("working"),
+                pi_ai::providers::faux::faux_tool_call(
+                    "echo",
+                    json!({"text": "hi"}).as_object().cloned().expect("arguments"),
+                    Some("call-1".to_owned()),
+                ),
+            ],
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::types::StopReason::ToolUse),
+                ..Default::default()
+            },
+        )
+        .into(),
+        faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
+    ]);
+    fixture
+        .session
+        .prompt("run", PromptOptions::default())
+        .await
+        .expect("prompt");
+
+    let activities = activities.lock().unwrap().clone();
+    assert!(
+        matches!(activities.first(), Some(Some(AgentCurrentActivity::Thinking { .. }))),
+        "agent_start publishes thinking: {activities:?}"
+    );
+    assert!(
+        activities.iter().any(|activity| matches!(
+            activity,
+            Some(AgentCurrentActivity::Tool { tool_name, .. }) if tool_name == "echo"
+        )),
+        "tool activity must be published: {activities:?}"
+    );
+    assert_eq!(activities.last(), Some(&None), "agent_end clears activity");
+}
+
+#[tokio::test]
+async fn binds_extension_relocation_handlers_on_the_session() {
+    let fixture = fixture().await;
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&calls);
+    let relocate = Arc::new(move |cwd: &str| {
+        recorded.lock().unwrap().push(format!("relocate:{cwd}"));
+        Box::pin(async { Ok(()) })
+            as pi_ai::request::BoxFuture<'static, Result<(), pi_coding_agent::core::extensions::types::HandlerError>>
+    });
+    let recorded = Arc::clone(&calls);
+    let prepare = Arc::new(move |cwd: &str| {
+        recorded.lock().unwrap().push(format!("prepare:{cwd}"));
+        Box::pin(async { Ok(()) })
+            as pi_ai::request::BoxFuture<'static, Result<(), pi_coding_agent::core::extensions::types::HandlerError>>
+    });
+    let recorded = Arc::clone(&calls);
+    let activate = Arc::new(move || {
+        recorded.lock().unwrap().push("activate".to_owned());
+        Box::pin(async {}) as pi_ai::request::BoxFuture<'static, ()>
+    });
+    fixture
+        .session
+        .bind_session_runtime_relocation(relocate, prepare, activate);
+
+    let runner = fixture.session.extension_runner();
+    runner
+        .create_context()
+        .relocate_after_tool_result("call-1", "/next")
+        .expect("schedule relocation");
+    runner
+        .deliver_tool_result_relocation("call-1")
+        .await
+        .expect("deliver relocation");
+    assert!(runner.has_prepared_tool_result_relocation());
+    assert_eq!(calls.lock().unwrap().as_slice(), ["prepare:/next"]);
+    runner.activate_tool_result_relocation().await;
+    assert_eq!(calls.lock().unwrap().as_slice(), ["prepare:/next", "activate"]);
+}
+
+#[tokio::test]
+async fn runtime_mailbox_delivery_prompts_the_session_and_marks_the_message_delivered() {
+    use pi_coding_agent::core::session_control_db::{
+        EnqueueStoredRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessageKind,
+        RuntimeMailboxMessageStatus, RuntimeMailboxStoreRef, enqueue_stored_runtime_mailbox_message,
+        list_runtime_mailbox_messages,
+    };
+
+    let fixture = fixture_with_multi_agent(
+        Default::default(),
+        Vec::<Arc<dyn pi_agent_core::agent::types::AgentTool>>::new(),
+        None,
+        None,
+        None,
+        true,
+    )
+    .await;
+    let session_file = fixture.session.session_file().expect("session file");
+    let control_db_path = fixture.session.control_db_path().expect("control db");
+    let session_id = fixture.session.session_id();
+    let store_ref = RuntimeMailboxStoreRef {
+        message_id: "mailbox-1".to_owned(),
+        session_path: session_file,
+    };
+    enqueue_stored_runtime_mailbox_message(
+        &control_db_path,
+        &EnqueueStoredRuntimeMailboxMessageInput {
+            recipient: RuntimeMailboxAddress {
+                agent_id: None,
+                session_id,
+            },
+            sender: RuntimeMailboxAddress {
+                agent_id: Some("parent".to_owned()),
+                session_id: "parent-session".to_owned(),
+            },
+            kind: RuntimeMailboxMessageKind::Message,
+            store_ref,
+            message: json!({
+                "id": "mailbox-1",
+                "fromAgentId": "parent",
+                "kind": "message",
+                "status": "pending",
+                "createdAt": "2026-06-21T00:00:00.000Z",
+                "updatedAt": "2026-06-21T00:00:00.000Z",
+                "body": "hello from parent",
+            }),
+            updated_at: None,
+        },
+    )
+    .expect("enqueue mailbox message");
+    fixture.faux.set_responses(vec![
+        faux_assistant_message("ack", FauxAssistantMessageOptions::default()).into(),
+    ]);
+    fixture
+        .session
+        .model_runtime()
+        .refresh(Default::default())
+        .await
+        .expect("refresh configured providers");
+
+    fixture
+        .session
+        .drain_runtime_coordination()
+        .await
+        .expect("drain coordination");
+
+    let messages = fixture.session.messages();
+    let user_text = messages
+        .iter()
+        .find_map(|message| match message {
+            AgentMessage::User(user) => Some(match &user.content {
+                pi_ai::types::UserContent::Text(text) => text.clone(),
+                pi_ai::types::UserContent::Blocks(blocks) => blocks
+                    .iter()
+                    .filter_map(|block| match block {
+                        pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.as_str()),
+                        pi_ai::types::TextOrImageContent::Image(_) => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join(""),
+            }),
+            _ => None,
+        })
+        .expect("delivered mailbox prompt");
+    assert!(user_text.contains("From:"), "{user_text}");
+    assert!(user_text.contains("- session: parent-session"), "{user_text}");
+    assert!(user_text.contains("hello from parent"), "{user_text}");
+
+    let rows = list_runtime_mailbox_messages(&control_db_path).expect("mailbox rows");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].status, RuntimeMailboxMessageStatus::Delivered);
+}
+
+#[tokio::test]
+async fn shared_channel_delivery_formats_and_queues_messages_after_the_initial_cursor() {
+    use pi_coding_agent::core::session_control_db::{
+        PostSharedChannelMessageInput, RuntimeMailboxAddress, post_shared_channel_message,
+    };
+
+    let fixture = fixture_with_multi_agent(
+        Default::default(),
+        Vec::<Arc<dyn pi_agent_core::agent::types::AgentTool>>::new(),
+        None,
+        None,
+        None,
+        true,
+    )
+    .await;
+    let control_db_path = fixture.session.control_db_path().expect("control db");
+    fixture
+        .session
+        .model_runtime()
+        .refresh(Default::default())
+        .await
+        .expect("refresh configured providers");
+    fixture
+        .session
+        .drain_runtime_coordination()
+        .await
+        .expect("initialize cursor");
+    post_shared_channel_message(
+        &control_db_path,
+        &PostSharedChannelMessageInput {
+            sender: RuntimeMailboxAddress {
+                agent_id: None,
+                session_id: "other-session".to_owned(),
+            },
+            body: "hello channel".to_owned(),
+        },
+    )
+    .expect("post channel message");
+    fixture.faux.set_responses(vec![
+        faux_assistant_message("channel ack", FauxAssistantMessageOptions::default()).into(),
+    ]);
+    fixture
+        .session
+        .drain_runtime_coordination()
+        .await
+        .expect("drain shared channel");
+
+    let messages = fixture.session.messages();
+    let custom = messages
+        .iter()
+        .find_map(|message| match message {
+            AgentMessage::Custom(object) => Some(object.clone()),
+            _ => None,
+        })
+        .expect("shared channel custom message");
+    assert_eq!(
+        custom.get("customType").and_then(serde_json::Value::as_str),
+        Some("shared_channel")
+    );
+    let content = custom
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    assert!(content.contains("From shared channel:"), "{content}");
+    assert!(content.contains("- session: other-session"), "{content}");
+    assert!(content.contains("hello channel"), "{content}");
+    assert_eq!(custom.get("display").and_then(serde_json::Value::as_bool), Some(true));
 }
 
 #[tokio::test]
