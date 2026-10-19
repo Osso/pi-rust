@@ -1400,6 +1400,7 @@ impl AgentSession {
         let background_jobs = self.inner.multi_agent_store.as_ref().map(|_| {
             Arc::new(BashBackgroundJobs {
                 get_lifecycle: Arc::new(move || session.get_detached_job_lifecycle_controller()),
+                lifecycle: None,
             })
         });
         let environment_session = self.clone();
