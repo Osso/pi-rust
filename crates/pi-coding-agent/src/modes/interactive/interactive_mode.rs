@@ -2876,12 +2876,16 @@ impl InteractiveMode {
     }
 
     fn cycle_thinking_level(&self) {
-        let session = self.session.borrow();
-        if let Some(level) = session.cycle_thinking_level() {
-            self.show_status(&format!("Thinking level: {}", level.as_str()));
+        let result = self.session.borrow().cycle_thinking_level();
+        match result {
+            Ok(None) => self.show_status("Current model does not support thinking"),
+            Ok(Some(level)) => {
+                self.footer.borrow_mut().invalidate();
+                self.update_editor_border_color();
+                self.show_status(&format!("Thinking level: {}", level.as_str()));
+            }
+            Err(error) => self.show_error(&error.to_string()),
         }
-        drop(session);
-        self.footer.borrow_mut().invalidate();
         self.ui.request_render();
     }
 
@@ -3304,6 +3308,14 @@ impl InteractiveMode {
                 Arc::new(move || {
                     let _ = sender.send(UiRequest::ShowSandboxSelector);
                     Ok(())
+                })
+            },
+            set_sandbox_profile: {
+                let session = session.clone();
+                Arc::new(move |profile, scope| {
+                    session
+                        .set_sandbox_profile(profile, scope)
+                        .map_err(|error| crate::core::extensions::types::HandlerError::new(error.to_string()))
                 })
             },
             wait_for_idle: {
@@ -3746,10 +3758,16 @@ impl InteractiveMode {
         let available = session.get_available_thinking_levels();
         let mode = self.ui_id.get();
         let on_select: Rc<dyn Fn(pi_agent_core::harness::types::ThinkingLevel)> = Rc::new(move |level| {
-            if let Some(session) = with_mode(mode, |mode| mode.session()) {
-                session.set_thinking_level(level);
-            }
-            with_mode(mode, |mode| mode.restore_editor());
+            with_mode(mode, |mode| {
+                match mode.session().set_thinking_level(level) {
+                    Ok(()) => {
+                        mode.footer.borrow_mut().invalidate();
+                        mode.update_editor_border_color();
+                    }
+                    Err(error) => mode.show_error(&error.to_string()),
+                }
+                mode.restore_editor();
+            });
         });
         let mode = self.ui_id.get();
         let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
