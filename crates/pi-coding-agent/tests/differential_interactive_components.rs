@@ -1590,14 +1590,14 @@ fn custom_tool_definition(call: &'static str, result: &'static str, shell: Rende
             })
         }),
         render_call: Some(Arc::new(move |_args, _theme, _context| {
-            Rc::new(RefCell::new(Text::new(call, 0, 0)))
+            Ok(Rc::new(RefCell::new(Text::new(call, 0, 0))))
         })),
         render_result: Some(Arc::new(move |_result, options, _theme, _context| {
-            Rc::new(RefCell::new(Text::new(
+            Ok(Rc::new(RefCell::new(Text::new(
                 format!("{result} expanded={}", options.expanded),
                 0,
                 0,
-            )))
+            ))))
         })),
     }
 }
@@ -1827,6 +1827,7 @@ fn tool_renderer_cases() -> Vec<(Value, Value)> {
             };
             renderer(&result, &options, &theme, &context)
         };
+        let component = component.expect("renderer failure");
         renders.push(json!(component.borrow_mut().render(width)));
     }
     let request = json!({

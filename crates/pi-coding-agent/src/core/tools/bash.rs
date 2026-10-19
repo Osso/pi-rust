@@ -37,7 +37,9 @@ use crate::core::detached_job_runner::{
     DetachedJobAgentType, DetachedJobLifecycleController, DetachedJobOwnership, LaunchDetachedBashInput,
     RegisterDetachedJobInput,
 };
-use crate::core::extensions::types::{ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::core::extensions::types::{
+    ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
+};
 use crate::core::multi_agent_store::{AgentLifecycle, is_active_lifecycle};
 use crate::core::tool_detach_registry::{ToolDetachHandle, ToolDetachRegistry};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
@@ -1421,8 +1423,8 @@ pub fn render_result(
 pub fn create_bash_tool_definition(cwd: &str, options: BashToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(BashTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
-    definition.render_call = Some(Arc::new(render_call));
-    definition.render_result = Some(Arc::new(render_result));
+    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_result = Some(infallible_render_result(render_result));
     definition
 }
 

@@ -43,9 +43,12 @@ fn make_component(lines: Vec<String>, widths: Arc<Mutex<Vec<usize>>>) -> Compone
     Rc::new(RefCell::new(TestComponent { lines, widths }))
 }
 
-type RenderCall = Arc<dyn Fn(&Value, &Theme, &ToolRenderContext) -> ComponentRef + Send + Sync>;
-type RenderResult =
-    Arc<dyn Fn(&AgentToolResult, &ToolRenderResultOptions, &Theme, &ToolRenderContext) -> ComponentRef + Send + Sync>;
+type RenderCall = Arc<dyn Fn(&Value, &Theme, &ToolRenderContext) -> Result<ComponentRef, HandlerError> + Send + Sync>;
+type RenderResult = Arc<
+    dyn Fn(&AgentToolResult, &ToolRenderResultOptions, &Theme, &ToolRenderContext) -> Result<ComponentRef, HandlerError>
+        + Send
+        + Sync,
+>;
 
 fn tool_definition(render_call: Option<RenderCall>, render_result: Option<RenderResult>) -> ToolDefinition {
     ToolDefinition {
@@ -95,7 +98,7 @@ fn trims_tui_spacing_lines_from_custom_tool_result_html() {
         String::new(),
     ];
     let render_result: RenderResult =
-        Arc::new(move |_result, _options, _theme, _context| make_component(lines.clone(), Arc::clone(&widths)));
+        Arc::new(move |_result, _options, _theme, _context| Ok(make_component(lines.clone(), Arc::clone(&widths))));
     let renderer = make_renderer(Some(tool_definition(None, Some(render_result))), None);
 
     let rendered = renderer
@@ -124,7 +127,7 @@ fn renders_call_html_with_the_default_width() {
     let widths = Arc::new(Mutex::new(Vec::new()));
     let call_widths = Arc::clone(&widths);
     let render_call: RenderCall =
-        Arc::new(move |_args, _theme, _context| make_component(vec!["call".to_owned()], Arc::clone(&call_widths)));
+        Arc::new(move |_args, _theme, _context| Ok(make_component(vec!["call".to_owned()], Arc::clone(&call_widths))));
     let renderer = make_renderer(Some(tool_definition(Some(render_call), None)), None);
 
     let html = renderer
@@ -151,8 +154,8 @@ fn passes_args_and_previous_component_identity() {
                 .map(|component| Rc::as_ptr(component) as *const () as usize),
         );
         match &context.last_component {
-            Some(component) => Rc::clone(component),
-            None => make_component(vec!["first".to_owned()], Arc::clone(&closure_widths)),
+            Some(component) => Ok(Rc::clone(component)),
+            None => Ok(make_component(vec!["first".to_owned()], Arc::clone(&closure_widths))),
         }
     });
     let renderer = make_renderer(Some(tool_definition(Some(render_call), None)), Some(40));
@@ -176,7 +179,7 @@ fn shares_render_state_between_calls() {
     let widths = Arc::new(Mutex::new(Vec::new()));
     let render_call: RenderCall = Arc::new(move |_args, _theme, context| {
         observed_log.lock().unwrap().push(context.state.clone());
-        make_component(Vec::new(), Arc::clone(&widths))
+        Ok(make_component(Vec::new(), Arc::clone(&widths)))
     });
     let renderer = make_renderer(Some(tool_definition(Some(render_call), None)), None);
 
@@ -191,7 +194,7 @@ fn shares_render_state_between_calls() {
 fn omits_collapsed_html_when_it_equals_expanded_html() {
     let widths = Arc::new(Mutex::new(Vec::new()));
     let render_result: RenderResult = Arc::new(move |_result, _options, _theme, _context| {
-        make_component(vec!["same".to_owned()], Arc::clone(&widths))
+        Ok(make_component(vec!["same".to_owned()], Arc::clone(&widths)))
     });
     let renderer = make_renderer(Some(tool_definition(None, Some(render_result))), None);
 
@@ -212,7 +215,7 @@ fn includes_collapsed_html_when_it_differs() {
     let widths = Arc::new(Mutex::new(Vec::new()));
     let render_result: RenderResult = Arc::new(move |_result, options, _theme, _context| {
         let line = if options.expanded { "full" } else { "short" };
-        make_component(vec![line.to_owned()], Arc::clone(&widths))
+        Ok(make_component(vec![line.to_owned()], Arc::clone(&widths)))
     });
     let renderer = make_renderer(Some(tool_definition(None, Some(render_result))), None);
 
@@ -236,7 +239,7 @@ fn forwards_content_details_and_error_state() {
     let widths = Arc::new(Mutex::new(Vec::new()));
     let render_result: RenderResult = Arc::new(move |result, _options, _theme, _context| {
         captured_log.lock().unwrap().push(result.clone());
-        make_component(Vec::new(), Arc::clone(&widths))
+        Ok(make_component(Vec::new(), Arc::clone(&widths)))
     });
     let renderer = make_renderer(Some(tool_definition(None, Some(render_result))), None);
 

@@ -546,9 +546,16 @@ impl ToolExecutionComponent {
                 }
                 Some(call_renderer) => {
                     let context = self.get_render_context(self.call_renderer_component.clone());
-                    let component = call_renderer(&self.args, &with_theme(Clone::clone), &context);
-                    self.call_renderer_component = Some(Rc::clone(&component));
-                    self.add_render_child(&render_container, component);
+                    match call_renderer(&self.args, &with_theme(Clone::clone), &context) {
+                        Ok(component) => {
+                            self.call_renderer_component = Some(Rc::clone(&component));
+                            self.add_render_child(&render_container, component);
+                        }
+                        Err(_) => {
+                            self.call_renderer_component = None;
+                            self.add_render_child(&render_container, self.create_call_fallback());
+                        }
+                    }
                 }
             }
 
@@ -580,10 +587,18 @@ impl ToolExecutionComponent {
                             is_partial: self.is_partial,
                         };
                         let context = self.get_render_context(self.result_renderer_component.clone());
-                        let component =
-                            result_renderer(&rendered_result, &options, &with_theme(Clone::clone), &context);
-                        self.result_renderer_component = Some(Rc::clone(&component));
-                        self.add_render_child(&render_container, component);
+                        match result_renderer(&rendered_result, &options, &with_theme(Clone::clone), &context) {
+                            Ok(component) => {
+                                self.result_renderer_component = Some(Rc::clone(&component));
+                                self.add_render_child(&render_container, component);
+                            }
+                            Err(_) => {
+                                self.result_renderer_component = None;
+                                if let Some(component) = self.create_result_fallback() {
+                                    self.add_render_child(&render_container, component);
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -24,7 +24,10 @@ use super::file_mutation_queue::with_file_mutation_queue;
 use super::path_utils::resolve_to_cwd;
 use super::render_utils::{render_tool_path, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
-use crate::core::extensions::types::{RenderShell, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::core::extensions::types::{
+    RenderShell, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call,
+    infallible_render_result,
+};
 use crate::modes::interactive::components::diff::render_diff;
 use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor};
 use crate::utils::child_process::node_error_code;
@@ -385,7 +388,7 @@ pub fn create_edit_tool_definition(cwd: &str, options: EditToolOptions) -> ToolD
     let tool: Arc<dyn AgentTool> = Arc::new(EditTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
     definition.render_shell = Some(RenderShell::SelfRender);
-    definition.render_call = Some(Arc::new(render_call));
-    definition.render_result = Some(Arc::new(render_result));
+    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_result = Some(infallible_render_result(render_result));
     definition
 }

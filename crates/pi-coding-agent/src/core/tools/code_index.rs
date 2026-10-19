@@ -21,7 +21,10 @@ use super::render_utils::{get_text_output, invalid_arg_text, shorten_path, str_v
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, format_size, truncate_head};
-use crate::core::extensions::types::{ToolDefinition, ToolRenderContext, ToolRenderResultOptions, ToolRenderer};
+use crate::core::extensions::types::{
+    ToolDefinition, ToolRenderContext, ToolRenderResultOptions, ToolRenderer, infallible_render_call,
+    infallible_render_result,
+};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::child_process::node_error_code;
@@ -567,7 +570,7 @@ pub fn code_index_render_result(
 fn with_renderers(tool: Arc<dyn AgentTool>, render_call: ToolRenderer) -> ToolDefinition {
     let mut definition = create_tool_definition_from_agent_tool(tool);
     definition.render_call = Some(render_call);
-    definition.render_result = Some(Arc::new(code_index_render_result));
+    definition.render_result = Some(infallible_render_result(code_index_render_result));
     definition
 }
 
@@ -575,7 +578,7 @@ fn with_renderers(tool: Arc<dyn AgentTool>, render_call: ToolRenderer) -> ToolDe
 pub fn create_outline_tool_definition(cwd: &str, options: CodeIndexToolOptions) -> ToolDefinition {
     with_renderers(
         Arc::new(OutlineTool::with_options(cwd, options)),
-        Arc::new(outline_render_call),
+        infallible_render_call(outline_render_call),
     )
 }
 
@@ -583,7 +586,7 @@ pub fn create_outline_tool_definition(cwd: &str, options: CodeIndexToolOptions) 
 pub fn create_symbol_tool_definition(cwd: &str, options: CodeIndexToolOptions) -> ToolDefinition {
     with_renderers(
         Arc::new(SymbolTool::with_options(cwd, options)),
-        Arc::new(symbol_render_call),
+        infallible_render_call(symbol_render_call),
     )
 }
 
@@ -591,7 +594,7 @@ pub fn create_symbol_tool_definition(cwd: &str, options: CodeIndexToolOptions) -
 pub fn create_references_tool_definition(cwd: &str, options: CodeIndexToolOptions) -> ToolDefinition {
     with_renderers(
         Arc::new(ReferencesTool::with_options(cwd, options)),
-        Arc::new(references_render_call),
+        infallible_render_call(references_render_call),
     )
 }
 

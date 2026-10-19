@@ -1185,10 +1185,33 @@ pub type ToolExecute = Arc<
         + Sync,
 >;
 
-pub type ToolRenderer = Arc<dyn Fn(&Value, &Theme, &ToolRenderContext) -> ComponentRef + Send + Sync>;
+pub type ToolRenderer =
+    Arc<dyn Fn(&Value, &Theme, &ToolRenderContext) -> Result<ComponentRef, HandlerError> + Send + Sync>;
 
-pub type ToolResultRenderer =
-    Arc<dyn Fn(&AgentToolResult, &ToolRenderResultOptions, &Theme, &ToolRenderContext) -> ComponentRef + Send + Sync>;
+pub type ToolResultRenderer = Arc<
+    dyn Fn(&AgentToolResult, &ToolRenderResultOptions, &Theme, &ToolRenderContext) -> Result<ComponentRef, HandlerError>
+        + Send
+        + Sync,
+>;
+
+/// Adapts a built-in renderer, which cannot fail, to the fallible renderer type.
+pub fn infallible_render_call<F>(renderer: F) -> ToolRenderer
+where
+    F: Fn(&Value, &Theme, &ToolRenderContext) -> ComponentRef + Send + Sync + 'static,
+{
+    Arc::new(move |args, theme, context| Ok(renderer(args, theme, context)))
+}
+
+/// Adapts a built-in result renderer, which cannot fail, to the fallible renderer type.
+pub fn infallible_render_result<F>(renderer: F) -> ToolResultRenderer
+where
+    F: Fn(&AgentToolResult, &ToolRenderResultOptions, &Theme, &ToolRenderContext) -> ComponentRef
+        + Send
+        + Sync
+        + 'static,
+{
+    Arc::new(move |result, options, theme, context| Ok(renderer(result, options, theme, context)))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

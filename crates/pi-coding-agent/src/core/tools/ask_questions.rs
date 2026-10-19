@@ -20,6 +20,7 @@ use crate::core::desktop_notification::{
 };
 use crate::core::extensions::types::{
     ExtensionContext, ExtensionMode, ExtensionUiContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
+    infallible_render_call, infallible_render_result,
 };
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 
@@ -543,7 +544,7 @@ pub fn create_ask_questions_tool_definition() -> ToolDefinition {
     definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
     definition.approval_required = Some(false);
-    definition.render_call = Some(Arc::new(render_call));
-    definition.render_result = Some(Arc::new(render_result));
+    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_result = Some(infallible_render_result(render_result));
     definition
 }

@@ -32,7 +32,7 @@ Port: `crates/pi-coding-agent/src/modes/interactive/components/tool_execution.rs
 | `hideComponent` | render returns `[]` | not reachable: source sets `hasContent = true` in every renderer branch (gap, dead branch) |
 | image blocks | spacer + `Image` with width cap | not covered (requires terminal image capabilities) |
 | Kitty conversion | non-PNG converted before render | not covered (requires kitty capabilities) |
-| renderer throws | fallback component | not covered: Rust renderers are not panic-caught (deviation) |
+| renderer throws | fallback component | `tool_execution_renderer_errors` (call renderer `Err` → title fallback; result renderer `Err` → text fallback); export-html returns `None` |
 
 ## Deviations
 
@@ -40,5 +40,8 @@ Port: `crates/pi-coding-agent/src/modes/interactive/components/tool_execution.rs
   ported components; `ToolRenderContext.invalidate` is `Send + Sync` and cannot capture an `Rc`.
 - `setInterval` is replaced by driver-polled `poll(now)`/`next_deadline`, matching the ported
   `Loader` and `CountdownTimer`.
-- Renderer panics are not caught and converted to fallbacks; TS wraps both renderer calls in
-  `try/catch`. Recorded as a gap.
+- Renderer failures are values: `ToolRenderer`/`ToolResultRenderer` return
+  `Result<ComponentRef, HandlerError>`. `update_display` renders the source's fallback on `Err`
+  (call → tool-title fallback, result → text fallback); `core/export-html/tool-renderer.ts`
+  returns `None` on `Err`. A Rust panic is not converted; the typed error path is the port of the
+  TS `catch` (throw-audit rule).
