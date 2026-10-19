@@ -63,6 +63,11 @@ fn translate_class(characters: &[char], start: usize, output: &mut String) -> us
             '\\' => {
                 index = translate_escape(characters, index, true, output);
             }
+            '[' | '&' | '~' => {
+                output.push('\\');
+                output.push(characters[index]);
+                index += 1;
+            }
             character => {
                 output.push(character);
                 index += 1;

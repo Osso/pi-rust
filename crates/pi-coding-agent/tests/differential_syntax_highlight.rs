@@ -174,6 +174,12 @@ fn cases() -> Vec<Case> {
         }
     }
 
+    let grammars: Value = serde_json::from_str(GRAMMARS).expect("generated grammars must parse");
+    for grammar in grammars["languages"].as_array().expect("languages") {
+        let language = grammar["key"].as_str().expect("grammar key");
+        cases.push(snippet_case("grammar", language, GENERIC_SNIPPET, false));
+    }
+
     let tricky = [
         "unterminated \"string\nnext line",
         "/* unterminated comment\nmore",
@@ -245,6 +251,28 @@ fn cases() -> Vec<Case> {
 
     cases
 }
+
+const GRAMMARS: &str = include_str!("../src/utils/syntax_highlight/grammars.json");
+
+/// Multi-construct snippet exercised against every generated grammar.
+const GENERIC_SNIPPET: &str = r##"/* block comment */
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+def function_name(arg1, arg2):
+    value = 42
+    text = "double \"quoted\" string"
+    other = 'single \'quoted\' string'
+    if value >= 3.14 and not arg1:
+        return {"key": [1, 2, 3], "nested": true}
+class Example extends Base {
+  method() { return this.value + 1; }
+}
+<p class="tag">text &amp; more</p>
+@decorator
+$x = %y + &z
+"##;
 
 const RUST: &str = r##"use std::collections::HashMap;
 

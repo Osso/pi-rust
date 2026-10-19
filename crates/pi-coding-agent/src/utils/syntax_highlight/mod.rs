@@ -80,17 +80,21 @@ pub fn render_highlighted_html(html: &str, theme: &HighlightTheme) -> String {
     output
 }
 
+/// Highlights `code` and returns the raw highlight.js HTML before theming.
+pub fn highlight_html(code: &str, options: &HighlightOptions) -> String {
+    match &options.language {
+        Some(language) => hljs::highlight(language, code, options.ignore_illegals.unwrap_or(false))
+            .map_or_else(|| escape_html(code), |result| result.value),
+        None => hljs::highlight_auto(code, options.language_subset.as_deref()).value,
+    }
+}
+
 /// Highlights `code` and renders it through the theme.
 ///
 /// When `options.language` is absent, auto-detection runs over the registered
 /// languages (or `options.language_subset`).
 pub fn highlight(code: &str, options: &HighlightOptions) -> String {
-    let html = match &options.language {
-        Some(language) => hljs::highlight(language, code, options.ignore_illegals.unwrap_or(false))
-            .map_or_else(|| escape_html(code), |result| result.value),
-        None => hljs::highlight_auto(code, options.language_subset.as_deref()).value,
-    };
-    render_highlighted_html(&html, &options.theme)
+    render_highlighted_html(&highlight_html(code, options), &options.theme)
 }
 
 /// True when highlight.js registers the language name or alias.
@@ -114,20 +118,30 @@ fn active_formatter(scopes: &[Option<String>], theme: &HighlightTheme) -> Option
 }
 
 fn scope_formatter(scope: &str, theme: &HighlightTheme) -> Option<HighlightFormatter> {
+    if let Some(formatter) = theme_formatter(scope, theme) {
+        return Some(formatter);
+    }
+    if let Some(dot) = scope.find('.')
+        && let Some(formatter) = theme_formatter(&scope[..dot], theme)
+    {
+        return Some(formatter);
+    }
+    if let Some(dash) = scope.find('-')
+        && let Some(formatter) = theme_formatter(&scope[..dash], theme)
+    {
+        return Some(formatter);
+    }
+    None
+}
+
+/// Mirrors the TypeScript theme lookup, which reads properties from a plain
+/// object. A scope named `constructor` therefore resolves to `Object` rather
+/// than `undefined`; calling it with a string returns that string unchanged.
+fn theme_formatter(scope: &str, theme: &HighlightTheme) -> Option<HighlightFormatter> {
     if let Some(formatter) = theme.get(scope) {
         return Some(formatter.clone());
     }
-    if let Some(dot) = scope.find('.')
-        && let Some(formatter) = theme.get(&scope[..dot])
-    {
-        return Some(formatter.clone());
-    }
-    if let Some(dash) = scope.find('-')
-        && let Some(formatter) = theme.get(&scope[..dash])
-    {
-        return Some(formatter.clone());
-    }
-    None
+    (scope == "constructor").then(|| Arc::new(|text: &str| text.to_owned()) as HighlightFormatter)
 }
 
 fn is_span_open_tag_start(html: &str, index: usize) -> bool {
