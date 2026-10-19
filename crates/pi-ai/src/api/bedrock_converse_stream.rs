@@ -39,7 +39,7 @@ use crate::utils::provider_env::get_provider_env_value;
 use crate::utils::sanitize_unicode::sanitize_surrogates;
 use pi_js_compat::base64;
 use pi_js_compat::date::date_parse;
-use pi_js_compat::number::{js_number_to_string, parse_number};
+use pi_js_compat::number::{js_number_to_string, js_number_value, parse_number};
 
 const EMPTY_TEXT_PLACEHOLDER: &str = "<empty>";
 const BEDROCK_DATA_RETENTION_DOCS_URL: &str =
@@ -436,10 +436,10 @@ fn build_command_input(
     let env = options.stream.request.env.as_ref();
     let mut inference_config = Map::new();
     if let Some(max_tokens) = inference_max_tokens {
-        inference_config.insert("maxTokens".to_owned(), number(max_tokens));
+        inference_config.insert("maxTokens".to_owned(), js_number_value(max_tokens));
     }
     if let Some(temperature) = options.stream.temperature {
-        inference_config.insert("temperature".to_owned(), number(temperature));
+        inference_config.insert("temperature".to_owned(), js_number_value(temperature));
     }
 
     let mut input = Map::new();
@@ -466,14 +466,6 @@ fn build_command_input(
         input.insert("requestMetadata".to_owned(), Value::Object(metadata.clone()));
     }
     Ok(Value::Object(input))
-}
-
-fn number(value: f64) -> Value {
-    if value.fract() == 0.0 && value.abs() <= i64::MAX as f64 {
-        json!(value as i64)
-    } else {
-        serde_json::Number::from_f64(value).map_or(Value::Null, Value::Number)
-    }
 }
 
 fn convert_messages(
@@ -945,7 +937,7 @@ fn build_additional_model_request_fields(model: &Model, options: &BedrockOptions
             .unwrap_or(default_budget);
         let mut thinking = Map::new();
         thinking.insert("type".to_owned(), json!("enabled"));
-        thinking.insert("budget_tokens".to_owned(), number(budget));
+        thinking.insert("budget_tokens".to_owned(), js_number_value(budget));
         if let Some(display) = display {
             thinking.insert("display".to_owned(), json!(display));
         }
@@ -1823,7 +1815,7 @@ fn append_bedrock_failure_diagnostic(output: &mut AssistantMessage, error: &Bedr
     if let Some(status) = error.status
         && status.fract() == 0.0
     {
-        details.insert("status".to_owned(), number(status));
+        details.insert("status".to_owned(), js_number_value(status));
     }
     if let Some(code) = extract_bedrock_error_code(error) {
         details.insert("errorCode".to_owned(), json!(code));

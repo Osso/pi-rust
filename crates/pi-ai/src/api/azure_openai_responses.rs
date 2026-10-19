@@ -29,6 +29,7 @@ use crate::utils::event_stream::{AssistantMessageEventSender, create_assistant_m
 use crate::utils::headers::headers_to_record;
 use crate::utils::provider_env::get_provider_env_value;
 use crate::utils::provider_retry::{ProviderRequestError, ProviderRetryOptions, retry_provider_request};
+use pi_js_compat::number::js_number_value;
 
 const DEFAULT_AZURE_API_VERSION: &str = "v1";
 const AZURE_TOOL_CALL_PROVIDERS: [&str; 4] = ["openai", "openai-codex", "opencode", "azure-openai-responses"];
@@ -224,11 +225,11 @@ pub fn build_params(
     {
         params.insert(
             "max_output_tokens".to_owned(),
-            number_value(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)),
+            js_number_value(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)),
         );
     }
     if let Some(temperature) = stream_options.temperature {
-        params.insert("temperature".to_owned(), number_value(temperature));
+        params.insert("temperature".to_owned(), js_number_value(temperature));
     }
     if let Some(tools) = context.tools.as_deref().filter(|tools| !tools.is_empty()) {
         let supports_strict_mode = match &model.compat {
@@ -286,12 +287,6 @@ pub fn build_params(
         }
     }
     Ok(Value::Object(params))
-}
-
-fn number_value(value: f64) -> Value {
-    serde_json::Number::from_f64(value)
-        .map(Value::Number)
-        .unwrap_or(Value::Null)
 }
 
 fn merge_headers(

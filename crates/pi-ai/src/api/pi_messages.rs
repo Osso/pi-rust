@@ -29,7 +29,7 @@ use crate::utils::event_stream::{
 use crate::utils::headers::{headers_to_record, provider_headers_to_record};
 use crate::utils::json_parse::parse_streaming_json;
 use crate::utils::provider_env::get_provider_env_value;
-use pi_js_compat::number::js_number_to_string;
+use pi_js_compat::number::js_number_value;
 
 const MAX_DIAGNOSTIC_BODY_CHARS: usize = 8192;
 
@@ -536,11 +536,6 @@ fn build_headers(api_key: &str, options: &PiMessagesOptions) -> IndexMap<String,
         }
     }
     headers
-}
-
-fn js_number_value(value: f64) -> Value {
-    let text = js_number_to_string(value);
-    serde_json::from_str(&text).unwrap_or(Value::Null)
 }
 
 fn parse_error_body(body: &str) -> Option<PiMessagesErrorBody> {

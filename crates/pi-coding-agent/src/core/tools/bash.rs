@@ -1210,22 +1210,15 @@ impl UpdateThrottle {
 // Renderers
 // ============================================================================
 
-fn format_js_number(value: f64) -> String {
-    if value.fract() == 0.0 {
-        format!("{value:.0}")
-    } else {
-        value.to_string()
-    }
-}
-
 fn format_bash_call(args: &Value) -> String {
     let theme = current_theme();
     let command = str_value(args.get("command"));
     let timeout = args.get("timeout").and_then(Value::as_f64);
     let timeout_suffix = match timeout {
-        Some(timeout) if timeout != 0.0 => {
-            theme.fg(ThemeColor::Muted, &format!(" (timeout {}s)", format_js_number(timeout)))
-        }
+        Some(timeout) if timeout != 0.0 => theme.fg(
+            ThemeColor::Muted,
+            &format!(" (timeout {}s)", pi_js_compat::number::js_number_to_string(timeout)),
+        ),
         _ => String::new(),
     };
     let command_display = match command {

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::agent::AgentMessage;
+use pi_js_compat::number::js_number_value;
 
 /// Role tag for shell-command execution messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,20 +90,6 @@ pub struct CompactionSummaryOptions {
 pub enum CustomMessageContent {
     Text(String),
     Blocks(Vec<TextOrImageContent>),
-}
-
-fn json_number(value: f64) -> Value {
-    if !value.is_finite() {
-        return Value::Null;
-    }
-    if value.fract() == 0.0 && value.abs() < 1e21 {
-        return serde_json::Number::from_i128(value as i128)
-            .map(Value::Number)
-            .unwrap_or(Value::Null);
-    }
-    serde_json::Number::from_f64(value)
-        .map(Value::Number)
-        .unwrap_or(Value::Null)
 }
 
 fn insert_optional(map: &mut Map<String, Value>, key: &str, value: Option<Value>) {
@@ -269,7 +256,7 @@ pub fn create_branch_summary_message(summary: &str, from_id: &str, timestamp: i6
     message.insert("role".to_owned(), Value::String("branchSummary".to_owned()));
     message.insert("summary".to_owned(), Value::String(summary.to_owned()));
     message.insert("fromId".to_owned(), Value::String(from_id.to_owned()));
-    message.insert("timestamp".to_owned(), json_number(timestamp as f64));
+    message.insert("timestamp".to_owned(), js_number_value(timestamp as f64));
     AgentMessage::Custom(message)
 }
 
@@ -283,19 +270,19 @@ pub fn create_compaction_summary_message(
     let mut message = Map::new();
     message.insert("role".to_owned(), Value::String("compactionSummary".to_owned()));
     message.insert("summary".to_owned(), Value::String(summary.to_owned()));
-    message.insert("tokensBefore".to_owned(), json_number(tokens_before));
-    insert_optional(&mut message, "tokensAfter", options.tokens_after.map(json_number));
+    message.insert("tokensBefore".to_owned(), js_number_value(tokens_before));
+    insert_optional(&mut message, "tokensAfter", options.tokens_after.map(js_number_value));
     insert_optional(
         &mut message,
         "keptFromPreviousContextTokens",
-        options.kept_from_previous_context_tokens.map(json_number),
+        options.kept_from_previous_context_tokens.map(js_number_value),
     );
     insert_optional(
         &mut message,
         "compactedResultTokens",
-        options.compacted_result_tokens.map(json_number),
+        options.compacted_result_tokens.map(js_number_value),
     );
-    insert_optional(&mut message, "durationMs", options.duration_ms.map(json_number));
+    insert_optional(&mut message, "durationMs", options.duration_ms.map(js_number_value));
     insert_optional(
         &mut message,
         "providerNative",
@@ -304,7 +291,7 @@ pub fn create_compaction_summary_message(
             .as_ref()
             .and_then(|value| serde_json::to_value(value).ok()),
     );
-    message.insert("timestamp".to_owned(), json_number(timestamp as f64));
+    message.insert("timestamp".to_owned(), js_number_value(timestamp as f64));
     AgentMessage::Custom(message)
 }
 
@@ -325,6 +312,6 @@ pub fn create_custom_message(
     );
     message.insert("display".to_owned(), Value::Bool(display));
     insert_optional(&mut message, "details", details);
-    message.insert("timestamp".to_owned(), json_number(timestamp as f64));
+    message.insert("timestamp".to_owned(), js_number_value(timestamp as f64));
     AgentMessage::Custom(message)
 }

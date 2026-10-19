@@ -448,17 +448,12 @@ fn format_ls_call(args: &Value, theme: &Theme, cwd: &str) -> String {
     let path_display = render_tool_path(str_value(args.get("path")).as_deref(), theme, cwd, Some("."));
     let mut text = format!("{} {path_display}", theme.fg(ThemeColor::ToolTitle, &theme.bold("ls")));
     if let Some(limit) = args.get("limit").and_then(Value::as_f64) {
-        text.push_str(&theme.fg(ThemeColor::ToolOutput, &format!(" (limit {})", format_js_number(limit))));
+        text.push_str(&theme.fg(
+            ThemeColor::ToolOutput,
+            &format!(" (limit {})", pi_js_compat::number::js_number_to_string(limit)),
+        ));
     }
     text
-}
-
-fn format_js_number(value: f64) -> String {
-    if value.fract() == 0.0 {
-        format!("{value:.0}")
-    } else {
-        value.to_string()
-    }
 }
 
 fn format_ls_result(

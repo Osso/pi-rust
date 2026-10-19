@@ -32,10 +32,17 @@ CLDR collation data for the tested locales.
 | `Number.parseFloat(string)` (leading numeric prefix, exponent rollback) | `parse_float` | `tests/number.rs`, `tests/differential_number.rs` |
 | ECMA-262 `Number::toString` (shortest round-trip digits, exponent thresholds) | `js_number_to_string` | `tests/number.rs`, `tests/differential_number.rs` (`String(Number(s))`) |
 | `JSON.stringify`-style `f64` serialization | `serialize`, `serialize_option` | consumed by `pi-ai`/`pi-agent-core` wire records; existing differential suites |
-| `JSON.stringify(number)` value (integer notation, `null` for non-finite) | `js_number_value` | `tests/number.rs::js_number_value_matches_json_stringify_numbers`; loop extension differential |
+| `JSON.stringify(number)` value (integer notation below `1e21`, `null` for non-finite) | `js_number_value`; the single implementation for every JSON payload builder | `tests/number.rs::js_number_value_matches_json_stringify_numbers`; `tests/differential_number.rs::matches_node_json_stringify_numbers` (27 inputs against `JSON.stringify(Number(s))`) |
 
-Differential: 36 `Number` inputs, 28 `parseFloat` inputs, 21 `parseInt` pairs, and
-26 `String(Number(s))` inputs against Node 26.
+Differential: 36 `Number` inputs, 28 `parseFloat` inputs, 21 `parseInt` pairs,
+26 `String(Number(s))` inputs, and 27 `JSON.stringify(Number(s))` inputs against
+Node 26.
+
+Deviation: integral values in `(u64::MAX, 1e21)` are printed by `serde_json` in
+exponent form (`1e+20`) instead of JavaScript's full digits
+(`100000000000000000000`); the JSON numeric value is identical, and
+`serde_json` cannot represent those integers without `arbitrary_precision`.
+Exponent spelling outside that range matches JavaScript (`1e+21`).
 
 ## `Date.parse` (`src/date.rs`)
 
@@ -98,6 +105,11 @@ and `pi-js-compat` unit tests.
 | `crates/pi-coding-agent/src/core/detached_job_retention.rs` (`compare_paths`) | `pi_js_compat::locale_compare` |
 | `crates/pi-coding-agent/src/utils/iso_time.rs` (`parse_javascript_date`) | `pi_js_compat::date::date_parse` |
 | `crates/pi-coding-agent/src/utils/footer_status.rs` (byte-order sort) | `pi_js_compat::locale_compare` |
+| `crates/pi-ai/src/api/{pi_messages,mistral_conversations,openai_codex_responses,anthropic_messages,bedrock_converse_stream,openai_responses,openai_completions,azure_openai_responses}.rs`, `utils/validation.rs`, `auth/types.rs` (`js_number`/`number_value`/`json_number`) | `pi_js_compat::number::js_number_value` |
+| `crates/pi-agent-core/src/harness/messages.rs`, `harness/frontmatter.rs` | `pi_js_compat::number::js_number_value` |
+| `crates/pi-coding-agent/src/{utils/js_json.rs,utils/frontmatter.rs,core/settings_manager.rs,core/models_store.rs}` | `pi_js_compat::number::js_number_value` |
+| `crates/pi-coding-agent/src/core/tools/{read,ls,find,grep,bash}.rs`, `bundled_extensions/pyrun/eval_tool.rs`, `core/settings_manager.rs` (`format_js_number`) | `pi_js_compat::number::js_number_to_string` |
+| `crates/pi-coding-agent/src/core/export_html/{index,ansi_to_html}.rs` (`js_number`, `js_number_to_string`) | `pi_js_compat::number::js_number_to_string` |
 
 ## `minimatch` 10.2.5 (`src/minimatch/`)
 

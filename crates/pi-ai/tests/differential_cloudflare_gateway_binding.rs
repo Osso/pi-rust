@@ -87,8 +87,8 @@ fn canonical(value: Value) -> Value {
             Value::Object(object.into_iter().map(|(key, value)| (key, canonical(value))).collect())
         }
         Value::Number(number) => match number.as_f64() {
-            Some(float) if float.fract() == 0.0 && float.abs() < 1e21 => Value::from(float as i64),
-            _ => Value::Number(number),
+            Some(float) => pi_js_compat::number::js_number_value(float),
+            None => Value::Number(number),
         },
         other => other,
     }

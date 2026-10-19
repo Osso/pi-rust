@@ -98,7 +98,10 @@ pub fn format_result_value(result: &CanonicalPyrunEvalResult) -> Option<String> 
         return None;
     }
     if let Some(exit_code) = command_exit_code {
-        return Some(format!("exit code {}", format_js_number(exit_code)));
+        return Some(format!(
+            "exit code {}",
+            pi_js_compat::number::js_number_to_string(exit_code)
+        ));
     }
     if value.is_null() {
         return None;
@@ -111,10 +114,6 @@ pub fn format_result_value(result: &CanonicalPyrunEvalResult) -> Option<String> 
         };
     }
     Some(serde_json::to_string(value).unwrap_or_default())
-}
-
-fn format_js_number(value: f64) -> String {
-    pi_js_compat::number::js_number_to_string(value)
 }
 
 /// `formatConsoleEntry`.

@@ -35,7 +35,7 @@ use crate::utils::hash::short_hash;
 use crate::utils::headers::headers_to_record;
 use crate::utils::json_parse::parse_streaming_json;
 use crate::utils::sanitize_unicode::sanitize_surrogates;
-use pi_js_compat::number::js_number_to_string;
+use pi_js_compat::number::{js_number_to_string, js_number_value};
 
 const MISTRAL_TOOL_CALL_ID_LENGTH: usize = 9;
 const MAX_MISTRAL_ERROR_BODY_CHARS: usize = 4000;
@@ -902,11 +902,6 @@ fn build_tool_result_text(tool_result: &crate::types::ToolResultMessage, support
         "(no tool output)"
     }
     .to_owned()
-}
-
-fn js_number_value(value: f64) -> Value {
-    let text = js_number_to_string(value);
-    serde_json::from_str(&text).unwrap_or(Value::Null)
 }
 
 // --- Streaming -------------------------------------------------------------

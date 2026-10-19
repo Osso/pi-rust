@@ -519,18 +519,13 @@ fn format_read_line_range(args: &Value, theme: &Theme) -> String {
     }
     let start_line = offset.unwrap_or(1.0);
     let end_line = limit.map(|limit| start_line + limit - 1.0);
-    let start = format_js_number(start_line);
+    let start = pi_js_compat::number::js_number_to_string(start_line);
     match end_line {
-        Some(end_line) => theme.fg(ThemeColor::Warning, &format!(":{start}-{}", format_js_number(end_line))),
+        Some(end_line) => theme.fg(
+            ThemeColor::Warning,
+            &format!(":{start}-{}", pi_js_compat::number::js_number_to_string(end_line)),
+        ),
         None => theme.fg(ThemeColor::Warning, &format!(":{start}")),
-    }
-}
-
-fn format_js_number(value: f64) -> String {
-    if value.fract() == 0.0 {
-        format!("{value:.0}")
-    } else {
-        value.to_string()
     }
 }
 

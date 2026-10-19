@@ -1156,7 +1156,7 @@ impl SettingsManager {
         if !timeout_ms.is_finite() || timeout_ms < 0.0 {
             return Err(SettingsFailure::new(format!(
                 "Invalid httpIdleTimeoutMs setting: {}",
-                format_js_number(timeout_ms)
+                js_number::js_number_to_string(timeout_ms)
             )));
         }
         set_number(&mut self.global_settings, "httpIdleTimeoutMs", timeout_ms.floor());
@@ -1863,12 +1863,12 @@ fn migrate_settings(settings: &mut Settings) {
             if let Some(max_delay) = max_delay
                 && provider_delay.is_none_or(Value::is_null)
             {
-                provider.insert("maxRetryDelayMs".to_owned(), number_value(max_delay));
+                provider.insert("maxRetryDelayMs".to_owned(), js_number::js_number_value(max_delay));
                 retry.insert("provider".to_owned(), Value::Object(provider));
             }
         } else if let Some(max_delay) = retry.get("maxDelayMs").and_then(Value::as_f64) {
             let mut provider = Map::new();
-            provider.insert("maxRetryDelayMs".to_owned(), number_value(max_delay));
+            provider.insert("maxRetryDelayMs".to_owned(), js_number::js_number_value(max_delay));
             retry.insert("provider".to_owned(), Value::Object(provider));
         }
         retry.shift_remove("maxDelayMs");
@@ -2051,7 +2051,7 @@ fn set_bool(settings: &mut Settings, key: &str, value: bool) {
 }
 
 fn set_number(settings: &mut Settings, key: &str, value: f64) {
-    settings.insert(key.to_owned(), number_value(value));
+    settings.insert(key.to_owned(), js_number::js_number_value(value));
 }
 
 fn set_string_array(settings: &mut Settings, key: &str, values: &[String]) {
@@ -2078,27 +2078,7 @@ fn set_nested(settings: &mut Settings, field: &str, nested_key: &str, value: Val
 }
 
 fn set_number_nested(settings: &mut Settings, field: &str, nested_key: &str, value: f64) {
-    set_nested(settings, field, nested_key, number_value(value));
-}
-
-fn number_value(value: f64) -> Value {
-    if value.is_finite() && value.fract() == 0.0 && value.abs() < 9_007_199_254_740_992.0 {
-        return Value::from(value as i64);
-    }
-    serde_json::Number::from_f64(value).map_or(Value::Null, Value::Number)
-}
-
-fn format_js_number(value: f64) -> String {
-    if value.is_nan() {
-        return "NaN".to_owned();
-    }
-    if value == f64::INFINITY {
-        return "Infinity".to_owned();
-    }
-    if value == f64::NEG_INFINITY {
-        return "-Infinity".to_owned();
-    }
-    js_json::stringify(&number_value(value))
+    set_nested(settings, field, nested_key, js_number::js_number_value(value));
 }
 
 /// `Math.max(min, Math.floor(value))`; `NaN` stays `NaN`.

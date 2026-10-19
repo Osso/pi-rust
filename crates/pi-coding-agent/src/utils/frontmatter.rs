@@ -1,3 +1,4 @@
+use pi_js_compat::number::js_number_value;
 use serde_json::{Map, Number, Value};
 use serde_yaml_ng::Value as YamlValue;
 
@@ -122,10 +123,7 @@ fn yaml_number_to_json(value: serde_yaml_ng::Number) -> Value {
     if let Some(value) = value.as_u64() {
         return Value::Number(Number::from(value));
     }
-    value
-        .as_f64()
-        .and_then(Number::from_f64)
-        .map_or(Value::Null, Value::Number)
+    value.as_f64().map_or(Value::Null, js_number_value)
 }
 
 fn yaml_key(value: YamlValue) -> Result<String, FrontmatterError> {

@@ -47,10 +47,7 @@ const UTILS: &str = "core/compaction/utils.ts";
 
 /// ECMA-262 number rendering used by the TypeScript side (`1800`, not `1800.0`).
 fn js_num(value: f64) -> Value {
-    if value.is_finite() && value.fract() == 0.0 && value.abs() < 1e21 {
-        return json!(value as i128);
-    }
-    json!(value)
+    pi_js_compat::number::js_number_value(value)
 }
 
 fn settings_value(settings: &CompactionSettings) -> Value {

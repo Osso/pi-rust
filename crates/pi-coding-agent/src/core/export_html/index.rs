@@ -5,7 +5,7 @@ use std::path::Path;
 use pi_agent_core::agent::AgentState;
 use pi_ai::types::TextOrImageContent;
 use pi_js_compat::base64::btoa;
-use pi_js_compat::number::parse_int;
+use pi_js_compat::number::{js_number_to_string, parse_int};
 use pi_js_compat::string::replace;
 use regex::Regex;
 use serde::Serialize;
@@ -184,14 +184,6 @@ fn get_luminance(rgb: Rgb) -> f64 {
     0.2126 * to_linear(rgb.r) + 0.7152 * to_linear(rgb.g) + 0.0722 * to_linear(rgb.b)
 }
 
-fn js_number(value: f64) -> String {
-    if value.is_finite() && value.fract() == 0.0 && value.abs() < 1e21 {
-        format!("{}", value as i128)
-    } else {
-        format!("{value}")
-    }
-}
-
 fn adjust_brightness(color: &str, factor: f64) -> String {
     let Some(parsed) = parse_color(color) else {
         return color.to_owned();
@@ -199,9 +191,9 @@ fn adjust_brightness(color: &str, factor: f64) -> String {
     let adjust = |channel: f64| (channel * factor).round().clamp(0.0, 255.0);
     format!(
         "rgb({}, {}, {})",
-        js_number(adjust(parsed.r)),
-        js_number(adjust(parsed.g)),
-        js_number(adjust(parsed.b))
+        js_number_to_string(adjust(parsed.r)),
+        js_number_to_string(adjust(parsed.g)),
+        js_number_to_string(adjust(parsed.b))
     )
 }
 
@@ -223,9 +215,9 @@ fn derive_export_colors(base_color: &str) -> DerivedExportColors {
             card_bg: base_color.to_owned(),
             info_bg: format!(
                 "rgb({}, {}, {})",
-                js_number((parsed.r + 10.0).min(255.0)),
-                js_number((parsed.g + 5.0).min(255.0)),
-                js_number((parsed.b - 20.0).max(0.0))
+                js_number_to_string((parsed.r + 10.0).min(255.0)),
+                js_number_to_string((parsed.g + 5.0).min(255.0)),
+                js_number_to_string((parsed.b - 20.0).max(0.0))
             ),
         };
     }
@@ -234,9 +226,9 @@ fn derive_export_colors(base_color: &str) -> DerivedExportColors {
         card_bg: adjust_brightness(base_color, 0.85),
         info_bg: format!(
             "rgb({}, {}, {})",
-            js_number((parsed.r + 20.0).min(255.0)),
-            js_number((parsed.g + 15.0).min(255.0)),
-            js_number(parsed.b)
+            js_number_to_string((parsed.r + 20.0).min(255.0)),
+            js_number_to_string((parsed.g + 15.0).min(255.0)),
+            js_number_to_string(parsed.b)
         ),
     }
 }

@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use pi_js_compat::number::js_number_to_string;
@@ -23,7 +23,7 @@ pub struct DiagnosticErrorInfo {
 #[serde(untagged)]
 pub enum DiagnosticCode {
     String(String),
-    Number(#[serde(serialize_with = "serialize_js_number")] f64),
+    Number(#[serde(serialize_with = "pi_js_compat::number::serialize")] f64),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -127,13 +127,5 @@ fn js_string(value: &Value) -> String {
             .collect::<Vec<_>>()
             .join(","),
         Value::Object(_) => "[object Object]".to_owned(),
-    }
-}
-
-fn serialize_js_number<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
-    if value.fract() == 0.0 && value.abs() <= i64::MAX as f64 {
-        serializer.serialize_i64(*value as i64)
-    } else {
-        serializer.serialize_f64(*value)
     }
 }

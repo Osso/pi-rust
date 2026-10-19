@@ -465,10 +465,7 @@ fn option_str(value: Option<&str>) -> Value {
 
 /// JavaScript numbers are compared as integers when integral.
 fn number(value: f64) -> Value {
-    if value.is_finite() && value.fract() == 0.0 && value.abs() < 9_007_199_254_740_992.0 {
-        return json!(value as i64);
-    }
-    serde_json::Number::from_f64(value).map_or(Value::Null, Value::Number)
+    pi_js_compat::number::js_number_value(value)
 }
 
 fn scenarios() -> Vec<Scenario> {

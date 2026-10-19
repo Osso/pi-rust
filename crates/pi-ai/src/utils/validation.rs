@@ -19,7 +19,7 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use crate::types::{Tool, ToolCall};
-use pi_js_compat::number::js_number_to_string;
+use pi_js_compat::number::{js_number_to_string, js_number_value};
 
 /// TypeBox's default `Settings.maxErrors`.
 const MAX_ERRORS: usize = 8;
@@ -137,14 +137,6 @@ fn is_schema(value: &Value) -> bool {
 // ---------------------------------------------------------------------------
 // JavaScript value semantics
 // ---------------------------------------------------------------------------
-
-/// JavaScript `Number::toString` for a JSON number.
-fn js_number(value: f64) -> Value {
-    if value.is_finite() && value.fract() == 0.0 && value.abs() <= i64::MAX as f64 {
-        return Value::from(value as i64);
-    }
-    Value::from(value)
-}
 
 /// JavaScript `===` for JSON values, with `JSON.stringify`-compatible numbers.
 fn js_equal(left: &Value, right: &Value) -> bool {
@@ -530,7 +522,7 @@ fn try_number(value: &Value) -> Option<Value> {
 
 fn number_from_string(text: &str) -> Option<Value> {
     if let Some(parsed) = Some(pi_js_compat::number::parse_number(text)).filter(|parsed| parsed.is_finite()) {
-        return Some(js_number(parsed));
+        return Some(js_number_value(parsed));
     }
     let lowercase = text.to_lowercase();
     if lowercase == "false" {
@@ -546,7 +538,7 @@ fn number_from_string(text: &str) -> Option<Value> {
     }
     let value: i64 = digits.parse().ok()?;
     // TypeBox converts bigint-like strings only within `Number.MAX_SAFE_INTEGER`.
-    (value.unsigned_abs() <= 9_007_199_254_740_991).then(|| js_number(value as f64))
+    (value.unsigned_abs() <= 9_007_199_254_740_991).then(|| js_number_value(value as f64))
 }
 
 /// TypeBox `TryBigInt` integer pattern: `0` or a non-zero digit followed by digits.
@@ -558,7 +550,7 @@ fn is_canonical_integer(digits: &str) -> bool {
 fn try_integer(value: &Value) -> Option<Value> {
     try_number(value).map(|number| {
         let parsed = number.as_f64().unwrap_or(0.0);
-        js_number(parsed.trunc())
+        js_number_value(parsed.trunc())
     })
 }
 
@@ -749,7 +741,7 @@ fn coerce_number(value: &Value, integer: bool) -> Option<Value> {
             if integer && parsed.fract() != 0.0 {
                 return None;
             }
-            Some(js_number(parsed))
+            Some(js_number_value(parsed))
         }
         Value::Bool(boolean) => Some(json!(if *boolean { 1 } else { 0 })),
         _ => None,
