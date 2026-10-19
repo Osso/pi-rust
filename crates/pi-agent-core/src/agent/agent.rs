@@ -372,6 +372,23 @@ impl Agent {
         self.state_lock().model = model;
     }
 
+    /// Preferred transport forwarded to the stream function.
+    pub fn transport(&self) -> Transport {
+        *self
+            .inner
+            .transport
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn set_transport(&self, transport: Transport) {
+        *self
+            .inner
+            .transport
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = transport;
+    }
+
     pub fn thinking_level(&self) -> ThinkingLevel {
         self.state_lock().thinking_level
     }

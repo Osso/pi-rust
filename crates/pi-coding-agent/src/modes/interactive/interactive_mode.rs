@@ -17,14 +17,16 @@ use indexmap::IndexMap;
 use pi_agent_core::agent::types::{AgentEvent, AgentMessage};
 use pi_ai::types::{AssistantMessage, ImageContent, Model};
 use pi_tui::EditorComponent;
-use pi_tui::components::editor::EditorOptions;
-use pi_tui::components::scroll_view::{
-    ScrollFollow, ScrollOverscroll, ScrollView, ScrollViewOptions, ScrollViewScrollbar,
+use pi_tui::autocomplete::{
+    AutocompleteItem, AutocompleteProvider, CombinedAutocompleteProvider, CommandEntry, SlashCommand,
 };
+use pi_tui::components::editor::EditorOptions;
+use pi_tui::components::scroll_view::{ScrollFollow, ScrollOverscroll, ScrollView, ScrollViewOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::stack::StackOptions;
 use pi_tui::components::text::Text;
 use pi_tui::components::v_stack::VStack;
+use pi_tui::fuzzy::fuzzy_filter;
 use pi_tui::layout_node::StackLayoutEntry;
 use pi_tui::terminal::Terminal;
 use pi_tui::tui::{
@@ -38,10 +40,11 @@ use crate::core::agent_session::{AgentSession, AgentSessionEvent, CycleDirection
 use crate::core::agent_session_runtime::AgentSessionRuntime;
 use crate::core::diagnostics::{ResourceDiagnostic, ResourceDiagnosticType};
 use crate::core::extensions::types::{
-    BoxFuture, ExtensionUiComponent, ExtensionUiComponentFactory, ExtensionUiContext, ExtensionUiCustomFactory,
-    ExtensionUiCustomOptions, ExtensionUiDialogOptions, ExtensionUiDone, ExtensionUiFooterFactory, ExtensionUiTui,
-    ExtensionUiTuiBackend, ExtensionWidgetOptions, NotifyType, TerminalInputHandler, ThemeInfo, ThemeSetResult,
-    WidgetPlacement, WorkingIndicatorOptions,
+    BoxFuture, ExtensionAutocompleteProviderFactory, ExtensionEditorFactory, ExtensionUiComponent,
+    ExtensionUiComponentFactory, ExtensionUiContext, ExtensionUiCustomFactory, ExtensionUiCustomOptions,
+    ExtensionUiDialogOptions, ExtensionUiDone, ExtensionUiFooterFactory, ExtensionUiTui, ExtensionUiTuiBackend,
+    ExtensionWidgetOptions, NotifyType, TerminalInputHandler, ThemeInfo, ThemeSetResult, WidgetPlacement,
+    WorkingIndicatorOptions,
 };
 use crate::core::footer_data_provider::FooterDataProvider;
 use crate::core::keybindings::KeybindingsManager;
@@ -56,6 +59,9 @@ use crate::modes::interactive::components::extension_editor::{ExtensionEditorCom
 use crate::modes::interactive::components::extension_input::{ExtensionInputComponent, ExtensionInputOptions};
 use crate::modes::interactive::components::extension_selector::{ExtensionSelectorComponent, ExtensionSelectorOptions};
 use crate::modes::interactive::components::footer::FooterComponent;
+use crate::modes::interactive::components::settings_selector::{
+    SettingsCallbacks, SettingsConfig, SettingsSelectorComponent, SteeringMode, tui_mode_name,
+};
 use crate::modes::interactive::components::skill_invocation_message::SkillInvocationMessageComponent;
 use crate::modes::interactive::components::thinking_selector::ThinkingSelectorComponent;
 use crate::modes::interactive::components::tool_execution::{
@@ -65,9 +71,14 @@ use crate::modes::interactive::components::user_message::UserMessageComponent;
 use crate::modes::interactive::interactive_root_compositor::{
     InteractiveRootCompositorOptions, create_interactive_root_compositor,
 };
+use crate::modes::interactive::login_options::{
+    format_login_provider_completion_description, get_login_provider_completion_options, get_login_provider_options,
+    get_login_provider_search_text,
+};
+use crate::modes::interactive::model_search::{ModelSearchItem, get_model_search_candidates};
 use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor, with_theme};
 use crate::utils::git::parse_git_url;
-use crate::utils::paths::{get_cwd_relative_path, relative_path};
+use crate::utils::paths::{PathInputOptions, get_cwd_relative_path, relative_path, resolve_path};
 use serde_json::Value;
 
 pub(crate) const PARTIAL_UPDATE_RENDER_THROTTLE_MS: u64 = 50;
@@ -75,6 +86,155 @@ pub(crate) const FOLLOW_UP_BODY_PREVIEW_LENGTH: usize = 50;
 
 pub(crate) fn is_unknown_model(model: Option<&pi_ai::types::Model>) -> bool {
     model.is_some_and(|model| model.provider == "unknown" && model.id == "unknown" && model.api == "unknown")
+}
+
+/// `getDirectoryCompletions`: directories under `prefix` resolved against `cwd`.
+pub(crate) fn get_directory_completions(prefix: &str, cwd: &str) -> Vec<AutocompleteItem> {
+    let quoted = prefix.starts_with('"');
+    let raw_prefix = if quoted { &prefix[1..] } else { prefix };
+    let normalized_prefix = raw_prefix.replace(std::path::MAIN_SEPARATOR, "/");
+    if let Some(item) = directory_root_completion(&normalized_prefix, quoted) {
+        return vec![item];
+    }
+    let ends_with_slash = normalized_prefix.ends_with('/');
+    let typed_dir = if ends_with_slash {
+        normalized_prefix.clone()
+    } else {
+        pi_tui::autocomplete::posix_dirname(&normalized_prefix)
+    };
+    let typed_name = if ends_with_slash || normalized_prefix.is_empty() {
+        String::new()
+    } else {
+        pi_tui::autocomplete::posix_basename(&normalized_prefix)
+    };
+    let display_dir = if typed_dir == "." { String::new() } else { typed_dir };
+    let search_dir = if display_dir.is_empty() {
+        "."
+    } else {
+        display_dir.as_str()
+    };
+    let Ok(search_dir) = resolve_path(search_dir, cwd, &PathInputOptions::default()) else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(&search_dir) else {
+        return Vec::new();
+    };
+    let typed_name_lower = typed_name.to_lowercase();
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|file_type| file_type.is_dir()))
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.to_lowercase().starts_with(&typed_name_lower))
+        .collect();
+    names.sort_by(|a, b| pi_js_compat::locale_compare(a, b));
+    names
+        .iter()
+        .map(|name| directory_completion_item(name, &display_dir, quoted))
+        .collect()
+}
+
+fn directory_root_completion(normalized_prefix: &str, quoted: bool) -> Option<AutocompleteItem> {
+    match normalized_prefix {
+        "~" => Some(directory_completion_value("~/", quoted, "~/")),
+        ".." => Some(directory_completion_value("../", quoted, "../")),
+        "." => Some(directory_completion_value("./", quoted, "./")),
+        _ => None,
+    }
+}
+
+fn directory_completion_item(entry_name: &str, display_dir: &str, quoted: bool) -> AutocompleteItem {
+    let display_path = join_display_directory(display_dir, entry_name);
+    directory_completion_value(&display_path, quoted, &format!("{entry_name}/"))
+}
+
+fn directory_completion_value(display_path: &str, quoted: bool, label: &str) -> AutocompleteItem {
+    let needs_quote = quoted || display_path.chars().any(char::is_whitespace);
+    let escaped_path = display_path.replace('"', "\\\"");
+    let value = if needs_quote {
+        format!("\"{escaped_path}\"")
+    } else {
+        display_path.to_owned()
+    };
+    AutocompleteItem {
+        value,
+        label: label.to_owned(),
+        description: None,
+    }
+}
+
+fn join_display_directory(display_dir: &str, entry_name: &str) -> String {
+    if display_dir == "/" {
+        return format!("/{entry_name}/");
+    }
+    if display_dir.ends_with('/') {
+        return format!("{display_dir}{entry_name}/");
+    }
+    if display_dir.is_empty() {
+        format!("{entry_name}/")
+    } else {
+        format!("{display_dir}/{entry_name}/")
+    }
+}
+
+fn model_argument_completions(models: &[Model], prefix: &str) -> Option<Vec<AutocompleteItem>> {
+    if models.is_empty() {
+        return None;
+    }
+    let items: Vec<ModelSearchItem> = models
+        .iter()
+        .map(|model| ModelSearchItem {
+            id: model.id.clone(),
+            provider: model.provider.clone(),
+            name: Some(model.name.clone()),
+        })
+        .collect();
+    let filtered = fuzzy_filter(&items, prefix, get_model_search_candidates);
+    if filtered.is_empty() {
+        return None;
+    }
+    Some(
+        filtered
+            .iter()
+            .map(|item| AutocompleteItem {
+                value: format!("{}/{}", item.provider, item.id),
+                label: item.id.clone(),
+                description: Some(item.provider.clone()),
+            })
+            .collect(),
+    )
+}
+
+fn login_argument_completions(
+    runtime: &crate::core::model_runtime::ModelRuntime,
+    prefix: &str,
+) -> Option<Vec<AutocompleteItem>> {
+    let providers = get_login_provider_options(runtime, None);
+    let options = get_login_provider_completion_options(&providers);
+    let filtered = fuzzy_filter(&options, prefix, get_login_provider_search_text);
+    if filtered.is_empty() {
+        return None;
+    }
+    Some(
+        filtered
+            .iter()
+            .map(|provider| AutocompleteItem {
+                value: provider.id.clone(),
+                label: provider.id.clone(),
+                description: Some(format_login_provider_completion_description(provider)),
+            })
+            .collect(),
+    )
+}
+
+fn autocomplete_item_from_value(value: &Value) -> Option<AutocompleteItem> {
+    let object = value.as_object()?;
+    let item_value = object.get("value")?.as_str()?;
+    let label = object.get("label").and_then(Value::as_str).unwrap_or(item_value);
+    Some(AutocompleteItem {
+        value: item_value.to_owned(),
+        label: label.to_owned(),
+        description: object.get("description").and_then(Value::as_str).map(str::to_owned),
+    })
 }
 
 /// Shell-quote a value the way the source resume hint does.
@@ -931,6 +1091,16 @@ pub enum Renderer {
 }
 
 impl Renderer {
+    /// Clones the renderer handle so callers never hold the `RefCell` borrow
+    /// across a call that can re-enter the mode (for example input handlers
+    /// that switch TUI mode).
+    fn clone_ref(&self) -> Self {
+        match self {
+            Self::Main(tui) => Self::Main(Rc::clone(tui)),
+            Self::Fullscreen(tui) => Self::Fullscreen(Rc::clone(tui)),
+        }
+    }
+
     pub fn mode(&self) -> TuiMode {
         match self {
             Self::Main(_) => TuiMode::Regular,
@@ -1033,114 +1203,144 @@ impl InteractiveTuiHandle {
     }
 
     pub fn mode(&self) -> TuiMode {
-        self.renderer.borrow().mode()
+        self.renderer.borrow().clone_ref().mode()
     }
 
     pub fn terminal(&self) -> Rc<RefCell<dyn Terminal>> {
-        self.renderer.borrow().terminal()
+        self.renderer.borrow().clone_ref().terminal()
     }
 
     pub fn add_child(&self, child: ComponentRef) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::add_child(tui.as_ref(), child),
             Renderer::Fullscreen(tui) => TuiExt::add_child(tui.as_ref(), child),
         }
     }
 
     pub fn clear(&self) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::clear(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::clear(tui.as_ref()),
         }
     }
 
     pub fn set_focus(&self, component: Option<ComponentRef>) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::set_focus(tui.as_ref(), component),
             Renderer::Fullscreen(tui) => TuiExt::set_focus(tui.as_ref(), component),
         }
     }
 
     pub fn get_focused_component(&self) -> Option<ComponentRef> {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::get_focused_component(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::get_focused_component(tui.as_ref()),
         }
     }
 
     pub fn request_render(&self) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::request_render(tui.as_ref(), false),
             Renderer::Fullscreen(tui) => TuiExt::request_render(tui.as_ref(), false),
         }
     }
 
     pub fn render_now(&self) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::render_now(tui.as_ref(), true),
             Renderer::Fullscreen(tui) => TuiExt::render_now(tui.as_ref(), true),
         }
     }
 
     pub fn invalidate(&self) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::invalidate(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::invalidate(tui.as_ref()),
         }
     }
 
     pub fn start(&self) -> Result<(), TerminalRawModeError> {
-        self.renderer.borrow().start()
+        self.renderer.borrow().clone_ref().start()
     }
 
     pub fn stop(&self) {
-        self.renderer.borrow().stop();
+        self.renderer.borrow().clone_ref().stop();
+    }
+
+    pub fn stop_with(&self, options: pi_tui::tui::TuiStopOptions) {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
+            Renderer::Main(tui) => TuiExt::stop_with(tui.as_ref(), options),
+            Renderer::Fullscreen(tui) => TuiExt::stop_with(tui.as_ref(), options),
+        }
     }
 
     pub fn flush_pending(&self) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::flush_pending(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::flush_pending(tui.as_ref()),
         }
     }
 
     pub fn process_events(&self) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::process_events(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::process_events(tui.as_ref()),
         }
     }
 
     pub fn get_show_hardware_cursor(&self) -> bool {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::get_show_hardware_cursor(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::get_show_hardware_cursor(tui.as_ref()),
         }
     }
 
     pub fn get_clear_on_shrink(&self) -> bool {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::get_clear_on_shrink(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::get_clear_on_shrink(tui.as_ref()),
         }
     }
 
+    pub fn set_show_hardware_cursor(&self, enabled: bool) {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
+            Renderer::Main(tui) => TuiExt::set_show_hardware_cursor(tui.as_ref(), enabled),
+            Renderer::Fullscreen(tui) => TuiExt::set_show_hardware_cursor(tui.as_ref(), enabled),
+        }
+    }
+
     pub fn set_clear_on_shrink(&self, enabled: bool) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::set_clear_on_shrink(tui.as_ref(), enabled),
             Renderer::Fullscreen(tui) => TuiExt::set_clear_on_shrink(tui.as_ref(), enabled),
         }
     }
 
     pub fn request_render_force(&self) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::request_render(tui.as_ref(), true),
             Renderer::Fullscreen(tui) => TuiExt::request_render(tui.as_ref(), true),
         }
     }
 
     pub fn set_terminal_color_scheme_notifications(&self, enabled: bool) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::set_terminal_color_scheme_notifications(tui.as_ref(), enabled),
             Renderer::Fullscreen(tui) => TuiExt::set_terminal_color_scheme_notifications(tui.as_ref(), enabled),
         }
@@ -1150,14 +1350,16 @@ impl InteractiveTuiHandle {
         &self,
         listener: Rc<dyn Fn(pi_tui::terminal_colors::TerminalColorScheme)>,
     ) -> usize {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::on_terminal_color_scheme_change(tui.as_ref(), listener),
             Renderer::Fullscreen(tui) => TuiExt::on_terminal_color_scheme_change(tui.as_ref(), listener),
         }
     }
 
     pub fn remove_terminal_color_scheme_listener(&self, id: usize) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => tui.base().remove_terminal_color_scheme_listener(id),
             Renderer::Fullscreen(tui) => tui.base().remove_terminal_color_scheme_listener(id),
         }
@@ -1167,7 +1369,8 @@ impl InteractiveTuiHandle {
         &self,
         timeout: Duration,
     ) -> Option<Option<pi_tui::terminal_colors::RgbColor>> {
-        let query = match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        let query = match &renderer {
             Renderer::Main(tui) => TuiExt::query_terminal_background_color(tui.as_ref(), timeout),
             Renderer::Fullscreen(tui) => TuiExt::query_terminal_background_color(tui.as_ref(), timeout),
         };
@@ -1178,7 +1381,8 @@ impl InteractiveTuiHandle {
         &self,
         timeout: Duration,
     ) -> Option<Option<pi_tui::terminal_colors::TerminalColorScheme>> {
-        let query = match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        let query = match &renderer {
             Renderer::Main(tui) => TuiExt::query_terminal_color_scheme(tui.as_ref(), timeout),
             Renderer::Fullscreen(tui) => TuiExt::query_terminal_color_scheme(tui.as_ref(), timeout),
         };
@@ -1196,62 +1400,71 @@ impl InteractiveTuiHandle {
     }
 
     pub fn show_overlay(&self, component: ComponentRef, options: Option<OverlayOptions>) -> OverlayHandle {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::show_overlay(tui.as_ref(), component, options),
             Renderer::Fullscreen(tui) => TuiExt::show_overlay(tui.as_ref(), component, options),
         }
     }
 
     pub fn hide_overlay(&self) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::hide_overlay(tui.as_ref()),
             Renderer::Fullscreen(tui) => TuiExt::hide_overlay(tui.as_ref()),
         }
     }
 
     pub fn has_overlay_entries(&self) -> bool {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => tui.base().has_overlay_entries(),
             Renderer::Fullscreen(tui) => tui.base().has_overlay_entries(),
         }
     }
 
     pub fn add_input_listener(&self, listener: Rc<dyn Fn(&str) -> TuiInputListenerResult>) -> usize {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::add_input_listener(tui.as_ref(), listener),
             Renderer::Fullscreen(tui) => TuiExt::add_input_listener(tui.as_ref(), listener),
         }
     }
 
     pub fn remove_input_listener(&self, id: usize) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::remove_input_listener(tui.as_ref(), id),
             Renderer::Fullscreen(tui) => TuiExt::remove_input_listener(tui.as_ref(), id),
         }
     }
 
     pub fn set_on_debug(&self, handler: Rc<dyn Fn()>) {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => TuiExt::set_on_debug(tui.as_ref(), handler),
             Renderer::Fullscreen(tui) => TuiExt::set_on_debug(tui.as_ref(), handler),
         }
     }
 
     pub fn set_layout_root(&self, component: Option<ComponentRef>) {
-        if let Renderer::Fullscreen(tui) = &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        if let Renderer::Fullscreen(tui) = &renderer {
             ViewportTui::set_layout_root(tui.as_ref(), component);
         }
     }
 
     pub fn create_flow_render_region(&self, component: ComponentRef) -> Option<FlowRenderRegion> {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => Some(TuiMainScreen::create_flow_render_region(tui, component)),
             Renderer::Fullscreen(_) => None,
         }
     }
 
     pub fn create_render_region(&self, component: ComponentRef) -> Option<RenderRegion> {
-        match &*self.renderer.borrow() {
+        let renderer = self.renderer.borrow().clone_ref();
+        match &renderer {
             Renderer::Main(tui) => Some(TuiMainScreen::create_render_region(tui, component)),
             Renderer::Fullscreen(_) => None,
         }
@@ -1386,10 +1599,40 @@ impl Component for SharedContainer {
     }
 }
 
-/// Adapter exposing [`CustomEditor`] through both component contracts.
-pub struct EditorHandle(pub Rc<RefCell<CustomEditor>>);
+/// Component adapter so the mode can hold the fullscreen transcript scroll view.
+pub struct SharedScrollView(pub Rc<RefCell<ScrollView>>);
 
-impl Component for EditorHandle {
+impl Component for SharedScrollView {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0.borrow_mut().render(width)
+    }
+
+    fn wants_input(&self) -> bool {
+        false
+    }
+}
+
+/// Adapter mounting the settings selector while its callbacks mutate it.
+pub struct SharedSettingsSelector(pub Rc<RefCell<SettingsSelectorComponent>>);
+
+impl Component for SharedSettingsSelector {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0.borrow_mut().render(width)
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        self.0.borrow_mut().handle_input(data);
+    }
+
+    fn invalidate(&mut self) {
+        self.0.borrow_mut().invalidate();
+    }
+}
+
+/// Adapter mounting the current editor through the component contract.
+pub struct AnyEditorHandle(pub Rc<RefCell<dyn EditorComponent>>);
+
+impl Component for AnyEditorHandle {
     fn render(&mut self, width: usize) -> Vec<String> {
         self.0.borrow_mut().render(width)
     }
@@ -1524,6 +1767,11 @@ enum UiRequest {
         respond: std::sync::mpsc::Sender<usize>,
     },
     RemoveTerminalInput(usize),
+    AddAutocompleteProvider(ExtensionAutocompleteProviderFactory),
+    SetEditorComponent(Option<ExtensionEditorFactory>),
+    GetEditorComponent {
+        respond: std::sync::mpsc::Sender<Option<ExtensionEditorFactory>>,
+    },
     ShowApprovalSelector,
     ShowSandboxSelector,
     RuntimeNewSession {
@@ -1763,7 +2011,21 @@ impl ExtensionUiContext for InteractiveUiContext {
     }
 
     fn get_editor_text(&self) -> String {
-        with_mode(self.id, |mode| mode.editor.borrow().get_expanded_text()).unwrap_or_default()
+        with_mode(self.id, |mode| mode.editor().borrow().get_expanded_text()).unwrap_or_default()
+    }
+
+    fn add_autocomplete_provider(&self, factory: ExtensionAutocompleteProviderFactory) {
+        self.send(UiRequest::AddAutocompleteProvider(factory));
+    }
+
+    fn set_editor_component(&self, factory: Option<ExtensionEditorFactory>) {
+        self.send(UiRequest::SetEditorComponent(factory));
+    }
+
+    fn get_editor_component(&self) -> Option<ExtensionEditorFactory> {
+        let (respond, receiver) = std::sync::mpsc::channel();
+        self.send(UiRequest::GetEditorComponent { respond });
+        receiver.recv().ok().flatten()
     }
 
     fn editor<'a>(&'a self, title: &str, prefill: Option<&str>) -> BoxFuture<'a, Result<Option<String>, String>> {
@@ -1885,8 +2147,9 @@ pub struct InteractiveMode {
     fullscreen_layout_root: RefCell<Option<ComponentRef>>,
     transcript_tail_region: RefCell<Option<FlowRenderRegion>>,
     status_render_region: RefCell<Option<RenderRegion>>,
-    editor: Rc<RefCell<CustomEditor>>,
-    editor_handle: ComponentRef,
+    editor: RefCell<Rc<RefCell<dyn EditorComponent>>>,
+    default_editor: Rc<RefCell<CustomEditor>>,
+    editor_handle: RefCell<ComponentRef>,
     footer: Rc<RefCell<FooterComponent>>,
     footer_data_provider: Arc<FooterDataProvider>,
     keybindings: KeybindingsManager,
@@ -1929,6 +2192,14 @@ pub struct InteractiveMode {
     changelog_markdown: RefCell<Option<String>>,
     terminal_current_directory: RefCell<Option<String>>,
     theme_controller: RefCell<crate::modes::interactive::theme::InteractiveThemeController>,
+    transcript_scroll_view: RefCell<Option<Rc<RefCell<ScrollView>>>>,
+    debug_handler: RefCell<Option<Rc<dyn Fn()>>>,
+    terminal_input_listeners: RefCell<Vec<(usize, TerminalInputHandler)>>,
+    autocomplete_provider: RefCell<Option<Rc<dyn pi_tui::autocomplete::AutocompleteProvider>>>,
+    autocomplete_provider_wrappers: RefCell<Vec<ExtensionAutocompleteProviderFactory>>,
+    editor_component_factory: RefCell<Option<ExtensionEditorFactory>>,
+    fd_path: RefCell<Option<String>>,
+    clipboard_temp_files: RefCell<crate::utils::clipboard_temp_files::ClipboardTempFileTracker>,
 }
 
 impl InteractiveMode {
@@ -1950,14 +2221,23 @@ impl InteractiveMode {
         let hide_thinking_block = settings.get_hide_thinking_block();
         let _output_pad = settings.get_output_pad();
         let theme_name = settings.get_theme().map(str::to_owned);
+        let agent_dir = session.agent_dir().to_owned();
         drop(settings);
 
+        let mode_slot: Rc<RefCell<Option<std::rc::Weak<InteractiveMode>>>> = Rc::new(RefCell::new(None));
+        let right_click_slot = Rc::clone(&mode_slot);
         let renderer = create_interactive_tui(InteractiveTuiOptions {
             tui_mode,
             show_hardware_cursor,
-            log_directory: crate::config::get_agent_dir().display().to_string(),
+            log_directory: agent_dir.clone(),
             terminal,
-            on_right_click_paste: None,
+            on_right_click_paste: Some(Rc::new(move || {
+                if let Some(mode) = right_click_slot.borrow().as_ref().and_then(std::rc::Weak::upgrade) {
+                    tokio::task::spawn_local(async move {
+                        mode.handle_right_click_paste().await;
+                    });
+                }
+            })),
         });
         let ui = InteractiveTuiHandle::new(renderer);
         ui.set_clear_on_shrink(clear_on_shrink);
@@ -1967,7 +2247,6 @@ impl InteractiveMode {
         if !registered.is_empty() {
             let _ = crate::modes::interactive::theme::set_registered_themes(registered);
         }
-        let mode_slot: Rc<RefCell<Option<std::rc::Weak<InteractiveMode>>>> = Rc::new(RefCell::new(None));
         let error_slot = Rc::clone(&mode_slot);
         let theme_controller = crate::modes::interactive::theme::InteractiveThemeController::new(
             Rc::new(InteractiveThemeUi(Rc::clone(&ui))),
@@ -1994,10 +2273,10 @@ impl InteractiveMode {
         let (editor_container, editor_ref) = SharedContainer::create();
         let (footer_container, footer_ref) = SharedContainer::create();
 
-        let keybindings = KeybindingsManager::create(Some(&crate::config::get_agent_dir()));
+        let keybindings = KeybindingsManager::create(Some(Path::new(&agent_dir)));
         keybindings.clone().install();
 
-        let editor = Rc::new(RefCell::new(
+        let default_editor = Rc::new(RefCell::new(
             CustomEditor::new(
                 Rc::new(InteractiveTuiHost(Rc::clone(&ui))),
                 crate::modes::interactive::theme::get_editor_theme(),
@@ -2007,14 +2286,17 @@ impl InteractiveMode {
                         padding_x: Some(editor_padding_x),
                         autocomplete_max_visible: Some(autocomplete_max_visible),
                     },
-                    legacy_prompt_history_path: Some(crate::config::get_prompt_history_path().display().to_string()),
+                    legacy_prompt_history_path: Some(
+                        Path::new(&agent_dir).join("prompt-history.json").display().to_string(),
+                    ),
                     prompt_history_control_db_path: None,
                     prompt_history_filter: Some(Rc::new(|text: &str| !is_skill_invocation(text, &[]))),
                 },
             )
             .map_err(|error| error.to_string())?,
         ));
-        let editor_handle: ComponentRef = component(EditorHandle(Rc::clone(&editor)));
+        let editor: Rc<RefCell<dyn EditorComponent>> = default_editor.clone();
+        let editor_handle: ComponentRef = component(AnyEditorHandle(Rc::clone(&editor)));
 
         let footer_data_provider = Arc::new(FooterDataProvider::new(session.cwd()));
         let footer = Rc::new(RefCell::new(FooterComponent::new(
@@ -2047,8 +2329,9 @@ impl InteractiveMode {
             fullscreen_layout_root: RefCell::new(None),
             transcript_tail_region: RefCell::new(None),
             status_render_region: RefCell::new(None),
-            editor,
-            editor_handle,
+            editor: RefCell::new(editor),
+            default_editor,
+            editor_handle: RefCell::new(editor_handle),
             footer,
             footer_data_provider,
             keybindings,
@@ -2090,6 +2373,14 @@ impl InteractiveMode {
             changelog_markdown: RefCell::new(None),
             terminal_current_directory: RefCell::new(None),
             theme_controller: RefCell::new(theme_controller),
+            transcript_scroll_view: RefCell::new(None),
+            debug_handler: RefCell::new(None),
+            terminal_input_listeners: RefCell::new(Vec::new()),
+            autocomplete_provider: RefCell::new(None),
+            autocomplete_provider_wrappers: RefCell::new(Vec::new()),
+            editor_component_factory: RefCell::new(None),
+            fd_path: RefCell::new(None),
+            clipboard_temp_files: RefCell::new(crate::utils::clipboard_temp_files::ClipboardTempFileTracker::new()),
         });
 
         *mode_slot.borrow_mut() = Some(Rc::downgrade(&mode));
@@ -2099,7 +2390,7 @@ impl InteractiveMode {
 
         mode.editor_container
             .borrow_mut()
-            .add_child(Rc::clone(&mode.editor_handle));
+            .add_child(Rc::clone(&mode.editor_handle.borrow()));
         mode.footer_container
             .borrow_mut()
             .add_child(component(FooterHandle(Rc::clone(&mode.footer))));
@@ -2128,6 +2419,11 @@ impl InteractiveMode {
 
     fn session(&self) -> AgentSession {
         self.session.borrow().clone()
+    }
+
+    /// The editor currently mounted in the editor container.
+    fn editor(&self) -> Rc<RefCell<dyn EditorComponent>> {
+        Rc::clone(&self.editor.borrow())
     }
 
     fn settings<R>(&self, f: impl FnOnce(&crate::core::settings_manager::SettingsManager) -> R) -> R {
@@ -2184,6 +2480,89 @@ impl InteractiveMode {
         *self.root_compositor.borrow_mut() = Some(component(root));
     }
 
+    /// `switchTuiMode`: swaps the regular/fullscreen renderer on the shared handle.
+    fn switch_tui_mode(&self, mode: TuiMode, restore_progress: bool, start_renderer: bool) -> bool {
+        if mode == self.ui.mode() {
+            return true;
+        }
+        if self.ui.has_overlay_entries() {
+            return false;
+        }
+        if mode == TuiMode::Fullscreen {
+            crate::modes::interactive::working_editor::clear_working_editor_position(&mut *self.editor().borrow_mut());
+        }
+
+        let focus = self.ui.get_focused_component();
+        let terminal = self.ui.terminal();
+        let show_hardware_cursor = self.ui.get_show_hardware_cursor();
+        let clear_on_shrink = self.ui.get_clear_on_shrink();
+
+        self.ui.stop_with(pi_tui::tui::TuiStopOptions { preserve_screen: true });
+        self.ui.set_focus(None);
+        self.ui.clear();
+        self.ui.set_layout_root(None);
+
+        let renderer = create_interactive_tui(InteractiveTuiOptions {
+            tui_mode: mode,
+            show_hardware_cursor,
+            log_directory: self.session().agent_dir().to_owned(),
+            terminal: Some(terminal),
+            on_right_click_paste: None,
+        });
+        self.ui.replace_renderer(renderer);
+        self.ui.set_clear_on_shrink(clear_on_shrink);
+        if let Some(handler) = self.debug_handler.borrow().clone() {
+            self.ui.set_on_debug(handler);
+        }
+        if mode == TuiMode::Fullscreen {
+            self.build_fullscreen_layout();
+        }
+        self.mount_interactive_tui();
+        self.ui.invalidate();
+        self.ui.set_focus(focus);
+        if !start_renderer {
+            return true;
+        }
+        let _ = self.ui.start();
+        self.theme_controller.borrow_mut().rebind_tui();
+        self.rebind_extension_terminal_input_listeners();
+        if restore_progress
+            && self.settings(|settings| settings.get_show_terminal_progress())
+            && (self.session().is_streaming() || self.session().is_compacting())
+        {
+            let terminal = self.ui.terminal();
+            terminal.borrow_mut().set_progress(true);
+        }
+        true
+    }
+
+    fn rebind_extension_terminal_input_listeners(&self) {
+        let listeners = self.terminal_input_listeners.borrow().clone();
+        let mut rebound = Vec::with_capacity(listeners.len());
+        for (_, handler) in listeners {
+            let handler = Arc::clone(&handler);
+            let listener_handler = Arc::clone(&handler);
+            let id = self
+                .ui
+                .add_input_listener(Rc::new(move |data: &str| match listener_handler(data) {
+                    Some(result) => TuiInputListenerResult {
+                        consume: result.consume.unwrap_or(false),
+                        data: result.data,
+                    },
+                    None => TuiInputListenerResult::default(),
+                }));
+            rebound.push((id, handler));
+        }
+        *self.terminal_input_listeners.borrow_mut() = rebound;
+    }
+
+    fn apply_fullscreen_scrollbar_setting(&self) {
+        let scrollbar = self.settings(|settings| settings.get_fullscreen_scrollbar());
+        if let Some(scroll_view) = self.transcript_scroll_view.borrow().clone() {
+            scroll_view.borrow_mut().set_scrollbar(scrollbar);
+        }
+    }
+
     fn mount_interactive_tui(&self) {
         if self.ui.mode() == TuiMode::Fullscreen {
             for child in [
@@ -2211,17 +2590,20 @@ impl InteractiveMode {
     }
 
     fn build_fullscreen_layout(&self) {
-        let scroll_view = ScrollView::new(
+        let scrollbar = self.settings(|settings| settings.get_fullscreen_scrollbar());
+        let scroll_view = Rc::new(RefCell::new(ScrollView::new(
             component(SharedContainer(Rc::clone(&self.chat_container))),
             ScrollViewOptions {
                 follow: Some(ScrollFollow::End),
                 primary: true,
                 overscroll: Some(ScrollOverscroll::Chain),
-                scrollbar: Some(ScrollViewScrollbar::Hidden),
+                scrollbar: Some(scrollbar),
                 scrollbar_style: None,
                 scrollbar_hide_delay_ms: None,
             },
-        );
+        )));
+        *self.transcript_scroll_view.borrow_mut() = Some(Rc::clone(&scroll_view));
+        let scroll_view = component(SharedScrollView(scroll_view));
         let dock = VStack::new(
             vec![
                 stack_entry(
@@ -2272,7 +2654,7 @@ impl InteractiveMode {
         let root = VStack::new(
             vec![
                 stack_entry(
-                    component(scroll_view),
+                    scroll_view,
                     Some(pi_tui::layout_node::StackBasis::Cells(0)),
                     Some(1),
                     Some(1),
@@ -2905,6 +3287,231 @@ impl InteractiveMode {
         f(&mut self.session.borrow().settings_manager())
     }
 
+    /// `getAutocompleteSourceTag`.
+    fn get_autocomplete_source_tag(&self, source_info: Option<&SourceInfo>) -> Option<String> {
+        let source_info = source_info?;
+        let scope_prefix = match source_info.scope {
+            SourceScope::User => "u",
+            SourceScope::Project => "p",
+            SourceScope::Temporary => "t",
+        };
+        let source = pi_js_compat::string::js_trim(&source_info.source);
+        if matches!(source, "auto" | "local" | "cli") {
+            return Some(scope_prefix.to_owned());
+        }
+        if source.starts_with("npm:") {
+            return Some(format!("{scope_prefix}:{source}"));
+        }
+        if let Some(git_source) = parse_git_url(source) {
+            let reference = git_source
+                .reference
+                .map(|reference| format!("@{reference}"))
+                .unwrap_or_default();
+            return Some(format!(
+                "{scope_prefix}:git:{}/{}{reference}",
+                git_source.host, git_source.path
+            ));
+        }
+        Some(scope_prefix.to_owned())
+    }
+
+    /// `prefixAutocompleteDescription`.
+    fn prefix_autocomplete_description(
+        &self,
+        description: Option<&str>,
+        source_info: Option<&SourceInfo>,
+    ) -> Option<String> {
+        let Some(tag) = self.get_autocomplete_source_tag(source_info) else {
+            return description.map(str::to_owned);
+        };
+        Some(match description {
+            Some(description) => format!("[{tag}] {description}"),
+            None => format!("[{tag}]"),
+        })
+    }
+
+    /// `createBaseAutocompleteProvider`.
+    fn create_base_autocomplete_provider(&self) -> Rc<dyn AutocompleteProvider> {
+        let mut commands: Vec<CommandEntry> = Vec::new();
+        for command in crate::core::slash_commands::builtin_slash_commands() {
+            let mut slash = SlashCommand::new(command.name);
+            slash.description = Some(command.description);
+            slash.argument_hint = command.argument_hint.map(str::to_owned);
+            if command.name == "cd" {
+                slash.argument_hint = Some("<path>".to_owned());
+                let cwd = self.cwd();
+                slash.get_argument_completions = Some(Box::new(move |prefix: &str| {
+                    Some(get_directory_completions(prefix, &cwd))
+                }));
+            }
+            if command.name == "model" {
+                let session = self.session();
+                let scoped = session.scoped_models();
+                let models: Vec<Model> = if scoped.is_empty() {
+                    session.model_runtime().get_available_snapshot()
+                } else {
+                    scoped.into_iter().map(|scoped| scoped.model).collect()
+                };
+                slash.get_argument_completions = Some(Box::new(move |prefix: &str| {
+                    model_argument_completions(&models, prefix)
+                }));
+            }
+            if command.name == "login" {
+                let runtime = self.session().model_runtime().clone();
+                slash.get_argument_completions = Some(Box::new(move |prefix: &str| {
+                    login_argument_completions(&runtime, prefix)
+                }));
+            }
+            commands.push(CommandEntry::Command(slash));
+        }
+
+        let templates = self.session().prompt_templates();
+        for template in templates {
+            let mut slash = SlashCommand::new(&template.name);
+            slash.description =
+                self.prefix_autocomplete_description(Some(&template.description), Some(&template.source_info));
+            slash.argument_hint = template.argument_hint.clone();
+            commands.push(CommandEntry::Command(slash));
+        }
+
+        let builtin_names: Vec<&'static str> = crate::core::slash_commands::builtin_slash_commands()
+            .iter()
+            .map(|command| command.name)
+            .collect();
+        for command in self.session().extension_runner().get_registered_commands() {
+            if builtin_names.contains(&command.name.as_str()) {
+                continue;
+            }
+            let mut slash = SlashCommand::new(&command.invocation_name);
+            slash.description =
+                self.prefix_autocomplete_description(command.description.as_deref(), Some(&command.source_info));
+            if let Some(completions) = command.get_argument_completions.clone() {
+                slash.get_argument_completions = Some(Box::new(move |prefix: &str| {
+                    completions(prefix).map(|items| {
+                        items
+                            .into_iter()
+                            .filter_map(|item| autocomplete_item_from_value(&item))
+                            .collect()
+                    })
+                }));
+            }
+            commands.push(CommandEntry::Command(slash));
+        }
+
+        if self.settings(|settings| settings.get_enable_skill_commands()) {
+            let skills = self.session().resource_loader().get_skills();
+            for skill in skills.skills {
+                let mut slash = SlashCommand::new(format!("skill:{}", skill.name));
+                slash.description =
+                    self.prefix_autocomplete_description(Some(&skill.description), Some(&skill.source_info));
+                commands.push(CommandEntry::Command(slash));
+            }
+        }
+
+        Rc::new(CombinedAutocompleteProvider::new(
+            commands,
+            self.cwd(),
+            self.fd_path.borrow().clone(),
+        ))
+    }
+
+    /// `setupAutocompleteProvider`.
+    fn setup_autocomplete_provider(&self) {
+        let mut provider = self.create_base_autocomplete_provider();
+        for factory in self.autocomplete_provider_wrappers.borrow().iter() {
+            provider = factory(Rc::clone(&provider));
+        }
+        *self.autocomplete_provider.borrow_mut() = Some(Rc::clone(&provider));
+        self.default_editor
+            .borrow_mut()
+            .set_autocomplete_provider(Rc::clone(&provider));
+        let current = self.editor();
+        let is_default = Rc::ptr_eq(
+            &current,
+            &(self.default_editor.clone() as Rc<RefCell<dyn EditorComponent>>),
+        );
+        if !is_default {
+            current.borrow_mut().set_autocomplete_provider(provider);
+        }
+    }
+
+    /// `setCustomEditorComponent`.
+    fn set_custom_editor_component(&self, factory: Option<ExtensionEditorFactory>) {
+        *self.editor_component_factory.borrow_mut() = factory.clone();
+
+        let current_text = self.editor().borrow().get_text();
+        crate::modes::interactive::working_editor::clear_working_editor(&mut *self.editor().borrow_mut());
+        self.editor_container.borrow_mut().clear();
+
+        let next_editor: Rc<RefCell<dyn EditorComponent>> = match factory {
+            Some(factory) => {
+                let new_editor = factory(
+                    ExtensionUiTui::new(Arc::new(InteractiveUiTuiBackend {
+                        shared: Arc::clone(&self.ui_shared),
+                        sender: self.ui_sender.clone(),
+                    })),
+                    crate::modes::interactive::theme::get_editor_theme(),
+                    self.keybindings.clone(),
+                );
+                {
+                    let mut default_editor = self.default_editor.borrow_mut();
+                    let on_submit = default_editor.editor_mut().on_submit.clone();
+                    let on_change = default_editor.editor_mut().on_change.clone();
+                    let border_color = default_editor.get_border_color();
+                    let padding_x = default_editor.get_padding_x();
+                    let autocomplete_max_visible = default_editor.get_autocomplete_max_visible();
+                    let on_escape = default_editor.on_escape.clone();
+                    let on_ctrl_d = default_editor.on_ctrl_d.clone();
+                    let on_paste_image = default_editor.on_paste_image.clone();
+                    let on_extension_shortcut = default_editor.on_extension_shortcut.clone();
+                    let action_handlers = default_editor.action_handlers.clone();
+                    drop(default_editor);
+
+                    let mut editor = new_editor.borrow_mut();
+                    editor.set_text(&current_text);
+                    editor.set_border_color(border_color);
+                    editor.set_padding_x(padding_x);
+                    editor.set_autocomplete_max_visible(autocomplete_max_visible);
+                    if let Some(provider) = self.autocomplete_provider.borrow().clone() {
+                        editor.set_autocomplete_provider(provider);
+                    }
+                    if let Some(custom) = editor.as_any_mut().and_then(|any| any.downcast_mut::<CustomEditor>()) {
+                        custom.editor_mut().on_submit = on_submit;
+                        custom.editor_mut().on_change = on_change;
+                        if custom.on_escape.is_none() {
+                            custom.on_escape = on_escape;
+                        }
+                        if custom.on_ctrl_d.is_none() {
+                            custom.on_ctrl_d = on_ctrl_d;
+                        }
+                        if custom.on_paste_image.is_none() {
+                            custom.on_paste_image = on_paste_image;
+                        }
+                        if custom.on_extension_shortcut.is_none() {
+                            custom.on_extension_shortcut = on_extension_shortcut;
+                        }
+                        for (action, handler) in action_handlers {
+                            custom.action_handlers.insert(action, handler);
+                        }
+                    }
+                }
+                new_editor
+            }
+            None => {
+                self.default_editor.borrow_mut().set_text(&current_text);
+                self.default_editor.clone()
+            }
+        };
+
+        let handle: ComponentRef = component(AnyEditorHandle(Rc::clone(&next_editor)));
+        *self.editor.borrow_mut() = next_editor;
+        *self.editor_handle.borrow_mut() = Rc::clone(&handle);
+        self.editor_container.borrow_mut().add_child(Rc::clone(&handle));
+        self.update_editor_border_color();
+        self.ui.set_focus(Some(handle));
+        self.ui.request_render();
+    }
+
     fn update_editor_border_color(&self) {
         let color = if self.is_bash_mode.get() {
             ThemeColor::BashMode
@@ -2913,7 +3520,7 @@ impl InteractiveMode {
         };
         let style: pi_tui::components::text::StyleFn =
             Rc::new(move |text: &str| with_theme(|theme| theme.fg(color, text)));
-        self.editor.borrow_mut().set_border_color(style);
+        self.editor().borrow_mut().set_border_color(style);
     }
 
     fn render_widgets(&self) {
@@ -3003,11 +3610,14 @@ impl InteractiveMode {
     }
 
     fn add_submitted_text_to_history(&self, text: &str) {
-        self.editor.borrow_mut().add_to_history_without_persistence(text);
+        if is_skill_invocation(text, &self.session().prompt_templates()) {
+            return;
+        }
+        self.editor().borrow_mut().add_to_history(text);
     }
 
     fn clear_editor(&self) {
-        self.editor.borrow_mut().set_text("");
+        self.editor().borrow_mut().set_text("");
         self.ui.request_render();
     }
 
@@ -3053,8 +3663,105 @@ impl InteractiveMode {
     }
 
     fn handle_ctrl_d(&self) {
-        if self.editor.borrow().get_text().is_empty() {
+        if self.editor().borrow().get_text().is_empty() {
             self.actions.borrow_mut().push_back(ModeAction::Shutdown);
+        }
+    }
+
+    /// `handleCtrlZ`: restore the terminal and suspend the process group.
+    fn handle_ctrl_z(self: &Rc<Self>) {
+        self.handle_ctrl_z_for_platform(std::env::consts::OS);
+    }
+
+    fn handle_ctrl_z_for_platform(self: &Rc<Self>, platform: &str) {
+        if platform == "windows" {
+            self.show_status("Suspend to background is not supported on Windows");
+            return;
+        }
+        self.suspend_to_background();
+    }
+
+    fn suspend_to_background(self: &Rc<Self>) {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+
+            let (Ok(sigint), Ok(mut sigcont)) = (signal(SignalKind::interrupt()), signal(SignalKind::from_raw(18)))
+            else {
+                self.show_error("Could not install suspend signal handlers");
+                return;
+            };
+            let mode = Rc::clone(self);
+            tokio::task::spawn_local(async move {
+                let _ = sigcont.recv().await;
+                drop(sigint);
+                let _ = mode.ui.start();
+                mode.ui.request_render_force();
+            });
+
+            self.ui.stop();
+            let Some(pid) = rustix::process::Pid::from_raw(0) else {
+                self.show_error("Could not suspend the process group");
+                let _ = self.ui.start();
+                return;
+            };
+            if let Err(error) = rustix::process::kill_process_group(pid, rustix::process::Signal::TSTP) {
+                self.show_error(&std::io::Error::from(error).to_string());
+                let _ = self.ui.start();
+            }
+        }
+        #[cfg(not(unix))]
+        self.show_status("Suspend to background is not supported on Windows");
+    }
+
+    /// `handleRightClickPaste`.
+    async fn handle_right_click_paste(self: &Rc<Self>) {
+        let Some(target) = self.ui.get_focused_component() else {
+            return;
+        };
+        let environment = crate::utils::clipboard_image::ClipboardEnvironment::from_process();
+        let native = crate::utils::clipboard_native::clipboard();
+        let text = crate::utils::clipboard::read_clipboard_text(&environment, native.as_deref()).await;
+        let Some(text) = text.filter(|text| !text.is_empty()) else {
+            return;
+        };
+        let still_focused = self
+            .ui
+            .get_focused_component()
+            .is_some_and(|current| Rc::ptr_eq(&current, &target));
+        if !still_focused {
+            return;
+        }
+        target.borrow_mut().handle_input(&format!("\x1b[200~{text}\x1b[201~"));
+        self.ui.request_render();
+    }
+
+    /// `handleClipboardPaste`: insert clipboard image paths, otherwise text.
+    async fn handle_clipboard_paste(&self) {
+        let environment = crate::utils::clipboard_image::ClipboardEnvironment::from_process();
+        let native = crate::utils::clipboard_native::clipboard();
+        let native = native.as_deref();
+        if let Ok(Some(image)) = crate::utils::clipboard_image::read_clipboard_image(&environment, native).await {
+            let extension =
+                crate::utils::clipboard_image::extension_for_image_mime_type(&image.mime_type).unwrap_or("png");
+            let file_path = std::env::temp_dir().join(format!(
+                "pi-clipboard-{}.{extension}",
+                pi_ai::utils::uuid::random_uuid()
+            ));
+            if std::fs::write(&file_path, &image.bytes).is_ok() {
+                self.clipboard_temp_files.borrow_mut().track(file_path.clone());
+                self.editor()
+                    .borrow_mut()
+                    .insert_text_at_cursor(&file_path.display().to_string());
+                self.ui.request_render();
+                return;
+            }
+        }
+        if let Some(text) = crate::utils::clipboard::read_clipboard_text(&environment, native).await
+            && !text.is_empty()
+        {
+            self.editor().borrow_mut().insert_text_at_cursor(&text);
+            self.ui.request_render();
         }
     }
 
@@ -3074,7 +3781,7 @@ impl InteractiveMode {
             self.actions.borrow_mut().push_back(ModeAction::Shutdown);
         } else {
             self.last_escape_time.set(now);
-            self.editor.borrow_mut().set_text("");
+            self.editor().borrow_mut().set_text("");
             self.ui.request_render();
         }
     }
@@ -3084,6 +3791,7 @@ impl InteractiveMode {
             self.session.borrow().unsubscribe(id);
             self.unsubscribe.set(None);
         }
+        self.clipboard_temp_files.borrow_mut().cleanup_all();
         self.ui.stop();
     }
 
@@ -3217,21 +3925,21 @@ impl InteractiveMode {
     /// Installs synchronous TUI callbacks that enqueue async work.
     fn bind_callbacks(self: &Rc<Self>) {
         let mode = Rc::clone(self);
-        self.editor.borrow_mut().editor_mut().on_submit = Some(Rc::new(move |text: &str| {
+        self.default_editor.borrow_mut().editor_mut().on_submit = Some(Rc::new(move |text: &str| {
             mode.actions.borrow_mut().push_back(ModeAction::Submit(text.to_owned()));
         }));
 
         let mode = Rc::clone(self);
-        self.editor.borrow_mut().editor_mut().on_change = Some(Rc::new(move |text: &str| {
+        self.default_editor.borrow_mut().editor_mut().on_change = Some(Rc::new(move |text: &str| {
             mode.is_bash_mode.set(text.trim_start().starts_with('!'));
         }));
 
         let mode = Rc::clone(self);
-        self.editor.borrow_mut().on_escape = Some(Rc::new(move || {
+        self.default_editor.borrow_mut().on_escape = Some(Rc::new(move || {
             mode.handle_editor_escape();
         }));
         let mode = Rc::clone(self);
-        self.editor.borrow_mut().on_ctrl_d = Some(Rc::new(move || {
+        self.default_editor.borrow_mut().on_ctrl_d = Some(Rc::new(move || {
             mode.handle_ctrl_d();
         }));
 
@@ -3243,20 +3951,28 @@ impl InteractiveMode {
             })
         }
 
-        self.editor
+        self.default_editor
             .borrow_mut()
             .on_action("app.clear", action(self, |mode| mode.handle_ctrl_c()));
-        self.editor.borrow_mut().on_action(
-            "app.suspend",
-            action(self, |mode| {
-                mode.show_status("Suspend is not supported by the Rust TUI host.")
-            }),
-        );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action("app.suspend", {
+            let mode = Rc::clone(self);
+            Rc::new(move || {
+                mode.handle_ctrl_z();
+                true
+            })
+        });
+        let paste_mode = Rc::clone(self);
+        self.default_editor.borrow_mut().on_paste_image = Some(Rc::new(move || {
+            let mode = Rc::clone(&paste_mode);
+            tokio::task::spawn_local(async move {
+                mode.handle_clipboard_paste().await;
+            });
+        }));
+        self.default_editor.borrow_mut().on_action(
             "app.thinking.cycle",
             action(self, InteractiveMode::cycle_thinking_level),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.model.cycleForward",
             action(self, |mode| {
                 mode.actions
@@ -3264,7 +3980,7 @@ impl InteractiveMode {
                     .push_back(ModeAction::CycleModel(CycleDirection::Forward));
             }),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.model.cycleBackward",
             action(self, |mode| {
                 mode.actions
@@ -3272,21 +3988,21 @@ impl InteractiveMode {
                     .push_back(ModeAction::CycleModel(CycleDirection::Backward));
             }),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.tools.expand",
             action(self, InteractiveMode::toggle_tool_output_expansion),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.thinking.toggle",
             action(self, InteractiveMode::toggle_thinking_block_visibility),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.editor.external",
             action(self, |mode| {
                 mode.actions.borrow_mut().push_back(ModeAction::ExternalEditor);
             }),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.message.copy",
             action(self, |mode| {
                 mode.actions.borrow_mut().push_back(ModeAction::Copy {
@@ -3294,50 +4010,52 @@ impl InteractiveMode {
                 });
             }),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.message.followUp",
             action(self, |mode| {
                 mode.actions.borrow_mut().push_back(ModeAction::FollowUp);
             }),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.message.dequeue",
             action(self, |mode| {
                 mode.actions.borrow_mut().push_back(ModeAction::Dequeue);
             }),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.session.new",
             action(self, |mode| {
                 mode.actions.borrow_mut().push_back(ModeAction::NewSession);
             }),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.session.tree",
             action(self, |mode| mode.show_status("Tree selector is not ported yet.")),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.session.fork",
             action(self, |mode| mode.show_status("Fork selector is not ported yet.")),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.session.resume",
             action(self, |mode| mode.show_status("Session selector is not ported yet.")),
         );
-        self.editor.borrow_mut().on_action(
+        self.default_editor.borrow_mut().on_action(
             "app.agent.select",
             action(self, |mode| mode.show_status("Agent switcher is not ported yet.")),
         );
 
         let mode = Rc::clone(self);
-        self.ui.set_on_debug(Rc::new(move || {
+        let debug_handler: Rc<dyn Fn()> = Rc::new(move || {
             let mode = Rc::clone(&mode);
             tokio::task::spawn_local(async move {
                 if let Err(error) = mode.session().prompt("/debug", PromptOptions::default()).await {
                     mode.show_error(error.message());
                 }
             });
-        }));
+        });
+        *self.debug_handler.borrow_mut() = Some(Rc::clone(&debug_handler));
+        self.ui.set_on_debug(debug_handler);
         self.update_editor_border_color();
     }
 
@@ -3348,10 +4066,19 @@ impl InteractiveMode {
         }
 
         self.bind_callbacks();
+
+        let http_idle_timeout_ms = self
+            .settings(|settings| settings.get_http_idle_timeout_ms())
+            .map_err(|error| error.to_string())?;
+        let fetch = crate::core::http_dispatcher::configure_http_dispatcher(http_idle_timeout_ms as f64)?;
+        let mut fd_manager = crate::utils::tools_manager::ToolsManager::for_process(Arc::clone(&fetch));
+        let mut rg_manager = crate::utils::tools_manager::ToolsManager::for_process(fetch);
+        let (fd_path, _rg_path) = tokio::join!(fd_manager.ensure_tool("fd"), rg_manager.ensure_tool("rg"));
+        *self.fd_path.borrow_mut() = fd_path;
         self.build_fullscreen_layout();
         self.render_widgets();
         self.mount_interactive_tui();
-        let editor_ref = Rc::clone(&self.editor_handle);
+        let editor_ref = Rc::clone(&self.editor_handle.borrow());
         self.ui.set_focus(Some(editor_ref));
         self.ui.start().map_err(|error| error.to_string())?;
         self.is_initialized.set(true);
@@ -3570,6 +4297,7 @@ impl InteractiveMode {
                 on_error: None,
             })
             .await;
+        self.setup_autocomplete_provider();
         self.footer.borrow_mut().invalidate();
         self.ui.request_render();
     }
@@ -3724,7 +4452,7 @@ impl InteractiveMode {
             if !command.is_empty() {
                 if self.session.borrow().is_bash_running() {
                     self.show_warning("A bash command is already running. Press Esc to cancel it first.");
-                    self.editor.borrow_mut().set_text(&text);
+                    self.editor().borrow_mut().set_text(&text);
                     return;
                 }
                 self.add_submitted_text_to_history(&text);
@@ -3786,6 +4514,8 @@ impl InteractiveMode {
             .await
         {
             self.show_error(error.message());
+        } else {
+            self.clipboard_temp_files.borrow_mut().cleanup_referenced_in(&text);
         }
     }
 
@@ -3803,7 +4533,7 @@ impl InteractiveMode {
                 self.show_status("Esc interrupt · Ctrl+C clear · Ctrl+D exit · Ctrl+O tools · Ctrl+T thinking");
             }
             "settings" => {
-                self.show_status("Settings selector is not ported yet; edit settings.json directly.");
+                self.show_settings_selector();
             }
             "scoped-models" | "models" => {
                 self.show_status("Scoped-models selector is not ported yet.");
@@ -3944,6 +4674,358 @@ impl InteractiveMode {
         self.show_selector(component(selector));
     }
 
+    fn steering_mode(&self) -> SteeringMode {
+        match self.session().steering_mode() {
+            pi_agent_core::harness::QueueMode::All => SteeringMode::All,
+            pi_agent_core::harness::QueueMode::OneAtATime => SteeringMode::OneAtATime,
+        }
+    }
+
+    fn follow_up_mode(&self) -> SteeringMode {
+        match self.session().follow_up_mode() {
+            pi_agent_core::harness::QueueMode::All => SteeringMode::All,
+            pi_agent_core::harness::QueueMode::OneAtATime => SteeringMode::OneAtATime,
+        }
+    }
+
+    fn clear_status_indicator(&self) {
+        self.status_container.borrow_mut().clear();
+    }
+
+    fn rebuild_chat_from_messages(&self) {
+        self.chat_container.borrow_mut().clear();
+        self.render_initial_messages();
+    }
+
+    fn show_settings_selector(&self) {
+        let session = self.session();
+        let Ok(http_idle_timeout_ms) = self.settings(|settings| settings.get_http_idle_timeout_ms()) else {
+            self.show_error("Invalid httpIdleTimeoutMs setting");
+            return;
+        };
+        let config = SettingsConfig {
+            auto_compact: session.auto_compaction_enabled(),
+            show_images: self.settings(|settings| settings.get_show_images()),
+            image_width_cells: self.settings(|settings| settings.get_image_width_cells()) as i64,
+            auto_resize_images: self.settings(|settings| settings.get_image_auto_resize()),
+            block_images: self.settings(|settings| settings.get_block_images()),
+            enable_skill_commands: self.settings(|settings| settings.get_enable_skill_commands()),
+            steering_mode: self.steering_mode(),
+            follow_up_mode: self.follow_up_mode(),
+            transport: self.settings(|settings| settings.get_transport()),
+            http_idle_timeout_ms,
+            thinking_level: session.thinking_level(),
+            available_thinking_levels: session.get_available_thinking_levels(),
+            current_theme: self
+                .settings(|settings| settings.get_theme_setting().map(str::to_owned))
+                .unwrap_or_else(|| "dark".to_owned()),
+            terminal_theme: self.theme_controller.borrow().get_terminal_theme(),
+            available_themes: crate::modes::interactive::theme::get_available_themes(),
+            hide_thinking_block: self.hide_thinking_block.get(),
+            mermaid_rendering_mode: self.settings(|settings| settings.get_mermaid_rendering_mode()),
+            show_cache_miss_notices: self.settings(|settings| settings.get_show_cache_miss_notices()),
+            collapse_changelog: self.settings(|settings| settings.get_collapse_changelog()),
+            enable_install_telemetry: self.settings(|settings| settings.get_enable_install_telemetry()),
+            double_escape_action: self.settings(|settings| settings.get_double_escape_action()),
+            tree_filter_mode: self.settings(|settings| settings.get_tree_filter_mode()),
+            show_hardware_cursor: self.settings(|settings| settings.get_show_hardware_cursor()),
+            editor_padding_x: self.settings(|settings| settings.get_editor_padding_x()) as i64,
+            output_pad: self.settings(|settings| settings.get_output_pad()),
+            autocomplete_max_visible: self.settings(|settings| settings.get_autocomplete_max_visible()) as i64,
+            quiet_startup: self.settings(|settings| settings.get_quiet_startup()),
+            default_project_trust: self.settings(|settings| settings.get_default_project_trust()),
+            clear_on_shrink: self.settings(|settings| settings.get_clear_on_shrink()),
+            show_terminal_progress: self.settings(|settings| settings.get_show_terminal_progress()),
+            tui_mode: self.ui.mode(),
+            fullscreen_exit_output: self.settings(|settings| settings.get_fullscreen_exit_output()),
+            fullscreen_scrollbar: self.settings(|settings| settings.get_fullscreen_scrollbar()),
+            warnings: {
+                let warnings = self.settings(|settings| settings.get_warnings());
+                crate::core::settings_manager::WarningSettings {
+                    anthropic_extra_usage: warnings.get("anthropicExtraUsage").and_then(Value::as_bool),
+                }
+            },
+        };
+
+        let mode_id = self.ui_id.get();
+        let selector_slot: Rc<RefCell<Option<Rc<RefCell<SettingsSelectorComponent>>>>> = Rc::new(RefCell::new(None));
+
+        macro_rules! callback {
+            ($body:expr) => {
+                Rc::new(move |value| {
+                    with_mode(mode_id, |mode| $body(mode, value));
+                })
+            };
+        }
+
+        let callbacks = SettingsCallbacks {
+            on_auto_compact_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.session().set_auto_compaction_enabled(enabled);
+                mode.footer.borrow_mut().set_auto_compact_enabled(enabled);
+            }),
+            on_show_images_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_show_images(enabled));
+                for child in mode.chat_container.borrow().children().to_vec() {
+                    if let Some(component) = child
+                        .borrow_mut()
+                        .as_any_mut()
+                        .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
+                    {
+                        component.set_show_images(enabled);
+                    }
+                }
+            }),
+            on_image_width_cells_change: callback!(|mode: Rc<InteractiveMode>, width: i64| {
+                mode.settings_mut(|settings| settings.set_image_width_cells(width as f64));
+                for child in mode.chat_container.borrow().children().to_vec() {
+                    if let Some(component) = child
+                        .borrow_mut()
+                        .as_any_mut()
+                        .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
+                    {
+                        component.set_image_width_cells(width.max(0) as usize);
+                    }
+                }
+            }),
+            on_auto_resize_images_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_image_auto_resize(enabled));
+            }),
+            on_block_images_change: callback!(|mode: Rc<InteractiveMode>, blocked: bool| {
+                mode.settings_mut(|settings| settings.set_block_images(blocked));
+            }),
+            on_enable_skill_commands_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_enable_skill_commands(enabled));
+                mode.setup_autocomplete_provider();
+            }),
+            on_steering_mode_change: callback!(|mode: Rc<InteractiveMode>, steering: SteeringMode| {
+                mode.session().set_steering_mode(match steering {
+                    SteeringMode::All => pi_agent_core::harness::QueueMode::All,
+                    SteeringMode::OneAtATime => pi_agent_core::harness::QueueMode::OneAtATime,
+                });
+            }),
+            on_follow_up_mode_change: callback!(|mode: Rc<InteractiveMode>, follow_up: SteeringMode| {
+                mode.session().set_follow_up_mode(match follow_up {
+                    SteeringMode::All => pi_agent_core::harness::QueueMode::All,
+                    SteeringMode::OneAtATime => pi_agent_core::harness::QueueMode::OneAtATime,
+                });
+            }),
+            on_transport_change: callback!(|mode: Rc<InteractiveMode>, transport: pi_ai::types::Transport| {
+                mode.settings_mut(|settings| settings.set_transport(transport));
+                mode.session().agent().set_transport(transport);
+            }),
+            on_http_idle_timeout_ms_change: callback!(|mode: Rc<InteractiveMode>, timeout_ms: u64| {
+                if let Err(error) = mode.settings_mut(|settings| settings.set_http_idle_timeout_ms(timeout_ms as f64)) {
+                    mode.show_error(&error.to_string());
+                    return;
+                }
+                let _ = crate::core::http_dispatcher::configure_http_dispatcher(timeout_ms as f64);
+                mode.show_status(&format!(
+                    "HTTP idle timeout: {}",
+                    crate::core::http_dispatcher::format_http_idle_timeout_ms(timeout_ms)
+                ));
+            }),
+            on_thinking_level_change: callback!(
+                |mode: Rc<InteractiveMode>, level: pi_agent_core::harness::ThinkingLevel| {
+                    match mode.session().set_thinking_level(level) {
+                        Ok(()) => {
+                            mode.footer.borrow_mut().invalidate();
+                            mode.update_editor_border_color();
+                        }
+                        Err(error) => mode.show_error(&error.to_string()),
+                    }
+                }
+            ),
+            on_theme_change: callback!(|mode: Rc<InteractiveMode>, theme_setting: &str| {
+                mode.settings_mut(|settings| settings.set_theme(theme_setting));
+                mode.theme_controller.borrow_mut().apply_from_settings();
+            }),
+            on_theme_preview: Some(Rc::new({
+                move |theme_name: &str| {
+                    with_mode(mode_id, |mode| {
+                        mode.theme_controller.borrow_mut().preview(theme_name);
+                    });
+                }
+            })),
+            on_hide_thinking_block_change: callback!(|mode: Rc<InteractiveMode>, hidden: bool| {
+                mode.hide_thinking_block.set(hidden);
+                mode.settings_mut(|settings| settings.set_hide_thinking_block(hidden));
+                for child in mode.chat_container.borrow().children().to_vec() {
+                    if let Some(component) = child
+                        .borrow_mut()
+                        .as_any_mut()
+                        .and_then(|any| any.downcast_mut::<AssistantMessageComponent>())
+                    {
+                        component.set_hide_thinking_block(hidden);
+                    }
+                }
+                mode.rebuild_chat_from_messages();
+            }),
+            on_mermaid_rendering_mode_change: callback!(
+                |mode: Rc<InteractiveMode>, mermaid: crate::core::settings_manager::MermaidRenderingMode| {
+                    mode.settings_mut(|settings| settings.set_mermaid_rendering_mode(mermaid));
+                    mode.chat_container.borrow_mut().invalidate();
+                    mode.ui.request_render();
+                }
+            ),
+            on_show_cache_miss_notices_change: callback!(|mode: Rc<InteractiveMode>, shown: bool| {
+                mode.settings_mut(|settings| settings.set_show_cache_miss_notices(shown));
+                mode.rebuild_chat_from_messages();
+            }),
+            on_collapse_changelog_change: callback!(|mode: Rc<InteractiveMode>, collapsed: bool| {
+                mode.settings_mut(|settings| settings.set_collapse_changelog(collapsed));
+            }),
+            on_enable_install_telemetry_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_enable_install_telemetry(enabled));
+            }),
+            on_quiet_startup_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_quiet_startup(enabled));
+            }),
+            on_default_project_trust_change: callback!(
+                |mode: Rc<InteractiveMode>, trust: crate::core::settings_manager::DefaultProjectTrust| {
+                    mode.settings_mut(|settings| settings.set_default_project_trust(trust));
+                }
+            ),
+            on_double_escape_action_change: callback!(
+                |mode: Rc<InteractiveMode>, action: crate::core::settings_manager::DoubleEscapeAction| {
+                    mode.settings_mut(|settings| settings.set_double_escape_action(action));
+                }
+            ),
+            on_tree_filter_mode_change: callback!(
+                |mode: Rc<InteractiveMode>, filter: crate::core::settings_manager::TreeFilterMode| {
+                    mode.settings_mut(|settings| settings.set_tree_filter_mode(filter));
+                }
+            ),
+            on_show_hardware_cursor_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_show_hardware_cursor(enabled));
+                mode.ui.set_show_hardware_cursor(enabled);
+            }),
+            on_editor_padding_x_change: callback!(|mode: Rc<InteractiveMode>, padding: i64| {
+                mode.settings_mut(|settings| settings.set_editor_padding_x(padding as f64));
+                mode.default_editor.borrow_mut().set_padding_x(padding.max(0) as usize);
+                let current = mode.editor();
+                let default: Rc<RefCell<dyn EditorComponent>> = mode.default_editor.clone();
+                if !Rc::ptr_eq(&current, &default) {
+                    current.borrow_mut().set_padding_x(padding.max(0) as usize);
+                }
+            }),
+            on_output_pad_change: callback!(|mode: Rc<InteractiveMode>, padding: u8| {
+                mode.settings_mut(|settings| settings.set_output_pad(padding));
+                let streaming = mode.streaming_component.borrow().is_some() || mode.session().is_streaming();
+                if streaming {
+                    for child in mode.chat_container.borrow().children().to_vec() {
+                        if let Some(component) = child
+                            .borrow_mut()
+                            .as_any_mut()
+                            .and_then(|any| any.downcast_mut::<AssistantMessageComponent>())
+                        {
+                            component.set_output_pad(padding as usize);
+                            continue;
+                        }
+                        if let Some(component) = child
+                            .borrow_mut()
+                            .as_any_mut()
+                            .and_then(|any| any.downcast_mut::<CustomMessageComponent>())
+                        {
+                            component.set_output_pad(padding as usize);
+                            continue;
+                        }
+                        if let Some(component) = child
+                            .borrow_mut()
+                            .as_any_mut()
+                            .and_then(|any| any.downcast_mut::<UserMessageComponent>())
+                        {
+                            component.set_output_pad(padding as usize);
+                        }
+                    }
+                    mode.ui.request_render();
+                    return;
+                }
+                mode.rebuild_chat_from_messages();
+            }),
+            on_autocomplete_max_visible_change: callback!(|mode: Rc<InteractiveMode>, max_visible: i64| {
+                mode.settings_mut(|settings| settings.set_autocomplete_max_visible(max_visible as f64));
+                mode.default_editor
+                    .borrow_mut()
+                    .set_autocomplete_max_visible(max_visible.max(0) as usize);
+                let current = mode.editor();
+                let default: Rc<RefCell<dyn EditorComponent>> = mode.default_editor.clone();
+                if !Rc::ptr_eq(&current, &default) {
+                    current
+                        .borrow_mut()
+                        .set_autocomplete_max_visible(max_visible.max(0) as usize);
+                }
+            }),
+            on_clear_on_shrink_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_clear_on_shrink(enabled));
+                mode.ui.set_clear_on_shrink(enabled);
+            }),
+            on_show_terminal_progress_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
+                mode.settings_mut(|settings| settings.set_show_terminal_progress(enabled));
+            }),
+            on_tui_mode_change: {
+                let selector_slot = Rc::clone(&selector_slot);
+                Rc::new(move |mode_value: TuiMode| {
+                    let Some(mode) = with_mode(mode_id, |mode| mode) else {
+                        return;
+                    };
+                    let selector_slot = Rc::clone(&selector_slot);
+                    tokio::task::spawn_local(async move {
+                        if !mode.switch_tui_mode(mode_value, true, true) {
+                            if let Some(selector) = selector_slot.borrow().clone() {
+                                selector
+                                    .borrow_mut()
+                                    .get_settings_list_mut()
+                                    .update_value("tui-mode", tui_mode_name(mode.ui.mode()));
+                            }
+                            mode.show_status("Close active overlays before changing TUI mode");
+                            return;
+                        }
+                        mode.settings_mut(|settings| settings.set_tui_mode(mode_value));
+                        mode.clear_status_indicator();
+                        mode.show_status(&format!("TUI mode: {}", tui_mode_name(mode_value)));
+                    });
+                })
+            },
+            on_fullscreen_exit_output_change: callback!(
+                |mode: Rc<InteractiveMode>, output: crate::core::settings_manager::FullscreenExitOutput| {
+                    mode.settings_mut(|settings| settings.set_fullscreen_exit_output(output));
+                }
+            ),
+            on_fullscreen_scrollbar_change: callback!(
+                |mode: Rc<InteractiveMode>, scrollbar: pi_tui::ScrollViewScrollbar| {
+                    mode.settings_mut(|settings| settings.set_fullscreen_scrollbar(scrollbar));
+                    mode.apply_fullscreen_scrollbar_setting();
+                }
+            ),
+            on_warnings_change: callback!(
+                |mode: Rc<InteractiveMode>, warnings: crate::core::settings_manager::WarningSettings| {
+                    let mut value = serde_json::Map::new();
+                    if let Some(anthropic) = warnings.anthropic_extra_usage {
+                        value.insert("anthropicExtraUsage".to_owned(), Value::Bool(anthropic));
+                    }
+                    mode.settings_mut(|settings| settings.set_warnings(&value));
+                }
+            ),
+            on_cancel: {
+                Rc::new(move || {
+                    with_mode(mode_id, |mode| {
+                        mode.restore_editor();
+                        mode.ui.request_render();
+                    });
+                })
+            },
+        };
+        *selector_slot.borrow_mut() = Some(Rc::new(RefCell::new(SettingsSelectorComponent::new(
+            config,
+            Rc::new(callbacks),
+        ))));
+        let selector = selector_slot
+            .borrow()
+            .clone()
+            .expect("settings selector must be installed");
+        self.show_selector(component(SharedSettingsSelector(selector)));
+    }
+
     fn show_selector(&self, selector: ComponentRef) {
         self.editor_container.borrow_mut().clear();
         self.editor_container.borrow_mut().add_child(Rc::clone(&selector));
@@ -3955,8 +5037,8 @@ impl InteractiveMode {
         self.editor_container.borrow_mut().clear();
         self.editor_container
             .borrow_mut()
-            .add_child(Rc::clone(&self.editor_handle));
-        let editor_ref = Rc::clone(&self.editor_handle);
+            .add_child(Rc::clone(&self.editor_handle.borrow()));
+        let editor_ref = Rc::clone(&self.editor_handle.borrow());
         self.ui.set_focus(Some(editor_ref));
         self.ui.request_render();
     }
@@ -4048,14 +5130,14 @@ impl InteractiveMode {
     }
 
     async fn handle_open_external_editor(&self) {
-        let text = self.editor.borrow().get_text();
+        let text = self.editor().borrow().get_text();
         let command = self.settings(|settings| settings.get_external_editor_command());
         let result = crate::modes::interactive::external_editor::edit_in_external_editor(
             &crate::modes::interactive::external_editor::ExternalEditorOptions { command, content: text },
         );
         match result {
             crate::modes::interactive::external_editor::ExternalEditorResult::Complete { content } => {
-                self.editor.borrow_mut().set_text(&content);
+                self.editor().borrow_mut().set_text(&content);
                 self.ui.request_render();
             }
             crate::modes::interactive::external_editor::ExternalEditorResult::Failed => {
@@ -4065,7 +5147,7 @@ impl InteractiveMode {
     }
 
     fn handle_follow_up(&self) {
-        let text = self.editor.borrow().get_text().trim().to_owned();
+        let text = self.editor().borrow().get_text().trim().to_owned();
         if text.is_empty() {
             return;
         }
@@ -4101,14 +5183,14 @@ impl InteractiveMode {
         if count == 0 {
             return 0;
         }
-        let mut text = self.editor.borrow().get_text();
+        let mut text = self.editor().borrow().get_text();
         for message in steering.into_iter().chain(follow_up) {
             if !text.is_empty() {
                 text.push('\n');
             }
             text.push_str(&message);
         }
-        self.editor.borrow_mut().set_text(&text);
+        self.editor().borrow_mut().set_text(&text);
         self.update_pending_messages_display();
         self.ui.request_render();
         count
@@ -4697,13 +5779,13 @@ impl InteractiveMode {
             } => self.add_extension_widget(&key, content, placement),
             UiRequest::SetTitle(title) => self.ui.terminal().borrow_mut().set_title(&title),
             UiRequest::PasteToEditor(text) => {
-                self.editor
+                self.editor()
                     .borrow_mut()
                     .handle_input(&format!("\x1b[200~{text}\x1b[201~"));
                 self.ui.request_render();
             }
             UiRequest::SetEditorText(text) => {
-                self.editor.borrow_mut().set_text(&text);
+                self.editor().borrow_mut().set_text(&text);
                 self.ui.request_render();
             }
             UiRequest::SetToolsExpanded(expanded) => self.set_tools_expanded(expanded),
@@ -4721,6 +5803,7 @@ impl InteractiveMode {
             } => self.show_extension_custom(factory, options, respond),
             UiRequest::AddTerminalInput { handler, respond } => {
                 let handler = Arc::new(handler);
+                let registered: TerminalInputHandler = Arc::clone(&handler);
                 let id = self.ui.add_input_listener(Rc::new(move |data: &str| {
                     let result = handler(data);
                     match result {
@@ -4731,9 +5814,23 @@ impl InteractiveMode {
                         None => TuiInputListenerResult::default(),
                     }
                 }));
+                self.terminal_input_listeners.borrow_mut().push((id, registered));
                 let _ = respond.send(id);
             }
-            UiRequest::RemoveTerminalInput(id) => self.ui.remove_input_listener(id),
+            UiRequest::RemoveTerminalInput(id) => {
+                self.ui.remove_input_listener(id);
+                self.terminal_input_listeners
+                    .borrow_mut()
+                    .retain(|(listener_id, _)| *listener_id != id);
+            }
+            UiRequest::AddAutocompleteProvider(factory) => {
+                self.autocomplete_provider_wrappers.borrow_mut().push(factory);
+                self.setup_autocomplete_provider();
+            }
+            UiRequest::SetEditorComponent(factory) => self.set_custom_editor_component(factory),
+            UiRequest::GetEditorComponent { respond } => {
+                let _ = respond.send(self.editor_component_factory.borrow().clone());
+            }
             UiRequest::AbortAndRestoreQueued => {
                 self.restore_queued_messages_to_editor(true);
             }
@@ -5407,6 +6504,24 @@ mod ui_tests {
         Arc<pi_ai::providers::faux::FauxProviderHandle>,
         tempfile::TempDir,
     ) {
+        build_mode_with_settings(
+            loader,
+            initial_active_tool_names,
+            SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default()),
+        )
+        .await
+    }
+
+    async fn build_mode_with_settings(
+        loader: Arc<dyn crate::core::resource_loader::ResourceLoader>,
+        initial_active_tool_names: Option<Vec<String>>,
+        settings: SettingsManager,
+    ) -> (
+        Rc<InteractiveMode>,
+        Rc<RefCell<CaptureTerminal>>,
+        Arc<pi_ai::providers::faux::FauxProviderHandle>,
+        tempfile::TempDir,
+    ) {
         init_dark_theme();
         let temp = tempfile::tempdir().expect("temp dir");
         let cwd = temp.path().display().to_string();
@@ -5450,10 +6565,12 @@ mod ui_tests {
             let model_runtime = model_runtime.clone();
             let faux = faux.clone();
             let loader = Arc::clone(&loader);
+            let settings = Arc::new(Mutex::new(settings));
             Arc::new(move |request: CreateAgentSessionRuntimeOptions| {
                 let model_runtime = model_runtime.clone();
                 let faux = faux.clone();
                 let loader = Arc::clone(&loader);
+                let settings = Arc::clone(&settings);
                 let initial_active_tool_names = initial_active_tool_names.clone();
                 Box::pin(async move {
                     let model = faux.get_model(None).expect("faux model");
@@ -5475,10 +6592,7 @@ mod ui_tests {
                         ..Default::default()
                     })
                     .expect("agent");
-                    let settings_manager = Arc::new(Mutex::new(SettingsManager::in_memory(
-                        Default::default(),
-                        SettingsManagerCreateOptions::default(),
-                    )));
+                    let settings_manager = Arc::clone(&settings);
                     let session = AgentSession::new(AgentSessionConfig {
                         agent,
                         session_manager: Arc::new(Mutex::new(request.session_manager)),
@@ -5550,12 +6664,17 @@ mod ui_tests {
     }
 
     fn init_dark_theme() {
-        let theme = crate::modes::interactive::theme::load_theme_from_path(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("theme").join("dark.json"),
-            None,
-        )
-        .expect("dark theme");
-        crate::modes::interactive::theme::set_theme_instance(std::sync::Arc::new(theme));
+        let theme_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("theme");
+        let dark = crate::modes::interactive::theme::load_theme_from_path(&theme_dir.join("dark.json"), None)
+            .expect("dark theme");
+        let light = crate::modes::interactive::theme::load_theme_from_path(&theme_dir.join("light.json"), None)
+            .expect("light theme");
+        crate::modes::interactive::theme::set_registered_themes(vec![
+            std::sync::Arc::new(dark),
+            std::sync::Arc::new(light),
+        ])
+        .expect("register fixture themes");
+        crate::modes::interactive::theme::init_theme(Some("dark"), false);
     }
 
     async fn pump(
@@ -5617,7 +6736,7 @@ mod ui_tests {
 
                 terminal.borrow_mut().send_input("hi");
                 mode.ui.process_events();
-                assert_eq!(mode.editor.borrow().get_text(), "hi");
+                assert_eq!(mode.editor().borrow().get_text(), "hi");
                 terminal.borrow_mut().send_input("\r");
                 mode.ui.process_events();
                 assert!(
@@ -5731,7 +6850,7 @@ mod ui_tests {
                         .borrow()
                         .children()
                         .first()
-                        .is_some_and(|child| !Rc::ptr_eq(child, &mode.editor_handle));
+                        .is_some_and(|child| !Rc::ptr_eq(child, &mode.editor_handle.borrow()));
                     if mounted {
                         break;
                     }
@@ -5759,6 +6878,161 @@ mod ui_tests {
             })
             .await;
     }
+
+    async fn open_settings(
+        mode: &Rc<InteractiveMode>,
+        events: &mut tokio::sync::mpsc::UnboundedReceiver<AgentSessionEvent>,
+        terminal: &Rc<RefCell<CaptureTerminal>>,
+    ) {
+        terminal.borrow_mut().send_input("/settings");
+        mode.ui.process_events();
+        terminal.borrow_mut().send_input("\r");
+        mode.ui.process_events();
+        for _ in 0..100 {
+            mode.drain_actions().await;
+            mode.handle_ui_requests().await;
+            mode.ui.flush_pending();
+            let mounted = mode
+                .editor_container
+                .borrow()
+                .children()
+                .first()
+                .is_some_and(|child| !Rc::ptr_eq(child, &mode.editor_handle.borrow()));
+            if mounted {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        let _ = pump(mode, events, terminal, |_| true).await;
+        assert!(
+            mode.editor_container
+                .borrow()
+                .children()
+                .first()
+                .is_some_and(|child| !Rc::ptr_eq(child, &mode.editor_handle.borrow())),
+            "settings selector must be mounted"
+        );
+    }
+
+    fn activate_setting(mode: &Rc<InteractiveMode>, terminal: &Rc<RefCell<CaptureTerminal>>, label: &str) {
+        for _ in 0..64 {
+            terminal.borrow_mut().send_input("\u{7f}");
+        }
+        mode.ui.process_events();
+        terminal.borrow_mut().send_input(label);
+        mode.ui.process_events();
+        terminal.borrow_mut().send_input("\r");
+        mode.ui.process_events();
+    }
+
+    fn settings_file(agent_dir: &Path) -> serde_json::Value {
+        let path = agent_dir.join("settings.json");
+        let content = std::fs::read_to_string(&path).expect("settings.json must be written");
+        serde_json::from_str(&content).expect("settings.json must be valid JSON")
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn settings_selector_updates_http_timeout_and_writes_settings_file() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                init_dark_theme();
+                let agent_dir = tempfile::tempdir().expect("agent dir");
+                let cwd = tempfile::tempdir().expect("cwd");
+                let settings = SettingsManager::create(
+                    &cwd.path().display().to_string(),
+                    Some(agent_dir.path()),
+                    SettingsManagerCreateOptions::default(),
+                )
+                .expect("settings manager");
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                    None,
+                    settings,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+                open_settings(&mode, &mut events, &terminal).await;
+
+                activate_setting(&mode, &terminal, "HTTP idle timeout");
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("HTTP idle timeout: disabled")
+                })
+                .await;
+                assert!(output.contains("HTTP idle timeout: disabled"));
+
+                let value = settings_file(agent_dir.path());
+                assert_eq!(value.get("httpIdleTimeoutMs"), Some(&serde_json::json!(0)));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn settings_selector_switches_tui_mode_and_reports_status() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                init_dark_theme();
+                let agent_dir = tempfile::tempdir().expect("agent dir");
+                let cwd = tempfile::tempdir().expect("cwd");
+                let settings = SettingsManager::create(
+                    &cwd.path().display().to_string(),
+                    Some(agent_dir.path()),
+                    SettingsManagerCreateOptions::default(),
+                )
+                .expect("settings manager");
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                    None,
+                    settings,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+                open_settings(&mode, &mut events, &terminal).await;
+
+                activate_setting(&mode, &terminal, "TUI mode");
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("TUI mode: fullscreen")
+                })
+                .await;
+                assert!(output.contains("TUI mode: fullscreen"));
+                assert_eq!(mode.ui.mode(), TuiMode::Fullscreen);
+
+                let value = settings_file(agent_dir.path());
+                assert_eq!(value.get("tuiMode"), Some(&serde_json::json!("fullscreen")));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn settings_selector_updates_session_auto_compact_and_thinking_level() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+                assert!(mode.session().auto_compaction_enabled());
+                open_settings(&mode, &mut events, &terminal).await;
+
+                activate_setting(&mode, &terminal, "Auto-compact");
+                pump(&mode, &mut events, &terminal, |_| true).await;
+                assert!(!mode.session().auto_compaction_enabled());
+
+                let before = mode.session().thinking_level();
+                activate_setting(&mode, &terminal, "Thinking level");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\x1b[B");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |_| true).await;
+                assert_ne!(mode.session().thinking_level(), before);
+            })
+            .await;
+    }
 }
 
 #[cfg(test)]
@@ -5766,12 +7040,17 @@ mod tests {
     use super::*;
 
     fn init_dark_theme() {
-        let theme = crate::modes::interactive::theme::load_theme_from_path(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("theme").join("dark.json"),
-            None,
-        )
-        .expect("dark theme");
-        crate::modes::interactive::theme::set_theme_instance(std::sync::Arc::new(theme));
+        let theme_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("theme");
+        let dark = crate::modes::interactive::theme::load_theme_from_path(&theme_dir.join("dark.json"), None)
+            .expect("dark theme");
+        let light = crate::modes::interactive::theme::load_theme_from_path(&theme_dir.join("light.json"), None)
+            .expect("light theme");
+        crate::modes::interactive::theme::set_registered_themes(vec![
+            std::sync::Arc::new(dark),
+            std::sync::Arc::new(light),
+        ])
+        .expect("register fixture themes");
+        crate::modes::interactive::theme::init_theme(Some("dark"), false);
     }
 
     fn source_info(path: &str, source: &str, scope: SourceScope, base_dir: Option<&str>) -> SourceInfo {

@@ -86,6 +86,18 @@ impl CustomEditor {
         self.editor.get_history()
     }
 
+    pub fn get_padding_x(&self) -> usize {
+        self.editor.get_padding_x()
+    }
+
+    pub fn get_autocomplete_max_visible(&self) -> usize {
+        self.editor.get_autocomplete_max_visible()
+    }
+
+    pub fn get_border_color(&self) -> pi_tui::components::text::StyleFn {
+        self.editor.get_border_color()
+    }
+
     pub fn set_history(&mut self, history: Vec<String>) {
         self.editor.set_history(history);
     }
@@ -233,6 +245,10 @@ impl Component for CustomEditor {
 
     fn invalidate(&mut self) {
         self.editor.invalidate();
+    }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
     }
 }
 
