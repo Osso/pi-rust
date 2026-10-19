@@ -1831,12 +1831,11 @@ impl AgentSession {
         let persistence = store.get_persistence_target()?;
         let control_db_path = self.runtime_mailbox_control_db_path()?;
         let id_store = Arc::clone(store);
-        let process_identity = serde_json::from_str(crate::core::session_control_db::get_runtime_process_instance_id())
-            .unwrap_or(crate::core::runtime_process::ProcessIdentity {
-                pid: std::process::id(),
-                start_time_ticks: 0,
-                incarnation: None,
-            });
+        // TS parses this when the session is constructed and lets a failure throw.
+        let instance_id = crate::core::session_control_db::get_runtime_process_instance_id()
+            .expect("runtime process identity must be readable");
+        let process_identity: crate::core::runtime_process::ProcessIdentity =
+            serde_json::from_str(instance_id).expect("runtime process identity must be valid JSON");
         let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
             control_db_path: control_db_path.clone(),
             create_agent_id: Arc::new(move || id_store.allocate_agent_id_for_lifecycle_coordinator("agent")),

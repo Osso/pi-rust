@@ -720,21 +720,25 @@ pub(crate) fn optional_string_field(
     }
 }
 
-pub fn get_runtime_process_instance_id() -> &'static str {
-    static INSTANCE: OnceLock<String> = OnceLock::new();
-    INSTANCE.get_or_init(|| {
-        let identity = read_process_identity(std::process::id()).unwrap_or(ProcessIdentity {
-            pid: std::process::id(),
-            start_time_ticks: 0,
-            incarnation: None,
-        });
-        let value = serde_json::json!({
-            "pid": identity.pid,
-            "startTimeTicks": identity.start_time_ticks,
-            "incarnation": pi_ai::utils::uuid::uuidv7(),
-        });
-        js_json::stringify(&value)
-    })
+/// `getRuntimeProcessInstanceId`: throws when the process identity cannot be read.
+pub fn get_runtime_process_instance_id() -> Result<&'static str, ControlDbError> {
+    static INSTANCE: OnceLock<Result<String, String>> = OnceLock::new();
+    INSTANCE
+        .get_or_init(|| process_instance_id_from(read_process_identity(std::process::id())))
+        .as_deref()
+        .map_err(|message| ControlDbError::new(message.clone()))
+}
+
+fn process_instance_id_from(
+    identity: Result<ProcessIdentity, crate::core::runtime_process::ProcessIdentityError>,
+) -> Result<String, String> {
+    let identity = identity.map_err(|error| error.message)?;
+    let value = serde_json::json!({
+        "pid": identity.pid,
+        "startTimeTicks": identity.start_time_ticks,
+        "incarnation": pi_ai::utils::uuid::uuidv7(),
+    });
+    Ok(js_json::stringify(&value))
 }
 
 pub fn serialize_process_identity(identity: &ProcessIdentity) -> String {
@@ -1062,4 +1066,54 @@ pub(crate) fn serialize_agent(agent: &AgentSnapshot) -> Result<String, ControlDb
 
 pub(crate) fn agent_value(agent: &AgentSnapshot) -> Result<Value, ControlDbError> {
     serde_json::to_value(agent).map_err(|error| ControlDbError::new(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::runtime_process::ProcessIdentityError;
+
+    fn identity_read_failure(message: &str) -> Result<ProcessIdentity, ProcessIdentityError> {
+        Err(ProcessIdentityError {
+            message: message.to_owned(),
+        })
+    }
+
+    #[test]
+    fn process_instance_id_propagates_identity_read_failure() {
+        assert_eq!(
+            process_instance_id_from(identity_read_failure("Invalid process stat for process 1")),
+            Err("Invalid process stat for process 1".to_owned())
+        );
+    }
+
+    #[test]
+    fn process_instance_id_serializes_identity_in_typescript_key_order() {
+        let instance = process_instance_id_from(Ok(ProcessIdentity {
+            pid: 4242,
+            start_time_ticks: 9001,
+            incarnation: None,
+        }))
+        .expect("identity serializes");
+        let parsed = js_json::parse(&instance).expect("instance id is JSON");
+        let Value::Object(parsed) = parsed else {
+            panic!("instance id must be an object");
+        };
+        assert_eq!(
+            parsed.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["pid", "startTimeTicks", "incarnation"]
+        );
+        assert!(instance.starts_with(r#"{"pid":4242,"startTimeTicks":9001,"incarnation":"#));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn runtime_process_instance_id_uses_the_live_process_identity() {
+        let identity = read_process_identity(std::process::id()).expect("live process identity");
+        let instance = get_runtime_process_instance_id().expect("runtime process instance id");
+        let parsed = js_json::parse(instance).expect("instance id is JSON");
+        assert_eq!(parsed["pid"], serde_json::json!(identity.pid));
+        assert_eq!(parsed["startTimeTicks"], serde_json::json!(identity.start_time_ticks));
+        assert_eq!(get_runtime_process_instance_id().unwrap(), instance);
+    }
 }

@@ -27,7 +27,7 @@ Tests: `crates/pi-ai/tests/auth.rs`.
 ## Gaps
 - `AbortSignal.reason` is not representable; cancellation is only observable as `AuthError::Aborted` / `ResolveError::Aborted`.
 - `ProviderAuthInteraction` is not a separate type: providers call `AuthInteraction::signal()`, which returns a concrete token (a fresh non-cancelled token when the caller omitted one).
-- OAuth extra keys are stored in insertion order via `serde_json` `preserve_order`; other maps (`ProviderEnv`, `ProviderHeaders`) are `BTreeMap` and serialize sorted.
+- OAuth extra keys are stored in insertion order via `serde_json` `preserve_order`. `ProviderEnv` and `ProviderHeaders` are `IndexMap`: TypeScript object insertion order is the provider request order and must survive auth application (`differential_ai_runtime` apply-auth scenario compares merged headers/env in order).
 
 ## Discrepancies
 - None in resolution semantics. Typed Rust rejects non-object credential JSON and unknown `type` values instead of returning an untyped object.

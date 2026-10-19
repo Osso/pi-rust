@@ -110,12 +110,21 @@ fn asserts_and_reopens_with_selected_cwd() {
     let error = assert_session_cwd_exists(&manager, &fallback.display().to_string()).unwrap_err();
     assert_eq!(error.issue.session_cwd, missing.display().to_string());
 
+    let control_db_path = session_dir.join("control.sqlite").display().to_string();
     let reopened = reopen_session_with_cwd(
         &error.issue,
         Some(&session_dir.display().to_string()),
         &fallback.display().to_string(),
-        "/control.db",
+        &control_db_path,
     )
     .unwrap();
     assert_eq!(reopened.get_cwd(), fallback.display().to_string());
+    assert_eq!(reopened.get_metadata_control_db_path(), Some(control_db_path.as_str()));
+    let metadata = pi_coding_agent::core::session_control_db::read_session_metadata(
+        &control_db_path,
+        &session_file.display().to_string(),
+    )
+    .unwrap()
+    .expect("metadata snapshot written on reopen");
+    assert_eq!(metadata.cwd, fallback.display().to_string());
 }

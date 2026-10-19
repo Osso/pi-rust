@@ -71,8 +71,19 @@ relocation.
 
 - TypeScript's dual driver (`bun:sqlite` / `node:sqlite`) collapses to `rusqlite::Connection`; the
   observable schema, SQL, and PRAGMA contract is unchanged.
-- `getRuntimeProcessInstanceId`: TS throws when `/proc/self/stat` cannot be read; Rust synthesizes
-  a pid/zero-start-time identity so module initialization cannot panic. On supported Linux hosts
-  the behavior is identical.
+- `getRuntimeProcessInstanceId`: TS throws when `/proc/self/stat` cannot be read. Rust returns
+  `Err(ControlDbError)` with the identity-read message instead of synthesizing a pid/zero-start-time
+  identity; the value is memoized once, matching the `globalThis` cache. Proof:
+  `process_instance_id_propagates_identity_read_failure`,
+  `process_instance_id_serializes_identity_in_typescript_key_order`,
+  `runtime_process_instance_id_uses_the_live_process_identity`.
 - Typed-core exclusion: TS accepts arbitrary runtime payloads for `enqueueStoredRuntimeMailboxMessage`
   and mailbox JSON; Rust requires typed structs. Invalid JS payload shapes cannot be constructed.
+
+## Mailbox payload key order
+
+Every canonical mailbox payload mutation spreads the stored object and then appends keys in the
+TypeScript literal order (`claimedAt`, `claimantProcessIdentity`, `status`, `updatedAt`; routing
+appends `recipientSessionId`, `recipientAgentId`, `senderSessionId`, `senderAgentId`; delivery appends
+`deliveredAt` then `error`). Rust inserts in the same order with `shift_remove`/`remove` after the
+inserts, so `JSON.stringify` bytes match. Covered by the 74-step `differential_control_db` suite.

@@ -706,7 +706,7 @@ fn prepare_multi_agent_steering_mutation(
             },
         )));
     };
-    if !steering_mutation_has_authority(&agent, ownership.as_ref(), &sender_listener, &recipient_listener, input) {
+    if !steering_mutation_has_authority(&agent, ownership.as_ref(), &sender_listener, &recipient_listener, input)? {
         return Ok(SteeringMutationPreflight::Result(Box::new(
             CommitMultiAgentSteeringMutationResult::Err {
                 error: SteeringCommandError::MutationMismatch,
@@ -754,7 +754,7 @@ fn steering_mutation_has_authority(
     sender_listener: &RuntimeMailboxListenerRow,
     recipient_listener: &RuntimeMailboxListenerRow,
     input: &CommitMultiAgentSteeringMutationInput,
-) -> bool {
+) -> Result<bool, ControlDbError> {
     let identity = MultiAgentRuntimeOwnershipIdentity {
         session_path: input.session_path.clone(),
         agent_id: input.agent_id.clone(),
@@ -765,12 +765,12 @@ fn steering_mutation_has_authority(
         },
     };
     if !super::runtime_owner_matches(ownership, &identity) {
-        return false;
+        return Ok(false);
     }
     let sender_path_matches = input.owner.agent_id.is_some()
         || trusted_runtime_mailbox_session_path(sender_listener).as_deref() == Some(input.session_path.as_str());
     let expected_sender_id = input.owner.agent_id.as_deref().unwrap_or("supervisor");
-    input.from_agent_id == expected_sender_id
+    Ok(input.from_agent_id == expected_sender_id
         && agent.parent_id.as_deref() == Some(input.owner.agent_id.as_deref().unwrap_or("main"))
         && input.recipient.agent_id.as_deref() == Some(input.agent_id.as_str())
         && agent
@@ -779,12 +779,12 @@ fn steering_mutation_has_authority(
             .map(|transcript| transcript.session_id.as_str())
             == Some(input.recipient.session_id.as_str())
         && sender_listener.pid == std::process::id()
-        && sender_listener.runtime_instance_id.as_deref() == Some(get_runtime_process_instance_id())
+        && sender_listener.runtime_instance_id.as_deref() == Some(get_runtime_process_instance_id()?)
         && sender_path_matches
         && runtime_listener_matches_process_identity(
             Some(recipient_listener),
             ownership.and_then(|ownership| ownership.process_identity.as_deref()),
-        )
+        ))
 }
 
 fn runtime_listener_matches_process_identity(

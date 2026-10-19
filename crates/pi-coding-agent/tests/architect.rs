@@ -1,0 +1,568 @@
+//! Behavioral port of the architect observer, prompt, project-spec, and main helpers.
+
+use std::sync::{Arc, Mutex};
+
+use pi_coding_agent::architect::main::{
+    ARCHITECT_EXCLUDED_TOOL_NAMES, ArchitectConsolePromptQueue, SentArchitectMessage, block_architect_global_broadcast,
+    complete_sent_architect_request, create_architect_console_snapshot, create_architect_settings_manager,
+    run_architect_cycle,
+};
+use pi_coding_agent::architect::observer::{
+    ArchitectObservation, ArchitectObservationReason, ArchitectObserver, ArchitectSessionSnapshot,
+    create_architect_observation, read_architect_snapshot,
+};
+use pi_coding_agent::architect::project_spec::read_project_spec;
+use pi_coding_agent::architect::prompt::{ARCHITECT_SYSTEM_PROMPT, build_architect_prompt};
+use pi_coding_agent::core::session_control_db::{ArchitectRequest, ArchitectRequestStatus};
+use pi_coding_agent::core::sqlite::create_sqlite_database;
+use tempfile::TempDir;
+
+fn session() -> ArchitectSessionSnapshot {
+    ArchitectSessionSnapshot {
+        cwd: "/repo".to_owned(),
+        goal_json: Some(r#"{"objective":"Keep tests green"}"#.to_owned()),
+        id: "main-session".to_owned(),
+        is_subagent: false,
+        name: Some("main".to_owned()),
+    }
+}
+
+fn request(id: i64) -> ArchitectRequest {
+    ArchitectRequest {
+        id,
+        sender_session_id: "main".to_owned(),
+        project_cwd: None,
+        body: "Architect: assess goal drift".to_owned(),
+        status: ArchitectRequestStatus::Pending,
+        created_at: "2026-07-10T00:00:00.000Z".to_owned(),
+        claimed_at: None,
+        claim_token: None,
+        completed_at: None,
+    }
+}
+
+#[test]
+fn emits_initial_state_changes_and_stays_stable() {
+    let initial = create_architect_observation(None, &[session()], &[]).unwrap();
+    assert_eq!(initial.reason, ArchitectObservationReason::SessionStateChanged);
+    assert_eq!(initial.sessions, [session()]);
+    assert_eq!(create_architect_observation(Some(&initial), &[session()], &[]), None);
+
+    let mut changed = session();
+    changed.goal_json = Some(r#"{"objective":"Deploy safely"}"#.to_owned());
+    let observation = create_architect_observation(Some(&initial), &[changed.clone()], &[]).unwrap();
+    assert_eq!(observation.reason, ArchitectObservationReason::SessionStateChanged);
+    assert_eq!(observation.sessions, [changed]);
+}
+
+#[test]
+fn retains_live_session_across_goal_completion_and_stabilizes() {
+    let initial = create_architect_observation(None, &[session()], &[]).unwrap();
+    let mut completed = session();
+    completed.goal_json =
+        Some(r#"{"objective":"Keep tests green","completedAt":"2026-07-10T00:00:00.000Z"}"#.to_owned());
+    let completion = create_architect_observation(Some(&initial), &[completed.clone()], &[]).unwrap();
+    assert_eq!(completion.reason, ArchitectObservationReason::SessionStateChanged);
+    assert_eq!(completion.sessions[0].id, "main-session");
+    assert_eq!(create_architect_observation(Some(&completion), &[completed], &[]), None);
+}
+
+#[test]
+fn explicit_requests_take_priority_over_session_changes() {
+    let initial = create_architect_observation(None, &[session()], &[]).unwrap();
+    let observation = create_architect_observation(Some(&initial), &[session()], &[request(4)]).unwrap();
+    assert_eq!(observation.reason, ArchitectObservationReason::ArchitectRequest);
+    assert_eq!(observation.requests[0].id, 4);
+}
+
+#[test]
+fn observer_reads_a_snapshot_on_every_observation() {
+    let reads = Arc::new(Mutex::new(vec![
+        (Vec::new(), vec![session()]),
+        (vec![request(4)], vec![session()]),
+    ]));
+    let reader = {
+        let reads = reads.clone();
+        Arc::new(move || {
+            let (requests, sessions) = reads.lock().unwrap().remove(0);
+            Ok(pi_coding_agent::architect::observer::ArchitectSnapshot { requests, sessions })
+        })
+    };
+    let observer = ArchitectObserver::new("/unused", Some(reader));
+
+    let initial = observer.observe().unwrap().unwrap();
+    assert_eq!(initial.reason, ArchitectObservationReason::SessionStateChanged);
+    assert!(initial.requests.is_empty());
+    let next = observer.observe().unwrap().unwrap();
+    assert_eq!(next.reason, ArchitectObservationReason::ArchitectRequest);
+    assert_eq!(next.requests[0].id, 4);
+}
+
+#[test]
+fn missing_control_database_returns_empty_without_creating_it() {
+    let temp = TempDir::new().unwrap();
+    let control_db_path = temp.path().join("missing.sqlite").display().to_string();
+
+    let snapshot = read_architect_snapshot(&control_db_path).unwrap();
+
+    assert!(snapshot.requests.is_empty());
+    assert!(snapshot.sessions.is_empty());
+    assert!(!std::path::Path::new(&control_db_path).exists());
+}
+
+fn seed_architect_tables(db: &rusqlite::Connection) {
+    db.execute_batch(
+        "CREATE TABLE session_metadata (
+            session_path TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, name TEXT, goal_json TEXT,
+            is_subagent INTEGER NOT NULL, modified_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        );
+        CREATE TABLE session_health (
+            session_id TEXT NOT NULL, pid INTEGER, check_status TEXT NOT NULL,
+            agent_generation INTEGER NOT NULL, checked_generation INTEGER, last_active_at TEXT
+        );
+        CREATE TABLE runtime_mailbox_listeners (
+            recipient_session_id TEXT NOT NULL, recipient_agent_id_key TEXT NOT NULL,
+            pid INTEGER NOT NULL, updated_at TEXT NOT NULL
+        );",
+    )
+    .unwrap();
+}
+
+#[test]
+fn keeps_the_deterministic_newest_live_metadata_row_per_session_id() {
+    let temp = TempDir::new().unwrap();
+    let control_db_path = temp.path().join("control.sqlite").display().to_string();
+    let db = create_sqlite_database(&control_db_path).unwrap();
+    seed_architect_tables(&db);
+    for (path, id, cwd, name, goal, modified) in [
+        (
+            "a-old.jsonl",
+            "live",
+            "/old",
+            "old",
+            r#"{"objective":"Old"}"#,
+            "2026-07-09T20:00:00.000Z",
+        ),
+        (
+            "z-current.jsonl",
+            "live",
+            "/current",
+            "current",
+            r#"{"objective":"Current"}"#,
+            "2026-07-09T22:00:00.000Z",
+        ),
+        (
+            "a-current-stale.jsonl",
+            "live",
+            "/stale",
+            "stale",
+            r#"{"objective":"Stale"}"#,
+            "2026-07-09T22:00:00.000Z",
+        ),
+        (
+            "ended.jsonl",
+            "ended",
+            "/ended",
+            "ended",
+            r#"{"objective":"Ended"}"#,
+            "2026-07-09T22:00:00.000Z",
+        ),
+    ] {
+        db.execute(
+            "INSERT INTO session_metadata VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+            rusqlite::params![path, id, cwd, name, goal, modified, modified],
+        )
+        .unwrap();
+    }
+    let now = pi_coding_agent::utils::iso_time::now_iso_string();
+    db.execute("INSERT INTO session_health VALUES ('live', 123, 'ok', 1, 1, ?)", [&now])
+        .unwrap();
+    db.execute(
+        "INSERT INTO session_health VALUES ('ended', NULL, 'dead', 1, 1, NULL)",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO runtime_mailbox_listeners VALUES ('live', '', 123, '2026-07-09T19:00:00.000Z')",
+        [],
+    )
+    .unwrap();
+    db.close().unwrap();
+
+    let snapshot = read_architect_snapshot(&control_db_path).unwrap();
+    assert_eq!(snapshot.sessions.len(), 1);
+    assert_eq!(snapshot.sessions[0].id, "live");
+    assert_eq!(snapshot.sessions[0].cwd, "/current");
+    assert_eq!(
+        snapshot.sessions[0].goal_json.as_deref(),
+        Some(r#"{"objective":"Current"}"#)
+    );
+    assert!(snapshot.requests.is_empty());
+}
+
+#[test]
+fn keeps_the_most_recently_registered_main_session_per_live_process() {
+    let temp = TempDir::new().unwrap();
+    let control_db_path = temp.path().join("control.sqlite").display().to_string();
+    let db = create_sqlite_database(&control_db_path).unwrap();
+    seed_architect_tables(&db);
+    for (path, id, cwd, name, goal, is_subagent, modified) in [
+        (
+            "historical-main.jsonl",
+            "historical-main",
+            "/old",
+            Some("old"),
+            Some(r#"{"objective":"Old"}"#),
+            0,
+            "2026-07-09T23:00:00.000Z",
+        ),
+        (
+            "current-main.jsonl",
+            "current-main",
+            "/current",
+            Some("current"),
+            Some(r#"{"objective":"Current"}"#),
+            0,
+            "2026-07-09T22:00:00.000Z",
+        ),
+        (
+            "current-child.jsonl",
+            "current-child",
+            "/current",
+            Some("child"),
+            None,
+            1,
+            "2026-07-09T23:30:00.000Z",
+        ),
+        (
+            "other-main.jsonl",
+            "other-main",
+            "/other",
+            Some("other"),
+            Some(r#"{"objective":"Other"}"#),
+            0,
+            "2026-07-09T21:00:00.000Z",
+        ),
+        (
+            "architect.jsonl",
+            "architect",
+            "/home/osso",
+            None,
+            None,
+            0,
+            "2026-07-09T23:30:00.000Z",
+        ),
+    ] {
+        db.execute(
+            "INSERT INTO session_metadata VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            rusqlite::params![path, id, cwd, name, goal, is_subagent, modified, modified],
+        )
+        .unwrap();
+    }
+    let now = pi_coding_agent::utils::iso_time::now_iso_string();
+    for (id, pid) in [
+        ("historical-main", 123),
+        ("current-main", 123),
+        ("current-child", 123),
+        ("other-main", 456),
+        ("architect", 789),
+    ] {
+        db.execute(
+            "INSERT INTO session_health VALUES (?, ?, 'ok', 1, 1, ?)",
+            rusqlite::params![id, pid, now],
+        )
+        .unwrap();
+    }
+    for (id, pid, updated_at) in [
+        ("historical-main", 123, "2026-07-09T20:00:00.000Z"),
+        ("current-main", 123, "2026-07-09T21:00:00.000Z"),
+        ("current-child", 123, "2026-07-09T23:30:00.000Z"),
+        ("other-main", 456, "2026-07-09T19:00:00.000Z"),
+        ("architect", 789, "2026-07-09T23:30:00.000Z"),
+    ] {
+        db.execute(
+            "INSERT INTO runtime_mailbox_listeners VALUES (?, '', ?, ?)",
+            rusqlite::params![id, pid, updated_at],
+        )
+        .unwrap();
+    }
+    db.close().unwrap();
+
+    let snapshot = read_architect_snapshot(&control_db_path).unwrap();
+    assert_eq!(
+        snapshot
+            .sessions
+            .iter()
+            .map(|session| session.id.as_str())
+            .collect::<Vec<_>>(),
+        ["current-main", "other-main"]
+    );
+}
+
+#[test]
+fn prompt_serializes_the_observation_after_the_bounded_instructions() {
+    let observation = ArchitectObservation {
+        requests: vec![request(4)],
+        reason: ArchitectObservationReason::ArchitectRequest,
+        sessions: vec![session()],
+    };
+    let prompt = build_architect_prompt(&observation);
+    let parts: Vec<&str> = prompt.split("\n\n").collect();
+    assert_eq!(parts[0], "Architect observation. Assess it now.");
+    assert_eq!(
+        parts[1],
+        "Use this structured observation only for session inventory and liveness; do not call global session inventory tools."
+    );
+    assert_eq!(
+        parts[2],
+        "Send explicit-request replies through send_agent_message; send periodic advice only when the system prompt threshold is met."
+    );
+    let parsed: serde_json::Value = serde_json::from_str(parts[3]).unwrap();
+    assert_eq!(parsed["reason"], "architect_request");
+    assert_eq!(parsed["requests"][0]["id"], 4);
+    assert_eq!(parsed["sessions"][0]["id"], "main-session");
+    assert_eq!(parsed["sessions"][0]["goalJson"], r#"{"objective":"Keep tests green"}"#);
+    assert!(ARCHITECT_SYSTEM_PROMPT.contains("threadId \"architect-request:<request id>\""));
+    assert!(ARCHITECT_SYSTEM_PROMPT.contains("Never use broadcast or the global shared channel"));
+}
+
+#[test]
+fn project_spec_reads_only_markdown_inside_docs_specs() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("docs/specs")).unwrap();
+    std::fs::write(root.join("docs/specs/README.md"), "index").unwrap();
+    std::fs::write(root.join("docs/specs/feature.md"), "feature spec").unwrap();
+    std::fs::write(root.join("outside.md"), "outside").unwrap();
+    std::fs::create_dir_all(root.join("nested")).unwrap();
+    let root_text = root.display().to_string();
+
+    assert_eq!(
+        futures_block(read_project_spec(&root_text, "feature.md")).unwrap(),
+        "feature spec"
+    );
+    assert_eq!(
+        futures_block(read_project_spec(
+            &root.join("nested").display().to_string(),
+            "README.md"
+        ))
+        .unwrap(),
+        "index"
+    );
+    assert_eq!(
+        futures_block(read_project_spec(&root_text, "../outside.md")).unwrap_err(),
+        "Architect project spec path must reference a relative Markdown file inside docs/specs"
+    );
+    assert_eq!(
+        futures_block(read_project_spec(&root_text, "/etc/passwd")).unwrap_err(),
+        "Architect project spec path must reference a relative Markdown file inside docs/specs"
+    );
+    assert_eq!(
+        futures_block(read_project_spec(&root_text, "README.txt")).unwrap_err(),
+        "Architect project spec path must reference a relative Markdown file inside docs/specs"
+    );
+
+    std::fs::create_dir_all(root.join("elsewhere")).unwrap();
+    std::fs::write(root.join("elsewhere/escape.md"), "escape").unwrap();
+    std::os::unix::fs::symlink(root.join("elsewhere"), root.join("docs/specs/linked")).unwrap();
+    assert_eq!(
+        futures_block(read_project_spec(&root_text, "linked/escape.md")).unwrap_err(),
+        "Architect project spec path must remain inside docs/specs"
+    );
+}
+
+#[test]
+fn project_spec_reports_a_missing_spec_index() {
+    let temp = TempDir::new().unwrap();
+    let error = futures_block(read_project_spec(&temp.path().display().to_string(), "README.md")).unwrap_err();
+    assert!(error.starts_with("No docs/specs/README.md found above Architect project cwd: "));
+}
+
+fn futures_block<F: std::future::Future>(future: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(future)
+}
+
+struct CountingCompleter {
+    completed: Mutex<Vec<(i64, String)>>,
+}
+
+impl pi_coding_agent::architect::main::ArchitectRequestCompleter for CountingCompleter {
+    fn complete_request(&self, request_id: i64, sender_session_id: &str) -> Result<(), String> {
+        self.completed
+            .lock()
+            .unwrap()
+            .push((request_id, sender_session_id.to_owned()));
+        Ok(())
+    }
+}
+
+#[test]
+fn completes_only_targeted_architect_request_threads() {
+    let completer = CountingCompleter {
+        completed: Mutex::new(Vec::new()),
+    };
+    complete_sent_architect_request(
+        &completer,
+        &SentArchitectMessage {
+            thread_id: Some("architect-request:4".to_owned()),
+            to_agent_id: "main".to_owned(),
+            to_session_id: "sender-main".to_owned(),
+        },
+    )
+    .unwrap();
+    complete_sent_architect_request(
+        &completer,
+        &SentArchitectMessage {
+            thread_id: Some("other-thread:4".to_owned()),
+            to_agent_id: "main".to_owned(),
+            to_session_id: "sender-main".to_owned(),
+        },
+    )
+    .unwrap();
+    complete_sent_architect_request(
+        &completer,
+        &SentArchitectMessage {
+            thread_id: Some("architect-request:4".to_owned()),
+            to_agent_id: "child".to_owned(),
+            to_session_id: "sender-main".to_owned(),
+        },
+    )
+    .unwrap();
+    complete_sent_architect_request(
+        &completer,
+        &SentArchitectMessage {
+            thread_id: Some("architect-request:0".to_owned()),
+            to_agent_id: "main".to_owned(),
+            to_session_id: "sender-main".to_owned(),
+        },
+    )
+    .unwrap();
+    assert_eq!(*completer.completed.lock().unwrap(), [(4, "sender-main".to_owned())]);
+}
+
+#[test]
+fn blocks_global_broadcast_tools_for_the_architect() {
+    for (tool, reason) in [
+        (
+            "channel_post",
+            "Pi Architect must use direct agent messaging, not channel_post.",
+        ),
+        (
+            "list_sessions",
+            "Pi Architect must use its bounded structured observer snapshot, not list_sessions.",
+        ),
+        (
+            "broadcast",
+            "Pi Architect must use direct agent messaging, not broadcast.",
+        ),
+    ] {
+        let blocked = block_architect_global_broadcast(tool).unwrap();
+        assert_eq!(blocked.block, Some(true));
+        assert_eq!(blocked.reason.as_deref(), Some(reason));
+    }
+    assert!(block_architect_global_broadcast("read").is_none());
+    assert_eq!(ARCHITECT_EXCLUDED_TOOL_NAMES.len(), 5);
+}
+
+#[test]
+fn console_snapshot_and_settings_match_the_service_contract() {
+    let snapshot = create_architect_console_snapshot("/home", 42, None, Vec::new());
+    assert_eq!(
+        snapshot.service,
+        pi_coding_agent::core::resident_console_transport::ResidentConsoleService::Architect
+    );
+    assert_eq!(snapshot.session_id, "architect");
+    assert_eq!(snapshot.generation, 42);
+    let settings = create_architect_settings_manager();
+    assert_eq!(
+        settings.get_explicit_sandbox_profile(),
+        Some(pi_coding_agent::core::permissions::presets::SandboxProfileName::ReadOnly)
+    );
+}
+
+#[tokio::test]
+async fn console_prompt_queue_is_fifo_and_wakes_waiters() {
+    let queue = Arc::new(ArchitectConsolePromptQueue::new());
+    let signal = tokio_util::sync::CancellationToken::new();
+    queue.enqueue("first".to_owned(), "1".to_owned());
+    queue.enqueue("second".to_owned(), "2".to_owned());
+    assert_eq!(queue.take().unwrap().text, "first");
+    assert_eq!(queue.take().unwrap().text, "second");
+    assert!(queue.take().is_none());
+
+    let waiting = {
+        let queue = queue.clone();
+        let signal = signal.clone();
+        tokio::spawn(async move {
+            queue.wait(&signal, 10_000).await;
+        })
+    };
+    tokio::task::yield_now().await;
+    queue.enqueue("third".to_owned(), "3".to_owned());
+    tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+        .await
+        .expect("waiter wakes")
+        .unwrap();
+    assert_eq!(queue.take().unwrap().text, "third");
+}
+
+struct FixedObserver {
+    observations: Mutex<Vec<Option<ArchitectObservation>>>,
+    renewed: Mutex<Vec<Vec<i64>>>,
+}
+
+impl pi_coding_agent::architect::main::ArchitectCycleObserver for FixedObserver {
+    fn observe(&self) -> Result<Option<ArchitectObservation>, String> {
+        Ok(self.observations.lock().unwrap().remove(0))
+    }
+
+    fn renew_requests(&self, request_ids: &[i64]) -> Result<(), String> {
+        self.renewed.lock().unwrap().push(request_ids.to_vec());
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn architect_cycle_prompts_only_when_an_observation_exists() {
+    let observer = Arc::new(FixedObserver {
+        observations: Mutex::new(vec![
+            None,
+            Some(ArchitectObservation {
+                requests: vec![request(4)],
+                reason: ArchitectObservationReason::ArchitectRequest,
+                sessions: vec![session()],
+            }),
+        ]),
+        renewed: Mutex::new(Vec::new()),
+    });
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    let recorded = prompts.clone();
+    run_architect_cycle(observer.clone(), move |prompt: String| {
+        let recorded = recorded.clone();
+        async move {
+            recorded.lock().unwrap().push(prompt);
+            Ok(())
+        }
+    })
+    .await
+    .unwrap();
+    assert!(prompts.lock().unwrap().is_empty());
+
+    let prompts_for_closure = prompts.clone();
+    run_architect_cycle(observer, move |prompt: String| {
+        let recorded = prompts_for_closure.clone();
+        async move {
+            recorded.lock().unwrap().push(prompt);
+            Ok(())
+        }
+    })
+    .await
+    .unwrap();
+    let prompts = prompts.lock().unwrap();
+    assert_eq!(prompts.len(), 1);
+    assert!(prompts[0].contains("\"architect_request\""));
+}

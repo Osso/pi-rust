@@ -1066,3 +1066,30 @@ fn settings_manager_store_adapts_the_ported_settings_manager() {
     );
     assert!(!manager.list_configured_packages().is_empty());
 }
+
+#[test]
+fn missing_npm_binary_reports_the_node_spawn_error_text() {
+    let fixture = Fixture::new();
+    let missing = fixture.temp.path().join("missing-npm");
+    let settings = FakeSettings::new(Default::default(), Default::default(), false)
+        .with_npm_command(vec![missing.to_string_lossy().into_owned()]);
+    let manager = fixture.manager(settings);
+
+    let error = futures_block(manager.install("npm:left-pad", false)).expect_err("spawn must fail");
+
+    assert_eq!(error.to_string(), format!("spawn {} ENOENT", missing.display()));
+}
+
+#[test]
+fn non_executable_npm_binary_reports_the_node_spawn_error_text() {
+    let fixture = Fixture::new();
+    let binary = fixture.temp.path().join("npm");
+    fs::write(&binary, "#!/bin/sh\nexit 0\n").unwrap();
+    let settings = FakeSettings::new(Default::default(), Default::default(), false)
+        .with_npm_command(vec![binary.to_string_lossy().into_owned()]);
+    let manager = fixture.manager(settings);
+
+    let error = futures_block(manager.install("npm:left-pad", false)).expect_err("spawn must fail");
+
+    assert_eq!(error.to_string(), format!("spawn {} EACCES", binary.display()));
+}

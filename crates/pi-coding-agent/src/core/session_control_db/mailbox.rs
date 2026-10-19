@@ -275,7 +275,7 @@ pub fn read_runtime_mailbox_message_for_delivery(
         let runtime_message = runtime_mailbox_message_from_canonical_row(&row, &message)?;
         let payload_valid = message.get("status").and_then(Value::as_str) == Some("claimed")
             && message.get("claimantProcessIdentity").and_then(Value::as_str)
-                == Some(get_runtime_process_instance_id());
+                == Some(get_runtime_process_instance_id()?);
         Ok(Some(RuntimeMailboxDeliveryRead {
             message: runtime_message,
             payload_data: Some(row.data.clone()),
@@ -330,7 +330,8 @@ fn update_claimed_canonical_mailbox_message(
             return Ok(true);
         }
         if current_status != RuntimeMailboxMessageStatus::Claimed
-            || message.get("claimantProcessIdentity").and_then(Value::as_str) != Some(get_runtime_process_instance_id())
+            || message.get("claimantProcessIdentity").and_then(Value::as_str)
+                != Some(get_runtime_process_instance_id()?)
         {
             return Ok(false);
         }
@@ -428,7 +429,7 @@ fn read_recoverable_runtime_mailbox_claims(
     let mut candidates = Vec::new();
     for row in rows {
         let authority = read_runtime_mailbox_authority_snapshot(db, recipient, &row.session_path)?;
-        if !current_runtime_owns_mailbox_authority(recipient, &authority) {
+        if !current_runtime_owns_mailbox_authority(recipient, &authority)? {
             continue;
         }
         let data = parse_canonical_mailbox_payload(&row)?;
@@ -491,7 +492,7 @@ fn read_eligible_runtime_mailbox_delivery_candidates(
     let mut candidates = Vec::new();
     for row in rows {
         let authority = read_runtime_mailbox_authority_snapshot(db, recipient, &row.session_path)?;
-        if !current_runtime_owns_mailbox_authority(recipient, &authority) {
+        if !current_runtime_owns_mailbox_authority(recipient, &authority)? {
             continue;
         }
         let data = parse_canonical_mailbox_payload(&row)?;
@@ -567,22 +568,22 @@ fn read_runtime_mailbox_authority_snapshot(
 fn current_runtime_owns_mailbox_authority(
     recipient: &RuntimeMailboxAddress,
     authority: &RuntimeMailboxAuthoritySnapshot,
-) -> bool {
+) -> Result<bool, ControlDbError> {
     if let Some(listener) = &authority.listener
         && listener.pid == std::process::id()
-        && listener.runtime_instance_id.as_deref() == Some(get_runtime_process_instance_id())
+        && listener.runtime_instance_id.as_deref() == Some(get_runtime_process_instance_id()?)
     {
-        return true;
+        return Ok(true);
     }
     if recipient.agent_id.is_none() {
-        return false;
+        return Ok(false);
     }
-    persisted_process_identity_is_current(
+    Ok(persisted_process_identity_is_current(
         authority
             .ownership
             .as_ref()
             .and_then(|ownership| ownership.process_identity.as_deref()),
-    )
+    ))
 }
 
 fn runtime_mailbox_authority_snapshots_equal(
@@ -614,7 +615,7 @@ fn read_claimable_runtime_mailbox_candidates(
     let mut candidates = Vec::new();
     for row in rows {
         let authority = read_runtime_mailbox_authority_snapshot(db, recipient, &row.session_path)?;
-        if !current_runtime_owns_mailbox_authority(recipient, &authority) {
+        if !current_runtime_owns_mailbox_authority(recipient, &authority)? {
             continue;
         }
         candidates.push(RuntimeMailboxCandidate {
@@ -651,7 +652,7 @@ fn claim_runtime_mailbox_candidate(
     claimed.insert("claimedAt".to_owned(), Value::String(now_iso.to_owned()));
     claimed.insert(
         "claimantProcessIdentity".to_owned(),
-        Value::String(get_runtime_process_instance_id().to_owned()),
+        Value::String(get_runtime_process_instance_id()?.to_owned()),
     );
     claimed.insert("status".to_owned(), Value::String("claimed".to_owned()));
     claimed.insert("updatedAt".to_owned(), Value::String(now_iso.to_owned()));
@@ -775,11 +776,12 @@ pub fn register_runtime_mailbox_listener(
     session_path: Option<&str>,
     options: RuntimeMailboxRegistrationOptions,
 ) -> Result<(), ControlDbError> {
+    let runtime_instance_id = match options.runtime_instance_id.clone() {
+        Some(runtime_instance_id) => runtime_instance_id,
+        None => get_runtime_process_instance_id()?.to_owned(),
+    };
     let registration = RuntimeMailboxRegistration {
-        runtime_instance_id: options
-            .runtime_instance_id
-            .clone()
-            .unwrap_or_else(|| get_runtime_process_instance_id().to_owned()),
+        runtime_instance_id,
         options,
         pid,
         recipient: recipient.clone(),
@@ -1081,7 +1083,7 @@ pub fn assert_main_session_runtime_available(control_db_path: &str, session_id: 
                 agent_id: None,
                 session_id: session_id.to_owned(),
             },
-            runtime_instance_id: get_runtime_process_instance_id().to_owned(),
+            runtime_instance_id: get_runtime_process_instance_id()?.to_owned(),
             session_path: None,
         };
         let snapshot = read_runtime_mailbox_registration_snapshot(db, &registration.recipient)?;
@@ -1106,7 +1108,7 @@ pub fn resolve_own_main_runtime_coordination_recipient(
 				",
         )?;
         let rows = statement
-            .query_map(params![std::process::id(), get_runtime_process_instance_id()], |row| {
+            .query_map(params![std::process::id(), get_runtime_process_instance_id()?], |row| {
                 row.get::<_, String>(0)
             })?
             .collect::<Result<Vec<_>, _>>()?;

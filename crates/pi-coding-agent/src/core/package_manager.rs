@@ -35,6 +35,7 @@ use crate::config;
 use crate::core::output_guard::is_stdout_taken_over;
 use crate::core::pi_manifest::{PiManifest, read_pi_manifest};
 use crate::core::settings_manager::{Settings, SettingsManager};
+use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::git::{GitSource, parse_git_url};
 use crate::utils::js_json;
 use crate::utils::paths::{
@@ -3567,8 +3568,9 @@ impl DefaultPackageManager {
                 )))
             }
             Err(error) => Err(PackageManagerError::new(format!(
-                "Failed to run {command} {}: {error}",
-                args.join(" ")
+                "Failed to run {command} {}: {}",
+                args.join(" "),
+                node_spawn_error_message("spawnSync", command, &error)
             ))),
         }
     }
@@ -3691,7 +3693,7 @@ fn spawn_inherit(
     }
     process
         .spawn()
-        .map_err(|error| PackageManagerError::new(format!("{command} {} failed: {error}", args.join(" "))))
+        .map_err(|error| PackageManagerError::new(node_spawn_error_message("spawn", command, &error)))
 }
 
 fn spawn_capture(
@@ -3714,7 +3716,7 @@ fn spawn_capture(
     }
     process
         .spawn()
-        .map_err(|error| PackageManagerError::new(format!("{command} {} failed: {error}", args.join(" "))))
+        .map_err(|error| PackageManagerError::new(node_spawn_error_message("spawn", command, &error)))
 }
 
 #[cfg(unix)]

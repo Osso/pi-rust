@@ -18,7 +18,7 @@ Pinned source: `packages/agent/src/harness/types.ts` at `532f7d12cd19235081bd4d6
 | `types.ts:81-99` | `AgentHarnessTool<TContext>`: every `AgentTool` member except `execute`, whose signature adds a resolved context and optional execution metadata | `AgentHarnessTool<TContext>` trait mirrors name/description/parameters/label/executionMode/prepareArguments/prepareExecution/execute; `tests/harness_stream_options.rs` implements and executes one tool |
 | `types.ts:101-103` | `AgentHarnessToolContextSource<TContext>` is a static context or zero-argument sync/async provider | `AgentHarnessToolContextSource::{Static, Provider}` with a boxed future provider; focused static/provider test |
 | `types.ts:105-123` | `AgentHarnessStreamOptions` curated transport/timeouts/retries/headers/metadata/cacheRetention/onRetry | `AgentHarnessStreamOptions` reusing `pi_ai` `Transport`/`CacheRetention`/`OnRetry`; focused default and populated-state test |
-| `types.ts:125-135` | `AgentHarnessStreamOptionsPatch`: optional per-field patches; headers/metadata support per-key `undefined` deletion and explicit `undefined` clearing | `AgentHarnessStreamOptionsPatch` + `OptionalPatch::{Unchanged,Clear,Set}`; ordered `BTreeMap` header/metadata patches with `None` deletions; focused patch test |
+| `types.ts:125-135` | `AgentHarnessStreamOptionsPatch`: optional per-field patches; headers/metadata support per-key `undefined` deletion and explicit `undefined` clearing | `AgentHarnessStreamOptionsPatch` + `OptionalPatch::{Unchanged,Clear,Set}`; ordered `IndexMap` header/metadata patches with `None` deletions; `patch_headers_use_an_ordered_map` asserts insertion order |
 
 ## Rust boundary
 
