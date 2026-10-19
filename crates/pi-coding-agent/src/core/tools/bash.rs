@@ -184,7 +184,8 @@ fn resolve_timeout_ms(timeout: Option<f64>) -> Result<Option<f64>, ToolError> {
     let timeout_ms = timeout * 1000.0;
     if timeout_ms > MAX_TIMEOUT_MS {
         return Err(ToolError::new(format!(
-            "Invalid timeout: maximum is {MAX_TIMEOUT_SECONDS} seconds"
+            "Invalid timeout: maximum is {} seconds",
+            js_number_to_string(MAX_TIMEOUT_SECONDS)
         )));
     }
     Ok(Some(timeout_ms))
@@ -348,14 +349,14 @@ async fn exec_local(
     if let Some(artifacts) = options.detach.as_ref().and_then(|detach| detach.artifacts.as_ref()) {
         let _ = std::fs::remove_dir_all(&artifacts.directory);
     }
+    if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+        return Err(ToolError::new("aborted"));
+    }
     if timed_out {
         return Err(ToolError::new(format!(
             "timeout:{}",
-            options.timeout.unwrap_or_default()
+            js_number_to_string(options.timeout.unwrap_or_default())
         )));
-    }
-    if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
-        return Err(ToolError::new("aborted"));
     }
     let status = match exit_status {
         Some(Ok(status)) => status,
