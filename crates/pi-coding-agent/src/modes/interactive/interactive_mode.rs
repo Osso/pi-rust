@@ -58,6 +58,7 @@ use crate::core::settings_manager::TreeFilterMode;
 use crate::core::source_info::{SourceInfo, SourceScope};
 use crate::core::trust_manager::ProjectTrustStore;
 use crate::modes::interactive::components::agent_selection_banner::AgentSelectionBannerComponent;
+use crate::modes::interactive::components::agent_switcher::AgentSwitcherComponent;
 use crate::modes::interactive::components::approval_selector::{ApprovalSelectorComponent, ApprovalSelectorOptions};
 use crate::modes::interactive::components::assistant_message::AssistantMessageComponent;
 use crate::modes::interactive::components::bash_execution::{BashExecutionComponent, BashExecutionOptions};
@@ -4670,10 +4671,9 @@ impl InteractiveMode {
         self.default_editor
             .borrow_mut()
             .on_action("app.session.resume", action(self, |mode| mode.show_session_selector()));
-        self.default_editor.borrow_mut().on_action(
-            "app.agent.select",
-            action(self, |mode| mode.show_status("Agent switcher is not ported yet.")),
-        );
+        self.default_editor
+            .borrow_mut()
+            .on_action("app.agent.select", action(self, InteractiveMode::show_agent_switcher));
 
         let mode = Rc::clone(self);
         let debug_handler: Rc<dyn Fn()> = Rc::new(move || {
@@ -5261,7 +5261,7 @@ impl InteractiveMode {
             }
             "reload" => self.handle_reload_command().await,
             "resume" => self.show_session_selector(),
-            "agents" => self.show_status("Agent switcher is not ported yet."),
+            "agents" => self.show_agent_switcher(),
             "quit" => self.shutdown_requested.set(true),
             "arminsayshi" | "dementedelves" | "daxnuts" => {
                 self.show_status("Easter egg commands are not ported.");
@@ -5698,6 +5698,43 @@ impl InteractiveMode {
             .clone()
             .expect("settings selector must be installed");
         self.show_selector(component(SharedSettingsSelector(selector)));
+    }
+
+    fn show_agent_switcher(&self) {
+        let Some(store) = self.multi_agent_store.as_ref() else {
+            self.show_status("Agent switcher is unavailable: no multi-agent store.");
+            return;
+        };
+        let agents = store.list_agents();
+        if agents.is_empty() {
+            self.show_status("No agents to show.");
+            return;
+        }
+        let selected = store.get_selected_agent_id();
+        let mode = self.ui_id.get();
+        let on_select: Rc<dyn Fn(String)> = Rc::new(move |agent_id| {
+            with_mode(mode, |mode| {
+                mode.select_agent_view_from_bridge(&agent_id);
+                mode.restore_editor();
+            });
+        });
+        let mode = self.ui_id.get();
+        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode, |mode| mode.restore_editor());
+        });
+        let mode = self.ui_id.get();
+        let on_inactive: Rc<dyn Fn(AgentSnapshot)> = Rc::new(move |agent| {
+            with_mode(mode, |mode| {
+                mode.show_status(&format!(
+                    "{} is {}",
+                    agent.display_name,
+                    lifecycle_name(agent.lifecycle)
+                ));
+                mode.restore_editor();
+            });
+        });
+        let switcher = AgentSwitcherComponent::new(agents, selected, on_select, on_cancel, on_inactive);
+        self.show_selector(component(switcher));
     }
 
     fn show_selector(&self, selector: ComponentRef) {
