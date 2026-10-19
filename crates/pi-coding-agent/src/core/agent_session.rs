@@ -999,6 +999,7 @@ struct BackgroundCompactionCache {
     state: BackgroundCompactionState,
     session_id: String,
     snapshot_leaf_id: String,
+    branch_entries: Vec<SessionEntry>,
     preparation: crate::core::compaction::CompactionPreparation,
     settings: crate::core::compaction::CompactionSettings,
     model_provider: String,
@@ -1006,6 +1007,7 @@ struct BackgroundCompactionCache {
     model_api: String,
     thinking_level: ThinkingLevel,
     system_prompt: String,
+    runner: ExtensionRunner,
     abort: CancellationToken,
     compaction: Option<crate::core::compaction::CompactionResult>,
     from_extension: bool,
@@ -1013,6 +1015,25 @@ struct BackgroundCompactionCache {
 }
 
 const BACKGROUND_COMPACTION_CONTEXT_RATIO: f64 = 0.7;
+
+enum CompactionExtensionDecision {
+    None,
+    Cancel,
+    Compaction(Box<crate::core::compaction::CompactionResult>),
+}
+
+fn compaction_extension_decision(
+    cancel: Option<bool>,
+    compaction: Option<crate::core::compaction::CompactionResult>,
+) -> CompactionExtensionDecision {
+    if cancel == Some(true) {
+        CompactionExtensionDecision::Cancel
+    } else if let Some(compaction) = compaction {
+        CompactionExtensionDecision::Compaction(Box::new(compaction))
+    } else {
+        CompactionExtensionDecision::None
+    }
+}
 
 /// `DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE`.
 pub const DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE: &str = "detached_tool_call_completion";
@@ -3394,6 +3415,7 @@ impl AgentSession {
             state: BackgroundCompactionState::Pending,
             session_id: lock(&self.inner.session_manager).get_session_id().to_owned(),
             snapshot_leaf_id,
+            branch_entries,
             preparation,
             settings,
             model_provider: model.provider.clone(),
@@ -3401,6 +3423,7 @@ impl AgentSession {
             model_api: model.api.clone(),
             thinking_level: self.thinking_level(),
             system_prompt: self.inner.agent.state().system_prompt,
+            runner: self.runner(),
             abort: CancellationToken::new(),
             compaction: None,
             from_extension: false,
@@ -3417,45 +3440,38 @@ impl AgentSession {
     }
 
     async fn generate_background_compaction(&self, token: u64) {
-        let Some((preparation, settings, abort, model)) = lock(&self.inner.background_compaction_cache)
+        let Some((preparation, branch_entries, abort, runner, model)) = lock(&self.inner.background_compaction_cache)
             .as_ref()
             .filter(|cache| cache.token == token)
             .map(|cache| {
                 (
                     cache.preparation.clone(),
-                    cache.settings,
+                    cache.branch_entries.clone(),
                     cache.abort.clone(),
+                    cache.runner.clone(),
                     self.inner.agent.model(),
                 )
             })
         else {
             return;
         };
-        if !settings.enabled {
-            return;
-        }
         let started_at = now_millis();
-        let auth = self.get_compaction_request_auth(&model).await;
-        let stream_fn = self.inner.agent.stream_fn();
-        let retry_policy = self.retry_policy();
-        let summary_options = crate::core::compaction::CompactionSummaryOptions {
-            model: &auth.model,
-            api_key: auth.api_key.clone(),
-            headers: auth.headers.clone(),
-            custom_instructions: None,
-            signal: Some(abort.clone()),
-            thinking_level: Some(self.thinking_level()),
-            stream_fn: Some(&stream_fn),
-            env: auth.env.clone(),
-            retry: Some(&retry_policy),
+        let extension_compaction = match self
+            .emit_compaction_event(&runner, &preparation, &branch_entries, None, "threshold", false, &abort)
+            .await
+        {
+            CompactionExtensionDecision::Cancel => return,
+            CompactionExtensionDecision::None => None,
+            CompactionExtensionDecision::Compaction(compaction) => Some(*compaction),
         };
-        let generated = crate::core::compaction::compact(
-            &preparation,
-            &auth.model,
-            &summary_options,
-            None::<&mut pi_agent_core::harness::compaction::NoRetryCallbacks>,
-        )
-        .await;
+        let from_extension = extension_compaction.is_some();
+        let generated = match extension_compaction {
+            Some(compaction) => Ok(compaction),
+            None => {
+                let auth = self.get_compaction_request_auth(&model).await;
+                self.run_local_compaction(&preparation, &auth, None, &abort).await
+            }
+        };
         if abort.is_cancelled() {
             return;
         }
@@ -3466,7 +3482,7 @@ impl AgentSession {
         match generated {
             Ok(compaction) => {
                 cache.compaction = Some(compaction);
-                cache.from_extension = false;
+                cache.from_extension = from_extension;
                 cache.generation_duration_ms = Some(now_millis() - started_at);
                 cache.state = BackgroundCompactionState::Ready;
                 drop(cache_guard);
@@ -3477,6 +3493,98 @@ impl AgentSession {
                 eprintln!("Background compaction cache generation failed: {}", error.message());
             }
         }
+    }
+
+    fn compaction_reason(reason: &str) -> CompactionReason {
+        match reason {
+            "threshold" => CompactionReason::Threshold,
+            "overflow" => CompactionReason::Overflow,
+            _ => CompactionReason::Manual,
+        }
+    }
+
+    async fn emit_session_before_compact_event(
+        &self,
+        preparation: &crate::core::compaction::CompactionPreparation,
+        branch_entries: &[SessionEntry],
+        custom_instructions: Option<&str>,
+        reason: &str,
+        will_retry: bool,
+        abort: &CancellationToken,
+    ) -> CompactionExtensionDecision {
+        let runner = self.runner();
+        if !runner.has_handlers("session_before_compact") {
+            return CompactionExtensionDecision::None;
+        }
+        let mut event = ExtensionEvent::SessionBeforeCompact(SessionBeforeCompactEvent {
+            preparation: preparation.clone(),
+            branch_entries: branch_entries.to_vec(),
+            custom_instructions: custom_instructions.map(str::to_owned),
+            reason: Self::compaction_reason(reason),
+            will_retry,
+            signal: Some(abort.clone()),
+        });
+        match runner.emit(&mut event).await {
+            EmitResult::SessionBeforeCompact(result) => compaction_extension_decision(result.cancel, result.compaction),
+            _ => CompactionExtensionDecision::None,
+        }
+    }
+
+    async fn emit_compaction_event(
+        &self,
+        runner: &ExtensionRunner,
+        preparation: &crate::core::compaction::CompactionPreparation,
+        branch_entries: &[SessionEntry],
+        custom_instructions: Option<&str>,
+        reason: &str,
+        will_retry: bool,
+        abort: &CancellationToken,
+    ) -> CompactionExtensionDecision {
+        if !runner.has_handlers("compaction") {
+            return CompactionExtensionDecision::None;
+        }
+        let mut event = ExtensionEvent::Compaction(CompactionEvent {
+            preparation: preparation.clone(),
+            branch_entries: branch_entries.to_vec(),
+            custom_instructions: custom_instructions.map(str::to_owned),
+            reason: Self::compaction_reason(reason),
+            will_retry,
+            signal: Some(abort.clone()),
+        });
+        match runner.emit(&mut event).await {
+            EmitResult::Compaction(result) => compaction_extension_decision(result.cancel, result.compaction),
+            _ => CompactionExtensionDecision::None,
+        }
+    }
+
+    async fn run_local_compaction(
+        &self,
+        preparation: &crate::core::compaction::CompactionPreparation,
+        auth: &CompactionRequestAuth,
+        custom_instructions: Option<&str>,
+        abort: &CancellationToken,
+    ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
+        let stream_fn = self.inner.agent.stream_fn();
+        let retry_policy = self.retry_policy();
+        let summary_options = crate::core::compaction::CompactionSummaryOptions {
+            model: &auth.model,
+            api_key: auth.api_key.clone(),
+            headers: auth.headers.clone(),
+            custom_instructions,
+            signal: Some(abort.clone()),
+            thinking_level: Some(self.thinking_level()),
+            stream_fn: Some(&stream_fn),
+            env: auth.env.clone(),
+            retry: Some(&retry_policy),
+        };
+        crate::core::compaction::compact(
+            preparation,
+            &auth.model,
+            &summary_options,
+            None::<&mut pi_agent_core::harness::compaction::NoRetryCallbacks>,
+        )
+        .await
+        .map_err(|compaction_error| error(compaction_error.message()))
     }
 
     fn schedule_background_compaction_install(&self, token: u64) {
@@ -5355,7 +5463,11 @@ impl AgentSession {
     ) -> Result<(crate::core::compaction::CompactionResult, bool), AgentSessionError> {
         let model = self.inner.agent.model();
         let settings = compaction_settings(&self.inner.settings_manager);
-        let auth = self.get_compaction_request_auth(&model).await;
+        let auth = if settings.enabled {
+            Some(self.get_compaction_request_auth(&model).await)
+        } else {
+            None
+        };
         let path_entries = lock(&self.inner.session_manager).get_branch(None);
         let Some(preparation) = crate::core::compaction::prepare_compaction(&path_entries, settings) else {
             if path_entries
@@ -5366,36 +5478,49 @@ impl AgentSession {
             }
             return Err(error("Nothing to compact (session too small)"));
         };
-        if !settings.enabled {
-            return Err(error(BUILT_IN_COMPACTION_DISABLED_MESSAGE));
-        }
-        let retry_policy = self.retry_policy();
-        let stream_fn = self.inner.agent.stream_fn();
-        let stream_fn = Some(&stream_fn);
-        let summary_options = crate::core::compaction::CompactionSummaryOptions {
-            model: &auth.model,
-            api_key: auth.api_key.clone(),
-            headers: auth.headers.clone(),
-            custom_instructions,
-            signal: Some(abort.clone()),
-            thinking_level: Some(self.thinking_level()),
-            stream_fn,
-            env: auth.env.clone(),
-            retry: Some(&retry_policy),
+        let mut extension_compaction = match self
+            .emit_session_before_compact_event(&preparation, &path_entries, custom_instructions, reason, false, abort)
+            .await
+        {
+            CompactionExtensionDecision::Cancel => return Err(error("Compaction cancelled")),
+            CompactionExtensionDecision::None => None,
+            CompactionExtensionDecision::Compaction(compaction) => Some(*compaction),
         };
-        let compact_result = crate::core::compaction::compact(
-            &preparation,
-            &auth.model,
-            &summary_options,
-            None::<&mut pi_agent_core::harness::compaction::NoRetryCallbacks>,
-        )
-        .await
-        .map_err(|compaction_error| error(compaction_error.message()))?;
+        match self
+            .emit_compaction_event(
+                &self.runner(),
+                &preparation,
+                &path_entries,
+                custom_instructions,
+                reason,
+                false,
+                abort,
+            )
+            .await
+        {
+            CompactionExtensionDecision::Cancel => return Err(error("Compaction cancelled")),
+            CompactionExtensionDecision::None => {}
+            CompactionExtensionDecision::Compaction(compaction) => extension_compaction = Some(*compaction),
+        }
+        let from_extension = extension_compaction.is_some();
+        let compact_result = match extension_compaction {
+            Some(compaction) => compaction,
+            None => {
+                if !settings.enabled {
+                    return Err(error(BUILT_IN_COMPACTION_DISABLED_MESSAGE));
+                }
+                let Some(auth) = auth else {
+                    return Err(error(BUILT_IN_COMPACTION_DISABLED_MESSAGE));
+                };
+                self.run_local_compaction(&preparation, &auth, custom_instructions, abort)
+                    .await?
+            }
+        };
         if abort.is_cancelled() {
             return Err(error("Compaction cancelled"));
         }
         let duration_ms = (now_millis() - started_at) as f64;
-        let compact_result = self.append_compaction_result(compact_result, None, duration_ms)?;
+        let compact_result = self.append_compaction_result(compact_result, Some(from_extension), duration_ms)?;
         let will_retry = reason == "manual"
             && !compaction_started_during_tool_execution
             && (was_running_agent_turn || should_continue_after_manual_compaction(&self.inner.agent.messages()));
@@ -5645,8 +5770,11 @@ impl AgentSession {
         if crate::core::compaction::should_compact(
             context_tokens,
             context_window,
-            &settings,
-            model.auto_compaction_threshold,
+            &crate::core::compaction::CompactionSettings {
+                enabled: true,
+                ..settings
+            },
+            None,
         ) {
             let turn_was_truncated = assistant_message.stop_reason == StopReason::Length;
             let will_retry =
@@ -5664,29 +5792,110 @@ impl AgentSession {
     }
 
     async fn run_auto_compaction(&self, reason: &str, will_retry: bool, continue_after_compaction: bool) -> bool {
-        let abort = CancellationToken::new();
-        *lock(&self.inner.auto_compaction_abort_controller) = Some(abort.clone());
+        let settings = compaction_settings(&self.inner.settings_manager);
+        let cached = self.take_background_compaction().await;
+        let path_entries = cached
+            .as_ref()
+            .map(|cache| cache.branch_entries.clone())
+            .unwrap_or_else(|| lock(&self.inner.session_manager).get_branch(None));
+        let preparation = cached
+            .as_ref()
+            .map(|cache| cache.preparation.clone())
+            .or_else(|| crate::core::compaction::prepare_compaction(&path_entries, settings));
+        let Some(preparation) = preparation else {
+            return false;
+        };
         let source_hint = self.get_compaction_source_hint(reason, will_retry).await;
         self.emit(AgentSessionEvent::CompactionStart(CompactionStartEvent {
             event_type: "compaction_start",
             reason: reason.to_owned(),
             source_hint,
         }));
+        let abort = CancellationToken::new();
+        *lock(&self.inner.auto_compaction_abort_controller) = Some(abort.clone());
         let started_at = now_millis();
-        let cached = self.take_background_compaction().await;
-        let result = match cached {
-            Some(cache) => {
-                let duration_ms = cache.generation_duration_ms.unwrap_or_default() as f64;
-                match cache.compaction {
-                    Some(compaction) => self
-                        .append_compaction_result(compaction, cache.from_extension.then_some(true), duration_ms)
-                        .map(|result| (result, false)),
-                    None => Err(error("Background compaction cache is empty")),
+        let mut extension_compaction = cached.as_ref().and_then(|cache| cache.compaction.clone());
+        let mut from_extension = cached.as_ref().is_some_and(|cache| cache.from_extension);
+        match self
+            .emit_session_before_compact_event(&preparation, &path_entries, None, reason, will_retry, &abort)
+            .await
+        {
+            CompactionExtensionDecision::Cancel => {
+                *lock(&self.inner.auto_compaction_abort_controller) = None;
+                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                    event_type: "compaction_end",
+                    reason: reason.to_owned(),
+                    result: None,
+                    aborted: true,
+                    will_retry: false,
+                    error_message: None,
+                }));
+                return false;
+            }
+            CompactionExtensionDecision::None => {}
+            CompactionExtensionDecision::Compaction(compaction) => {
+                extension_compaction = Some(*compaction);
+                from_extension = true;
+            }
+        }
+        if cached.is_none() {
+            match self
+                .emit_compaction_event(
+                    &self.runner(),
+                    &preparation,
+                    &path_entries,
+                    None,
+                    reason,
+                    will_retry,
+                    &abort,
+                )
+                .await
+            {
+                CompactionExtensionDecision::Cancel => {
+                    *lock(&self.inner.auto_compaction_abort_controller) = None;
+                    self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                        event_type: "compaction_end",
+                        reason: reason.to_owned(),
+                        result: None,
+                        aborted: true,
+                        will_retry: false,
+                        error_message: None,
+                    }));
+                    return false;
+                }
+                CompactionExtensionDecision::None => {}
+                CompactionExtensionDecision::Compaction(compaction) => {
+                    extension_compaction = Some(*compaction);
+                    from_extension = true;
                 }
             }
+        }
+        let result = match extension_compaction {
+            Some(compaction) => {
+                let duration_ms = cached
+                    .as_ref()
+                    .map(|cache| cache.generation_duration_ms.unwrap_or_default() as f64)
+                    .unwrap_or_default();
+                self.append_compaction_result(compaction, Some(from_extension), duration_ms)
+                    .map(|result| (result, false))
+            }
             None => {
-                self.compact_with_settings(None, &abort, false, false, started_at, reason)
-                    .await
+                if !settings.enabled {
+                    Err(error(BUILT_IN_COMPACTION_DISABLED_MESSAGE))
+                } else {
+                    let model = self.inner.agent.model();
+                    let auth = self.get_compaction_request_auth(&model).await;
+                    let generated = self.run_local_compaction(&preparation, &auth, None, &abort).await;
+                    if abort.is_cancelled() {
+                        Err(error("Compaction cancelled"))
+                    } else {
+                        generated.and_then(|compaction| {
+                            let duration_ms = (now_millis() - started_at) as f64;
+                            self.append_compaction_result(compaction, Some(false), duration_ms)
+                                .map(|result| (result, false))
+                        })
+                    }
+                }
             }
         };
         *lock(&self.inner.auto_compaction_abort_controller) = None;
@@ -6579,19 +6788,19 @@ fn _unused_import_markers() {
 // =============================================================================
 
 use crate::core::extensions::runner::{
-    BeforeAgentStartCombinedResult, ErrorSubscription, ExtensionErrorListener, ExtensionRunner,
+    BeforeAgentStartCombinedResult, EmitResult, ErrorSubscription, ExtensionErrorListener, ExtensionRunner,
     emit_session_shutdown_event,
 };
 use crate::core::extensions::types::ToolCallEvent;
 use crate::core::extensions::types::{
     AgentEndEvent as ExtensionAgentEndEvent, AgentSettledEvent as ExtensionAgentSettledEvent, AgentStartEvent,
-    ExtensionActions, ExtensionCommandContext, ExtensionCommandContextActions, ExtensionContextActions, ExtensionEvent,
-    ExtensionMode, ExtensionUiContext, HandlerError, InputEventResult, InputSource as ExtensionInputSource,
-    MessageDelivery, MessageEndEvent, MessageStartEvent, MessageUpdateEvent, ModelSelectEvent, ModelSelectSource,
-    ProviderActions, SessionShutdownEvent, SessionStartEvent, SetThinkingLevelHandler,
-    StreamingBehavior as ExtensionStreamingBehavior, ThinkingLevelSelectEvent, ToolExecutionEndEvent,
-    ToolExecutionStartEvent, ToolExecutionUpdateEvent, ToolInfo as ExtensionToolInfo, TurnEndEvent, TurnStartEvent,
-    UserMessageContent, UserMessageDelivery,
+    CompactionEvent, CompactionReason, ExtensionActions, ExtensionCommandContext, ExtensionCommandContextActions,
+    ExtensionContextActions, ExtensionEvent, ExtensionMode, ExtensionUiContext, HandlerError, InputEventResult,
+    InputSource as ExtensionInputSource, MessageDelivery, MessageEndEvent, MessageStartEvent, MessageUpdateEvent,
+    ModelSelectEvent, ModelSelectSource, ProviderActions, SessionBeforeCompactEvent, SessionShutdownEvent,
+    SessionStartEvent, SetThinkingLevelHandler, StreamingBehavior as ExtensionStreamingBehavior,
+    ThinkingLevelSelectEvent, ToolExecutionEndEvent, ToolExecutionStartEvent, ToolExecutionUpdateEvent,
+    ToolInfo as ExtensionToolInfo, TurnEndEvent, TurnStartEvent, UserMessageContent, UserMessageDelivery,
 };
 use crate::core::extensions::wrapper::{wrap_definition_tool, wrap_registered_tool};
 use crate::core::footer_data_provider::FooterDataProvider;
