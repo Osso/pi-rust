@@ -479,7 +479,28 @@ fn compile_mode(
     language.modes.push(CompiledMode::default());
     context.compiled.insert(cache_key, index);
 
-    let mut mode = CompiledMode {
+    let mut mode = compiled_mode_metadata(def, parent);
+    let (begin, keywords) = resolve_mode_begin(def, parent, &mut mode);
+    if parent.is_some() {
+        let parent_terminator = parent_terminator(def, parent, language);
+        compile_mode_bounds(entry, def, begin, parent_terminator, &mut mode);
+    }
+    compile_mode_illegal(entry, def, &mut mode);
+    compile_mode_keywords(entry, def, keywords, &mut mode);
+
+    // Publish the partially compiled mode so cyclic children can read it.
+    language.modes[index] = mode;
+    let contains = compile_mode_contains(language, entry, def, index, context);
+    let mut mode = std::mem::take(&mut language.modes[index]);
+    mode.contains = contains;
+    mode.starts = compile_mode_starts(language, entry, def, parent, context);
+    mode.rules = build_rules(language, index, &mode);
+    language.modes[index] = mode;
+    index
+}
+
+fn compiled_mode_metadata(def: &ModeDef, parent: Option<usize>) -> CompiledMode {
+    CompiledMode {
         class_name: def.class_name.clone(),
         first_parent: parent,
         relevance: def.relevance.unwrap_or(1),
@@ -495,8 +516,15 @@ fn compile_mode(
         on_end: def.on_end.as_ref().map(|callback| callback.name.clone()),
         end_same_as_begin: def.end_same_as_begin,
         ..CompiledMode::default()
-    };
+    }
+}
 
+/// Resolves `begin`/`match` and `beginKeywords` into the mode's begin pattern.
+fn resolve_mode_begin(
+    def: &ModeDef,
+    parent: Option<usize>,
+    mode: &mut CompiledMode,
+) -> (Option<Pattern>, Option<Value>) {
     let mut begin = def.begin.clone().or_else(|| def.match_.clone());
     let mut keywords = def.keywords.clone();
     if parent.is_some()
@@ -510,54 +538,78 @@ fn compile_mode(
             mode.relevance = 0;
         }
     }
-    if parent.is_some() {
-        let begin = begin.unwrap_or(Pattern::Literal("\\B|\\b".to_owned()));
-        mode.begin_source = begin.source().to_owned();
-        mode.begin = lang_re(begin.source(), entry.case_insensitive);
-        let end = if def.end_same_as_begin {
-            Some(begin)
-        } else if let Some(end) = &def.end {
-            Some(end.clone())
-        } else if def.ends_with_parent {
-            None
-        } else {
-            Some(Pattern::Literal("\\B|\\b".to_owned()))
-        };
-        if let Some(end) = end {
-            mode.end_source = end.source().to_owned();
-            mode.end = lang_re(end.source(), entry.case_insensitive);
-            mode.terminator_end = end.source().to_owned();
-        }
-        if def.ends_with_parent
-            && let Some(parent_mode) = parent.and_then(|parent| language.modes.get(parent))
-        {
-            let parent_terminator = parent_mode.terminator_end.clone();
-            if !parent_terminator.is_empty() {
-                if !mode.terminator_end.is_empty() {
-                    mode.terminator_end.push('|');
-                }
-                mode.terminator_end.push_str(&parent_terminator);
-            }
-        }
-    }
-    if let Some(illegal) = &def.illegal {
-        mode.illegal_source = match illegal {
-            Illegal::One(pattern) => pattern.source().to_owned(),
-            Illegal::Many(patterns) => format!(
-                "({})",
-                patterns.iter().map(Pattern::source).collect::<Vec<_>>().join("|")
-            ),
-        };
-        mode.illegal = lang_re(&mode.illegal_source, entry.case_insensitive);
-    }
+    (begin, keywords)
+}
 
+fn parent_terminator<'a>(def: &ModeDef, parent: Option<usize>, language: &'a CompiledLanguage) -> Option<&'a str> {
+    if !def.ends_with_parent {
+        return None;
+    }
+    parent
+        .and_then(|parent| language.modes.get(parent))
+        .map(|mode| mode.terminator_end.as_str())
+}
+
+fn compile_mode_bounds(
+    entry: &LanguageEntry,
+    def: &ModeDef,
+    begin: Option<Pattern>,
+    parent_terminator: Option<&str>,
+    mode: &mut CompiledMode,
+) {
+    let begin = begin.unwrap_or(Pattern::Literal("\\B|\\b".to_owned()));
+    mode.begin_source = begin.source().to_owned();
+    mode.begin = lang_re(begin.source(), entry.case_insensitive);
+    let end = if def.end_same_as_begin {
+        Some(begin)
+    } else if let Some(end) = &def.end {
+        Some(end.clone())
+    } else if def.ends_with_parent {
+        None
+    } else {
+        Some(Pattern::Literal("\\B|\\b".to_owned()))
+    };
+    if let Some(end) = end {
+        mode.end_source = end.source().to_owned();
+        mode.end = lang_re(end.source(), entry.case_insensitive);
+        mode.terminator_end = end.source().to_owned();
+    }
+    if let Some(parent_terminator) = parent_terminator.filter(|terminator| !terminator.is_empty()) {
+        if !mode.terminator_end.is_empty() {
+            mode.terminator_end.push('|');
+        }
+        mode.terminator_end.push_str(parent_terminator);
+    }
+}
+
+fn compile_mode_illegal(entry: &LanguageEntry, def: &ModeDef, mode: &mut CompiledMode) {
+    let Some(illegal) = &def.illegal else {
+        return;
+    };
+    mode.illegal_source = match illegal {
+        Illegal::One(pattern) => pattern.source().to_owned(),
+        Illegal::Many(patterns) => format!(
+            "({})",
+            patterns.iter().map(Pattern::source).collect::<Vec<_>>().join("|")
+        ),
+    };
+    mode.illegal = lang_re(&mode.illegal_source, entry.case_insensitive);
+}
+
+fn compile_mode_keywords(entry: &LanguageEntry, def: &ModeDef, keywords: Option<Value>, mode: &mut CompiledMode) {
     let (compiled_keywords, keyword_pattern) =
         compile_keywords(keywords.as_ref(), def.lexemes.as_ref(), entry.case_insensitive);
     mode.keywords = compiled_keywords;
     mode.keyword_pattern = keyword_pattern;
+}
 
-    // Publish the partially compiled mode so cyclic children can read it.
-    language.modes[index] = mode;
+fn compile_mode_contains(
+    language: &mut CompiledLanguage,
+    entry: &LanguageEntry,
+    def: &ModeDef,
+    index: usize,
+    context: &mut CompileContext,
+) -> Vec<usize> {
     let mut contains = Vec::new();
     for expansion in expand_contains(entry, def, &mut context.variant_ids) {
         match expansion {
@@ -567,17 +619,21 @@ fn compile_mode(
             }
         }
     }
-    let mut mode = std::mem::take(&mut language.modes[index]);
-    mode.contains = contains;
-    if let Some(starts) = &def.starts
-        && let ContainsEntry::Mode(reference) = starts
-        && let Some(start_def) = entry.defs.get(&reference.id).cloned()
-    {
-        mode.starts = Some(compile_mode(language, entry, &start_def, parent, context));
-    }
-    mode.rules = build_rules(language, index, &mode);
-    language.modes[index] = mode;
-    index
+    contains
+}
+
+fn compile_mode_starts(
+    language: &mut CompiledLanguage,
+    entry: &LanguageEntry,
+    def: &ModeDef,
+    parent: Option<usize>,
+    context: &mut CompileContext,
+) -> Option<usize> {
+    let Some(ContainsEntry::Mode(reference)) = &def.starts else {
+        return None;
+    };
+    let start_def = entry.defs.get(&reference.id)?.clone();
+    Some(compile_mode(language, entry, &start_def, parent, context))
 }
 
 enum Expansion {
@@ -1297,17 +1353,31 @@ impl Highlighter<'_> {
         };
         let end_parent = self.entries[end_entry].parent;
         let origin = self.top_mode();
-        if self.language.modes[origin].skip {
-            self.mode_buffer.push_str(&lexeme);
+        self.buffer_end_lexeme(origin, &lexeme);
+        self.close_modes_through(end_parent);
+        self.start_mode_after_end(end_mode);
+        if self.language.modes[origin].return_end {
+            Lexeme::Advance(0)
         } else {
-            if !(self.language.modes[origin].return_end || self.language.modes[origin].exclude_end) {
-                self.mode_buffer.push_str(&lexeme);
-            }
-            self.process_buffer();
-            if self.language.modes[origin].exclude_end {
-                self.mode_buffer = lexeme.clone();
-            }
+            Lexeme::Advance(lexeme.len())
         }
+    }
+
+    fn buffer_end_lexeme(&mut self, origin: usize, lexeme: &str) {
+        if self.language.modes[origin].skip {
+            self.mode_buffer.push_str(lexeme);
+            return;
+        }
+        if !(self.language.modes[origin].return_end || self.language.modes[origin].exclude_end) {
+            self.mode_buffer.push_str(lexeme);
+        }
+        self.process_buffer();
+        if self.language.modes[origin].exclude_end {
+            self.mode_buffer = lexeme.to_owned();
+        }
+    }
+
+    fn close_modes_through(&mut self, end_parent: usize) {
         loop {
             let mode = self.top_mode();
             if self.language.modes[mode].class_name.is_some() {
@@ -1323,19 +1393,18 @@ impl Highlighter<'_> {
                 break;
             }
         }
-        if let Some(starts) = self.language.modes[end_mode].starts {
-            if self.language.modes[end_mode].end_same_as_begin
-                && let Some(end) = self.end_overrides.get(&end_mode).cloned()
-            {
-                self.end_overrides.insert(starts, end);
-            }
-            self.start_new_mode(starts);
+    }
+
+    fn start_mode_after_end(&mut self, end_mode: usize) {
+        let Some(starts) = self.language.modes[end_mode].starts else {
+            return;
+        };
+        if self.language.modes[end_mode].end_same_as_begin
+            && let Some(end) = self.end_overrides.get(&end_mode).cloned()
+        {
+            self.end_overrides.insert(starts, end);
         }
-        if self.language.modes[origin].return_end {
-            Lexeme::Advance(0)
-        } else {
-            Lexeme::Advance(lexeme.len())
-        }
+        self.start_new_mode(starts);
     }
 
     fn end_of_mode(&self, entry: usize, matched: &MatchInfo) -> Option<(usize, usize)> {
