@@ -320,7 +320,7 @@ async fn registers_all_small_extensions_under_source_ids() {
         )
         .await;
     assert!(errors.is_empty(), "{errors:?}");
-    assert_eq!(extensions.len(), 20);
+    assert_eq!(extensions.len(), 21);
     let tool_names: Vec<&str> = extensions
         .iter()
         .flat_map(|extension| extension.tools.keys().map(String::as_str))
