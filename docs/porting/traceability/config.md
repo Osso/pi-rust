@@ -15,6 +15,7 @@ install scenarios byte-for-byte. Focused tests: `crates/pi-coding-agent/tests/co
 The Rust port is a native executable, so it takes the TypeScript compiled-binary (`isBunBinary`)
 branch everywhere:
 
+- Embedded assets (approved deviation 2026-10-18): without `PI_PACKAGE_DIR`, `package.json` and the built-in `dark`/`light` themes are byte copies of the pinned source compiled into the binary (`embedded_builtin_theme`, `PackageConfig::parse`); `PI_PACKAGE_DIR` restores disk reads. Tests: `main_process::embedded_assets_version_differential`, `print_mode_with_embedded_assets_differential`, `embedded_assets_are_byte_copies_of_the_pinned_source`.
 - `getPackageDir` = `PI_PACKAGE_DIR` when set, otherwise the executable's directory. The Node
   walk-up-to-`package.json` search is not ported because there is no module `__dirname`.
 - `getThemesDir` = `<package>/theme`, `getExportTemplateDir` = `<package>/export-html`,
