@@ -24,6 +24,13 @@ Census after this slice: **446 sites** (297 coding-agent, 73 ai, 28 agent-core,
 | `from_utf8` on `valid_up_to` prefixes | 8 | `Utf8Error::valid_up_to` guarantees the prefix |
 | Option/Result after an explicit check (`expect("checked above")`, `is_some_and` guards) | 184 | Typed-API exclusion (August 12, 2026 decision) |
 
+## Scope notes
+
+- Two sites named in the slice brief are test-only in this revision:
+  `core/session_control_db/mod.rs` (the `instance id must be an object` panic is inside
+  `#[cfg(test)] mod tests`) and `modes/interactive/interactive_mode.rs` (~5442, the
+  render-timeout panic is inside the test module). They are not production throws.
+
 ## Process-level uncaught handler
 
 `utils::uncaught` models Node's default uncaught handler. `throw_uncaught(label,
