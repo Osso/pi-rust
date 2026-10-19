@@ -4,7 +4,7 @@ All direct dependencies are exact-pinned.
 
 ## Test infrastructure
 
-- `rustix = 1.1.5` (`process`; development dependency of `pi-ai`, `pi-client`, `pi-evals`, `pi-js-compat`, `pi-protocol`, `pi-server`, `pi-session-sqlite`, and `pi-telemetry`) — `process::kill_process_group` tears down the tsx oracle process group in `tests/support/oracle.rs`; oracle children are spawned with `process_group(0)` so a dead test process cannot leave Node/esbuild descendants behind. Crates that already depend on `rustix` at runtime reuse the same pinned release.
+- `rustix = 1.1.5` (`process`; development dependency of `pi-ai`, `pi-client`, `pi-evals`, `pi-js-compat`, `pi-protocol`, `pi-server`, `pi-session-sqlite`, `pi-telemetry`, and `pi-tui`) — `process::kill_process_group` tears down the tsx oracle process group in `tests/support/oracle.rs`; oracle children are spawned with `process_group(0)` so a dead test process cannot leave Node/esbuild descendants behind. Crates that already depend on `rustix` at runtime reuse the same pinned release.
 
 ## Runtime
 
@@ -132,7 +132,7 @@ The SQLite slice also relies on the pinned TypeScript toolchain (`tsx`) through 
 - `tokio-util = 0.7.20` (`rt`) — `CancellationToken` maps the `AbortSignal` passed to autocomplete suggestions and kills an in-flight `fd` child; the editor aborts superseded requests and `CancellableLoader` maps its abort signal.
 - `tempfile = 3.27.0` (development) — creates isolated directory trees and symlinks for autocomplete tests.
 - `pi-js-compat` (path, `=0.0.0`) — shared ECMAScript string whitespace, `Number`, `Buffer` Base64, and `localeCompare`; `terminal_image` no longer carries a crate-local Base64 implementation.
-- `rustix = 1.1.5` (exact, `termios` feature) — safe termios raw-mode and window-size syscalls for `ProcessTerminal`; `unsafe_code = "forbid"` rules out `libc`/`nix` wrappers that need unsafe call sites.
+- `rustix = 1.1.5` (exact, `termios` feature; `process` as a development feature) — safe termios raw-mode and window-size syscalls for `ProcessTerminal`, plus `process::kill_process_group` for the shared tsx oracle teardown; `unsafe_code = "forbid"` rules out `libc`/`nix` wrappers that need unsafe call sites.
 - `src/unicode_tables.rs` is generated data, not a dependency: Unicode 17.0 emoji sequences, character-property ranges, and `get-east-asian-width` 1.6.0 width ranges (see `docs/porting/traceability/utils.md`).
 - The editor adds no dependency: it reuses `unicode-segmentation`, `regex`, `tokio`, and `tokio-util`.
 

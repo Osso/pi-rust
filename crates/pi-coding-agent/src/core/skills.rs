@@ -19,6 +19,9 @@ const MAX_NAME_LENGTH: usize = 64;
 const MAX_DESCRIPTION_LENGTH: usize = 1024;
 const IGNORE_FILE_NAMES: [&str; 3] = [".gitignore", ".ignore", ".fdignore"];
 
+/// `SkillFrontmatter`: parsed YAML frontmatter with free-form extra keys.
+pub type SkillFrontmatter = serde_json::Map<String, Value>;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Skill {

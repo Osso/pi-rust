@@ -59,7 +59,8 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 | `ExtensionContext` | `ExtensionContext` + `ExtensionContextState`; runner-backed members are fallible methods reading live shared state | differential `context_live`, `context_members_read_live_runner_state` |
 | `ExtensionCommandContext` | `ExtensionCommandContext` (Deref to context, live method wrappers) | `command_context_passes_fork_options_through`, `stale_context_reads_throw_the_typescript_error_text` |
 | `ReplacedSessionContext` | `ReplacedSessionContext` | compile-time |
-| `ToolRenderResultOptions`, `ToolRenderContext` | same names (`last_component: Option<ComponentRef>`) | compile-time |
+| `ToolRenderResultOptions`, `ToolRenderContext`, `ToolRenderState` | same names (`last_component: Option<ComponentRef>`, `state` is a shared `ToolRenderState` so renderers mutate one object per tool row) | `tool_renderer::shares_render_state_between_calls`, `edit_tool_preview` |
+| `ToolRenderer`, `ToolResultRenderer` | fallible (`Result<ComponentRef, HandlerError>`); `infallible_render_call`/`infallible_render_result` adapt built-ins | `tool_execution_renderer_errors` |
 | `ToolDefinition`, `defineTool` | `ToolDefinition`, `define_tool` | `keeps_the_first_registered_tool_and_definition` |
 | `ProjectTrustEvent/Result/Context/Handler` | same names | `project_trust_collects_handler_errors_and_keeps_scanning`, differential `project_trust` |
 | `ResourcesDiscoverEvent/Result` | same names | differential `dispatch` |
@@ -83,20 +84,23 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
 ## Gaps
 
-- Component-factory UI contracts are defined in `types` (`ExtensionUiComponent`,
-  `ExtensionUiTui`, factory contexts, `setWidget` factory overload, `setFooter`,
-  `setDefaultFooter`, `setHeader`, `custom`, `getTheme`) but the interactive
-  implementation lands with `port/ca-interactive-mode`. `theme()`, string-array
-  widgets, status/working state, titles, editor text, theme listing and
-  `setTheme(name)` are implemented.
-- `addAutocompleteProvider`, `setEditorComponent`, `getEditorComponent`, and the
-  `setTheme(Theme)` object accessor remain gaps.
-- `AutocompleteProviderFactory`/`EditorFactory` aliases are omitted with the
-  same dependency.
+- Component-factory UI contracts are implemented in the interactive mode:
+  `setWidget` (string arrays truncated at 10 lines and factory components),
+  `setFooter`, `setDefaultFooter`, `setHeader`, `custom`, `getTheme`, and
+  `setTheme(Theme)` (`set_theme_object`). Widget placement rendering matches the
+  source (above: leading spacer and empty spacer; below: none), and removing a
+  key clears both placements.
+- `addAutocompleteProvider`, `setEditorComponent`, and `getEditorComponent`
+  are owned by ca-interactive-2 (in flight, `interactive_mode.rs`): the base
+  autocomplete provider and the `Rc<RefCell<dyn EditorComponent>>` editor
+  abstraction land there. `AutocompleteProviderFactory` and `EditorFactory`
+  are the Rust contract.
 - `DetachedJobLifecycleController` is exposed as `ExtensionContext::detached_job_lifecycle()`
   and bound by `ExtensionRunner::bind_detached_job_lifecycle`. `core::agent_session`
   (owned by ca-agent-session-2) must call that binder with the session controller.
-- Tool input/detail types remain JSON objects until the tools slices land.
+- Tool input/detail types are type-only exports: the tool JSON schema plus
+  `serde_json::Value` carries them (ca-tools-finish API). `AskArchitectToolInput`
+  and `AskArchitectToolDetails` are concrete structs.
 
 ## Discrepancies
 

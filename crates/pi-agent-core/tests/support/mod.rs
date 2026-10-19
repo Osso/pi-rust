@@ -93,8 +93,15 @@ pub fn identity_convert() -> ConvertToLlm {
     })
 }
 
-pub type PrepareExecutionFn =
-    Arc<dyn Fn(String, Option<CancellationToken>) -> BoxFuture<'static, Option<ToolCallExecution>> + Send + Sync>;
+pub type PrepareArgumentsFn = Arc<dyn Fn(Value) -> Result<Value, pi_agent_core::agent::ToolError> + Send + Sync>;
+pub type PrepareExecutionFn = Arc<
+    dyn Fn(
+            String,
+            Option<CancellationToken>,
+        ) -> BoxFuture<'static, Result<Option<ToolCallExecution>, pi_agent_core::agent::ToolError>>
+        + Send
+        + Sync,
+>;
 pub type ExecuteFn = Arc<
     dyn Fn(
             String,
@@ -179,7 +186,7 @@ pub struct TestTool {
     pub description: String,
     pub parameters: Value,
     pub execution_mode: Option<pi_agent_core::harness::ToolExecutionMode>,
-    pub prepare_arguments: Option<Arc<dyn Fn(Value) -> Value + Send + Sync>>,
+    pub prepare_arguments: Option<PrepareArgumentsFn>,
     pub prepare_execution: Option<PrepareExecutionFn>,
     pub execute: ExecuteFn,
 }
@@ -245,10 +252,10 @@ impl AgentTool for TestTool {
         self.execution_mode
     }
 
-    fn prepare_arguments(&self, args: Value) -> Value {
+    fn prepare_arguments(&self, args: Value) -> Result<Value, pi_agent_core::agent::ToolError> {
         match &self.prepare_arguments {
             Some(prepare) => prepare(args),
-            None => args,
+            None => Ok(args),
         }
     }
 
@@ -256,10 +263,10 @@ impl AgentTool for TestTool {
         &self,
         tool_call_id: String,
         signal: Option<CancellationToken>,
-    ) -> BoxFuture<'static, Option<ToolCallExecution>> {
+    ) -> BoxFuture<'static, Result<Option<ToolCallExecution>, pi_agent_core::agent::ToolError>> {
         match &self.prepare_execution {
             Some(prepare) => prepare(tool_call_id, signal),
-            None => Box::pin(async { None }),
+            None => Box::pin(async { Ok(None) }),
         }
     }
 

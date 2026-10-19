@@ -1,21 +1,24 @@
 //! `ask_architect` tool (`core/tools/ask-architect.ts`).
 
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
 use pi_js_compat::string::js_trim;
-use serde::Deserialize;
+use pi_tui::tui::ComponentRef;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::result::text_result;
-use crate::core::extensions::types::ExtensionContext;
+use crate::core::extensions::types::{ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::core::extensions::wrapper::harness_tool_definition;
 use crate::core::session_control_db::{PostArchitectRequestInput, post_architect_request};
 use crate::core::session_manager::lock_session_manager;
+use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 pub const NAME: &str = "ask_architect";
 pub const LABEL: &str = "ask_architect";
@@ -28,9 +31,17 @@ pub const PROMPT_GUIDELINES: [&str; 3] = [
 ];
 
 #[derive(Debug, Deserialize)]
-struct AskArchitectParams {
-    message: String,
-    project_path: Option<String>,
+pub struct AskArchitectToolInput {
+    pub message: String,
+    pub project_path: Option<String>,
+}
+
+/// `AskArchitectToolDetails`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskArchitectToolDetails {
+    pub request_id: i64,
+    pub sender_session_id: String,
 }
 
 /// `createAskArchitectToolDefinition()`.
@@ -131,7 +142,7 @@ impl AgentHarnessTool<ExtensionContext> for AskArchitectTool {
             if sender_session_id.is_empty() {
                 return Err(ToolError::new("ask_architect requires a persisted session id"));
             }
-            let params: AskArchitectParams =
+            let params: AskArchitectToolInput =
                 serde_json::from_value(params).map_err(|error| ToolError::new(error.to_string()))?;
             let cwd = context.cwd().map_err(|error| ToolError::new(error.message))?;
             let project_cwd = resolve_project_path(params.project_path.as_deref(), &cwd)?;
@@ -146,8 +157,37 @@ impl AgentHarnessTool<ExtensionContext> for AskArchitectTool {
             .map_err(|error| ToolError::new(error.to_string()))?;
             Ok(text_result(
                 format!("Architect request queued: {request_id}"),
-                json!({ "requestId": request_id, "senderSessionId": sender_session_id }),
+                serde_json::to_value(AskArchitectToolDetails {
+                    request_id,
+                    sender_session_id: sender_session_id.clone(),
+                })
+                .expect("architect request details must serialize"),
             ))
         })
     }
+}
+
+/// `renderCall` for the ask_architect tool.
+pub fn render_call(_args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+    super::render_text_component(context, theme.fg(ThemeColor::ToolTitle, &theme.bold(NAME)))
+}
+
+/// `renderResult` for the ask_architect tool.
+pub fn render_result(
+    result: &AgentToolResult,
+    _options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) -> ComponentRef {
+    super::render_text_component(context, super::render_tool_output(result, theme))
+}
+
+/// `createAskArchitectToolDefinition()`.
+pub fn create_ask_architect_tool_definition() -> ToolDefinition {
+    let mut definition = harness_tool_definition(Arc::new(AskArchitectTool::new()));
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition.render_call = Some(crate::core::extensions::types::infallible_render_call(render_call));
+    definition.render_result = Some(crate::core::extensions::types::infallible_render_result(render_result));
+    definition
 }

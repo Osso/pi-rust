@@ -181,20 +181,24 @@ fn edit_preserves_crlf_and_bom() {
 #[test]
 fn prepare_arguments_accepts_json_strings_and_legacy_fields() {
     let tool = EditTool::new(".");
-    let prepared = tool.prepare_arguments(json!({
-        "path": "file.txt",
-        "edits": "[{\"oldText\":\"a\",\"newText\":\"b\"}]"
-    }));
+    let prepared = tool
+        .prepare_arguments(json!({
+            "path": "file.txt",
+            "edits": "[{\"oldText\":\"a\",\"newText\":\"b\"}]"
+        }))
+        .expect("prepare arguments");
     assert_eq!(
         prepared,
         json!({"path": "file.txt", "edits": [{"oldText": "a", "newText": "b"}]})
     );
-    let prepared = tool.prepare_arguments(json!({
-        "path": "file.txt",
-        "edits": [{"oldText": "a", "newText": "b"}],
-        "oldText": "c",
-        "newText": "d"
-    }));
+    let prepared = tool
+        .prepare_arguments(json!({
+            "path": "file.txt",
+            "edits": [{"oldText": "a", "newText": "b"}],
+            "oldText": "c",
+            "newText": "d"
+        }))
+        .expect("prepare arguments");
     assert_eq!(
         prepared,
         json!({"path": "file.txt", "edits": [

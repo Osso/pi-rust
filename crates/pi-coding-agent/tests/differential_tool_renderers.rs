@@ -31,7 +31,7 @@ fn context(args: Value, expanded: bool, is_error: bool, show_images: bool) -> To
         tool_call_id: "render-differential".to_owned(),
         invalidate: std::sync::Arc::new(|| {}),
         last_component: None,
-        state: json!({}),
+        state: pi_coding_agent::core::extensions::types::ToolRenderState::new(),
         cwd: "/repo".to_owned(),
         execution_started: false,
         args_complete: true,
@@ -146,7 +146,7 @@ fn render_case(case: &Value, theme: &pi_coding_agent::modes::interactive::theme:
         match tool {
             "read" => read_render_call(&args, theme, &context),
             "write" => write_render_call(&args, theme, &context),
-            "edit" => edit_render_call(&args, theme, &context),
+            "edit" => edit_render_call(&args, theme, &context).expect("edit renderer"),
             "ls" => ls_render_call(&args, theme, &context),
             "grep" => grep_render_call(&args, theme, &context),
             "find" => find_render_call(&args, theme, &context),
@@ -172,7 +172,7 @@ fn render_case(case: &Value, theme: &pi_coding_agent::modes::interactive::theme:
         match tool {
             "read" => read_render_result(&result, &options, theme, &context),
             "write" => write_render_result(&result, &options, theme, &context),
-            "edit" => edit_render_result(&result, &options, theme, &context),
+            "edit" => edit_render_result(&result, &options, theme, &context).expect("edit renderer"),
             "bash" => pi_coding_agent::core::tools::bash::render_result(&result, &options, theme, &context),
             "ls" => ls_render_result(&result, &options, theme, &context),
             "grep" => grep_render_result(&result, &options, theme, &context),

@@ -14,7 +14,10 @@ use tokio_util::sync::CancellationToken;
 
 use super::result::terminating_text_result;
 use super::resume_session::{find_session_file_by_id, resolve_session_path};
-use crate::core::extensions::types::{ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::core::extensions::types::{
+    ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call,
+    infallible_render_result,
+};
 use crate::core::session_manager::lock_session_manager;
 use crate::core::session_manager::{SessionManager, read_session_header};
 use crate::modes::interactive::theme::{Theme, ThemeColor};
@@ -266,7 +269,7 @@ pub fn create_change_working_directory_tool_definition() -> ToolDefinition {
         crate::core::extensions::wrapper::harness_tool_definition(Arc::new(ChangeWorkingDirectoryTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
-    definition.render_call = Some(Arc::new(render_call));
-    definition.render_result = Some(Arc::new(render_result));
+    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_result = Some(infallible_render_result(render_result));
     definition
 }

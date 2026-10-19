@@ -52,7 +52,7 @@ fn context() -> ToolRenderContext {
         tool_call_id: "call".to_owned(),
         invalidate: Arc::new(|| {}),
         last_component: None,
-        state: json!({}),
+        state: pi_coding_agent::core::extensions::types::ToolRenderState::new(),
         cwd: "/repo".to_owned(),
         execution_started: false,
         args_complete: true,

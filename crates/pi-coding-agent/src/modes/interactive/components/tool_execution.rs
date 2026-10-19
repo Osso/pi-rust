@@ -125,7 +125,7 @@ pub struct ToolExecutionComponent {
     self_render_container: Rc<RefCell<Container>>,
     call_renderer_component: Option<ComponentRef>,
     result_renderer_component: Option<ComponentRef>,
-    renderer_state: Value,
+    renderer_state: crate::core::extensions::types::ToolRenderState,
     image_components: Vec<ComponentRef>,
     image_spacers: Vec<ComponentRef>,
     tool_name: String,
@@ -166,7 +166,7 @@ impl ToolExecutionComponent {
         let cwd = cwd.into();
         let built_in_tool_definition = create_all_tool_definitions(&cwd, ToolsOptions::default())
             .into_iter()
-            .find(|(name, _)| *name == tool_name)
+            .find(|(name, _)| name.as_str() == tool_name)
             .map(|(_, definition)| definition);
 
         let pending_bg = background_fn(ThemeBg::ToolPendingBg);
@@ -181,7 +181,7 @@ impl ToolExecutionComponent {
             self_render_container,
             call_renderer_component: None,
             result_renderer_component: None,
-            renderer_state: Value::Null,
+            renderer_state: crate::core::extensions::types::ToolRenderState::new(),
             image_components: Vec::new(),
             image_spacers: Vec::new(),
             tool_name,
@@ -546,9 +546,16 @@ impl ToolExecutionComponent {
                 }
                 Some(call_renderer) => {
                     let context = self.get_render_context(self.call_renderer_component.clone());
-                    let component = call_renderer(&self.args, &with_theme(Clone::clone), &context);
-                    self.call_renderer_component = Some(Rc::clone(&component));
-                    self.add_render_child(&render_container, component);
+                    match call_renderer(&self.args, &with_theme(Clone::clone), &context) {
+                        Ok(component) => {
+                            self.call_renderer_component = Some(Rc::clone(&component));
+                            self.add_render_child(&render_container, component);
+                        }
+                        Err(_) => {
+                            self.call_renderer_component = None;
+                            self.add_render_child(&render_container, self.create_call_fallback());
+                        }
+                    }
                 }
             }
 
@@ -580,10 +587,18 @@ impl ToolExecutionComponent {
                             is_partial: self.is_partial,
                         };
                         let context = self.get_render_context(self.result_renderer_component.clone());
-                        let component =
-                            result_renderer(&rendered_result, &options, &with_theme(Clone::clone), &context);
-                        self.result_renderer_component = Some(Rc::clone(&component));
-                        self.add_render_child(&render_container, component);
+                        match result_renderer(&rendered_result, &options, &with_theme(Clone::clone), &context) {
+                            Ok(component) => {
+                                self.result_renderer_component = Some(Rc::clone(&component));
+                                self.add_render_child(&render_container, component);
+                            }
+                            Err(_) => {
+                                self.result_renderer_component = None;
+                                if let Some(component) = self.create_result_fallback() {
+                                    self.add_render_child(&render_container, component);
+                                }
+                            }
+                        }
                     }
                 }
             }

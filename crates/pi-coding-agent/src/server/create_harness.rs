@@ -146,7 +146,7 @@ impl AgentTool for ConstrainedSamplingTool {
         self.inner.execution_mode()
     }
 
-    fn prepare_arguments(&self, args: Value) -> Value {
+    fn prepare_arguments(&self, args: Value) -> Result<Value, pi_agent_core::agent::ToolError> {
         self.inner.prepare_arguments(args)
     }
 
@@ -154,7 +154,7 @@ impl AgentTool for ConstrainedSamplingTool {
         &self,
         tool_call_id: String,
         signal: Option<CancellationToken>,
-    ) -> BoxFuture<'static, Option<pi_ai::types::ToolCallExecution>> {
+    ) -> BoxFuture<'static, Result<Option<pi_ai::types::ToolCallExecution>, pi_agent_core::agent::ToolError>> {
         self.inner.prepare_execution(tool_call_id, signal)
     }
 

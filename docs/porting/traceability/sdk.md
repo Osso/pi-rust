@@ -25,6 +25,14 @@ Rust: `crates/pi-coding-agent/src/core/sdk.rs`.
   being dropped.
 - `streamFn` wires settings timeouts, provider retry, attribution headers, and the
   provider-retry notifier; `convertToLlm` honors `images.blockImages`.
+- The extension runner ref is created by the SDK and populated by `AgentSession`.
+  The same ref backs `transformHeaders` (`before_provider_headers`),
+  `onPayload` (`before_provider_request`), `onResponse`
+  (`after_provider_response`), and `transformContext` (`context`), matching the
+  source closure reads. Test: `create_agent_session_wires_extension_provider_hooks`
+  (headers/response/context handlers, patched context reaches the provider).
+- `multiAgentAgentId`, `multiAgentParentSessionId`, and
+  `supervisorDecisionRequester` are forwarded to `AgentSessionConfig`.
 - `extensions_result` comes from the resource loader.
 
 ## Gaps

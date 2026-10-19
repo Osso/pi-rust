@@ -37,7 +37,9 @@ use crate::core::detached_job_runner::{
     DetachedJobAgentType, DetachedJobLifecycleController, DetachedJobOwnership, LaunchDetachedBashInput,
     RegisterDetachedJobInput,
 };
-use crate::core::extensions::types::{ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
+use crate::core::extensions::types::{
+    ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
+};
 use crate::core::multi_agent_store::{AgentLifecycle, is_active_lifecycle};
 use crate::core::tool_detach_registry::{ToolDetachHandle, ToolDetachRegistry};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
@@ -1240,7 +1242,17 @@ fn format_bash_call(args: &Value) -> String {
 }
 
 /// `renderCall` for the bash tool.
-pub fn render_call(args: &Value, _theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &Value, _theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+    if context.execution_started {
+        context.state.update(|state| {
+            if let Value::Object(state) = state
+                && !state.contains_key("startedAt")
+            {
+                state.insert("startedAt".to_owned(), json!(now_millis()));
+                state.remove("endedAt");
+            }
+        });
+    }
     Rc::new(RefCell::new(Text::new(format_bash_call(args), 0, 0)))
 }
 
@@ -1394,12 +1406,18 @@ pub fn render_result(
         ))));
     }
 
-    if let Some(started_at) = context.state.get("startedAt").and_then(Value::as_f64) {
-        let ended_at = context
-            .state
-            .get("endedAt")
-            .and_then(Value::as_f64)
-            .unwrap_or_else(now_millis);
+    if !options.is_partial || context.is_error {
+        context.state.update(|state| {
+            if let Value::Object(state) = state
+                && !state.contains_key("endedAt")
+            {
+                state.insert("endedAt".to_owned(), json!(now_millis()));
+            }
+        });
+    }
+    let state = context.state.get();
+    if let Some(started_at) = state.get("startedAt").and_then(Value::as_f64) {
+        let ended_at = state.get("endedAt").and_then(Value::as_f64).unwrap_or_else(now_millis);
         let label = if options.is_partial { "Elapsed" } else { "Took" };
         component.add_child(Rc::new(RefCell::new(Text::new(
             format!(
@@ -1419,10 +1437,19 @@ pub fn render_result(
 
 /// `createBashToolDefinition`: the bash tool plus its renderers.
 pub fn create_bash_tool_definition(cwd: &str, options: BashToolOptions) -> ToolDefinition {
+    let expose_session_environment = options.expose_session_environment.unwrap_or(true);
     let tool: Arc<dyn AgentTool> = Arc::new(BashTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
-    definition.render_call = Some(Arc::new(render_call));
-    definition.render_result = Some(Arc::new(render_result));
+    definition.prompt_snippet = Some(BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
+    definition.prompt_guidelines = expose_session_environment.then(|| {
+        BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION
+            .guidelines
+            .iter()
+            .map(|line| (*line).to_owned())
+            .collect()
+    });
+    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_result = Some(infallible_render_result(render_result));
     definition
 }
 

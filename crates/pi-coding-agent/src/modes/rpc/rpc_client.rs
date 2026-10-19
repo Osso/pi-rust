@@ -41,6 +41,11 @@ const TERMINATE_TIMEOUT: Duration = Duration::from_secs(1);
 const KILL_TIMEOUT: Duration = Duration::from_secs(1);
 const STDERR_CHUNK_BYTES: usize = 8192;
 
+/// `RpcEventListener`: receives each non-correlated event line as JSON.
+///
+/// `on_event` accepts any compatible closure; this alias names the shared form.
+pub type RpcEventListener = Arc<dyn Fn(&Value) + Send + Sync>;
+
 /// Options for [`RpcClient::start`].
 #[derive(Debug, Clone, Default)]
 pub struct RpcClientOptions {
