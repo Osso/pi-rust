@@ -12,6 +12,7 @@ use crate::core::agent_session_services::{
 };
 use crate::core::extensions::emit_session_shutdown_event;
 use crate::core::extensions::runner::EmitResult;
+use crate::core::extensions::types::HandlerError;
 use crate::core::extensions::types::{
     ExtensionEvent, ForkPosition as ExtensionForkPosition, SessionBeforeForkEvent, SessionBeforeSwitchEvent,
     SessionShutdownEvent, SessionShutdownReason, SessionSwitchReason,
@@ -187,6 +188,59 @@ impl AgentSessionRuntime {
 
     pub fn set_process_restarter(&mut self, restarter: ProcessRestarter) {
         self.process_restarter = restarter;
+    }
+
+    /// Binds the runtime-owned relocation handlers on the session's extension runner.
+    ///
+    /// The TypeScript runtime captures `this` in `bindSessionRuntimeActions`. Rust callers
+    /// wrap the runtime in `Arc<tokio::sync::Mutex<_>>` and call this after construction.
+    pub async fn bind_session_runtime_actions(shared: &Arc<tokio::sync::Mutex<AgentSessionRuntime>>) {
+        let session = shared.lock().await.session.clone();
+        let weak = Arc::downgrade(shared);
+        let relocate_weak = weak.clone();
+        let relocate = Arc::new(move |target_cwd: &str| {
+            let weak = relocate_weak.clone();
+            let target_cwd = target_cwd.to_owned();
+            Box::pin(async move {
+                let shared = weak
+                    .upgrade()
+                    .ok_or_else(|| HandlerError::new("Agent session runtime is not available"))?;
+                shared
+                    .lock()
+                    .await
+                    .relocate(&target_cwd)
+                    .await
+                    .map_err(HandlerError::new)
+            }) as BoxFuture<'static, Result<(), HandlerError>>
+        });
+        let prepare_weak = weak.clone();
+        let prepare = Arc::new(move |target_cwd: &str| {
+            let weak = prepare_weak.clone();
+            let target_cwd = target_cwd.to_owned();
+            Box::pin(async move {
+                let shared = weak
+                    .upgrade()
+                    .ok_or_else(|| HandlerError::new("Agent session runtime is not available"))?;
+                shared
+                    .lock()
+                    .await
+                    .prepare_tool_result_relocation(&target_cwd)
+                    .await
+                    .map_err(HandlerError::new)
+            }) as BoxFuture<'static, Result<(), HandlerError>>
+        });
+        let activate = Arc::new(move || {
+            let weak = weak.clone();
+            Box::pin(async move {
+                let Some(shared) = weak.upgrade() else {
+                    return;
+                };
+                if let Err(error) = shared.lock().await.activate_tool_result_relocation().await {
+                    eprintln!("Failed to activate tool-result relocation: {error}");
+                }
+            }) as BoxFuture<'static, ()>
+        });
+        session.bind_session_runtime_relocation(relocate, prepare, activate);
     }
 
     fn apply(&mut self, result: CreateAgentSessionRuntimeResult) {

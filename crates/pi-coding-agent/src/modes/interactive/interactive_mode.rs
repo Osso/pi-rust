@@ -5350,6 +5350,7 @@ mod ui_tests {
                         control_db_path: None,
                         base_tools: Vec::new(),
                         custom_tools: Vec::new(),
+                        custom_tool_definitions: Vec::new(),
                         multi_agent_runtime_role: None,
                         multi_agent_execution_capability: None,
                         thinking_phase_timeout_ms: None,

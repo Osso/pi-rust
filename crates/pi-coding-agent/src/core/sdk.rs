@@ -57,6 +57,8 @@ pub struct CreateAgentSessionOptions {
     pub exclude_tools: Option<Vec<String>>,
     pub permission_prompt_tool: Option<String>,
     pub custom_tools: Vec<ToolDefinition>,
+    /// Rust carrier for SDK custom definitions executed with the runner context.
+    pub custom_tool_definitions: Vec<crate::core::extensions::types::ToolDefinition>,
     /// Override the built-in tool definitions.
     pub base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
     pub resource_loader: Option<Arc<dyn ResourceLoader>>,
@@ -67,9 +69,10 @@ pub struct CreateAgentSessionOptions {
     pub session_manager: Option<SessionManager>,
     pub settings_manager: Option<Arc<Mutex<SettingsManager>>>,
     pub control_db_path: Option<String>,
+    pub multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
     pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
-    pub multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
+    pub disable_runtime_coordination_inbound: bool,
     pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
     pub session_start_event: Option<crate::core::extensions::types::SessionStartEvent>,
 }
@@ -448,6 +451,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         control_db_path: options.control_db_path,
         base_tools: options.base_tools,
         custom_tools: options.custom_tools,
+        custom_tool_definitions: options.custom_tool_definitions,
         multi_agent_runtime_role: options.multi_agent_runtime_role,
         multi_agent_execution_capability: options.multi_agent_execution_capability,
         thinking_phase_timeout_ms: None,
@@ -455,7 +459,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         multi_agent_store: options.multi_agent_store,
         multi_agent_agent_id: None,
         multi_agent_parent_session_id: None,
-        disable_runtime_coordination_inbound: false,
+        disable_runtime_coordination_inbound: options.disable_runtime_coordination_inbound,
         on_shared_channel_message_delivered: options.on_shared_channel_message_delivered,
         extension_runner_ref: None,
         session_start_event: options.session_start_event,

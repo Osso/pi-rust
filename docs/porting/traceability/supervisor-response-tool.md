@@ -20,7 +20,7 @@ Differential: `tests/differential_supervisor_response.rs` compares metadata (nam
 
 ## Gaps
 
-- The `execute` closure itself is not invoked in tests because constructing `ExtensionContext` requires the full extension runtime; its only logic is the shared text function plus fixed result fields.
+- The execute closure is exercised end-to-end by `tests/differential_supervisor_request_loop.rs`, which runs the real session and the real response tool; the direct metadata differential remains separate.
 
 ## Discrepancies
 

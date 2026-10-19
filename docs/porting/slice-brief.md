@@ -21,3 +21,5 @@ Read `AGENTS.md` first. Use absolute paths and `.cwd(<worktree>)`. Source oracle
 
 ## Report back (final message)
 Branch + commit hashes, modules ported, tests added (counts, pass/fail), differential coverage, gaps, discrepancies, new deps.
+
+- Test processes run through `scripts/cargo-runner.sh` (cargo `runner`), which gives each test binary a private `PI_CODING_AGENT_STATE_DIR` like TS `test/global-setup.ts`. Tests must never resolve the real `~/.local/state/pi` or `~/.config/pi/agent`; pass temp `agent_dir`/`control_db_path` explicitly where the TS test does.

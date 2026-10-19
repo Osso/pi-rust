@@ -112,8 +112,13 @@ impl AgentTool for WrappedExtensionTool {
 
 /// Wrap a registered extension tool into an `AgentTool`.
 pub fn wrap_registered_tool(registered_tool: RegisteredTool, runner: &ExtensionRunner) -> Arc<dyn AgentTool> {
+    wrap_definition_tool(registered_tool.definition, runner)
+}
+
+/// Wrap a bare tool definition into an `AgentTool` bound to the runner context.
+pub fn wrap_definition_tool(definition: ToolDefinition, runner: &ExtensionRunner) -> Arc<dyn AgentTool> {
     Arc::new(WrappedExtensionTool {
-        definition: registered_tool.definition,
+        definition,
         runner: runner.clone(),
     })
 }

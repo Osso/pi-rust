@@ -32,6 +32,7 @@ pub mod goal;
 pub mod llama;
 #[path = "loop/mod.rs"]
 pub mod r#loop;
+pub mod openai_remote_compact;
 pub mod pyrun;
 pub mod run_plan;
 pub mod safe;
