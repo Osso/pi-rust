@@ -1820,10 +1820,8 @@ pub async fn run_main_or_report_error(args: &[String], options: MainOptions) -> 
 async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i32) -> Result<Option<i32>, String> {
     match parse_resident_console_args(args) {
         Ok(Some(command)) => {
-            return Err(format!(
-                "--{} resident console is not ported (cli/resident-console-command.ts)",
-                command.service.as_str()
-            ));
+            crate::cli::resident_console_command::run_resident_console_command(command).await?;
+            return Ok(None);
         }
         Ok(None) => {}
         Err(message) => return Err(message),

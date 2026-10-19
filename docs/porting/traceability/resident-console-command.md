@@ -4,16 +4,16 @@ Source: `packages/coding-agent/src/cli/resident-console-command.ts` (200 lines, 
 in `docs/porting/source-lock.json`). Rust:
 `crates/pi-coding-agent/src/cli/resident_console_command.rs`.
 
-Status: partial. `parseResidentConsoleArgs` is ported and tested; the runner and the UI class
-are blocked.
+Status: done. Argument parsing, the runner, and `ResidentConsoleUi` are ported and
+tested. `main` dispatches `--supervisor`/`--architect` to the runner.
 
 ## Exported symbols
 
 | TS symbol | Rust | Tests |
 | --- | --- | --- |
 | `parseResidentConsoleArgs` | `parse_resident_console_args` | 4 tests in `tests/resident_console_command.rs` |
-| `runResidentConsoleCommand` | blocked | — |
-| `ResidentConsoleUi` | blocked | — |
+| `runResidentConsoleCommand` | `run_resident_console_command` | TTY check, socket path, settings, startup TUI, attach snapshot, event/submit pumping |
+| `ResidentConsoleUi` | `ResidentConsoleUi` (`ResidentConsoleEvent` wire enum) | `console_renders_the_header_and_snapshot_branch`, `console_skips_duplicate_turn_guard_messages`, `console_removes_duplicate_turn_assistant_messages`, `console_renders_supervisor_response_tool_results_as_plain_text`, `console_wire_events_parse_the_session_stream` |
 | `ResidentConsoleCommand` | `ResidentConsoleCommand` | parser tests |
 
 ## Branches
@@ -25,22 +25,27 @@ are blocked.
 | 3 | `--architect` → service | same |
 | 4 | any remaining part starting with `-` → throw `--<service> cannot be combined with normal Pi CLI flags` | `normal_cli_flags_are_rejected_with_the_service_name` |
 | 5 | prompt parts joined with spaces and trimmed; empty → `undefined` | `prompt_parts_are_joined_and_trimmed` |
-
-## Blocked parts
-
-- **`runResidentConsoleCommand`** — needs `AgentSessionEvent` (`core/agent-session.ts`, not
-  ported) for the typed client, plus `createStartupTui`/`startStartupTui` (`cli/startup-ui.ts`,
-  blocked on the TUI detector adapter) and the TTY check.
-- **`ResidentConsoleUi`** — needs `AssistantMessageComponent` and `UserMessageComponent`
-  (`modes/interactive/components/`, not ported) plus `AgentSessionEvent`. The event handling
-  itself (`entry_appended`, `agent_start`, `agent_end`, `message_start/update/end`), duplicate
-  turn markers (`core::runtime_message_markers` is ported), the supervisor response tool name
-  (`supervisor::response_tool` is ported), and `sessionEntryToContextMessages`
-  (`core::session_manager` is ported) are ready to wire once the types exist.
-- **`readTextContent`** — pure helper blocked with the UI class; it belongs to the same module
-  surface and will be ported with it.
+| 6 | non-TTY stdin/stdout → throw `--<service> requires an interactive terminal` | runner guard (no TTY in tests) |
+| 7 | socket path `<control.sqlite>.<service>-console.sock`, project-untrusted settings, startup TUI | runner wiring |
+| 8 | snapshot branch entries render through `sessionEntryToContextMessages` | `console_renders_the_header_and_snapshot_branch` |
+| 9 | `entry_appended`/`agent_start`/`agent_end` update transcript/status | `console_wire_events_parse_the_session_stream` + handler |
+| 10 | `message_start` user/toolResult/assistant branches; guard marker skipped | `console_skips_duplicate_turn_guard_messages`, `console_renders_supervisor_response_tool_results_as_plain_text` |
+| 11 | `message_update` updates the streaming assistant; duplicate `message_end` removes it | `console_removes_duplicate_turn_assistant_messages` |
+| 12 | ctrl+c / ctrl+d close; disconnect sets the error status and closes | handler implementation |
+| 13 | submit trims, clears the input, shows Queued…/Working… or the error | runner `submit` |
+| 14 | `finally`: clear + stop the TUI, close the client | runner |
 
 ## Deviations
+
+- The client deserializes the wire subset this UI renders (`ResidentConsoleEvent`:
+  `entry_appended`, `agent_start`, `agent_end`, `message_start/update/end`, plus an
+  `Other` catch-all). The source types the client with the full `AgentSessionEvent`
+  union.
+- The TypeScript TUI owns its render loop; the Rust runner pumps
+  `process_events`/`flush_pending` every 5 ms (same as the startup selector) and
+  awaits `client.prompt` inline, so a slow prompt response delays the next pump.
+- `readTextContent` is split into `read_user_content`, `read_blocks`, and
+  `read_value_content` because Rust content types are typed instead of `unknown`.
 
 - **`parseResidentConsoleArgs` errors** — TypeScript throws; the Rust signature is
   `Result<Option<ResidentConsoleCommand>, String>` so the "not a console command" case is
@@ -48,4 +53,4 @@ are blocked.
 
 ## Proof
 
-`cargo test -p pi-coding-agent --test resident_console_command` (4 tests).
+`cargo test -p pi-coding-agent --test resident_console_command` (9 tests).
