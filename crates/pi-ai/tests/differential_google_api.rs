@@ -356,19 +356,6 @@ fn normalize_events_with(value: &mut Value, generated: &regex::Regex) {
                             *id = generated.replace(id, "_<generated>").into_owned();
                         }
                     }
-                    "errorMessage" => {
-                        if let Value::String(message) = entry
-                            && message != "Incomplete JSON segment at the end"
-                            && (message.starts_with("exception parsing stream chunk ")
-                                || message.contains("JSON")
-                                || message.contains("Unexpected token")
-                                || message.contains("position")
-                                || message.contains("EOF")
-                                || message.contains("expected"))
-                        {
-                            *message = "<json-parse-error>".to_owned();
-                        }
-                    }
                     _ => normalize_events_with(entry, generated),
                 }
             }

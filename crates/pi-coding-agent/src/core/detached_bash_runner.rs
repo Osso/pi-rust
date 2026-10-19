@@ -187,7 +187,10 @@ pub fn read_detached_bash_activation(
         return Ok(None);
     }
     let data = std::fs::read_to_string(path)?;
-    Ok(Some(serde_json::from_str(&data)?))
+    let value = pi_js_compat::js_json::parse(&data).map_err(|error| DetachedBashRunnerError(error.to_string()))?;
+    Ok(Some(
+        serde_json::from_value(value).map_err(DetachedBashRunnerError::from)?,
+    ))
 }
 
 /// `getDetachedBashRunnerInvocation`.
@@ -545,7 +548,8 @@ async fn wait_for_detached_bash_launch_manifest(
 
 fn read_detached_bash_launch_manifest(path: &str) -> Result<DetachedBashLaunchManifest, DetachedBashRunnerError> {
     let data = std::fs::read_to_string(path)?;
-    let parsed: DetachedBashLaunchManifest = serde_json::from_str(&data)?;
+    let value = pi_js_compat::js_json::parse(&data).map_err(|error| DetachedBashRunnerError(error.to_string()))?;
+    let parsed: DetachedBashLaunchManifest = serde_json::from_value(value).map_err(DetachedBashRunnerError::from)?;
     let checksum = hash_json(&Value::Object(manifest_unsigned_value(&parsed.data)?));
     if parsed.version != DETACHED_BASH_LAUNCH_VERSION || parsed.checksum != checksum {
         return Err(DetachedBashRunnerError(format!(
@@ -624,7 +628,7 @@ pub fn read_json_lines(path: &str, offset: u64) -> Result<JsonLinesChunk, std::i
     let text = String::from_utf8_lossy(&data[offset as usize..]);
     let mut values = Vec::new();
     for line in text.split('\n').filter(|line| !line.is_empty()) {
-        values.push(serde_json::from_str(line).map_err(std::io::Error::other)?);
+        values.push(pi_js_compat::js_json::parse(line).map_err(std::io::Error::other)?);
     }
     Ok(JsonLinesChunk {
         offset: data.len() as u64,

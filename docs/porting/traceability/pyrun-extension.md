@@ -55,10 +55,6 @@ Registered as `<first-party:pyrun>`; bwrap profiles use the ported
   activation-persistence failure; Rust has no equivalent test seam. The failure
   branch (register, write activation fails, kill runner, return `false`) is
   ported.
-- `JSON.parse` error text for malformed manifests/activations comes from
-  `serde_json`, not V8 (`Unterminated string in JSON at position …` vs `EOF
-  while parsing …`). The failure boundary matches; text does not
-  (`truncated_manifests_throw_a_json_parse_error_in_both_runtimes`).
 - `detached-runner-entry.ts` (standalone script) throws `Detached Pyrun runner
   requires a launch manifest path`; the compiled binary dispatches through
   `src/internal-runner.ts`, whose message is `Internal detached runner

@@ -186,7 +186,7 @@ async fn run_json_in_sandbox(
             trimmed.to_owned()
         });
     }
-    serde_json::from_str(&stdout_text).map_err(|error| error.to_string())
+    pi_js_compat::js_json::parse(&stdout_text).map_err(|error| error.to_string())
 }
 
 fn run_sandbox_operation<'a>(

@@ -930,9 +930,13 @@ fn parse_event(raw: &str) -> Result<Option<PiMessagesEvent>, PiMessagesError> {
         .find(|line| line.starts_with("data:"))
         .map(|line| line[5..].trim());
     match data {
-        Some(data) if !data.is_empty() && data != "[DONE]" => serde_json::from_str(data)
-            .map(Some)
-            .map_err(|error| PiMessagesError::Message(error.to_string())),
+        Some(data) if !data.is_empty() && data != "[DONE]" => {
+            let value =
+                pi_js_compat::js_json::parse(data).map_err(|error| PiMessagesError::Message(error.to_string()))?;
+            serde_json::from_value(value)
+                .map(Some)
+                .map_err(|error| PiMessagesError::Message(error.to_string()))
+        }
         _ => Ok(None),
     }
 }

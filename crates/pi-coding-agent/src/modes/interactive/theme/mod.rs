@@ -795,7 +795,7 @@ fn get_builtin_themes() -> Result<Map<String, Value>, ThemeError> {
             Some(embedded) if !read_from_disk => embedded.to_owned(),
             _ => read_theme_file(&path)?,
         };
-        let value: Value = crate::utils::js_json::parse(&content).map_err(|error| ThemeError::Syntax {
+        let value: Value = pi_js_compat::js_json::parse(&content).map_err(|error| ThemeError::Syntax {
             message: error.to_string(),
         })?;
         builtin.insert(name.to_owned(), value);
@@ -1097,7 +1097,7 @@ fn parse_theme_json(label: &str, json: &Value) -> Result<ThemeJson, ThemeError> 
 }
 
 fn parse_theme_json_content(label: &str, content: &str) -> Result<ThemeJson, ThemeError> {
-    let json: Value = crate::utils::js_json::parse(content).map_err(|error| ThemeError::Parse {
+    let json: Value = pi_js_compat::js_json::parse(content).map_err(|error| ThemeError::Parse {
         label: label.to_owned(),
         message: format!("SyntaxError: {error}"),
     })?;

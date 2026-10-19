@@ -1436,7 +1436,8 @@ fn parse_mistral_event(raw: &str) -> Result<ParsedEvent, MistralError> {
     if data == "[DONE]" {
         return Ok(ParsedEvent::Done);
     }
-    let parsed: Value = serde_json::from_str(&data).map_err(|error| MistralError::message(error.to_string()))?;
+    let parsed: Value =
+        pi_js_compat::js_json::parse(&data).map_err(|error| MistralError::message(error.to_string()))?;
     if !parsed.is_object() || !parsed.get("choices").is_some_and(Value::is_array) {
         return Err(MistralError::message("Invalid Mistral streaming event"));
     }

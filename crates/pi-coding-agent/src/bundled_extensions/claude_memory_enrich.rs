@@ -13,7 +13,7 @@ use crate::core::extensions::types::{
     BeforeAgentStartEvent, BeforeAgentStartEventResult, BoxFuture, ExtensionApi, ExtensionContext, HandlerError,
 };
 use crate::utils::child_process::node_spawn_error_message;
-use crate::utils::js_json;
+use pi_js_compat::js_json;
 
 const DEFAULT_CLAUDE_MEMORY: &str = "/home/osso/.cargo/bin/claude-memory";
 const TIMEOUT_MS: u64 = 15_000;

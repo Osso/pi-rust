@@ -218,29 +218,6 @@ fn normalize_timestamps(value: &mut Value) {
     }
 }
 
-fn normalize_json_errors(value: &mut Value) {
-    match value {
-        Value::Array(items) => items.iter_mut().for_each(normalize_json_errors),
-        Value::Object(map) => {
-            for (key, entry) in map.iter_mut() {
-                if key == "errorMessage"
-                    && let Value::String(message) = entry
-                    && (message.contains("JSON")
-                        || message.contains("Unexpected token")
-                        || message.contains("position")
-                        || message.contains("EOF")
-                        || message.contains("expected value"))
-                {
-                    *entry = Value::String("<json-error>".to_owned());
-                } else {
-                    normalize_json_errors(entry);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
 async fn collect_stream(mut stream: AssistantMessageEventStream) -> (Vec<Value>, Value) {
     let mut events = Vec::new();
     while let Some(event) = stream.next().await {
@@ -263,7 +240,6 @@ struct Scenario {
     reasoning: Option<String>,
     simple: bool,
     abort_after_chunks: Option<usize>,
-    normalize_json_error: bool,
     ordered_body_keys: Vec<String>,
 }
 
@@ -281,7 +257,6 @@ impl Scenario {
             reasoning: None,
             simple: false,
             abort_after_chunks: None,
-            normalize_json_error: false,
             ordered_body_keys: Vec::new(),
         }
     }
@@ -317,11 +292,6 @@ impl Scenario {
         self
     }
 
-    fn normalize_json_error(mut self) -> Self {
-        self.normalize_json_error = true;
-        self
-    }
-
     fn ordered_body_keys(mut self, keys: &[&str]) -> Self {
         self.ordered_body_keys = keys.iter().map(|key| (*key).to_owned()).collect();
         self
@@ -347,9 +317,6 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
     }
     if let Some(chunks) = scenario.abort_after_chunks {
         request["abortAfterChunks"] = json!(chunks);
-    }
-    if scenario.normalize_json_error {
-        request["normalizeJsonError"] = Value::Bool(true);
     }
     let expected = oracle.request(&request);
     assert_eq!(expected["ok"], Value::Bool(true), "oracle failed: {expected}");
@@ -387,9 +354,6 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
     let requests = fetch.requests().iter().map(request_value).collect::<Vec<_>>();
     let mut actual = json!({"requests": requests, "events": events, "result": result});
     normalize_timestamps(&mut actual);
-    if scenario.normalize_json_error {
-        normalize_json_errors(&mut actual);
-    }
     assert_json_eq(
         &actual,
         expected,
@@ -656,11 +620,9 @@ async fn differential_openai_completions() {
     malformed.insert(1, "data: {not json}\n\n".to_owned());
     run_scenario(
         &mut oracle,
-        Scenario::new(25, openai.clone(), &text)
-            .responses(vec![ScriptedResponse::sse(
-                &malformed.iter().map(String::as_str).collect::<Vec<_>>(),
-            )])
-            .normalize_json_error(),
+        Scenario::new(25, openai.clone(), &text).responses(vec![ScriptedResponse::sse(
+            &malformed.iter().map(String::as_str).collect::<Vec<_>>(),
+        )]),
     )
     .await;
 

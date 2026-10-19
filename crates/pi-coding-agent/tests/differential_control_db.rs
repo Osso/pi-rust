@@ -10,7 +10,7 @@ mod oracle;
 use pi_coding_agent::core::session_control_db::*;
 use pi_coding_agent::core::session_health::SessionHealthRecord;
 use pi_coding_agent::core::sqlite::create_sqlite_database;
-use pi_coding_agent::utils::js_json;
+use pi_js_compat::js_json;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 

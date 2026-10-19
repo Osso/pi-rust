@@ -15,7 +15,7 @@ use super::{
     with_immediate_transaction,
 };
 use crate::core::multi_agent_store::{AgentError, AgentFileReference, AgentSnapshot};
-use crate::utils::js_json;
+use pi_js_compat::js_json;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

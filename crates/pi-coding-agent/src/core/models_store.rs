@@ -15,8 +15,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::get_agent_dir;
 use crate::core::auth_storage::{AsyncLockOperation, AuthStorageBackend, FileAuthStorageBackend, StorageError};
-use crate::utils::js_json;
 use crate::utils::paths::{get_file_revision, normalize_path};
+use pi_js_compat::js_json;
 use pi_js_compat::number::js_number_value;
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

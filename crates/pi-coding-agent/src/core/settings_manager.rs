@@ -24,9 +24,9 @@ use crate::core::permissions::presets::{
     ApprovalPresetName, SandboxProfileName, approval_preset_for_policy, find_approval_preset, is_approval_preset_name,
     is_sandbox_profile_name,
 };
-use crate::utils::js_json;
 use crate::utils::lockfile::{LockErrorCode, LockOptions, acquire_sync};
 use crate::utils::paths::{PathInputOptions, normalize_path, resolve_path};
+use pi_js_compat::js_json;
 
 const SETTINGS_LOCK_ATTEMPTS: usize = 10;
 const SETTINGS_LOCK_DELAY: Duration = Duration::from_millis(20);

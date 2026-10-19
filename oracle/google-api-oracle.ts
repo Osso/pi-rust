@@ -69,11 +69,7 @@ function normalize(value: unknown): unknown {
 		for (const [key, entry] of Object.entries(source)) {
 			if (key === "timestamp") result[key] = 0;
 			else if (key === "id" && typeof entry === "string") result[key] = normalizeId(entry);
-			else if (key === "errorMessage" && typeof entry === "string") {
-				if (entry === "Incomplete JSON segment at the end") result[key] = entry;
-				else if (/JSON|Unexpected token|position|EOF|expected/i.test(entry)) result[key] = "<json-parse-error>";
-				else result[key] = entry;
-			} else result[key] = normalize(entry);
+			else result[key] = normalize(entry);
 		}
 		return result;
 	}

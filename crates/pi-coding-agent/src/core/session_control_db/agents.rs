@@ -18,7 +18,7 @@ use crate::core::multi_agent_store::{
     AgentFileReference, AgentLifecycle, AgentMailboxMessage, AgentSnapshot, MailboxMessageKindValue,
     MailboxMessageStatusValue, SteeringCheckpoint, is_active_lifecycle,
 };
-use crate::utils::js_json;
+use pi_js_compat::js_json;
 
 const MULTI_AGENT_CREATION_MAX_ATTEMPTS: usize = 3;
 const MULTI_AGENT_STEERING_MUTATION_MAX_ATTEMPTS: usize = 3;

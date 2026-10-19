@@ -164,7 +164,7 @@ fn is_non_finite_literal(text: &str) -> bool {
 }
 
 fn parse_strict_json(text: &str) -> Result<Value, JsonParseError> {
-    match serde_json::from_str(text) {
+    match pi_js_compat::js_json::parse(text) {
         Ok(value) => Ok(value),
         Err(error) => {
             if is_non_finite_json_number(text) {
@@ -179,7 +179,7 @@ fn parse_strict_json(text: &str) -> Result<Value, JsonParseError> {
 }
 
 fn parse_json_value(text: &str) -> Option<Value> {
-    match serde_json::from_str(text) {
+    match pi_js_compat::js_json::parse(text) {
         Ok(value) => Some(value),
         Err(_) if is_non_finite_json_number(text) => Some(Value::Null),
         Err(_) => None,

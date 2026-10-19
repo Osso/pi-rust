@@ -150,7 +150,8 @@ pub fn read_detached_pyrun_activation(path: &str) -> Result<Option<DetachedJobOw
         return Ok(None);
     }
     let content = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-    serde_json::from_str(&content)
+    let value = pi_js_compat::js_json::parse(&content).map_err(|error| error.to_string())?;
+    serde_json::from_value(value)
         .map(Some)
         .map_err(|error| error.to_string())
 }
@@ -158,7 +159,7 @@ pub fn read_detached_pyrun_activation(path: &str) -> Result<Option<DetachedJobOw
 /// `readDetachedPyrunLaunchManifest`.
 pub fn read_detached_pyrun_launch_manifest(path: &str) -> Result<DetachedPyrunLaunchManifest, String> {
     let content = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let parsed: Value = serde_json::from_str(&content).map_err(|error| error.to_string())?;
+    let parsed: Value = pi_js_compat::js_json::parse(&content).map_err(|error| error.to_string())?;
     let original = parsed.clone();
     let mut unsigned = parsed;
     let Some(object) = unsigned.as_object_mut() else {

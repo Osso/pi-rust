@@ -7,7 +7,7 @@
 
 use std::fmt;
 
-use pi_js_compat::number::{js_number_to_string, js_number_value};
+use crate::number::{js_number_to_string, js_number_value};
 use serde_json::{Map, Value};
 
 const CONTEXT_CHARACTERS: usize = 10;

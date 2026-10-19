@@ -982,7 +982,8 @@ fn read_foreground_bash_completion(path: &str) -> Result<Option<DetachedBashFore
         return Ok(None);
     }
     let data = std::fs::read_to_string(path).map_err(|error| ToolError::new(error.to_string()))?;
-    serde_json::from_str(&data)
+    let value = pi_js_compat::js_json::parse(&data).map_err(|error| ToolError::new(error.to_string()))?;
+    serde_json::from_value(value)
         .map(Some)
         .map_err(|error| ToolError::new(error.to_string()))
 }

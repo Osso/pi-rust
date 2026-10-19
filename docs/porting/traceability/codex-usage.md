@@ -32,10 +32,6 @@ Source: `packages/coding-agent/extensions/codex-usage/src/index.ts`. Rust:
 
 ## Discrepancies / gaps
 
-- `JSON.parse` failures in `decodeCodexTokenPayload`/`readJsonResponse` surface
-  serde's message instead of V8's `SyntaxError` text. The explicit source errors
-  (`Invalid OpenAI Codex access token`, missing account id, request failures)
-  match byte-for-byte.
 - `crypto.randomUUID()` is `pi_ai::utils::uuid::random_uuid()`; both are random
   UUIDv4 values and are normalized in the differential.
 - HTTP goes through `pi_ai::request::Fetch`; the extension factory accepts an

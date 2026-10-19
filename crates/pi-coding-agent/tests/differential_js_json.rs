@@ -2,7 +2,7 @@
 mod oracle;
 
 use oracle::TsOracle;
-use pi_coding_agent::utils::js_json::{parse, stringify, stringify_pretty};
+use pi_js_compat::js_json::{parse, stringify, stringify_pretty};
 use serde_json::{Value, json};
 
 const SEEDS: [&str; 11] = [

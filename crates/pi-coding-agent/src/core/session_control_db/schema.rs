@@ -11,7 +11,7 @@ use super::{
     write_canonical_mailbox_payload,
 };
 use crate::core::runtime_process::{is_pi_runtime_process_alive, is_process_identity_alive};
-use crate::utils::js_json;
+use pi_js_compat::js_json;
 
 pub const CONTROL_DB_SCHEMA_VERSION: i64 = 14;
 

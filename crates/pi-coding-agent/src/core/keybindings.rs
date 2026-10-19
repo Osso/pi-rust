@@ -8,7 +8,7 @@ use pi_tui::keybindings::{
 use serde_json::{Map, Value};
 
 use crate::config::get_agent_dir;
-use crate::utils::js_json;
+use pi_js_compat::js_json;
 
 /// Coding-agent bindings merged after [`tui_keybindings`].
 pub fn app_keybindings() -> Vec<(String, KeybindingDefinition)> {

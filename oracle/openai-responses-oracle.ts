@@ -18,7 +18,6 @@ interface Request {
 	thinkingBudgets?: Record<string, unknown>;
 	responses: ScriptedResponse[];
 	abortAfterChunks?: number;
-	normalizeJsonError?: boolean;
 }
 
 interface Response {
@@ -120,20 +119,6 @@ function createFetch(
 	}) as typeof fetch;
 }
 
-function normalizeJsonErrors(value: unknown): unknown {
-	if (Array.isArray(value)) return value.map(normalizeJsonErrors);
-	if (!value || typeof value !== "object") return value;
-	const result: Record<string, unknown> = {};
-	for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-		if (key === "errorMessage" && typeof entry === "string" && /JSON|Unexpected token|position|EOF|expected value/i.test(entry)) {
-			result[key] = "<json-error>";
-			continue;
-		}
-		result[key] = normalizeJsonErrors(entry);
-	}
-	return result;
-}
-
 async function execute(request: Request, module: Module): Promise<unknown> {
 	const controller = new AbortController();
 	const requests: Array<Record<string, unknown>> = [];
@@ -174,7 +159,7 @@ async function execute(request: Request, module: Module): Promise<unknown> {
 		result = { error: normalizeError(error) };
 	}
 	const output = { requests, events, result };
-	return request.normalizeJsonError ? normalizeJsonErrors(output) : output;
+	return output;
 }
 
 function executeRequestLine(line: string, module: Module): Promise<void> {

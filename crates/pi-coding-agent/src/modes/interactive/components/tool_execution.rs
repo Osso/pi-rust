@@ -23,7 +23,7 @@ use crate::core::tools::render_utils;
 use crate::core::tools::{ToolsOptions, create_all_tool_definitions};
 use crate::modes::interactive::theme::{ThemeBg, ThemeColor, with_theme};
 use crate::utils::image_convert::{ConvertedImage, convert_to_png};
-use crate::utils::js_json;
+use pi_js_compat::js_json;
 
 use super::elapsed_time::format_elapsed_duration;
 

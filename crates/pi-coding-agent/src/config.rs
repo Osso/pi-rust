@@ -21,9 +21,9 @@ use serde_json::Value;
 
 use crate::core::tools::node_fs::node_read_error;
 use crate::utils::child_process::node_spawn_error_message;
-use crate::utils::js_json;
 use crate::utils::paths::{PathInputOptions, normalize_path};
 use crate::utils::uncaught::{ERROR, throw_uncaught};
+use pi_js_compat::js_json;
 
 const DEFAULT_PACKAGE_NAME: &str = "@earendil-works/pi-coding-agent";
 const DEFAULT_VERSION: &str = "0.0.0";

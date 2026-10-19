@@ -472,7 +472,7 @@ impl ToolsManager {
         let body = read_body(response.body)
             .await
             .ok_or_else(|| error("No response body"))?;
-        let data: Value = serde_json::from_str(&body).map_err(|failure| error(failure.to_string()))?;
+        let data: Value = pi_js_compat::js_json::parse(&body).map_err(|failure| error(failure.to_string()))?;
         let tag = data.get("tag_name").and_then(Value::as_str).unwrap_or_default();
         Ok(tag.trim_start_matches('v').to_owned())
     }

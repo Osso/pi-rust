@@ -8,6 +8,7 @@
 pub mod base64;
 pub mod collator;
 pub mod date;
+pub mod js_json;
 pub mod minimatch;
 pub mod number;
 pub mod process_env;

@@ -186,7 +186,7 @@ fn read_sso_token(cache_key: &str) -> Result<Value, CallbackError> {
             "The SSO session associated with this profile is invalid. To refresh this SSO session run aws sso login with the corresponding profile.",
         )
     })?;
-    serde_json::from_str(&text)
+    pi_js_compat::js_json::parse(&text)
         .map_err(|error| CallbackError::new(format!("The SSO session token is invalid: {error}")))
 }
 

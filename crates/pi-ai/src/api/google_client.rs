@@ -510,10 +510,8 @@ fn parse_sse_event(event: &str) -> Option<Result<GoogleChunk, GoogleRequestError
     let trimmed = event.trim();
     let payload = trimmed.strip_prefix("data:")?.trim();
     Some(
-        serde_json::from_str::<Value>(payload)
-            .map_err(|error| {
-                GoogleRequestError::new(format!("exception parsing stream chunk {payload}. {error}"), None)
-            })
+        pi_js_compat::js_json::parse(payload)
+            .map_err(|error| GoogleRequestError::new(error.to_string(), None))
             .and_then(|value| {
                 serde_json::from_value(value).map_err(|error| {
                     GoogleRequestError::new(format!("exception parsing stream chunk {payload}. {error}"), None)
@@ -1007,7 +1005,7 @@ fn well_known_adc_path() -> Option<String> {
 }
 
 fn parse_credentials(contents: &str) -> Result<Credentials, GoogleRequestError> {
-    let value: Value = serde_json::from_str(contents)
+    let value: Value = pi_js_compat::js_json::parse(contents)
         .map_err(|error| GoogleRequestError::new(format!("Unable to parse the credential file: {error}"), None))?;
     match value.get("type").and_then(Value::as_str) {
         Some("authorized_user") => Ok(Credentials::AuthorizedUser {

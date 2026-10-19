@@ -11,7 +11,7 @@ use crate::core::session_control_db::{
     ControlDbError, SupervisorRequest, SupervisorRequestKind, SupervisorResponse, complete_supervisor_request,
     has_pending_supervisor_approval_request, requeue_supervisor_request,
 };
-use crate::utils::js_json;
+use pi_js_compat::js_json;
 
 const DEFAULT_POLL_INTERVAL_MS: u64 = 50;
 

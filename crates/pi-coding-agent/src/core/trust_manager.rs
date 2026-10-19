@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::config::package_config;
-use crate::utils::js_json;
 use crate::utils::lockfile::{LockOptions, acquire_sync};
 use crate::utils::paths::{PathInputOptions, canonicalize_path, resolve_path};
+use pi_js_compat::js_json;
 
 const TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES: [&str; 8] = [
     "settings.json",

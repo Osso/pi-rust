@@ -298,3 +298,14 @@ fn run_git(cwd: &std::path::Path, args: &[&str]) {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn malformed_config_reports_the_v8_json_parse_message() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("projects.json");
+    fs::write(&path, "{\"a\": \"unterminated").unwrap();
+
+    let error = read_supervisor_project_config(&path).expect_err("malformed config");
+
+    assert_eq!(error, "Unterminated string in JSON at position 19 (line 1 column 20)");
+}

@@ -25,7 +25,7 @@ Differential proof: request `27011` reads three real config files (populated, `{
 
 ## Discrepancies
 
-- JSON syntax errors surface `serde_json` messages instead of V8 `SyntaxError` text; both reject the file. The three authored messages match byte-for-byte.
+- None.
 
 ## Proof inventory
 

@@ -167,7 +167,7 @@ pub fn read_supervisor_project_config(path: &Path) -> Result<SupervisorProjectCo
         return Ok(SupervisorProjectConfig::new());
     };
     let text = String::from_utf8_lossy(&bytes);
-    let parsed: Value = serde_json::from_str(&text).map_err(|error| error.to_string())?;
+    let parsed: Value = pi_js_compat::js_json::parse(&text).map_err(|error| error.to_string())?;
     let Some(object) = parsed.as_object() else {
         return Err(format!(
             "Supervisor project config must be an object: {}",
