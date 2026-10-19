@@ -6,6 +6,10 @@ pub mod json_event;
 pub mod print_mode;
 pub mod rpc;
 
+pub use interactive::{
+    InteractiveMode, InteractiveModeOptions, InteractiveTuiHandle, InteractiveTuiOptions, Renderer,
+    create_interactive_tui, run_interactive_mode,
+};
 pub use json_event::to_json_event;
 pub use print_mode::{PrintMode, PrintModeOptions, run_print_mode};
 pub use rpc::{

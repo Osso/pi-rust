@@ -221,6 +221,10 @@ fn is_visible_content(content: &AssistantContent) -> bool {
 }
 
 impl Component for AssistantMessageComponent {
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
+
     fn render(&mut self, width: usize) -> Vec<String> {
         let mut lines = self.content_container.render(width);
         if self.has_tool_calls || lines.is_empty() {
