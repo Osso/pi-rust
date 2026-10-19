@@ -4,6 +4,8 @@
 mod oracle;
 #[path = "support/bundled_extensions.rs"]
 mod support;
+#[path = "support/bundled_extension_tool.rs"]
+mod tool_support;
 
 use std::sync::{Arc, Mutex};
 
@@ -88,7 +90,7 @@ async fn spec_validation_matches_typescript() {
     })
     .await;
     let mut runner = harness.runner.clone();
-    let idle_actions = support::context_actions(&harness.calls, Arc::clone(&harness.session_manager), None);
+    let idle_actions = support::context_actions(&harness.calls, None);
     runner.bind_core(
         support::actions(&harness.calls),
         pi_coding_agent::core::extensions::types::ExtensionContextActions {
@@ -110,11 +112,16 @@ async fn spec_validation_matches_typescript() {
 
 #[tokio::test]
 async fn session_id_matches_typescript() {
-    let harness = Harness::load("/tmp", Arc::new(RecordingUi::default()), |api| {
-        pi_coding_agent::bundled_extensions::session_id::session_id_extension(api)
-    })
+    let manager = Arc::new(SessionManager::in_memory(Some("/tmp"), None).unwrap());
+    let harness = Harness::load_full(
+        "/tmp",
+        Arc::clone(&manager),
+        Arc::new(RecordingUi::default()),
+        None,
+        |api| pi_coding_agent::bundled_extensions::session_id::session_id_extension(api),
+    )
     .await;
-    let session_id = harness.session_manager.get_session_id().to_owned();
+    let session_id = manager.get_session_id().to_owned();
 
     let mut oracle = oracle_for("packages/coding-agent/extensions/session-id/src/index.ts");
     let response = oracle.request(&json!({
@@ -222,14 +229,15 @@ async fn session_archive_matches_typescript() {
 async fn debug_matches_typescript() {
     let ui = Arc::new(RecordingUi::default());
     let controller_calls: Arc<Mutex<Calls>> = ui.calls();
-    let harness = Harness::load("/tmp", Arc::clone(&ui), move |api| {
+    let manager = Arc::new(SessionManager::in_memory(Some("/tmp"), None).unwrap());
+    let harness = Harness::load_full("/tmp", Arc::clone(&manager), Arc::clone(&ui), None, move |api| {
         pi_coding_agent::bundled_extensions::debug::debug_extension(
             api,
             Arc::new(move || Arc::new(RecordingDebugRepl(Arc::clone(&controller_calls)))),
         )
     })
     .await;
-    let session_id = harness.session_manager.get_session_id().to_owned();
+    let session_id = manager.get_session_id().to_owned();
 
     let mut oracle = oracle_for("packages/coding-agent/extensions/debug/src/index.ts");
     let response = oracle.request(&json!({

@@ -7,7 +7,9 @@ use crate::core::extensions::loader::ExtensionRegistry;
 pub mod agent_viewer;
 pub mod agents_core;
 pub mod agents_mailbox;
+pub mod approval_controls;
 pub mod debug;
+pub mod safe;
 pub mod self_restart;
 pub mod session_archive;
 pub mod session_id;
@@ -24,6 +26,13 @@ pub struct SmallExtensionsOptions {
 
 /// Registers the small first-party extensions under their source ids.
 pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &SmallExtensionsOptions) {
+    registry.register(
+        "<first-party:approval-controls>",
+        Arc::new(|pi| {
+            let result = approval_controls::approval_controls_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
     registry.register("<first-party:debug>", {
         let get_debug_repl = Arc::clone(&options.get_debug_repl);
         Arc::new(move |pi| {
@@ -31,6 +40,13 @@ pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &Sma
             Box::pin(async move { result })
         })
     });
+    registry.register(
+        "<first-party:safe>",
+        Arc::new(|pi| {
+            let result = safe::safe_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
     registry.register(
         "<first-party:self-restart>",
         Arc::new(|pi| {

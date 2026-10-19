@@ -75,7 +75,7 @@ function normalizeError(error: unknown): { name: string; message: string } {
 	return { name: "UnknownError", message: String(error) };
 }
 
-function createHarness(module: Record<string, unknown>, extension: string, step: Step, calls: Calls) {
+function createHarness(module: Record<string, unknown>, extension: string, callsRef: { calls: Calls }) {
 	const handlers = new Map<string, Array<(event: unknown, ctx: unknown) => unknown>>();
 	const tools = new Map<string, Record<string, unknown>>();
 	const commands = new Map<string, Record<string, unknown>>();
@@ -83,15 +83,17 @@ function createHarness(module: Record<string, unknown>, extension: string, step:
 	const flags = new Map<string, Record<string, unknown>>();
 	const shortcuts = new Map<string, Record<string, unknown>>();
 	const handlerOrder: string[] = [];
-	const inputs = [...(step.inputs ?? [])];
-	const runCommandResults = [...(step.runCommandResults ?? [])];
+	const state: { inputs: Array<string | null>; runCommandResults: Step["runCommandResults"] } = {
+		inputs: [],
+		runCommandResults: [],
+	};
 
 	const provision = async (
 		request: Record<string, unknown>,
 		username: string,
 		password: string,
 	): Promise<void> => {
-		calls.provision.push([request, username, password]);
+		callsRef.calls.provision.push([request, username, password]);
 	};
 
 	const runCommand = async (
@@ -99,8 +101,8 @@ function createHarness(module: Record<string, unknown>, extension: string, step:
 		args: string[],
 		signal?: AbortSignal,
 	): Promise<{ stdout: string; stderr: string; exitCode: number | null }> => {
-		calls.runCommand.push([executable, args, signal !== undefined]);
-		const next = runCommandResults.shift();
+		callsRef.calls.runCommand.push([executable, args, signal !== undefined]);
+		const next = state.runCommandResults?.shift();
 		if (!next) throw new Error("no fake browser-cli result queued");
 		return next;
 	};
@@ -128,10 +130,10 @@ function createHarness(module: Record<string, unknown>, extension: string, step:
 			gates.push(gate);
 		},
 		appendEntry(customType: string, data: unknown) {
-			calls.appendEntry.push([customType, data]);
+			callsRef.calls.appendEntry.push([customType, data]);
 		},
 		sendUserMessage(message: string, options?: Record<string, unknown>) {
-			calls.sendUserMessage.push([message, options]);
+			callsRef.calls.sendUserMessage.push([message, options]);
 		},
 		sendMessage() {},
 		exec() {
@@ -139,60 +141,15 @@ function createHarness(module: Record<string, unknown>, extension: string, step:
 		},
 	};
 
-	const ui = {
-		input: async (title: string, placeholder: string | null, options?: Record<string, unknown>) => {
-			calls.inputs.push([title, placeholder, options]);
-			if (inputs.length === 0) throw new Error("no fake input queued");
-			const value = inputs.shift();
-			return value === null ? undefined : value;
-		},
-		notify: (message: string, type?: string) => {
-			calls.notify.push([message, type ?? null]);
-		},
-		setStatus: (key: string, text?: string) => {
-			calls.setStatus.push([key, text ?? null]);
-		},
-		setEditorText: (text: string) => {
-			calls.setEditorText.push(text);
-		},
-	};
-
-	const ctx = {
-		mode: step.mode ?? "tui",
-		hasUI: step.hasUI ?? true,
-		cwd: step.cwd ?? process.cwd(),
-		ui,
-		isIdle: () => step.idle ?? true,
-		signal: undefined,
-		sessionManager: {
-			getEntries: () => step.entries ?? [],
-			getSessionFile: () => step.sessionFile ?? undefined,
-			getSessionId: () => step.sessionId ?? "test-session-id",
-		},
-		controlDbPath: step.controlDbPath ?? undefined,
-		restart: async (options: Record<string, unknown>) => {
-			calls.restart.push(options);
-		},
-		setSandboxProfile: (profile: string | undefined, scope: string) => {
-			calls.sandboxProfile.push([profile ?? null, scope]);
-		},
-		showSandboxSelector: () => {
-			calls.showSandboxSelector += 1;
-		},
-		showApprovalSelector: () => {
-			calls.showApprovalSelector += 1;
-		},
-	};
-
 	const factory = module.default as (api: unknown, ...rest: unknown[]) => void;
 	if (extension === "debug") {
 		factory(pi, () => ({
 			enable: async (sessionId: string) => {
-				calls.debug.push(["enable", sessionId]);
+				callsRef.calls.debug.push(["enable", sessionId]);
 				return `debug ${sessionId}`;
 			},
 			disable: async () => {
-				calls.debug.push(["disable", null]);
+				callsRef.calls.debug.push(["disable", null]);
 			},
 		}));
 	} else {
@@ -209,7 +166,56 @@ function createHarness(module: Record<string, unknown>, extension: string, step:
 		tools.set(tool.name as string, tool);
 	}
 
-	return { handlers, tools, commands, gates, flags, shortcuts, handlerOrder, ctx };
+	const makeCtx = (step: Step) => {
+		state.inputs = [...(step.inputs ?? [])];
+		state.runCommandResults = [...(step.runCommandResults ?? [])];
+		const ui = {
+			input: async (title: string, placeholder: string | null, options?: Record<string, unknown>) => {
+				callsRef.calls.inputs.push([title, placeholder, options]);
+				if (state.inputs.length === 0) throw new Error("no fake input queued");
+				const value = state.inputs.shift();
+				return value === null ? undefined : value;
+			},
+			notify: (message: string, type?: string) => {
+				callsRef.calls.notify.push([message, type ?? null]);
+			},
+			setStatus: (key: string, text?: string) => {
+				callsRef.calls.setStatus.push([key, text ?? null]);
+			},
+			setEditorText: (text: string) => {
+				callsRef.calls.setEditorText.push(text);
+			},
+		};
+
+		return {
+			mode: step.mode ?? "tui",
+			hasUI: step.hasUI ?? true,
+			cwd: step.cwd ?? process.cwd(),
+			ui,
+			isIdle: () => step.idle ?? true,
+			signal: undefined,
+			sessionManager: {
+				getEntries: () => step.entries ?? [],
+				getSessionFile: () => step.sessionFile ?? undefined,
+				getSessionId: () => step.sessionId ?? "test-session-id",
+			},
+			controlDbPath: step.controlDbPath ?? undefined,
+			restart: async (options: Record<string, unknown>) => {
+				callsRef.calls.restart.push(options);
+			},
+			setSandboxProfile: (profile: string | undefined, scope: string) => {
+				callsRef.calls.sandboxProfile.push([profile ?? null, scope]);
+			},
+			showSandboxSelector: () => {
+				callsRef.calls.showSandboxSelector += 1;
+			},
+			showApprovalSelector: () => {
+				callsRef.calls.showApprovalSelector += 1;
+			},
+		};
+	};
+
+	return { handlers, tools, commands, gates, flags, shortcuts, handlerOrder, makeCtx };
 }
 
 function registrations(h: ReturnType<typeof createHarness>) {
@@ -236,95 +242,91 @@ function registrations(h: ReturnType<typeof createHarness>) {
 }
 
 async function executeStep(
-	module: Record<string, unknown>,
-	extension: string,
+	h: ReturnType<typeof createHarness>,
 	step: Step,
-	calls: Calls,
 ): Promise<unknown> {
 	for (const [name, value] of Object.entries(step.env ?? {})) {
 		process.env[name] = value;
 	}
-	const h = createHarness(module, extension, step, calls);
-	try {
-		switch (step.op) {
-			case "registrations":
-				return registrations(h);
-			case "command": {
-				const command = h.commands.get(step.name as string);
-				if (!command) throw new Error(`command not registered: ${step.name}`);
-				await (command.handler as (args: string, ctx: unknown) => unknown)(step.args ?? "", h.ctx);
-				return null;
-			}
-			case "completions": {
-				const command = h.commands.get(step.name as string);
-				if (!command) throw new Error(`command not registered: ${step.name}`);
-				const get = command.getArgumentCompletions as ((prefix: string) => unknown) | undefined;
-				if (!get) return null;
-				const cwd = step.cwd ?? process.cwd();
-				const previous = process.cwd();
-				process.chdir(cwd);
-				try {
-					return get(step.prefix ?? "") ?? null;
-				} finally {
-					process.chdir(previous);
-				}
-			}
-			case "event": {
-				const handlers = h.handlers.get(step.name as string) ?? [];
-				let result: unknown;
-				for (const handler of handlers) {
-					result = await handler({ type: step.name, ...(step.event ?? {}) }, h.ctx);
-				}
-				return result ?? null;
-			}
-			case "gate": {
-				let result: unknown;
-				for (const gate of h.gates) {
-					result = await gate(
-						{
-							type: "tool_call",
-							toolCallId: `${step.toolName}-call`,
-							toolName: step.toolName,
-							input: {},
-							bypassPermissions: false,
-						},
-						h.ctx,
-					);
-				}
-				return result ?? null;
-			}
-			case "tool": {
-				const tool = h.tools.get(step.name as string);
-				if (!tool) throw new Error(`tool not registered: ${step.name}`);
-				const execute = tool.execute as (
-					id: string,
-					params: unknown,
-					signal: unknown,
-					onUpdate: unknown,
-					ctx: unknown,
-				) => unknown;
-				return await execute("call-1", step.params ?? {}, undefined, undefined, h.ctx);
-			}
-			default:
-				throw new Error(`unknown step: ${step.op}`);
+	const ctx = h.makeCtx(step);
+	switch (step.op) {
+		case "registrations":
+			return registrations(h);
+		case "command": {
+			const command = h.commands.get(step.name as string);
+			if (!command) throw new Error(`command not registered: ${step.name}`);
+			await (command.handler as (args: string, ctx: unknown) => unknown)(step.args ?? "", ctx);
+			return null;
 		}
-	} finally {
-		// keep calls accumulated for the step response
+		case "completions": {
+			const command = h.commands.get(step.name as string);
+			if (!command) throw new Error(`command not registered: ${step.name}`);
+			const get = command.getArgumentCompletions as ((prefix: string) => unknown) | undefined;
+			if (!get) return null;
+			const cwd = step.cwd ?? process.cwd();
+			const previous = process.cwd();
+			process.chdir(cwd);
+			try {
+				return get(step.prefix ?? "") ?? null;
+			} finally {
+				process.chdir(previous);
+			}
+		}
+		case "event": {
+			const handlers = h.handlers.get(step.name as string) ?? [];
+			let result: unknown;
+			for (const handler of handlers) {
+				result = await handler({ type: step.name, ...(step.event ?? {}) }, ctx);
+			}
+			return result ?? null;
+		}
+		case "gate": {
+			let result: unknown;
+			for (const gate of h.gates) {
+				result = await gate(
+					{
+						type: "tool_call",
+						toolCallId: `${step.toolName}-call`,
+						toolName: step.toolName,
+						input: {},
+						bypassPermissions: false,
+					},
+					ctx,
+				);
+			}
+			return result ?? null;
+		}
+		case "tool": {
+			const tool = h.tools.get(step.name as string);
+			if (!tool) throw new Error(`tool not registered: ${step.name}`);
+			const execute = tool.execute as (
+				id: string,
+				params: unknown,
+				signal: unknown,
+				onUpdate: unknown,
+				ctx: unknown,
+			) => unknown;
+			return await execute("call-1", step.params ?? {}, undefined, undefined, ctx);
+		}
+		default:
+			throw new Error(`unknown step: ${step.op}`);
 	}
 }
 
 async function execute(request: Request, module: Record<string, unknown>) {
 	const results: unknown[] = [];
+	const callsRef = { calls: newCalls() };
+	const h = createHarness(module, request.extension, callsRef);
 	for (const step of request.steps) {
-		const calls = newCalls();
+		callsRef.calls = newCalls();
 		let result: unknown = null;
 		let error: { name: string; message: string } | null = null;
 		try {
-			result = await executeStep(module, request.extension, step, calls);
+			result = await executeStep(h, step);
 		} catch (caught) {
 			error = normalizeError(caught);
 		}
-		results.push({ op: step.op, result, error, calls });
+		results.push({ op: step.op, result, error, calls: callsRef.calls });
 	}
 	return results;
 }

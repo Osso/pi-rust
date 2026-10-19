@@ -8,7 +8,7 @@ use pi_coding_agent::core::extensions::loader::{ExtensionFactory, load_extension
 use pi_coding_agent::core::extensions::types::{
     Extension, ExtensionActions, ExtensionApi, ExtensionCommandContext, ExtensionCommandContextActions,
     ExtensionContextActions, ExtensionMode, ExtensionUiContext, ExtensionUiDialogOptions, NotifyType,
-    SessionTransitionResult, ToolDefinition, UserMessageContent,
+    SessionTransitionResult, UserMessageContent,
 };
 use pi_coding_agent::core::extensions::{ExtensionRunner, ExtensionRuntime, create_extension_runtime};
 use pi_coding_agent::core::model_registry::ModelRegistry;
@@ -111,7 +111,6 @@ pub struct Harness {
     pub extension: Extension,
     pub runner: ExtensionRunner,
     pub calls: Arc<Mutex<Calls>>,
-    pub session_manager: Arc<SessionManager>,
 }
 
 impl Harness {
@@ -156,18 +155,13 @@ impl Harness {
             model_registry().await,
             None,
         );
-        runner.bind_core(
-            actions(&calls),
-            context_actions(&calls, Arc::clone(&session_manager), control_db_path),
-            None,
-        );
+        runner.bind_core(actions(&calls), context_actions(&calls, control_db_path), None);
         runner.bind_command_context(Some(command_actions(&calls)));
         runner.set_ui_context(Some(ui.clone()), ExtensionMode::Tui);
         Self {
             extension,
             runner,
             calls,
-            session_manager,
         }
     }
 
@@ -176,15 +170,6 @@ impl Harness {
             .commands
             .get(name)
             .unwrap_or_else(|| panic!("command {name} registered"))
-            .clone()
-    }
-
-    pub fn tool(&self, name: &str) -> ToolDefinition {
-        self.extension
-            .tools
-            .get(name)
-            .unwrap_or_else(|| panic!("tool {name} registered"))
-            .definition
             .clone()
     }
 
@@ -276,13 +261,8 @@ pub fn actions(calls: &Arc<Mutex<Calls>>) -> ExtensionActions {
     }
 }
 
-pub fn context_actions(
-    calls: &Arc<Mutex<Calls>>,
-    session_manager: Arc<SessionManager>,
-    control_db_path: Option<String>,
-) -> ExtensionContextActions {
+pub fn context_actions(calls: &Arc<Mutex<Calls>>, control_db_path: Option<String>) -> ExtensionContextActions {
     let restart_calls = Arc::clone(calls);
-    let _ = session_manager;
     let control_db_path = Arc::new(Mutex::new(control_db_path));
     ExtensionContextActions {
         get_model: Arc::new(|| None),
