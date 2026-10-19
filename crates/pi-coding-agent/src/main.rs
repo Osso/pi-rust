@@ -41,7 +41,10 @@ use crate::cli::{
     validate_auth_command_args,
 };
 use crate::config::{InstallContext, get_agent_dir, get_package_dir, get_user_state_root, package_config};
-use crate::core::agent_session::{ExtensionBindings, MultiAgentRuntimeRole, create_multi_agent_execution_capability};
+use crate::core::agent_session::{
+    ExtensionBindings, MultiAgentRuntimeRole, bind_agent_session_mutation_target_resolver,
+    create_multi_agent_execution_capability,
+};
 use crate::core::agent_session_runtime::{
     CreateAgentSessionRuntimeFactory, CreateAgentSessionRuntimeOptions, CreateAgentSessionRuntimeResult,
     create_agent_session_runtime,
@@ -176,9 +179,55 @@ pub fn create_first_party_extension_factories(
     store: Arc<MultiAgentStore>,
     runtime_handles: crate::bundled_extensions::agents_core::runtime::MultiAgentRuntimeHandles,
     fetch: Arc<dyn pi_ai::request::Fetch>,
+    agent_dir: String,
+    runtime_extension_factories: Arc<dyn Fn() -> Vec<InlineExtension> + Send + Sync>,
+    select_agent_view: Option<Arc<Mutex<Option<crate::bundled_extensions::agents_core::runtime::SelectAgentView>>>>,
 ) -> Vec<InlineExtension> {
+    use crate::bundled_extensions::agents_core::session_factories::{
+        AgentSessionChildSession, ChildExtensionFactories, CreateChildSession, CreateChildSessionManager,
+        ProductionAttachedSessionFactoryOptions, ProductionChildAgentSessionFactoryOptions, UnboundChildAgentSession,
+        create_production_attached_session_factory, create_production_child_agent_session_factory,
+    };
+
+    let create_session: CreateChildSession = Arc::new(|options: CreateAgentSessionOptions| {
+        Box::pin(async move {
+            let result = crate::core::sdk::create_agent_session(options).await?;
+            Ok(Arc::new(AgentSessionChildSession::new(result.session)) as Arc<dyn UnboundChildAgentSession>)
+        })
+    });
+    let create_session_manager: CreateChildSessionManager = Arc::new(|cwd, session_dir, options| {
+        SessionManager::create(cwd, session_dir, Some(options)).map_err(|error| error.to_string())
+    });
+    let child_agent_session_factory =
+        create_production_child_agent_session_factory(ProductionChildAgentSessionFactoryOptions {
+            agent_dir: Some(agent_dir.clone()),
+            create_session: Arc::clone(&create_session),
+            create_session_manager,
+            extension_factories: Some(ChildExtensionFactories::Dynamic(Arc::clone(
+                &runtime_extension_factories,
+            ))),
+            multi_agent_store: Some(Arc::clone(&store)),
+            session_dir: None,
+        });
+    let attached_session_factory =
+        create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
+            agent_dir: Some(agent_dir),
+            create_session,
+            extension_factories: Some(ChildExtensionFactories::Dynamic(runtime_extension_factories)),
+            multi_agent_store: Some(Arc::clone(&store)),
+            session_dir: None,
+        });
+    let select_agent_view = select_agent_view.map(|slot| {
+        Arc::new(move |agent_id: &str| {
+            let selector = slot.lock().expect("agent view selector").clone();
+            selector.and_then(|selector| selector(agent_id))
+        }) as crate::bundled_extensions::agents_core::runtime::SelectAgentView
+    });
     let options = crate::bundled_extensions::agents_core::runtime::MultiAgentExtensionOptions {
+        create_attached_session: Some(attached_session_factory),
+        create_child_session: Some(child_agent_session_factory),
         runtime_handles: Some(runtime_handles),
+        select_agent_view,
         store: Some(Arc::clone(&store)),
         ..Default::default()
     };
@@ -584,6 +633,19 @@ async fn create_runtime(
         )),
     })
     .await?;
+
+    {
+        let store = Arc::clone(&options.multi_agent_store);
+        let handles = options.multi_agent_runtime_handles.clone();
+        bind_agent_session_mutation_target_resolver(
+            &result.session,
+            Arc::new(move || {
+                crate::bundled_extensions::agents_core::runtime::resolve_selected_session_mutation_target(
+                    &store, &handles,
+                )
+            }),
+        );
+    }
 
     let cli_thinking_override = parsed.thinking.is_some() || cli_thinking_from_model;
     if cli_thinking_override {
@@ -1943,10 +2005,20 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     let multi_agent_store = create_first_party_multi_agent_store();
     let multi_agent_runtime_handles =
         crate::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
+    let runtime_extension_factories: Arc<Mutex<Vec<InlineExtension>>> = Arc::new(Mutex::new(Vec::new()));
+    let interactive_agent_view_selector: Arc<
+        Mutex<Option<crate::bundled_extensions::agents_core::runtime::SelectAgentView>>,
+    > = Arc::new(Mutex::new(None));
     let first_party_extension_factories = create_first_party_extension_factories(
         Arc::clone(&multi_agent_store),
         multi_agent_runtime_handles.clone(),
         Arc::clone(&fetch),
+        agent_dir.clone(),
+        Arc::new({
+            let factories = Arc::clone(&runtime_extension_factories);
+            move || factories.lock().expect("runtime extension factories").clone()
+        }),
+        Some(Arc::clone(&interactive_agent_view_selector)),
     );
     let extension_factories = if parsed.no_extensions.is_some_and(|value| value) {
         options.extension_factories.clone()
@@ -1955,6 +2027,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         factories.extend(options.extension_factories.clone());
         factories
     };
+    *runtime_extension_factories.lock().expect("runtime extension factories") = extension_factories.clone();
 
     if !parsed.diagnostics.is_empty() {
         let chalk = Chalk::stderr();
