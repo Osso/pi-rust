@@ -6,3 +6,7 @@ incremental = false
 [alias]
 # `cargo pi -- <args>` runs the coding-agent CLI.
 pi = "run -p pi-coding-agent --bin pi --"
+
+# Test binaries get a private Pi state directory (see the script header).
+[target.'cfg(all())']
+runner = "scripts/cargo-runner.sh"

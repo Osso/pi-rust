@@ -30,6 +30,13 @@ use crate::modes::interactive::theme::{Theme, ThemeColor, get_language_from_path
 
 const DESCRIPTION: &str = "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.";
 
+/// `writeToolSystemPromptContribution`.
+pub const WRITE_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribution =
+    super::ToolSystemPromptContribution {
+        snippet: "Create or overwrite files",
+        guidelines: &["Use write only for new files or complete rewrites."],
+    };
+
 /// File writes used by [`WriteTool`]. Override to delegate writes to a remote system.
 pub trait WriteOperations: Send + Sync {
     fn write_file<'a>(&'a self, absolute_path: &'a str, content: &'a str) -> BoxFuture<'a, io::Result<()>>;

@@ -16,9 +16,25 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use crate::architect::observer::ArchitectObserver;
-use crate::architect::prompt::build_architect_prompt;
+use crate::architect::project_spec::register_architect_project_spec_tool;
+use crate::architect::prompt::{ARCHITECT_SYSTEM_PROMPT, build_architect_prompt};
+use crate::bundled_extensions::agents_core::runtime::MultiAgentExtensionOptions;
+use crate::bundled_extensions::agents_mailbox::agents_mailbox_extension;
+use crate::bundled_extensions::bwrap::{BwrapExtensionOptions, bwrap_extension_factory};
+use crate::core::agent_session::{AgentSession, AgentSessionEvent, MultiAgentRuntimeRole, PromptOptions};
+use crate::core::extensions::loader::ExtensionFactory;
+use crate::core::extensions::types::{
+    BeforeAgentStartEvent, BeforeAgentStartEventResult, ExtensionContext, HandlerError, ToolCallEvent,
+    ToolCallEventResult, ToolGateHandle,
+};
+use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use crate::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
-use crate::core::resident_console_transport::{ResidentConsoleService, ResidentConsoleSnapshot};
+use crate::core::resident_console_transport::{
+    ResidentConsoleHost, ResidentConsoleServer, ResidentConsoleServerOptions, ResidentConsoleService,
+    ResidentConsoleSnapshot, Unsubscribe,
+};
+use crate::core::resource_loader::{InlineExtension, RulesScope};
+use crate::core::sdk::{CreateAgentSessionOptions, create_agent_session};
 use crate::core::session_control_db::{archive_session, get_control_db_path};
 use crate::core::session_manager::{SessionEntry, SessionManager, SetMetadataControlDbPathOptions};
 use crate::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
@@ -325,4 +341,293 @@ where
         console_server.close().await?;
     }
     result
+}
+
+/// Input for [`create_architect_console_server`].
+pub struct CreateArchitectConsoleServerInput {
+    pub control_db_path: String,
+    pub cwd: String,
+    pub generation: u64,
+    pub prompt_queue: Arc<ArchitectConsolePromptQueue>,
+    pub session: AgentSession,
+}
+
+struct ArchitectConsoleHost {
+    cwd: String,
+    generation: u64,
+    prompt_queue: Arc<ArchitectConsolePromptQueue>,
+    session: AgentSession,
+}
+
+impl ResidentConsoleHost<SessionEntry, AgentSessionEvent> for ArchitectConsoleHost {
+    fn get_snapshot(&self) -> ResidentConsoleSnapshot<SessionEntry> {
+        create_architect_console_snapshot(
+            &self.cwd,
+            self.generation,
+            Some(&AgentSession::session_id(&self.session)),
+            self.session.session_manager().get_branch(None),
+        )
+    }
+
+    fn enqueue_prompt(&self, text: String, id: String) -> BoxFuture<'static, Result<(), String>> {
+        self.prompt_queue.enqueue(text, id);
+        Box::pin(async { Ok(()) })
+    }
+
+    fn subscribe(&self, listener: Arc<dyn Fn(AgentSessionEvent) + Send + Sync>) -> Unsubscribe {
+        let id = self.session.subscribe(Arc::new(move |event: &AgentSessionEvent| {
+            listener(event.clone());
+        }));
+        let session = self.session.clone();
+        Box::new(move || session.unsubscribe(id))
+    }
+}
+
+/// `createArchitectConsoleServer`.
+pub fn create_architect_console_server(
+    input: CreateArchitectConsoleServerInput,
+) -> ResidentConsoleServer<SessionEntry, AgentSessionEvent> {
+    ResidentConsoleServer::new(ResidentConsoleServerOptions {
+        socket_path: std::path::PathBuf::from(format!("{}.architect-console.sock", input.control_db_path)),
+        service: ResidentConsoleService::Architect,
+        host: Arc::new(ArchitectConsoleHost {
+            cwd: input.cwd,
+            generation: input.generation,
+            prompt_queue: input.prompt_queue,
+            session: input.session,
+        }),
+    })
+}
+
+/// Shared handle used by the service loop.
+pub struct SharedArchitectConsoleServer {
+    server: Arc<ResidentConsoleServer<SessionEntry, AgentSessionEvent>>,
+}
+
+impl SharedArchitectConsoleServer {
+    pub fn new(server: ResidentConsoleServer<SessionEntry, AgentSessionEvent>) -> Self {
+        Self {
+            server: Arc::new(server),
+        }
+    }
+}
+
+impl ArchitectConsoleServer for SharedArchitectConsoleServer {
+    fn start(&self) -> BoxFuture<'static, Result<(), String>> {
+        let server = Arc::clone(&self.server);
+        Box::pin(async move { server.start().await })
+    }
+
+    fn close(&self) -> BoxFuture<'static, Result<(), String>> {
+        let server = Arc::clone(&self.server);
+        Box::pin(async move { server.close().await })
+    }
+}
+
+/// `runArchitectService`.
+pub async fn run_architect_service() -> Result<(), String> {
+    let agent_dir = crate::config::get_agent_dir().display().to_string();
+    let cwd = std::env::var("HOME").unwrap_or_else(|_| {
+        std::env::current_dir()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default()
+    });
+    let session_dir = std::path::Path::new(&agent_dir).join("architect-sessions");
+    std::fs::create_dir_all(&session_dir).map_err(|error| error.to_string())?;
+    let suffix = format!("_{ARCHITECT_SESSION_ID}.jsonl");
+    let mut candidates: Vec<String> = std::fs::read_dir(&session_dir)
+        .map_err(|error| error.to_string())?
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            name.ends_with(&suffix).then_some(name)
+        })
+        .collect();
+    candidates.sort();
+    let session_dir_text = session_dir.display().to_string();
+    let session_path = candidates.last().map_or_else(
+        || session_dir.join(format!("{ARCHITECT_SESSION_ID}.jsonl")),
+        |name| session_dir.join(name),
+    );
+    let mut session_manager = if session_path.exists() {
+        SessionManager::open(&session_path.display().to_string(), Some(&session_dir_text), Some(&cwd))
+    } else {
+        SessionManager::create(
+            &cwd,
+            Some(&session_dir_text),
+            Some(crate::core::session_manager::NewSessionOptions {
+                id: Some(ARCHITECT_SESSION_ID.to_owned()),
+                ..Default::default()
+            }),
+        )
+    }
+    .map_err(|error| error.to_string())?;
+    let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+        auth_path: Some(std::path::Path::new(&agent_dir).join("auth.json").display().to_string()),
+        models_path: Some(Some(
+            std::path::Path::new(&agent_dir)
+                .join("models.json")
+                .display()
+                .to_string(),
+        )),
+        ..Default::default()
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    let model = model_runtime
+        .get_model("openai-codex", "gpt-5.6-sol")
+        .ok_or_else(|| "Pi Architect requires openai-codex/gpt-5.6-sol".to_owned())?;
+    let settings_manager = Arc::new(Mutex::new(create_architect_settings_manager()));
+    let control_db_path = get_control_db_path(&crate::config::get_user_state_root());
+    let store = Arc::new(create_architect_multi_agent_store(
+        &mut session_manager,
+        Some(&control_db_path),
+    )?);
+    let observer = Arc::new(ArchitectObserver::new(&control_db_path, None));
+
+    let mailbox_observer = Arc::clone(&observer);
+    let mailbox_options = MultiAgentExtensionOptions {
+        on_session_message_sent: Some(Arc::new(move |message, to_session_id| {
+            complete_sent_architect_request(
+                &*mailbox_observer,
+                &SentArchitectMessage {
+                    thread_id: message.thread_id.clone(),
+                    to_agent_id: message.to_agent_id.clone(),
+                    to_session_id: to_session_id.to_owned(),
+                },
+            )
+            .map_err(HandlerError::new)
+        })),
+        store: Some(Arc::clone(&store)),
+        ..Default::default()
+    };
+    let mailbox_factory: ExtensionFactory = Arc::new(move |api| {
+        let result = agents_mailbox_extension(api, &mailbox_options);
+        Box::pin(async move { result })
+    });
+
+    let architect_factory: ExtensionFactory = Arc::new(move |api| {
+        let result = (|| -> Result<(), String> {
+            register_architect_project_spec_tool(api)?;
+            api.on_before_agent_start(|event: BeforeAgentStartEvent, _context: ExtensionContext| {
+                Box::pin(async move {
+                    Ok(Some(BeforeAgentStartEventResult {
+                        message: None,
+                        system_prompt: Some(format!("{}\n\n{ARCHITECT_SYSTEM_PROMPT}", event.system_prompt)),
+                    }))
+                }) as BoxFuture<'static, Result<Option<BeforeAgentStartEventResult>, HandlerError>>
+            })?;
+            let gate: ToolGateHandle = Arc::new(move |event: ToolCallEvent, _context: ExtensionContext| {
+                Box::pin(async move {
+                    Ok(
+                        block_architect_global_broadcast(event.tool_name.as_str()).map(|result| ToolCallEventResult {
+                            block: result.block,
+                            input: None,
+                            reason: result.reason,
+                            terminate: result.terminate,
+                        }),
+                    )
+                }) as BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>>
+            });
+            api.register_tool_gate(gate)
+        })();
+        Box::pin(async move { result.map_err(HandlerError::new) })
+    });
+
+    let result = create_agent_session(CreateAgentSessionOptions {
+        agent_dir: Some(agent_dir),
+        cwd: Some(cwd.clone()),
+        disable_runtime_coordination_inbound: true,
+        extension_factories: vec![
+            InlineExtension::Factory {
+                extension_path: Some("<first-party:agents-mailbox>".to_owned()),
+                factory: mailbox_factory,
+            },
+            InlineExtension::Factory {
+                extension_path: Some("<first-party:bwrap>".to_owned()),
+                factory: bwrap_extension_factory(BwrapExtensionOptions::default()),
+            },
+            InlineExtension::Factory {
+                extension_path: Some("<architect>".to_owned()),
+                factory: architect_factory,
+            },
+        ],
+        model: Some(model),
+        model_runtime: Some(model_runtime),
+        exclude_tools: Some(
+            ARCHITECT_EXCLUDED_TOOL_NAMES
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect(),
+        ),
+        multi_agent_runtime_role: Some(MultiAgentRuntimeRole::Observer),
+        rules_scope: Some(RulesScope::Architect),
+        multi_agent_store: Some(store),
+        session_manager: Some(session_manager),
+        settings_manager: Some(settings_manager),
+        thinking_level: Some(pi_agent_core::harness::types::ThinkingLevel::High),
+        ..Default::default()
+    })
+    .await?;
+    let session = result.session;
+    let abort_controller = CancellationToken::new();
+    let prompt_queue = Arc::new(ArchitectConsolePromptQueue::new());
+    let console_server = create_architect_console_server(CreateArchitectConsoleServerInput {
+        control_db_path,
+        cwd,
+        generation: std::process::id() as u64,
+        prompt_queue: Arc::clone(&prompt_queue),
+        session: session.clone(),
+    });
+    let stop = create_architect_stop_handler(
+        abort_controller.clone(),
+        Arc::new({
+            let session = session.clone();
+            move || {
+                let session = session.clone();
+                Box::pin(async move {
+                    let _ = session.abort().await;
+                })
+            }
+        }),
+        Arc::new(|code| std::process::exit(code)),
+    );
+    install_architect_stop_signals(stop);
+    let prompt_session = session.clone();
+    let prompt = move |content: String| {
+        let session = prompt_session.clone();
+        async move {
+            session
+                .prompt(&content, PromptOptions::default())
+                .await
+                .map_err(|error| error.message().to_owned())
+        }
+    };
+    run_architect_service_loop(
+        Some(Arc::new(SharedArchitectConsoleServer::new(console_server))),
+        observer,
+        prompt,
+        prompt_queue,
+        abort_controller,
+    )
+    .await
+}
+
+fn install_architect_stop_signals(stop: impl Fn() + Send + Sync + 'static) {
+    let stop = Arc::new(stop);
+    tokio::spawn(async move {
+        let mut interrupt = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()) {
+            Ok(signal) => signal,
+            Err(_) => return,
+        };
+        let mut terminate = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(signal) => signal,
+            Err(_) => return,
+        };
+        tokio::select! {
+            _ = interrupt.recv() => {}
+            _ = terminate.recv() => {}
+        }
+        stop();
+    });
 }
