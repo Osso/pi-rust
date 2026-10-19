@@ -15,6 +15,8 @@ use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 use pi_agent_core::agent::types::{AgentEvent, AgentMessage};
+use pi_ai::auth::types::{AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, AuthType};
+use pi_ai::request::CallbackError;
 use pi_ai::types::{AssistantMessage, ImageContent, Model};
 use pi_tui::EditorComponent;
 use pi_tui::autocomplete::{
@@ -65,6 +67,10 @@ use crate::modes::interactive::components::extension_editor::{ExtensionEditorCom
 use crate::modes::interactive::components::extension_input::{ExtensionInputComponent, ExtensionInputOptions};
 use crate::modes::interactive::components::extension_selector::{ExtensionSelectorComponent, ExtensionSelectorOptions};
 use crate::modes::interactive::components::footer::FooterComponent;
+use crate::modes::interactive::components::login_dialog::LoginDialogComponent;
+use crate::modes::interactive::components::oauth_selector::{
+    AuthSelectorMode, AuthSelectorProvider, OAuthSelectorComponent,
+};
 use crate::modes::interactive::components::sandbox_selector::{
     SandboxScope, SandboxSelectorComponent, SandboxSelectorOptions, SandboxSelectorSelection,
 };
@@ -89,6 +95,7 @@ use crate::modes::interactive::components::user_message_selector::{UserMessageIt
 use crate::modes::interactive::interactive_root_compositor::{
     InteractiveRootCompositorOptions, create_interactive_root_compositor,
 };
+use crate::modes::interactive::login_options::get_logout_provider_options;
 use crate::modes::interactive::login_options::{
     format_login_provider_completion_description, get_login_provider_completion_options, get_login_provider_options,
     get_login_provider_search_text,
@@ -1667,6 +1674,46 @@ impl Focusable for SharedScopedModelsSelector {
     }
 }
 
+/// Adapter mounting the login dialog while the auth bridge mutates it.
+pub struct SharedLoginDialog(pub Rc<RefCell<LoginDialogComponent>>);
+
+impl Component for SharedLoginDialog {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0
+            .try_borrow_mut()
+            .map(|mut dialog| dialog.render(width))
+            .unwrap_or_default()
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        if let Ok(mut dialog) = self.0.try_borrow_mut() {
+            dialog.handle_input(data);
+        }
+    }
+
+    fn invalidate(&mut self) {
+        if let Ok(mut dialog) = self.0.try_borrow_mut() {
+            dialog.invalidate();
+        }
+    }
+
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
+}
+
+impl Focusable for SharedLoginDialog {
+    fn focused(&self) -> bool {
+        self.0.try_borrow().map(|dialog| dialog.focused()).unwrap_or(false)
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        if let Ok(mut dialog) = self.0.try_borrow_mut() {
+            dialog.set_focused(focused);
+        }
+    }
+}
+
 /// Adapter mounting the session selector while its async loads mutate it.
 pub struct SharedSessionSelector(pub Rc<tokio::sync::Mutex<SessionSelectorComponent>>);
 
@@ -2290,6 +2337,64 @@ impl Component for ExtensionComponentAdapter {
 // InteractiveMode
 // ============================================================================
 
+/// UI work produced by a provider auth flow running off the TUI thread.
+enum AuthUiEvent {
+    Prompt(AuthPrompt, tokio::sync::oneshot::Sender<Result<String, String>>),
+    Notify(AuthEvent),
+}
+
+/// `AuthInteraction` backed by the mode's UI loop.
+struct InteractiveAuthInteraction {
+    sender: std::sync::Mutex<std::sync::mpsc::Sender<AuthUiEvent>>,
+    signal: tokio_util::sync::CancellationToken,
+}
+
+impl InteractiveAuthInteraction {
+    fn send(&self, event: AuthUiEvent) -> Result<(), CallbackError> {
+        self.sender
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .send(event)
+            .map_err(|_| CallbackError::new("Login cancelled"))
+    }
+}
+
+impl AuthInteraction for InteractiveAuthInteraction {
+    fn signal(&self) -> tokio_util::sync::CancellationToken {
+        self.signal.clone()
+    }
+
+    fn prompt(&self, prompt: AuthPrompt) -> pi_ai::request::BoxFuture<'_, Result<String, CallbackError>> {
+        Box::pin(async move {
+            let prompt_signal = prompt.signal.clone();
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            self.send(AuthUiEvent::Prompt(prompt, sender))?;
+            let result = match prompt_signal {
+                Some(signal) => tokio::select! {
+                    result = receiver => result,
+                    _ = signal.cancelled() => return Err(CallbackError::new("Login cancelled")),
+                },
+                None => receiver.await,
+            };
+            match result {
+                Ok(Ok(value)) => Ok(value),
+                Ok(Err(message)) => Err(CallbackError::new(message)),
+                Err(_) => Err(CallbackError::new("Login cancelled")),
+            }
+        })
+    }
+
+    fn notify(&self, event: AuthEvent) {
+        let _ = self.send(AuthUiEvent::Notify(event));
+    }
+}
+
+/// Active auth flow UI state polled by the mode loop.
+struct AuthUiState {
+    receiver: std::sync::mpsc::Receiver<AuthUiEvent>,
+    dialog: Rc<RefCell<LoginDialogComponent>>,
+}
+
 /// `InteractiveMode`: TUI rendering and user interaction for the coding agent.
 pub struct InteractiveMode {
     runtime: tokio::sync::Mutex<AgentSessionRuntime>,
@@ -2365,6 +2470,7 @@ pub struct InteractiveMode {
     clipboard_temp_files: RefCell<crate::utils::clipboard_temp_files::ClipboardTempFileTracker>,
     pending_compaction_summary_edit_id: RefCell<Option<String>>,
     active_session_selector: RefCell<Option<Rc<tokio::sync::Mutex<SessionSelectorComponent>>>>,
+    auth_ui: RefCell<Option<AuthUiState>>,
     session_selector_loaded: Cell<bool>,
 }
 
@@ -2550,6 +2656,7 @@ impl InteractiveMode {
             clipboard_temp_files: RefCell::new(crate::utils::clipboard_temp_files::ClipboardTempFileTracker::new()),
             pending_compaction_summary_edit_id: RefCell::new(None),
             active_session_selector: RefCell::new(None),
+            auth_ui: RefCell::new(None),
             session_selector_loaded: Cell::new(false),
         });
 
@@ -4746,8 +4853,8 @@ impl InteractiveMode {
             "clone" => self.handle_clone_command().await,
             "tree" => self.show_tree_selector(None, None),
             "trust" => self.show_trust_selector(),
-            "login" => self.show_status("Provider login is not ported yet."),
-            "logout" => self.show_status("Provider logout is not ported yet."),
+            "login" => self.handle_login_command(Some(args)).await,
+            "logout" => self.show_oauth_selector(true).await,
             "new" => self.handle_clear_command().await,
             "continue" => {
                 if self.session.borrow().is_streaming() {
@@ -6628,6 +6735,636 @@ impl InteractiveMode {
         receiver.await.unwrap_or(false)
     }
 
+    fn poll_auth_ui(&self) {
+        loop {
+            let (event, dialog) = {
+                let auth = self.auth_ui.borrow();
+                let Some(state) = auth.as_ref() else {
+                    return;
+                };
+                (state.receiver.try_recv().ok(), Rc::clone(&state.dialog))
+            };
+            let Some(event) = event else {
+                return;
+            };
+            match event {
+                AuthUiEvent::Notify(event) => self.notify_auth_dialog(&dialog, event),
+                AuthUiEvent::Prompt(prompt, respond) => self.show_auth_prompt(&dialog, prompt, respond),
+            }
+        }
+    }
+
+    fn mount_auth_dialog(&self, dialog: &Rc<RefCell<LoginDialogComponent>>) {
+        self.editor_container.borrow_mut().clear();
+        let component: ComponentRef = component(SharedLoginDialog(Rc::clone(dialog)));
+        self.editor_container.borrow_mut().add_child(Rc::clone(&component));
+        self.ui.set_focus(Some(component));
+        self.ui.request_render();
+    }
+
+    fn restore_auth_dialog(&self, dialog: &Rc<RefCell<LoginDialogComponent>>) {
+        self.mount_auth_dialog(dialog);
+    }
+
+    fn notify_auth_dialog(&self, dialog: &Rc<RefCell<LoginDialogComponent>>, event: AuthEvent) {
+        let dialog = dialog.borrow();
+        match event {
+            AuthEvent::AuthUrl { url, instructions } => {
+                dialog.show_auth(&url, instructions.as_deref());
+            }
+            AuthEvent::DeviceCode {
+                user_code,
+                verification_uri,
+                interval_seconds,
+                expires_in_seconds,
+            } => {
+                dialog.show_device_code(&pi_ai::OAuthDeviceCodeInfo {
+                    user_code,
+                    verification_uri,
+                    interval_seconds,
+                    expires_in_seconds,
+                });
+                dialog.show_waiting("Waiting for authentication...");
+            }
+            AuthEvent::Info { message, links } => {
+                dialog.show_info(&message, links.as_deref().unwrap_or(&[]), false);
+            }
+            AuthEvent::Progress { message } => dialog.show_progress(&message),
+        }
+    }
+
+    fn show_auth_prompt(
+        &self,
+        dialog: &Rc<RefCell<LoginDialogComponent>>,
+        prompt: AuthPrompt,
+        respond: tokio::sync::oneshot::Sender<Result<String, String>>,
+    ) {
+        match prompt.kind {
+            AuthPromptKind::Select { message, options } => {
+                let mode_id = self.ui_id.get();
+                let dialog = Rc::clone(dialog);
+                let respond = Rc::new(RefCell::new(Some(respond)));
+                let labels: Vec<String> = options.iter().map(|option| option.label.clone()).collect();
+                let select_respond = Rc::clone(&respond);
+                let select_dialog = Rc::clone(&dialog);
+                let on_select: Rc<dyn Fn(String)> = Rc::new(move |label: String| {
+                    if let Some(respond) = select_respond.borrow_mut().take() {
+                        let id = options
+                            .iter()
+                            .find(|option| option.label == label)
+                            .map(|option| option.id.clone());
+                        let _ = respond.send(match id {
+                            Some(id) => Ok(id),
+                            None => Err("Login cancelled".to_owned()),
+                        });
+                    }
+                    with_mode(mode_id, |mode| mode.restore_auth_dialog(&select_dialog));
+                });
+                let cancel_respond = Rc::clone(&respond);
+                let cancel_dialog = Rc::clone(&dialog);
+                let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+                    if let Some(respond) = cancel_respond.borrow_mut().take() {
+                        let _ = respond.send(Err("Login cancelled".to_owned()));
+                    }
+                    with_mode(mode_id, |mode| mode.restore_auth_dialog(&cancel_dialog));
+                });
+                let selector = ExtensionSelectorComponent::new(
+                    &message,
+                    labels,
+                    on_select,
+                    on_cancel,
+                    ExtensionSelectorOptions::default(),
+                );
+                self.editor_container.borrow_mut().clear();
+                let component: ComponentRef = component(selector);
+                self.editor_container.borrow_mut().add_child(Rc::clone(&component));
+                self.ui.set_focus(Some(component));
+                self.ui.request_render();
+            }
+            kind => {
+                self.mount_auth_dialog(dialog);
+                let receiver = match kind {
+                    AuthPromptKind::Text { message, placeholder } => {
+                        dialog.borrow().show_prompt(&message, placeholder.as_deref())
+                    }
+                    AuthPromptKind::Secret { message, placeholder } => {
+                        dialog.borrow().show_prompt(&message, placeholder.as_deref())
+                    }
+                    AuthPromptKind::ManualCode { message, .. } => dialog.borrow().show_manual_input(&message),
+                    AuthPromptKind::Select { .. } => unreachable!(),
+                };
+                tokio::task::spawn_local(async move {
+                    let result = match receiver.await {
+                        Ok(Ok(value)) => Ok(value),
+                        Ok(Err(error)) => Err(error.0),
+                        Err(_) => Err("Login cancelled".to_owned()),
+                    };
+                    let _ = respond.send(result);
+                });
+            }
+        }
+    }
+
+    async fn handle_login_command(&self, provider_ref: Option<&str>) {
+        let provider_ref = provider_ref
+            .map(str::trim)
+            .filter(|provider_ref| !provider_ref.is_empty());
+        let Some(provider_ref) = provider_ref else {
+            self.show_login_auth_type_selector(None);
+            return;
+        };
+        let provider_options = self.find_login_provider_options(provider_ref);
+        if provider_options.len() == 1 {
+            self.start_provider_login(provider_options[0].clone()).await;
+            return;
+        }
+        if provider_options.len() > 1 {
+            let unique_ids: HashSet<&str> = provider_options.iter().map(|option| option.id.as_str()).collect();
+            if unique_ids.len() == 1 {
+                self.show_login_auth_type_selector(Some(provider_options));
+                return;
+            }
+        }
+        self.show_login_provider_selector(None, Some(provider_ref.to_owned()));
+    }
+
+    fn find_login_provider_options(&self, provider_ref: &str) -> Vec<AuthSelectorProvider> {
+        let normalized = provider_ref.trim().to_lowercase();
+        if normalized.is_empty() {
+            return Vec::new();
+        }
+        get_login_provider_options(self.session().model_runtime(), None)
+            .into_iter()
+            .filter(|provider| provider.id.to_lowercase() == normalized || provider.name.to_lowercase() == normalized)
+            .collect()
+    }
+
+    fn get_login_auth_type_selector_options(
+        provider_options: Option<&[AuthSelectorProvider]>,
+    ) -> (String, Vec<String>) {
+        let oauth_label = provider_options
+            .and_then(|options| options.iter().find(|provider| provider.auth_type == AuthType::Oauth))
+            .and_then(|provider| provider.method_name.clone());
+        let subscription_label = oauth_label.unwrap_or_else(|| "Sign in with an account".to_owned());
+        let available: Vec<AuthType> = match provider_options {
+            Some(options) => options.iter().map(|provider| provider.auth_type).collect(),
+            None => vec![AuthType::Oauth, AuthType::ApiKey],
+        };
+        let mut options = Vec::new();
+        if available.contains(&AuthType::Oauth) {
+            options.push(subscription_label.clone());
+        }
+        if available.contains(&AuthType::ApiKey) {
+            options.push("Sign in with an API key".to_owned());
+        }
+        (subscription_label, options)
+    }
+
+    fn show_login_auth_type_selector(&self, provider_options: Option<Vec<AuthSelectorProvider>>) {
+        let (subscription_label, options) = Self::get_login_auth_type_selector_options(provider_options.as_deref());
+        if options.is_empty() {
+            self.show_status("No login methods available.");
+            return;
+        }
+        let first_provider_option = provider_options.as_ref().and_then(|options| options.first().cloned());
+        if let Some(first_provider_option) = first_provider_option.clone()
+            && options.len() == 1
+        {
+            let mode_id = self.ui_id.get();
+            tokio::task::spawn_local(async move {
+                if let Some(mode) = with_mode(mode_id, |mode| mode) {
+                    mode.start_provider_login(first_provider_option).await;
+                }
+            });
+            return;
+        }
+        let title = match &first_provider_option {
+            Some(provider) => format!("Select authentication method for {}:", provider.name),
+            None => "Select authentication method:".to_owned(),
+        };
+        let mode_id = self.ui_id.get();
+        let options_for_select = provider_options.clone();
+        let subscription_for_select = subscription_label.clone();
+        let on_select: Rc<dyn Fn(String)> = Rc::new(move |option: String| {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                let auth_type = if option == subscription_for_select {
+                    AuthType::Oauth
+                } else {
+                    AuthType::ApiKey
+                };
+                match &options_for_select {
+                    None => mode.show_login_provider_selector(Some(auth_type), None),
+                    Some(providers) => {
+                        if let Some(provider_option) = providers
+                            .iter()
+                            .find(|provider| provider.auth_type == auth_type)
+                            .cloned()
+                        {
+                            tokio::task::spawn_local(async move {
+                                mode.start_provider_login(provider_option).await;
+                            });
+                        }
+                    }
+                }
+            });
+        });
+        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                mode.ui.request_render();
+            });
+        });
+        self.show_selector(component(ExtensionSelectorComponent::new(
+            &title,
+            options,
+            on_select,
+            on_cancel,
+            ExtensionSelectorOptions::default(),
+        )));
+    }
+
+    fn show_login_provider_selector(&self, auth_type: Option<AuthType>, initial_search: Option<String>) {
+        let provider_options = get_login_provider_options(self.session().model_runtime(), auth_type);
+        if provider_options.is_empty() {
+            let message = match auth_type {
+                Some(AuthType::Oauth) => "No subscription providers available.",
+                Some(AuthType::ApiKey) => "No API key providers available.",
+                None => "No login providers available.",
+            };
+            self.show_status(message);
+            return;
+        }
+        let mode_id = self.ui_id.get();
+        let options_for_select = provider_options.clone();
+        let on_select: Rc<dyn Fn(String, AuthType)> =
+            Rc::new(move |provider_id: String, selected_auth_type: AuthType| {
+                with_mode(mode_id, |mode| {
+                    mode.restore_editor();
+                    if let Some(provider_option) = options_for_select
+                        .iter()
+                        .find(|provider| provider.id == provider_id && provider.auth_type == selected_auth_type)
+                        .cloned()
+                    {
+                        tokio::task::spawn_local(async move {
+                            mode.start_provider_login(provider_option).await;
+                        });
+                    }
+                });
+            });
+        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                if auth_type.is_some() {
+                    mode.show_login_auth_type_selector(None);
+                } else {
+                    mode.ui.request_render();
+                }
+            });
+        });
+        self.show_selector(component(OAuthSelectorComponent::new(
+            AuthSelectorMode::Login,
+            provider_options,
+            on_select,
+            on_cancel,
+            initial_search.as_deref(),
+        )));
+    }
+
+    async fn show_oauth_selector(&self, logout: bool) {
+        if !logout {
+            self.show_login_auth_type_selector(None);
+            return;
+        }
+        let provider_options = match get_logout_provider_options(self.session().model_runtime()).await {
+            Ok(options) => options,
+            Err(error) => {
+                self.show_error(&format!("Could not read stored credentials: {error}"));
+                return;
+            }
+        };
+        if provider_options.is_empty() {
+            self.show_status(
+                "No stored credentials to remove. /logout only removes credentials saved by /login; environment variables and models.json config are unchanged.",
+            );
+            return;
+        }
+        let mode_id = self.ui_id.get();
+        let options_for_select = provider_options.clone();
+        let on_select: Rc<dyn Fn(String, AuthType)> = Rc::new(move |provider_id: String, _auth_type: AuthType| {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                let Some(provider_option) = options_for_select
+                    .iter()
+                    .find(|provider| provider.id == provider_id)
+                    .cloned()
+                else {
+                    return;
+                };
+                tokio::task::spawn_local(async move {
+                    let runtime = mode.session().model_runtime().clone();
+                    let timeout = crate::main_runner::TimeoutSignal::new(15_000);
+                    match runtime
+                        .logout(
+                            &provider_option.id,
+                            pi_ai::auth::types::AuthOperationOptions::new(Some(timeout.token())),
+                        )
+                        .await
+                    {
+                        Ok(()) => {
+                            mode.update_available_provider_count();
+                            let message = if provider_option.auth_type == AuthType::Oauth {
+                                format!("Logged out of {}", provider_option.name)
+                            } else {
+                                format!(
+                                    "Removed stored API key for {}. Environment variables and models.json config are unchanged.",
+                                    provider_option.name
+                                )
+                            };
+                            mode.show_status(&message);
+                        }
+                        Err(error) => {
+                            let message = error.to_string();
+                            if matches!(error, crate::core::model_runtime::ModelRuntimeError::CredentialSync(_)) {
+                                mode.show_error(&format!(
+                                    "Credentials removed for {}, but local model state could not be synchronized: {message}",
+                                    provider_option.name
+                                ));
+                            } else {
+                                mode.show_error(&format!("Logout failed: {message}"));
+                            }
+                        }
+                    }
+                });
+            });
+        });
+        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                mode.ui.request_render();
+            });
+        });
+        self.show_selector(component(OAuthSelectorComponent::new(
+            AuthSelectorMode::Logout,
+            provider_options,
+            on_select,
+            on_cancel,
+            None,
+        )));
+    }
+
+    async fn start_provider_login(&self, provider_option: AuthSelectorProvider) {
+        match provider_option.auth_type {
+            AuthType::Oauth => {
+                self.show_login_dialog(&provider_option.id, &provider_option.name).await;
+            }
+            AuthType::ApiKey => {
+                if provider_option.method_name.is_some() {
+                    self.show_api_key_login_dialog(&provider_option.id, &provider_option.name)
+                        .await;
+                } else {
+                    self.show_ambient_auth_dialog(&provider_option);
+                }
+            }
+        }
+    }
+
+    async fn show_login_dialog(&self, provider_id: &str, provider_name: &str) {
+        if let Err(error) = self
+            .run_provider_login(provider_id, provider_name, AuthType::Oauth)
+            .await
+        {
+            let message = error.to_string();
+            if matches!(error, crate::core::model_runtime::ModelRuntimeError::CredentialSync(_)) {
+                self.show_error(&format!(
+                    "Logged in to {provider_name}, but local model state could not be synchronized: {message}"
+                ));
+            } else if message != "Login cancelled" {
+                self.show_error(&format!("Failed to login to {provider_name}: {message}"));
+            }
+        }
+    }
+
+    async fn show_api_key_login_dialog(&self, provider_id: &str, provider_name: &str) {
+        if let Err(error) = self
+            .run_provider_login(provider_id, provider_name, AuthType::ApiKey)
+            .await
+        {
+            let message = error.to_string();
+            if message.contains("does not support api_key login") {
+                self.show_ambient_auth_dialog(&AuthSelectorProvider {
+                    id: provider_id.to_owned(),
+                    name: provider_name.to_owned(),
+                    auth_type: AuthType::ApiKey,
+                    method_name: None,
+                    status: None,
+                });
+                return;
+            }
+            if matches!(error, crate::core::model_runtime::ModelRuntimeError::CredentialSync(_)) {
+                self.show_error(&format!(
+                    "Logged in to {provider_name}, but local model state could not be synchronized: {message}"
+                ));
+            } else if message != "Login cancelled" {
+                self.show_error(&format!("Failed to save API key for {provider_name}: {message}"));
+            }
+        }
+    }
+
+    async fn run_provider_login(
+        &self,
+        provider_id: &str,
+        provider_name: &str,
+        auth_type: AuthType,
+    ) -> Result<(), crate::core::model_runtime::ModelRuntimeError> {
+        let previous_model = self.session().model();
+        let mode_id = self.ui_id.get();
+        let request_render: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| mode.ui.request_render());
+        });
+        let dialog = Rc::new(RefCell::new(LoginDialogComponent::new(
+            request_render,
+            provider_id,
+            Rc::new(|_, _| {}),
+            Some(provider_name),
+            None,
+        )));
+        if provider_id == "amazon-bedrock" {
+            let docs_path = crate::config::get_docs_path().join("providers.md");
+            dialog.borrow().show_details(&[
+                with_theme(|theme| {
+                    theme.fg(
+                        ThemeColor::Text,
+                        "You can also use an AWS profile, IAM keys, or role-based credentials.",
+                    )
+                }),
+                with_theme(|theme| theme.fg(ThemeColor::Muted, "See:")),
+                with_theme(|theme| theme.fg(ThemeColor::Accent, &format!("  {}", docs_path.display()))),
+            ]);
+        }
+        self.mount_auth_dialog(&dialog);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let signal = dialog.borrow().signal();
+        *self.auth_ui.borrow_mut() = Some(AuthUiState {
+            receiver,
+            dialog: Rc::clone(&dialog),
+        });
+        let interaction = Arc::new(InteractiveAuthInteraction {
+            sender: std::sync::Mutex::new(sender),
+            signal,
+        });
+        let runtime = self.session().model_runtime().clone();
+        let result = runtime.login(provider_id, auth_type, interaction).await;
+        *self.auth_ui.borrow_mut() = None;
+        self.restore_editor();
+        result?;
+        self.complete_provider_authentication(provider_id, provider_name, auth_type, previous_model)
+            .await;
+        Ok(())
+    }
+
+    fn show_ambient_auth_dialog(&self, provider_option: &AuthSelectorProvider) {
+        let mode_id = self.ui_id.get();
+        let request_render: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| mode.ui.request_render());
+        });
+        let dialog = Rc::new(RefCell::new(LoginDialogComponent::new(
+            request_render,
+            &provider_option.id,
+            Rc::new(|_, _| {}),
+            Some(&provider_option.name),
+            Some(&format!("{} setup", provider_option.name)),
+        )));
+        dialog.borrow().show_info(
+            &format!(
+                "{} is configured outside pi.",
+                provider_option.method_name.as_deref().unwrap_or("Authentication")
+            ),
+            &[],
+            true,
+        );
+        self.mount_auth_dialog(&dialog);
+    }
+
+    async fn complete_provider_authentication(
+        &self,
+        provider_id: &str,
+        provider_name: &str,
+        auth_type: AuthType,
+        previous_model: Model,
+    ) {
+        let action_label = if auth_type == AuthType::Oauth {
+            format!("Logged in to {provider_name}")
+        } else {
+            format!("Saved API key for {provider_name}")
+        };
+        let mut selected_model: Option<Model> = None;
+        let mut selection_error: Option<String> = None;
+        if is_unknown_model(Some(&previous_model)) {
+            let available_models = self.session().model_runtime().get_available_snapshot();
+            let provider_models: Vec<Model> = available_models
+                .into_iter()
+                .filter(|model| model.provider == provider_id)
+                .collect();
+            match crate::core::model_resolver::default_model_for_provider(provider_id) {
+                None => {
+                    selection_error = Some(format!(
+                        "{action_label}, but no default model is configured for provider \"{provider_id}\". Use /model to select a model."
+                    ));
+                }
+                Some(_default_model_id) if provider_models.is_empty() => {
+                    selection_error = Some(format!(
+                        "{action_label}, but no models are available for that provider. Use /model to select a model."
+                    ));
+                }
+                Some(default_model_id) => {
+                    selected_model = provider_models
+                        .iter()
+                        .find(|model| model.id == default_model_id)
+                        .cloned();
+                    match selected_model.clone() {
+                        None => {
+                            selection_error = Some(format!(
+                                "{action_label}, but its default model \"{default_model_id}\" is not available. Use /model to select a model."
+                            ));
+                        }
+                        Some(model) => {
+                            if let Err(error) = self.session().set_model(model).await {
+                                selected_model = None;
+                                selection_error = Some(format!(
+                                    "{action_label}, but selecting its default model failed: {}. Use /model to select a model.",
+                                    error.message()
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        self.update_available_provider_count();
+        self.footer.borrow_mut().invalidate();
+        self.update_editor_border_color();
+        let auth_path = crate::config::get_auth_path().display().to_string();
+        if let Some(model) = &selected_model {
+            self.show_status(&format!(
+                "{action_label}. Selected {}. Credentials saved to {auth_path}",
+                model.id
+            ));
+        } else {
+            self.show_status(&format!("{action_label}. Credentials saved to {auth_path}"));
+            if let Some(error) = selection_error {
+                self.show_error(&error);
+            }
+        }
+
+        let mode_id = self.ui_id.get();
+        let runtime = self.session().model_runtime().clone();
+        let provider_id = provider_id.to_owned();
+        tokio::task::spawn_local(async move {
+            let abort = tokio_util::sync::CancellationToken::new();
+            let timed_out = Rc::new(Cell::new(false));
+            let timeout_task = {
+                let abort = abort.clone();
+                let timed_out = Rc::clone(&timed_out);
+                tokio::task::spawn_local(async move {
+                    tokio::time::sleep(Duration::from_secs(15)).await;
+                    timed_out.set(true);
+                    abort.cancel();
+                })
+            };
+            let result = runtime
+                .refresh(pi_ai::models::ModelsRefreshOptions {
+                    providers: Some(vec![provider_id]),
+                    signal: Some(abort),
+                    ..Default::default()
+                })
+                .await;
+            timeout_task.abort();
+            let warning = match &result {
+                Ok(result) if result.aborted && timed_out.get() => Some(format!(
+                    "{action_label}, but its model catalog refresh timed out; using cached models."
+                )),
+                Ok(result) if result.aborted => None,
+                Ok(result) if !result.errors.is_empty() => Some(format!(
+                    "{action_label}, but its model catalog could not be refreshed; using cached models."
+                )),
+                Err(error) => Some(format!(
+                    "{action_label}, but its model catalog could not be refreshed: {error}"
+                )),
+                Ok(_) => None,
+            };
+            with_mode(mode_id, |mode| {
+                if let Some(warning) = warning {
+                    mode.show_warning(&warning);
+                }
+                mode.update_available_provider_count();
+                mode.footer.borrow_mut().invalidate();
+                mode.ui.request_render();
+            });
+        });
+    }
+
     fn set_extension_status(&self, key: &str, text: Option<&str>) {
         self.footer_data_provider.set_extension_status(key, text);
         self.ui.request_render();
@@ -6788,6 +7525,7 @@ impl InteractiveMode {
     }
 
     async fn handle_ui_requests(&self) {
+        self.poll_auth_ui();
         self.poll_active_session_selector().await;
         loop {
             let request = {
@@ -8435,16 +9173,12 @@ mod ui_tests {
                     mode.ui.process_events();
                     mode.ui.flush_pending();
                     mode.handle_ui_requests().await;
-                    ready = mode
-                        .active_session_selector
-                        .borrow()
-                        .as_ref()
-                        .is_some_and(|selector| {
-                            selector
-                                .try_lock()
-                                .map(|selector| selector.session_list().get_selected_session_path().is_some())
-                                .unwrap_or(false)
-                        });
+                    ready = mode.active_session_selector.borrow().as_ref().is_some_and(|selector| {
+                        selector
+                            .try_lock()
+                            .map(|selector| selector.session_list().get_selected_session_path().is_some())
+                            .unwrap_or(false)
+                    });
                     if ready {
                         break;
                     }
@@ -8462,6 +9196,79 @@ mod ui_tests {
                 .await;
                 assert!(output.contains("Resumed session"));
                 assert_eq!(mode.session().session_id(), target_id);
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn login_selector_opens_the_ambient_auth_dialog() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                terminal.borrow_mut().send_input("/login");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Select authentication method")
+                })
+                .await;
+
+                terminal.borrow_mut().send_input("\u{1b}[B");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Select provider to configure")
+                })
+                .await;
+
+                terminal.borrow_mut().send_input("faux");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("is configured outside pi.")
+                })
+                .await;
+                assert!(output.contains("Authentication is configured outside pi."));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn logout_selector_removes_the_stored_api_key() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                terminal.borrow_mut().send_input("/logout");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux")).await;
+
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Removed stored API key for faux.")
+                })
+                .await;
+                assert!(output.contains("Removed stored API key for faux."));
+                let remaining = mode
+                    .session()
+                    .model_runtime()
+                    .list_credentials(pi_ai::auth::types::AuthOperationOptions::new(None))
+                    .await
+                    .expect("credentials");
+                assert!(remaining.iter().all(|credential| credential.provider_id != "faux"));
             })
             .await;
     }
