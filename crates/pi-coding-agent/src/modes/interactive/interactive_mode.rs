@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 use pi_agent_core::agent::types::{AgentEvent, AgentMessage};
@@ -50,6 +50,8 @@ use crate::core::footer_data_provider::FooterDataProvider;
 use crate::core::keybindings::KeybindingsManager;
 use crate::core::model_resolver::{ModelScopeCode, resolve_model_scope_from_models};
 use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
+use crate::core::session_manager::{CompactionEntry, SessionEntry};
+use crate::core::settings_manager::TreeFilterMode;
 use crate::core::source_info::{SourceInfo, SourceScope};
 use crate::core::trust_manager::ProjectTrustStore;
 use crate::modes::interactive::components::approval_selector::{ApprovalSelectorComponent, ApprovalSelectorOptions};
@@ -69,6 +71,9 @@ use crate::modes::interactive::components::sandbox_selector::{
 use crate::modes::interactive::components::scoped_models_selector::{
     EnabledIds, ModelsCallbacks, ModelsConfig, RefreshStatusKind, ScopedModelsSelectorComponent,
 };
+use crate::modes::interactive::components::session_selector::{
+    ProgressCallback, RenameSessionFn, SessionListLoader, SessionSelectorComponent,
+};
 use crate::modes::interactive::components::settings_selector::{
     SettingsCallbacks, SettingsConfig, SettingsSelectorComponent, SteeringMode, tui_mode_name,
 };
@@ -77,6 +82,7 @@ use crate::modes::interactive::components::thinking_selector::ThinkingSelectorCo
 use crate::modes::interactive::components::tool_execution::{
     ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
 };
+use crate::modes::interactive::components::tree_selector::{FilterMode, TreeSelectorComponent};
 use crate::modes::interactive::components::trust_selector::{TrustSelectorComponent, TrustSelectorOptions};
 use crate::modes::interactive::components::user_message::UserMessageComponent;
 use crate::modes::interactive::components::user_message_selector::{UserMessageItem, UserMessageSelectorComponent};
@@ -1651,11 +1657,57 @@ impl Component for SharedScopedModelsSelector {
 
 impl Focusable for SharedScopedModelsSelector {
     fn focused(&self) -> bool {
-        self.0.borrow().focused()
+        self.0.try_borrow().map(|selector| selector.focused()).unwrap_or(false)
     }
 
     fn set_focused(&mut self, focused: bool) {
-        self.0.borrow_mut().set_focused(focused);
+        if let Ok(mut selector) = self.0.try_borrow_mut() {
+            selector.set_focused(focused);
+        }
+    }
+}
+
+/// Adapter mounting the session selector while its async loads mutate it.
+pub struct SharedSessionSelector(pub Rc<tokio::sync::Mutex<SessionSelectorComponent>>);
+
+impl Component for SharedSessionSelector {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.0
+            .try_lock()
+            .map(|mut selector| selector.render(width))
+            .unwrap_or_default()
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        if let Ok(mut selector) = self.0.try_lock() {
+            selector.handle_input(data);
+        }
+    }
+
+    fn wants_input(&self) -> bool {
+        self.0.try_lock().map(|selector| selector.wants_input()).unwrap_or(true)
+    }
+
+    fn invalidate(&mut self) {
+        if let Ok(mut selector) = self.0.try_lock() {
+            selector.invalidate();
+        }
+    }
+
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
+}
+
+impl Focusable for SharedSessionSelector {
+    fn focused(&self) -> bool {
+        self.0.try_lock().map(|selector| selector.focused()).unwrap_or(false)
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        if let Ok(mut selector) = self.0.try_lock() {
+            selector.set_focused(focused);
+        }
     }
 }
 
@@ -1877,6 +1929,55 @@ fn resolve_enabled_models_persist_target(
         return (patterns, SettingsScope::Global);
     }
     (Some(patterns.unwrap_or_default()), SettingsScope::Project)
+}
+
+/// `applyControlSessionNames`: overlay control-db names and sort named sessions first.
+fn apply_control_session_names(
+    control_db_path: Option<&str>,
+    sessions: Vec<crate::core::session_manager::SessionInfo>,
+) -> Vec<crate::core::session_manager::SessionInfo> {
+    let Some(control_db_path) = control_db_path else {
+        return sessions;
+    };
+    let Ok(named) = crate::core::session_control_db::list_named_sessions(control_db_path) else {
+        return sessions;
+    };
+    let names: HashMap<String, String> = named
+        .into_iter()
+        .map(|session| (session.session_path, session.name))
+        .collect();
+    let mut sessions: Vec<crate::core::session_manager::SessionInfo> = sessions
+        .into_iter()
+        .map(|mut session| {
+            if let Some(name) = names.get(&session.path) {
+                session.name = Some(name.clone());
+            }
+            session
+        })
+        .collect();
+    sessions.sort_by(|a, b| {
+        let a_named = names.contains_key(&a.path);
+        let b_named = names.contains_key(&b.path);
+        if a_named != b_named {
+            return if a_named {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            };
+        }
+        b.modified.cmp(&a.modified)
+    });
+    sessions
+}
+
+fn tree_filter_mode(mode: TreeFilterMode) -> FilterMode {
+    match mode {
+        TreeFilterMode::Default => FilterMode::Default,
+        TreeFilterMode::NoTools => FilterMode::NoTools,
+        TreeFilterMode::UserOnly => FilterMode::UserOnly,
+        TreeFilterMode::LabeledOnly => FilterMode::LabeledOnly,
+        TreeFilterMode::All => FilterMode::All,
+    }
 }
 
 fn with_mode<R>(id: usize, f: impl FnOnce(Rc<InteractiveMode>) -> R) -> Option<R> {
@@ -2262,6 +2363,9 @@ pub struct InteractiveMode {
     editor_component_factory: RefCell<Option<ExtensionEditorFactory>>,
     fd_path: RefCell<Option<String>>,
     clipboard_temp_files: RefCell<crate::utils::clipboard_temp_files::ClipboardTempFileTracker>,
+    pending_compaction_summary_edit_id: RefCell<Option<String>>,
+    active_session_selector: RefCell<Option<Rc<tokio::sync::Mutex<SessionSelectorComponent>>>>,
+    session_selector_loaded: Cell<bool>,
 }
 
 impl InteractiveMode {
@@ -2444,6 +2548,9 @@ impl InteractiveMode {
             editor_component_factory: RefCell::new(None),
             fd_path: RefCell::new(None),
             clipboard_temp_files: RefCell::new(crate::utils::clipboard_temp_files::ClipboardTempFileTracker::new()),
+            pending_compaction_summary_edit_id: RefCell::new(None),
+            active_session_selector: RefCell::new(None),
+            session_selector_loaded: Cell::new(false),
         });
 
         *mode_slot.borrow_mut() = Some(Rc::downgrade(&mode));
@@ -4093,16 +4200,15 @@ impl InteractiveMode {
         );
         self.default_editor.borrow_mut().on_action(
             "app.session.tree",
-            action(self, |mode| mode.show_status("Tree selector is not ported yet.")),
+            action(self, |mode| mode.show_tree_selector(None, None)),
         );
         self.default_editor.borrow_mut().on_action(
             "app.session.fork",
             action(self, |mode| mode.show_user_message_selector()),
         );
-        self.default_editor.borrow_mut().on_action(
-            "app.session.resume",
-            action(self, |mode| mode.show_status("Session selector is not ported yet.")),
-        );
+        self.default_editor
+            .borrow_mut()
+            .on_action("app.session.resume", action(self, |mode| mode.show_session_selector()));
         self.default_editor.borrow_mut().on_action(
             "app.agent.select",
             action(self, |mode| mode.show_status("Agent switcher is not ported yet.")),
@@ -4526,6 +4632,10 @@ impl InteractiveMode {
             }
         }
 
+        if self.submit_pending_compaction_summary_edit(&text) {
+            return;
+        }
+
         let session = self.session();
         if session.is_compacting() {
             if self.is_extension_command(&text) {
@@ -4634,7 +4744,7 @@ impl InteractiveMode {
             "changelog" => self.handle_changelog_command(),
             "fork" => self.show_user_message_selector(),
             "clone" => self.handle_clone_command().await,
-            "tree" => self.show_status("Tree selector is not ported yet."),
+            "tree" => self.show_tree_selector(None, None),
             "trust" => self.show_trust_selector(),
             "login" => self.show_status("Provider login is not ported yet."),
             "logout" => self.show_status("Provider logout is not ported yet."),
@@ -4654,7 +4764,7 @@ impl InteractiveMode {
                 self.handle_compact_command(instructions).await;
             }
             "reload" => self.handle_reload_command().await,
-            "resume" => self.show_status("Session selector is not ported yet."),
+            "resume" => self.show_session_selector(),
             "agents" => self.show_status("Agent switcher is not ported yet."),
             "quit" => self.shutdown_requested.set(true),
             "arminsayshi" | "dementedelves" | "daxnuts" => {
@@ -5931,6 +6041,593 @@ impl InteractiveMode {
         }
     }
 
+    fn show_tree_selector(&self, initial_selected_id: Option<String>, filter_mode: Option<TreeFilterMode>) {
+        let session = self.session();
+        let (tree, real_leaf_id) = {
+            let manager = session.session_manager();
+            (manager.get_tree(), manager.get_leaf_id().map(str::to_owned))
+        };
+        let initial_filter_mode =
+            filter_mode.unwrap_or_else(|| self.settings(|settings| settings.get_tree_filter_mode()));
+        if tree.is_empty() {
+            self.show_status("No entries in session");
+            return;
+        }
+
+        let mode_id = self.ui_id.get();
+        let leaf_for_select = real_leaf_id.clone();
+        let on_select: Rc<dyn Fn(String)> = Rc::new(move |entry_id: String| {
+            let leaf = leaf_for_select.clone();
+            with_mode(mode_id, |mode| {
+                tokio::task::spawn_local(async move {
+                    mode.handle_tree_selection(entry_id, leaf, initial_filter_mode).await;
+                });
+            });
+        });
+        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                mode.ui.request_render();
+            });
+        });
+        let on_label_change: crate::modes::interactive::components::tree_selector::LabelEditHandler =
+            Rc::new(move |entry_id: &str, label: Option<&str>| {
+                with_mode(mode_id, |mode| {
+                    if let Err(error) = mode.session().session_manager().append_label_change(entry_id, label) {
+                        mode.show_error(&error.to_string());
+                    }
+                    mode.ui.request_render();
+                });
+            });
+        let mut selector = TreeSelectorComponent::new(
+            tree,
+            real_leaf_id,
+            self.ui.terminal().borrow().rows(),
+            on_select,
+            on_cancel,
+            Some(on_label_change),
+            initial_selected_id,
+            Some(tree_filter_mode(initial_filter_mode)),
+        );
+        selector.set_on_copy(Some(Rc::new(move |text: Option<String>| {
+            with_mode(mode_id, |mode| {
+                tokio::task::spawn_local(async move {
+                    mode.copy_tree_selection(text).await;
+                });
+            });
+        })));
+        self.show_selector(component(selector));
+    }
+
+    async fn copy_tree_selection(&self, text: Option<String>) {
+        let Some(text) = text.filter(|text| !text.is_empty()) else {
+            self.show_error("Selected entry has no text to copy");
+            return;
+        };
+        match crate::utils::clipboard::copy_to_clipboard(
+            &text,
+            &crate::utils::clipboard_image::ClipboardEnvironment::from_process(),
+            None,
+        )
+        .await
+        {
+            Ok(()) => self.show_status("Copied selected message to clipboard"),
+            Err(error) => self.show_error(&error.to_string()),
+        }
+    }
+
+    async fn handle_tree_selection(
+        &self,
+        entry_id: String,
+        real_leaf_id: Option<String>,
+        initial_filter_mode: TreeFilterMode,
+    ) {
+        let selected_entry = self.session().session_manager().get_entry(&entry_id).cloned();
+        if let Some(entry) = selected_entry.as_ref().and_then(SessionEntry::as_compaction).cloned() {
+            self.restore_editor();
+            if entry.provider_native.is_some() {
+                self.materialize_compaction_summary_for_edit(entry, initial_filter_mode)
+                    .await;
+            } else {
+                self.start_compaction_summary_edit(&entry, entry.summary.clone());
+            }
+            return;
+        }
+        if real_leaf_id.as_deref() == Some(entry_id.as_str()) {
+            self.restore_editor();
+            self.show_status("Already at this point");
+            return;
+        }
+
+        self.restore_editor();
+        let mut wants_summary = false;
+        let mut custom_instructions: Option<String> = None;
+        if !self.settings(|settings| settings.get_branch_summary_skip_prompt()) {
+            loop {
+                let choice = self
+                    .show_extension_selector(
+                        "Summarize branch?",
+                        &[
+                            "No summary".to_owned(),
+                            "Summarize".to_owned(),
+                            "Summarize with custom prompt".to_owned(),
+                        ],
+                    )
+                    .await;
+                let Some(choice) = choice else {
+                    self.show_tree_selector(Some(entry_id), Some(initial_filter_mode));
+                    return;
+                };
+                wants_summary = choice != "No summary";
+                if choice == "Summarize with custom prompt" {
+                    match self
+                        .show_extension_editor("Custom summarization instructions", None)
+                        .await
+                    {
+                        Some(text) => custom_instructions = Some(text),
+                        None => continue,
+                    }
+                }
+                break;
+            }
+        }
+
+        if self.session().is_streaming() {
+            self.restore_queued_messages_to_editor(true);
+            if let Err(error) = self.session().abort().await {
+                self.show_error(error.message());
+            }
+        }
+
+        let mode_id = self.ui_id.get();
+        let original_on_escape = self.default_editor.borrow().on_escape.clone();
+        let summary_loader: Option<ComponentRef> = if wants_summary {
+            self.default_editor.borrow_mut().on_escape = Some(Rc::new(move || {
+                with_mode(mode_id, |mode| mode.session().abort_branch_summary());
+            }));
+            self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
+            let request_render: Rc<dyn Fn()> = Rc::new(move || {
+                with_mode(mode_id, |mode| mode.ui.request_render());
+            });
+            let loader = component(pi_tui::components::loader::Loader::new(
+                request_render,
+                Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Accent, text))),
+                Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
+                format!(
+                    "Summarizing branch... ({} to cancel)",
+                    crate::modes::interactive::components::keybinding_hints::key_text("app.interrupt")
+                ),
+                None,
+            ));
+            if let Some(loader) = loader
+                .borrow_mut()
+                .as_any_mut()
+                .and_then(|any| any.downcast_mut::<pi_tui::components::loader::Loader>())
+            {
+                loader.start();
+            }
+            self.status_container.borrow_mut().add_child(Rc::clone(&loader));
+            self.ui.request_render();
+            Some(loader)
+        } else {
+            None
+        };
+
+        let result = self
+            .session()
+            .navigate_tree(
+                &entry_id,
+                crate::core::agent_session::NavigateTreeOptions {
+                    summarize: Some(wants_summary),
+                    custom_instructions,
+                    replace_instructions: None,
+                    label: None,
+                },
+            )
+            .await;
+
+        match result {
+            Ok(result) if result.aborted == Some(true) => {
+                self.show_status("Branch summarization cancelled");
+                self.show_tree_selector(Some(entry_id), Some(initial_filter_mode));
+            }
+            Ok(result) if result.cancelled => {
+                self.show_status("Navigation cancelled");
+            }
+            Ok(result) => {
+                *self.pending_compaction_summary_edit_id.borrow_mut() = None;
+                self.chat_container.borrow_mut().clear();
+                self.render_initial_messages();
+                if let Some(editor_text) = &result.editor_text
+                    && self.editor().borrow().get_text().trim().is_empty()
+                {
+                    self.editor().borrow_mut().set_text(editor_text);
+                }
+                self.show_status("Navigated to selected point");
+                self.flush_compaction_queue(false).await;
+            }
+            Err(error) => self.show_error(error.message()),
+        }
+
+        if let Some(loader) = summary_loader {
+            if let Some(loader) = loader
+                .borrow_mut()
+                .as_any_mut()
+                .and_then(|any| any.downcast_mut::<pi_tui::components::loader::Loader>())
+            {
+                loader.stop();
+            }
+            self.status_container.borrow_mut().clear();
+        }
+        self.default_editor.borrow_mut().on_escape = original_on_escape;
+    }
+
+    fn start_compaction_summary_edit(&self, entry: &CompactionEntry, summary: String) {
+        if !self.editor().borrow().get_text().trim().is_empty() {
+            self.show_warning("Clear the editor before editing a compaction summary");
+            return;
+        }
+        *self.pending_compaction_summary_edit_id.borrow_mut() = Some(entry.id.clone());
+        self.editor().borrow_mut().set_text(&summary);
+        self.show_status("Editing compaction summary");
+        self.ui.request_render();
+    }
+
+    fn submit_pending_compaction_summary_edit(&self, summary: &str) -> bool {
+        let Some(entry_id) = self.pending_compaction_summary_edit_id.borrow().clone() else {
+            return false;
+        };
+        self.session().update_compaction_summary(&entry_id, summary);
+        *self.pending_compaction_summary_edit_id.borrow_mut() = None;
+        self.add_submitted_text_to_history(summary);
+        self.editor().borrow_mut().set_text("");
+        self.chat_container.borrow_mut().clear();
+        self.render_initial_messages();
+        self.show_status("Compaction summary updated");
+        self.ui.request_render();
+        true
+    }
+
+    async fn materialize_compaction_summary_for_edit(
+        &self,
+        entry: CompactionEntry,
+        initial_filter_mode: TreeFilterMode,
+    ) {
+        let mode_id = self.ui_id.get();
+        let original_on_escape = self.default_editor.borrow().on_escape.clone();
+        self.default_editor.borrow_mut().on_escape = Some(Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                mode.session().abort_compaction_summary_materialization()
+            });
+        }));
+        self.status_container.borrow_mut().clear();
+        let request_render: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| mode.ui.request_render());
+        });
+        let loader = component(pi_tui::components::loader::Loader::new(
+            request_render,
+            Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Accent, text))),
+            Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
+            format!(
+                "Loading compaction summary... ({} to cancel)",
+                crate::modes::interactive::components::keybinding_hints::key_text("app.interrupt")
+            ),
+            None,
+        ));
+        if let Some(loader) = loader
+            .borrow_mut()
+            .as_any_mut()
+            .and_then(|any| any.downcast_mut::<pi_tui::components::loader::Loader>())
+        {
+            loader.start();
+        }
+        self.status_container.borrow_mut().add_child(Rc::clone(&loader));
+        self.ui.request_render();
+
+        let outcome = match self.session().materialize_compaction_summary(&entry.id).await {
+            Ok(crate::core::compaction::MaterializeCompactionSummaryResult::Summary(summary)) => Ok(summary),
+            Ok(crate::core::compaction::MaterializeCompactionSummaryResult::Aborted) => {
+                Err(Some("Compaction summary loading cancelled".to_owned()))
+            }
+            Err(error) => Err(Some(error.message().to_owned())),
+        };
+        if let Some(loader) = loader
+            .borrow_mut()
+            .as_any_mut()
+            .and_then(|any| any.downcast_mut::<pi_tui::components::loader::Loader>())
+        {
+            loader.stop();
+        }
+        self.status_container.borrow_mut().clear();
+        self.default_editor.borrow_mut().on_escape = original_on_escape;
+
+        match outcome {
+            Ok(summary) => self.start_compaction_summary_edit(&entry, summary),
+            Err(message) => {
+                if let Some(message) = message {
+                    if message == "Compaction summary loading cancelled" {
+                        self.show_status(&message);
+                    } else {
+                        self.show_error(&message);
+                    }
+                }
+                self.show_tree_selector(Some(entry.id), Some(initial_filter_mode));
+            }
+        }
+    }
+
+    async fn show_extension_selector(&self, title: &str, options: &[String]) -> Option<String> {
+        let (respond, receiver) = tokio::sync::oneshot::channel();
+        let _ = self.ui_sender.send(UiRequest::Select {
+            title: title.to_owned(),
+            options: options.to_vec(),
+            timeout: None,
+            respond,
+        });
+        receiver.await.ok().flatten()
+    }
+
+    async fn show_extension_editor(&self, title: &str, prefill: Option<&str>) -> Option<String> {
+        let (respond, receiver) = tokio::sync::oneshot::channel();
+        let _ = self.ui_sender.send(UiRequest::Editor {
+            title: title.to_owned(),
+            prefill: prefill.map(str::to_owned),
+            respond,
+        });
+        receiver.await.ok().flatten()
+    }
+
+    fn show_session_selector(&self) {
+        let session = self.session();
+        let (cwd, session_dir, uses_default_dir, current_file) = {
+            let manager = session.session_manager();
+            (
+                manager.get_cwd().to_owned(),
+                manager.get_session_dir().to_owned(),
+                manager.uses_default_session_dir(),
+                manager.get_session_file().map(str::to_owned),
+            )
+        };
+        let control_db_path = self.options.control_db_path.clone();
+        let mode_id = self.ui_id.get();
+        let apply = {
+            let control_db_path = control_db_path.clone();
+            Rc::new(move |sessions| apply_control_session_names(control_db_path.as_deref(), sessions))
+        };
+
+        let current_loader: SessionListLoader = {
+            let apply = Rc::clone(&apply);
+            let cwd = cwd.clone();
+            let session_dir = session_dir.clone();
+            let control_db_path = control_db_path.clone();
+            Rc::new(move |progress: Option<ProgressCallback>| {
+                let mut progress_fn =
+                    progress.map(|callback| move |loaded: usize, total: usize| callback(loaded, total));
+                let result = crate::core::session_manager::SessionManager::list(
+                    &cwd,
+                    Some(&session_dir),
+                    progress_fn
+                        .as_mut()
+                        .map(|callback| callback as &mut dyn FnMut(usize, usize)),
+                    control_db_path.as_deref(),
+                )
+                .map_err(|error| error.to_string());
+                let applied = result.map(|sessions| apply(sessions));
+                Box::pin(async move { applied })
+            })
+        };
+        let all_loader: SessionListLoader = {
+            let apply = Rc::clone(&apply);
+            let session_dir = session_dir.clone();
+            let control_db_path = control_db_path.clone();
+            Rc::new(move |progress: Option<ProgressCallback>| {
+                let mut progress_fn =
+                    progress.map(|callback| move |loaded: usize, total: usize| callback(loaded, total));
+                let dir = (!uses_default_dir).then(|| session_dir.clone());
+                let result = crate::core::session_manager::SessionManager::list_all(
+                    dir.as_deref(),
+                    progress_fn
+                        .as_mut()
+                        .map(|callback| callback as &mut dyn FnMut(usize, usize)),
+                    control_db_path.as_deref(),
+                )
+                .map_err(|error| error.to_string());
+                let applied = result.map(|sessions| apply(sessions));
+                Box::pin(async move { applied })
+            })
+        };
+        let archived_loader: SessionListLoader = {
+            let apply = Rc::clone(&apply);
+            let session_dir = session_dir.clone();
+            let control_db_path = control_db_path.clone();
+            Rc::new(move |_progress: Option<ProgressCallback>| {
+                let dir = (!uses_default_dir).then(|| session_dir.clone());
+                let result = crate::core::session_manager::SessionManager::list_archived(
+                    dir.as_deref(),
+                    control_db_path.as_deref(),
+                )
+                .map_err(|error| error.to_string());
+                let applied = result.map(|sessions| apply(sessions));
+                Box::pin(async move { applied })
+            })
+        };
+
+        let on_select: Rc<dyn Fn(String)> = Rc::new(move |path: String| {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                *mode.active_session_selector.borrow_mut() = None;
+                tokio::task::spawn_local(async move {
+                    mode.handle_resume_session(&path).await;
+                });
+            });
+        });
+        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                *mode.active_session_selector.borrow_mut() = None;
+                mode.restore_editor();
+                mode.ui.request_render();
+            });
+        });
+        let on_exit: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                tokio::task::spawn_local(async move {
+                    mode.shutdown().await;
+                });
+            });
+        });
+        let request_render: Rc<dyn Fn()> = Rc::new(move || {
+            with_mode(mode_id, |mode| mode.ui.request_render());
+        });
+        let rename_session: RenameSessionFn = {
+            let control_db_path = control_db_path.clone();
+            Rc::new(move |path: String, next_name: Option<String>| {
+                let control_db_path = control_db_path.clone();
+                Box::pin(async move {
+                    let next = next_name.unwrap_or_default().trim().to_owned();
+                    let Some(control_db_path) = control_db_path else {
+                        return Ok(());
+                    };
+                    if next.is_empty() {
+                        crate::core::session_control_db::remove_named_session(&control_db_path, &path)
+                            .map_err(|error| error.to_string())?;
+                        return Ok(());
+                    }
+                    crate::core::session_control_db::set_named_session(&control_db_path, &path, &next)
+                        .map_err(|error| error.to_string())?;
+                    let mut manager = crate::core::session_manager::SessionManager::open(&path, None, None)
+                        .map_err(|error| error.to_string())?;
+                    manager.append_session_info(&next).map_err(|error| error.to_string())?;
+                    Ok(())
+                })
+            })
+        };
+
+        let selector = Rc::new(tokio::sync::Mutex::new(SessionSelectorComponent::new(
+            current_loader,
+            all_loader,
+            on_select,
+            on_cancel,
+            on_exit,
+            request_render,
+            Some(rename_session),
+            Some(true),
+            Some(self.keybindings.clone()),
+            control_db_path,
+            Some(archived_loader),
+            current_file.as_deref(),
+        )));
+        *self.active_session_selector.borrow_mut() = Some(Rc::clone(&selector));
+        self.session_selector_loaded.set(false);
+        self.show_selector(component(SharedSessionSelector(selector)));
+    }
+
+    async fn poll_active_session_selector(&self) {
+        let Some(selector) = self.active_session_selector.borrow().clone() else {
+            return;
+        };
+        if !self.session_selector_loaded.get() {
+            selector.lock().await.load_current_sessions().await;
+            self.session_selector_loaded.set(true);
+            self.ui.request_render();
+        }
+        while selector.lock().await.has_pending_action() {
+            selector.lock().await.run_pending_action().await;
+            self.ui.request_render();
+        }
+        if selector.lock().await.poll(Instant::now()) {
+            self.ui.request_render();
+        }
+    }
+
+    async fn continue_interrupted_resumed_session(&self) {
+        let extension_requested_continuation = self.session().consume_resume_continuation_request();
+        if !extension_requested_continuation
+            && !crate::core::agent_session::should_continue_interrupted_session(&self.session().messages())
+        {
+            return;
+        }
+        if let Err(error) = self.session().continue_run().await {
+            self.show_error(error.message());
+        }
+    }
+
+    async fn handle_resume_session(&self, session_path: &str) {
+        self.status_container.borrow_mut().clear();
+        let switched = {
+            let mut runtime = self.runtime.lock().await;
+            match runtime.switch_session(session_path, None, None).await {
+                Ok(result) if result.cancelled => return,
+                Ok(_) => Ok(runtime.session().clone()),
+                Err(error) => Err(error),
+            }
+        };
+        match switched {
+            Ok(session) => {
+                self.adopt_session(session);
+                self.continue_interrupted_resumed_session().await;
+                self.show_status("Resumed session");
+            }
+            Err(error) => {
+                let issue = self.missing_session_cwd_issue(session_path);
+                let Some(issue) = issue else {
+                    self.show_error(&format!("Failed to resume session: {error}"));
+                    self.stop();
+                    self.shutdown_requested.set(true);
+                    return;
+                };
+                let confirmed = self
+                    .show_extension_confirm(
+                        "Session cwd not found",
+                        &crate::core::session_cwd::format_missing_session_cwd_prompt(&issue),
+                    )
+                    .await;
+                if !confirmed {
+                    self.show_status("Resume cancelled");
+                    return;
+                }
+                let switched = {
+                    let mut runtime = self.runtime.lock().await;
+                    match runtime
+                        .switch_session(session_path, Some(&issue.fallback_cwd), None)
+                        .await
+                    {
+                        Ok(result) if result.cancelled => return,
+                        Ok(_) => Ok(runtime.session().clone()),
+                        Err(error) => Err(error),
+                    }
+                };
+                match switched {
+                    Ok(session) => {
+                        self.adopt_session(session);
+                        self.continue_interrupted_resumed_session().await;
+                        self.show_status("Resumed session in current cwd");
+                    }
+                    Err(error) => {
+                        self.show_error(&format!("Failed to resume session: {error}"));
+                        self.stop();
+                        self.shutdown_requested.set(true);
+                    }
+                }
+            }
+        }
+    }
+
+    fn missing_session_cwd_issue(&self, session_path: &str) -> Option<crate::core::session_cwd::SessionCwdIssue> {
+        let manager = crate::core::session_manager::SessionManager::open(session_path, None, None).ok()?;
+        crate::core::session_cwd::get_missing_session_cwd_issue(&manager, self.session().cwd())
+    }
+
+    async fn show_extension_confirm(&self, title: &str, message: &str) -> bool {
+        let (respond, receiver) = tokio::sync::oneshot::channel();
+        let _ = self.ui_sender.send(UiRequest::Confirm {
+            title: title.to_owned(),
+            message: message.to_owned(),
+            timeout: None,
+            respond,
+        });
+        receiver.await.unwrap_or(false)
+    }
+
     fn set_extension_status(&self, key: &str, text: Option<&str>) {
         self.footer_data_provider.set_extension_status(key, text);
         self.ui.request_render();
@@ -6091,6 +6788,7 @@ impl InteractiveMode {
     }
 
     async fn handle_ui_requests(&self) {
+        self.poll_active_session_selector().await;
         loop {
             let request = {
                 let mut slot = self.ui_requests.borrow_mut();
@@ -7143,7 +7841,7 @@ mod ui_tests {
                         excluded_tool_names: None,
                         permission_prompt_tool: None,
                         agent_dir: Some(request.agent_dir.clone()),
-                        control_db_path: None,
+                        control_db_path: Some(format!("{}/control.sqlite", request.agent_dir)),
                         base_tools: Vec::new(),
                         custom_tools: Vec::new(),
                         custom_tool_definitions: Vec::new(),
@@ -7684,6 +8382,138 @@ mod ui_tests {
                 assert_eq!(
                     value.get("approvalPreset"),
                     Some(&serde_json::json!("llm-approved-deny"))
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn resume_selector_switches_to_the_selected_session() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                let session = mode.session();
+                let cwd = session.cwd().to_owned();
+                let session_dir = tempfile::tempdir().expect("session dir").keep();
+                let session_dir = session_dir.display().to_string();
+                {
+                    let mut manager = session.session_manager();
+                    *manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("persisted manager");
+                }
+                let mut target = SessionManager::create(&cwd, Some(&session_dir), None).expect("target session");
+                target.append_session_info("resume-target").expect("append name");
+                target
+                    .append_message(pi_agent_core::agent::types::AgentMessage::User(
+                        pi_ai::types::UserMessage {
+                            role: pi_ai::types::UserRole::Tag,
+                            content: pi_ai::types::UserContent::Text("resume target prompt".to_owned()),
+                            input_source: None,
+                            provider_native: None,
+                            timestamp: 1,
+                        },
+                    ))
+                    .expect("append message");
+                target.persist_for_recovery().expect("persist target session");
+                let target_id = target.get_session_id().to_owned();
+                let target_file = target.get_session_file().expect("target file");
+                assert!(std::path::Path::new(&target_file).exists());
+
+                terminal.borrow_mut().send_input("/resume");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Resume Session")
+                })
+                .await;
+                let mut ready = false;
+                for _ in 0..200 {
+                    mode.ui.process_events();
+                    mode.ui.flush_pending();
+                    mode.handle_ui_requests().await;
+                    ready = mode
+                        .active_session_selector
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|selector| {
+                            selector
+                                .try_lock()
+                                .map(|selector| selector.session_list().get_selected_session_path().is_some())
+                                .unwrap_or(false)
+                        });
+                    if ready {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                assert!(ready, "session selector must list the target session");
+
+                let selector = mode.active_session_selector.borrow().clone();
+                if let Some(selector) = selector {
+                    selector.lock().await.handle_input("\r");
+                }
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Resumed session")
+                })
+                .await;
+                assert!(output.contains("Resumed session"));
+                assert_eq!(mode.session().session_id(), target_id);
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn tree_selector_navigates_to_the_selected_entry() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                init_dark_theme();
+                let mut settings_map = serde_json::Map::new();
+                settings_map.insert("branchSummary".to_owned(), serde_json::json!({"skipPrompt": true}));
+                let settings = SettingsManager::in_memory(settings_map, SettingsManagerCreateOptions::default());
+                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
+                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
+                    None,
+                    settings,
+                )
+                .await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+
+                terminal.borrow_mut().send_input("hi");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("hello from faux")
+                })
+                .await;
+                assert!(mode.session().messages().len() >= 2);
+
+                terminal.borrow_mut().send_input("/tree");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| output.contains("Session Tree")).await;
+                assert!(output.contains("Session Tree"));
+
+                terminal.borrow_mut().send_input("\u{1b}[A");
+                mode.ui.process_events();
+                terminal.borrow_mut().send_input("\r");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Navigated to selected point")
+                })
+                .await;
+                assert!(output.contains("Navigated to selected point"));
+                assert_eq!(mode.session().messages().len(), 2);
+                assert_eq!(
+                    mode.session().get_last_assistant_text().as_deref(),
+                    Some("hello from faux")
                 );
             })
             .await;
