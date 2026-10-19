@@ -3834,11 +3834,12 @@ impl InteractiveMode {
             context_usage,
         };
         let entries = manager.build_context_entries();
+        let source_cwd = manager.get_cwd().to_owned();
         drop(manager);
         self.footer.borrow_mut().set_session_override(footer_override.clone());
         self.footer_data_provider.set_session_override(footer_override);
         self.chat_container.borrow_mut().clear();
-        self.render_session_entries(&entries);
+        self.render_session_entries_with_cwd(&entries, Some(&source_cwd));
         true
     }
 
@@ -4632,7 +4633,12 @@ impl InteractiveMode {
     /// `renderSessionEntries`: custom entries render through their registered
     /// renderer; every other entry yields its context messages.
     pub fn render_session_entries(&self, entries: &[SessionEntry]) {
+        self.render_session_entries_with_cwd(entries, None);
+    }
+
+    fn render_session_entries_with_cwd(&self, entries: &[SessionEntry], source_cwd: Option<&str>) {
         self.clear_pending_tools();
+        let tool_cwd = source_cwd.map(str::to_owned).unwrap_or_else(|| self.cwd());
         let mut rendered_pending_tools: IndexMap<String, ComponentRef> = IndexMap::new();
         for entry in entries {
             if let SessionEntry::Known(KnownSessionEntry::Custom(custom)) = entry {
@@ -4640,7 +4646,7 @@ impl InteractiveMode {
                 continue;
             }
             for message in crate::core::session_manager::session_entry_to_context_messages(entry) {
-                self.render_session_message(message, &mut rendered_pending_tools);
+                self.render_session_message(message, &mut rendered_pending_tools, &tool_cwd);
             }
         }
         for (tool_call_id, component_ref) in rendered_pending_tools {
@@ -4662,6 +4668,7 @@ impl InteractiveMode {
         &self,
         message: AgentMessage,
         rendered_pending_tools: &mut IndexMap<String, ComponentRef>,
+        tool_cwd: &str,
     ) {
         match &message {
             AgentMessage::Assistant(assistant) => {
@@ -4674,7 +4681,7 @@ impl InteractiveMode {
                         &call.name,
                         &call.id,
                         Value::Object(call.arguments.clone()),
-                        &self.cwd(),
+                        tool_cwd,
                     );
                     if let Some(component_value) = component_ref
                         .borrow_mut()
