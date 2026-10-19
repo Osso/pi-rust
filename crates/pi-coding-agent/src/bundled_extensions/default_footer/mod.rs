@@ -117,10 +117,9 @@ fn format_selected_agent(agent: Option<DefaultFooterSelectedAgent>) -> Option<St
 }
 
 fn home_directory() -> Option<String> {
-    std::env::var("HOME")
-        .ok()
+    pi_js_compat::process_env::get("HOME")
         .filter(|home| !home.is_empty())
-        .or_else(|| std::env::var("USERPROFILE").ok().filter(|home| !home.is_empty()))
+        .or_else(|| pi_js_compat::process_env::get("USERPROFILE").filter(|home| !home.is_empty()))
 }
 
 fn count_matching_lifecycle(

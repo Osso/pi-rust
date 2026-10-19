@@ -176,7 +176,7 @@ pub fn resolve_pyrun_runner_options(
                 .rev()
                 .find(|(name, _)| name == key)
                 .map(|(_, value)| value.clone()),
-            None => std::env::var(key).ok(),
+            None => pi_js_compat::process_env::get(key),
         }
     };
     let args = parse_runner_args(lookup("PI_PYRUN_RUNNER_ARGS").as_deref())?.unwrap_or_default();

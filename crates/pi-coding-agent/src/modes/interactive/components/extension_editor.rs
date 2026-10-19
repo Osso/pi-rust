@@ -76,8 +76,8 @@ impl ExtensionEditorComponent {
     ) -> Self {
         let external_editor_command = external_editor_command
             .filter(|command| !command.is_empty())
-            .or_else(|| std::env::var("VISUAL").ok().filter(|value| !value.is_empty()))
-            .or_else(|| std::env::var("EDITOR").ok().filter(|value| !value.is_empty()))
+            .or_else(|| pi_js_compat::process_env::get("VISUAL").filter(|value| !value.is_empty()))
+            .or_else(|| pi_js_compat::process_env::get("EDITOR").filter(|value| !value.is_empty()))
             .unwrap_or_else(|| {
                 if cfg!(target_os = "windows") {
                     "notepad".to_owned()

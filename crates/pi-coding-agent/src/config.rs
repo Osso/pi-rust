@@ -177,7 +177,7 @@ fn normalize(input: &str) -> String {
 }
 
 fn home_directory() -> PathBuf {
-    std::env::var_os("HOME")
+    pi_js_compat::process_env::get("HOME")
         .filter(|home| !home.is_empty())
         .map(PathBuf::from)
         .unwrap_or_default()
@@ -204,9 +204,9 @@ pub fn get_package_dir() -> PathBuf {
 
 /// `PI_PACKAGE_DIR`, when set and non-empty.
 pub fn package_dir_override() -> Option<PathBuf> {
-    std::env::var_os("PI_PACKAGE_DIR")
+    pi_js_compat::process_env::get("PI_PACKAGE_DIR")
         .filter(|value| !value.is_empty())
-        .map(|directory| PathBuf::from(normalize(&directory.to_string_lossy())))
+        .map(|directory| PathBuf::from(normalize(&directory)))
 }
 
 /// Themes shipped next to the executable.
@@ -258,8 +258,7 @@ pub fn expand_tilde_path(path: &str) -> String {
 
 /// Share viewer URL for a gist id; `PI_SHARE_VIEWER_URL` overrides the base.
 pub fn get_share_viewer_url(gist_id: &str) -> String {
-    let base_url = std::env::var("PI_SHARE_VIEWER_URL")
-        .ok()
+    let base_url = pi_js_compat::process_env::get("PI_SHARE_VIEWER_URL")
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| DEFAULT_SHARE_VIEWER_URL.to_owned());
     format!("{base_url}#{gist_id}")
@@ -282,7 +281,7 @@ pub fn env_state_dir() -> String {
 }
 
 fn environment_value(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|value| !value.is_empty())
+    pi_js_compat::process_env::get(name).filter(|value| !value.is_empty())
 }
 
 /// The XDG config root for Pi (`~/.config/pi/`).

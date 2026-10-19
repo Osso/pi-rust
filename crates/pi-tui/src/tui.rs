@@ -719,7 +719,7 @@ impl TuiBase {
                 show_hardware_cursor.unwrap_or_else(|| environment_flag("PI_HARDWARE_CURSOR")),
             ),
             clear_on_shrink: Cell::new(environment_flag("PI_CLEAR_ON_SHRINK")),
-            termux_session: Cell::new(std::env::var("TERMUX_VERSION").is_ok()),
+            termux_session: Cell::new(pi_js_compat::process_env::get("TERMUX_VERSION").is_some()),
             debug_redraw: Cell::new(environment_flag("PI_DEBUG_REDRAW")),
             full_redraw_count: Cell::new(0),
             stopped: Cell::new(false),
@@ -2253,14 +2253,14 @@ fn contains_component(root: &ComponentRef, target: &ComponentRef) -> bool {
 }
 
 fn environment_flag(name: &str) -> bool {
-    std::env::var(name).is_ok_and(|value| value == "1")
+    pi_js_compat::process_env::get(name).is_some_and(|value| value == "1")
 }
 
 fn default_log_directory() -> PathBuf {
-    if let Ok(directory) = std::env::var("PI_CODING_AGENT_DIR") {
+    if let Some(directory) = pi_js_compat::process_env::get("PI_CODING_AGENT_DIR") {
         return PathBuf::from(directory);
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let home = pi_js_compat::process_env::get("HOME").unwrap_or_else(|| ".".to_string());
     PathBuf::from(home).join(".pi").join("agent")
 }
 

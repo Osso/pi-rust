@@ -61,7 +61,7 @@ fn report_launch_failure(log_path: &Path, session_path: &str, executable: &str, 
 
 fn launch_index(session_path: &str) -> Result<(), HandlerError> {
     let cache_home = process_env::get("XDG_CACHE_HOME")
-        .unwrap_or_else(|| format!("{}/.cache", std::env::var("HOME").unwrap_or_default()));
+        .unwrap_or_else(|| format!("{}/.cache", pi_js_compat::process_env::get("HOME").unwrap_or_default()));
     let log_path = Path::new(&cache_home).join("claude-memory").join("pi-index.log");
     launch_index_with(session_path, CLAUDE_MEMORY, &log_path)
 }

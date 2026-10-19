@@ -234,10 +234,10 @@ pub fn launch_detached_bash_runner(manifest_path: &str) -> Result<u32, DetachedB
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    if let Some(home) = std::env::var_os("HOME") {
+    if let Some(home) = pi_js_compat::process_env::get("HOME") {
         command.env("HOME", home);
     }
-    if let Some(path) = std::env::var_os("PATH") {
+    if let Some(path) = pi_js_compat::process_env::get("PATH") {
         command.env("PATH", path);
     }
     let child = command.spawn()?;

@@ -6,7 +6,7 @@ use crate::types::ProviderEnv;
 /// whose `process.env` is empty; native Rust reads the process environment directly,
 /// so that Bun-specific fallback has no Rust equivalent (see traceability).
 pub fn get_provider_env_value(name: &str, env: Option<&ProviderEnv>) -> Option<String> {
-    resolve_provider_env_value(name, env, |name| std::env::var(name).ok())
+    resolve_provider_env_value(name, env, pi_js_compat::process_env::get)
 }
 
 /// Testable form of [`get_provider_env_value`] with an injected process environment.

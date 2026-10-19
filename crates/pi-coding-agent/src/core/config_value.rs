@@ -62,7 +62,7 @@ fn has_config_environment_value(name: &str, env: Option<&HashMap<String, String>
 }
 
 fn process_environment_value_exists(name: &str) -> bool {
-    std::env::var_os(name).is_some_and(|value| !value.is_empty())
+    pi_js_compat::process_env::get(name).is_some_and(|value| !value.is_empty())
 }
 
 fn parse_config_value_reference(config: &str) -> ConfigValueReference<'_> {
@@ -327,7 +327,7 @@ fn resolve_environment_value(name: &str, env: Option<&HashMap<String, String>>) 
     env.and_then(|values| values.get(name))
         .filter(|value| !value.is_empty())
         .cloned()
-        .or_else(|| std::env::var(name).ok().filter(|value| !value.is_empty()))
+        .or_else(|| pi_js_compat::process_env::get(name).filter(|value| !value.is_empty()))
 }
 
 fn execute_command(command_config: &str) -> Option<String> {

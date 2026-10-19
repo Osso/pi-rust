@@ -171,12 +171,11 @@ impl TerminalEnvironment {
 }
 
 fn environment_flag(name: &str) -> bool {
-    std::env::var_os(name).is_some_and(|value| !value.is_empty())
+    pi_js_compat::process_env::get(name).is_some_and(|value| !value.is_empty())
 }
 
 fn environment_lowercase(name: &str) -> Option<String> {
-    std::env::var(name)
-        .ok()
+    pi_js_compat::process_env::get(name)
         .filter(|value| !value.is_empty())
         .map(|value| value.to_lowercase())
 }
@@ -858,7 +857,7 @@ pub fn hyperlink(text: &str, url: &str) -> String {
 }
 
 fn shorten_image_path(filename: &str) -> String {
-    let Some(home) = std::env::var("HOME").ok().filter(|value| !value.is_empty()) else {
+    let Some(home) = pi_js_compat::process_env::get("HOME").filter(|value| !value.is_empty()) else {
         return filename.to_string();
     };
     if filename == home || filename.starts_with(&format!("{home}/")) || filename.starts_with(&format!("{home}\\")) {

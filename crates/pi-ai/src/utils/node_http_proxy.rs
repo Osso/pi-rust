@@ -41,7 +41,7 @@ pub fn resolve_http_proxy_url_for_target(
     target_url: &str,
     env: Option<&ProviderEnv>,
 ) -> Result<Option<Url>, ProxyError> {
-    resolve_http_proxy_url_for_target_with(target_url, env, |name| std::env::var(name).ok())
+    resolve_http_proxy_url_for_target_with(target_url, env, pi_js_compat::process_env::get)
 }
 
 /// Testable [`resolve_http_proxy_url_for_target`] with an injected process

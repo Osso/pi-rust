@@ -1237,10 +1237,9 @@ impl SettingsManager {
         {
             return configured.to_owned();
         }
-        if let Some(environment_editor) = std::env::var("VISUAL")
-            .ok()
+        if let Some(environment_editor) = pi_js_compat::process_env::get("VISUAL")
             .filter(|value| !value.is_empty())
-            .or_else(|| std::env::var("EDITOR").ok().filter(|value| !value.is_empty()))
+            .or_else(|| pi_js_compat::process_env::get("EDITOR").filter(|value| !value.is_empty()))
         {
             return environment_editor;
         }
@@ -1517,7 +1516,7 @@ impl SettingsManager {
         if let Some(clear) = nested_bool(&self.settings, "terminal", "clearOnShrink") {
             return clear;
         }
-        std::env::var("PI_CLEAR_ON_SHRINK").is_ok_and(|value| value == "1")
+        pi_js_compat::process_env::get("PI_CLEAR_ON_SHRINK").is_some_and(|value| value == "1")
     }
 
     pub fn set_clear_on_shrink(&mut self, enabled: bool) {
@@ -1697,7 +1696,7 @@ impl SettingsManager {
         if let Some(value) = self.settings.get("showHardwareCursor").and_then(Value::as_bool) {
             return value;
         }
-        std::env::var("PI_HARDWARE_CURSOR").is_ok_and(|value| value == "1")
+        pi_js_compat::process_env::get("PI_HARDWARE_CURSOR").is_some_and(|value| value == "1")
     }
 
     pub fn set_show_hardware_cursor(&mut self, enabled: bool) {

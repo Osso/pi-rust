@@ -804,7 +804,7 @@ fn clamp_boundary(text: &str, index: usize) -> usize {
 }
 
 fn home_dir() -> String {
-    std::env::var("HOME").unwrap_or_default()
+    pi_js_compat::process_env::get("HOME").unwrap_or_default()
 }
 
 fn normalize_path(path: &str) -> String {

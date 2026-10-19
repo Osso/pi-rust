@@ -21,7 +21,7 @@ pub fn is_install_telemetry_enabled(settings: &SettingsManager, telemetry_env: O
     match telemetry_env {
         Some(value) => is_truthy_env_flag(Some(value)),
         None => {
-            let value = std::env::var("PI_TELEMETRY").ok();
+            let value = pi_js_compat::process_env::get("PI_TELEMETRY");
             match value {
                 Some(value) => is_truthy_env_flag(Some(&value)),
                 None => settings.get_enable_install_telemetry(),

@@ -4,7 +4,7 @@ use pi_ai::types::{ConstrainedSamplingConfig, JsonSchemaStrictness};
 
 /// True only when `PI_EXPERIMENTAL` is exactly `1`; read on every call like the source.
 pub fn are_experimental_features_enabled() -> bool {
-    std::env::var_os("PI_EXPERIMENTAL").is_some_and(|value| value == "1")
+    pi_js_compat::process_env::get("PI_EXPERIMENTAL").is_some_and(|value| value == "1")
 }
 
 /// `{ type: "json_schema", strict: "prefer" }` when experimental features are enabled.

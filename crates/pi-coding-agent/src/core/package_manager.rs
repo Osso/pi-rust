@@ -473,7 +473,7 @@ fn to_posix_path(path: &str) -> String {
 }
 
 fn home_dir() -> String {
-    std::env::var("HOME").unwrap_or_default()
+    pi_js_compat::process_env::get("HOME").unwrap_or_default()
 }
 
 fn resolve_input(input: &str, base_dir: &str) -> Result<String, PackageManagerError> {

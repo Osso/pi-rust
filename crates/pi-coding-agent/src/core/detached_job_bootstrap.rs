@@ -191,7 +191,7 @@ fn command_is_executable(command: &str) -> bool {
     if command.contains('/') {
         return is_executable(Path::new(command));
     }
-    let Some(path) = std::env::var_os("PATH") else {
+    let Some(path) = pi_js_compat::process_env::get("PATH") else {
         return false;
     };
     std::env::split_paths(&path).any(|directory| is_executable(&directory.join(command)))

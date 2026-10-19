@@ -12,7 +12,7 @@ pub struct DefaultProviderAuthContext;
 impl AuthContext for DefaultProviderAuthContext {
     fn env(&self, name: &str) -> BoxFuture<'_, Option<String>> {
         let name = name.to_owned();
-        Box::pin(async move { std::env::var(name).ok().filter(|value| !value.trim().is_empty()) })
+        Box::pin(async move { pi_js_compat::process_env::get(&name).filter(|value| !value.trim().is_empty()) })
     }
 
     fn file_exists(&self, path: &str) -> BoxFuture<'_, bool> {
@@ -33,8 +33,8 @@ fn expand_home(path: &str) -> String {
     let Some(rest) = path.strip_prefix('~') else {
         return path.to_owned();
     };
-    match std::env::var("HOME") {
-        Ok(home) => format!("{home}{rest}"),
-        Err(_) => path.to_owned(),
+    match pi_js_compat::process_env::get("HOME") {
+        Some(home) => format!("{home}{rest}"),
+        None => path.to_owned(),
     }
 }

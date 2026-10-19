@@ -220,7 +220,7 @@ pub fn resolve_footer_executable_name_with_env(paths: &[&str], configured_name: 
 
 /// Resolves the executable name from `PI_EXECUTABLE_NAME` and `process.argv[1]`/`execPath`.
 pub fn resolve_footer_executable_name() -> Option<String> {
-    let configured = std::env::var("PI_EXECUTABLE_NAME").ok();
+    let configured = pi_js_compat::process_env::get("PI_EXECUTABLE_NAME");
     let argv1 = std::env::args_os()
         .nth(1)
         .map(|value| value.to_string_lossy().into_owned());
@@ -239,7 +239,8 @@ pub fn resolve_footer_executable_name() -> Option<String> {
 
 fn is_wsl_environment() -> bool {
     cfg!(target_os = "linux")
-        && (std::env::var_os("WSL_DISTRO_NAME").is_some() || std::env::var_os("WSL_INTEROP").is_some())
+        && (pi_js_compat::process_env::get("WSL_DISTRO_NAME").is_some()
+            || pi_js_compat::process_env::get("WSL_INTEROP").is_some())
 }
 
 fn is_windows_mounted_repo_path(path: &Path) -> bool {

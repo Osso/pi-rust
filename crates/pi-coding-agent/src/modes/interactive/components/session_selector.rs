@@ -65,8 +65,8 @@ fn now_millis() -> i64 {
 }
 
 fn shorten_path(path: &str) -> String {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
+    let home = pi_js_compat::process_env::get("HOME")
+        .or_else(|| pi_js_compat::process_env::get("USERPROFILE"))
         .unwrap_or_default();
     if !path.is_empty() && !home.is_empty() && path.starts_with(&home) {
         return format!("~{}", &path[home.len()..]);

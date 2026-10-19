@@ -80,10 +80,10 @@ impl AltScreenEnvironment {
             other => other.to_string(),
         };
         Self {
-            term: std::env::var("TERM").ok(),
-            tmux: std::env::var("TMUX").is_ok(),
-            zellij: std::env::var("ZELLIJ").is_ok(),
-            sty: std::env::var("STY").is_ok(),
+            term: pi_js_compat::process_env::get("TERM"),
+            tmux: pi_js_compat::process_env::get("TMUX").is_some(),
+            zellij: pi_js_compat::process_env::get("ZELLIJ").is_some(),
+            sty: pi_js_compat::process_env::get("STY").is_some(),
             platform,
         }
     }

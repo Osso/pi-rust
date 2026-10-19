@@ -204,7 +204,7 @@ fn terminal_size() -> Option<(u16, u16)> {
 }
 
 fn environment(name: &str) -> Option<String> {
-    std::env::var(name).ok()
+    pi_js_compat::process_env::get(name)
 }
 
 fn write_log_path() -> Option<PathBuf> {

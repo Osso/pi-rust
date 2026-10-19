@@ -35,7 +35,7 @@ impl VertexAdc {
     pub fn default_sources() -> Self {
         Self::with_sources(
             |path| std::fs::metadata(path).is_ok(),
-            std::env::var("HOME").ok().as_deref(),
+            pi_js_compat::process_env::get("HOME").as_deref(),
         )
     }
 
@@ -118,7 +118,7 @@ fn api_key_env_vars(provider: &str) -> Option<Vec<&'static str>> {
 
 /// Find configured API-key environment variables for `provider`.
 pub fn find_env_keys(provider: &str, env: Option<&ProviderEnv>) -> Option<Vec<String>> {
-    find_env_keys_with(provider, env, |name| std::env::var(name).ok())
+    find_env_keys_with(provider, env, pi_js_compat::process_env::get)
 }
 
 /// Testable [`find_env_keys`] with an injected process environment.
@@ -138,7 +138,7 @@ pub fn find_env_keys_with(
 
 /// Get an API key for `provider` from known environment variables.
 pub fn get_env_api_key(provider: &str, env: Option<&ProviderEnv>) -> Option<String> {
-    get_env_api_key_with(provider, env, |name| std::env::var(name).ok(), &DEFAULT_VERTEX_ADC)
+    get_env_api_key_with(provider, env, pi_js_compat::process_env::get, &DEFAULT_VERTEX_ADC)
 }
 
 /// Testable [`get_env_api_key`] with injected process environment, file

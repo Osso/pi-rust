@@ -410,7 +410,7 @@ impl ToolsManager {
 
     fn windows_tar_command(&self) -> String {
         for variable in ["SystemRoot", "WINDIR"] {
-            if let Ok(system_root) = std::env::var(variable)
+            if let Some(system_root) = pi_js_compat::process_env::get(variable)
                 && !system_root.is_empty()
             {
                 let system_tar = Path::new(&system_root).join("System32").join("tar.exe");

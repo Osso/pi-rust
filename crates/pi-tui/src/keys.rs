@@ -325,7 +325,7 @@ fn is_windows_terminal_session() -> bool {
 }
 
 fn environment_flag(name: &str) -> bool {
-    std::env::var_os(name).is_some_and(|value| !value.is_empty())
+    pi_js_compat::process_env::get(name).is_some_and(|value| !value.is_empty())
 }
 
 fn windows_terminal_session(wt_session: bool, ssh_connection: bool, ssh_client: bool, ssh_tty: bool) -> bool {

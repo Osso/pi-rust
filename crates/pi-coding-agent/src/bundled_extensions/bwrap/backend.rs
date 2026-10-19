@@ -404,7 +404,7 @@ fn find_runner_executable(command: &str, env: Option<&IndexMap<String, String>>)
     let search_path = env
         .and_then(|env| env.get("PATH"))
         .cloned()
-        .or_else(|| std::env::var("PATH").ok())
+        .or_else(|| pi_js_compat::process_env::get("PATH"))
         .unwrap_or_else(|| DEFAULT_PATH.to_owned());
     for directory in search_path.split(':') {
         let candidate = Path::new(directory).join(command);
@@ -628,7 +628,7 @@ fn build_sandbox_env(env: Option<&IndexMap<String, String>>) -> IndexMap<String,
     if let Some(user) = env
         .and_then(|env| env.get("USER"))
         .cloned()
-        .or_else(|| std::env::var("USER").ok())
+        .or_else(|| pi_js_compat::process_env::get("USER"))
     {
         sandbox_env.insert("USER".to_owned(), user);
     }

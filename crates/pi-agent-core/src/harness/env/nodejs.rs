@@ -766,9 +766,7 @@ fn build_env(
     if inherit_env == Some(false) {
         return extra_env.cloned().unwrap_or_default();
     }
-    let mut environment = std::env::vars_os()
-        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.to_string_lossy().into_owned())))
-        .collect::<HashMap<_, _>>();
+    let mut environment = pi_js_compat::process_env::vars().into_iter().collect::<HashMap<_, _>>();
     environment.extend(shell_env.iter().map(|(key, value)| (key.clone(), value.clone())));
     if let Some(extra_env) = extra_env {
         environment.extend(extra_env.iter().map(|(key, value)| (key.clone(), value.clone())));
@@ -1079,7 +1077,7 @@ fn expand_path(path: &str) -> String {
 }
 
 fn home_dir() -> String {
-    std::env::var("HOME").unwrap_or_else(|_| "/".to_owned())
+    pi_js_compat::process_env::get("HOME").unwrap_or_else(|| "/".to_owned())
 }
 
 fn file_url_to_path(url: &str) -> Option<String> {

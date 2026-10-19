@@ -34,7 +34,7 @@ static NAMESPACES: Mutex<Vec<(TimingLabel, TimingNamespace)>> = Mutex::new(Vec::
 /// The source reads `PI_TIMING` once at module load; this reads it once on first use.
 fn enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var_os("PI_TIMING").is_some_and(|value| value == "1"))
+    *ENABLED.get_or_init(|| pi_js_compat::process_env::get("PI_TIMING").is_some_and(|value| value == "1"))
 }
 
 fn now_ms() -> i64 {

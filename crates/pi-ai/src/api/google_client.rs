@@ -593,8 +593,7 @@ fn merge_headers(model: &Model, option_headers: Option<&ProviderHeaders>) -> Vec
 
 /// `getEnv()`: trimmed process environment value, empty values are absent.
 fn read_process_env_value(name: &str) -> Option<String> {
-    std::env::var(name)
-        .ok()
+    pi_js_compat::process_env::get(name)
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
 }
@@ -1002,7 +1001,7 @@ fn load_credentials(env: Option<&ProviderEnv>) -> Result<Credentials, GoogleRequ
 }
 
 fn well_known_adc_path() -> Option<String> {
-    let home = std::env::var("HOME").ok()?;
+    let home = pi_js_compat::process_env::get("HOME")?;
     let path = std::path::Path::new(&home).join(".config/gcloud/application_default_credentials.json");
     path.is_file().then(|| path.to_string_lossy().into_owned())
 }

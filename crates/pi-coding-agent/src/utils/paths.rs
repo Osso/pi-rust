@@ -328,11 +328,11 @@ fn same_root(left: &[Component<'_>], right: &[Component<'_>]) -> bool {
 fn home_directory() -> String {
     #[cfg(windows)]
     {
-        std::env::var("USERPROFILE").unwrap_or_default()
+        pi_js_compat::process_env::get("USERPROFILE").unwrap_or_default()
     }
     #[cfg(not(windows))]
     {
-        std::env::var("HOME").unwrap_or_default()
+        pi_js_compat::process_env::get("HOME").unwrap_or_default()
     }
 }
 

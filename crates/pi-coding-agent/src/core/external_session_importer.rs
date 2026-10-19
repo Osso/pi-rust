@@ -118,7 +118,7 @@ fn resolve(input: &str) -> Result<String, SessionManagerError> {
 }
 
 fn home_directory() -> String {
-    std::env::var("HOME").unwrap_or_default()
+    pi_js_compat::process_env::get("HOME").unwrap_or_default()
 }
 
 fn parse_external_session_alias(session_arg: &str) -> Option<ExternalSessionAlias> {

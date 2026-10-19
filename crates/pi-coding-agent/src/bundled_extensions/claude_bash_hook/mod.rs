@@ -82,7 +82,7 @@ fn read_claude_bash_hook_command(options: &ClaudeBashHookOptions) -> Option<Stri
     if let Some(command) = &options.command {
         return Some(command.clone());
     }
-    let configured = std::env::var("PI_CLAUDE_BASH_HOOK").ok();
+    let configured = pi_js_compat::process_env::get("PI_CLAUDE_BASH_HOOK");
     if let Some(configured) = configured.filter(|command| !command.is_empty()) {
         return Some(configured);
     }
