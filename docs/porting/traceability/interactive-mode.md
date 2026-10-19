@@ -91,7 +91,8 @@ actions, breaking when shutdown is requested, then `shutdown`.
 ## Discrepancies
 
 - `toLocaleString()` token counts are rendered with `en-US` grouping. The
-  TypeScript output depends on the host locale; this port pins `en-US`.
+  TypeScript output depends on the host locale; this port pins `en-US`
+  (approved deviation, user decision 2026-10-19).
 - Tool elapsed timers use `Instant::now()` when the event carries an epoch
   timestamp, because `Instant` has no epoch mapping. Elapsed values are
   therefore relative to event receipt rather than the reported start.

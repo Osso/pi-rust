@@ -7,6 +7,7 @@
 - `packages/ai/src/cli.ts` (`pi-ai` bin) is a gap (2026-10-18).
 - `grok-mermaid` (third-party) is not ported; mermaid.ts is a gap, mermaid blocks render as code (2026-10-18).
 - Without `PI_PACKAGE_DIR`, `package.json` and the built-in themes are embedded in the binary (approved deviation 2026-10-18).
+- `toLocaleString()` number grouping is pinned to en-US regardless of host locale (approved deviation 2026-10-19).
 - Word segmentation uses ICU4X; CJK/Thai dictionary-word mismatches vs Node ICU are an approved deviation (2026-10-18).
 - Typed Rust core APIs intentionally exclude invalid JavaScript runtime input types, per the August 12, 2026 decision. Keep exclusions explicit in specs and traceability.
 - Write and run a failing behavioral or differential test before production code. Differential tests run the pinned TS module through `oracle/` via `tsx` when the module is deterministic and loadable.
