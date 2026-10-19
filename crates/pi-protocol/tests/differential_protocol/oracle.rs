@@ -1,4 +1,6 @@
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
@@ -53,9 +55,28 @@ impl TsOracle {
 impl Drop for TsOracle {
     fn drop(&mut self) {
         let _ = self.stdin.flush();
-        let _ = self.child.kill();
+        kill_oracle_process_group(&mut self.child);
         let _ = self.child.wait();
     }
+}
+
+fn kill_oracle_process_group(child: &mut Child) {
+    use rustix::process::{Pid, Signal, kill_process_group};
+
+    if let Some(pid) = Pid::from_raw(child.id() as i32) {
+        let _ = kill_process_group(pid, Signal::KILL);
+    }
+    let _ = child.kill();
+}
+
+fn watchdog_node_options(watchdog: &std::path::Path) -> OsString {
+    let mut options = std::env::var_os("NODE_OPTIONS").unwrap_or_default();
+    if !options.is_empty() {
+        options.push(" ");
+    }
+    options.push("--import ");
+    options.push(watchdog);
+    options
 }
 
 fn read_source_lock() -> SourceLock {
@@ -66,6 +87,7 @@ fn spawn_oracle_process(source_lock: &SourceLock, source_modules: &[&str]) -> Ch
     let tsx = source_lock.worktree.join("node_modules/.bin/tsx");
     let tsconfig = source_lock.worktree.join("tsconfig.json");
     let oracle = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../oracle/protocol-oracle.ts");
+    let watchdog = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../oracle/parent-watchdog.mjs");
 
     let mut command = Command::new(&tsx);
     command.arg("--tsconfig").arg(tsconfig).arg(oracle);
@@ -77,6 +99,9 @@ fn spawn_oracle_process(source_lock: &SourceLock, source_modules: &[&str]) -> Ch
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
+        .process_group(0)
+        .env("PI_ORACLE_PARENT_PID", std::process::id().to_string())
+        .env("NODE_OPTIONS", watchdog_node_options(&watchdog))
         .spawn()
         .expect("worktree-local tsx must start the TypeScript protocol oracle")
 }

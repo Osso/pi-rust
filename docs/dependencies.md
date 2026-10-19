@@ -2,6 +2,10 @@
 
 All direct dependencies are exact-pinned.
 
+## Test infrastructure
+
+- `rustix = 1.1.5` (`process`; development dependency of `pi-ai`, `pi-client`, `pi-js-compat`, `pi-protocol`, `pi-server`, `pi-session-sqlite`, and `pi-telemetry`) — `process::kill_process_group` tears down the tsx oracle process group in `tests/support/oracle.rs`; oracle children are spawned with `process_group(0)` so a dead test process cannot leave Node/esbuild descendants behind. Crates that already depend on `rustix` at runtime reuse the same pinned release.
+
 ## Runtime
 
 ### `pi-js-compat`

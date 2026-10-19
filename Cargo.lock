@@ -2026,6 +2026,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rsa",
+ "rustix",
  "serde",
  "serde_json",
  "sha1 0.10.6",
@@ -2042,6 +2043,7 @@ name = "pi-client"
 version = "0.0.0"
 dependencies = [
  "pi-protocol",
+ "rustix",
  "serde_json",
  "tokio",
  "tokio-util",
@@ -2092,6 +2094,7 @@ dependencies = [
  "icu_collator",
  "icu_locale_core",
  "jiff",
+ "rustix",
  "serde",
  "serde_json",
 ]
@@ -2100,6 +2103,7 @@ dependencies = [
 name = "pi-protocol"
 version = "0.0.0"
 dependencies = [
+ "rustix",
  "serde",
  "serde_json",
 ]
@@ -2110,6 +2114,7 @@ version = "0.0.0"
 dependencies = [
  "pi-ai",
  "pi-protocol",
+ "rustix",
  "serde_json",
  "sha2",
  "tempfile",
@@ -2123,6 +2128,7 @@ dependencies = [
  "pi-agent-core",
  "pi-ai",
  "rusqlite",
+ "rustix",
  "serde",
  "serde_json",
  "tempfile",
@@ -2136,6 +2142,7 @@ version = "0.0.0"
 dependencies = [
  "futures",
  "indexmap",
+ "rustix",
  "serde",
  "serde_json",
 ]

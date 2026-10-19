@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
@@ -42,6 +43,12 @@ impl TsOracle {
         Self { child, stdin, stdout }
     }
 
+    /// OS process id of the spawned tsx wrapper (the oracle's direct parent).
+    #[allow(dead_code)]
+    pub(crate) fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
     pub(crate) fn request(&mut self, request: &Value) -> Value {
         serde_json::to_writer(&mut self.stdin, request).expect("oracle request must serialize");
         self.stdin
@@ -62,9 +69,28 @@ impl TsOracle {
 impl Drop for TsOracle {
     fn drop(&mut self) {
         let _ = self.stdin.flush();
-        let _ = self.child.kill();
+        kill_oracle_process_group(&mut self.child);
         let _ = self.child.wait();
     }
+}
+
+fn kill_oracle_process_group(child: &mut Child) {
+    use rustix::process::{Pid, Signal, kill_process_group};
+
+    if let Some(pid) = Pid::from_raw(child.id() as i32) {
+        let _ = kill_process_group(pid, Signal::KILL);
+    }
+    let _ = child.kill();
+}
+
+fn watchdog_node_options(watchdog: &std::path::Path) -> OsString {
+    let mut options = std::env::var_os("NODE_OPTIONS").unwrap_or_default();
+    if !options.is_empty() {
+        options.push(" ");
+    }
+    options.push("--import ");
+    options.push(watchdog);
+    options
 }
 
 fn read_source_lock() -> SourceLock {
@@ -91,6 +117,7 @@ fn spawn_oracle_process(
     let oracle = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../oracle")
         .join(oracle_filename);
+    let watchdog = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../oracle/parent-watchdog.mjs");
 
     let mut command = Command::new(&tsx);
     command
@@ -100,10 +127,14 @@ fn spawn_oracle_process(
         .arg(source_lock.worktree.join(source_module))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
+        .stderr(Stdio::inherit())
+        .process_group(0);
     for (name, value) in env_pairs {
         command.env(name, value);
     }
+    command
+        .env("PI_ORACLE_PARENT_PID", std::process::id().to_string())
+        .env("NODE_OPTIONS", watchdog_node_options(&watchdog));
 
     command
         .spawn()
