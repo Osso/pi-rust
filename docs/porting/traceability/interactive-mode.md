@@ -53,8 +53,11 @@ notify-based child transcript reloads are implemented and behavior-tested.
 | `openChildAgentView` / `watchSelectedAgentTranscript` / `scheduleSelectedAgentTranscriptReload` / `reloadSelectedAgentTranscript` / `retrySelectedAgentTranscriptReload` | `open_child_agent_view` / `watch_selected_agent_transcript` / `schedule_selected_agent_transcript_reload` / `reload_selected_agent_transcript` / `retry_selected_agent_transcript_reload` | `ui_tests::child_transcript_reloads_after_a_watched_file_change` |
 | `renderSelectedAgentView` / `renderLiveAgentPlaceholder` / `findReadableAgentLogPath` / `readAgentLogPreview` | `render_selected_agent_view` / `render_live_agent_placeholder` / `find_readable_agent_log_path` / `read_agent_log_preview` | `ui_tests::child_view_overrides_the_footer_session`, `tests/interactive_child_view.rs` |
 | `moveStreamingComponentToChat` / `discardStreamingComponent` | `move_streaming_component_to_chat` / `discard_streaming_component` | `ui_tests::message_end_moves_the_streaming_component_into_the_chat_container`, `ui_tests::fullscreen_message_start_renders_directly_in_the_chat_container` |
-| `maybeShowCacheMissNotice` / `addCacheMissNotice` | `maybe_show_cache_miss_notice` / `add_cache_miss_notice` | covered by the `MessageEnd` branch tests; `detect_cache_miss` differential in `tests/cache_stats.rs` |
 | `updateSelectedAgentSelectionWidgets` | `update_selected_agent_selection_widgets` | `ui_tests::agent_slot_keybindings_select_active_agents_and_main` |
+| `renderSessionEntries` / `renderSessionItems` / `addCustomEntryToChat` / `getPendingToolStartedAt` | `render_session_entries` / `render_session_message` / `add_custom_entry_to_chat` / `get_pending_tool_started_at` | `ui_tests::render_session_entries_renders_persisted_custom_entries`, `ui_tests::render_session_entries_replays_tool_calls_and_results`, `ui_tests::entry_appended_renders_registered_custom_entries` |
+| `entry_appended` branch | `AgentSessionEvent::EntryAppended` -> `add_custom_entry_to_chat` | `ui_tests::entry_appended_renders_registered_custom_entries` |
+| `completedToolTimings` | `completed_tool_timings` | `ui_tests::render_session_entries_replays_tool_calls_and_results` |
+| `maybeShowCacheMissNotice` / `addCacheMissNotice` | `maybe_show_cache_miss_notice` / `add_cache_miss_notice` | `ui_tests::message_end_shows_a_cache_miss_notice` |
 | `handleCtrlZ` / `suspendToBackground` | `handle_ctrl_z` / `suspend_to_background` | no direct test (sends SIGTSTP) |
 
 ## Implemented branches
@@ -143,10 +146,10 @@ has no separate render-region callbacks.
 - `fs.watch` events cross from the notify thread through an `mpsc` channel and
   are drained by `poll_child_view_events`; the 50 ms reload debounce, the
   3-retry schedule and the 5 s watch retry match the source.
-- The child transcript is rendered from `SessionManager::buildSessionContext`
-  messages (the mode's existing session renderer); branch-summary/compaction
-  entry rendering for child sessions follows the same message path as the
-  main-session renderer.
+- Session replay (`renderSessionEntries`) renders context entries in order,
+  including custom entries through their registered entry renderers, and
+  reconstructs assistant tool-call components matched with tool results. This
+  is shared by startup, child views and the transcript rebuild.
 - The share flow accepts an explicit `gh` program path
   (`handle_share_command_with_program`) so tests can run a recording script
   without mutating the process `PATH`; production passes `"gh"` exactly like

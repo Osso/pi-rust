@@ -131,6 +131,12 @@ impl Container {
         self.children.push(component);
     }
 
+    /// Insert a child at `index`, clamped to the current length.
+    pub fn insert_child(&mut self, index: usize, component: ComponentRef) {
+        let index = index.min(self.children.len());
+        self.children.insert(index, component);
+    }
+
     pub fn remove_child(&mut self, component: &ComponentRef) {
         self.children.retain(|child| !same_component(child, component));
     }

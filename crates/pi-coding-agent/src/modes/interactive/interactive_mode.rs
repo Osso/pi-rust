@@ -56,7 +56,7 @@ use crate::core::model_resolver::{ModelScopeCode, resolve_model_scope_from_model
 use crate::core::multi_agent_store::{AgentLifecycle, AgentSnapshot, MultiAgentStore, lifecycle_name};
 use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
 use crate::core::runtime_message_markers::is_duplicate_turn_assistant_message;
-use crate::core::session_manager::{CompactionEntry, SessionEntry, SessionManager};
+use crate::core::session_manager::{CompactionEntry, KnownSessionEntry, SessionEntry, SessionManager};
 use crate::core::settings_manager::TreeFilterMode;
 use crate::core::source_info::{SourceInfo, SourceScope};
 use crate::core::trust_manager::ProjectTrustStore;
@@ -71,6 +71,7 @@ use crate::modes::interactive::components::branch_summary_message::BranchSummary
 use crate::modes::interactive::components::compaction_summary_message::CompactionSummaryMessageComponent;
 use crate::modes::interactive::components::countdown_timer::CountdownTimer;
 use crate::modes::interactive::components::custom_editor::{AppActionHandler, CustomEditor, CustomEditorOptions};
+use crate::modes::interactive::components::custom_entry::CustomEntryComponent;
 use crate::modes::interactive::components::custom_message::CustomMessageComponent;
 use crate::modes::interactive::components::daxnuts::DaxnutsComponent;
 use crate::modes::interactive::components::earendil_announcement::EarendilAnnouncementComponent;
@@ -2537,6 +2538,7 @@ pub struct InteractiveMode {
     pending_tools: RefCell<IndexMap<String, ComponentRef>>,
     executing_tool_names: RefCell<IndexMap<String, String>>,
     executing_tool_started_at: RefCell<IndexMap<String, f64>>,
+    completed_tool_timings: RefCell<IndexMap<String, (f64, f64)>>,
     extension_statuses: RefCell<IndexMap<String, String>>,
     extension_widgets_above: RefCell<IndexMap<String, ExtensionWidget>>,
     extension_widgets_below: RefCell<IndexMap<String, ExtensionWidget>>,
@@ -2844,6 +2846,7 @@ impl InteractiveMode {
             pending_tools: RefCell::new(IndexMap::new()),
             executing_tool_names: RefCell::new(IndexMap::new()),
             executing_tool_started_at: RefCell::new(IndexMap::new()),
+            completed_tool_timings: RefCell::new(IndexMap::new()),
             extension_statuses: RefCell::new(IndexMap::new()),
             extension_widgets_above: RefCell::new(IndexMap::new()),
             extension_widgets_below: RefCell::new(IndexMap::new()),
@@ -3830,13 +3833,12 @@ impl InteractiveMode {
             thinking_level,
             context_usage,
         };
+        let entries = manager.build_context_entries();
         drop(manager);
         self.footer.borrow_mut().set_session_override(footer_override.clone());
         self.footer_data_provider.set_session_override(footer_override);
         self.chat_container.borrow_mut().clear();
-        for message in &session_context.messages {
-            self.add_message_to_chat(message);
-        }
+        self.render_session_entries(&entries);
         true
     }
 
@@ -4623,10 +4625,180 @@ impl InteractiveMode {
     }
 
     fn render_initial_messages(&self) {
-        for message in self.session.borrow().messages() {
-            self.add_message_to_chat(&message);
+        let entries = self.session.borrow().session_manager().build_context_entries();
+        self.render_session_entries(&entries);
+    }
+
+    /// `renderSessionEntries`: custom entries render through their registered
+    /// renderer; every other entry yields its context messages.
+    pub fn render_session_entries(&self, entries: &[SessionEntry]) {
+        self.clear_pending_tools();
+        let mut rendered_pending_tools: IndexMap<String, ComponentRef> = IndexMap::new();
+        for entry in entries {
+            if let SessionEntry::Known(KnownSessionEntry::Custom(custom)) = entry {
+                self.add_custom_entry_to_chat(custom);
+                continue;
+            }
+            for message in crate::core::session_manager::session_entry_to_context_messages(entry) {
+                self.render_session_message(message, &mut rendered_pending_tools);
+            }
+        }
+        for (tool_call_id, component_ref) in rendered_pending_tools {
+            if let Some(started_at) = self.get_pending_tool_started_at(&tool_call_id)
+                && let Some(component_value) = component_ref
+                    .borrow_mut()
+                    .as_any_mut()
+                    .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
+            {
+                component_value.mark_execution_started(started_at);
+            }
+            self.pending_tools.borrow_mut().insert(tool_call_id, component_ref);
         }
         self.ui.request_render();
+    }
+
+    /// `renderSessionItems` message branch.
+    fn render_session_message(
+        &self,
+        message: AgentMessage,
+        rendered_pending_tools: &mut IndexMap<String, ComponentRef>,
+    ) {
+        match &message {
+            AgentMessage::Assistant(assistant) => {
+                self.add_message_to_chat(&message);
+                for content in &assistant.content {
+                    let pi_ai::types::AssistantContent::ToolCall(call) = content else {
+                        continue;
+                    };
+                    let component_ref = self.create_tool_component(
+                        &call.name,
+                        &call.id,
+                        Value::Object(call.arguments.clone()),
+                        &self.cwd(),
+                    );
+                    if let Some(component_value) = component_ref
+                        .borrow_mut()
+                        .as_any_mut()
+                        .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
+                    {
+                        component_value.set_expanded(self.tool_output_expanded.get());
+                    }
+                    self.chat_container.borrow_mut().add_child(Rc::clone(&component_ref));
+                    if matches!(
+                        assistant.stop_reason,
+                        pi_ai::types::StopReason::Aborted | pi_ai::types::StopReason::Error
+                    ) {
+                        let error_message = if assistant.stop_reason == pi_ai::types::StopReason::Aborted {
+                            let retry_attempt = self.session().retry_attempt();
+                            if retry_attempt > 0 {
+                                format!(
+                                    "Aborted after {retry_attempt} retry attempt{}",
+                                    if retry_attempt > 1 { "s" } else { "" }
+                                )
+                            } else {
+                                "Operation aborted".to_owned()
+                            }
+                        } else {
+                            assistant.error_message.clone().unwrap_or_else(|| "Error".to_owned())
+                        };
+                        if let Some(component_value) = component_ref
+                            .borrow_mut()
+                            .as_any_mut()
+                            .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
+                        {
+                            component_value.update_result(
+                                ToolExecutionResult {
+                                    content: vec![pi_ai::types::TextOrImageContent::Text(
+                                        pi_ai::types::TextContent::new(error_message),
+                                    )],
+                                    details: None,
+                                    is_error: true,
+                                },
+                                false,
+                                None,
+                            );
+                        }
+                    } else {
+                        rendered_pending_tools.insert(call.id.clone(), component_ref);
+                    }
+                }
+                if !matches!(
+                    assistant.stop_reason,
+                    pi_ai::types::StopReason::Aborted | pi_ai::types::StopReason::Error
+                ) {
+                    self.maybe_show_cache_miss_notice(assistant);
+                }
+            }
+            AgentMessage::ToolResult(result) => {
+                let Some(component_ref) = rendered_pending_tools.shift_remove(&result.tool_call_id) else {
+                    return;
+                };
+                let timing = self.completed_tool_timings.borrow().get(&result.tool_call_id).copied();
+                if let Some(component_value) = component_ref
+                    .borrow_mut()
+                    .as_any_mut()
+                    .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
+                {
+                    if let Some((started_at, _)) = timing {
+                        component_value.mark_execution_started(started_at);
+                    }
+                    component_value.update_result(
+                        ToolExecutionResult {
+                            content: result.content.clone(),
+                            details: result.details.clone(),
+                            is_error: result.is_error,
+                        },
+                        false,
+                        timing.map(|(_, finished_at)| finished_at),
+                    );
+                }
+            }
+            _ => self.add_message_to_chat(&message),
+        }
+    }
+
+    /// `getPendingToolStartedAt`.
+    fn get_pending_tool_started_at(&self, tool_call_id: &str) -> Option<f64> {
+        let Some(store) = self.multi_agent_store.as_ref() else {
+            return self.executing_tool_started_at.borrow().get(tool_call_id).copied();
+        };
+        let Some(selected_agent_id) = store.get_selected_agent_id() else {
+            return self.executing_tool_started_at.borrow().get(tool_call_id).copied();
+        };
+        let activity = store.get_agent(&selected_agent_id)?.current_activity?;
+        match activity {
+            crate::core::multi_agent_store::AgentCurrentActivity::Tool {
+                started_at,
+                tool_call_id: activity_tool_call_id,
+                ..
+            } if activity_tool_call_id == tool_call_id => {
+                let started_at = pi_js_compat::date::date_parse(&started_at);
+                (!started_at.is_nan()).then_some(started_at)
+            }
+            _ => None,
+        }
+    }
+
+    /// `addCustomEntryToChat`.
+    fn add_custom_entry_to_chat(&self, entry: &crate::core::session_manager::CustomEntry) -> bool {
+        let Some(renderer) = self.session().extension_runner().get_entry_renderer(&entry.custom_type) else {
+            return false;
+        };
+        let mut component_value = CustomEntryComponent::new(entry.clone(), renderer);
+        component_value.set_expanded(self.tool_output_expanded.get());
+        if !component_value.has_content() {
+            return false;
+        }
+        let component_ref = component(component_value);
+        if let Some(streaming) = self.streaming_component.borrow().as_ref() {
+            let mut chat = self.chat_container.borrow_mut();
+            if let Some(index) = chat.children().iter().position(|child| Rc::ptr_eq(child, streaming)) {
+                chat.insert_child(index, component_ref);
+                return true;
+            }
+        }
+        self.chat_container.borrow_mut().add_child(component_ref);
+        true
     }
 
     fn show_loaded_resources(&self, force: bool, show_diagnostics_when_quiet: bool) {
@@ -10087,7 +10259,15 @@ impl InteractiveMode {
                     .borrow_mut()
                     .insert(tool_call_id.clone(), *started_at);
             }
-            AgentSessionEvent::Agent(AgentEvent::ToolExecutionEnd { tool_call_id, .. }) => {
+            AgentSessionEvent::Agent(AgentEvent::ToolExecutionEnd {
+                tool_call_id,
+                started_at,
+                finished_at,
+                ..
+            }) => {
+                self.completed_tool_timings
+                    .borrow_mut()
+                    .insert(tool_call_id.clone(), (*started_at, *finished_at));
                 self.executing_tool_names.borrow_mut().shift_remove(tool_call_id);
                 self.executing_tool_started_at.borrow_mut().shift_remove(tool_call_id);
                 self.stop_tool_waiting_timer_if_idle();
@@ -10371,6 +10551,9 @@ impl InteractiveMode {
                 finished_at,
                 ..
             }) => {
+                self.completed_tool_timings
+                    .borrow_mut()
+                    .insert(tool_call_id.clone(), (started_at, finished_at));
                 let component_ref = self.pending_tools.borrow_mut().shift_remove(&tool_call_id);
                 let had_component = component_ref.is_some();
                 if let Some(component_ref) = component_ref
@@ -10400,8 +10583,10 @@ impl InteractiveMode {
                     self.ui.request_render();
                 }
             }
-            AgentSessionEvent::AgentEnd(_) => {
-                self.notify_response_complete();
+            AgentSessionEvent::AgentEnd(event) => {
+                if !event.will_retry {
+                    self.notify_response_complete();
+                }
                 self.thinking_follows_tool.set(false);
                 self.stop_thinking_timer();
                 self.executing_tool_names.borrow_mut().clear();
@@ -10538,7 +10723,13 @@ impl InteractiveMode {
                 self.footer.borrow_mut().invalidate();
                 self.update_editor_border_color();
             }
-            AgentSessionEvent::EntryAppended(_) => {}
+            AgentSessionEvent::EntryAppended(event) => {
+                if let SessionEntry::Known(KnownSessionEntry::Custom(custom)) = &event.entry
+                    && self.add_custom_entry_to_chat(custom)
+                {
+                    self.ui.request_render();
+                }
+            }
             AgentSessionEvent::BashExecutionUpdate(_) => {}
             AgentSessionEvent::Agent(AgentEvent::AgentEnd { .. }) => {}
             AgentSessionEvent::Agent(AgentEvent::TurnStart) => {}
@@ -10558,6 +10749,15 @@ impl InteractiveMode {
             }
             return;
         }
+        let component_ref = self.create_tool_component(tool_name, tool_call_id, args, &self.cwd());
+        self.chat_container.borrow_mut().add_child(Rc::clone(&component_ref));
+        self.pending_tools
+            .borrow_mut()
+            .insert(tool_call_id.to_owned(), component_ref);
+    }
+
+    /// Builds a tool execution component without mounting it.
+    fn create_tool_component(&self, tool_name: &str, tool_call_id: &str, args: Value, cwd: &str) -> ComponentRef {
         let request_render: Arc<dyn Fn() + Send + Sync> = {
             let sender = self.ui_sender.clone();
             Arc::new(move || {
@@ -10575,14 +10775,10 @@ impl InteractiveMode {
             },
             definition,
             request_render,
-            self.cwd(),
+            cwd,
         );
         component_value.set_expanded(self.tool_output_expanded.get());
-        let component_ref = component(component_value);
-        self.chat_container.borrow_mut().add_child(Rc::clone(&component_ref));
-        self.pending_tools
-            .borrow_mut()
-            .insert(tool_call_id.to_owned(), component_ref);
+        component(component_value)
     }
 
     fn clear_pending_tools(&self) {
@@ -12779,6 +12975,197 @@ mod ui_tests {
                     ),
                     "default editor must be restored"
                 );
+            })
+            .await;
+    }
+
+    async fn build_mode_with_custom_entry_renderer() -> (
+        Rc<InteractiveMode>,
+        Rc<RefCell<CaptureTerminal>>,
+        Arc<pi_ai::providers::faux::FauxProviderHandle>,
+        tempfile::TempDir,
+    ) {
+        let runtime = crate::core::extensions::create_extension_runtime();
+        let factory: crate::core::extensions::ExtensionFactory = Arc::new(|api| {
+            api.register_entry_renderer(
+                "test-entry",
+                Arc::new(|entry, _options, _theme| {
+                    let message = entry
+                        .data
+                        .as_ref()
+                        .and_then(|data| data.get("message"))
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
+                    Some(component(Text::new(format!("[Custom]\n{message}"), 0, 0)))
+                }),
+            )
+            .expect("entry renderer");
+            Box::pin(async { Ok(()) })
+        });
+        let extension = crate::core::extensions::load_extension_from_factory(
+            factory,
+            "/tmp",
+            Arc::new(crate::core::event_bus::EventBusController::new()),
+            runtime.clone(),
+            "/tmp/test-extension",
+        )
+        .await
+        .expect("extension");
+        let loader = Arc::new(StaticResourceLoader {
+            extensions: Some(crate::core::extensions::LoadExtensionsResult {
+                extensions: vec![extension],
+                errors: Vec::new(),
+                runtime,
+            }),
+            ..Default::default()
+        }) as Arc<dyn crate::core::resource_loader::ResourceLoader>;
+        build_mode_with_loader(loader, None).await
+    }
+
+    fn custom_entry(message: &str) -> crate::core::session_manager::CustomEntry {
+        crate::core::session_manager::CustomEntry {
+            custom_type: "test-entry".to_owned(),
+            data: Some(serde_json::json!({"message": message})),
+            id: "entry-1".to_owned(),
+            parent_id: None,
+            timestamp: "2026-06-27T00:00:00.000Z".to_owned(),
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn entry_appended_renders_registered_custom_entries() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode_with_custom_entry_renderer().await;
+                let _events = start(&mode).await;
+                mode.handle_event(AgentSessionEvent::EntryAppended(
+                    crate::core::agent_session::EntryAppendedEvent {
+                        event_type: "entry_appended",
+                        entry: SessionEntry::Known(KnownSessionEntry::Custom(custom_entry("appended entry"))),
+                    },
+                ))
+                .await;
+                let chat = chat_text(&mode);
+                assert!(chat.contains("appended entry"), "{chat}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn render_session_entries_renders_persisted_custom_entries() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode_with_custom_entry_renderer().await;
+                let _events = start(&mode).await;
+                mode.render_session_entries(&[SessionEntry::Known(KnownSessionEntry::Custom(custom_entry(
+                    "persisted entry",
+                )))]);
+                let chat = chat_text(&mode);
+                assert!(chat.contains("persisted entry"), "{chat}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn message_end_shows_a_cache_miss_notice() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                mode.session().settings_manager().set_show_cache_miss_notices(true);
+                let previous = faux_assistant_message(
+                    "previous",
+                    pi_ai::providers::faux::FauxAssistantMessageOptions {
+                        timestamp: Some(0),
+                        ..Default::default()
+                    },
+                );
+                let mut previous = previous;
+                previous.provider = "test-provider".to_owned();
+                previous.model = "test-model".to_owned();
+                previous.usage.cache_write = 100_000.0;
+                previous.usage.cost.cache_write = 0.375;
+                previous.usage.cost.total = 0.375;
+                mode.session()
+                    .session_manager()
+                    .append_message(AgentMessage::Assistant(Box::new(previous)))
+                    .expect("previous assistant");
+
+                let mut current = faux_assistant_message(
+                    "current",
+                    pi_ai::providers::faux::FauxAssistantMessageOptions {
+                        timestamp: Some(600_000),
+                        ..Default::default()
+                    },
+                );
+                current.provider = "test-provider".to_owned();
+                current.model = "test-model".to_owned();
+                current.usage.cache_write = 110_000.0;
+                current.usage.cost.cache_write = 0.4125;
+                current.usage.cost.total = 0.4125;
+                mode.maybe_show_cache_miss_notice(&current);
+
+                let chat = chat_text(&mode);
+                assert!(chat.contains("Cache miss after 10m idle"), "{chat}");
+                assert!(chat.contains("100k tokens re-billed"), "{chat}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn render_session_entries_replays_tool_calls_and_results() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let mut assistant = faux_assistant_message(
+                    pi_ai::providers::faux::FauxContent::Blocks(vec![pi_ai::providers::faux::faux_tool_call(
+                        "bash",
+                        serde_json::Map::from_iter([("command".to_owned(), Value::String("echo replayed".to_owned()))]),
+                        Some("call-1".to_owned()),
+                    )]),
+                    pi_ai::providers::faux::FauxAssistantMessageOptions::default(),
+                );
+                assistant.stop_reason = pi_ai::types::StopReason::ToolUse;
+                let result = pi_ai::types::ToolResultMessage {
+                    role: pi_ai::types::ToolResultRole::Tag,
+                    tool_call_id: "call-1".to_owned(),
+                    tool_name: "bash".to_owned(),
+                    content: vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
+                        "replayed tool output",
+                    ))],
+                    details: None,
+                    usage: None,
+                    added_tool_names: None,
+                    is_error: false,
+                    timestamp: 0,
+                };
+                let entries = vec![
+                    SessionEntry::Known(KnownSessionEntry::Message(
+                        crate::core::session_manager::SessionMessageEntry {
+                            id: "m1".to_owned(),
+                            parent_id: None,
+                            timestamp: "2026-06-27T00:00:00.000Z".to_owned(),
+                            message: Box::new(AgentMessage::Assistant(Box::new(assistant))),
+                        },
+                    )),
+                    SessionEntry::Known(KnownSessionEntry::Message(
+                        crate::core::session_manager::SessionMessageEntry {
+                            id: "m2".to_owned(),
+                            parent_id: Some("m1".to_owned()),
+                            timestamp: "2026-06-27T00:00:01.000Z".to_owned(),
+                            message: Box::new(AgentMessage::ToolResult(result)),
+                        },
+                    )),
+                ];
+                mode.render_session_entries(&entries);
+                let chat = chat_text(&mode);
+                assert!(chat.contains("replayed tool output"), "{chat}");
             })
             .await;
     }
