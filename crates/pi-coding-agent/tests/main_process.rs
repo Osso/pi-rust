@@ -371,3 +371,81 @@ fn rpc_mode_empty_stdin_differential() {
 fn print_mode_with_embedded_assets_differential() {
     assert_model_differential_with(&source_lock(), &[], run_rust_with_embedded_assets);
 }
+
+/// Reads stderr lines until an `Error: ` line appears or `timeout` elapses, then kills the child.
+fn first_error_line(mut command: Command, timeout: Duration) -> String {
+    use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
+
+    command.stdout(Stdio::null()).stderr(Stdio::piped());
+    let mut child = command.spawn().expect("process must spawn");
+    let stderr = child.stderr.take().expect("piped stderr");
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if sender.send(line).is_err() {
+                return;
+            }
+        }
+    });
+    let deadline = std::time::Instant::now() + timeout;
+    let mut found = String::new();
+    while let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) {
+        match receiver.recv_timeout(remaining) {
+            Ok(line) if line.starts_with("Error: ") => {
+                found = line;
+                break;
+            }
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    found
+}
+
+/// `pi -p hi` with `PI_PACKAGE_DIR` pointing at a package without built-in
+/// themes: TypeScript's `initTheme` falls back to dark, the fallback re-throws,
+/// and the CLI error handler reports it. The pinned CLI leaves the event loop
+/// alive after the error (source discrepancy), so only its stderr line and the
+/// intended exit code (1, set by `runCliActionOrReportError`) are comparable.
+#[test]
+fn missing_builtin_theme_differential() {
+    let lock = source_lock();
+    verify_source_head(&lock);
+
+    let rust_fixture = fixture(&lock);
+    std::fs::remove_dir_all(rust_fixture.package_dir.join("theme")).expect("remove theme dir");
+    let rust = run_rust(&rust_fixture, &["-p", "hi"]);
+
+    let ts_package = rust_fixture._temp.path().join("ts-package");
+    std::fs::create_dir_all(ts_package.join("dist/modes/interactive/theme")).expect("ts theme dir");
+    let ts_fixture = fixture(&lock);
+    let package_dir = lock.worktree.join("packages/coding-agent");
+    let mut command = Command::new(lock.worktree.join("node_modules/.bin/tsx"));
+    command
+        .arg("--tsconfig")
+        .arg(lock.worktree.join("tsconfig.json"))
+        .arg(package_dir.join("src/cli.ts"))
+        .args(["-p", "hi"])
+        .current_dir(&ts_fixture.work);
+    let mut environment = environment(&ts_fixture, &ts_package);
+    for (name, value) in &mut environment {
+        command.env(name, value);
+    }
+    let ts_line = first_error_line(command, Duration::from_secs(120));
+
+    let normalize = |line: &str, theme_dir: &Path| line.replace(&format!("{}/", theme_dir.display()), "<theme>/");
+    let rust_line = rust
+        .stderr
+        .lines()
+        .find(|line| line.starts_with("Error: "))
+        .expect("rust prints the theme error");
+    assert_eq!(
+        normalize(rust_line, &rust_fixture.package_dir.join("theme")),
+        normalize(&ts_line, &ts_package.join("dist/modes/interactive/theme")),
+        "theme init error must match the pinned CLI"
+    );
+    assert_eq!(rust.code, 1, "Rust exits with the TypeScript exit code");
+}
