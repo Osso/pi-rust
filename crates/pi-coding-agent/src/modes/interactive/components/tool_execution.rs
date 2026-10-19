@@ -279,6 +279,7 @@ impl ToolExecutionComponent {
                 request_render();
             }),
             last_component,
+            call_component: self.call_renderer_component.clone(),
             state: self.renderer_state.clone(),
             cwd: self.cwd.clone(),
             execution_started: self.execution_started,

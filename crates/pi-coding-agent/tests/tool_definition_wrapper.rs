@@ -3,7 +3,9 @@ use std::sync::{Arc, Mutex};
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use pi_coding_agent::core::tools::tool_definition_wrapper::{ToolOutputSpill, cap_tool_result_output, wrap_agent_tool};
+use pi_coding_agent::core::tools::tool_definition_wrapper::{
+    ToolOutputSpill, cap_tool_result_output, create_tool_definition_from_agent_tool, wrap_agent_tool,
+};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
@@ -66,6 +68,55 @@ fn result_text(result: &AgentToolResult) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+struct PrepareTool {
+    parameters: Value,
+}
+
+impl AgentTool for PrepareTool {
+    fn name(&self) -> &str {
+        "prepare"
+    }
+
+    fn description(&self) -> &str {
+        "prepare description"
+    }
+
+    fn parameters(&self) -> &Value {
+        &self.parameters
+    }
+
+    fn label(&self) -> &str {
+        "prepare"
+    }
+
+    fn prepare_arguments(&self, args: Value) -> Result<Value, ToolError> {
+        Ok(json!({"prepared": args}))
+    }
+
+    fn execute(
+        &self,
+        _tool_call_id: String,
+        _params: Value,
+        _signal: Option<CancellationToken>,
+        _on_update: AgentToolUpdateCallback,
+        _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
+    ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
+        Box::pin(async { Ok(text_result("done".to_owned())) })
+    }
+}
+
+#[test]
+fn definitions_from_agent_tools_forward_prepare_arguments() {
+    let definition = create_tool_definition_from_agent_tool(Arc::new(PrepareTool {
+        parameters: json!({"type": "object"}),
+    }));
+    let prepare = definition.prepare_arguments.expect("prepare arguments forwarded");
+    assert_eq!(
+        prepare(&json!({"value": 1})).expect("prepare arguments"),
+        json!({"prepared": {"value": 1}})
+    );
 }
 
 #[test]

@@ -1,6 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -24,6 +25,7 @@ fn context(args: Value, cwd: &str, state: ToolRenderState) -> ToolRenderContext 
         tool_call_id: "edit-preview-differential".to_owned(),
         invalidate: Arc::new(|| {}),
         last_component: None,
+        call_component: None,
         state,
         cwd: cwd.to_owned(),
         execution_started: false,
@@ -135,6 +137,7 @@ fn edit_preview_renderers_match_the_pinned_typescript_source() {
 
         if let Some(result_value) = case.get("result") {
             context.is_error = case.get("isError").and_then(Value::as_bool).unwrap_or(false);
+            context.call_component = Some(Rc::clone(&call));
             let component = render_result(
                 &agent_result(result_value),
                 &ToolRenderResultOptions {

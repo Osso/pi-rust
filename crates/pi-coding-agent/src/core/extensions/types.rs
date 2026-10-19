@@ -1181,6 +1181,8 @@ pub struct ToolRenderContext {
     pub tool_call_id: String,
     pub invalidate: Arc<dyn Fn() + Send + Sync>,
     pub last_component: Option<ComponentRef>,
+    /// Component returned by the last `renderCall` (`EditRenderState.callComponent`).
+    pub call_component: Option<ComponentRef>,
     pub state: ToolRenderState,
     pub cwd: String,
     pub execution_started: bool,

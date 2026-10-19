@@ -31,6 +31,7 @@ fn context(args: Value, expanded: bool, is_error: bool, show_images: bool) -> To
         tool_call_id: "render-differential".to_owned(),
         invalidate: std::sync::Arc::new(|| {}),
         last_component: None,
+        call_component: None,
         state: pi_coding_agent::core::extensions::types::ToolRenderState::new(),
         cwd: "/repo".to_owned(),
         execution_started: false,
