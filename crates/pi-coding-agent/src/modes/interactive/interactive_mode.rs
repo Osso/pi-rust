@@ -47,8 +47,8 @@ use crate::core::extensions::types::{
     BoxFuture, ExtensionAutocompleteProviderFactory, ExtensionEditorFactory, ExtensionUiComponent,
     ExtensionUiComponentFactory, ExtensionUiContext, ExtensionUiCustomFactory, ExtensionUiCustomOptions,
     ExtensionUiDialogOptions, ExtensionUiDone, ExtensionUiFooterFactory, ExtensionUiTui, ExtensionUiTuiBackend,
-    ExtensionWidgetOptions, NotifyType, TerminalInputHandler, ThemeInfo, ThemeSetResult, WidgetPlacement,
-    WorkingIndicatorOptions,
+    ExtensionWidgetOptions, HandlerError, NotifyType, SessionTransitionResult, TerminalInputHandler, ThemeInfo,
+    ThemeSetResult, WidgetPlacement, WorkingIndicatorOptions,
 };
 use crate::core::footer_data_provider::{ContextUsage, FooterDataProvider, FooterSessionOverride};
 use crate::core::keybindings::KeybindingsManager;
@@ -1990,21 +1990,21 @@ enum UiRequest {
     ShowSandboxSelector,
     RuntimeNewSession {
         options: Option<crate::core::extensions::types::NewSessionOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<crate::core::extensions::types::SessionTransitionResult, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, String>>,
     },
     RuntimeFork {
         entry_id: String,
         options: Option<crate::core::extensions::types::ForkOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<crate::core::extensions::types::SessionTransitionResult, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, String>>,
     },
     RuntimeNavigateTree {
         entry_id: String,
         options: Option<crate::core::extensions::types::NavigateTreeOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<crate::core::extensions::types::SessionTransitionResult, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, String>>,
     },
     RuntimeSwitchSession {
         path: String,
-        respond: tokio::sync::oneshot::Sender<Result<crate::core::extensions::types::SessionTransitionResult, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, String>>,
     },
     RuntimeReload {
         respond: tokio::sync::oneshot::Sender<()>,
@@ -2099,6 +2099,24 @@ fn with_mode<R>(id: usize, f: impl FnOnce(Rc<InteractiveMode>) -> R) -> Option<R
     MODE_REGISTRY.with(|registry| {
         let mode = registry.borrow().get(&id).and_then(std::rc::Weak::upgrade)?;
         Some(f(mode))
+    })
+}
+
+/// Completes an extension UI request with the value the mode sends back.
+async fn await_ui_response<T>(receiver: tokio::sync::oneshot::Receiver<Result<T, String>>) -> Result<T, HandlerError> {
+    receiver
+        .await
+        .map_err(|error| HandlerError::new(error.to_string()))?
+        .map_err(HandlerError::new)
+}
+
+/// Cancels a selector, restoring the editor and repainting.
+fn cancel_restores_editor(mode_id: usize) -> Rc<dyn Fn()> {
+    Rc::new(move || {
+        with_mode(mode_id, |mode| {
+            mode.restore_editor();
+            mode.ui.request_render();
+        });
     })
 }
 
@@ -6346,7 +6364,7 @@ impl InteractiveMode {
                 Arc::new(move |profile, scope| {
                     session
                         .set_sandbox_profile(profile, scope)
-                        .map_err(|error| crate::core::extensions::types::HandlerError::new(error.to_string()))
+                        .map_err(|error| HandlerError::new(error.to_string()))
                 })
             },
             wait_for_idle: {
@@ -6363,12 +6381,7 @@ impl InteractiveMode {
                 Arc::new(move |options| {
                     let (respond, receiver) = tokio::sync::oneshot::channel();
                     let _ = sender.send(UiRequest::RuntimeNewSession { options, respond });
-                    Box::pin(async move {
-                        receiver
-                            .await
-                            .map_err(|error| crate::core::extensions::types::HandlerError::new(error.to_string()))?
-                            .map_err(crate::core::extensions::types::HandlerError::new)
-                    })
+                    Box::pin(await_ui_response(receiver))
                 })
             },
             fork: {
@@ -6380,12 +6393,7 @@ impl InteractiveMode {
                         options,
                         respond,
                     });
-                    Box::pin(async move {
-                        receiver
-                            .await
-                            .map_err(|error| crate::core::extensions::types::HandlerError::new(error.to_string()))?
-                            .map_err(crate::core::extensions::types::HandlerError::new)
-                    })
+                    Box::pin(await_ui_response(receiver))
                 })
             },
             navigate_tree: {
@@ -6397,12 +6405,7 @@ impl InteractiveMode {
                         options,
                         respond,
                     });
-                    Box::pin(async move {
-                        receiver
-                            .await
-                            .map_err(|error| crate::core::extensions::types::HandlerError::new(error.to_string()))?
-                            .map_err(crate::core::extensions::types::HandlerError::new)
-                    })
+                    Box::pin(await_ui_response(receiver))
                 })
             },
             switch_session: {
@@ -6410,12 +6413,7 @@ impl InteractiveMode {
                 Arc::new(move |path, _options| {
                     let (respond, receiver) = tokio::sync::oneshot::channel();
                     let _ = sender.send(UiRequest::RuntimeSwitchSession { path, respond });
-                    Box::pin(async move {
-                        receiver
-                            .await
-                            .map_err(|error| crate::core::extensions::types::HandlerError::new(error.to_string()))?
-                            .map_err(crate::core::extensions::types::HandlerError::new)
-                    })
+                    Box::pin(await_ui_response(receiver))
                 })
             },
             reload: {
@@ -7902,6 +7900,13 @@ impl InteractiveMode {
         }
         self.update_terminal_title();
         self.ui.request_render();
+    }
+
+    /// Adopts the runtime's replacement session unless the transition was cancelled.
+    fn adopt_transitioned_session(&self, runtime: &AgentSessionRuntime, cancelled: bool) {
+        if !cancelled {
+            self.adopt_session(runtime.session().clone());
+        }
     }
 
     async fn handle_reload_command(&self) {
@@ -9706,12 +9711,7 @@ impl InteractiveMode {
                     ));
                 });
             }),
-            on_cancel: Rc::new(move || {
-                with_mode(mode_id, |mode| {
-                    mode.restore_editor();
-                    mode.ui.request_render();
-                });
-            }),
+            on_cancel: cancel_restores_editor(mode_id),
         };
         self.show_selector(component(TrustSelectorComponent::new(options)));
     }
@@ -9743,12 +9743,7 @@ impl InteractiveMode {
                     ));
                 });
             }),
-            on_cancel: Rc::new(move || {
-                with_mode(mode_id, |mode| {
-                    mode.restore_editor();
-                    mode.ui.request_render();
-                });
-            }),
+            on_cancel: cancel_restores_editor(mode_id),
         };
         self.show_selector(component(ApprovalSelectorComponent::new(options)));
     }
@@ -9809,12 +9804,7 @@ impl InteractiveMode {
                     ));
                 });
             }),
-            on_cancel: Rc::new(move || {
-                with_mode(mode_id, |mode| {
-                    mode.restore_editor();
-                    mode.ui.request_render();
-                });
-            }),
+            on_cancel: cancel_restores_editor(mode_id),
         };
         self.show_selector(component(SandboxSelectorComponent::new(options)));
     }
@@ -10196,13 +10186,10 @@ impl InteractiveMode {
                         }),
                     )
                     .await;
-                if let Ok(result) = &result
-                    && !result.cancelled
-                {
-                    let session = runtime.session().clone();
-                    self.adopt_session(session);
+                if let Ok(result) = &result {
+                    self.adopt_transitioned_session(&runtime, result.cancelled);
                 }
-                let transition = result.map(|result| crate::core::extensions::types::SessionTransitionResult {
+                let transition = result.map(|result| SessionTransitionResult {
                     cancelled: result.cancelled,
                 });
                 let _ = respond.send(transition);
@@ -10226,13 +10213,10 @@ impl InteractiveMode {
                     .unwrap_or(crate::core::agent_session_runtime::ForkPosition::At);
                 let mut runtime = self.runtime.lock().await;
                 let result = runtime.fork(&entry_id, position, None).await;
-                if let Ok(result) = &result
-                    && !result.cancelled
-                {
-                    let session = runtime.session().clone();
-                    self.adopt_session(session);
+                if let Ok(result) = &result {
+                    self.adopt_transitioned_session(&runtime, result.cancelled);
                 }
-                let transition = result.map(|result| crate::core::extensions::types::SessionTransitionResult {
+                let transition = result.map(|result| SessionTransitionResult {
                     cancelled: result.cancelled,
                 });
                 let _ = respond.send(transition);
@@ -10257,20 +10241,17 @@ impl InteractiveMode {
                     )
                     .await;
                 let transition = result
-                    .map(|_| crate::core::extensions::types::SessionTransitionResult { cancelled: false })
+                    .map(|_| SessionTransitionResult { cancelled: false })
                     .map_err(|error| error.message().to_owned());
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeSwitchSession { path, respond } => {
                 let mut runtime = self.runtime.lock().await;
                 let result = runtime.switch_session(&path, None, None).await;
-                if let Ok(result) = &result
-                    && !result.cancelled
-                {
-                    let session = runtime.session().clone();
-                    self.adopt_session(session);
+                if let Ok(result) = &result {
+                    self.adopt_transitioned_session(&runtime, result.cancelled);
                 }
-                let transition = result.map(|result| crate::core::extensions::types::SessionTransitionResult {
+                let transition = result.map(|result| SessionTransitionResult {
                     cancelled: result.cancelled,
                 });
                 let _ = respond.send(transition);
