@@ -7,8 +7,59 @@ use crate::core::extensions::loader::ExtensionRegistry;
 pub mod agent_viewer;
 pub mod agents_core;
 pub mod agents_mailbox;
+pub mod debug;
+pub mod self_restart;
+pub mod session_archive;
+pub mod session_id;
+pub mod spec_validation;
+
+use debug::DebugReplControllerProvider;
 
 use agents_core::runtime::{MultiAgentExtensionOptions, create_multi_agent_runtime_handles, resolve_multi_agent_store};
+
+/// Options for the small first-party extensions.
+pub struct SmallExtensionsOptions {
+    pub get_debug_repl: DebugReplControllerProvider,
+}
+
+/// Registers the small first-party extensions under their source ids.
+pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &SmallExtensionsOptions) {
+    registry.register("<first-party:debug>", {
+        let get_debug_repl = Arc::clone(&options.get_debug_repl);
+        Arc::new(move |pi| {
+            let result = debug::debug_extension(pi, Arc::clone(&get_debug_repl));
+            Box::pin(async move { result })
+        })
+    });
+    registry.register(
+        "<first-party:self-restart>",
+        Arc::new(|pi| {
+            let result = self_restart::self_restart_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register(
+        "<first-party:session-archive>",
+        Arc::new(|pi| {
+            let result = session_archive::session_archive_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register(
+        "<first-party:session-id>",
+        Arc::new(|pi| {
+            let result = session_id::session_id_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register(
+        "<first-party:spec-validation>",
+        Arc::new(|pi| {
+            let result = spec_validation::spec_validation_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+}
 
 /// Registers the first-party agents extensions under their source ids.
 ///
