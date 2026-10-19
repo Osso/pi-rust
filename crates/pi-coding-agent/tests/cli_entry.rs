@@ -189,8 +189,7 @@ async fn cli_entry_propagates_main_errors() {
     let main: CliMain<'_> = Box::new(|_args: &[String]| Box::pin(async { Err("boom".to_owned()) }));
     let error = run_cli_entry(&argv, &host, main)
         .await
-        .err()
-        .expect("main error propagates");
+        .expect_err("main error propagates");
     assert_eq!(error, "boom");
 }
 

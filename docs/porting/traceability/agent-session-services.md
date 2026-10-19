@@ -27,8 +27,5 @@ Rust: `crates/pi-coding-agent/src/core/agent_session_services.rs`.
 
 ## Gaps
 
-- `multiAgentStore` and `onSharedChannelMessageDelivered` are not part of the
-  Rust `CreateAgentSessionOptions` yet; they are dropped by
-  `create_agent_session_from_services` until the agents slice wires them.
-- `sessionStartEvent` is not carried; runtime/session start hooks remain in
-  `agent-session-runtime`.
+- None for the option surface: `multiAgentStore`, `onSharedChannelMessageDelivered`,
+  `customTools`, and `sessionStartEvent` are forwarded to `AgentSession`.

@@ -142,7 +142,18 @@ async fn services_and_from_services_create_a_working_session() {
     let runtime = faux_runtime(&faux).await;
     let model = faux.get_model(None).expect("model");
     faux.set_responses(vec![
-        faux_assistant_message("service hello", FauxAssistantMessageOptions::default()).into(),
+        faux_assistant_message(
+            vec![
+                pi_ai::providers::faux::faux_text("service hello"),
+                pi_ai::providers::faux::faux_tool_call(
+                    "end_turn",
+                    serde_json::Map::from_iter([("reason".to_owned(), serde_json::json!("done"))]),
+                    Some("call-end".to_owned()),
+                ),
+            ],
+            FauxAssistantMessageOptions::default(),
+        )
+        .into(),
     ]);
     let services = create_agent_session_services(CreateAgentSessionServicesOptions {
         cwd: temp.path().display().to_string(),
@@ -185,7 +196,7 @@ async fn services_and_from_services_create_a_working_session() {
         .prompt("hi", PromptOptions::default())
         .await
         .expect("prompt");
-    assert_eq!(result.session.messages().len(), 2);
+    assert_eq!(result.session.messages().len(), 3);
 }
 
 #[tokio::test]
@@ -209,5 +220,5 @@ async fn excluded_tools_are_removed_from_initial_active_names() {
     })
     .await
     .expect("session");
-    assert!(result.session.get_active_tool_names().is_empty());
+    assert_eq!(result.session.get_active_tool_names(), vec!["end_turn".to_owned()]);
 }
