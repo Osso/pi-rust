@@ -3,8 +3,11 @@
 //! under test sees a PATH containing only fake clipboard tools, exactly like
 //! the TypeScript tests mock `child_process`.
 
+#[path = "executable_script.rs"]
+mod executable_script;
+
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Output};
 
 use pi_coding_agent::utils::clipboard_image::ClipboardEnvironment;
@@ -103,8 +106,7 @@ impl Scenario {
 
         for (name, body) in scripts {
             let path = bin.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}")).expect("fake tool");
-            set_executable(&path);
+            executable_script::write_executable_script(&path, &format!("#!/bin/sh\n{body}"));
         }
 
         Scenario {
@@ -181,12 +183,4 @@ pub fn osc52_sequence(text: &str) -> String {
 /// payloads without external programs.
 pub fn octal_printf(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("\\{byte:03o}")).collect()
-}
-
-fn set_executable(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-
-    let mut permissions = std::fs::metadata(path).expect("fake tool metadata").permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(path, permissions).expect("fake tool permissions");
 }

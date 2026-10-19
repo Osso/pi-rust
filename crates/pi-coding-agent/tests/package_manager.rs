@@ -1,5 +1,8 @@
 //! Behavioral tests for `core/package-manager.ts`.
 
+#[path = "support/executable_script.rs"]
+mod executable_script;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -133,12 +136,7 @@ fn enabled_paths(resources: &[pi_coding_agent::core::package_manager::ResolvedRe
 fn write_fake_npm(dir: &Path, name: &str, body: &str) -> String {
     let path = dir.join(name);
     fs::create_dir_all(dir).unwrap();
-    fs::write(&path, body).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    executable_script::write_executable_script(&path, body);
     path.to_string_lossy().into_owned()
 }
 

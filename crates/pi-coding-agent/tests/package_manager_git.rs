@@ -2,6 +2,8 @@
 
 #[path = "support/env_probe.rs"]
 mod env_probe;
+#[path = "support/executable_script.rs"]
+mod executable_script;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -138,12 +140,7 @@ impl Fixture {
         let dir = self.temp.path().join("bin");
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("npm");
-        fs::write(&path, body).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        executable_script::write_executable_script(&path, body);
         path.to_string_lossy().into_owned()
     }
 }
@@ -228,16 +225,10 @@ fn git_dependencies_install_without_dev_dependencies_by_default() {
         let bin = root.path().join("bin");
         fs::create_dir_all(&bin).unwrap();
         let npm = bin.join("npm");
-        fs::write(
+        executable_script::write_executable_script(
             &npm,
             "#!/bin/sh\nprintf '%s|%s\\n' \"$PWD\" \"$*\" >> \"$PACKAGE_TEST_ROOT/npm.log\"\n",
-        )
-        .unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&npm, fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        );
         let path = format!(
             "{}:{}",
             bin.to_string_lossy(),

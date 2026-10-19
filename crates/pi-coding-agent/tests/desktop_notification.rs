@@ -1,9 +1,10 @@
 #[path = "support/env_probe.rs"]
 mod env_probe;
+#[path = "support/executable_script.rs"]
+mod executable_script;
 
 use std::ffi::OsString;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use pi_coding_agent::core::desktop_notification::{
@@ -14,8 +15,7 @@ use pi_coding_agent::core::desktop_notification::{
 const PREFIX: &str = "DESKTOP_NOTIFICATION_PROBE:";
 
 fn write_script(path: &Path, contents: &str) {
-    fs::write(path, contents).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    executable_script::write_executable_script(path, contents);
 }
 
 fn probe(notification: DesktopNotification, close_immediately: bool) -> (Vec<String>, Option<Vec<String>>) {

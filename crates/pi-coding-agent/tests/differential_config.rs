@@ -3,6 +3,8 @@
 
 #[path = "support/config_probe.rs"]
 mod config_probe;
+#[path = "support/executable_script.rs"]
+mod executable_script;
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -94,13 +96,7 @@ fn write_package(dir: &Path, content: &str) {
 
 fn write_script(dir: &Path, name: &str, body: &str) {
     fs::create_dir_all(dir).unwrap();
-    let path = dir.join(name);
-    fs::write(&path, body).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    executable_script::write_executable_script(&dir.join(name), body);
 }
 
 fn env_pairs(env: &BTreeMap<String, String>) -> Vec<(&str, OsString)> {

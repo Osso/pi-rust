@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
-use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 
 use pi_coding_agent::core::tools::bash::{BashExecOptions, BashOperations, create_local_bash_operations};
+
+#[path = "support/executable_script.rs"]
+mod executable_script;
 
 #[test]
 fn sends_commands_over_stdin_for_the_legacy_wsl_shim() {
@@ -10,10 +12,7 @@ fn sends_commands_over_stdin_for_the_legacy_wsl_shim() {
     let shell_relative = "C:\\Windows\\System32\\bash.exe";
     let shell_path = temp.path().join(shell_relative);
     std::fs::create_dir_all(shell_path.parent().expect("parent")).expect("parent dirs");
-    std::fs::write(&shell_path, "#!/bin/sh\ncat\n").expect("shim");
-    let mut permissions = std::fs::metadata(&shell_path).expect("metadata").permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(&shell_path, permissions).expect("chmod");
+    executable_script::write_executable_script(&shell_path, "#!/bin/sh\ncat\n");
 
     let original_cwd = std::env::current_dir().expect("cwd");
     std::env::set_current_dir(temp.path()).expect("chdir");

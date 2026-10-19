@@ -1,9 +1,11 @@
-use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 
 use pi_agent_core::agent::AgentTool;
 use pi_coding_agent::core::tools::grep::GrepTool;
 use serde_json::json;
+
+#[path = "support/executable_script.rs"]
+mod executable_script;
 
 const MODE_VAR: &str = "PI_GREP_TEST_MODE";
 const DIR_VAR: &str = "PI_GREP_TEST_DIR";
@@ -60,10 +62,7 @@ fn write_fake_rg(directory: &std::path::Path, args_path: &std::path::Path) {
         "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  printf 'ripgrep 15.2.0\\n'\n  exit 0\nfi\nprintf '%s' \"$*\" > '{}'\nsearched=\"\"\nfor arg in \"$@\"; do searched=\"$arg\"; done\nprintf '{{\"type\":\"match\",\"data\":{{\"path\":{{\"text\":\"%s\"}},\"lines\":{{\"text\":\"match\\\\n\"}},\"line_number\":1}}}}\\n' \"$searched\"\n",
         args_path.display()
     );
-    std::fs::write(&path, script).expect("fake rg");
-    let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(&path, permissions).expect("chmod");
+    executable_script::write_executable_script(&path, &script);
 }
 
 fn run_fake_rg() {
