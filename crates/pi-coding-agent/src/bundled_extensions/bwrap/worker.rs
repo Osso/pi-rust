@@ -174,23 +174,42 @@ struct GrepOptions {
     root_path: PathBuf,
 }
 
-fn make_matcher(options: &GrepOptions, line: &str) -> bool {
+enum LineMatcher {
+    Literal { needle: String, ignore_case: bool },
+    Regex(fancy_regex::Regex),
+}
+
+impl LineMatcher {
+    fn is_match(&self, line: &str) -> Result<bool, String> {
+        match self {
+            Self::Literal { needle, ignore_case } => {
+                let matched = if *ignore_case {
+                    line.to_lowercase().contains(&needle.to_lowercase())
+                } else {
+                    line.contains(needle)
+                };
+                Ok(matched)
+            }
+            Self::Regex(regex) => regex.is_match(line).map_err(|error| error.to_string()),
+        }
+    }
+}
+
+fn compile_matcher(options: &GrepOptions) -> Result<LineMatcher, String> {
     if options.literal {
-        let (haystack, needle) = if options.ignore_case {
-            (line.to_lowercase(), options.pattern.to_lowercase())
-        } else {
-            (line.to_owned(), options.pattern.clone())
-        };
-        return haystack.contains(&needle);
+        return Ok(LineMatcher::Literal {
+            needle: options.pattern.clone(),
+            ignore_case: options.ignore_case,
+        });
     }
     let pattern = if options.ignore_case {
         format!("(?i){}", options.pattern)
     } else {
         options.pattern.clone()
     };
-    regex::Regex::new(&pattern)
-        .map(|regex| regex.is_match(line))
-        .unwrap_or(false)
+    fancy_regex::Regex::new(&pattern)
+        .map(LineMatcher::Regex)
+        .map_err(|error| error.to_string())
 }
 
 struct GrepFileResult {
@@ -234,15 +253,23 @@ fn format_grep_match(relative_path: &str, lines: &[String], match_index: usize, 
     (rendered.join("\n"), truncated_any)
 }
 
-fn format_grep_file(file_path: &Path, lines: &[String], options: &GrepOptions, limit: usize) -> GrepFileResult {
+fn format_grep_file(
+    file_path: &Path,
+    lines: &[String],
+    options: &GrepOptions,
+    limit: usize,
+) -> Result<GrepFileResult, String> {
     let relative_path = relative_grep_path(file_path, options);
-    let match_indexes: Vec<usize> = lines
-        .iter()
-        .enumerate()
-        .filter(|(_, line)| make_matcher(options, line))
-        .map(|(index, _)| index)
-        .take(limit)
-        .collect();
+    let matcher = compile_matcher(options)?;
+    let mut match_indexes = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        if match_indexes.len() >= limit {
+            break;
+        }
+        if matcher.is_match(line)? {
+            match_indexes.push(index);
+        }
+    }
     let mut text_parts = Vec::new();
     let mut lines_truncated = false;
     for match_index in &match_indexes {
@@ -252,11 +279,11 @@ fn format_grep_file(file_path: &Path, lines: &[String], options: &GrepOptions, l
             text_parts.push(text);
         }
     }
-    GrepFileResult {
+    Ok(GrepFileResult {
         count: match_indexes.len(),
         lines_truncated,
         text: text_parts.join("\n"),
-    }
+    })
 }
 
 fn read_grep_lines(file_path: &Path) -> Result<Option<Vec<String>>, String> {
@@ -287,7 +314,7 @@ fn collect_grep_results(
     let Some(lines) = read_grep_lines(file_path)? else {
         return collect_grep_results(files, options, file_index + 1, match_count);
     };
-    let file_result = format_grep_file(file_path, &lines, options, remaining_limit);
+    let file_result = format_grep_file(file_path, &lines, options, remaining_limit)?;
     let (count, remaining_truncated, mut remaining_parts) =
         collect_grep_results(files, options, file_index + 1, match_count + file_result.count)?;
     let mut text_parts = Vec::new();

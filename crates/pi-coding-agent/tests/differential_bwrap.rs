@@ -166,6 +166,7 @@ fn run_node_worker(operation: &str, payload: &Value, cwd: &str) -> (i32, String,
 fn matches_node_fs_worker_operations_on_the_same_fixtures() {
     let workspace = temp_dir("worker");
     std::fs::write(Path::new(&workspace).join("alpha.txt"), "one\ntwo\nthree\n").unwrap();
+    std::fs::write(Path::new(&workspace).join("delta.txt"), "aa\nabab\n").unwrap();
     std::fs::write(Path::new(&workspace).join("beta.txt"), "Two\nfour\n").unwrap();
     std::fs::create_dir(Path::new(&workspace).join("sub")).unwrap();
     std::fs::write(Path::new(&workspace).join("sub/gamma.txt"), "two again\n").unwrap();
@@ -200,6 +201,12 @@ fn matches_node_fs_worker_operations_on_the_same_fixtures() {
             json!({"context": 1, "limit": 100, "path": "alpha.txt", "pattern": "two"}),
         ),
         ("grep", json!({"limit": 100, "path": ".", "pattern": "nomatch"})),
+        ("grep", json!({"limit": 100, "path": "delta.txt", "pattern": "(a)\\1"})),
+        ("grep", json!({"limit": 100, "path": "alpha.txt", "pattern": "t(?=wo)"})),
+        (
+            "grep",
+            json!({"limit": 100, "path": "alpha.txt", "pattern": "(?<=t)wo"}),
+        ),
         ("access", json!({"path": "../outside"})),
         ("unknown", json!({})),
     ];

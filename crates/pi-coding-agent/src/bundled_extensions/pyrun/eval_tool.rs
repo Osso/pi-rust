@@ -30,7 +30,7 @@ pub type PyrunPiRequestDispatcher = Arc<
             ExtensionContext,
             Option<CancellationToken>,
             Option<String>,
-        ) -> BoxFuture<'static, Result<Value, HandlerError>>
+        ) -> BoxFuture<'static, Result<Option<Value>, HandlerError>>
         + Send
         + Sync,
 >;
@@ -423,7 +423,7 @@ pub fn create_pyrun_eval_executor(
                         let method = request.method.clone();
                         return Box::pin(async move {
                             Err(HandlerError::new(format!("Pi capability is unavailable: {method}")))
-                        }) as BoxFuture<'static, Result<Value, HandlerError>>;
+                        }) as BoxFuture<'static, Result<Option<Value>, HandlerError>>;
                     };
                     dispatch(request, ctx.clone(), signal.clone(), active_tool_call_id.clone())
                 }))

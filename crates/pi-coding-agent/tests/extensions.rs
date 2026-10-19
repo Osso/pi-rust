@@ -319,6 +319,10 @@ async fn dispatch(temp_dir: &str) -> Value {
             cwd: temp_dir.to_owned(),
         })
         .await;
+    let user_bash = user_bash.map(|result| match result.result {
+        Some(result) => json!({"result": result}),
+        None => json!({}),
+    });
     steps.push(json!({"userBash": user_bash}));
 
     let message_end = runner

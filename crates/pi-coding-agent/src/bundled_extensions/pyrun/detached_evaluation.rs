@@ -820,9 +820,10 @@ async fn respond_to_foreground_bridge_request(
     let mut body = Map::new();
     body.insert("requestId".to_owned(), Value::String(request_id.to_owned()));
     match response {
-        Ok(result) => {
+        Ok(Some(result)) => {
             body.insert("result".to_owned(), result);
         }
+        Ok(None) => {}
         Err(error) => {
             body.insert("error".to_owned(), Value::String(error.to_string()));
         }

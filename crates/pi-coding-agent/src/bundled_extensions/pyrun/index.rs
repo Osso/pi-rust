@@ -660,7 +660,7 @@ pub fn create_pyrun_pi_dispatcher(pi: &ExtensionApi, options: &PyrunExtensionOpt
                 dispatch_builtin_pyrun_request(&request, &pi, &ctx, signal.clone(), active_tool_call_id.as_deref())
                     .await?
             {
-                return Ok(result);
+                return Ok(Some(result));
             }
             for handler in &handlers {
                 let result = handler(
@@ -670,7 +670,7 @@ pub fn create_pyrun_pi_dispatcher(pi: &ExtensionApi, options: &PyrunExtensionOpt
                     active_tool_call_id.clone(),
                 )
                 .await?;
-                if !result.is_null() {
+                if result.is_some() {
                     return Ok(result);
                 }
             }
@@ -678,7 +678,7 @@ pub fn create_pyrun_pi_dispatcher(pi: &ExtensionApi, options: &PyrunExtensionOpt
                 "Pi capability is unavailable: {}",
                 request.method
             )))
-        }) as BoxFuture<'static, Result<Value, HandlerError>>
+        }) as BoxFuture<'static, Result<Option<Value>, HandlerError>>
     })
 }
 

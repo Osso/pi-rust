@@ -206,7 +206,7 @@ pub fn launch_detached_pyrun_runner(manifest_path: &str) -> Result<u32, String> 
 }
 
 struct PendingBridgeRequest {
-    resolve: tokio::sync::oneshot::Sender<Result<Value, String>>,
+    resolve: tokio::sync::oneshot::Sender<Result<Option<Value>, String>>,
 }
 
 type PendingRequests = Arc<Mutex<std::collections::HashMap<String, PendingBridgeRequest>>>;
@@ -399,7 +399,7 @@ fn settle_bridge_response(pending: &PendingRequests, response: &DetachedJobRespo
     if let Some(request) = request {
         let _ = request.resolve.send(match &response.error {
             Some(error) => Err(error.clone()),
-            None => Ok(response.result.clone().unwrap_or(Value::Null)),
+            None => Ok(response.result.clone()),
         });
     }
 }
@@ -409,7 +409,7 @@ async fn dispatch_detached_pyrun_bridge_request(
     identity: &DetachedJobOwnershipIdentity,
     pending: PendingRequests,
     request: super::runner::PiRequest,
-) -> Result<Value, String> {
+) -> Result<Option<Value>, String> {
     let request_id = enqueue_detached_pyrun_bridge_request(EnqueueDetachedPyrunBridgeRequestInput {
         control_db_path: manifest.data.control_db_path.clone(),
         identity: identity.clone(),
@@ -435,7 +435,7 @@ async fn dispatch_foreground_pyrun_bridge_request(
     manifest: &DetachedPyrunLaunchManifest,
     pending: PendingRequests,
     request: super::runner::PiRequest,
-) -> Result<Value, String> {
+) -> Result<Option<Value>, String> {
     let request_id = pi_ai::utils::uuid::random_uuid();
     let mut record = Map::new();
     record.insert("method".to_owned(), Value::String(request.method.clone()));
@@ -463,7 +463,7 @@ async fn dispatch_foreground_pyrun_bridge_request(
             if let Some(error) = response.get("error").and_then(Value::as_str) {
                 return Err(error.to_owned());
             }
-            return Ok(response.get("result").cloned().unwrap_or(Value::Null));
+            return Ok(response.get("result").cloned());
         }
         if read_detached_pyrun_activation(&manifest.data.activation_path).is_some()
             && claim_foreground_bridge_request(&manifest.data.artifacts.directory, &request_id)

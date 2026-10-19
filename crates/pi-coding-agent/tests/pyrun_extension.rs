@@ -155,10 +155,10 @@ print(json.dumps({"type": "completed", "executed": "x", "value": response}), flu
     let seen_for_handler = Arc::clone(&seen);
     let handler = Arc::new(move |request: PiRequest| {
         seen_for_handler.lock().unwrap().push(request.clone());
-        Box::pin(async move { Ok(json!({"models": ["m1"]})) })
+        Box::pin(async move { Ok(Some(json!({"models": ["m1"]}))) })
             as pi_coding_agent::core::extensions::types::BoxFuture<
                 'static,
-                Result<Value, pi_coding_agent::core::extensions::types::HandlerError>,
+                Result<Option<Value>, pi_coding_agent::core::extensions::types::HandlerError>,
             >
     });
     let result = runner.evaluate(params("x"), None, None, Some(handler)).await.unwrap();
@@ -451,6 +451,7 @@ fn context_actions() -> ExtensionContextActions {
 
 struct Harness {
     runner: ExtensionRunner,
+    api: pi_coding_agent::core::extensions::ExtensionApi,
     dispatcher: pi_coding_agent::bundled_extensions::pyrun::eval_tool::PyrunPiRequestDispatcher,
     records: Arc<Mutex<Records>>,
     compacted: Arc<AtomicBool>,
@@ -466,9 +467,12 @@ async fn harness() -> Harness {
     let captured: Arc<Mutex<Option<pi_coding_agent::bundled_extensions::pyrun::eval_tool::PyrunPiRequestDispatcher>>> =
         Arc::new(Mutex::new(None));
     let captured_for_factory = Arc::clone(&captured);
+    let captured_api: Arc<Mutex<Option<pi_coding_agent::core::extensions::ExtensionApi>>> = Arc::new(Mutex::new(None));
+    let captured_api_for_factory = Arc::clone(&captured_api);
     let factory: pi_coding_agent::core::extensions::ExtensionFactory = Arc::new(move |api| {
         let options = PyrunExtensionOptions::default();
         *captured_for_factory.lock().unwrap() = Some(create_pyrun_pi_dispatcher(api, &options));
+        *captured_api_for_factory.lock().unwrap() = Some(api.clone());
         let result = install_pyrun_extension(api, options);
         Box::pin(async move { result })
             as pi_coding_agent::core::extensions::types::BoxFuture<
@@ -532,6 +536,7 @@ async fn harness() -> Harness {
     runner.bind_core(actions, context_actions, None);
     Harness {
         runner,
+        api: captured_api.lock().unwrap().take().expect("api captured"),
         dispatcher: captured.lock().unwrap().take().expect("dispatcher captured"),
         records,
         compacted,
@@ -570,7 +575,8 @@ async fn dispatches_builtin_pi_requests() {
         Some("call-1".to_owned()),
     )
     .await
-    .unwrap();
+    .unwrap()
+    .expect("handled");
     assert_eq!(result["content"][0]["text"], "tool-output");
     assert_eq!(
         harness.records.lock().unwrap().calls,
@@ -587,7 +593,8 @@ async fn dispatches_builtin_pi_requests() {
         None,
     )
     .await
-    .unwrap();
+    .unwrap()
+    .expect("handled");
     assert_eq!(result, json!({"name": "goal", "args": "status"}));
 
     let result = dispatcher(
@@ -600,7 +607,8 @@ async fn dispatches_builtin_pi_requests() {
         None,
     )
     .await
-    .unwrap();
+    .unwrap()
+    .expect("handled");
     assert_eq!(result[0]["name"], "goal");
 
     let result = dispatcher(
@@ -613,7 +621,8 @@ async fn dispatches_builtin_pi_requests() {
         None,
     )
     .await
-    .unwrap();
+    .unwrap()
+    .expect("handled");
     assert_eq!(result, json!({"started": true}));
     assert!(harness.compacted.load(Ordering::SeqCst));
 
@@ -627,7 +636,8 @@ async fn dispatches_builtin_pi_requests() {
         None,
     )
     .await
-    .unwrap();
+    .unwrap()
+    .expect("handled");
     assert_eq!(result, json!({"enqueued": true}));
     assert_eq!(
         harness.records.lock().unwrap().user_messages,
@@ -644,7 +654,8 @@ async fn dispatches_builtin_pi_requests() {
         None,
     )
     .await
-    .unwrap();
+    .unwrap()
+    .expect("handled");
     assert_eq!(result, json!({"started": true}));
     assert!(harness.restarted.load(Ordering::SeqCst));
 
@@ -726,4 +737,92 @@ fn tool_definition_prepares_a_uuidv7_agent_id() {
     .unwrap()
     .unwrap();
     assert!(!prepared.agent_id.is_empty());
+}
+
+#[tokio::test]
+async fn pi_request_undefined_and_null_results_match_typescript_wire_format() {
+    let dir = temp_dir("pi-request-null");
+    write_runner(
+        &dir,
+        "fake-pyrun",
+        r#"
+import json, sys
+sys.stdin.readline()
+print(json.dumps({"type": "pi_request", "method": "first", "params": {}}), flush=True)
+first = json.loads(sys.stdin.readline())
+print(json.dumps({"type": "pi_request", "method": "second", "params": {}}), flush=True)
+second = json.loads(sys.stdin.readline())
+print(json.dumps({"type": "completed", "executed": "x", "value": {"first": first, "second": second}}), flush=True)
+"#,
+    );
+    let runner = runner_for(&dir);
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let handler = Arc::new(move |_request: PiRequest| {
+        let calls = Arc::clone(&calls);
+        Box::pin(async move {
+            let call = calls.fetch_add(1, Ordering::SeqCst);
+            if call == 0 { Ok(None) } else { Ok(Some(Value::Null)) }
+        })
+            as pi_coding_agent::core::extensions::types::BoxFuture<
+                'static,
+                Result<Option<Value>, pi_coding_agent::core::extensions::types::HandlerError>,
+            >
+    });
+    let result = runner.evaluate(params("x"), None, None, Some(handler)).await.unwrap();
+    assert_eq!(
+        result.value,
+        Some(json!({"first": {}, "second": {"result": null}})),
+        "undefined omits the result key; null keeps it"
+    );
+}
+
+#[tokio::test]
+async fn custom_pi_request_handlers_treat_null_as_handled() {
+    let harness = harness().await;
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let first_calls = Arc::clone(&calls);
+    let first: pi_coding_agent::bundled_extensions::pyrun::eval_tool::PyrunPiRequestDispatcher =
+        Arc::new(move |_request, _ctx, _signal, _tool_call_id| {
+            first_calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Ok(None) })
+                as pi_coding_agent::core::extensions::types::BoxFuture<
+                    'static,
+                    Result<Option<Value>, pi_coding_agent::core::extensions::types::HandlerError>,
+                >
+        });
+    let second_calls = Arc::clone(&calls);
+    let second: pi_coding_agent::bundled_extensions::pyrun::eval_tool::PyrunPiRequestDispatcher =
+        Arc::new(move |_request, _ctx, _signal, _tool_call_id| {
+            second_calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Ok(Some(Value::Null)) })
+                as pi_coding_agent::core::extensions::types::BoxFuture<
+                    'static,
+                    Result<Option<Value>, pi_coding_agent::core::extensions::types::HandlerError>,
+                >
+        });
+    let dispatcher = create_pyrun_pi_dispatcher(
+        &harness.api,
+        &PyrunExtensionOptions {
+            pi_request_handlers: vec![first, second],
+            ..Default::default()
+        },
+    );
+    let ctx = harness.runner.create_context();
+    let result = dispatcher(
+        PiRequest {
+            method: "custom.method".to_owned(),
+            params: json!({}),
+        },
+        ctx,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(result, Some(Value::Null), "null is a handled result");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "undefined falls through to the next handler"
+    );
 }

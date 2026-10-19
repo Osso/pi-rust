@@ -726,11 +726,8 @@ fn register_user_bash_handler(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Resu
         let bwrap_command = bwrap_command.clone();
         Box::pin(async move {
             let profile = read_sandbox_profile(&ctx);
-            // Rust stores user-bash operations as JSON; the typed sandbox
-            // operations hook is not part of the Rust extension API.
-            let _ = (bwrap_command, profile);
             Ok(Some(UserBashEventResult {
-                operations: None,
+                operations: Some(create_sandboxed_bash_operations(bwrap_command, profile, None)),
                 result: None,
             }))
         }) as BoxFuture<'static, Result<Option<UserBashEventResult>, HandlerError>>

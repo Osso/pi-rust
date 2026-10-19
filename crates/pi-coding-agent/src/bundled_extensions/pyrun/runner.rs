@@ -115,8 +115,9 @@ impl CanonicalPyrunProgressUpdate {
     }
 }
 
+/// `undefined` (no handler result) is `None`; a JSON `null` result is `Some(Value::Null)`.
 pub type PyrunPiRequestHandler =
-    Arc<dyn Fn(PiRequest) -> BoxFuture<'static, Result<Value, HandlerError>> + Send + Sync>;
+    Arc<dyn Fn(PiRequest) -> BoxFuture<'static, Result<Option<Value>, HandlerError>> + Send + Sync>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PiRequest {
@@ -636,14 +637,15 @@ async fn handle_stdout_line(
         LineAction::Pi(handler, method, params) => {
             let response = match handler {
                 Some(handler) => handler(PiRequest { method, params }).await,
-                None => Ok(Value::Null),
+                None => Ok(None),
             };
             let payload = match response {
-                Ok(result) => {
+                Ok(Some(result)) => {
                     let mut object = serde_json::Map::new();
                     object.insert("result".to_owned(), result);
                     Value::Object(object)
                 }
+                Ok(None) => Value::Object(serde_json::Map::new()),
                 Err(error) => {
                     let mut object = serde_json::Map::new();
                     object.insert("error".to_owned(), Value::String(error.to_string()));

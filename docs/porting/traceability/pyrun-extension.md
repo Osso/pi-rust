@@ -27,8 +27,11 @@ Registered as `<first-party:pyrun>`; bwrap profiles use the ported
   reproduced.
 - The TypeScript extension passes `PyrunRunnerOptions` verbatim into the launch
   manifest; Rust serializes the same fields with `camelCase` names.
-- `pi_request` handlers return `Value`; a handler returning JSON `null` is
-  treated as "not handled", matching the TS `undefined` convention. A real
-  capability returning `null` is indistinguishable (source has no such case).
+- `pi_request` results are `Option<Value>`: `None` is TS `undefined` (not
+  handled; the dispatcher falls through) and `Some(Value::Null)` is a handled
+  JSON `null`. The runner writes `{}` for `None` and `{"result":null}` for
+  `Some(Value::Null)`, matching `JSON.stringify`. Tests:
+  `pi_request_undefined_and_null_results_match_typescript_wire_format`,
+  `custom_pi_request_handlers_treat_null_as_handled`.
 - The bwrap sandbox path uses the approved pi-internal fs worker; see
   `bwrap-extension.md`.

@@ -626,6 +626,7 @@ async fn run_bash(
         session.record_bash_result(command, &result, exclude_from_context);
         return Ok(result);
     }
+    let operations = event_result.as_ref().and_then(|result| result.operations.clone());
 
     session
         .execute_bash(
@@ -634,7 +635,7 @@ async fn run_bash(
             ExecuteBashOptions {
                 exclude_from_context,
                 id,
-                operations: None,
+                operations,
             },
         )
         .await
@@ -1325,6 +1326,122 @@ mod tests {
         assert_eq!(
             result.error.as_deref(),
             Some("Theme switching not supported in RPC mode")
+        );
+    }
+}
+
+#[cfg(test)]
+mod bash_operation_tests {
+    use std::sync::{Arc, Mutex};
+
+    use pi_agent_core::ToolError;
+    use pi_ai::request::BoxFuture;
+
+    use super::run_bash;
+    use crate::core::event_bus::EventBusController;
+    use crate::core::extensions::types::{UserBashEvent, UserBashEventResult};
+    use crate::core::extensions::{
+        ExtensionFactory, LoadExtensionsResult, create_extension_runtime, load_extension_from_factory,
+    };
+    use crate::core::resource_loader::StaticResourceLoader;
+    use crate::core::sdk::{CreateAgentSessionOptions, create_agent_session};
+    use crate::core::session_manager::SessionManager;
+    use crate::core::tools::bash::{BashExecOptions, BashExecResult, BashOperations};
+
+    struct RecordingOperations {
+        commands: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl BashOperations for RecordingOperations {
+        fn exec<'a>(
+            &'a self,
+            command: &'a str,
+            _cwd: &'a str,
+            options: BashExecOptions,
+        ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
+            self.commands
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(command.to_owned());
+            (options.on_data)(b"from extension\n");
+            Box::pin(async {
+                Ok(BashExecResult {
+                    exit_code: Some(0),
+                    detached: None,
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn user_bash_operations_reach_execute_bash() {
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let handler_commands = Arc::clone(&commands);
+        let factory: ExtensionFactory = Arc::new(move |api| {
+            let handler_commands = Arc::clone(&handler_commands);
+            api.on_user_bash(move |_event: UserBashEvent, _ctx| {
+                let handler_commands = Arc::clone(&handler_commands);
+                Box::pin(async move {
+                    Ok(Some(UserBashEventResult {
+                        operations: Some(Arc::new(RecordingOperations {
+                            commands: handler_commands,
+                        }) as Arc<dyn BashOperations>),
+                        result: None,
+                    }))
+                })
+                    as crate::core::extensions::types::BoxFuture<
+                        'static,
+                        Result<Option<UserBashEventResult>, crate::core::extensions::types::HandlerError>,
+                    >
+            })
+            .expect("register user_bash");
+            Box::pin(async { Ok(()) })
+        });
+        let temp = tempfile::tempdir().expect("temp dir");
+        let cwd = temp.path().display().to_string();
+        let runtime = create_extension_runtime();
+        let extension = load_extension_from_factory(
+            factory,
+            &cwd,
+            Arc::new(EventBusController::new()),
+            runtime.clone(),
+            "user-bash-extension",
+        )
+        .await
+        .expect("extension");
+        let loader = Arc::new(StaticResourceLoader {
+            extensions: Some(LoadExtensionsResult {
+                extensions: vec![extension],
+                errors: Vec::new(),
+                runtime,
+            }),
+            ..StaticResourceLoader::default()
+        });
+        let session_dir = temp.path().join("sessions").display().to_string();
+        let control_db = temp.path().join("control.db").display().to_string();
+        let mut session_manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
+        session_manager
+            .set_metadata_control_db_path(Some(&control_db), Default::default())
+            .expect("metadata control db");
+        let result = create_agent_session(CreateAgentSessionOptions {
+            cwd: Some(cwd.clone()),
+            agent_dir: Some(cwd),
+            resource_loader: Some(loader),
+            session_manager: Some(session_manager),
+            control_db_path: Some(control_db),
+            ..Default::default()
+        })
+        .await
+        .expect("session");
+
+        let bash = run_bash(&result.session, "echo hi", None, None).await.expect("bash");
+        assert_eq!(bash.output, "from extension\n");
+        assert_eq!(
+            commands
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_slice(),
+            ["echo hi"]
         );
     }
 }

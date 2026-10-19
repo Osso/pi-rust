@@ -1732,13 +1732,11 @@ pub struct ToolCallEventResult {
     pub terminate: Option<bool>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Default)]
 pub struct UserBashEventResult {
-    /// Custom operations are owned by the bash-tool port; stored as JSON.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub operations: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Custom operations used by `AgentSession::execute_bash` (`BashOperations`).
+    pub operations: Option<Arc<dyn crate::core::tools::bash::BashOperations>>,
+    /// Full replacement: the extension handled execution and supplies the result.
     pub result: Option<Value>,
 }
 
