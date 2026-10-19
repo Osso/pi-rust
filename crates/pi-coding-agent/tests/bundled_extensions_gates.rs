@@ -2,6 +2,8 @@
 
 #[path = "support/bundled_extension_commands.rs"]
 mod command_support;
+#[path = "support/bundled_extension_load.rs"]
+mod load_support;
 #[path = "support/oracle.rs"]
 mod oracle;
 #[path = "support/bundled_extensions.rs"]

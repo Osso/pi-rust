@@ -1,5 +1,7 @@
 //! Differential coverage for the `ask-secret` and `browser-cli` bundled extensions.
 
+#[path = "support/bundled_extension_load.rs"]
+mod load_support;
 #[path = "support/oracle.rs"]
 mod oracle;
 #[path = "support/bundled_extensions.rs"]

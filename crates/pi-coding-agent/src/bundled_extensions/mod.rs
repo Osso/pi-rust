@@ -11,6 +11,7 @@ pub mod approval_controls;
 pub mod ask_secret;
 pub mod browser_cli;
 pub mod debug;
+pub mod run_plan;
 pub mod safe;
 pub mod self_restart;
 pub mod session_archive;
@@ -56,6 +57,13 @@ pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &Sma
             Box::pin(async move { result })
         })
     });
+    registry.register(
+        "<first-party:run-plan>",
+        Arc::new(|pi| {
+            let result = run_plan::run_plan_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
     registry.register(
         "<first-party:safe>",
         Arc::new(|pi| {

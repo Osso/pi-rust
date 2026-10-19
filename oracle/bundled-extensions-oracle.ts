@@ -272,8 +272,15 @@ async function executeStep(
 				process.chdir(previous);
 			}
 		}
-		case "event": {
-			const handlers = h.handlers.get(step.name as string) ?? [];
+		case "env": {
+			return {
+				PLAN_FILE: process.env.PLAN_FILE ?? null,
+				PLAN_PATH: process.env.PLAN_PATH ?? null,
+				PI_PLAN_FILE: process.env.PI_PLAN_FILE ?? null,
+				PI_PLAN_PATH: process.env.PI_PLAN_PATH ?? null,
+			};
+		}
+		case "event": {			const handlers = h.handlers.get(step.name as string) ?? [];
 			let result: unknown;
 			for (const handler of handlers) {
 				result = await handler({ type: step.name, ...(step.event ?? {}) }, ctx);

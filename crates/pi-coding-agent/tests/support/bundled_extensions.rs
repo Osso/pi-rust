@@ -30,10 +30,6 @@ async fn model_registry() -> Arc<ModelRegistry> {
     Arc::new(ModelRegistry::new(runtime))
 }
 
-fn session_manager(cwd: &str) -> Arc<SessionManager> {
-    Arc::new(SessionManager::in_memory(Some(cwd), None).expect("in-memory session manager"))
-}
-
 #[derive(Default)]
 pub struct Calls {
     pub notify: Vec<(String, Option<NotifyType>)>,
@@ -113,27 +109,6 @@ pub struct Harness {
 }
 
 impl Harness {
-    pub async fn load(
-        cwd: &str,
-        ui: Arc<RecordingUi>,
-        setup: impl FnOnce(&ExtensionApi) -> Result<(), pi_coding_agent::core::extensions::types::HandlerError>
-        + Send
-        + 'static,
-    ) -> Self {
-        Self::load_with_session(cwd, session_manager(cwd), ui, setup).await
-    }
-
-    pub async fn load_with_session(
-        cwd: &str,
-        session_manager: Arc<SessionManager>,
-        ui: Arc<RecordingUi>,
-        setup: impl FnOnce(&ExtensionApi) -> Result<(), pi_coding_agent::core::extensions::types::HandlerError>
-        + Send
-        + 'static,
-    ) -> Self {
-        Self::load_full(cwd, session_manager, ui, None, setup).await
-    }
-
     pub async fn load_full(
         cwd: &str,
         session_manager: Arc<SessionManager>,
