@@ -19,6 +19,7 @@ use tokio::sync::{Mutex as AsyncMutex, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{BoxFuture, HandlerError};
+use crate::utils::child_process::node_spawn_error_message;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CanonicalPyrunEvalParams {
@@ -244,12 +245,7 @@ fn should_detach(options: &PyrunRunnerOptions) -> bool {
 }
 
 fn spawn_error(command: &str, error: &std::io::Error) -> PyrunRunnerError {
-    let code = match error.kind() {
-        std::io::ErrorKind::NotFound => "ENOENT",
-        std::io::ErrorKind::PermissionDenied => "EACCES",
-        _ => "EIO",
-    };
-    PyrunRunnerError::new(format!("spawn {command} {code}"))
+    PyrunRunnerError::new(node_spawn_error_message("spawn", command, error))
 }
 
 impl PyrunRunnerClient {

@@ -10,6 +10,8 @@ use serde_json::json;
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
+use crate::utils::child_process::node_spawn_error_message;
+
 use crate::core::extensions::types::{
     BoxFuture, ExtensionApi, ExtensionContext, ExtensionMode, ExtensionUiDialogOptions, HandlerError, ToolDefinition,
 };
@@ -313,9 +315,5 @@ fn provisioning_failure(signal: Option<&CancellationToken>) -> HandlerError {
 }
 
 fn spawn_error_message(command: &str, error: &std::io::Error) -> String {
-    match error.kind() {
-        std::io::ErrorKind::NotFound => format!("spawn {command} ENOENT"),
-        std::io::ErrorKind::PermissionDenied => format!("spawn {command} EACCES"),
-        _ => error.to_string(),
-    }
+    node_spawn_error_message("spawn", command, error)
 }

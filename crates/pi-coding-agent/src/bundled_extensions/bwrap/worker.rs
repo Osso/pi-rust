@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use pi_js_compat::minimatch::{MinimatchOptions, minimatch};
 use serde_json::{Value, json};
 
+use crate::utils::child_process::node_error_code;
+
 const EXPECTED_GREP_READ_ERROR_CODES: [&str; 5] = ["EACCES", "EISDIR", "ENOENT", "ENOTDIR", "EPERM"];
 
 fn is_missing_path_error(error: &std::io::Error) -> bool {
@@ -19,15 +21,7 @@ fn is_missing_path_error(error: &std::io::Error) -> bool {
 }
 
 fn is_expected_grep_read_error(error: &std::io::Error) -> bool {
-    let code = error.raw_os_error().map(|code| match code {
-        2 => "ENOENT",
-        13 => "EACCES",
-        20 => "ENOTDIR",
-        21 => "EISDIR",
-        1 => "EPERM",
-        _ => "",
-    });
-    code.is_some_and(|code| EXPECTED_GREP_READ_ERROR_CODES.contains(&code))
+    EXPECTED_GREP_READ_ERROR_CODES.contains(&node_error_code(error))
 }
 
 fn is_inside_workspace(candidate: &Path, workspace: &Path) -> bool {

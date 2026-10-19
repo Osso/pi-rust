@@ -2,8 +2,9 @@
 
 use tokio::io::AsyncReadExt;
 
-use super::node_fs::{node_error_code, node_fs_error};
+use super::node_fs::node_fs_error;
 use super::path_utils::resolve_to_cwd;
+use crate::utils::child_process::node_error_code;
 use crate::utils::paths::PathError;
 
 use pi_agent_core::harness::tools::edit_diff::generate_diff_string as core_generate_diff_string;

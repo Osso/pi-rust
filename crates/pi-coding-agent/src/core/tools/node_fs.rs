@@ -2,23 +2,12 @@
 //!
 //! The TypeScript tools surface `fs` errors verbatim (`ENOENT: no such file or
 //! directory, open '/path'`), so every Rust tool maps `io::Error` through this
-//! single formatter.
+//! single formatter. Error codes come from the shared Node errno mapping in
+//! [`crate::utils::child_process::node_error_code`].
 
 use std::io;
 
-/// Node `error.code` for an `io::Error`.
-pub fn node_error_code(error: &io::Error) -> &'static str {
-    match error.kind() {
-        io::ErrorKind::NotFound => "ENOENT",
-        io::ErrorKind::PermissionDenied => "EACCES",
-        io::ErrorKind::IsADirectory => "EISDIR",
-        io::ErrorKind::NotADirectory => "ENOTDIR",
-        io::ErrorKind::AlreadyExists => "EEXIST",
-        io::ErrorKind::InvalidInput => "EINVAL",
-        io::ErrorKind::DirectoryNotEmpty => "ENOTEMPTY",
-        _ => "EIO",
-    }
-}
+use crate::utils::child_process::node_error_code;
 
 /// Node filesystem error message: `<CODE>: <description>, <syscall> '<path>'`.
 pub fn node_fs_error(error: &io::Error, syscall: &str, path: &str) -> String {

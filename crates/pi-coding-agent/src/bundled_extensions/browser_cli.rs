@@ -9,6 +9,7 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{BoxFuture, ExtensionApi, ExtensionContext, HandlerError, ToolDefinition};
+use crate::utils::child_process::node_spawn_error_message;
 
 const BROWSER_CLI_EXECUTABLE: &str = "browser-cli";
 
@@ -274,9 +275,5 @@ fn format_browser_cli_failure(index: usize, result: &BrowserCliCommandExecution)
 }
 
 fn spawn_error_message(command: &str, error: &std::io::Error) -> String {
-    match error.kind() {
-        std::io::ErrorKind::NotFound => format!("spawn {command} ENOENT"),
-        std::io::ErrorKind::PermissionDenied => format!("spawn {command} EACCES"),
-        _ => error.to_string(),
-    }
+    node_spawn_error_message("spawn", command, error)
 }

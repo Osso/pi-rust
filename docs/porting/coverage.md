@@ -414,7 +414,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/supervisor/request-wake.ts` | 149 | 0 | done | `crates/pi-coding-agent/src/supervisor/request_wake.rs` | Wake socket with stale recovery, generation watch, waiter cancellation; real-socket tests. |
 | `coding-agent/src/utils/abort.ts` | 48 | 0 | done | `crates/pi-coding-agent/src/utils/abort.rs` | Focused tests; no custom abort reasons |
 | `coding-agent/src/utils/ansi.ts` | 60 | 0 | done | `crates/pi-coding-agent/src/utils/ansi.rs` | Differential 26001 (237 inputs); focused tests |
-| `coding-agent/src/utils/child-process.ts` | 137 | 0 | done | `crates/pi-coding-agent/src/utils/child_process.rs` | Focused process tests; collects stdout/stderr |
+| `coding-agent/src/utils/child-process.ts` | 137 | 0 | done | `crates/pi-coding-agent/src/utils/child_process.rs` | Focused process tests; collects stdout/stderr; shared Node errno mapping (`node_errno_name`/`node_error_code`) for every spawn and fs caller |
 | `coding-agent/src/utils/clipboard-native.ts` | 33 | 0 | done | `crates/pi-coding-agent/src/utils/clipboard_native.rs` | clipboard-rs =0.3.4 is the vendored release behind @mariozechner/clipboard 0.3.9; live display calls untested |
 | `coding-agent/src/utils/clipboard-temp-files.ts` | 42 | 0 | done | `crates/pi-coding-agent/src/utils/clipboard_temp_files.rs` | Focused tracker tests |
 | `coding-agent/src/utils/deprecation.ts` | 14 | 0 | done | `crates/pi-coding-agent/src/utils/deprecation.rs` | Focused dedupe/yellow tests; chalk dependency port `utils::chalk` (see `traceability/chalk.md`) |

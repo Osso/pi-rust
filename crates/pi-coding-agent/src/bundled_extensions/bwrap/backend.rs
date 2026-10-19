@@ -16,6 +16,7 @@ use crate::core::permissions::presets::SandboxProfileName;
 use crate::core::tools::bash::{
     BashDataCallback, BashExecOptions, BashExecResult, BashOperations, LocalBashOperations,
 };
+use crate::utils::child_process::node_spawn_error_message;
 
 pub const SANDBOX_HOME: &str = "/tmp/pi-home";
 const DEFAULT_LANG: &str = "C.UTF-8";
@@ -90,12 +91,7 @@ pub fn run_bwrap_availability_check(bwrap_command: &str) -> Result<(), String> {
 }
 
 fn spawn_sync_error(command: &str, error: &std::io::Error) -> String {
-    let code = match error.kind() {
-        std::io::ErrorKind::NotFound => "ENOENT",
-        std::io::ErrorKind::PermissionDenied => "EACCES",
-        _ => "EIO",
-    };
-    format!("spawnSync {command} {code}")
+    node_spawn_error_message("spawnSync", command, error)
 }
 
 /// `buildBwrapInvocation`.

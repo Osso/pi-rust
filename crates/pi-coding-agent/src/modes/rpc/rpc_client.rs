@@ -31,6 +31,7 @@ use crate::modes::rpc::jsonl::{JsonlLineReader, attach_jsonl_line_reader, serial
 use crate::modes::rpc::rpc_types::{
     QueueMode, RpcCommand, RpcCommandBody, RpcResponse, RpcSessionState, RpcSlashCommand,
 };
+use crate::utils::child_process::node_spawn_error_message;
 
 /// Default wait used by `waitForIdle` and `collectEvents` in TypeScript.
 pub const DEFAULT_EVENT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -1073,11 +1074,7 @@ fn install_process(inner: &Arc<ClientInner>, generation: u64, spawned: SpawnedPr
 }
 
 fn spawn_error_message(error: &std::io::Error) -> String {
-    match error.kind() {
-        std::io::ErrorKind::NotFound => "spawn node ENOENT".to_owned(),
-        std::io::ErrorKind::PermissionDenied => "spawn node EACCES".to_owned(),
-        _ => format!("spawn node {}", error),
-    }
+    node_spawn_error_message("spawn", "node", error)
 }
 
 async fn read_stderr(inner: Arc<ClientInner>, mut reader: impl AsyncRead + Unpin) {

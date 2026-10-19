@@ -14,6 +14,7 @@ use std::sync::OnceLock;
 
 use serde::Deserialize;
 
+use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::js_json;
 use crate::utils::paths::{PathInputOptions, normalize_path};
 
@@ -751,11 +752,7 @@ fn spawn_failure(
     if !require_success {
         return Ok(None);
     }
-    let reason = if error.kind() == std::io::ErrorKind::NotFound {
-        format!("spawn {command} ENOENT")
-    } else {
-        error.to_string()
-    };
+    let reason = node_spawn_error_message("spawnSync", command, &error);
     Err(ConfigError::new(format!(
         "Failed to run {}: {reason}",
         display_command(command, args)

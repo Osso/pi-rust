@@ -21,6 +21,7 @@ use crate::core::keybindings::KeybindingsManager;
 use crate::core::session_control_db::{archive_session, remove_session_metadata};
 use crate::core::session_manager::SessionInfo;
 use crate::modes::interactive::theme::{ThemeBg, ThemeColor, with_theme};
+use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::paths::canonicalize_path;
 
 /// `(loaded, total)` progress callback.
@@ -1561,11 +1562,7 @@ async fn delete_session_file(session_path: &str) -> DeleteResult {
             Some(output.status)
         }
         Err(error) => {
-            let message = if error.kind() == std::io::ErrorKind::NotFound {
-                "spawnSync trash ENOENT".to_owned()
-            } else {
-                error.to_string()
-            };
+            let message = node_spawn_error_message("spawnSync", "trash", error);
             trash_error = Some(format!("trash: {}", slice_chars(&message, 200)));
             None
         }
