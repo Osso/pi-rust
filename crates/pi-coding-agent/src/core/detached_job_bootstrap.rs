@@ -108,7 +108,10 @@ pub fn spawn_gated_detached_payload(
     if let Some(environment) = input.env {
         command
             .env_clear()
+            .envs(pi_js_compat::process_env::vars())
             .envs(environment.iter().map(|(name, value)| (name, value)));
+    } else {
+        command.env_clear().envs(pi_js_compat::process_env::vars());
     }
     let mut child = command
         .spawn()
