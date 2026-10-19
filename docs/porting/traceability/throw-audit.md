@@ -26,6 +26,9 @@ Census after this slice: **449 sites** (300 coding-agent, 73 ai, 28 agent-core,
 
 ## Scope notes
 
+- `let _ =` swallows of Node-API failures (for example the `pi-tui` debug/crash
+  log writes) are outside this panic census; Node fs error-text deduplication is
+  owned by the in-flight `ca-errno` slice.
 - Two sites named in the slice brief are test-only in this revision:
   `core/session_control_db/mod.rs` (the `instance id must be an object` panic is inside
   `#[cfg(test)] mod tests`) and `modes/interactive/interactive_mode.rs` (~5442, the
