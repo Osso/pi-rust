@@ -1,5 +1,6 @@
 use pi_coding_agent::cli::experimental::command::{
-    Command, CommandOption, CommandParseResult, NamedCommandInvocation, string_option, value_option,
+    Command, CommandExecuteError, CommandOption, CommandParseResult, NamedCommandInvocation, string_option,
+    value_option,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,8 +27,8 @@ fn count_option() -> CommandOption<i64> {
 
 fn build_root() -> Command<Invocation, Vec<String>> {
     let mut command = Command::new("pi");
-    command.option(string_option("--name"));
-    command.option(count_option());
+    command.option(string_option("--name")).unwrap();
+    command.option(count_option()).unwrap();
     command.build(|input| {
         CommandParseResult::Ok(Invocation {
             command: "pi",
@@ -41,7 +42,9 @@ fn build_root() -> Command<Invocation, Vec<String>> {
 }
 
 fn parsed<TCtx: 'static>(command: &Command<Invocation, TCtx>, argv: &[&str]) -> CommandParseResult<Invocation> {
-    command.parse(&argv.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>())
+    command
+        .parse(&argv.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>())
+        .expect("parse")
 }
 
 #[test]
@@ -138,7 +141,7 @@ fn reports_option_parser_errors_and_keeps_parsing() {
 #[test]
 fn appends_builder_errors_after_parse_errors() {
     let mut command: Command<Invocation, ()> = Command::new("strict");
-    command.option(string_option("--name"));
+    command.option(string_option("--name")).unwrap();
     command.build(|input| {
         if input.value(&string_option("--name")).is_none() {
             CommandParseResult::Errors(vec!["--name is required".into()])
@@ -161,7 +164,7 @@ fn appends_builder_errors_after_parse_errors() {
 fn selects_a_subcommand_by_its_first_argument() {
     let mut root = build_root();
     let mut child = Command::new("server");
-    child.option(string_option("--listen"));
+    child.option(string_option("--listen")).unwrap();
     child.build(|input| {
         CommandParseResult::Ok(Invocation {
             command: "server",
@@ -171,7 +174,7 @@ fn selects_a_subcommand_by_its_first_argument() {
         })
     });
     child.action(|_, context: &mut Vec<String>| context.push("server".into()));
-    root.command(child, |invocation| invocation);
+    root.command(child, |invocation| invocation).unwrap();
 
     assert_eq!(
         parsed(&root, &["server", "--listen", "unix:///tmp/pi.sock"]),
@@ -206,7 +209,7 @@ fn execute_runs_the_selected_action_with_the_context() {
         })
     });
     child.action(|_, context: &mut Vec<String>| context.push("client".into()));
-    root.command(child, |invocation| invocation);
+    root.command(child, |invocation| invocation).unwrap();
 
     let mut context = Vec::new();
     assert_eq!(
@@ -228,7 +231,9 @@ fn execute_returns_parse_errors_without_running_the_action() {
     let mut context = Vec::new();
     assert_eq!(
         command.execute(&["--count".into(), "many".into()], &mut context),
-        Err(vec!["--count must be a number, got \"many\"".into()])
+        Err(CommandExecuteError::Parse(vec![
+            "--count must be a number, got \"many\"".into()
+        ]))
     );
     assert!(context.is_empty());
 }
@@ -236,7 +241,7 @@ fn execute_returns_parse_errors_without_running_the_action() {
 #[test]
 fn multiple_values_are_preserved_in_order() {
     let mut command: Command<Invocation, ()> = Command::new("multi");
-    command.option(string_option("--tag"));
+    command.option(string_option("--tag")).unwrap();
     command.build(|input| {
         CommandParseResult::Ok(Invocation {
             command: "multi",
@@ -261,31 +266,37 @@ fn multiple_values_are_preserved_in_order() {
 }
 
 #[test]
-#[should_panic(expected = "Option --name is already registered for pi")]
-fn duplicate_option_registration_panics() {
+fn duplicate_option_registration_returns_an_error() {
     let mut command: Command<Invocation, ()> = Command::new("pi");
-    command.option(string_option("--name"));
-    command.option(string_option("--name"));
+    command.option(string_option("--name")).unwrap();
+    let error = command
+        .option(string_option("--name"))
+        .err()
+        .expect("duplicate option error");
+    assert_eq!(error.to_string(), "Option --name is already registered for pi");
 }
 
 #[test]
-#[should_panic(expected = "Command server is already registered")]
-fn duplicate_subcommand_registration_panics() {
+fn duplicate_subcommand_registration_returns_an_error() {
     let mut root: Command<Invocation, ()> = Command::new("pi");
-    root.command(Command::<Invocation, ()>::new("server"), |invocation| invocation);
-    root.command(Command::<Invocation, ()>::new("server"), |invocation| invocation);
+    root.command(Command::<Invocation, ()>::new("server"), |invocation| invocation)
+        .unwrap();
+    let error = root
+        .command(Command::<Invocation, ()>::new("server"), |invocation| invocation)
+        .err()
+        .expect("duplicate subcommand error");
+    assert_eq!(error.to_string(), "Command server is already registered");
 }
 
 #[test]
-#[should_panic(expected = "Command pi does not define a builder")]
-fn parse_without_builder_panics() {
+fn parse_without_builder_returns_an_error() {
     let command: Command<Invocation, ()> = Command::new("pi");
-    let _ = command.parse(&[]);
+    let error = command.parse(&[]).unwrap_err();
+    assert_eq!(error.to_string(), "Command pi does not define a builder");
 }
 
 #[test]
-#[should_panic(expected = "Command pi does not define an action")]
-fn execute_without_action_panics() {
+fn execute_without_action_returns_an_error() {
     let mut command: Command<Invocation, ()> = Command::new("pi");
     command.build(|_| {
         CommandParseResult::Ok(Invocation {
@@ -295,5 +306,6 @@ fn execute_without_action_panics() {
             remaining: Vec::new(),
         })
     });
-    let _ = command.execute(&[], &mut ());
+    let error = command.execute(&[], &mut ()).unwrap_err();
+    assert_eq!(error.to_string(), "Command pi does not define an action");
 }

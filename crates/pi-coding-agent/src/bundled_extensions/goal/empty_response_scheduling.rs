@@ -66,7 +66,7 @@ where
             let same_goal = match (scheduler.options.is_same_running_goal)(ctx.clone(), goal.clone()) {
                 Ok(same_goal) => same_goal,
                 Err(error) if is_stale_context_error(&error.to_string()) => return,
-                Err(error) => panic!("{error}"),
+                Err(error) => crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string()),
             };
             if !same_goal || ctx.has_pending_messages().unwrap_or(false) {
                 return;
@@ -80,7 +80,7 @@ where
                 None,
             ) && !is_stale_context_error(&error.to_string())
             {
-                panic!("{error}");
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string());
             }
         });
         self.timers

@@ -547,7 +547,7 @@ fn command_parsing_matches_typescript() {
         .iter()
         .map(|argv| {
             let argv: Vec<String> = argv.iter().map(|value| (*value).to_owned()).collect();
-            match command.parse(&argv) {
+            match command.parse(&argv).expect("parse") {
                 CommandParseResult::Ok(invocation) => json!({
                     "ok": true,
                     "command": {
