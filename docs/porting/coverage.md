@@ -629,7 +629,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/session-id/src/index.ts` | 10 | 22 | todo |  |  |
 | `coding-agent/extensions/spec-validation/src/index.ts` | 34 | 22 | todo |  |  |
 | `coding-agent/src/architect/main.ts` | 308 | 22 | partial | `crates/pi-coding-agent/src/architect/main.rs` | Queue, settings, store, gating, cycle, stop handler, service loop; console server and session creation blocked |
-| `coding-agent/src/architect/project-spec.ts` | 70 | 22 | partial | `crates/pi-coding-agent/src/architect/project_spec.rs` | Path containment and root discovery; tool registration blocked on extension API |
+| `coding-agent/src/architect/project-spec.ts` | 70 | 22 | done | `crates/pi-coding-agent/src/architect/project_spec.rs` | Path containment, root discovery, `read_project_spec` tool registration and execution; 3 behavioral tests |
 | `coding-agent/src/cli/args.ts` | 481 | 22 | done | `crates/pi-coding-agent/src/cli/args.rs` | `parseArgs`/`printHelp`/`isValidThinkingLevel` plus extension-flag help; 19 focused tests and 47 differential requests ([traceability](traceability/args.md)). |
 | `coding-agent/src/cli/auth-check.ts` | 73 | 22 | done | `crates/pi-coding-agent/src/cli/auth_check.rs` | Readiness results, credential reads, auth-check runtime; 9 boundary tests porting `auth-check.test.ts` ([traceability](traceability/auth-check.md)). |
 | `coding-agent/src/cli/auth-command.ts` | 125 | 22 | done | `crates/pi-coding-agent/src/cli/auth_command.rs` | Parsing plus validation, credential extraction, and help output; 50 differential requests + 14 focused tests ([traceability](traceability/auth-command.md)). |

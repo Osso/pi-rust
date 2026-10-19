@@ -1,6 +1,13 @@
 //! Port of `packages/coding-agent/src/architect/project-spec.ts`.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use pi_agent_core::agent::AgentToolResult;
+use pi_ai::types::{TextContent, TextOrImageContent};
+use serde_json::{Value, json};
+
+use crate::core::extensions::types::{ExtensionApi, HandlerError, ToolDefinition};
 
 const SPEC_INDEX_PATH: [&str; 3] = ["docs", "specs", "README.md"];
 
@@ -97,4 +104,68 @@ fn relative_path(base: &Path, target: &Path) -> PathBuf {
         relative.push(component.as_os_str());
     }
     relative
+}
+
+/// `registerArchitectProjectSpecTool` tool definition.
+pub fn architect_project_spec_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: "read_project_spec".to_owned(),
+        label: "Read project spec".to_owned(),
+        description: "Read an authoritative Markdown spec from an explicit Architect request's project.".to_owned(),
+        prompt_snippet: None,
+        prompt_guidelines: Some(Vec::new()),
+        approval_required: Some(false),
+        approval_kind: None,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "project_cwd": {
+                    "type": "string",
+                    "description": "Exact projectCwd from the Architect request."
+                },
+                "spec_path": {
+                    "type": "string",
+                    "description": "Path relative to docs/specs, such as README.md."
+                }
+            },
+            "required": ["project_cwd", "spec_path"]
+        }),
+        constrained_sampling: None,
+        render_shell: None,
+        prepare_arguments: None,
+        prepare_execution: None,
+        execution_mode: None,
+        execute: Arc::new(|_tool_call_id, params, _signal, _on_update, _context| {
+            Box::pin(async move { execute_project_spec_tool(&params).await })
+        }),
+        render_call: None,
+        render_result: None,
+    }
+}
+
+async fn execute_project_spec_tool(params: &Value) -> Result<AgentToolResult, HandlerError> {
+    let project_cwd = params
+        .get("project_cwd")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HandlerError::new("read_project_spec requires a string project_cwd"))?;
+    let spec_path = params
+        .get("spec_path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HandlerError::new("read_project_spec requires a string spec_path"))?;
+    let content = read_project_spec(project_cwd, spec_path)
+        .await
+        .map_err(HandlerError::new)?;
+    Ok(AgentToolResult {
+        content: vec![TextOrImageContent::Text(TextContent::new(content))],
+        details: Some(json!({"path": spec_path})),
+        usage: None,
+        added_tool_names: None,
+        is_error: None,
+        terminate: None,
+    })
+}
+
+/// `registerArchitectProjectSpecTool`.
+pub fn register_architect_project_spec_tool(pi: &ExtensionApi) -> Result<(), String> {
+    pi.register_tool(architect_project_spec_tool_definition())
 }

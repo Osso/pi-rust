@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/architect/*.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 Rust: `crates/pi-coding-agent/src/architect/` (`prompt.rs`, `observer.rs`, `project_spec.rs`, `main.rs`).
-Focused tests: `crates/pi-coding-agent/tests/architect.rs` (15).
+Focused tests: `crates/pi-coding-agent/tests/architect.rs` (16).
 
 ## prompt.ts
 
@@ -27,7 +27,7 @@ Focused tests: `crates/pi-coding-agent/tests/architect.rs` (15).
 |---|---|---|
 | `readProjectSpec` | relative `.md` inside `docs/specs`, canonical containment | `read_project_spec`; `project_spec_reads_only_markdown_inside_docs_specs` |
 | `findProjectRoot` | nearest ancestor with `docs/specs/README.md`, exact error | `find_project_root`; `project_spec_reports_a_missing_spec_index` |
-| `registerArchitectProjectSpecTool` | tool registration | **blocked** on the Rust extension API |
+| `registerArchitectProjectSpecTool` | tool registration | `register_architect_project_spec_tool` / `architect_project_spec_tool_definition`; `project_spec_tool_registration_reads_specs_and_reports_paths` |
 
 ## main.ts
 

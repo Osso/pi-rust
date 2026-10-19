@@ -16,5 +16,7 @@ pub use observer::{
     ArchitectObservationReason, ArchitectObserver, ArchitectObserverState, ArchitectSessionSnapshot, ArchitectSnapshot,
     ArchitectSnapshotReader, create_architect_observation, read_architect_snapshot, snapshot_architect_sessions,
 };
-pub use project_spec::read_project_spec;
+pub use project_spec::{
+    architect_project_spec_tool_definition, read_project_spec, register_architect_project_spec_tool,
+};
 pub use prompt::{ARCHITECT_SYSTEM_PROMPT, build_architect_prompt};
