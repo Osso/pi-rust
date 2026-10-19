@@ -445,3 +445,70 @@ async fn session_replacement_rebinds_the_shared_extension_handle() {
         Some("renamed-by-extension")
     );
 }
+
+#[tokio::test]
+async fn bound_runtime_actions_relocate_through_the_extension_context() {
+    let Harness {
+        runtime,
+        logs: _,
+        _temp,
+    } = build_harness(false, false).await;
+    let runtime = Arc::new(tokio::sync::Mutex::new(runtime));
+    AgentSessionRuntime::bind_session_runtime_actions(&runtime).await;
+
+    let session = runtime.lock().await.session().clone();
+    session
+        .session_manager()
+        .append_message(AgentMessage::User(pi_ai::types::UserMessage {
+            role: pi_ai::types::UserRole::Tag,
+            content: pi_ai::types::UserContent::Text("relocate me".to_owned()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 1,
+        }))
+        .expect("append user message");
+
+    let first = _temp.path().join("first");
+    std::fs::create_dir(&first).expect("first dir");
+    let first = first.display().to_string();
+    let session = runtime.lock().await.session().clone();
+    let context = session.extension_runner().create_context();
+    context
+        .relocate(&first)
+        .expect("relocate handler is bound")
+        .await
+        .expect("relocate");
+    assert_eq!(runtime.lock().await.cwd(), first);
+
+    let second = _temp.path().join("second");
+    std::fs::create_dir(&second).expect("second dir");
+    let second = second.display().to_string();
+    let session = runtime.lock().await.session().clone();
+    let context = session.extension_runner().create_context();
+    context
+        .relocate(&second)
+        .expect("relocate handler is rebound after replacement")
+        .await
+        .expect("relocate after replacement");
+    assert_eq!(runtime.lock().await.cwd(), second);
+
+    let third = _temp.path().join("third");
+    std::fs::create_dir(&third).expect("third dir");
+    let third = third.display().to_string();
+    let session = runtime.lock().await.session().clone();
+    let runner = session.extension_runner();
+    runner
+        .create_context()
+        .relocate_after_tool_result("call-1", &third)
+        .expect("schedule tool-result relocation");
+    runner
+        .deliver_tool_result_relocation("call-1")
+        .await
+        .expect("prepare tool-result relocation");
+    assert!(runner.has_prepared_tool_result_relocation());
+    runner
+        .activate_tool_result_relocation()
+        .await
+        .expect("activate tool-result relocation");
+    assert_eq!(runtime.lock().await.cwd(), third);
+}

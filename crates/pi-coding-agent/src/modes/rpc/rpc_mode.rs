@@ -118,11 +118,15 @@ impl RpcState {
 }
 
 /// Runs RPC mode until shutdown exits the process.
-pub async fn run_rpc_mode(runtime_host: AgentSessionRuntime) {
+pub async fn run_rpc_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>) {
+    let (session, agent_dir) = {
+        let runtime = runtime.lock().await;
+        (runtime.session().clone(), Some(runtime.services().agent_dir.clone()))
+    };
     let state = Arc::new(RpcState {
-        session: Mutex::new(runtime_host.session().clone()),
-        agent_dir: Some(runtime_host.services().agent_dir.clone()),
-        runtime: Arc::new(tokio::sync::Mutex::new(runtime_host)),
+        session: Mutex::new(session),
+        agent_dir,
+        runtime,
         dialogs: DialogBroker::default(),
         shutdown_requested: AtomicBool::new(false),
         shutting_down: AtomicBool::new(false),

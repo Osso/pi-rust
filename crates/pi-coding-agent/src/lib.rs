@@ -45,6 +45,7 @@ pub use crate::core::agent_session_runtime::CreateAgentSessionRuntimeFactory;
 pub use crate::core::agent_session_runtime::CreateAgentSessionRuntimeResult;
 pub use crate::core::agent_session_runtime::NewSessionOptions;
 pub use crate::core::agent_session_runtime::create_agent_session_runtime;
+pub use crate::core::agent_session_runtime::share_agent_session_runtime;
 pub use crate::core::agent_session_services::AgentSessionRuntimeDiagnostic;
 pub use crate::core::agent_session_services::AgentSessionServices;
 pub use crate::core::agent_session_services::CreateAgentSessionFromServicesOptions;

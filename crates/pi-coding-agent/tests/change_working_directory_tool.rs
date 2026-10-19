@@ -108,7 +108,10 @@ impl Fixture {
                 .build()
                 .await;
         if let Some(recorder) = relocate {
-            runner.set_tool_result_relocation_handlers(relocate_callback(recorder), Arc::new(|| Box::pin(async {})));
+            runner.set_tool_result_relocation_handlers(
+                relocate_callback(recorder),
+                Arc::new(|| Box::pin(async { Ok(()) })),
+            );
         }
         (runner, context)
     }

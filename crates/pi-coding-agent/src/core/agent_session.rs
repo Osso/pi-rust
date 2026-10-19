@@ -165,6 +165,7 @@ pub struct ToolDefinition {
     pub prompt_snippet: Option<String>,
     pub prompt_guidelines: Vec<String>,
     pub approval_required: bool,
+    pub approval_kind: Option<crate::core::extensions::types::ApprovalKind>,
     pub tool: Arc<dyn AgentTool>,
 }
 
@@ -178,9 +179,36 @@ impl ToolDefinition {
             prompt_snippet: None,
             prompt_guidelines: Vec::new(),
             approval_required: true,
+            approval_kind: None,
             tool,
         }
     }
+}
+
+/// Tools the Supervisor LLM reviewer auto-approves when the session definition
+/// marks them `approvalKind: "read-only"`.
+const SUPERVISOR_AUTO_APPROVED_READ_ONLY_TOOLS: [&str; 7] =
+    ["find", "grep", "ls", "outline", "read", "references", "symbol"];
+
+fn build_allow_always_agent_prompt(cwd: &str, input: &Map<String, Value>, tool_name: &str) -> String {
+    let input = serde_json::to_string_pretty(&Value::Object(input.clone())).unwrap_or_default();
+    [
+        "Add a persistent allow rule for a command that was approved with Allow always in Pi.".to_owned(),
+        String::new(),
+        "Target project: /syncthing/Sync/Projects/claude/claude-bash-hook".to_owned(),
+        format!("Original cwd: {cwd}"),
+        format!("Tool name: {tool_name}"),
+        "Tool input:".to_owned(),
+        input,
+        String::new(),
+        "Requirements:".to_owned(),
+        "- Add the narrowest safe allow rule for this exact workflow.".to_owned(),
+        "- Do not broaden access beyond what the approved command requires.".to_owned(),
+        "- Preserve deny/protected-path precedence.".to_owned(),
+        "- Run the relevant claude-bash-hook tests/checks.".to_owned(),
+        "- Commit the verified config or code change if repository rules allow committing.".to_owned(),
+    ]
+    .join("\n")
 }
 
 fn builtin_source_info(name: &str) -> crate::core::source_info::SourceInfo {
@@ -959,6 +987,10 @@ struct Inner {
     multi_agent_agent_id: Option<String>,
     multi_agent_parent_session_id: Option<String>,
     multi_agent_requires_agent_id: bool,
+    multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
+    thinking_phase_timeout_ms: u64,
+    thinking_phase_timer: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    thinking_phase_timeout_error: Mutex<Option<AgentSessionError>>,
     disable_runtime_coordination_inbound: bool,
     on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
     terminal_outbox_claim_id: String,
@@ -1247,6 +1279,8 @@ impl AgentSession {
         let multi_agent_agent_id = config.multi_agent_agent_id.clone();
         let multi_agent_parent_session_id = config.multi_agent_parent_session_id.clone();
         let multi_agent_requires_agent_id = config.multi_agent_requires_agent_id;
+        let multi_agent_runtime_role = config.multi_agent_runtime_role;
+        let thinking_phase_timeout_ms = config.thinking_phase_timeout_ms.unwrap_or(THINKING_PHASE_TIMEOUT_MS);
         let disable_runtime_coordination_inbound = config.disable_runtime_coordination_inbound;
         let on_shared_channel_message_delivered = config.on_shared_channel_message_delivered.clone();
 
@@ -1321,6 +1355,10 @@ impl AgentSession {
             multi_agent_agent_id,
             multi_agent_parent_session_id,
             multi_agent_requires_agent_id,
+            multi_agent_runtime_role,
+            thinking_phase_timeout_ms,
+            thinking_phase_timer: Mutex::new(None),
+            thinking_phase_timeout_error: Mutex::new(None),
             disable_runtime_coordination_inbound,
             on_shared_channel_message_delivered,
             terminal_outbox_claim_id: pi_ai::utils::uuid::random_uuid(),
@@ -1375,7 +1413,7 @@ impl AgentSession {
             Box::pin(async move {
                 if let Some(inner) = weak.upgrade() {
                     let session = AgentSession { inner };
-                    session.handle_agent_event(event).await;
+                    session.handle_agent_event(event).await?;
                 }
                 Ok(())
             })
@@ -1620,6 +1658,7 @@ impl AgentSession {
                             prompt_snippet: definition.prompt_snippet.clone(),
                             prompt_guidelines: definition.prompt_guidelines.clone().unwrap_or_default(),
                             approval_required: definition.approval_required.unwrap_or(true),
+                            approval_kind: definition.approval_kind,
                             tool: wrapped,
                         },
                         source_info,
@@ -1643,6 +1682,7 @@ impl AgentSession {
                         prompt_snippet: tool.definition.prompt_snippet.clone(),
                         prompt_guidelines: tool.definition.prompt_guidelines.clone().unwrap_or_default(),
                         approval_required: tool.definition.approval_required.unwrap_or(true),
+                        approval_kind: tool.definition.approval_kind,
                         tool: wrapped,
                     };
                     (
@@ -1705,6 +1745,7 @@ impl AgentSession {
                     prompt_snippet: definition.prompt_snippet.clone(),
                     prompt_guidelines: definition.prompt_guidelines.clone().unwrap_or_default(),
                     approval_required: definition.approval_required.unwrap_or(true),
+                    approval_kind: definition.approval_kind,
                     tool: wrap_definition_tool(definition.clone(), &runner),
                 },
                 source_info: create_synthetic_source_info(
@@ -2077,10 +2118,12 @@ impl AgentSession {
         }
         let event = event.clone();
         let ui = runner.get_ui_context();
+        let session = self.clone();
         Some(Arc::new(move || {
             let event = event.clone();
             let ui = Arc::clone(&ui);
             let reason = reason.clone();
+            let session = session.clone();
             Box::pin(async move {
                 let reason_text = reason
                     .as_ref()
@@ -2099,7 +2142,10 @@ impl AgentSession {
                     .flatten();
                 match selection.as_deref() {
                     Some("Allow once") => None,
-                    Some("Allow always") => None,
+                    Some("Allow always") => {
+                        session.spawn_allow_always_agent(&event);
+                        None
+                    }
                     _ => Some(crate::core::extensions::types::ToolCallEventResult {
                         block: Some(true),
                         input: None,
@@ -2109,6 +2155,24 @@ impl AgentSession {
                 }
             })
         }))
+    }
+
+    fn spawn_allow_always_agent(&self, event: &ToolCallEvent) {
+        let Some(tool) = lock(&self.inner.tool_registry).get("spawn_agent").cloned() else {
+            return;
+        };
+        let params = serde_json::json!({
+            "agentType": "permission-config",
+            "displayName": "Allow command",
+            "prompt": build_allow_always_agent_prompt(&self.inner.cwd, &event.input, event.tool_name.as_str()),
+        });
+        let tool_call_id = format!("allow-always:{}", event.tool_call_id);
+        tokio::spawn(async move {
+            let result = tool.execute(tool_call_id, params, None, Arc::new(|_| {}), None).await;
+            if let Err(error) = result {
+                eprintln!("Failed to spawn allow-always agent: {error}");
+            }
+        });
     }
 
     fn create_tool_approval_llm_reviewer(
@@ -2121,6 +2185,14 @@ impl AgentSession {
             && approval_preset != ApprovalPresetName::LlmApprovedAsk
         {
             return None;
+        }
+        let approval_kind = self
+            .find_tool_definition(event.tool_name.as_str())
+            .and_then(|entry| entry.definition.approval_kind);
+        if approval_kind == Some(crate::core::extensions::types::ApprovalKind::ReadOnly)
+            && SUPERVISOR_AUTO_APPROVED_READ_ONLY_TOOLS.contains(&event.tool_name.as_str())
+        {
+            return Some(Arc::new(|| Box::pin(async { None })));
         }
         let session = self.clone();
         let event = event.clone();
@@ -3242,9 +3314,12 @@ impl AgentSession {
 
     fn steer_agent(&self, message: AgentMessage) {
         self.inner.agent.steer(message);
+        if lock(&self.inner.multi_agent_active_tools).is_empty() {
+            self.start_thinking_phase_deadline();
+        }
     }
 
-    async fn handle_agent_event(&self, mut event: AgentEvent) {
+    async fn handle_agent_event(&self, mut event: AgentEvent) -> Result<(), AgentError> {
         let original_tool_call_id = match &event {
             AgentEvent::MessageEnd {
                 message: AgentMessage::ToolResult(result),
@@ -3268,7 +3343,7 @@ impl AgentSession {
                 _ => {}
             }
         }
-        self.publish_current_agent_activity(&event);
+        self.publish_current_agent_activity(&event)?;
         let session_continuation = match &event {
             AgentEvent::AgentEnd { .. } if self.runner().has_prepared_tool_result_relocation() => {
                 Some(crate::core::extensions::types::AgentEndSessionContinuation::CwdRelocation)
@@ -3308,8 +3383,12 @@ impl AgentSession {
             }
         }
         if matches!(event, AgentEvent::AgentEnd { .. }) && session_continuation.is_some() {
-            self.runner().activate_tool_result_relocation().await;
+            self.runner()
+                .activate_tool_result_relocation()
+                .await
+                .map_err(|error| AgentError::new(error.message))?;
         }
+        Ok(())
     }
 
     fn current_agent_activity_owner(&self) -> Option<crate::core::multi_agent_store::AgentCurrentActivityOwner> {
@@ -3325,7 +3404,7 @@ impl AgentSession {
         })
     }
 
-    fn publish_current_agent_activity(&self, event: &AgentEvent) {
+    fn publish_current_agent_activity(&self, event: &AgentEvent) -> Result<(), AgentError> {
         use crate::core::multi_agent_store::AgentCurrentActivity;
 
         if matches!(event, AgentEvent::AgentStart | AgentEvent::AgentEnd { .. }) {
@@ -3350,24 +3429,23 @@ impl AgentSession {
         if let AgentEvent::ToolExecutionEnd { tool_call_id, .. } = event {
             lock(&self.inner.multi_agent_active_tools).retain(|(id, _)| id != tool_call_id);
         }
+        self.update_thinking_phase_deadline(event);
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
-            return;
+            return Ok(());
         };
         let Some(agent_id) = self.inner.multi_agent_agent_id.as_deref() else {
-            return;
+            return Ok(());
         };
         let ownership = self.current_agent_activity_owner();
         match event {
-            AgentEvent::AgentStart => {
-                self.publish_agent_activity(
-                    store,
-                    agent_id,
-                    Some(AgentCurrentActivity::Thinking {
-                        started_at: crate::utils::iso_time::now_iso_string(),
-                    }),
-                    ownership.as_ref(),
-                );
-            }
+            AgentEvent::AgentStart => self.publish_agent_activity(
+                store,
+                agent_id,
+                Some(AgentCurrentActivity::Thinking {
+                    started_at: crate::utils::iso_time::now_iso_string(),
+                }),
+                ownership.as_ref(),
+            ),
             AgentEvent::ToolExecutionStart { .. } => {
                 let active_tools = lock(&self.inner.multi_agent_active_tools);
                 if active_tools.len() == 1
@@ -3379,7 +3457,9 @@ impl AgentSession {
                         tool_name: tool.tool_name.clone(),
                     };
                     drop(active_tools);
-                    self.publish_agent_activity(store, agent_id, Some(activity), ownership.as_ref());
+                    self.publish_agent_activity(store, agent_id, Some(activity), ownership.as_ref())
+                } else {
+                    Ok(())
                 }
             }
             AgentEvent::ToolExecutionEnd { finished_at, .. } => {
@@ -3394,11 +3474,66 @@ impl AgentSession {
                 let activity = next.unwrap_or_else(|| AgentCurrentActivity::Thinking {
                     started_at: crate::utils::iso_time::format_iso_millis(*finished_at as i64),
                 });
-                self.publish_agent_activity(store, agent_id, Some(activity), ownership.as_ref());
+                self.publish_agent_activity(store, agent_id, Some(activity), ownership.as_ref())
             }
-            AgentEvent::AgentEnd { .. } => {
-                self.publish_agent_activity(store, agent_id, None, ownership.as_ref());
+            AgentEvent::AgentEnd { .. } => self.publish_agent_activity(store, agent_id, None, ownership.as_ref()),
+            _ => Ok(()),
+        }
+    }
+
+    fn start_thinking_phase_deadline(&self) {
+        if self.inner.multi_agent_runtime_role == Some(MultiAgentRuntimeRole::Observer)
+            || self.inner.thinking_phase_timeout_ms == 0
+        {
+            return;
+        }
+        self.clear_thinking_phase_deadline();
+        let weak = Arc::downgrade(&self.inner);
+        let timeout = self.inner.thinking_phase_timeout_ms;
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(timeout)).await;
+            let Some(inner) = weak.upgrade() else {
+                return;
+            };
+            let session = AgentSession { inner };
+            *lock(&session.inner.thinking_phase_timer) = None;
+            let subject = if session.inner.multi_agent_agent_id.is_some() {
+                "Child agent"
+            } else {
+                "Main session"
+            };
+            *lock(&session.inner.thinking_phase_timeout_error) = Some(AgentSessionError::new(format!(
+                "{subject} thinking phase exceeded 15 minutes"
+            )));
+            session.inner.agent.abort();
+        });
+        *lock(&self.inner.thinking_phase_timer) = Some(handle);
+    }
+
+    fn clear_thinking_phase_deadline(&self) {
+        if let Some(handle) = lock(&self.inner.thinking_phase_timer).take() {
+            handle.abort();
+        }
+    }
+
+    fn consume_thinking_phase_timeout_error(&self) -> Option<AgentSessionError> {
+        lock(&self.inner.thinking_phase_timeout_error).take()
+    }
+
+    fn update_thinking_phase_deadline(&self, event: &AgentEvent) {
+        match event {
+            AgentEvent::AgentStart => self.start_thinking_phase_deadline(),
+            AgentEvent::ToolExecutionStart { .. } => {
+                if lock(&self.inner.multi_agent_active_tools).len() == 1 {
+                    self.clear_thinking_phase_deadline();
+                }
             }
+            AgentEvent::ToolExecutionEnd { .. } => {
+                if lock(&self.inner.multi_agent_active_tools).is_empty() {
+                    self.start_thinking_phase_deadline();
+                }
+            }
+            AgentEvent::AgentEnd { .. } => self.clear_thinking_phase_deadline(),
             _ => {}
         }
     }
@@ -3409,11 +3544,11 @@ impl AgentSession {
         agent_id: &str,
         activity: Option<crate::core::multi_agent_store::AgentCurrentActivity>,
         ownership: Option<&crate::core::multi_agent_store::AgentCurrentActivityOwner>,
-    ) {
-        if let Err(error) = store.publish_agent_current_activity(agent_id, activity, ownership) {
-            // TS throws from the event handler; Rust listeners are infallible, so report.
-            eprintln!("Failed to publish multi-agent activity: {error}");
-        }
+    ) -> Result<(), AgentError> {
+        store
+            .publish_agent_current_activity(agent_id, activity, ownership)
+            .map(|_| ())
+            .map_err(|error| AgentError::new(error.to_string()))
     }
 
     fn start_background_compaction_during_tool_turn(&self, message: &AssistantMessage) {
@@ -3862,21 +3997,43 @@ impl AgentSession {
         &self,
         process_queued_messages_first: bool,
     ) -> Result<(), AgentSessionError> {
-        self.inner
+        match self
+            .inner
             .agent
             .continue_run(pi_agent_core::agent::ContinueOptions {
                 process_queued_messages_first,
             })
-            .await?;
-        Ok(())
+            .await
+        {
+            Ok(()) => {}
+            Err(error) => {
+                return Err(self
+                    .consume_thinking_phase_timeout_error()
+                    .unwrap_or_else(|| error.into()));
+            }
+        }
+        match self.consume_thinking_phase_timeout_error() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     async fn run_agent_prompt(&self, messages: Vec<AgentMessage>) -> Result<(), AgentSessionError> {
-        let result = self.inner.agent.prompt(messages).await;
-        let post = match result {
-            Ok(()) => self.continue_post_agent_runs().await,
-            Err(error) => Err(error.into()),
+        *lock(&self.inner.thinking_phase_timeout_error) = None;
+        let result = match self.inner.agent.prompt(messages).await {
+            Ok(()) => Ok(()),
+            Err(error) => Err(self
+                .consume_thinking_phase_timeout_error()
+                .unwrap_or_else(|| error.into())),
         };
+        let post = match result {
+            Ok(()) => match self.consume_thinking_phase_timeout_error() {
+                Some(error) => Err(error),
+                None => self.continue_post_agent_runs().await,
+            },
+            Err(error) => Err(error),
+        };
+        self.clear_thinking_phase_deadline();
         *lock(&self.inner.system_prompt_override) = None;
         self.flush_pending_bash_messages();
         self.emit_agent_settled().await;
@@ -3884,11 +4041,21 @@ impl AgentSession {
     }
 
     async fn run_agent_continuation(&self) -> Result<(), AgentSessionError> {
-        let result = self.inner.agent.continue_run(Default::default()).await;
-        let post = match result {
-            Ok(()) => self.continue_post_agent_runs().await,
-            Err(error) => Err(error.into()),
+        *lock(&self.inner.thinking_phase_timeout_error) = None;
+        let result = match self.inner.agent.continue_run(Default::default()).await {
+            Ok(()) => Ok(()),
+            Err(error) => Err(self
+                .consume_thinking_phase_timeout_error()
+                .unwrap_or_else(|| error.into())),
         };
+        let post = match result {
+            Ok(()) => match self.consume_thinking_phase_timeout_error() {
+                Some(error) => Err(error),
+                None => self.continue_post_agent_runs().await,
+            },
+            Err(error) => Err(error),
+        };
+        self.clear_thinking_phase_deadline();
         *lock(&self.inner.system_prompt_override) = None;
         self.flush_pending_bash_messages();
         self.emit_agent_settled().await;
@@ -4516,6 +4683,8 @@ impl AgentSession {
     /// Aborts the current operation and waits for the agent to become idle.
     pub async fn abort(&self) -> Result<(), AgentSessionError> {
         self.abort_retry();
+        self.clear_thinking_phase_deadline();
+        *lock(&self.inner.thinking_phase_timeout_error) = None;
         lock(&self.inner.steering_messages).clear();
         lock(&self.inner.follow_up_messages).clear();
         self.inner.agent.clear_all_queues();
@@ -5385,6 +5554,8 @@ impl AgentSession {
         self.abort_compaction_summary_materialization();
         self.abort_branch_summary();
         self.abort_bash();
+        self.clear_thinking_phase_deadline();
+        *lock(&self.inner.thinking_phase_timeout_error) = None;
         self.stop_runtime_mailbox_polling();
         self.stop_runtime_mailbox_signal_wake();
         self.inner.agent.abort();
@@ -6514,7 +6685,7 @@ impl AgentSession {
         &self,
         relocate: crate::core::extensions::types::RelocateCallback,
         prepare_tool_result: crate::core::extensions::types::RelocateCallback,
-        activate_tool_result: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
+        activate_tool_result: crate::core::extensions::types::ActivateToolResultRelocationHandler,
     ) {
         let mut runner = self.runner();
         runner.set_relocate_handler(relocate);
@@ -6771,7 +6942,7 @@ fn extension_tool_definition_for_html(definition: ToolDefinition) -> crate::core
         prompt_snippet: definition.prompt_snippet,
         prompt_guidelines: Some(definition.prompt_guidelines),
         approval_required: Some(definition.approval_required),
-        approval_kind: None,
+        approval_kind: definition.approval_kind,
         parameters: definition.parameters,
         constrained_sampling: None,
         render_shell: None,

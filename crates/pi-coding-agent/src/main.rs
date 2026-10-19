@@ -47,7 +47,7 @@ use crate::core::agent_session::{
 };
 use crate::core::agent_session_runtime::{
     CreateAgentSessionRuntimeFactory, CreateAgentSessionRuntimeOptions, CreateAgentSessionRuntimeResult,
-    create_agent_session_runtime,
+    create_agent_session_runtime, share_agent_session_runtime,
 };
 use crate::core::agent_session_services::{
     AgentSessionRuntimeDiagnostic, AgentSessionServices, CreateAgentSessionFromServicesOptions,
@@ -2216,18 +2216,25 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     time("createRuntime", TimingLabel::Main);
     let session_cwd = session_manager.get_cwd().to_owned();
     let runtime = create_agent_session_runtime(create_runtime, &session_cwd, &agent_dir, session_manager).await?;
+    let runtime = share_agent_session_runtime(runtime).await;
     reconcile_session_runtime_bindings(&control_db_path, &SessionDirectoryOptions::default())
         .map_err(|error| error.to_string())?;
     LifecycleCoordinator::reconcile_dead_detached_runtimes(&control_db_path, &now_iso_string())
         .map_err(|error| error.to_string())?;
     time("createAgentSessionRuntime", TimingLabel::Main);
 
-    let services = runtime.services();
+    let (services, session, model_fallback_message, diagnostics) = {
+        let runtime = runtime.lock().await;
+        (
+            runtime.services().clone(),
+            runtime.session().clone(),
+            runtime.model_fallback_message().map(str::to_owned),
+            runtime.diagnostics().to_vec(),
+        )
+    };
     let settings_manager = Arc::clone(&services.settings_manager);
     let model_runtime = services.model_runtime.clone();
     let resource_loader = Arc::clone(&services.resource_loader);
-    let session = runtime.session().clone();
-    let model_fallback_message = runtime.model_fallback_message().map(str::to_owned);
     let (image_auto_resize, theme, http_idle_timeout_ms) = {
         let settings = settings_manager.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         (
@@ -2294,14 +2301,12 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         show_deprecation_warnings(&migrations.deprecation_warnings).await;
     }
     time("resolveModelScope", TimingLabel::Main);
-    report_diagnostics(runtime.diagnostics());
-    if runtime
-        .diagnostics()
+    report_diagnostics(&diagnostics);
+    if diagnostics
         .iter()
         .any(|diagnostic| diagnostic.diagnostic_type == "error")
     {
-        if runtime
-            .diagnostics()
+        if diagnostics
             .iter()
             .any(|diagnostic| diagnostic.message.contains("Failed to load extension"))
         {
@@ -2403,7 +2408,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
             let local = tokio::task::LocalSet::new();
             let code = local
                 .run_until(async move {
-                    let mode = InteractiveMode::new(runtime, options, None)?;
+                    let mode = InteractiveMode::new(runtime, options, None).await?;
                     let result = run_interactive_action_or_report_terminal_error(|| mode.init(), None).await?;
                     if !result.ok {
                         return Ok::<Option<i32>, String>(Some(result.exit_code.unwrap_or(1)));

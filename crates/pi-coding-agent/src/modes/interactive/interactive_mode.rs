@@ -2462,7 +2462,7 @@ struct AuthUiState {
 
 /// `InteractiveMode`: TUI rendering and user interaction for the coding agent.
 pub struct InteractiveMode {
-    runtime: tokio::sync::Mutex<AgentSessionRuntime>,
+    runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
     session: RefCell<AgentSession>,
     options: InteractiveModeOptions,
     multi_agent_store: Option<Arc<MultiAgentStore>>,
@@ -2595,12 +2595,12 @@ fn transcript_stamp(path: &str) -> Option<(u64, u64)> {
 impl InteractiveMode {
     /// Builds the interactive mode. Must run inside a tokio runtime context
     /// because [`FooterDataProvider`] captures the current runtime handle.
-    pub fn new(
-        runtime: AgentSessionRuntime,
+    pub async fn new(
+        runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
         options: InteractiveModeOptions,
         terminal: Option<Rc<RefCell<dyn Terminal>>>,
     ) -> Result<Rc<Self>, String> {
-        let session = runtime.session().clone();
+        let session = runtime.lock().await.session().clone();
         let settings_handle = session.settings_manager_handle();
         let settings = session.settings_manager();
         let tui_mode = options.tui_mode.unwrap_or_else(|| settings.get_tui_mode());
@@ -2703,7 +2703,7 @@ impl InteractiveMode {
         let multi_agent_store = options.multi_agent_store.clone();
 
         let mode = Rc::new(Self {
-            runtime: tokio::sync::Mutex::new(runtime),
+            runtime,
             session: RefCell::new(session),
             options,
             multi_agent_store,
@@ -4637,14 +4637,14 @@ impl pi_tui::components::markdown::MarkdownTheme for SettingsMarkdownTheme {
 
 /// Entry point used by `ca-main`: runs interactive mode on a local task set.
 pub async fn run_interactive_mode(
-    runtime: AgentSessionRuntime,
+    runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
     options: InteractiveModeOptions,
     terminal: Option<Rc<RefCell<dyn Terminal>>>,
 ) -> Result<(), String> {
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async move {
-            let mode = InteractiveMode::new(runtime, options, terminal)?;
+            let mode = InteractiveMode::new(runtime, options, terminal).await?;
             mode.run().await
         })
         .await
@@ -9400,6 +9400,7 @@ mod ui_tests {
     use crate::core::agent_session::{AgentSession, AgentSessionConfig};
     use crate::core::agent_session_runtime::{
         CreateAgentSessionRuntimeOptions, CreateAgentSessionRuntimeResult, create_agent_session_runtime,
+        share_agent_session_runtime,
     };
     use crate::core::agent_session_services::AgentSessionServices;
     use crate::core::auth_storage::AuthStorage;
@@ -9679,6 +9680,7 @@ mod ui_tests {
         let runtime = create_agent_session_runtime(factory, &cwd, &cwd, session_manager)
             .await
             .expect("runtime");
+        let runtime = share_agent_session_runtime(runtime).await;
         let terminal = Rc::new(RefCell::new(CaptureTerminal {
             rows: 24,
             columns: 80,
@@ -9694,6 +9696,7 @@ mod ui_tests {
             },
             Some(terminal_trait),
         )
+        .await
         .expect("interactive mode");
         (mode, terminal, faux, temp)
     }

@@ -411,7 +411,7 @@ impl ExtensionRunner {
     pub fn set_tool_result_relocation_handlers(
         &mut self,
         prepare: RelocateCallback,
-        activate: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
+        activate: crate::core::extensions::types::ActivateToolResultRelocationHandler,
     ) {
         let mut state = self.live();
         state.prepare_tool_result_relocation_handler = prepare;
@@ -436,12 +436,12 @@ impl ExtensionRunner {
         self.is_tool_result_relocation_prepared.load(Ordering::SeqCst)
     }
 
-    pub async fn activate_tool_result_relocation(&self) {
+    pub async fn activate_tool_result_relocation(&self) -> Result<(), HandlerError> {
         if !self.is_tool_result_relocation_prepared.swap(false, Ordering::SeqCst) {
-            return;
+            return Ok(());
         }
         let activate = self.live().activate_tool_result_relocation_handler.clone();
-        activate().await;
+        activate().await
     }
 
     pub fn bind_command_context(&mut self, actions: Option<ExtensionCommandContextActions>) {

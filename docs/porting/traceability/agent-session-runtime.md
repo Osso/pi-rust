@@ -15,7 +15,8 @@ Rust: `crates/pi-coding-agent/src/core/agent_session_runtime.rs`.
 | `importFromJsonl` | `import_from_jsonl` | import test |
 | Session replacement re-binds the extension runner's `sessionManager` | `create_runtime` builds a new `AgentSession`, whose `build_runtime` passes the new shared handle | `session_replacement_rebinds_the_shared_extension_handle` |
 | `dispose` | `dispose` | — |
-| `prepare/activateToolResultRelocation` | same | — |
+| `prepare/activateToolResultRelocation` | same | `bound_runtime_actions_relocate_through_the_extension_context` |
+| `bindSessionRuntimeActions` | `AgentSessionRuntime::bind_session_runtime_actions` + `share_agent_session_runtime` | `bound_runtime_actions_relocate_through_the_extension_context` |
 | `emitBeforeSwitch` / `emitBeforeFork` | `emit_before_switch` / `emit_before_fork` | cancellation test |
 | `teardownCurrent` | `teardown_current` (+ `teardown_current_with`) | shutdown event test |
 | `finishSessionReplacement` | `finish_session_replacement` | `withSession` receives `ReplacedSessionContext` |
@@ -30,11 +31,19 @@ Rust: `crates/pi-coding-agent/src/core/agent_session_runtime.rs`.
   manager getter, so this is a port bug, not a source discrepancy. Covered by
   `ui_tests::fork_selector_forks_from_the_selected_user_message`.
 
+## Behavior
+
+- `share_agent_session_runtime` wraps a freshly created runtime and binds the
+  runtime-owned extension actions, matching the TypeScript constructor's
+  `bindSessionRuntimeActions`. `apply` re-binds them on the replacement session
+  using the stored shared handle. The activate handler propagates relocation
+  failures like the source (`activateToolResultRelocation` is awaited).
+- Callers: `main` startup, print/RPC modes, and the interactive mode all take the
+  shared runtime handle, so extension `ctx.relocate`, `ctx.relocateAfterToolResult`,
+  and the tool-result activation path reach the runtime.
+
 ## Gaps
 
-- Extension runner relocate handlers (`set_relocate_handler`,
-  `set_tool_result_relocation_handlers`) are not bound by the runtime; the prepare/
-  activate methods exist but no extension can trigger them yet.
 - Project-trust context factories and `assertMainSessionRuntimeAvailable` refresh
   bookkeeping are not part of the factory options.
 - `teardownCurrent` does not flush pending session entries beyond `abort()`.

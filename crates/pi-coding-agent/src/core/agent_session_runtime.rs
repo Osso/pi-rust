@@ -109,6 +109,7 @@ pub struct AgentSessionRuntime {
     before_process_restart: Option<BeforeProcessRestartHandler>,
     process_restarter: ProcessRestarter,
     prepared_tool_result_relocation: Mutex<Option<PreparedCwdRelocation>>,
+    shared: Mutex<Option<std::sync::Weak<tokio::sync::Mutex<AgentSessionRuntime>>>>,
 }
 
 struct PreparedCwdRelocation {
@@ -151,6 +152,7 @@ impl AgentSessionRuntime {
                 })
             }),
             prepared_tool_result_relocation: Mutex::new(None),
+            shared: Mutex::new(None),
         }
     }
 
@@ -192,11 +194,22 @@ impl AgentSessionRuntime {
 
     /// Binds the runtime-owned relocation handlers on the session's extension runner.
     ///
-    /// The TypeScript runtime captures `this` in `bindSessionRuntimeActions`. Rust callers
-    /// wrap the runtime in `Arc<tokio::sync::Mutex<_>>` and call this after construction.
+    /// The TypeScript constructor calls `bindSessionRuntimeActions`; Rust needs the
+    /// runtime's shared handle first, so [`share_agent_session_runtime`] wraps and binds
+    /// a freshly created runtime. Rebindings after session replacement reuse the stored
+    /// handle through [`Self::apply`].
     pub async fn bind_session_runtime_actions(shared: &Arc<tokio::sync::Mutex<AgentSessionRuntime>>) {
-        let session = shared.lock().await.session.clone();
         let weak = Arc::downgrade(shared);
+        let session = {
+            let runtime = shared.lock().await;
+            *runtime.shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(weak.clone());
+            runtime.session.clone()
+        };
+        Self::bind_actions(&session, &weak);
+    }
+
+    fn bind_actions(session: &AgentSession, weak: &std::sync::Weak<tokio::sync::Mutex<AgentSessionRuntime>>) {
+        let weak = weak.clone();
         let relocate_weak = weak.clone();
         let relocate = Arc::new(move |target_cwd: &str| {
             let weak = relocate_weak.clone();
@@ -233,12 +246,15 @@ impl AgentSessionRuntime {
             let weak = weak.clone();
             Box::pin(async move {
                 let Some(shared) = weak.upgrade() else {
-                    return;
+                    return Ok(());
                 };
-                if let Err(error) = shared.lock().await.activate_tool_result_relocation().await {
-                    eprintln!("Failed to activate tool-result relocation: {error}");
-                }
-            }) as BoxFuture<'static, ()>
+                shared
+                    .lock()
+                    .await
+                    .activate_tool_result_relocation()
+                    .await
+                    .map_err(HandlerError::new)
+            }) as BoxFuture<'static, Result<(), HandlerError>>
         });
         session.bind_session_runtime_relocation(relocate, prepare, activate);
     }
@@ -248,6 +264,13 @@ impl AgentSessionRuntime {
         self.services = result.services;
         self.diagnostics = result.diagnostics;
         self.model_fallback_message = result.model_fallback_message;
+        let shared = match self.shared.get_mut() {
+            Ok(slot) => slot.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        };
+        if let Some(weak) = shared {
+            Self::bind_actions(&self.session, &weak);
+        }
     }
 
     async fn finish_session_replacement(&self, with_session: Option<ReplacedSessionCallback>) {
@@ -800,6 +823,15 @@ pub async fn create_agent_session_runtime(
         result.diagnostics,
         result.model_fallback_message,
     ))
+}
+
+/// Wraps a created runtime in its shared handle and binds the runtime-owned
+/// extension actions, matching the TypeScript constructor call to
+/// `bindSessionRuntimeActions`.
+pub async fn share_agent_session_runtime(runtime: AgentSessionRuntime) -> Arc<tokio::sync::Mutex<AgentSessionRuntime>> {
+    let shared = Arc::new(tokio::sync::Mutex::new(runtime));
+    AgentSessionRuntime::bind_session_runtime_actions(&shared).await;
+    shared
 }
 
 /// Convenience factory that creates services and a session for one cwd.
