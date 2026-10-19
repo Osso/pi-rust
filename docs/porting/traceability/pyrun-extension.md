@@ -12,7 +12,7 @@ Registered as `<first-party:pyrun>`; bwrap profiles use the ported
 | `detached-bridge.ts`: request parse/validate, request/response mailbox persistence | `detached_bridge::*` | exercised through the detached runner bridge round-trip (`owns_evaluation_output_and_commits_one_exact_terminal_input`) |
 | `detached-runner.ts`: manifest checksum, activation, invocation, runner settlement/finalization, control commands, bridge round-trip | `detached_runner::*` | `detached_pyrun` manifest/activation tests; `detached_pyrun_runner_process` (`owns_evaluation_output_and_commits_one_exact_terminal_input`, `answers_status_requests_while_the_evaluation_runs`, `adopts_the_cancelling_revision_and_finalizes_aborted`, `launches_an_independent_runner_process_that_owns_the_evaluation`, `pi_binary_dispatches_the_detached_pyrun_runner_mode`, `pi_binary_reports_a_runner_failure_to_the_runner_error_file`); differential `differential_pyrun_detached` (manifest/activation bytes, read-back, validation errors) |
 | `detached-runner-entry.ts` | `internal_runner::DETACHED_PYRUN_RUNNER_MODE` dispatch + `run_detached_pyrun_runner` in `bin/pi.rs` | `detached_pyrun_runner_process` real-process tests above; `cli_entry` dispatch tests |
-| `detached-evaluation.ts`: artifact root, foreground launch, manifest, observation loop, progress consumption, detach, bridge requests, restore terminal/lost runtime, finalization | `detached_evaluation::*` | `detached_pyrun_evaluation` (`replays_a_complete_terminal_result_without_launching_replacement_code`, `replays_a_complete_terminal_error_with_preceding_console_output`, `ignores_an_incomplete_trailing_record_when_reporting_a_lost_runtime`, `rejects_an_artifact_collision_when_the_params_differ`, `rejects_a_manifest_written_for_another_agent`, `rejects_multiple_terminal_records`, `settles_a_cancelling_job_to_aborted_instead_of_rerunning_it`, `settles_a_legacy_cancelling_job_without_a_tool_call_id`, `returns_the_persisted_cancelling_snapshot_when_no_activation_was_written`, `requires_the_tool_lifecycle_start_timestamp`) |
+| `detached-evaluation.ts`: artifact root, foreground launch, manifest, observation loop, progress consumption, detach, bridge requests, restore terminal/lost runtime, finalization | `detached_evaluation::*` | `detached_pyrun_evaluation` (`replays_a_complete_terminal_result_without_launching_replacement_code`, `replays_a_complete_terminal_error_with_preceding_console_output`, `ignores_an_incomplete_trailing_record_when_reporting_a_lost_runtime`, `rejects_an_artifact_collision_when_the_params_differ`, `rejects_a_manifest_written_for_another_agent`, `rejects_multiple_terminal_records`, `settles_a_cancelling_job_to_aborted_instead_of_rerunning_it`, `settles_a_legacy_cancelling_job_without_a_tool_call_id`, `returns_the_persisted_cancelling_snapshot_when_no_activation_was_written`, `requires_the_tool_lifecycle_start_timestamp`, `resumes_a_live_runner_and_reports_its_terminal_result`, `detaches_to_a_handle_while_the_runner_keeps_running`, `aborts_a_foreground_runner_when_the_signal_is_cancelled`) |
 
 ## Branch mapping (detached runner / evaluation)
 
@@ -48,9 +48,9 @@ Registered as `<first-party:pyrun>`; bwrap profiles use the ported
 - The foreground launch path (`runDurableDetachablePyrunEvaluation` without a
   restorable manifest) is ported but not exercised end-to-end: launching the
   compiled runner requires the `pi` binary as `current_exe`, and a cargo test
-  binary cannot dispatch the internal runner mode. The runner body, the
-  real-process dispatch through `pi`, restore/replay, and cancelling settlement
-  are covered at the process and control-db boundary.
+  binary cannot dispatch the internal runner mode. The observation loop,
+  foreground completion, detach, abort, restore/replay, cancelling settlement,
+  and the real runner process through `pi` are covered.
 - The TypeScript `writeActivation` injection point exists only to test
   activation-persistence failure; Rust has no equivalent test seam. The failure
   branch (register, write activation fails, kill runner, return `false`) is

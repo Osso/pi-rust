@@ -2,6 +2,8 @@
 //! behavior: durable artifact replay, lost runtimes, artifact collisions, and
 //! cancelling-job settlement through a real control database.
 
+#[path = "support/executable_script.rs"]
+mod executable_script;
 #[path = "support/bundled_extensions.rs"]
 #[allow(dead_code)]
 mod support;
@@ -29,7 +31,7 @@ use pi_coding_agent::core::lifecycle_coordinator::{
     LifecycleCommandResult, LifecycleCoordinator, LifecycleCoordinatorOptions,
 };
 use pi_coding_agent::core::multi_agent_store::{AgentLifecycle, AgentNode, MultiAgentStore, MultiAgentStoreOptions};
-use pi_coding_agent::core::runtime_process::ProcessIdentity;
+use pi_coding_agent::core::runtime_process::{ProcessIdentity, read_process_identity};
 use pi_coding_agent::core::session_control_db::{RuntimeMailboxAddress, read_multi_agent_agent};
 use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager};
 use pi_coding_agent::core::tool_detach_registry::ToolDetachRegistry;
@@ -139,6 +141,14 @@ struct Artifact {
     manifest_path: PathBuf,
     output_path: PathBuf,
     script_path: PathBuf,
+}
+
+fn set_runner_process_identity(artifact: &Artifact, identity: ProcessIdentity) {
+    let mut manifest =
+        read_detached_pyrun_launch_manifest(&artifact.manifest_path.to_string_lossy()).expect("manifest");
+    manifest.data.runner_process_identity = identity;
+    write_detached_pyrun_launch_manifest(&artifact.manifest_path.to_string_lossy(), &manifest.data)
+        .expect("rewrite manifest");
 }
 
 fn write_artifact(fixture: &Fixture, job_id: &str, tool_call_id: Option<&str>, code: &str, output: &str) -> Artifact {
@@ -552,4 +562,117 @@ async fn requires_the_tool_lifecycle_start_timestamp() {
         error.message,
         "Detached Pyrun requires the tool lifecycle start timestamp"
     );
+}
+
+fn spawn_live_runner(artifact: &Artifact, body: &str) -> std::process::Child {
+    let script = artifact.directory.join("fake-runner");
+    let body = body.replace("OUTPUT_PATH", &artifact.output_path.to_string_lossy());
+    executable_script::write_executable_script(&script, &format!("#!/usr/bin/env python3\n{body}"));
+    std::process::Command::new(&script)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("live runner")
+}
+
+async fn wait_for(predicate: impl Fn() -> bool, what: &str) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !predicate() {
+        assert!(std::time::Instant::now() < deadline, "timed out waiting for {what}");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test]
+async fn resumes_a_live_runner_and_reports_its_terminal_result() {
+    let fixture = fixture("resume-live").await;
+    let artifact = write_artifact(&fixture, "pyrun_1", Some("live-call"), "original code", "");
+    let mut runner = spawn_live_runner(
+        &artifact,
+        "import json, time\ntime.sleep(0.2)\nwith open(r'''OUTPUT_PATH''', 'a') as handle:\n    handle.write(json.dumps({'kind': 'result', 'result': {'executed': 'original code', 'type': 'completed', 'value': 7}}) + '\\n')\n",
+    );
+    set_runner_process_identity(&artifact, read_process_identity(runner.id()).expect("runner identity"));
+
+    let result = run_durable_detachable_pyrun_evaluation(evaluation_input(
+        &fixture,
+        "pyrun_1",
+        "original code",
+        Some("live-call"),
+    ))
+    .await
+    .expect("resumed result");
+    runner.wait().expect("reap runner");
+
+    assert_eq!(result.details.as_ref().expect("details")["value"], 7);
+    assert_eq!(result.is_error, Some(false));
+    assert_eq!(
+        std::fs::read_to_string(artifact.directory.join("foreground-completed")).expect("completion"),
+        "completed\n"
+    );
+}
+
+#[tokio::test]
+async fn detaches_to_a_handle_while_the_runner_keeps_running() {
+    let fixture = fixture("detach-live").await;
+    let artifact = write_artifact(&fixture, "pyrun_1", Some("detach-call"), "original code", "");
+    let mut runner = spawn_live_runner(
+        &artifact,
+        "import json, time\nwith open(r'''OUTPUT_PATH''', 'a') as handle:\n    handle.write(json.dumps({'kind': 'progress', 'update': {'type': 'progress', 'message': 'started'}}) + '\\n')\ntime.sleep(30)\n",
+    );
+    let runner_identity = read_process_identity(runner.id()).expect("runner identity");
+    set_runner_process_identity(&artifact, runner_identity.clone());
+    let registry = Arc::new(ToolDetachRegistry::new());
+    let mut input = evaluation_input(&fixture, "pyrun_1", "original code", Some("detach-call"));
+    input.detach_registry = Arc::clone(&registry);
+    let evaluation = tokio::spawn(run_durable_detachable_pyrun_evaluation(input));
+    wait_for(
+        || {
+            registry.has_running()
+                && std::fs::read_to_string(&artifact.output_path).is_ok_and(|output| output.contains("started"))
+        },
+        "foreground observation",
+    )
+    .await;
+
+    assert!(registry.detach_running());
+    let result = evaluation.await.expect("join").expect("detached");
+    let details = result.details.as_ref().expect("details");
+    assert_eq!(details["type"], "detached");
+    assert_eq!(details["backgroundJobId"], "pyrun_1");
+    assert_eq!(details["executed"], "original code");
+    assert!(artifact.directory.join("activation.json").exists());
+    let agent = read_multi_agent_agent(&fixture.control_db_path, &fixture.session_path, "pyrun_1")
+        .expect("read")
+        .expect("agent");
+    assert_eq!(agent.lifecycle, AgentLifecycle::Running);
+
+    let _ = pi_coding_agent::core::detached_bash_runner::terminate_foreground_runner(
+        runner_identity.pid,
+        rustix::process::Signal::KILL,
+    );
+    runner.wait().expect("reap runner");
+}
+
+#[tokio::test]
+async fn aborts_a_foreground_runner_when_the_signal_is_cancelled() {
+    let fixture = fixture("abort-live").await;
+    let artifact = write_artifact(&fixture, "pyrun_1", Some("abort-call"), "original code", "");
+    let mut runner = spawn_live_runner(&artifact, "import time\ntime.sleep(30)\n");
+    set_runner_process_identity(&artifact, read_process_identity(runner.id()).expect("runner identity"));
+    let signal = tokio_util::sync::CancellationToken::new();
+    let registry = Arc::new(ToolDetachRegistry::new());
+    let mut input = evaluation_input(&fixture, "pyrun_1", "original code", Some("abort-call"));
+    input.detach_registry = Arc::clone(&registry);
+    input.signal = Some(signal.clone());
+    let evaluation = tokio::spawn(run_durable_detachable_pyrun_evaluation(input));
+    wait_for(|| registry.has_running(), "foreground observation").await;
+
+    signal.cancel();
+    let error = evaluation.await.expect("join").expect_err("aborted runner");
+    assert_eq!(
+        error.message,
+        "Foreground Pyrun runner exited without producing a result"
+    );
+    runner.wait().expect("reap runner");
 }
