@@ -2705,7 +2705,6 @@ impl SessionManager {
         self.subagent_name.as_deref()
     }
 
-    /// Move a persisted session to another cwd's default session directory.
     pub fn relocate(&mut self, target_cwd: &str, agent_dir: Option<&str>) -> Result<(), SessionManagerError> {
         let resolved_target_cwd = resolve(target_cwd)?;
         let agent_dir = agent_dir

@@ -371,10 +371,10 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
-| `coding-agent/extensions/goal/src/goal-args.ts` | 34 | 0 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-objective.ts` | 14 | 0 | todo |  |  |
-| `coding-agent/extensions/goal/src/stale-context.ts` | 5 | 0 | todo |  |  |
-| `coding-agent/extensions/pyrun/src/runner.ts` | 311 | 0 | todo |  |  |
+| `coding-agent/extensions/goal/src/goal-args.ts` | 34 | 0 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_args.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-objective.ts` | 14 | 0 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_objective.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/stale-context.ts` | 5 | 0 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/stale_context.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/pyrun/src/runner.ts` | 311 | 0 | done | `crates/pi-coding-agent/src/bundled_extensions/pyrun/runner.rs` | Behavioral `pyrun_extension`/`detached_pyrun`; differential `differential_pyrun`; traceability `pyrun-extension.md`. |
 | `coding-agent/src/bun/restore-sandbox-env.ts` | 36 | 0 | gap | — | Bun-only workaround for oven-sh/bun#27802 (empty `process.env` in sandboxes); Rust has no Bun runtime and no empty-env bug to repair. |
 | `coding-agent/src/cli/experimental/auth.ts` | 21 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/auth.rs` | Token/file auth source parsing; differential `27007`. |
 | `coding-agent/src/cli/experimental/command.ts` | 205 | 0 | done | `crates/pi-coding-agent/src/cli/experimental/command.rs` | Typed command/option/subcommand parser; differential `27010`. |
@@ -496,7 +496,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/session-tool-output.ts` | 380 | 15 | done | `crates/pi-coding-agent/src/core/session_tool_output.rs` | Persistence truncation + atomic migration; `tests/session_tool_output.rs`, differential `41040` |
 | `coding-agent/src/core/telemetry.ts` | 13 | 15 | done | `crates/pi-coding-agent/src/core/telemetry.rs` | Env-flag truthiness and settings fallback; `PI_TELEMETRY` default matches the TS parameter. |
 | `coding-agent/extensions/agents-core/src/runtime-utils.ts` | 30 | 16 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/runtime_utils.rs` | Failed-mailbox construction and safe abort; differential case. |
-| `coding-agent/extensions/pyrun/src/detached-bridge.ts` | 153 | 16 | todo |  |  |
+| `coding-agent/extensions/pyrun/src/detached-bridge.ts` | 153 | 16 | done | `crates/pi-coding-agent/src/bundled_extensions/pyrun/detached_bridge.rs` | Behavioral `pyrun_extension`/`detached_pyrun`; differential `differential_pyrun`; traceability `pyrun-extension.md`. |
 | `coding-agent/src/architect/observer.ts` | 159 | 16 | todo |  |  |
 | `coding-agent/src/cli/control-command.ts` | 122 | 16 | done | `crates/pi-coding-agent/src/cli/control_command.rs` | send/restart/last/path with injected DB path and SIGHUP; 7 tests ([traceability](traceability/control-command.md)). |
 | `coding-agent/src/cli/debug-command.ts` | 77 | 16 | done | `crates/pi-coding-agent/src/cli/debug_command.rs` | Live-session lookup, socket path, attach error wrapping; 4 tests. Debug REPL server remains the documented `node:vm` gap ([traceability](traceability/debug-command.md)). |
@@ -526,7 +526,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/terminal-outbox-delivery.ts` | 84 | 17 | done | `crates/pi-coding-agent/src/core/terminal_outbox_delivery.rs` | Projection claim/deliver/fail, cleanup cadence and retention threshold; 5 behavioral tests ([traceability](traceability/terminal-outbox-delivery.md)). |
 | `coding-agent/src/modes/interactive/theme/theme.ts` | 1337 | 17 | done | `crates/pi-coding-agent/src/modes/interactive/theme/mod.rs` | Theme JSON validation/resolution, color modes, detection, global state, TUI theme adapters; differential `coding-agent-theme-oracle.ts` (24 load cases + 28 helper cases), behavioral `tests/theme.rs`. JSON parse-error text is a documented gap. |
 | `coding-agent/extensions/agents-core/src/lifecycle-runtime.ts` | 42 | 18 | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/lifecycle_runtime.rs` | Coordinator construction and terminal outbox publication; exercised by spawn/cancel/wait tests. |
-| `coding-agent/extensions/pyrun/src/detached-runner.ts` | 411 | 18 | todo |  |  |
+| `coding-agent/extensions/pyrun/src/detached-runner.ts` | 411 | 18 | partial | `crates/pi-coding-agent/src/bundled_extensions/pyrun/detached_runner.rs` | Behavioral `pyrun_extension`/`detached_pyrun`; differential `differential_pyrun`; traceability `pyrun-extension.md`. |
 | `coding-agent/src/core/compaction/index.ts` | 7 | 18 | done | `crates/pi-coding-agent/src/core/compaction.rs` (module re-exports) | Re-exports the three modules; exercised by every compaction test. |
 | `coding-agent/src/core/detached-bash-runner-entry.ts` | 13 | 18 | done | `crates/pi-coding-agent/src/internal_runner.rs` | Internal runner mode dispatches to `run_detached_bash_runner` and writes `<manifest>.runner-error`; covered by `internal_runner` tests and the real runner-process test. |
 | `coding-agent/src/core/detached-job-lifecycle.ts` | 214 | 18 | done | `crates/pi-coding-agent/src/core/detached_job_runner.rs` | Controller factory folded into the runner module; reserve/launch/register/observe/find/cancel covered by runner tests ([traceability](traceability/detached-job-lifecycle.md)). |
@@ -538,7 +538,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/modes/interactive/components/dynamic-border.ts` | 8 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/dynamic_border.rs` | Theme-colored border wrapper; covered through every selector's differential render. |
 | `coding-agent/src/modes/interactive/components/keybinding-hints.ts` | 48 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/components/keybinding_hints.rs` | Formatting and hint composition; `tests/components.rs`. |
 | `coding-agent/src/modes/interactive/theme/theme-controller.ts` | 139 | 18 | done | `crates/pi-coding-agent/src/modes/interactive/theme/theme_controller.rs` | Settings-driven theme selection, auto-sync, preview, rebind; `tests/theme_controller.rs` with a fake `ThemeUi`. |
-| `coding-agent/extensions/pyrun/src/detached-runner-entry.ts` | 13 | 19 | todo |  |  |
+| `coding-agent/extensions/pyrun/src/detached-runner-entry.ts` | 13 | 19 | partial | `crates/pi-coding-agent/src/bundled_extensions/pyrun/detached_runner.rs` | Behavioral `pyrun_extension`/`detached_pyrun`; differential `differential_pyrun`; traceability `pyrun-extension.md`. |
 | `coding-agent/src/internal-runner.ts` | 19 | 19 | done | `crates/pi-coding-agent/src/internal_runner.rs` | Mode dispatch, manifest validation, `.runner-error` file (0o600), exit code; runner bodies owned by other slices ([traceability](traceability/internal-runner.md)). |
 | `coding-agent/src/modes/interactive/components/agent-switcher.ts` | 269 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/agent_switcher.rs` | Tree rows, closed-agent filtering/toggle, scrolling, inactive selection; differential `agent-switcher-*` (3 cases). |
 | `coding-agent/src/modes/interactive/components/approval-selector.ts` | 103 | 19 | done | `crates/pi-coding-agent/src/modes/interactive/components/approval_selector.rs` | Differential render/input/events (`tests/differential_components.rs`). |
@@ -585,8 +585,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/approval-controls/src/index.ts` | 60 | 22 | todo |  |  |
 | `coding-agent/extensions/ask-secret/src/index.ts` | 169 | 22 | todo |  |  |
 | `coding-agent/extensions/browser-cli/src/index.ts` | 169 | 22 | todo |  |  |
-| `coding-agent/extensions/bwrap/src/backend.ts` | 394 | 22 | todo |  |  |
-| `coding-agent/extensions/bwrap/src/index.ts` | 466 | 22 | todo |  |  |
+| `coding-agent/extensions/bwrap/src/backend.ts` | 394 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/bwrap/backend.rs` | Differential `differential_bwrap` (profiles, runner env, invocation); traceability `bwrap-extension.md`. |
+| `coding-agent/extensions/bwrap/src/index.ts` | 466 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/bwrap/index.rs` | Behavioral registration/full-access; `fs-worker.cjs` replaced by `--internal-bwrap-fs-worker`; traceability `bwrap-extension.md`. |
 | `coding-agent/extensions/claude-bash-hook/src/index.ts` | 194 | 22 | todo |  |  |
 | `coding-agent/extensions/claude-memory-enrich/src/index.ts` | 162 | 22 | todo |  |  |
 | `coding-agent/extensions/claude-memory-session-end/src/index.ts` | 61 | 22 | todo |  |  |
@@ -598,30 +598,30 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/extensions/default-footer/src/index.ts` | 278 | 22 | todo |  |  |
 | `coding-agent/extensions/docs-tree-context/src/index.ts` | 101 | 22 | todo |  |  |
 | `coding-agent/extensions/effort/src/index.ts` | 234 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/completion-scheduling.ts` | 103 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/empty-response-scheduling.ts` | 60 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/error-status-scheduling.ts` | 72 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-agent-end-scheduling.ts` | 40 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-agent-end.ts` | 50 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-idle-selection.ts` | 42 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-parsing.ts` | 77 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-presentation.ts` | 34 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-review-evidence.ts` | 85 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-scheduling.ts` | 304 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-state.ts` | 117 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-tool.ts` | 43 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-turn.ts` | 24 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/goal-types.ts` | 42 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/index.ts` | 741 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/rendering.ts` | 157 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/supervisor-review.ts` | 63 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/wait-countdown.ts` | 49 | 22 | todo |  |  |
-| `coding-agent/extensions/goal/src/wait-status.ts` | 23 | 22 | todo |  |  |
+| `coding-agent/extensions/goal/src/completion-scheduling.ts` | 103 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/completion_scheduling.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/empty-response-scheduling.ts` | 60 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/empty_response_scheduling.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/error-status-scheduling.ts` | 72 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/error_status_scheduling.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-agent-end-scheduling.ts` | 40 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_agent_end_scheduling.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-agent-end.ts` | 50 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_agent_end.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-idle-selection.ts` | 42 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_idle_selection.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-parsing.ts` | 77 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_parsing.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-presentation.ts` | 34 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_presentation.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-review-evidence.ts` | 85 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_review_evidence.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-scheduling.ts` | 304 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_scheduling.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-state.ts` | 117 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_state.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-tool.ts` | 43 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_tool.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-turn.ts` | 24 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_turn.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-types.ts` | 42 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/goal_types.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/index.ts` | 741 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/index.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/rendering.ts` | 157 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/rendering.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/supervisor-review.ts` | 63 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/supervisor_review.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/wait-countdown.ts` | 49 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/wait_countdown.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/wait-status.ts` | 23 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/goal/wait_status.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
 | `coding-agent/extensions/loop/src/index.ts` | 189 | 22 | todo |  |  |
 | `coding-agent/extensions/openai-remote-compact/src/index.ts` | 673 | 22 | todo |  |  |
-| `coding-agent/extensions/pyrun/src/detached-evaluation.ts` | 695 | 22 | todo |  |  |
-| `coding-agent/extensions/pyrun/src/eval-tool.ts` | 274 | 22 | todo |  |  |
-| `coding-agent/extensions/pyrun/src/index.ts` | 625 | 22 | todo |  |  |
+| `coding-agent/extensions/pyrun/src/detached-evaluation.ts` | 695 | 22 | partial | `crates/pi-coding-agent/src/bundled_extensions/pyrun/detached_evaluation.rs` | Behavioral `pyrun_extension`/`detached_pyrun`; differential `differential_pyrun`; traceability `pyrun-extension.md`. |
+| `coding-agent/extensions/pyrun/src/eval-tool.ts` | 274 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/pyrun/eval_tool.rs` | Behavioral `pyrun_extension`/`detached_pyrun`; differential `differential_pyrun`; traceability `pyrun-extension.md`. |
+| `coding-agent/extensions/pyrun/src/index.ts` | 625 | 22 | done | `crates/pi-coding-agent/src/bundled_extensions/pyrun/index.rs` | Behavioral `pyrun_extension`/`detached_pyrun`; differential `differential_pyrun`; traceability `pyrun-extension.md`. |
 | `coding-agent/extensions/run-plan/src/index.ts` | 167 | 22 | todo |  |  |
 | `coding-agent/extensions/safe/src/index.ts` | 71 | 22 | todo |  |  |
 | `coding-agent/extensions/self-restart/src/index.ts` | 32 | 22 | todo |  |  |

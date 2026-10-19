@@ -23,7 +23,7 @@ use std::sync::Arc;
 use pi_ai::request::{BoxFuture, Fetch};
 
 use crate::core::http_dispatcher::{DEFAULT_HTTP_IDLE_TIMEOUT_MS, configure_http_dispatcher};
-use crate::internal_runner::{DetachedRunnerHost, run_internal_detached_runner};
+use crate::internal_runner::{DetachedRunnerHost, run_internal_bwrap_fs_worker, run_internal_detached_runner};
 
 /// Environment the TypeScript entry point sets before running `main`.
 pub const CLI_PROCESS_ENV: [(&str, &str); 2] = [("PI_CODING_AGENT", "true"), ("AI_AGENT", "pi")];
@@ -40,6 +40,12 @@ pub async fn run_cli_entry<'a>(
     detached_runner: &dyn DetachedRunnerHost,
     main: CliMain<'a>,
 ) -> Result<Option<Arc<dyn Fetch>>, String> {
+    if let Some(exit_code) = run_internal_bwrap_fs_worker(args) {
+        if exit_code != 0 {
+            std::process::exit(exit_code);
+        }
+        return Ok(None);
+    }
     let handled = run_internal_detached_runner(args, detached_runner).await?;
     if handled.is_some() {
         return Ok(None);
