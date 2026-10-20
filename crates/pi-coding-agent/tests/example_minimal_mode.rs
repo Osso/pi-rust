@@ -71,6 +71,10 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
             json!({}),
             json!({"path":"fixture.txt","pattern":"needle","command":"echo hi","timeout":5,"offset":2,"limit":3,"content":"one\ntwo","glob":"*.txt"}),
             json!({"path":"","pattern":"","command":"","timeout":0,"offset":0,"limit":0,"content":""}),
+            json!({"path":"fixture.txt","offset":2}),
+            json!({"path":"fixture.txt","limit":0}),
+            json!({"path":format!("{}/suffix",std::env::var("HOME").unwrap()),"offset":1,"limit":0}),
+            json!({"path":"λ🦀","content":"x","glob":""}),
         ] {
             for expanded in [false, true] {
                 for content in [
@@ -125,7 +129,14 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
         {"name":"find","args":{"pattern":"fixture.txt","path":"."}},
         {"name":"grep","args":{"pattern":"needle","path":"fixture.txt"}},
         {"name":"ls","args":{"path":"."}},
-        {"name":"bash","args":{"command":"printf minimal-fixture"}}
+        {"name":"bash","args":{"command":"printf minimal-fixture"}},
+        {"name":"read","args":{"path":"missing.txt"}},
+        {"name":"write","args":{"path":".","content":"no"}},
+        {"name":"edit","args":{"path":"out.txt","edits":[{"oldText":"absent","newText":"no"}]}},
+        {"name":"find","args":{"pattern":"*.txt","path":"missing"}},
+        {"name":"grep","args":{"pattern":"needle","path":"missing.txt"}},
+        {"name":"ls","args":{"path":"missing"}},
+        {"name":"bash","args":{"command":"exit 7"}}
     ]);
     // TS runs before Rust against identical initial fixture state.
     let mut oracle = oracle::TsOracle::spawn(

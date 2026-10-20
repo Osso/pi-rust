@@ -82,6 +82,12 @@ impl ExtensionUiContext for Ui {
             .unwrap_or_else(|| vec![json!("\u{1b}")]);
         for key in keys {
             component.handle_input(key.as_str().unwrap());
+            if result.lock().unwrap().is_none() && key.as_str() != Some("\u{1b}") {
+                self.trace
+                    .lock()
+                    .unwrap()
+                    .push(json!(["customRender", component.render(80)]));
+            }
         }
         let value = result.lock().unwrap().clone();
         Box::pin(async move { Ok(value) })
@@ -152,8 +158,12 @@ pub async fn compare(
         )
         .unwrap(),
     ));
-    let thinking = Arc::new(Mutex::new(pi_agent_core::harness::ThinkingLevel::Off));
-    let model = Arc::new(Mutex::new(None));
+    let thinking = Arc::new(Mutex::new(
+        serde_json::from_value(request.get("thinking").cloned().unwrap_or(json!("off"))).unwrap(),
+    ));
+    let model = Arc::new(Mutex::new(
+        serde_json::from_value(request.get("initialModel").cloned().unwrap_or(Value::Null)).unwrap(),
+    ));
     let mut actions = support::actions();
     let mut context = support::context_actions();
     let state = tools.clone();

@@ -16,7 +16,7 @@ async function main() {
   const manager=session.SessionManager.inMemory(cwd);
   const registry=await utils.createInMemoryModelRegistry(auth.AuthStorage.inMemory());
   if(request.models)registry.registerProvider("fixture",{name:"fixture",api:"openai-completions",baseUrl:"https://fixture.invalid/v1",apiKey:"fixture-key",models:request.models});
-  let tools=request.tools??["read","bash","edit","write","custom"],thinking="off",model:any;
+  let tools=request.tools??["read","bash","edit","write","custom"],thinking=request.thinking??"off",model:any=request.initialModel;
   const runner=new runnerModule.ExtensionRunner([extension],runtime,cwd,manager,registry);
   const allTools=["read","bash","edit","write","grep","find","ls","ask_questions","custom"].map(name=>({name,description:name,parameters:{}}));
   runner.bindCore({
@@ -39,7 +39,7 @@ async function main() {
     setWidget:(key:string,text?:string[],options?:any)=>trace.push(["widget",key,text??null,options??null]),
     select:async(title:string,options:string[])=>{trace.push(["select",title,options]);return step.selected??undefined;},
     editor:async(title:string,prefill:string)=>{trace.push(["editor",title,prefill]);return step.editor??undefined;},
-    custom:async(factory:any)=>{let result:any;const component=factory({requestRender:()=>{}},themeModule.theme,{},(value:any)=>result=value);trace.push(["custom",component.render(80)]);for(const key of step.keys??["\u001b"])component.handleInput(key);return result;},
+    custom:async(factory:any)=>{let result:any;const component=factory({requestRender:()=>{}},themeModule.theme,{},(value:any)=>result=value);trace.push(["custom",component.render(80)]);for(const key of step.keys??["\u001b"]){component.handleInput(key);if(result===undefined)trace.push(["customRender",component.render(80)]);}return result;},
    } as any,"tui");
    switch(step.op) {
     case "command":try{await runner.getCommand(step.name).handler(step.args??"",runner.createCommandContext());}catch(error:any){trace.push(["error",error.message]);}break;

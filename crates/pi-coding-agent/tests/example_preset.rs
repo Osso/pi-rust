@@ -59,6 +59,8 @@ async fn flags_commands_cycles_selector_models_prompts_persistence_and_errors_ma
     }
     // Empty-start cycles through every sorted preset and restores original state.
     harness::compare("preset",register,json!({"cwd":cwd,"models":[model()],"steps":[start(),{"op":"shortcut","key":"ctrl+shift+u"},{"op":"shortcut","key":"ctrl+shift+u"},{"op":"shortcut","key":"ctrl+shift+u"},{"op":"shortcut","key":"ctrl+shift+u"},{"op":"shortcut","key":"ctrl+shift+u"},{"op":"before"}]})).await;
+    harness::compare("preset",register,json!({"cwd":cwd,"models":[model()],"initialModel":model(),"thinking":"medium","steps":[start(),command("alpha"),{"op":"command","name":"preset","keys":["\u{1b}[B","\u{1b}[B","\u{1b}[B","\u{1b}[B","\r"]},{"op":"before"}]})).await;
+    harness::compare("preset",register,json!({"cwd":cwd,"models":[model()],"entries":[{"type":"custom","customType":"preset-state","data":{"name":"zeta"}}],"steps":[start(),{"op":"command","name":"preset","keys":["\u{1b}[B","\u{1b}[B","\u{1b}[B","\u{1b}[B","\r"]}]})).await;
     std::fs::write(&global, "{broken").unwrap();
     std::fs::write(&local, "{also broken").unwrap();
     harness::compare("preset", register, json!({"cwd":cwd,"steps":[start(),command("")]})).await;

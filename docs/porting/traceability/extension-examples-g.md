@@ -9,8 +9,8 @@ real `ExtensionRunner` and isolated state inherited from Cargo's runner.
 | `plan-mode/utils.ts`: `isSafeCommand`, destructive/read-only patterns | `plan_mode/utils.rs` | `example_plan_mode_utils`: 500+ corpus cases against unchanged pinned pure helpers |
 | `cleanStepText`, `extractTodoItems`, `extractDoneSteps`, `markCompletedSteps` | `plan_mode/utils.rs` | Same corpus: markup, headers, numbered plans, whitespace, length boundaries, duplicate/missing DONE steps, binary64 rounding |
 | `minimal-mode.ts`: all seven tool registrations | `minimal_mode.rs` | `example_minimal_mode`: complete ordered tool name/label/description/schema comparison |
-| Each minimal tool's `renderCall`, `renderResult` | Same | 168 rendered call/result pairs, empty/populated args, expanded/collapsed, absent/empty/multiline/error text; complete rendered lines including ANSI/padding |
-| Each minimal tool's `execute` | Same | Real loader/runner and built-ins on private files: read/write/edit/find/grep/ls/bash; complete results and resulting file contents |
+| Each minimal tool's `renderCall`, `renderResult` | Same | 392 rendered call/result pairs, empty/populated args, expanded/collapsed, absent/empty/multiline/error text; complete rendered lines including ANSI/padding |
+| Each minimal tool's `execute` | Same | Real loader/runner and built-ins on private files: read/write/edit/find/grep/ls/bash; complete results/errors and resulting file contents |
 
 ## Discrepancies and exclusions
 
@@ -53,7 +53,7 @@ models, no network/provider completion calls.
 ## Plan-mode blocked — not shipped
 
 TS `plan-mode/index.ts:354–356` aliases `planModeEntry.data.todos`;
-`index.ts:384` and `utils.ts:159–165` mutate those same todo objects when restoring
+`index.ts:382` and `utils.ts:159–165` mutate those same todo objects when restoring
 completion. Existing session entries therefore change in memory. Differential log
 `14-plan-green.log` finds identical UI/action traces but different complete session
 entries: TS's restored saved todo has `completed:true`, native remains `false`.
