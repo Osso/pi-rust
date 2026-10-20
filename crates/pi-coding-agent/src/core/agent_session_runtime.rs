@@ -22,7 +22,7 @@ use crate::core::session_control_db::assert_main_session_runtime_available;
 use crate::core::session_cwd::assert_session_cwd_exists;
 use crate::core::session_errors::SessionImportFileNotFoundError;
 use crate::core::session_manager::SessionManager;
-use crate::utils::paths::{PathInputOptions, resolve_path};
+use crate::utils::paths::{PathInputOptions, process_cwd, resolve_path};
 
 /// Result returned by runtime creation.
 pub struct CreateAgentSessionRuntimeResult {
@@ -985,10 +985,4 @@ fn user_content_text(content: &pi_ai::types::UserContent) -> String {
             })
             .collect(),
     }
-}
-
-fn process_cwd() -> String {
-    std::env::current_dir()
-        .map(|path| path.display().to_string())
-        .unwrap_or_default()
 }

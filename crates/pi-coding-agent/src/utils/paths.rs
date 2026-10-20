@@ -254,6 +254,13 @@ fn current_directory() -> String {
         .unwrap_or_else(|_| "/".to_owned())
 }
 
+/// `process.cwd()` as a display string.
+pub(crate) fn process_cwd() -> String {
+    std::env::current_dir()
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
 fn node_resolve(base: &str, tail: &str) -> String {
     let mut resolved = PathBuf::from(base);
     resolved.push(tail);
