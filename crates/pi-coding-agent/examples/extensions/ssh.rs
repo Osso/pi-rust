@@ -154,26 +154,34 @@ impl BashOperations for Remote {
             // AbortSignal listeners do not replay an abort that already happened.
             let wait = wait_for_remote(&mut child, options.signal.clone(), options.timeout);
             let ((status, timed_out), _) = tokio::try_join!(wait, output).map_err(|e| ToolError::new(e.to_string()))?;
-            if options
-                .signal
-                .as_ref()
-                .is_some_and(tokio_util::sync::CancellationToken::is_cancelled)
-            {
-                return Err(ToolError::new("aborted"));
-            }
-            if timed_out {
-                return Err(ToolError::new(format!(
-                    "timeout:{}",
-                    js_number_to_string(options.timeout.expect("timer timeout"))
-                )));
-            }
-            Ok(BashExecResult {
-                exit_code: status.code(),
-                detached: None,
-            })
+            finish_remote_bash(status, timed_out, &options)
         })
     }
 }
+fn finish_remote_bash(
+    status: std::process::ExitStatus,
+    timed_out: bool,
+    options: &BashExecOptions,
+) -> Result<BashExecResult, ToolError> {
+    if options
+        .signal
+        .as_ref()
+        .is_some_and(tokio_util::sync::CancellationToken::is_cancelled)
+    {
+        return Err(ToolError::new("aborted"));
+    }
+    if timed_out {
+        return Err(ToolError::new(format!(
+            "timeout:{}",
+            js_number_to_string(options.timeout.expect("timer timeout"))
+        )));
+    }
+    Ok(BashExecResult {
+        exit_code: status.code(),
+        detached: None,
+    })
+}
+
 async fn wait_for_remote(
     child: &mut tokio::process::Child,
     signal: Option<tokio_util::sync::CancellationToken>,

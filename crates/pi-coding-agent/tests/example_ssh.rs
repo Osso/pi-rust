@@ -174,7 +174,9 @@ async fn native(request: &Value) -> Value {
             }
             let command = match mode {
                 "timeout" => "exec sleep 30",
-                "abort" => "exec python3 -c 'import time; print(\"ready\",flush=True); time.sleep(30)'",
+                "abort" => {
+                    "exec python3 -c 'import signal,sys,time; signal.signal(signal.SIGTERM,lambda *_:(print(\"terminated\",flush=True),sys.exit(0))); print(\"ready\",flush=True); time.sleep(30)'"
+                }
                 "exit" => "printf code; exit 7",
                 _ => "printf 'user output'",
             };

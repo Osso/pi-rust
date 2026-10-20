@@ -26,7 +26,7 @@ async function run(request:any) {
    let output='';const controller=new AbortController();
    if(mode==='preabort')controller.abort();
    try {
-    const value=await userOps.operations.exec(mode==='timeout'?'exec sleep 30':mode==='abort'?"exec python3 -c 'import time; print(\"ready\",flush=True); time.sleep(30)'":mode==='exit'?"printf code; exit 7":"printf 'user output'",request.cwd,{timeout:mode==='timeout'?1:undefined,signal:controller.signal,onData:(bytes:Buffer)=>{output+=bytes.toString();if(mode==='abort')controller.abort();}});
+    const value=await userOps.operations.exec(mode==='timeout'?'exec sleep 30':mode==='abort'?"exec python3 -c 'import signal,sys,time; signal.signal(signal.SIGTERM,lambda *_:(print(\"terminated\",flush=True),sys.exit(0))); print(\"ready\",flush=True); time.sleep(30)'":mode==='exit'?"printf code; exit 7":"printf 'user output'",request.cwd,{timeout:mode==='timeout'?1:undefined,signal:controller.signal,onData:(bytes:Buffer)=>{output+=bytes.toString();if(mode==='abort')controller.abort();}});
     user.push({mode,output,result:value});
    }catch(e:any){user.push({mode,output,error:e.message});}
   }
