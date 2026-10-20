@@ -138,6 +138,8 @@ def launch(command):
         "/usr/bin/bwrap",
         "--die-with-parent",
         "--unshare-net",
+        "--cap-add",
+        "CAP_NET_ADMIN",
         "--ro-bind",
         "/",
         "/",
