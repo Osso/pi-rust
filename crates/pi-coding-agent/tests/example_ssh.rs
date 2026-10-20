@@ -221,6 +221,15 @@ async fn ssh_fixture_remote_matches_pinned_example() {
         let temp = tempfile::tempdir().unwrap();
         let bin = temp.path().join("bin");
         std::fs::create_dir(&bin).unwrap();
+        for program in [
+            "node", "git", "cat", "file", "base64", "mkdir", "sleep", "python3", "bash",
+        ] {
+            let executable = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+                .map(|directory| directory.join(program))
+                .find(|path| path.is_file())
+                .expect(program);
+            std::os::unix::fs::symlink(executable, bin.join(program)).unwrap();
+        }
         std::fs::write(bin.join("ssh"), include_str!("support/fake-ssh.py")).unwrap();
         std::fs::set_permissions(bin.join("ssh"), std::fs::Permissions::from_mode(0o755)).unwrap();
         let output = std::process::Command::new(std::env::current_exe().unwrap())
@@ -229,7 +238,7 @@ async fn ssh_fixture_remote_matches_pinned_example() {
             .env("SSH_FIXTURE_ROOT", temp.path())
             .env("SSH_FIXTURE_LOG", temp.path().join("ssh.log"))
             .env("SSH_FIXTURE_REMOTE", temp.path().join("remote"))
-            .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()))
+            .env("PATH", &bin)
             .output()
             .unwrap();
         assert!(
@@ -244,7 +253,7 @@ async fn ssh_fixture_remote_matches_pinned_example() {
     let cwd = root.join("local");
     let remote = root.join("remote");
     let log = root.join("ssh.log");
-    for flag in [
+    for (index, flag) in [
         Value::Null,
         json!(""),
         json!("fixture"),
@@ -253,7 +262,15 @@ async fn ssh_fixture_remote_matches_pinned_example() {
         json!("bad"),
         json!(format!("fixture$&:{}", remote.display())),
         json!(format!("fixture:{}/$&", remote.display())),
-    ] {
+        json!("fixture"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let spawn_missing = index == 8;
+        if spawn_missing {
+            std::fs::rename(root.join("bin/ssh"), root.join("ssh-disabled")).unwrap();
+        }
         seed(&cwd, &remote);
         std::fs::write(&log, "").unwrap();
         let projected = String::from_utf16_lossy(&[0xd800]);
@@ -315,17 +332,13 @@ async fn ssh_fixture_remote_matches_pinned_example() {
         pi_tui::tui::TuiExt::add_child(tui.as_ref(), component);
         pi_tui::tui::TuiExt::request_render(tui.as_ref(), false);
         pi_tui::tui::TuiExt::render_now(tui.as_ref(), false);
-        assert!(
-            terminal
-                .borrow()
-                .viewport()
-                .join("\n")
-                .contains(if flag.is_null() || flag == "" || flag == "bad" {
-                    "ENOENT"
-                } else {
-                    "SSH failed (7): scripted failure"
-                })
-        );
+        assert!(terminal.borrow().viewport().join("\n").contains(
+            if flag.is_null() || flag == "" || flag == "bad" || spawn_missing {
+                "ENOENT"
+            } else {
+                "SSH failed (7): scripted failure"
+            }
+        ));
         std::env::set_current_dir(&root).unwrap();
         for dir in [&cwd, &remote] {
             std::fs::remove_dir_all(dir).unwrap();
@@ -344,6 +357,10 @@ async fn ssh_fixture_remote_matches_pinned_example() {
             std::fs::read_to_string(&log).unwrap(),
             "SSH argv/stdin {flag}"
         );
+        if spawn_missing {
+            assert_eq!(actual["startError"], "spawn ssh ENOENT");
+            std::fs::rename(root.join("ssh-disabled"), root.join("bin/ssh")).unwrap();
+        }
         for dir in [&cwd, &remote] {
             std::fs::remove_dir_all(dir).unwrap();
         }

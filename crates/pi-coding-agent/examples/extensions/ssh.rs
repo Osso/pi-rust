@@ -152,28 +152,7 @@ impl BashOperations for Remote {
                 )
             };
             // AbortSignal listeners do not replay an abort that already happened.
-            let signal = options.signal.clone().filter(|signal| !signal.is_cancelled());
-            let aborted = async {
-                match signal {
-                    Some(signal) => signal.cancelled().await,
-                    None => std::future::pending().await,
-                }
-            };
-            let timer = async {
-                match options.timeout.filter(|n| *n != 0.0) {
-                    Some(seconds) => tokio::time::sleep(std::time::Duration::from_secs_f64(seconds.max(0.001))).await,
-                    None => std::future::pending().await,
-                }
-            };
-            let wait = async {
-                let mut timed_out = false;
-                let status = tokio::select! {
-                    status = child.wait() => status,
-                    () = aborted => { terminate(&child)?; child.wait().await },
-                    () = timer => { timed_out = true; terminate(&child)?; child.wait().await },
-                }?;
-                Ok::<_, io::Error>((status, timed_out))
-            };
+            let wait = wait_for_remote(&mut child, options.signal.clone(), options.timeout);
             let ((status, timed_out), _) = tokio::try_join!(wait, output).map_err(|e| ToolError::new(e.to_string()))?;
             if options
                 .signal
@@ -194,6 +173,32 @@ impl BashOperations for Remote {
             })
         })
     }
+}
+async fn wait_for_remote(
+    child: &mut tokio::process::Child,
+    signal: Option<tokio_util::sync::CancellationToken>,
+    timeout: Option<f64>,
+) -> io::Result<(std::process::ExitStatus, bool)> {
+    let signal = signal.filter(|signal| !signal.is_cancelled());
+    let aborted = async {
+        match signal {
+            Some(signal) => signal.cancelled().await,
+            None => std::future::pending().await,
+        }
+    };
+    let timer = async {
+        match timeout.filter(|seconds| *seconds != 0.0) {
+            Some(seconds) => tokio::time::sleep(std::time::Duration::from_secs_f64(seconds.max(0.001))).await,
+            None => std::future::pending().await,
+        }
+    };
+    let mut timed_out = false;
+    let status = tokio::select! {
+        status = child.wait() => status,
+        () = aborted => { terminate(child)?; child.wait().await },
+        () = timer => { timed_out = true; terminate(child)?; child.wait().await },
+    }?;
+    Ok((status, timed_out))
 }
 // Node ChildProcess.kill() sends SIGTERM, not Tokio's SIGKILL.
 fn terminate(child: &tokio::process::Child) -> io::Result<()> {
@@ -246,10 +251,20 @@ pub fn ssh_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         .to_string_lossy()
         .into_owned();
     let resolved: Arc<Mutex<Option<Remote>>> = Arc::default();
-    for tool in remote_tools(&local, None) {
+    register_tools(pi, &local, &resolved)?;
+    register_session_start(pi, local, resolved.clone())?;
+    register_user_bash(pi, resolved.clone())?;
+    register_prompt(pi, resolved)?;
+    Ok(())
+}
+
+type RemoteState = Arc<Mutex<Option<Remote>>>;
+
+fn register_tools(pi: &ExtensionApi, local: &str, resolved: &RemoteState) -> Result<(), HandlerError> {
+    for tool in remote_tools(local, None) {
         let mut definition = create_tool_definition_from_agent_tool(tool.clone());
         let state = resolved.clone();
-        let local = local.clone();
+        let local = local.to_owned();
         definition.execute = Arc::new(move |id, params, signal, update, _ctx| {
             let remote = state.lock().expect("SSH state").clone();
             let tool = match remote {
@@ -267,8 +282,30 @@ pub fn ssh_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         });
         pi.register_tool(definition)?;
     }
+    Ok(())
+}
+
+async fn fetch_remote_config(arg: &str, local: String) -> Result<Remote, HandlerError> {
+    let mut parts = arg.split(':');
+    let host = parts.next().unwrap_or_default().to_owned();
+    let path = parts.next();
+    let mut remote = Remote {
+        host,
+        cwd: path.unwrap_or_default().to_owned(),
+        local,
+    };
+    if path.is_none() {
+        let bytes = remote
+            .run("pwd".into())
+            .await
+            .map_err(|error| HandlerError::new(error.to_string()))?;
+        remote.cwd = js_trim(&String::from_utf8_lossy(&bytes)).to_owned();
+    }
+    Ok(remote)
+}
+
+fn register_session_start(pi: &ExtensionApi, local: String, state: RemoteState) -> Result<(), HandlerError> {
     let api = pi.clone();
-    let state = resolved.clone();
     pi.on_session_start(move |_: SessionStartEvent, ctx: ExtensionContext| {
         let api = api.clone();
         let state = state.clone();
@@ -280,24 +317,9 @@ pub fn ssh_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             if arg.is_empty() {
                 return Ok(None);
             }
-            let mut parts = arg.split(':');
-            let host = parts.next().unwrap_or_default().to_owned();
-            let cwd = match parts.next() {
-                Some(path) => path.to_owned(),
-                None => {
-                    let bytes = Remote {
-                        host: host.clone(),
-                        cwd: String::new(),
-                        local: local.clone(),
-                    }
-                    .run("pwd".into())
-                    .await
-                    .map_err(|e| HandlerError::new(e.to_string()))?;
-                    js_trim(&String::from_utf8_lossy(&bytes)).to_owned()
-                }
-            };
-            let label = format!("{host}:{cwd}");
-            *state.lock().expect("SSH state") = Some(Remote { host, cwd, local });
+            let remote = fetch_remote_config(&arg, local).await?;
+            let label = format!("{}:{}", remote.host, remote.cwd);
+            *state.lock().expect("SSH state") = Some(remote);
             let ui = ctx.ui()?;
             ui.set_status(
                 "ssh",
@@ -307,7 +329,10 @@ pub fn ssh_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
     })?;
-    let state = resolved.clone();
+    Ok(())
+}
+
+fn register_user_bash(pi: &ExtensionApi, state: RemoteState) -> Result<(), HandlerError> {
     pi.on_user_bash(move |_: UserBashEvent, _: ExtensionContext| {
         let remote = state.lock().expect("SSH state").clone();
         Box::pin(async move {
@@ -317,6 +342,10 @@ pub fn ssh_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             }))
         }) as BoxFuture<'static, Result<Option<UserBashEventResult>, HandlerError>>
     })?;
+    Ok(())
+}
+
+fn register_prompt(pi: &ExtensionApi, resolved: RemoteState) -> Result<(), HandlerError> {
     pi.on_before_agent_start(move |event: BeforeAgentStartEvent, _: ExtensionContext| {
         let remote = resolved.lock().expect("SSH state").clone();
         Box::pin(async move {
