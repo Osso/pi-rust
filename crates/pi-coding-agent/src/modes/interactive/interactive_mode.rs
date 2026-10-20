@@ -14322,10 +14322,10 @@ mod ui_tests {
                 terminal.borrow_mut().writes.clear();
                 tui.request_render_force();
                 mode.handle_ui_requests().await;
-                mode.ui.render_now();
+                mode.ui.flush_pending();
                 assert!(
-                    !terminal.borrow().writes.is_empty(),
-                    "forced redraw must write unchanged frame"
+                    terminal.borrow().output().contains("╭"),
+                    "forced redraw must repaint unchanged editor frame"
                 );
                 terminal.borrow_mut().writes.clear();
                 tui.stop();
