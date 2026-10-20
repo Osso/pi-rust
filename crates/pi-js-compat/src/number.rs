@@ -6,19 +6,18 @@ use serde_json::Value;
 
 use crate::string::is_js_whitespace_char;
 
-const JS_INTEGER_NOTATION_LIMIT: f64 = 1e21;
-
-/// `JSON.stringify(number)` digits: integral finite numbers below `1e21` are
-/// printed without an exponent.
+/// Exact integral binary64 values representable in serde_json's i64/u64 storage.
+/// This is a numeric conversion, not JavaScript shortest-decimal formatting.
 fn integer_digits(value: f64) -> Option<i128> {
-    if value.is_finite() && value.fract() == 0.0 && value.abs() < JS_INTEGER_NOTATION_LIMIT {
-        // Below 1e21 every integral f64 fits in i128 and JavaScript prints it without exponent.
+    if value.fract() == 0.0 && (-9_223_372_036_854_775_808.0..18_446_744_073_709_551_616.0).contains(&value) {
         return Some(value as i128);
     }
     None
 }
 
-/// `serialize_with` helper for `f64` fields.
+/// `serialize_with` helper for `f64` fields, preserving numeric meaning.
+/// Generic serde JSON output is not byte-exact `JSON.stringify`; use the shared
+/// `js_json` writer for JavaScript decimal spelling.
 pub fn serialize<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
     match integer_digits(*value) {
         Some(digits) => serializer.serialize_i128(digits),
@@ -163,60 +162,9 @@ fn parse_radix(digits: &str, radix: u32) -> f64 {
         .unwrap_or(f64::NAN)
 }
 
-/// ECMA-262 `Number::toString` for the finite values representable in JSON.
+/// ECMA-262 `Number::toString`, including negative zero and non-finite values.
 pub fn js_number_to_string(value: f64) -> String {
-    if value == 0.0 {
-        return "0".to_owned();
-    }
-    if value.is_nan() {
-        return "NaN".to_owned();
-    }
-    if value.is_infinite() {
-        return if value.is_sign_negative() {
-            "-Infinity"
-        } else {
-            "Infinity"
-        }
-        .to_owned();
-    }
-
-    let sign = if value.is_sign_negative() { "-" } else { "" };
-    let (digits, point) = shortest_decimal_digits(value.abs());
-    format_decimal_digits(&digits, point, sign)
-}
-
-/// Returns the shortest round-trip digits and the decimal point position.
-fn shortest_decimal_digits(value: f64) -> (String, i32) {
-    let rendered = value.to_string();
-    let (integer, fraction) = rendered.split_once('.').unwrap_or((&rendered, ""));
-    let raw_digits = format!("{integer}{fraction}");
-    let leading_zeros = raw_digits.len() - raw_digits.trim_start_matches('0').len();
-    let digits = raw_digits.trim_start_matches('0').trim_end_matches('0');
-    let point = integer.len() as i32 - leading_zeros as i32;
-    (digits.to_owned(), point)
-}
-
-fn format_decimal_digits(digits: &str, point: i32, sign: &str) -> String {
-    let digit_count = digits.len() as i32;
-    if digit_count <= point && point <= 21 {
-        return format!("{sign}{digits}{}", "0".repeat((point - digit_count) as usize));
-    }
-    if 0 < point && point <= 21 {
-        let (head, tail) = digits.split_at(point as usize);
-        return format!("{sign}{head}.{tail}");
-    }
-    if -6 < point && point <= 0 {
-        return format!("{sign}0.{}{digits}", "0".repeat((-point) as usize));
-    }
-
-    let (head, tail) = digits.split_at(1);
-    let exponent = point - 1;
-    let exponent_sign = if exponent >= 0 { "+" } else { "-" };
-    if tail.is_empty() {
-        format!("{sign}{head}e{exponent_sign}{}", exponent.abs())
-    } else {
-        format!("{sign}{head}.{tail}e{exponent_sign}{}", exponent.abs())
-    }
+    ryu_js::Buffer::new().format(value).to_owned()
 }
 
 /// ECMA-262 `Number.prototype.toFixed(fraction_digits)` for finite values below
@@ -268,12 +216,10 @@ fn round_scaled(magnitude: f64, scale: u128) -> u128 {
     (2 * scaled + (1_u128 << shift)) >> (shift + 1)
 }
 
-/// `JSON.stringify(number)` value: integral finite numbers use integer notation,
-/// non-finite numbers become `null`.
-///
-/// Integral values above `u64::MAX` cannot be stored as `serde_json` integers;
-/// they stay floats with the same numeric value (`JSON.stringify(1e20)` and
-/// `serde_json` both round-trip `1e20`).
+/// JavaScript binary64 numeric meaning in serde storage; non-finite becomes null.
+/// Exact integral values use i64/u64 storage when representable, otherwise f64.
+/// No shortest-decimal integer substitution: other encodings retain the original
+/// binary value. Use `js_json::stringify` for byte-exact JavaScript JSON text.
 pub fn js_number_value(value: f64) -> Value {
     if !value.is_finite() {
         return Value::Null;

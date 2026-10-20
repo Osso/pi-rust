@@ -30,19 +30,37 @@ CLDR collation data for the tested locales.
 | `Number(string)` (whitespace, `0x`/`0b`/`0o`, `Infinity`, `NaN` rejection) | `parse_number` | `tests/number.rs`, `tests/differential_number.rs` |
 | `Number.parseInt(string, radix)` (`radix` 0/16 prefix handling, longest digit prefix) | `parse_int` | `tests/number.rs`, `tests/differential_number.rs` |
 | `Number.parseFloat(string)` (leading numeric prefix, exponent rollback) | `parse_float` | `tests/number.rs`, `tests/differential_number.rs` |
-| ECMA-262 `Number::toString` (shortest round-trip digits, exponent thresholds) | `js_number_to_string` | `tests/number.rs`, `tests/differential_number.rs` (`String(Number(s))`) |
-| `JSON.stringify`-style `f64` serialization | `serialize`, `serialize_option` | consumed by `pi-ai`/`pi-agent-core` wire records; existing differential suites |
-| `JSON.stringify(number)` value (integer notation below `1e21`, `null` for non-finite) | `js_number_value`; the single implementation for every JSON payload builder | `tests/number.rs::js_number_value_matches_json_stringify_numbers`; `tests/differential_number.rs::matches_node_json_stringify_numbers` (27 inputs against `JSON.stringify(Number(s))`) |
+| ECMA-262 `Number::toString`: shortest digits, even-digit ties, exponent thresholds, signed zero, non-finite | `js_number_to_string` via `ryu_js::Buffer::format` | `tests/number.rs`, `tests/differential_number.rs`, `tests/differential_number_bits.rs::shared_formatter_and_json_consumers_match_node_same_bits` |
+| Generic serde finite numeric meaning without i128 range errors; Some/None and non-finite null | `serialize`, `serialize_option`; exact integer conversion only in i64/u64 range | `generic_serde_preserves_finite_numeric_meaning_without_range_errors` exercises actual attributed fields through `serde_json::to_value` |
+| Numeric value storage, not shortest-decimal integer substitution | `js_number_value` | Same test: as_f64 bits/range and exact unsafe-integer storage; historical `matches_node_json_stringify_numbers` is semantic-only |
+| Literal compact/pretty JSON and String coercion | `js_json` shared writer / `to_js_string` | Same-bit test compares Node text literally for lossless writer, serde writer, parse/write and scalar coercion |
 
 Differential: 36 `Number` inputs, 28 `parseFloat` inputs, 21 `parseInt` pairs,
 26 `String(Number(s))` inputs, and 27 `JSON.stringify(Number(s))` inputs against
 Node 26.
 
-Deviation: integral values in `(u64::MAX, 1e21)` are printed by `serde_json` in
-exponent form (`1e+20`) instead of JavaScript's full digits
-(`100000000000000000000`); the JSON numeric value is identical, and
-`serde_json` cannot represent those integers without `arbitrary_precision`.
-Exponent spelling outside that range matches JavaScript (`1e+21`).
+Bounded number-format spec: [contract](../../specs/js-number-format.md).
+New corpus: 4,346 binary64 bit patterns, transmitted as big-endian hex strings and
+read with Node DataView, including unsafe integers ±ULPs at 1e18, 2^53, 2^64,
+1e20/1e21 and 1e-6/1e-7, exact shortest-digit tie, signed zero, non-finite,
+subnormals, extrema and 4,096 unfiltered deterministic xorshift patterns.
+ASCII-LF oracle framing and existing TsOracle process watchdog are reused.
+Node v26.11.1 is an observed development runtime, not a new source baseline.
+
+RED: the original helper already formatted 1e18+128 correctly; its actual defect
+was bits `3e60000000000000`: Rust `...5313e-8`, Node `...5312e-8`.
+Generic serde separately rejected bits `c3effffffffffff8` as number out of range.
+Development commands/results: `/tmp/pi-rust-js-number-format-proof/ledger.md`.
+
+Boundary: direct generic serde JSON is numeric-semantic, not byte-exact
+JSON.stringify. It may print exact integral digits `1000000000000000128`
+rather than shortest `1000000000000000100`, and exponent `1e+20` rather than
+full decimal. Both retain the same binary64 meaning. The shared js_json writer
+is byte-exact for the bounded corpus. Internal integer storage is never replaced
+by the shortest decimal integer. No arbitrary_precision, wire-body/tool serde
+migration, provider changes or new parse/toFixed algorithms are claimed.
+The finite corpus does not establish exhaustive binary64 parity; the primitive
+uses the published ECMAScript formatter rather than corpus-specific cases.
 
 ## `Date.parse` (`src/date.rs`)
 

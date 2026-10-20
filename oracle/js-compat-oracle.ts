@@ -38,6 +38,12 @@ type NumberRequest = {
 	number_strings: string[];
 };
 
+type NumberBitsRequest = {
+	id: RequestId;
+	operation: "number_bits";
+	bits: string[];
+};
+
 type ToFixedRequest = {
 	id: RequestId;
 	operation: "to_fixed";
@@ -68,6 +74,7 @@ type Request =
 	| MinimatchRequest
 	| BraceExpandRequest
 	| NumberRequest
+	| NumberBitsRequest
 	| ToFixedRequest
 	| JsonStringifyRequest
 	| DateParseRequest
@@ -143,6 +150,17 @@ async function execute(request: Request): Promise<Response> {
 				int: request.int_values.map(([value, radix]) => normalizeParsed(parseInt(value, radix))),
 				strings: request.number_strings.map((value) => String(Number(value))),
 			},
+		};
+	}
+	if (request.operation === "number_bits") {
+		return {
+			id: request.id,
+			ok: true,
+			output: request.bits.map((hex) => {
+				const bytes = Buffer.from(hex, "hex");
+				const value = new DataView(bytes.buffer, bytes.byteOffset, 8).getFloat64(0, false);
+				return { string: String(value), json: JSON.stringify(value) };
+			}),
 		};
 	}
 	if (request.operation === "to_fixed") {
