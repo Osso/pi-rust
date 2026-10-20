@@ -8,6 +8,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - [x] Transform Baseten entries, including deprecated filtering, toggle/effort compatibility and GLM-5.2 overrides.
 - [x] Transform Fireworks tool models, including GLM-5p2/Kimi-K3 API and compatibility selection.
 - [x] Merge implemented compatibility/thinking/strict-tools/grammar/tool-search/cache metadata in source order without replacing existing user fields.
+- [x] Transform every source models.dev provider family in source order for the all-provider fixture, including endpoint routing, model filters, aliases and subscription costs.
 - [ ] Fetch, merge, filter, supplement and enrich all source providers with exact priority, ordering and errors.
 - [x] Retain raw provider JSON UTF-16 keys/strings without replacement in implemented provider and HTTP transformations.
 - [x] Parse source CLI flags and report unknown/conflicting/missing argument errors in source precedence.
@@ -25,6 +26,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 
 - `crates/pi-ai/src/model_catalog_generator.rs`: lossless provider transformations, transport and option parsing.
 - `crates/pi-ai/src/model_catalog_generator/metadata.rs`: native metadata mutations.
+- `crates/pi-ai/src/model_catalog_generator/models_dev.rs`: models.dev/NVIDIA fetching and provider transformations.
 - `oracle/model-catalog-generator-oracle.ts`: instrumented pinned source functions with mocked HTTP.
 
 ## Tests asserting this spec
@@ -34,6 +36,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - `crates/pi-ai/tests/model_catalog_generator_options.rs`: source flags and validation ordering.
 - `crates/pi-ai/tests/model_catalog_generator_raw.rs`: malformed provider errors and UTF-16 identity.
 - `crates/pi-ai/tests/model_catalog_generator_metadata.rs`: 675 merged-model cases against original source metadata mutations.
+- `crates/pi-ai/tests/model_catalog_generator_models_dev.rs`: all-provider pipeline with independently mocked models.dev/NVIDIA responses.
 
 ## Known gaps (current cycle)
 

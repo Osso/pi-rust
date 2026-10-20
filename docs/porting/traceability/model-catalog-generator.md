@@ -7,12 +7,12 @@ Source: `packages/ai/scripts/generate-models.ts` at original runtime pin. No exp
 | `getModelsDevCost` | `get_models_dev_cost`; original TS costs/tiers differential | partial: valid fixtures |
 | `processBasetenModels` | `process_baseten_models`; empty/deprecated/plain/toggle/effort/both/GLM fixtures | partial: valid fixtures |
 | `processFireworksModels` | `process_fireworks_models`; empty/tool filter/GLM/Kimi/Anthropic fixtures | partial: valid fixtures |
-| `recordModelsDevReasoningOptions` | pending metadata-state integration | gap |
+| `recordModelsDevReasoningOptions` | `Generator::record`, lossless key/value storage | partial: recorded by provider transforms; deferred metadata consumer still pending |
 | `readGeneratorOptions` | `read_generator_options`; 12 source flag/argument/error cases | implemented; OS cwd failure proof open |
 | automatic CLI | pending native entrypoint | gap |
 | OpenRouter/AI Gateway HTTP | `Generator::fetch_open_router_models/fetch_ai_gateway_models`; tool/image/reasoning/pricing/raw UTF-16/default/strict 503 fixtures | partial: malformed shape/log/transport coverage remains |
-| NVIDIA HTTP | pending | gap |
-| `loadModelsDevData` (all remaining providers) | pending | gap |
+| NVIDIA HTTP | `fetch_nvidia_nim_model_ids`; exercised through all-provider pipeline fixture | partial: normalized alias/duplicate/error proofs pending |
+| `loadModelsDevData` (all source provider families) | `models_dev.rs`; all-provider fixture including family exclusions, routing, aliases, subscription/implied prices and individual Qwen allowlist | partial: alias precedence/raw errors/strict/normalization counterexamples still open |
 | compat/thinking/strict-tools/grammar/tool-search/cache metadata helpers | `metadata.rs`, `apply_model_metadata`; 675 provider/id/API cases with existing compatibility/thinking fields, 4050 original TS calls | partial: full Cartesian/base-URL/default/invalid-type branch proofs pending; deferred models.dev reasoning records not yet wired |
 | hardcoded supplements, overrides, Azure clones | pending | gap |
 | priority/dedup/sorted provider/API/model catalogs | pending | gap |
@@ -25,6 +25,8 @@ Source: `packages/ai/scripts/generate-models.ts` at original runtime pin. No exp
 Focused follow-up logs: `05-http-red.log`/`06-options-red.log` establish missing HTTP/options behavior; `08-targeted-red.log` proves HTTP/options GREEN and metadata/models.dev/raw errors RED after shared dependencies. `09-raw-green.log` proves source cost/provider regression and eight raw UTF-16/error cases GREEN. Shared `is_truthy`/fallible `to_js_string` and binary64 `JsValue::Number` are reused; no local coercion duplicate remains.
 
 `12-metadata-green.log`: 675 provider/model/API combinations compare merged model bytes against six sequential original-source mutation functions (4050 source calls), GREEN; no-op RED recorded in `08-targeted-red.log`. This does not establish exhaustive branch coverage or the deferred reasoning-record pass.
+
+`14-models-dev.log`: all-source-provider fixture GREEN against actual `loadModelsDevData`, comparing every resulting model's bytes and sequence, plus exact models.dev→NVIDIA request order. RED empty pipeline was recorded in `08-targeted-red.log`. This proves the fixture, not exhaustive raw payloads or final generator workflow.
 
 ## Pending whole-module branch inventory
 

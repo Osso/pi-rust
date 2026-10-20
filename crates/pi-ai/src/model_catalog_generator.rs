@@ -7,6 +7,7 @@ use serde_json::json;
 use crate::models_dev_reasoning_options::{ModelsDevReasoningOption, get_effort_thinking_level_map};
 
 mod metadata;
+mod models_dev;
 pub use metadata::apply_model_metadata;
 
 fn field<'a>(value: &'a JsValue, key: &str) -> &'a JsValue {
@@ -421,6 +422,7 @@ pub struct HttpResponse {
 pub struct Generator<'a> {
     pub options: GeneratorOptions,
     pub logs: Vec<JsValue>,
+    reasoning_options: indexmap::IndexMap<JsString, JsValue>,
     fetch: &'a mut dyn FnMut(&str) -> Result<HttpResponse, GeneratorError>,
 }
 impl<'a> Generator<'a> {
@@ -432,6 +434,7 @@ impl<'a> Generator<'a> {
             options,
             fetch,
             logs: vec![],
+            reasoning_options: indexmap::IndexMap::new(),
         }
     }
     fn log(&mut self, level: &str, message: &str) {
