@@ -22,7 +22,8 @@ async function run(request: any) {
  const runtime = loader.createExtensionRuntime();
  const extension = await loader.loadExtensionFromFactory(factory, cwd, events.createEventBus(), runtime, source);
  const registry = await utils.createInMemoryModelRegistry(auth.AuthStorage.inMemory());
- const runner = new runnerModule.ExtensionRunner([extension], runtime, cwd, session.SessionManager.inMemory(cwd), registry);
+ const manager = session.SessionManager.inMemory(cwd);
+ const runner = new runnerModule.ExtensionRunner([extension], runtime, cwd, manager, registry);
  runner.bindCore({
   sendMessage() {}, sendUserMessage() {}, appendEntry() {}, requestResumeContinuation() {},
   setSessionName() {}, getSessionName() {}, setLabel() {}, getActiveTools: () => [], getAllTools: () => [],
@@ -46,17 +47,41 @@ async function run(request: any) {
  }
  for (const item of request.cases) {
   const calls: any[] = [];
+  const roles=["accent","dim","muted","text","success","error","warning","toolTitle","borderMuted","border","selectedBg"];
+  const theme={fg:(role:string,text:string)=>`\x1b[38;2;${50+roles.indexOf(role)};32;32m${text}\x1b[39m`,bold:(text:string)=>text};
   const ui = {
+   theme,
+   custom: async (factory:any) => {
+    let completed=false, value:any;
+    const component=factory({requestRender(){}},theme,{},(v:any)=>{completed=true;value=v;});
+    const width=item.width ?? 40;
+    calls.push(["render",component.render(width)]);
+    for (const key of item.keys ?? []) {component.handleInput?.(key);calls.push(["render",component.render(width)]);}
+    component.invalidate();calls.push(["render",component.render(width)]);
+    for(let i=0;i<1000 && !completed;i++) await new Promise(r=>setTimeout(r,1));
+    component.dispose?.();
+    if(!completed) throw new Error("custom fixture never completed");
+    return value;
+   },
    notify: (message: string, level: string) => calls.push(["notify", message, level]),
    select: async (title: string, choices: string[]) => { calls.push(["select", title, choices]); return item.selected ?? undefined; },
    setWidget: (key: string, content: string[], options?: unknown) => calls.push(["widget", key, content, options ?? null]),
    setWorkingMessage: (message: string) => calls.push(["workingMessage", message]),
    setWorkingIndicator: (options: unknown) => calls.push(["workingIndicator", options]),
   };
-  runner.setUIContext(item.hasUI === false ? undefined : ui, "tui");
+  runner.setUIContext(item.hasUI === false ? undefined : ui, item.mode ?? "tui");
   let result: unknown;
   switch (item.event) {
    case "session_start": result = await runner.emit({type: "session_start", reason: "startup"}); break;
+   case "append": manager.appendMessage(item.message); break;
+   case "branch": manager.branch(manager.getEntries()[item.index].id); break;
+   case "event": result=await runner.emit(item.value); break;
+   case "render_call": result=runner.getToolDefinition(item.toolName).renderCall(item.params,theme,{}).render(item.width ?? 40); break;
+   case "render_result": result=runner.getToolDefinition(item.toolName).renderResult(item.result,{expanded:item.expanded ?? false,isPartial:item.isPartial ?? false},theme,{}).render(item.width ?? 40); break;
+   case "command":
+    try { result = await runner.getCommand(item.name).handler(item.args ?? "",runner.createCommandContext()); }
+    catch (error: any) { result = {error:error.message}; }
+    break;
    case "tool_call": result = await runner.emitToolCall({type:"tool_call", toolName:item.toolName,toolCallId:"fixture-call",bypassPermissions:false,input:item.input}); break;
    case "input": result = await runner.emitInput(item.text,item.images ?? undefined,item.source,item.streamingBehavior ?? undefined); break;
    case "tool_metadata": {
@@ -72,7 +97,7 @@ async function run(request: any) {
    }
    default: throw new Error(`Unknown fixture event ${item.event}`);
   }
-  cases.push({result: result ?? null, ui: calls});
+  cases.push(JSON.parse(JSON.stringify({result: result ?? null, ui: calls})));
  }
  globalThis.Date = originalDate;
  return {metadata,cases,errors};

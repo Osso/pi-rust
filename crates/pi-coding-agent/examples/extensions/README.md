@@ -67,3 +67,8 @@ Embed `with_deps.rs` (`with_deps_extension`) for `parse_duration`, and
 factory explicitly as above. Inline commands execute in the loaded cwd; enable
 only for trusted prompts. Native duration parsing matches the example's npm `ms`
 string overload without adding dependencies.
+
+`tool_override.rs` (`tool_override_extension`) registers audited `read` and
+`/read-log`; audit output goes to the configured agent directory. `todo.rs`
+(`todo_extension`) registers `todo` and `/todos`, restoring tool-result state
+from the current session branch. Both require explicit factory registration.
