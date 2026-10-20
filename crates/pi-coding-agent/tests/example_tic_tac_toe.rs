@@ -272,7 +272,11 @@ async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {
         final_state["board"],
         json!([["X", " ", " "], [" ", "O", " "], [" ", " ", " "]])
     );
-    assert_eq!(final_state["agentCursorRow"], 1);
-    assert_eq!(final_state["agentCursorCol"], 1);
+    assert_eq!(results[0].details.as_ref().unwrap()["agentCursorRow"], 1);
+    assert_eq!(results[0].details.as_ref().unwrap()["agentCursorCol"], 0);
+    assert_eq!(results[1].details.as_ref().unwrap()["agentCursorRow"], 1);
+    assert_eq!(results[1].details.as_ref().unwrap()["agentCursorCol"], 1);
+    assert_eq!(final_state["agentCursorRow"], 0);
+    assert_eq!(final_state["agentCursorCol"], 0);
     assert_eq!(final_state["currentTurn"], "X");
 }
