@@ -13,4 +13,11 @@ Tests: `crates/pi-coding-agent/tests/bundled_extensions_commands.rs`.
 | archived notification | command handler | differential |
 | command metadata/description | `register_command` | registration differential |
 
+The archive differential explicitly selects `session-names:` ([v15 reference](../session-name-oracle.md))
+because `archiveSession` opens the approved v15 control DB. The command body is
+unchanged from the general pin; that pin's v14 DB reader rejects v15 before the
+notification. Every TS step must succeed. Both implementations use the manager's
+actual session path; the fixture is unarchived between callers so each must
+independently persist the archive transition and emit the full notification.
+
 No gaps.

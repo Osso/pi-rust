@@ -9,7 +9,7 @@ read_source_worktree() {
 }
 
 typecheck_oracle() {
-	node --test oracle/typecheck-report.test.mjs oracle/typecheck-reference.test.mjs
+	node --test oracle/typecheck-report.test.mjs oracle/typecheck-reference.test.mjs oracle/session-name-reference.test.mjs
 	local source_worktree
 	source_worktree="$(read_source_worktree)"
 	local config
@@ -57,6 +57,7 @@ case "${1:-all}" in
 		;;
 	differential)
 		shift
+		node oracle/session-name-reference.mjs
 		cargo test -p pi-protocol --test differential_protocol "$@"
 		cargo test -p pi-coding-agent --test differential_rpc_jsonl --test differential_auth_command --test differential_config_value_references --test differential_skill_block --test differential_default_thinking_level --test differential_cli_mode --test differential_thinking_level_validator --test differential_tool_output_persistence_constants --test differential_current_session_version --test differential_source_info --test differential_format_size --test differential_truncation_constants "$@"
 		cargo test -p pi-evals --test differential_summary --test differential_harness_table --test differential_artifacts --test differential_pi_harness "$@"
@@ -67,6 +68,7 @@ case "${1:-all}" in
 		;;
 	all)
 		shift
+		node oracle/session-name-reference.mjs
 		typecheck_oracle
 		exec cargo test --workspace --all-targets "$@"
 		;;
