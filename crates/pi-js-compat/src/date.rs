@@ -21,6 +21,30 @@ pub fn js_now_millis() -> f64 {
     system_time_millis(SystemTime::now()).map_or(f64::NAN, |millis| millis as f64)
 }
 
+/// `Date.prototype.toLocaleString()` pinned to en-US, in the process-local zone.
+/// Returns `None` if the local zone cannot be resolved or the timestamp is
+/// outside Jiff's supported calendar range. Approved locale pin:
+/// 2026-10-20; spaces match Node v26.11.1 (ASCII, including before AM/PM).
+pub fn to_locale_string(millis: i64) -> Option<String> {
+    let zone = TimeZone::try_system().ok()?;
+    let date = jiff::Timestamp::from_millisecond(millis).ok()?.to_zoned(zone);
+    let hour = i32::from(date.hour());
+    let hour12 = match hour % 12 {
+        0 => 12,
+        hour => hour,
+    };
+    let year = i32::from(date.year());
+    let display_year = if year <= 0 { 1 - year } else { year };
+    Some(format!(
+        "{}/{}/{display_year}, {hour12}:{:02}:{:02} {}",
+        date.month(),
+        date.day(),
+        date.minute(),
+        date.second(),
+        if hour < 12 { "AM" } else { "PM" },
+    ))
+}
+
 /// [`date_parse`] as integral epoch milliseconds; `None` where JavaScript returns `NaN`.
 pub fn date_parse_millis(input: &str) -> Option<i64> {
     let millis = date_parse(input);

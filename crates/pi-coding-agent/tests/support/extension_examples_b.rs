@@ -73,6 +73,11 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
         Arc::new(ModelRegistry::new(model_runtime)),
     );
     support::bind(&mut runner);
+    let errors = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let captured_errors = errors.clone();
+    let _subscription = runner.on_error(Arc::new(move |error| {
+        captured_errors.lock().unwrap().push(json!([error.event, error.error]));
+    }));
     let ui = Arc::new(Ui::default());
     let mut cases = Vec::new();
     for case in request["cases"].as_array().unwrap() {
@@ -110,23 +115,34 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
                     )
                     .await
             ),
-            "before_provider_request" => runner.emit_before_provider_request(case["payload"].clone()).await,
-            "after_provider_response" => {
-                runner
-                    .emit(&mut ExtensionEvent::AfterProviderResponse(
-                        serde_json::from_value(case.clone()).unwrap(),
-                    ))
-                    .await;
-                Value::Null
+            "tool_metadata" => {
+                let tool = runner.get_tool_definition("bash").unwrap();
+                json!({"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"promptSnippet":tool.prompt_snippet,"promptGuidelines":tool.prompt_guidelines})
+            }
+            "execute" => {
+                let tool = runner.get_tool_definition("bash").unwrap();
+                match (tool.execute)(
+                    "fixture-call".into(),
+                    case["params"].clone(),
+                    None,
+                    None,
+                    runner.create_context(),
+                )
+                .await
+                {
+                    Ok(result) => json!({"value":result}),
+                    Err(error) => json!({"error":error.message}),
+                }
             }
             other => panic!("unknown fixture event: {other}"),
         };
         cases.push(json!({"result":result,"ui":ui.calls.lock().unwrap().clone()}));
     }
-    let actual = json!({"metadata":metadata,"cases":cases});
-    let mut oracle = oracle::TsOracle::spawn(
+    let actual = json!({"metadata":metadata,"cases":cases,"errors":errors.lock().unwrap().clone()});
+    let mut oracle = oracle::TsOracle::spawn_with_environment(
         "extension-examples-b-oracle.ts",
         &format!("packages/coding-agent/examples/extensions/{name}.ts"),
+        &[("LANG", "en_US.UTF-8".into()), ("LC_ALL", "en_US.UTF-8".into())],
     );
     let expected = oracle.request(&request);
     assert_eq!(actual, expected, "example {name}");

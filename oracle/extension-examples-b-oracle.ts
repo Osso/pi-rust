@@ -18,6 +18,7 @@ const [{ default: factory }, loader, runnerModule, session, auth, utils, events]
 ]);
 async function run(request: any) {
  const cwd = request.cwd ?? "/fixture";
+ if (request.home) { process.env.HOME = request.home; process.chdir(cwd); }
  const runtime = loader.createExtensionRuntime();
  const extension = await loader.loadExtensionFromFactory(factory, cwd, events.createEventBus(), runtime, source);
  const registry = await utils.createInMemoryModelRegistry(auth.AuthStorage.inMemory());
@@ -33,8 +34,16 @@ async function run(request: any) {
   getSignal() {}, abort() {}, hasPendingMessages: () => false, shutdown() {}, restart: async () => {},
   getContextUsage() {}, compact() {}, getSystemPrompt: () => "", getScopedModels: () => [],
  });
+ const errors: unknown[] = [];
+ runner.onError((error: any) => errors.push([error.event, error.error]));
  const metadata = {commands: [...extension.commands.keys()], tools: [...extension.tools.keys()]};
  const cases = [];
+ const originalDate = Date;
+ if (request.nowMillis !== undefined) {
+  globalThis.Date = class extends originalDate {
+   constructor(...args: any[]) { super(...(args.length ? args : [request.nowMillis]) as [any]); }
+  } as DateConstructor;
+ }
  for (const item of request.cases) {
   const calls: any[] = [];
   const ui = {
@@ -50,13 +59,23 @@ async function run(request: any) {
    case "session_start": result = await runner.emit({type: "session_start", reason: "startup"}); break;
    case "tool_call": result = await runner.emitToolCall({type:"tool_call", toolName:item.toolName,toolCallId:"fixture-call",bypassPermissions:false,input:item.input}); break;
    case "input": result = await runner.emitInput(item.text,item.images ?? undefined,item.source,item.streamingBehavior ?? undefined); break;
-   case "before_provider_request": result = await runner.emitBeforeProviderRequest(item.payload); break;
-   case "after_provider_response": result = await runner.emit({type:item.event,status:item.status,headers:item.headers}); break;
+   case "tool_metadata": {
+    const tool = runner.getToolDefinition("bash");
+    result = {name:tool.name,label:tool.label,description:tool.description,parameters:tool.parameters,promptSnippet:tool.promptSnippet ?? null,promptGuidelines:tool.promptGuidelines ?? null};
+    break;
+   }
+   case "execute": {
+    const tool = runner.getToolDefinition("bash");
+    try { result = {value: await tool.execute("fixture-call",item.params,undefined,undefined,runner.createContext())}; }
+    catch (error: any) { result = {error:error.message}; }
+    break;
+   }
    default: throw new Error(`Unknown fixture event ${item.event}`);
   }
   cases.push({result: result ?? null, ui: calls});
  }
- return {metadata,cases};
+ globalThis.Date = originalDate;
+ return {metadata,cases,errors};
 }
 process.stdin.setEncoding("utf8");
 let pending = "";

@@ -3,7 +3,8 @@
 Pinned source: `532f7d12`, `packages/coding-agent/examples/extensions/`.
 Shipped sources compile directly via test `#[path]`. Embedders explicitly register
 factories in `ExtensionRegistry`; no default loading or dynamic TS discovery.
-No new dependencies. Fixtures use in-memory credentials/session/model state and
+No new dependency/version; existing Jiff enables production `tzdb-zoneinfo` for
+named local zones (previously dev-only). Fixtures use in-memory credentials/session/model state and
 network-disabled runtimes. TS oracle loads the unchanged example with real
 `loadExtensionFromFactory` and `ExtensionRunner`; no handler/API mocks.
 UI contexts capture observable effects, supplying only explicit selection replies.
@@ -26,6 +27,34 @@ Every example above has one observed missing-module RED and one passing runtime
 comparison; registration alone is inert. Development ledger and full outputs:
 `/tmp/pi-rust-ext-examples-b/ledger.md`, `NN-*.log`.
 
-Remaining examples: provider-payload, input-transform, input-transform-streaming,
-bash-spawn-hook. Input date locale decision approved 2026-10-20: pin en-US date,
-retain local time zone; shared helper and differential fixtures follow.
+## Remaining native ports and shared date helper
+
+| Source / lines | Rust example / factory | Test target / proof |
+| --- | --- | --- |
+| input-transform-streaming.ts:16–39 | `examples/extensions/input_transform_streaming.rs::input_transform_streaming_extension` | `example_input_transform_streaming` (2 tests): real private staged/modified git fixture; steer/no-match/ASCII-boundary bypass, trigger transform, image retention, followUp, failed git and empty stat |
+| bash-spawn-hook.ts:13–30 | `examples/extensions/bash_spawn_hook.rs::bash_spawn_hook_extension` | `example_bash_spawn_hook` (1 test): real runtime registration and execution, complete tool metadata, private HOME/profile, injected env, original cwd, stdout and nonzero-exit error differential |
+| input-transform.ts:14–43 | `examples/extensions/input_transform.rs::{input_transform_extension,register_with_clock}` | `example_input_transform` (3 tests): interactive/rpc/extension sources, JS trim including BOM/NBSP/U+0085, usage, transformed text/images, ping, time, ordinary/no-match input; shared date differential |
+| input-transform.ts:36–38 `Date.toLocaleString()` | `pi-js-compat/src/date.rs::to_locale_string` | `example_input_transform::en_us_date_local_fields_match_pinned_node`: 11 epoch values × UTC/New York, fresh native child processes and same-TZ pinned Node |
+
+Each port has one observed missing-module RED; date helper separately has a
+missing-function RED. Source's current clock is a local injectable seam, not a
+new Extension API. Default entrypoint uses the real system clock. Oracle freezes
+only Date construction for the time fixture; actual source event dispatch remains
+unchanged. Node v26.11.1 emits U+0020, not U+202F, before AM/PM.
+Locale decision approved 2026-10-20: pin en-US dates, retain local time zone.
+Calendar formatting is bounded to Jiff's representable range and available local
+zone; unresolved zones/range fail explicitly rather than falling back to UTC.
+No broad, lint, type or final acceptance gates run.
+
+## Blocked: provider-payload
+
+Unported; its observed missing-module RED is retained as
+`15-provider_payload-RED.log` in the ledger, but the failing test was removed per
+main-thread instruction. No production stub remains. TS `provider-payload.ts:16`
+serializes the insertion-ordered `event.headers` object. Native
+`core/extensions/types.rs:1703–1706` defines `AfterProviderResponseEvent.headers`
+as `BTreeMap<String, String>`, irreversibly sorting header keys. For an input record
+`{"z-last":"λ","a-first":"value"}`, native API loses the source's order before
+this example can observe it. Main confirmed this defect and owns a separate
+header-order/API slice and this example; this batch does not change that API.
+Before-request payload logging was not shipped in isolation, preserving whole-module scope.
