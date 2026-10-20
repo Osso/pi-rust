@@ -587,6 +587,9 @@ fn oracle_environment(request: &Value) -> Vec<(&'static str, std::ffi::OsString)
 
 struct FixtureTui;
 impl ExtensionUiTuiBackend for FixtureTui {
+    fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
+        panic!("this component fixture must not construct an editor")
+    }
     fn request_render(&self) {}
     fn terminal_rows(&self) -> usize {
         24
