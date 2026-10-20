@@ -82,7 +82,7 @@ fn console_messages_match_node_inspection() {
         let input = json!({"name":record.name,"message":record.message,"errno":record.errno,
             "code":record.code,"syscall":record.syscall,"path":record.path,"args":args});
         let node = std::process::Command::new("node")
-            .args(["-e", "const p=JSON.parse(process.argv[1]); const e=Object.assign(new Error(p.message), {errno:p.errno,code:p.code,syscall:p.syscall,path:p.path}); e.stack=`${p.name}: ${p.message}`; if(p.args!==null)e.spawnargs=p.args; console.log(require('node:util').inspect(e));"])
+            .args(["-e", r#"const p=JSON.parse(process.argv[1]); const e=Object.assign(new Error(p.message), {errno:p.errno,code:p.code,syscall:p.syscall,path:p.path}); e.stack=`${p.name}: ${p.message}\n    at fixture`; if(p.args!==null)e.spawnargs=p.args; console.log(require('node:util').inspect(e).replace('\n    at fixture',''));"#])
             .arg(input.to_string())
             .output().unwrap();
         assert!(node.status.success());
