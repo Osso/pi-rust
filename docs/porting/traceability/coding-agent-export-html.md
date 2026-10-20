@@ -37,19 +37,7 @@ Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 ## Embedded assets
 
-Byte-identical copies of the pinned source assets live in
-`crates/pi-coding-agent/src/core/export_html/templates/` and are compiled in with
-`include_str!`:
-
-| Asset | sha256 |
-|---|---|
-| `template.html` | `916782b1184a9597527605ad751e2b3af30fcea23ba2194002969cd217a06881` |
-| `template.css` | `28c16e3827c23a62eef8283cac316b478f946e023093adad25ff9c9b891d41af` |
-| `template.js` | `1893cdb77587f592eef5717905391269886d6d7a4dc6a488417a73da374d9226` |
-| `vendor/marked.min.js` | `d5487edc7258b404bfa74c393d74a6393155f02517bd5e7e77cd64f8187f39a0` |
-| `vendor/highlight.min.js` | `837a6fa5b0c736b52bbde2b2b6190f305da3fc9ed41681db5321507057b5c846` |
-
-Source paths: `packages/coding-agent/src/core/export-html/{template.html,template.css,template.js,vendor/*}`.
+Per-file byte identity, inclusion constants, runtime output wiring and current named pass evidence live in [asset traceability](export-html-assets.md).
 
 ## `tool-renderer.ts`
 

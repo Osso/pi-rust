@@ -34,3 +34,14 @@ Not applicable: the function depends on Node's `process.platform`, `process.arch
 ## Discrepancies
 
 None in the ported behavior. The unported addon path is classified as an explicit gap, not a source bug.
+
+## Native addon implementation rows
+
+The existing [AGENTS.md approval](../../../AGENTS.md) says: “macOS/Windows addons are a gap (2026-10-19).” These are the actual implementations of those addons, not new exclusions inferred from their filenames. Both inventory rows change from `todo` to that existing approved `gap`; addon build scripts remain outside this reconciliation.
+
+| Original pinned source | Exports and implementation branches inspected | Rust/proof boundary |
+|---|---|---|
+| `packages/tui/native/darwin/src/darwin-modifiers.c` | N-API registration exports `isModifierPressed`; shift/command/control/option map to CoreGraphics masks; recognized masks query `CGEventSourceFlagsState`; unknown names/missing symbols/invalid arguments return false. | No native implementation; false-only function cannot query macOS modifier state. |
+| `packages/tui/native/win32/src/win32-console-mode.c` | N-API registration exports `isModifierPressed` and `enableVirtualTerminalInput`; modifier aliases query `GetAsyncKeyState` via user32; missing symbol/unknown name returns false. VT branch obtains stdin, reads console mode, sets `ENABLE_VIRTUAL_TERMINAL_INPUT`, returns success/failure. | Neither actual Windows modifier queries nor console-mode mutation is proven ported. VT-input export is part of this same approved Windows addon, not evidence of parity from Linux terminal behavior. |
+
+The existing `no_native_helper_is_available_in_the_rust_port` pass proves only false-only behavior. Exact current log location/revision: [proof ledger](../proven-assets-proof.md). No macOS/Windows execution, N-API parity or new approval claimed.

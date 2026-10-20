@@ -212,8 +212,8 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/cli.ts` | 119 | 6 | gap |  | Standalone `pi-ai` binary not ported (user decision 2026-10-18); provider OAuth login is available through the `pi` login command ([traceability](traceability/cli.md)). |
 | `ai/src/compat.ts` | 299 | 6 | done | `crates/pi-ai/src/compat/mod.rs` | Api registry, builtin registration/override identity, env-key injection, faux registration, legacy dispatch; 10 behavioral + 4 differential requests ([traceability](traceability/compat.md)). |
 | `ai/src/base.ts` | 6 | 7 | done | `crates/pi-ai/src/base.rs` | Re-exports the compat surface plus the index surface ([traceability](traceability/ai-index.md)). |
-| `ai/bedrock-provider.d.ts` | 1 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `ai/bedrock-provider.js` | 1 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `ai/bedrock-provider.d.ts` | 1 | — | done | `crates/pi-ai/src/bedrock_provider.rs` | Public native forwarding API; named consumer pass. [Traceability](traceability/bedrock-provider-entrypoints.md). |
+| `ai/bedrock-provider.js` | 1 | — | done | `crates/pi-ai/src/bedrock_provider.rs` | Public native forwarding API; named consumer pass. [Traceability](traceability/bedrock-provider-entrypoints.md). |
 | `ai/scripts/check-model-data.ts` | 16 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `ai/scripts/generate-image-models.ts` | 165 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `ai/scripts/generate-models.ts` | 2976 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
@@ -327,9 +327,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/tui-alt-screen.ts` | 1291 | 6 | done | `crates/pi-tui/src/tui_alt_screen.rs` | 36 TS test cases + 23-scenario differential (full write stream and viewport/scroll/search state) |
 | `tui/src/index.ts` | 161 | 7 | done | `crates/pi-tui/src/lib.rs` | Every source export maps to a package-root path; `Key` and `Marked` differential in `tests/index_exports.rs` ([traceability](traceability/tui-index.md)) |
 | `tui/native/darwin/build.sh` | 62 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `tui/native/darwin/src/darwin-modifiers.c` | 70 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `tui/native/darwin/src/darwin-modifiers.c` | 70 | — | gap | — | Existing 2026-10-19 macOS/Windows addon approval; actual exports mapped, not native parity. [Traceability](traceability/native-modifiers.md#native-addon-implementation-rows). |
 | `tui/native/win32/build.mjs` | 229 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `tui/native/win32/src/win32-console-mode.c` | 119 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `tui/native/win32/src/win32-console-mode.c` | 119 | — | gap | — | Existing 2026-10-19 macOS/Windows addon approval; actual exports mapped, not native parity. [Traceability](traceability/native-modifiers.md#native-addon-implementation-rows). |
 
 ## client (11 files, 1240 lines)
 
@@ -393,7 +393,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `session-backends/sqlite-node/src/sqlite/index.ts` | 18 | 19 | done | `crates/pi-session-sqlite/src/sqlite/mod.rs` | Re-exports. |
 | `session-backends/sqlite-node/src/index.ts` | 114 | 20 | done | `crates/pi-session-sqlite/src/sqlite/connection.rs + src/lib.rs` | node:sqlite adapter becomes rusqlite connection/transaction; async-callback and factory-injection cases are documented gaps. |
 | `session-backends/sqlite-node/scripts/prepare-dist.mjs` | 35 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `session-backends/sqlite-node/src/sqlite/migrations/001_initial.sql` | 122 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `session-backends/sqlite-node/src/sqlite/migrations/001_initial.sql` | 122 | — | done | `crates/pi-session-sqlite/src/sqlite/migrations/001_initial.sql` | Byte-identical embedded/applied SQL; named migration pass. [Traceability](traceability/sqlite-initial-schema.md). |
 | `session-backends/sqlite-node/vitest.config.ts` | 33 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 
 ## coding-agent (460 files, 122781 lines)
@@ -850,14 +850,14 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/examples/sdk/13-session-runtime.ts` | 67 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/extensions/bwrap/src/fs-worker.cjs` | 313 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/scripts/migrate-sessions.sh` | 93 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/src/core/export-html/template.css` | 1066 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/src/core/export-html/template.html` | 55 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/src/core/export-html/template.js` | 1864 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/src/core/export-html/vendor/highlight.min.js` | 1213 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/src/core/export-html/vendor/marked.min.js` | 78 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/src/modes/interactive/theme/dark.json` | 90 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/src/modes/interactive/theme/light.json` | 89 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/src/modes/interactive/theme/theme-schema.json` | 352 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/src/core/export-html/template.css` | 1066 | — | done | `crates/pi-coding-agent/src/core/export_html/templates/template.css` | Byte-identical embedded export asset; named whole-output pass. [Traceability](traceability/export-html-assets.md). |
+| `coding-agent/src/core/export-html/template.html` | 55 | — | done | `crates/pi-coding-agent/src/core/export_html/templates/template.html` | Byte-identical embedded export asset; named whole-output pass. [Traceability](traceability/export-html-assets.md). |
+| `coding-agent/src/core/export-html/template.js` | 1864 | — | done | `crates/pi-coding-agent/src/core/export_html/templates/template.js` | Byte-identical embedded export asset; named whole-output pass. [Traceability](traceability/export-html-assets.md). |
+| `coding-agent/src/core/export-html/vendor/highlight.min.js` | 1213 | — | done | `crates/pi-coding-agent/src/core/export_html/templates/vendor/highlight.min.js` | Byte-identical embedded export asset; named whole-output pass. [Traceability](traceability/export-html-assets.md). |
+| `coding-agent/src/core/export-html/vendor/marked.min.js` | 78 | — | done | `crates/pi-coding-agent/src/core/export_html/templates/vendor/marked.min.js` | Byte-identical embedded export asset; named whole-output pass. [Traceability](traceability/export-html-assets.md). |
+| `coding-agent/src/modes/interactive/theme/dark.json` | 90 | — | done | `crates/pi-coding-agent/theme/dark.json` | Byte-identical embedded built-in theme; existing loading proof. [Traceability](traceability/theme-assets.md). |
+| `coding-agent/src/modes/interactive/theme/light.json` | 89 | — | done | `crates/pi-coding-agent/theme/light.json` | Byte-identical embedded built-in theme; existing loading proof. [Traceability](traceability/theme-assets.md). |
+| `coding-agent/src/modes/interactive/theme/theme-schema.json` | 352 | — | todo | `crates/pi-coding-agent/theme/theme-schema.json` | Bytes match, but shipped inclusion remains unproven; no waiver. [Traceability](traceability/theme-assets.md). |
 | `coding-agent/src/utils/highlight-js-lib-index.d.ts` | 19 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/vitest.config.ts` | 50 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 
