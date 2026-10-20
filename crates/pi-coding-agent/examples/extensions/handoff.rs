@@ -1,5 +1,8 @@
 //! Opt-in context transfer. New-session UI always uses the replacement context.
-use pi_agent_core::agent::types::AgentMessage;
+use pi_agent_core::{
+    agent::types::AgentMessage,
+    harness::compaction::utils::{serialize_conversation_with_arguments, truncate_for_summary},
+};
 use pi_ai::{
     request::{ProviderRequestOptions, StreamOptions, now_millis},
     types::{AssistantContent, CacheRetention, Context, StopReason},
@@ -7,7 +10,7 @@ use pi_ai::{
 };
 use pi_coding_agent::{
     core::{
-        compaction::utils::serialize_conversation, extensions::*, messages::convert_to_llm,
+        compaction::utils::TOOL_CALL_ARGUMENT_MAX_CHARS, extensions::*, messages::convert_to_llm,
         session_manager::SessionEntry,
     },
     modes::interactive::components::bordered_loader::{BorderedLoader, BorderedLoaderOptions},
@@ -113,35 +116,159 @@ impl ExtensionUiComponent for Loader {
 }
 
 pub fn handoff_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
-    pi.register_command("handoff",Some("Transfer context to a new focused session".into()),None,Arc::new(|args,ctx|Box::pin(async move{
-    let ui=ctx.ui()?;
-    if ctx.mode()?!=ExtensionMode::Tui{ui.notify("handoff requires interactive mode",Some(NotifyType::Error));return Ok(())}
-    let Some(model)=ctx.model()? else{ui.notify("No model selected",Some(NotifyType::Error));return Ok(())};
-    let goal=js_trim(&args).to_owned();if goal.is_empty(){ui.notify("Usage: /handoff <goal for new thread>",Some(NotifyType::Error));return Ok(())}
-    let manager=ctx.session_manager()?;
-    let (branch,parent)={let manager=manager.lock().map_err(|e|HandlerError::new(e.to_string()))?;(manager.get_branch(None),manager.get_session_file().map(str::to_owned))};
-    let messages=handoff_messages(&branch)?;
-    if messages.is_empty(){ui.notify("No conversation to hand off",Some(NotifyType::Error));return Ok(())}
-    let conversation=serialize_conversation(&convert_to_llm(&messages));let registry=ctx.model_registry()?;
-    let result=ui.custom(Arc::new(move|context,done|{
-        let signal=CancellationToken::new();let token=signal.clone();let done_generate=done.clone();let model=model.clone();let registry=registry.clone();
-        let prompt=format!("## Conversation History\n\n{conversation}\n\n## User's Goal for New Thread\n\n{goal}");
-        tokio::spawn(async move{
-            let response=registry.complete(model,Context{system_prompt:Some(SYSTEM_PROMPT.into()),messages:vec![serde_json::from_value(json!({"role":"user","content":[{"type":"text","text":prompt}],"timestamp":now_millis()})).unwrap()],tools:None},StreamOptions{request:ProviderRequestOptions{signal:Some(token),..Default::default()},cache_retention:Some(CacheRetention::None),session_id:Some(uuidv7()),..Default::default()}).await;
-            match response {
-                Ok(response) if response.stop_reason!=StopReason::Aborted=>{
-                    let text=response.content.iter().filter_map(|c|match c{AssistantContent::Text(t)=>Some(t.text.as_str()),_=>None}).collect::<Vec<_>>().join("\n");done_generate.call(Some(json!(text)));
-                },
-                Ok(_)=>done_generate.call(Some(Value::Null)),
-                Err(error)=>{eprintln!("Handoff generation failed: Error: {error}");done_generate.call(Some(Value::Null));}
-            }
-        });
-        context.tui.request_render();Box::new(Loader{done,signal})
-    }),None).await.map_err(HandlerError::new)?;
-    let Some(result)=result.and_then(|v|v.as_str().map(str::to_owned)) else{ui.notify("Cancelled",Some(NotifyType::Info));return Ok(())};
-    let Some(edited)=ui.editor("Edit handoff prompt",Some(&result)).await.map_err(HandlerError::new)? else{ui.notify("Cancelled",Some(NotifyType::Info));return Ok(())};
-    let result=ctx.new_session(Some(NewSessionOptions{parent_session:parent,with_session:Some(Arc::new(move|replacement|{let edited=edited.clone();Box::pin(async move{let ui=replacement.ui()?;ui.set_editor_text(&edited);ui.notify("Handoff ready. Submit when ready.",Some(NotifyType::Info));Ok(())})})),..Default::default()})).await?;
-    if result.cancelled{ui.notify("New session cancelled",Some(NotifyType::Info));}
+    pi.register_command(
+        "handoff",
+        Some("Transfer context to a new focused session".into()),
+        None,
+        Arc::new(|args, ctx| Box::pin(run_handoff(args, ctx))),
+    )
+    .map_err(HandlerError::new)
+}
+
+async fn run_handoff(args: String, ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
+    let ui = ctx.ui()?;
+    if ctx.mode()? != ExtensionMode::Tui {
+        ui.notify("handoff requires interactive mode", Some(NotifyType::Error));
+        return Ok(());
+    }
+    let Some(model) = ctx.model()? else {
+        ui.notify("No model selected", Some(NotifyType::Error));
+        return Ok(());
+    };
+    let goal = js_trim(&args);
+    if goal.is_empty() {
+        ui.notify("Usage: /handoff <goal for new thread>", Some(NotifyType::Error));
+        return Ok(());
+    }
+    let manager = ctx.session_manager()?;
+    let (branch, parent) = {
+        let manager = manager.lock().map_err(|error| HandlerError::new(error.to_string()))?;
+        (manager.get_branch(None), manager.get_session_file().map(str::to_owned))
+    };
+    let messages = handoff_messages(&branch)?;
+    if messages.is_empty() {
+        ui.notify("No conversation to hand off", Some(NotifyType::Error));
+        return Ok(());
+    }
+    let conversation = serialize_conversation_with_arguments(&convert_to_llm(&messages), &|value| {
+        truncate_for_summary(&pi_js_compat::js_json::stringify(value), TOOL_CALL_ARGUMENT_MAX_CHARS)
+    });
+    let prompt = format!("## Conversation History\n\n{conversation}\n\n## User's Goal for New Thread\n\n{goal}");
+    let draft = generate_draft(&ctx, model, prompt).await?;
+    edit_draft_and_replace(&ctx, draft, parent).await
+}
+
+async fn generate_draft(
+    ctx: &ExtensionCommandContext,
+    model: pi_ai::types::Model,
+    prompt: String,
+) -> Result<Option<String>, HandlerError> {
+    let registry = ctx.model_registry()?;
+    let result = ctx
+        .ui()?
+        .custom(
+            Arc::new(move |context, done| {
+                let signal = CancellationToken::new();
+                tokio::spawn(complete_draft(
+                    registry.clone(),
+                    model.clone(),
+                    prompt.clone(),
+                    signal.clone(),
+                    done.clone(),
+                ));
+                context.tui.request_render();
+                Box::new(Loader { done, signal })
+            }),
+            None,
+        )
+        .await
+        .map_err(HandlerError::new)?;
+    Ok(result.and_then(|value| value.as_str().map(str::to_owned)))
+}
+
+async fn complete_draft(
+    registry: Arc<pi_coding_agent::core::model_registry::ModelRegistry>,
+    model: pi_ai::types::Model,
+    prompt: String,
+    signal: CancellationToken,
+    done: ExtensionUiDone,
+) {
+    let context = Context {
+        system_prompt: Some(SYSTEM_PROMPT.into()),
+        messages: vec![
+            serde_json::from_value(json!({
+                "role":"user", "content":[{"type":"text","text":prompt}], "timestamp":now_millis()
+            }))
+            .expect("valid user message"),
+        ],
+        tools: None,
+    };
+    let options = StreamOptions {
+        request: ProviderRequestOptions {
+            signal: Some(signal),
+            ..Default::default()
+        },
+        cache_retention: Some(CacheRetention::None),
+        session_id: Some(uuidv7()),
+        ..Default::default()
+    };
+    let result = match registry.complete(model, context, options).await {
+        Ok(response) if response.stop_reason != StopReason::Aborted => {
+            let text = response
+                .content
+                .iter()
+                .filter_map(|content| match content {
+                    AssistantContent::Text(text) => Some(text.text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            json!(text)
+        }
+        Ok(_) => Value::Null,
+        Err(error) => {
+            eprintln!("Handoff generation failed: Error: {error}");
+            Value::Null
+        }
+    };
+    done.call(Some(result));
+}
+
+async fn edit_draft_and_replace(
+    ctx: &ExtensionCommandContext,
+    draft: Option<String>,
+    parent_session: Option<String>,
+) -> Result<(), HandlerError> {
+    let ui = ctx.ui()?;
+    let Some(draft) = draft else {
+        ui.notify("Cancelled", Some(NotifyType::Info));
+        return Ok(());
+    };
+    let Some(edited) = ui
+        .editor("Edit handoff prompt", Some(&draft))
+        .await
+        .map_err(HandlerError::new)?
+    else {
+        ui.notify("Cancelled", Some(NotifyType::Info));
+        return Ok(());
+    };
+    let result = ctx
+        .new_session(Some(NewSessionOptions {
+            parent_session,
+            with_session: Some(Arc::new(move |replacement| {
+                let edited = edited.clone();
+                Box::pin(async move {
+                    let ui = replacement.ui()?;
+                    ui.set_editor_text(&edited);
+                    ui.notify("Handoff ready. Submit when ready.", Some(NotifyType::Info));
+                    Ok(())
+                })
+            })),
+            ..Default::default()
+        }))
+        .await?;
+    if result.cancelled {
+        ui.notify("New session cancelled", Some(NotifyType::Info));
+    }
     Ok(())
- }))).map_err(HandlerError::new)
 }

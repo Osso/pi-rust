@@ -105,7 +105,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     if request["rich"] == true {
         request["messages"] = json!([
          {"role":"user","content":[{"type":"text","text":"  goal  "},{"type":"image","mimeType":"image/png","data":"AA=="},{"type":"text","text":"second"}],"timestamp":0},
-         assistant(json!([{"type":"thinking","thinking":"hidden"},{"type":"text","text":"  progress  "},{"type":"toolCall","id":"call","name":"read","arguments":{"z":1,"2":"two","1":"one"}}])),
+         assistant(json!([{"type":"thinking","thinking":"hidden"},{"type":"text","text":"  progress  "},{"type":"toolCall","id":"call","name":"read","arguments":{"z":1,"2":"two","1":"one","large":1e20,"nested":{"4":4,"2":2}}}])),
          {"role":"toolResult","toolCallId":"call","toolName":"read","content":[{"type":"text","text":"not summary text"}],"isError":false,"timestamp":0},
          assistant(json!([{"type":"toolCall","id":"call2","name":"bash","arguments":{}}]))
         ]);

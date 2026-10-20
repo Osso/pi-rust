@@ -34,7 +34,13 @@ RED: missing native example (01). GREEN: ten scenarios (02). Mutation:
 `handoff_messages`: message entries, ignored entries, latest compaction summary,
 first-kept retained range, missing first-kept ID, post-compaction messages.
 Normalize numeric JSON object keys to JavaScript enumeration order before
-native conversation serialization; model input preserves source order.
+native conversation serialization; model input preserves source order. Use the
+shared agent serializer's argument hook with JS stringify and the coding-agent
+1000-unit limit. This preserves large-number formatting and nested numeric-key
+order without changing shared core files. Regression 25 caught the default
+coding-agent serializer rendering `1e20` instead of JS `100000000000000000000`;
+classify that existing shared-helper mismatch as a discrepancy outside this
+slice. The example uses existing public serializer configuration, not a fallback.
 
 Command cases: non-TUI, no model, blank goal, no conversation, cancelled draft,
 nonempty/empty edited draft, cancelled session replacement, aborted model

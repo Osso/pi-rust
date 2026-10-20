@@ -99,19 +99,102 @@ impl ExtensionUiComponent for Summary {
     }
 }
 pub fn summarize_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
-    pi.register_command("summarize",Some("Summarize the current conversation in a custom UI".into()),None,Arc::new(|_,ctx|Box::pin(async move {
-    let branch=ctx.session_manager()?.lock().map_err(|e|HandlerError::new(e.to_string()))?.get_branch(None);
-    let conversation=conversation_text(&branch)?;
-    let has_ui=ctx.has_ui()?;let ui=ctx.ui()?;
-    if js_trim(&conversation).is_empty(){if has_ui{ui.notify("No conversation text found",Some(NotifyType::Warning));}return Ok(())}
-    if has_ui {ui.notify("Preparing summary...",Some(NotifyType::Info));}
-    let registry=ctx.model_registry()?;
-    let Some(model)=registry.find("openai","gpt-5.2") else {if has_ui{ui.notify("Model openai/gpt-5.2 not found",Some(NotifyType::Warning));}return Ok(())};
-    if !registry.has_configured_auth(&model){if has_ui{ui.notify("No authentication configured for openai/gpt-5.2",Some(NotifyType::Warning));}return Ok(())}
-    let prompt=format!("Summarize this conversation so I can resume it later.\nInclude goals, key decisions, progress, open questions, and next steps.\nKeep it concise and structured with headings.\n\n<conversation>\n{conversation}\n</conversation>");
-    let response=registry.complete(model,Context{system_prompt:None,messages:vec![serde_json::from_value(json!({"role":"user","content":[{"type":"text","text":prompt}],"timestamp":now_millis()})).unwrap()],tools:None},StreamOptions{cache_retention:Some(CacheRetention::None),session_id:Some(uuidv7()),extra:serde_json::from_value(json!({"reasoningEffort":"high"})).unwrap(),..Default::default()}).await.map_err(|e|HandlerError::new(e.to_string()))?;
-    let text=response.content.iter().filter_map(|c|match c{AssistantContent::Text(t)=>Some(t.text.as_str()),_=>None}).collect::<Vec<_>>().join("\n");
-    if ctx.mode()?==ExtensionMode::Tui {ui.custom(Arc::new(move|context,done|Box::new(Summary{text:text.clone(),context,done})),None).await.map_err(HandlerError::new)?;}
+    pi.register_command(
+        "summarize",
+        Some("Summarize the current conversation in a custom UI".into()),
+        None,
+        Arc::new(|_, ctx| Box::pin(run_summary(ctx))),
+    )
+    .map_err(HandlerError::new)
+}
+
+async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
+    let branch = ctx
+        .session_manager()?
+        .lock()
+        .map_err(|error| HandlerError::new(error.to_string()))?
+        .get_branch(None);
+    let conversation = conversation_text(&branch)?;
+    let has_ui = ctx.has_ui()?;
+    let ui = ctx.ui()?;
+    if js_trim(&conversation).is_empty() {
+        if has_ui {
+            ui.notify("No conversation text found", Some(NotifyType::Warning));
+        }
+        return Ok(());
+    }
+    if has_ui {
+        ui.notify("Preparing summary...", Some(NotifyType::Info));
+    }
+    let registry = ctx.model_registry()?;
+    let Some(model) = registry.find("openai", "gpt-5.2") else {
+        if has_ui {
+            ui.notify("Model openai/gpt-5.2 not found", Some(NotifyType::Warning));
+        }
+        return Ok(());
+    };
+    if !registry.has_configured_auth(&model) {
+        if has_ui {
+            ui.notify(
+                "No authentication configured for openai/gpt-5.2",
+                Some(NotifyType::Warning),
+            );
+        }
+        return Ok(());
+    }
+    let text = complete_summary(&registry, model, conversation).await?;
+    if ctx.mode()? == ExtensionMode::Tui {
+        ui.custom(
+            Arc::new(move |context, done| {
+                Box::new(Summary {
+                    text: text.clone(),
+                    context,
+                    done,
+                })
+            }),
+            None,
+        )
+        .await
+        .map_err(HandlerError::new)?;
+    }
     Ok(())
- }))).map_err(HandlerError::new)
+}
+
+async fn complete_summary(
+    registry: &pi_coding_agent::core::model_registry::ModelRegistry,
+    model: pi_ai::types::Model,
+    conversation: String,
+) -> Result<String, HandlerError> {
+    let prompt = format!(
+        "Summarize this conversation so I can resume it later.\nInclude goals, key decisions, progress, open questions, and next steps.\nKeep it concise and structured with headings.\n\n<conversation>\n{conversation}\n</conversation>"
+    );
+    let context = Context {
+        system_prompt: None,
+        messages: vec![
+            serde_json::from_value(json!({
+                "role":"user", "content":[{"type":"text","text":prompt}], "timestamp":now_millis()
+            }))
+            .expect("valid user message"),
+        ],
+        tools: None,
+    };
+    let options = StreamOptions {
+        cache_retention: Some(CacheRetention::None),
+        session_id: Some(uuidv7()),
+        extra: serde_json::from_value(json!({"reasoningEffort":"high"})).expect("JSON object"),
+        ..Default::default()
+    };
+    let response = registry
+        .complete(model, context, options)
+        .await
+        .map_err(|error| HandlerError::new(error.to_string()))?;
+    Ok(response
+        .content
+        .iter()
+        .filter_map(|content| match content {
+            AssistantContent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
