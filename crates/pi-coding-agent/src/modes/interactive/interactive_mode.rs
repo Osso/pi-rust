@@ -1599,7 +1599,7 @@ impl pi_tui::components::editor::EditorHost for InteractiveTuiHost {
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         match &*self.0.renderer.borrow() {
             Renderer::Main(tui) => Rc::new(TuiMainScreen::create_fixed_cell(tui)),
-            Renderer::Fullscreen(tui) => Rc::new(pi_tui::tui::TuiRenderer::create_fixed_cell(tui)),
+            Renderer::Fullscreen(tui) => Rc::new(TuiAltScreen::create_fixed_cell(tui)),
         }
     }
 }
@@ -14158,6 +14158,40 @@ mod ui_tests {
                 assert!(
                     !mode.actions.borrow().is_empty(),
                     "factory editor must inherit submit callback"
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_fullscreen_factory_uses_base_fixed_cells() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode_with_store(test_store(), TuiMode::Fullscreen).await;
+                let _events = start(&mode).await;
+                let ui = mode.session().extension_runner().create_context().ui().unwrap();
+                ui.set_editor_component(Some(Arc::new(|tui, theme, kb| {
+                    let cell = tui.create_fixed_cell();
+                    cell.place(0, 0);
+                    assert!(
+                        !cell.update("x"),
+                        "TS base cells request a render, not an immediate write"
+                    );
+                    cell.clear();
+                    Rc::new(RefCell::new(
+                        CustomEditor::new(Rc::new(tui), theme, kb, Default::default()).unwrap(),
+                    ))
+                })));
+                mode.handle_ui_requests().await;
+                terminal.borrow_mut().send_input("fullscreen");
+                mode.ui.process_events();
+                assert_eq!(mode.editor().borrow().get_text(), "fullscreen");
+                assert!(
+                    mode.editor()
+                        .borrow_mut()
+                        .render(30)
+                        .iter()
+                        .any(|line| line.contains(pi_tui::tui::CURSOR_MARKER))
                 );
             })
             .await;

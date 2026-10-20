@@ -368,6 +368,16 @@ impl TuiAltScreen {
         screen
     }
 
+    /// Source TuiBase fixed cell: retain placement/value and schedule rendering.
+    pub fn create_fixed_cell(self: &Rc<Self>) -> crate::tui::FixedCell {
+        let state = Rc::new(RefCell::new(crate::tui::FixedCellState::default()));
+        self.base.register_fixed_cell(Rc::clone(&state));
+        crate::tui::FixedCell {
+            state,
+            writer: crate::tui::FixedCellWriter::Alternate(Rc::downgrade(self)),
+        }
+    }
+
     /// Override the environment values used for multiplexer and platform checks.
     pub fn set_environment(&self, environment: AltScreenEnvironment) {
         *self.environment.borrow_mut() = environment;

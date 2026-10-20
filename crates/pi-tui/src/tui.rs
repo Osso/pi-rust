@@ -385,6 +385,7 @@ pub struct FixedCell {
 pub(crate) enum FixedCellWriter {
     Immediate(Weak<TuiRenderer>),
     Deferred(Weak<TuiMainScreen>),
+    Alternate(Weak<crate::tui_alt_screen::TuiAltScreen>),
 }
 
 impl FixedCell {
@@ -422,6 +423,12 @@ impl FixedCell {
                 }
                 false
             }
+            FixedCellWriter::Alternate(screen) => {
+                if let Some(screen) = screen.upgrade() {
+                    TuiExt::request_render(screen.as_ref(), false);
+                }
+                false
+            }
         }
     }
 
@@ -433,6 +440,7 @@ impl FixedCell {
         let owner = match &self.writer {
             FixedCellWriter::Immediate(renderer) => renderer.upgrade().map(|renderer| renderer.base.clone()),
             FixedCellWriter::Deferred(screen) => screen.upgrade().map(|screen| screen.base.clone()),
+            FixedCellWriter::Alternate(screen) => screen.upgrade().map(|screen| TuiExt::base(screen.as_ref()).clone()),
         };
         if let Some(base) = owner {
             base.unregister_fixed_cell(&self.state);
