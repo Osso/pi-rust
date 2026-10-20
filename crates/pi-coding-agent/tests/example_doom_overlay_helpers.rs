@@ -82,7 +82,8 @@ fn lone_surrogates_survive_mapping_with_explicit_string_core_projection() {
     // lone units to U+FFFD, while this helper retains raw units for charCodeAt.
     let projected = JsString::from_utf16(vec![0xd800]).to_utf8_lossy();
     assert_eq!(projected, "\u{fffd}");
-    assert!(pi_tui::keys::matches_key(&projected, "\u{fffd}"));
+    assert!(!pi_tui::keys::matches_key(&projected, "w"));
+    assert_eq!(pi_tui::keys::parse_key(&projected), None);
     assert_eq!(mapped[2], vec![65533]);
 }
 
