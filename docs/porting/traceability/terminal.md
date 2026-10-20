@@ -16,7 +16,7 @@ Source: `packages/tui/src/terminal.ts` (594 lines, pinned revision in
 | `normalizeAppleTerminalInput` | `normalize_apple_terminal_input` | 4 unit tests + differential |
 | `Terminal` | `Terminal` trait + `TerminalEvent` | every TUI test uses a `VirtualTerminal` implementation |
 | `resolveEscapeTimeoutMs` | `resolve_escape_timeout_ms` | 5 unit tests + differential |
-| `ProcessTerminal` | `ProcessTerminal` | negotiation/progress/dimension tests |
+| `ProcessTerminal` | `ProcessTerminal`; Rust-native `Terminal::crash_restore` / `TerminalRestore::{publish_tui, restore_then}` publish saved termios and stop bytes across threads | negotiation/progress/dimension tests; coding-agent `interactive_crash::worker_restore_matches_normal_ui_stop_bytes` (real PTY, regular/fullscreen, progress, color notifications, Kitty/modifyOtherKeys, exact bytes and termios) |
 
 ## Branches
 

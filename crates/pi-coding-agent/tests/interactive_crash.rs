@@ -75,6 +75,7 @@ fn agent_environment(fixture: &Fixture) -> Vec<(String, String)> {
             "PI_CODING_AGENT_STATE_DIR".to_owned(),
             fixture.state_dir.display().to_string(),
         ),
+        ("PI_OFFLINE".to_owned(), "1".to_owned()),
         ("NO_COLOR".to_owned(), "1".to_owned()),
         ("TERM".to_owned(), "xterm-256color".to_owned()),
     ]

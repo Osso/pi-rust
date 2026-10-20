@@ -9969,16 +9969,13 @@ impl InteractiveMode {
         if action == CrashAction::ExitOne {
             std::process::exit(1);
         }
-        swallow_panics(|| {
-            set_process_crash_handler(None);
-            for handler in handlers {
-                handler.abort();
-            }
-        });
-        swallow_panics(kill_tracked_detached_children);
         if action == CrashAction::EmergencyExit {
+            Self::unregister_crash_handlers(handlers);
+            kill_tracked_detached_children();
             std::process::exit(129);
         }
+        swallow_panics(|| Self::unregister_crash_handlers(handlers));
+        swallow_panics(kill_tracked_detached_children);
         if let Some(restore) = restore {
             swallow_panics(|| {
                 restore.restore_then(|_result| {
@@ -9988,6 +9985,13 @@ impl InteractiveMode {
             });
         }
         Self::report_uncaught_and_exit(payload)
+    }
+
+    fn unregister_crash_handlers(handlers: &[tokio::task::AbortHandle]) {
+        set_process_crash_handler(None);
+        for handler in handlers {
+            handler.abort();
+        }
     }
 
     fn report_uncaught_and_exit(payload: &(dyn Any + Send)) -> ! {

@@ -36,7 +36,7 @@ Tests: `tests/tui_render.rs`, `tests/tui_shrink.rs`, `tests/tui_focus.rs`,
 | `Container` | `Container` | overlay/render-region tests |
 | `compositeTuiLine` | `composite_tui_line` | CJK regression |
 | `TuiMode` | `TuiMode` | focus reporting / differential |
-| `TuiStopOptions` | `TuiStopOptions` | stop paths |
+| `TuiStopOptions` | `TuiStopOptions`; `RendererApi::terminal_stop_output`, `TuiBase::publish_terminal_restore` and shared `frame_stop_sequence` publish exact default stop bytes for cross-thread crash cleanup | stop paths; coding-agent `interactive_crash::worker_restore_matches_normal_ui_stop_bytes` |
 | `TUI` interface | `TuiExt` trait (default methods) | all TUI tests |
 | `VIEWPORT_TUI`, `ViewportTUI`, `isViewportTUI` | `ViewportTui`, `TuiExt::as_viewport_tui`, `is_viewport_tui` | differential alt-screen scenarios |
 | `TuiBase` | `TuiBase` | all TUI tests |
