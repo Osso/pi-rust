@@ -574,6 +574,11 @@ fn pricing_number(value: &JsValue, gateway: bool) -> Result<f64, GeneratorError>
     Ok(if gateway && !numeric.is_finite() { 0.0 } else { numeric })
 }
 fn transform_http_models(data: &JsValue, gateway: bool) -> Result<JsValue, GeneratorError> {
+    if matches!(data, JsValue::Null) {
+        return Err(GeneratorError::type_error(
+            "Cannot read properties of null (reading 'data')",
+        ));
+    }
     let items = match field(data, "data") {
         JsValue::Array(items) => items.as_slice(),
         _ if gateway => &[],
@@ -583,6 +588,11 @@ fn transform_http_models(data: &JsValue, gateway: bool) -> Result<JsValue, Gener
     let mut models = Vec::new();
     for model in items {
         let tag_key = if gateway { "tags" } else { "supported_parameters" };
+        if matches!(model, JsValue::Null) {
+            return Err(GeneratorError::type_error(&format!(
+                "Cannot read properties of null (reading '{tag_key}')"
+            )));
+        }
         let mut tags = field(model, tag_key);
         if gateway && !matches!(tags, JsValue::Array(_)) {
             tags = &JsValue::Null;
@@ -595,6 +605,17 @@ fn transform_http_models(data: &JsValue, gateway: bool) -> Result<JsValue, Gener
         if !includes(tags, if gateway { "tool-use" } else { "tools" }) {
             continue;
         }
+        let modality = field(field(model, "architecture"), "modality");
+        if !gateway && !matches!(modality, JsValue::Null | JsValue::Array(_) | JsValue::String(_)) {
+            return Err(GeneratorError::type_error(
+                "model.architecture?.modality?.includes is not a function",
+            ));
+        }
+        let image = if gateway {
+            includes(tags, "vision")
+        } else {
+            includes(modality, "image")
+        };
         let mut cost = object([]);
         for (output, input) in [
             ("input", if gateway { "input" } else { "prompt" }),
@@ -609,7 +630,11 @@ fn transform_http_models(data: &JsValue, gateway: bool) -> Result<JsValue, Gener
         for key in ["id", "name"] {
             let value = field(model, key);
             if gateway && key == "name" {
-                set(&mut result, key, fallback(value, field(model, "id").clone()));
+                if is_truthy(value) {
+                    set(&mut result, key, value.clone());
+                } else if matches!(model,JsValue::Object(model) if model.contains_key(&JsString::from("id"))) {
+                    set(&mut result, key, field(model, "id").clone());
+                }
             } else if let JsValue::Object(object) = model {
                 if object.contains_key(&JsString::from(key)) {
                     set(&mut result, key, value.clone());
@@ -640,11 +665,6 @@ fn transform_http_models(data: &JsValue, gateway: bool) -> Result<JsValue, Gener
             text(if gateway { "vercel-ai-gateway" } else { "openrouter" }),
         );
         set(&mut result, "reasoning", JsValue::Bool(includes(tags, "reasoning")));
-        let image = if gateway {
-            includes(tags, "vision")
-        } else {
-            includes(field(field(model, "architecture"), "modality"), "image")
-        };
         set(
             &mut result,
             "input",

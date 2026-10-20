@@ -35,6 +35,8 @@ Focused follow-up logs: `05-http-red.log`/`06-options-red.log` establish missing
 
 `25-cli-red.log`: missing CLI logs versus source complete workflow; `26-cli.log` GREEN for injected CLI output/statistics order and actual native binary unknown output-mode error exit 1, empty stdout and exact approved frame-free stderr. Generator emits logs immediately through a sink, rather than buffering until HTTP finishes. Native transport causes and Node FS metadata remain available in `GeneratorErrorDetails`; their full error-path differential proof is still pending. No successful maintenance binary invocation or live network refresh was run.
 
+`28-order-http-red.log` exposed two real ordering errors: null HTTP payload logged the wrong TypeError, and prefiltering a models.dev provider erased reasoning records produced before a later null entry threw. `29-order-http.log` GREEN: 36 strict/default malformed HTTP/overflow/coercion cases preserve names/messages/logs and whole-fetch discard, and full generation preserves earlier reasoning records even when models.dev returns an empty array after failure. Gateway undefined id/name fields remain omitted, rather than converted to null. Metadata/provider shape cases beyond these remain open.
+
 ## Classified source discrepancy
 
 The source dedup check reads `providers[provider][id]` through `Object.prototype`, treating inherited names (`__proto__`, `constructor`, etc.) as existing truthy models. The full original-source workflow proves those supplied models are omitted. Native JSON grouping preserves this pinned serialized model set, rather than silently fixing it during artifact adaptation (parent relayed approved classification, 2026-10-20). No prototype mutation is performed by Rust.

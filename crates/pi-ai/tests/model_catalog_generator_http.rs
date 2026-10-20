@@ -58,6 +58,79 @@ fn source_http_pipelines_parse_pricing_filter_tools_and_retain_raw_utf16() {
 }
 
 #[test]
+fn raw_http_payloads_preserve_failure_boundaries_and_error_names() {
+    let mut source = oracle::TsOracle::spawn(
+        "model-catalog-generator-oracle.ts",
+        "packages/ai/scripts/generate-models.ts",
+    );
+    for gateway in [false, true] {
+        for strict in [false, true] {
+            let url = if gateway {
+                "https://ai-gateway.vercel.sh/v1/models"
+            } else {
+                "https://openrouter.ai/api/v1/models"
+            };
+            let operation = if gateway {
+                "fetchAiGatewayModels"
+            } else {
+                "fetchOpenRouterModels"
+            };
+            for body in [
+                "null",
+                "{",
+                "{\"data\":[null]}",
+                "{\"data\":[{\"id\":\"valid\",\"supported_parameters\":[\"tools\"],\"tags\":[\"tool-use\"]},null]}",
+                "{\"data\":[{\"supported_parameters\":true,\"tags\":true}]}",
+                "{\"data\":[{\"supported_parameters\":[\"tools\"],\"tags\":[\"tool-use\"],\"architecture\":{\"modality\":2}}]}",
+                "{\"data\":[{\"supported_parameters\":[\"tools\"],\"tags\":[\"tool-use\"],\"pricing\":{\"prompt\":{\"toString\":0},\"input\":{\"toString\":0}}}]}",
+                "{\"data\":[{\"supported_parameters\":[\"tools\"],\"tags\":[\"tool-use\"]}]}",
+                "{\"data\":[{\"id\":\"x\",\"supported_parameters\":[\"tools\"],\"tags\":[\"tool-use\"],\"pricing\":{\"prompt\":1e400,\"input\":1e400}}]}",
+            ] {
+                let expected=source.request(&json!({"operation":operation,"argv":if strict{vec!["--strict"]}else{vec![]},"http":{url:{"body":body}}}));
+                let mut fetch = |_: &str| {
+                    Ok(HttpResponse {
+                        status: 200,
+                        body: body.to_owned(),
+                    })
+                };
+                let mut generator = Generator::new(
+                    GeneratorOptions {
+                        strict,
+                        ..Default::default()
+                    },
+                    &mut fetch,
+                );
+                let actual = if gateway {
+                    generator.fetch_ai_gateway_models()
+                } else {
+                    generator.fetch_open_router_models()
+                };
+                if let Some(error) = expected.get("error") {
+                    let actual = actual.unwrap_err();
+                    assert_eq!(actual.name, error["name"].as_str().unwrap());
+                    assert_eq!(
+                        actual.message.to_utf8().unwrap(),
+                        error["message"].as_str().unwrap(),
+                        "{body}"
+                    );
+                } else {
+                    assert_eq!(
+                        stringify_lossless(&actual.unwrap()),
+                        expected["json"].as_str().unwrap(),
+                        "{body} gateway={gateway}"
+                    );
+                }
+                assert_eq!(
+                    stringify_lossless(&JsValue::Array(generator.logs)),
+                    expected["logs"].to_string(),
+                    "{body}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn source_http_strict_errors_are_not_swallowed_and_default_returns_empty() {
     let mut source = oracle::TsOracle::spawn(
         "model-catalog-generator-oracle.ts",

@@ -29,7 +29,11 @@ fn source_full_merge_supplement_clone_metadata_dedup_and_sort_workflow_matches()
         "model-catalog-generator-oracle.ts",
         "packages/ai/scripts/generate-models.ts",
     );
-    for dev in [json!({}), dev_fixture()] {
+    for dev in [
+        json!({}),
+        dev_fixture(),
+        json!({"openai":{"models":{"gpt-5.6-terra":{"tool_call":true,"reasoning_options":[{"type":"effort","values":["low"]}]},"bad":null}}}),
+    ] {
         let router = json!({"data":[{"id":"moonshotai/kimi-k2.5","name":"Kimi","supported_parameters":["tools"]},{"id":"moonshotai/kimi-k2.6-extra","name":"Kimi","supported_parameters":["tools"]},{"id":"moonshotai/kimi-k3","name":"K3","supported_parameters":["tools"]},{"id":"z-ai/glm-5","name":"GLM","supported_parameters":["tools"]},{"id":"duplicate","name":"first","supported_parameters":["tools"]},{"id":"duplicate","name":"second","supported_parameters":["tools"]},{"id":"__proto__","name":"Prototype","supported_parameters":["tools"]},{"id":"constructor","name":"Constructor","supported_parameters":["tools"]}]});
         let gateway = json!({"data":[{"id":"moonshotai/kimi-k3","tags":["tool-use"],"name":"Gateway K3"}]});
         let fixtures = [
