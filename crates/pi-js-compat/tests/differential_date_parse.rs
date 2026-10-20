@@ -115,7 +115,7 @@ const VALUES: &[&str] = &[
     "2020-01-01T00",
 ];
 
-fn compare(zone_name: &str, time_zone: &TimeZone) {
+fn compare_values(zone_name: &str, time_zone: &TimeZone, values: &[&str]) {
     let environment = [("TZ", OsString::from(zone_name))];
     let pairs: Vec<(&str, OsString)> = environment.iter().map(|(name, value)| (*name, value.clone())).collect();
     let mut oracle =
@@ -123,7 +123,7 @@ fn compare(zone_name: &str, time_zone: &TimeZone) {
     let response = oracle.request(&json!({
         "id": zone_name,
         "operation": "date_parse",
-        "values": VALUES,
+        "values": values,
     }));
     assert_eq!(response["ok"], true, "oracle failed: {response}");
     let expected: Vec<Option<i64>> = response["output"]["results"]
@@ -132,27 +132,37 @@ fn compare(zone_name: &str, time_zone: &TimeZone) {
         .iter()
         .map(|value| value.as_i64())
         .collect();
-    let actual: Vec<Option<i64>> = VALUES
+    let actual: Vec<Option<i64>> = values
         .iter()
         .map(|value| {
             let parsed = date_parse_with_time_zone(value, time_zone);
             (!parsed.is_nan()).then_some(parsed as i64)
         })
         .collect();
-    for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
-        assert_eq!(actual, expected, "TZ={zone_name}: Date.parse({:?})", VALUES[index]);
-    }
+    let mismatches: Vec<_> = actual
+        .iter()
+        .zip(&expected)
+        .enumerate()
+        .filter(|(_, (actual, expected))| actual != expected)
+        .map(|(index, (actual, expected))| {
+            format!(
+                "TZ={zone_name}: Date.parse({:?}): Rust {actual:?}, Node {expected:?}",
+                values[index]
+            )
+        })
+        .collect();
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
 
 #[test]
 fn matches_node_date_parse_in_utc() {
-    compare("UTC", &TimeZone::UTC);
+    compare_values("UTC", &TimeZone::UTC, VALUES);
 }
 
 #[test]
 fn matches_node_date_parse_in_america_chicago() {
     let zone = TimeZone::get("America/Chicago").expect("tzdb");
-    compare("America/Chicago", &zone);
+    compare_values("America/Chicago", &zone, VALUES);
 }
 
 #[test]
@@ -182,4 +192,86 @@ fn matches_node_date_parse_in_the_inherited_zone() {
     for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
         assert_eq!(actual, expected, "Date.parse({:?})", VALUES[index]);
     }
+}
+
+#[test]
+fn numeric_dates_match_node_in_utc_and_chicago() {
+    let mut values: Vec<String> = (0..=100).map(|n| n.to_string()).collect();
+    values.extend(
+        [
+            "000", "001", "009", "012", "013", "049", "050", "099", "999", "1000", "9999", "10000", "99999", "275760",
+            "275761", "999999", "00000", "00001", "00049", "+0", "-0", "+1", "-1", " 0 ", "0Z", "0z", "-000001",
+            "+000001", "1x",
+        ]
+        .map(str::to_owned),
+    );
+    let refs: Vec<&str> = values.iter().map(String::as_str).collect();
+    for (name, zone) in [
+        ("UTC", TimeZone::UTC),
+        ("America/Chicago", TimeZone::get("America/Chicago").unwrap()),
+    ] {
+        compare_values(name, &zone, &refs);
+    }
+}
+
+#[test]
+fn legacy_month_slash_and_pre_epoch_http_dates_match_node_across_zones() {
+    let values = [
+        "Jan 1 2020",
+        "January 1, 2020",
+        "1 Jan 2020",
+        "2020 Jan 1",
+        "jan 1 20",
+        "1/1/2020",
+        "01/02/2020",
+        "1/2/20",
+        "12/31/49",
+        "12/31/50",
+        "1960/1/1",
+        "99/1/1",
+        "20/1/1",
+        "13/1/2020",
+        "0/1/2020",
+        "1/0/2020",
+        "1/32/2020",
+        "2/30/2020",
+        "2/29/2021",
+        "4/31/2020",
+        "Foo 1 2020",
+        "Jan 0 2020",
+        "Jan 32 2020",
+        "Jan 1 invalid",
+        "Jan 1 2020 extra",
+        "1/1/2020 extra",
+        "Jan 1 2020 00:00:00",
+        "1/1/2020 00:00:00",
+        "Mar 8 2020 02:30:00",
+        "Nov 1 2020 01:30:00",
+        "Jan 1 1960 00:00:00 GMT",
+        "Jan 1 1960 00:00:00 UTC",
+        "Jan 1 1960 00:00:00 +0200",
+        "Jan 1 1960 00:00:00 -0600",
+        "Fri, 01 Jan 1960 00:00:00 GMT",
+        "Friday, 01-Jan-60 00:00:00 GMT",
+        "Fri Jan  1 00:00:00 1960",
+        "Mon, 01 Jan 1900 00:00:00 GMT",
+        "Wed, 31 Dec 1969 23:59:59 GMT",
+        "Thu, 01 Jan 1970 00:00:00 GMT",
+        "Mon, 01 Jan 1960 00:00:00 GMT",
+        "Fri, 00 Jan 1960 00:00:00 GMT",
+        "Fri, 32 Jan 1960 00:00:00 GMT",
+        "Fri, 01 Foo 1960 00:00:00 GMT",
+        "Fri, 01 Jan 1960 24:00:01 GMT",
+        "Fri, 01 Jan 1960 00:60:00 GMT",
+        "Fri, 01 Jan 1960 00:00:60 GMT",
+        "Thu, 01 Jan 0001 00:00:00 GMT",
+        "Fri, 01 Jan 1960 00:00:59 GMT",
+        "Fri, 01 Jan 1960 00:00:61 GMT",
+        "Fri, 01 Jan 1960 00:00:99 GMT",
+        "Jan 1 1960 00:00:60",
+        "1/1/1960 00:00:60",
+        "1960-01-01T00:00:60Z",
+    ];
+    compare_values("UTC", &TimeZone::UTC, &values);
+    compare_values("America/Chicago", &TimeZone::get("America/Chicago").unwrap(), &values);
 }
