@@ -1,4 +1,4 @@
-//! Private port of the `@anthropic-ai/sdk` 0.91.1 request path used by
+//! Shared port of the `@anthropic-ai/sdk` 0.91.1 request path used by
 //! `anthropic-messages.ts`: URL, headers (including SDK-added ones), JSON body,
 //! status-error formatting, and the SDK's `maxRetries: 0` fetch call.
 //!
@@ -26,20 +26,20 @@ const MESSAGES_PATH: &str = "/v1/messages";
 
 /// Authentication shape selected by `createClient`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Auth {
+pub enum Auth {
     None,
     ApiKey(String),
     Bearer(String),
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SdkRequest {
+pub struct SdkRequest {
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: String,
 }
 
-pub(crate) fn build_request(
+pub fn build_request(
     model: &Model,
     params: &Value,
     auth: Auth,
@@ -141,7 +141,7 @@ impl HeaderSet {
 
 /// Executes one SDK request. Non-2xx responses become [`ProviderError`]s with
 /// the same message shape as `APIError.makeMessage`.
-pub(crate) async fn execute(
+pub async fn execute(
     request: &SdkRequest,
     fetch: Arc<dyn Fetch>,
     signal: Option<CancellationToken>,

@@ -1507,7 +1507,8 @@ impl SseState {
     }
 }
 
-struct AnthropicEventReader {
+/// Incremental Anthropic SSE decoder shared with opt-in native provider examples.
+pub struct AnthropicEventReader {
     body: Box<dyn crate::request::HttpBody>,
     signal: Option<CancellationToken>,
     queue: std::collections::VecDeque<SseEvent>,
@@ -1520,7 +1521,7 @@ struct AnthropicEventReader {
 }
 
 impl AnthropicEventReader {
-    fn new(body: Box<dyn crate::request::HttpBody>, signal: Option<CancellationToken>) -> Self {
+    pub fn new(body: Box<dyn crate::request::HttpBody>, signal: Option<CancellationToken>) -> Self {
         Self {
             body,
             signal,
@@ -1534,7 +1535,7 @@ impl AnthropicEventReader {
         }
     }
 
-    async fn next_event(&mut self) -> Result<Option<Value>, String> {
+    pub async fn next_event(&mut self) -> Result<Option<Value>, String> {
         loop {
             if let Some(event) = self.queue.pop_front() {
                 if let Some(event) = self.decode_event(event)? {
