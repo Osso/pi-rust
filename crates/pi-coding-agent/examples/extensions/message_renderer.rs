@@ -1,6 +1,6 @@
 //! Opt-in native custom status messages with expandable local-time details.
 use pi_coding_agent::core::extensions::*;
-use pi_coding_agent::modes::interactive::theme::ThemeColor;
+use pi_coding_agent::modes::interactive::theme::{ThemeBg, ThemeColor};
 use pi_js_compat::{
     date::{js_now_millis, to_locale_string},
     string::{is_js_whitespace_char, js_trim},
@@ -48,7 +48,7 @@ pub fn message_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
             let mut card = BoxComponent::new(
                 options.output_pad as usize,
                 1,
-                Some(Rc::new(move |text| bg_theme.bg(ThemeColor::CustomMessageBg, text))),
+                Some(Rc::new(move |text| bg_theme.bg(ThemeBg::CustomMessageBg, text))),
             );
             card.add_child(component(Text::new(text, 0, 0)));
             Some(component(card))

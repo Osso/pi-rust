@@ -1,6 +1,6 @@
 //! Opt-in native durable status-card entries, never sent to the LLM.
 use pi_coding_agent::core::extensions::*;
-use pi_coding_agent::modes::interactive::theme::ThemeColor;
+use pi_coding_agent::modes::interactive::theme::{ThemeBg, ThemeColor};
 use pi_js_compat::{
     date::{js_now_millis, to_locale_string},
     string::js_trim,
@@ -26,7 +26,7 @@ pub fn entry_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             let mut card = BoxComponent::new(
                 1,
                 1,
-                Some(Rc::new(move |text| bg_theme.bg(ThemeColor::CustomMessageBg, text))),
+                Some(Rc::new(move |text| bg_theme.bg(ThemeBg::CustomMessageBg, text))),
             );
             card.add_child(component(Text::new(
                 format!(
