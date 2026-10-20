@@ -749,7 +749,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/cli/experimental/cli.ts` | 7 | 25 | done | `crates/pi-coding-agent/src/cli/experimental/cli.rs` | Union invocation and context composition ([traceability](traceability/experimental-cli.md)). |
 | `coding-agent/examples/extensions/auto-commit-on-exit.ts` | 49 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/bash-spawn-hook.ts` | 30 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/examples/extensions/bookmark.ts` | 50 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/bookmark.ts` | 50 | `crates/pi-coding-agent/examples/extensions/bookmark.rs` | done | `example_bookmark` | Opt-in native embedding; actual pinned loader/runner differential ([trace](traceability/extension-examples-a.md)). |
 | `coding-agent/examples/extensions/border-status-editor.ts` | 150 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/built-in-tool-renderer.ts` | 249 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/claude-rules.ts` | 86 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
@@ -772,7 +772,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/examples/extensions/dynamic-resources/index.ts` | 15 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/dynamic-tools.ts` | 74 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/entry-renderer.ts` | 41 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/examples/extensions/event-bus.ts` | 43 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/event-bus.ts` | 43 | `crates/pi-coding-agent/examples/extensions/event_bus.rs` | done | `example_event_bus` | Opt-in native embedding; actual pinned loader/runner differential ([trace](traceability/extension-examples-a.md)). |
 | `coding-agent/examples/extensions/file-trigger.ts` | 41 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/git-checkpoint.ts` | 53 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/git-merge-and-resolve.ts` | 115 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
@@ -790,7 +790,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/examples/extensions/message-renderer.ts` | 59 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/minimal-mode.ts` | 426 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/modal-editor.ts` | 85 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/examples/extensions/model-status.ts` | 31 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/model-status.ts` | 31 | `crates/pi-coding-agent/examples/extensions/model_status.rs` | done | `example_model_status` | Opt-in native embedding; actual pinned loader/runner differential ([trace](traceability/extension-examples-a.md)). |
 | `coding-agent/examples/extensions/notify.ts` | 55 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/overlay-qa-tests.ts` | 1450 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/overlay-test.ts` | 153 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
@@ -816,7 +816,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/examples/extensions/snake.ts` | 343 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/space-invaders.ts` | 560 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/ssh.ts` | 220 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/examples/extensions/status-line.ts` | 32 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/status-line.ts` | 32 | `crates/pi-coding-agent/examples/extensions/status_line.rs` | done | `example_status_line` | Opt-in native embedding; actual pinned loader/runner differential ([trace](traceability/extension-examples-a.md)). |
 | `coding-agent/examples/extensions/structured-output.ts` | 65 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/subagent/agents.ts` | 126 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/subagent/index.ts` | 1033 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
