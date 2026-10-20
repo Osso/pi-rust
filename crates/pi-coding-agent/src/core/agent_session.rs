@@ -458,7 +458,7 @@ pub enum AgentSessionEvent {
     SteeringMessageQueued(SteeringMessageQueuedEvent),
     AgentSettled(AgentSettledEvent),
     CompactionStart(CompactionStartEvent),
-    CompactionEnd(CompactionEndEvent),
+    CompactionEnd(Box<CompactionEndEvent>),
     EntryAppended(EntryAppendedEvent),
     BashMessagesCommitted(BashMessagesCommittedEvent),
     SessionInfoChanged(SessionInfoChangedEvent),
@@ -5613,14 +5613,14 @@ impl AgentSession {
         match result {
             Ok((compaction_result, should_continue)) => {
                 *lock(&self.inner.compaction_abort_controller) = None;
-                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: "manual".to_owned(),
                     result: Some(compaction_result.clone()),
                     aborted: false,
                     will_retry: should_continue,
                     error_message: None,
-                }));
+                })));
                 self.reconnect_to_agent();
                 if should_continue {
                     self.continue_after_manual_compaction(was_running_agent_turn).await?;
@@ -5630,14 +5630,14 @@ impl AgentSession {
             Err(error) => {
                 let aborted = error.message() == "Compaction cancelled";
                 *lock(&self.inner.compaction_abort_controller) = None;
-                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: "manual".to_owned(),
                     result: None,
                     aborted,
                     will_retry: false,
                     error_message: (!aborted).then(|| format!("Compaction failed: {}", error.message())),
-                }));
+                })));
                 self.reconnect_to_agent();
                 Err(error)
             }
@@ -5940,7 +5940,7 @@ impl AgentSession {
                 return self.run_auto_compaction("overflow", false, false).await;
             }
             if self.inner.overflow_recovery_attempted.load(Ordering::SeqCst) {
-                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: "overflow".to_owned(),
                     result: None,
@@ -5949,7 +5949,7 @@ impl AgentSession {
                     error_message: Some(
                         "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.".to_owned(),
                     ),
-                }));
+                })));
                 return false;
             }
             if post_run_check {
@@ -6044,14 +6044,14 @@ impl AgentSession {
         {
             CompactionExtensionDecision::Cancel => {
                 *lock(&self.inner.auto_compaction_abort_controller) = None;
-                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: reason.to_owned(),
                     result: None,
                     aborted: true,
                     will_retry: false,
                     error_message: None,
-                }));
+                })));
                 return false;
             }
             CompactionExtensionDecision::None => {}
@@ -6074,14 +6074,14 @@ impl AgentSession {
             {
                 CompactionExtensionDecision::Cancel => {
                     *lock(&self.inner.auto_compaction_abort_controller) = None;
-                    self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                    self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                         event_type: "compaction_end",
                         reason: reason.to_owned(),
                         result: None,
                         aborted: true,
                         will_retry: false,
                         error_message: None,
-                    }));
+                    })));
                     return false;
                 }
                 CompactionExtensionDecision::None => {}
@@ -6122,14 +6122,14 @@ impl AgentSession {
         *lock(&self.inner.auto_compaction_abort_controller) = None;
         match result {
             Ok((compaction_result, _)) => {
-                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: reason.to_owned(),
                     result: Some(compaction_result),
                     aborted: false,
                     will_retry,
                     error_message: None,
-                }));
+                })));
                 if continue_after_compaction {
                     let mut messages = self.inner.agent.messages();
                     if let Some(AgentMessage::Assistant(assistant)) = messages.last()
@@ -6144,7 +6144,7 @@ impl AgentSession {
             }
             Err(error) => {
                 let aborted = abort.is_cancelled() || error.message() == "Compaction cancelled";
-                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: reason.to_owned(),
                     result: None,
@@ -6157,7 +6157,7 @@ impl AgentSession {
                             format!("Auto-compaction failed: {}", error.message())
                         }
                     }),
-                }));
+                })));
                 false
             }
         }

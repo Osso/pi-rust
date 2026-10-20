@@ -48,6 +48,9 @@ notify-based child transcript reloads are implemented and behavior-tested.
 | `getThinkingWorkingMessage` / `startThinkingTimer` / `stopThinkingTimer` / `addCompletedThinkingDurationBeforeToolCall` | `get_thinking_working_message` / `start_thinking_timer` / `stop_thinking_timer` / `add_completed_thinking_duration_before_tool_call` | `ui_tests::thinking_and_tool_waiting_timers_update_the_working_loader` |
 | `startChildActivityTimer` / `stopChildActivityTimer` / `isSelectedChildWorking` | `start_child_activity_timer` / `stop_child_activity_timer` / `is_selected_child_working` | `ui_tests::child_view_overrides_the_footer_session` |
 | `auto_retry_start` loader + `retryCountdown` / `stopRetryLoader` / retry escape handler | `AutoRetryStart` branch / `CountdownTimer` / `stop_retry_loader` / `retry_escape_handler` | `ui_tests::retry_loader_counts_down_and_reports_final_failure` |
+| `compaction_start` loader + `formatCompactionStartLabel` / `autoCompactionSourceHint` / Escape -> `abortCompaction` | `CompactionStart` branch / `format_compaction_start_label` / `auto_compaction_escape_handler` / `auto_compaction_loader` / `auto_compaction_source_hint` | `ui_tests::compaction_start_renders_the_source_loader_and_binds_escape`, `ui_tests::compaction_labels_match_the_source` |
+| `compaction_end` + `formatCompactionSourceLogMessage` / `formatCompactionFailureMessage` | `CompactionEnd` branch / `format_compaction_source_log_message` / `format_compaction_failure_message` | `ui_tests::compaction_end_reports_the_source_and_reason_specific_failures`, `ui_tests::compaction_labels_match_the_source` |
+| `checkTmuxKeyboardSetup` | `check_tmux_keyboard_setup` / `check_tmux_keyboard_setup_with` | `tests/interactive_tmux_keyboard.rs` (8 cases: outside tmux, on/always, off, xterm, trimming, non-zero exit, missing format, 2 s timeout) |
 | `handleHiddenMainSessionDisplayEvent` / `syncToolExecutionTrackingForHiddenMainEvent` | `handle_hidden_main_session_display_event` / `sync_tool_execution_tracking_for_hidden_main_event` | `ui_tests::agent_slot_keybindings_select_active_agents_and_main` (main events suppressed while viewing a child) |
 | `subscribeToMultiAgentStore` / `poll` of store updates | `subscribe_to_multi_agent_store` / `poll_multi_agent_updates` | `ui_tests::agent_slot_keybindings_select_active_agents_and_main` |
 | `openChildAgentView` / `watchSelectedAgentTranscript` / `scheduleSelectedAgentTranscriptReload` / `reloadSelectedAgentTranscript` / `retrySelectedAgentTranscriptReload` | `open_child_agent_view` / `watch_selected_agent_transcript` / `schedule_selected_agent_transcript_reload` / `reload_selected_agent_transcript` / `retry_selected_agent_transcript_reload` | `ui_tests::child_transcript_reloads_after_a_watched_file_change` |
@@ -104,6 +107,20 @@ notify-based child transcript reloads are implemented and behavior-tested.
   configured `Fetch`; new-entry changelog rendering with collapse setting.
 - Prompt activity: `bash`, `branch-summary`, `compaction`, `retry` and
   `summary-materialization` sources drive the working editor prompt.
+- Compaction UI: `compaction_start` sets terminal progress, stores the source
+  hint, replaces the editor Escape handler with `session.abortCompaction()`, and
+  renders a `Loader` whose label is
+  `formatCompactionStartLabel(reason, sourceHint, "(<interrupt key> to cancel)")`
+  (`Compacting context` for manual, `Auto-compacting` otherwise, plus the
+  OpenAI-remote/local suffix). `compaction_end` clears progress, restores the
+  Escape handler, stops the loader, and reports either the cancellation status,
+  `formatCompactionSourceLogMessage(result.source)`, or the reason-specific
+  `formatCompactionFailureMessage` (manual failures use `showError`; automatic
+  failures append a spacer and an error text to the chat container).
+- tmux: `run()` starts `checkTmuxKeyboardSetup()` asynchronously and shows its
+  warning. The check queries `extended-keys` and `extended-keys-format` with a
+  2 s timeout, ignores failures, and warns only for a non-`on`/`always` value or
+  the `xterm` format.
 - Regular-mode render regions: transcript-tail flow layout and status region
   receive `place`; the editor layout callback positions/clears the working
   prompt cell.

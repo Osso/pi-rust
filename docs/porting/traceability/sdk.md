@@ -23,8 +23,19 @@ Rust: `crates/pi-coding-agent/src/core/sdk.rs`.
 - Persisted sandbox profile, model, and thinking level are restored from control-db
   metadata before model selection; control-db read failures propagate instead of
   being dropped.
+- Path resolution mirrors `resolvePath`: `cwd` and `agentDir` errors propagate
+  instead of falling back to the raw input. Test:
+  `create_agent_session_propagates_path_resolution_errors`.
+- `SettingsManager::create` errors are returned (`?`) instead of panicking.
+  Every reachable failure comes from the same path resolution that runs first,
+  so the integration test exercises it through the `agentDir` error.
 - `streamFn` wires settings timeouts, provider retry, attribution headers, and the
   provider-retry notifier; `convertToLlm` honors `images.blockImages`.
+- `websocketConnectTimeoutMs` follows `??`: an explicit request value wins,
+  otherwise the setting is read and an invalid setting fails the stream with
+  `Invalid websocketConnectTimeoutMs setting: <json>`. Tests:
+  `stream_function_forwards_websocket_connect_timeout_from_settings`,
+  `stream_function_fails_when_the_websocket_connect_timeout_setting_is_invalid`.
 - The extension runner ref is created by the SDK and populated by `AgentSession`.
   The same ref backs `transformHeaders` (`before_provider_headers`),
   `onPayload` (`before_provider_request`), `onResponse`

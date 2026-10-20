@@ -11151,9 +11151,7 @@ pub async fn check_tmux_keyboard_setup() -> Option<String> {
 
 /// Runs the tmux keyboard check against an explicit environment and program.
 pub async fn check_tmux_keyboard_setup_with(tmux_env: Option<&std::ffi::OsStr>, program: &str) -> Option<String> {
-    if tmux_env.is_none() {
-        return None;
-    }
+    tmux_env?;
     let (extended_keys, extended_keys_format) = tokio::join!(
         run_tmux_show(program, "extended-keys"),
         run_tmux_show(program, "extended-keys-format"),
@@ -13278,14 +13276,14 @@ mod ui_tests {
                 assert!(!sentinel.get(), "escape must abort compaction instead of the prior handler");
 
                 mode.handle_event(AgentSessionEvent::CompactionEnd(
-                    crate::core::agent_session::CompactionEndEvent {
+                    Box::new(crate::core::agent_session::CompactionEndEvent {
                         event_type: "compaction_end",
                         reason: "manual".to_owned(),
                         result: None,
                         aborted: true,
                         will_retry: false,
                         error_message: None,
-                    },
+                    }),
                 ))
                 .await;
 
@@ -13321,7 +13319,7 @@ mod ui_tests {
                     },
                 ))
                 .await;
-                mode.handle_event(AgentSessionEvent::CompactionEnd(
+                mode.handle_event(AgentSessionEvent::CompactionEnd(Box::new(
                     crate::core::agent_session::CompactionEndEvent {
                         event_type: "compaction_end",
                         reason: "manual".to_owned(),
@@ -13330,7 +13328,7 @@ mod ui_tests {
                         will_retry: false,
                         error_message: None,
                     },
-                ))
+                )))
                 .await;
                 let chat = chat_text(&mode);
                 assert!(
@@ -13351,7 +13349,7 @@ mod ui_tests {
                     },
                 ))
                 .await;
-                mode.handle_event(AgentSessionEvent::CompactionEnd(
+                mode.handle_event(AgentSessionEvent::CompactionEnd(Box::new(
                     crate::core::agent_session::CompactionEndEvent {
                         event_type: "compaction_end",
                         reason: "threshold".to_owned(),
@@ -13362,7 +13360,7 @@ mod ui_tests {
                             "Auto-compaction failed: Turn prefix summarization failed: Request timed out.".to_owned(),
                         ),
                     },
-                ))
+                )))
                 .await;
                 let chat = chat_text(&mode);
                 let normalized = chat.lines().map(str::trim).collect::<Vec<_>>().join("\n");
@@ -13388,7 +13386,7 @@ mod ui_tests {
                     },
                 ))
                 .await;
-                mode.handle_event(AgentSessionEvent::CompactionEnd(
+                mode.handle_event(AgentSessionEvent::CompactionEnd(Box::new(
                     crate::core::agent_session::CompactionEndEvent {
                         event_type: "compaction_end",
                         reason: "manual".to_owned(),
@@ -13397,7 +13395,7 @@ mod ui_tests {
                         will_retry: false,
                         error_message: Some("Compaction failed: boom".to_owned()),
                     },
-                ))
+                )))
                 .await;
                 let chat = chat_text(&mode);
                 let normalized = chat.lines().map(str::trim).collect::<Vec<_>>().join("\n");

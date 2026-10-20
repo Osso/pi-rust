@@ -8,8 +8,8 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
 ## Contract adaptations
 
-- Deviation (approved by the parent slice): handlers receive owned
-  `ExtensionEvent` payloads; `ExtensionContext` is a cheap handle to shared
+- Representation deviation (Rust-native extension API, AGENTS.md): handlers
+  receive owned `ExtensionEvent` payloads; `ExtensionContext` is a cheap handle to shared
   runner state, so every runner-backed member is a method that asserts the
   runner is active and reads current values. Async event mutation is expressed
   through results: `ToolCallEventResult.input`,
@@ -60,7 +60,7 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 | `ExtensionCommandContext` | `ExtensionCommandContext` (Deref to context, live method wrappers) | `command_context_passes_fork_options_through`, `stale_context_reads_throw_the_typescript_error_text` |
 | `ReplacedSessionContext` | `ReplacedSessionContext` | compile-time |
 | `ToolRenderResultOptions`, `ToolRenderContext`, `ToolRenderState` | same names (`last_component: Option<ComponentRef>`, `state` is a shared `ToolRenderState` so renderers mutate one object per tool row) | `tool_renderer::shares_render_state_between_calls`, `edit_tool_preview` |
-| `ToolRenderer`, `ToolResultRenderer` | fallible (`Result<ComponentRef, HandlerError>`); `infallible_render_call`/`infallible_render_result` adapt built-ins | `tool_execution_renderer_errors` |
+| `ToolRenderer`, `ToolResultRenderer` | fallible (`Result<ComponentRef, HandlerError>`); `infallible_render_call`/`infallible_render_result` adapt built-ins | `tool_execution_renderer_errors::failing_call_and_result_renderers_use_the_typescript_fallbacks` |
 | `ToolDefinition`, `defineTool` | `ToolDefinition`, `define_tool` | `keeps_the_first_registered_tool_and_definition` |
 | `ProjectTrustEvent/Result/Context/Handler` | same names | `project_trust_collects_handler_errors_and_keeps_scanning`, differential `project_trust` |
 | `ResourcesDiscoverEvent/Result` | same names | differential `dispatch` |
@@ -84,24 +84,15 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
 ## Gaps
 
-- Component-factory UI contracts are implemented in the interactive mode:
-  `setWidget` (string arrays truncated at 10 lines and factory components),
-  `setFooter`, `setDefaultFooter`, `setHeader`, `custom`, `getTheme`, and
-  `setTheme(Theme)` (`set_theme_object`). Widget placement rendering matches the
-  source (above: leading spacer and empty spacer; below: none), and removing a
-  key clears both placements.
-- `addAutocompleteProvider`, `setEditorComponent`, and `getEditorComponent`
-  are implemented by the interactive mode (ca-interactive-2, `e66a0b7`).
-  `getEditorComponent` reads the shared factory cell directly so handlers
-  running on the TUI thread cannot deadlock on a UI request. Proof:
-  `ui_tests::extension_context_exposes_autocomplete_and_editor_factories`
-  drives all three through `ExtensionContext::ui()`.
-- `DetachedJobLifecycleController` is exposed as `ExtensionContext::detached_job_lifecycle()`
-  and bound by `ExtensionRunner::bind_detached_job_lifecycle`. `core::agent_session`
-  (owned by ca-agent-session-2) must call that binder with the session controller.
-- Tool input/detail types are type-only exports: the tool JSON schema plus
-  `serde_json::Value` carries them (ca-tools-finish API). `AskArchitectToolInput`
-  and `AskArchitectToolDetails` are concrete structs.
+None. The component-factory UI contracts (`setWidget` with string arrays and
+factory components, `setFooter`, `setDefaultFooter`, `setHeader`, `custom`,
+`getTheme`, `setTheme(Theme)`), `addAutocompleteProvider`,
+`setEditorComponent`, `getEditorComponent`, and
+`ExtensionContext::detached_job_lifecycle` are implemented and covered by
+`ui_tests::extension_context_exposes_autocomplete_and_editor_factories` and the
+interactive-mode component tests. Tool input/detail types remain type-only
+exports carried by each tool's JSON schema plus `serde_json::Value`; that is the
+declared API shape, not a missing behavior.
 
 ## Discrepancies
 
