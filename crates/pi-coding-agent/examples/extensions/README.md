@@ -50,6 +50,14 @@ files into Pi's live extension directories expecting discovery or compilation.
 The behavioral test compiles the actual nested example via `#[path]`; no
 library re-export or built-in registry entry is necessary.
 
+## Built-in tool renderer
+
+`built_in_tool_renderer.rs` exports `built_in_tool_renderer_extension(&ExtensionApi)`.
+Embed via `#[path]` and explicitly register its factory using the pattern above.
+It replaces read/bash/edit/write renderers, delegates execution to original tools,
+and captures process cwd when the factory loads. Edit renders its own shell.
+Nothing loads by default. Differential test: `example_built_in_tool_renderer`.
+
 ## Provider payload logging
 
 `provider_payload.rs` exports `provider_payload_extension(&ExtensionApi)`. Embed it
