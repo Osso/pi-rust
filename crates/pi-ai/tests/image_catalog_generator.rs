@@ -36,9 +36,34 @@ fn parser_matches_actual_pinned_export_for_raw_json() {
         r#"{"data":[{"id":{},"architecture":{"output_modalities":["image"]},"pricing":{"prompt":{"toString":null}}}]}"#,
         r#"{"data":[{"id":"a","architecture":{"output_modalities":["image"]},"pricing":{"prompt":1,"completion":[null,"2"],"input_cache_read":false,"input_cache_write":null}}]}"#,
     ];
-    for payload in fixtures {
+    for (case, payload) in fixtures.into_iter().enumerate() {
         for strict in [false, true] {
             let expected = ts.request(&json!({"operation":"parse", "payload":payload, "strict":strict}));
+            let rejected_field = match case {
+                0 | 17 => Some("pricing.prompt"),
+                10 | 11 => Some("record"),
+                12 => Some("architecture.input_modalities"),
+                13 => Some("architecture.output_modalities"),
+                14..=16 => Some("id"),
+                _ => None,
+            };
+            if let Some(field) = rejected_field {
+                std::fs::write(
+                    format!("/tmp/pi-rust-image-generator-proof/validation-parser-{case}-{strict}-source.json"),
+                    serde_json::to_string_pretty(&expected).unwrap(),
+                )
+                .unwrap();
+                let error = parse_openrouter_image_models(&parse_lossless(payload).unwrap(), strict).unwrap_err();
+                assert_eq!(error.name, "TypeError");
+                assert_eq!(
+                    error.message,
+                    format!(
+                        "Invalid OpenRouter image model {field}: expected {}",
+                        expected_type(field)
+                    )
+                );
+                continue;
+            }
             let actual = match parse_openrouter_image_models(&parse_lossless(payload).unwrap(), strict) {
                 Ok(models) => {
                     let cost_numbers: Vec<_> = models
@@ -197,7 +222,7 @@ async fn native_workflow_matches_pinned_script_values_order_logs_and_failures() 
         json!({"payload":"{}","args":["--strict","--unknown","--other"]}),
         json!({"payload":"{}","writeFailure":true}),
         json!({"payload":"{}","directoryOutput":true}),
-        json!({"payload":r#"{"data":[null]}"#}),
+        json!({"payload":r#"{"data":[null]}"#,"approvedRejection":"record"}),
         json!({"payload":r#"{"data":[{"id":"z","name":"Z","architecture":{"output_modalities":["image"]}},{"id":"10","architecture":{"output_modalities":["image"]}},{"id":"2","architecture":{"output_modalities":["image"]}},{"id":"a","architecture":{"output_modalities":["image"]}},{"id":"A","architecture":{"output_modalities":["image"]}},{"id":"\ud800","name":"\udc00","architecture":{"output_modalities":["image"]}},{"id":"�","architecture":{"output_modalities":["image"]}}]}"#}),
     ];
     compare_workflows("workflow", &fixtures).await;
@@ -246,6 +271,53 @@ async fn compare_workflows(group: &str, fixtures: &[serde_json::Value]) {
         if let Err(error) = &result {
             use std::io::Write;
             writeln!(stderr, "{error}").unwrap();
+        }
+        if let Some(field) = fixture["approvedRejection"].as_str() {
+            let message = format!(
+                "TypeError: Invalid OpenRouter image model {field}: expected {}",
+                expected_type(field)
+            );
+            let strict = args.iter().any(|arg| arg == "--strict");
+            assert_eq!(result.is_err(), strict);
+            let stderr = String::from_utf8(stderr.bytes).unwrap();
+            let expected_stderr = if strict {
+                format!("Failed to fetch OpenRouter image models: {message}\n{message}\n")
+            } else {
+                format!("Failed to fetch OpenRouter image models: {message}\n")
+            };
+            assert_eq!(stderr, expected_stderr);
+            let stdout = String::from_utf8(stdout.bytes).unwrap();
+            let expected_stdout = if strict {
+                "Fetching image models from OpenRouter API...\n".to_owned()
+            } else {
+                format!(
+                    "Fetching image models from OpenRouter API...\nGenerated {}\n",
+                    output.display()
+                )
+            };
+            assert_eq!(stdout, expected_stdout);
+            let expected_events: Vec<_> = if strict {
+                vec![
+                    json!({"stream":"stdout","text":"Fetching image models from OpenRouter API...\n"}),
+                    json!({"stream":"stderr","text":format!("Failed to fetch OpenRouter image models: {message}\n")}),
+                    json!({"stream":"stderr","text":format!("{message}\n")}),
+                ]
+            } else {
+                vec![
+                    json!({"stream":"stdout","text":"Fetching image models from OpenRouter API...\n"}),
+                    json!({"stream":"stderr","text":expected_stderr}),
+                    json!({"stream":"stdout","text":format!("Generated {}\n",output.display())}),
+                ]
+            };
+            assert_eq!(*events.borrow(), expected_events);
+            if strict {
+                assert!(!output.exists());
+            } else {
+                assert_eq!(std::fs::read_to_string(&output).unwrap(), "{\n  \"openrouter\": {}\n}");
+            }
+            std::fs::write(proof.join(format!("{group}-{case}-native-stderr.txt")), stderr).unwrap();
+            std::fs::remove_dir_all(root).unwrap();
+            continue;
         }
         assert_eq!(i32::from(result.is_err()), expected["status"], "{fixture}\n{expected}");
         let stdout = String::from_utf8(stdout.bytes).unwrap();
@@ -313,22 +385,26 @@ async fn raw_json_ids_and_names_keep_source_generation_errors_and_values() {
         r#"[{"id":"p","name":"P","architecture":{"input_modalities":["image","image"],"output_modalities":["image"]},"pricing":{"prompt":"junk","completion":"Infinity","input_cache_read":"-0","input_cache_write":"1e400"}}]"#,
     ];
     let fixtures: Vec<_> = records
-        .iter()
-        .map(|data| json!({"payload":format!("{{\"data\":{data}}}")}))
+        .iter().enumerate()
+        .flat_map(|(case, data)| [false,true].map(move |strict| {
+            let mut fixture = json!({"payload":format!("{{\"data\":{data}}}"), "args":if strict {vec!["--strict"]} else {vec![]}});
+            if case != 10 { fixture["approvedRejection"] = json!("id"); }
+            fixture
+        }))
         .collect();
-    compare_workflows("raw", &fixtures).await;
+    compare_workflows("validation-raw", &fixtures).await;
 }
 
 #[tokio::test]
-async fn malformed_first_id_keeps_source_sort_boundary_for_longer_inputs() {
+async fn malformed_first_id_is_rejected_independent_of_source_sort_boundary() {
     let fixtures: Vec<_> = [3, 20, 21, 32, 63, 64, 65, 128].into_iter().map(|length| {
         let mut data = vec![json!({"id":null,"architecture":{"output_modalities":["image"]}})];
         for index in 1..length {
             data.push(json!({"id":format!("m{:03}",(index * 17) % length),"architecture":{"output_modalities":["image"]}}));
         }
-        json!({"payload":serde_json::to_string(&json!({"data":data})).unwrap()})
+        json!({"payload":serde_json::to_string(&json!({"data":data})).unwrap(),"approvedRejection":"id","args":["--strict"]})
     }).collect();
-    compare_workflows("sort-boundary", &fixtures).await;
+    compare_workflows("validation-sort-boundary", &fixtures).await;
 }
 
 fn without_js_frames(source: &str) -> String {
@@ -345,6 +421,73 @@ fn without_js_frames(source: &str) -> String {
         }
     }
     result
+}
+
+fn expected_type(field: &str) -> &'static str {
+    match field {
+        "record" => "object",
+        "architecture" | "pricing" => "object or null",
+        "architecture.input_modalities" | "architecture.output_modalities" => "string array or null",
+        _ => "string",
+    }
+}
+
+#[test]
+fn consumed_record_fields_reject_wrong_types_without_requiring_defaulted_fields() {
+    let invalid = [
+        (r#"{"id":"x","name":null}"#, "name"),
+        (r#"{"id":"x","name":false}"#, "name"),
+        (r#"{"id":"x","architecture":false}"#, "architecture"),
+        (r#"{"id":"x","architecture":[]}"#, "architecture"),
+        (
+            r#"{"id":"x","architecture":{"input_modalities":["image",3]}}"#,
+            "architecture.input_modalities",
+        ),
+        (
+            r#"{"id":"x","architecture":{"output_modalities":[null,"image"]}}"#,
+            "architecture.output_modalities",
+        ),
+        (r#"{"id":"x","pricing":[]}"#, "pricing"),
+        (r#"{"id":"x","pricing":3}"#, "pricing"),
+        (r#"{"id":"x","pricing":{"prompt":null}}"#, "pricing.prompt"),
+        (r#"{"id":"x","pricing":{"completion":false}}"#, "pricing.completion"),
+        (
+            r#"{"id":"x","pricing":{"input_cache_read":[]}}"#,
+            "pricing.input_cache_read",
+        ),
+        (
+            r#"{"id":"x","pricing":{"input_cache_write":{}}}"#,
+            "pricing.input_cache_write",
+        ),
+    ];
+    for (record, field) in invalid {
+        let mut record: serde_json::Value = serde_json::from_str(record).unwrap();
+        if record.get("architecture").is_none() {
+            record["architecture"] = json!({"output_modalities":["image"]});
+        }
+        let payload = parse_lossless(&json!({"data":[record]}).to_string()).unwrap();
+        for strict in [false, true] {
+            let error = parse_openrouter_image_models(&payload, strict).unwrap_err();
+            assert_eq!(error.name, "TypeError", "{field}");
+            assert_eq!(
+                error.message,
+                format!(
+                    "Invalid OpenRouter image model {field}: expected {}",
+                    expected_type(field)
+                )
+            );
+        }
+    }
+    for payload in [
+        r#"{"data":[{"id":"x","architecture":{"output_modalities":["image"]}}]}"#,
+        r#"{"data":[{"id":"x","architecture":{"input_modalities":null,"output_modalities":["image"]},"pricing":null,"context_length":{}}]}"#,
+        r#"{"data":[{"id":"x","architecture":null}]}"#,
+    ] {
+        assert!(
+            parse_openrouter_image_models(&parse_lossless(payload).unwrap(), false).is_ok(),
+            "{payload}"
+        );
+    }
 }
 
 #[test]

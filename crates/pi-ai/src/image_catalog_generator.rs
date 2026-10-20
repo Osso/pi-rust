@@ -79,18 +79,19 @@ pub fn parse_openrouter_image_models(payload: &JsValue, strict: bool) -> Result<
     let mut models = Vec::new();
     let mut seen = Vec::new();
     for model in data {
-        if matches!(model, JsValue::Null) {
-            return Err(GeneratorError::type_error(
-                "Cannot read properties of null (reading 'architecture')",
-            ));
+        if !matches!(model, JsValue::Object(_)) {
+            return Err(invalid_field("record", "object"));
         }
-        let architecture = property(model, "architecture");
+        let architecture = nullable_object_field(model, "architecture")?;
         let mut input = modalities(architecture, "input_modalities")?;
         let output = modalities(architecture, "output_modalities")?;
         if !output.contains(&text("image")) {
             continue;
         }
         let id = property(model, "id");
+        if !matches!(id, Some(JsValue::String(_))) {
+            return Err(invalid_field("id", "string"));
+        }
         if seen.iter().any(|previous| same_id(*previous, id)) {
             continue;
         }
@@ -98,7 +99,10 @@ pub fn parse_openrouter_image_models(payload: &JsValue, strict: bool) -> Result<
         if input.is_empty() {
             input.push(text("text"));
         }
-        let pricing = property(model, "pricing");
+        if property(model, "name").is_some_and(|name| !matches!(name, JsValue::String(_))) {
+            return Err(invalid_field("name", "string"));
+        }
+        let pricing = nullable_object_field(model, "pricing")?;
         let cost = object([
             ("input", price(pricing, "prompt")?),
             ("output", price(pricing, "completion")?),
@@ -130,6 +134,18 @@ pub fn parse_openrouter_image_models(payload: &JsValue, strict: bool) -> Result<
     Ok(models)
 }
 
+fn invalid_field(field: &str, expected: &str) -> GeneratorError {
+    GeneratorError::type_error(format!("Invalid OpenRouter image model {field}: expected {expected}"))
+}
+
+fn nullable_object_field<'a>(model: &'a JsValue, field: &str) -> Result<Option<&'a JsValue>, GeneratorError> {
+    match property(model, field) {
+        None | Some(JsValue::Null) => Ok(None),
+        Some(value @ JsValue::Object(_)) => Ok(Some(value)),
+        _ => Err(invalid_field(field, "object or null")),
+    }
+}
+
 fn same_id(left: Option<&JsValue>, right: Option<&JsValue>) -> bool {
     // JSON arrays/objects have distinct identity even when structurally equal.
     !matches!(left, Some(JsValue::Array(_) | JsValue::Object(_))) && left == right
@@ -141,11 +157,13 @@ fn modalities(architecture: Option<&JsValue>, key: &str) -> Result<Vec<JsValue>,
     if matches!(value, JsValue::Null) {
         return Ok(vec![]);
     }
+    let field = format!("architecture.{key}");
     let JsValue::Array(values) = value else {
-        return Err(GeneratorError::type_error(
-            "((intermediate value) ?? []).filter is not a function",
-        ));
+        return Err(invalid_field(&field, "string array or null"));
     };
+    if values.iter().any(|value| !matches!(value, JsValue::String(_))) {
+        return Err(invalid_field(&field, "string array or null"));
+    }
     let mut result = Vec::new();
     for value in values {
         if (value == &text("text") || value == &text("image")) && !result.contains(value) {
@@ -155,9 +173,11 @@ fn modalities(architecture: Option<&JsValue>, key: &str) -> Result<Vec<JsValue>,
     Ok(result)
 }
 fn price(pricing: Option<&JsValue>, key: &str) -> Result<JsValue, GeneratorError> {
-    let value = pricing
-        .and_then(|value| property(value, key))
-        .filter(|value| is_truthy(value));
+    let value = pricing.and_then(|value| property(value, key));
+    if value.is_some_and(|value| !matches!(value, JsValue::String(_))) {
+        return Err(invalid_field(&format!("pricing.{key}"), "string"));
+    }
+    let value = value.filter(|value| is_truthy(value));
     let string = match value {
         Some(value) => to_js_string(value).map_err(GeneratorError::type_error)?,
         None => JsString::from("0"),
