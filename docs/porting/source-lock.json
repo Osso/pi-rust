@@ -13,5 +13,15 @@
       "kimi-coding.json": "absent upstream on 2026-10-18; copied from a 2026-08-20 generation (same schema) so the pinned kimi-coding.models.ts import resolves"
     },
     "installedInSourceWorktree": "packages/ai/src/providers/data (gitignored)"
+  },
+  "typecheckReference": {
+    "worktree": "/home/osso/.worktrees/pi-oracle-typecheck-532f7d12",
+    "baseCommit": "532f7d12cd19235081bd4d6e425bde185652d86f",
+    "commit": "16a52a4df1b412e1adcc183b64880a2e625b5418",
+    "tree": "2373941ed92e62e2d136f098da19c55c65bbb5c9",
+    "patch": "docs/porting/patches/oracle-typecheck-532f7d12.patch",
+    "patchSha256": "2436061a2cf24c9b68e8f77e25957835ea6d5f7ed2864f8131d5835c134b7940",
+    "modelCatalogSha256": "6857c86845b47766339bdf35a5f3e98373b28a31f5eb1c0719a04d679ad44705",
+    "commitDate": "2026-10-20T00:00:00+00:00"
   }
 }

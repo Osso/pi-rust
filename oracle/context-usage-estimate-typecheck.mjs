@@ -1,14 +1,13 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { selectTypecheckReference } from "./typecheck-reference.mjs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 import { buildSourceTsconfig } from "./source-tsconfig.mjs";
 import { runCompiler } from "./typecheck-report.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sourceLockPath = join(repoRoot, "docs/porting/source-lock.json");
-const sourceLock = JSON.parse(readFileSync(sourceLockPath, "utf8"));
+const sourceLock = selectTypecheckReference(repoRoot);
 const compactionModulePath = join(sourceLock.worktree, "packages/agent/src/harness/compaction/compaction.ts");
 const tsgoPath = join(sourceLock.worktree, "node_modules/.bin/tsgo");
 
@@ -83,22 +82,6 @@ function validateSourceLock() {
 	}
 }
 
-function verifySourceHead() {
-	const result = spawnSync("git", ["-C", sourceLock.worktree, "rev-parse", "HEAD"], {
-		encoding: "utf8",
-	});
-	if (result.error !== undefined) {
-		throw new Error(`source HEAD check failed to start git: ${result.error.message}`);
-	}
-	if (result.status !== 0) {
-		throw new Error(`source HEAD check failed: ${result.stderr.trim()}`);
-	}
-	const actualCommit = result.stdout.trim();
-	if (actualCommit !== sourceLock.commit) {
-		throw new Error(`pinned TypeScript source HEAD mismatch: expected ${sourceLock.commit}, got ${actualCommit}`);
-	}
-}
-
 function runTypecheck(fixturePath) {
 	const configPath = join(dirname(fixturePath), "tsconfig.json");
 	writeFileSync(configPath, `${JSON.stringify(buildSourceTsconfig(sourceLock.worktree, [fixturePath]), null, 2)}\n`, "utf8");
@@ -118,7 +101,6 @@ function typecheckFixture() {
 
 try {
 	validateSourceLock();
-	verifySourceHead();
 	process.exitCode = typecheckFixture();
 } catch (error) {
 	const message = error instanceof Error ? error.message : String(error);

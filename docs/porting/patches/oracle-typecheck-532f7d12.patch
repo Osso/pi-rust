@@ -1,0 +1,40 @@
+diff --git a/packages/ai/src/providers/cloudflare-ai-gateway.ts b/packages/ai/src/providers/cloudflare-ai-gateway.ts
+index 50c10569ff0684413851fd9932be3af563e2d3f5..d3a1c730997b601a7ce1ef93538dd9ccf9271a2a 100644
+--- a/packages/ai/src/providers/cloudflare-ai-gateway.ts
++++ b/packages/ai/src/providers/cloudflare-ai-gateway.ts
+@@ -6,13 +6,13 @@ import { CLOUDFLARE_AI_GATEWAY_MODELS } from "./cloudflare-ai-gateway.models.ts"
+ import { cloudflareAIGatewayAuth } from "./cloudflare-auth.ts";
+ import { cloudflareStreams } from "./cloudflare-stream.ts";
+ 
+ export function cloudflareAIGatewayProvider(): Provider<
+ 	"anthropic-messages" | "openai-completions" | "openai-responses"
+ > {
+-	return createProvider({
++	return createProvider<"anthropic-messages" | "openai-completions" | "openai-responses">({
+ 		id: "cloudflare-ai-gateway",
+ 		name: "Cloudflare AI Gateway",
+ 		auth: { apiKey: cloudflareAIGatewayAuth() },
+ 		models: Object.values(CLOUDFLARE_AI_GATEWAY_MODELS),
+ 		api: {
+ 			"anthropic-messages": cloudflareStreams(anthropicMessagesApi()),
+diff --git a/packages/ai/src/providers/opencode-go.ts b/packages/ai/src/providers/opencode-go.ts
+index 4f5452c164f86a57bbd02346b5ca3fe1b639f08c..bd149dbf22778d0b9e6ac57dd204dd263b0a05aa 100644
+--- a/packages/ai/src/providers/opencode-go.ts
++++ b/packages/ai/src/providers/opencode-go.ts
+@@ -2,14 +2,14 @@ import { anthropicMessagesApi } from "../api/anthropic-messages.lazy.ts";
+ import { openAICompletionsApi } from "../api/openai-completions.lazy.ts";
+ import { openAIResponsesApi } from "../api/openai-responses.lazy.ts";
+ import { envApiKeyAuth } from "../auth/helpers.ts";
+ import { createProvider, type Provider } from "../models.ts";
+ import { OPENCODE_GO_MODELS } from "./opencode-go.models.ts";
+ 
+-export function opencodeGoProvider(): Provider<"anthropic-messages" | "openai-completions" | "openai-responses"> {
+-	return createProvider<"anthropic-messages" | "openai-completions" | "openai-responses">({
++export function opencodeGoProvider(): Provider<"anthropic-messages" | "openai-completions" | "openai-responses" | "google-generative-ai"> {
++	return createProvider<"anthropic-messages" | "openai-completions" | "openai-responses" | "google-generative-ai">({
+ 		id: "opencode-go",
+ 		name: "OpenCode Go",
+ 		auth: { apiKey: envApiKeyAuth("OpenCode API key", ["OPENCODE_API_KEY"]) },
+ 		models: Object.values(OPENCODE_GO_MODELS),
+ 		api: {
+ 			"anthropic-messages": anthropicMessagesApi(),

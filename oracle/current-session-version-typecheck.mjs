@@ -1,12 +1,13 @@
+import { selectTypecheckReference, prepareRuntimeFixture } from "./typecheck-reference.mjs";
 import { createRequire } from "node:module";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sourceLock = JSON.parse(readFileSync(join(repoRoot, "docs/porting/source-lock.json"), "utf8"));
+const sourceLock = selectTypecheckReference(repoRoot);
 const sourceWorktree = sourceLock.worktree;
 const publicIndexPath = join(sourceWorktree, "packages/coding-agent/src/index.ts");
 const definingModulePath = join(sourceWorktree, "packages/coding-agent/src/core/session-manager.ts");
@@ -16,7 +17,7 @@ const highlightDeclarationPath = join(
 );
 const tsconfigPath = join(sourceWorktree, "tsconfig.json");
 const typescriptPath = join(sourceWorktree, "node_modules/typescript/lib/typescript.js");
-const tsxPath = join(sourceWorktree, "node_modules/.bin/tsx");
+const tsxPath = join(sourceLock.runtimeWorktree, "node_modules/.bin/tsx");
 const require = createRequire(import.meta.url);
 const ts = require(typescriptPath);
 const expectedValue = 3;
@@ -47,16 +48,6 @@ function validateSourceLock() {
 	}
 	if (typeof sourceLock.commit !== "string" || !/^[0-9a-f]{40}$/.test(sourceLock.commit)) {
 		throw new Error("source lock commit must be a 40-character hexadecimal string");
-	}
-}
-
-function verifyPinnedSourceHead() {
-	const result = spawnSync("git", ["-C", sourceWorktree, "rev-parse", "HEAD"], { encoding: "utf8" });
-	if (result.error !== undefined) throw new Error(`source HEAD check failed to start git: ${result.error.message}`);
-	if (result.status !== 0) throw new Error(`source HEAD check failed: ${result.stderr.trim()}`);
-	const actualCommit = result.stdout.trim();
-	if (actualCommit !== sourceLock.commit) {
-		throw new Error(`pinned TypeScript source HEAD mismatch: expected ${sourceLock.commit}, got ${actualCommit}`);
 	}
 }
 
@@ -150,7 +141,7 @@ function runRuntimeProbe() {
 	const fixturePath = join(directory, "current-session-version-runtime.mjs");
 	writeFileSync(fixturePath, runtimeProbeSource, "utf8");
 	try {
-		const result = spawnSync(tsxPath, ["--tsconfig", tsconfigPath, fixturePath], {
+		const result = spawnSync(tsxPath, ["--tsconfig", join(sourceLock.runtimeWorktree, "tsconfig.json"), prepareRuntimeFixture(fixturePath, sourceLock)], {
 			cwd: repoRoot,
 			encoding: "utf8",
 		});
@@ -165,7 +156,6 @@ function runRuntimeProbe() {
 
 try {
 	validateSourceLock();
-	verifyPinnedSourceHead();
 	const proof = runCompilerProof();
 	console.log(`compiler=${proof.compilerVersion}`);
 	console.log("symbol-scoped diagnostics: index=0, defining-module=0");

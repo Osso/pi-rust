@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { selectTypecheckReference } from "./typecheck-reference.mjs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,7 +7,7 @@ import { runCompiler } from "./typecheck-report.mjs";
 import { buildSourceTsconfig } from "./source-tsconfig.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sourceLock = JSON.parse(readFileSync(join(repoRoot, "docs/porting/source-lock.json"), "utf8"));
+const sourceLock = selectTypecheckReference(repoRoot);
 const modulePath = join(sourceLock.worktree, "packages/agent/src/harness/compaction/compaction.ts");
 const tsgoPath = join(sourceLock.worktree, "node_modules/.bin/tsgo");
 const fixture = `

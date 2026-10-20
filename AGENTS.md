@@ -1,6 +1,7 @@
 # Development Rules
 
 - Treat `/home/osso/.worktrees/pi-rust-source-532f7d12` as read-only. Its pinned revision lives in `docs/porting/source-lock.json`.
+- Type proofs use the separately pinned two-file type-only reference (approved 2026-10-20); runtime oracles retain the original source/catalog. Setup and byte-identity proof: `docs/porting/oracle-gate.md`.
 - Target: full parity of all packages (decision 2026-10-18). Track every non-test source file in `docs/porting/coverage.md`.
 - Port one whole TypeScript module (file or tightly coupled file group) per slice. Ask Alessio before any unapproved semantic deviation.
 - Extensions are Rust-native: bundled extensions are ported to a Rust extension API; loading TypeScript extensions is an approved deviation (2026-10-18).

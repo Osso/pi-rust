@@ -1,14 +1,14 @@
+import { selectTypecheckReference } from "./typecheck-reference.mjs";
 import { createRequire } from "node:module";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 import { buildSourceTsconfig } from "./source-tsconfig.mjs";
 import { runCompiler } from "./typecheck-report.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sourceLock = JSON.parse(readFileSync(join(repoRoot, "docs/porting/source-lock.json"), "utf8"));
+const sourceLock = selectTypecheckReference(repoRoot);
 const sourceWorktree = sourceLock.worktree;
 const editDiffPath = join(sourceWorktree, "packages/agent/src/harness/tools/edit-diff.ts");
 const editDiffImportPath = editDiffPath.endsWith(".ts") ? editDiffPath.slice(0, -3) : editDiffPath;
@@ -163,16 +163,6 @@ function validateSourceLock() {
 	}
 	if (typeof sourceLock.commit !== "string" || !/^[0-9a-f]{40}$/.test(sourceLock.commit)) {
 		throw new Error("source lock commit must be a 40-character hexadecimal string");
-	}
-}
-
-function verifyPinnedSourceHead() {
-	const result = spawnSync("git", ["-C", sourceWorktree, "rev-parse", "HEAD"], { encoding: "utf8" });
-	if (result.error !== undefined) throw new Error(`source HEAD check failed to start git: ${result.error.message}`);
-	if (result.status !== 0) throw new Error(`source HEAD check failed: ${result.stderr.trim()}`);
-	const actualCommit = result.stdout.trim();
-	if (actualCommit !== sourceLock.commit) {
-		throw new Error(`pinned TypeScript source HEAD mismatch: expected ${sourceLock.commit}, got ${actualCommit}`);
 	}
 }
 
@@ -439,7 +429,6 @@ function proveValidFixture(options) {
 
 try {
 	validateSourceLock();
-	verifyPinnedSourceHead();
 	const options = readPinnedCompilerOptions();
 	const program = ts.createProgram({
 		rootNames: [editDiffPath, toolsIndexPath, packageIndexPath, highlightDeclarationPath],

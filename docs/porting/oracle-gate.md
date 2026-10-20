@@ -1,72 +1,119 @@
 # Oracle typecheck gate
 
-`./run-tests.sh oracle` runs subprocess regression tests, checks the registered
-oracle entrypoints, then runs the registered public-index/direct-module type
-proofs. It stops on failure. `all` requires the same gate before Rust tests.
-The gate is not a typecheck of every oracle or the entire pinned monorepo.
+`./run-tests.sh oracle` runs subprocess regressions, checks registered oracle
+entrypoints, then registered public-index/direct-module type proofs. It stops on
+failure. `all` requires the same gate before Rust tests. This is not a typecheck
+of every oracle or the entire pinned monorepo.
 
-## Supported boundary
+## Two explicitly selected references
 
-- Source and dependencies come from [source-lock.json](source-lock.json).
-  The pinned checkout stays read-only; installed `tsgo` and `@types` are used
-  (`tsgo` version `7.0.0-dev.20260120.1`). Model JSON is gitignored upstream,
-  not pinned by the source commit alone. Its separate `modelCatalog` lock records
-  the installed snapshot; all 41 installed files, including `.manifest.json`,
-  were byte-identical to `crates/pi-ai/data/providers` on 2026-10-20.
-- Generated configs inherit the pinned root/base compiler options and root
-  package-to-source path mappings. Package exports target absent `dist/*.d.ts`;
-  mapping to the real `src` tree checks actual types, not invented declarations.
-- These are strict **no-emit** checks. Absolute `.ts` fixture imports use
-  `allowImportingTsExtensions`; `rewriteRelativeImportExtensions` is disabled
-  because fixtures are never emitted. The source's existing `skipLibCheck`
-  setting is inherited, not expanded to suppress source or fixture errors.
-- `typecheck-report.mjs` now runs the compiler, rather than filtering its output.
-  Numeric compiler exits survive unchanged. Signal termination and launch errors
-  fail with context. Both output streams, continuation lines, config diagnostics,
-  source diagnostics, and diagnostics outside this repository remain visible.
-- Existing negative type proofs require expected errors (`@ts-expect-error`
-  directives fail when unused, or compiler-API proofs assert diagnostic codes,
-  counts and spans). No source error is classified as an expected negative.
+[source-lock.json](source-lock.json) retains the original `commit` and `worktree`:
+`532f7d12cd19235081bd4d6e425bde185652d86f` at
+`/home/osso/.worktrees/pi-rust-source-532f7d12`. This checkout remains read-only.
+**Runtime differential oracles always use this original checkout and its existing
+model snapshot.** Embedded value probes inside typeproof scripts also use the
+original source, `tsx`, and root config; only their temporary import paths change.
+No live Pi config, session state, provider calls, or model refresh is involved.
 
-## Pinned-source blocker
+On 2026-10-20 Alessio approved a separate type-only reference correcting two
+source/catalog type errors. `typecheckReference` adds its own base, commit, tree,
+patch, patch hash and installed-catalog hash without replacing the runtime pin:
 
-Observed 2026-10-20, pinned revision `532f7d12cd19235081bd4d6e425bde185652d86f`:
+| Item | Exact value |
+| --- | --- |
+| Checkout | `/home/osso/.worktrees/pi-oracle-typecheck-532f7d12` |
+| Base/sole parent | `532f7d12cd19235081bd4d6e425bde185652d86f` |
+| Reference commit | `16a52a4df1b412e1adcc183b64880a2e625b5418` |
+| Reference tree | `2373941ed92e62e2d136f098da19c55c65bbb5c9` |
+| Patch SHA-256 | `2436061a2cf24c9b68e8f77e25957835ea6d5f7ed2864f8131d5835c134b7940` |
 
-| Check | Result | Boundary |
-| --- | --- | --- |
-| Registered oracle entrypoints | PASS at `6a0295a` | Includes retained `config-value-reference-oracle.ts` Output union repair |
-| Public-index type proof | FAIL, exit 2 at `6a0295a` | Imports pinned AI provider source through real package indexes |
-| Later registered proofs | Not reached by gate | No pass claim |
+Patch: [oracle-typecheck-532f7d12.patch](patches/oracle-typecheck-532f7d12.patch).
+It changes exactly three type annotations across two files:
 
-Public-index checking exposes these source/catalog type inconsistencies:
+- `cloudflare-ai-gateway.ts`: supply `createProvider`'s explicit
+  `"anthropic-messages" | "openai-completions" | "openai-responses"` generic.
+  Its inferred catalog union otherwise rejects the existing completions entry
+  (TS2353 at original line 19).
+- `opencode-go.ts`: add `"google-generative-ai"` to the return `Provider` and
+  `createProvider` generic unions. The locked catalog already contains that API
+  (TS2322 at original line 13). No stream implementation is added, no catalog
+  model is removed, and existing missing-stream behavior is unchanged.
 
-- `packages/ai/src/providers/cloudflare-ai-gateway.ts:19:4`, TS2353:
-  `"openai-completions"` is absent from the inferred provider API record.
-- `packages/ai/src/providers/opencode-go.ts:13:3`, TS2322: model array includes
-  `"google-generative-ai"`, outside its declared provider API union.
+The regression test transpiles each original/corrected file with the same
+installed TypeScript `transpileModule` options (`target=ES2022`, `module=ESNext`,
+`sourceMap=false`, `inlineSourceMap=false`, same filename), then compares emitted
+JavaScript **bytes**. A type-only claim does not rest on changed filenames.
 
-The supported package build (`packages/ai/tsconfig.build.json`) includes both
-provider modules. Consuming absent declarations cannot establish a clean build;
-using declarations emitted despite source errors would not repair that failure.
-The installed model data matches the separately locked snapshot, so this is
-not evidence of an accidental local catalog replacement. Refreshing live model
-data would change the oracle environment, not prove this snapshot valid.
-No disposable build, declaration stub, source patch, diagnostic filter, or
-skip-on-new-errors path is used. Gate remains failing until the locked
-source/catalog inconsistency receives an explicitly approved resolution.
+## Reproducible setup
+
+Run from the pi-rust checkout:
+
+```text
+node oracle/typecheck-reference.mjs setup
+node oracle/typecheck-reference.mjs check
+```
+
+`setup` creates a separate local shared clone of the original, checks out the
+exact base, applies only the tracked patch, and makes the deterministic local
+reference commit. Author/committer: `Pi Oracle Reference
+<oracle-reference@example.invalid>`; both dates:
+`2026-10-20T00:00:00+00:00`; subject:
+`Type-only oracle reference for locked provider catalog`. Nothing is committed,
+pushed, merged or changed in the original checkout or `/home/osso/Repos/pi`.
+The shared clone needs the original object store to remain available. Keep this
+reference alive for subsequent verification/integration.
+
+Dependencies are reused through explicit root/package `node_modules` symlinks;
+no install/build/refresh runs. Model JSON is copied, not symlinked or regenerated.
+The reference's tracked tsconfigs remain independent editable files, not links to
+the original. No new dependency is required. The catalog digest is SHA-256 over
+all filenames sorted lexically, each followed by NUL, exact file bytes, then NUL
+(including `.manifest.json` and the existing Kimi supplement). Both installed
+snapshots must match `typecheckReference.modelCatalogSha256`:
+`6857c86845b47766339bdf35a5f3e98373b28a31f5eb1c0719a04d679ad44705`.
+The existing `modelCatalog` metadata remains unchanged.
+
+`check` and every typeproof use one shared helper,
+`oracle/typecheck-reference.mjs`. It validates original HEAD/clean source,
+reference HEAD/sole parent/tree/clean source, patch SHA-256, byte-exact
+`git diff --binary --full-index <base> HEAD`, dependency link destinations and
+both catalog digests. Git reads disable optional locks. Dependency symlinks are
+checked separately because upstream directory-only ignores do not ignore them.
+Missing references fail with setup instructions; no fallback selects the original.
+Stale, dirty or wrong-base checkouts fail rather than being reset automatically.
+To rebuild, remove only the disposable reference after checking ownership, then
+run setup; never reset or clean the original.
+
+## Strict compiler boundary
+
+Generated configs inherit the selected reference's root/base options and
+package-to-source mappings, made absolute for temporary configs. Package exports
+point to absent `dist/*.d.ts`; paths target real `src`, not API declaration stubs.
+Installed `tsgo` (`7.0.0-dev.20260120.1`), TypeScript and `@types` remain reused.
+
+Checks are strict **no-emit**. Absolute `.ts` fixture imports use
+`allowImportingTsExtensions`; `rewriteRelativeImportExtensions` is disabled
+because fixtures are never emitted. Existing `skipLibCheck` is inherited, not
+expanded to hide source/fixture errors. No diagnostic suppression, `skipErrors`,
+`noCheck`, emit-on-error, model filtering, or catalog refresh is used.
+
+`typecheck-report.mjs` propagates numeric exits, launch errors and signals with
+both diagnostic streams intact. Negative proofs retain expected-error directives
+and compiler-API assertions on exact diagnostic codes/counts/spans; public-index
+export, declaration-origin, property and API-shape assertions are unchanged.
+Original source diagnostics are not reclassified as expected negatives.
 
 ## Development proof ledger
 
-| Command | Code scope | Result |
+| Command | Exact scope | Result |
 | --- | --- | --- |
-| `node --test oracle/typecheck-report.test.mjs` | Original filtering helper at base `432cf07` plus regression tests | RED: 7 failed, 1 passed; failures returned false success |
-| `./run-tests.sh oracle` | Uncommitted runner repair, before no-emit config repair | Regression tests 8/8 passed; gate exited 2 at public-index proof, showing both source errors and TS2877 absolute-import emit errors |
-| `node --test --test-name-pattern=no-emit oracle/typecheck-report.test.mjs` | Added no-emit absolute-import regression, before config repair | RED: 1 failed with TS2877 |
-| `./run-tests.sh oracle` | Committed repair `6a0295a` | Regression GREEN: 9/9; registered oracle entrypoints pass; gate FAIL: exit 2 with only the two source/catalog errors above; later proofs not reached |
-| `cargo fmt --check` | `6a0295a` implementation, before commit | PASS, exit 0 |
+| `node --test oracle/typecheck-report.test.mjs` | Original filtering helper at `432cf07` plus regressions | RED: 7 failed, 1 passed |
+| `node --test --test-name-pattern=no-emit oracle/typecheck-report.test.mjs` | Before no-emit config repair | RED: TS2877 |
+| `./run-tests.sh oracle` | Strict gate repair `6a0295a`, before this slice | 9/9 regressions; entrypoints pass; public-index exit 2, exactly the two original provider errors; later proofs not reached |
+| `node --test oracle/typecheck-reference.test.mjs` | New regression before implementation | RED: missing separately pinned `typecheckReference` metadata |
+| `node --test oracle/typecheck-reference.test.mjs` | Shared helper/setup and one boundary regression, before caller wiring/additional cases | GREEN: 1/1; original compiler exit 2 with exactly TS2353/TS2322; corrected reference exit 0; both JS byte comparisons pass; missing/dirty/stale/wrong-base references rejected |
 
-The current gate result supersedes the earlier gate run. No broad Rust checks,
-lint, final acceptance, deployment, or source build ran. Formatter used:
-`<source-worktree>/node_modules/.bin/biome format --write <changed .mjs files>`;
-unrelated whole-file formatting was discarded to keep the patch bounded.
-Documentation-only follow-up does not invalidate compiler/subprocess evidence.
+Later caller wiring and added regression cases require targeted GREEN proof.
+Full `./run-tests.sh oracle` and `./run-tests.sh all` are reserved for the independent
+verifier; no new full-gate, broad Rust, lint, build, deployment or final-acceptance
+pass is claimed by this slice.
