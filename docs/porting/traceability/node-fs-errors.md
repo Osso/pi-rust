@@ -10,12 +10,15 @@ Rust: `crates/pi-js-compat/src/node_fs.rs`. Pure compatibility prerequisite for 
 | `node_error_code`, `node_errno_name`: existing raw errno-first table and ErrorKind mapping moved unchanged | Shared constructed-kind and raw-code tests; coding-agent `tests/errno_codes.rs` (6 existing real exec-boundary tests) |
 | ErrorKind-only construction | 8 kinds retain existing messages/code/path; errno stays absent, including directory-read legacy path |
 | Unproven descriptions | ETXTBSY retains std text; no full libuv strerror expansion |
+| Pathless `uv_cwd` / deleted current directory | `node_fs_errors.rs::removed_current_directory_error_has_node_message_and_pathless_own_fields`; actual generator original-source/real-native-binary deleted-CWD differential preserves message, negative errno, code and syscall before fetching |
 
 ## Classified conformance fixes
 
 Real Node RED before production changes proved two Rust compatibility bugs: EISDIR directory reads incorrectly appended a path; ELOOP reads emitted std OS wording instead of `too many symbolic links encountered`. Raw EISDIR/read now has no path metadata and no path suffix. EISDIR/open retains path. ELOOP uses the proven Node description. No pinned TS source bug changed.
 
 `core::tools::node_fs::{node_fs_error,node_read_error}` and `utils::child_process::{node_errno_name,node_error_code}` re-export existing signatures. The model-data private adapter wraps the shared message in `JsString`; reads select `read` for directory errors. There is no coding-agent dependency from pi-ai. Existing model-data ELOOP and directory-read behavior is retained.
+
+Deleted-CWD generator proof first failed with native generic OS text (`80-deleted-cwd-red.log`); the shared record now preserves Node's contextual ENOENT `process.cwd` message and omits path for `uv_cwd`. Native/source CLI GREEN81 and shared filesystem suite GREEN82 are recorded under `/tmp/pi-rust-model-generator-proof`. Only filesystem foundation proof invalidates; number/date/JSON scopes are unchanged.
 
 ## Explicit gaps
 

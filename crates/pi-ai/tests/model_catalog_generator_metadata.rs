@@ -168,3 +168,58 @@ fn source_metadata_branches_merge_existing_fields_in_source_order() {
         }
     }
 }
+
+#[test]
+fn custom_provider_url_routes_and_empty_compat_deletion_match_source() {
+    let mut source = oracle::TsOracle::spawn(
+        "model-catalog-generator-oracle.ts",
+        "packages/ai/scripts/generate-models.ts",
+    );
+    for endpoint in [
+        "example.invalid",
+        "api.z.ai",
+        "open.bigmodel.cn",
+        "api.together.ai",
+        "api.together.xyz",
+        "api.moonshot.cn",
+        "openrouter.ai",
+        "api.cloudflare.com",
+        "gateway.ai.cloudflare.com",
+        "integrate.api.nvidia.com",
+        "api.ant-ling.com",
+        "API.DEEPSEEK.COM",
+        "cerebras.ai",
+        "api.x.ai",
+        "chutes.ai",
+        "opencode.ai",
+    ] {
+        for id in ["plain", "anthropic/claude", "deepseek-ai/DeepSeek-R1"] {
+            for compat in [None, Some(json!({})), Some(json!({"extra":true}))] {
+                let mut input = json!({"provider":"custom","id":id,"api":"openai-completions","baseUrl":format!("https://{endpoint}/v1"),"cost":{"cacheWrite":0}});
+                if let Some(compat) = compat {
+                    input["compat"] = compat;
+                }
+                let expected = source.request(
+                    &json!({"operation":"applyOpenAICompletionsCompatMetadata","args":[input],"mutated":true}),
+                );
+                let expected = parse_lossless(expected["json"].as_str().unwrap()).unwrap();
+                let mut actual = JsValue::from(&input);
+                apply_model_metadata(&mut actual).unwrap();
+                assert_eq!(stringify_lossless(&actual), stringify_lossless(&expected), "{input}");
+                if endpoint == "example.invalid"
+                    && input
+                        .get("compat")
+                        .is_none_or(|compat| compat.as_object().unwrap().is_empty())
+                {
+                    let JsValue::Object(fields) = actual else {
+                        panic!("model object")
+                    };
+                    assert!(
+                        !fields.contains_key(&pi_js_compat::js_json::JsString::from("compat")),
+                        "empty compat must be omitted"
+                    );
+                }
+            }
+        }
+    }
+}

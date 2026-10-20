@@ -24,7 +24,7 @@ fn main() -> ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     // Invalid arguments are rejected before any transport setup or requests.
     if let Err(error) = pi_ai::model_catalog_generator::read_generator_options(&args) {
-        eprintln!("{error}");
+        eprintln!("{}", error.console_message());
         return ExitCode::FAILURE;
     }
     let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
