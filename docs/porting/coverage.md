@@ -1,20 +1,23 @@
 # Port coverage matrix
 
-Source: `packages/` at the commit in [source-lock.json](source-lock.json). Non-test `src/**/*.ts` only (671 files, 164,076 lines).
+Source: `packages/` at the commit in [source-lock.json](source-lock.json): **819 unique files, 191,699 lines**. Includes non-test modules, declarations, native/build/tooling/example sources, templates, SQL, and JSON under `src/`; exact selection and repeatable validation: [inventory](inventory.md).
 
-Status: `todo` not started; `partial` some exports ported (see traceability); `done` whole module ported with tests; `gap` approved exclusion (reason in Notes).
+Status: `todo` unresolved coverage (not an approved exclusion); `partial` some exports ported (see traceability); `done` whole module ported with tests; `gap` approved exclusion (reason in Notes). Existing proof labels are retained, not independently revalidated by this inventory audit. Structural debt in giant Rust modules remains unresolved; this slice does not refactor them.
 
 Level = import-graph depth (0 = no internal imports); port lower levels first.
 
-## telemetry (3 files, 596 lines)
+## telemetry (6 files, 935 lines)
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
 | `telemetry/src/index.ts` | 357 | 0 | done | `crates/pi-telemetry/src/lib.rs` | Runtime contracts, schema data, and typed starter ported; TypeScript conditional type inference helpers are an explicit gap (see traceability). |
 | `telemetry/src/memory.ts` | 219 | 0 | done | `crates/pi-telemetry/src/memory.rs` | In-memory recording ported with detached snapshots; JavaScript proxy/allocation passivity branches are not representable (see traceability). |
 | `telemetry/src/noop.ts` | 20 | 0 | done | `crates/pi-telemetry/src/noop.rs` | Inert context ported; JavaScript object freezing is not applicable. |
+| `telemetry/src/testing/conformance.ts` | 315 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `telemetry/src/testing/index.ts` | 6 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `telemetry/src/testing/types.ts` | 18 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 
-## protocol (8 files, 1236 lines)
+## protocol (9 files, 1245 lines)
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
@@ -26,8 +29,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `protocol/src/cbor/index.ts` | 9 | 2 | done | `crates/pi-protocol/src/cbor/mod.rs` | Public re-exports |
 | `protocol/src/codec.ts` | 172 | 3 | done | `crates/pi-protocol/src/codec.rs` + `src/codec/*` | TS protocol test port; parse/serialize round-trips |
 | `protocol/src/index.ts` | 4 | 4 | done | `crates/pi-protocol/src/lib.rs` | Package-root re-exports |
+| `protocol/vitest.config.ts` | 9 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 
-## ai (177 files, 23710 lines)
+## ai (187 files, 27235 lines)
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
@@ -208,8 +212,18 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/src/cli.ts` | 119 | 6 | gap |  | Standalone `pi-ai` binary not ported (user decision 2026-10-18); provider OAuth login is available through the `pi` login command ([traceability](traceability/cli.md)). |
 | `ai/src/compat.ts` | 299 | 6 | done | `crates/pi-ai/src/compat/mod.rs` | Api registry, builtin registration/override identity, env-key injection, faux registration, legacy dispatch; 10 behavioral + 4 differential requests ([traceability](traceability/compat.md)). |
 | `ai/src/base.ts` | 6 | 7 | done | `crates/pi-ai/src/base.rs` | Re-exports the compat surface plus the index surface ([traceability](traceability/ai-index.md)). |
+| `ai/bedrock-provider.d.ts` | 1 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `ai/bedrock-provider.js` | 1 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `ai/scripts/check-model-data.ts` | 16 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `ai/scripts/generate-image-models.ts` | 165 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `ai/scripts/generate-models.ts` | 2976 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `ai/scripts/generate-test-image.ts` | 33 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `ai/scripts/model-data.ts` | 280 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `ai/scripts/models-dev-reasoning-options.ts` | 32 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `ai/src/providers/data-json.d.ts` | 4 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `ai/vitest.config.ts` | 17 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 
-## agent (47 files, 12044 lines)
+## agent (53 files, 13256 lines)
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
@@ -260,8 +274,14 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/compaction/branch-summarization.ts` | 282 | 12 | done | `crates/pi-agent-core/src/harness/compaction/branch_summarization.rs` | Branch collection, token-budgeted preparation, summary generation and errors; 13 behavioral tests + differential cases; see `branch-summarization.md`. |
 | `agent/src/index.ts` | 145 | 13 | done | `crates/pi-agent-core/src/lib.rs` | Every runtime export re-exported at the crate root; JS `Result` idioms and telemetry conditional-type helpers are approved typed-boundary exclusions ([traceability](traceability/agent-index.md)). |
 | `agent/src/node.ts` | 2 | 14 | done | `crates/pi-agent-core/src/node.rs` | Re-exports `NodeExecutionEnv` and the crate root; see `agent-node.md`. |
+| `agent/scripts/generate-telemetry-docs.ts` | 117 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `agent/src/harness/session/testing/conformance.ts` | 1016 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `agent/src/harness/session/testing/index.ts` | 6 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `agent/src/harness/session/testing/types.ts` | 16 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `agent/vitest.config.ts` | 25 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `agent/vitest.harness.config.ts` | 32 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 
-## tui (41 files, 18529 lines)
+## tui (45 files, 19009 lines)
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
@@ -306,8 +326,12 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `tui/src/layout.ts` | 410 | 5 | done | `crates/pi-tui/src/layout.rs` | TS layout tests ported; differential frame geometry, scrollbar, kitty crop |
 | `tui/src/tui-alt-screen.ts` | 1291 | 6 | done | `crates/pi-tui/src/tui_alt_screen.rs` | 36 TS test cases + 23-scenario differential (full write stream and viewport/scroll/search state) |
 | `tui/src/index.ts` | 161 | 7 | done | `crates/pi-tui/src/lib.rs` | Every source export maps to a package-root path; `Key` and `Marked` differential in `tests/index_exports.rs` ([traceability](traceability/tui-index.md)) |
+| `tui/native/darwin/build.sh` | 62 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `tui/native/darwin/src/darwin-modifiers.c` | 70 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `tui/native/win32/build.mjs` | 229 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `tui/native/win32/src/win32-console-mode.c` | 119 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 
-## client (10 files, 1225 lines)
+## client (11 files, 1240 lines)
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
@@ -321,8 +345,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `client/src/state.ts` | 156 | 6 | done | `crates/pi-client/src/state.rs` | Snapshot reduction, listener isolation |
 | `client/src/client.ts` | 432 | 7 | done | `crates/pi-client/src/client.rs` | Requests, leases, attachment serialization |
 | `client/src/index.ts` | 18 | 8 | done | `crates/pi-client/src/lib.rs` | Public re-exports; static connect renamed `connect_new` |
+| `client/vitest.config.ts` | 15 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 
-## server (17 files, 2305 lines)
+## server (18 files, 2320 lines)
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
@@ -343,8 +368,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `server/src/testing/index.ts` | 5 | 6 | done | `crates/pi-server/src/testing/mod.rs` | Testing re-exports |
 | `server/src/testing/server.ts` | 27 | 6 | done | `crates/pi-server/src/testing/server.rs` | Deterministic test server factory |
 | `server/src/testing/service.ts` | 287 | 6 | done | `crates/pi-server/src/testing/service.rs` | In-memory service/runtime with shared snapshots |
+| `server/vitest.config.ts` | 15 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 
-## session-backends (18 files, 2389 lines)
+## session-backends (21 files, 2579 lines)
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
@@ -366,8 +392,11 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `session-backends/sqlite-node/src/sqlite/repo.ts` | 953 | 18 | done | `crates/pi-session-sqlite/src/sqlite/repo/{mod,storage,decode,fork}.rs` | Repository + `SessionStorage` impl, writer leases/heartbeat, forks; raw SQLite errors surface as `storage`. |
 | `session-backends/sqlite-node/src/sqlite/index.ts` | 18 | 19 | done | `crates/pi-session-sqlite/src/sqlite/mod.rs` | Re-exports. |
 | `session-backends/sqlite-node/src/index.ts` | 114 | 20 | done | `crates/pi-session-sqlite/src/sqlite/connection.rs + src/lib.rs` | node:sqlite adapter becomes rusqlite connection/transaction; async-callback and factory-injection cases are documented gaps. |
+| `session-backends/sqlite-node/scripts/prepare-dist.mjs` | 35 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `session-backends/sqlite-node/src/sqlite/migrations/001_initial.sql` | 122 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `session-backends/sqlite-node/vitest.config.ts` | 33 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 
-## coding-agent (346 files, 101231 lines)
+## coding-agent (459 files, 122486 lines)
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
@@ -447,7 +476,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/core/tools/path-utils.ts` | 118 | 2 | done | `crates/pi-coding-agent/src/core/tools/path_utils.rs` | all TS tests ported + differential; NFD via `pi_agent_core::unicode` |
 | `coding-agent/src/core/model-runtime.ts` | 795 | 2 | done | `crates/pi-coding-agent/src/core/model_runtime.rs` | Configured Models collection: builtin/models.json/extension composition, availability snapshots, serialized credential operations, auth/stream/deferred paths; runtime tests port model-runtime-* and registry runtime cases; differential oracle over temp models.json/auth fixtures (providers, models, errors, statuses, auth, compatibility). Interactive login/logout and deferred providers untested (gaps in traceability). |
 | `coding-agent/src/core/model-resolver.ts` | 780 | 2 | done | `crates/pi-coding-agent/src/core/model_resolver.rs` | Exact/fuzzy/canonical matching, thinking suffixes, scope globs, CLI resolution, initial/restore selection; differential oracle (parse/scope/cli/defaults/exact/initial). `process.exit` becomes `Err`; restore logs go to stderr. |
-| `coding-agent/src/core/provider-composer.ts` | 573 | 2 | done | `crates/pi-coding-agent/src/core/provider_composer.rs` | Built-in + models.json + extension layers, compat/override merges, auth wrappers, configured headers/status, refresh/filter/deferred delegation; tests port model-registry composition cases. |
+| `coding-agent/src/core/provider-composer.ts` | 572 | 2 | done | `crates/pi-coding-agent/src/core/provider_composer.rs` | Built-in + models.json + extension layers, compat/override merges, auth wrappers, configured headers/status, refresh/filter/deferred delegation; tests port model-registry composition cases. |
 | `coding-agent/src/utils/clipboard.ts` | 175 | 2 | done | `crates/pi-coding-agent/src/utils/clipboard.rs` | Fake-tool PATH scenarios plus captured OSC 52 output; no differential (process/OS module) |
 | `coding-agent/src/utils/image-convert.ts` | 49 | 2 | done | `crates/pi-coding-agent/src/utils/image_convert.rs` | Differential 27101/27102; synchronous (no loadPhoton) |
 | `coding-agent/src/utils/image-resize-core.ts` | 164 | 2 | done | `crates/pi-coding-agent/src/utils/image_resize_core.rs` | Differential 27103 (15 fixtures: limits, quality steps, degenerate targets) |
@@ -717,8 +746,121 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/src/cli/experimental/commands/pi.ts` | 47 | 24 | done | `crates/pi-coding-agent/src/cli/experimental/commands/pi.rs` | Pi command builder/action incl. `--connect` rejection ([traceability](traceability/experimental-cli.md)). |
 | `coding-agent/src/cli/experimental/commands/server.ts` | 44 | 24 | done | `crates/pi-coding-agent/src/cli/experimental/commands/server.rs` | Server command builder/action ([traceability](traceability/experimental-cli.md)). |
 | `coding-agent/src/cli/experimental/cli.ts` | 7 | 25 | done | `crates/pi-coding-agent/src/cli/experimental/cli.rs` | Union invocation and context composition ([traceability](traceability/experimental-cli.md)). |
+| `coding-agent/examples/extensions/auto-commit-on-exit.ts` | 49 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/bash-spawn-hook.ts` | 30 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/bookmark.ts` | 50 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/border-status-editor.ts` | 150 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/built-in-tool-renderer.ts` | 249 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/claude-rules.ts` | 86 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/commands.ts` | 72 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/confirm-destructive.ts` | 59 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/custom-compaction.ts` | 117 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/custom-footer.ts` | 64 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/custom-header.ts` | 73 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/custom-provider-anthropic/index.ts` | 611 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/custom-provider-gitlab-duo/index.ts` | 405 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/dirty-repo-guard.ts` | 56 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/doom-overlay/doom-component.ts` | 132 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/doom-overlay/doom-engine.ts` | 173 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/doom-overlay/doom-keys.ts` | 104 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/doom-overlay/doom/build.sh` | 152 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/doom-overlay/doom/build/doom.js` | 21 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/doom-overlay/doom/doomgeneric_pi.c` | 72 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/doom-overlay/index.ts` | 74 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/doom-overlay/wad-finder.ts` | 55 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/dynamic-resources/index.ts` | 15 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/dynamic-tools.ts` | 74 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/entry-renderer.ts` | 41 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/event-bus.ts` | 43 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/file-trigger.ts` | 41 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/git-checkpoint.ts` | 53 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/git-merge-and-resolve.ts` | 115 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/github-issue-autocomplete.ts` | 185 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/gondolin/index.ts` | 531 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/handoff.ts` | 190 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/hello.ts` | 26 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/hidden-thinking-label.ts` | 53 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/inline-bash.ts` | 94 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/input-transform-streaming.ts` | 39 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/input-transform.ts` | 43 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/interactive-shell.ts` | 196 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/kimi-deferred-tools.ts` | 61 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/mac-system-theme.ts` | 47 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/message-renderer.ts` | 59 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/minimal-mode.ts` | 426 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/modal-editor.ts` | 85 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/model-status.ts` | 31 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/notify.ts` | 55 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/overlay-qa-tests.ts` | 1450 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/overlay-test.ts` | 153 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/permission-gate.ts` | 34 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/pirate.ts` | 47 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/plan-mode/index.ts` | 390 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/plan-mode/utils.ts` | 168 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/preset.ts` | 437 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/project-trust.ts` | 64 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/prompt-customizer.ts` | 97 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/protected-paths.ts` | 30 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/provider-payload.ts` | 18 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/qna.ts` | 118 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/question.ts` | 286 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/questionnaire.ts` | 448 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/rainbow-editor.ts` | 88 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/reload-runtime.ts` | 37 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/rpc-demo.ts` | 118 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/sandbox/index.ts` | 321 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/send-user-message.ts` | 97 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/session-name.ts` | 27 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/shutdown-command.ts` | 63 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/snake.ts` | 343 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/space-invaders.ts` | 560 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/ssh.ts` | 220 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/status-line.ts` | 32 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/structured-output.ts` | 65 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/subagent/agents.ts` | 126 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/subagent/index.ts` | 1033 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/summarize.ts` | 199 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/system-prompt-header.ts` | 17 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/tic-tac-toe.ts` | 1008 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/timed-confirm.ts` | 70 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/titlebar-spinner.ts` | 58 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/todo.ts` | 297 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/tool-override.ts` | 144 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/tools.ts` | 146 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/trigger-compact.ts` | 50 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/truncated-tool.ts` | 195 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/widget-placement.ts` | 9 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/with-deps/index.ts` | 32 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/working-indicator.ts` | 123 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/working-message-test.ts` | 25 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/rpc-extension-ui.ts` | 641 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/sdk/01-minimal.ts` | 26 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/sdk/02-custom-model.ts` | 49 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/sdk/03-custom-prompt.ts` | 75 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/sdk/04-skills.ts` | 55 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/sdk/05-tools.ts` | 48 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/sdk/06-extensions.ts` | 99 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/sdk/07-context-files.ts` | 47 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/sdk/08-prompt-templates.ts` | 51 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/sdk/09-api-keys-and-oauth.ts` | 34 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/sdk/10-settings.ts` | 53 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/sdk/11-sessions.ts` | 52 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/sdk/12-full-control.ts` | 76 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/sdk/13-session-runtime.ts` | 67 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/extensions/bwrap/src/fs-worker.cjs` | 313 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/scripts/migrate-sessions.sh` | 93 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/src/core/export-html/template.css` | 1066 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/src/core/export-html/template.html` | 55 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/src/core/export-html/template.js` | 1864 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/src/core/export-html/vendor/highlight.min.js` | 1213 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/src/core/export-html/vendor/marked.min.js` | 78 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/src/modes/interactive/theme/dark.json` | 90 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/src/modes/interactive/theme/light.json` | 89 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/src/modes/interactive/theme/theme-schema.json` | 352 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/src/utils/highlight-js-lib-index.d.ts` | 19 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/vitest.config.ts` | 50 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 
-## evals (8 files, 1277 lines)
+## evals (10 files, 1394 lines)
 
 | Source | Lines | Level | Status | Rust | Notes |
 |---|---:|---:|---|---|---|
@@ -730,3 +872,5 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `evals/src/pi-harness.ts` | 257 | 23 | done | `crates/pi-evals/src/pi_harness.rs` | Model-selection differential; faux-provider runs cover prompts, reload, tools, transforms, abort, stop reasons, usage, and session snapshots ([traceability](traceability/evals-pi-harness.md)). |
 | `evals/src/extensions.eval.ts` | 140 | 24 | done | `crates/pi-evals/src/evals/extensions.rs` + `tests/extensions_eval.rs` | Harness factory, prompt transforms, judge, and comparative table; live run opt-in via `PI_PROVIDER`/`PI_MODEL` ([traceability](traceability/evals-extensions-eval.md)). |
 | `evals/src/smoke.eval.ts` | 17 | 24 | done | `crates/pi-evals/src/evals/smoke.rs` + `tests/smoke_eval.rs` | Smoke harness and faux end-to-end run; live run opt-in via `PI_PROVIDER`/`PI_MODEL` ([traceability](traceability/evals-smoke-eval.md)). |
+| `evals/scripts/run-evals.mjs` | 97 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `evals/vitest.config.ts` | 20 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
