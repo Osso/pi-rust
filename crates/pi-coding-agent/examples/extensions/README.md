@@ -104,3 +104,32 @@ the pinned example's mutable custom-entry data aliasing; see
 `preset.rs` exports `preset_extension(&ExtensionApi)`. Register its factory
 explicitly; it reads global/project `presets.json` on session start. No providers
 are called by this example. Config loading failures are printed, matching TS.
+
+## Batch F examples
+
+Embed `with_deps.rs` (`with_deps_extension`) for `parse_duration`, and
+`inline_bash.rs` (`inline_bash_extension`) for prompt expansion. Register each
+factory explicitly as above. Inline commands execute in the loaded cwd; enable
+only for trusted prompts. Native duration parsing matches the example's npm `ms`
+string overload without adding dependencies.
+
+`tool_override.rs` (`tool_override_extension`) registers audited `read` and
+`/read-log`; audit output goes to the configured agent directory. `todo.rs`
+(`todo_extension`) registers `todo` and `/todos`, restoring tool-result state
+from the current session branch. Both require explicit factory registration.
+
+`tools.rs` (`tools_extension`) provides `/tools`, with branch-local persisted
+selection. `truncated_tool.rs` (`truncated_tool_extension`) provides `rg`, storing
+truncated full output in a private temporary directory. Its shell-joined command
+matches the pinned example; enable only for trusted tool inputs.
+
+`custom_compaction.rs` (`custom_compaction_extension`) summarizes all prepared
+messages using registry model `google/gemini-2.5-flash`. `qna.rs`
+(`qna_extension`) extracts questions using the current model into the editor.
+Both can make model requests when explicitly enabled; tests use private faux
+providers only.
+
+Todo parity is **partial**: native session snapshots cannot reproduce the pinned
+example's mutation of stored tool-result details by reference. See
+[batch F traceability](../../../../docs/porting/traceability/extension-examples-f.md)
+for the blocked API and test.
