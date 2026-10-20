@@ -10,19 +10,24 @@ use std::{io::Write, sync::Arc};
 struct Output {
     trace: harness::Trace,
     fail: bool,
+    pending: Vec<u8>,
 }
 impl Write for Output {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.fail {
             return Err(std::io::Error::other("stdout closed"));
         }
-        self.trace
-            .lock()
-            .unwrap()
-            .push(json!(["stdout", std::str::from_utf8(bytes).unwrap()]));
+        self.pending.extend_from_slice(bytes);
         Ok(bytes.len())
     }
     fn flush(&mut self) -> std::io::Result<()> {
+        if !self.pending.is_empty() {
+            self.trace
+                .lock()
+                .unwrap()
+                .push(json!(["stdout", std::str::from_utf8(&self.pending).unwrap()]));
+            self.pending.clear();
+        }
         Ok(())
     }
 }
@@ -51,6 +56,7 @@ async fn protocols_precedence_external_fixture_and_output_errors_match_ts() {
                     Output {
                         trace: trace.clone(),
                         fail,
+                        pending: Vec::new(),
                     },
                 );
                 Box::pin(async move { result })
@@ -91,6 +97,7 @@ async fn protocols_precedence_external_fixture_and_output_errors_match_ts() {
                     Output {
                         trace: trace.clone(),
                         fail: false,
+                        pending: Vec::new(),
                     },
                 );
                 Box::pin(async move { result })

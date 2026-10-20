@@ -59,6 +59,8 @@ pub fn notify_with_output(pi: &ExtensionApi, output: impl Write + Send + 'static
                 output
                     .write_all(sequence.as_bytes())
                     .map_err(|error| HandlerError::new(error.to_string()))?;
+                // OSC sequences have no newline; don't leave them in Stdout's buffer.
+                output.flush().map_err(|error| HandlerError::new(error.to_string()))?;
             }
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>

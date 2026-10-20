@@ -8,7 +8,7 @@ Rust paths below are under `crates/pi-coding-agent/examples/extensions/`; tests 
 | Pinned source lines / symbols and branches | Rust implementation | Behavioral proof |
 |---|---|---|
 | notify.ts:11–23 `windowsToastScript` | `notify.rs::windows_toast_script` preserves complete script and argv | `example_notify`: private executable records actual argv |
-| notify.ts:25–39 OSC 777 / two OSC 99 writes / Windows process | `notify_with_output`, `spawn_windows_notification` | Same test: exact byte/chunk order, stdout failure, missing executable |
+| notify.ts:25–39 OSC 777 / two OSC 99 writes / Windows process | `notify_with_output`, `spawn_windows_notification` | Same test: exact byte/chunk order visible through buffered terminal writer, stdout failure, missing executable |
 | notify.ts:41–55 environment precedence and agent_end | `notify_extension`, `notify_with_output` | Same test: default, Kitty, WT+Kitty precedence, no notifications during registration |
 | titlebar-spinner.ts:13–20 frames, base title | `titlebar_spinner.rs::FRAMES`, `read_base_title` | `example_titlebar_spinner`: all frames, wrap, session/no session, live rename and reset, process cwd |
 | titlebar-spinner.ts:23–58 timer state, stop/start, agent events/shutdown | `stop_animation`, `start_animation`, `titlebar_spinner_extension` | Same test: virtual 80ms ticks, repeated start resets frame, end/shutdown cancel future ticks |
