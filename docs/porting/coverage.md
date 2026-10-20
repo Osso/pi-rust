@@ -779,7 +779,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/examples/extensions/github-issue-autocomplete.ts` | 185 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/gondolin/index.ts` | 531 | — | gap | — | User-approved waiver 2026-10-20: requires third-party `@earendil-works/gondolin` sandbox runtime. |
 | `coding-agent/examples/extensions/handoff.ts` | 190 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/examples/extensions/hello.ts` | 26 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/hello.ts` | 26 | `crates/pi-coding-agent/examples/extensions/hello.rs` | done | `example_hello` | Opt-in native embedding; actual pinned loader/runner differential ([trace](traceability/extension-examples-a.md)). |
 | `coding-agent/examples/extensions/hidden-thinking-label.ts` | 53 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/inline-bash.ts` | 94 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/input-transform-streaming.ts` | 39 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
@@ -795,7 +795,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/examples/extensions/overlay-qa-tests.ts` | 1450 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/overlay-test.ts` | 153 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/permission-gate.ts` | 34 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/examples/extensions/pirate.ts` | 47 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/pirate.ts` | 47 | `crates/pi-coding-agent/examples/extensions/pirate.rs` | done | `example_pirate` | Opt-in native embedding; actual pinned loader/runner differential ([trace](traceability/extension-examples-a.md)). |
 | `coding-agent/examples/extensions/plan-mode/index.ts` | 390 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/plan-mode/utils.ts` | 168 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/preset.ts` | 437 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
@@ -811,7 +811,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/examples/extensions/rpc-demo.ts` | 118 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/sandbox/index.ts` | 321 | — | gap | — | User-approved waiver 2026-10-20: requires third-party `@anthropic-ai/sandbox-runtime`. |
 | `coding-agent/examples/extensions/send-user-message.ts` | 97 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/examples/extensions/session-name.ts` | 27 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/session-name.ts` | 27 | `crates/pi-coding-agent/examples/extensions/session_name.rs` | done | `example_session_name` | Opt-in native embedding; actual pinned loader/runner differential ([trace](traceability/extension-examples-a.md)). |
 | `coding-agent/examples/extensions/shutdown-command.ts` | 63 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/snake.ts` | 343 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/space-invaders.ts` | 560 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
@@ -821,7 +821,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `coding-agent/examples/extensions/subagent/agents.ts` | 126 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/subagent/index.ts` | 1033 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/summarize.ts` | 199 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `coding-agent/examples/extensions/system-prompt-header.ts` | 17 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `coding-agent/examples/extensions/system-prompt-header.ts` | 17 | `crates/pi-coding-agent/examples/extensions/system_prompt_header.rs` | done | `example_system_prompt_header` | Opt-in native embedding; actual pinned loader/runner differential ([trace](traceability/extension-examples-a.md)). |
 | `coding-agent/examples/extensions/tic-tac-toe.ts` | 1008 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/timed-confirm.ts` | 70 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `coding-agent/examples/extensions/titlebar-spinner.ts` | 58 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |

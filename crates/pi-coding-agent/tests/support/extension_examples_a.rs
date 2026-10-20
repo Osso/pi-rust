@@ -33,8 +33,25 @@ impl ExtensionUiContext for CaptureUi {
     }
 }
 
-pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> Value {
+pub async fn compare(name: &str, factory: impl FnOnce(Trace) -> ExtensionFactory, mut request: Value) -> Value {
     let actual = run(factory, &request).await;
+    // Replay only the observed nondeterministic clock values. Assert the native
+    // generated timestamp's wall-clock bounds separately in example_bookmark.
+    if name == "bookmark" {
+        request["times"] = json!(
+            actual["trace"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|action| {
+                    if action[0] != "setLabel" {
+                        return None;
+                    }
+                    action[2].as_str()?.strip_prefix("bookmark-")?.parse::<u64>().ok()
+                })
+                .collect::<Vec<_>>()
+        );
+    }
     let mut oracle = oracle::TsOracle::spawn(
         "extension-examples-a-oracle.ts",
         &format!("packages/coding-agent/examples/extensions/{name}.ts"),
@@ -44,8 +61,9 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     actual
 }
 
-pub async fn run(factory: ExtensionFactory, request: &Value) -> Value {
+async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -> Value {
     let trace: Trace = Arc::default();
+    let factory = factory(trace.clone());
     let runtime = support::runtime();
     let bus = support::event_bus();
     let mut registry = ExtensionRegistry::new();
@@ -228,9 +246,11 @@ pub async fn run(factory: ExtensionFactory, request: &Value) -> Value {
     json!({"commands":commands, "tools":tools, "trace":trace.lock().unwrap().clone()})
 }
 
-pub fn factory(register: fn(&ExtensionApi) -> Result<(), HandlerError>) -> ExtensionFactory {
-    Arc::new(move |api| {
-        let result = register(api);
-        Box::pin(async move { result })
-    })
+pub fn factory(register: fn(&ExtensionApi) -> Result<(), HandlerError>) -> impl FnOnce(Trace) -> ExtensionFactory {
+    move |_trace| {
+        Arc::new(move |api| {
+            let result = register(api);
+            Box::pin(async move { result })
+        })
+    }
 }

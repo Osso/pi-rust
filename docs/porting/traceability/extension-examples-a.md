@@ -30,6 +30,25 @@ new semantic deviation identified in these four examples.
 Exact commands, revisions/scopes, results and logs:
 `/tmp/pi-rust-ext-examples-a/ledger.md`, `NN-*.log`.
 Only `cargo test -p pi-coding-agent --test example_<name>` and formatting run.
-Four missing-module REDs observed before these implementations. GREEN pending.
+Eight missing-module REDs observed before implementations. First four GREEN at
+`cb195ea`; remaining four GREEN pending. The shared output/clock fixture change
+requires refreshing the first four targeted proofs after integration.
 
-Remaining batch: bookmark, event-bus, model-status, status-line.
+| Source / lines | Native entrypoint | Behavioral target / branches |
+| --- | --- | --- |
+| `bookmark.ts:12–50` | `bookmark.rs::bookmark_extension` | `example_bookmark`: absent assistant/labels; reverse scan past user/label entries; latest assistant; latest labeled non-assistant; successive removals; JS trim; generated milliseconds; set/remove errors |
+| `event-bus.ts:12–43` | `event_bus.rs::event_bus_extension` | `example_event_bus`: before-context silence; ordered session-start context capture then emission; defaults/trim; real peer bus delivery; unrelated channel; repeated session start |
+| `model-status.ts:12–31` | `model_status.rs::{model_status_extension,model_status_with_output}` | `example_model_status`: set/cycle/restore/fallback; absent/present previous model; Unicode identifiers; exact notification/status/console order |
+| `status-line.ts:10–32` | `status_line.rs::status_line_extension` | `example_status_line`: Ready; zero-turn end; turn start/end colors; count survives session start and ignores turnIndex |
+
+`model_status_extension` uses stdout; its example-local writer entrypoint lets
+embedding hosts route console output. No core API was added. The test captures
+complete log lines in the same ordered trace as UI effects. `event_bus.rs`
+accepts the source's declared `{message: string, from: string}` notification
+domain; invalid JavaScript data types remain excluded by compatibility policy.
+
+The bookmark oracle replays the generated native wall-clock milliseconds only;
+the test independently bounds the timestamp by real before/after clock readings.
+Random SessionManager entry IDs are compared by position in each manager's real
+entry list; selected targets and durable in-memory labels are asserted.
+No missing API identified.
