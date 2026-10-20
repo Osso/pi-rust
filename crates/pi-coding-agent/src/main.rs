@@ -97,7 +97,7 @@ use crate::utils::chalk::Chalk;
 use crate::utils::git_project::read_git_common_directory;
 use crate::utils::git_worktree::resolve_worktree;
 use crate::utils::iso_time::now_iso_string;
-use crate::utils::paths::{PathInputOptions, is_local_path, normalize_path, resolve_path};
+use crate::utils::paths::{PathInputOptions, is_local_path, normalize_path, process_cwd, resolve_path};
 use crate::utils::windows_self_update::cleanup_windows_self_update_quarantine;
 
 /// `process.exit(code)` represented as an error so helpers can stop the flow.
@@ -1089,12 +1089,6 @@ pub enum ResolvedSession {
     Local(String),
     Global { path: String, cwd: String },
     NotFound(String),
-}
-
-fn process_cwd() -> String {
-    std::env::current_dir()
-        .map(|path| path.display().to_string())
-        .unwrap_or_default()
 }
 
 fn resolve_from_cwd(input: &str) -> Result<String, String> {

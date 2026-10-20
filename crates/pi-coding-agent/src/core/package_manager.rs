@@ -616,6 +616,18 @@ fn read_dir_entries(dir: &Path) -> Vec<std::fs::DirEntry> {
     entries.filter_map(Result::ok).collect()
 }
 
+/// Reads a visible directory entry, skipping dotfiles, `node_modules`, and
+/// entries whose metadata cannot be read.
+fn read_visible_entry(dir: &str, entry: &std::fs::DirEntry) -> Option<(String, String, std::fs::Metadata)> {
+    let name = entry.file_name().to_string_lossy().into_owned();
+    if name.starts_with('.') || name == "node_modules" {
+        return None;
+    }
+    let path = Path::new(dir).join(&name);
+    let metadata = std::fs::metadata(&path).ok()?;
+    Some((name, path.to_string_lossy().into_owned(), metadata))
+}
+
 fn collect_files(
     dir: &str,
     resource_type: ResourceType,
@@ -685,15 +697,9 @@ fn collect_skill_entries(dir: &str, mode: SkillDiscoveryMode, ignore: &mut Ignor
     }
 
     for entry in &dir_entries {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') || name == "node_modules" {
-            continue;
-        }
-        let full_path = Path::new(dir).join(&name);
-        let Ok(metadata) = std::fs::metadata(&full_path) else {
+        let Some((name, full_path, metadata)) = read_visible_entry(dir, entry) else {
             continue;
         };
-        let full_path = full_path.to_string_lossy().into_owned();
         let rel_path = to_posix_path(&relative_path(root_dir, &full_path));
         if mode == SkillDiscoveryMode::Pi
             && dir == root_dir
@@ -768,15 +774,9 @@ fn collect_flat_files(dir: &str, suffix: &str) -> Vec<String> {
     add_ignore_rules(&mut ignore, dir, dir);
 
     for entry in read_dir_entries(Path::new(dir)) {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') || name == "node_modules" {
-            continue;
-        }
-        let full_path = Path::new(dir).join(&name);
-        let Ok(metadata) = std::fs::metadata(&full_path) else {
+        let Some((name, full_path, metadata)) = read_visible_entry(dir, &entry) else {
             continue;
         };
-        let full_path = full_path.to_string_lossy().into_owned();
         let rel_path = to_posix_path(&relative_path(dir, &full_path));
         if ignore.ignores(&rel_path, false) {
             continue;
@@ -838,15 +838,9 @@ fn collect_auto_extension_entries(dir: &str) -> Vec<String> {
     add_ignore_rules(&mut ignore, dir, dir);
 
     for entry in read_dir_entries(Path::new(dir)) {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') || name == "node_modules" {
-            continue;
-        }
-        let full_path = Path::new(dir).join(&name);
-        let Ok(metadata) = std::fs::metadata(&full_path) else {
+        let Some((name, full_path, metadata)) = read_visible_entry(dir, &entry) else {
             continue;
         };
-        let full_path = full_path.to_string_lossy().into_owned();
         let rel_path = to_posix_path(&relative_path(dir, &full_path));
         if ignore.ignores(&rel_path, metadata.is_dir()) {
             continue;

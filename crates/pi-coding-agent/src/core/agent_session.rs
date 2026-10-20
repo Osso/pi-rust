@@ -1,8 +1,6 @@
 //! Port of `packages/coding-agent/src/core/agent-session.ts`.
 //!
-//! Extension-runner, permission-reviewer, supervisor, multi-agent, and
-//! control-db metadata integration are owned by parallel slices; every call
-//! site that would reach them is recorded as a gap in
+//! Gaps against the source are recorded in
 //! `docs/porting/traceability/agent-session.md`.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -22,7 +20,7 @@ use pi_agent_core::harness::messages::{
 };
 use pi_agent_core::harness::types::BeforeToolCallResult;
 use pi_agent_core::harness::types::ThinkingLevel;
-use pi_ai::request::BoxFuture;
+use pi_ai::request::{BoxFuture, now_millis};
 use pi_ai::types::{
     AssistantContent, AssistantMessage, ImageContent, InputSource, Model, ProviderHeaders, ProviderRetryEvent,
     StopReason, TextContent, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
@@ -155,8 +153,7 @@ pub enum StreamingBehavior {
 
 /// One tool definition plus its executable.
 ///
-/// Mirrors `ToolDefinition` from `extensions/types.ts`; it moves to
-/// `ca-extensions-api` when that slice merges.
+/// Mirrors `ToolDefinition` from `extensions/types.ts`.
 #[derive(Clone)]
 pub struct ToolDefinition {
     pub name: String,
@@ -797,7 +794,7 @@ pub(crate) fn thinking_level_from_model(level: pi_ai::types::ModelThinkingLevel)
     }
 }
 
-fn model_thinking_level(level: ThinkingLevel) -> pi_ai::types::ModelThinkingLevel {
+pub(crate) fn model_thinking_level(level: ThinkingLevel) -> pi_ai::types::ModelThinkingLevel {
     match level {
         ThinkingLevel::Off => pi_ai::types::ModelThinkingLevel::Off,
         ThinkingLevel::Minimal => pi_ai::types::ModelThinkingLevel::Minimal,
@@ -2424,7 +2421,7 @@ impl AgentSession {
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
             return;
         };
-        let now = pi_ai::request::now_millis();
+        let now = now_millis();
         let last_cleanup = *lock(&self.inner.terminal_outbox_last_cleanup_at);
         if is_terminal_outbox_cleanup_due(last_cleanup, now) {
             let _ = crate::core::session_control_db::cleanup_multi_agent_terminal_outbox(
@@ -4466,8 +4463,8 @@ impl AgentSession {
     }
 
     fn throw_if_extension_command(&self, _text: &str) {
-        // Extension commands are owned by `ca-extensions-api`; no command can
-        // be registered until that slice merges.
+        // The source throws for registered extension commands; this port does not
+        // perform the lookup yet.
     }
 
     async fn queue_steer(&self, text: &str, images: &[ImageContent], source: Option<InputSource>) {
@@ -5168,13 +5165,6 @@ fn should_continue_after_manual_compaction(messages: &[AgentMessage]) -> bool {
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-fn now_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 fn normalize_prompt_snippet(text: Option<&str>) -> Option<String> {
@@ -6925,7 +6915,7 @@ impl AgentSession {
 
     /// Whether extensions have handlers for a given event type.
     ///
-    /// Always false until `ca-extensions-api` merges.
+    /// Not wired to the extension runner yet.
     pub fn has_extension_handlers(&self, _event_type: &str) -> bool {
         false
     }
@@ -7940,7 +7930,7 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
                     match session.compact(custom.as_deref()).await {
                         Ok(_result) => {
                             // `on_complete` expects the coding-agent compaction result
-                            // type (ca-compaction-export); recorded gap.
+                            // type; the result is not forwarded yet.
                         }
                         Err(error) => {
                             if let Some(on_error) = options.as_ref().and_then(|options| options.on_error.clone()) {

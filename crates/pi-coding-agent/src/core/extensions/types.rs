@@ -445,12 +445,8 @@ pub struct ThemeSetResult {
     pub error: Option<String>,
 }
 
-/// UI surface exposed to extensions. Defaults match the source `noOpUIContext`.
-///
-/// Component-factory overloads (`setWidget` factory form, `setFooter`,
-/// `setDefaultFooter`, `setHeader`, `custom`, `addAutocompleteProvider`,
-/// `setEditorComponent`, `getEditorComponent`, and the `Theme` object
-/// accessors) are tracked as gaps pending the interactive TUI/theme port.
+/// UI surface exposed to extensions. Defaults match the source `noOpUIContext`;
+/// the interactive and RPC modes override the methods they support.
 pub trait ExtensionUiContext: Send + Sync {
     fn select<'a>(
         &'a self,

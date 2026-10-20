@@ -40,7 +40,7 @@ use crate::supervisor::project_resolver::DEFAULT_SUPERVISOR_KB_DIR;
 use crate::supervisor::request_wake::{SupervisorRequestWakeServer, notify_supervisor_request};
 use crate::supervisor::response_tool::{SUPERVISOR_RESPONSE_TOOL_NAME, create_supervisor_response_tool};
 use crate::supervisor::service::{RunSupervisorRequestInput, SupervisorEvaluator, run_supervisor_request};
-use crate::utils::paths::resolve_path;
+use crate::utils::paths::{process_cwd, resolve_path};
 
 pub const SUPERVISOR_SESSION_ID: &str = "supervisor";
 pub const SUPERVISOR_COMPACTION_PERCENT: f64 = 75.0;
@@ -178,12 +178,6 @@ fn resolve_existing_path(path: &str) -> Option<String> {
 
 fn is_path_within_root(path: &str, root: &str) -> bool {
     path == root || path.starts_with(&format!("{root}{}", std::path::MAIN_SEPARATOR))
-}
-
-fn process_cwd() -> String {
-    std::env::current_dir()
-        .map(|path| path.display().to_string())
-        .unwrap_or_default()
 }
 
 /// `createSupervisorConsoleSnapshot`.

@@ -31,7 +31,7 @@ use crate::core::session_control_db::{
 };
 use crate::core::session_tool_output::serialize_session_entry_for_persistence;
 use crate::utils::iso_time;
-use crate::utils::paths::{PathInputOptions, normalize_path, resolve_path};
+use crate::utils::paths::{PathInputOptions, normalize_path, process_cwd, resolve_path};
 
 /// Current persisted session schema version.
 pub const CURRENT_SESSION_VERSION: f64 = 3.0;
@@ -73,12 +73,6 @@ fn error(message: impl Into<String>) -> SessionManagerError {
 
 fn path_options() -> PathInputOptions {
     PathInputOptions::default()
-}
-
-fn process_cwd() -> String {
-    std::env::current_dir()
-        .map(|path| path.display().to_string())
-        .unwrap_or_default()
 }
 
 fn resolve(input: &str) -> Result<String, SessionManagerError> {

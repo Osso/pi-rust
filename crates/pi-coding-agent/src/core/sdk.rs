@@ -1,8 +1,6 @@
 //! Port of `packages/coding-agent/src/core/sdk.ts`.
 //!
-//! Default resource discovery and tool factories are owned by parallel slices;
-//! callers must inject a resource loader and base tools until those land. See
-//! `docs/porting/traceability/sdk.md`.
+//! See `docs/porting/traceability/sdk.md`.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -19,6 +17,7 @@ use serde_json::Value;
 use crate::config::get_agent_dir;
 use crate::core::agent_session::{
     AgentSession, AgentSessionConfig, MultiAgentExecutionCapability, MultiAgentRuntimeRole, ToolDefinition,
+    model_thinking_level, thinking_level_from_model,
 };
 use crate::core::auth_guidance::format_no_models_available_message;
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
@@ -327,13 +326,11 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         let settings = Arc::clone(&settings);
         let model_runtime = model_runtime.clone();
         let session_ref = Arc::clone(&session_ref);
-        let session_id = session_id.clone();
         let extension_runner_ref = Arc::clone(&extension_runner_ref);
         Arc::new(move |model: Model, context, mut options: SimpleStreamOptions| {
             let settings = Arc::clone(&settings);
             let model_runtime = model_runtime.clone();
             let session_ref = Arc::clone(&session_ref);
-            let session_id = session_id.clone();
             let extension_runner_ref = Arc::clone(&extension_runner_ref);
             Box::pin(async move {
                 let provider_retry = lock(&settings).get_provider_retry_settings();
@@ -448,7 +445,6 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
                         }
                     },
                 ));
-                let _ = session_id;
                 model_runtime.stream_simple(model, context, options)
             })
         })
@@ -560,22 +556,7 @@ fn block_images(message: Message) -> Message {
             if let UserContent::Blocks(blocks) = &user.content
                 && blocks.iter().any(|block| matches!(block, TextOrImageContent::Image(_)))
             {
-                let mut filtered: Vec<TextOrImageContent> = Vec::new();
-                for block in blocks {
-                    match block {
-                        TextOrImageContent::Image(_) => {
-                            push_placeholder(&mut filtered);
-                        }
-                        TextOrImageContent::Text(text) => {
-                            if text.text == "Image reading is disabled." {
-                                push_placeholder(&mut filtered);
-                            } else {
-                                filtered.push(TextOrImageContent::Text(text.clone()));
-                            }
-                        }
-                    }
-                }
-                user.content = UserContent::Blocks(filtered);
+                user.content = UserContent::Blocks(block_image_blocks(blocks));
             }
             Message::User(user)
         }
@@ -585,25 +566,26 @@ fn block_images(message: Message) -> Message {
                 .iter()
                 .any(|block| matches!(block, TextOrImageContent::Image(_)))
             {
-                let mut filtered: Vec<TextOrImageContent> = Vec::new();
-                for block in result.content {
-                    match block {
-                        TextOrImageContent::Image(_) => push_placeholder(&mut filtered),
-                        TextOrImageContent::Text(text) => {
-                            if text.text == "Image reading is disabled." {
-                                push_placeholder(&mut filtered);
-                            } else {
-                                filtered.push(TextOrImageContent::Text(text));
-                            }
-                        }
-                    }
-                }
-                result.content = filtered;
+                result.content = block_image_blocks(&result.content);
             }
             Message::ToolResult(result)
         }
         other => other,
     }
+}
+
+fn block_image_blocks(blocks: &[TextOrImageContent]) -> Vec<TextOrImageContent> {
+    let mut filtered: Vec<TextOrImageContent> = Vec::new();
+    for block in blocks {
+        match block {
+            TextOrImageContent::Image(_) => push_placeholder(&mut filtered),
+            TextOrImageContent::Text(text) if text.text == "Image reading is disabled." => {
+                push_placeholder(&mut filtered);
+            }
+            TextOrImageContent::Text(text) => filtered.push(TextOrImageContent::Text(text.clone())),
+        }
+    }
+    filtered
 }
 
 fn push_placeholder(blocks: &mut Vec<TextOrImageContent>) {
@@ -612,31 +594,5 @@ fn push_placeholder(blocks: &mut Vec<TextOrImageContent>) {
     );
     if !is_consecutive {
         blocks.push(TextOrImageContent::Text(TextContent::new("Image reading is disabled.")));
-    }
-}
-
-fn thinking_level_from_model(level: pi_ai::types::ModelThinkingLevel) -> ThinkingLevel {
-    match level {
-        pi_ai::types::ModelThinkingLevel::Off => ThinkingLevel::Off,
-        pi_ai::types::ModelThinkingLevel::Minimal => ThinkingLevel::Minimal,
-        pi_ai::types::ModelThinkingLevel::Low => ThinkingLevel::Low,
-        pi_ai::types::ModelThinkingLevel::Medium => ThinkingLevel::Medium,
-        pi_ai::types::ModelThinkingLevel::High => ThinkingLevel::High,
-        pi_ai::types::ModelThinkingLevel::Xhigh => ThinkingLevel::XHigh,
-        pi_ai::types::ModelThinkingLevel::Max => ThinkingLevel::Max,
-        pi_ai::types::ModelThinkingLevel::Ultra => ThinkingLevel::Ultra,
-    }
-}
-
-fn model_thinking_level(level: ThinkingLevel) -> pi_ai::types::ModelThinkingLevel {
-    match level {
-        ThinkingLevel::Off => pi_ai::types::ModelThinkingLevel::Off,
-        ThinkingLevel::Minimal => pi_ai::types::ModelThinkingLevel::Minimal,
-        ThinkingLevel::Low => pi_ai::types::ModelThinkingLevel::Low,
-        ThinkingLevel::Medium => pi_ai::types::ModelThinkingLevel::Medium,
-        ThinkingLevel::High => pi_ai::types::ModelThinkingLevel::High,
-        ThinkingLevel::XHigh => pi_ai::types::ModelThinkingLevel::Xhigh,
-        ThinkingLevel::Max => pi_ai::types::ModelThinkingLevel::Max,
-        ThinkingLevel::Ultra => pi_ai::types::ModelThinkingLevel::Ultra,
     }
 }
