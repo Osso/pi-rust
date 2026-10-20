@@ -137,7 +137,7 @@ pub(super) fn detect_compat(model: &JsValue) -> Result<JsValue, GeneratorError> 
     Ok(compat)
 }
 
-fn apply_completions(model: &mut JsValue) -> Result<(), GeneratorError> {
+pub(super) fn apply_completions(model: &mut JsValue) -> Result<(), GeneratorError> {
     if !equal(field(model, "api"), "openai-completions") {
         return Ok(());
     }

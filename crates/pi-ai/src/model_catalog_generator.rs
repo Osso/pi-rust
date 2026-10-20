@@ -6,6 +6,7 @@ use serde_json::json;
 
 use crate::models_dev_reasoning_options::{ModelsDevReasoningOption, get_effort_thinking_level_map};
 
+mod catalog;
 mod metadata;
 mod models_dev;
 pub use metadata::apply_model_metadata;
@@ -423,6 +424,9 @@ pub struct Generator<'a> {
     pub options: GeneratorOptions,
     pub logs: Vec<JsValue>,
     reasoning_options: indexmap::IndexMap<JsString, JsValue>,
+    total_models: usize,
+    reasoning_models: usize,
+    provider_counts: indexmap::IndexMap<JsString, usize>,
     fetch: &'a mut dyn FnMut(&str) -> Result<HttpResponse, GeneratorError>,
 }
 impl<'a> Generator<'a> {
@@ -435,6 +439,9 @@ impl<'a> Generator<'a> {
             fetch,
             logs: vec![],
             reasoning_options: indexmap::IndexMap::new(),
+            total_models: 0,
+            reasoning_models: 0,
+            provider_counts: indexmap::IndexMap::new(),
         }
     }
     fn log(&mut self, level: &str, message: &str) {

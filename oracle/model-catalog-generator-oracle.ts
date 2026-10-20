@@ -1,4 +1,7 @@
+import * as fs from "node:fs";
 import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
@@ -20,6 +23,7 @@ const names = [
 	"fetchAiGatewayModels",
 	"fetchNvidiaNimModelIds",
 	"loadModelsDevData",
+	"generateModels",
 	"detectOpenAICompletionsCompat",
 	"applyOpenAICompletionsCompatMetadata",
 	"applyThinkingLevelMetadata",
@@ -46,7 +50,7 @@ const transformer = (context: any) => (root: any) => {
 			return ts.factory.createObjectLiteralExpression([
 				ts.factory.createPropertyAssignment(
 					"url",
-					ts.factory.createStringLiteral(pathToFileURL(sourcePath).href),
+					ts.factory.createIdentifier("__moduleUrl"),
 				),
 			]);
 		return ts.visitEachChild(node, visit, context);
@@ -70,12 +74,68 @@ async function main(): Promise<void> {
 		const logs: unknown[] = [];
 		const requests: string[] = [];
 		const diagnostics: string[] = [];
+		let root: string | undefined;
 		try {
 			const request = JSON.parse(line);
+			if (request.operation === "generateModels") {
+				root = fs.mkdtempSync(join(tmpdir(), "pi-model-generator-oracle-"));
+				fs.mkdirSync(join(root, "src/providers"), { recursive: true });
+				fs.writeFileSync(join(root, "src/models.generated.ts"), "");
+				for (const [path, content] of Object.entries(
+					request.initialFiles ?? {},
+				)) {
+					const file = resolve(root, path);
+					if (!file.startsWith(`${root}/`))
+						throw new Error("Fixture path escapes sandbox");
+					fs.mkdirSync(dirname(file), { recursive: true });
+					fs.writeFileSync(file, String(content));
+				}
+			}
+			const fixtureFs = { ...fs };
+			if (root) {
+				for (const operation of [
+					"writeFileSync",
+					"mkdirSync",
+					"mkdtempSync",
+					"rmSync",
+					"renameSync",
+				] as const) {
+					(fixtureFs as any)[operation] = (...args: any[]) => {
+						for (const path of args.slice(
+							0,
+							operation === "renameSync" ? 2 : 1,
+						))
+							if (!resolve(String(path)).startsWith(`${root}/`))
+								throw new Error("Generator write escapes fixture sandbox");
+						return (fs[operation] as any)(...args);
+					};
+				}
+			}
 			const context = vm.createContext({
-				require: requireSource,
+				__moduleUrl: pathToFileURL(
+					root ? join(root, "scripts/generate-models.ts") : sourcePath,
+				).href,
+				Date: class extends Date {
+					constructor(...args: any[]) {
+						super(
+							args.length
+								? args[0]
+								: (request.generatedAt ?? "2026-10-20T00:00:00.000Z"),
+						);
+					}
+				},
+				require: (name: string) =>
+					name === "fs" ? fixtureFs : requireSource(name),
 				exports: {},
-				process: { argv: ["node", sourcePath, ...(request.argv ?? [])] },
+				process: {
+					argv: [
+						"node",
+						sourcePath,
+						...(request.argv ?? []).map((arg: string) =>
+							root && arg === "@OUTPUT@" ? join(root, "catalog") : arg,
+						),
+					],
+				},
 				console: {
 					log: (...args: unknown[]) => logs.push(["log", ...args]),
 					error: (...args: any[]) => {
@@ -108,14 +168,28 @@ async function main(): Promise<void> {
 				: (request.args ?? []);
 			const result = await api[request.operation](...args);
 			process.stdout.write(
-				`${JSON.stringify({ json: JSON.stringify(request.mutated ? args[0] : result), logs, requests, diagnostics })}\n`,
+				`${JSON.stringify({ json: JSON.stringify(request.mutated ? args[0] : result), files: root ? collectFiles(root) : undefined, logs, requests, diagnostics, root })}\n`,
 			);
 		} catch (error: any) {
 			process.stdout.write(
 				`${JSON.stringify({ error: { name: error.name, message: error.message }, logs, requests, diagnostics: [...diagnostics, String(error.stack)] })}\n`,
 			);
+		} finally {
+			if (root) fs.rmSync(root, { recursive: true, force: true });
 		}
 	}
+}
+function collectFiles(root: string): Record<string, string> {
+	const files: Record<string, string> = {};
+	const visit = (directory: string) => {
+		for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+			const path = join(directory, entry.name);
+			if (entry.isDirectory()) visit(path);
+			else files[path.slice(root.length + 1)] = fs.readFileSync(path, "utf8");
+		}
+	};
+	visit(root);
+	return files;
 }
 void main().catch((error) => {
 	process.stderr.write(String(error));

@@ -9,7 +9,8 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - [x] Transform Fireworks tool models, including GLM-5p2/Kimi-K3 API and compatibility selection.
 - [x] Merge implemented compatibility/thinking/strict-tools/grammar/tool-search/cache metadata in source order without replacing existing user fields.
 - [x] Transform every source models.dev provider family in source order for the all-provider fixture, including endpoint routing, model filters, aliases and subscription costs.
-- [ ] Fetch, merge, filter, supplement and enrich all source providers with exact priority, ordering and errors.
+- [x] Merge fetched arrays, apply source overrides/supplements, clone Codex/GC and Azure, consume reasoning records, deduplicate and sort complete catalog values against full source JSON-only fixtures.
+- [ ] Cover all remaining provider/error/collision branches and native artifact workflows.
 - [x] Retain raw provider JSON UTF-16 keys/strings without replacement in implemented provider and HTTP transformations.
 - [x] Parse source CLI flags and report unknown/conflicting/missing argument errors in source precedence.
 - [x] Fetch OpenRouter/AI Gateway through an injected transport, preserving tool filters, pricing, defaults and strict HTTP-status errors.
@@ -27,6 +28,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - `crates/pi-ai/src/model_catalog_generator.rs`: lossless provider transformations, transport and option parsing.
 - `crates/pi-ai/src/model_catalog_generator/metadata.rs`: native metadata mutations.
 - `crates/pi-ai/src/model_catalog_generator/models_dev.rs`: models.dev/NVIDIA fetching and provider transformations.
+- `crates/pi-ai/src/model_catalog_generator/catalog.rs`: complete fetched-value merge, overrides, supplements, clones and sorted public catalog.
 - `oracle/model-catalog-generator-oracle.ts`: instrumented pinned source functions with mocked HTTP.
 
 ## Tests asserting this spec
@@ -37,6 +39,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - `crates/pi-ai/tests/model_catalog_generator_raw.rs`: malformed provider errors and UTF-16 identity.
 - `crates/pi-ai/tests/model_catalog_generator_metadata.rs`: 675 merged-model cases against original source metadata mutations.
 - `crates/pi-ai/tests/model_catalog_generator_models_dev.rs`: all-provider pipeline with independently mocked models.dev/NVIDIA responses.
+- `crates/pi-ai/tests/model_catalog_generator_workflow.rs`: full source module workflow with fixture HTTP and sandboxed temporary filesystem.
 
 ## Known gaps (current cycle)
 
