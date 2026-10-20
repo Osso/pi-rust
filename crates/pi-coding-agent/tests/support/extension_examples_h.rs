@@ -45,7 +45,7 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
         .map(|tool| {
             let d = &tool.definition;
             json!({"name":d.name,"label":d.label,"description":d.description,"parameters":d.parameters,
-            "renderShell":d.render_shell,"promptSnippet":d.prompt_snippet,"promptGuidelines":d.prompt_guidelines,
+            "renderShell":d.render_shell.map(|shell| match shell { RenderShell::SelfRender => "self", RenderShell::Default => "default" }),"promptSnippet":d.prompt_snippet,"promptGuidelines":d.prompt_guidelines,
             "approvalRequired":d.approval_required,"approvalKind":d.approval_kind})
         })
         .collect::<Vec<_>>();
