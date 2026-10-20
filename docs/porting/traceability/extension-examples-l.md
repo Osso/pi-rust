@@ -59,3 +59,35 @@ an escaped `\ud83d`, Rust persists U+FFFD. Oracle normalizes lone surrogates onl
 for this explicitly projected scenario. No other Unicode normalization occurs.
 
 Historical batch G blocker is superseded. No core API changes or dependencies.
+
+## snake.ts — done
+
+`snake_extension` / `snake_extension_with_random`: command metadata, non-TUI
+error, reverse full-session save lookup (not branch lookup), nullable clear
+entries, and native custom component. State is owned, including restored saves.
+`Snake`: deterministic 100ms interval, paused-resume behavior, WASD/arrows,
+reverse-direction rejection, queued directions, wall/self collisions, food
+rejection/retry, growth/scoring/high score, restart, ESC save, Q clear, render
+cache/invalidate and interval disposal. Complete ANSI frame arrays (not stripped
+text) and append transcripts match unchanged TS under a virtual clock and the
+same injected random sequence. Production randomness uses existing getrandom.
+
+Tests in `example_snake`:
+
+- `virtual_clock_food_collisions_restart_save_resume_and_frames_match`: food,
+  growth, reversal, movement/wall collision, restart, clear/save, paused quit,
+  resume/move/clear. Pinned first session; fixed read/append snapshots on reload.
+- `restored_state_is_an_owned_copy_and_self_collision_uses_pre_tail_body`:
+  save preservation on paused ESC, self/tail collision, restart preserving high
+  score, original stored snapshot unchanged after live mutations.
+- `ended_save_keeps_high_score_and_narrow_width_errors_match`: new game from
+  ended save, high-score carryover, directions, duplicate-width cache hits,
+  widths 0/1/2/3/4/5/84. Other scripts use 12/44/100. Widths below 4 reproduce
+  TS RangeError (native uncaught-error payload), not an empty-width fallback.
+
+Every timer script verifies disposal: native clock advances two extra seconds
+without renders; TS asserts no remaining interval. Source quirks retained and
+classified: entering the current tail counts as self-collision before tail
+removal; paused resume does not invalidate cached render until tick/invalidate;
+very narrow widths throw and narrow headers/footers can exceed the border.
+No core API changes or dependencies.

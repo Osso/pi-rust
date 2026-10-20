@@ -144,3 +144,8 @@ regression, not an ignored test. See [batch L traceability](../../../../docs/por
 register explicitly; no default loading. Native state owns its todos and appends
 snapshots, matching approved TS read/write isolation. Pure helpers remain in
 `plan_mode/utils.rs`.
+
+`snake.rs` exports `snake_extension(&ExtensionApi)` for explicit native factory
+registration. `/snake` owns its restored state, uses a 100ms Tokio timer and OS
+randomness, saves on ESC, clears on Q, and starts restored games paused. No
+default loading.
