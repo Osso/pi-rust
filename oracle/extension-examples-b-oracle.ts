@@ -8,7 +8,7 @@ async function main() {
 const source = process.argv[2];
 const packages = resolve(source.slice(0, source.indexOf("/packages/") + "/packages/".length));
 const moduleUrl = (path: string) => pathToFileURL(resolve(packages, path)).href;
-const [{ default: factory }, loader, runnerModule, session, auth, utils, events, themeModule] = await Promise.all([
+const [{ default: factory }, loader, runnerModule, session, auth, utils, events, themeModule, fauxModule] = await Promise.all([
  import(pathToFileURL(source).href),
  import(moduleUrl("coding-agent/src/core/extensions/loader.ts")),
  import(moduleUrl("coding-agent/src/core/extensions/runner.ts")),
@@ -17,6 +17,7 @@ const [{ default: factory }, loader, runnerModule, session, auth, utils, events,
  import(moduleUrl("coding-agent/test/model-runtime-test-utils.ts")),
  import(moduleUrl("coding-agent/src/core/event-bus.ts")),
  import(moduleUrl("coding-agent/src/modes/interactive/theme/theme.ts")),
+ import(moduleUrl("ai/src/providers/faux.ts")),
 ]);
 async function run(request: any) {
  const cwd = request.cwd ?? "/fixture";
@@ -24,6 +25,20 @@ async function run(request: any) {
  const runtime = loader.createExtensionRuntime();
  const extension = await loader.loadExtensionFromFactory(factory, cwd, events.createEventBus(), runtime, source);
  const registry = await utils.createInMemoryModelRegistry(auth.AuthStorage.inMemory());
+ const modelCalls:any[]=[];
+ let model:any;
+ if(request.modelFixture) {
+  const fixture=request.modelFixture;
+  const faux=fauxModule.fauxProvider({provider:fixture.provider ?? "google",models:fixture.missing ? [] : [{id:fixture.id ?? "gemini-2.5-flash"}],tokensPerSecond:1_000_000});
+  model=faux.getModel();
+  faux.setResponses(Array.from({length:20},()=> async (context:any,options:any,_state:any,model:any)=>{
+   if(options.sessionId && !/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(options.sessionId)) throw new Error("invalid UUID v7");
+   modelCalls.push({model:[model.provider,model.id],context,options:{maxTokens:options.maxTokens ?? null,cacheRetention:options.cacheRetention ?? null,sessionId:options.sessionId ? "<uuid-v7>" : null,aborted:options.signal?.aborted ?? false}});
+   if(fixture.error) throw new Error(fixture.error);
+   return fauxModule.fauxAssistantMessage(fixture.content ?? [{type:"text",text:"fixture answer"}],{stopReason:fixture.stopReason ?? "stop",timestamp:0});
+  }));
+  utils.getModelRuntime(registry).registerNativeProvider(faux.provider);
+ }
  const manager = session.SessionManager.inMemory(cwd);
  const runner = new runnerModule.ExtensionRunner([extension], runtime, cwd, manager, registry);
  const effects:any[]=[];
@@ -34,7 +49,7 @@ async function run(request: any) {
   refreshTools() {}, getCommands: () => [], setModel: async () => false,
   getThinkingLevel: () => "off", setThinkingLevel() {},
  }, {
-  getModel() {}, isIdle: () => true, hasActiveRetry: () => false, isProjectTrusted: () => true,
+  getModel() {return request.hasModel === false ? undefined : model;}, isIdle: () => true, hasActiveRetry: () => false, isProjectTrusted: () => true,
   getSignal() {}, abort() {}, hasPendingMessages: () => false, shutdown() {}, restart: async () => {},
   getContextUsage() {}, compact() {}, getSystemPrompt: () => "", getScopedModels: () => [],
  });
@@ -45,6 +60,7 @@ async function run(request: any) {
  const originalDate = Date;
  if (request.nowMillis !== undefined) {
   globalThis.Date = class extends originalDate {
+   static now() {return request.nowMillis;}
    constructor(...args: any[]) { super(...(args.length ? args : [request.nowMillis]) as [any]); }
   } as DateConstructor;
  }
@@ -57,7 +73,7 @@ async function run(request: any) {
    theme,
    custom: async (factory:any) => {
     let completed=false, value:any;
-    const component=factory({requestRender(){}},theme,{},(v:any)=>{completed=true;value=v;});
+    const component=factory({requestRender(){},requestComponentRender(){}},theme,{},(v:any)=>{if(!completed){completed=true;value=v;}});
     const width=item.width ?? 40;
     calls.push(["render",component.render(width)]);
     for (const key of item.keys ?? []) {component.handleInput?.(key);calls.push(["render",component.render(width)]);}
@@ -67,6 +83,7 @@ async function run(request: any) {
     if(!completed) throw new Error("custom fixture never completed");
     return value;
    },
+   setEditorText: (text:string)=>calls.push(["editorText",text]),
    notify: (message: string, level: string) => calls.push(["notify", message, level]),
    select: async (title: string, choices: string[]) => { calls.push(["select", title, choices]); return item.selected ?? undefined; },
    setWidget: (key: string, content: string[], options?: unknown) => calls.push(["widget", key, content, options ?? null]),
@@ -80,7 +97,10 @@ async function run(request: any) {
    case "append_custom": manager.appendCustomEntry(item.kind,item.data);break;
    case "append": manager.appendMessage(item.message); break;
    case "branch": manager.branch(manager.getEntries()[item.index].id); break;
-   case "event": result=await runner.emit(item.value); break;
+   case "event": {
+    const controller=new AbortController();if(item.aborted) controller.abort();
+    result=await runner.emit({...item.value,signal:controller.signal});break;
+   }
    case "render_call": result=runner.getToolDefinition(item.toolName).renderCall(item.params,theme,{}).render(item.width ?? 40); break;
    case "render_result": result=runner.getToolDefinition(item.toolName).renderResult(item.result,{expanded:item.expanded ?? false,isPartial:item.isPartial ?? false},theme,{}).render(item.width ?? 40); break;
    case "command":
@@ -113,7 +133,7 @@ async function run(request: any) {
   cases.push(JSON.parse(JSON.stringify({result: result ?? null, ui: calls})));
  }
  globalThis.Date = originalDate;
- return {metadata,cases,errors,...(request.allTools ? {effects}: {})};
+ return {metadata,cases,errors,...(request.allTools ? {effects}: {}),...(request.modelFixture ? {modelCalls}: {})};
 }
 process.stdin.setEncoding("utf8");
 let pending = "";

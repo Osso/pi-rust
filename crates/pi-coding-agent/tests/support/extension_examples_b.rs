@@ -31,7 +31,10 @@ impl ExtensionUiContext for Ui {
             let done_value = Arc::new(Mutex::new(None));
             let value = done_value.clone();
             let done = ExtensionUiDone::new(Arc::new(move |v| {
-                *value.lock().unwrap() = Some(v);
+                let mut value = value.lock().unwrap();
+                if value.is_none() {
+                    *value = Some(v);
+                }
             }));
             let component = factory(
                 ExtensionUiFactoryContext {
@@ -73,6 +76,9 @@ impl ExtensionUiContext for Ui {
             Ok(result)
         })
     }
+    fn set_editor_text(&self, text: &str) {
+        self.calls.lock().unwrap().push(json!(["editorText", text]));
+    }
     fn notify(&self, message: &str, level: Option<NotifyType>) {
         self.calls.lock().unwrap().push(json!(["notify", message, level]));
     }
@@ -100,7 +106,7 @@ impl ExtensionUiContext for Ui {
     }
 }
 
-pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> Value {
+pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) -> Value {
     let reset_files: Vec<_> = request["resetFiles"]
         .as_array()
         .into_iter()
@@ -137,6 +143,16 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     })
     .await
     .unwrap();
+    let model_calls = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let model = if request["modelFixture"].is_object() {
+        Some(configure_faux(
+            &model_runtime,
+            &request["modelFixture"],
+            model_calls.clone(),
+        ))
+    } else {
+        None
+    };
     let mut runner = support::runner_for(
         vec![extension],
         cwd,
@@ -167,7 +183,11 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
             Ok(())
         });
     }
-    runner.bind_core(actions, support::context_actions(), None);
+    let mut context = support::context_actions();
+    if request["hasModel"].as_bool().unwrap_or(true) {
+        context.get_model = Arc::new(move || model.clone().flatten());
+    }
+    runner.bind_core(actions, context, None);
     let errors = Arc::new(Mutex::new(Vec::<Value>::new()));
     let captured_errors = errors.clone();
     let _subscription = runner.on_error(Arc::new(move |error| {
@@ -231,8 +251,15 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
             }
             "event" => {
                 let mut event = serde_json::from_value(case["value"].clone()).unwrap();
-                runner.emit(&mut event).await;
-                Value::Null
+                if let ExtensionEvent::Compaction(compaction) = &mut event {
+                    let signal = tokio_util::sync::CancellationToken::new();
+                    if case["aborted"] == true {
+                        signal.cancel();
+                    }
+                    compaction.signal = Some(signal);
+                }
+                let result = runner.emit(&mut event).await;
+                json!(result.compaction())
             }
             "render_call" => {
                 let tool = runner.get_tool_definition(case["toolName"].as_str().unwrap()).unwrap();
@@ -318,6 +345,16 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     let mut actual = json!({"metadata":metadata,"cases":cases,"errors":errors.lock().unwrap().clone()});
     if request.get("allTools").is_some() {
         actual["effects"] = json!(effects.lock().unwrap().clone());
+    }
+    if request["modelFixture"].is_object() {
+        let calls = model_calls.lock().unwrap().clone();
+        if let Some(timestamp) = calls
+            .first()
+            .and_then(|call| call["context"]["messages"][0]["timestamp"].as_i64())
+        {
+            request["nowMillis"] = json!(timestamp);
+        }
+        actual["modelCalls"] = json!(calls);
     }
     for (path, bytes) in reset_files {
         match bytes {
@@ -424,4 +461,66 @@ fn capture_artifact(result: &mut Value) {
     result["value"]["content"][0]["text"] = json!(text);
     result["outputFile"] = json!(output);
     std::fs::remove_dir_all(file.parent().unwrap()).unwrap();
+}
+
+fn configure_faux(
+    runtime: &ModelRuntime,
+    fixture: &Value,
+    calls: Arc<Mutex<Vec<Value>>>,
+) -> Option<pi_ai::types::Model> {
+    use pi_ai::providers::faux::*;
+    let provider = fixture["provider"].as_str().unwrap_or("google");
+    let id = fixture["id"].as_str().unwrap_or("gemini-2.5-flash");
+    let faux = faux_provider(RegisterFauxProviderOptions {
+        provider: Some(provider.into()),
+        models: Some(if fixture["missing"] == true {
+            vec![]
+        } else {
+            vec![FauxModelDefinition {
+                id: id.into(),
+                ..Default::default()
+            }]
+        }),
+        tokens_per_second: Some(1_000_000.0),
+        ..Default::default()
+    });
+    let model = faux.get_model(None);
+    let content: Vec<pi_ai::types::AssistantContent> = serde_json::from_value(
+        fixture
+            .get("content")
+            .cloned()
+            .unwrap_or(json!([{ "type":"text","text":"fixture answer"}])),
+    )
+    .unwrap();
+    let failure = fixture["error"].as_str().map(str::to_owned);
+    let stop = serde_json::from_value(fixture.get("stopReason").cloned().unwrap_or(json!("stop"))).unwrap();
+    let response: FauxResponseFactory = Arc::new(move |context, options, _, model| {
+        let options = options.unwrap_or_default().stream;
+        if let Some(session) = &options.session_id {
+            assert!(
+                regex::Regex::new(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+                    .unwrap()
+                    .is_match(session)
+            );
+        }
+        calls.lock().unwrap().push(json!({"model":[model.provider,model.id],"context":context,"options":{"maxTokens":options.max_tokens.map(|n|n as u64),"cacheRetention":options.cache_retention,"sessionId":options.session_id.map(|_|"<uuid-v7>"),"aborted":options.request.signal.as_ref().is_some_and(|s|s.is_cancelled())}}));
+        let response = faux_assistant_message(
+            FauxContent::Blocks(content.clone()),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(stop),
+                timestamp: Some(0),
+                ..Default::default()
+            },
+        );
+        let failure = failure.clone();
+        Box::pin(async move {
+            match failure {
+                Some(message) => Err(pi_ai::request::CallbackError::new(message)),
+                None => Ok(response),
+            }
+        })
+    });
+    faux.set_responses((0..20).map(|_| FauxResponseStep::Factory(response.clone())).collect());
+    runtime.register_native_provider(faux.provider);
+    model
 }

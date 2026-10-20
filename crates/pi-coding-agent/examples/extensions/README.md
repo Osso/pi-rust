@@ -77,3 +77,9 @@ from the current session branch. Both require explicit factory registration.
 selection. `truncated_tool.rs` (`truncated_tool_extension`) provides `rg`, storing
 truncated full output in a private temporary directory. Its shell-joined command
 matches the pinned example; enable only for trusted tool inputs.
+
+`custom_compaction.rs` (`custom_compaction_extension`) summarizes all prepared
+messages using registry model `google/gemini-2.5-flash`. `qna.rs`
+(`qna_extension`) extracts questions using the current model into the editor.
+Both can make model requests when explicitly enabled; tests use private faux
+providers only.
