@@ -100,6 +100,54 @@ doc = false
 name = "sdk_01_minimal"
 path = "examples/sdk/01_minimal.rs"
 
+[[example]]
+name = "sdk_02_custom_model"
+path = "examples/sdk/02_custom_model.rs"
+
+[[example]]
+name = "sdk_03_custom_prompt"
+path = "examples/sdk/03_custom_prompt.rs"
+
+[[example]]
+name = "sdk_04_skills"
+path = "examples/sdk/04_skills.rs"
+
+[[example]]
+name = "sdk_05_tools"
+path = "examples/sdk/05_tools.rs"
+
+[[example]]
+name = "sdk_06_extensions"
+path = "examples/sdk/06_extensions.rs"
+
+[[example]]
+name = "sdk_07_context_files"
+path = "examples/sdk/07_context_files.rs"
+
+[[example]]
+name = "sdk_08_prompt_templates"
+path = "examples/sdk/08_prompt_templates.rs"
+
+[[example]]
+name = "sdk_09_api_keys_and_oauth"
+path = "examples/sdk/09_api_keys_and_oauth.rs"
+
+[[example]]
+name = "sdk_10_settings"
+path = "examples/sdk/10_settings.rs"
+
+[[example]]
+name = "sdk_11_sessions"
+path = "examples/sdk/11_sessions.rs"
+
+[[example]]
+name = "sdk_12_full_control"
+path = "examples/sdk/12_full_control.rs"
+
+[[example]]
+name = "sdk_13_session_runtime"
+path = "examples/sdk/13_session_runtime.rs"
+
 [dev-dependencies]
 tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs", "test-util"] }
 # `pty::openpty` for process-boundary crash tests that need a pty without a

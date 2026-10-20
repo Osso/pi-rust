@@ -1,5 +1,28 @@
 # SDK examples
 
+## Native SDK configuration programs
+
+| Target | Behavior |
+| --- | --- |
+| `sdk_02_custom_model` | Runtime lookup, authenticated model order, medium thinking |
+| `sdk_03_custom_prompt` | Replace prompt, then append instructions |
+| `sdk_04_skills` | Filter discovery and append a synthetic skill |
+| `sdk_05_tools` | Four tool selections, including custom cwd |
+| `sdk_06_extensions` | Native registry plus inline agent-start hook |
+| `sdk_07_context_files` | Merge AGENTS.md discovery with inline context |
+| `sdk_08_prompt_templates` | Merge prompt discovery with deploy template |
+| `sdk_09_api_keys_and_oauth` | Runtime locations and ephemeral API key |
+| `sdk_10_settings` | Disk overrides, flush/errors, in-memory settings |
+| `sdk_11_sessions` | Create, continue, list and reopen sessions |
+| `sdk_12_full_control` | Explicit resources, model, settings and tools |
+| `sdk_13_session_runtime` | Replace active session and rebind subscriptions |
+
+Run with `cargo run -p pi-coding-agent --example <target>`. Like 01,
+entrypoints are opt-in SDK clients and may contact configured providers. Tests
+call each exact program's `run` with private state and Faux providers; no live
+configuration/DB/provider is used. Structured console values print as JSON.
+See [02–13 traceability](../../../../docs/porting/traceability/sdk-examples.md).
+
 ## Minimal session
 
 ```text
@@ -23,3 +46,11 @@ Tests compile this exact file but call `run(options, writer)` with a Faux
 provider, private state directories, static resources, and an explicit empty
 extension registry. They do not exercise default user configuration or live
 providers. See [traceability](../../../../docs/porting/traceability/example-sdk-minimal.md).
+
+06 accepts a native `ExtensionRegistry`; configured TS path strings are native
+registry IDs, not dynamically executed files. 07/08 intentionally retain the
+source’s off-by-one printed counts.
+
+10 keeps settings warnings on stderr; its fixture entry point accepts separate
+output/warning writers. 02/12 tests use a reasoning-capable Faux model to verify
+medium/off selection; streaming failures prove session cleanup.
