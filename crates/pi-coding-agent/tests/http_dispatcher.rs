@@ -167,3 +167,29 @@ async fn start_stalled_server() -> (String, tokio::task::JoinHandle<()>) {
     });
     (format!("http://{address}/"), handle)
 }
+
+#[test]
+fn trims_and_parses_like_javascript_number() {
+    // `String.prototype.trim` strips U+FEFF; `Number("0x")` and `Number("1_000")` are NaN.
+    let cases: [(&str, Option<u64>); 4] = [
+        ("\u{feff}30000\u{feff}", Some(30_000)),
+        ("0x", None),
+        ("1_000", None),
+        ("0b101", Some(5)),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(
+            parse_http_idle_timeout_ms(HttpIdleTimeout::String(input)),
+            expected,
+            "{input:?}"
+        );
+    }
+}
+
+#[test]
+fn invalid_timeout_errors_print_the_number_like_javascript() {
+    let error = configure_http_dispatcher(-1e21)
+        .err()
+        .expect("negative timeout is invalid");
+    assert_eq!(error, "Invalid HTTP idle timeout: -1e+21");
+}
