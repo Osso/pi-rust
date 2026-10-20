@@ -243,7 +243,8 @@ pinned worktree (`jiti` does not export `./static`). Deterministic compaction
 helpers are covered by unit tests ported from
 `packages/coding-agent/test/interactive-mode-compaction.test.ts`; the
 interactive behavior tests drive the real Rust mode in a capture terminal with
-the faux provider. This is recorded as a coverage gap in `coverage.md`.
+the faux provider. No whole-mode differential is an approved deviation
+(user decision 2026-10-20): the behavior tests below are the proof.
 
 Behavior tests drive the real mode through a capture terminal: startup,
 prompt submission, bash mode, settings, scoped models, trust, sandbox,

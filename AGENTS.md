@@ -9,6 +9,7 @@
 - `bun/restore-sandbox-env.ts` is a gap (Bun-only bug); `tui/native-modifiers.ts` has Linux-only parity, macOS/Windows addons are a gap (2026-10-19).
 - Without `PI_PACKAGE_DIR`, `package.json` and the built-in themes are embedded in the binary (approved deviation 2026-10-18).
 - `toLocaleString()` number grouping is pinned to en-US regardless of host locale (approved deviation 2026-10-19).
+- `interactive-mode.ts` has no whole-mode TS differential; Rust capture-terminal and pty behavior tests are the proof (approved deviation 2026-10-20).
 - Word segmentation uses ICU4X; CJK/Thai dictionary-word mismatches vs Node ICU are an approved deviation (2026-10-18).
 - Typed Rust core APIs intentionally exclude invalid JavaScript runtime input types, per the August 12, 2026 decision. Keep exclusions explicit in specs and traceability.
 - Write and run a failing behavioral or differential test before production code. Differential tests run the pinned TS module through `oracle/` via `tsx` when the module is deterministic and loadable.
