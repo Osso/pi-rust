@@ -2523,6 +2523,10 @@ impl Component for ExtensionComponentAdapter {
     fn wants_input(&self) -> bool {
         self.inner.wants_input()
     }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
 }
 
 // ============================================================================
@@ -2709,6 +2713,8 @@ pub struct InteractiveMode {
     clipboard_temp_files: RefCell<crate::utils::clipboard_temp_files::ClipboardTempFileTracker>,
     pending_compaction_summary_edit_id: RefCell<Option<String>>,
     active_session_selector: RefCell<Option<Rc<tokio::sync::Mutex<SessionSelectorComponent>>>>,
+    active_selector_dispose: RefCell<Option<Rc<dyn Fn()>>>,
+    active_bash_components: RefCell<Vec<ComponentRef>>,
     auth_ui: RefCell<Option<AuthUiState>>,
     session_selector_loaded: Cell<bool>,
 }
@@ -3021,6 +3027,8 @@ impl InteractiveMode {
             clipboard_temp_files: RefCell::new(crate::utils::clipboard_temp_files::ClipboardTempFileTracker::new()),
             pending_compaction_summary_edit_id: RefCell::new(None),
             active_session_selector: RefCell::new(None),
+            active_selector_dispose: RefCell::new(None),
+            active_bash_components: RefCell::new(Vec::new()),
             auth_ui: RefCell::new(None),
             session_selector_loaded: Cell::new(false),
         });
@@ -5941,6 +5949,38 @@ impl InteractiveMode {
 
     /// `InteractiveMode.stop`: releases the session subscription and stops the TUI.
     pub fn stop(&self) {
+        self.stop_with_output(self.settings(|settings| settings.get_fullscreen_exit_output()));
+    }
+
+    /// `stop(fullscreenExitOutput)`: the exit output controls whether a
+    /// fullscreen session re-renders its transcript on the regular screen.
+    pub fn stop_with_output(&self, fullscreen_exit_output: crate::core::settings_manager::FullscreenExitOutput) {
+        self.dispose_active_selector();
+        if self.settings(|settings| settings.get_show_terminal_progress()) {
+            self.ui.terminal().borrow_mut().set_progress(false);
+        }
+        if let Some(loader) = self.loading_animation.borrow_mut().take() {
+            if let Some(loader) = loader
+                .borrow_mut()
+                .as_any_mut()
+                .and_then(|any| any.downcast_mut::<Loader>())
+            {
+                loader.stop();
+            }
+            *self.working_loader_view.borrow_mut() = None;
+        }
+        self.stop_child_activity_timer();
+        self.clear_child_agent_view();
+        self.theme_controller.borrow_mut().disable_auto_sync();
+        self.clear_extension_terminal_input_listeners();
+        if let Some(component) = self.custom_footer.borrow_mut().take() {
+            dispose_extension_component(&component);
+        }
+        if let Some(component) = self.default_extension_footer.borrow_mut().take() {
+            dispose_extension_component(&component);
+        }
+        crate::modes::interactive::components::footer::dispose();
+        self.footer_data_provider.dispose();
         if let Some(id) = self.unsubscribe.get() {
             self.session.borrow().unsubscribe(id);
             self.unsubscribe.set(None);
@@ -5949,10 +5989,64 @@ impl InteractiveMode {
             subscription.unsubscribe();
         }
         *self.multi_agent_updates.borrow_mut() = None;
-        self.clear_child_agent_view();
+        self.cancel_partial_update_render();
+        self.dispose_active_bash_components();
+        self.clear_pending_tool_components();
+        self.close_response_complete_notification();
         self.clipboard_temp_files.borrow_mut().cleanup_all();
+        if self.is_initialized.get() {
+            self.stop_interactive_tui(fullscreen_exit_output);
+            self.is_initialized.set(false);
+        }
         self.unregister_signal_handlers();
-        self.ui.stop();
+    }
+
+    /// `stopInteractiveTui`: for `transcript` exit output, leave the fullscreen
+    /// screen, re-render the transcript on the regular screen, then stop the
+    /// TUI without preserving the alternate screen.
+    fn stop_interactive_tui(&self, fullscreen_exit_output: crate::core::settings_manager::FullscreenExitOutput) {
+        if self.ui.mode() == TuiMode::Fullscreen
+            && fullscreen_exit_output == crate::core::settings_manager::FullscreenExitOutput::Transcript
+        {
+            while self.ui.has_overlay_entries() {
+                self.ui.hide_overlay();
+            }
+            self.switch_tui_mode(TuiMode::Regular, false, false);
+            self.ui.render_now();
+        }
+        let preserve_screen = self.ui.mode() == TuiMode::Fullscreen;
+        self.ui.stop_with(pi_tui::tui::TuiStopOptions { preserve_screen });
+    }
+
+    /// `disposeActiveSelector`: runs the active selector's dispose hook.
+    fn dispose_active_selector(&self) {
+        let dispose = self.active_selector_dispose.borrow_mut().take();
+        if let Some(dispose) = dispose {
+            dispose();
+        }
+    }
+
+    /// `clearExtensionTerminalInputListeners`: unsubscribes every listener the
+    /// extension API registered on the terminal.
+    fn clear_extension_terminal_input_listeners(&self) {
+        for (id, _) in self.terminal_input_listeners.borrow().iter() {
+            self.ui.remove_input_listener(*id);
+        }
+        self.terminal_input_listeners.borrow_mut().clear();
+    }
+
+    /// `cancelPartialUpdateRender`: the Rust render loop keeps the throttle in
+    /// `tokio::select!` instead of a stored timeout, so nothing to cancel.
+    fn cancel_partial_update_render(&self) {}
+
+    /// `disposeActiveBashComponents`: drops the active bash execution views.
+    fn dispose_active_bash_components(&self) {
+        self.active_bash_components.borrow_mut().clear();
+    }
+
+    /// `clearPendingToolComponents`: drops components awaiting a tool result.
+    fn clear_pending_tool_components(&self) {
+        self.pending_tools.borrow_mut().clear();
     }
 
     fn close_response_complete_notification(&self) {
@@ -5960,6 +6054,19 @@ impl InteractiveMode {
         if let Some(notification) = notification {
             notification.close();
         }
+    }
+}
+
+/// `customFooter?.dispose?.()`: extension components expose an optional
+/// `dispose`; the adapter forwards it to `ExtensionUiComponent::dispose`.
+fn dispose_extension_component(component_ref: &ComponentRef) {
+    let Ok(mut component) = component_ref.try_borrow_mut() else {
+        return;
+    };
+    if let Some(any) = component.as_any_mut()
+        && let Some(adapter) = any.downcast_mut::<ExtensionComponentAdapter>()
+    {
+        adapter.inner.dispose();
     }
 }
 
@@ -7596,6 +7703,15 @@ impl InteractiveMode {
             callbacks,
         )));
         self.show_selector(component(SharedScopedModelsSelector(Rc::clone(&selector))));
+        self.dispose_active_selector();
+        *self.active_selector_dispose.borrow_mut() = Some(Rc::new({
+            let disposed = Rc::clone(&disposed);
+            let abort = abort.clone();
+            move || {
+                disposed.set(true);
+                abort.cancel();
+            }
+        }));
 
         let timeout_task = {
             let abort = abort.clone();
@@ -7883,6 +7999,7 @@ impl InteractiveMode {
             BashExecutionOptions::default(),
         );
         let bash_ref = component(bash);
+        self.active_bash_components.borrow_mut().push(Rc::clone(&bash_ref));
         self.pending_messages_container
             .borrow_mut()
             .add_child(Rc::clone(&bash_ref));
@@ -7928,7 +8045,7 @@ impl InteractiveMode {
                     );
                 }
                 self.pending_messages_container.borrow_mut().clear();
-                self.chat_container.borrow_mut().add_child(bash_ref);
+                self.chat_container.borrow_mut().add_child(Rc::clone(&bash_ref));
                 self.footer.borrow_mut().invalidate();
             }
             Err(error) => {
@@ -7936,6 +8053,9 @@ impl InteractiveMode {
                 self.show_error(error.message());
             }
         }
+        self.active_bash_components
+            .borrow_mut()
+            .retain(|component| !Rc::ptr_eq(component, &bash_ref));
         if let Some(mode) = with_mode(mode, |mode| mode) {
             let _ = mode;
         }
@@ -9938,12 +10058,20 @@ impl InteractiveMode {
         }
         self.clear_extension_widgets();
         self.close_response_complete_notification();
-        if let Some(id) = self.unsubscribe.get() {
-            self.session.borrow().unsubscribe(id);
-            self.unsubscribe.set(None);
-        }
+        self.theme_controller.borrow_mut().disable_auto_sync();
+        self.ui.terminal().borrow_mut().drain_input(1000, 50);
         self.stop();
         self.runtime.lock().await.dispose().await;
+        let resume_command = {
+            let session = self.session();
+            let manager = session.session_manager();
+            format_resume_command(&manager)
+        };
+        if let Some(resume_command) = resume_command {
+            use std::io::Write;
+            let hint = crate::utils::chalk::Chalk::stdout().dim("To resume this session:");
+            let _ = std::io::stdout().write_all(format!("{hint} {resume_command}\n").as_bytes());
+        }
     }
 
     /// `registerSignalHandlers`: SIGTERM performs the graceful shutdown,
@@ -14312,6 +14440,119 @@ mod ui_tests {
                 );
                 let calls = calls.lock().unwrap().clone();
                 assert_eq!(calls, vec![(None, session_file)], "restart must use the process path");
+            })
+            .await;
+    }
+    async fn build_mode_for_stop(
+        settings: crate::core::settings_manager::Settings,
+        tui_mode: TuiMode,
+    ) -> (Rc<InteractiveMode>, Rc<RefCell<CaptureTerminal>>, tempfile::TempDir) {
+        let (mode, terminal, _faux, temp) = build_mode_with_extra_providers(
+            StaticResourceLoader::new(),
+            None,
+            SettingsManager::in_memory(settings, SettingsManagerCreateOptions::default()),
+            Vec::new(),
+            serde_json::Map::new(),
+            false,
+            TestModeSetup {
+                multi_agent_store: None,
+                tui_mode,
+            },
+        )
+        .await;
+        (mode, terminal, temp)
+    }
+
+    fn stop_settings(value: Value) -> crate::core::settings_manager::Settings {
+        value.as_object().expect("settings object").clone()
+    }
+
+    struct DisposingFooter(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+    impl crate::core::extensions::types::ExtensionUiComponent for DisposingFooter {
+        fn render(&self, _width: usize) -> Vec<String> {
+            Vec::new()
+        }
+
+        fn dispose(&self) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stop_renders_the_transcript_when_leaving_fullscreen() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let settings = stop_settings(serde_json::json!({"fullscreenExitOutput": "transcript"}));
+                let (mode, terminal, _temp) = build_mode_for_stop(settings, TuiMode::Fullscreen).await;
+                let _events = start(&mode).await;
+                mode.chat_container
+                    .borrow_mut()
+                    .add_child(component(Text::new("stop-transcript-marker", 0, 0)));
+                terminal.borrow_mut().writes.clear();
+                mode.stop();
+                assert_eq!(mode.ui.mode(), TuiMode::Regular);
+                let output = terminal.borrow().output();
+                assert!(output.contains("stop-transcript-marker"), "{output}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stop_with_resume_hint_keeps_the_fullscreen_renderer() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let settings = stop_settings(serde_json::json!({"fullscreenExitOutput": "resume-hint"}));
+                let (mode, terminal, _temp) = build_mode_for_stop(settings, TuiMode::Fullscreen).await;
+                let _events = start(&mode).await;
+                mode.chat_container
+                    .borrow_mut()
+                    .add_child(component(Text::new("stop-transcript-marker", 0, 0)));
+                terminal.borrow_mut().writes.clear();
+                mode.stop();
+                assert_eq!(mode.ui.mode(), TuiMode::Fullscreen);
+                let output = terminal.borrow().output();
+                assert!(!output.contains("stop-transcript-marker"), "{output}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stop_clears_terminal_progress_and_disposes_footer_components() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let settings = stop_settings(serde_json::json!({
+                    "terminal": {"showTerminalProgress": true},
+                    "fullscreenExitOutput": "transcript"
+                }));
+                let (mode, terminal, _temp) = build_mode_for_stop(settings, TuiMode::Regular).await;
+                let _events = start(&mode).await;
+                let disposed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let footer_flag = std::sync::Arc::clone(&disposed);
+                mode.set_extension_footer(Some(std::sync::Arc::new(move |_context| {
+                    Box::new(DisposingFooter(std::sync::Arc::clone(&footer_flag)))
+                        as Box<dyn crate::core::extensions::types::ExtensionUiComponent>
+                })));
+                mode.pending_tools
+                    .borrow_mut()
+                    .insert("tool-1".to_owned(), component(Text::new("pending", 0, 0)));
+                let listener = mode
+                    .ui
+                    .add_input_listener(Rc::new(|_data: &str| pi_tui::tui::TuiInputListenerResult::default()));
+                mode.terminal_input_listeners
+                    .borrow_mut()
+                    .push((listener, std::sync::Arc::new(|_data: &str| None)));
+                terminal.borrow_mut().progress.clear();
+
+                mode.stop();
+
+                assert!(disposed.load(std::sync::atomic::Ordering::SeqCst));
+                assert_eq!(terminal.borrow().progress.last(), Some(&false));
+                assert!(mode.pending_tools.borrow().is_empty());
+                assert!(mode.terminal_input_listeners.borrow().is_empty());
             })
             .await;
     }

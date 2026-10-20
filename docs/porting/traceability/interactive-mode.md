@@ -19,10 +19,10 @@ notify-based child transcript reloads are implemented and behavior-tested.
 | `createInteractiveTui` | `create_interactive_tui` | exercised by `build_mode` (regular); fullscreen renderer construction covered by `pi-tui` renderer tests |
 | `createInteractiveTuiReference` | `InteractiveTuiHandle` (stable renderer handle) | construction/renderer swap used by components; no direct test |
 | `bindInteractiveModeSessionMutationTargetResolver` | not ported (see Discrepancies) | session-level resolver in `main.rs` |
-| `stop()` | `InteractiveMode::stop` | `PI_STARTUP_BENCHMARK` path in `main_runner` |
+| `stop(fullscreenExitOutput = getFullscreenExitOutput())` / `stopInteractiveTui` | `InteractiveMode::stop` / `stop_with_output` / `stop_interactive_tui` | `ui_tests::stop_renders_the_transcript_when_leaving_fullscreen`, `ui_tests::stop_with_resume_hint_keeps_the_fullscreen_renderer`, `ui_tests::stop_clears_terminal_progress_and_disposes_footer_components`, `PI_STARTUP_BENCHMARK` path in `main_runner` |
 | `processControlMessage` | `process_control_message` | control-message branch of `run`; `IncomingControlMessage` completion/failure |
 | `InteractiveTuiHandle` dispatch | `InteractiveTuiHandle::renderer()` clones the active renderer | pty interactive test (input callbacks request renders) |
-| `formatResumeCommand` | `format_resume_command` | unit tests for quoting; TTY-dependent branch not covered |
+| `formatResumeCommand` | `format_resume_command` | unit tests for quoting; `main_interactive::quit_prints_the_resume_command` covers the TTY branch and the `shutdown` output line |
 | `ExtensionUIContext` implementation | `InteractiveUiContext` | `ui_tests::extension_select_dialog_resolves_and_restores_editor` (select); confirm/input/editor share the same broker |
 | `showSettingsSelector` | `show_settings_selector` | `ui_tests::settings_selector_updates_http_timeout_and_writes_settings_file`, `ui_tests::settings_selector_switches_tui_mode_and_reports_status`, `ui_tests::settings_selector_updates_session_auto_compact_and_thinking_level` |
 | `showModelsSelector` / `persistEnabledModelsForSelector` | `show_models_selector` / `persist_enabled_models_for_selector` | `ui_tests::scoped_models_selector_updates_session_scope_and_persists_selection` |
@@ -183,6 +183,21 @@ not through a deterministic TypeScript oracle.
 claimed control message, then prompts initial message/messages and loops:
 `process_events` -> `flush_pending` -> border color -> UI requests -> queued
 actions, breaking when shutdown is requested, then `shutdown`.
+
+`shutdown` mirrors the source: disable theme auto-sync, drain terminal input,
+`stop()`, dispose the runtime, then print
+`To resume this session: <formatResumeCommand>` when the session is persisted
+and its file exists. `stop()` disposes the active selector, clears terminal
+progress, stops the loader and child-activity timer, clears the child view,
+disables theme auto-sync, unsubscribes extension terminal listeners, disposes
+custom/default footer components plus the footer data provider, unsubscribes
+agent + multi-agent updates, cancels partial-update rendering (the Rust loop
+holds the throttle in `tokio::select!`), drops active bash and pending tool
+components, closes the completion notification, cleans clipboard temp files,
+then for an initialized TUI runs `stopInteractiveTui` and unregisters signal
+handlers. `transcript` exit output leaves fullscreen, switches to the regular
+renderer and re-renders; `resume-hint` keeps the fullscreen renderer with
+`preserveScreen`.
 
 ## Gaps (explicit)
 
