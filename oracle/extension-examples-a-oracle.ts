@@ -1,13 +1,15 @@
 // Batch A: unchanged pinned examples, actual loader/runtime/runner/event bus and
 // in-memory SessionManager. Only host actions/UI and clock are fixture seams.
 import { dirname, resolve } from "node:path";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { pathToFileURL } from "node:url";
 
 async function main() {
 const file = process.argv[2];
 const root = resolve(dirname(file), "../../src");
 const load = (path: string) => import(pathToFileURL(resolve(root, path)).href);
-const [{default: register}, {createExtensionRuntime, loadExtensionFromFactory}, {ExtensionRunner},
+const [{default: register}, {createExtensionRuntime, loadExtensionFromFactory, loadExtensions}, {ExtensionRunner},
  {createEventBus}, {SessionManager}] = await Promise.all([
  import(pathToFileURL(file).href), load("core/extensions/loader.ts"), load("core/extensions/runner.ts"),
  load("core/event-bus.ts"), load("core/session-manager.ts"),
@@ -17,7 +19,22 @@ async function run(request: any) {
  const trace: any[] = [];
  const cwd = request.cwd ?? "/fixture";
  const runtime = createExtensionRuntime(), bus = createEventBus();
- const extension = await loadExtensionFromFactory(register, cwd, bus, runtime, "<example:batch-a>");
+ const watchers: fs.FSWatcher[] = [];
+ const fileOps = {watch:fs.watch,readFileSync:fs.readFileSync,writeFileSync:fs.writeFileSync};
+ let fileChanged: (() => void) | undefined;
+ const physical = (path: any) => path === "/tmp/agent-trigger.txt" ? request.triggerPath : path;
+ if (request.triggerPath) {
+  fs.watch = ((path: any, callback: any) => {
+   const watcher = fileOps.watch(physical(path), (...args: any[]) => { callback(...args); fileChanged?.(); });
+   watchers.push(watcher); return watcher;
+  }) as any;
+  fs.readFileSync = ((path: any,...args: any[]) => (fileOps.readFileSync as any)(physical(path),...args)) as any;
+  fs.writeFileSync = ((path: any,...args: any[]) => (fileOps.writeFileSync as any)(physical(path),...args)) as any;
+  syncBuiltinESMExports();
+ }
+ const loaded = request.fileLoader ? await loadExtensions([file],cwd,bus,runtime) : undefined;
+ if (loaded?.errors.length) throw new Error(JSON.stringify(loaded.errors));
+ const extension = loaded?.extensions[0] ?? await loadExtensionFromFactory(register, cwd, bus, runtime, "<example:batch-a>");
  const manager = SessionManager.inMemory("/fixture");
  const runner = new ExtensionRunner([extension], runtime, cwd, manager, {});
  let name: string | undefined = request.name, prompt = "";
@@ -36,6 +53,10 @@ async function run(request: any) {
   clock = end;
  };
  runner.bindCore({
+  sendMessage(message: any, options: any) {
+   trace.push(["sendMessage",message,options]);
+   if (request.sendError) throw new Error(request.sendError);
+  },
   setSessionName(value: string) {
    if (request.actionError) throw new Error(request.actionError);
    name = value; trace.push(["setSessionName", value]);
@@ -80,6 +101,17 @@ async function run(request: any) {
   const d = t.definition; return [d.name, d.label, d.description, d.parameters];
  });
  const originalLog = console.log, originalNow = Date.now;
+ const originalWrite = process.stdout.write;
+ const savedEnv = {...process.env};
+ if (request.execReceipt && fs.existsSync(request.execReceipt)) fs.unlinkSync(request.execReceipt);
+ if (request.notifyEnv) {
+  delete process.env.WT_SESSION; delete process.env.KITTY_WINDOW_ID;
+  Object.assign(process.env,request.notifyEnv);
+  process.stdout.write = ((data: string) => {
+   if (request.writeError) throw new Error(request.writeError);
+   trace.push(["stdout",data]); return true;
+  }) as any;
+ }
  const originalTimers = [globalThis.setTimeout,globalThis.clearTimeout,globalThis.setInterval,globalThis.clearInterval];
  if (request.timers) {
   globalThis.setTimeout = ((callback: () => void, ms: number) => { const id = ++timerId; timers.set(id,{callback,at:clock+ms}); return id; }) as any;
@@ -104,6 +136,28 @@ async function run(request: any) {
     case "event": await runner.emit(step.event); break;
     case "emit": trace.push(["result",await runner.emit(step.event) ?? null]); break;
     case "advance": advance(step.ms); break;
+    case "receipt": {
+     const bytes = await new Promise<Buffer>((done,reject) => {
+      const timeout = originalTimers[0](() => { watcher.close(); reject(new Error("command fixture timeout")); },3000);
+      const check = () => {
+       if (!fs.existsSync(request.execReceipt)) return;
+       const bytes = fileOps.readFileSync(request.execReceipt);
+       if (!bytes.length) return;
+       originalTimers[1](timeout); watcher.close(); done(bytes);
+      };
+      const watcher = fileOps.watch(dirname(request.execReceipt),check); check();
+     });
+     trace.push(["exec",JSON.parse(bytes.toString())]); break;
+    }
+    case "trigger": {
+     await new Promise<void>((done,reject) => {
+      const timeout = originalTimers[0](() => reject(new Error("trigger fixture timeout")),3000);
+      fileChanged = () => { originalTimers[1](timeout); fileChanged = undefined; done(); };
+      fileOps.writeFileSync(request.triggerPath,step.content);
+     });
+     trace.push(["file",fileOps.readFileSync(request.triggerPath,"utf8")]);
+     break;
+    }
     case "bus": bus.emit(step.channel, step.data); break;
     case "prompt": prompt = step.value; break;
     case "before": {
@@ -122,6 +176,10 @@ async function run(request: any) {
   }
  } finally {
   console.log = originalLog; Date.now = originalNow; process.cwd = originalCwd;
+  process.stdout.write = originalWrite;
+  if (request.notifyEnv) { for (const key of Object.keys(process.env)) if (!(key in savedEnv)) delete process.env[key]; Object.assign(process.env,savedEnv); }
+  for (const watcher of watchers) watcher.close();
+  Object.assign(fs,fileOps); syncBuiltinESMExports();
   [globalThis.setTimeout,globalThis.clearTimeout,globalThis.setInterval,globalThis.clearInterval] = originalTimers as any;
  }
  return {commands,tools,trace};

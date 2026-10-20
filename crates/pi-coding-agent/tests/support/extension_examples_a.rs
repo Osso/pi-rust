@@ -208,6 +208,18 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
         log.lock().unwrap().push(json!(["setLabel", index, label]));
         Ok(())
     });
+    let messages = trace.clone();
+    let message_sent = Arc::new(tokio::sync::Notify::new());
+    let sent = message_sent.clone();
+    let send_error = request["sendError"].as_str().map(str::to_owned);
+    actions.send_message = Arc::new(move |message, options| {
+        messages.lock().unwrap().push(json!(["sendMessage", message, options]));
+        sent.notify_one();
+        if let Some(error) = &send_error {
+            return Err(HandlerError::new(error));
+        }
+        Ok(())
+    });
     runner.bind_core(actions, context, None);
     let errors = trace.clone();
     runner.on_error(Arc::new(move |error| {
@@ -242,6 +254,24 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
     if request["noUi"] == true {
         runner.set_ui_context(None, ExtensionMode::Json);
     }
+    let trigger_events = request["triggerPath"].as_str().map(|path| {
+        use notify::Watcher;
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+            tx.send(event).unwrap();
+        })
+        .unwrap();
+        if std::path::Path::new(path).exists() {
+            watcher
+                .watch(std::path::Path::new(path), notify::RecursiveMode::NonRecursive)
+                .unwrap();
+        }
+        (watcher, rx)
+    });
+    let mut trigger_events = trigger_events;
+    if let Some(path) = request["execReceipt"].as_str() {
+        let _ = std::fs::remove_file(path);
+    }
     for step in request["steps"].as_array().unwrap() {
         match step["op"].as_str().unwrap() {
             "command" => {
@@ -268,6 +298,65 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
                     };
                     trace.lock().unwrap().push(json!(["result", value]));
                 }
+            }
+            "trigger" => {
+                let path = request["triggerPath"].as_str().unwrap();
+                let content = step["content"].as_str().unwrap();
+                let previous_messages = trace.lock().unwrap().iter().filter(|v| v[0] == "sendMessage").count();
+                std::fs::write(path, content).unwrap();
+                let receiver = &mut trigger_events.as_mut().unwrap().1;
+                tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                    loop {
+                        tokio::select! {
+                            event = receiver.recv() => { if !event.unwrap().unwrap().kind.is_modify() { continue; } }
+                            () = message_sent.notified() => {}
+                        }
+                        let file = std::fs::read_to_string(path).unwrap();
+                        let expects_clear =
+                            !pi_js_compat::string::js_trim(content).is_empty() && request["sendError"].is_null();
+                        let expects_message = !pi_js_compat::string::js_trim(content).is_empty();
+                        let delivered =
+                            trace.lock().unwrap().iter().filter(|v| v[0] == "sendMessage").count() > previous_messages;
+                        if (!expects_message || delivered) && (!expects_clear || file.is_empty()) {
+                            break;
+                        }
+                    }
+                })
+                .await
+                .expect("trigger fixture timeout");
+                trace
+                    .lock()
+                    .unwrap()
+                    .push(json!(["file", std::fs::read_to_string(path).unwrap()]));
+            }
+            "receipt" => {
+                let path = request["execReceipt"].as_str().unwrap().to_owned();
+                use notify::Watcher;
+                let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+                let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                    let _ = tx.send(event);
+                })
+                .unwrap();
+                watcher
+                    .watch(
+                        std::path::Path::new(&path).parent().unwrap(),
+                        notify::RecursiveMode::NonRecursive,
+                    )
+                    .unwrap();
+                let bytes = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                    loop {
+                        if let Ok(bytes) = std::fs::read(&path) {
+                            if !bytes.is_empty() {
+                                break bytes;
+                            }
+                        }
+                        rx.recv().await.unwrap().unwrap();
+                    }
+                })
+                .await
+                .expect("command fixture timeout");
+                let args: Value = serde_json::from_slice(&bytes).unwrap();
+                trace.lock().unwrap().push(json!(["exec", args]));
             }
             "advance" => {
                 tokio::time::advance(std::time::Duration::from_millis(step["ms"].as_u64().unwrap())).await;

@@ -19,4 +19,13 @@ Typed Rust entry IDs are native strings; the existing UTF-16 slicing helper appl
 | timed-confirm.ts:13–70 | `timed_confirm.rs`: timeout options, select truthiness, manual cancellation token, user/timeout/cancel outcomes, UI errors | `example_timed_confirm::timed_dialog_options_results_abort_and_errors_match_ts` |
 | titlebar-spinner.ts:13–58 | `titlebar_spinner.rs`: live session name, process cwd basename, all ten frames, wrap, repeated start/end/shutdown | `example_titlebar_spinner::deterministic_frames_wrap_restart_and_shutdown_match_ts` |
 
-Timers use Tokio virtual time; the shared TS oracle drives equivalent virtual interval/timeout callbacks. No wall-clock sleeps. Remaining examples: notify, file-trigger.
+Timers use Tokio virtual time; the shared TS oracle drives equivalent virtual interval/timeout callbacks. No wall-clock sleeps. 
+
+| notify.ts:11–55 | `notify.rs`: PowerShell script/argv, WT over Kitty precedence, OSC 777/99 bytes and chunk order, writer error | `example_notify::protocols_precedence_external_fixture_and_output_errors_match_ts` |
+| file-trigger.ts:14–41 | `file_trigger.rs`: real file watcher, trim/blank, inject/clear, UI gating, send failure catch, missing-file watch failure | `example_file_trigger::private_watch_injects_clears_ignores_blank_and_preserves_failure_match_ts` |
+
+Notification fixture supplies a private `powershell.exe` Python executable which atomically records argv; no real notification command runs. Terminal output uses the batch-A model-status writer seam. File-trigger fixture redirects only the fixed trigger pathname to a private file. Native and Node watchers are real; tests await filesystem/message events with bounded failure timeouts, not sleeps. For these two examples the shared oracle uses pinned `loadExtensions` (jiti) so CommonJS `require` and Node fs imports have the actual host semantics.
+
+Source discrepancy (preserved): file-trigger never closes its watcher, assumes the file exists before session start, and catches all callback failures (including send errors), despite the comment describing missing-file recovery. Native watcher lifetime follows the registered extension; missing initial file is a handler error, not silent startup recovery.
+
+No missing extension APIs or dependencies added. No date formatting or provider header types used.
