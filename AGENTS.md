@@ -2,6 +2,8 @@
 
 - Treat `/home/osso/.worktrees/pi-rust-source-532f7d12` as read-only. Its pinned revision lives in `docs/porting/source-lock.json`.
 - Type proofs use the separately pinned two-file type-only reference (approved 2026-10-20); runtime oracles retain the original source/catalog. Setup and byte-identity proof: `docs/porting/oracle-gate.md`.
+- Control DB v15 and metadata-authoritative session names follow `c248b0067` instead of the v14 pin (approved deviation 2026-10-20); reference: `docs/porting/session-name-source-lock.json`.
+- Split-surrogate session-name helpers may use U+FFFD in memory; SQLite stored names must match TS exactly (approved 2026-10-20: “Match DB; record gap”).
 - Target: full parity of all packages (decision 2026-10-18). Track every non-test source file in `docs/porting/coverage.md`.
 - Port one whole TypeScript module (file or tightly coupled file group) per slice. Ask Alessio before any unapproved semantic deviation.
 - Extensions are Rust-native: bundled extensions are ported to a Rust extension API; loading TypeScript extensions is an approved deviation (2026-10-18).

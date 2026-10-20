@@ -9,7 +9,7 @@ use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions, faux_provider};
 use pi_ai::request::SimpleStreamOptions;
 use pi_ai::types::{Context, Model};
-use pi_coding_agent::core::agent_session::{AgentSession, AgentSessionConfig, ToolDefinition};
+use pi_coding_agent::core::agent_session::{AgentSession, AgentSessionConfig, PromptOptions, ToolDefinition};
 use pi_coding_agent::core::agent_session_runtime::{
     AgentSessionRuntime, CreateAgentSessionRuntimeOptions, CreateAgentSessionRuntimeResult, ForkPosition,
     NewSessionOptions, create_agent_session_runtime,
@@ -21,7 +21,10 @@ use pi_coding_agent::core::extensions::types::{
 };
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::resource_loader::StaticResourceLoader;
-use pi_coding_agent::core::session_manager::{SessionManager, lock_session_manager};
+use pi_coding_agent::core::session_control_db::{
+    WritableSessionMetadata, read_session_metadata, read_session_name_state, write_session_metadata,
+};
+use pi_coding_agent::core::session_manager::{SessionManager, SetMetadataControlDbPathOptions, lock_session_manager};
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
 use serde_json::json;
 
@@ -424,6 +427,146 @@ async fn relocate_updates_cwd_and_appends_a_context_note() {
     assert!(has_note, "expected a cwd_changed entry");
 }
 
+fn session_metadata_row(session_path: &str, id: &str, cwd: &str, name: Option<&str>) -> WritableSessionMetadata {
+    WritableSessionMetadata {
+        session_path: session_path.to_owned(),
+        id: id.to_owned(),
+        cwd: cwd.to_owned(),
+        name: name.map(str::to_owned),
+        parent_session_path: None,
+        archived_at: None,
+        is_archived: None,
+        is_subagent: None,
+        subagent_name: None,
+        model_provider: None,
+        model_id: None,
+        thinking_level: None,
+        created_at: "2026-08-23T00:00:00.000Z".to_owned(),
+        modified_at: "2026-08-23T00:00:00.000Z".to_owned(),
+        message_count: 0,
+        first_message: "(no messages)".to_owned(),
+        all_messages_text: String::new(),
+        index_message_text: None,
+    }
+}
+
+fn attach_control_db(harness: &Harness) -> String {
+    let control_db_path = harness._temp.path().join("control.db").display().to_string();
+    lock_session_manager(&harness.runtime.session().session_manager_handle())
+        .set_metadata_control_db_path(Some(&control_db_path), SetMetadataControlDbPathOptions::default())
+        .expect("attach control db");
+    control_db_path
+}
+
+#[tokio::test]
+async fn import_does_not_inherit_stale_metadata_or_historical_jsonl_names() {
+    let mut harness = build_harness(false, false).await;
+    let control_db_path = attach_control_db(&harness);
+    let temp_dir = harness._temp.path().to_path_buf();
+    let source_dir = temp_dir.join("import-source");
+    std::fs::create_dir_all(&source_dir).expect("source dir");
+    let source_path = source_dir.join("imported.jsonl");
+    let session_dir = lock_session_manager(&harness.runtime.session().session_manager_handle())
+        .get_session_dir()
+        .to_owned();
+    let destination_path = std::path::Path::new(&session_dir)
+        .join("imported.jsonl")
+        .display()
+        .to_string();
+    std::fs::write(
+        &source_path,
+        [
+            json!({
+                "type": "session",
+                "version": 3,
+                "id": "imported-session",
+                "timestamp": "2026-08-23T00:00:00.000Z",
+                "cwd": temp_dir.display().to_string(),
+            })
+            .to_string(),
+            json!({
+                "type": "session_info",
+                "id": "historical-name",
+                "parentId": null,
+                "timestamp": "2026-08-23T00:00:01.000Z",
+                "name": "Historical Import Name",
+            })
+            .to_string(),
+            String::new(),
+        ]
+        .join("\n"),
+    )
+    .expect("source file");
+    write_session_metadata(
+        &control_db_path,
+        &session_metadata_row(
+            &destination_path,
+            "stale-session",
+            &temp_dir.display().to_string(),
+            Some("Stale Destination Name"),
+        ),
+    )
+    .expect("stale metadata");
+
+    harness
+        .runtime
+        .import_from_jsonl(&source_path.display().to_string(), None)
+        .await
+        .expect("import");
+
+    let session = harness.runtime.session();
+    assert_eq!(session.session_file().as_deref(), Some(destination_path.as_str()));
+    assert_eq!(session.session_name(), None);
+    assert!(
+        !lock_session_manager(&session.session_manager_handle()).has_session_name_state(),
+        "a copied import starts with no stored name state"
+    );
+    assert_eq!(
+        read_session_metadata(&control_db_path, &destination_path)
+            .expect("metadata")
+            .and_then(|metadata| metadata.name),
+        None
+    );
+    assert!(
+        !read_session_name_state(&control_db_path, &destination_path)
+            .expect("state")
+            .has_stored_value
+    );
+}
+
+#[tokio::test]
+async fn fork_does_not_inherit_the_parent_session_name() {
+    let mut harness = build_harness(false, false).await;
+    let control_db_path = attach_control_db(&harness);
+    let session = harness.runtime.session().clone();
+    session.prompt("hello", PromptOptions::default()).await.expect("prompt");
+    session.prompt("again", PromptOptions::default()).await.expect("prompt");
+    session.set_session_name("Parent Session Name").expect("set name");
+    let previous_session_file = session.session_file();
+    let leaf_id = lock_session_manager(&session.session_manager_handle())
+        .get_leaf_id()
+        .expect("leaf")
+        .to_owned();
+
+    let result = harness
+        .runtime
+        .fork(&leaf_id, ForkPosition::At, None)
+        .await
+        .expect("fork");
+    assert!(!result.cancelled);
+    let forked_session_file = harness.runtime.session().session_file().expect("forked file");
+    assert_ne!(Some(forked_session_file.as_str()), previous_session_file.as_deref());
+    let forked = harness.runtime.session();
+    assert_eq!(forked.session_name(), None);
+    assert!(!lock_session_manager(&forked.session_manager_handle()).has_session_name_state());
+    assert_eq!(
+        read_session_metadata(&control_db_path, &forked_session_file)
+            .expect("metadata")
+            .and_then(|metadata| metadata.name),
+        None
+    );
+}
+
 #[tokio::test]
 async fn import_from_jsonl_switches_to_the_imported_session() {
     let mut harness = build_harness(false, false).await;
@@ -489,8 +632,8 @@ async fn session_replacement_rebinds_the_shared_extension_handle() {
     {
         let mut manager = lock_session_manager(&extension_handle);
         manager
-            .append_session_info("renamed-by-extension")
-            .expect("append session info");
+            .set_session_name(Some("renamed-by-extension"))
+            .expect("set session name");
     }
     assert_eq!(
         session.session_manager().get_session_name().as_deref(),

@@ -1949,7 +1949,7 @@ async fn footer_renders_override_stats_context_and_model() {
     let session = std::sync::Arc::new(fixture.session);
     {
         let mut manager = session.session_manager();
-        manager.append_session_info("Test Session").expect("session name");
+        manager.set_session_name(Some("Test Session")).expect("session name");
         manager
             .append_message(AgentMessage::Assistant(Box::new(assistant_with_usage(
                 10_000.0, 2000.0, 3000.0, 4000.0, 0.1234,

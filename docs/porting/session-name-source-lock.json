@@ -1,0 +1,10 @@
+{
+  "repository": "/home/osso/Repos/pi",
+  "worktree": "target/session-name-oracle",
+  "commit": "c248b0067c9fc3fa438f967f826c222875c54834",
+  "approvedOn": "2026-10-20",
+  "scope": "Control DB v15 and metadata-authoritative session names; other modules retain source-lock.json",
+  "additionalSourceFiles": [
+    "coding-agent/extensions/session-autoname/src/index.ts"
+  ]
+}

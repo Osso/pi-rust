@@ -297,7 +297,7 @@ async fn pwd_line_uses_override_and_restores_main_session() {
     child
         .append_message(assistant_message(23.0, 19.0, 2.0))
         .expect("child assistant");
-    child.append_session_info("child").expect("session name");
+    child.set_session_name(Some("child")).expect("session name");
     let override_session: Arc<Mutex<SessionManager>> = Arc::new(Mutex::new(child));
 
     let fixture = fixture(

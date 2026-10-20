@@ -1975,7 +1975,7 @@ fn footer_cases() -> Vec<(Value, Value)> {
             let session = std::sync::Arc::new(fixture.session);
             let entries = {
                 let mut manager = session.session_manager();
-                manager.append_session_info("Test Session").expect("session name");
+                manager.set_session_name(Some("Test Session")).expect("session name");
                 let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0);
                 assistant.usage.input = input;
                 assistant.usage.output = output;
@@ -2017,7 +2017,9 @@ fn footer_cases() -> Vec<(Value, Value)> {
             let override_manager = override_fixture.session.session_manager_handle();
             {
                 let mut manager = override_manager.lock().expect("override manager");
-                manager.append_session_info("Override Session").expect("override name");
+                manager
+                    .set_session_name(Some("Override Session"))
+                    .expect("override name");
                 let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0);
                 assistant.usage.input = 7000.0;
                 assistant.usage.output = 8000.0;

@@ -2137,33 +2137,14 @@ fn resolve_enabled_models_persist_target(
     (Some(patterns.unwrap_or_default()), SettingsScope::Project)
 }
 
-/// `applyControlSessionNames`: overlay control-db names and sort named sessions first.
-fn apply_control_session_names(
-    control_db_path: Option<&str>,
+/// `sortNamedSessionsFirst`: order named sessions first, then by modification time.
+fn sort_named_sessions_first(
     sessions: Vec<crate::core::session_manager::SessionInfo>,
 ) -> Vec<crate::core::session_manager::SessionInfo> {
-    let Some(control_db_path) = control_db_path else {
-        return sessions;
-    };
-    let Ok(named) = crate::core::session_control_db::list_named_sessions(control_db_path) else {
-        return sessions;
-    };
-    let names: HashMap<String, String> = named
-        .into_iter()
-        .map(|session| (session.session_path, session.name))
-        .collect();
-    let mut sessions: Vec<crate::core::session_manager::SessionInfo> = sessions
-        .into_iter()
-        .map(|mut session| {
-            if let Some(name) = names.get(&session.path) {
-                session.name = Some(name.clone());
-            }
-            session
-        })
-        .collect();
+    let mut sessions = sessions;
     sessions.sort_by(|a, b| {
-        let a_named = names.contains_key(&a.path);
-        let b_named = names.contains_key(&b.path);
+        let a_named = session_has_name(a);
+        let b_named = session_has_name(b);
         if a_named != b_named {
             return if a_named {
                 std::cmp::Ordering::Less
@@ -2174,6 +2155,13 @@ fn apply_control_session_names(
         b.modified.cmp(&a.modified)
     });
     sessions
+}
+
+fn session_has_name(session: &crate::core::session_manager::SessionInfo) -> bool {
+    session
+        .name
+        .as_deref()
+        .is_some_and(|name| !pi_js_compat::string::js_trim(name).is_empty())
 }
 
 fn tree_filter_mode(mode: TreeFilterMode) -> FilterMode {
@@ -8453,13 +8441,19 @@ impl InteractiveMode {
             self.show_error("Usage: /name <name>");
             return;
         }
-        self.session.borrow().set_session_name(name);
+        if let Err(error) = self.session.borrow().set_session_name(name) {
+            self.show_error(&format!("Failed to set session name: {}", error.message()));
+            return;
+        }
         self.update_terminal_title();
         self.ui.request_render();
     }
 
     fn handle_unname_command(&self) {
-        self.session.borrow().clear_session_name();
+        if let Err(error) = self.session.borrow().clear_session_name() {
+            self.show_error(&format!("Failed to clear session name: {}", error.message()));
+            return;
+        }
         self.update_terminal_title();
         self.ui.request_render();
     }
@@ -9097,10 +9091,7 @@ impl InteractiveMode {
         };
         let control_db_path = self.options.control_db_path.clone();
         let mode_id = self.ui_id.get();
-        let apply = {
-            let control_db_path = control_db_path.clone();
-            Rc::new(move |sessions| apply_control_session_names(control_db_path.as_deref(), sessions))
-        };
+        let apply = Rc::new(sort_named_sessions_first);
 
         let current_loader: SessionListLoader = {
             let apply = Rc::clone(&apply);
@@ -9190,20 +9181,11 @@ impl InteractiveMode {
             Rc::new(move |path: String, next_name: Option<String>| {
                 let control_db_path = control_db_path.clone();
                 Box::pin(async move {
-                    let next = next_name.unwrap_or_default().trim().to_owned();
                     let Some(control_db_path) = control_db_path else {
                         return Ok(());
                     };
-                    if next.is_empty() {
-                        crate::core::session_control_db::remove_named_session(&control_db_path, &path)
-                            .map_err(|error| error.to_string())?;
-                        return Ok(());
-                    }
-                    crate::core::session_control_db::set_named_session(&control_db_path, &path, &next)
+                    crate::core::session_control_db::write_session_name(&control_db_path, &path, next_name.as_deref())
                         .map_err(|error| error.to_string())?;
-                    let mut manager = crate::core::session_manager::SessionManager::open(&path, None, None)
-                        .map_err(|error| error.to_string())?;
-                    manager.append_session_info(&next).map_err(|error| error.to_string())?;
                     Ok(())
                 })
             })
@@ -12689,7 +12671,6 @@ mod ui_tests {
                     *manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("persisted manager");
                 }
                 let mut target = SessionManager::create(&cwd, Some(&session_dir), None).expect("target session");
-                target.append_session_info("resume-target").expect("append name");
                 target
                     .append_message(pi_agent_core::agent::types::AgentMessage::User(
                         pi_ai::types::UserMessage {

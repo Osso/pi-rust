@@ -38,6 +38,7 @@ pub mod run_plan;
 pub mod safe;
 pub mod self_restart;
 pub mod session_archive;
+pub mod session_autoname;
 pub mod session_id;
 pub mod spec_validation;
 
@@ -208,6 +209,13 @@ pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &Sma
         "<first-party:session-archive>",
         Arc::new(|pi| {
             let result = session_archive::session_archive_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register(
+        "<first-party:session-autoname>",
+        Arc::new(|pi| {
+            let result = session_autoname::session_autoname_extension(pi);
             Box::pin(async move { result })
         }),
     );

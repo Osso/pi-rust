@@ -56,6 +56,18 @@ pub fn utf16_len(value: &str) -> usize {
     value.encode_utf16().count()
 }
 
+/// Slice by UTF-16 code units, then perform the UTF-8 conversion used by Node
+/// SQLite string bindings. Unpaired surrogates become U+FFFD rather than being
+/// dropped. JS's intermediate string still differs (approved name-helper gap).
+pub fn utf16_slice_to_utf8(value: &str, start: usize, end: usize) -> String {
+    let units: Vec<u16> = value
+        .encode_utf16()
+        .skip(start)
+        .take(end.saturating_sub(start))
+        .collect();
+    String::from_utf16_lossy(&units)
+}
+
 /// JavaScript `String.prototype.replace(searchValue, replaceValue)` for string
 /// arguments: replaces the first occurrence and expands `$$`, `$&`, `` $` ``
 /// and `$'` in the replacement. Capture references stay literal because a

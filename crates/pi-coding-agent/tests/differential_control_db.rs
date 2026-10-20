@@ -74,18 +74,16 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, String> {
         "listArchivedSessionMetadata" => {
             to_value(list_archived_session_metadata(arg_str(args, 0)?).map_err(|error| error.message().to_owned())?)
         }
-        "setNamedSession" => {
-            set_named_session(arg_str(args, 0)?, arg_str(args, 1)?, arg_str(args, 2)?)
+        "writeSessionName" => {
+            write_session_name(arg_str(args, 0)?, arg_str(args, 1)?, arg(args, 2)?.as_str())
                 .map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }
-        "removeNamedSession" => {
-            remove_named_session(arg_str(args, 0)?, arg_str(args, 1)?).map_err(|error| error.message().to_owned())?;
-            Ok(Value::Null)
-        }
-        "listNamedSessions" => {
-            to_value(list_named_sessions(arg_str(args, 0)?).map_err(|error| error.message().to_owned())?)
-        }
+        "readSessionNameState" => to_value(
+            read_session_name_state(arg_str(args, 0)?, arg_str(args, 1)?)
+                .map_err(|error| error.message().to_owned())?,
+        ),
+        "normalizeSessionName" => to_value(normalize_session_name(arg(args, 0)?.as_str())),
         "writeSessionModel" => {
             write_session_model(
                 arg_str(args, 0)?,
@@ -496,8 +494,8 @@ fn script(db: &str) -> Vec<Value> {
         json!({"op":"call","args":["writeSessionModel",[db, "/sessions/a.jsonl", "anthropic", "claude"]]}),
         json!({"op":"call","args":["writeSessionThinkingLevel",[db, "/sessions/a.jsonl", "high"]]}),
         json!({"op":"call","args":["readSessionMetadata",[db, "/sessions/a.jsonl"]]}),
-        json!({"op":"call","args":["setNamedSession",[db, "/sessions/a.jsonl", "  Named  "]]}),
-        json!({"op":"call","args":["listNamedSessions",[db]]}),
+        json!({"op":"call","args":["writeSessionName",[db, "/sessions/a.jsonl", "  Named  "]]}),
+        json!({"op":"call","args":["readSessionNameState",[db,"/sessions/a.jsonl"]]}),
         json!({"op":"call","args":["writeSessionGoal",[db, "/sessions/a.jsonl", "{\"objective\":\"ship\"}"]]}),
         json!({"op":"call","args":["readSessionGoal",[db, "/sessions/a.jsonl"]]}),
         json!({"op":"call","args":["archiveSession",[db, "/sessions/b.jsonl"]]}),
@@ -561,7 +559,7 @@ fn script(db: &str) -> Vec<Value> {
         json!({"op":"call","args":["readMultiAgentState",[db, "/sessions/agents.jsonl"]]}),
         json!({"op":"call","args":["relocateSessionControlData",[db, "/sessions/a.jsonl", "/sessions/moved.jsonl"]]}),
         json!({"op":"call","args":["readSessionMetadata",[db, "/sessions/moved.jsonl"]]}),
-        json!({"op":"call","args":["listNamedSessions",[db]]}),
+        json!({"op":"call","args":["readSessionNameState",[db,"/sessions/moved.jsonl"]]}),
     ];
     steps.push(json!({"op":"call","args":["postSharedChannelMessage",[db, {"sender": {"sessionId":"x","agentId":null}, "body":"   "}]]}));
     steps
@@ -570,7 +568,7 @@ fn script(db: &str) -> Vec<Value> {
 #[test]
 fn operation_scripts_match_the_pinned_typescript_module() {
     let (_directory, rust_db) = temp_db();
-    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
     let (_oracle_directory, oracle_db) = temp_db();
     let request = json!({
         "id": 9001,
@@ -618,7 +616,7 @@ fn unsupported_future_schema_errors_match() {
     let connection = create_sqlite_database(&db).expect("open");
     connection.execute_batch("PRAGMA user_version = 99").expect("version");
     drop(connection);
-    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
     let response = oracle.request(&json!({
         "id": 9002,
         "steps": [{"op":"call","args":["readSessionHealth",[db.clone(), "missing"]]}],
@@ -631,7 +629,7 @@ fn unsupported_future_schema_errors_match() {
 #[test]
 fn empty_channel_body_error_matches() {
     let (_directory, db) = temp_db();
-    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
     let response = oracle.request(&json!({
         "id": 9003,
         "steps": [{"op":"call","args":["postSharedChannelMessage",[db.clone(), {"sender": {"sessionId":"x","agentId":null}, "body":"   "}]]}],

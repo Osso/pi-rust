@@ -147,7 +147,6 @@ async function run(request) {
 	await session.prompt("hello");
 	session.setThinkingLevel("high");
 	await session.prompt("second");
-	session.setSessionName("Named session");
 	const cycle = await session.cycleModel();
 	const contextUsage = session.getContextUsage();
 	const forking = session.getUserMessagesForForking();
@@ -167,6 +166,7 @@ async function run(request) {
 	const stats = session.getSessionStats();
 	const sessionFile = session.sessionFile;
 	const lines = readFileSync(sessionFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+	session.setSessionName("Named session");
 	await session.abort();
 	session.dispose();
 

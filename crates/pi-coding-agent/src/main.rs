@@ -142,6 +142,7 @@ pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
     "safe",
     "spec-validation",
     "session-archive",
+    "session-autoname",
     "self-restart",
     "session-id",
 ];
@@ -2161,7 +2162,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
             return Ok(Some(1));
         }
         session_manager
-            .append_session_info(name)
+            .set_session_name(Some(name))
             .map_err(|error| error.to_string())?;
     }
     if should_take_over_stdout {

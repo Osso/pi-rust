@@ -157,3 +157,10 @@ registration are wired.
   with `partialArgs`/`streamIndex`; Rust emits an empty pending message followed
   by deltas). The provider-reaching test uses `write_valid_models`; the json-mode
   divergence is reported, not fixed here.
+
+## v15 startup name (approved 2026-10-20)
+
+`--name` calls `SessionManager::set_session_name` per `c248b0067`, not `appendSessionInfo`.
+`tests/startup_session_name.rs` ports both process-boundary cases: trimmed name persists in
+metadata even when later model selection fails; empty name exits 1 without a name. Neither
+path writes JSONL session-info entries.

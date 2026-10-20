@@ -92,18 +92,18 @@ pub use requests::{
     requeue_supervisor_request,
 };
 pub use sessions::{
-    LastControlMessage, NamedSession, SessionMetadata, WritableSessionMetadata, archive_session,
+    LastControlMessage, SessionMetadata, SessionNameState, WritableSessionMetadata, archive_session,
     archive_sessions_older_than, clear_session_sandbox_profile, find_active_session_metadata_by_id,
     find_active_session_metadata_by_name, list_active_session_metadata, list_archived_session_metadata,
-    list_named_sessions, list_session_metadata, read_last_message, read_or_migrate_prompt_history, read_prompt_history,
-    read_session_goal, read_session_metadata, read_session_sandbox_profile, record_prompt_history_entry,
-    relocate_session_control_data, remove_named_session, remove_session_metadata, set_named_session, unarchive_session,
-    write_last_message, write_session_goal, write_session_metadata, write_session_model, write_session_sandbox_profile,
-    write_session_thinking_level,
+    list_session_metadata, normalize_session_name, read_last_message, read_or_migrate_prompt_history,
+    read_prompt_history, read_session_goal, read_session_metadata, read_session_name_state,
+    read_session_sandbox_profile, record_prompt_history_entry, relocate_session_control_data, remove_session_metadata,
+    unarchive_session, write_last_message, write_session_goal, write_session_metadata, write_session_model,
+    write_session_name, write_session_sandbox_profile, write_session_thinking_level,
 };
 
 pub use crate::core::sqlite::ControlDbError;
-pub use schema::{CONTROL_DB_SCHEMA_VERSION, initialize_schema};
+pub use schema::{CONTROL_DB_SCHEMA_VERSION, LIFECYCLE_PROTOCOL_SCHEMA_VERSION, initialize_schema};
 
 use crate::core::multi_agent_store::{AgentFileReference, AgentSnapshot, SteeringCheckpoint};
 

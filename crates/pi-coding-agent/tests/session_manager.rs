@@ -7,7 +7,8 @@ use pi_ai::types::{
     ToolResultRole, Usage, UserContent, UserMessage, UserRole,
 };
 use pi_coding_agent::core::session_control_db::{
-    WritableSessionMetadata, read_session_goal, read_session_metadata, write_session_metadata,
+    WritableSessionMetadata, read_session_goal, read_session_metadata, read_session_name_state, write_session_metadata,
+    write_session_name,
 };
 use pi_coding_agent::core::session_manager::{
     CURRENT_SESSION_VERSION, FileEntry, ForkEntrySelection, KnownSessionEntry, LeafSelection, NewSessionOptions,
@@ -533,6 +534,163 @@ fn loads_active_compacted_slice() {
         ids(&session.get_entries()),
         ["kept-1", "kept-2", "compaction-1", "after-1", "after-2"]
     );
+}
+
+#[test]
+fn summarized_jsonl_session_info_is_not_authoritative() {
+    let dir = temp_dir("session-name-slice");
+    let file = dir.join("named-compacted.jsonl");
+    write_jsonl(
+        &file,
+        &[
+            header_json("session-1", "/tmp"),
+            serde_json::json!({"type":"message","id":"old-1","parentId":null,"timestamp":"2025-01-01T00:00:00Z","message":{"role":"user","content":"old","timestamp":1}}),
+            serde_json::json!({"type":"session_info","id":"name-old","parentId":"old-1","timestamp":"2025-01-01T00:00:01Z","name":"Old Name"}),
+            serde_json::json!({"type":"session_info","id":"name-new","parentId":"name-old","timestamp":"2025-01-01T00:00:02Z","name":"Current Name"}),
+            serde_json::json!({"type":"message","id":"kept-1","parentId":"name-new","timestamp":"2025-01-01T00:00:00Z","message":{"role":"user","content":"kept","timestamp":1}}),
+            serde_json::json!({"type":"compaction","id":"compaction-1","parentId":"kept-1","timestamp":"2025-01-01T00:00:03Z","summary":"summary","firstKeptEntryId":"kept-1","tokensBefore":1000}),
+            serde_json::json!({"type":"message","id":"after-1","parentId":"compaction-1","timestamp":"2025-01-01T00:00:00Z","message":{"role":"user","content":"after","timestamp":1}}),
+        ],
+    );
+    let session = SessionManager::open(&file.display().to_string(), Some(&dir.display().to_string()), None).unwrap();
+    assert_eq!(session.get_session_name(), None);
+    assert!(!session.has_session_name_state());
+    assert_eq!(ids(&session.get_entries()), ["kept-1", "compaction-1", "after-1"]);
+}
+
+#[test]
+fn restores_the_sqlite_session_name_without_loading_pre_cutoff_session_info() {
+    let dir = temp_dir("session-name-sqlite");
+    let file = dir.join("sqlite-named-compacted.jsonl");
+    let control_db_path = dir.join("control.sqlite").display().to_string();
+    let initial_cwd = dir.join("initial").display().to_string();
+    let relocated_cwd = dir.join("relocated").display().to_string();
+    write_jsonl(
+        &file,
+        &[
+            header_json("session-1", &initial_cwd),
+            serde_json::json!({"type":"message","id":"old-1","parentId":null,"timestamp":"2025-01-01T00:00:00Z","message":{"role":"user","content":"old","timestamp":1}}),
+            serde_json::json!({
+                "type":"custom_message",
+                "id":"cwd-change",
+                "parentId":"old-1",
+                "timestamp":"2025-01-01T00:00:01Z",
+                "customType":"cwd_changed",
+                "content":format!("Working directory changed to {relocated_cwd}."),
+                "details":{"previousCwd":initial_cwd,"cwd":relocated_cwd},
+                "display":true
+            }),
+            serde_json::json!({"type":"message","id":"kept-1","parentId":"cwd-change","timestamp":"2025-01-01T00:00:00Z","message":{"role":"user","content":"kept","timestamp":1}}),
+            serde_json::json!({"type":"compaction","id":"compaction-1","parentId":"kept-1","timestamp":"2025-01-01T00:00:02Z","summary":"summary","firstKeptEntryId":"kept-1","tokensBefore":1000}),
+            serde_json::json!({"type":"message","id":"after-1","parentId":"compaction-1","timestamp":"2025-01-01T00:00:00Z","message":{"role":"user","content":"after","timestamp":1}}),
+        ],
+    );
+    let session_path = file.display().to_string();
+    let mut metadata = metadata_row(&session_path, "session-1", &relocated_cwd, Some("SQLite Session Name"));
+    metadata.message_count = 3;
+    write_session_metadata(&control_db_path, &metadata).expect("metadata");
+
+    let mut session = SessionManager::open(&session_path, Some(&dir.display().to_string()), None).unwrap();
+    session
+        .set_metadata_control_db_path(Some(&control_db_path), SetMetadataControlDbPathOptions::default())
+        .expect("attach control db");
+
+    assert!(
+        !session
+            .get_entries()
+            .iter()
+            .any(|entry| entry.entry_type() == "session_info")
+    );
+    assert_eq!(session.get_cwd(), relocated_cwd);
+    assert_eq!(session.get_session_name().as_deref(), Some("SQLite Session Name"));
+    assert!(session.has_session_name_state());
+}
+
+#[test]
+fn restores_an_explicit_name_clear_without_making_the_session_autoname_eligible() {
+    let dir = temp_dir("session-name-clear");
+    let control_db_path = dir.join("control.sqlite").display().to_string();
+    let file = dir.join("cleared.jsonl");
+    write_jsonl(&file, &[header_json("cleared", &dir.display().to_string())]);
+    let session_path = file.display().to_string();
+    write_session_metadata(
+        &control_db_path,
+        &metadata_row(&session_path, "cleared", &dir.display().to_string(), None),
+    )
+    .expect("metadata");
+    write_session_name(&control_db_path, &session_path, None).expect("explicit clear");
+
+    let mut session = SessionManager::open(&session_path, Some(&dir.display().to_string()), None).unwrap();
+    session
+        .set_metadata_control_db_path(Some(&control_db_path), SetMetadataControlDbPathOptions::default())
+        .expect("attach control db");
+
+    assert_eq!(session.get_session_name(), None);
+    assert!(session.has_session_name_state());
+    let state = read_session_name_state(&control_db_path, &session_path).expect("state");
+    assert_eq!(state.name, None);
+    assert!(state.has_stored_value);
+}
+
+#[test]
+fn rehydrates_the_sqlite_session_name_when_switching_files() {
+    let dir = temp_dir("session-name-switch");
+    let control_db_path = dir.join("control.sqlite").display().to_string();
+    let cwd = dir.display().to_string();
+    let first = dir.join("first.jsonl");
+    let second = dir.join("second.jsonl");
+    for (file, id, name) in [(&first, "first", "First Name"), (&second, "second", "Second Name")] {
+        write_jsonl(file, &[header_json(id, &cwd)]);
+        write_session_metadata(
+            &control_db_path,
+            &metadata_row(&file.display().to_string(), id, &cwd, Some(name)),
+        )
+        .expect("metadata");
+    }
+
+    let mut session = SessionManager::open(&first.display().to_string(), Some(&cwd), None).unwrap();
+    session
+        .set_metadata_control_db_path(Some(&control_db_path), SetMetadataControlDbPathOptions::default())
+        .expect("attach control db");
+    assert_eq!(session.get_session_name().as_deref(), Some("First Name"));
+
+    session.set_session_file(&second.display().to_string()).expect("switch");
+    assert_eq!(session.get_session_name().as_deref(), Some("Second Name"));
+}
+
+#[test]
+fn does_not_carry_a_session_name_into_a_branched_session() {
+    let mut session = SessionManager::in_memory(Some("/tmp"), None).unwrap();
+    let leaf_id = session.append_message(user_message("branch me", 1)).unwrap();
+    session.set_session_name(Some("Parent Name")).expect("name");
+
+    session.create_branched_session(&leaf_id).expect("branch");
+
+    assert_eq!(session.get_session_name(), None);
+    assert!(!session.has_session_name_state());
+}
+
+fn metadata_row(session_path: &str, id: &str, cwd: &str, name: Option<&str>) -> WritableSessionMetadata {
+    WritableSessionMetadata {
+        session_path: session_path.to_owned(),
+        id: id.to_owned(),
+        cwd: cwd.to_owned(),
+        name: name.map(str::to_owned),
+        parent_session_path: None,
+        archived_at: None,
+        is_archived: None,
+        is_subagent: None,
+        subagent_name: None,
+        model_provider: None,
+        model_id: None,
+        thinking_level: None,
+        created_at: "2025-01-01T00:00:00.000Z".to_owned(),
+        modified_at: "2025-01-01T00:00:03.000Z".to_owned(),
+        message_count: 0,
+        first_message: "(no messages)".to_owned(),
+        all_messages_text: String::new(),
+        index_message_text: None,
+    }
 }
 
 #[test]
@@ -1295,12 +1453,13 @@ fn appending_messages_writes_the_metadata_snapshot() {
     assert_eq!(metadata.first_message, "hello");
 
     session
-        .append_session_info("Named session")
-        .expect("append session info");
+        .set_session_name(Some("Named session"))
+        .expect("set session name");
     let metadata = read_session_metadata(&control_db, &session_file)
         .expect("read metadata")
-        .expect("snapshot after session info append");
+        .expect("snapshot after name write");
     assert_eq!(metadata.name.as_deref(), Some("Named session"));
+    assert_eq!(session.get_session_name().as_deref(), Some("Named session"));
 }
 
 #[test]
@@ -1500,7 +1659,6 @@ fn open_preserves_a_freshly_persisted_header() {
         }),
     )
     .unwrap();
-    created.append_session_info("Fresh Session").unwrap();
     created.persist_for_recovery().unwrap();
     let path = created.get_session_file().unwrap().to_owned();
     let created_id = created.get_session_id().to_owned();
@@ -1508,7 +1666,11 @@ fn open_preserves_a_freshly_persisted_header() {
 
     let opened = SessionManager::open(&path, Some(&session_dir), None).unwrap();
     assert_eq!(opened.get_session_id(), created_id);
-    assert_eq!(opened.get_session_name().as_deref(), Some("Fresh Session"));
+    assert_eq!(
+        opened.get_session_name(),
+        None,
+        "names come from control-db metadata, not historical session_info entries"
+    );
     assert_eq!(opened.get_cwd(), dir.display().to_string());
     let header = opened.get_header().expect("header");
     assert_eq!(header.id, created_id);
@@ -1576,4 +1738,23 @@ fn relocation_moves_control_db_rows() {
         None,
         "control-db rows move with the session file"
     );
+}
+
+#[test]
+fn opening_an_empty_file_resets_names_without_restoring_stale_metadata() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let cwd = dir.path().display().to_string();
+    let db = dir.path().join("control.sqlite").display().to_string();
+    let empty = dir.path().join("empty.jsonl").display().to_string();
+    fs::write(&empty, "").expect("empty session file");
+    write_session_metadata(&db, &metadata_row(&empty, "stale", &cwd, Some("Stale Name"))).expect("stale metadata");
+    let mut manager = SessionManager::create(&cwd, Some(&cwd), None).expect("manager");
+    manager
+        .set_metadata_control_db_path(Some(&db), Default::default())
+        .expect("attach metadata");
+    manager.set_session_name(Some("Original Name")).expect("original name");
+    manager.set_session_file(&empty).expect("initialize empty file");
+    assert_eq!(manager.get_session_name(), None);
+    assert!(!manager.has_session_name_state());
+    assert_ne!(manager.get_session_id(), "stale");
 }

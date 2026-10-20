@@ -6317,14 +6317,10 @@ impl AgentSession {
     // =========================================================================
 
     /// Sets a display name for the current session.
-    pub fn set_session_name(&self, name: &str) {
-        let session_file = self.session_file();
-        if let (Some(control_db_path), Some(session_file)) = (&self.inner.control_db_path, session_file) {
-            let _ = crate::core::session_control_db::set_named_session(control_db_path, &session_file, name);
-        }
-        if let Err(error) = lock(&self.inner.session_manager).append_session_info(name) {
-            eprintln!("Failed to persist session name: {error}");
-        }
+    pub fn set_session_name(&self, name: &str) -> Result<(), AgentSessionError> {
+        lock(&self.inner.session_manager)
+            .set_session_name(Some(name))
+            .map_err(|failure| error(failure.to_string()))?;
         let name = lock(&self.inner.session_manager).get_session_name();
         self.emit(AgentSessionEvent::SessionInfoChanged(SessionInfoChangedEvent {
             event_type: "session_info_changed",
@@ -6336,20 +6332,24 @@ impl AgentSession {
                 session.emit_session_info_changed(name).await;
             });
         }
+        Ok(())
     }
 
-    pub fn clear_session_name(&self) {
-        let session_file = self.session_file();
-        if let (Some(control_db_path), Some(session_file)) = (&self.inner.control_db_path, session_file) {
-            let _ = crate::core::session_control_db::remove_named_session(control_db_path, &session_file);
-        }
-        if let Err(error) = lock(&self.inner.session_manager).append_session_info("") {
-            eprintln!("Failed to clear session name: {error}");
-        }
+    pub fn clear_session_name(&self) -> Result<(), AgentSessionError> {
+        lock(&self.inner.session_manager)
+            .set_session_name(None)
+            .map_err(|failure| error(failure.to_string()))?;
         self.emit(AgentSessionEvent::SessionInfoChanged(SessionInfoChangedEvent {
             event_type: "session_info_changed",
             name: None,
         }));
+        let session = self.clone();
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                session.emit_session_info_changed(None).await;
+            });
+        }
+        Ok(())
     }
 
     pub fn update_compaction_summary(&self, entry_id: &str, summary: &str) -> Result<(), AgentSessionError> {
@@ -7623,8 +7623,9 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
         let Some(inner) = name_weak.upgrade() else {
             return Ok(());
         };
-        AgentSession { inner }.set_session_name(name);
-        Ok(())
+        AgentSession { inner }
+            .set_session_name(name)
+            .map_err(|failure| crate::core::extensions::types::HandlerError::new(failure.to_string()))
     });
     let get_name_weak = weak.clone();
     let get_session_name: crate::core::extensions::types::GetSessionNameHandler =

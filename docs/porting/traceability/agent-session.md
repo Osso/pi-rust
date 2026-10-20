@@ -156,3 +156,13 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
   sends; real provider adapters drop those fields too.
 - `getUserMessagesForForking` returns typed `UserMessageForForking` objects matching
   the TS `{entryId,text}` wire shape.
+
+## v15 session names (approved 2026-10-20)
+
+Name methods follow `c248b0067` ([reference lock](../session-name-source-lock.json)).
+`set_session_name`/`clear_session_name` call the shared manager and propagate persistence errors.
+Both publish `SessionInfoChanged` to subscribers and extensions; neither appends JSONL.
+Proof: `agent_session::session_name_round_trips_through_session_metadata_state`,
+`rpc_mode_session_name` (real RPC process; metadata value and no session-info entry),
+`session_autoname` (explicit-clear gating and exact extension set/clear event ordering). The broad pinned AgentSession/RPC differentials
+retain name commands/events but capture JSONL before renaming; v15 persistence has separate proof.

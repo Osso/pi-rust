@@ -536,6 +536,11 @@ fn extensions_command_lists_the_ported_first_party_extensions() {
     let fixture = fixture(&source_lock());
     let output = run_rust(&fixture, &["extensions"]);
     assert_eq!(output.code, 0, "stderr: {}", output.stderr);
+    assert!(
+        output.stdout.contains("session-autoname"),
+        "missing session-autoname: {}",
+        output.stdout
+    );
     let expected: Vec<&str> = FIRST_PARTY_EXTENSION_NAMES.to_vec();
     assert!(
         output

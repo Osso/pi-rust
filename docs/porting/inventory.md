@@ -29,7 +29,11 @@ Eight missing TypeScript modules/declarations, relative to `packages/`:
 
 These add 1,400 lines. Corrected legacy TS selection: **683 files / 165,942 lines**. Full selection adds **136 further sources / 25,757 lines**, yielding **819 unique rows / 191,699 lines**. Those additional paths are explicit rows, including non-TS runtime modules and outside-`src/` package examples/tooling; eight was not the total all-language/all-package omission count.
 
-All 144 added rows are `todo`: unresolved module-level parity, not approved exclusions and not a claim that no corresponding Rust implementation exists. Existing 670 `done` and five `gap` labels are retained, not independently re-proven. No approval added: debug REPL was already approved on 2026-10-18 and already has [traceability](traceability/debug-repl.md); only its omission from `AGENTS.md` is repaired. Giant Rust module readability remains structural debt, untouched here.
+At reconciliation commit `bf639a5`, all 144 added rows were `todo`: unresolved module-level parity, not approved exclusions and not a claim that no corresponding Rust implementation exists. Existing 670 `done` and five `gap` labels are retained, not independently re-proven. No approval added: debug REPL was already approved on 2026-10-18 and already has [traceability](traceability/debug-repl.md); only its omission from `AGENTS.md` is repaired. Giant Rust module readability remains structural debt, untouched here.
+
+## Authorized v15 addition
+
+The v15 slice adds `coding-agent/extensions/session-autoname/src/index.ts`, absent from the original pin: 295 lines at the revision in [session-name-source-lock.json](session-name-source-lock.json). Its `additionalSourceFiles` list extends the inventory without changing the original pin or the counts of existing pinned modules. Matrix totals: **820 unique files / 191,994 lines**. Current statuses live only in [coverage.md](coverage.md).
 
 ## Repeatable validation
 
@@ -72,6 +76,15 @@ for name in files:
     else:
         assert path.suffix in other, f"Unclassified source kind: {name}"
         excluded[path.suffix or "extensionless"] += 1
+
+name_lock = json.loads((root / "docs/porting/session-name-source-lock.json").read_text())
+for name in name_lock["additionalSourceFiles"]:
+    assert name not in expected, f"Additional source already in original pin: {name}"
+    data = subprocess.run(
+        ["git", "-C", name_lock["repository"], "show", f"{name_lock['commit']}:packages/{name}"],
+        check=True, capture_output=True,
+    ).stdout
+    expected[name] = data.count(b"\n") + int(bool(data) and not data.endswith(b"\n"))
 
 text = (root / "docs/porting/coverage.md").read_text()
 rows = re.findall(r"^\| `([^`]+)` \| (\d+) \|", text, re.M)

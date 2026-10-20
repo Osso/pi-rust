@@ -200,7 +200,6 @@ async fn run_rust(dir: &str) -> Value {
         .prompt("second", PromptOptions::default())
         .await
         .expect("prompt 2");
-    session.set_session_name("Named session");
     let cycle = session
         .cycle_model(pi_coding_agent::core::agent_session::CycleDirection::Forward)
         .await
@@ -265,6 +264,7 @@ async fn run_rust(dir: &str) -> Value {
         .map(|line| serde_json::from_str(line).expect("jsonl line"))
         .collect();
     let messages: Vec<Value> = session.messages().iter().map(message_summary).collect();
+    session.set_session_name("Named session").expect("name");
     session.abort().await.expect("abort");
     session.dispose();
     let events = events.lock().unwrap().clone();

@@ -11,9 +11,9 @@ schema version, migrations, PRAGMAs, and transaction boundaries are kept verbati
 
 | Contract | Rust | Proof |
 |---|---|---|
-| `CONTROL_DB_SCHEMA_VERSION = 14` | `CONTROL_DB_SCHEMA_VERSION` | `schema_and_pragmas_match_the_shared_contract`, `legacy_database_migrates_to_schema_fourteen`, `unsupported_future_schema_is_rejected` |
+| `CONTROL_DB_SCHEMA_VERSION = 14` | `CONTROL_DB_SCHEMA_VERSION` | `schema_and_pragmas_match_the_shared_contract`, `legacy_database_migrates_to_schema_fifteen`, `unsupported_future_schema_is_rejected` |
 | `CREATE TABLE`/`CREATE INDEX` for all 17 tables | `schema.rs::CREATE_SCHEMA_SQL` | `cross_implementation_control_db::schema_text_and_pragmas_match_the_typescript_module` |
-| Migration from legacy counters, payloads, runtime owners, outbox, mailbox, lifecycle rows, architect/listener/session-metadata columns | `initialize_schema` + `migrate_*` | `legacy_database_migrates_to_schema_fourteen` |
+| Migration from legacy counters, payloads, runtime owners, outbox, mailbox, lifecycle rows, architect/listener/session-metadata columns | `initialize_schema` + `migrate_*` | `legacy_database_migrates_to_schema_fifteen` |
 | Legacy artifact-field rejection triggers | `create_legacy_artifact_field_triggers` | migration test; trigger names asserted by cross-language schema test |
 | `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout=5000` | `configure_shared_sqlite_database` | `schema_and_pragmas_match_the_shared_contract`, cross-language schema test |
 | `getControlDbPath(directory = getUserStateRoot())` | `get_control_db_path(&Path)` | `control_db_path_joins_control_sqlite` |
@@ -40,7 +40,7 @@ unless noted.
 | Shared channel | `postSharedChannelMessage`, `listSharedChannelMessagesAfter`, `readSharedChannelCursor`, `hasPendingRuntimeCoordinationMessage`, `isRuntimeCoordinationMailboxMessage`, `initializeSharedChannelCursorAtTail`, `advanceSharedChannelCursor`, `readSharedChannelTail`, `SharedChannelMessage`, `PostSharedChannelMessageInput` | `channel.rs` | `shared_channel_posts_and_cursors`; differential `empty_channel_body_error_matches` |
 | Session health | `readSessionHealth`, `listSessionHealth`, `writeSessionHealth` | `health.rs` | `health_record_round_trips_all_statuses` |
 | Session metadata | `writeSessionMetadata`, `readSessionMetadata`, `listSessionMetadata`, `listActiveSessionMetadata`, `listArchivedSessionMetadata`, `findActiveSessionMetadataById/Name`, `removeSessionMetadata`, `archiveSession`, `unarchiveSession`, `archiveSessionsOlderThan`, `SessionMetadata`, `WritableSessionMetadata` | `sessions.rs` | `session_metadata_round_trips_and_archives`, `session_metadata_write_preserves_archived_state_and_index_flag` |
-| Named sessions / relocation | `setNamedSession`, `removeNamedSession`, `listNamedSessions`, `relocateSessionControlData`, `NamedSession` | `sessions.rs` | `named_sessions_and_relocation_move_all_control_rows` |
+| Named sessions / relocation | `normalizeSessionName`, `writeSessionName`, `readSessionNameState`, `relocateSessionControlData`, `SessionNameState` | `sessions.rs` | `named_sessions_and_relocation_move_all_control_rows` |
 | Last message / prompt history | `writeLastMessage`, `readLastMessage`, `recordPromptHistoryEntry`, `readPromptHistory`, `readOrMigratePromptHistory`, `LastControlMessage` | `sessions.rs` | `last_message_only_returns_assistant_roles`, `prompt_history_deduplicates_and_migrates_legacy_entries` |
 | Goal / model / thinking / sandbox | `readSessionGoal`, `writeSessionGoal`, `writeSessionModel`, `writeSessionThinkingLevel`, `readSessionSandboxProfile`, `writeSessionSandboxProfile`, `clearSessionSandboxProfile` | `sessions.rs` | `session_metadata_identity_is_enforced_for_sandbox_profiles` |
 | Multi-agent persistence | `bootstrapMultiAgentAgent`, `readMultiAgentAgent(s)`, `readMultiAgentState`, `upsertMultiAgentMailboxMessage`, `getMultiAgentMailboxMessageStatus`, `markMultiAgentMailboxMessageDelivered/Failed`, `writeMultiAgentCounters`, `allocateMultiAgentCounter`, `updateMultiAgentAgentActivity`, `updateMultiAgentAgentCurrentActivity`, `updateMultiAgentAgentSlot`, `updateMultiAgentAgentTranscript`, `MultiAgent*` records | `agents.rs` | `read_multi_agent_state_orders_rows_by_rowid`, `multi_agent_counters_allocate_monotonic_sequences`, `bootstrap_refuses_to_mutate_owned_rows` |
@@ -56,7 +56,7 @@ The session-manager consumer contract (20 symbols) is compile-locked by
 `tests/cross_implementation_control_db.rs` (temp DBs only):
 
 - `typescript_writes_are_readable_by_rust`
-- `rust_writes_are_readable_by_typescript_in_source_order`
+- `rust_writes_are_readable_by_typescript_in_source_order` (v15 reference)
 - `concurrent_typescript_and_rust_writers_keep_every_row`
 - `schema_text_and_pragmas_match_the_typescript_module`
 
@@ -87,3 +87,27 @@ TypeScript literal order (`claimedAt`, `claimantProcessIdentity`, `status`, `upd
 appends `recipientSessionId`, `recipientAgentId`, `senderSessionId`, `senderAgentId`; delivery appends
 `deliveredAt` then `error`). Rust inserts in the same order with `shift_remove`/`remove` after the
 inserts, so `JSON.stringify` bytes match. Covered by the 74-step `differential_control_db` suite.
+
+## Session-name v15 deviation (approved 2026-10-20)
+
+Reference: `c248b0067c9fc3fa438f967f826c222875c54834` in
+[session-name-source-lock.json](../session-name-source-lock.json); the general pin stays unchanged.
+
+| Contract / branch | Rust | Behavioral proof |
+|---|---|---|
+| Lifecycle target 14, database target 15; future-version error | `schema::{LIFECYCLE_PROTOCOL_SCHEMA_VERSION, CONTROL_DB_SCHEMA_VERSION}` | `legacy_database_migrates_to_schema_fifteen`, `unsupported_future_schema_is_rejected` |
+| Legacy normalization/precedence, matching rows only, drop table, idempotence | `migrate_legacy_session_names`, `move_legacy_session_names_into_metadata` | `version_fourteen_session_names_migrate_into_metadata_and_drop_the_legacy_table` |
+| Refuse live lifecycle owners before moving names; retry after owners stop | `assert_control_db_migration_quiescent` | `session_name_migration_requires_runtime_quiescence` |
+| Absent/NULL versus stored empty name; missing-metadata writes throw | `read_session_name_state`, `write_session_name` | `session_names_live_only_in_session_metadata`, `write_session_name_requires_a_metadata_row` |
+| Metadata snapshots preserve names and explicit clears; relocation moves name | `read_session_metadata_write_values`, `relocate_session_control_data` | `generic_metadata_snapshots_preserve_dedicated_session_names`, `named_sessions_and_relocation_move_all_control_rows` |
+
+`cross_implementation_control_db` now uses the authorized v15 reference: exact schema/PRAGMA
+comparison (no removed fields), TS-created already-v15 DB → Rust update → TS readback,
+Rust-created DB → TS reads, and concurrent TS/Rust writers. All DBs are temporary.
+`differential_control_db` retains all operation comparisons, replacing deleted TS named-session
+APIs with `writeSessionName`/`readSessionNameState`. No v14 version expectation is masked.
+The writer-lock migration-state race remains enforced in code; no deterministic race harness yet.
+
+Quiescence errors preserve TS Set encounter order (runtime PIDs, then owner identities), not numeric sorting; `name_migration_errors_preserve_owner_pid_encounter_order` reproduces the prior Rust ordering failure with live parent/current process identities.
+
+Existing v15 databases with live lifecycle owners accept name updates without rerunning lifecycle migration or mutating running-agent payloads: `existing_v15_names_update_without_reentering_lifecycle_migrations`. Schema comparison initializes separate TS/Rust databases and compares every schema/PRAGMA field.
