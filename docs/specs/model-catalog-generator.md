@@ -16,7 +16,8 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - [x] Fetch OpenRouter/AI Gateway through an injected transport, preserving tool filters, pricing, defaults and strict HTTP-status errors.
 - [x] Report implemented Baseten/Fireworks/cost malformed raw-input errors instead of silently narrowing them away.
 - [x] Generate grouped private and flat public JSON, source-identical manifests/checksums/timestamps and pretty/compact bytes in default/public/json-only/data-only fixtures.
-- [ ] Prove staged validation failures, rollback, filesystem errors and CLI execution.
+- [x] Execute maintenance CLI option handling, immediate log emission and statistics with fixture HTTP; reject invalid CLI mode in a real subprocess before fetching.
+- [ ] Prove staged validation failures, rollback and filesystem/transport error formatting.
 - [x] Default generation updates native provider include-table glue with JSON values; data-only preserves the include table. Runtime catalog APIs and every current embedded value remain unchanged.
 - [ ] Preserve failure names/messages, log order and exit behavior; omit JS-specific stack frames (approved “Omit JS frames (Recommended)”, 2026-10-20), retaining full raw TS diagnostics in oracle logs.
 
@@ -26,7 +27,8 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 
 ## Implementation inventory
 
-- `crates/pi-ai/src/model_catalog_generator.rs`: lossless provider transformations, transport and option parsing.
+- `crates/pi-ai/src/model_catalog_generator.rs`: lossless provider transformations, injected transport, option parsing, CLI orchestration and error records.
+- `crates/pi-ai/src/bin/generate-models.rs`: explicit maintenance binary using compiled source root and native HTTP transport.
 - `crates/pi-ai/src/model_catalog_generator/metadata.rs`: native metadata mutations.
 - `crates/pi-ai/src/model_catalog_generator/models_dev.rs`: models.dev/NVIDIA fetching and provider transformations.
 - `crates/pi-ai/src/model_catalog_generator/catalog.rs`: complete fetched-value merge, overrides, supplements, clones and sorted public catalog.

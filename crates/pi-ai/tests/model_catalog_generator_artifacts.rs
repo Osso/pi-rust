@@ -28,6 +28,67 @@ impl Drop for Sandbox {
 }
 
 #[test]
+fn native_cli_streams_source_logs_and_rejects_invalid_arguments_without_fetching() {
+    use pi_ai::model_catalog_generator::run_generator_cli;
+    let mut source = oracle::TsOracle::spawn(
+        "model-catalog-generator-oracle.ts",
+        "packages/ai/scripts/generate-models.ts",
+    );
+    let expected=source.request(&json!({"operation":"generateModels","argv":["--json-only","--json-output","@OUTPUT@"],"http":{"https://models.dev/api.json":{"body":"{}"},"https://openrouter.ai/api/v1/models":{"body":"{\"data\":[]}"},"https://ai-gateway.vercel.sh/v1/models":{"body":"{\"data\":[]}"}}}));
+    let root = Sandbox::new();
+    let output = root.0.join("catalog");
+    let mut logs = vec![];
+    let mut fetch = |url: &str| {
+        Ok(HttpResponse {
+            status: 200,
+            body: if url == "https://models.dev/api.json" {
+                "{}".into()
+            } else {
+                "{\"data\":[]}".into()
+            },
+        })
+    };
+    run_generator_cli(
+        &[
+            "--json-only".into(),
+            "--json-output".into(),
+            output.to_string_lossy().into_owned(),
+        ],
+        &root.0,
+        &JsString::from("2026-10-20T00:00:00.000Z"),
+        &mut fetch,
+        &mut |log| logs.push(log.clone()),
+    )
+    .unwrap();
+    let native = pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::JsValue::Array(logs))
+        .replace(root.0.to_str().unwrap(), "<ROOT>");
+    let expected_logs = expected["logs"]
+        .to_string()
+        .replace(expected["root"].as_str().unwrap(), "<ROOT>");
+    assert_eq!(native, expected_logs);
+    let error = run_generator_cli(
+        &["--json-only".into()],
+        &root.0,
+        &JsString::from("unused"),
+        &mut |_| panic!("invalid CLI must not fetch"),
+        &mut |_| panic!("invalid CLI must not log"),
+    )
+    .unwrap_err();
+    assert_eq!(error.name, "Error");
+    assert_eq!(error.message, JsString::from("--json-only requires --json-output"));
+    let binary = std::process::Command::new(env!("CARGO_BIN_EXE_generate-models"))
+        .arg("--json-only")
+        .output()
+        .unwrap();
+    assert_eq!(binary.status.code(), Some(1));
+    assert!(binary.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(binary.stderr).unwrap(),
+        "Error: --json-only requires --json-output\n"
+    );
+}
+
+#[test]
 fn native_include_move_preserves_every_embedded_catalog_value() {
     use pi_ai::{providers::models_data, types::Model};
     let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data/providers");

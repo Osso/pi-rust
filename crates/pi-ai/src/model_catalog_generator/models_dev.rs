@@ -138,10 +138,10 @@ impl Generator<'_> {
         match result {
             Ok(ids) => Ok(ids),
             Err(error) => {
-                self.logs.push(JsValue::Array(vec![
+                self.emit(JsValue::Array(vec![
                     text("error"),
                     text("Failed to fetch NVIDIA NIM models:"),
-                    text(&error.to_string()),
+                    text(&error.console_message()),
                 ]));
                 if self.options.strict {
                     Err(error)
@@ -173,10 +173,10 @@ impl Generator<'_> {
                 Ok(models)
             }
             Err(error) => {
-                self.logs.push(JsValue::Array(vec![
+                self.emit(JsValue::Array(vec![
                     text("error"),
                     text("Failed to load models.dev data:"),
-                    text(&error.to_string()),
+                    text(&error.console_message()),
                 ]));
                 if self.options.strict {
                     Err(error)
@@ -770,10 +770,7 @@ impl Generator<'_> {
                     INDIVIDUAL_IDS.iter().map(|id| JsString::from(*id)),
                     emitted,
                 )
-                .map_err(|error| GeneratorError {
-                    name: "Error".into(),
-                    message: error.0,
-                })?;
+                .map_err(|error| GeneratorError::new("Error", error.0))?;
             }
         }
         Ok(())

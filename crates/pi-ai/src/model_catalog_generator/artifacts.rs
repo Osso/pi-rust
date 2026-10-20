@@ -7,17 +7,24 @@ use std::{
 };
 
 fn io_error(error: io::Error, syscall: &str, path: &Path) -> GeneratorError {
-    GeneratorError::error(&pi_js_compat::node_fs::node_fs_error(
-        &error,
-        syscall,
-        &path.to_string_lossy(),
-    ))
+    let record = pi_js_compat::node_fs::node_fs_error_record(&error, syscall, &path.to_string_lossy());
+    let mut error = GeneratorError::new(record.name, JsString::from(record.message.as_str()));
+    error.details = Some(GeneratorErrorDetails::FileSystem {
+        record,
+        destination: None,
+    });
+    error
 }
 fn read(path: &Path) -> Result<String, GeneratorError> {
     fs::read(path)
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
         .map_err(|error| {
-            GeneratorError::error(&pi_js_compat::node_fs::node_read_error(&error, &path.to_string_lossy()))
+            let syscall = if error.kind() == io::ErrorKind::IsADirectory {
+                "read"
+            } else {
+                "open"
+            };
+            io_error(error, syscall, path)
         })
 }
 fn write(path: &Path, content: &str) -> Result<(), GeneratorError> {
@@ -40,8 +47,12 @@ fn remove(path: &Path) -> Result<(), GeneratorError> {
 }
 fn rename(from: &Path, to: &Path) -> Result<(), GeneratorError> {
     fs::rename(from, to).map_err(|error| {
-        let message = pi_js_compat::node_fs::node_fs_error(&error, "rename", &from.to_string_lossy());
-        GeneratorError::error(&format!("{message} -> '{}'", to.display()))
+        let mut error = io_error(error, "rename", from);
+        error.message = JsString::from(format!("{} -> '{}'", error.message.to_utf8_lossy(), to.display()).as_str());
+        if let Some(GeneratorErrorDetails::FileSystem { destination, .. }) = &mut error.details {
+            *destination = Some(to.to_string_lossy().into_owned());
+        }
+        error
     })
 }
 fn serialize(value: &JsValue, pretty: bool) -> String {
@@ -53,10 +64,7 @@ fn serialize(value: &JsValue, pretty: bool) -> String {
     format!("{value}\n")
 }
 fn checked(error: crate::model_data_tools::ModelDataError) -> GeneratorError {
-    GeneratorError {
-        name: "Error".into(),
-        message: error.0,
-    }
+    GeneratorError::new("Error", error.0)
 }
 fn include_path(root: &Path) -> PathBuf {
     root.join("crates/pi-ai/src/providers/model_catalogs_generated.rs")
@@ -181,10 +189,7 @@ impl Generator<'_> {
                 }
                 units.extend_from_slice(id.units());
             }
-            return Err(GeneratorError {
-                name: "Error".into(),
-                message: JsString::from_utf16(units),
-            });
+            return Err(GeneratorError::new("Error", JsString::from_utf16(units)));
         }
         let (groups, structure) = group_catalog(&catalog, &generated_ids)?;
         if !self.options.json_only {

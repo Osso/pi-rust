@@ -6,6 +6,19 @@ use serde_json::json;
 
 use crate::models_dev_reasoning_options::{ModelsDevReasoningOption, get_effort_thinking_level_map};
 
+pub fn run_generator_cli<'a>(
+    args: &[String],
+    root: &std::path::Path,
+    date: &JsString,
+    fetch: &'a mut dyn FnMut(&str) -> Result<HttpResponse, GeneratorError>,
+    emit: &'a mut dyn FnMut(&JsValue),
+) -> Result<(), GeneratorError> {
+    let options = read_generator_options(args)?;
+    let mut generator = Generator::new(options, fetch);
+    generator.log_sink = Some(emit);
+    generator.generate(root, date).map(|_| ())
+}
+
 mod artifacts;
 mod catalog;
 mod metadata;
@@ -395,19 +408,51 @@ pub fn read_generator_options(args: &[String]) -> Result<GeneratorOptions, Gener
 pub struct GeneratorError {
     pub name: String,
     pub message: JsString,
+    pub details: Option<GeneratorErrorDetails>,
+}
+#[derive(Debug, Clone)]
+pub enum GeneratorErrorDetails {
+    Transport(String),
+    FileSystem {
+        record: pi_js_compat::node_fs::NodeFsError,
+        destination: Option<String>,
+    },
 }
 impl GeneratorError {
-    fn error(message: &str) -> Self {
+    pub fn new(name: &str, message: JsString) -> Self {
         Self {
-            name: "Error".into(),
-            message: JsString::from(message),
+            name: name.into(),
+            message,
+            details: None,
         }
     }
+    fn error(message: &str) -> Self {
+        Self::new("Error", JsString::from(message))
+    }
     fn type_error(message: &str) -> Self {
-        Self {
-            name: "TypeError".into(),
-            message: JsString::from(message),
+        Self::new("TypeError", JsString::from(message))
+    }
+    pub fn console_message(&self) -> String {
+        let mut output = self.to_string();
+        match &self.details {
+            Some(GeneratorErrorDetails::Transport(cause)) => output.push_str(&format!("\n  cause: {cause}")),
+            Some(GeneratorErrorDetails::FileSystem { record, destination }) => {
+                output.push_str(" {\n");
+                if let Some(errno) = record.errno {
+                    output.push_str(&format!("  errno: {errno},\n"));
+                }
+                output.push_str(&format!("  code: '{}',\n  syscall: '{}'", record.code, record.syscall));
+                if let Some(path) = &record.path {
+                    output.push_str(&format!(",\n  path: '{path}'"));
+                }
+                if let Some(destination) = destination {
+                    output.push_str(&format!(",\n  dest: '{destination}'"));
+                }
+                output.push_str("\n}");
+            }
+            None => {}
         }
+        output
     }
 }
 impl std::fmt::Display for GeneratorError {
@@ -424,6 +469,7 @@ pub struct HttpResponse {
 pub struct Generator<'a> {
     pub options: GeneratorOptions,
     pub logs: Vec<JsValue>,
+    log_sink: Option<&'a mut dyn FnMut(&JsValue)>,
     reasoning_options: indexmap::IndexMap<JsString, JsValue>,
     total_models: usize,
     reasoning_models: usize,
@@ -439,14 +485,21 @@ impl<'a> Generator<'a> {
             options,
             fetch,
             logs: vec![],
+            log_sink: None,
             reasoning_options: indexmap::IndexMap::new(),
             total_models: 0,
             reasoning_models: 0,
             provider_counts: indexmap::IndexMap::new(),
         }
     }
+    fn emit(&mut self, log: JsValue) {
+        if let Some(emit) = self.log_sink.as_mut() {
+            emit(&log);
+        }
+        self.logs.push(log);
+    }
     fn log(&mut self, level: &str, message: &str) {
-        self.logs.push(literal(json!([level, message])));
+        self.emit(literal(json!([level, message])));
     }
     fn fetch_json(&mut self, url: &str, label: &str) -> Result<JsValue, GeneratorError> {
         let response = (self.fetch)(url)?;
@@ -456,10 +509,8 @@ impl<'a> Generator<'a> {
                 response.status
             )));
         }
-        pi_js_compat::js_json::parse_lossless(&response.body).map_err(|error| GeneratorError {
-            name: "SyntaxError".into(),
-            message: JsString::from(error.to_string().as_str()),
-        })
+        pi_js_compat::js_json::parse_lossless(&response.body)
+            .map_err(|error| GeneratorError::new("SyntaxError", JsString::from(error.to_string().as_str())))
     }
     fn fetch_models(&mut self, gateway: bool) -> Result<JsValue, GeneratorError> {
         let label = if gateway { "Vercel AI Gateway" } else { "OpenRouter" };
@@ -482,10 +533,10 @@ impl<'a> Generator<'a> {
                 Ok(models)
             }
             Err(error) => {
-                self.logs.push(JsValue::Array(vec![
+                self.emit(JsValue::Array(vec![
                     text("error"),
                     text(&format!("Failed to fetch {label} models:")),
-                    text(&error.to_string()),
+                    text(&error.console_message()),
                 ]));
                 if self.options.strict {
                     Err(error)

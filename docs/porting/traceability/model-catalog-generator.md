@@ -9,7 +9,7 @@ Source: `packages/ai/scripts/generate-models.ts` at original runtime pin. No exp
 | `processFireworksModels` | `process_fireworks_models`; empty/tool filter/GLM/Kimi/Anthropic fixtures | partial: valid fixtures |
 | `recordModelsDevReasoningOptions`/deferred metadata | `Generator::record`, lossless storage; `catalog.rs` consumes before thinking pass | partial: mixed-provider full workflow proves known effort records; malformed raw reasoning proof pending |
 | `readGeneratorOptions` | `read_generator_options`; 12 source flag/argument/error cases | implemented; OS cwd failure proof open |
-| automatic CLI | pending native entrypoint | gap |
+| automatic CLI | `bin/generate-models.rs`, `run_generator_cli`; real binary invalid-argument exit/stderr/no-fetch, injected successful CLI log order/counts versus source | partial: transport/FS error formatting and failure exits pending |
 | OpenRouter/AI Gateway HTTP | `Generator::fetch_open_router_models/fetch_ai_gateway_models`; tool/image/reasoning/pricing/raw UTF-16/default/strict 503 fixtures | partial: malformed shape/log/transport coverage remains |
 | NVIDIA HTTP | `fetch_nvidia_nim_model_ids`; exercised through all-provider pipeline fixture | partial: normalized alias/duplicate/error proofs pending |
 | `loadModelsDevData` (all source provider families) | `models_dev.rs`; all-provider fixture including family exclusions, routing, aliases, subscription/implied prices and individual Qwen allowlist | partial: alias precedence/raw errors/strict/normalization counterexamples still open |
@@ -32,6 +32,8 @@ Focused follow-up logs: `05-http-red.log`/`06-options-red.log` establish missing
 `16-workflow-red.log` establishes missing catalog generation through actual pinned `generateModels` with temp-only FS and three independently mocked HTTP endpoints. `17-workflow.log` identified missing OpenRouter `auto` supplement; `18-workflow.log` GREEN compares complete flattened generated catalog bytes for both empty/mixed models.dev fixtures, including duplicates, inherited-property IDs, all supplements, Azure clones, overrides and deferred reasoning. Native artifact transactions are still unimplemented.
 
 `20-artifacts-red.log`: native had no generated manifest while full source default wrote one. `21-artifacts.log` GREEN for four source/native artifact modes; every emitted grouped/public JSON file and manifest/checksum/timestamp matches source bytes under approved path mapping. `22-artifacts-embed.log` additionally GREEN for all existing embedded catalog values after unchanged constant extraction. Default fixture compiles generated native includes with rustc and executes them to verify provider add/remove; data-only/JSON-only preserve the old include table. Baseline JSON/manifest files are not refreshed. Failure/rollback/log/error metadata tests remain open.
+
+`25-cli-red.log`: missing CLI logs versus source complete workflow; `26-cli.log` GREEN for injected CLI output/statistics order and actual native binary unknown output-mode error exit 1, empty stdout and exact approved frame-free stderr. Generator emits logs immediately through a sink, rather than buffering until HTTP finishes. Native transport causes and Node FS metadata remain available in `GeneratorErrorDetails`; their full error-path differential proof is still pending. No successful maintenance binary invocation or live network refresh was run.
 
 ## Classified source discrepancy
 
