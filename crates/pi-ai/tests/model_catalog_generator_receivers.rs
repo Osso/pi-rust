@@ -231,6 +231,10 @@ fn gateway_consumed_tags_and_pricing_reject_wrong_declared_types_inside_fetch_ca
             json!({"pricing":{"input":false}}),
             "AI Gateway pricing.input must be a string or number",
         ),
+        (
+            json!({"pricing":{"input":{}}}),
+            "AI Gateway pricing.input must be a string or number",
+        ),
         (json!({"pricing":[]}), "AI Gateway pricing must be an object"),
     ] {
         let mut model = json!({"id":"copied","name":"Copied","tags":["tool-use"]});
