@@ -4,10 +4,11 @@ Rust: `crates/pi-js-compat/src/node_fs.rs`. Pure compatibility prerequisite for 
 
 | Public API / branch | Behavioral proof |
 |---|---|
-| `NodeFsError`, `node_fs_error_record`: Error name, message, negative Unix errno, code, syscall, optional path | `pi-js-compat/tests/node_fs_errors.rs::real_filesystem_messages_and_own_metadata_match_node`: 8 actual filesystem cases, exact message and complete own metadata (stack excluded from comparison) |
+| `NodeFsError`, `node_fs_error_record`: Error name, message, negative Unix errno, code, syscall, optional path | `pi-js-compat/tests/node_fs_errors.rs::real_filesystem_messages_and_own_metadata_match_node`: 13 actual filesystem cases, exact message and complete own metadata (stack excluded from comparison) |
 | `NodeFsError::console_message`: uncaught Error line and own-property block, optional spawnargs, inspect quoting/layout | `pi-evals/tests/run_evals.rs`: Node ENOTDIR/EACCES and spawnSync ENOENT differentials; `node_fs_errors.rs::console_messages_match_node_inspection`: Node inspect comparison for quotes, controls and array truncation |
 | `node_fs_error`: message projection | Same corpus: missing-parent write/read, directory write/read, ENOTDIR write/read, EEXIST mkdir, symlink-loop read |
-| `node_read_error`: read syscall for EISDIR, open otherwise | Same corpus plus coding-agent `tests/node_fs_errors.rs` (3 tests at preserved public paths) |
+| `NodeReadApi`, `node_read_error_record`: select `ReadFileSync` or `PromisesReadFile`; read syscall for EISDIR, open otherwise | Same corpus compares directory, missing-parent and ENOTDIR async errors, plus pathless sync whole-file and fd reads, including complete own metadata |
+| `node_read_error` / `node_promises_read_error`: API-specific message projections | Same corpus plus coding-agent `tests/node_fs_errors.rs` (3 tests at preserved public paths); `differential_edit_diff` case 27 exercises pinned promises.readFile |
 | `node_error_code`, `node_errno_name`: existing raw errno-first table and ErrorKind mapping moved unchanged | Shared constructed-kind and raw-code tests; coding-agent `tests/errno_codes.rs` (6 existing real exec-boundary tests) |
 | ErrorKind-only construction | 8 kinds retain existing messages/code/path; errno stays absent, including directory-read legacy path |
 | Unproven descriptions | ETXTBSY retains std text; no full libuv strerror expansion |
@@ -15,11 +16,41 @@ Rust: `crates/pi-js-compat/src/node_fs.rs`. Pure compatibility prerequisite for 
 
 ## Classified conformance fixes
 
-Real Node RED before production changes proved two Rust compatibility bugs: EISDIR directory reads incorrectly appended a path; ELOOP reads emitted std OS wording instead of `too many symbolic links encountered`. Raw EISDIR/read now has no path metadata and no path suffix. EISDIR/open retains path. ELOOP uses the proven Node description. No pinned TS source bug changed.
+Earlier Node RED proved pathless **synchronous** EISDIR/read and the ELOOP description. That fix overgeneralized EISDIR/read to promises.readFile, causing the edit-diff regression introduced by e897a4d. Runner-backed RED now proves promises.readFile must retain both path metadata and message suffix. `NodeReadApi` distinguishes the originating whole-file API in the shared formatter; raw syscall/synchronous callers remain pathless. EISDIR/open retains path. No pinned TS source bug changed.
 
 `core::tools::node_fs::{node_fs_error,node_read_error}` and `utils::child_process::{node_errno_name,node_error_code}` re-export existing signatures. The model-data private adapter wraps the shared message in `JsString`; reads select `read` for directory errors. There is no coding-agent dependency from pi-ai. Existing model-data ELOOP and directory-read behavior is retained.
 
 Deleted-CWD generator proof first failed with native generic OS text (`80-deleted-cwd-red.log`); the shared record now preserves Node's contextual ENOENT `process.cwd` message and omits path for `uv_cwd`. Native/source CLI GREEN81 and shared filesystem suite GREEN82 are recorded under `/tmp/pi-rust-model-generator-proof`. Only filesystem foundation proof invalidates; number/date/JSON scopes are unchanged.
+
+## Filesystem caller audit (runtime pin 532f7d12)
+
+Paths below are relative to `crates/`; TS paths are relative to `packages/`.
+Only edit-diff selected the pathless raw-read formatter for a proven promises
+whole-file EISDIR/read. Other generic `open` adapters are unchanged; this audit
+is not additional proof of every caller's syscall-selection branch.
+
+| Rust caller | Originating pinned Node API / disposition |
+|---|---|
+| `pi-coding-agent/src/core/tools/edit_diff.rs::read_editable_file` | `coding-agent/src/core/tools/edit-diff.ts`: promises `access`, `readFile`; read failures now use `node_promises_read_error` |
+| `pi-coding-agent/src/core/tools/read.rs` | `coding-agent/src/core/tools/read.ts`: promises `access`, `readFile`, `stat`, `open` and `FileHandle.read`; range `read` is a raw fd failure, not promises.readFile; generic access/open/stat adapters unchanged |
+| `pi-coding-agent/src/core/tools/edit.rs` | `coding-agent/src/core/tools/edit.ts`: promises `readFile`, `writeFile`; existing generic open adapters unchanged (no raw read/path omission) |
+| `pi-coding-agent/src/core/tools/write.rs` | `coding-agent/src/core/tools/write.ts`: promises recursive `mkdir`, `writeFile`; mkdir/open adapters unchanged |
+| `pi-coding-agent/src/core/tools/ls.rs` | `coding-agent/src/core/tools/ls.ts`: promises `stat`; stat adapter unchanged |
+| `pi-coding-agent/src/core/tools/tool_definition_wrapper.rs` | `coding-agent/src/core/tools/tool-definition-wrapper.ts`: `writeFileSync`; open adapter unchanged |
+| `pi-coding-agent/src/config.rs` | `coding-agent/src/config.ts`: `readFileSync`; `node_read_error` remains synchronous |
+| `pi-coding-agent/src/modes/interactive/theme/mod.rs` | `coding-agent/src/modes/interactive/theme/theme.ts`: `readFileSync`, `readdirSync`; sync read and scandir adapters unchanged |
+| `pi-coding-agent/src/modes/interactive/external_editor.rs` | `coding-agent/src/modes/interactive/external-editor.ts`: `mkdtempSync`, `writeFileSync`, `readFileSync`; sync adapters unchanged; chmod implements mkdtempSync's 0700 mode (no separate TS chmod call) |
+| `pi-coding-agent/src/bundled_extensions/run_plan.rs` | `coding-agent/extensions/run-plan/src/index.ts`: `readFileSync`, `readdirSync`; existing open/scandir adapters unchanged |
+| `pi-coding-agent/src/bundled_extensions/docs_tree_context.rs` | `coding-agent/extensions/docs-tree-context/src/index.ts`: promises `stat`, `readdir`; stat/scandir adapters unchanged |
+| `pi-ai/src/model_data_tools.rs` | `ai/scripts/model-data.ts`: `readFileSync`, `readdirSync`; sync read/scandir adapters unchanged |
+| `pi-ai/src/image_catalog_generator.rs` | `ai/scripts/generate-image-models.ts`: `writeFileSync`; open/write adapters unchanged |
+| `pi-ai/src/model_catalog_generator/artifacts.rs` | `ai/scripts/generate-models.ts`: `readFileSync`, `writeFileSync`, `mkdirSync`, `rmSync`, `renameSync`, `mkdtempSync`; raw read/open/mkdir/lstat/rm/unlink/rename adapters unchanged |
+| `pi-ai/src/model_catalog_generator.rs` | `ai/scripts/generate-models.ts`: `process.cwd`; pathless uv_cwd unchanged |
+| `pi-evals/src/run_evals.rs` | `evals/scripts/run-evals.mjs`: `mkdirSync`, `spawnSync`; mkdir/spawnSync records unchanged |
+| `pi-coding-agent/src/core/tools/node_fs.rs` | Public re-exports only; adds async projection without changing old signatures |
+
+E2 proof: `/tmp/pi-rust-runner-guard-fixes/ledger.md`; shared metadata RED and
+edit-diff case-27 RED precede implementation. Sync callers retain their old API.
 
 ## Explicit gaps
 
