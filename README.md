@@ -41,7 +41,8 @@ semantics are unchanged. Host helper files are never overwritten. Each test gets
 private HOME/XDG/Pi state and an allowlisted environment; homes, runtime sockets,
 and host `/tmp` are hidden. Root, checkout, pinned references/Git metadata and the
 optional installed Pyrun executable/venv/Python runtime are read-only. Only private
-state and an inherited private `TMPDIR` are writable. The latter survives nested
+state, namespace-local `/tmp`, and an inherited private `TMPDIR` are writable.
+The latter survives nested
 guards so parent fixture paths and sockets remain valid. Set `PI_TEST_SANDBOX_DIR`
 to a dedicated proof directory to retain state/logs there; otherwise a fresh
 `pi-test-*` directory is retained under TMPDIR. Remove retained directories after
