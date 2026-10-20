@@ -56,24 +56,16 @@ pub fn utf16_len(value: &str) -> usize {
     value.encode_utf16().count()
 }
 
-/// JavaScript `String.prototype.slice(start, end)` on UTF-16 code units.
-/// Indices always land on a `char` boundary; a split surrogate pair is not
-/// representable in Rust, so the boundary is rounded down.
-pub fn slice_utf16(value: &str, start: usize, end: usize) -> &str {
-    let start = byte_at_utf16(value, start);
-    let end = byte_at_utf16(value, end);
-    &value[start..end.max(start)]
-}
-
-fn byte_at_utf16(value: &str, index: usize) -> usize {
-    let mut units = 0;
-    for (byte, character) in value.char_indices() {
-        if units >= index || units + character.len_utf16() > index {
-            return byte;
-        }
-        units += character.len_utf16();
-    }
-    value.len()
+/// Slice by UTF-16 code units, then perform the UTF-8 conversion used by Node
+/// SQLite string bindings. Unpaired surrogates become U+FFFD rather than being
+/// dropped. JS's intermediate string still differs (approved name-helper gap).
+pub fn utf16_slice_to_utf8(value: &str, start: usize, end: usize) -> String {
+    let units: Vec<u16> = value
+        .encode_utf16()
+        .skip(start)
+        .take(end.saturating_sub(start))
+        .collect();
+    String::from_utf16_lossy(&units)
 }
 
 /// JavaScript `String.prototype.replace(searchValue, replaceValue)` for string

@@ -13,7 +13,7 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, Context, InputSource, Message, StopReason, TextContent, TextOrImageContent,
     UserContent, UserMessage, UserRole,
 };
-use pi_js_compat::string::{js_trim, slice_utf16};
+use pi_js_compat::string::{js_trim, utf16_slice_to_utf8};
 use regex::Regex;
 use tokio_util::sync::CancellationToken;
 
@@ -411,13 +411,12 @@ pub fn truncate_title(title: &str) -> String {
     if pi_js_compat::string::utf16_len(title) <= MAX_TITLE_CHARS {
         return title.to_owned();
     }
-    let bounded_title = slice_utf16(title, 0, MAX_TITLE_CHARS + 1);
+    let bounded_title = utf16_slice_to_utf8(title, 0, MAX_TITLE_CHARS + 1);
     let last_space = bounded_title.rfind(' ');
-    let truncated_title = match last_space {
-        Some(index) if index > 0 => &bounded_title[..index],
-        _ => slice_utf16(title, 0, MAX_TITLE_CHARS),
-    };
-    js_trim(truncated_title).to_owned()
+    match last_space {
+        Some(index) if index > 0 => js_trim(&bounded_title[..index]).to_owned(),
+        _ => js_trim(&utf16_slice_to_utf8(title, 0, MAX_TITLE_CHARS)).to_owned(),
+    }
 }
 
 fn is_real_user_message(message: &AgentMessage) -> bool {
@@ -477,7 +476,7 @@ fn extract_assistant_text(message: &AssistantMessage) -> String {
 }
 
 fn bound_source_text(text: &str) -> String {
-    js_trim(slice_utf16(text, 0, MAX_SOURCE_CHARS)).to_owned()
+    js_trim(&utf16_slice_to_utf8(text, 0, MAX_SOURCE_CHARS)).to_owned()
 }
 
 fn report_autoname_failure(error: &HandlerError, signal_cancelled: bool) {

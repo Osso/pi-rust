@@ -21,8 +21,26 @@ Uses the AgentSession's shared manager from `ExtensionContext::session_manager()
 No external service is contacted in tests; native faux providers exercise the same
 request path. JS trim/whitespace/UTF-16 utilities are shared through `pi-js-compat`.
 
-## Explicit gaps
+## Behavioral and differential proof
 
-Rust UTF-8 strings cannot represent a lone surrogate produced by JS slicing inside
-a supplementary character. Whole-character UTF-16 boundaries are covered; that
-split-surrogate output case remains a gap, not an approved normalization.
+`tests/session_autoname.rs` has 21 tests, including the TS file's nonblocking prompt
+settlement, RPC/print/JSON/ephemeral/child boundaries, first-user recovery after
+empty/failed/aborted responses, partial-failure exchanges, cwd continuations,
+metadata-clear/history rules, and pending shutdown/manual-clear/manual-name races.
+The real 15-second timeout case asserts the provider receives maxTokens64,
+maxRetries1, maxRetryDelayMs3000 and timeoutMs15000 before observing cancellation.
+`title_outputs_match_the_real_c248_extension` invokes the real default TS extension
+through the shared watchdog-backed oracle for 12 concrete title inputs; names,
+errors, call count and name-state flag compare in source key order.
+
+## Approved intermediate-string gap (2026-10-20)
+
+User decision: “Match DB; record gap”. Valid generated title `"x".repeat(79) + "🙂"`
+reaches the 80-UTF16-unit limit inside the emoji. Real c248 returns 79x plus U+D83D
+from `truncateTitle` (`JSON.stringify` ends `\\ud83d`); SQLite bindings persist
+79x plus U+FFFD. Rust's shared `utf16_slice_to_utf8` preserves the sliced code units
+and converts the unpaired surrogate to U+FFFD before persistence. Stored names and
+serialized metadata therefore match; only the intermediate JS helper string differs.
+`split_surrogate_titles_match_typescript_at_the_sqlite_boundary` asserts both exact
+TS representations separately and compares the actual stored Rust name. No oracle
+field is removed or normalized to hide this difference.

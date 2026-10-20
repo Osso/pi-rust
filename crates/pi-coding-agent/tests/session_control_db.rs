@@ -1,5 +1,6 @@
 //! Behavioral tests for the shared control database (`core/session-control-db.ts`).
 
+use rusqlite::OptionalExtension;
 use std::path::PathBuf;
 
 use pi_coding_agent::core::multi_agent_store::{
@@ -1480,7 +1481,8 @@ fn version_fourteen_session_names_migrate_into_metadata_and_drop_the_legacy_tabl
             [],
             |row| row.get(0),
         )
-        .ok();
+        .optional()
+        .expect("legacy table query");
     assert_eq!(legacy_table, None, "the migration drops named_sessions");
     let stored: Vec<(String, Option<String>)> = connection
         .prepare("SELECT session_path, name FROM session_metadata ORDER BY session_path")
@@ -1557,7 +1559,8 @@ fn session_name_migration_requires_runtime_quiescence() {
             [],
             |row| row.get(0),
         )
-        .ok();
+        .optional()
+        .expect("legacy table query");
     assert_eq!(legacy_table.as_deref(), Some("named_sessions"));
     blocked
         .execute(
@@ -2055,4 +2058,44 @@ fn name_migration_errors_preserve_owner_pid_encounter_order() {
             std::process::id()
         )
     );
+}
+
+#[test]
+fn existing_v15_names_update_without_reentering_lifecycle_migrations() {
+    let (_dir, db) = temp_db();
+    write_session_metadata(&db, &metadata("/existing", "existing", None)).expect("initialize v15");
+    let raw = rusqlite::Connection::open(&db).expect("database");
+    raw.execute(
+        "INSERT INTO session_health(session_id,agent_generation,pid,check_status,updated_at)
+        VALUES ('live',1,?,'ok','2026-10-20T00:00:00.000Z')",
+        [std::process::id()],
+    )
+    .expect("active owner");
+    let payload = r#"{"id":"agent_1","lifecycle":"running","revision":1}"#;
+    raw.execute(
+        "INSERT INTO multi_agent_agents(session_path,agent_id,data,updated_at)
+        VALUES ('/existing','agent_1',?,'2026-10-20T00:00:00.000Z')",
+        [payload],
+    )
+    .expect("agent");
+    write_session_name(&db, "/existing", Some("Existing v15 Name")).expect("no migration required");
+    assert_eq!(
+        read_session_name_state(&db, "/existing")
+            .expect("name state")
+            .name
+            .as_deref(),
+        Some("Existing v15 Name")
+    );
+    let retained: String = raw
+        .query_row(
+            "SELECT data FROM multi_agent_agents WHERE agent_id='agent_1'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("payload");
+    assert_eq!(retained, payload);
+    let version: i64 = raw
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("version");
+    assert_eq!(version, 15);
 }

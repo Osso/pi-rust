@@ -1,4 +1,9 @@
-//! `extensions/session-autoname/src/index.ts`: metadata-authoritative naming.
+#[path = "support/oracle.rs"]
+mod oracle;
+#[path = "support/tool_context.rs"]
+mod tool_context;
+
+// `extensions/session-autoname/src/index.ts`: metadata-authoritative naming.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -608,4 +613,400 @@ fn titles_use_javascript_whitespace_not_rust_unicode_whitespace() {
         "Keep Words"
     );
     assert_eq!(normalize_title("Keep\u{85}Words"), "Keep\u{85}Words");
+}
+
+fn seed_exchange(env: &Env, stop: StopReason, assistant_text: &str) -> Vec<AgentMessage> {
+    let messages = vec![
+        user_message("Fix schema migration", Some(pi_ai::types::InputSource::Interactive), 1),
+        {
+            let mut message = faux_assistant_message(assistant_text, Default::default());
+            message.stop_reason = stop;
+            AgentMessage::from(message)
+        },
+    ];
+    let handle = env.session.session_manager_handle();
+    let mut manager = lock_session_manager(&handle);
+    for message in &messages {
+        manager.append_message(message.clone()).expect("seed message");
+    }
+    messages
+}
+
+#[tokio::test]
+async fn title_outputs_match_the_real_c248_extension() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "session-autoname-oracle.ts",
+        "session-names:packages/coding-agent/extensions/session-autoname/src/index.ts",
+    );
+    let cases = [
+        "Schema Migration Repair".to_owned(),
+        "\n### \"Automatic Session Naming\"\n".to_owned(),
+        "Session Title: Control DB v15".to_owned(),
+        "name - Preserve Session Names".to_owned(),
+        "**'Quoted Title'**".to_owned(),
+        "\u{feff}###\u{feff}Session\u{feff}Title:\u{feff}Keep\u{feff}Words".to_owned(),
+        "Keep\u{85}Words".to_owned(),
+        "Port\t  SQLite\tNames\nignored second line".to_owned(),
+        "界".repeat(95),
+        "x".repeat(120),
+        "Longword ".repeat(20),
+        format!("{}🙂", "x".repeat(80)),
+    ];
+    for title in cases {
+        let expected = oracle.request(&json!({"title": title}));
+        let env = env().await;
+        let names = Arc::new(Mutex::new(Vec::<Option<String>>::new()));
+        let sink = Arc::clone(&names);
+        env.session.subscribe(Arc::new(
+            move |event: &pi_coding_agent::core::agent_session::AgentSessionEvent| {
+                if let pi_coding_agent::core::agent_session::AgentSessionEvent::SessionInfoChanged(event) = event {
+                    sink.lock().expect("events").push(event.name.clone());
+                }
+            },
+        ));
+        let handle = env.session.session_manager_handle();
+        lock_session_manager(&handle)
+            .append_message(user_message("Fix schema migration", None, 1))
+            .expect("user");
+        env.faux
+            .set_responses(vec![faux_assistant_message(title.clone(), Default::default()).into()]);
+        emit_agent_end(
+            &env.session,
+            AgentEndEvent {
+                messages: vec![user_message("Fix schema migration", None, 1)],
+                session_continuation: None,
+            },
+        )
+        .await;
+        assert!(wait_for_name(&env.session).await.is_some(), "title {title:?}");
+        let actual = json!({
+            "names": names.lock().expect("events").clone(),
+            "errors": [],
+            "calls": faux_call_count(&env.faux),
+            "hasStoredValue": lock_session_manager(&handle).has_session_name_state(),
+        });
+        assert_eq!(
+            pi_js_compat::js_json::stringify(&actual),
+            pi_js_compat::js_json::stringify(&expected),
+            "title {title:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn modes_and_ephemeral_subagent_boundaries_control_naming() {
+    for (mode, persisted, subagent, expected_calls) in [
+        (ExtensionMode::Rpc, true, false, 1),
+        (ExtensionMode::Print, true, false, 0),
+        (ExtensionMode::Json, true, false, 0),
+        (ExtensionMode::Tui, false, false, 0),
+        (ExtensionMode::Tui, true, true, 0),
+    ] {
+        let env = env().await;
+        let handle = env.session.session_manager_handle();
+        if !persisted {
+            *lock_session_manager(&handle) = SessionManager::in_memory(Some("/tmp"), None).expect("ephemeral");
+        }
+        if subagent {
+            lock_session_manager(&handle)
+                .new_session(Some(pi_coding_agent::core::session_manager::NewSessionOptions {
+                    is_subagent: true,
+                    ..Default::default()
+                }))
+                .expect("subagent");
+        }
+        env.session
+            .bind_extensions(ExtensionBindings {
+                mode: Some(mode),
+                ..Default::default()
+            })
+            .await;
+        let messages = seed_exchange(&env, StopReason::Stop, "Substantive answer");
+        env.faux.set_responses(vec![
+            faux_assistant_message("RPC Session Autonaming", Default::default()).into(),
+        ]);
+        emit_agent_end(
+            &env.session,
+            AgentEndEvent {
+                messages,
+                session_continuation: None,
+            },
+        )
+        .await;
+        if expected_calls == 1 {
+            assert_eq!(
+                wait_for_name(&env.session).await.as_deref(),
+                Some("RPC Session Autonaming")
+            );
+        } else {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            assert_eq!(lock_session_manager(&handle).get_session_name(), None);
+        }
+        assert_eq!(faux_call_count(&env.faux), expected_calls);
+    }
+}
+
+#[tokio::test]
+async fn empty_failed_aborted_and_partially_failed_exchanges_still_name_from_the_first_user() {
+    for (reason, response) in [
+        (StopReason::Stop, ""),
+        (StopReason::Error, ""),
+        (StopReason::Aborted, ""),
+        (StopReason::Length, "partial discarded"),
+    ] {
+        let env = env().await;
+        let mut messages = seed_exchange(&env, reason, response);
+        if reason == StopReason::Aborted {
+            let second = user_message("Tell me more", None, 2);
+            env.session
+                .session_manager()
+                .append_message(second.clone())
+                .expect("second user");
+            messages.push(second);
+        }
+        env.faux.set_responses(vec![
+            faux_assistant_message("Named From User Prompt", Default::default()).into(),
+        ]);
+        emit_agent_end(
+            &env.session,
+            AgentEndEvent {
+                messages,
+                session_continuation: None,
+            },
+        )
+        .await;
+        assert_eq!(
+            wait_for_name(&env.session).await.as_deref(),
+            Some("Named From User Prompt")
+        );
+    }
+    let env = env().await;
+    let mut messages = seed_exchange(&env, StopReason::Stop, "Partial progress before failure");
+    let mut failure = faux_assistant_message("", Default::default());
+    failure.stop_reason = StopReason::Error;
+    env.session
+        .session_manager()
+        .append_message(AgentMessage::from(failure.clone()))
+        .expect("failure");
+    messages.push(AgentMessage::from(failure));
+    env.faux.set_responses(vec![
+        faux_assistant_message("Failed Work Session", Default::default()).into(),
+    ]);
+    emit_agent_end(
+        &env.session,
+        AgentEndEvent {
+            messages,
+            session_continuation: None,
+        },
+    )
+    .await;
+    assert_eq!(
+        wait_for_name(&env.session).await.as_deref(),
+        Some("Failed Work Session")
+    );
+}
+
+#[tokio::test]
+async fn cwd_continuation_defers_until_the_following_agent_end() {
+    let env = env().await;
+    let messages = seed_exchange(&env, StopReason::ToolUse, "Relocation started");
+    env.faux.set_responses(vec![
+        faux_assistant_message("Relocated Project Work", Default::default()).into(),
+    ]);
+    emit_agent_end(
+        &env.session,
+        AgentEndEvent {
+            messages,
+            session_continuation: Some(AgentEndSessionContinuation::CwdRelocation),
+        },
+    )
+    .await;
+    assert_eq!(faux_call_count(&env.faux), 0);
+    emit_agent_end(
+        &env.session,
+        AgentEndEvent {
+            messages: vec![],
+            session_continuation: None,
+        },
+    )
+    .await;
+    assert_eq!(
+        wait_for_name(&env.session).await.as_deref(),
+        Some("Relocated Project Work")
+    );
+}
+
+async fn wait_for_calls(faux: &FauxProviderHandle, calls: u64) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while faux_call_count(faux) < calls {
+        assert!(Instant::now() < deadline, "title request did not start");
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+}
+
+fn delayed_title(release: Arc<tokio::sync::Notify>) -> pi_ai::providers::faux::FauxResponseStep {
+    pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(move |_context, _options, _state, _model| {
+        let release = Arc::clone(&release);
+        Box::pin(async move {
+            release.notified().await;
+            Ok(faux_assistant_message("Generated Session Name", Default::default()))
+        })
+    }))
+}
+
+#[tokio::test]
+async fn shutdown_manual_clear_and_manual_name_cancel_pending_title_requests() {
+    for action in ["shutdown", "clear", "name"] {
+        let env = env().await;
+        let messages = seed_exchange(&env, StopReason::Stop, "Substantive answer");
+        let release = Arc::new(tokio::sync::Notify::new());
+        env.faux.set_responses(vec![delayed_title(Arc::clone(&release))]);
+        emit_agent_end(
+            &env.session,
+            AgentEndEvent {
+                messages,
+                session_continuation: None,
+            },
+        )
+        .await;
+        wait_for_calls(&env.faux, 1).await;
+        match action {
+            "shutdown" => {
+                let mut event =
+                    ExtensionEvent::SessionShutdown(pi_coding_agent::core::extensions::types::SessionShutdownEvent {
+                        reason: pi_coding_agent::core::extensions::types::SessionShutdownReason::Reload,
+                        target_session_file: None,
+                    });
+                env.session.extension_runner().emit(&mut event).await;
+            }
+            "clear" => env.session.clear_session_name().expect("manual clear"),
+            "name" => env
+                .session
+                .set_session_name("Manual Name During Generation")
+                .expect("manual name"),
+            _ => unreachable!(),
+        }
+        release.notify_one();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let expected = (action == "name").then_some("Manual Name During Generation");
+        assert_eq!(env.session.session_name().as_deref(), expected, "{action}");
+    }
+}
+
+#[tokio::test]
+async fn prompt_settles_before_the_background_title_response() {
+    let env = env().await;
+    let release = Arc::new(tokio::sync::Notify::new());
+    let main = faux_assistant_message(
+        vec![
+            pi_ai::providers::faux::faux_text("Substantive answer"),
+            pi_ai::providers::faux::faux_tool_call(
+                "end_turn",
+                serde_json::Map::from_iter([("reason".to_owned(), json!("answered"))]),
+                Some("end-main".to_owned()),
+            ),
+        ],
+        Default::default(),
+    );
+    env.faux
+        .set_responses(vec![main.into(), delayed_title(Arc::clone(&release))]);
+    let settled = tokio::time::timeout(
+        Duration::from_secs(2),
+        env.session.prompt(
+            "Name this coding session",
+            pi_coding_agent::core::agent_session::PromptOptions::default(),
+        ),
+    )
+    .await;
+    release.notify_one();
+    settled
+        .expect("prompt must not wait for title generation")
+        .expect("prompt");
+    assert_eq!(
+        wait_for_name(&env.session).await.as_deref(),
+        Some("Generated Session Name")
+    );
+    assert_eq!(faux_call_count(&env.faux), 2);
+}
+
+#[tokio::test]
+async fn split_surrogate_titles_match_typescript_at_the_sqlite_boundary() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "session-autoname-oracle.ts",
+        "session-names:packages/coding-agent/extensions/session-autoname/src/index.ts",
+    );
+    let input = format!("{}🙂", "x".repeat(79));
+    let source = oracle.request(&json!({"title":input,"probeUTF16":true}));
+    assert_eq!(
+        source["helperNameJson"],
+        json!(format!("\"{}\\ud83d\"", "x".repeat(79)))
+    );
+    assert_eq!(
+        source["helperUnits"].as_array().expect("units").last(),
+        Some(&json!(0xd83d))
+    );
+    assert_eq!(source["storedNameJson"], json!(format!("\"{}�\"", "x".repeat(79))));
+    let env = env().await;
+    let rust_title = normalize_title(&input);
+    env.session.set_session_name(&rust_title).expect("persist Rust name");
+    let expected_stored: String = serde_json::from_value(source["storedNameJson"].clone())
+        .and_then(|encoded: String| serde_json::from_str(&encoded))
+        .expect("TypeScript stored name");
+    assert_eq!(persisted_session_name(&env), Some(expected_stored));
+}
+
+#[tokio::test]
+async fn child_agent_context_is_ineligible_even_without_a_subagent_header() {
+    let env = env().await;
+    let handle = env.session.session_manager_handle();
+    let (_, context) = tool_context::TestContextBuilder::new(&env._dir.path().display().to_string(), handle)
+        .mode(ExtensionMode::Rpc)
+        .agent_id("child-agent")
+        .build()
+        .await;
+    assert!(
+        !pi_coding_agent::bundled_extensions::session_autoname::can_autoname_session(&context).expect("eligibility")
+    );
+}
+
+#[tokio::test]
+async fn title_requests_carry_the_source_limits_and_abort_after_fifteen_seconds() {
+    let env = env().await;
+    let messages = seed_exchange(&env, StopReason::Stop, "Substantive answer");
+    let aborted = Arc::new(tokio::sync::Notify::new());
+    let observe_abort = Arc::clone(&aborted);
+    env.faux
+        .set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+            move |context, options, _state, model| {
+                let observe_abort = Arc::clone(&observe_abort);
+                Box::pin(async move {
+                    assert_eq!(model.id, "faux-1");
+                    assert!(context.system_prompt.expect("title prompt").contains("session title"));
+                    let options = options.expect("simple request options");
+                    assert_eq!(options.stream.max_tokens, Some(64.0));
+                    assert_eq!(options.stream.request.max_retries, Some(1.0));
+                    assert_eq!(options.stream.request.max_retry_delay_ms, Some(3000.0));
+                    assert_eq!(options.stream.request.timeout_ms, Some(15000.0));
+                    options.stream.request.signal.expect("abort signal").cancelled().await;
+                    observe_abort.notify_one();
+                    let mut response = faux_assistant_message("", Default::default());
+                    response.stop_reason = StopReason::Aborted;
+                    Ok(response)
+                })
+            },
+        ))]);
+    emit_agent_end(
+        &env.session,
+        AgentEndEvent {
+            messages,
+            session_continuation: None,
+        },
+    )
+    .await;
+    tokio::time::timeout(Duration::from_secs(25), aborted.notified())
+        .await
+        .expect("15-second abort");
+    assert_eq!(env.session.session_name(), None);
+    assert_eq!(faux_call_count(&env.faux), 1);
+    assert!(!env.session.session_manager().has_session_name_state());
 }

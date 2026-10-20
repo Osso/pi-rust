@@ -180,3 +180,5 @@ The SQLite slice also relies on the pinned TypeScript toolchain (`tsx`) through 
 - `serde = 1.0.229` — derives typed JSON-lines request and response structures for differential tests.
 - `serde_json = 1.0.151` — differential-oracle transport (including `pi-tui`) and typed protocol/RPC/truncation/harness-error/metadata/resource/auth/config-value messages. Public-index type proofs use the pinned TypeScript toolchain without adding a Rust dependency.
 
+
+Session-name v15 slice adds no dependencies. `pi-js-compat` supplies JS whitespace/trim and UTF-16 slicing with Node SQLite UTF-8 replacement semantics for generated session titles.
