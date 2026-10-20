@@ -16,7 +16,7 @@ async fn themed_turn_count_persists_across_session_starts() {
             end,
             {"op":"event","event":{"type":"turn_start","turnIndex":99,"timestamp":0}},
             end,
-            {"op":"event","event":{"type":"session_start","reason":"switch"}},
+            {"op":"event","event":{"type":"session_start","reason":"resume"}},
             {"op":"event","event":{"type":"turn_start","turnIndex":0,"timestamp":0}},
             end
         ]}),

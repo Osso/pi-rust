@@ -19,6 +19,43 @@ impl Write for CaptureLog {
         Ok(())
     }
 }
+struct FailLog;
+impl Write for FailLog {
+    fn write(&mut self, _bytes: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::other("console unavailable"))
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn console_failure_is_reported_after_ui_effects() {
+    let factory = |_trace| {
+        let factory: pi_coding_agent::core::extensions::ExtensionFactory = Arc::new(move |api| {
+            let result = example::model_status_with_output(api, FailLog);
+            Box::pin(async move { result })
+        });
+        factory
+    };
+    let actual = harness::compare(
+        "model-status",
+        factory,
+        json!({"logError":"console unavailable","steps":[
+            {"op":"event","event":{"type":"model_select","model":model("faux","first"),"source":"set"}}
+        ]}),
+    )
+    .await;
+    assert_eq!(
+        actual["trace"],
+        json!([
+            ["notify", "Model: faux/first", "info"],
+            ["status", "model", "🤖 first"],
+            ["handlerError", "console unavailable"]
+        ])
+    );
+}
+
 fn model(provider: &str, id: &str) -> Value {
     json!({"provider":provider,"id":id,"name":id,"api":"faux","baseUrl":"", "reasoning":false,"input":["text"],
         "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":1024,"maxTokens":64})

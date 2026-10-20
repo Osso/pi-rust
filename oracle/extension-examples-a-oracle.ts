@@ -50,7 +50,10 @@ async function run(request: any) {
  const originalLog = console.log, originalNow = Date.now;
  const times = [...(request.times ?? [])];
  if (times.length) Date.now = () => times.shift() ?? originalNow();
- console.log = (...args: any[]) => trace.push(["log", args.join(" ")]);
+ console.log = (...args: any[]) => {
+  if (request.logError) throw new Error(request.logError);
+  trace.push(["log", args.join(" ")]);
+ };
  try {
   for (const step of request.steps) {
    switch (step.op) {

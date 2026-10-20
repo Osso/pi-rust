@@ -18,7 +18,7 @@ async fn notifications_follow_session_context_and_real_bus_order() {
             {"op":"command","name":"emit","args":"\u{85}kept\u{85}"},
             {"op":"bus","channel":"other:channel","data":{"message":"ignored","from":"peer"}},
             {"op":"bus","channel":"my:notification","data":{"message":"cross-extension\nλ","from":"peer/𐀀"}},
-            {"op":"event","event":{"type":"session_start","reason":"switch"}}
+            {"op":"event","event":{"type":"session_start","reason":"resume"}}
         ]}),
     )
     .await;
