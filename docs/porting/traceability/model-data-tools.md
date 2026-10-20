@@ -43,5 +43,8 @@ All commands run in `/home/osso/.worktrees/pi-rust-model-data-tools`, with `time
 | `3e63f4f` | model-data target, `caller_node_flag` filter | 1 lifetime/flag proof pass; `model-data-tools-watchdog-green.log` | Expanded to inspect both group leader and oracle |
 | `b9ed3c9` | focused date targets above | 8 unit + 5 differential pass; `model-data-tools-date-green-3.log` | Current date source proof; no later date changes |
 | `b9ed3c9` + raw-surrogate fixture regression | model-data target, `json_model_identity_with_unpaired` filter | RED exact escaped-surrogate diagnostic; `model-data-tools-surrogate-red.log` | Current unresolved failure |
+| `c67b159` | full focused `cargo test -p pi-ai --test model_data_tools -- --nocapture` | 12 pass / 1 fail, no ignores; `model-data-tools-expanded-proof.log` | Current model-data source and expanded fixtures; only later documentation changes |
+
+Expanded passing proof includes both caller Node flag and death of oracle plus process-group leader after owner exits without Drop, native checker success/failure output printed from real subprocesses, ordered numeric provider/model/API keys, ignored unrelated files, provider-directory IO throws, and the newly repaired legacy timestamps through the actual validator.
 
 No broad/check/clippy/readability/final-integration/deploy gates run. Shared date changes invalidate relevant integration proof after merge, not the unchanged canonical checkout's earlier proof.
