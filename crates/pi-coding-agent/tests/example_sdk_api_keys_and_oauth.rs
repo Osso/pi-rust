@@ -9,14 +9,41 @@ use serde_json::json;
 #[tokio::test]
 async fn reuses_default_runtime_for_key_override_without_persisting_key() {
     let a = support::fixture().await;
-    let b = support::fixture().await;
+    let mut b = support::fixture().await;
+    b.options.model_runtime = None;
+    let agent = b.home.path().join("agent");
+    std::fs::write(
+        agent.join("auth.json"),
+        r#"{"fixture-path":{"type":"api_key","key":"private-key"}}"#,
+    )
+    .unwrap();
+    std::fs::write(agent.join("models.json"), r#"{"providers":{"fixture-path":{"baseUrl":"https://unused.invalid","api":"openai-completions","models":[{"id":"private-model","name":"Private model"}]}}}"#).unwrap();
     let c = support::fixture().await;
     let runtime = a.options.model_runtime.as_ref().unwrap().clone();
     let output = support::Output::default();
     let _main = example::main;
-    example::run([a.options, b.options, c.options], output.clone())
+    let sessions = example::run([a.options, b.options, c.options], output.clone())
         .await
         .unwrap();
+    let mut real = oracle::TsOracle::spawn(
+        "sdk-runtime-state-oracle.ts",
+        "packages/coding-agent/src/core/model-runtime.ts",
+    );
+    let state = real.request(&json!({"agentDir":agent}));
+    let custom = sessions[1].model_runtime();
+    assert_eq!(
+        serde_json::to_value(custom.get_model("fixture-path", "private-model")).unwrap(),
+        state["customModel"]
+    );
+    assert_eq!(
+        custom.has_configured_auth("fixture-path"),
+        state["customAuth"].as_bool().unwrap()
+    );
+    assert!(custom.has_configured_auth("fixture-path"), "custom auth.json was read");
+    assert_eq!(
+        custom.get_model("fixture-path", "private-model").unwrap().name,
+        "Private model"
+    );
     let mut source = oracle::TsOracle::spawn(
         "sdk-examples-oracle.ts",
         "packages/coding-agent/examples/sdk/09-api-keys-and-oauth.ts",
