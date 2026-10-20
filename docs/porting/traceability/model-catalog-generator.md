@@ -13,7 +13,7 @@ Source: `packages/ai/scripts/generate-models.ts` at original runtime pin. No exp
 | OpenRouter/AI Gateway HTTP | `Generator::fetch_open_router_models/fetch_ai_gateway_models`; tool/image/reasoning/pricing/raw UTF-16/default/strict 503 fixtures | partial: malformed shape/log/transport coverage remains |
 | NVIDIA HTTP | pending | gap |
 | `loadModelsDevData` (all remaining providers) | pending | gap |
-| compat/thinking/tool-search/cache metadata helpers | pending | gap |
+| compat/thinking/strict-tools/grammar/tool-search/cache metadata helpers | `metadata.rs`, `apply_model_metadata`; 675 provider/id/API cases with existing compatibility/thinking fields, 4050 original TS calls | partial: full Cartesian/base-URL/default/invalid-type branch proofs pending; deferred models.dev reasoning records not yet wired |
 | hardcoded supplements, overrides, Azure clones | pending | gap |
 | priority/dedup/sorted provider/API/model catalogs | pending | gap |
 | native artifacts/manifest/hash/staging/validation/rollback/stats | pending shared model-data integration | gap |
@@ -23,6 +23,8 @@ Source: `packages/ai/scripts/generate-models.ts` at original runtime pin. No exp
 `cargo test -p pi-ai --test model_catalog_generator -- --nocapture`: RED expected null vs source cost object; GREEN 1 test with 9 original-source requests. Logs: `/tmp/pi-rust-model-generator-proof/02-red.log`, `03-green.log`. Oracle transpiles actual pinned source with TypeScript, removes automatic invocation via AST and exposes unchanged private functions. Process group/watchdog uses existing `support/oracle.rs`. No network refresh or source writes.
 
 Focused follow-up logs: `05-http-red.log`/`06-options-red.log` establish missing HTTP/options behavior; `08-targeted-red.log` proves HTTP/options GREEN and metadata/models.dev/raw errors RED after shared dependencies. `09-raw-green.log` proves source cost/provider regression and eight raw UTF-16/error cases GREEN. Shared `is_truthy`/fallible `to_js_string` and binary64 `JsValue::Number` are reused; no local coercion duplicate remains.
+
+`12-metadata-green.log`: 675 provider/model/API combinations compare merged model bytes against six sequential original-source mutation functions (4050 source calls), GREEN; no-op RED recorded in `08-targeted-red.log`. This does not establish exhaustive branch coverage or the deferred reasoning-record pass.
 
 ## Pending whole-module branch inventory
 

@@ -6,6 +6,9 @@ use serde_json::json;
 
 use crate::models_dev_reasoning_options::{ModelsDevReasoningOption, get_effort_thinking_level_map};
 
+mod metadata;
+pub use metadata::apply_model_metadata;
+
 fn field<'a>(value: &'a JsValue, key: &str) -> &'a JsValue {
     match value {
         JsValue::Object(object) => object.get(&JsString::from(key)).unwrap_or(&JsValue::Null),
