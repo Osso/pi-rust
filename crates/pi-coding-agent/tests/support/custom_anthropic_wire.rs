@@ -119,7 +119,7 @@ async fn compare_wire(key: &str, status: u16, body: String, truncated: bool) {
         events.push(serde_json::to_value(event.unwrap()).unwrap());
     }
     let requests = server.thread.join().unwrap();
-    let proof = std::path::PathBuf::from(std::env::var_os("PI_TEST_SANDBOX_DIR").expect("isolated proof directory"));
+    let proof = std::env::temp_dir();
     let auth = if key.contains("sk-ant-oat") { "oauth" } else { "api-key" };
     std::fs::write(proof.join(format!("wire-{auth}-{status}-truncated-{truncated}.json")), serde_json::to_vec_pretty(&json!({"sdkVersion":expected["sdkVersion"],"requests":requests,"sourceEvents":expected["events"],"nativeEvents":events})).unwrap()).unwrap();
     assert_eq!(

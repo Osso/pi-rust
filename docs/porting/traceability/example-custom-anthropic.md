@@ -18,7 +18,9 @@ Oracle evaluates original source bytes with transpilation only; controlled mode 
 
 Source package metadata pins SDK 0.52.0; installed root SDK is 0.91.1 (example-local SDK absent); no dependency installation. Controlled-source tests prove producer logic independently. `wire::installed_sdk_wire_auth_body_and_events` additionally executes the original source with the actual installed SDK and localhost HTTP, then native reqwest against the same response. It compares method/path, parsed JSON body, every header except explicitly asserted native deltas, and every unnormalized event/result (text/thinking/signature/tool JSON/usage/cost). Both API-key and OAuth paths pass. `wire::installed_sdk_wire_status_error_and_terminated_body` proves HTTP 400 and mid-body disconnect event ordering/messages using shared native HTTP failure identity, not an example parsing shim.
 
-Raw HTTP request bytes, parsed headers/body, SDK version, source/native event snapshots are saved in `/tmp/pi-rust-example-anthropic-proof/wire-*.json`. Runtime `node` versus `rust` and runtime version are approved differences.
+Raw HTTP request bytes, parsed headers/body, SDK version and source/native event snapshots are written to `$TMPDIR/wire-*.json`. The mandatory Cargo guard supplies private TMPDIR even without an explicit `PI_TEST_SANDBOX_DIR` selector. Historical development captures remain under `/tmp/pi-rust-example-anthropic-proof/`; independent selected-state captures under `/tmp/pi-rust-batch-a-examples-verification/sandbox/`. Runtime `node` versus `rust` and runtime version are approved differences.
+
+Default-runner regression: wire capture previously required the optional selector and panicked after actual requests/events. `/tmp/pi-rust-batch-a-default-wire-proof/ledger.json` records default Cargo RED2 and GREEN2 after using only private TMPDIR; no guard change or header/body/event assertion relaxation. Main owns final integrated gate.
 
 ## Approved native transport defaults
 
