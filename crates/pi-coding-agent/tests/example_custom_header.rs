@@ -22,6 +22,9 @@ const WIDTHS: [usize; 5] = [0, 1, 16, 80, 200];
 
 struct Terminal;
 impl ExtensionUiTuiBackend for Terminal {
+    fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
+        panic!("this component fixture must not construct an editor")
+    }
     fn request_render(&self) {
         panic!("static header must not request rendering");
     }

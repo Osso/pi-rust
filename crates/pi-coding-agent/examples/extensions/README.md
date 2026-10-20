@@ -152,3 +152,20 @@ play and inspect the agent cursor. It uses the host's custom UI and session
 entries, not live state. Nothing loads by default. Differential test:
 `example_tic_tac_toe`; source reconstruction caveat and proof matrix:
 [batch K traceability](../../../../docs/porting/traceability/extension-examples-k.md).
+
+## Custom editor and overlay examples
+
+Register these factories explicitly using the native pattern above:
+
+| Module | Factory |
+|---|---|
+| `border_status_editor.rs` | `border_status_editor_extension` |
+| `modal_editor.rs` | `modal_editor_extension` |
+| `rainbow_editor.rs` | `rainbow_editor_extension` |
+| `overlay_test.rs` | `overlay_test_extension` |
+
+Copy `editor_composition.rs` alongside the three editor modules. It delegates
+the real CustomEditor surface while the example overrides input/render behavior;
+the host still wires base callbacks and focus. Border-status hides the footer
+and working indicator; overlay-test registers `/overlay-test`. No example loads
+by default. Behavioral/differential proof: `tests/extension_examples_editors.rs`.

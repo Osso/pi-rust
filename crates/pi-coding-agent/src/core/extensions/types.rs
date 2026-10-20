@@ -260,6 +260,18 @@ pub struct TerminalInputResult {
 /// `render` takes `&self`; implementors use interior mutability when rendering
 /// mutates state, matching the source component contract.
 pub trait ExtensionUiComponent: Send + Sync {
+    /// Optional source `width` property used by `custom({ overlay: true })`.
+    fn width(&self) -> Option<pi_tui::tui::SizeValue> {
+        None
+    }
+
+    /// `None` means the source component has no `focused` property.
+    fn focused(&self) -> Option<bool> {
+        None
+    }
+
+    fn set_focused(&self, _focused: bool) {}
+
     fn render(&self, width: usize) -> Vec<String>;
 
     fn handle_input(&self, _data: &str) {}
@@ -275,6 +287,8 @@ pub trait ExtensionUiComponent: Send + Sync {
 
 /// Backend behind the [`ExtensionUiTui`] handle passed to factories.
 pub trait ExtensionUiTuiBackend: Send + Sync {
+    /// Called on the owning UI thread, like the editor factory itself.
+    fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell>;
     fn request_render(&self);
     fn terminal_rows(&self) -> usize;
     fn terminal_columns(&self) -> usize;
@@ -306,6 +320,24 @@ impl ExtensionUiTui {
 
     pub fn mode(&self) -> pi_tui::tui::TuiMode {
         self.backend.mode()
+    }
+
+    pub fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
+        self.backend.create_fixed_cell()
+    }
+}
+
+impl pi_tui::components::editor::EditorHost for ExtensionUiTui {
+    fn terminal_rows(&self) -> usize {
+        self.terminal_rows()
+    }
+
+    fn request_render(&self) {
+        self.request_render();
+    }
+
+    fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
+        self.create_fixed_cell()
     }
 }
 
@@ -395,6 +427,26 @@ pub struct ExtensionUiOverlayOptions {
     pub margin: Option<pi_tui::tui::OverlayMargin>,
     pub visible: Option<Arc<dyn Fn(usize, usize) -> bool + Send + Sync>>,
     pub non_capturing: bool,
+}
+
+impl From<ExtensionUiOverlayOptions> for pi_tui::tui::OverlayOptions {
+    fn from(options: ExtensionUiOverlayOptions) -> Self {
+        Self {
+            width: options.width,
+            min_width: options.min_width,
+            max_height: options.max_height,
+            anchor: options.anchor,
+            offset_x: options.offset_x,
+            offset_y: options.offset_y,
+            row: options.row,
+            col: options.col,
+            margin: options.margin,
+            visible: options
+                .visible
+                .map(|visible| Rc::new(move |w, h| visible(w, h)) as Rc<dyn Fn(usize, usize) -> bool>),
+            non_capturing: options.non_capturing,
+        }
+    }
 }
 
 /// `custom` options: overlay mode, dynamic overlay options, and handle callback.

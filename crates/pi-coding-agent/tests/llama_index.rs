@@ -48,6 +48,10 @@ struct TestBackend {
 }
 
 impl pi_coding_agent::core::extensions::types::ExtensionUiTuiBackend for TestBackend {
+    fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
+        panic!("this component fixture must not construct an editor")
+    }
+
     fn request_render(&self) {
         self.renders.fetch_add(1, Ordering::SeqCst);
     }
