@@ -7,7 +7,8 @@ use pi_coding_agent::modes::interactive::components::custom_editor::{CustomEdito
 use pi_coding_agent::modes::interactive::theme::ThemeColor;
 use pi_js_compat::number::{js_number_to_string, to_fixed};
 use pi_tui::components::editor::EditorOptions;
-use pi_tui::{Component, truncate_to_width_with, visible_width};
+use pi_tui::utils::truncate_to_width_with;
+use pi_tui::{Component, visible_width};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};

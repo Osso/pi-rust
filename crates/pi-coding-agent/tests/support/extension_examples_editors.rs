@@ -15,17 +15,18 @@ use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, REQUIRED
 use pi_tui::components::editor::{EditorFixedCell, EditorTheme};
 use pi_tui::tui::{TuiMode, TuiRenderer};
 use serde_json::{Map, Value, json};
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-thread_local! { static TUI: Rc<TuiRenderer> = TuiRenderer::new(virtual_terminal::concrete(80, 24).1, Some(true), None); }
+thread_local! { static TUI: Rc<TuiRenderer> = TuiRenderer::new(virtual_terminal::concrete(80, 24).1); }
 struct Backend;
 impl ExtensionUiTuiBackend for Backend {
     fn create_fixed_cell(&self) -> Rc<dyn EditorFixedCell> {
         TUI.with(|tui| Rc::new(tui.create_fixed_cell()))
     }
-    fn request_render(&self) {}
+    fn request_render(&self) {
+        TUI.with(|tui| pi_tui::tui::TuiExt::request_render(tui.as_ref(), false));
+    }
     fn terminal_rows(&self) -> usize {
         24
     }
@@ -235,7 +236,10 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                     }
                     "agent_end" => {
                         runner
-                            .emit(&mut ExtensionEvent::AgentEnd(AgentEndEvent { messages: Vec::new() }))
+                            .emit(&mut ExtensionEvent::AgentEnd(AgentEndEvent {
+                                messages: Vec::new(),
+                                session_continuation: None,
+                            }))
                             .await;
                     }
                     "session_shutdown" => {
