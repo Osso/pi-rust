@@ -578,7 +578,7 @@ async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
     let extensions = loader.get_extensions();
     assert!(extensions.errors.is_empty());
     assert_eq!(extensions.extensions.len(), 2);
-    assert_eq!(extensions.extensions[0].tool_gates.len(), 1);
+    assert_eq!(extensions.extensions[0].read().tool_gates.len(), 1);
     assert_eq!(extensions.extensions[1].read().handlers.compaction.len(), 1);
 
     let runtime = faux_codex_runtime().await;
@@ -593,7 +593,7 @@ async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
         None,
     );
     let context = runner.create_context();
-    let gate = Arc::clone(&extensions.extensions[0].tool_gates[0]);
+    let gate = Arc::clone(&extensions.extensions[0].read().tool_gates[0]);
     let event = |path: &str| ToolCallEvent {
         tool_name: ToolName::Read,
         tool_call_id: "call".to_owned(),
