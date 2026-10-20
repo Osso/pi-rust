@@ -104,3 +104,12 @@ the pinned example's mutable custom-entry data aliasing; see
 `preset.rs` exports `preset_extension(&ExtensionApi)`. Register its factory
 explicitly; it reads global/project `presets.json` on session start. No providers
 are called by this example. Config loading failures are printed, matching TS.
+
+## Session/process (batch I)
+
+`git_merge_and_resolve.rs` exports `git_merge_and_resolve_extension`. Embed and
+register its factory explicitly using the pattern above. It fetches/merges the
+current upstream after agent turns and delivers unresolved conflict locations
+as follow-ups. Enable deliberately; tests use only private repositories.
+`interactive-shell` is blocked on extension-facing TUI stop/start methods; see
+[`batch I traceability`](../../../../docs/porting/traceability/extension-examples-i.md).
