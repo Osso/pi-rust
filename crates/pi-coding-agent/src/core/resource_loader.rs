@@ -1191,8 +1191,9 @@ impl DefaultResourceLoader {
             .extensions
             .iter()
             .filter(|extension| {
-                extension.read().path.starts_with('<')
-                    && !self.is_extension_factory_disabled_with(&disabled, &extension.read().path)
+                let registration = extension.read();
+                registration.path.starts_with('<')
+                    && !self.is_extension_factory_disabled_with(&disabled, &registration.path)
             })
             .cloned()
             .collect();

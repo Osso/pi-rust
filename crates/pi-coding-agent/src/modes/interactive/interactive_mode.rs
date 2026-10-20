@@ -5121,7 +5121,8 @@ impl InteractiveMode {
 
         let mut source_infos: HashMap<String, SourceInfo> = HashMap::new();
         for extension in &extensions.extensions {
-            source_infos.insert(extension.read().path.clone(), extension.read().source_info.clone());
+            let registration = extension.read();
+            source_infos.insert(registration.path.clone(), registration.source_info.clone());
         }
         for skill in &skills.skills {
             source_infos.insert(skill.file_path.clone(), skill.source_info.clone());

@@ -25,7 +25,11 @@ pub fn format_extension_inventory(extensions: &[Extension]) -> String {
     }
 
     let mut sorted: Vec<&Extension> = extensions.iter().collect();
-    sorted.sort_by(|left, right| locale_compare(&left.read().path, &right.read().path));
+    sorted.sort_by(|left, right| {
+        let left_path = left.read().path.clone();
+        let right_path = right.read().path.clone();
+        locale_compare(&left_path, &right_path)
+    });
     let rows: Vec<ExtensionInventoryRow> = sorted
         .into_iter()
         .map(|extension| ExtensionInventoryRow {

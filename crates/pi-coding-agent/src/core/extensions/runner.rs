@@ -1027,8 +1027,9 @@ impl ExtensionRunner {
     }
 
     fn emit_handler_error(&self, extension: &Extension, event: &str, error: HandlerError) {
+        let extension_path = extension.read().path.clone();
         self.emit_error(ExtensionError {
-            extension_path: extension.read().path.clone(),
+            extension_path,
             event: event.to_owned(),
             error: error.message,
             stack: error.stack,
@@ -1201,7 +1202,8 @@ impl ExtensionRunner {
                 Ok(Some(result)) if result.handled => return Ok(result),
                 Ok(_) => {}
                 Err(error) => {
-                    self.report_runtime_mailbox_handler_error(&extension.read().path, &event, &error);
+                    let path = extension.read().path.clone();
+                    self.report_runtime_mailbox_handler_error(&path, &event, &error);
                     return Err(error);
                 }
             }
@@ -1245,8 +1247,9 @@ impl ExtensionRunner {
                             continue;
                         };
                         if message.role() != current_message.role() {
+                            let extension_path = extension.read().path.clone();
                             self.emit_error(ExtensionError {
-                                extension_path: extension.read().path.clone(),
+                                extension_path,
                                 event: "message_end".to_owned(),
                                 error: "message_end handlers must return a message with the same role".to_owned(),
                                 stack: None,
