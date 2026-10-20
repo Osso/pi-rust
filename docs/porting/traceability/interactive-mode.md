@@ -135,6 +135,10 @@ has no separate render-region callbacks.
 
 ## Discrepancies
 
+- `restart_from_signal` logs a restart failure to stderr and leaves the TUI
+  running. The source's `void restartProcess(...)` rejection reaches
+  `uncaughtCrash`, which restores the terminal and exits 1; `uncaughtCrash` is
+  not ported in this slice.
 - `SelectAgentView` is async (`BoxFuture<Option<bool>>`) because the TUI lives on
   a `LocalSet` thread; the bridge selector sends a `UiRequest` and awaits the
   UI-thread result instead of calling the mode synchronously.
