@@ -10,6 +10,7 @@ All direct dependencies are exact-pinned.
 
 ### `pi-js-compat`
 
+- `indexmap = 2.14.2` — lossless JSON objects retain UTF-16 key identity, first insertion slots, and last-value-wins duplicate replacement; reuses the already-locked ordered map rather than custom bookkeeping.
 - `serde = 1.0.229` — `serialize`/`serialize_option` helpers keep integral `f64` wire values printing like `JSON.stringify`.
 - `serde_json = 1.0.151` (`preserve_order`) — `js_number_value` builds `JSON.stringify(number)`-shaped `Value`s (integer notation for integral numbers, `null` for non-finite) for extension tool details; `js_json` reproduces V8 `JSON.parse` messages/`JSON.stringify` key order and needs `preserve_order` so object key order survives parsing in a standalone build.
 - `httpdate = 1.0.3` — parses the HTTP-date forms accepted by `Date.parse`.

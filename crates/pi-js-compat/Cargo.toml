@@ -8,6 +8,8 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+# Lossless UTF-16 JSON keys retain first insertion slots on duplicate replacement.
+indexmap = "=2.14.2"
 # Serializes JavaScript numbers without serde_json's trailing `.0`.
 serde = "=1.0.229"
 # `JSON.stringify(number)` value construction for extension payloads.

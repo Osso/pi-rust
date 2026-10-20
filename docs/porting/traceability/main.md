@@ -108,7 +108,10 @@ registration are wired.
   registered; its controller provider returns the gap error
   (`Debug REPL is not ported (core/debug-repl.ts)`) from `enable`/`disable`
   instead of a fake REPL (`debug_repl_provider_reports_the_documented_gap`).
-- First-party factories: all 28 source names are registered in source order.
+- First-party factories: all 29 names are registered in source order, including
+  the approved native `session-autoname` extension. `pi extensions` lists it;
+  `bundled_extensions_commands::registers_all_small_extensions_under_source_ids`
+  asserts the 23 small-extension IDs in order and their loaded tools/commands.
   `FIRST_PARTY_EXTENSION_NAMES` is the reference list; tests assert the factory
   list, the loaded extension order, and the `pi extensions` inventory. The
   `agents-core` factory is built with the production child/attached session

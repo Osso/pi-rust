@@ -16,7 +16,7 @@ whole-source special values. Comparisons are byte-for-byte on `JSON.stringify(va
 | Observable contract | Rust mapping and proof |
 |---|---|
 | `JSON.parse` accepts JSON grammar with only space/tab/LF/CR as whitespace | `Parser`; differential mutations cover BOM, NBSP, control characters |
-| Duplicate keys keep the first position and the last value | `Map::insert`; `parse_keeps_last_duplicate_value_at_first_position` |
+| Duplicate keys keep the first position and the last value | `IndexMap::insert`; `parse_keeps_last_duplicate_value_at_first_position`, lossless differential actual-codeunit duplicates |
 | Numbers become IEEE-754 doubles; `-0` prints as `0`; `1e400` becomes `null` on output | `pi_js_compat::number::js_number_value` + `js_number_to_string`; `numbers_round_trip_as_javascript_doubles`, differential seeds |
 | Object keys: array-index keys ascending first, then insertion order | `object_entries`; `stringify_orders_array_index_keys_first_like_javascript_objects` |
 | `JSON.stringify` escapes `"`, `\`, `\b\f\n\r\t`, other C0 as `\u00xx` | `write_string`; `pretty_output_matches_json_stringify_with_two_space_indent` |
@@ -37,14 +37,29 @@ bash manifests/completions, supervisor request rows, persisted process identity)
 
 ## Discrepancies
 
-- JavaScript strings can hold lone surrogates; Rust strings cannot. Lone surrogate escapes decode to
-  U+FFFD, and a non-BMP character reported as V8's single-unit token also prints as U+FFFD. UTF-8
-  encoding of a lone surrogate produces U+FFFD in Node as well, so file and stdout bytes match; the
-  oracle applies `String.prototype.toWellFormed()` for the comparison.
+- Legacy `parse` replaces lone surrogate escapes with U+FFFD before key insertion, preserving existing serde-facing behavior. This is a known lossy API boundary, not valid proof of raw-file validator parity: `JSON.stringify` must escape those units rather than replace them. New `parse_lossless` retains them. A non-BMP character reported as V8's single-unit error token still prints as U+FFFD at the UTF-8 diagnostic boundary; the existing mutation oracle applies `toWellFormed()` only to errors. The new bounded lossless oracle applies no normalization.
 - Integers above 2^53 are stored exactly by `serde_json` but lose precision in JavaScript. Values read
   from JavaScript-written files are already rounded, so round-trips match; a Rust writer emitting an
   integer above 2^53 would print the exact value where JavaScript prints the rounded one. No writer in
   this port produces such values (timestamps and costs stay below the limit).
+
+## Additive UTF-16 API (bounded prerequisite)
+
+Contract: [shared JSON UTF-16 spec](../../specs/js-json.md). No caller migration or model-data validator completion is claimed.
+
+| Export/branch | Behavioral proof |
+|---|---|
+| `JsString::from_utf16`, `From<&str>`, `units`, derived `Eq`/`Hash`/`Ord` | `strings_keep_units_equality_hash_and_utf16_sort_order`: high/low/replacement distinct, pair/raw equal, astral sorts before U+E000 by code units |
+| `to_utf8`, `to_utf8_lossy` | Same test: checked lone-surrogate rejection, valid pair accepted, explicit U+FFFD replacement |
+| `JsValue` null/bool/number/string/array/object variants; `parse_lossless` | `lossless_json_matches_node_bytes_and_key_identity`: nested lone units, raw Unicode, controls, scalars, numeric boundary, errors |
+| `JsObject` (`IndexMap` alias), `object_entries_lossless` | Same differential: exact key units and canonical-index enumeration, distinct surrogate keys, duplicate overwrite/slot order, raw/escaped equivalent emoji keys |
+| `stringify_lossless`, `stringify_lossless_pretty`, shared writer | Same differential compares compact/pretty strings byte-for-byte; `serde_conversion_and_constructed_lone_units_use_shared_writer` covers constructed unmatched units |
+| `JsValue::from(&Value)`, `into_serde_lossy` | `serde_conversion_and_constructed_lone_units_use_shared_writer`, `legacy_parse_replaces_before_collisions_and_preserves_original_slot`: recursive conversion and explicitly later key collisions |
+| Legacy `parse`, `stringify`, `stringify_pretty`, `object_entries` | Existing six focused tests and mutation corpus reused as test modules in the new pi-js-compat tests; explicit lone-key collision ordering regression |
+
+One parser and writer serve both representations. Legacy parse chooses replacement at string completion, before duplicate-key insertion; converting an already-lossless object later can yield different collision winners and is explicitly named lossy. Numbers retain existing `serde_json::Number`/double behavior; no general JavaScript numeric representation claim.
+
+Development evidence: `/tmp/pi-rust-js-json-utf16-proof/ledger.md` records baseline Node differential RED (nine mismatches), targeted GREEN, source scopes, and formatting. Parent owns independent integration verification; no broad gates performed by this slice.
 
 ## Proof inventory
 

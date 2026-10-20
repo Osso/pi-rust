@@ -17,6 +17,7 @@ pub mod legacy_api_aliases;
 pub mod model_catalog;
 pub mod model_data_tools;
 pub mod models;
+pub mod models_dev_reasoning_options;
 pub mod models_store;
 pub mod oauth;
 pub mod providers;

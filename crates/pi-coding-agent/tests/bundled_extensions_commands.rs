@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 
 use pi_coding_agent::core::extensions::types::{BoxFuture, HandlerError, NotifyType};
 use pi_coding_agent::core::session_control_db::{
-    WritableSessionMetadata, read_session_metadata, write_session_metadata,
+    WritableSessionMetadata, read_session_metadata, unarchive_session, write_session_metadata,
 };
 use pi_coding_agent::core::session_manager::{SessionManager, SetMetadataControlDbPathOptions};
 use serde_json::json;
@@ -153,13 +153,18 @@ async fn session_archive_matches_typescript() {
     let temp = TempDir::new().expect("temp dir");
     let db_path = temp.path().join("control.sqlite");
     let db_path = db_path.to_string_lossy().into_owned();
-    let session_file = temp.path().join("current.jsonl");
-    let session_file = session_file.to_string_lossy().into_owned();
+    let mut manager = SessionManager::create(
+        &temp.path().to_string_lossy(),
+        Some(&temp.path().to_string_lossy()),
+        None,
+    )
+    .unwrap();
+    let session_file = manager.get_session_file().unwrap().to_owned();
     write_session_metadata(
         &db_path,
         &WritableSessionMetadata {
             session_path: session_file.clone(),
-            id: "current".to_owned(),
+            id: manager.get_session_id().to_owned(),
             cwd: temp.path().to_string_lossy().into_owned(),
             name: None,
             parent_session_path: None,
@@ -180,12 +185,6 @@ async fn session_archive_matches_typescript() {
     )
     .unwrap();
 
-    let mut manager = SessionManager::create(
-        &temp.path().to_string_lossy(),
-        Some(&temp.path().to_string_lossy()),
-        None,
-    )
-    .unwrap();
     manager
         .set_metadata_control_db_path(Some(&db_path), SetMetadataControlDbPathOptions::default())
         .unwrap();
@@ -200,7 +199,8 @@ async fn session_archive_matches_typescript() {
     )
     .await;
 
-    let mut oracle = oracle_for("packages/coding-agent/extensions/session-archive/src/index.ts");
+    // The command is unchanged; its DB dependency must read the approved v15 schema.
+    let mut oracle = oracle_for("session-names:packages/coding-agent/extensions/session-archive/src/index.ts");
     let response = oracle.request(&json!({
         "id": 4,
         "extension": "session-archive",
@@ -213,6 +213,25 @@ async fn session_archive_matches_typescript() {
     assert_eq!(response["ok"], true, "{response}");
 
     assert_eq!(harness.registrations(), response["output"]["steps"][0]["result"]);
+    for step in response["output"]["steps"].as_array().unwrap() {
+        assert_eq!(step["error"], serde_json::Value::Null, "{response}");
+    }
+    assert_eq!(
+        read_session_metadata(&db_path, &session_file)
+            .unwrap()
+            .unwrap()
+            .is_archived,
+        Some(true),
+        "TypeScript archives the same persisted session used by Rust"
+    );
+    unarchive_session(&db_path, &session_file).unwrap();
+    assert_eq!(
+        read_session_metadata(&db_path, &session_file)
+            .unwrap()
+            .unwrap()
+            .is_archived,
+        Some(false)
+    );
     harness.run_command("archive", "").await.unwrap();
     assert_eq!(
         calls_json(&harness.take_calls()),
@@ -309,6 +328,7 @@ async fn registers_all_small_extensions_under_source_ids() {
             "<first-party:safe>",
             "<first-party:spec-validation>",
             "<first-party:session-archive>",
+            "<first-party:session-autoname>",
             "<first-party:self-restart>",
             "<first-party:session-id>",
         ]
@@ -322,7 +342,7 @@ async fn registers_all_small_extensions_under_source_ids() {
         )
         .await;
     assert!(errors.is_empty(), "{errors:?}");
-    assert_eq!(extensions.len(), 22);
+    assert_eq!(extensions.len(), 23);
     let tool_names: Vec<&str> = extensions
         .iter()
         .flat_map(|extension| extension.tools.keys().map(String::as_str))

@@ -68,6 +68,13 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [x] Preserve `ParsedSkillBlock` fields and `parse_skill_block` behavior from `packages/coding-agent/src/core/skill-block.ts:1-22`, including anchored LF grammar, candidate-closing-delimiter backtracking, JavaScript trim semantics, and exclusion of lone UTF-16 surrogates at the Rust scalar-string boundary; the pinned package export is near `packages/coding-agent/src/index.ts:281`.
 - [x] Compare the skill-block parser through exactly 10 persistent differential requests (`13138..=13147`), with runtime public-index proof separated from direct-module exact-shape/mutability typeproof; current focused, differential, and oracle evidence is recorded in the [dedicated spec](skill-block.md) and [traceability](../porting/traceability/skill-block.md).
 
+### Shared Date.parse fixtures
+
+- [ ] Match observed numeric-string, named-month, slash and pre-1970 HTTP/asctime fixtures. Numeric cases cover `0`, months `1..12`, invalid `13..31`, year pivots `32..49` → 2032..2049 and `50..99` → 1950..1999, plus tested sign/padding/long-year/`Z` boundaries; strict ISO parsing retains precedence.
+- [ ] Preserve tested month order, local/GMT/UTC/numeric-offset times, day normalization, invalid inputs and Chicago DST transitions. Named-month seconds `60`, `61`, `99` reset to zero; slash/ISO second `60` rejects.
+
+Independent integrated proof is pending. The finite corpus does not establish general V8 grammar completeness; exact fixtures and development evidence live in [shared compatibility traceability](../porting/traceability/js-compat.md#dateparse-srcdaters).
+
 ## How it works
 
 - [Differential port system](../wiki/systems/differential-port.md)
@@ -78,8 +85,12 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - `oracle/` — invokes selected TypeScript source functions.
 - `crates/*/tests/differential_*.rs` — compares Rust results with the oracle.
 - `docs/porting/traceability/` — maps pinned source statements to proof.
+- `crates/pi-js-compat/src/date.rs` — shared JavaScript date parsing and timezone behavior.
 
 ## Tests asserting this spec
+
+- `crates/pi-js-compat/tests/date.rs`
+- `crates/pi-js-compat/tests/differential_date_parse.rs`
 
 - `crates/pi-protocol/tests/differential_protocol.rs`
 - `crates/pi-protocol/tests/model_cost.rs`
@@ -151,7 +162,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 ## Out of scope
 
 - Invalid JavaScript runtime input types at typed Rust API boundaries, approved August 12, 2026.
-- JavaScript lone-surrogate strings that Rust `String` cannot represent.
+- Lone-surrogate input supplied directly to existing `String`-typed core APIs. Raw JSON file escapes are representable input, not this exclusion.
 - Arbitrary JavaScript runtime values passed to generic error normalization or causes.
 - JavaScript error property descriptors, own-property ordering, JSON serialization, stack contents, and prototype/`instanceof` identity.
 - Any cause representation beyond the approved `Option<Box<dyn std::error::Error + 'static>>` typed Rust boundary.
