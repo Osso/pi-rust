@@ -22,7 +22,7 @@ Authorized adaptation, 2026-10-20: user answered “Check Rust catalog (Recommen
 
 - `crates/pi-ai/src/model_data_tools.rs`: exported maintenance constants, records, operations, validation.
 - `crates/pi-ai/src/bin/check-model-data.rs`: no-argument native checker; compile-time crate root is independent of working directory.
-- `crates/pi-js-compat/src/{date,date_parser}.rs`: shared [V8 date parser](date-parse.md); [date proof](../porting/traceability/js-compat.md#dateparse-srcdaters).
+- `crates/pi-js-compat/src/{date,date_parser}.rs`: shared [V8 date parser](date-parse.md); [date proof](../porting/traceability/js-compat.md#dateparse-srcdaters-srcdate_parserrs).
 
 ## Tests asserting this spec
 

@@ -1,6 +1,6 @@
 # model-data.ts maintenance parity
 
-Source: pinned `packages/ai/scripts/model-data.ts` (280 lines). Rust: `crates/pi-ai/src/model_data_tools.rs`. Contract: [spec](../../specs/model-data-tools.md). This slice ports only this module and its [checker](check-model-data.md). Shared dates use the [V8 parser contract](../../specs/date-parse.md) and retain [bounded differential proof](js-compat.md#dateparse-srcdaters).
+Source: pinned `packages/ai/scripts/model-data.ts` (280 lines). Rust: `crates/pi-ai/src/model_data_tools.rs`. Contract: [spec](../../specs/model-data-tools.md). This slice ports only this module and its [checker](check-model-data.md). Shared dates use the [V8 parser contract](../../specs/date-parse.md) and retain [bounded differential proof](js-compat.md#dateparse-srcdaters-srcdate_parserrs).
 
 ## Current capability / proof matrix
 

@@ -13,6 +13,7 @@ TypeScript module behind this crate.
 | `new Intl.Collator(locale).compare(a, b)` | `compare_in_locale(a, b, locale)` | `matches_node_intl_collator_for_explicit_locales` over `en-US`, `und`, `sv`, `de`, `tr`, `ja`, `zh` |
 | Invalid locale identifier | Parses to `und`; ICU4X construction failure falls back to the root collator | Construction path shared by both tests |
 | Host locale resolution | `host_locale` | `host_locale_compare_uses_the_resolved_environment_locale` |
+| Lossless host-locale UTF-16 comparison, including lone surrogates | `locale_compare_utf16(left: &[u16], right: &[u16])`; ICU4C backend, existing UTF-8 ICU4X API unchanged | `tests/image_generator_collation.rs::lone_surrogate_collation_matches_node_pair_order` (development differential; independent acceptance pending) |
 
 Differential corpus: 62 pairs covering empty strings, case, accents (precomposed
 and decomposed), `ß`/`ss`, Nordic and Turkish letters, digits and numeric-looking

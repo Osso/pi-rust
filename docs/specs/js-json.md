@@ -32,7 +32,7 @@
 
 ## Known gaps (current cycle)
 
-- [ ] Parent must integrate the lossless entrypoints into the model-data validator and independently verify the integrated revision. This prerequisite does not complete validator parity.
+- [ ] Independently verify integrated model-data consumption (`f2ec514`), including the original-UTF-16 timestamp adapter at `3e6cb09`. Integration is complete; validator parity and Batch A acceptance remain pending.
 
 ## Out of scope
 

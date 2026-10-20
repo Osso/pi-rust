@@ -45,7 +45,7 @@ bash manifests/completions, supervisor request rows, persisted process identity)
 
 ## Additive UTF-16 API (bounded prerequisite)
 
-Contract: [shared JSON UTF-16 spec](../../specs/js-json.md). No caller migration or model-data validator completion is claimed.
+Contract: [shared JSON UTF-16 spec](../../specs/js-json.md). Model-data consumption is integrated at `f2ec514`, with the lossless timestamp adapter at `3e6cb09`; independent integrated proof and validator completion remain pending.
 
 | Export/branch | Behavioral proof |
 |---|---|
