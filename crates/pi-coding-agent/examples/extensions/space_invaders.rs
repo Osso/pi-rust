@@ -451,7 +451,7 @@ impl ExtensionUiComponent for Invaders {
         if inner.state.player.lives < 0 {
             let lives = inner.state.player.lives;
             drop(inner);
-            std::panic::panic_any(format!("RangeError: Invalid count value: {lives}"));
+            pi_coding_agent::utils::uncaught::throw_uncaught("RangeError", format!("Invalid count value: {lives}"));
         }
         let lines = render_frame(&inner, width);
         inner.cached_width = width;
