@@ -462,6 +462,38 @@ pub struct HttpResponse {
     pub status: u16,
     pub body: String,
 }
+/// Native maintenance transport, using the shared fetch error identity and causes.
+pub async fn fetch_native(url: &str) -> Result<HttpResponse, GeneratorError> {
+    let response = crate::http::default_fetch()
+        .fetch(
+            crate::request::HttpRequest {
+                method: "GET".to_owned(),
+                url: url.to_owned(),
+                headers: vec![],
+                body: None,
+            },
+            None,
+        )
+        .await
+        .map_err(transport_error)?;
+    let status = response.status;
+    // Source fetchers inspect status before consuming JSON; a broken error body must not mask it.
+    let body = if (200..300).contains(&status) {
+        crate::request::read_body_text(response.body)
+            .await
+            .map_err(transport_error)?
+    } else {
+        String::new()
+    };
+    Ok(HttpResponse { status, body })
+}
+fn transport_error(error: crate::request::CallbackError) -> GeneratorError {
+    GeneratorError {
+        name: error.name,
+        message: JsString::from(error.message.as_str()),
+        details: error.cause.map(GeneratorErrorDetails::Transport),
+    }
+}
 pub struct Generator<'a> {
     pub options: GeneratorOptions,
     pub logs: Vec<JsValue>,
