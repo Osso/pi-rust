@@ -34,3 +34,21 @@ async fn custom_compaction_full_result_prompt_options_usage_and_failures_match()
         assert_eq!(actual["errors"], json!([]));
     }
 }
+
+#[tokio::test]
+async fn locale_token_display_matches_grouping_rounding_and_exponents() {
+    for tokens in [0.0, -1.0, 1234.5678, 1.2345, 999.9999, 1e21, 1e-8, -0.0, 1_000_000.01] {
+        let mut case = event(Value::Null, false);
+        case["value"]["preparation"]["tokensBefore"] = pi_js_compat::number::js_number_value(tokens);
+        let factory: ExtensionFactory = Arc::new(|api| {
+            let result = example::custom_compaction_extension(api);
+            Box::pin(async move { result })
+        });
+        support::compare(
+            "custom-compaction",
+            factory,
+            json!({"modelFixture":{"content":[]},"cases":[case]}),
+        )
+        .await;
+    }
+}
