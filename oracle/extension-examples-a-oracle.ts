@@ -136,6 +136,7 @@ async function run(request: any) {
     case "event": await runner.emit(step.event); break;
     case "emit": trace.push(["result",await runner.emit(step.event) ?? null]); break;
     case "advance": advance(step.ms); break;
+    case "name": name = step.value; break;
     case "receipt": {
      const bytes = await new Promise<Buffer>((done,reject) => {
       const timeout = originalTimers[0](() => { watcher.close(); reject(new Error("command fixture timeout")); },3000);

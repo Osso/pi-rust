@@ -76,5 +76,32 @@ async fn protocols_precedence_external_fixture_and_output_errors_match_ts() {
             );
         }
     }
+    // Node execFile without a callback silently ignores missing executables.
+    // Exercise that boundary with a private empty PATH, never host commands.
+    let empty = temp.path().join("empty");
+    std::fs::create_dir(&empty).unwrap();
+    pi_js_compat::process_env::set("WT_SESSION", "1");
+    pi_js_compat::process_env::set("PATH", empty.to_str().unwrap());
+    let actual = harness::compare(
+        "notify",
+        |trace: harness::Trace| {
+            let factory: ExtensionFactory = Arc::new(move |api| {
+                let result = example::notify_with_output(
+                    api,
+                    Output {
+                        trace: trace.clone(),
+                        fail: false,
+                    },
+                );
+                Box::pin(async move { result })
+            });
+            factory
+        },
+        json!({"fileLoader":true,"notifyEnv":{"WT_SESSION":"1","PATH":empty},"steps":[
+            {"op":"event","event":{"type":"agent_end","messages":[]}}
+        ]}),
+    )
+    .await;
+    assert_eq!(actual["trace"], json!([]));
     pi_js_compat::process_env::clear();
 }

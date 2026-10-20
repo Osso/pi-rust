@@ -12,6 +12,7 @@ async fn switches_forks_ui_gating_and_dialog_errors_match_ts() {
             {"op":"emit","event":{"type":"session_before_switch","reason":"new"}},
             {"op":"emit","event":{"type":"session_before_switch","reason":"resume"}},
             {"op":"append","message":{"role":"user","content":"unsaved","timestamp":0}},
+            {"op":"append","message":{"role":"assistant","content":[{"type":"text","text":"already answered"}],"api":"faux","provider":"faux","model":"faux-1","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":0}},
             {"op":"emit","event":{"type":"session_before_switch","reason":"resume"}},
             {"op":"emit","event":{"type":"session_before_switch","reason":"resume"}},
             {"op":"emit","event":{"type":"session_before_switch","reason":"new"}},

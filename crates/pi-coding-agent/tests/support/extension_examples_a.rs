@@ -176,6 +176,7 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
     context.get_system_prompt = Arc::new(move || current_prompt.lock().unwrap().clone());
     let mut actions = support::actions();
     let session_name = Arc::new(Mutex::new(request["name"].as_str().map(str::to_owned)));
+    let fixture_name = session_name.clone();
     let name = session_name.clone();
     let log = trace.clone();
     let failure = request["actionError"].as_str().map(str::to_owned);
@@ -363,6 +364,9 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
                 .expect("command fixture timeout");
                 let args: Value = serde_json::from_slice(&bytes).unwrap();
                 trace.lock().unwrap().push(json!(["exec", args]));
+            }
+            "name" => {
+                *fixture_name.lock().unwrap() = step["value"].as_str().map(str::to_owned);
             }
             "advance" => {
                 tokio::time::advance(std::time::Duration::from_millis(step["ms"].as_u64().unwrap())).await;

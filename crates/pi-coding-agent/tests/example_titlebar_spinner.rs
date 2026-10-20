@@ -15,10 +15,12 @@ async fn deterministic_frames_wrap_restart_and_shutdown_match_ts() {
             steps.push(json!({"op":"advance","ms":80}));
         }
         steps.extend([
+            json!({"op":"name","value":"renamed 🚀"}),
             json!({"op":"event","event":{"type":"agent_start"}}),
             json!({"op":"advance","ms":80}),
             json!({"op":"event","event":{"type":"agent_end","messages":[]}}),
             json!({"op":"advance","ms":800}),
+            json!({"op":"name","value":""}),
             json!({"op":"event","event":{"type":"agent_start"}}),
             json!({"op":"advance","ms":80}),
             json!({"op":"event","event":{"type":"session_shutdown","reason":"quit"}}),

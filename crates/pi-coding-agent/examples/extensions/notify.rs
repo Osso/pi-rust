@@ -19,8 +19,10 @@ fn windows_toast_script(title: &str, body: &str) -> String {
     ]
     .join("; ")
 }
-fn spawn_windows_notification(title: &str, body: &str) -> Result<(), HandlerError> {
-    let mut child = tokio::process::Command::new("powershell.exe")
+fn spawn_windows_notification(title: &str, body: &str) {
+    // Source execFile has no callback: spawn/wait/exit failures are unobserved.
+    // Preserve that classified source discrepancy, while reaping native children.
+    let Ok(mut child) = tokio::process::Command::new("powershell.exe")
         .args(["-NoProfile", "-Command", &windows_toast_script(title, body)])
         .env_clear()
         .envs(pi_js_compat::process_env::vars())
@@ -28,13 +30,10 @@ fn spawn_windows_notification(title: &str, body: &str) -> Result<(), HandlerErro
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|error| HandlerError::new(error.to_string()))?;
-    tokio::spawn(async move {
-        if let Err(error) = child.wait().await {
-            eprintln!("notify: waiting for powershell.exe failed: {error}");
-        }
-    });
-    Ok(())
+    else {
+        return;
+    };
+    tokio::spawn(async move { child.wait().await });
 }
 pub fn notify_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     notify_with_output(pi, stdout())
@@ -46,7 +45,7 @@ pub fn notify_with_output(pi: &ExtensionApi, output: impl Write + Send + 'static
         let output = output.clone();
         Box::pin(async move {
             if pi_js_compat::process_env::get("WT_SESSION").is_some_and(|value| !value.is_empty()) {
-                spawn_windows_notification("Pi", "Ready for input")?;
+                spawn_windows_notification("Pi", "Ready for input");
                 return Ok(None);
             }
             let sequences = if pi_js_compat::process_env::get("KITTY_WINDOW_ID").is_some_and(|value| !value.is_empty())
