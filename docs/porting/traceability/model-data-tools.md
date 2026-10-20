@@ -18,6 +18,7 @@ Source: pinned `packages/ai/scripts/model-data.ts` (280 lines). Rust: `crates/pi
 | Early provider IO throw vs accumulated JSON errors; ignored unrelated files | filesystem adapters | `filesystem_io_failures_and_ignored_non_catalog_entries_match_ts` |
 | Caller Node flag plus orphan process-group teardown | existing oracle support with caller flags appended before watchdog | `caller_node_flag_and_parent_death_watchdog_both_work` |
 | Raw JSON unpaired surrogate diagnostic | **blocked** by shared serde string representation | `json_model_identity_with_unpaired_surrogate_matches_ts` remains RED |
+| Raw surrogate model/API keys, distinct surrogate/U+FFFD keys, nested metadata strings | **blocked** by shared serde string representation | `raw_surrogate_keys_and_nested_values_match_full_ts_responses` remains RED; complete response encoded once for lossless transport |
 
 RED: focused test compile fails for missing maintenance export and checker binary (2026-10-20). At `2379d79`, all 8 initial filesystem/API/checker differential tests pass. Subsequent expanded corpus retains a real raw-surrogate failure; neither module is claimed complete. No external service or real catalog mutation. Oracle uses existing `tests/support/oracle.rs` process groups, parent watchdog, source-lock verification; no raw tsx command. No response field filtering/sorting.
 
@@ -25,7 +26,9 @@ Typed-input exclusions: invalid JS argument types cannot enter typed structure, 
 
 ## Blocked representable case
 
-`json_model_identity_with_unpaired_surrogate_matches_ts`: raw provider JSON contains `"id":"\\ud800"`. TS reports `has id "\\ud800", expected "model-a"`; Rust reports `has id "�", expected "model-a"`. `pi-js-compat/src/js_json.rs::parse_string` uses `String::from_utf16_lossy`, so `serde_json::Value::String` has already lost the code unit before validation. This is not an invalid-JS-input-type exclusion. A lossless shared string/value representation is required; no local diagnostic patch, gap approval or representation redesign authorized. Regression and RED log retained.
+`json_model_identity_with_unpaired_surrogate_matches_ts`: raw provider JSON contains `"id":"\\ud800"`. TS reports `has id "\\ud800", expected "model-a"`; Rust reports `has id "�", expected "model-a"`. `pi-js-compat/src/js_json.rs::parse_string` uses `String::from_utf16_lossy`, so `serde_json::Value::String` has already lost the code unit before validation. This is not an invalid-JS-input-type exclusion. A lossless shared string/value representation is required; no local diagnostic patch or gap approval. Shared prerequisite implementation is independently authorized; consumer production changes wait for its integration. Regressions and RED logs retained.
+
+Expanded corpus proves that lone high/low surrogate keys and actual U+FFFD keys collide under the old parser, changing model cardinality and diagnostic order. Lone-surrogate API keys and nested object/array metadata also lose identity. Optional oracle `encodeResponse` serializes the entire response as an opaque JSON string: every field/key/code unit remains intact; no normalization, filtering or sorting.
 
 No TS source bugs corrected. V8 legacy-date seconds quirk is preserved and classified in shared date traceability.
 
@@ -43,7 +46,8 @@ All commands run in `/home/osso/.worktrees/pi-rust-model-data-tools`, with `time
 | `3e63f4f` | model-data target, `caller_node_flag` filter | 1 lifetime/flag proof pass; `model-data-tools-watchdog-green.log` | Expanded to inspect both group leader and oracle |
 | `b9ed3c9` | focused date targets above | 8 unit + 5 differential pass; `model-data-tools-date-green-3.log` | Current date source proof; no later date changes |
 | `b9ed3c9` + raw-surrogate fixture regression | model-data target, `json_model_identity_with_unpaired` filter | RED exact escaped-surrogate diagnostic; `model-data-tools-surrogate-red.log` | Current unresolved failure |
-| `c67b159` | full focused `cargo test -p pi-ai --test model_data_tools -- --nocapture` | 12 pass / 1 fail, no ignores; `model-data-tools-expanded-proof.log` | Current model-data source and expanded fixtures; only later documentation changes |
+| `c67b159` | full focused `cargo test -p pi-ai --test model_data_tools -- --nocapture` | 12 pass / 1 fail, no ignores; `model-data-tools-expanded-proof.log` | Model-data production source unchanged; later transport/blocked fixtures require expanded final run after prerequisite |
+| `fa543e5` + full-response transport/key fixtures | same target, `raw_surrogate_keys` filter | RED key collisions/order, API keys, nested strings; `model-data-tools-surrogate-keys-red.log` | Additional blocked corpus; no consumer production change |
 
 Expanded passing proof includes both caller Node flag and death of oracle plus process-group leader after owner exits without Drop, native checker success/failure output printed from real subprocesses, ordered numeric provider/model/API keys, ignored unrelated files, provider-directory IO throws, and the newly repaired legacy timestamps through the actual validator.
 

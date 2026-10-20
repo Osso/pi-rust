@@ -479,3 +479,31 @@ fn numeric_provider_model_and_api_keys_keep_js_diagnostic_order() {
     let mut oracle = TsOracle::spawn("model-data-oracle.ts", MODULE);
     expect_error(&fixture.compare(&mut oracle), "2/2 must be an object");
 }
+
+#[test]
+fn raw_surrogate_keys_and_nested_values_match_full_ts_responses() {
+    let mut oracle = TsOracle::spawn("model-data-oracle.ts", MODULE);
+    let cases = [
+        r#"{"openai-completions":{"\ud800":null,"\ufffd":null,"\udc00":null,"\ud800\udc00":null}}"#,
+        r#"{"\ud800":{"model-a":null}}"#,
+        r#"{"openai-completions":{"model-a":{"id":{"nested":["\ud800","\udc00","\ud800\udc00"]}}}}"#,
+    ];
+    let mut failures = Vec::new();
+    for content in cases {
+        let fixture = Fixture::new();
+        fs::write(fixture.dir.join("test-provider.json"), content).unwrap();
+        let actual = result(read_model_data_structure(&fixture.root).map(|v| json!(v))).to_string();
+        let expected = oracle.request(&json!({"op":"structure","root":fixture.root,"encodeResponse":true}));
+        if json!(actual) != expected {
+            failures.push(format!("structure {content}: Rust {actual}; TS {expected}"));
+        }
+        let actual =
+            result(validate_model_data_directory(&fixture.structure, &fixture.dir).map(|()| Value::Null)).to_string();
+        let expected = oracle
+            .request(&json!({"op":"directory","structure":fixture.structure,"dir":fixture.dir,"encodeResponse":true}));
+        if json!(actual) != expected {
+            failures.push(format!("directory {content}: Rust {actual}; TS {expected}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

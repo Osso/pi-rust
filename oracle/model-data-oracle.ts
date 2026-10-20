@@ -54,11 +54,18 @@ async function check(packageRoot: string, api: Record<string, unknown>) {
 	return { code: state.exitCode, stdout, stderr };
 }
 
+function writeResponse(response: unknown, encodeResponse: boolean) {
+	const json = JSON.stringify(response);
+	process.stdout.write(`${encodeResponse ? JSON.stringify(json) : json}\n`);
+}
+
 async function main() {
 	const api = await import(pathToFileURL(source).href);
 	for await (const line of createInterface({ input: process.stdin })) {
+		let encodeResponse = false;
 		try {
 			const request = JSON.parse(line);
+			encodeResponse = request.encodeResponse === true;
 			let output;
 			switch (request.op) {
 				case "ids":
@@ -105,12 +112,14 @@ async function main() {
 				default:
 					throw new Error(`Unknown operation: ${request.op}`);
 			}
-			process.stdout.write(
-				`${JSON.stringify({ ok: true, output: output ?? null })}\n`,
-			);
+			writeResponse({ ok: true, output: output ?? null }, encodeResponse);
 		} catch (error) {
-			process.stdout.write(
-				`${JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) })}\n`,
+			writeResponse(
+				{
+					ok: false,
+					error: error instanceof Error ? error.message : String(error),
+				},
+				encodeResponse,
 			);
 		}
 	}
