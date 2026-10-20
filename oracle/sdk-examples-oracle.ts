@@ -39,7 +39,7 @@ async function run(request: any) {
   createSyntheticSourceInfo: (path: string, options: any) => ({path, ...options}),
   SessionManager: {
    inMemory: () => ({}),
-   create: () => ({file: request.newFile}),
+   create: () => ({file: request.runtimeFiles?.[0] ?? request.newFile}),
    continueRecent: () => ({file: request.continuedFile}),
    list: async () => request.sessions ?? [],
    open: (path: string) => ({file:path, id:request.sessions?.find((s: any) => s.path === path)?.id}),
@@ -53,6 +53,18 @@ async function run(request: any) {
    async flush() {}
    drainErrors() { return request.settingsErrors ?? []; }
   },
+  async createAgentSessionServices() { return {diagnostics:[]}; },
+  async createAgentSessionFromServices(options: any) { return sdk.createAgentSession(options); },
+  async createAgentSessionRuntime(factory: any, options: any) {
+   const initial = await factory(options);
+   const runtime = {
+    session: initial.session,
+    async newSession() { await this.session.abort(); this.session.dispose(); this.session = (await factory({...options,sessionManager:{file:request.runtimeFiles?.[1]}})).session; },
+    async switchSession(path: string) { await this.session.abort(); this.session.dispose(); this.session = (await factory({...options,sessionManager:{file:path}})).session; },
+    async dispose() { this.session.dispose(); },
+   };
+   return runtime;
+  },
   async createAgentSession(options: any = {}) {
    const id = created.length;
    created.push({tools:options.tools, thinkingLevel:options.thinkingLevel, model:options.model});
@@ -60,7 +72,11 @@ async function run(request: any) {
    return { session: {
     sessionFile: options.sessionManager?.file,
     sessionId: options.sessionManager?.id,
-    subscribe(listener: any) { observer = listener; },
+    // Pinned runtime teardownCurrent:179–186 calls abort; pinned
+    // AgentSession.abort:3749–3756 emits an empty queue update before disposal.
+    async abort() { observer?.({type:"queue_update",steering:[],followUp:[]}); },
+    async bindExtensions() {},
+    subscribe(listener: any) { observer = listener; return () => {observer = undefined;}; },
     async prompt(prompt: string) {
      prompts.push(prompt);
      for (const handler of options.resourceLoader?.handlers ?? []) handler();

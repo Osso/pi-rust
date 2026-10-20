@@ -31,7 +31,7 @@ and formatting run; no broad checks, clippy or live providers.
 
 ## Remaining scope
 
-12–13 pending. No API gap identified in 02–04. Diagnostics/error and empty-model
+02–13 implemented. No API gap identified in 02–04. Diagnostics/error and empty-model
 branches are ported; current fixtures prove the successful populated paths, not
 exhaustive SDK branch parity.
 
@@ -74,3 +74,20 @@ explicit. 09 runtime creation and 10 settings I/O occur only at opt-in entrypoin
 or private fixture paths. Runtime API keys are ephemeral, not written to auth.json.
 10 returns its effective override snapshot before the source's later setter; the
 setter may remerge disk state, which the example does not change.
+
+## 12–13 mapping
+
+| Source lines / behavior | Rust example | Test target |
+| --- | --- | --- |
+| 12:23–76 custom runtime/key, explicit model, no discovery, off thinking, read/bash, prompt/finally | `12_full_control.rs::run` | `example_sdk_full_control`: full stdout differential; actual provider sees exact custom prompt + cwd, selected tools and prompt |
+| 13:23–67 service/runtime factory, initial/new/switch, bind/unsubscribe/queue updates/dispose | `13_session_runtime.rs::{create_runtime,bind_session,run}` | `example_sdk_session_runtime`: full three-stage stdout differential; real service/runtime replacement, distinct new file and original switch target; second test proves queue counts, stale listener removal and explicit unsubscribe |
+
+13 observer IDs are paired with the session they belong to, so rebinding removes
+the previous session's subscription, not an equal numeric ID on its replacement.
+Native factories use real create_agent_session_services/from_services APIs and
+forward session-start reasons and previous file paths. Provider fixtures remain
+private. Runtime teardown aborts the outgoing session before invalidating it;
+therefore `Queued: 0` precedes each replacement label. Oracle seam behavior is
+anchored in pinned `agent-session-runtime.ts:179–186` and
+`agent-session.ts:3749–3756`. Final explicit unsubscribe precedes disposal, as in
+source. No new API gap or semantic deviation identified.

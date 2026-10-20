@@ -140,6 +140,14 @@ path = "examples/sdk/10_settings.rs"
 name = "sdk_11_sessions"
 path = "examples/sdk/11_sessions.rs"
 
+[[example]]
+name = "sdk_12_full_control"
+path = "examples/sdk/12_full_control.rs"
+
+[[example]]
+name = "sdk_13_session_runtime"
+path = "examples/sdk/13_session_runtime.rs"
+
 [dev-dependencies]
 tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs", "test-util"] }
 # `pty::openpty` for process-boundary crash tests that need a pty without a

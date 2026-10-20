@@ -14,6 +14,8 @@
 | `sdk_09_api_keys_and_oauth` | Runtime locations and ephemeral API key |
 | `sdk_10_settings` | Disk overrides, flush/errors, in-memory settings |
 | `sdk_11_sessions` | Create, continue, list and reopen sessions |
+| `sdk_12_full_control` | Explicit resources, model, settings and tools |
+| `sdk_13_session_runtime` | Replace active session and rebind subscriptions |
 
 Run with `cargo run -p pi-coding-agent --example <target>`. Like 01,
 entrypoints are opt-in SDK clients and may contact configured providers. Tests
