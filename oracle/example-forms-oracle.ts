@@ -10,7 +10,7 @@ runOracle(async (api, request) => {
  const theme = {
   fg(role: string, text: string) {return `\x1b[38;2;${request.colors[role].join(";")}m${text}\x1b[39m`;},
   bg(role: string, text: string) {return `\x1b[48;2;${request.colors[role].join(";")}m${text}\x1b[49m`;},
-  bold(text: string) {return `\x1b[1m${text}\x1b[22m`;},
+  bold(text: string) {return text;},
  };
  const terminal = {rows:24, columns:80, write() {}, hideCursor() {}, showCursor() {}};
  const tui = new tuiApi.TUI(terminal, true);
