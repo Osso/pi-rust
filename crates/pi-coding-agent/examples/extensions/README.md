@@ -118,7 +118,47 @@ registry pattern. Demonstrates RPC dialogs, status/widgets/title and editor
 prefill. Dangerous bash calls require confirmation; no UI blocks them.
 `example_rpc_demo` exercises the real RPC transport using private sessions.
 
-**Batch J limitation:** GitHub autocomplete remains partial: raw JSON lone
-surrogates need a lossless UTF-16 fuzzy candidate API before conversion to UI
-strings. Its regression is currently RED; do not treat this as a parity-complete
-example. See `docs/porting/traceability/extension-examples-j.md` for blockers.
+GitHub autocomplete uses the approved U+FFFD projection at the existing
+String-typed fuzzy boundary; raw lone-surrogate fuzzy fidelity is excluded.
+Ordinary fixtures retain full-result differential proof; the native boundary
+regression asserts projected matches. See
+`docs/porting/traceability/extension-examples-j.md` for the exclusion and form blockers.
+
+## Batch F examples
+
+Embed `with_deps.rs` (`with_deps_extension`) for `parse_duration`, and
+`inline_bash.rs` (`inline_bash_extension`) for prompt expansion. Register each
+factory explicitly as above. Inline commands execute in the loaded cwd; enable
+only for trusted prompts. Native duration parsing matches the example's npm `ms`
+string overload without adding dependencies.
+
+`tool_override.rs` (`tool_override_extension`) registers audited `read` and
+`/read-log`; audit output goes to the configured agent directory. `todo.rs`
+(`todo_extension`) registers `todo` and `/todos`, restoring tool-result state
+from the current session branch. Both require explicit factory registration.
+
+`tools.rs` (`tools_extension`) provides `/tools`, with branch-local persisted
+selection. `truncated_tool.rs` (`truncated_tool_extension`) provides `rg`, storing
+truncated full output in a private temporary directory. Its shell-joined command
+matches the pinned example; enable only for trusted tool inputs.
+
+`custom_compaction.rs` (`custom_compaction_extension`) summarizes all prepared
+messages using registry model `google/gemini-2.5-flash`. `qna.rs`
+(`qna_extension`) extracts questions using the current model into the editor.
+Both can make model requests when explicitly enabled; tests use private faux
+providers only.
+
+Todo parity is **partial**: native session snapshots cannot reproduce the pinned
+example's mutation of stored tool-result details by reference. See
+[batch F traceability](../../../../docs/porting/traceability/extension-examples-f.md)
+for the blocked API and test.
+
+## Tic-tac-toe (batch K)
+
+Embed `tic_tac_toe.rs` via `#[path]`, keep `tic_tac_toe_instructions.txt` beside
+it, and explicitly register `tic_tac_toe_extension(&ExtensionApi)` using the
+registry pattern above. `/tic-tac-toe` opens the human/agent game; the two tools
+play and inspect the agent cursor. It uses the host's custom UI and session
+entries, not live state. Nothing loads by default. Differential test:
+`example_tic_tac_toe`; source reconstruction caveat and proof matrix:
+[batch K traceability](../../../../docs/porting/traceability/extension-examples-k.md).
