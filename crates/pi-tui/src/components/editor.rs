@@ -2762,7 +2762,9 @@ pub fn word_wrap_line(line: &str, max_width: usize, pre_segmented: Option<&[Text
             wrap_opportunity = None;
         }
 
-        if grapheme_width > max_width {
+        // Only merged segments can be split further. An indivisible grapheme
+        // overflows alone rather than recursing without progress.
+        if grapheme_width > max_width && grapheme.graphemes(true).nth(1).is_some() {
             let sub_chunks = word_wrap_line(grapheme, max_width, None);
             for sub_chunk in &sub_chunks[..sub_chunks.len() - 1] {
                 chunks.push(TextChunk {
