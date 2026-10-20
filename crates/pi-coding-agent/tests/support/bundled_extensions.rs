@@ -378,6 +378,7 @@ pub fn calls_json(calls: &Calls) -> Value {
 
 pub fn registrations_json(extension: &Extension) -> Value {
     let tools: Vec<Value> = extension
+        .read()
         .tools
         .values()
         .map(|registered| {
@@ -394,6 +395,7 @@ pub fn registrations_json(extension: &Extension) -> Value {
         })
         .collect();
     let commands: Vec<Value> = extension
+        .read()
         .commands
         .values()
         .map(|command| {
@@ -410,12 +412,12 @@ pub fn registrations_json(extension: &Extension) -> Value {
         "flags": [],
         "shortcuts": Vec::<String>::new(),
         "handlers": handler_names(extension),
-        "toolGates": extension.tool_gates.len(),
+        "toolGates": extension.read().tool_gates.len(),
     })
 }
 
 fn handler_names(extension: &Extension) -> Vec<&'static str> {
-    let handlers = &extension.handlers;
+    let handlers = &extension.read().handlers;
     let mut names = Vec::new();
     if !handlers.session_start.is_empty() {
         names.push("session_start");

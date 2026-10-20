@@ -25,16 +25,16 @@ pub fn format_extension_inventory(extensions: &[Extension]) -> String {
     }
 
     let mut sorted: Vec<&Extension> = extensions.iter().collect();
-    sorted.sort_by(|left, right| locale_compare(&left.path, &right.path));
+    sorted.sort_by(|left, right| locale_compare(&left.read().path, &right.read().path));
     let rows: Vec<ExtensionInventoryRow> = sorted
         .into_iter()
         .map(|extension| ExtensionInventoryRow {
             scope: scope_label(extension),
             source: source_label(extension),
             extension: extension_label(extension),
-            commands: extension.commands.len().to_string(),
-            tools: extension.tools.len().to_string(),
-            handlers: extension.handlers.len().to_string(),
+            commands: extension.read().commands.len().to_string(),
+            tools: extension.read().tools.len().to_string(),
+            handlers: extension.read().handlers.len().to_string(),
         })
         .collect();
 
@@ -53,6 +53,7 @@ fn is_first_party_path(path: &str) -> bool {
 }
 
 fn extension_label(extension: &Extension) -> String {
+    let extension = extension.read();
     if is_first_party_path(&extension.path) {
         let start = FIRST_PARTY_PREFIX.len();
         return extension.path[start..extension.path.len() - 1].to_owned();
@@ -61,6 +62,7 @@ fn extension_label(extension: &Extension) -> String {
 }
 
 fn scope_label(extension: &Extension) -> String {
+    let extension = extension.read();
     if is_first_party_path(&extension.path) {
         return "runtime".to_owned();
     }
@@ -68,6 +70,7 @@ fn scope_label(extension: &Extension) -> String {
 }
 
 fn source_label(extension: &Extension) -> String {
+    let extension = extension.read();
     if is_first_party_path(&extension.path) {
         return "built-in".to_owned();
     }

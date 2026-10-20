@@ -80,7 +80,7 @@ async fn load_effort(runtime: &ExtensionRuntime) -> Extension {
 }
 
 fn loop_metadata(extension: &Extension) -> Value {
-    let tool = &extension.tools.get("loop").expect("loop tool").definition;
+    let tool = &extension.read().tools.get("loop").expect("loop tool").definition;
     json!({
         "toolName": tool.name,
         "toolLabel": tool.label,
@@ -89,7 +89,7 @@ fn loop_metadata(extension: &Extension) -> Value {
         "promptGuidelines": tool.prompt_guidelines,
         "approvalRequired": tool.approval_required,
         "parameters": tool.parameters,
-        "commandDescription": extension.commands.get("loop").and_then(|command| command.description.clone()),
+        "commandDescription": extension.read().commands.get("loop").and_then(|command| command.description.clone()),
     })
 }
 
@@ -102,7 +102,13 @@ async fn rust_loop_results(cases: &[Value]) -> Vec<Value> {
         let name = case.get("name").cloned().unwrap_or(Value::Null);
         let metadata = loop_metadata(&extension);
         if let Some(command) = case.get("command").and_then(Value::as_str) {
-            let handler = extension.commands.get("loop").expect("loop command").handler.clone();
+            let handler = extension
+                .read()
+                .commands
+                .get("loop")
+                .expect("loop command")
+                .handler
+                .clone();
             handler(command.to_owned(), harness.command_context())
                 .await
                 .expect("loop command");
@@ -115,7 +121,13 @@ async fn rust_loop_results(cases: &[Value]) -> Vec<Value> {
             }));
             continue;
         }
-        let tool = extension.tools.get("loop").expect("loop tool").definition.clone();
+        let tool = extension
+            .read()
+            .tools
+            .get("loop")
+            .expect("loop tool")
+            .definition
+            .clone();
         let params = case.get("tool").cloned().unwrap_or(Value::Null);
         let result = (tool.execute)("loop-call".to_owned(), params, None, None, harness.context())
             .await
@@ -250,7 +262,13 @@ async fn rust_fast_results(cases: &[Value]) -> Vec<Value> {
         for op in case.get("ops").and_then(Value::as_array).cloned().unwrap_or_default() {
             match op.get("kind").and_then(Value::as_str).unwrap_or_default() {
                 "command" => {
-                    let handler = extension.commands.get("fast").expect("fast command").handler.clone();
+                    let handler = extension
+                        .read()
+                        .commands
+                        .get("fast")
+                        .expect("fast command")
+                        .handler
+                        .clone();
                     handler(
                         op.get("args").and_then(Value::as_str).unwrap_or_default().to_owned(),
                         harness.command_context(),
@@ -279,6 +297,7 @@ async fn rust_fast_results(cases: &[Value]) -> Vec<Value> {
                 }
                 "before_provider_request" => {
                     let handler = extension
+                        .read()
                         .handlers
                         .before_provider_request
                         .first()
@@ -302,7 +321,7 @@ async fn rust_fast_results(cases: &[Value]) -> Vec<Value> {
 
         results.push(json!({
             "name": case.get("name").cloned().unwrap_or(Value::Null),
-            "commandDescription": extension.commands.get("fast").and_then(|command| command.description.clone()),
+            "commandDescription": extension.read().commands.get("fast").and_then(|command| command.description.clone()),
             "serviceTier": authority.service_tier().map(|tier| tier.as_str()),
             "notifications": notification_value(&harness.ui.notifications()),
             "statuses": status_value(&harness.ui.status_calls.lock().unwrap()),
@@ -395,7 +414,13 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
             match op.get("kind").and_then(Value::as_str).unwrap_or_default() {
                 "command" => {
                     let name = op.get("command").and_then(Value::as_str).unwrap_or_default();
-                    let handler = extension.commands.get(name).expect("effort command").handler.clone();
+                    let handler = extension
+                        .read()
+                        .commands
+                        .get(name)
+                        .expect("effort command")
+                        .handler
+                        .clone();
                     handler(
                         op.get("args").and_then(Value::as_str).unwrap_or_default().to_owned(),
                         harness.command_context(),
@@ -450,8 +475,8 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
         results.push(json!({
             "name": case.get("name").cloned().unwrap_or(Value::Null),
             "commandDescriptions": {
-                "effort": extension.commands.get("effort").and_then(|command| command.description.clone()),
-                "multiAgent": extension.commands.get("multi-agent").and_then(|command| command.description.clone()),
+                "effort": extension.read().commands.get("effort").and_then(|command| command.description.clone()),
+                "multiAgent": extension.read().commands.get("multi-agent").and_then(|command| command.description.clone()),
             },
             "thinkingLevel": harness.thinking.lock().unwrap().as_str(),
             "notifications": notification_value(&harness.ui.notifications()),

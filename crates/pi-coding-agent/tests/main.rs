@@ -547,7 +547,7 @@ async fn first_party_factories_load_and_register_agent_tools() {
     let paths: Vec<String> = result
         .extensions
         .iter()
-        .map(|extension| extension.path.clone())
+        .map(|extension| extension.read().path.clone())
         .collect();
     let expected: Vec<String> = FIRST_PARTY_EXTENSION_NAMES
         .iter()
@@ -557,20 +557,20 @@ async fn first_party_factories_load_and_register_agent_tools() {
     let core = result
         .extensions
         .iter()
-        .find(|extension| extension.path == "<first-party:agents-core>")
+        .find(|extension| extension.read().path == "<first-party:agents-core>")
         .expect("agents-core");
     assert!(core.tools.contains_key("spawn_agent"));
     assert!(!core.tools.contains_key("send_agent_message"));
     let viewer = result
         .extensions
         .iter()
-        .find(|extension| extension.path == "<first-party:agent-viewer>")
+        .find(|extension| extension.read().path == "<first-party:agent-viewer>")
         .expect("agent-viewer");
     assert!(viewer.tools.contains_key("agent_viewer"));
     let mailbox = result
         .extensions
         .iter()
-        .find(|extension| extension.path == "<first-party:agents-mailbox>")
+        .find(|extension| extension.read().path == "<first-party:agents-mailbox>")
         .expect("agents-mailbox");
     assert!(mailbox.tools.contains_key("send_agent_message"));
     assert!(mailbox.tools.contains_key("contact_parent"));

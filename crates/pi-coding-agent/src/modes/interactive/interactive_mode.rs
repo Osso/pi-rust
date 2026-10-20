@@ -5121,7 +5121,7 @@ impl InteractiveMode {
 
         let mut source_infos: HashMap<String, SourceInfo> = HashMap::new();
         for extension in &extensions.extensions {
-            source_infos.insert(extension.path.clone(), extension.source_info.clone());
+            source_infos.insert(extension.read().path.clone(), extension.read().source_info.clone());
         }
         for skill in &skills.skills {
             source_infos.insert(skill.file_path.clone(), skill.source_info.clone());
@@ -5267,8 +5267,13 @@ impl InteractiveMode {
             let listed_extensions: Vec<(String, Option<SourceInfo>)> = extensions
                 .extensions
                 .iter()
-                .filter(|extension| extension.hidden != Some(true))
-                .map(|extension| (extension.path.clone(), Some(extension.source_info.clone())))
+                .filter(|extension| extension.read().hidden != Some(true))
+                .map(|extension| {
+                    (
+                        extension.read().path.clone(),
+                        Some(extension.read().source_info.clone()),
+                    )
+                })
                 .collect();
             if !listed_extensions.is_empty() {
                 let groups = build_scope_groups(
@@ -8502,7 +8507,7 @@ impl InteractiveMode {
         let lines: Vec<String> = extensions
             .extensions
             .iter()
-            .map(|extension| extension.path.clone())
+            .map(|extension| extension.read().path.clone())
             .collect();
         self.show_status(&format!("Extensions:\n{}", lines.join("\n")));
     }

@@ -57,7 +57,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     )
     .await
     .unwrap();
-    let metadata = json!({"commands":extension.commands.keys().collect::<Vec<_>>(),"tools":extension.tools.keys().collect::<Vec<_>>()});
+    let metadata = json!({"commands":extension.read().commands.keys().collect::<Vec<_>>(),"tools":extension.read().tools.keys().collect::<Vec<_>>()});
     let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(Arc::new(AuthStorage::in_memory(Map::new())) as Arc<dyn CredentialStore>),
         models_path: Some(None),

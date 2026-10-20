@@ -1787,7 +1787,7 @@ fn extension_flags_from_loader(resource_loader: &Arc<dyn ResourceLoader>) -> Vec
         .get_extensions()
         .extensions
         .iter()
-        .flat_map(|extension| extension.flags.values())
+        .flat_map(|extension| extension.read().flags.values().cloned().collect::<Vec<_>>())
         .map(|flag| ExtensionFlag {
             name: flag.name.clone(),
             description: flag.description.clone(),

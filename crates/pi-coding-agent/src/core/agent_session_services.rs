@@ -104,7 +104,7 @@ fn apply_extension_flag_values(
     let extensions_result = resource_loader.get_extensions();
     let mut registered_flags: IndexMap<String, FlagType> = IndexMap::new();
     for extension in &extensions_result.extensions {
-        for (name, flag) in &extension.flags {
+        for (name, flag) in &extension.read().flags {
             registered_flags.insert(name.clone(), flag.flag_type);
         }
     }

@@ -742,7 +742,7 @@ async fn disabled_inline_extension_factories_are_skipped() {
         .get_extensions()
         .extensions
         .into_iter()
-        .map(|extension| extension.path)
+        .map(|extension| extension.read().path)
         .collect();
     assert_eq!(paths, vec!["<first-party:goal>"]);
 }
@@ -929,7 +929,11 @@ async fn default_project_trust_loader_forces_untrusted_and_loads_inline_factorie
         .unwrap()
         .unwrap();
 
-    let paths: Vec<String> = result.extensions.into_iter().map(|extension| extension.path).collect();
+    let paths: Vec<String> = result
+        .extensions
+        .into_iter()
+        .map(|extension| extension.read().path)
+        .collect();
     assert_eq!(paths, vec!["<first-party:goal>"]);
     assert!(!manager.lock().unwrap().is_project_trusted());
 }

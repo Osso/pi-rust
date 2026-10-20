@@ -2596,9 +2596,22 @@ impl ExtensionHandlers {
     }
 }
 
-/// Loaded extension with all registered items.
+/// Loaded extension identity shared by the API, resource loader, and runner.
 #[derive(Clone)]
-pub struct Extension {
+pub struct Extension(Arc<Mutex<ExtensionState>>);
+
+impl Extension {
+    pub fn new(state: ExtensionState) -> Self {
+        Self(Arc::new(Mutex::new(state)))
+    }
+
+    pub fn read(&self) -> std::sync::MutexGuard<'_, ExtensionState> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// Registration state. Never retained as a separate load-time copy.
+pub struct ExtensionState {
     pub path: String,
     pub resolved_path: String,
     pub hidden: Option<bool>,
@@ -2799,7 +2812,7 @@ impl ExtensionEventBus {
 /// `ExtensionAPI` passed to extension factories.
 #[derive(Clone)]
 pub struct ExtensionApi {
-    pub(crate) extension: Arc<Mutex<Extension>>,
+    pub(crate) extension: Extension,
     pub(crate) runtime: ExtensionRuntime,
     pub(crate) cwd: String,
     pub events: ExtensionEventBus,
@@ -2807,7 +2820,7 @@ pub struct ExtensionApi {
 
 impl ExtensionApi {
     pub(crate) fn new(
-        extension: Arc<Mutex<Extension>>,
+        extension: Extension,
         runtime: ExtensionRuntime,
         cwd: String,
         event_bus: Arc<dyn EventBus>,
@@ -2820,8 +2833,8 @@ impl ExtensionApi {
         }
     }
 
-    fn extension_lock(&self) -> std::sync::MutexGuard<'_, Extension> {
-        self.extension.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    fn extension_lock(&self) -> std::sync::MutexGuard<'_, ExtensionState> {
+        self.extension.read()
     }
 
     fn push_handler<E, R>(

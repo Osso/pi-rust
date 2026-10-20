@@ -345,7 +345,7 @@ async fn registers_all_small_extensions_under_source_ids() {
     assert_eq!(extensions.len(), 23);
     let tool_names: Vec<&str> = extensions
         .iter()
-        .flat_map(|extension| extension.tools.keys().map(String::as_str))
+        .flat_map(|extension| extension.read().tools.keys().map(String::as_str))
         .collect();
     assert_eq!(
         tool_names,
@@ -360,7 +360,7 @@ async fn registers_all_small_extensions_under_source_ids() {
     );
     let command_names: Vec<&str> = extensions
         .iter()
-        .flat_map(|extension| extension.commands.keys().map(String::as_str))
+        .flat_map(|extension| extension.read().commands.keys().map(String::as_str))
         .collect();
     assert_eq!(
         command_names,

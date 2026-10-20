@@ -55,13 +55,13 @@ async fn build_extension(spec: &ExtensionSpec) -> Extension {
         load_extension_from_factory(factory, "/tmp", Arc::new(EventBusController::new()), runtime, spec.path)
             .await
             .expect("extension factory succeeds");
-    extension.source_info.scope = match spec.scope {
+    extension.read().source_info.scope = match spec.scope {
         "user" => pi_coding_agent::core::source_info::SourceScope::User,
         "project" => pi_coding_agent::core::source_info::SourceScope::Project,
         "temporary" => pi_coding_agent::core::source_info::SourceScope::Temporary,
         other => panic!("unknown scope {other}"),
     };
-    extension.source_info.source = spec.source.to_owned();
+    extension.read().source_info.source = spec.source.to_owned();
     extension
 }
 
@@ -103,14 +103,14 @@ fn wire(extensions: &[Extension]) -> Value {
             .iter()
             .map(|extension| {
                 json!({
-                    "path": extension.path,
+                    "path": extension.read().path,
                     "sourceInfo": {
-                        "scope": extension.source_info.scope.as_str(),
-                        "source": extension.source_info.source,
+                        "scope": extension.read().source_info.scope.as_str(),
+                        "source": extension.read().source_info.source,
                     },
-                    "commands": extension.commands.len(),
-                    "tools": extension.tools.len(),
-                    "handlers": extension.handlers.len(),
+                    "commands": extension.read().commands.len(),
+                    "tools": extension.read().tools.len(),
+                    "handlers": extension.read().handlers.len(),
                 })
             })
             .collect(),

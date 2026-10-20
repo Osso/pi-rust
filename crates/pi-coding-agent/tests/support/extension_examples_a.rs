@@ -82,6 +82,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
     .await
     .unwrap();
     let commands: Vec<_> = extension
+        .read()
         .commands
         .values()
         .map(|command| {
@@ -93,6 +94,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
         })
         .collect();
     let tools: Vec<_> = extension
+        .read()
         .tools
         .values()
         .map(|tool| {
@@ -250,7 +252,12 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                 entries.append_label_change(&id, step["value"].as_str()).unwrap();
             }
             "tool" => {
-                let tool = &extension.tools.get(step["name"].as_str().unwrap()).unwrap().definition;
+                let tool = &extension
+                    .read()
+                    .tools
+                    .get(step["name"].as_str().unwrap())
+                    .unwrap()
+                    .definition;
                 let result = (tool.execute)(
                     "fixture-call".into(),
                     step["params"].clone(),

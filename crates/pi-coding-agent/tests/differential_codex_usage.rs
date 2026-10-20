@@ -165,7 +165,13 @@ async fn run_command_case(input: &Value) -> Value {
     harness
         .ui
         .confirm_result(input.get("confirm").and_then(Value::as_bool).unwrap_or(false));
-    let handler = extension.commands.get("usage").expect("usage command").handler.clone();
+    let handler = extension
+        .read()
+        .commands
+        .get("usage")
+        .expect("usage command")
+        .handler
+        .clone();
     let error = handler(
         input.get("args").and_then(Value::as_str).unwrap_or_default().to_owned(),
         harness.command_context(),
@@ -251,6 +257,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                 let stub = Arc::new(StubFetch::new(Vec::new()));
                 let extension = load(&runtime, stub).await;
                 let completions = extension
+                    .read()
                     .commands
                     .get("usage")
                     .expect("usage command")

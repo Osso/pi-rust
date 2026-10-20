@@ -126,7 +126,13 @@ async fn run_web_execute(case: &Value) -> Value {
     options.model = Some(model(&model_case));
     options.auth = oauth_auth("openai-codex");
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
-    let tool = extension.tools.get("web_search").expect("tool").definition.clone();
+    let tool = extension
+        .read()
+        .tools
+        .get("web_search")
+        .expect("tool")
+        .definition
+        .clone();
     let result = (tool.execute)(
         "call-1".to_owned(),
         json!({"query": case.get("query").cloned().unwrap_or(Value::Null)}),
@@ -193,7 +199,13 @@ async fn run_image_execute(case: &Value) -> Value {
     options.model = Some(model(&model_case));
     options.auth = oauth_auth("openai-codex");
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
-    let tool = extension.tools.get("image_gen").expect("tool").definition.clone();
+    let tool = extension
+        .read()
+        .tools
+        .get("image_gen")
+        .expect("tool")
+        .definition
+        .clone();
     let result = (tool.execute)(
         "call-1".to_owned(),
         json!({"prompt": case.get("prompt").cloned().unwrap_or(Value::Null)}),

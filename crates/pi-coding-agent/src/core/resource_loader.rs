@@ -1161,9 +1161,9 @@ impl DefaultResourceLoader {
         for extension in pre_trust
             .extensions
             .iter()
-            .filter(|extension| !extension.path.starts_with('<'))
+            .filter(|extension| !extension.read().path.starts_with('<'))
         {
-            preloaded_by_path.insert(extension.resolved_path.clone(), extension.clone());
+            preloaded_by_path.insert(extension.read().resolved_path.clone(), extension.clone());
         }
         let failed_preload_paths: HashSet<String> = pre_trust
             .errors
@@ -1183,7 +1183,7 @@ impl DefaultResourceLoader {
             .await;
         let mut loaded_by_path = preloaded_by_path;
         for extension in &remaining_extensions.extensions {
-            loaded_by_path.insert(extension.resolved_path.clone(), extension.clone());
+            loaded_by_path.insert(extension.read().resolved_path.clone(), extension.clone());
         }
 
         let disabled = self.disabled_extension_names();
@@ -1191,7 +1191,8 @@ impl DefaultResourceLoader {
             .extensions
             .iter()
             .filter(|extension| {
-                extension.path.starts_with('<') && !self.is_extension_factory_disabled_with(&disabled, &extension.path)
+                extension.read().path.starts_with('<')
+                    && !self.is_extension_factory_disabled_with(&disabled, &extension.read().path)
             })
             .cloned()
             .collect();
@@ -1356,6 +1357,7 @@ impl DefaultResourceLoader {
         metadata_by_path: &IndexMap<String, PathMetadata>,
     ) -> Result<(), String> {
         for extension in extensions {
+            let mut extension = extension.read();
             let source_info = match self.find_source_info_for_path(&extension.path, None, Some(metadata_by_path))? {
                 Some(source_info) => source_info,
                 None => self.get_default_source_info_for_path(&extension.path)?,
@@ -1612,8 +1614,8 @@ impl DefaultResourceLoader {
             )
             .await
             {
-                Ok(mut extension) => {
-                    extension.hidden = Some(input.is_named() && input.hidden());
+                Ok(extension) => {
+                    extension.read().hidden = Some(input.is_named() && input.hidden());
                     extensions.push(extension);
                 }
                 Err(error) => errors.push(crate::core::extensions::types::ExtensionLoadError {
@@ -1941,6 +1943,7 @@ fn detect_extension_conflicts(extensions: &[crate::core::extensions::types::Exte
     let mut flag_owners: IndexMap<String, String> = IndexMap::new();
 
     for extension in extensions {
+        let extension = extension.read();
         for tool_name in extension.tools.keys() {
             match tool_owners.get(tool_name) {
                 Some(existing_owner) if *existing_owner != extension.path => {
