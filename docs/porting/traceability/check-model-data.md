@@ -4,20 +4,26 @@ Source: pinned `packages/ai/scripts/check-model-data.ts`. Rust: `crates/pi-ai/sr
 
 | Source branch | Rust | Proof |
 |---|---|---|
-| Script-relative package root; no arguments | **blocked native contract decision**; current provisional command requires positional `<ai-package-root>` | explicit-root fixtures only; no default parity claim |
-| `validateGeneratedModelData` success, console.log, exit 0 | success branch | `filesystem_structure_and_checker_success_match_pinned_modules`; `checker_exit_stdout_stderr_match_actual_pinned_script_on_fixtures` |
-| Catch validation error, exact message + hydration guidance, exit 1 | failure branch | same checker differential, actual pinned source evaluated with fixture import-meta URL |
+| Script-relative TS package root; no arguments | Authorized native adaptation: run without arguments from Rust repository root; validate `crates/pi-ai/data/providers` | `native_checker_defaults_to_rust_layout_without_source_files_or_arguments`, isolated Rust-shaped temporary tree, source files removed |
+| Expected generated identity and API grouping | `native_model_data_structure` from existing compiled `providers::models_data::{builtin_provider_ids,provider_models}` | Native positive fixture plus pinned source checker differential over identical data |
+| Success console.log, exit 0 | unchanged success branch | `checker_exit_stdout_stderr_match_actual_pinned_script_on_fixtures` |
+| Catch validation error, exact message + hydration guidance, exit 1 | unchanged failure branch | same real pinned script differential, exact full stdout/stderr/code |
 
-Run fixture-only proof and print real checker output:
+## Authorized layout decision
 
-```text
-timeout 900 cargo test -p pi-ai --test model_data_tools checker_exit_stdout_stderr_match_actual_pinned_script_on_fixtures -- --nocapture
-```
+2026-10-20 user question: “The original catalog checker expects TypeScript import files; Rust stores its catalog as JSON in data/providers. Should the port check actual Rust catalog by default, or original TS layout?” Answer: “Check Rust catalog (Recommended)”.
 
-Explicit-root checker differential passes (`e9f2e4c`, expanded suite `2379d79`), including exact code 0/1 and stdout/stderr. This does not prove the no-argument workflow.
+Concrete metadata evidence: `crates/pi-ai/src/providers/models_data.rs` embeds 40 provider JSON files from `crates/pi-ai/data/providers`; no native TS aggregator/shards exist. Compiled model IDs/APIs supply expected structure independently of the files being validated. No source-layout fallback, arguments, flags, refresh, runtime changes or catalog writes. Original TS-layout helper exports retain their explicit contract and are not used by this binary.
 
-## Catalog/default boundary
+## Proof ledger
 
-Current command has no default root: zero/extra args emit `Usage: check-model-data <ai-package-root>` and exit 2. It supports only source-layout roots containing `src/models.generated.ts` exact `.models.ts` import lines, matching `src/providers/*.models.ts` shards and `src/providers/data/*.json`. It cannot validate the actual Rust snapshot's `data/providers` layout, which has no TS aggregator/shards. Native artifact/layout adaptation versus intentional source-layout-only command is a user-owned decision; no guessed default, fallback or extra flags are added. Coverage remains partial.
+| Revision / scope | Command | Result / artifact |
+|---|---|---|
+| `f139cff` + native fixture regression | `cargo test -p pi-ai --test model_data_tools native_checker_defaults -- --nocapture` | RED exit 2 usage vs expected 0; `/tmp/model-data-tools-native-red.log` |
+| `f139cff` + native implementation/test diff | `cargo test -p pi-ai --test model_data_tools -- --nocapture` | GREEN 15/15, 0 ignored; `/tmp/model-data-tools-native-green-1.log` |
 
-No hydration, catalog writes, credentials or network. Standalone login CLI gap remains unrelated. Rust typed errors exclude thrown JS non-Error values, which the imported source validator does not throw. Native usage failure (no/excess package-root arguments) emits usage and exits 2; TS has no corresponding argument surface.
+Existing source-layout historical proof remains in the validator ledger; binary argument-only behavior was replaced, not preserved. No broad/check/clippy/readability/deployment gates run; parent owns final verification.
+
+## Existing catalog state
+
+Static inspection: snapshot has 40 provider files; its checked-in manifest lists 39 hashes, omitting `kimi-coding.json`. This is a pre-existing stale-catalog discrepancy, not a suppressed diagnostic or implementation gap. Tests copy snapshot bytes read-only and generate manifests only inside temporary fixtures. No real catalog refresh is authorized.

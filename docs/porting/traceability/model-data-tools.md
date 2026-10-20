@@ -58,3 +58,9 @@ No broad/check/clippy/readability/final-integration/deploy gates run. Shared dat
 Shared prerequisite `850b6e8` (canonical integration `e31b4c8`) is merged. Structure keys/API values, file-content constructor input, generated-at constructor input and diagnostic messages now retain `JsString` UTF-16 identity. Raw metadata uses `parse_lossless`/`JsObject` and shared numeric-first enumeration throughout. `model_data_structure_json`, manifest `to_json`/`stringify`, and error `message()` expose lossless output; only error Display and Node-compatible filesystem/hash UTF-8 boundaries replace unpaired surrogates. No local parser or encoding duplicate.
 
 `cf0e110` + lossless consumer working diff: `cargo test -p pi-ai --test model_data_tools -- --nocapture` GREEN 14/14 (0 ignored), `/tmp/model-data-tools-lossless-green-1.log`. Historical surrogate REDs above are resolved; native checker adaptation remains next. Number semantics unchanged. No date command rerun.
+
+## Native checker implementation (2026-10-20)
+
+User selected “Check Rust catalog (Recommended)” in the exact layout decision recorded in [checker traceability](check-model-data.md#authorized-layout-decision). Source-layout helper APIs remain literal source contracts; no default/fallback uses them. `native_model_data_structure` and `validate_native_model_data` implement authorized native adaptation. Native RED/GREEN and pre-existing snapshot discrepancy are recorded in that document.
+
+`f139cff` + native working diff: focused module target GREEN 15/15, `/tmp/model-data-tools-native-green-1.log`; includes unchanged lossless consumer corpus. Formatter-only changes do not invalidate behavioral proof. Parent retains final verification.

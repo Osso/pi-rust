@@ -1,15 +1,11 @@
-//! Offline checker for an explicitly supplied AI package directory.
-
-use std::path::PathBuf;
+//! Offline checker for the Rust catalog, run from the repository root.
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let mut args = std::env::args_os().skip(1);
-    let Some(root) = args.next().filter(|_| args.len() == 0) else {
-        eprintln!("Usage: check-model-data <ai-package-root>");
-        return ExitCode::from(2);
-    };
-    match pi_ai::model_data_tools::validate_generated_model_data(&PathBuf::from(root)) {
+    let validation = std::env::current_dir()
+        .map_err(|error| error.to_string())
+        .and_then(|root| pi_ai::model_data_tools::validate_native_model_data(&root).map_err(|error| error.to_string()));
+    match validation {
         Ok(()) => {
             println!("Generated model data is valid.");
             ExitCode::SUCCESS

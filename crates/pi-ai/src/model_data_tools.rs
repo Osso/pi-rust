@@ -620,6 +620,27 @@ pub fn validate_model_data_directory(structure: &ModelDataStructure, data_dir: &
     )))
 }
 
+/// Expected catalog identity comes from the compiled Rust catalog, not the files under validation.
+pub fn native_model_data_structure() -> ModelDataStructure {
+    use crate::providers::models_data::{builtin_provider_ids, provider_models};
+    sorted_record(builtin_provider_ids().into_iter().map(|provider| {
+        let models = provider_models(&provider)
+            .expect("builtin provider has embedded catalog")
+            .into_iter()
+            .map(|model| (JsString::from(model.id.as_str()), JsString::from(model.api.as_str())));
+        (JsString::from(provider.as_str()), sorted_record(models))
+    }))
+}
+
+/// Native checker layout authorized 2026-10-20; the argument is a Rust repository root.
+pub fn validate_native_model_data(repository_root: &Path) -> Result<()> {
+    validate_model_data_directory(
+        &native_model_data_structure(),
+        &repository_root.join("crates/pi-ai/data/providers"),
+    )
+}
+
+/// Original TypeScript package layout; not a native checker fallback.
 pub fn validate_generated_model_data(package_root: &Path) -> Result<()> {
     let structure = read_model_data_structure(package_root)?;
     validate_model_data_directory(&structure, &package_root.join("src/providers/data"))

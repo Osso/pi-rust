@@ -172,16 +172,6 @@ fn filesystem_structure_and_checker_success_match_pinned_modules() {
         assert_eq!(actual, oracle.request(&json!({"op":op,"root":fixture.root})));
     }
     assert_eq!(fixture.compare(&mut oracle), json!({"ok":true,"output":null}));
-    let output = Command::new(env!("CARGO_BIN_EXE_check-model-data"))
-        .arg(&fixture.root)
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "Generated model data is valid.\n"
-    );
-    assert!(output.stderr.is_empty());
 }
 
 #[test]
@@ -336,7 +326,7 @@ fn aggregator_shards_and_provider_structure_failures_match_ts() {
 
 #[test]
 fn checker_exit_stdout_stderr_match_actual_pinned_script_on_fixtures() {
-    let fixture = Fixture::new();
+    let fixture = native_fixture();
     let mut oracle = TsOracle::spawn_with_environment(
         "model-data-oracle.ts",
         MODULE,
@@ -347,7 +337,7 @@ fn checker_exit_stdout_stderr_match_actual_pinned_script_on_fixtures() {
             fixture.manifest(|m| m["schemaVersion"] = json!(99));
         }
         let output = Command::new(env!("CARGO_BIN_EXE_check-model-data"))
-            .arg(&fixture.root)
+            .current_dir(&fixture.root)
             .output()
             .unwrap();
         let actual = json!({"ok":true,"output":{"code":output.status.code(),"stdout":String::from_utf8(output.stdout).unwrap(),"stderr":String::from_utf8(output.stderr).unwrap()}});
@@ -538,4 +528,73 @@ fn raw_surrogate_keys_and_nested_values_match_full_ts_responses() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+fn native_fixture() -> Fixture {
+    let mut fixture = Fixture::new();
+    fs::remove_dir_all(fixture.root.join("src")).unwrap();
+    fixture.dir = fixture.root.join("crates/pi-ai/data/providers");
+    fs::create_dir_all(&fixture.dir).unwrap();
+    fs::create_dir_all(fixture.root.join("src/providers")).unwrap();
+    std::os::unix::fs::symlink(&fixture.dir, fixture.root.join("src/providers/data")).unwrap();
+    let mut imports = String::new();
+    let mut files = indexmap::IndexMap::new();
+    for provider in pi_ai::providers::models_data::builtin_provider_ids() {
+        imports.push_str(&format!(
+            "import {{ {}_MODELS }} from \"./providers/{provider}.models.ts\";\n",
+            provider.replace('-', "_").to_uppercase()
+        ));
+        fs::write(
+            fixture.root.join(format!("src/providers/{provider}.models.ts")),
+            "fixture\n",
+        )
+        .unwrap();
+        let filename = format!("{provider}.json");
+        let content = fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("data/providers")
+                .join(&filename),
+        )
+        .unwrap();
+        fs::write(fixture.dir.join(&filename), &content).unwrap();
+        files.insert(JsString::from(filename.as_str()), JsString::from(content.as_str()));
+    }
+    fs::write(fixture.root.join("src/models.generated.ts"), imports).unwrap();
+    fixture.structure = read_model_data_structure(&fixture.root).unwrap();
+    let manifest = create_model_data_manifest(&fixture.structure, &files, &JsString::from(GENERATED_AT));
+    fs::write(fixture.dir.join(MODEL_DATA_MANIFEST_FILE), manifest.stringify()).unwrap();
+    fixture
+}
+
+#[test]
+fn native_checker_defaults_to_rust_layout_without_source_files_or_arguments() {
+    let fixture = native_fixture();
+    fs::remove_dir_all(fixture.root.join("src")).unwrap();
+    for valid in [true, false] {
+        if !valid {
+            fixture.manifest(|m| m["schemaVersion"] = json!(99));
+        }
+        let output = Command::new(env!("CARGO_BIN_EXE_check-model-data"))
+            .current_dir(&fixture.root)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(if valid { 0 } else { 1 }),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            if valid { "Generated model data is valid.\n" } else { "" }
+        );
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            if valid {
+                ""
+            } else {
+                "Invalid generated model data:\n  - model data schema is 99, expected 3\n\nModel data is missing or stale. Run `npm run hydrate:model-data` from the repository root.\n"
+            }
+        );
+    }
 }
