@@ -332,7 +332,7 @@ fn capture_stop_output(fixture: &Fixture, fullscreen: bool, worker: bool) -> Str
     assert_eq!(child.termios(), original);
     child
         .output()
-        .split_once("STOP_START\r\n")
+        .split_once("STOP_START\n")
         .expect("stop marker")
         .1
         .to_owned()
