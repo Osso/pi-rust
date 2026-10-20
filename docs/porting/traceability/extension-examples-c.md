@@ -50,3 +50,5 @@ Each of eight test targets first failed because its embedded module was missing.
 ## Accepted review proof (2026-10-20)
 
 F3/F4 public-entrypoint regressions: notify invokes notify_extension with a private Windows executable and verifies its argv receipt. File-trigger invokes file_trigger_extension for all real watcher cases; a cfg(test)-only root maps its literal path into a private temporary tree. No test watches the shared /tmp/agent-trigger.txt. Empty public wrappers fail by bounded missing-side-effect timeouts.
+
+F4 additionally rejects a mutated default path `/tmp/wrong-agent-trigger.txt`; the private rooted watcher fixture times out instead of watching any shared host path.
