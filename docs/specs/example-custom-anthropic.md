@@ -15,7 +15,9 @@ Opt-in Rust-native counterpart of pinned `coding-agent/examples/extensions/custo
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/examples/extensions/custom_provider_anthropic.rs`: embeddable registration and native Provider/OAuth implementation; stream implementation pending.
+- `crates/pi-coding-agent/examples/extensions/custom_provider_anthropic.rs`: embeddable registration and native Provider/OAuth implementation.
+- `crates/pi-coding-agent/examples/extensions/custom_provider_anthropic/{request,stream}.rs`: example-specific conversion, headers and SDK event handling.
+- `crates/pi-ai/src/api/{anthropic_sdk,anthropic_messages}.rs`: existing SDK request/HTTP and SSE decoder primitives, exposed without behavior changes.
 - `oracle/example-custom-anthropic-oracle.ts`: unchanged pinned source bodies evaluated with controlled SDK, fetch, callbacks, random and clock; no public SDK or bundled hooks imported.
 
 ## Tests asserting this spec
@@ -24,7 +26,7 @@ Opt-in Rust-native counterpart of pinned `coding-agent/examples/extensions/custo
 
 ## Known gaps (current cycle)
 
-- [ ] Stream/request conversion implementation and complete differential matrix pending.
+- [ ] Complete stream/request differential matrix pending; initial real Provider → controlled HTTP request and terminal event fixture passes.
 - [ ] Native content types drop valid temporary source event fields; concrete failing fixture retained, parent coordinating bounded core repair.
 - [ ] Parent integration and independent verification pending; coverage remains partial.
 

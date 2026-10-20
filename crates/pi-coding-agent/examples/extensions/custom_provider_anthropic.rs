@@ -13,6 +13,11 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
+#[path = "custom_provider_anthropic/request.rs"]
+mod request;
+#[path = "custom_provider_anthropic/stream.rs"]
+mod stream;
+
 const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const TOKEN_URL: &str = "https://console.anthropic.com/v1/oauth/token";
 const REDIRECT_URI: &str = "https://console.anthropic.com/oauth/code/callback";
@@ -174,10 +179,9 @@ impl Provider for CustomAnthropic {
     fn stream_simple(
         &self,
         model: Model,
-        _context: Context,
-        _options: SimpleStreamOptions,
+        context: Context,
+        options: SimpleStreamOptions,
     ) -> AssistantMessageEventStream {
-        let _ = self.runtime.now();
-        pi_ai::request::error_stream(&model, "custom stream not implemented")
+        stream::start(self.runtime.clone(), model, context, options)
     }
 }

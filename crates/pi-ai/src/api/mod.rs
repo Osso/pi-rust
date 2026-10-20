@@ -1,6 +1,6 @@
 pub mod anthropic_messages;
 pub mod anthropic_messages_lazy;
-mod anthropic_sdk;
+pub mod anthropic_sdk;
 pub mod azure_openai_responses;
 pub mod bedrock_converse_stream;
 pub mod bedrock_credentials;

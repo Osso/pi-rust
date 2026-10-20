@@ -48,6 +48,19 @@ impl Fetch for Transport {
             if let Some(error) = self.input["fetchError"].as_str() {
                 return Err(CallbackError::new(error));
             }
+            let stream_events = self.input.get("events").and_then(Value::as_array);
+            if let Some(events) = stream_events {
+                let body = events
+                    .iter()
+                    .map(|event| format!("event: {}\ndata: {}\n\n", event["type"].as_str().unwrap(), event))
+                    .collect::<String>();
+                return Ok(HttpResponse {
+                    status: 200,
+                    status_text: "OK".into(),
+                    headers: vec![],
+                    body: Box::new(Body(Some(body.into_bytes()))),
+                });
+            }
             let body = self
                 .input
                 .get("body")
@@ -218,6 +231,51 @@ async fn native_factory_oauth_matches_pinned_login_refresh_and_failures() {
             Err(error) => json!({"calls":calls.lock().unwrap().clone(), "error":error.to_string()}),
         };
         assert_eq!(actual, expected, "{input}");
+    }
+}
+
+#[tokio::test]
+async fn native_provider_stream_reaches_controlled_http_with_exact_example_request() {
+    let input = json!({"events":[{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{}}], "context":{"messages":[{"role":"user","content":"hello 😀","timestamp":0}],"systemPrompt":"fixture"},"options":{"apiKey":"FAKE-key","reasoning":"high"}});
+    let mut oracle = oracle::TsOracle::spawn(
+        "example-custom-anthropic-oracle.ts",
+        "packages/coding-agent/examples/extensions/custom-provider-anthropic/index.ts",
+    );
+    let expected = oracle.request(&input);
+    let calls = Arc::new(Mutex::new(vec![]));
+    let provider = provider(&input, calls.clone()).await;
+    let mut options = pi_ai::request::SimpleStreamOptions::default();
+    options.stream.request.api_key = Some("FAKE-key".into());
+    options.stream.request.signal = Some(CancellationToken::new());
+    options.reasoning = Some(pi_ai::types::ThinkingLevel::High);
+    let mut stream = provider.stream_simple(
+        provider.get_models()[0].clone(),
+        serde_json::from_value(input["context"].clone()).unwrap(),
+        options,
+    );
+    let mut events = vec![];
+    while let Some(event) = stream.next().await {
+        events.push(serde_json::to_value(event.unwrap()).unwrap());
+    }
+    let calls = calls.lock().unwrap();
+    assert_eq!(
+        calls.len(),
+        1,
+        "custom Provider must execute controlled HTTP instead of an inert error stream"
+    );
+    assert_eq!(calls[0]["body"], expected["calls"][1]["params"]);
+    assert_eq!(events, expected["events"].as_array().unwrap().clone());
+    assert_eq!(calls[0]["url"], "https://api.anthropic.com/v1/messages");
+    let headers = calls[0]["headers"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (k.to_lowercase(), v.clone()))
+        .collect::<serde_json::Map<String, Value>>();
+    assert_eq!(headers["x-api-key"], "FAKE-key");
+    assert_eq!(headers["x-stainless-helper-method"], "stream");
+    for (key, value) in expected["calls"][0]["options"]["defaultHeaders"].as_object().unwrap() {
+        assert_eq!(headers[key], *value);
     }
 }
 
