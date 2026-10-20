@@ -38,12 +38,13 @@ Tests: `crates/pi-ai/tests/mistral_conversations.rs`,
 | finish-reason mapping (`stop`, `length`/`model_length`, `tool_calls`, `error`, unknown) | `apply_finish_reason` | raw-stop-reason test, differential finish matrix |
 | text/thinking/tool-call delta accumulation and event emission | `consume_content_delta`, `append_text_delta`, `append_thinking_delta`, `consume_tool_call_delta`, `finish_current_block`, `finalize_tool_blocks` | native-parsing test, differential events |
 | terminal checks (aborted, pending, error, done) | `produce_stream` | end-without-finish test, differential |
+| delayed tool-call consumer, same call ID across two SSE chunks | `stream`, queued `next` | approved snapshot deviation below; push-time proof: `mistral_stream_matches_the_pinned_typescript_module` |
 | error formatting and 4000-char truncation | `format_mistral_error`, `truncate_error_text` | HTTP error test |
 
 ## Differential normalizations
 
 - `timestamp`/`timestampMs` → `0` (clock-derived).
-- `partialArgs` removed (JS streaming scratch, deleted before persistence).
+- Push-time oracle removes `partialArgs` (JS scratch). Rust stores it in slot state.
 - Object key order is preserved by the oracle and the Rust `canonical` pass; request
   bodies are compared as the exact captured `JSON.stringify` text. `remap_mistral_property`
   uses `shift_remove` because TypeScript `delete` preserves the remaining insertion order
@@ -52,6 +53,38 @@ Tests: `crates/pi-ai/tests/mistral_conversations.rs`,
 - Integral numbers canonicalized to integers (JS `200` vs Rust `200.0` representation).
 
 ## Gaps / discrepancies
+
+### Approved delayed-consumer snapshot deviation (user, 2026-10-20)
+
+Historical Phase F1 probes compared full event sequences for one
+`abc123456` / `lookup` call with `{"query":` and `"pi"}` in distinct SSE chunks.
+Both sides emit `start`, `toolcall_start`, two `toolcall_delta`, `toolcall_end`, `done`.
+Types, content indexes, deltas, final `toolCall` and final message agree; partials do not:
+
+- TS `start.partial.content` already contains the completed tool call with
+  `arguments: {"query":"pi"}`. Rust's queued `start.partial.content` is empty.
+- TS start/first-delta tool arguments are final; Rust retains `{}`.
+- TS early partials carry final `stopReason: "toolUse"`, `responseId: "delayed"`
+  and `rawStopReason: "tool_calls"`; Rust early clones retain `pending` and lack
+  metadata not assigned at push time.
+- `partialArgs`, `partialJson`, `customInput`, `streamIndex` and `index` are absent
+  from consumed tool blocks on both sides without filtering. TS deletes scratch
+  in place before completion, also affecting previously queued references.
+
+Approved deviation (user, 2026-10-20): “Approve snapshot deviation.” TS delayed
+consumers observe aliased mutable partials; Rust delivers immutable push-time
+snapshots identical to normalized TS push-time events, proven by
+`mistral_stream_matches_the_pinned_typescript_module`. JS reference aliasing is
+not reproduced. Production semantics remain unchanged; intentionally failing
+probes and their exclusive support code were removed.
+
+Evidence: `/tmp/pi-rust-streaming-consumer-proof/02-targeted-red.log` preserves
+full TS/Rust sequences: OpenAI function 4 events, OpenAI custom 5 events,
+Mistral 6 events. Historical run: 4 existing tests passed, 3 delayed probes failed.
+Scratch fields `partialJson`, `customInput`, and `partialArgs` are absent on both
+sides without filtering at delayed consumption; scratch deletion is not the divergence.
+
+### Other gaps
 
 - `HttpResponse` has no optional body, so the "response has no body" branch is unrepresentable;
   the default fetch always supplies a body stream.

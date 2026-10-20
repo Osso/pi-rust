@@ -13,6 +13,7 @@ The Rust port uses the pinned Pi TypeScript worktree as a behavioral oracle. Imp
 - [ ] Classify discrepancies as a Rust bug, TypeScript bug, approved deviation, or underspecified behavior before changing semantics.
 - [x] Stop and ask Alessio when Rust cannot reproduce TypeScript behavior within the approved typed-core boundary.
 - [x] Classify the RPC JSON serializer as semantic JSON rather than byte-identical `JSON.stringify`, approved August 12, 2026.
+- [x] Deliver immutable push-time stream snapshots rather than TS delayed-consumer mutable aliases, approved by user October 20, 2026 (“Approve snapshot deviation”). Existing differentials prove normalized TS push-time parity; scratch fields are absent on both sides at delayed consumption. Evidence and event counts: [OpenAI Responses shared](../porting/traceability/openai-responses-shared.md#discrepancies), [Mistral conversations](../porting/traceability/mistral-conversations.md#approved-delayed-consumer-snapshot-deviation-user-2026-10-20).
 - [x] Classify truncation limits as typed non-negative integers and single-line truncation as Unicode-scalar-safe, approved August 12, 2026.
 - [x] Preserve the shell sanitizer's explicit code-point ranges rather than applying broad Unicode control categories.
 - [x] Preserve exact filesystem/execution error-code literals, names, messages, constructor ordering, optional path, and typed causes over the Rust-representable boundary.
