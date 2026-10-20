@@ -23,7 +23,8 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - [x] Preserve internal transform scalar-effort/array-map/pricing semantics and distinct NVIDIA normalized lone-surrogate aliases; malformed response acceptance is superseded by the approved validation boundary.
 - [x] Match pinned NVIDIA normalization for every UTF-16 unit, every Unicode scalar and contextual/lone-surrogate fixtures.
 - [x] Generate grouped private and flat public JSON, source-identical manifests/checksums/timestamps and pretty/compact bytes in default/public/json-only/data-only fixtures.
-- [x] Execute maintenance CLI option handling, immediate log emission and statistics with fixture HTTP; reject invalid CLI mode in a real subprocess before fetching.
+- [x] Execute original automatic CLI catch and native maintenance option handling, immediate logs/statistics, strict failure/exit order with fixture HTTP; reject invalid CLI mode in a real subprocess before fetching.
+- [x] Preserve four fetchers' strict/default HTTP-status, transport and JSON-parse error identity/log order without retries; preserve NVIDIA Map overwrite order and strict Qwen individual filtering/exact IDs.
 - [x] Preserve staged write/validation failure, include-write failure, failed data rename, post-swap manifest/provider/include validation, rollback and cleanup-error behavior against actual source, including filesystem metadata.
 - [ ] Prove remaining data-only/public-output guards and native transport identity.
 - [x] Default generation updates native provider include-table glue with JSON values; data-only preserves the include table. Runtime catalog APIs and every current embedded value remain unchanged.
@@ -48,6 +49,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 
 - `crates/pi-ai/tests/model_catalog_generator.rs`: original-source cost and provider comparisons.
 - `crates/pi-ai/tests/model_catalog_generator_http.rs`: mocked HTTP values and strict/default failures.
+- `crates/pi-ai/tests/model_catalog_generator_fetch.rs`: all-fetcher error matrix, NVIDIA Map order, strict Qwen set checks and original automatic CLI catch.
 - `crates/pi-ai/tests/model_catalog_generator_options.rs`: source flags and validation ordering.
 - `crates/pi-ai/tests/model_catalog_generator_raw.rs`: malformed provider errors and UTF-16 identity.
 - `crates/pi-ai/tests/model_catalog_generator_metadata.rs`: 675 merged-model cases against original source metadata mutations.

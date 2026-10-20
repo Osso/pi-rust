@@ -34,7 +34,7 @@ const names = [
 	"applyOpenAIToolSearchMetadata",
 	"applyOpenAIExplicitPromptCacheMetadata",
 ];
-const transformer = (context: any) => (root: any) => {
+const transformer = (cli: boolean) => (context: any) => (root: any) => {
 	const visit = (node: any): any => {
 		if (
 			ts.isExpressionStatement(node) &&
@@ -44,7 +44,17 @@ const transformer = (context: any) => (root: any) => {
 			node.expression.expression.expression.expression.getText(root) ===
 				"generateModels"
 		)
-			return undefined;
+			return cli
+				? ts.factory.createExpressionStatement(
+						ts.factory.createAssignment(
+							ts.factory.createPropertyAccessExpression(
+								ts.factory.createIdentifier("globalThis"),
+								"__completion",
+							),
+							node.expression,
+						),
+					)
+				: undefined;
 		if (
 			ts.isMetaProperty(node) &&
 			node.keywordToken === ts.SyntaxKind.ImportKeyword
@@ -59,17 +69,33 @@ const transformer = (context: any) => (root: any) => {
 	};
 	return ts.visitNode(root, visit);
 };
-const output = ts.transpileModule(
-	`${source}\n;globalThis.__api = {${names.join(",")}};`,
-	{
-		fileName: sourcePath,
-		compilerOptions: {
-			target: ts.ScriptTarget.ES2022,
-			module: ts.ModuleKind.CommonJS,
+function compile(cli: boolean): string {
+	return ts.transpileModule(
+		`${source}\n;globalThis.__api = {${names.join(",")}};`,
+		{
+			fileName: sourcePath,
+			compilerOptions: {
+				target: ts.ScriptTarget.ES2022,
+				module: ts.ModuleKind.CommonJS,
+			},
+			transformers: { before: [transformer(cli)] },
 		},
-		transformers: { before: [transformer] },
-	},
-).outputText;
+	).outputText;
+}
+const output = compile(false);
+const cliOutput = compile(true);
+function respond(response: Record<string, unknown>): void {
+	const serialized = JSON.stringify(response);
+	if (Array.isArray(response.diagnostics) && response.diagnostics.length) {
+		const directory = join(tmpdir(), "pi-rust-model-generator-proof");
+		fs.mkdirSync(directory, { recursive: true });
+		fs.appendFileSync(
+			join(directory, `ts-diagnostics-${process.pid}.jsonl`),
+			`${serialized}\n`,
+		);
+	}
+	process.stdout.write(`${serialized}\n`);
+}
 async function* requestLines(): AsyncGenerator<string> {
 	const decoder = new StringDecoder("utf8");
 	let buffer = "";
@@ -91,9 +117,11 @@ async function main(): Promise<void> {
 		const requests: string[] = [];
 		const diagnostics: string[] = [];
 		let root: string | undefined;
+		let cli = false;
 		try {
 			const request = JSON.parse(line);
-			if (request.operation === "generateModels") {
+			cli = request.operation === "cli";
+			if (request.operation === "generateModels" || cli) {
 				root = fs.mkdtempSync(join(tmpdir(), "pi-model-generator-oracle-"));
 				fs.mkdirSync(join(root, "src/providers"), { recursive: true });
 				fs.writeFileSync(join(root, "src/models.generated.ts"), "");
@@ -249,42 +277,57 @@ async function main(): Promise<void> {
 					};
 				},
 			});
-			vm.runInContext(output, context, { filename: sourcePath });
+			vm.runInContext(cli ? cliOutput : output, context, {
+				filename: sourcePath,
+			});
 			const api = context.__api as Record<
 				string,
 				(...args: unknown[]) => unknown
 			>;
-			if (!names.includes(request.operation))
+			if (!names.includes(request.operation) && !cli)
 				throw new Error(`Unknown operation: ${request.operation}`);
 			const args = request.argsJson
 				? JSON.parse(request.argsJson)
 				: (request.args ?? []);
-			const result = await api[request.operation](...args);
-			process.stdout.write(
-				`${JSON.stringify({ json: JSON.stringify(request.mutated ? args[0] : result), files: root ? collectFiles(root) : undefined, logs, requests, diagnostics, root })}\n`,
-			);
+			const result = cli
+				? await context.__completion
+				: await api[request.operation](...args);
+			respond({
+				json: JSON.stringify(
+					request.mapEntries
+						? Array.from(result as Iterable<unknown>)
+						: request.mutated
+							? args[0]
+							: result,
+				),
+				files: root ? collectFiles(root) : undefined,
+				logs,
+				requests,
+				diagnostics,
+				root,
+				exitCode: cli ? (context.process.exitCode ?? 0) : undefined,
+			});
 		} catch (error: any) {
-			process.stdout.write(
-				`${JSON.stringify({
-					error: {
-						name: error.name,
-						message: error.message,
-						code: error.code,
-						errno: error.errno,
-						syscall: error.syscall,
-						path: error.path,
-						dest: error.dest,
-					},
-					files: root ? collectFiles(root) : undefined,
-					root,
-					logs,
-					requests,
-					diagnostics: [
-						...diagnostics,
-						inspect(error, { depth: null, colors: false }),
-					],
-				})}\n`,
-			);
+			respond({
+				error: {
+					name: error.name,
+					message: error.message,
+					code: error.code,
+					errno: error.errno,
+					syscall: error.syscall,
+					path: error.path,
+					dest: error.dest,
+				},
+				files: root ? collectFiles(root) : undefined,
+				root,
+				logs,
+				requests,
+				diagnostics: [
+					...diagnostics,
+					inspect(error, { depth: null, colors: false }),
+				],
+				exitCode: cli ? 1 : undefined,
+			});
 		} finally {
 			if (root) fs.rmSync(root, { recursive: true, force: true });
 		}

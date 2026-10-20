@@ -300,7 +300,8 @@ fn native_cli_streams_source_logs_and_rejects_invalid_arguments_without_fetching
         "model-catalog-generator-oracle.ts",
         "packages/ai/scripts/generate-models.ts",
     );
-    let expected=source.request(&json!({"operation":"generateModels","argv":["--json-only","--json-output","@OUTPUT@"],"http":{"https://models.dev/api.json":{"body":"{}"},"https://openrouter.ai/api/v1/models":{"body":"{\"data\":[]}"},"https://ai-gateway.vercel.sh/v1/models":{"body":"{\"data\":[]}"}}}));
+    let expected=source.request(&json!({"operation":"cli","argv":["--json-only","--json-output","@OUTPUT@"],"http":{"https://models.dev/api.json":{"body":"{}"},"https://openrouter.ai/api/v1/models":{"body":"{\"data\":[]}"},"https://ai-gateway.vercel.sh/v1/models":{"body":"{\"data\":[]}"}}}));
+    assert_eq!(expected["exitCode"], json!(0));
     let root = Sandbox::new();
     let output = root.0.join("catalog");
     let mut logs = vec![];
