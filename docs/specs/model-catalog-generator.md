@@ -24,7 +24,8 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - [x] Match pinned NVIDIA normalization for every UTF-16 unit, every Unicode scalar and contextual/lone-surrogate fixtures.
 - [x] Generate grouped private and flat public JSON, source-identical manifests/checksums/timestamps and pretty/compact bytes in default/public/json-only/data-only fixtures.
 - [x] Execute maintenance CLI option handling, immediate log emission and statistics with fixture HTTP; reject invalid CLI mode in a real subprocess before fetching.
-- [ ] Prove staged validation failures, rollback and filesystem/transport error formatting.
+- [x] Preserve staged write/validation failure, include-write failure, failed data rename, post-swap manifest/provider/include validation, rollback and cleanup-error behavior against actual source, including filesystem metadata.
+- [ ] Prove remaining data-only/public-output guards and native transport identity.
 - [x] Default generation updates native provider include-table glue with JSON values; data-only preserves the include table. Runtime catalog APIs and every current embedded value remain unchanged.
 - [ ] Preserve failure names/messages, log order and exit behavior; omit JS-specific stack frames (approved “Omit JS frames (Recommended)”, 2026-10-20), retaining full raw TS diagnostics in oracle logs.
 

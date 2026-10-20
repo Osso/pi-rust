@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 import vm from "node:vm";
+import { inspect } from "node:util";
 
 // Instrument the actual pinned module, exposing its private functions and removing
 // only the automatic CLI invocation. All function bodies execute unchanged.
@@ -107,6 +108,7 @@ async function main(): Promise<void> {
 				}
 			}
 			const fixtureFs = { ...fs };
+			let injected = false;
 			if (root) {
 				for (const operation of [
 					"writeFileSync",
@@ -122,6 +124,81 @@ async function main(): Promise<void> {
 						))
 							if (!resolve(String(path)).startsWith(`${root}/`))
 								throw new Error("Generator write escapes fixture sandbox");
+						const path = String(args[0]);
+						const data = join(root!, "src/providers/data");
+						const aggregator = join(root!, "src/models.generated.ts");
+						const staged = path.includes(".model-generation-");
+						if (
+							!injected &&
+							operation === "writeFileSync" &&
+							((request.fault === "stage-write" &&
+								staged &&
+								path.endsWith("/openai.json")) ||
+								(request.fault === "include-write" && path === aggregator))
+						) {
+							injected = true;
+							if (fs.existsSync(path)) fs.rmSync(path);
+							fs.mkdirSync(path);
+							try {
+								return fs.writeFileSync(...(args as [any, any]));
+							} finally {
+								fs.rmSync(path, { recursive: true, force: true });
+							}
+						}
+						if (
+							!injected &&
+							operation === "writeFileSync" &&
+							request.fault === "stage-validate" &&
+							staged &&
+							path.endsWith("/openai.json")
+						) {
+							injected = true;
+							return fs.writeFileSync(path, "{}");
+						}
+						if (
+							!injected &&
+							operation === "renameSync" &&
+							String(args[1]) === data &&
+							path.endsWith("/data")
+						) {
+							if (request.fault === "data-rename") {
+								injected = true;
+								fs.mkdirSync(data);
+								fs.writeFileSync(join(data, "block"), "block");
+								try {
+									return fs.renameSync(path, data);
+								} finally {
+									fs.rmSync(data, { recursive: true, force: true });
+								}
+							}
+							const result = fs.renameSync(path, data);
+							if (request.fault === "post-manifest") {
+								injected = true;
+								const file = join(data, ".manifest.json");
+								const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+								manifest.structureHash = "wrong";
+								fs.writeFileSync(file, JSON.stringify(manifest));
+							}
+							if (request.fault === "post-provider") {
+								injected = true;
+								fs.writeFileSync(join(data, "openai.json"), "{}");
+							}
+							if (request.fault === "post-include") {
+								injected = true;
+								fs.writeFileSync(aggregator, "");
+							}
+							return result;
+						}
+						if (
+							!injected &&
+							operation === "rmSync" &&
+							request.fault === "cleanup" &&
+							staged &&
+							!path.endsWith("/data")
+						) {
+							injected = true;
+							return fs.readFileSync(path, "utf8");
+						}
 						return (fs[operation] as any)(...args);
 					};
 				}
@@ -156,7 +233,8 @@ async function main(): Promise<void> {
 					error: (...args: any[]) => {
 						logs.push(["error", ...args.map(String)]);
 						for (const arg of args)
-							if (arg?.stack) diagnostics.push(String(arg.stack));
+							if (arg?.stack)
+								diagnostics.push(inspect(arg, { depth: null, colors: false }));
 					},
 				},
 				fetch: async (url: string) => {
@@ -187,7 +265,25 @@ async function main(): Promise<void> {
 			);
 		} catch (error: any) {
 			process.stdout.write(
-				`${JSON.stringify({ error: { name: error.name, message: error.message }, logs, requests, diagnostics: [...diagnostics, String(error.stack)] })}\n`,
+				`${JSON.stringify({
+					error: {
+						name: error.name,
+						message: error.message,
+						code: error.code,
+						errno: error.errno,
+						syscall: error.syscall,
+						path: error.path,
+						dest: error.dest,
+					},
+					files: root ? collectFiles(root) : undefined,
+					root,
+					logs,
+					requests,
+					diagnostics: [
+						...diagnostics,
+						inspect(error, { depth: null, colors: false }),
+					],
+				})}\n`,
 			);
 		} finally {
 			if (root) fs.rmSync(root, { recursive: true, force: true });

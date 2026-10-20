@@ -6,6 +6,41 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Local filesystem boundary for deterministic artifact-transaction fixtures.
+pub trait CatalogFileSystem {
+    fn read(&mut self, path: &Path) -> Result<String, GeneratorError>;
+    fn write(&mut self, path: &Path, content: &str) -> Result<(), GeneratorError>;
+    fn mkdir(&mut self, path: &Path) -> Result<(), GeneratorError>;
+    fn remove(&mut self, path: &Path) -> Result<(), GeneratorError>;
+    fn rename(&mut self, from: &Path, to: &Path) -> Result<(), GeneratorError>;
+    fn exists(&mut self, path: &Path) -> bool;
+    fn staging_dir(&mut self, providers: &Path) -> Result<PathBuf, GeneratorError>;
+}
+pub struct NativeCatalogFileSystem;
+impl CatalogFileSystem for NativeCatalogFileSystem {
+    fn read(&mut self, path: &Path) -> Result<String, GeneratorError> {
+        read(path)
+    }
+    fn write(&mut self, path: &Path, content: &str) -> Result<(), GeneratorError> {
+        write(path, content)
+    }
+    fn mkdir(&mut self, path: &Path) -> Result<(), GeneratorError> {
+        mkdir(path)
+    }
+    fn remove(&mut self, path: &Path) -> Result<(), GeneratorError> {
+        remove(path)
+    }
+    fn rename(&mut self, from: &Path, to: &Path) -> Result<(), GeneratorError> {
+        rename(from, to)
+    }
+    fn exists(&mut self, path: &Path) -> bool {
+        path.exists()
+    }
+    fn staging_dir(&mut self, providers: &Path) -> Result<PathBuf, GeneratorError> {
+        staging_dir(providers)
+    }
+}
+
 fn io_error(error: io::Error, syscall: &str, path: &Path) -> GeneratorError {
     let record = pi_js_compat::node_fs::node_fs_error_record(&error, syscall, &path.to_string_lossy());
     let mut error = GeneratorError::new(record.name, JsString::from(record.message.as_str()));
@@ -69,9 +104,9 @@ fn checked(error: crate::model_data_tools::ModelDataError) -> GeneratorError {
 fn include_path(root: &Path) -> PathBuf {
     root.join("crates/pi-ai/src/providers/model_catalogs_generated.rs")
 }
-fn native_provider_ids(root: &Path) -> Result<Vec<JsString>, GeneratorError> {
+fn native_provider_ids(root: &Path, filesystem: &mut dyn CatalogFileSystem) -> Result<Vec<JsString>, GeneratorError> {
     let path = include_path(root);
-    let content = read(&path)?;
+    let content = filesystem.read(&path)?;
     let pattern =
         regex::Regex::new(r#"\(\s*("[^"\n]+"),\s*include_str!\("../../data/providers/[^"\n]+\.json"\)\s*,?\s*\)"#)
             .unwrap();
@@ -166,13 +201,21 @@ fn staging_dir(providers: &Path) -> Result<PathBuf, GeneratorError> {
 impl Generator<'_> {
     /// Generate native values/include glue and optional public catalogs under the supplied repository.
     pub fn generate(&mut self, root: &Path, generated_at: &JsString) -> Result<JsValue, GeneratorError> {
+        self.generate_with_filesystem(root, generated_at, &mut NativeCatalogFileSystem)
+    }
+    pub fn generate_with_filesystem(
+        &mut self,
+        root: &Path,
+        generated_at: &JsString,
+        filesystem: &mut dyn CatalogFileSystem,
+    ) -> Result<JsValue, GeneratorError> {
         let catalog = self.generate_catalog()?;
         let ids = entries(&catalog)
             .into_iter()
             .map(|(key, _)| key.clone())
             .collect::<Vec<_>>();
         let generated_ids = if self.options.data_only {
-            native_provider_ids(root)?
+            native_provider_ids(root, filesystem)?
         } else {
             ids.clone()
         };
@@ -193,14 +236,14 @@ impl Generator<'_> {
         }
         let (groups, structure) = group_catalog(&catalog, &generated_ids)?;
         if !self.options.json_only {
-            self.write_native(root, &groups, &structure, &generated_ids, generated_at)?;
+            self.write_native(root, &groups, &structure, &generated_ids, generated_at, filesystem)?;
         }
         if let Some(output) = self.options.json_output_dir.clone() {
             let providers = output.join("providers");
-            remove(&output)?;
-            mkdir(&providers)?;
-            write(&output.join("models.json"), &serialize(&catalog, self.options.pretty))?;
-            write(
+            filesystem.remove(&output)?;
+            filesystem.mkdir(&providers)?;
+            filesystem.write(&output.join("models.json"), &serialize(&catalog, self.options.pretty))?;
+            filesystem.write(
                 &output.join("providers.json"),
                 &serialize(
                     &JsValue::Array(ids.iter().cloned().map(JsValue::String).collect()),
@@ -209,7 +252,7 @@ impl Generator<'_> {
             )?;
             for (provider, models) in entries(&catalog) {
                 let file = provider.to_utf8_lossy();
-                write(
+                filesystem.write(
                     &providers.join(format!("{file}.json")),
                     &serialize(models, self.options.pretty),
                 )?;
@@ -234,52 +277,66 @@ impl Generator<'_> {
         structure: &ModelDataStructure,
         ids: &[JsString],
         generated_at: &JsString,
+        filesystem: &mut dyn CatalogFileSystem,
     ) -> Result<(), GeneratorError> {
         let providers = root.join("crates/pi-ai/src/providers");
         let data = root.join("crates/pi-ai/data/providers");
-        let staging = staging_dir(&providers)?;
+        let staging = filesystem.staging_dir(&providers)?;
         let staged = staging.join("data");
         let previous = staging.join("previous-data");
         let mut restore_include: Option<String> = None;
         let result = (|| {
-            mkdir(&staged)?;
+            filesystem.mkdir(&staged)?;
             let mut files = IndexMap::new();
             for (provider, models) in entries(groups) {
                 let filename = format!("{}.json", provider.to_utf8_lossy());
                 let content = serialize(models, self.options.pretty);
-                write(&staged.join(&filename), &content)?;
+                filesystem.write(&staged.join(&filename), &content)?;
                 files.insert(JsString::from(filename.as_str()), JsString::from(content.as_str()));
             }
             let manifest = create_model_data_manifest(structure, &files, generated_at);
-            write(
+            filesystem.write(
                 &staged.join(".manifest.json"),
                 &serialize(&manifest.to_json(), self.options.pretty),
             )?;
             validate_model_data_directory(structure, &staged).map_err(checked)?;
             if !self.options.data_only {
                 let path = include_path(root);
-                restore_include = Some(read(&path)?);
-                write(&path, &include_source(ids)?)?;
+                restore_include = Some(filesystem.read(&path)?);
+                filesystem.write(&path, &include_source(ids)?)?;
                 self.log(
                     "log",
                     "Generated provider catalogs and crates/pi-ai/src/providers/model_catalogs_generated.rs",
                 );
             }
             if let Some(parent) = data.parent() {
-                mkdir(parent)?;
+                filesystem.mkdir(parent)?;
             }
-            let had_previous = data.exists();
+            let had_previous = filesystem.exists(&data);
             if had_previous {
-                rename(&data, &previous)?;
+                filesystem.rename(&data, &previous)?;
             }
             let replacement = (|| {
-                rename(&staged, &data)?;
-                validate_model_data_directory(structure, &data).map_err(checked)
+                filesystem.rename(&staged, &data)?;
+                let actual_ids = native_provider_ids(root, filesystem)?;
+                crate::model_data_tools::assert_exact_model_ids(
+                    &JsString::from("Generated model aggregator"),
+                    ids.iter().cloned(),
+                    actual_ids.iter().cloned(),
+                )
+                .map_err(checked)?;
+                let mut actual_structure = ModelDataStructure::new();
+                for provider in actual_ids {
+                    let path = data.join(format!("{}.json", provider.to_utf8_lossy()));
+                    let models = crate::model_data_tools::read_provider_structure(&path, &provider).map_err(checked)?;
+                    actual_structure.insert(provider, models);
+                }
+                validate_model_data_directory(&actual_structure, &data).map_err(checked)
             })();
             if let Err(error) = replacement {
-                remove(&data)?;
-                if had_previous && previous.exists() {
-                    rename(&previous, &data)?;
+                filesystem.remove(&data)?;
+                if had_previous && filesystem.exists(&previous) {
+                    filesystem.rename(&previous, &data)?;
                 }
                 return Err(error);
             }
@@ -297,13 +354,13 @@ impl Generator<'_> {
         let result = (|| match result {
             Err(error) => {
                 if let Some(previous) = restore_include {
-                    write(&include_path(root), &previous)?;
+                    filesystem.write(&include_path(root), &previous)?;
                 }
                 Err(error)
             }
             Ok(()) => Ok(()),
         })();
-        let cleanup = remove(&staging);
+        let cleanup = filesystem.remove(&staging);
         cleanup?;
         result
     }
