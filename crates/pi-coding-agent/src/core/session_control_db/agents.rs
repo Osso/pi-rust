@@ -732,13 +732,7 @@ fn read_steering_mutation_agent(
     db: &Connection,
     input: &CommitMultiAgentSteeringMutationInput,
 ) -> Result<Option<(AgentSnapshot, String)>, ControlDbError> {
-    let data: Option<String> = db
-        .query_row(
-            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-            params![input.session_path, input.agent_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let data = read_agent_data_row(db, &input.session_path, &input.agent_id)?;
     let Some(data) = data else {
         return Ok(None);
     };
@@ -755,15 +749,12 @@ fn steering_mutation_has_authority(
     recipient_listener: &RuntimeMailboxListenerRow,
     input: &CommitMultiAgentSteeringMutationInput,
 ) -> Result<bool, ControlDbError> {
-    let identity = MultiAgentRuntimeOwnershipIdentity {
-        session_path: input.session_path.clone(),
-        agent_id: input.agent_id.clone(),
-        process_identity: input.process_identity.clone(),
-        owner: MultiAgentRuntimeOwnerIdentity {
-            session_id: input.owner.session_id.clone(),
-            agent_id: input.owner.agent_id.clone(),
-        },
-    };
+    let identity = ownership_identity(
+        &input.session_path,
+        &input.agent_id,
+        &input.process_identity,
+        &input.owner,
+    );
     if !super::runtime_owner_matches(ownership, &identity) {
         return Ok(false);
     }
@@ -979,13 +970,7 @@ pub fn commit_multi_agent_detach_mark(
 ) -> Result<CommitMultiAgentDetachMarkResult, ControlDbError> {
     with_control_db(control_db_path, |db| {
         for _ in 0..MULTI_AGENT_DETACH_MARK_MAX_ATTEMPTS {
-            let data: Option<String> = db
-                .query_row(
-                    "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-                    params![input.session_path, input.agent_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
+            let data = read_agent_data_row(db, &input.session_path, &input.agent_id)?;
             let Some(data) = data else {
                 return Ok(CommitMultiAgentDetachMarkResult::Err {
                     error: LifecycleCommandError::AgentNotFound,
@@ -995,12 +980,12 @@ pub fn commit_multi_agent_detach_mark(
             let agent = parse_stored_json_object(&data, &context)?;
             let mut agent_snapshot = parse_agent_snapshot(&agent, &context)?;
             let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
-            let identity = MultiAgentRuntimeOwnershipIdentity {
-                session_path: input.session_path.clone(),
-                agent_id: input.agent_id.clone(),
-                process_identity: input.process_identity.clone(),
-                owner: input.owner.clone(),
-            };
+            let identity = ownership_identity(
+                &input.session_path,
+                &input.agent_id,
+                &input.process_identity,
+                &input.owner,
+            );
             if !super::runtime_owner_matches(ownership.as_ref(), &identity) {
                 return Ok(CommitMultiAgentDetachMarkResult::Err {
                     error: LifecycleCommandError::MutationMismatch,
@@ -1097,13 +1082,7 @@ fn read_steering_delivery_plan(
     db: &Connection,
     input: &CommitMultiAgentSteeringDeliveryInput,
 ) -> Result<Result<SteeringDeliveryPlan, SteeringCommandError>, ControlDbError> {
-    let agent_row: Option<String> = db
-        .query_row(
-            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-            params![input.session_path, input.agent_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let agent_row = read_agent_data_row(db, &input.session_path, &input.agent_id)?;
     let Some(agent_data) = agent_row else {
         return Ok(Err(SteeringCommandError::AgentNotFound));
     };
@@ -1111,12 +1090,12 @@ fn read_steering_delivery_plan(
     let agent_object = parse_stored_json_object(&agent_data, &agent_context)?;
     let agent = parse_agent_snapshot(&agent_object, &agent_context)?;
     let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
-    let identity = MultiAgentRuntimeOwnershipIdentity {
-        session_path: input.session_path.clone(),
-        agent_id: input.agent_id.clone(),
-        process_identity: input.process_identity.clone(),
-        owner: input.owner.clone(),
-    };
+    let identity = ownership_identity(
+        &input.session_path,
+        &input.agent_id,
+        &input.process_identity,
+        &input.owner,
+    );
     if !super::runtime_owner_matches(ownership.as_ref(), &identity) {
         return Ok(Err(SteeringCommandError::MutationMismatch));
     }
@@ -1270,13 +1249,7 @@ fn read_lifecycle_mutation_plan(
     db: &Connection,
     input: &CommitMultiAgentLifecycleMutationInput,
 ) -> Result<LifecycleMutationRead, ControlDbError> {
-    let data: Option<String> = db
-        .query_row(
-            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-            params![input.session_path, input.agent_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let data = read_agent_data_row(db, &input.session_path, &input.agent_id)?;
     let Some(data) = data else {
         return Ok(LifecycleMutationRead::Err(LifecycleCommandError::AgentNotFound));
     };
@@ -1285,12 +1258,12 @@ fn read_lifecycle_mutation_plan(
         &format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id),
     )?;
     let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
-    let identity = MultiAgentRuntimeOwnershipIdentity {
-        session_path: input.session_path.clone(),
-        agent_id: input.agent_id.clone(),
-        process_identity: input.process_identity.clone(),
-        owner: input.owner.clone(),
-    };
+    let identity = ownership_identity(
+        &input.session_path,
+        &input.agent_id,
+        &input.process_identity,
+        &input.owner,
+    );
     if !super::runtime_owner_matches(ownership.as_ref(), &identity) {
         return Ok(LifecycleMutationRead::Err(LifecycleCommandError::MutationMismatch));
     }
@@ -1493,13 +1466,7 @@ fn read_terminal_mutation_plan(
     db: &Connection,
     input: &CommitMultiAgentTerminalMutationInput,
 ) -> Result<TerminalMutationRead, ControlDbError> {
-    let agent_row: Option<String> = db
-        .query_row(
-            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-            params![input.session_path, input.agent_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let agent_row = read_agent_data_row(db, &input.session_path, &input.agent_id)?;
     let Some(agent_data) = agent_row else {
         return Ok(TerminalMutationRead::Err(LifecycleCommandError::AgentNotFound));
     };
@@ -1508,12 +1475,12 @@ fn read_terminal_mutation_plan(
         &format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id),
     )?;
     let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
-    let identity = MultiAgentRuntimeOwnershipIdentity {
-        session_path: input.session_path.clone(),
-        agent_id: input.agent_id.clone(),
-        process_identity: input.process_identity.clone(),
-        owner: input.owner.clone(),
-    };
+    let identity = ownership_identity(
+        &input.session_path,
+        &input.agent_id,
+        &input.process_identity,
+        &input.owner,
+    );
     if !super::runtime_owner_matches(ownership.as_ref(), &identity) {
         return Ok(TerminalMutationRead::Err(LifecycleCommandError::MutationMismatch));
     }
@@ -1809,13 +1776,7 @@ fn read_active_parent_snapshot(
             parent_id: parent_id.to_owned(),
         }));
     }
-    let data: Option<String> = db
-        .query_row(
-            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-            params![session_path, parent_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let data = read_agent_data_row(db, session_path, parent_id)?;
     let Some(data) = data else {
         return Ok(None);
     };
@@ -1831,6 +1792,30 @@ fn read_active_parent_snapshot(
         data: Some(data),
         parent_id: parent_id.to_owned(),
     }))
+}
+
+fn ownership_identity(
+    session_path: &str,
+    agent_id: &str,
+    process_identity: &crate::core::runtime_process::ProcessIdentity,
+    owner: &MultiAgentRuntimeOwnerIdentity,
+) -> MultiAgentRuntimeOwnershipIdentity {
+    MultiAgentRuntimeOwnershipIdentity {
+        session_path: session_path.to_owned(),
+        agent_id: agent_id.to_owned(),
+        process_identity: process_identity.clone(),
+        owner: owner.clone(),
+    }
+}
+
+fn read_agent_data_row(db: &Connection, session_path: &str, agent_id: &str) -> Result<Option<String>, ControlDbError> {
+    Ok(db
+        .query_row(
+            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
+            params![session_path, agent_id],
+            |row| row.get(0),
+        )
+        .optional()?)
 }
 
 fn multi_agent_agent_exists(db: &Connection, session_path: &str, agent_id: &str) -> Result<bool, ControlDbError> {
@@ -2190,12 +2175,12 @@ fn decide_ownership_acquisition(
         .and_then(|ownership| ownership.process_identity.as_deref())
         .and_then(|value| parse_process_identity(value).ok());
     let current_owner_alive = current_identity.as_ref().is_some_and(process_identity_is_alive);
-    let identity = MultiAgentRuntimeOwnershipIdentity {
-        session_path: input.session_path.clone(),
-        agent_id: input.agent_id.clone(),
-        process_identity: input.process_identity.clone(),
-        owner: input.owner.clone(),
-    };
+    let identity = ownership_identity(
+        &input.session_path,
+        &input.agent_id,
+        &input.process_identity,
+        &input.owner,
+    );
     if let Some(current_ownership) = ownership
         && current_owner_alive
         && super::runtime_owner_matches(Some(current_ownership), &identity)
@@ -2237,13 +2222,7 @@ fn commit_acquired_runtime_ownership(
             error: AcquireAttachedError::MutationMismatch,
         }));
     }
-    let row: Option<String> = db
-        .query_row(
-            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-            params![input.session_path, input.agent_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let row = read_agent_data_row(db, &input.session_path, &input.agent_id)?;
     let Some(row) = row else {
         return Ok(Some(AcquireAttachedRuntimeOwnershipResult::Err {
             error: AcquireAttachedError::AgentNotFound,
@@ -2288,13 +2267,7 @@ fn read_attached_runtime_agent(
     session_path: &str,
     agent_id: &str,
 ) -> Result<AttachedRuntimeAgentRead, ControlDbError> {
-    let data: Option<String> = db
-        .query_row(
-            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-            params![session_path, agent_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let data = read_agent_data_row(db, session_path, agent_id)?;
     let Some(data) = data else {
         return Ok(AttachedRuntimeAgentRead::Err(AcquireAttachedError::AgentNotFound));
     };
@@ -2365,13 +2338,7 @@ fn read_persisted_supervisor_session_authority(
             supervisor_agent_data: None,
         }));
     }
-    let supervisor_agent: Option<String> = db
-        .query_row(
-            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-            params![session_path, supervisor.agent_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let supervisor_agent = read_agent_data_row(db, session_path, supervisor.agent_id.as_deref().unwrap_or_default())?;
     let Some(supervisor_agent_data) = supervisor_agent else {
         return Ok(None);
     };
@@ -2431,13 +2398,7 @@ fn supervisor_session_authority_is_current(
     if supervisor.agent_id.is_none() {
         return Ok(expected.supervisor_agent_data.is_none());
     }
-    let supervisor_agent: Option<String> = db
-        .query_row(
-            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-            params![session_path, supervisor.agent_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let supervisor_agent = read_agent_data_row(db, session_path, supervisor.agent_id.as_deref().unwrap_or_default())?;
     Ok(supervisor_agent == expected.supervisor_agent_data)
 }
 
@@ -2961,13 +2922,7 @@ fn read_parent_request_target_snapshot(
     }
     let from_agent_id = require_string_field(payload, "fromAgentId", "parent_request")?;
     let to_agent_id = require_string_field(payload, "toAgentId", "parent_request")?;
-    let row: Option<String> = db
-        .query_row(
-            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-            params![session_path, from_agent_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let row = read_agent_data_row(db, session_path, &from_agent_id)?;
     let sender = row.as_deref().and_then(super::parse_json_object);
     if sender
         .as_ref()
@@ -3160,13 +3115,7 @@ pub fn read_multi_agent_agent(
     agent_id: &str,
 ) -> Result<Option<AgentSnapshot>, ControlDbError> {
     with_control_db(control_db_path, |db| {
-        let data: Option<String> = db
-            .query_row(
-                "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-                params![session_path, agent_id],
-                |row| row.get(0),
-            )
-            .optional()?;
+        let data = read_agent_data_row(db, session_path, agent_id)?;
         let Some(data) = data else {
             return Ok(None);
         };
@@ -3185,13 +3134,7 @@ pub fn read_multi_agent_agents(
     with_control_db(control_db_path, |db| {
         let mut agents = Vec::new();
         for agent_id in agent_ids {
-            let data: Option<String> = db
-                .query_row(
-                    "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-                    params![session_path, agent_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
+            let data = read_agent_data_row(db, session_path, agent_id)?;
             let Some(data) = data else {
                 continue;
             };
@@ -3405,13 +3348,7 @@ fn read_supervisor_recovery_authority(
             supervisor_agent_data: None,
         }));
     }
-    let supervisor_row: Option<String> = db
-        .query_row(
-            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-            params![session_path, supervisor.agent_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let supervisor_row = read_agent_data_row(db, session_path, supervisor.agent_id.as_deref().unwrap_or_default())?;
     let Some(supervisor_agent_data) = supervisor_row else {
         return Ok(None);
     };
@@ -3446,13 +3383,7 @@ fn read_recoverable_multi_agent_runtime(
     expected_owner: &MultiAgentRuntimeOwnershipIdentity,
     verify_owner_liveness: bool,
 ) -> Result<RecoverableMultiAgentRuntime, ControlDbError> {
-    let data: Option<String> = db
-        .query_row(
-            "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-            params![expected_owner.session_path, expected_owner.agent_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let data = read_agent_data_row(db, &expected_owner.session_path, &expected_owner.agent_id)?;
     let Some(data) = data else {
         return Ok(RecoverableMultiAgentRuntime::Err(
             RecoverDeadRuntimeError::AgentNotFound,

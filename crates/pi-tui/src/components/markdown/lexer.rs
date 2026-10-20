@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use fancy_regex::{Captures, Regex};
+use pi_js_compat::string::{js_trim, js_trim_end};
 
 use super::tokens::{Align, LinkDefinition, ListItem, ListItemType, ListStart, TableCell, Token};
 
@@ -64,22 +65,6 @@ fn rx(pattern: &str) -> Regex {
 
 fn is_match(regex: &Regex, text: &str) -> bool {
     regex.is_match(text).unwrap_or(false)
-}
-
-pub(super) fn is_js_whitespace(ch: char) -> bool {
-    matches!(
-        ch,
-        '\t' | '\n' | '\u{000B}' | '\u{000C}' | '\r' | ' ' | '\u{00A0}' | '\u{1680}' | '\u{2000}'
-            ..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' | '\u{205F}' | '\u{3000}' | '\u{FEFF}'
-    )
-}
-
-pub(super) fn js_trim(value: &str) -> &str {
-    value.trim_matches(is_js_whitespace)
-}
-
-pub(super) fn js_trim_end(value: &str) -> &str {
-    value.trim_end_matches(is_js_whitespace)
 }
 
 struct Rules {

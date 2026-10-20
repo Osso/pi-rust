@@ -16,7 +16,7 @@ use crate::core::resource_loader::{
 use crate::core::sdk::{CreateAgentSessionOptions, CreateAgentSessionResult, NoTools, create_agent_session};
 use crate::core::session_manager::SessionManager;
 use crate::core::settings_manager::SettingsManager;
-use crate::utils::paths::{PathInputOptions, resolve_path};
+use crate::utils::paths::{PathInputOptions, process_cwd, resolve_path};
 
 /// Non-fatal issues collected while creating services or sessions.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -246,10 +246,4 @@ pub async fn create_agent_session_from_services(
         ..Default::default()
     })
     .await
-}
-
-fn process_cwd() -> String {
-    std::env::current_dir()
-        .map(|path| path.display().to_string())
-        .unwrap_or_default()
 }
