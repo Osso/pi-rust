@@ -1,5 +1,6 @@
 //! Default [`Fetch`] implementation (the `globalThis.fetch` stand-in) backed by `reqwest`.
 
+use std::error::Error;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -61,10 +62,7 @@ async fn send_with_client(
     signal: Option<CancellationToken>,
 ) -> Result<HttpResponse, CallbackError> {
     let builder = build_request(client, request)?;
-    let response = until_aborted(signal.as_ref(), async {
-        builder.send().await.map_err(to_callback_error)
-    })
-    .await?;
+    let response = until_aborted(signal.as_ref(), async { builder.send().await.map_err(to_send_error) }).await?;
     Ok(into_http_response(response, signal))
 }
 
@@ -105,7 +103,7 @@ impl HttpBody for ReqwestBody {
         Box::pin(async move {
             let signal = self.signal.clone();
             let chunk = until_aborted(signal.as_ref(), async {
-                self.response.chunk().await.map_err(to_callback_error)
+                self.response.chunk().await.map_err(to_body_error)
             })
             .await;
             match chunk {
@@ -164,4 +162,36 @@ async fn until_aborted<T>(
 
 fn to_callback_error(error: reqwest::Error) -> CallbackError {
     CallbackError::new(error.to_string())
+}
+
+fn to_send_error(error: reqwest::Error) -> CallbackError {
+    if error.is_request() {
+        native_fetch_error(error, "fetch failed")
+    } else {
+        to_callback_error(error)
+    }
+}
+
+fn to_body_error(error: reqwest::Error) -> CallbackError {
+    if error.is_body() || error.is_decode() {
+        native_fetch_error(error, "terminated")
+    } else {
+        to_callback_error(error)
+    }
+}
+
+fn native_fetch_error(error: reqwest::Error, message: &str) -> CallbackError {
+    // reqwest attaches the request URL, which can contain credentials/query secrets.
+    let error = error.without_url();
+    let mut diagnostics = vec![error.to_string()];
+    let mut source = error.source();
+    while let Some(cause) = source {
+        diagnostics.push(cause.to_string());
+        source = cause.source();
+    }
+    CallbackError {
+        message: message.to_owned(),
+        name: "TypeError".to_owned(),
+        cause: Some(diagnostics.join(": ")),
+    }
 }

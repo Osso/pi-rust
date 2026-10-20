@@ -57,7 +57,7 @@ async fn default_fetch_sends_method_headers_body_and_streams_response() {
 async fn cancelled_signal_aborts_pending_fetch() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let url = format!("http://{}/slow", listener.local_addr().expect("address"));
-    let _server = tokio::spawn(async move {
+    let server = tokio::spawn(async move {
         let (_socket, _) = listener.accept().await.expect("accept");
         tokio::time::sleep(Duration::from_secs(30)).await;
     });
@@ -76,6 +76,51 @@ async fn cancelled_signal_aborts_pending_fetch() {
     let result = tokio::time::timeout(Duration::from_secs(5), default_fetch().fetch(request, Some(signal)))
         .await
         .expect("fetch must finish promptly after abort");
+    server.abort();
+    assert!(server.await.expect_err("server cancelled").is_cancelled());
     let error = result.err().expect("aborted fetch must fail");
     assert_eq!(error.message, "This operation was aborted");
+    assert_eq!(error.name, "Error");
+    assert_eq!(error.cause, None);
+}
+
+#[test]
+fn callback_error_constructor_and_display_keep_the_legacy_contract() {
+    let error = pi_ai::request::CallbackError::new("callback failed");
+    assert_eq!(error.message, "callback failed");
+    assert_eq!(error.name, "Error");
+    assert_eq!(error.cause, None);
+    assert_eq!(error.to_string(), "callback failed");
+    assert_eq!(error.clone(), error);
+}
+
+#[tokio::test]
+async fn request_builder_errors_are_not_reclassified_as_network_failures() {
+    for (method, url, headers) in [
+        ("GET\n", "http://127.0.0.1:1/", Vec::new()),
+        ("GET", "not a url", Vec::new()),
+        (
+            "GET",
+            "http://127.0.0.1:1/",
+            vec![("bad\nheader".to_owned(), "value".to_owned())],
+        ),
+    ] {
+        let error = default_fetch()
+            .fetch(
+                HttpRequest {
+                    method: method.to_owned(),
+                    url: url.to_owned(),
+                    headers,
+                    body: None,
+                },
+                None,
+            )
+            .await
+            .err()
+            .expect("invalid builder input fails");
+        assert_eq!(error.name, "Error");
+        assert_eq!(error.cause, None);
+        assert_ne!(error.message, "fetch failed");
+        assert!(!error.message.is_empty());
+    }
 }
