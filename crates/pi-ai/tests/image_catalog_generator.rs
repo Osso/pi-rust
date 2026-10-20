@@ -396,6 +396,18 @@ async fn raw_json_ids_and_names_keep_source_generation_errors_and_values() {
 }
 
 #[tokio::test]
+async fn nullish_defaults_and_long_valid_string_catalog_keep_source_contract() {
+    let mut fixtures = vec![
+        json!({"payload":r#"{"data":[{"id":"x","architecture":{"input_modalities":null,"output_modalities":["image"]},"pricing":null,"context_length":{}}]}"#,"args":["--strict"]}),
+        json!({"payload":r#"{"data":[{"architecture":null},{"id":"x","architecture":{"output_modalities":null}},{"id":"usable","name":"","architecture":{"input_modalities":["audio"],"output_modalities":["image"]},"pricing":{"prompt":"","completion":"-Infinity","input_cache_read":"NaN","input_cache_write":"1e400"}}]}"#,"args":["--strict"]}),
+        json!({"payload":r#"{"data":[{"id":"duplicate","architecture":{"output_modalities":["image"]}},{"id":"duplicate","name":{},"pricing":3,"architecture":{"output_modalities":["image"]}}]}"#,"args":["--strict"]}),
+    ];
+    let data: Vec<_> = (0..128).map(|index|json!({"id":format!("m{:03}",(index*17)%128),"name":format!("name-{index}"),"architecture":{"output_modalities":["image","text","image"],"input_modalities":["text","image","text"]}})).collect();
+    fixtures.push(json!({"payload":json!({"data":data}).to_string(),"args":["--strict"]}));
+    compare_workflows("valid-contract", &fixtures).await;
+}
+
+#[tokio::test]
 async fn malformed_first_id_is_rejected_independent_of_source_sort_boundary() {
     let fixtures: Vec<_> = [3, 20, 21, 32, 63, 64, 65, 128].into_iter().map(|length| {
         let mut data = vec![json!({"id":null,"architecture":{"output_modalities":["image"]}})];
