@@ -68,7 +68,6 @@ impl ExtensionUiContext for Ui {
         let theme = self.theme();
         ui_thread::run(false, move || {
             Box::pin(async move {
-                tokio::time::pause();
                 let completed = Arc::new(Mutex::new(false));
                 let done = completed.clone();
                 let done_trace = trace.clone();

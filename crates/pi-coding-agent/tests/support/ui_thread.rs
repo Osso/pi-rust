@@ -10,6 +10,7 @@ pub fn run<T: Send + 'static>(
     let worker = std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
+            .start_paused(true)
             .build()
             .unwrap();
         let result = if local_tasks {

@@ -41,7 +41,6 @@ impl ExtensionUiContext for Ui {
         let custom_before = self.custom_before.clone();
         ui_thread::run(true, move || {
             Box::pin(async move {
-                tokio::time::pause();
                 pi_coding_agent::modes::interactive::theme::set_theme_instance(fixture_theme());
                 let done_value = Arc::new(Mutex::new(None));
                 let value = done_value.clone();
