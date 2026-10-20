@@ -128,7 +128,10 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     )
     .await
     .unwrap();
-    let metadata = json!({"commands":extension.commands.values().map(|c|json!([c.name,c.description,c.get_argument_completions.is_some()])).collect::<Vec<_>>(),"tools":extension.tools.keys().collect::<Vec<_>>()});
+    let metadata = {
+        let registration = extension.read();
+        json!({"commands":registration.commands.values().map(|c|json!([c.name,c.description,c.get_argument_completions.is_some()])).collect::<Vec<_>>(),"tools":registration.tools.keys().collect::<Vec<_>>()})
+    };
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("openai".into()),
         models: Some(vec![FauxModelDefinition {
