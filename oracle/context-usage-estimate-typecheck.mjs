@@ -4,13 +4,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { buildSourceTsconfig } from "./source-tsconfig.mjs";
+import { runCompiler } from "./typecheck-report.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceLockPath = join(repoRoot, "docs/porting/source-lock.json");
 const sourceLock = JSON.parse(readFileSync(sourceLockPath, "utf8"));
 const compactionModulePath = join(sourceLock.worktree, "packages/agent/src/harness/compaction/compaction.ts");
 const tsgoPath = join(sourceLock.worktree, "node_modules/.bin/tsgo");
-const typeRoots = join(sourceLock.worktree, "node_modules/@types");
 
 const fixtureSource = `
 import type { ContextUsageEstimate } from ${JSON.stringify(compactionModulePath)};
@@ -102,15 +102,7 @@ function verifySourceHead() {
 function runTypecheck(fixturePath) {
 	const configPath = join(dirname(fixturePath), "tsconfig.json");
 	writeFileSync(configPath, `${JSON.stringify(buildSourceTsconfig(sourceLock.worktree, [fixturePath]), null, 2)}\n`, "utf8");
-	const result = spawnSync(tsgoPath, ["-p", configPath], { cwd: repoRoot, encoding: "utf8" });
-	if (result.error !== undefined) throw new Error(`pinned tsgo failed to start: ${result.error.message}`);
-	const report = spawnSync(process.execPath, [join(repoRoot, "oracle/typecheck-report.mjs"), repoRoot], {
-		input: `${result.stdout ?? ""}${result.stderr ?? ""}`,
-		encoding: "utf8",
-	});
-	if (report.stdout !== "") process.stdout.write(report.stdout);
-	if (report.stderr !== "") process.stderr.write(report.stderr);
-	return report.status ?? 1;
+	return runCompiler(tsgoPath, ["-p", configPath], repoRoot);
 }
 
 function typecheckFixture() {

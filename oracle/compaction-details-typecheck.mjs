@@ -2,14 +2,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { runCompiler } from "./typecheck-report.mjs";
 import { buildSourceTsconfig } from "./source-tsconfig.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceLock = JSON.parse(readFileSync(join(repoRoot, "docs/porting/source-lock.json"), "utf8"));
 const modulePath = join(sourceLock.worktree, "packages/agent/src/harness/compaction/compaction.ts");
 const tsgoPath = join(sourceLock.worktree, "node_modules/.bin/tsgo");
-const typeRoots = join(sourceLock.worktree, "node_modules/@types");
 const fixture = `
 import type { CompactionDetails } from ${JSON.stringify(modulePath)};
 
@@ -37,15 +36,7 @@ writeFileSync(fixturePath, fixture, "utf8");
 try {
   const configPath = join(dirname(fixturePath), "tsconfig.json");
   writeFileSync(configPath, `${JSON.stringify(buildSourceTsconfig(sourceLock.worktree, [fixturePath]), null, 2)}\n`, "utf8");
-  const result = spawnSync(tsgoPath, ["-p", configPath], { cwd: repoRoot, encoding: "utf8" });
-  if (result.error !== undefined) throw new Error(`pinned tsgo failed to start: ${result.error.message}`);
-  const report = spawnSync(process.execPath, [join(repoRoot, "oracle/typecheck-report.mjs"), repoRoot], {
-    input: `${result.stdout ?? ""}${result.stderr ?? ""}`,
-    encoding: "utf8",
-  });
-  if (report.stdout) process.stdout.write(report.stdout);
-  if (report.stderr) process.stderr.write(report.stderr);
-  process.exitCode = report.status ?? 1;
+  process.exitCode = runCompiler(tsgoPath, ["-p", configPath], repoRoot);
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }

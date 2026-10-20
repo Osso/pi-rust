@@ -22,6 +22,8 @@ export function buildSourceTsconfig(sourceWorktree, files) {
 	const compilerOptions = {
 		...inherited,
 		noEmit: true,
+		// Fixtures import absolute .ts paths for checking, not JS emission.
+		rewriteRelativeImportExtensions: false,
 		typeRoots: [join(sourceWorktree, "node_modules", "@types")],
 	};
 	if (paths) {

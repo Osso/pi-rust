@@ -18,6 +18,9 @@ cargo check --workspace --all-targets
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
+Oracle gate boundary, regression commands, and pinned-source blockers:
+[oracle gate](docs/porting/oracle-gate.md).
+
 The agent-harness [ThinkingLevel](docs/specs/thinking-level.md) is distinct from the protocol schema; the protocol value remains capped at `max`.
 
 Status: pre-alpha. No complete Pi-compatible executable exists yet.

@@ -9,6 +9,7 @@ read_source_worktree() {
 }
 
 typecheck_oracle() {
+	node --test oracle/typecheck-report.test.mjs
 	local source_worktree
 	source_worktree="$(read_source_worktree)"
 	local config
@@ -23,8 +24,7 @@ typecheck_oracle() {
 		evals-summary-oracle.ts evals-harness-table-oracle.ts evals-artifacts-oracle.ts \
 		evals-pi-harness-oracle.ts >"$config"
 	local status=0
-	"$source_worktree/node_modules/.bin/tsgo" -p "$config" 2>&1 |
-		node oracle/typecheck-report.mjs "$ROOT_DIR" || status=$?
+	node oracle/typecheck-report.mjs "$source_worktree/node_modules/.bin/tsgo" -p "$config" || status=$?
 	rm -f "$config"
 	if [ "$status" -ne 0 ]; then
 		return "$status"
