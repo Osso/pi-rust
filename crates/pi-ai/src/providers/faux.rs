@@ -4,7 +4,7 @@
 //! access. Token chunking and generated ids are not bit-identical to the
 //! TypeScript `Math.random` values; tests fix `tokenSize` and tool-call ids.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -367,7 +367,7 @@ impl FauxCore {
                 && let Err(error) = on_response(
                     ProviderResponse {
                         status: 200.0,
-                        headers: BTreeMap::new(),
+                        headers: Default::default(),
                     },
                     request_model.clone(),
                 )
@@ -515,7 +515,7 @@ impl FauxCore {
                 && let Err(error) = on_response(
                     ProviderResponse {
                         status: 200.0,
-                        headers: BTreeMap::new(),
+                        headers: Default::default(),
                     },
                     request_model.clone(),
                 )
@@ -715,7 +715,7 @@ impl ProviderStreams for FauxCore {
                 on_response(
                     ProviderResponse {
                         status: 200.0,
-                        headers: BTreeMap::new(),
+                        headers: Default::default(),
                     },
                     model,
                 )

@@ -6,8 +6,9 @@ use crate::types::ProviderHeaders;
 
 /// Convert header entries to a record, matching `Headers.entries()` normalization:
 /// names are lowercased, surrounding HTTP whitespace is trimmed, and duplicate
-/// names are joined with `", "`.
-pub fn headers_to_record(headers: impl IntoIterator<Item = (String, String)>) -> BTreeMap<String, String> {
+/// names are joined with `", "`. Keys retain the lowercase-sorted order of
+/// WHATWG `Headers.entries()`, not the insertion order of the raw entries.
+pub fn headers_to_record(headers: impl IntoIterator<Item = (String, String)>) -> IndexMap<String, String> {
     let mut record = BTreeMap::new();
     for (name, value) in headers {
         let name = name.to_ascii_lowercase();
@@ -20,7 +21,7 @@ pub fn headers_to_record(headers: impl IntoIterator<Item = (String, String)>) ->
             })
             .or_insert_with(|| value.to_owned());
     }
-    record
+    record.into_iter().collect()
 }
 
 fn http_whitespace(character: char) -> bool {

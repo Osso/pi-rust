@@ -576,3 +576,121 @@ async fn create_agent_session_wires_extension_provider_hooks() {
         "the context patch must reach the provider request: {contexts:?}"
     );
 }
+
+#[tokio::test]
+async fn custom_provider_response_preserves_header_order_through_sdk_and_json() {
+    use pi_coding_agent::core::extensions::{AfterProviderResponseEvent, ExtensionContext, LoadExtensionsResult};
+    use pi_coding_agent::core::provider_composer::ProviderConfigInput;
+
+    let temp = tempfile::tempdir().unwrap();
+    let faux = faux();
+    let runtime = faux_runtime(&faux).await;
+    let mut model = faux.get_model(None).unwrap();
+    model.provider = "ordered-custom".to_owned();
+    let observed = Arc::new(Mutex::new(Vec::<String>::new()));
+    let extension_runtime = extensions_support::runtime();
+    let extension_cwd = temp.path().display().to_string();
+    let extension = {
+        let observed = observed.clone();
+        let model = model.clone();
+        extensions_support::extension(
+            &extension_runtime,
+            &extension_cwd,
+            "<inline:ordered-custom>",
+            move |api| {
+                api.register_provider(
+                    "ordered-custom",
+                    ProviderConfigInput {
+                        api: Some(model.api.clone()),
+                        api_key: Some("private-fixture-key".to_owned()),
+                        models: Some(vec![model]),
+                        stream_simple: Some(Arc::new(|model, _context, options| {
+                            let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
+                            tokio::spawn(async move {
+                                let response = pi_ai::types::ProviderResponse {
+                                    status: 201.0,
+                                    headers: [
+                                        ("z-first".to_owned(), "last alphabetically".to_owned()),
+                                        ("a-second".to_owned(), "first alphabetically".to_owned()),
+                                    ]
+                                    .into_iter()
+                                    .collect(),
+                                };
+                                options.unwrap().stream.request.on_response.unwrap()(response, model)
+                                    .await
+                                    .unwrap();
+                                let message = faux_assistant_message("ordered", FauxAssistantMessageOptions::default());
+                                sender.push(pi_ai::types::AssistantMessageEvent::Done {
+                                    reason: pi_ai::types::DoneReason::Stop,
+                                    message: message.clone(),
+                                });
+                                sender.end(Some(message));
+                            });
+                            stream
+                        })),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+                api.on_after_provider_response(move |event: AfterProviderResponseEvent, _context: ExtensionContext| {
+                    let observed = observed.clone();
+                    Box::pin(async move {
+                        observed
+                            .lock()
+                            .unwrap()
+                            .push(serde_json::to_string(&event.headers).unwrap());
+                        // The generic event is also the RPC/JSON emission boundary.
+                        let wire = serde_json::to_string(
+                            &pi_coding_agent::core::extensions::ExtensionEvent::AfterProviderResponse(event),
+                        )
+                        .unwrap();
+                        observed.lock().unwrap().push(wire);
+                        Ok(None)
+                    })
+                        as pi_coding_agent::core::extensions::BoxFuture<
+                            'static,
+                            Result<Option<()>, pi_coding_agent::core::extensions::HandlerError>,
+                        >
+                })
+                .unwrap();
+            },
+        )
+        .await
+    };
+    let loader = Arc::new(StaticResourceLoader {
+        extensions: Some(LoadExtensionsResult {
+            extensions: vec![extension],
+            errors: Vec::new(),
+            runtime: extension_runtime,
+        }),
+        ..Default::default()
+    });
+    let session_dir = temp.path().join("sessions").display().to_string();
+    let mut manager = SessionManager::create(&extension_cwd, Some(&session_dir), None).unwrap();
+    manager
+        .set_metadata_control_db_path(
+            Some(&temp.path().join("control.db").display().to_string()),
+            Default::default(),
+        )
+        .unwrap();
+    let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(extension_cwd.clone()),
+        agent_dir: Some(extension_cwd),
+        model_runtime: Some(runtime),
+        model: Some(model),
+        resource_loader: Some(loader),
+        session_manager: Some(manager),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    result.session.prompt("hi", PromptOptions::default()).await.unwrap();
+    let observed = observed.lock().unwrap();
+    assert!(!observed.is_empty());
+    // JSON.stringify({"z-first": ..., "a-second": ...}) in pinned TS preserves this order.
+    assert_eq!(
+        observed[0],
+        r#"{"z-first":"last alphabetically","a-second":"first alphabetically"}"#
+    );
+    assert!(observed[1].contains(&format!(r#""headers":{}"#, observed[0])));
+}
