@@ -138,6 +138,13 @@ fn inspect_row(row: &[String], widths: &[usize]) -> String {
         .collect()
 }
 
+/// Originating whole-file read API: Node gives these different EISDIR shapes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeReadApi {
+    ReadFileSync,
+    PromisesReadFile,
+}
+
 /// Construct a Node filesystem error without touching the filesystem.
 ///
 /// Pass the failing Node syscall, e.g. `open`, `read`, `mkdir`, or `scandir`.
@@ -145,6 +152,10 @@ fn inspect_row(row: &[String], widths: &[usize]) -> String {
 /// retains Node's contextual message. ErrorKind-only errors have no invented
 /// errno. Negative errno parity is bounded to Unix.
 pub fn node_fs_error_record(error: &io::Error, syscall: &str, path: &str) -> NodeFsError {
+    format_fs_error_record(error, syscall, path, NodeReadApi::ReadFileSync)
+}
+
+fn format_fs_error_record(error: &io::Error, syscall: &str, path: &str, api: NodeReadApi) -> NodeFsError {
     let code = node_error_code(error);
     let description = match error.kind() {
         io::ErrorKind::NotFound => "no such file or directory".to_owned(),
@@ -157,7 +168,11 @@ pub fn node_fs_error_record(error: &io::Error, syscall: &str, path: &str) -> Nod
         _ if code == "ELOOP" => "too many symbolic links encountered".to_owned(),
         _ => error.to_string(),
     };
-    let omit_path = syscall == "uv_cwd" || (syscall == "read" && code == "EISDIR" && error.raw_os_error().is_some());
+    let omit_path = syscall == "uv_cwd"
+        || (api == NodeReadApi::ReadFileSync
+            && syscall == "read"
+            && code == "EISDIR"
+            && error.raw_os_error().is_some());
     let message = if syscall == "uv_cwd" && code == "ENOENT" {
         format!(
             "{code}: process.cwd failed with error {description}, the current working directory was likely removed without changing the working directory, uv_cwd"
@@ -182,14 +197,24 @@ pub fn node_fs_error(error: &io::Error, syscall: &str, path: &str) -> String {
     node_fs_error_record(error, syscall, path).message
 }
 
-/// `readFile` failure: directory reads use `read`, other failures use `open`.
-pub fn node_read_error(error: &io::Error, path: &str) -> String {
+/// Whole-file read failure: directory reads use `read`, other failures use `open`.
+pub fn node_read_error_record(error: &io::Error, path: &str, api: NodeReadApi) -> NodeFsError {
     let syscall = if error.kind() == io::ErrorKind::IsADirectory {
         "read"
     } else {
         "open"
     };
-    node_fs_error(error, syscall, path)
+    format_fs_error_record(error, syscall, path, api)
+}
+
+/// Node `readFileSync` message, including its pathless raw EISDIR/read shape.
+pub fn node_read_error(error: &io::Error, path: &str) -> String {
+    node_read_error_record(error, path, NodeReadApi::ReadFileSync).message
+}
+
+/// Node `promises.readFile` message, retaining the path on EISDIR/read.
+pub fn node_promises_read_error(error: &io::Error, path: &str) -> String {
+    node_read_error_record(error, path, NodeReadApi::PromisesReadFile).message
 }
 
 /// Node `error.code` for an `io::Error`: the raw OS errno name first, then the

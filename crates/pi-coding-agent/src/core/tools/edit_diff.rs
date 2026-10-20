@@ -2,7 +2,7 @@
 
 use tokio::io::AsyncReadExt;
 
-use super::node_fs::node_fs_error;
+use super::node_fs::node_promises_read_error;
 use super::path_utils::resolve_to_cwd;
 use crate::utils::child_process::node_error_code;
 use crate::utils::paths::PathError;
@@ -139,7 +139,7 @@ async fn read_editable_file(absolute_path: &str, display_path: &str) -> Result<S
     let mut bytes = Vec::new();
     match file.read_to_end(&mut bytes).await {
         Ok(_) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
-        Err(error) => Err(node_fs_error(&error, "read", absolute_path)),
+        Err(error) => Err(node_promises_read_error(&error, absolute_path)),
     }
 }
 

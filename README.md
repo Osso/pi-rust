@@ -41,19 +41,29 @@ semantics are unchanged. Host helper files are never overwritten. Each test gets
 private HOME/XDG/Pi state and an allowlisted environment; homes, runtime sockets,
 and host `/tmp` are hidden. Root, checkout, pinned references/Git metadata and the
 optional installed Pyrun executable/venv/Python runtime are read-only. Only private
-state and an inherited private `TMPDIR` are writable. The latter survives nested
+state, namespace-local `/tmp`, and an inherited private `TMPDIR` are writable.
+The latter survives nested
 guards so parent fixture paths and sockets remain valid. Set `PI_TEST_SANDBOX_DIR`
 to a dedicated proof directory to retain state/logs there; otherwise a fresh
 `pi-test-*` directory is retained under TMPDIR. Remove retained directories after
 collecting proof.
 
+The runner does not force `PI_OFFLINE`: network containment must not bypass
+injected fetch/npm/git fixtures. Tests requiring application offline semantics
+set it explicitly; an explicitly supplied `PI_OFFLINE` is preserved. CLI startup
+fixtures use offline mode; version/telemetry tests use injected fetches instead.
+
 Every protected process gets new user/network namespaces with loopback enabled
 but no external interface/route. NET_ADMIN is retained only within those child
 namespaces to bring up their loopback, then dropped before executing tests;
-host interfaces are unchanged. Local HTTP/oracle fixtures, PTY descriptors, process
+host interfaces are unchanged. After loopback bootstrap and capability dropping,
+a nested user/mount namespace creates private `/dev` and devpts/ptmx; no host
+PTY allocator or device permissions are changed. Local HTTP/oracle fixtures, PTY descriptors, process
 groups and parent watchdogs remain usable. The bounded regression uses an outer
 namespace with a forbidden fake at the absolute helper path, real default Pi
-startup/double-Ctrl+C shutdown, and real loopback HTTP across nested guards. It
+startup/double-Ctrl+C shutdown, and real loopback HTTP across nested guards. A separate nested-runner probe
+allocates a private PTY, checks dropped capabilities, helper masking and denied
+external routes without inheriting the startup probe's private devices. It
 never uses the installed helper, even against the old runner.
 
 For protected integration, run the oracle phase as shown above, then invoke Cargo outside the runtime guard; its compiled tests enter the mandatory Cargo runner. Oracle configs/dynamic fixtures use private `TMPDIR`, not writable checkout paths. `run-tests.sh all` remains an unwrapped composite entrypoint, not a supported way to run Cargo inside this guard.
