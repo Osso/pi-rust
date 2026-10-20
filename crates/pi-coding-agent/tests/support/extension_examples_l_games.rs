@@ -14,6 +14,9 @@ use std::time::Duration;
 type Trace = Arc<Mutex<Vec<Value>>>;
 struct Backend(Trace);
 impl ExtensionUiTuiBackend for Backend {
+    fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
+        panic!("this component fixture must not construct an editor")
+    }
     fn request_render(&self) {
         self.0.lock().unwrap().push(json!(["requestRender"]));
     }

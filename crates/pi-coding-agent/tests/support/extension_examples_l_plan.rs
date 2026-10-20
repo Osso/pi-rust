@@ -20,6 +20,9 @@ struct Ui {
 }
 struct Backend;
 impl ExtensionUiTuiBackend for Backend {
+    fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
+        panic!("this component fixture must not construct an editor")
+    }
     fn request_render(&self) {}
     fn terminal_rows(&self) -> usize {
         40

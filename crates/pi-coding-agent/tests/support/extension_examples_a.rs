@@ -29,6 +29,9 @@ struct CaptureUi {
 }
 struct Terminal(Trace);
 impl ExtensionUiTuiBackend for Terminal {
+    fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
+        panic!("this component fixture must not construct an editor")
+    }
     fn request_render(&self) {
         self.0.lock().unwrap().push(json!(["requestRender"]));
     }
