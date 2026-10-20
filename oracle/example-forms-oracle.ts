@@ -33,7 +33,9 @@ runOracle(async (api, request) => {
  const result = await tool.execute("fixture", request.params, undefined, undefined, ctx);
  const renderCall = tool.renderCall(request.params, theme, {}).render(request.callWidth ?? 80);
  const renderResult = tool.renderResult(result, {}, theme, {}).render(request.callWidth ?? 80);
- const fallback = tool.renderResult({content:[{type:"text",text:"fallback"}]}, {}, theme, {}).render(80);
+ const renderToolResult = (result: any) => tool.renderResult(result, {}, theme, {}).render(request.callWidth ?? 80);
+ const fallback = [[], [{type:"image",data:"AA==",mimeType:"image/png"}], [{type:"text",text:"fallback"}]].map(content => renderToolResult({content}));
+ const extraResults = (request.renderCases ?? []).map(renderToolResult);
  const metadata = {name:tool.name,label:tool.label,description:tool.description,parameters:tool.parameters,executionMode:tool.executionMode ?? null};
  function wellFormed(value: any): any {
   if(typeof value === "string") return value.toWellFormed();
@@ -41,5 +43,5 @@ runOracle(async (api, request) => {
   if(value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,wellFormed(v)]));
   return value;
  }
- return wellFormed({metadata,result,renders,renderCall,renderResult,fallback});
+ return wellFormed({metadata,result,renders,renderCall,renderResult,fallback,extraResults});
 }).catch(error => {console.error(error);process.exitCode=1;});

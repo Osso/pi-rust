@@ -17,7 +17,7 @@ async fn question_all_branches_keys_editor_renderers_and_widths_match() {
     ];
     for width in [1, 2, 7, 24, 80] {
         for keys in &scripts {
-            harness::compare("question",example::question_extension,json!({"params":params,"widths":[width,40],"steps":keys.iter().map(|key|json!({"input":if width <= 2 { key.replace("🚀", "text") } else { (*key).to_owned() }})).collect::<Vec<_>>()})).await;
+            harness::compare("question",example::question_extension,json!({"params":params,"widths":[width,40],"callWidth":width,"steps":keys.iter().map(|key|json!({"input":if width <= 2 { key.replace("🚀", "text") } else { (*key).to_owned() }})).collect::<Vec<_>>()})).await;
         }
     }
     for params in [params.clone(), json!({"question":"empty","options":[]})] {
@@ -36,4 +36,6 @@ async fn question_all_branches_keys_editor_renderers_and_widths_match() {
     .await;
     let result=harness::compare("question",example::question_extension,json!({"params":params,"widths":[30],"steps":[{"input":"\x1b[B"},{"input":"\x1b[B"},{"input":"\r"},{"inputUnits":[55296]},{"invalidate":true},{"input":"\r"}]})).await;
     assert_eq!(result["result"]["details"]["answer"], "\u{fffd}");
+    harness::compare("question", example::question_extension, json!({"params":params,"widths":[24],"steps":[{"input":"\r"}],"renderCases":[{"content":[],"details":{"question":"lookup","options":["A"],"answer":"missing","wasCustom":false}}]})).await;
+    harness::compare("question", example::question_extension, json!({"params":params,"widths":[1],"steps":[{"input":"\x1b[B"},{"input":"\x1b[B"},{"input":"\r"},{"input":"🚀"}],"sourceError":{"name":"RangeError","message":"Maximum call stack size exceeded"}})).await;
 }

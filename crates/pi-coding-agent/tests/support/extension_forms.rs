@@ -139,6 +139,16 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
             ))
             .collect::<Map<_, _>>()
     );
+    if let Some(expected_error) = request.get("sourceError") {
+        let mut oracle = oracle::TsOracle::spawn(
+            "example-forms-oracle.ts",
+            &format!("packages/coding-agent/examples/extensions/{name}.ts"),
+        );
+        let response = oracle.request(&request);
+        assert_eq!(response["ok"], false, "{response}");
+        assert_eq!(&response["error"], expected_error);
+        return response;
+    }
     let theme = Arc::new(Theme::new(&colors, &colors, ColorMode::Truecolor, None, None).unwrap());
     let runtime = create_extension_runtime();
     let extension = load_extension_from_factory(
@@ -195,13 +205,32 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     let render_result = output
         .borrow_mut()
         .render(request["callWidth"].as_u64().unwrap_or(80) as usize);
-    let mut fallback_result = pi_agent_core::AgentToolResult::text("fallback");
-    fallback_result.details = None;
-    let fallback = tool.render_result.as_ref().unwrap()(&fallback_result, &opts, &theme, &render_context)
-        .unwrap()
-        .borrow_mut()
-        .render(80);
-    let actual = json!({"metadata":{"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"executionMode":tool.execution_mode.map(|mode| mode.as_str())},"result":result,"renders":*ui.renders.lock().unwrap(),"renderCall":render_call,"renderResult":render_result,"fallback":fallback});
+    let render_tool_result = |result| {
+        tool.render_result.as_ref().unwrap()(result, &opts, &theme, &render_context)
+            .unwrap()
+            .borrow_mut()
+            .render(request["callWidth"].as_u64().unwrap_or(80) as usize)
+    };
+    let fallback = [
+        json!([]),
+        json!([{"type":"image","data":"AA==","mimeType":"image/png"}]),
+        json!([{"type":"text","text":"fallback"}]),
+    ]
+    .into_iter()
+    .map(|content| {
+        let mut result = pi_agent_core::AgentToolResult::text("");
+        result.details = None;
+        result.content = serde_json::from_value(content).unwrap();
+        render_tool_result(&result)
+    })
+    .collect::<Vec<_>>();
+    let extra_results = request["renderCases"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|case| render_tool_result(&serde_json::from_value(case.clone()).unwrap()))
+        .collect::<Vec<_>>();
+    let actual = json!({"metadata":{"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"executionMode":tool.execution_mode.map(|mode| mode.as_str())},"result":result,"renders":*ui.renders.lock().unwrap(),"renderCall":render_call,"renderResult":render_result,"fallback":fallback,"extraResults":extra_results});
     let mut oracle = oracle::TsOracle::spawn(
         "example-forms-oracle.ts",
         &format!("packages/coding-agent/examples/extensions/{name}.ts"),
