@@ -19,7 +19,6 @@ use pi_tui::tui::{Component, ComponentRef, Focusable, TuiExt};
 
 use crate::cli::startup_ui::{clear_startup_tui, create_startup_tui, start_startup_tui};
 use crate::core::keybindings::KeybindingsManager;
-use crate::core::session_control_db::list_named_sessions;
 use crate::core::session_manager::SessionInfo;
 use crate::core::settings_manager::SettingsManager;
 use crate::modes::interactive::components::session_selector::{SessionListLoader, SessionSelectorComponent};
@@ -38,12 +37,10 @@ pub trait SessionLoader {
     ) -> SessionListFuture<'a, Result<Vec<SessionInfo>, String>>;
 }
 
-/// `loadSessionsWithControlNames`: filter by archive flag, merge control-db
-/// names, and order named sessions first (for the non-archived list) then by
-/// modification time descending.
-pub async fn load_sessions_with_control_names<'a>(
+/// `loadSessions`: filter by archive flag and order named sessions first (for
+/// the non-archived list) then by modification time descending.
+pub async fn load_sessions<'a>(
     loader: &'a dyn SessionLoader,
-    control_db_path: Option<&'a str>,
     on_progress: Option<SessionListProgress<'a>>,
     archived: bool,
 ) -> Result<Vec<SessionInfo>, String> {
@@ -52,19 +49,9 @@ pub async fn load_sessions_with_control_names<'a>(
         .into_iter()
         .filter(|session| session.is_archived.unwrap_or(false) == archived)
         .collect();
-    let Some(control_db_path) = control_db_path else {
-        return Ok(filtered_sessions);
-    };
-
-    let names = named_sessions_by_path(control_db_path)?;
-    for session in &mut filtered_sessions {
-        if let Some(name) = names.get(&session.path) {
-            session.name = Some(name.clone());
-        }
-    }
     filtered_sessions.sort_by(|left, right| {
-        let left_named = names.contains_key(&left.path);
-        let right_named = names.contains_key(&right.path);
+        let left_named = is_named(left);
+        let right_named = is_named(right);
         if !archived && left_named != right_named {
             return if left_named {
                 std::cmp::Ordering::Less
@@ -77,12 +64,11 @@ pub async fn load_sessions_with_control_names<'a>(
     Ok(filtered_sessions)
 }
 
-fn named_sessions_by_path(control_db_path: &str) -> Result<std::collections::HashMap<String, String>, String> {
-    let mut names = std::collections::HashMap::new();
-    for session in list_named_sessions(control_db_path).map_err(|error| error.to_string())? {
-        names.insert(session.session_path, session.name);
-    }
-    Ok(names)
+fn is_named(session: &SessionInfo) -> bool {
+    session
+        .name
+        .as_deref()
+        .is_some_and(|name| !pi_js_compat::string::js_trim(name).is_empty())
 }
 
 /// Outcome of [`select_session`].
@@ -207,8 +193,8 @@ pub async fn select_session(
 
     let control_db_path = options.control_db_path.map(str::to_owned);
     let mut selector = SessionSelectorComponent::new(
-        session_list_loader(current_sessions_loader, control_db_path.clone(), false),
-        session_list_loader(all_sessions_loader, control_db_path.clone(), false),
+        session_list_loader(current_sessions_loader, false),
+        session_list_loader(all_sessions_loader, false),
         on_select,
         on_cancel,
         on_exit,
@@ -219,7 +205,7 @@ pub async fn select_session(
         control_db_path.clone(),
         options
             .archived_sessions_loader
-            .map(|loader| session_list_loader(loader, control_db_path, true)),
+            .map(|loader| session_list_loader(loader, true)),
         None,
     );
     selector.load_current_sessions().await;
@@ -266,18 +252,13 @@ pub async fn select_session(
     Ok(outcome)
 }
 
-fn session_list_loader(
-    loader: Arc<dyn SessionLoader>,
-    control_db_path: Option<String>,
-    archived: bool,
-) -> SessionListLoader {
+fn session_list_loader(loader: Arc<dyn SessionLoader>, archived: bool) -> SessionListLoader {
     Rc::new(move |on_progress| {
         let loader = Arc::clone(&loader);
-        let control_db_path = control_db_path.clone();
         Box::pin(async move {
             let mut progress = on_progress.map(|callback| move |loaded, total| callback(loaded, total));
             let progress = progress.as_mut().map(|callback| callback as SessionListProgress<'_>);
-            load_sessions_with_control_names(loader.as_ref(), control_db_path.as_deref(), progress, archived).await
+            load_sessions(loader.as_ref(), progress, archived).await
         })
     })
 }

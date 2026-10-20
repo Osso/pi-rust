@@ -86,6 +86,12 @@ impl Fixture {
         .expect("current session");
         materialize(&mut current);
         let control_db_path = get_control_db_path(temp_dir.path());
+        current
+            .set_metadata_control_db_path(
+                Some(&control_db_path),
+                pi_coding_agent::core::session_manager::SetMetadataControlDbPathOptions::default(),
+            )
+            .expect("attach control db");
         Self {
             _temp_dir: temp_dir,
             session_dir,
@@ -166,8 +172,8 @@ async fn rejects_resuming_the_current_session_by_path_id_or_name() {
     let mut fixture = Fixture::new();
     fixture
         .current
-        .append_session_info("current session")
-        .expect("append name");
+        .set_session_name(Some("current session"))
+        .expect("set name");
     let session_path = fixture
         .current
         .get_session_file()
@@ -197,7 +203,7 @@ async fn resolves_target_sessions_by_id_and_name() {
             serde_json::from_value(json!({ "role": "user", "content": "target", "timestamp": 1 })).expect("message"),
         )
         .expect("append");
-    target.append_session_info("named target").expect("name");
+    target.set_session_name(Some("named target")).expect("name");
     let target_path = target.get_session_file().expect("target file").to_owned();
 
     let recorder = SwitchRecorder::new(false);
@@ -262,9 +268,9 @@ async fn rejects_ambiguous_named_targets() {
     let first_cwd = fixture._temp_dir.path().join("first").display().to_string();
     let second_cwd = fixture._temp_dir.path().join("second").display().to_string();
     let mut first = fixture.target(&first_cwd, "first-session");
-    first.append_session_info("duplicate target").expect("name");
+    first.set_session_name(Some("duplicate target")).expect("name");
     let mut second = fixture.target(&second_cwd, "second-session");
-    second.append_session_info("duplicate target").expect("name");
+    second.set_session_name(Some("duplicate target")).expect("name");
 
     let error = execute(
         fixture.context(Some(SwitchRecorder::new(false)), None).await,

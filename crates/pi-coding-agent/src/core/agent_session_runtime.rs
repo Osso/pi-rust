@@ -730,9 +730,7 @@ impl AgentSessionRuntime {
             },
         )
         .map_err(|error| error.to_string())?;
-        if resolved_destination != resolved {
-            copy_imported_session(&resolved, &destination_path)?;
-        }
+        self.copy_imported_session(&resolved, &destination_path, &resolved_destination)?;
         let session_manager = SessionManager::open(&destination_path, Some(&session_dir), cwd_override)
             .map_err(|error| error.to_string())?;
         assert_session_cwd_exists(&session_manager, self.cwd()).map_err(|error| error.to_string())?;
@@ -748,6 +746,25 @@ impl AgentSessionRuntime {
         self.apply(result);
         self.finish_session_replacement(None).await;
         Ok(SessionTransitionResult { cancelled: false })
+    }
+
+    /// `copyImportedSession`: copy the imported file and drop any metadata
+    /// that the destination path inherited from an earlier session.
+    fn copy_imported_session(&self, source: &str, destination: &str, resolved_destination: &str) -> Result<(), String> {
+        if resolved_destination == source {
+            return Ok(());
+        }
+        copy_imported_session(source, destination)?;
+        let control_db_path = self
+            .session
+            .session_manager()
+            .get_metadata_control_db_path()
+            .map(str::to_owned);
+        if let Some(control_db_path) = control_db_path {
+            crate::core::session_control_db::remove_session_metadata(&control_db_path, destination)
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
     }
 
     /// Disposes the runtime and its session.

@@ -25,9 +25,10 @@ use crate::config::{get_agent_dir, get_sessions_dir};
 use crate::core::permissions::presets::SandboxProfileName;
 use crate::core::session_control_db::{
     SessionMetadata, WritableSessionMetadata, clear_session_sandbox_profile, list_active_session_metadata,
-    list_archived_session_metadata, list_session_metadata, read_session_goal, read_session_metadata,
-    read_session_sandbox_profile, write_session_goal, write_session_metadata, write_session_model,
-    write_session_sandbox_profile, write_session_thinking_level,
+    list_archived_session_metadata, list_session_metadata, normalize_session_name, read_session_goal,
+    read_session_metadata, read_session_name_state, read_session_sandbox_profile, write_session_goal,
+    write_session_metadata, write_session_model, write_session_name, write_session_sandbox_profile,
+    write_session_thinking_level,
 };
 use crate::core::session_tool_output::serialize_session_entry_for_persistence;
 use crate::utils::iso_time;
@@ -1571,7 +1572,6 @@ struct SessionInfoAccumulator {
     message_count: usize,
     first_message: String,
     all_messages_text: String,
-    name: Option<String>,
     last_activity_time: Option<i64>,
 }
 
@@ -1659,18 +1659,10 @@ fn message_activity_time(entry: &SessionMessageEntry) -> Option<i64> {
 
 /// `affectsSessionInfo`: entries whose append refreshes control-db metadata.
 fn affects_session_info(entry: &SessionEntry) -> bool {
-    matches!(entry.entry_type(), "message" | "session_info")
+    entry.entry_type() == "message"
 }
 
 fn apply_session_info_entry(accumulator: &mut SessionInfoAccumulator, entry: &SessionEntry) {
-    if let Some(info) = entry.as_session_info() {
-        accumulator.name = info
-            .name
-            .as_deref()
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .map(str::to_owned);
-    }
     let Some(message_entry) = entry.as_message() else {
         return;
     };
@@ -1715,7 +1707,7 @@ fn finish_session_info(
         path: file_path.to_owned(),
         id: header.id.clone(),
         cwd,
-        name: accumulator.name,
+        name: None,
         is_archived: None,
         parent_session_path: header.parent_session.clone(),
         created: header_time.unwrap_or(0),
@@ -2115,6 +2107,8 @@ pub struct SessionManager {
     metadata_control_db_path: Option<String>,
     index_message_text: bool,
     in_memory_goal_json: Option<String>,
+    session_name: Option<String>,
+    has_stored_session_name: bool,
 }
 
 impl crate::core::multi_agent_store::SessionPersistence for SessionManager {
@@ -2152,6 +2146,8 @@ impl SessionManager {
             metadata_control_db_path: None,
             index_message_text: true,
             in_memory_goal_json: None,
+            session_name: None,
+            has_stored_session_name: false,
         };
         if persist && !manager.session_dir.is_empty() && !Path::new(&manager.session_dir).exists() {
             fs::create_dir_all(&manager.session_dir).map_err(|error| SessionManagerError::new(error.to_string()))?;
@@ -2274,11 +2270,13 @@ impl SessionManager {
     /// Switch to a different session file (resume and branching).
     pub fn set_session_file(&mut self, session_file: &str) -> Result<(), SessionManagerError> {
         self.session_file = Some(resolve(session_file)?);
+        self.reset_session_name_state();
         let Some(current) = self.session_file.clone() else {
             return Ok(());
         };
         if Path::new(&current).exists() {
             self.load_existing_session_file(&current)?;
+            self.restore_persisted_metadata()?;
         } else {
             let explicit_path = self.session_file.clone();
             self.new_session(None)?;
@@ -2337,6 +2335,7 @@ impl SessionManager {
             .subagent_name
             .map(|name| name.trim().to_owned())
             .filter(|name| !name.is_empty());
+        self.reset_session_name_state();
         let timestamp = iso_time::now_iso_string();
         let header = SessionHeader {
             header_type: HeaderTag::Session,
@@ -2671,7 +2670,12 @@ impl SessionManager {
         let Some((control_db_path, session_file)) = self.metadata_target() else {
             return Ok(());
         };
-        let Some(metadata) = read_session_metadata(control_db_path, session_file).map_err(control_db_error)? else {
+        let control_db_path = control_db_path.to_owned();
+        let session_file = session_file.to_owned();
+        let name_state = read_session_name_state(&control_db_path, &session_file).map_err(control_db_error)?;
+        self.session_name = name_state.name;
+        self.has_stored_session_name = name_state.has_stored_value;
+        let Some(metadata) = read_session_metadata(&control_db_path, &session_file).map_err(control_db_error)? else {
             return Ok(());
         };
         self.cwd = resolve(&metadata.cwd)?;
@@ -2681,6 +2685,34 @@ impl SessionManager {
         self.is_subagent = true;
         self.subagent_name = metadata.subagent_name;
         Ok(())
+    }
+
+    fn reset_session_name_state(&mut self) {
+        self.session_name = None;
+        self.has_stored_session_name = false;
+    }
+
+    /// `setSessionName`: set or clear the display name.
+    pub fn set_session_name(&mut self, name: Option<&str>) -> Result<(), SessionManagerError> {
+        self.session_name = normalize_session_name(name);
+        self.has_stored_session_name = true;
+        let Some((control_db_path, session_file)) = self.metadata_target() else {
+            return Ok(());
+        };
+        let control_db_path = control_db_path.to_owned();
+        let session_file = session_file.to_owned();
+        self.write_metadata_snapshot()?;
+        write_session_name(&control_db_path, &session_file, self.session_name.as_deref()).map_err(control_db_error)
+    }
+
+    /// `getSessionName`.
+    pub fn get_session_name(&self) -> Option<String> {
+        self.session_name.clone()
+    }
+
+    /// `hasSessionNameState`: whether a name was ever stored (including an explicit clear).
+    pub fn has_session_name_state(&self) -> bool {
+        self.has_stored_session_name
     }
 
     fn write_metadata_snapshot(&self) -> Result<(), SessionManagerError> {
@@ -2701,7 +2733,7 @@ impl SessionManager {
             session_path: info.path,
             id: info.id,
             cwd: self.cwd.clone(),
-            name: info.name,
+            name: None,
             parent_session_path: info.parent_session_path,
             archived_at: None,
             is_archived: info.is_archived,
@@ -2944,27 +2976,6 @@ impl SessionManager {
         self.append_entry(entry)
     }
 
-    pub fn append_session_info(&mut self, name: &str) -> Result<String, SessionManagerError> {
-        let sanitized = sanitize_session_name(name);
-        let entry = SessionEntry::Known(KnownSessionEntry::SessionInfo(SessionInfoEntry {
-            id: generate_id(&self.by_id),
-            parent_id: self.leaf_id.clone(),
-            timestamp: self.timestamp(),
-            name: Some(sanitized),
-        }));
-        self.append_entry(entry)
-    }
-
-    pub fn get_session_name(&self) -> Option<String> {
-        self.get_entries()
-            .iter()
-            .rev()
-            .find_map(|entry| entry.as_session_info())
-            .and_then(|info| info.name.as_deref().map(str::trim))
-            .filter(|name| !name.is_empty())
-            .map(str::to_owned)
-    }
-
     pub fn append_custom_message_entry(
         &mut self,
         custom_type: &str,
@@ -3167,6 +3178,7 @@ impl SessionManager {
         file_entries.extend(label_entries.into_iter().map(FileEntry::Entry));
         self.file_entries = file_entries;
         self.session_id = new_session_id;
+        self.reset_session_name_state();
         self.build_index();
     }
 
@@ -3418,21 +3430,4 @@ fn cache_session_metadata(control_db_path: Option<&str>, sessions: &[SessionInfo
 fn uses_default_session_dir_for(cwd: &str, dir: &str) -> bool {
     let agent_dir = get_agent_dir().display().to_string();
     get_default_session_dir_path(cwd, &agent_dir).is_ok_and(|path| path == dir)
-}
-
-fn sanitize_session_name(name: &str) -> String {
-    let mut result = String::new();
-    let mut pending_space = false;
-    for character in name.chars() {
-        if character == '\r' || character == '\n' {
-            pending_space = true;
-            continue;
-        }
-        if pending_space {
-            result.push(' ');
-            pending_space = false;
-        }
-        result.push(character);
-    }
-    result.trim().to_owned()
 }

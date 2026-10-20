@@ -565,7 +565,9 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             if name.is_empty() {
                 return Err("Session name cannot be empty".to_owned());
             }
-            session.set_session_name(name);
+            session
+                .set_session_name(name)
+                .map_err(|failure| failure.message().to_owned())?;
             Ok(Some(RpcResponse::success(id, "set_session_name")))
         }
         RpcCommandBody::GetMessages => Ok(Some(RpcResponse::success_with_data(

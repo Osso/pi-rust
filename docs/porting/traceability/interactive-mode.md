@@ -255,3 +255,11 @@ MessageEnd placement (regular and fullscreen), notify-based child transcript
 reloads, and the extension autocomplete/editor factories.
 `main_interactive` drives `/share` dispatch through the real binary under a
 pty with a fake `gh` on `PATH`.
+
+## v15 name paths (approved 2026-10-20)
+
+`c248b0067` name-only changes: selector ordering uses each loaded metadata-backed `SessionInfo.name`,
+non-current rename calls `write_session_name` directly without opening/appending JSONL, and
+`/name`/`/unname` use the fallible shared-manager name methods. Tests: picker ordering cases,
+`agent_session` name-state event case, RPC metadata-only name process test. Other interactive
+shutdown/crash changes remain outside this slice.

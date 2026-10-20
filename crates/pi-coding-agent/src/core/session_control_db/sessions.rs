@@ -18,10 +18,34 @@ pub struct LastControlMessage {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NamedSession {
-    pub session_path: String,
-    pub name: String,
-    pub updated_at: String,
+pub struct SessionNameState {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub has_stored_value: bool,
+}
+
+/// `normalizeSessionName`: collapse line breaks, trim, and treat empty as unset.
+pub fn normalize_session_name(name: Option<&str>) -> Option<String> {
+    let normalized = collapse_session_name_line_breaks(name?);
+    let trimmed = pi_js_compat::string::js_trim(&normalized);
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+fn collapse_session_name_line_breaks(name: &str) -> String {
+    let mut result = String::new();
+    let mut pending_space = false;
+    for character in name.chars() {
+        if character == '\r' || character == '\n' {
+            pending_space = true;
+            continue;
+        }
+        if pending_space {
+            result.push(' ');
+            pending_space = false;
+        }
+        result.push(character);
+    }
+    result
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,53 +115,43 @@ pub struct WritableSessionMetadata {
     pub index_message_text: Option<bool>,
 }
 
-/// `setNamedSession`.
-pub fn set_named_session(control_db_path: &str, session_path: &str, name: &str) -> Result<(), ControlDbError> {
-    let trimmed_name = name.trim();
-    if trimmed_name.is_empty() {
-        return remove_named_session(control_db_path, session_path);
-    }
+/// `writeSessionName`.
+pub fn write_session_name(control_db_path: &str, session_path: &str, name: Option<&str>) -> Result<(), ControlDbError> {
+    let stored_name = normalize_session_name(name).unwrap_or_default();
     with_control_db(control_db_path, |db| {
-        let now = crate::utils::iso_time::now_iso_string();
-        db.execute(
-            "
-			INSERT INTO named_sessions (session_path, name, updated_at)
-			VALUES (?, ?, ?)
-			ON CONFLICT(session_path) DO UPDATE SET
-				name = excluded.name,
-				updated_at = excluded.updated_at
-			",
-            params![session_path, trimmed_name, now],
+        let changed = db.execute(
+            "UPDATE session_metadata SET name = ?, updated_at = ? WHERE session_path = ?",
+            params![stored_name, crate::utils::iso_time::now_iso_string(), session_path],
         )?;
-        db.execute(
-            "
-			UPDATE session_metadata
-			SET name = ?, updated_at = ?
-			WHERE session_path = ?
-			",
-            params![trimmed_name, now, session_path],
-        )?;
+        if changed != 1 {
+            return Err(ControlDbError::new(format!(
+                "Cannot update session name without metadata for {session_path}"
+            )));
+        }
         Ok(())
     })
 }
 
-/// `removeNamedSession`.
-pub fn remove_named_session(control_db_path: &str, session_path: &str) -> Result<(), ControlDbError> {
+/// `readSessionNameState`.
+pub fn read_session_name_state(control_db_path: &str, session_path: &str) -> Result<SessionNameState, ControlDbError> {
     with_control_db(control_db_path, |db| {
-        let now = crate::utils::iso_time::now_iso_string();
-        db.execute(
-            "DELETE FROM named_sessions WHERE session_path = ?",
-            params![session_path],
-        )?;
-        db.execute(
-            "
-			UPDATE session_metadata
-			SET name = NULL, updated_at = ?
-			WHERE session_path = ?
-			",
-            params![now, session_path],
-        )?;
-        Ok(())
+        let row: Option<Option<String>> = db
+            .query_row(
+                "SELECT name FROM session_metadata WHERE session_path = ?",
+                params![session_path],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?;
+        match row {
+            None | Some(None) => Ok(SessionNameState {
+                name: None,
+                has_stored_value: false,
+            }),
+            Some(Some(stored)) => Ok(SessionNameState {
+                name: normalize_session_name(Some(&stored)),
+                has_stored_value: true,
+            }),
+        }
     })
 }
 
@@ -145,10 +159,6 @@ pub fn remove_named_session(control_db_path: &str, session_path: &str) -> Result
 pub fn remove_session_metadata(control_db_path: &str, session_path: &str) -> Result<(), ControlDbError> {
     with_control_db(control_db_path, |db| {
         with_immediate_transaction(db, |db| {
-            db.execute(
-                "DELETE FROM named_sessions WHERE session_path = ?",
-                params![session_path],
-            )?;
             db.execute(
                 "DELETE FROM session_sandbox_profiles WHERE session_path = ?",
                 params![session_path],
@@ -159,29 +169,6 @@ pub fn remove_session_metadata(control_db_path: &str, session_path: &str) -> Res
             )?;
             Ok(())
         })
-    })
-}
-
-/// `listNamedSessions`.
-pub fn list_named_sessions(control_db_path: &str) -> Result<Vec<NamedSession>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
-        let mut statement = db.prepare(
-            "
-				SELECT session_path, name, updated_at
-				FROM named_sessions
-				ORDER BY updated_at DESC
-				",
-        )?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok(NamedSession {
-                    session_path: row.get(0)?,
-                    name: row.get(1)?,
-                    updated_at: row.get(2)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(rows)
     })
 }
 
@@ -198,7 +185,6 @@ pub fn relocate_session_control_data(
         let now = crate::utils::iso_time::now_iso_string();
         with_immediate_transaction(db, |db| {
             relocate_session_path_primary_key(db, "session_metadata", old_session_path, new_session_path, &now)?;
-            relocate_session_path_primary_key(db, "named_sessions", old_session_path, new_session_path, &now)?;
             relocate_session_path_primary_key(
                 db,
                 "session_sandbox_profiles",
@@ -393,6 +379,7 @@ fn read_session_metadata_write_values(
     type PreservedSessionMetadataRow = (
         Option<String>,
         Option<String>,
+        Option<String>,
         i64,
         Option<String>,
         Option<String>,
@@ -401,7 +388,7 @@ fn read_session_metadata_write_values(
     );
     let preserved: Option<PreservedSessionMetadataRow> = db
         .query_row(
-            "SELECT archived_at, goal_json, is_subagent, subagent_name, model_provider, model_id, thinking_level
+            "SELECT name, archived_at, goal_json, is_subagent, subagent_name, model_provider, model_id, thinking_level
 			 FROM session_metadata WHERE session_path = ?",
             params![metadata.session_path],
             |row| {
@@ -413,37 +400,38 @@ fn read_session_metadata_write_values(
                     row.get(4)?,
                     row.get(5)?,
                     row.get(6)?,
+                    row.get(7)?,
                 ))
             },
         )
         .optional()?;
-    let preserved_is_subagent = preserved.as_ref().is_some_and(|values| values.2 == 1);
+    let preserved_is_subagent = preserved.as_ref().is_some_and(|values| values.3 == 1);
     Ok(SessionMetadataWriteValues {
-        name: metadata
-            .name
-            .clone()
-            .or_else(|| read_named_session_name(db, &metadata.session_path).ok().flatten()),
+        name: match metadata.name.as_deref() {
+            Some(name) => Some(normalize_session_name(Some(name)).unwrap_or_default()),
+            None => preserved.as_ref().and_then(|values| values.0.clone()),
+        },
         archived_at: metadata
             .archived_at
             .clone()
-            .or_else(|| preserved.as_ref().and_then(|values| values.0.clone())),
+            .or_else(|| preserved.as_ref().and_then(|values| values.1.clone())),
         is_subagent: metadata.is_subagent.unwrap_or(preserved_is_subagent),
         subagent_name: metadata
             .subagent_name
             .clone()
-            .or_else(|| preserved.as_ref().and_then(|values| values.3.clone())),
+            .or_else(|| preserved.as_ref().and_then(|values| values.4.clone())),
         model_provider: metadata
             .model_provider
             .clone()
-            .or_else(|| preserved.as_ref().and_then(|values| values.4.clone())),
+            .or_else(|| preserved.as_ref().and_then(|values| values.5.clone())),
         model_id: metadata
             .model_id
             .clone()
-            .or_else(|| preserved.as_ref().and_then(|values| values.5.clone())),
+            .or_else(|| preserved.as_ref().and_then(|values| values.6.clone())),
         thinking_level: metadata
             .thinking_level
             .clone()
-            .or_else(|| preserved.as_ref().and_then(|values| values.6.clone())),
+            .or_else(|| preserved.as_ref().and_then(|values| values.7.clone())),
     })
 }
 
@@ -664,17 +652,6 @@ pub fn read_session_goal(control_db_path: &str, session_path: &str) -> Result<Op
     })
 }
 
-fn read_named_session_name(db: &Connection, session_path: &str) -> Result<Option<String>, ControlDbError> {
-    Ok(db
-        .query_row(
-            "SELECT name FROM named_sessions WHERE session_path = ?",
-            params![session_path],
-            |row| row.get::<_, Option<String>>(0),
-        )
-        .optional()?
-        .flatten())
-}
-
 type SessionMetadataRow = (
     String,
     String,
@@ -724,7 +701,7 @@ fn session_metadata_from_row(row: SessionMetadataRow) -> SessionMetadata {
         session_path: row.0,
         id: row.1,
         cwd: row.2,
-        name: row.3,
+        name: normalize_session_name(row.3.as_deref()),
         parent_session_path: row.4,
         is_archived: Some(row.5.is_some()),
         archived_at: row.5,

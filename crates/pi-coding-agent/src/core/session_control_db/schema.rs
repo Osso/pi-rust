@@ -13,7 +13,10 @@ use super::{
 use crate::core::runtime_process::{is_pi_runtime_process_alive, is_process_identity_alive};
 use pi_js_compat::js_json;
 
-pub const CONTROL_DB_SCHEMA_VERSION: i64 = 14;
+/// Version that carries the multi-agent lifecycle payload migration.
+pub const LIFECYCLE_PROTOCOL_SCHEMA_VERSION: i64 = 14;
+/// Version that makes `session_metadata.name` the only session-name store.
+pub const CONTROL_DB_SCHEMA_VERSION: i64 = 15;
 
 const CREATE_SCHEMA_SQL: &str = "
 		CREATE TABLE IF NOT EXISTS incoming_messages (
@@ -42,12 +45,6 @@ const CREATE_SCHEMA_SQL: &str = "
 			session_path_asserted_at TEXT,
 			updated_at TEXT NOT NULL,
 			PRIMARY KEY (recipient_session_id, recipient_agent_id_key)
-		);
-
-		CREATE TABLE IF NOT EXISTS named_sessions (
-			session_path TEXT PRIMARY KEY,
-			name TEXT NOT NULL,
-			updated_at TEXT NOT NULL
 		);
 
 		CREATE TABLE IF NOT EXISTS prompt_history (
@@ -233,11 +230,12 @@ pub fn initialize_schema(db: &Connection, self_restart_process_id: Option<u32>) 
     assert_supported_control_db_schema_version(db)?;
     db.execute_batch(CREATE_SCHEMA_SQL)?;
     let schema_version = read_user_version(db)?;
-    if schema_version >= CONTROL_DB_SCHEMA_VERSION {
+    if schema_version >= LIFECYCLE_PROTOCOL_SCHEMA_VERSION {
         migrate_legacy_multi_agent_counters(db)?;
     }
     migrate_legacy_multi_agent_payloads(db, self_restart_process_id)?;
     add_missing_session_metadata_columns(db)?;
+    migrate_legacy_session_names(db, self_restart_process_id)?;
     add_missing_runtime_mailbox_listener_columns(db)?;
     add_missing_architect_request_columns(db)?;
     Ok(())
@@ -351,15 +349,21 @@ fn migrate_legacy_multi_agent_payloads(
     db: &Connection,
     self_restart_process_id: Option<u32>,
 ) -> Result<(), ControlDbError> {
-    if read_user_version(db)? >= CONTROL_DB_SCHEMA_VERSION {
+    let target_version = LIFECYCLE_PROTOCOL_SCHEMA_VERSION;
+    if read_user_version(db)? >= target_version {
         return Ok(());
     }
     let migration_state = read_lifecycle_protocol_migration_state(db)?;
-    assert_lifecycle_protocol_migration_quiescent(&migration_state, self_restart_process_id)?;
+    assert_control_db_migration_quiescent(
+        &migration_state,
+        self_restart_process_id,
+        "lifecycle protocol",
+        target_version,
+    )?;
     let migration_timestamp = crate::utils::iso_time::now_iso_string();
 
     with_immediate_transaction(db, |db| {
-        if read_user_version(db)? >= CONTROL_DB_SCHEMA_VERSION {
+        if read_user_version(db)? >= target_version {
             return Ok(());
         }
         let current_state = read_lifecycle_protocol_migration_state(db)?;
@@ -384,9 +388,67 @@ fn migrate_legacy_multi_agent_payloads(
         )?;
         migrate_legacy_runtime_mailbox_messages(db, &migration_timestamp)?;
         create_legacy_artifact_field_triggers(db)?;
-        db.execute_batch(&format!("PRAGMA user_version = {CONTROL_DB_SCHEMA_VERSION}"))?;
+        db.execute_batch(&format!("PRAGMA user_version = {target_version}"))?;
         Ok(())
     })
+}
+
+/// `migrateLegacySessionNames`.
+fn migrate_legacy_session_names(db: &Connection, self_restart_process_id: Option<u32>) -> Result<(), ControlDbError> {
+    let target_version = CONTROL_DB_SCHEMA_VERSION;
+    if read_user_version(db)? >= target_version {
+        return Ok(());
+    }
+    let migration_state = read_lifecycle_protocol_migration_state(db)?;
+    assert_control_db_migration_quiescent(
+        &migration_state,
+        self_restart_process_id,
+        "session name schema",
+        target_version,
+    )?;
+
+    with_immediate_transaction(db, |db| {
+        if read_user_version(db)? >= target_version {
+            return Ok(());
+        }
+        let current_state = read_lifecycle_protocol_migration_state(db)?;
+        if migration_state != current_state {
+            return Err(ControlDbError::new(
+                "Session name migration state changed while acquiring the writer lock; retry",
+            ));
+        }
+        assert_control_db_migration_quiescent(
+            &current_state,
+            self_restart_process_id,
+            "session name schema",
+            target_version,
+        )?;
+        move_legacy_session_names_into_metadata(db)?;
+        db.execute_batch(&format!("PRAGMA user_version = {target_version}"))?;
+        Ok(())
+    })
+}
+
+/// `moveLegacySessionNamesIntoMetadata`.
+fn move_legacy_session_names_into_metadata(db: &Connection) -> Result<(), ControlDbError> {
+    if !table_exists(db, "named_sessions")? {
+        return Ok(());
+    }
+    let mut statement = db.prepare("SELECT session_path, name FROM named_sessions")?;
+    let legacy_rows = statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (session_path, name) in legacy_rows {
+        db.execute(
+            "UPDATE session_metadata SET name = ? WHERE session_path = ?",
+            params![
+                super::sessions::normalize_session_name(Some(&name)).unwrap_or_default(),
+                session_path
+            ],
+        )?;
+    }
+    db.execute_batch("DROP TABLE named_sessions")?;
+    Ok(())
 }
 
 fn read_lifecycle_protocol_migration_state(db: &Connection) -> Result<LifecycleProtocolMigrationState, ControlDbError> {
@@ -434,9 +496,11 @@ fn read_lifecycle_migration_owner_table_state(
     })
 }
 
-fn assert_lifecycle_protocol_migration_quiescent(
+fn assert_control_db_migration_quiescent(
     state: &LifecycleProtocolMigrationState,
     self_restart_process_id: Option<u32>,
+    migration_name: &str,
+    target_version: i64,
 ) -> Result<(), ControlDbError> {
     let mut live_runtime_pids: Vec<u32> = state
         .runtime_pids
@@ -466,7 +530,7 @@ fn assert_lifecycle_protocol_migration_quiescent(
         .collect::<Vec<_>>()
         .join(", ");
     Err(ControlDbError::new(format!(
-        "Cannot activate lifecycle protocol version {CONTROL_DB_SCHEMA_VERSION} while lifecycle owners are active (PIDs: {pids}). Stop all Pi and detached runner processes, then retry"
+        "Cannot activate {migration_name} version {target_version} while lifecycle owners are active (PIDs: {pids}). Stop all Pi and detached runner processes, then retry"
     )))
 }
 
@@ -1017,6 +1081,9 @@ fn add_missing_runtime_mailbox_listener_columns(db: &Connection) -> Result<(), C
 
 fn add_missing_session_metadata_columns(db: &Connection) -> Result<(), ControlDbError> {
     let columns = table_columns(db, "session_metadata")?;
+    if !columns.contains("name") {
+        db.execute_batch("ALTER TABLE session_metadata ADD COLUMN name TEXT")?;
+    }
     if !columns.contains("archived_at") {
         db.execute_batch("ALTER TABLE session_metadata ADD COLUMN archived_at TEXT")?;
     }

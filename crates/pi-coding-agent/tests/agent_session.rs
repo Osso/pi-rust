@@ -520,17 +520,24 @@ async fn set_model_updates_state_for_authenticated_model() {
 }
 
 #[tokio::test]
-async fn session_name_round_trips_through_session_info() {
+async fn session_name_round_trips_through_session_metadata_state() {
     let fixture = fixture().await;
     let events = record_events(&fixture.session);
-    fixture.session.set_session_name("My session");
+    fixture.session.set_session_name("My session").expect("set name");
     assert_eq!(fixture.session.session_name().as_deref(), Some("My session"));
-    assert_eq!(
-        fixture.session.session_manager().get_entries()[0].entry_type(),
-        "session_info"
+    assert!(
+        fixture
+            .session
+            .session_manager()
+            .get_entries()
+            .iter()
+            .all(|entry| entry.entry_type() != "session_info"),
+        "session names never write session_info entries"
     );
-    fixture.session.clear_session_name();
+    assert!(fixture.session.session_manager().has_session_name_state());
+    fixture.session.clear_session_name().expect("clear name");
     assert_eq!(fixture.session.session_name(), None);
+    assert!(fixture.session.session_manager().has_session_name_state());
     assert_eq!(
         event_types(&events),
         vec!["session_info_changed", "session_info_changed"]

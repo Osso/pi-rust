@@ -1,6 +1,6 @@
 //! Cross-implementation proof for the shared control database.
 //!
-//! The pinned TypeScript module and the Rust port operate on the same temporary
+//! Authorized c248b0067 TypeScript (docs/porting/session-name-source-lock.json) and the Rust port operate on the same temporary
 //! `control.sqlite` file. Neither side may normalize the other's rows: reads are
 //! compared as source-ordered JSON.
 
@@ -10,9 +10,9 @@ mod oracle;
 use std::thread;
 
 use pi_coding_agent::core::session_control_db::{
-    PostSharedChannelMessageInput, RuntimeMailboxAddress, WritableSessionMetadata, list_named_sessions,
-    list_shared_channel_messages_after, read_prompt_history, read_session_health, read_session_metadata,
-    set_named_session, write_session_metadata,
+    PostSharedChannelMessageInput, RuntimeMailboxAddress, WritableSessionMetadata, list_shared_channel_messages_after,
+    read_prompt_history, read_session_health, read_session_metadata, read_session_name_state, write_session_metadata,
+    write_session_name,
 };
 use pi_js_compat::js_json;
 use serde_json::{Value, json};
@@ -64,7 +64,7 @@ fn oracle_call(oracle: &mut oracle::TsOracle, id: u64, steps: Vec<Value>) -> Vec
 #[test]
 fn typescript_writes_are_readable_by_rust() {
     let (_directory, db) = temp_db();
-    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
     let metadata = json!({
         "sessionPath": "/sessions/ts.jsonl",
         "id": "ts-session",
@@ -85,7 +85,7 @@ fn typescript_writes_are_readable_by_rust() {
         1,
         vec![
             json!({"op": "call", "args": ["writeSessionMetadata", [db.clone(), metadata]]}),
-            json!({"op": "call", "args": ["setNamedSession", [db.clone(), "/sessions/ts.jsonl", "TS Name"]]}),
+            json!({"op": "call", "args": ["writeSessionName", [db.clone(), "/sessions/ts.jsonl", "TS Name"]]}),
             json!({"op": "call", "args": ["postSharedChannelMessage", [db.clone(), {"sender": {"sessionId": "ts", "agentId": null}, "body": "from typescript"}]]}),
             json!({"op": "call", "args": ["recordPromptHistoryEntry", [db.clone(), "ts prompt"]]}),
             json!({"op": "call", "args": ["writeSessionHealth", [db.clone(), {
@@ -102,6 +102,13 @@ fn typescript_writes_are_readable_by_rust() {
         ],
     );
 
+    let raw = rusqlite::Connection::open(&db).expect("TS-created database");
+    let version: i64 = raw
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("version");
+    assert_eq!(version, 15, "Rust must accept an already-initialized TS v15 database");
+    drop(raw);
+
     let read = read_session_metadata(&db, "/sessions/ts.jsonl")
         .expect("read metadata")
         .expect("metadata");
@@ -109,7 +116,13 @@ fn typescript_writes_are_readable_by_rust() {
     assert_eq!(read.message_count, 3);
     assert_eq!(read.first_message, "ts first");
     assert_eq!(read.model_provider.as_deref(), Some("anthropic"));
-    assert_eq!(list_named_sessions(&db).expect("names")[0].name, "TS Name");
+    assert_eq!(
+        read_session_name_state(&db, "/sessions/ts.jsonl")
+            .expect("name state")
+            .name
+            .as_deref(),
+        Some("TS Name")
+    );
     let messages = list_shared_channel_messages_after(&db, 0, 20, i64::MAX).expect("channel");
     assert_eq!(messages[0].body, "from typescript");
     assert_eq!(read_prompt_history(&db, 10).expect("history"), vec!["ts prompt"]);
@@ -117,13 +130,20 @@ fn typescript_writes_are_readable_by_rust() {
     assert_eq!(health.agent_generation, 4);
     assert_eq!(health.pid, Some(123));
     assert_eq!(health.check_latency_ms, Some(12));
+    write_session_name(&db, "/sessions/ts.jsonl", Some("Updated by Rust")).expect("Rust update");
+    let roundtrip = oracle_call(
+        &mut oracle,
+        11,
+        vec![json!({"op":"call", "args":["readSessionNameState", [db.clone(), "/sessions/ts.jsonl"]]})],
+    );
+    assert_eq!(roundtrip[0], json!({"name":"Updated by Rust","hasStoredValue":true}));
 }
 
 #[test]
 fn rust_writes_are_readable_by_typescript_in_source_order() {
     let (_directory, db) = temp_db();
     write_session_metadata(&db, &metadata("/sessions/rust.jsonl", "rust-session")).expect("metadata");
-    set_named_session(&db, "/sessions/rust.jsonl", "Rust Name").expect("name");
+    write_session_name(&db, "/sessions/rust.jsonl", Some("Rust Name")).expect("name");
     pi_coding_agent::core::session_control_db::post_shared_channel_message(
         &db,
         &PostSharedChannelMessageInput {
@@ -137,13 +157,13 @@ fn rust_writes_are_readable_by_typescript_in_source_order() {
     .expect("channel");
     pi_coding_agent::core::session_control_db::record_prompt_history_entry(&db, "rust prompt").expect("history");
 
-    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
     let outputs = oracle_call(
         &mut oracle,
         2,
         vec![
             json!({"op": "call", "args": ["readSessionMetadata", [db.clone(), "/sessions/rust.jsonl"]]}),
-            json!({"op": "call", "args": ["listNamedSessions", [db.clone()]]}),
+            json!({"op": "call", "args": ["readSessionNameState", [db.clone(), "/sessions/rust.jsonl"]]}),
             json!({"op": "call", "args": ["listSharedChannelMessagesAfter", [db.clone(), 0, 20]]}),
             json!({"op": "call", "args": ["readPromptHistory", [db.clone(), 10]]}),
         ],
@@ -157,7 +177,7 @@ fn rust_writes_are_readable_by_typescript_in_source_order() {
         js_json::stringify(&serde_json::to_value(&rust_metadata).expect("metadata value"))
     );
 
-    let rust_names = list_named_sessions(&db).expect("names");
+    let rust_names = read_session_name_state(&db, "/sessions/rust.jsonl").expect("name state");
     assert_eq!(
         js_json::stringify(&outputs[1]),
         js_json::stringify(&serde_json::to_value(&rust_names).expect("names value"))
@@ -174,7 +194,7 @@ fn rust_writes_are_readable_by_typescript_in_source_order() {
 #[test]
 fn concurrent_typescript_and_rust_writers_keep_every_row() {
     let (_directory, db) = temp_db();
-    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
     let oracle_db = db.clone();
     let writer = thread::spawn(move || {
         oracle_call(
@@ -225,7 +245,7 @@ fn schema_text_and_pragmas_match_the_typescript_module() {
     let (_directory, db) = temp_db();
     // Create the schema from the Rust side.
     let _ = read_session_health(&db, "missing").expect("initialize");
-    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
     let outputs = oracle_call(&mut oracle, 4, vec![json!({"op": "schema", "path": db.clone()})]);
     let oracle_schema = &outputs[0];
 

@@ -150,7 +150,6 @@ fn rpc_mode_matches_the_pinned_typescript_source() {
     for command in [
         json!({"id": "b1", "type": "bash", "command": "echo hello"}),
         json!({"id": "b2", "type": "abort_bash"}),
-        json!({"id": "sn2", "type": "set_session_name", "name": "demo"}),
         json!({"id": "s2", "type": "get_state"}),
         json!({"id": "la2", "type": "get_last_assistant_text"}),
         json!({"id": "st2", "type": "get_session_stats"}),
@@ -208,6 +207,14 @@ fn rpc_mode_matches_the_pinned_typescript_source() {
         json!({"id": "n1", "type": "new_session"}),
         json!({"id": "s4", "type": "get_state"}),
         json!({"id": "la3", "type": "get_last_assistant_text"}),
+    ] {
+        let (ts, rust) = session.command(command);
+        session.assert_same(&ts, &rust);
+    }
+
+    for command in [
+        json!({"id":"sn2", "type":"set_session_name", "name":"demo"}),
+        json!({"id":"named-state", "type":"get_state"}),
     ] {
         let (ts, rust) = session.command(command);
         session.assert_same(&ts, &rust);

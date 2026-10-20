@@ -40,15 +40,15 @@ The session file is the shared contract with TypeScript Pi. Request `41000` prov
 | `setSessionModel/ThinkingLevel` | control-db session settings, throws on errors | `set_session_model` / `set_session_thinking_level` (`Result`); `control_db_metadata_persists_model_and_thinking_level`, `control_db_metadata_errors_propagate` |
 | `setSessionSandboxProfile` | recovery persist, metadata snapshot, then write/clear the per-session profile; `false` without a control db or session file | `set_session_sandbox_profile`; `set_session_sandbox_profile_persists_and_clears` |
 | `setMetadataControlDbPath`, `restorePersistedMetadata`, `writeMetadataSnapshot` | metadata cache and incremental writes; throws on control-db errors; `cwdOverride` uses JS truthiness | `set_metadata_control_db_path` / `restore_persisted_metadata` / `write_metadata_snapshot`; metadata tests + `metadata_empty_paths_and_model_fields_use_js_truthiness` |
-| `_appendEntry` → `writeMetadataSnapshot` when `affectsSessionInfo` | message/session_info appends refresh control-db metadata | `append_entry`; `appending_messages_writes_the_metadata_snapshot` |
+| `_appendEntry` → `writeMetadataSnapshot` when `affectsSessionInfo` | message appends refresh control-db metadata; historical session_info does not | `append_entry`; `appending_messages_writes_the_metadata_snapshot` |
 | `relocate` | move default-dir file, preserve bytes/header, reject existing destination, relocate control-db rows, final metadata snapshot | `relocate`; `relocation_preserves_the_complete_jsonl`, `relocation_moves_control_db_rows` |
 | `persistForRecovery` | write before first assistant | `persist_for_recovery`; exercised by branch dedup test |
-| `appendMessage/ThinkingLevelChange/ModelChange/Compaction/CustomEntry/SessionInfo/CustomMessageEntry/LabelChange` | leaf-child append, persist, id generation | same-named methods; tree/label/save-entry tests |
+| `appendMessage/ThinkingLevelChange/ModelChange/Compaction/CustomEntry/CustomMessageEntry/LabelChange` | leaf-child append, persist, id generation | same-named methods; tree/label/save-entry tests |
 | `updateCompactionSummary` | trim, non-empty, drop provider-native fields, restore on write failure | `update_compaction_summary`; two focused tests |
 | `getLeafId/getLeafEntry/getEntry/getChildren/getLabel/getBranch/buildContextEntries/buildSessionContext/getHeader/getEntries/getTree` | traversal and defensive copies | same-named methods; tree/label tests |
 | `branch/resetLeaf/branchWithSummary/createBranchedSession` | leaf pointer, branch summary, path extraction with label rewiring | same-named methods; `tree_traversal_and_branching`, `branched_session_*` tests |
 | `SessionManager.list/listArchived/listAll` | metadata-backed fast path (control-db order, cwd/dir/archive scope, subagent exclusion), else directory scan plus metadata cache, cwd filter, subagent exclusion, modified-desc sort | `list` / `list_archived` / `list_all`; `lists_sessions_scoped_by_cwd`, `metadata_backed_listing_prefers_control_db_and_excludes_subagents`, `metadata_listing_scopes_by_cwd_and_returns_control_db_order` |
-| `SessionManager.open` | resolves the header before construction; a persisted header keeps id/cwd/name/parent, a missing or empty file regenerates identity like the source | `open`; `open_preserves_a_freshly_persisted_header`, `reads_files_and_headers`, `rewrites_empty_files_and_rejects_non_session_files` |
+| `SessionManager.open` | resolves the header before construction; a persisted header keeps id/cwd/parent, a missing or empty file regenerates identity like the source | `open`; `open_preserves_a_freshly_persisted_header`, `reads_files_and_headers`, `rewrites_empty_files_and_rejects_non_session_files` |
 | `getDefaultSessionDirPath` private helper | resolved cwd + agent dir | `get_default_session_dir_path` (public in Rust) |
 
 ## Gaps
@@ -65,3 +65,22 @@ The session file is the shared contract with TypeScript Pi. Request `41000` prov
 
 - `SessionHeader` records the parsed JSON key order and replays it when serializing, so migrated v1 headers append `version` exactly like TypeScript. `serde_json::Map` uses swap-removal, so the legacy `firstKeptEntryIndex` conversion uses `shift_remove` to preserve TypeScript's deletion order.
 - `migrateToolResultSessionFiles` traversal order differs (stack pop vs. deterministic walk); the report counters are order-independent.
+
+## Metadata-authoritative names (approved 2026-10-20)
+
+Name paths follow `c248b0067` ([reference lock](../session-name-source-lock.json)).
+`set_session_name` normalizes and writes metadata, `get_session_name` returns cached metadata
+state, and `has_session_name_state` distinguishes never named from explicitly cleared.
+`appendSessionInfo` is removed; `SessionInfoEntry` remains parseable history only.
+
+| Branch | Tests in `session_manager.rs` |
+|---|---|
+| Compacted JSONL names ignored; no pre-cutoff session-info retention | `summarized_jsonl_session_info_is_not_authoritative` |
+| Restore metadata name and relocated cwd independently of active slice | `restores_the_sqlite_session_name_without_loading_pre_cutoff_session_info` |
+| Restore explicit clear and disable autoname | `restores_an_explicit_name_clear_without_making_the_session_autoname_eligible` |
+| Reset then rehydrate names on file switch | `rehydrates_the_sqlite_session_name_when_switching_files` |
+| Fork/new session clears cached name state | `does_not_carry_a_session_name_into_a_branched_session` |
+
+Source consequence: agents-core path-based attach opens a manager without attaching its metadata
+DB; the name therefore stays unset and display name uses `Session <id>`. This slice does not add
+a new metadata lookup to that unchanged source path.

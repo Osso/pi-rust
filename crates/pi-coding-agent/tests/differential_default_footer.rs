@@ -103,7 +103,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
             ))
             .expect("assistant");
         if let Some(name) = case.get("sessionName").and_then(Value::as_str) {
-            session.append_session_info(name).expect("session name");
+            session.set_session_name(Some(name)).expect("session name");
         }
 
         let context_usage = case.get("contextUsage").and_then(|usage| {
@@ -159,7 +159,9 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                 ))
                 .expect("child assistant");
             if let Some(name) = override_value.get("sessionName").and_then(Value::as_str) {
-                override_session.append_session_info(name).expect("child session name");
+                override_session
+                    .set_session_name(Some(name))
+                    .expect("child session name");
             }
             let override_model = override_value.get("model").and_then(|value| {
                 Some(model(

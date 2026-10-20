@@ -34,7 +34,19 @@ impl TsOracle {
         source_module: &str,
         env_pairs: &[(&str, OsString)],
     ) -> Self {
-        let source_lock = read_source_lock();
+        let (source_lock, source_module) = match source_module.strip_prefix("session-names:") {
+            Some(module) => (read_session_name_source_lock(), module),
+            None => (read_source_lock(), source_module),
+        };
+        Self::spawn_with_source(source_lock, oracle_filename, source_module, env_pairs)
+    }
+
+    fn spawn_with_source(
+        source_lock: SourceLock,
+        oracle_filename: &str,
+        source_module: &str,
+        env_pairs: &[(&str, OsString)],
+    ) -> Self {
         verify_source_head(&source_lock);
         let mut child = spawn_oracle_process(&source_lock, oracle_filename, source_module, env_pairs);
         let stdin = BufWriter::new(child.stdin.take().expect("oracle stdin must be piped"));
@@ -104,6 +116,20 @@ fn read_source_lock() -> SourceLock {
         .map(str::to_owned)
         .expect("source lock commit must be a string");
     SourceLock { worktree, commit }
+}
+
+fn read_session_name_source_lock() -> SourceLock {
+    let value: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/porting/session-name-source-lock.json"
+    )))
+    .expect("session-name source lock must be valid JSON");
+    SourceLock {
+        worktree: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(value["worktree"].as_str().expect("source worktree")),
+        commit: value["commit"].as_str().expect("source commit").to_owned(),
+    }
 }
 
 fn spawn_oracle_process(

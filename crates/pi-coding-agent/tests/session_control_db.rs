@@ -25,18 +25,18 @@ use pi_coding_agent::core::session_control_db::{
     enqueue_runtime_mailbox_message, enqueue_stored_runtime_mailbox_message, fail_incoming_message,
     fail_runtime_mailbox_message, finalize_detached_job, get_multi_agent_mailbox_message_status,
     has_pending_supervisor_approval_request, initialize_shared_channel_cursor_at_tail, list_active_session_metadata,
-    list_archived_session_metadata, list_named_sessions, list_pending_architect_requests,
-    list_runtime_mailbox_listeners, list_runtime_mailbox_messages, list_session_health, list_session_metadata,
-    list_shared_channel_messages_after, mark_runtime_mailbox_message_delivered, post_architect_request,
+    list_archived_session_metadata, list_pending_architect_requests, list_runtime_mailbox_listeners,
+    list_runtime_mailbox_messages, list_session_health, list_session_metadata, list_shared_channel_messages_after,
+    mark_runtime_mailbox_message_delivered, normalize_session_name, post_architect_request,
     post_shared_channel_message, post_supervisor_request, read_incoming_message_status, read_last_message,
     read_multi_agent_agent, read_multi_agent_state, read_or_migrate_prompt_history, read_prompt_history,
     read_runtime_mailbox_listener, read_runtime_mailbox_message, read_session_goal, read_session_health,
-    read_session_metadata, read_session_sandbox_profile, read_shared_channel_cursor, read_shared_channel_tail,
-    read_supervisor_request, record_prompt_history_entry, register_runtime_mailbox_listener,
-    relocate_session_control_data, remove_named_session, renew_architect_request_claims, requeue_supervisor_request,
-    retire_runtime_mailbox_listener, set_named_session, unarchive_session, upsert_multi_agent_mailbox_message,
-    write_last_message, write_multi_agent_counters, write_session_goal, write_session_health, write_session_metadata,
-    write_session_model, write_session_sandbox_profile, write_session_thinking_level,
+    read_session_metadata, read_session_name_state, read_session_sandbox_profile, read_shared_channel_cursor,
+    read_shared_channel_tail, read_supervisor_request, record_prompt_history_entry, register_runtime_mailbox_listener,
+    relocate_session_control_data, remove_session_metadata, renew_architect_request_claims, requeue_supervisor_request,
+    retire_runtime_mailbox_listener, unarchive_session, upsert_multi_agent_mailbox_message, write_last_message,
+    write_multi_agent_counters, write_session_goal, write_session_health, write_session_metadata, write_session_model,
+    write_session_name, write_session_sandbox_profile, write_session_thinking_level,
 };
 use pi_coding_agent::core::session_health::{SessionCheckStatus, empty_session_health};
 use tempfile::TempDir;
@@ -170,7 +170,7 @@ fn schema_and_pragmas_match_the_shared_contract() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("user_version");
-    assert_eq!(version, 14);
+    assert_eq!(version, 15);
     let journal: String = connection
         .query_row("PRAGMA journal_mode", [], |row| row.get(0))
         .expect("journal mode");
@@ -195,7 +195,6 @@ fn schema_and_pragmas_match_the_shared_contract() {
         "multi_agent_mailbox_messages",
         "multi_agent_runtime_owners",
         "multi_agent_terminal_outbox",
-        "named_sessions",
         "prompt_history",
         "runtime_mailbox_listeners",
         "session_health",
@@ -207,6 +206,18 @@ fn schema_and_pragmas_match_the_shared_contract() {
     ] {
         assert!(tables.iter().any(|name| name == table), "missing {table}");
     }
+    assert!(
+        !tables.iter().any(|name| name == "named_sessions"),
+        "v15 stores names only in session_metadata"
+    );
+    let metadata_columns: Vec<String> = connection
+        .prepare("PRAGMA table_info(session_metadata)")
+        .expect("prepare columns")
+        .query_map([], |row| row.get(1))
+        .expect("query columns")
+        .collect::<Result<_, _>>()
+        .expect("columns");
+    assert!(metadata_columns.iter().any(|column| column == "name"));
 }
 
 #[test]
@@ -287,13 +298,133 @@ fn session_metadata_round_trips_and_archives() {
 }
 
 #[test]
+fn session_names_live_only_in_session_metadata() {
+    let (_dir, db) = temp_db();
+    for (id, name) in [("session-a", "Alpha"), ("session-b", "Beta")] {
+        write_session_metadata(&db, &metadata(&format!("/tmp/{id}.jsonl"), id, None)).expect("metadata");
+        write_session_name(&db, &format!("/tmp/{id}.jsonl"), Some(name)).expect("name");
+    }
+    write_session_name(&db, "/tmp/session-a.jsonl", Some("Alpha renamed")).expect("rename");
+
+    let mut names: Vec<(String, Option<String>)> = list_session_metadata(&db)
+        .expect("list")
+        .into_iter()
+        .map(|session| (session.session_path, session.name))
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        vec![
+            ("/tmp/session-a.jsonl".to_owned(), Some("Alpha renamed".to_owned())),
+            ("/tmp/session-b.jsonl".to_owned(), Some("Beta".to_owned())),
+        ]
+    );
+
+    write_session_name(&db, "/tmp/session-a.jsonl", None).expect("clear");
+    assert_eq!(
+        read_session_metadata(&db, "/tmp/session-a.jsonl")
+            .expect("read")
+            .expect("metadata")
+            .name,
+        None
+    );
+    let state = read_session_name_state(&db, "/tmp/session-a.jsonl").expect("state");
+    assert_eq!(state.name, None);
+    assert!(state.has_stored_value, "an explicit clear is still a stored value");
+    assert_eq!(
+        read_session_metadata(&db, "/tmp/session-b.jsonl")
+            .expect("read")
+            .expect("metadata")
+            .name
+            .as_deref(),
+        Some("Beta")
+    );
+}
+
+#[test]
+fn session_name_normalization_matches_the_typescript_helper() {
+    assert_eq!(
+        normalize_session_name(Some("  Legacy\r\nPreferred\nName ")),
+        Some("Legacy Preferred Name".to_owned())
+    );
+    assert_eq!(normalize_session_name(Some("\n\r\n")), None);
+    assert_eq!(normalize_session_name(Some("   ")), None);
+    assert_eq!(normalize_session_name(None), None);
+    assert_eq!(normalize_session_name(Some("Kept")), Some("Kept".to_owned()));
+}
+
+#[test]
+fn write_session_name_requires_a_metadata_row() {
+    let (_dir, db) = temp_db();
+    let error = write_session_name(&db, "/sessions/missing.jsonl", Some("Name")).expect_err("missing metadata");
+    assert_eq!(
+        error.message(),
+        "Cannot update session name without metadata for /sessions/missing.jsonl"
+    );
+    let state = read_session_name_state(&db, "/sessions/missing.jsonl").expect("state");
+    assert_eq!(state.name, None);
+    assert!(!state.has_stored_value);
+}
+
+#[test]
+fn generic_metadata_snapshots_preserve_dedicated_session_names() {
+    let (_dir, db) = temp_db();
+    write_session_metadata(&db, &metadata("/tmp/session-a.jsonl", "session-a", None)).expect("metadata");
+    write_session_name(&db, "/tmp/session-a.jsonl", Some("Alpha")).expect("name");
+    let mut updated = metadata("/tmp/session-a.jsonl", "session-a", None);
+    updated.message_count = 2;
+    updated.all_messages_text = "first second".to_owned();
+    write_session_metadata(&db, &updated).expect("snapshot");
+    assert_eq!(
+        read_session_metadata(&db, "/tmp/session-a.jsonl")
+            .expect("read")
+            .expect("metadata")
+            .name
+            .as_deref(),
+        Some("Alpha")
+    );
+
+    write_session_name(&db, "/tmp/session-a.jsonl", None).expect("clear");
+    updated.message_count = 3;
+    write_session_metadata(&db, &updated).expect("snapshot after clear");
+    assert_eq!(
+        read_session_metadata(&db, "/tmp/session-a.jsonl")
+            .expect("read")
+            .expect("metadata")
+            .name,
+        None
+    );
+    assert!(
+        read_session_name_state(&db, "/tmp/session-a.jsonl")
+            .expect("state")
+            .has_stored_value
+    );
+}
+
+#[test]
+fn updates_existing_session_metadata_without_changing_its_session_path_or_name() {
+    let (_dir, db) = temp_db();
+    write_session_metadata(&db, &metadata("/tmp/session-a.jsonl", "session-a", Some("Original"))).expect("metadata");
+    let mut updated = metadata("/tmp/session-a.jsonl", "session-a-renamed", None);
+    updated.cwd = "/repo/a2".to_owned();
+    updated.parent_session_path = Some("/tmp/parent.jsonl".to_owned());
+    updated.message_count = 3;
+    updated.first_message = "updated first".to_owned();
+    write_session_metadata(&db, &updated).expect("update");
+    let read = read_session_metadata(&db, "/tmp/session-a.jsonl")
+        .expect("read")
+        .expect("metadata");
+    assert_eq!(read.id, "session-a-renamed");
+    assert_eq!(read.cwd, "/repo/a2");
+    assert_eq!(read.name.as_deref(), Some("Original"));
+    assert_eq!(read.parent_session_path.as_deref(), Some("/tmp/parent.jsonl"));
+}
+
+#[test]
 fn named_sessions_and_relocation_move_all_control_rows() {
     let (_dir, db) = temp_db();
     write_session_metadata(&db, &metadata("/sessions/old.jsonl", "id", None)).expect("metadata");
-    set_named_session(&db, "/sessions/old.jsonl", "  Named  ").expect("name");
-    let names = list_named_sessions(&db).expect("names");
-    assert_eq!(names.len(), 1);
-    assert_eq!(names[0].name, "Named");
+    write_session_name(&db, "/sessions/old.jsonl", Some("Named")).expect("name");
     assert_eq!(
         read_session_metadata(&db, "/sessions/old.jsonl")
             .expect("read")
@@ -316,20 +447,22 @@ fn named_sessions_and_relocation_move_all_control_rows() {
             .expect("read")
             .is_none()
     );
-    assert_eq!(
-        read_session_metadata(&db, "/sessions/new.jsonl")
-            .expect("read")
-            .expect("metadata")
-            .id,
-        "id"
-    );
+    let moved = read_session_metadata(&db, "/sessions/new.jsonl")
+        .expect("read")
+        .expect("metadata");
+    assert_eq!(moved.id, "id");
+    assert_eq!(moved.name.as_deref(), Some("Named"), "the name moves with the row");
     assert_eq!(
         read_session_sandbox_profile(&db, "/sessions/new.jsonl", "id").expect("profile"),
         Some(pi_coding_agent::core::permissions::presets::SandboxProfileName::WorkspaceWrite)
     );
 
-    remove_named_session(&db, "/sessions/new.jsonl").expect("remove name");
-    assert!(list_named_sessions(&db).expect("names").is_empty());
+    remove_session_metadata(&db, "/sessions/new.jsonl").expect("remove metadata");
+    assert!(
+        read_session_metadata(&db, "/sessions/new.jsonl")
+            .expect("read")
+            .is_none()
+    );
 }
 
 #[test]
@@ -1155,7 +1288,7 @@ fn bootstrap_refuses_to_mutate_owned_rows() {
 }
 
 #[test]
-fn legacy_database_migrates_to_schema_fourteen() {
+fn legacy_database_migrates_to_schema_fifteen() {
     let (directory, path) = temp_db();
     let connection = rusqlite::Connection::open(&path).expect("open legacy");
     connection
@@ -1205,7 +1338,7 @@ fn legacy_database_migrates_to_schema_fourteen() {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("version");
-    assert_eq!(version, 14);
+    assert_eq!(version, 15);
     let counters: (i64, i64) = connection
         .query_row(
             "SELECT next_agent_number, next_message_number FROM multi_agent_counters_v2 WHERE session_path = ?",
@@ -1254,6 +1387,196 @@ fn legacy_database_migrates_to_schema_fourteen() {
     drop(directory);
 }
 
+const VERSION_FOURTEEN_SCHEMA: &str = "
+    CREATE TABLE session_metadata (
+        session_path TEXT PRIMARY KEY,
+        id TEXT NOT NULL,
+        cwd TEXT NOT NULL,
+        name TEXT,
+        parent_session_path TEXT,
+        archived_at TEXT,
+        goal_json TEXT,
+        is_subagent INTEGER NOT NULL DEFAULT 0,
+        subagent_name TEXT,
+        model_provider TEXT,
+        model_id TEXT,
+        thinking_level TEXT,
+        created_at TEXT NOT NULL,
+        modified_at TEXT NOT NULL,
+        message_count INTEGER NOT NULL,
+        first_message TEXT NOT NULL,
+        all_messages_text TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE TABLE named_sessions (
+        session_path TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    INSERT INTO session_metadata (
+        session_path, id, cwd, name, created_at, modified_at,
+        message_count, first_message, all_messages_text, updated_at
+    ) VALUES
+        ('/sessions/legacy-name.jsonl', 'legacy-name', '/repo', 'Metadata Name',
+         '2026-08-01T00:00:00.000Z', '2026-08-01T00:01:00.000Z', 1, 'first', 'first',
+         '2026-08-01T00:01:00.000Z'),
+        ('/sessions/metadata-only.jsonl', 'metadata-only', '/repo', 'Metadata Only',
+         '2026-08-01T00:00:00.000Z', '2026-08-01T00:01:00.000Z', 1, 'first', 'first',
+         '2026-08-01T00:01:00.000Z');
+    INSERT INTO named_sessions (session_path, name, updated_at) VALUES
+        ('/sessions/legacy-name.jsonl', ' Legacy' || char(13) || char(10) || 'Preferred' || char(10) || 'Name ', '2026-08-02T00:00:00.000Z'),
+        ('/sessions/orphan.jsonl', 'Orphan Name', '2026-08-02T00:00:00.000Z');
+    PRAGMA user_version = 14;
+";
+
+fn create_version_fourteen_database(path: &str) {
+    let connection = rusqlite::Connection::open(path).expect("open v14");
+    connection.execute_batch(VERSION_FOURTEEN_SCHEMA).expect("v14 schema");
+}
+
+#[test]
+fn version_fourteen_session_names_migrate_into_metadata_and_drop_the_legacy_table() {
+    let (_dir, db) = temp_db();
+    create_version_fourteen_database(&db);
+
+    let first_initialization = (
+        read_session_metadata(&db, "/sessions/legacy-name.jsonl")
+            .expect("first read")
+            .expect("metadata")
+            .name,
+        read_session_metadata(&db, "/sessions/metadata-only.jsonl")
+            .expect("first read")
+            .expect("metadata")
+            .name,
+    );
+    let second_initialization = (
+        read_session_metadata(&db, "/sessions/legacy-name.jsonl")
+            .expect("second read")
+            .expect("metadata")
+            .name,
+        read_session_metadata(&db, "/sessions/metadata-only.jsonl")
+            .expect("second read")
+            .expect("metadata")
+            .name,
+    );
+    assert_eq!(
+        first_initialization,
+        (
+            Some("Legacy Preferred Name".to_owned()),
+            Some("Metadata Only".to_owned())
+        ),
+        "legacy rows win for matching metadata and normalization applies"
+    );
+    assert_eq!(second_initialization, first_initialization, "migration is idempotent");
+
+    let connection = rusqlite::Connection::open(&db).expect("open migrated");
+    let version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("version");
+    assert_eq!(version, 15);
+    let legacy_table: Option<String> = connection
+        .query_row(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'named_sessions'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+    assert_eq!(legacy_table, None, "the migration drops named_sessions");
+    let stored: Vec<(String, Option<String>)> = connection
+        .prepare("SELECT session_path, name FROM session_metadata ORDER BY session_path")
+        .expect("prepare")
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .expect("query")
+        .collect::<Result<_, _>>()
+        .expect("rows");
+    assert_eq!(
+        stored,
+        vec![
+            (
+                "/sessions/legacy-name.jsonl".to_owned(),
+                Some("Legacy Preferred Name".to_owned())
+            ),
+            (
+                "/sessions/metadata-only.jsonl".to_owned(),
+                Some("Metadata Only".to_owned())
+            ),
+        ],
+        "orphan legacy rows are discarded and metadata-only rows are untouched"
+    );
+}
+
+#[test]
+fn session_name_migration_requires_runtime_quiescence() {
+    let (_dir, db) = temp_db();
+    create_version_fourteen_database(&db);
+    let connection = rusqlite::Connection::open(&db).expect("open");
+    connection
+        .execute_batch(
+            "
+            CREATE TABLE runtime_mailbox_listeners (
+                recipient_session_id TEXT NOT NULL,
+                recipient_agent_id_key TEXT NOT NULL,
+                pid INTEGER NOT NULL,
+                runtime_instance_id TEXT,
+                session_path TEXT,
+                session_path_asserted_at TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (recipient_session_id, recipient_agent_id_key)
+            );
+            ",
+        )
+        .expect("listener table");
+    connection
+        .execute(
+            "INSERT INTO runtime_mailbox_listeners (recipient_session_id, recipient_agent_id_key, pid, updated_at)
+             VALUES ('live-runtime', '', ?, '2026-08-23T00:00:00.000Z')",
+            rusqlite::params![std::process::id()],
+        )
+        .expect("live listener");
+    drop(connection);
+
+    let error = read_session_metadata(&db, "/sessions/legacy-name.jsonl").expect_err("quiescence blocks");
+    let message = error.message().to_owned();
+    assert!(
+        message.contains("Cannot activate session name schema version 15 while lifecycle owners are active"),
+        "unexpected message: {message}"
+    );
+    assert!(
+        message.contains(&std::process::id().to_string()),
+        "message lists the live pid"
+    );
+
+    let blocked = rusqlite::Connection::open(&db).expect("open blocked");
+    let version: i64 = blocked
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("version");
+    assert_eq!(version, 14);
+    let legacy_table: Option<String> = blocked
+        .query_row(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'named_sessions'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+    assert_eq!(legacy_table.as_deref(), Some("named_sessions"));
+    blocked
+        .execute(
+            "DELETE FROM runtime_mailbox_listeners WHERE recipient_session_id = 'live-runtime'",
+            [],
+        )
+        .expect("clear listener");
+    drop(blocked);
+
+    assert_eq!(
+        read_session_metadata(&db, "/sessions/legacy-name.jsonl")
+            .expect("read after quiescence")
+            .expect("metadata")
+            .name
+            .as_deref(),
+        Some("Legacy Preferred Name")
+    );
+}
+
 #[test]
 fn unsupported_future_schema_is_rejected() {
     let (_directory, path) = temp_db();
@@ -1263,7 +1586,7 @@ fn unsupported_future_schema_is_rejected() {
     let error = read_session_health(&path, "missing").expect_err("future schema");
     assert_eq!(
         error.message(),
-        "Unsupported control database schema version 99; this Pi runtime supports up to version 14"
+        "Unsupported control database schema version 99; this Pi runtime supports up to version 15"
     );
 }
 

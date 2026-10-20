@@ -975,7 +975,7 @@ async fn attach_session_agent_attaches_a_saved_session() {
     let session_dir = std::path::Path::new(&test.session_path).parent().expect("parent");
     let mut saved =
         SessionManager::create(&test.cwd, Some(&session_dir.display().to_string()), None).expect("saved session");
-    saved.append_session_info("Saved Session").expect("name");
+    saved.set_session_name(Some("Saved Session")).expect("in-memory name");
     saved.persist_for_recovery().expect("persist header");
     let saved_id = saved.get_session_id().to_owned();
     let saved_path = saved.get_session_file().expect("saved path").to_owned();
@@ -1014,7 +1014,7 @@ async fn attach_session_agent_attaches_a_saved_session() {
         json!(saved_id),
         "attach must preserve the freshly persisted session header"
     );
-    assert_eq!(details["agent"]["displayName"], json!("Saved Session"));
+    assert_eq!(details["agent"]["displayName"], json!(format!("Session {saved_id}")));
     assert_eq!(details["agent"]["transcript"]["path"], json!(saved_path));
     assert!(text(&result).starts_with("Attached "));
 }
