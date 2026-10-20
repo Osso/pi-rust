@@ -21,11 +21,13 @@ async fn toggle_changes_only_effective_prompt_and_preserves_exact_suffix() {
         json!(["notify", "Arrr! Pirate mode enabled!", "info"])
     );
     assert!(
-        actual["trace"][2][1]
+        actual["trace"][2][1]["systemPrompt"]
             .as_str()
             .unwrap()
             .starts_with("Base 🚀\n\n\nIMPORTANT:")
     );
+    assert_eq!(actual["trace"][2][1].as_object().unwrap().len(), 1);
+    assert_eq!(actual["trace"][3][1].as_object().unwrap().len(), 1);
     assert_eq!(actual["trace"][5], json!(["before", null]));
     let fresh = harness::compare(
         "pirate",
