@@ -65,6 +65,12 @@ notify-based child transcript reloads are implemented and behavior-tested.
 | `handleCtrlZ` / `suspendToBackground` | `handle_ctrl_z` / `suspend_to_background` | no direct test (sends SIGTSTP) |
 | `detachRunningTool` + `app.tool.background` action + startup hint | `detach_running_tool` + `on_action("app.tool.background")` + `key_hint("app.tool.background", ...)` | `ui_tests::background_tool_keybinding_detaches_the_running_tool_and_shows_the_hint` |
 | `registerSignalHandlers` / `unregisterSignalHandlers` / `shutdown({fromSignal})` / `restartProcess({fromSignal})` | `register_signal_handlers` / `unregister_signal_handlers` / `shutdown_from_signal` / `restart_from_signal` | `main_interactive::sigterm_shuts_down_interactive_mode_gracefully`, `main_interactive::sighup_restarts_interactive_mode_in_place` |
+| `DEAD_TERMINAL_ERROR_CODES` / `isDeadTerminalError` (:345-354) | `is_dead_terminal_error` (raw errno `EIO`/`EPIPE`/`ENOTCONN`); thrown values go through `payload_is_dead_terminal_error` (only an `io::Error` payload carries a code) | `interactive_crash::dead_terminal_errors_are_eio_epipe_and_enotconn` (EIO/EPIPE/ENOTCONN true; ENOENT, code-less `other`, kind-only `BrokenPipe` false), `tests::only_io_error_payloads_can_be_dead_terminal_errors` |
+| `emergencyTerminalExit` (:5561) | `emergency_terminal_exit` (sets `is_shutting_down`, unregisters handlers, `kill_tracked_detached_children`, exit 129, no `ui.stop()`) | `interactive_crash::dead_terminal_exits_129_without_restoring` (pty master closed -> stdin `EIO` -> exit 129, no crash banner) |
+| `uncaughtCrash` (:5570-5600) | `uncaught_crash` + pure `crash_action` (dead terminal -> 129; already shutting down -> exit 1; else restore/report/exit 1); each `try { } catch {}` step runs under `uncaught::swallow_panics` | `tests::uncaught_crash_exits_129_for_a_dead_terminal_before_checking_shutdown`, `tests::uncaught_crash_exits_one_while_already_shutting_down`, `tests::uncaught_crash_restores_the_terminal_otherwise`, `uncaught::swallowed_panics_do_not_reach_the_handler_or_stop_later_steps`, `interactive_crash::uncaught_exception_restores_the_terminal_and_exits_one` (exit 1, `pi exiting due to uncaughtException:`, `\x1b[?2004l` / `\x1b[?25h` / `\x1b[<u` restore before the report) |
+| `terminalErrorHandler` on `process.stdin/stdout/stderr` `error` (:5637-5646) | `terminal_error_action` + `terminal_error_handler`, fed by `handle_terminal_errors` from `Terminal::take_errors` (stdout write/flush failures and stdin read failures queued by `ProcessTerminal`) in the run loop | `tests::terminal_errors_route_dead_raw_mode_and_other_errors_separately` (EIO -> exit, Bun-style `setRawMode failed with errno:` -> ignore, ENOSPC / plain -> rethrow), pi-tui `terminal::write_failures_are_queued_for_the_stream_error_handler`, `terminal::successful_writes_queue_no_errors` |
+| `process.prependListener("uncaughtException", ...)` (:5657) | `register_signal_handlers` installs the thread crash handler (`uncaught::set_thread_crash_handler`) that the panic hook (`install_uncaught_handler`) and therefore `throw_uncaught` run; `unregister_signal_handlers` clears it | `uncaught::thread_crash_handler_receives_uncaught_panics`, `uncaught::thread_crash_handler_receives_uncaught_throws`, `uncaught::clearing_the_thread_crash_handler_restores_the_default_report`, `uncaught::set_thread_crash_handler_reports_the_previous_handler` |
+| `void this.restartProcess({ fromSignal: true })` rejection (:5623) | `restart_from_signal` -> `throw_uncaught` -> thread crash handler -> `uncaught_crash` | `interactive_crash::sighup_restart_failure_restores_the_terminal_and_exits_one` (binary deleted before SIGHUP; exit 1, banner after restore) |
 | Command-context `restart` -> `runtimeHost.restart({process: true})` | `UiRequest::RuntimeRestart` always passes `process: true` and returns the runtime error to the extension caller | `ui_tests::command_restart_always_restarts_the_process_and_propagates_errors` |
 
 ## Implemented branches
@@ -152,10 +158,14 @@ has no separate render-region callbacks.
 
 ## Discrepancies
 
-- `restart_from_signal` logs a restart failure to stderr and leaves the TUI
-  running. The source's `void restartProcess(...)` rejection reaches
-  `uncaughtCrash`, which restores the terminal and exits 1; `uncaughtCrash` is
-  not ported in this slice.
+- `uncaughtCrash` is process-wide in Node; the Rust handler is thread-local
+  to the interactive thread (the `pi` binary runs the mode on a current-thread
+  runtime). A panic on another thread (blocking pool, extension threads) hits
+  the default hook: error printed, exit 1, terminal not restored.
+- `console.error(error)` prints a Node stack; the Rust report is
+  `<label>: <message>` (`format_uncaught`) with no stack frames. Non-dead
+  terminal I/O errors are reported with Rust's `io::Error` text instead of
+  Node's `<syscall> <CODE>` message.
 - `SelectAgentView` is async (`BoxFuture<Option<bool>>`) because the TUI lives on
   a `LocalSet` thread; the bridge selector sends a `UiRequest` and awaits the
   UI-thread result instead of calling the mode synchronously.

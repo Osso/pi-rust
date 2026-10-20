@@ -5,6 +5,7 @@
 //! mode itself. Component factories and the TUI event loop are Rust-native;
 //! deviations are recorded in `docs/porting/traceability/interactive-mode.md`.
 
+use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -119,8 +120,8 @@ use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor, with_theme};
 use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, watch_with_error_handler};
 use crate::utils::git::parse_git_url;
 use crate::utils::paths::{PathInputOptions, get_cwd_relative_path, relative_path, resolve_path};
-#[cfg(unix)]
 use crate::utils::shell::kill_tracked_detached_children;
+use crate::utils::uncaught::{ERROR, format_uncaught, set_thread_crash_handler, swallow_panics, throw_uncaught};
 use serde_json::Value;
 
 pub(crate) const PARTIAL_UPDATE_RENDER_THROTTLE_MS: u64 = 50;
@@ -130,6 +131,70 @@ pub(crate) const FOLLOW_UP_BODY_PREVIEW_LENGTH: usize = 50;
 
 pub(crate) fn is_unknown_model(model: Option<&pi_ai::types::Model>) -> bool {
     model.is_some_and(|model| model.provider == "unknown" && model.id == "unknown" && model.api == "unknown")
+}
+
+/// `DEAD_TERMINAL_ERROR_CODES`: `EIO`, `EPIPE`, `ENOTCONN`.
+const DEAD_TERMINAL_ERROR_CODES: [i32; 3] = [
+    rustix::io::Errno::IO.raw_os_error(),
+    rustix::io::Errno::PIPE.raw_os_error(),
+    rustix::io::Errno::NOTCONN.raw_os_error(),
+];
+
+/// `isDeadTerminalError`: the terminal is gone (closed pty, dead SSH pipe).
+pub fn is_dead_terminal_error(error: &std::io::Error) -> bool {
+    error
+        .raw_os_error()
+        .is_some_and(|code| DEAD_TERMINAL_ERROR_CODES.contains(&code))
+}
+
+/// Decision made by `uncaughtCrash` before it touches the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CrashAction {
+    /// The terminal is gone: exit 129 without running restore writes.
+    EmergencyExit,
+    /// A crash is already being handled: exit 1 immediately.
+    ExitOne,
+    /// Restore the terminal, report the error, exit 1.
+    RestoreAndReport,
+}
+
+fn crash_action(dead_terminal: bool, is_shutting_down: bool) -> CrashAction {
+    if dead_terminal {
+        return CrashAction::EmergencyExit;
+    }
+    if is_shutting_down {
+        return CrashAction::ExitOne;
+    }
+    CrashAction::RestoreAndReport
+}
+
+/// What `terminalErrorHandler` does with a stdin/stdout/stderr error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TerminalErrorAction {
+    /// `emergencyTerminalExit()`.
+    EmergencyExit,
+    /// `return`: a raw-mode failure is reported elsewhere.
+    Ignore,
+    /// `throw error`: it becomes an uncaught exception.
+    Rethrow,
+}
+
+fn terminal_error_action(error: &std::io::Error) -> TerminalErrorAction {
+    if is_dead_terminal_error(error) {
+        return TerminalErrorAction::EmergencyExit;
+    }
+    if pi_tui::is_terminal_raw_mode_failure(error) {
+        return TerminalErrorAction::Ignore;
+    }
+    TerminalErrorAction::Rethrow
+}
+
+/// `isDeadTerminalError(error)` for a thrown value: only an `io::Error`
+/// payload carries an errno code.
+fn payload_is_dead_terminal_error(payload: &(dyn Any + Send)) -> bool {
+    payload
+        .downcast_ref::<std::io::Error>()
+        .is_some_and(is_dead_terminal_error)
 }
 
 /// `getDirectoryCompletions`: directories under `prefix` resolved against `cwd`.
@@ -6554,6 +6619,7 @@ impl InteractiveMode {
                 _ = tokio::time::sleep(Duration::from_millis(PARTIAL_UPDATE_RENDER_THROTTLE_MS)) => {}
             }
             self.ui.process_events();
+            self.handle_terminal_errors();
             self.ui.flush_pending();
             self.poll_timers();
             self.poll_child_view_events();
@@ -9846,15 +9912,70 @@ impl InteractiveMode {
 
     /// `registerSignalHandlers`: SIGTERM performs the graceful shutdown,
     /// SIGHUP restarts the process. Both kill tracked detached children first.
+    /// The `uncaughtException` listener becomes the thread crash handler; the
+    /// stdin/stdout/stderr `error` listeners are `handle_terminal_errors`.
     fn register_signal_handlers(self: &Rc<Self>) {
         self.unregister_signal_handlers();
         let handlers = spawn_signal_handlers(self);
         *self.signal_handlers.borrow_mut() = handlers;
+        let mode_id = self.ui_id.get();
+        set_thread_crash_handler(Some(Rc::new(move |payload| {
+            with_mode(mode_id, |mode| mode.uncaught_crash(payload));
+        })));
     }
 
     fn unregister_signal_handlers(&self) {
         for handler in self.signal_handlers.borrow_mut().drain(..) {
             handler.abort();
+        }
+        set_thread_crash_handler(None);
+    }
+
+    /// `emergencyTerminalExit`.
+    fn emergency_terminal_exit(&self) -> ! {
+        self.is_shutting_down.set(true);
+        self.unregister_signal_handlers();
+        kill_tracked_detached_children();
+        // The terminal is gone. Do not run normal shutdown because TUI and
+        // extension cleanup can write restore sequences and re-trigger EIO.
+        std::process::exit(129)
+    }
+
+    /// `uncaughtCrash`: last-resort handler for uncaught exceptions. Unlike
+    /// `emergency_terminal_exit` the terminal is still alive, so `ui.stop()`
+    /// restores cooked mode, the cursor, and the keyboard protocols.
+    fn uncaught_crash(&self, payload: &(dyn Any + Send)) -> ! {
+        match crash_action(payload_is_dead_terminal_error(payload), self.is_shutting_down.get()) {
+            CrashAction::EmergencyExit => self.emergency_terminal_exit(),
+            CrashAction::ExitOne => std::process::exit(1),
+            CrashAction::RestoreAndReport => {}
+        }
+        self.is_shutting_down.set(true);
+        // Each step mirrors a TS `try { ... } catch {}`: one failing must not
+        // skip the next.
+        swallow_panics(|| self.unregister_signal_handlers());
+        swallow_panics(kill_tracked_detached_children);
+        swallow_panics(|| self.ui.stop());
+        eprintln!("pi exiting due to uncaughtException:");
+        eprintln!("{}", format_uncaught(payload));
+        std::process::exit(1)
+    }
+
+    /// `terminalErrorHandler`: the stdin/stdout/stderr `error` listener.
+    fn terminal_error_handler(&self, error: &std::io::Error) {
+        match terminal_error_action(error) {
+            TerminalErrorAction::EmergencyExit => self.emergency_terminal_exit(),
+            TerminalErrorAction::Ignore => {}
+            TerminalErrorAction::Rethrow => throw_uncaught(ERROR, error.to_string()),
+        }
+    }
+
+    /// Delivers the terminal's queued I/O failures to `terminal_error_handler`
+    /// (Node emits them as stream `error` events).
+    fn handle_terminal_errors(&self) {
+        let errors = self.ui.terminal().borrow_mut().take_errors();
+        for error in &errors {
+            self.terminal_error_handler(error);
         }
     }
 
@@ -9872,8 +9993,9 @@ impl InteractiveMode {
     async fn restart_from_signal(&self) {
         self.theme_controller.borrow_mut().disable_auto_sync();
         let result = self.runtime.lock().await.restart(None, true).await;
+        // `void this.restartProcess(...)`: a rejection is an uncaught exception.
         if let Err(error) = result {
-            eprintln!("{error}");
+            throw_uncaught(ERROR, error.to_string());
         }
     }
 
@@ -14386,6 +14508,47 @@ mod tests {
         assert_eq!(parse_posix_path("subagents/index.ts").dir, "subagents");
         assert_eq!(parse_posix_path("subagents/index.ts").name, "index");
         assert_eq!(parse_posix_path("answer.ts").name, "answer");
+    }
+
+    #[test]
+    fn uncaught_crash_exits_129_for_a_dead_terminal_before_checking_shutdown() {
+        assert_eq!(crash_action(true, true), CrashAction::EmergencyExit);
+        assert_eq!(crash_action(true, false), CrashAction::EmergencyExit);
+    }
+
+    #[test]
+    fn uncaught_crash_exits_one_while_already_shutting_down() {
+        assert_eq!(crash_action(false, true), CrashAction::ExitOne);
+    }
+
+    #[test]
+    fn uncaught_crash_restores_the_terminal_otherwise() {
+        assert_eq!(crash_action(false, false), CrashAction::RestoreAndReport);
+    }
+
+    #[test]
+    fn terminal_errors_route_dead_raw_mode_and_other_errors_separately() {
+        let eio = std::io::Error::from_raw_os_error(rustix::io::Errno::IO.raw_os_error());
+        let enospc = std::io::Error::from_raw_os_error(rustix::io::Errno::NOSPC.raw_os_error());
+        let bun_raw_mode = std::io::Error::other("setRawMode failed with errno: 5");
+
+        assert_eq!(terminal_error_action(&eio), TerminalErrorAction::EmergencyExit);
+        assert_eq!(terminal_error_action(&bun_raw_mode), TerminalErrorAction::Ignore);
+        assert_eq!(terminal_error_action(&enospc), TerminalErrorAction::Rethrow);
+        assert_eq!(
+            terminal_error_action(&std::io::Error::other("write failed")),
+            TerminalErrorAction::Rethrow
+        );
+    }
+
+    #[test]
+    fn only_io_error_payloads_can_be_dead_terminal_errors() {
+        let eio = std::io::Error::from_raw_os_error(rustix::io::Errno::IO.raw_os_error());
+        let plain = std::io::Error::other("write failed");
+
+        assert!(payload_is_dead_terminal_error(&eio));
+        assert!(!payload_is_dead_terminal_error(&plain));
+        assert!(!payload_is_dead_terminal_error(&String::from("EIO")));
     }
 
     #[test]

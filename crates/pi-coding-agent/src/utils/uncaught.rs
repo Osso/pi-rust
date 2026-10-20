@@ -5,8 +5,16 @@
 //! handler: it prints `<Error name>: <message>` and exits 1. Rust has no
 //! exceptions, so the port routes those sites through this module and the
 //! `pi` binary installs [`install_uncaught_handler`] as the panic hook.
+//!
+//! While interactive mode owns the terminal it installs a
+//! [`ThreadCrashHandler`] (`registerSignalHandlers`' `uncaughtException`
+//! listener). Uncaught throws and panics on that thread then run the handler
+//! instead of the default report, so `ui.stop()` can restore cooked mode and
+//! the cursor. Clearing the handler restores the default report.
 
 use std::any::Any;
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 /// Node's default label for a plain `Error`.
 pub const ERROR: &str = "Error";
@@ -18,6 +26,29 @@ pub struct UncaughtError {
     pub message: String,
 }
 
+/// Process-level handler installed for one thread (interactive mode).
+pub type ThreadCrashHandler = Rc<dyn Fn(&(dyn Any + Send))>;
+
+thread_local! {
+    static THREAD_CRASH_HANDLER: RefCell<Option<ThreadCrashHandler>> = const { RefCell::new(None) };
+    /// Guards against a handler panic re-entering the hook forever. Rust has
+    /// no analogue of a second uncaught exception inside `uncaughtCrash`.
+    static HANDLING_CRASH: Cell<bool> = const { Cell::new(false) };
+    /// Set while [`swallow_panics`] runs: the hook stays silent so the panic
+    /// unwinds into `catch_unwind`.
+    static SWALLOWING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Installs `handler` for the current thread and returns the previous one.
+pub fn set_thread_crash_handler(handler: Option<ThreadCrashHandler>) -> Option<ThreadCrashHandler> {
+    THREAD_CRASH_HANDLER.with(|slot| slot.replace(handler))
+}
+
+/// The crash handler installed for the current thread, if any.
+pub fn thread_crash_handler() -> Option<ThreadCrashHandler> {
+    THREAD_CRASH_HANDLER.with(|slot| slot.borrow().clone())
+}
+
 /// `throw` an error that nothing catches.
 pub fn throw_uncaught(label: &'static str, message: impl Into<String>) -> ! {
     std::panic::panic_any(UncaughtError {
@@ -26,10 +57,21 @@ pub fn throw_uncaught(label: &'static str, message: impl Into<String>) -> ! {
     })
 }
 
+/// `try { step } catch {}`: runs `step` and discards a panic from it. The
+/// hook runs before unwinding, so it must know the panic is expected.
+pub fn swallow_panics(step: impl FnOnce()) {
+    let previous = SWALLOWING.replace(true);
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(step));
+    SWALLOWING.set(previous);
+}
+
 /// Formats a panic payload the way Node's uncaught handler prints it.
 pub fn format_uncaught(payload: &(dyn Any + Send)) -> String {
     if let Some(error) = payload.downcast_ref::<UncaughtError>() {
         return format!("{}: {}", error.label, error.message);
+    }
+    if let Some(error) = payload.downcast_ref::<std::io::Error>() {
+        return format!("{ERROR}: {error}");
     }
     if let Some(message) = payload.downcast_ref::<&str>() {
         return format!("{ERROR}: {message}");
@@ -43,6 +85,14 @@ pub fn format_uncaught(payload: &(dyn Any + Send)) -> String {
 /// Installs the process-level handler: print the error, exit 1 (not 101).
 pub fn install_uncaught_handler() {
     std::panic::set_hook(Box::new(|info| {
+        if SWALLOWING.get() {
+            return;
+        }
+        if !HANDLING_CRASH.replace(true)
+            && let Some(handler) = thread_crash_handler()
+        {
+            handler(info.payload());
+        }
         eprintln!("{}", format_uncaught(info.payload()));
         std::process::exit(1);
     }));

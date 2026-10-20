@@ -62,6 +62,13 @@ pub trait Terminal {
     fn poll_events(&mut self) -> Vec<TerminalEvent> {
         Vec::new()
     }
+    /// Drain terminal I/O failures observed since the last call.
+    ///
+    /// Node emits these as stream `error` events; the interactive mode routes
+    /// them through `terminalErrorHandler`.
+    fn take_errors(&mut self) -> Vec<std::io::Error> {
+        Vec::new()
+    }
 }
 
 /// A parsed Kitty keyboard protocol negotiation response.
@@ -244,6 +251,8 @@ pub struct ProcessTerminal {
     output: Box<dyn Write>,
     was_raw: Option<Termios>,
     input_handler: Option<Receiver<Vec<u8>>>,
+    read_errors: Option<Receiver<std::io::Error>>,
+    pending_errors: Vec<std::io::Error>,
     reader_stop: Option<Arc<AtomicBool>>,
     kitty_protocol_active: bool,
     modify_other_keys_active: bool,
@@ -270,6 +279,8 @@ impl ProcessTerminal {
             output,
             was_raw: None,
             input_handler: None,
+            read_errors: None,
+            pending_errors: Vec::new(),
             reader_stop: None,
             kitty_protocol_active: false,
             modify_other_keys_active: false,
@@ -491,6 +502,7 @@ impl ProcessTerminal {
 
     fn start_stdin_reader(&mut self) {
         let (sender, receiver) = channel::<Vec<u8>>();
+        let (error_sender, error_receiver) = channel::<std::io::Error>();
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
         std::thread::spawn(move || {
@@ -505,12 +517,27 @@ impl ProcessTerminal {
                         }
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                    Err(_) => break,
+                    Err(error) => {
+                        // The receiver is gone once the terminal stopped; the
+                        // reader ends either way.
+                        let _ = error_sender.send(error);
+                        break;
+                    }
                 }
             }
         });
         self.input_handler = Some(receiver);
+        self.read_errors = Some(error_receiver);
         self.reader_stop = Some(stop);
+    }
+
+    fn collect_read_errors(&mut self) {
+        let Some(receiver) = self.read_errors.as_ref() else {
+            return;
+        };
+        for error in receiver.try_iter() {
+            self.pending_errors.push(error);
+        }
     }
 
     fn drain_stdin_channel(&mut self) {
@@ -605,6 +632,7 @@ impl Terminal for ProcessTerminal {
             stop.store(true, Ordering::Relaxed);
         }
         self.input_handler = None;
+        self.read_errors = None;
         if let Some(termios) = self.was_raw.take() {
             let _ = restore_stdin_mode(&termios);
         }
@@ -643,8 +671,12 @@ impl Terminal for ProcessTerminal {
     }
 
     fn write(&mut self, data: &str) {
-        let _ = self.output.write_all(data.as_bytes());
-        let _ = self.output.flush();
+        if let Err(error) = self.output.write_all(data.as_bytes()) {
+            self.pending_errors.push(error);
+        }
+        if let Err(error) = self.output.flush() {
+            self.pending_errors.push(error);
+        }
         self.append_write_log(data);
     }
 
@@ -707,11 +739,16 @@ impl Terminal for ProcessTerminal {
 
     fn poll_events(&mut self) -> Vec<TerminalEvent> {
         self.drain_stdin_channel();
+        self.collect_read_errors();
         let now = Instant::now();
         let mut events = self.poll_at(now);
         self.check_resize();
         self.refresh_progress_keepalive();
         events.append(&mut self.pending_events);
         events
+    }
+
+    fn take_errors(&mut self) -> Vec<std::io::Error> {
+        std::mem::take(&mut self.pending_errors)
     }
 }
