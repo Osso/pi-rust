@@ -241,7 +241,7 @@ impl Day {
                 year += 1900;
             }
         }
-        if !(-(1 << 30)..(1 << 30)).contains(&year) || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        if i32::try_from(year).is_err() || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
             return None;
         }
         Some((year, month, day))
@@ -313,11 +313,11 @@ impl Zone {
         let Some(sign) = self.sign else {
             return Some(None);
         };
-        // V8 performs uint32 arithmetic before checking its 31-bit Smi range.
+        // V8 performs uint32 arithmetic before checking the reference Node build's 32-bit Smi range.
         let seconds = (self.hour.unwrap_or(0) as u32)
             .wrapping_mul(3600)
             .wrapping_add((self.minute.unwrap_or(0) as u32).wrapping_mul(60));
-        if seconds > (1 << 30) - 1 {
+        if seconds > i32::MAX as u32 {
             return None;
         }
         Some(Some(sign * i64::from(seconds)))
