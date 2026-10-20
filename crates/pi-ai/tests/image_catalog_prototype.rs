@@ -17,11 +17,6 @@ fn generated_artifact_matches_source_prototype_named_model() {
         );
         let expected = ts.request(&json!({"operation":"workflow","payload":payload}));
         assert_eq!(expected["status"], 0, "{expected}");
-        std::fs::write(
-            format!("/tmp/pi-rust-image-generator-proof/validation-prototype-{case}-source.json"),
-            serde_json::to_string_pretty(&expected).unwrap(),
-        )
-        .unwrap();
         if case == 1 {
             // Approved wrong-field rejection: source's nested prototype projection is now invalid input.
             let error = parse_openrouter_image_models(&parse_lossless(payload).unwrap(), true).unwrap_err();
