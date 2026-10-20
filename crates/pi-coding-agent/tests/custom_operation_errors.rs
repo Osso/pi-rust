@@ -4,7 +4,10 @@ mod oracle;
 use pi_agent_core::agent::{AgentTool, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::tools::{
+    bash::{BashExecOptions, BashExecResult, BashOperations, BashTool, BashToolOptions},
     edit::{EditOperations, EditTool, EditToolOptions},
+    find::{FindOperations, FindTool, FindToolOptions},
+    grep::{GrepOperations, GrepTool, GrepToolOptions},
     ls::{LsOperations, LsTool, LsToolOptions},
     read::{ReadOperations, ReadTool, ReadToolOptions},
     write::{WriteOperations, WriteTool, WriteToolOptions},
@@ -13,6 +16,32 @@ use serde_json::{Value, json};
 use std::{io, sync::Arc};
 
 struct Fault(&'static str);
+impl GrepOperations for Fault {
+    fn is_directory<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+        Box::pin(async { self.result("directory", true) })
+    }
+    fn read_file<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<String>> {
+        Box::pin(async { self.result("readFile", String::new()) })
+    }
+}
+impl FindOperations for Fault {
+    fn supports_glob(&self) -> bool {
+        true
+    }
+    fn exists<'a>(&'a self, _: &'a str) -> BoxFuture<'a, bool> {
+        Box::pin(async { false })
+    }
+}
+impl BashOperations for Fault {
+    fn exec<'a>(
+        &'a self,
+        _: &'a str,
+        _: &'a str,
+        _: BashExecOptions,
+    ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
+        Box::pin(async { Err(ToolError::new(self.0)) })
+    }
+}
 impl Fault {
     fn result<T>(&self, stage: &str, value: T) -> io::Result<T> {
         if self.0 == stage {
@@ -133,4 +162,45 @@ async fn custom_errors_match_pinned_tool_catch_boundaries() {
         }
     }
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+}
+
+#[tokio::test]
+async fn intentional_grep_find_and_bash_error_handling_matches_source() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "custom-operation-errors-oracle.ts",
+        "packages/coding-agent/src/core/tools/read.ts",
+    );
+    for (name, stage) in [
+        ("grep", "directory"),
+        ("find", "missing"),
+        ("bash", "remote denied"),
+        ("bash", "aborted"),
+        ("bash", "timeout:2"),
+    ] {
+        let ops = Arc::new(Fault(stage));
+        let tool: Box<dyn AgentTool> = match name {
+            "grep" => Box::new(GrepTool::with_options(
+                "/fixture",
+                GrepToolOptions { operations: Some(ops) },
+            )),
+            "find" => Box::new(FindTool::with_options(
+                "/fixture",
+                FindToolOptions { operations: Some(ops) },
+            )),
+            _ => Box::new(BashTool::with_options(
+                "/fixture",
+                BashToolOptions {
+                    operations: Some(ops),
+                    ..Default::default()
+                },
+            )),
+        };
+        let params = json!({"path":"file.txt","pattern":"needle","command":"unused"});
+        let expected = oracle.request(&json!({"tool":name,"stage":stage,"message":stage,"params":params}));
+        assert_eq!(
+            error(tool.as_ref(), params).await,
+            expected["error"].as_str().unwrap(),
+            "{name}/{stage}"
+        );
+    }
 }
