@@ -79,3 +79,7 @@ Raw provider values use shared `JsValue`/`JsString`, preserving UTF-16 code unit
 ## Consumed receiver validation checkpoint
 
 `56-receiver-type-red.log` establishes missing native receiver errors and accepted malformed deferred reasoning. `57-receiver-type.log` GREEN3 proves ten cost/Baseten/Fireworks receiver cases, source filter/default/unknown-string/unused-budget short-circuits, and five deferred reasoning failures after all three HTTP requests outside fetch catches. Native messages replace classified accidental V8 errors under the approved type-rejection policy; actual-source observations remain in diagnostics. This checkpoint does not establish exhaustive response or metadata type validation.
+
+## Shared native HTTP checkpoint
+
+`62-native-http-red.log` establishes missing native transport identity; `63-native-http.log` GREEN compares actual refused TCP connection and premature response-body EOF with Node native fetch (full diagnostics retained). `fetch_native` consumes shared `default_fetch`, `read_body_text` and structured CallbackError name/message/cause; the binary no longer defines local transport mapping. Both strict/default generator catches preserve names/messages and sanitized native causes. Non-success status/body-read ordering still requires focused proof.

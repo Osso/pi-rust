@@ -6,7 +6,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 
 - [x] Reject wrong copied Model field types at actual artifact emission, including JSON-only, outside fetch catches and after existing staged validators; validate only emitted data-only subsets. No added finite/range/domain limits.
 - [x] Reject malformed consumed models.dev provider/model/cost/tier/modalities/reasoning receivers at their use points with native TypeErrors; preserve filters, defaults, unknown strings, unused controls and deferred outer reasoning failures. Remaining response/metadata branches stay partial (approved “Reject wrong field types (Recommended)”, 2026-10-20).
-- [ ] Permit native HTTP causes while retaining Node top-level fetch error name/message, status and failure order (approved “Allow native causes (Recommended)”, 2026-10-20).
+- [x] Consume shared native HTTP error name/message/cause without string parsing; preserve top-level fetch-failed/body-terminated identity and fetch strict/default catch behavior. Native cause diagnostics remain sanitized (approved “Allow native causes (Recommended)”, 2026-10-20).
 
 - [x] Preserve models.dev plain costs and context-sized pricing tiers.
 - [x] Transform Baseten entries, including deprecated filtering, toggle/effort compatibility and GLM-5.2 overrides.
@@ -53,6 +53,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - `crates/pi-ai/tests/model_catalog_generator.rs`: original-source cost and provider comparisons.
 - `crates/pi-ai/tests/model_catalog_generator_http.rs`: mocked HTTP values and strict/default failures.
 - `crates/pi-ai/tests/model_catalog_generator_fetch.rs`: all-fetcher error matrix, NVIDIA Map order, strict Qwen set checks and original automatic CLI catch.
+- `crates/pi-ai/tests/model_catalog_generator_native_http.rs`: actual refused connections/premature bodies against Node native fetch and shared sanitized causes through generator catches.
 - `crates/pi-ai/tests/model_catalog_generator_options.rs`: source flags and validation ordering.
 - `crates/pi-ai/tests/model_catalog_generator_raw.rs`: malformed provider errors and UTF-16 identity.
 - `crates/pi-ai/tests/model_catalog_generator_receivers.rs`: approved native receiver errors, source short-circuits and deferred reasoning failure order.

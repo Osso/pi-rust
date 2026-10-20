@@ -1,5 +1,5 @@
 //! Explicit maintenance entrypoint; never invoked during normal model loading.
-use pi_ai::model_catalog_generator::{GeneratorError, GeneratorErrorDetails, HttpResponse, run_generator_cli};
+use pi_ai::model_catalog_generator::{fetch_native, run_generator_cli};
 use pi_js_compat::{
     date::{js_now_millis, to_iso_string},
     js_json::{JsString, JsValue, to_js_string},
@@ -20,11 +20,6 @@ fn emit(log: &JsValue) {
         println!("{}", values.join(" "));
     }
 }
-fn error(message: &str, cause: impl ToString) -> GeneratorError {
-    let mut error = GeneratorError::new("TypeError", JsString::from(message));
-    error.details = Some(GeneratorErrorDetails::Transport(cause.to_string()));
-    error
-}
 fn main() -> ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     // Invalid arguments are rejected before any transport setup or requests.
@@ -39,25 +34,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let client = match reqwest::Client::builder().build() {
-        Ok(client) => client,
-        Err(error) => {
-            eprintln!("Error: {error}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let mut fetch = |url: &str| {
-        runtime.block_on(async {
-            let response = client
-                .get(url)
-                .send()
-                .await
-                .map_err(|cause| error("fetch failed", cause))?;
-            let status = response.status().as_u16();
-            let body = response.text().await.map_err(|cause| error("terminated", cause))?;
-            Ok(HttpResponse { status, body })
-        })
-    };
+    let mut fetch = |url: &str| runtime.block_on(fetch_native(url));
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
