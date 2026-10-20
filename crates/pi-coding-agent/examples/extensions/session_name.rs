@@ -1,0 +1,32 @@
+//! Opt-in native `session-name.ts`; never loaded by default.
+use std::sync::Arc;
+
+use pi_coding_agent::core::extensions::{ExtensionApi, HandlerError, NotifyType};
+use pi_js_compat::string::js_trim;
+
+pub fn session_name_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
+    let api = pi.clone();
+    pi.register_command(
+        "session-name",
+        Some("Set or show session name (usage: /session-name [new name])".into()),
+        None,
+        Arc::new(move |args, ctx| {
+            let api = api.clone();
+            Box::pin(async move {
+                let name = js_trim(&args);
+                let message = if !name.is_empty() {
+                    api.set_session_name(name)?;
+                    format!("Session named: {name}")
+                } else {
+                    match api.get_session_name()?.filter(|name| !name.is_empty()) {
+                        Some(current) => format!("Session: {current}"),
+                        None => "No session name set".into(),
+                    }
+                };
+                ctx.ui()?.notify(&message, Some(NotifyType::Info));
+                Ok(())
+            })
+        }),
+    )
+    .map_err(HandlerError::new)
+}
