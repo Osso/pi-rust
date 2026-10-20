@@ -11,9 +11,9 @@ async function main() {
    const request = JSON.parse(pending.slice(0,end)); pending = pending.slice(end+1);
    const result = request.map((item: any) => {
     const todos = structuredClone(item.todos ?? []);
-    return {safe:utils.isSafeCommand(item.text),clean:utils.cleanStepText(item.text),
+    return JSON.stringify({safe:utils.isSafeCommand(item.text),clean:utils.cleanStepText(item.text),
      todos:utils.extractTodoItems(item.text),done:utils.extractDoneSteps(item.text),
-     marked:utils.markCompletedSteps(item.text,todos),updated:todos};
+     marked:utils.markCompletedSteps(item.text,todos),updated:todos});
    });
    console.log(JSON.stringify(result));
   }

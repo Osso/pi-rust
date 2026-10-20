@@ -1,19 +1,28 @@
 //! Pure helpers from the pinned plan-mode example. No tool execution.
 use fancy_regex::Regex;
-use pi_js_compat::string::{js_trim, utf16_len, utf16_slice_to_utf8};
-use serde::{Deserialize, Serialize};
+use pi_js_compat::{
+    js_json::JsString,
+    string::{js_trim, utf16_len},
+};
 use std::sync::LazyLock;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TodoItem {
     pub step: usize,
-    pub text: String,
+    pub text: JsString,
     pub completed: bool,
 }
 
 // JavaScript uses ASCII word boundaries but Unicode whitespace, including BOM.
 fn js_regex(pattern: &str) -> Regex {
+    let pattern = ascii_case_pattern(pattern);
     let pattern = pattern
+        .replace(r"\d", "[0-9]")
+        .replace(
+            r"\S",
+            r"[^\t\n\x0b\x0c\r \u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}]",
+        )
+        .replace("(?m)^", r"(?:\A|(?<=[\n\r\u{2028}\u{2029}]))")
         .replace(
             r"\b",
             r"(?:(?<=[A-Za-z0-9_])(?![A-Za-z0-9_])|(?<![A-Za-z0-9_])(?=[A-Za-z0-9_]))",
@@ -23,6 +32,44 @@ fn js_regex(pattern: &str) -> Regex {
             r"[\t\n\x0b\x0c\r \u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}]",
         );
     Regex::new(&pattern).expect("constant JS-compatible pattern")
+}
+// Non-Unicode JS /i never folds Kelvin sign or long-s into ASCII letters.
+fn ascii_case_pattern(pattern: &str) -> String {
+    let Some(pattern) = pattern.strip_prefix("(?i)") else {
+        return pattern.into();
+    };
+    let mut output = String::new();
+    let mut escaped = false;
+    let mut class = false;
+    for c in pattern.chars() {
+        if escaped {
+            output.push(c);
+            escaped = false;
+            continue;
+        }
+        match c {
+            '\\' => {
+                output.push(c);
+                escaped = true;
+            }
+            '[' => {
+                output.push(c);
+                class = true;
+            }
+            ']' => {
+                output.push(c);
+                class = false;
+            }
+            c if c.is_ascii_alphabetic() && !class => {
+                output.push('[');
+                output.push(c.to_ascii_lowercase());
+                output.push(c.to_ascii_uppercase());
+                output.push(']');
+            }
+            _ => output.push(c),
+        }
+    }
+    output
 }
 fn matches(pattern: &Regex, text: &str) -> bool {
     pattern.is_match(text).expect("bounded example regex")
@@ -123,7 +170,7 @@ static SAFE: LazyLock<Vec<Regex>> = LazyLock::new(|| {
 pub fn is_safe_command(command: &str) -> bool {
     !DESTRUCTIVE.iter().any(|p| matches(p, command)) && SAFE.iter().any(|p| matches(p, command))
 }
-pub fn clean_step_text(text: &str) -> String {
+pub fn clean_step_text(text: &str) -> JsString {
     static BOLD: LazyLock<Regex> = LazyLock::new(|| js_regex(r"\*{1,2}([^*]+)\*{1,2}"));
     static CODE: LazyLock<Regex> = LazyLock::new(|| js_regex(r"`([^`]+)`"));
     static VERB: LazyLock<Regex> = LazyLock::new(|| {
@@ -137,14 +184,16 @@ pub fn clean_step_text(text: &str) -> String {
     let cleaned = VERB.replace(&cleaned, "");
     let cleaned = SPACE.replace_all(&cleaned, " ");
     let cleaned = js_trim(&cleaned);
-    let mut cleaned = match cleaned.chars().next() {
+    let cleaned = match cleaned.chars().next() {
         Some(first) if first.len_utf16() == 1 => format!("{}{}", first.to_uppercase(), &cleaned[first.len_utf8()..]),
         _ => cleaned.to_owned(),
     };
-    if utf16_len(&cleaned) > 50 {
-        cleaned = format!("{}...", utf16_slice_to_utf8(&cleaned, 0, 47));
+    let mut units: Vec<_> = cleaned.encode_utf16().collect();
+    if units.len() > 50 {
+        units.truncate(47);
+        units.extend("...".encode_utf16());
     }
-    cleaned
+    JsString::from_utf16(units)
 }
 pub fn extract_todo_items(message: &str) -> Vec<TodoItem> {
     static HEADER: LazyLock<Regex> = LazyLock::new(|| js_regex(r"(?i)\*{0,2}Plan:\*{0,2}\s*\n"));
@@ -162,7 +211,7 @@ pub fn extract_todo_items(message: &str) -> Vec<TodoItem> {
             continue;
         }
         let text = clean_step_text(text);
-        if utf16_len(&text) > 3 {
+        if text.units().len() > 3 {
             items.push(TodoItem {
                 step: items.len() + 1,
                 text,

@@ -2,7 +2,22 @@
 mod example;
 #[path = "support/oracle.rs"]
 mod oracle;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue, parse_lossless, stringify_lossless};
 use serde_json::{Value, json};
+fn todos_json(todos: &[example::TodoItem]) -> JsValue {
+    JsValue::Array(
+        todos
+            .iter()
+            .map(|todo| {
+                JsValue::Object(JsObject::from_iter([
+                    (JsString::from("step"), JsValue::Number(todo.step as f64)),
+                    (JsString::from("text"), JsValue::String(todo.text.clone())),
+                    (JsString::from("completed"), JsValue::Bool(todo.completed)),
+                ]))
+            })
+            .collect(),
+    )
+}
 
 #[test]
 fn all_helpers_match_broad_pinned_corpus() {
@@ -133,6 +148,17 @@ fn all_helpers_match_broad_pinned_corpus() {
         texts.push(format!("Create {}", "a".repeat(length)));
     }
     let request: Vec<_> = texts.into_iter().map(|text| json!({"text":text,"todos":[{"step":1,"text":"First","completed":false},{"step":9,"text":"Ninth","completed":false}]})).collect();
+    let mut request = request;
+    for text in [
+        format!("{}🦀suffix", "a".repeat(46)),
+        "echo ſudo".into(),
+        "echo Kill".into(),
+        "Plan:\r1. Read the source files\u{2028}2. Verify the results".into(),
+        "Plan:\n١. Read the source files".into(),
+        "echo\u{85}text".into(),
+    ] {
+        request.push(json!({"text":text,"todos":[{"step":1,"text":"First","completed":false},{"step":9,"text":"Ninth","completed":false}]}));
+    }
     let mut oracle = oracle::TsOracle::spawn(
         "extension-examples-g-utils-oracle.ts",
         "packages/coding-agent/examples/extensions/plan-mode/utils.ts",
@@ -140,17 +166,16 @@ fn all_helpers_match_broad_pinned_corpus() {
     let expected = oracle.request(&json!(request));
     let actual: Vec<_> = request.iter().map(|item| {
         let text = item["text"].as_str().unwrap();
-        let mut todos: Vec<example::TodoItem> = serde_json::from_value(item["todos"].clone()).unwrap();
+        let mut todos: Vec<example::TodoItem> = item["todos"].as_array().unwrap().iter().map(|item|example::TodoItem{step:item["step"].as_u64().unwrap() as usize,text:JsString::from(item["text"].as_str().unwrap()),completed:item["completed"].as_bool().unwrap()}).collect();
         let marked = example::mark_completed_steps(text, &mut todos);
-        json!({"safe":example::is_safe_command(text),"clean":example::clean_step_text(text),"todos":example::extract_todo_items(text),"done":example::extract_done_steps(text),"marked":marked,"updated":todos})
+        let JsValue::Object(mut value)=parse_lossless(&serde_json::to_string(&json!({"safe":example::is_safe_command(text),"clean":"","todos":[],"done":example::extract_done_steps(text),"marked":marked,"updated":[]})).unwrap()).unwrap()else{unreachable!()};
+        value.insert(JsString::from("clean"),JsValue::String(example::clean_step_text(text)));
+        value.insert(JsString::from("todos"),todos_json(&example::extract_todo_items(text)));
+        value.insert(JsString::from("updated"),todos_json(&todos));
+        stringify_lossless(&JsValue::Object(value))
     }).collect();
     for ((input, actual), expected) in request.iter().zip(actual).zip(expected.as_array().unwrap()) {
-        assert_eq!(
-            pi_js_compat::js_json::stringify(&actual),
-            pi_js_compat::js_json::stringify(expected),
-            "input: {}",
-            input["text"]
-        );
+        assert_eq!(actual, expected.as_str().unwrap(), "input: {}", input["text"]);
     }
     assert!(request.len() > 500);
     let _: Value = expected;

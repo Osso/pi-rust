@@ -18,8 +18,8 @@ real `ExtensionRunner` and isolated state inherited from Cargo's runner.
 - Typed Rust tool inputs exclude invalid JS types, per project rules.
 - No live providers/config/control DB: private temp files, in-memory credentials,
   model runtime with networking disabled, in-memory session manager.
-- Plan helper UTF-16 truncation currently uses the existing compatibility helper;
-  split-surrogate boundary remains unproven and is not claimed as parity evidence.
+- Plan helper text uses `pi_js_compat::js_json::JsString`; split-surrogate
+  truncation is lossless. Unicode regex boundaries/ASCII case folding are tested.
 - Minimal bash's expanded empty text still contains color escapes and renders an
   empty colored line. Preserve this source behavior, rather than simplifying it.
 
