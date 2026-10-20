@@ -88,6 +88,20 @@ async fn border_status_editor_matches_live_model_context_home_and_no_branch() {
 }
 
 #[tokio::test]
+async fn border_status_editor_matches_javascript_branch_whitespace() {
+    let factory: ExtensionFactory = Arc::new(|api| {
+        let result = border_status_editor::border_status_editor_extension(api);
+        Box::pin(async move { result })
+    });
+    support::compare(
+        "border-status-editor",
+        factory,
+        json!({"widths":[80,120],"branchName":"\u{feff}example","steps":[{"event":"session_shutdown"}]}),
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn overlay_test_matches_pinned_focus_inputs_options_and_result() {
     for steps in [
         json!([

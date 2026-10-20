@@ -20,7 +20,7 @@ Oracle imports actual pinned modules and actual CustomEditor/Editor/TUI. Public 
 
 ## Proof
 
-- Five differential tests: modal, rainbow, border spinner, border live model/context/thinking/home/no-branch, overlay (three select/cancel scenarios). Every snapshot compares exact ANSI strings at multiple widths and text/focus state.
+- Six differential tests: modal, rainbow, border spinner, border live model/context/thinking/home/no-branch, JavaScript branch whitespace, overlay (three select/cancel scenarios). Every snapshot compares exact ANSI strings at multiple widths and text/focus state.
 - Oracle uses real pinned TUI focus routing. Core tests additionally mount real CustomEditor, dispatch input through regular/fullscreen interactive TUI, and prove overlay width/options, close-on-Enter, single disposal, synchronous completion, cursor-marker consumption and hardware cursor column.
 - Mutation proofs: modal NORMAL label → BROKEN; rainbow red channel +1; spinner advances two frames; overlay omits cursor marker. Each produced a behavioral differential assertion failure; each file restored byte-identically. Logs: `/tmp/pi-rust-ext-ui-editor-focus/15-*` through `18-*`, ledger beside them.
 - Rust clock tests service interval deadlines with one timer-wheel tick of scheduling allowance; TS interval callbacks are deterministically advanced. Branch fixtures wait for the actual git completion's render request, not a guessed sleep.
@@ -38,3 +38,5 @@ Rust Editor computed a negative cursor offset for wrapped chunks that did not co
 ## Deferred callback order
 
 Rainbow inspects text after parent app actions. The native host defers re-entrant app callbacks until its RefCell borrow is released; Rainbow appends its animation update after those callbacks using a weak editor reference. The differential installs the same real `app.clear` action in both editors, dispatches Ctrl+C, advances the clock, and reinserts the word. RED reproduced stale timer advancement before this ordering fix.
+
+Branch refresh uses `js_trim`, not Rust whitespace rules. A real git branch beginning with U+FEFF reproduces the difference; exact ANSI snapshots now match pinned TS trimming.

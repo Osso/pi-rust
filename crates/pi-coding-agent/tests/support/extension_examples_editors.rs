@@ -150,16 +150,17 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
     };
     let cwd = temp.path().to_str().unwrap();
     let repository = request["repository"] != false;
+    let branch_name = request["branchName"].as_str().unwrap_or("example").to_owned();
     if repository {
         let git = std::process::Command::new("git")
-            .args(["init", "-q", "--initial-branch=example"])
+            .args(["init", "-q", &format!("--initial-branch={branch_name}")])
             .current_dir(cwd)
             .output()
             .unwrap();
         assert!(git.status.success());
     }
     request["cwd"] = json!(cwd);
-    request["branch"] = json!(if repository { "example" } else { "" });
+    request["branch"] = json!(if repository { &branch_name } else { "" });
     let colors: Vec<_> = REQUIRED_COLORS
         .iter()
         .enumerate()

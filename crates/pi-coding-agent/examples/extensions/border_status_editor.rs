@@ -206,7 +206,7 @@ pub fn border_status_editor_extension(pi: &ExtensionApi) -> Result<(), HandlerEr
                         .await
                         .ok();
                     let name = result
-                        .map(|r| r.stdout.trim().to_owned())
+                        .map(|r| pi_js_compat::string::js_trim(&r.stdout).to_owned())
                         .filter(|name| !name.is_empty());
                     *refreshed.lock().expect("branch state") = name;
                     refresh_state.lock().expect("spinner state").render();
