@@ -10,7 +10,7 @@ Embeddable via `#[path]`, explicitly registered `ExtensionRegistry` factory; nev
 |---|---|---|
 | Factory captures process cwd; register read/bash/edit/write in order, edit self shell | `built_in_tool_renderer_extension` | `example_built_in_tool_renderer`: full ordered metadata and real runner execute IO |
 | read call: path, offset/limit truthiness | `render_call` | all rendered ANSI lines at widths 1/7/16/40/80/120 |
-| bash call: UTF-16 80-unit cutoff, 77-unit prefix, timeout | `render_call` | short/exact/long/astral commands, absent/zero/fractional timeout |
+| bash call: UTF-16 80-unit cutoff, 77-unit prefix, timeout | `render_call` | short/exact/long/astral commands, absent/zero/integral-float/fractional timeout; JS numeric interpolation |
 | edit/write calls, write newline count | `render_call` | Unicode path, empty/trailing-newline content |
 | Every partial result | `render_result` | both expanded states for each fixture, partial takes precedence |
 | read image/empty/text/error, truncation, expanded 15-line cap | `render_read` | empty/image/text/trailing-newline/styled/18-line/error fixtures |
@@ -19,7 +19,7 @@ Embeddable via `#[path]`, explicitly registered `ExtensionRegistry` factory; nev
 | write Error first-line or Written | `first_error`, `render_result` | absent/text/error results |
 | Original tool execution delegation, success/error propagation | original `create_*_tool` via definition wrapper | actual read offset/limit, bash success/nonzero, multi-edit success/missing-text, write; complete results/errors and file bytes |
 
-Proof compares complete output against unchanged pinned extension through real TS loader/runtime/runner and pinned pi-tui `Text`, using shared `tests/support/{extensions,oracle}.rs` plus batch-specific `extension_examples_h.rs`. 91 render scenarios × six widths, seven executions. Fixtures remain in private temp dirs under cargo runner isolation. No oracle/binary is run directly.
+Proof compares complete output against unchanged pinned extension through real TS loader/runtime/runner and pinned pi-tui `Text`, using shared `tests/support/{extensions,oracle}.rs` plus batch-specific `extension_examples_h.rs`. 93 render scenarios × six widths, seven executions. Fixtures remain in private temp dirs under cargo runner isolation. No oracle/binary is run directly.
 
 Typed inputs follow core exclusion of invalid JS runtime types. JS stack frames are not compared. No new dependencies or intentional behavior deviations. Proof status and mutation evidence: `/tmp/pi-rust-ext-examples-h/ledger.md`.
 

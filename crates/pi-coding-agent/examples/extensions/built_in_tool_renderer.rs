@@ -61,6 +61,10 @@ fn truthy(value: &Value) -> bool {
     }
 }
 
+fn number_text(value: &Value) -> String {
+    pi_js_compat::number::js_number_to_string(value.as_f64().expect("numeric tool parameter"))
+}
+
 fn render_call(name: &str, args: &Value, theme: &Theme) -> String {
     let title = if name == "bash" { "$ " } else { name };
     let title = if name == "bash" {
@@ -78,7 +82,10 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> String {
         };
         text.push_str(&theme.fg(ThemeColor::Accent, &command));
         if truthy(&args["timeout"]) {
-            text.push_str(&theme.fg(ThemeColor::Dim, &format!(" (timeout: {}s)", args["timeout"])));
+            text.push_str(&theme.fg(
+                ThemeColor::Dim,
+                &format!(" (timeout: {}s)", number_text(&args["timeout"])),
+            ));
         }
         return text;
     }
@@ -87,7 +94,7 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> String {
         let parts = ["offset", "limit"]
             .into_iter()
             .filter(|key| truthy(&args[*key]))
-            .map(|key| format!("{key}={}", args[key]))
+            .map(|key| format!("{key}={}", number_text(&args[key])))
             .collect::<Vec<_>>();
         text.push_str(&theme.fg(ThemeColor::Dim, &format!(" ({})", parts.join(", "))));
     }
