@@ -100,6 +100,18 @@ doc = false
 name = "sdk_01_minimal"
 path = "examples/sdk/01_minimal.rs"
 
+[[example]]
+name = "sdk_02_custom_model"
+path = "examples/sdk/02_custom_model.rs"
+
+[[example]]
+name = "sdk_03_custom_prompt"
+path = "examples/sdk/03_custom_prompt.rs"
+
+[[example]]
+name = "sdk_04_skills"
+path = "examples/sdk/04_skills.rs"
+
 [dev-dependencies]
 tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs", "test-util"] }
 # `pty::openpty` for process-boundary crash tests that need a pty without a

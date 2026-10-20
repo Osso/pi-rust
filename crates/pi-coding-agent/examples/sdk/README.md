@@ -1,5 +1,19 @@
 # SDK examples
 
+## Native SDK configuration programs
+
+| Target | Behavior |
+| --- | --- |
+| `sdk_02_custom_model` | Runtime lookup, authenticated model order, medium thinking |
+| `sdk_03_custom_prompt` | Replace prompt, then append instructions |
+| `sdk_04_skills` | Filter discovery and append a synthetic skill |
+
+Run with `cargo run -p pi-coding-agent --example <target>`. Like 01,
+entrypoints are opt-in SDK clients and may contact configured providers. Tests
+call each exact program's `run` with private state and Faux providers; no live
+configuration/DB/provider is used. Structured console values print as JSON.
+See [02–13 traceability](../../../../docs/porting/traceability/sdk-examples.md).
+
 ## Minimal session
 
 ```text
