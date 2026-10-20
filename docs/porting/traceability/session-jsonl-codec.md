@@ -25,6 +25,30 @@ Rust: `crates/pi-agent-core/src/harness/session/jsonl/codec.rs`. Tests: `session
 - Numbers use `pi_js_compat::number` (`f64` → JavaScript formatting), timestamps and sequences are `i64`.
 - `OptionalValue` keeps explicit `null` for `data`/`details` while omitting absent properties.
 
+## Numeric boundary differential
+
+`differential_session_codec_numbers.rs` runs `session-codec-numbers-oracle.ts`
+against the real pinned `codec.ts`, using the shared
+`pi-coding-agent/tests/support/oracle.rs` source-lock check, parent watchdog and
+process-group cleanup. Raw JSON lines preserve numeric spelling. Complete parse
+values and exact error kind/message are compared without numeric normalization
+or field filtering; Rust entry/record variants are represented with the TS API's
+wrapper rather than their flattened on-disk serde representation.
+
+| Branch | Concrete coverage | Proof |
+|---|---|---|
+| `requireSequence` in entry/record/lane/fact | `2^53-1`, `2^53`, negative boundaries, positive/zero/negative, `-0.0`, `1.0`, fractions and integral/fractional exponents | Pinned TS differential |
+| `requireTimestamp` in header `createdAt`, entry/record `timestamp` | Same spellings; zero accepted, negatives/fractions/unsafe integers rejected | Pinned TS differential |
+| First error | Unsafe seq before dispatch/id; id/parentId/lane before timestamp; timestamp before customType/intent/cwd; header kind/version/parent before createdAt | Exact schema kind/message, 12 competing-error fixtures |
+| Header `version !== 4` | `4`, `4.0`, `4e0` accepted; `4.5`, `3`, string `"4"` rejected | Pinned TS differential; reproduced `4.0` failure on `432cf07` before changing version check |
+
+Regression RED: replacing only isolated-tree `codec.rs` with `7b7d800^` made all
+three differential tests fail: unsafe `createdAt` accepted, unsafe seq reported
+unknown mutation kind instead of invalid seq, and `4.0` version rejected. Restoring
+`432cf07` passed numeric boundaries/order but still failed version equality.
+The production fix changes only version comparison to numeric equality; no new
+numeric helper or safe-integer implementation was added.
+
 ## Gaps
 
 - Typed deserialization rejects malformed nested messages/intents that TS would accept and carry through. TS-written

@@ -70,7 +70,7 @@ fn decode_header(line: &str) -> Result<JsonlV4Header, JsonlDecodeError> {
     if value.get("kind").and_then(Value::as_str) != Some("header") {
         return Err(schema_error("is not a header"));
     }
-    if value.get("version").and_then(Value::as_u64) != Some(4) {
+    if value.get("version").and_then(Value::as_f64) != Some(4.0) {
         return Err(schema_error("has unsupported session version"));
     }
     let parent_session_id = decode_optional_string(&value, "parentSessionId", "has invalid parentSessionId")?;
