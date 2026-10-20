@@ -47,7 +47,7 @@ async function execute(input: any) {
    return { ok: (input.status ?? 200) < 300, text: async () => input.body ?? "", json: async () => input.token ?? { access_token: "FAKE-access", refresh_token: "FAKE-refresh", expires_in: 3600 } };
   },
   require: (name: string) => {
-   if (name === "@anthropic-ai/sdk") return { __esModule: true, default: sdk };
+   if (name === "@anthropic-ai/sdk") return input.wire ? require(name) : { __esModule: true, default: sdk };
    if (name === "@earendil-works/pi-ai") return {
     calculateCost: costExports.calculateCost,
     createAssistantMessageEventStream: () => ({ push: (e: any) => events.push(structuredClone(e)), end: () => finish() }),
@@ -86,7 +86,7 @@ async function execute(input: any) {
  if (input.numericBudget) options.thinkingBudgets = { high: Number(input.numericBudget) };
  config.streamSimple(model, input.context ?? { messages: [] }, options);
  await finished;
- return { calls, events };
+ return { calls, events, ...(input.wire ? { sdkVersion: JSON.parse(readFileSync(resolve(root, "node_modules/@anthropic-ai/sdk/package.json"), "utf8")).version } : {}) };
 }
 async function main() {
  process.stdin.setEncoding("utf8"); let pending = "";

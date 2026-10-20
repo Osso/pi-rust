@@ -20,7 +20,7 @@ Opt-in Rust-native counterpart of pinned `coding-agent/examples/extensions/custo
 - `crates/pi-coding-agent/examples/extensions/custom_provider_anthropic.rs`: embeddable registration and native Provider/OAuth implementation.
 - `crates/pi-coding-agent/examples/extensions/custom_provider_anthropic/{request,stream}.rs`: example-specific conversion, headers and SDK event handling.
 - `crates/pi-ai/src/api/{anthropic_sdk,anthropic_messages}.rs`: existing SDK request/HTTP and SSE decoder primitives, exposed without behavior changes.
-- `oracle/example-custom-anthropic-oracle.ts`: unchanged pinned source bodies evaluated with controlled SDK, fetch, callbacks, random and clock; no public SDK or bundled hooks imported.
+- `oracle/example-custom-anthropic-oracle.ts`: unchanged pinned source bodies evaluated with controlled SDK/fetch/callbacks/random/clock; explicit wire mode loads only the installed Anthropic SDK against isolated loopback fixtures. No public Pi SDK or bundled hooks imported.
 
 ## Tests asserting this spec
 
@@ -28,7 +28,7 @@ Opt-in Rust-native counterpart of pinned `coding-agent/examples/extensions/custo
 
 ## Known gaps (current cycle)
 
-- [ ] Installed SDK wire proof pending in this cycle. Core scratch dependency merged explicitly; producer behavior is covered by targeted source differential tests.
+- [ ] Installed SDK wire body/auth/events/status/disconnect proof passes, but four transport-header deltas await user decision: [exact delta and raw evidence](../porting/traceability/example-custom-anthropic.md). No production header change or implicit waiver. Core scratch dependency merged explicitly; producer behavior is covered by targeted source differential tests.
 - [ ] Parent integration and independent verification pending; coverage remains partial.
 
 ## Out of scope

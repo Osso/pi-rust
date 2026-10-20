@@ -4,6 +4,8 @@ mod cases;
 mod lifecycle;
 #[path = "support/oracle.rs"]
 mod oracle;
+#[path = "support/custom_anthropic_wire.rs"]
+mod wire;
 
 #[path = "../examples/extensions/custom_provider_anthropic.rs"]
 mod custom_provider_anthropic;
