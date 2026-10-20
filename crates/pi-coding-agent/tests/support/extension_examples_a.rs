@@ -151,7 +151,48 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
         log.lock().unwrap().push(json!(["setLabel", index, label]));
         Ok(())
     });
+    let idle = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let current_idle = idle.clone();
+    context.is_idle = Arc::new(move || current_idle.load(std::sync::atomic::Ordering::SeqCst));
+    let log = trace.clone();
+    context.shutdown = Arc::new(move || log.lock().unwrap().push(json!(["shutdown"])));
+    let active_tools = Arc::new(Mutex::new(Vec::<String>::new()));
+    let active = active_tools.clone();
+    actions.get_active_tools = Arc::new(move || Ok(active.lock().unwrap().clone()));
+    let log = trace.clone();
+    actions.set_active_tools = Arc::new(move |names| {
+        *active_tools.lock().unwrap() = names.to_vec();
+        log.lock().unwrap().push(json!(["setActiveTools", names]));
+        Ok(())
+    });
+    let log = trace.clone();
+    let send_failure = request["sendError"].as_str().map(str::to_owned);
+    actions.send_user_message = Arc::new(move |content, options| {
+        if let Some(error) = &send_failure {
+            return Err(HandlerError::new(error));
+        }
+        log.lock().unwrap().push(json!(["sendUserMessage", content, options]));
+        Ok(())
+    });
     runner.bind_core(actions, context, None);
+    let log = trace.clone();
+    runner.bind_command_context(Some(ExtensionCommandContextActions {
+        show_approval_selector: Arc::new(|| Ok(())),
+        show_sandbox_selector: Arc::new(|| Ok(())),
+        set_sandbox_profile: Arc::new(|_, _| Ok(())),
+        wait_for_idle: Arc::new(|| Box::pin(async {})),
+        new_session: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+        fork: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+        navigate_tree: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+        switch_session: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+        reload: Arc::new(move || {
+            let log = log.clone();
+            Box::pin(async move {
+                log.lock().unwrap().push(json!(["reload"]));
+            })
+        }),
+        restart: Arc::new(|_| Box::pin(async { Ok(()) })),
+    }));
     let errors = trace.clone();
     runner.on_error(Arc::new(move |error| {
         errors.lock().unwrap().push(json!(["handlerError", error.error]));
@@ -179,6 +220,7 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
     );
     for step in request["steps"].as_array().unwrap() {
         match step["op"].as_str().unwrap() {
+            "idle" => idle.store(step["value"].as_bool().unwrap(), std::sync::atomic::Ordering::SeqCst),
             "command" => {
                 let command = runner.get_command(step["name"].as_str().unwrap()).unwrap();
                 if let Err(error) = (command.handler)(
@@ -233,12 +275,21 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
                     "fixture-call".into(),
                     step["params"].clone(),
                     None,
-                    None,
+                    if request["updates"].as_bool() == Some(true) {
+                        let log = trace.clone();
+                        Some(Arc::new(move |update| {
+                            log.lock().unwrap().push(json!(["update", update]))
+                        }))
+                    } else {
+                        None
+                    },
                     runner.create_context(),
                 )
-                .await
-                .unwrap();
-                trace.lock().unwrap().push(json!(["tool", result]));
+                .await;
+                match result {
+                    Ok(result) => trace.lock().unwrap().push(json!(["tool", result])),
+                    Err(error) => trace.lock().unwrap().push(json!(["error", error.to_string()])),
+                }
             }
             other => panic!("unknown step {other}"),
         }

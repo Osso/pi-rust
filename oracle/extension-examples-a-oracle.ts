@@ -19,13 +19,20 @@ async function run(request: any) {
  const extension = await loadExtensionFromFactory(register, "/fixture", bus, runtime, "<example:batch-a>");
  const manager = SessionManager.inMemory("/fixture");
  const runner = new ExtensionRunner([extension], runtime, "/fixture", manager, {});
- let name: string | undefined, prompt = "";
+ let name: string | undefined, prompt = "", idle = true;
+ let activeTools: string[] = [];
  runner.bindCore({
   setSessionName(value: string) {
    if (request.actionError) throw new Error(request.actionError);
    name = value; trace.push(["setSessionName", value]);
   },
   getSessionName: () => name,
+  getActiveTools: () => [...activeTools],
+  setActiveTools: (names: string[]) => { activeTools = [...names]; trace.push(["setActiveTools", names]); },
+  sendUserMessage: (content: any, options?: any) => {
+   if (request.sendError) throw new Error(request.sendError);
+   trace.push(["sendUserMessage", content, options ?? null]);
+  },
   setLabel(id: string, label?: string) {
    if (request.actionError) throw new Error(request.actionError);
    const index = manager.getEntries().findIndex((entry: any) => entry.id === id);
@@ -33,7 +40,9 @@ async function run(request: any) {
    if (manager.getLabel(id) !== label) throw new Error("label mutation failed");
    trace.push(["setLabel", index, label ?? null]);
   },
- } as any, {getSystemPrompt: () => prompt} as any);
+ } as any, {getSystemPrompt: () => prompt, isIdle: () => idle,
+  shutdown: () => trace.push(["shutdown"])} as any);
+ runner.bindCommandContext({reload: async () => { trace.push(["reload"]); }} as any);
  runner.setUIContext({
   notify: (message: string, level: string) => trace.push(["notify", message, level]),
   setStatus: (key: string, text?: string) => trace.push(["status", key, text ?? null]),
@@ -57,6 +66,7 @@ async function run(request: any) {
  try {
   for (const step of request.steps) {
    switch (step.op) {
+    case "idle": idle = step.value; break;
     case "command":
      try { await runner.getCommand(step.name).handler(step.args ?? "", runner.createCommandContext()); }
      catch (error: any) { trace.push(["error",error.message]); }
@@ -72,8 +82,12 @@ async function run(request: any) {
     case "label": manager.appendLabelChange(manager.getEntries()[step.index].id,step.value ?? undefined); break;
     case "tool": {
      const tool = extension.tools.get(step.name).definition;
-     const result = await tool.execute("fixture-call",step.params,undefined,undefined,runner.createContext());
-     trace.push(["tool",result]); break;
+     try {
+      const update = request.updates ? (result: any) => trace.push(["update",result]) : undefined;
+      const result = await tool.execute("fixture-call",step.params,undefined,update,runner.createContext());
+      trace.push(["tool",result]);
+     } catch (error: any) { trace.push(["error",error.message]); }
+     break;
     }
     default: throw new Error(`Unknown step ${step.op}`);
    }
