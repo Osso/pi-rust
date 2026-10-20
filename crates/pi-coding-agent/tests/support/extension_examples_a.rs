@@ -20,6 +20,7 @@ pub type Trace = Arc<Mutex<Vec<Value>>>;
 struct CaptureUi {
     trace: Trace,
     theme: Arc<Theme>,
+    dialogs: Mutex<Vec<Value>>,
 }
 impl ExtensionUiContext for CaptureUi {
     fn notify(&self, message: &str, level: Option<NotifyType>) {
@@ -27,6 +28,59 @@ impl ExtensionUiContext for CaptureUi {
     }
     fn set_status(&self, key: &str, text: Option<&str>) {
         self.trace.lock().unwrap().push(json!(["status", key, text]));
+    }
+    fn set_working_indicator(&self, options: Option<&WorkingIndicatorOptions>) {
+        self.trace.lock().unwrap().push(json!(["indicator", options]));
+    }
+    fn set_hidden_thinking_label(&self, label: Option<&str>) {
+        self.trace.lock().unwrap().push(json!(["thinkingLabel", label]));
+    }
+    fn set_title(&self, title: &str) {
+        self.trace.lock().unwrap().push(json!(["title", title]));
+    }
+    fn confirm<'a>(
+        &'a self,
+        title: &str,
+        message: &str,
+        opts: Option<&ExtensionUiDialogOptions>,
+    ) -> BoxFuture<'a, Result<bool, String>> {
+        self.trace.lock().unwrap().push(json!([
+            "confirm",
+            title,
+            message,
+            opts.and_then(|o| o.timeout),
+            opts.is_some_and(|o| o.signal.is_some())
+        ]));
+        let answer = self.dialogs.lock().unwrap().remove(0);
+        let signal = opts.and_then(|o| o.signal.clone());
+        Box::pin(async move {
+            if let Some(error) = answer.get("error").and_then(Value::as_str) {
+                return Err(error.into());
+            }
+            if answer == "abort" {
+                signal.unwrap().cancelled().await;
+                return Ok(false);
+            }
+            Ok(answer.as_bool().unwrap())
+        })
+    }
+    fn select<'a>(
+        &'a self,
+        title: &str,
+        items: &[String],
+        opts: Option<&ExtensionUiDialogOptions>,
+    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+        self.trace
+            .lock()
+            .unwrap()
+            .push(json!(["select", title, items, opts.and_then(|o| o.timeout)]));
+        let answer = self.dialogs.lock().unwrap().remove(0);
+        Box::pin(async move {
+            if let Some(error) = answer.get("error").and_then(Value::as_str) {
+                return Err(error.into());
+            }
+            Ok(answer.as_str().map(str::to_owned))
+        })
     }
     fn theme(&self) -> Arc<Theme> {
         self.theme.clone()
@@ -68,9 +122,10 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
     let bus = support::event_bus();
     let mut registry = ExtensionRegistry::new();
     registry.register("<example:batch-a>", factory);
+    let cwd = request["cwd"].as_str().unwrap_or("/fixture");
     let extension = load_extension_from_factory(
         registry.get("<example:batch-a>").unwrap().clone(),
-        "/fixture",
+        cwd,
         bus.clone(),
         runtime.clone(),
         "<example:batch-a>",
@@ -108,7 +163,7 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
     let mut runner = ExtensionRunner::new(
         vec![extension.clone()],
         runtime,
-        "/fixture",
+        cwd,
         manager.clone(),
         Arc::new(ModelRegistry::new(model_runtime)),
         None,
@@ -118,7 +173,7 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
     let current_prompt = prompt.clone();
     context.get_system_prompt = Arc::new(move || current_prompt.lock().unwrap().clone());
     let mut actions = support::actions();
-    let session_name: Arc<Mutex<Option<String>>> = Arc::default();
+    let session_name = Arc::new(Mutex::new(request["name"].as_str().map(str::to_owned)));
     let name = session_name.clone();
     let log = trace.clone();
     let failure = request["actionError"].as_str().map(str::to_owned);
@@ -174,8 +229,13 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
         Some(Arc::new(CaptureUi {
             trace: trace.clone(),
             theme,
+            dialogs: Mutex::new(request["dialogs"].as_array().cloned().unwrap_or_default()),
         })),
-        ExtensionMode::Tui,
+        if request["mode"] == "json" {
+            ExtensionMode::Json
+        } else {
+            ExtensionMode::Tui
+        },
     );
     for step in request["steps"].as_array().unwrap() {
         match step["op"].as_str().unwrap() {
@@ -190,10 +250,24 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
                     trace.lock().unwrap().push(json!(["error", error.to_string()]));
                 }
             }
-            "event" => {
+            "event" | "emit" => {
                 let mut event: ExtensionEvent = serde_json::from_value(step["event"].clone()).unwrap();
-                runner.emit(&mut event).await;
+                let result = runner.emit(&mut event).await;
+                if step["op"] == "emit" {
+                    let value = match result {
+                        EmitResult::None => Value::Null,
+                        EmitResult::SessionBeforeSwitch(result) => json!(result),
+                        EmitResult::SessionBeforeFork(result) => json!(result),
+                        other => panic!("unexpected result {other:?}"),
+                    };
+                    trace.lock().unwrap().push(json!(["result", value]));
+                }
             }
+            "advance" => {
+                tokio::time::advance(std::time::Duration::from_millis(step["ms"].as_u64().unwrap())).await;
+                tokio::task::yield_now().await;
+            }
+
             "bus" => {
                 assert!(
                     bus.emit(step["channel"].as_str().unwrap(), step["data"].clone())
