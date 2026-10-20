@@ -86,4 +86,5 @@ providers only.
 
 Todo parity is **partial**: native session snapshots cannot reproduce the pinned
 example's mutation of stored tool-result details by reference. See
-`docs/porting/traceability/extension-examples-f.md` for the blocked API and test.
+[batch F traceability](../../../../docs/porting/traceability/extension-examples-f.md)
+for the blocked API and test.

@@ -8,7 +8,7 @@ Only private temporary cwd/state. No added dependencies.
 
 | Source / lines | Rust | Behavioral proof |
 |---|---|---|
-| with-deps/index.ts 12–32 | with_deps.rs::with_deps_extension, parse_duration | example_with_deps: 674 valid/invalid durations, all unit aliases/case/spacing/fractions/signs, length bounds, empty-error text, numeric rendering, full tool schema/results/errors |
+| with-deps/index.ts 12–32 | with_deps.rs::with_deps_extension, parse_duration | example_with_deps: 695 valid/invalid durations, all unit aliases/case/spacing/fractions/signs, length bounds, empty-error text, numeric rendering, full tool schema/results/errors |
 | inline-bash.ts 19–94 | inline_bash.rs::inline_bash_extension | example_inline_bash: 40 inputs through real runner, three sources, images, duplicate patterns, stdout/stderr/exit selection, JS replacement substitutions, previews, headless/whole-line bypass |
 
 | tool-override.ts 30–66, 68–129 | tool_override.rs::register_with_clock, read_text, slice_index, log_access | example_tool_override: every blocked pattern, allowed/missing/directory/invalid UTF-8, fractional/negative/zero slicing, multibyte truncation, complete results and metadata |
@@ -88,3 +88,23 @@ reproduces restore → add → restore different entry → branch back → add �
 It remains explicitly ignored with the missing API named; forcing it fails
 against the real pinned TS runtime. Normal Todo tool results/UI/renderers remain
 proven by the non-ignored differential, not whole-module parity.
+
+## Final bounded proof (2026-10-20)
+
+| Example / targeted test | RED stages | GREEN tests | Mutation proof | Coverage |
+|---|---:|---:|---|---|
+| with-deps / example_with_deps | missing module | 1 | result text changed → failure | done; 695 ms inputs |
+| inline-bash / example_inline_bash | missing module | 1 | notification text changed → failure | done |
+| tool-override / example_tool_override | missing module | 1 | label changed → failure | done; includes ignored audit-write failures |
+| todo / example_todo | missing module; stored-details alias regression | 1 + 1 blocked/ignored | list text changed → failure | partial; missing mutable/shared session entry API |
+| tools / example_tools | missing module; remapped navigation | 1 | dialog title changed → failure (refreshed after fix) | done |
+| truncated-tool / example_truncated_tool | missing module; 100MiB buffer | 2 | no-match text changed → failure | done |
+| custom-compaction / example_custom_compaction | missing module; locale rounding | 2 | initial notification changed → failure | done |
+| qna / example_qna | missing module | 2 | completion notification changed → failure | done |
+
+All temporary mutations were restored byte-for-byte. Final normal targets:
+11 passed, 1 explicitly ignored for the missing Todo API. Forced blocked Todo
+regression fails as expected; it is not counted as parity. Logs 43–45 and 48–52
+in `/tmp/pi-rust-ext-examples-f/` cover the current relevant code; log 47 proves
+the blocker. `cargo fmt --check` passed before each commit. No clippy, check,
+workspace suite, agent, model CLI, deployment, merge, or push was run.
