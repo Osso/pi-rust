@@ -109,7 +109,7 @@ def enter(command):
     # another user namespace whose NET_ADMIN cannot configure the earlier netns.
     devices = [
         "/usr/bin/bwrap", "--die-with-parent", "--unshare-user",
-        "--ro-bind", "/", "/", "--dev", "/dev",
+        "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
     ]
     state = Path(os.environ["PI_CODING_AGENT_DIR"]).parent
     for writable in dict.fromkeys([state, Path(os.environ["TMPDIR"])]):
