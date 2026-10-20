@@ -1706,7 +1706,10 @@ impl Component for TreeHelp {
                 continue;
             }
 
-            lines.extend(wrap_text_with_ansi(js_trim_end(&current_line), available_width));
+            lines.extend(wrap_text_with_ansi(
+                pi_js_compat::string::js_trim_end(&current_line),
+                available_width,
+            ));
             let indented = format!("{indent}{item}");
             current_line = if visible_width(&indented) <= available_width {
                 indented
@@ -1716,7 +1719,10 @@ impl Component for TreeHelp {
         }
 
         if !current_line.is_empty() {
-            lines.extend(wrap_text_with_ansi(js_trim_end(&current_line), available_width));
+            lines.extend(wrap_text_with_ansi(
+                pi_js_compat::string::js_trim_end(&current_line),
+                available_width,
+            ));
         }
 
         lines
@@ -1730,10 +1736,6 @@ impl Component for TreeHelp {
     }
 
     fn invalidate(&mut self) {}
-}
-
-fn js_trim_end(text: &str) -> &str {
-    pi_js_compat::string::js_trim_end(text)
 }
 
 /// Label input component shown when editing a label.

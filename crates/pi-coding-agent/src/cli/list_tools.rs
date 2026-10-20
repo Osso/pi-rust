@@ -70,17 +70,13 @@ fn truncate_description(description: &str) -> String {
         return description.to_owned();
     }
     let truncated = slice_utf16(description, DESCRIPTION_WIDTH - 3);
-    format!("{}...", js_trim_end(&truncated))
+    format!("{}...", pi_js_compat::string::js_trim_end(&truncated))
 }
 
 /// `String.prototype.slice` over UTF-16 code units; lone surrogates become U+FFFD.
 fn slice_utf16(value: &str, end: usize) -> String {
     let units: Vec<u16> = value.encode_utf16().take(end).collect();
     String::from_utf16_lossy(&units)
-}
-
-fn js_trim_end(value: &str) -> &str {
-    value.trim_end_matches(pi_js_compat::string::is_js_whitespace_char)
 }
 
 fn format_rows(headers: &ToolInventoryRow, rows: &[ToolInventoryRow]) -> Vec<String> {
