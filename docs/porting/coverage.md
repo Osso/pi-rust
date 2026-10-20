@@ -13,9 +13,9 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `telemetry/src/index.ts` | 357 | 0 | done | `crates/pi-telemetry/src/lib.rs` | Runtime contracts, schema data, and typed starter ported; TypeScript conditional type inference helpers are an explicit gap (see traceability). |
 | `telemetry/src/memory.ts` | 219 | 0 | done | `crates/pi-telemetry/src/memory.rs` | In-memory recording ported with detached snapshots; JavaScript proxy/allocation passivity branches are not representable (see traceability). |
 | `telemetry/src/noop.ts` | 20 | 0 | done | `crates/pi-telemetry/src/noop.rs` | Inert context ported; JavaScript object freezing is not applicable. |
-| `telemetry/src/testing/conformance.ts` | 315 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `telemetry/src/testing/index.ts` | 6 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `telemetry/src/testing/types.ts` | 18 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `telemetry/src/testing/conformance.ts` | 315 | — | gap | — | User-approved telemetry gap (2026-10-20); preserve existing stats behavior. |
+| `telemetry/src/testing/index.ts` | 6 | — | gap | — | User-approved telemetry gap (2026-10-20); preserve existing stats behavior. |
+| `telemetry/src/testing/types.ts` | 18 | — | gap | — | User-approved telemetry gap (2026-10-20); preserve existing stats behavior. |
 
 ## protocol (9 files, 1245 lines)
 
@@ -274,7 +274,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `agent/src/harness/compaction/branch-summarization.ts` | 282 | 12 | done | `crates/pi-agent-core/src/harness/compaction/branch_summarization.rs` | Branch collection, token-budgeted preparation, summary generation and errors; 13 behavioral tests + differential cases; see `branch-summarization.md`. |
 | `agent/src/index.ts` | 145 | 13 | done | `crates/pi-agent-core/src/lib.rs` | Every runtime export re-exported at the crate root; JS `Result` idioms and telemetry conditional-type helpers are approved typed-boundary exclusions ([traceability](traceability/agent-index.md)). |
 | `agent/src/node.ts` | 2 | 14 | done | `crates/pi-agent-core/src/node.rs` | Re-exports `NodeExecutionEnv` and the crate root; see `agent-node.md`. |
-| `agent/scripts/generate-telemetry-docs.ts` | 117 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `agent/scripts/generate-telemetry-docs.ts` | 117 | — | gap | — | User-approved telemetry gap (2026-10-20); preserve existing stats behavior. |
 | `agent/src/harness/session/testing/conformance.ts` | 1016 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `agent/src/harness/session/testing/index.ts` | 6 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `agent/src/harness/session/testing/types.ts` | 16 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
