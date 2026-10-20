@@ -26,12 +26,18 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallbackError {
     pub message: String,
+    /// Top-level error identity; legacy callbacks default to `Error`.
+    pub name: String,
+    /// Native diagnostics, not a reconstructed JavaScript cause object.
+    pub cause: Option<String>,
 }
 
 impl CallbackError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            name: "Error".to_owned(),
+            cause: None,
         }
     }
 }
