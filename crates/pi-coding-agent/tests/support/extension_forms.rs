@@ -167,7 +167,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
             .await;
     let result = (tool.execute)("fixture".into(), request["params"].clone(), None, None, context.clone())
         .await
-        .unwrap();
+        .unwrap_or_else(|error| panic!("{name}: {request}: {error:?}"));
     let render_context = ToolRenderContext {
         args: request["params"].clone(),
         tool_call_id: "fixture".into(),
