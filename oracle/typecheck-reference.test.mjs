@@ -182,6 +182,14 @@ test("original errors, corrected reference, emitted bytes, and reference rejecti
 	}
 });
 
+test("truncation exact source pin, negative proofs, and runtime imports retain their boundaries", () => {
+	success(
+		command(process.execPath, [
+			join(root, "oracle/coding-agent-truncation-constants-typecheck.mjs"),
+		]),
+	);
+});
+
 test("real public-index shape and negative proofs use the selected reference", () => {
 	success(
 		command(process.execPath, [

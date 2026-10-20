@@ -117,9 +117,14 @@ Original source diagnostics are not reclassified as expected negatives.
 | `node oracle/default-thinking-level-typecheck.mjs` | `95254cf` | PASS, exit 0; selected-reference compiler check followed by original-source runtime fixture |
 | `cargo fmt --check` | `95254cf` implementation, before commit | PASS, exit 0 |
 
-The reporter test caller now uses the new generator signature and selected
-reference, retaining every existing diagnostic/error assertion. Its fix requires
-another targeted GREEN run; earlier reference evidence remains valid.
+| `node --test oracle/typecheck-report.test.mjs` | `a50a719` | GREEN: 9/9, including both retained negative fixture assertions |
+| `node oracle/coding-agent-truncation-constants-typecheck.mjs` | `a50a719` | RED: its existing literal original-pin assertion compared the selected reference commit against the original commit |
+
+The reporter caller uses the new generator signature and selected reference,
+retaining every diagnostic assertion. The truncation proof's literal pin now
+checks `typecheckReference.baseCommit`; the shared helper separately checks both
+actual HEADs. Its API/diagnostic/runtime assertions remain unchanged, with a new
+subprocess regression. Targeted GREEN for that correction is pending.
 Full `./run-tests.sh oracle` and `./run-tests.sh all` are reserved for the independent
 verifier; no new full-gate, broad Rust, lint, build, deployment or final-acceptance
 pass is claimed by this slice.

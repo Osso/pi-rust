@@ -139,8 +139,8 @@ function validateSourceLock() {
 	if (typeof sourceWorktree !== "string" || sourceWorktree.length === 0) {
 		throw new Error("source lock worktree must be a non-empty string");
 	}
-	if (sourceLock.commit !== "532f7d12cd19235081bd4d6e425bde185652d86f") {
-		throw new Error(`source lock commit mismatch: ${sourceLock.commit}`);
+	if (sourceLock.typecheckReference.baseCommit !== "532f7d12cd19235081bd4d6e425bde185652d86f") {
+		throw new Error(`source lock base commit mismatch: ${sourceLock.typecheckReference.baseCommit}`);
 	}
 }
 
