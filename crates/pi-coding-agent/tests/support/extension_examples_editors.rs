@@ -119,6 +119,22 @@ impl ExtensionUiContext for Ui {
     }
 }
 
+fn assert_json_equal(actual: &Value, expected: &Value, path: &str) {
+    match (actual, expected) {
+        (Value::Array(a), Value::Array(b)) if a.len() == b.len() => {
+            for (i, (a, b)) in a.iter().zip(b).enumerate() {
+                assert_json_equal(a, b, &format!("{path}/{i}"));
+            }
+        }
+        (Value::Object(a), Value::Object(b)) if a.keys().eq(b.keys()) => {
+            for (key, a) in a {
+                assert_json_equal(a, &b[key], &format!("{path}/{key}"));
+            }
+        }
+        _ => assert_eq!(actual, expected, "{path}"),
+    }
+}
+
 pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) -> Value {
     if name != "overlay-test" {
         tokio::time::pause();
@@ -275,6 +291,6 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
         &format!("packages/coding-agent/examples/extensions/{name}.ts"),
     );
     let expected = oracle.request(&request);
-    assert_eq!(actual, expected, "example {name}");
+    assert_json_equal(&actual, &expected, name);
     actual
 }
