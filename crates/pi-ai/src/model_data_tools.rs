@@ -314,7 +314,7 @@ pub fn read_model_data_provider_ids(package_root: &Path) -> Result<Vec<JsString>
     Ok(ids)
 }
 
-fn read_provider_structure(path: &Path, provider: &JsString) -> Result<IndexMap<JsString, JsString>> {
+pub(crate) fn read_provider_structure(path: &Path, provider: &JsString) -> Result<IndexMap<JsString, JsString>> {
     let mut errors = Vec::new();
     let groups = read_json_object(path, &jformat!("{}.json", provider), &mut errors)
         .ok_or_else(|| ModelDataError(join(&errors, "\n")))?;
