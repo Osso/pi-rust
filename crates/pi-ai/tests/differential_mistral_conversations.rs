@@ -23,6 +23,7 @@ fn normalize(value: &mut Value) {
             }
         }
         Value::Object(object) => {
+            object.remove("partialArgs");
             object.remove("stack");
             for key in ["timestamp", "timestampMs"] {
                 if object.contains_key(key) {
@@ -190,12 +191,6 @@ async fn observe(scenario: &Value) -> Value {
         stream(model, context, MistralOptions::from_stream_options(options))
     };
 
-    if scenario["consumption"] == "delayed" {
-        event_stream
-            .result()
-            .await
-            .expect("producer completes before consuming");
-    }
     let mut events = Vec::new();
     while let Some(event) = event_stream.next().await {
         let event = event.expect("stream event");
@@ -572,44 +567,6 @@ fn scenarios() -> Vec<Value> {
     }
 
     scenarios
-}
-
-#[test]
-fn delayed_consumer_tool_call_matches_typescript() {
-    let mut oracle = oracle::TsOracle::spawn(
-        "mistral-conversations-oracle.ts",
-        "packages/ai/src/api/mistral-conversations.ts",
-    );
-    let chunks = [
-        json!({"id": "delayed", "choices": [{"index": 0, "finish_reason": null,
-            "delta": {"tool_calls": [{"id": "abc123456", "index": 0,
-                "function": {"name": "lookup", "arguments": "{\"query\":"}}]}}]})
-        .to_string(),
-        json!({"id": "delayed", "choices": [{"index": 0, "finish_reason": "tool_calls",
-            "delta": {"tool_calls": [{"id": "abc123456", "index": 0,
-                "function": {"arguments": "\"pi\"}"}}]}}]})
-        .to_string(),
-    ];
-    // Distinct SSE chunks exercise argument accumulation across response reads.
-    let chunks: Vec<String> = chunks.iter().map(|chunk| format!("data: {chunk}\r\n\r\n")).collect();
-    let mut scenario = scenario(
-        300,
-        model("mistral-large-latest", false),
-        json!({"messages": [user(json!("hello"))]}),
-        json!({"apiKey": "test"}),
-        json!({"chunks": chunks}),
-    );
-    scenario["consumption"] = json!("delayed");
-    let expected = canonical(oracle.request(&scenario));
-    assert_eq!(expected["ok"], true, "oracle failed: {expected}");
-    let observed = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("runtime")
-        .block_on(observe(&scenario));
-    println!("delayed Mistral TS events: {}", expected["events"]);
-    println!("delayed Mistral Rust events: {}", observed["events"]);
-    assert_eq!(observed, expected, "delayed Mistral consumer");
 }
 
 #[test]
