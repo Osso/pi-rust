@@ -51,5 +51,21 @@ These exclusions follow the repository's approved native typed API boundary.
 | Same focused test command | `56501f8` | GREEN, exit 0: four public tests + one differential test (1,110 exact-output requests); `/tmp/claude/reasoning-option-map-green-async.out` |
 
 `cargo fmt --check` also passed before `56501f8` and the proof-ledger commit.
-Later changes only record this evidence; they do not invalidate the focused test
-proof. No broad/check/clippy/type/readability/final gates were run, per slice scope.
+Later slice changes only record this evidence; they do not invalidate the focused
+test proof. The implementer ran no broad/check/clippy/type/readability/final gates.
+
+Independent integrated proof at `222ab0fdd08bd79c982e8d7e7dd7f30fe2ea1e21`
+(2026-10-20):
+
+| Command / audit | Result |
+| --- | --- |
+| `cargo fmt --check` | PASS, exit 0 |
+| `cargo test -p pi-ai --test models_dev_reasoning_options --test differential_models_dev_reasoning_options` | PASS, exit 0; four public tests plus one differential test covering 1,110 exact-source cases; no failures, ignores or filtered tests |
+| `cargo check -p pi-ai --all-targets` | PASS, exit 0 |
+| `cargo clippy -p pi-ai --all-targets --all-features -- -D warnings` | PASS, exit 0 |
+| Changed Rust readability and public export audit | No observed violations or placeholders; external tests consume the exported API |
+
+Commands ran once under bounded timeouts; full logs, exact argv and revision
+ledger are retained in `/tmp/pi-rust-222ab0f-reasoning-proof/`. Subsequent docs-only
+updates preserve this code proof. This is module proof, not full-port completion.
+Contract: [feature spec](../../specs/models-dev-reasoning-options.md).
