@@ -14322,10 +14322,15 @@ mod ui_tests {
                     }),
                     send,
                 );
+                terminal.borrow_mut().writes.clear();
                 mode.ui.render_now();
                 assert_eq!(width.load(std::sync::atomic::Ordering::SeqCst), 70);
                 assert!(
-                    !terminal.borrow().output().contains(pi_tui::tui::CURSOR_MARKER),
+                    terminal.borrow().writes.concat().contains("\x1b[13G"),
+                    "centered 70-cell overlay plus seven input cells must position hardware cursor at column 13"
+                );
+                assert!(
+                    !terminal.borrow().writes.concat().contains(pi_tui::tui::CURSOR_MARKER),
                     "renderer must consume cursor markers"
                 );
                 let done = done.lock().unwrap().clone().unwrap();

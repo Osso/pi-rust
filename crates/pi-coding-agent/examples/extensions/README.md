@@ -59,3 +59,20 @@ It appends request payloads and response headers to
 exist. Append failures surface through the runner's error listeners. Logs can
 contain credentials and private prompts: enable deliberately, never by default.
 Tests use private temporary directories only.
+
+## Custom editor and overlay examples
+
+Register these factories explicitly using the native pattern above:
+
+| Module | Factory |
+|---|---|
+| `border_status_editor.rs` | `border_status_editor_extension` |
+| `modal_editor.rs` | `modal_editor_extension` |
+| `rainbow_editor.rs` | `rainbow_editor_extension` |
+| `overlay_test.rs` | `overlay_test_extension` |
+
+Copy `editor_composition.rs` alongside the three editor modules. It delegates
+the real CustomEditor surface while the example overrides input/render behavior;
+the host still wires base callbacks and focus. Border-status hides the footer
+and working indicator; overlay-test registers `/overlay-test`. No example loads
+by default. Behavioral/differential proof: `tests/extension_examples_editors.rs`.

@@ -4,8 +4,7 @@ Source: `coding-agent/src/modes/interactive/components/custom-editor.ts`
 Rust: `crates/pi-coding-agent/src/modes/interactive/components/custom_editor.rs`
 
 Tests: `interactive_components_c.rs::custom_editor_*` (key routing, history persistence,
-legacy migration, filtering). Differential: rendering skipped (needs a TUI/terminal); history
-behavior is process/DB-bound and covered by behavioral tests.
+legacy migration, filtering). Rendering differential now runs through the [native editor examples](extension-examples-editors.md) with real pinned CustomEditor/Editor/TUI; history behavior is process/DB-bound and covered by behavioral tests.
 
 | Symbol / branch | Rust item | Proof |
 |---|---|---|
@@ -31,8 +30,7 @@ behavior is process/DB-bound and covered by behavioral tests.
   wired by `InteractiveMode` yet, so it cannot re-enter the editor.
 - App action handlers return `bool` (`true` = handled); the source treats any value other than
   `false` as handled.
-- Rendering is delegated to the ported `Editor`; no differential case because the source
-  requires a terminal-backed `TUI`.
+- Rendering delegates to the ported `Editor`; example differentials provide a private terminal-backed TUI.
 
 ## Discrepancies
 
