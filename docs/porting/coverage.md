@@ -219,7 +219,7 @@ Level = import-graph depth (0 = no internal imports); port lower levels first.
 | `ai/scripts/generate-models.ts` | 2976 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `ai/scripts/generate-test-image.ts` | 33 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `ai/scripts/model-data.ts` | 280 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
-| `ai/scripts/models-dev-reasoning-options.ts` | 32 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
+| `ai/scripts/models-dev-reasoning-options.ts` | 32 | `pi-ai::models_dev_reasoning_options` | done | Public API + pinned TS differential | Typed option union and exact ordered effort map; 1,110 source cases, invalid JS inputs excluded ([traceability](traceability/models-dev-reasoning-options.md)). |
 | `ai/src/providers/data-json.d.ts` | 4 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 | `ai/vitest.config.ts` | 17 | — | todo | — | Unresolved inventory coverage; no module-specific test-backed parity established by this audit ([inventory](inventory.md)). |
 
