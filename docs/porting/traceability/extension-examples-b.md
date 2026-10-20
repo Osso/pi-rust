@@ -14,7 +14,7 @@ UI contexts capture observable effects, supplying only explicit selection replie
 | widget-placement.ts:3–9 | `examples/extensions/widget_placement.rs::widget_placement_extension` | `example_widget_placement`: no-UI branch, ordered above/default and below/explicit widgets, repeat start |
 | working-message-test.ts:17–25 | `examples/extensions/working_message_test.rs::working_message_test_extension` | `example_working_message_test`: exact ANSI message, one brown-dot frame, no interval; repeated starts, no-UI runtime no-ops |
 | protected-paths.ts:10–30 | `examples/extensions/protected_paths.rs::protected_paths_extension` | `example_protected_paths`: write/edit block, all three literal substrings, warning only with UI, case-sensitive/bare-directory/other-tool bypass |
-| permission-gate.ts:10–34 | `examples/extensions/permission_gate.rs::permission_gate_extension` | `example_permission_gate`: safe/other-tool bypass, three dangerous patterns, non-UI denial, Yes/No/cancel/case-sensitive choice, ASCII boundaries, BOM whitespace |
+| permission-gate.ts:10–34 | `examples/extensions/permission_gate.rs::permission_gate_extension` | `example_permission_gate` (2 tests): safe/other-tool bypass, three dangerous patterns, non-UI denial, Yes/No/cancel/case-sensitive choice, ASCII boundaries/casefold, exact JS whitespace and dot line terminators |
 
 Source behavior retained, not hardened: protected paths are substrings, not resolved
 paths (`.env.backup` blocks, bare `node_modules` does not). Permission patterns do
@@ -23,8 +23,10 @@ the native string contract; invalid fixture fields produce explicit native error
 
 Proof limits: working-message test proves source setter order/values, not interactive
 loader-recreation persistence (owned by the host UI). No dangerous commands run.
-Every example above has one observed missing-module RED and one passing runtime
-comparison; registration alone is inert. Development ledger and full outputs:
+Every example above has one observed missing-module RED and passing runtime
+comparison(s); registration alone is inert. Expanded permission fixtures separately
+reproduce the Rust-regex mismatch for U+0085, long s, and CR/LS/PS dot boundaries;
+explicit JS-compatible classes preserve the pinned patterns without hardening. Development ledger and full outputs:
 `/tmp/pi-rust-ext-examples-b/ledger.md`, `NN-*.log`.
 
 ## Remaining native ports and shared date helper

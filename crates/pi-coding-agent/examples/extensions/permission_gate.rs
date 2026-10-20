@@ -3,11 +3,12 @@ use pi_coding_agent::core::extensions::*;
 use regex::Regex;
 use std::sync::Arc;
 pub fn permission_gate_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
-    // JavaScript's word boundaries are ASCII; its whitespace also includes BOM.
+    // Match non-Unicode JS /i and word boundaries, the exact JS whitespace
+    // class, and JS dot's four excluded line terminators (not just Rust's LF).
     let patterns = [
-        r"(?i)(?-u:\b)rm[\s\u{feff}]+(-rf?|--recursive)",
-        r"(?i)(?-u:\b)sudo(?-u:\b)",
-        r"(?i)(?-u:\b)(chmod|chown)(?-u:\b).*777",
+        r"(?i-u:\brm)[\t\n\x0b\x0c\r \u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}]+(?i-u:-rf?|--recursive)",
+        r"(?i-u:\bsudo\b)",
+        r"(?i-u:\b(chmod|chown)\b)[^\n\r\u{2028}\u{2029}]*777",
     ];
     let patterns = Arc::new(patterns.map(|pattern| Regex::new(pattern).expect("constant JS-compatible pattern")));
     pi.on_tool_call(
