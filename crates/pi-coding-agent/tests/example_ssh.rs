@@ -281,6 +281,7 @@ async fn ssh_fixture_remote_matches_pinned_example() {
                     "SSH failed (7): scripted failure"
                 })
         );
+        std::env::set_current_dir(&root).unwrap();
         for dir in [&cwd, &remote] {
             std::fs::remove_dir_all(dir).unwrap();
         }
