@@ -115,7 +115,7 @@ pub fn parse_openrouter_image_models(payload: &JsValue, strict: bool) -> Result<
         if input.is_empty() {
             input.push(text("text"));
         }
-        if property(model, "name").is_some_and(|name| !matches!(name, JsValue::String(_))) {
+        if !matches!(property(model, "name"), Some(JsValue::String(_))) {
             return Err(invalid_field("name", "string"));
         }
         let pricing = nullable_object_field(model, "pricing")?;
@@ -126,7 +126,7 @@ pub fn parse_openrouter_image_models(payload: &JsValue, strict: bool) -> Result<
             ("cacheWrite", price(pricing, "input_cache_write")?),
         ]);
         let mut fields = JsObject::new();
-        // Undefined id/name fields exist in memory in JS but are omitted by JSON.stringify.
+        // Both required fields were validated only after the source skip/dedup boundaries.
         for key in ["id", "name"] {
             if let Some(value) = property(model, key) {
                 fields.insert(JsString::from(key), value.clone());

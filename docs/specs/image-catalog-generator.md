@@ -4,7 +4,7 @@ Native maintenance counterpart of pinned `packages/ai/scripts/generate-image-mod
 
 ## What it must do
 
-- [x] Parse raw JSON model data with source modality filtering/deduplication, first-usable-ID deduplication, default text input, fixed API/provider/base URL, missing-name omission, and all four string-price parseFloat-times-one-million costs.
+- [x] Parse raw JSON model data with source modality filtering/deduplication, first-usable-ID deduplication, default text input, fixed API/provider/base URL, required string names on usable nonduplicates, and all four string-price parseFloat-times-one-million costs.
 - [x] Retain UTF-16 identity and binary64 values through parsing. Non-finite costs become JSON null only when serialized. Reject wrong consumed field types with stable native TypeErrors under the narrow approval below.
 - [x] Accept repeated `--strict` only; fetch one GET `/models?output_modalities=image`; preserve strict/non-strict controlled errors, progress/error logging order, exit status, native writing, and filesystem failure metadata in the 23-case pinned workflow corpus.
 - [x] Emit lossless native JSON with JavaScript canonical integer-key enumeration. Preserve the classified source object-literal `__proto__` disappearance for valid string IDs. Object-valued id/name are rejected, not projected.
@@ -27,7 +27,7 @@ Question: “For catalog responses with wrong-typed fields such as `id: null`, s
 
 Answer: **“Reject wrong field types (Recommended)”**. This is not a blanket invalid-input exclusion.
 
-Outer missing/empty/nonarray `data` behavior stays source-exact in both strict modes. Records must be objects. At source read points, architecture/pricing may be missing or null; otherwise they must be objects. Present modality arrays may be null (the source `?? []` contract); non-null arrays must contain strings. Unsupported string modalities remain filtered, preserving dedup/order/default text. Usable model IDs must be strings even when absent/null, before dedup. Missing name remains omitted; present name must be string. Missing price fields default to zero; present prices must be strings, not null/coercible numbers/arrays/objects. String parseFloat NaN/Infinity/-0/overflow remain unchanged. No finite/range checks, validation of unconsumed extra fields, or all-required DTO gate. Fields after a source skip/dedup boundary remain unread.
+Outer missing/empty/nonarray `data` behavior stays source-exact in both strict modes. Records must be objects. At source read points, architecture/pricing may be missing or null; otherwise they must be objects. Present modality arrays may be null (the source `?? []` contract); non-null arrays must contain strings. Unsupported string modalities remain filtered, preserving dedup/order/default text. Usable model IDs must be strings even when absent/null, before dedup. Names have no source default: missing or invalid name rejects on usable nonduplicate records, at the original name read before pricing. Skipped and duplicate names remain unread. Missing price fields default to zero; present prices must be strings, not null/coercible numbers/arrays/objects. String parseFloat NaN/Infinity/-0/overflow remain unchanged. No finite/range checks, validation of unconsumed extra fields, or all-required DTO gate. Fields after a source skip/dedup boundary remain unread.
 
 Errors use `TypeError: Invalid OpenRouter image model <field>: expected <type>`. Non-strict fetch logs rejection then writes the empty catalog; strict logs/rethrows without writing. Wrong-type fixtures retain full actual-source witnesses and explicitly assert this approved native rejection instead of skipping comparisons.
 
@@ -58,6 +58,7 @@ Answer: **“Allow native causes (Recommended)”**. Only native cause diagnosti
 ## Known gaps (current cycle)
 
 - [x] Concrete malformed-ID source witnesses (lengths 3–128, including V8-success length65) now assert approved TypeError rejection in strict mode, independent of sort invocation.
+- [x] Required-name workflows exercise missing/null/bool/number/array/object names in both modes, name-before-pricing rejection, and unread skipped/duplicate name/pricing fields.
 - [x] Actual isolated closed-loopback and truncated-body transport exercise both strict modes: `TypeError: fetch failed` / `TypeError: terminated`, retained native causes, source-exact event order/status/stdout and catalog/write boundary.
 - [x] Shared ICU4C UTF-16 collation passes 256 Node pairs; shared Node filesystem records pass both generator write-failure cases.
 - [ ] Parent owns integrated verification; no check, clippy, readability, broad suites, final gate, merge, deployment, or live refresh is part of this development slice.

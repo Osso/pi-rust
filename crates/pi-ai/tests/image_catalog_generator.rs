@@ -17,7 +17,7 @@ const SOURCE: &str = "packages/ai/scripts/generate-image-models.ts";
 fn parser_matches_actual_pinned_export_for_raw_json() {
     let mut ts = oracle::TsOracle::spawn("image-catalog-generator-oracle.ts", SOURCE);
     let fixtures = [
-        r#"{"data":[{"id":"overflow","architecture":{"output_modalities":["image"]},"pricing":{"prompt":1e400}}]}"#,
+        r#"{"data":[{"id":"overflow","name":"Overflow","architecture":{"output_modalities":["image"]},"pricing":{"prompt":1e400}}]}"#,
         "null",
         "[]",
         "{}",
@@ -34,7 +34,7 @@ fn parser_matches_actual_pinned_export_for_raw_json() {
         r#"{"data":[{"architecture":{"output_modalities":["image"]}}]}"#,
         r#"{"data":[{"id":null,"name":false,"architecture":{"output_modalities":["image"]},"pricing":{"prompt":[".2tail"],"completion":true,"input_cache_read":{},"input_cache_write":0}}]}"#,
         r#"{"data":[{"id":{},"architecture":{"output_modalities":["image"]},"pricing":{"prompt":{"toString":null}}}]}"#,
-        r#"{"data":[{"id":"a","architecture":{"output_modalities":["image"]},"pricing":{"prompt":1,"completion":[null,"2"],"input_cache_read":false,"input_cache_write":null}}]}"#,
+        r#"{"data":[{"id":"a","name":"A","architecture":{"output_modalities":["image"]},"pricing":{"prompt":1,"completion":[null,"2"],"input_cache_read":false,"input_cache_write":null}}]}"#,
     ];
     for (case, payload) in fixtures.into_iter().enumerate() {
         for strict in [false, true] {
@@ -223,7 +223,7 @@ async fn native_workflow_matches_pinned_script_values_order_logs_and_failures() 
         json!({"payload":"{}","writeFailure":true}),
         json!({"payload":"{}","directoryOutput":true}),
         json!({"payload":r#"{"data":[null]}"#,"approvedRejection":"record"}),
-        json!({"payload":r#"{"data":[{"id":"z","name":"Z","architecture":{"output_modalities":["image"]}},{"id":"10","architecture":{"output_modalities":["image"]}},{"id":"2","architecture":{"output_modalities":["image"]}},{"id":"a","architecture":{"output_modalities":["image"]}},{"id":"A","architecture":{"output_modalities":["image"]}},{"id":"\ud800","name":"\udc00","architecture":{"output_modalities":["image"]}},{"id":"�","architecture":{"output_modalities":["image"]}}]}"#}),
+        json!({"payload":r#"{"data":[{"id":"z","name":"Z","architecture":{"output_modalities":["image"]}},{"id":"10","name":"Ten","architecture":{"output_modalities":["image"]}},{"id":"2","name":"Two","architecture":{"output_modalities":["image"]}},{"id":"a","name":"a","architecture":{"output_modalities":["image"]}},{"id":"A","name":"A","architecture":{"output_modalities":["image"]}},{"id":"\ud800","name":"\udc00","architecture":{"output_modalities":["image"]}},{"id":"�","name":"Replacement","architecture":{"output_modalities":["image"]}}]}"#}),
     ];
     compare_workflows("workflow", &fixtures).await;
 }
@@ -377,11 +377,11 @@ async fn raw_json_ids_and_names_keep_source_generation_errors_and_values() {
         r#"[{"id":1,"name":{"a":true},"architecture":{"output_modalities":["image"]}}]"#,
         r#"[{"id":{},"architecture":{"output_modalities":["image"]}}]"#,
         r#"[{"id":{"toString":null},"architecture":{"output_modalities":["image"]}}]"#,
-        r#"[{"id":"a","architecture":{"output_modalities":["image"]}},{"id":null,"architecture":{"output_modalities":["image"]}}]"#,
+        r#"[{"id":"a","name":"A","architecture":{"output_modalities":["image"]}},{"id":null,"architecture":{"output_modalities":["image"]}}]"#,
         r#"[{"id":null,"architecture":{"output_modalities":["image"]}},{"id":"a","architecture":{"output_modalities":["image"]}}]"#,
-        r#"[{"id":"a","architecture":{"output_modalities":["image"]}},{"architecture":{"output_modalities":["image"]}}]"#,
+        r#"[{"id":"a","name":"A","architecture":{"output_modalities":["image"]}},{"architecture":{"output_modalities":["image"]}}]"#,
         r#"[{"id":{},"architecture":{"output_modalities":["image"]}},{"id":"a","architecture":{"output_modalities":["image"]}}]"#,
-        r#"[{"id":"a","architecture":{"output_modalities":["image"]}},{"id":{},"architecture":{"output_modalities":["image"]}}]"#,
+        r#"[{"id":"a","name":"A","architecture":{"output_modalities":["image"]}},{"id":{},"architecture":{"output_modalities":["image"]}}]"#,
         r#"[{"id":"p","name":"P","architecture":{"input_modalities":["image","image"],"output_modalities":["image"]},"pricing":{"prompt":"junk","completion":"Infinity","input_cache_read":"-0","input_cache_write":"1e400"}}]"#,
     ];
     let fixtures: Vec<_> = records
@@ -396,11 +396,34 @@ async fn raw_json_ids_and_names_keep_source_generation_errors_and_values() {
 }
 
 #[tokio::test]
+async fn required_names_reject_missing_or_invalid_only_on_usable_nonduplicates() {
+    let mut fixtures = Vec::new();
+    for strict in [false, true] {
+        for name in [
+            None,
+            Some(json!(null)),
+            Some(json!(false)),
+            Some(json!(3)),
+            Some(json!([])),
+            Some(json!({})),
+        ] {
+            let mut record = json!({"id":"named","architecture":{"output_modalities":["image"]},"pricing":false});
+            if let Some(name) = name {
+                record["name"] = name;
+            }
+            fixtures.push(json!({"payload":json!({"data":[record]}).to_string(),"approvedRejection":"name","args":if strict {vec!["--strict"]} else {vec![]}}));
+        }
+        fixtures.push(json!({"payload":r#"{"data":[{"name":null,"pricing":false},{"id":"kept","name":"","architecture":{"output_modalities":["image"]}},{"id":"kept","pricing":false,"architecture":{"output_modalities":["image"]}},{"id":"kept","name":null,"pricing":false,"architecture":{"output_modalities":["image"]}}]}"#,"args":if strict {vec!["--strict"]} else {vec![]}}));
+    }
+    compare_workflows("required-name", &fixtures).await;
+}
+
+#[tokio::test]
 async fn nullish_defaults_and_long_valid_string_catalog_keep_source_contract() {
     let mut fixtures = vec![
-        json!({"payload":r#"{"data":[{"id":"x","architecture":{"input_modalities":null,"output_modalities":["image"]},"pricing":null,"context_length":{}}]}"#,"args":["--strict"]}),
+        json!({"payload":r#"{"data":[{"id":"x","name":"X","architecture":{"input_modalities":null,"output_modalities":["image"]},"pricing":null,"context_length":{}}]}"#,"args":["--strict"]}),
         json!({"payload":r#"{"data":[{"architecture":null},{"id":"x","architecture":{"output_modalities":null}},{"id":"usable","name":"","architecture":{"input_modalities":["audio"],"output_modalities":["image"]},"pricing":{"prompt":"","completion":"-Infinity","input_cache_read":"NaN","input_cache_write":"1e400"}}]}"#,"args":["--strict"]}),
-        json!({"payload":r#"{"data":[{"id":"duplicate","architecture":{"output_modalities":["image"]}},{"id":"duplicate","name":{},"pricing":3,"architecture":{"output_modalities":["image"]}}]}"#,"args":["--strict"]}),
+        json!({"payload":r#"{"data":[{"id":"duplicate","name":"First","architecture":{"output_modalities":["image"]}},{"id":"duplicate","name":{},"pricing":3,"architecture":{"output_modalities":["image"]}}]}"#,"args":["--strict"]}),
     ];
     let data: Vec<_> = (0..128).map(|index|json!({"id":format!("m{:03}",(index*17)%128),"name":format!("name-{index}"),"architecture":{"output_modalities":["image","text","image"],"input_modalities":["text","image","text"]}})).collect();
     fixtures.push(json!({"payload":json!({"data":data}).to_string(),"args":["--strict"]}));
@@ -474,6 +497,9 @@ fn consumed_record_fields_reject_wrong_types_without_requiring_defaulted_fields(
     ];
     for (record, field) in invalid {
         let mut record: serde_json::Value = serde_json::from_str(record).unwrap();
+        if record.get("name").is_none() {
+            record["name"] = json!("Fixture");
+        }
         if record.get("architecture").is_none() {
             record["architecture"] = json!({"output_modalities":["image"]});
         }
@@ -491,8 +517,8 @@ fn consumed_record_fields_reject_wrong_types_without_requiring_defaulted_fields(
         }
     }
     for payload in [
-        r#"{"data":[{"id":"x","architecture":{"output_modalities":["image"]}}]}"#,
-        r#"{"data":[{"id":"x","architecture":{"input_modalities":null,"output_modalities":["image"]},"pricing":null,"context_length":{}}]}"#,
+        r#"{"data":[{"id":"x","name":"X","architecture":{"output_modalities":["image"]}}]}"#,
+        r#"{"data":[{"id":"x","name":"X","architecture":{"input_modalities":null,"output_modalities":["image"]},"pricing":null,"context_length":{}}]}"#,
         r#"{"data":[{"id":"x","architecture":null}]}"#,
     ] {
         assert!(
@@ -520,7 +546,7 @@ fn strict_options_and_native_cli_reject_unknown_arguments_before_fetch() {
 
 #[test]
 fn artifact_serialization_is_lossless_and_uses_javascript_key_enumeration() {
-    let payload = parse_lossless(r#"{"data":[{"id":"10","architecture":{"output_modalities":["image"]}},{"id":"2","architecture":{"output_modalities":["image"]}},{"id":"\ud800","name":"\udc00","architecture":{"output_modalities":["image"]}}]}"#).unwrap();
+    let payload = parse_lossless(r#"{"data":[{"id":"10","name":"Ten","architecture":{"output_modalities":["image"]}},{"id":"2","name":"Two","architecture":{"output_modalities":["image"]}},{"id":"\ud800","name":"\udc00","architecture":{"output_modalities":["image"]}}]}"#).unwrap();
     let models = parse_openrouter_image_models(&payload, true).unwrap();
     let artifact = generate_image_models_file(&models).unwrap();
     assert!(artifact.contains("\\ud800"));
