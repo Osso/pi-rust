@@ -18,7 +18,17 @@ async function run(request: any) {
  const runtime = createExtensionRuntime(), bus = createEventBus();
  const extension = await loadExtensionFromFactory(register, "/fixture", bus, runtime, "<example:batch-a>");
  const manager = SessionManager.inMemory("/fixture");
- const runner = new ExtensionRunner([extension], runtime, "/fixture", manager, {});
+ const observed: [string, unknown][] = [];
+ const extensions = [extension];
+ if (request.observeBus) {
+  const observer = await loadExtensionFromFactory((pi) => {
+   pi.events.on("my:notification", (data: unknown) => {
+    observed.push(["my:notification", data]);
+   });
+  }, "/fixture", bus, runtime, "<observer:batch-a>");
+  extensions.push(observer);
+ }
+ const runner = new ExtensionRunner(extensions, runtime, "/fixture", manager, {});
  let name: string | undefined, prompt = "", idle = true;
  let activeTools: string[] = [];
  let footer: any, branch = request.branch, branchCallback: (() => void) | undefined;
@@ -90,7 +100,7 @@ async function run(request: any) {
     case "prompt": prompt = step.value; break;
     case "before": {
      const result = await runner.emitBeforeAgentStart("task", undefined, step.value, {});
-     trace.push(["before",result?.systemPrompt ?? null]); break;
+     trace.push(["before",result ?? null]); break;
     }
     case "append": manager.appendMessage(step.message); break;
     case "label": manager.appendLabelChange(manager.getEntries()[step.index].id,step.value ?? undefined); break;
@@ -121,7 +131,7 @@ async function run(request: any) {
    }
   }
  } finally { console.log = originalLog; Date.now = originalNow; }
- return {commands,tools,trace};
+ return request.observeBus ? {commands,tools,trace,observed} : {commands,tools,trace};
 }
 let pending = "";
 process.stdin.setEncoding("utf8");

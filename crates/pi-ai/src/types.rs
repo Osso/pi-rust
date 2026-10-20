@@ -4,8 +4,6 @@
 //! Unix-millisecond timestamps are `i64`. Option/callback interfaces
 //! (`StreamOptions` and friends) live with the provider runtime.
 
-use std::collections::BTreeMap;
-
 use indexmap::IndexMap;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -233,7 +231,7 @@ pub struct ProviderRetryEvent {
 pub struct ProviderResponse {
     #[serde(serialize_with = "js_number::serialize")]
     pub status: f64,
-    pub headers: BTreeMap<String, String>,
+    pub headers: IndexMap<String, String>,
 }
 
 macro_rules! literal_tag {

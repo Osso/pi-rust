@@ -67,8 +67,13 @@ fn copy_directory(source: &Path, target: &Path) {
 fn base_environment(fixture: &Fixture) -> Vec<(String, String)> {
     vec![
         ("HOME".to_owned(), fixture.home.display().to_string()),
+        (
+            "XDG_CONFIG_HOME".to_owned(),
+            fixture.home.join(".config").display().to_string(),
+        ),
         ("PI_PACKAGE_DIR".to_owned(), fixture.package_dir.display().to_string()),
         ("NO_COLOR".to_owned(), "1".to_owned()),
+        ("PI_OFFLINE".to_owned(), "1".to_owned()),
     ]
 }
 
@@ -120,39 +125,7 @@ fn run_under_pty(
         command_line.push(' ');
         command_line.push_str(arg);
     }
-    let mut command = Command::new("script");
-    command
-        .arg("-qefc")
-        .arg(&command_line)
-        .arg("/dev/null")
-        .current_dir(&fixture.work)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    for (name, value) in environment {
-        command.env(name, value);
-    }
-    let mut child = command.spawn().expect("script must allocate a pty");
-
-    let stdout = child.stdout.take().expect("pty stdout");
-    let output = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-    let buffer = std::sync::Arc::clone(&output);
-    let reader = std::thread::spawn(move || {
-        let mut stdout = stdout;
-        let mut bytes = [0_u8; 4096];
-        loop {
-            let Ok(read) = stdout.read(&mut bytes) else {
-                return;
-            };
-            if read == 0 {
-                return;
-            }
-            buffer
-                .lock()
-                .expect("pty buffer")
-                .push_str(&String::from_utf8_lossy(&bytes[..read]));
-        }
-    });
+    let (mut child, output, reader) = spawn_pty_command(fixture, &command_line, environment);
 
     let mut stdin = child.stdin.take().expect("pty stdin");
     for step in inputs {
@@ -405,6 +378,7 @@ fn spawn_pty_command(
     command
         .arg("-qefc")
         .arg(command_line)
+        .env_remove("PI_CODING_AGENT_DIR")
         .arg("/dev/null")
         .current_dir(&fixture.work)
         .stdin(Stdio::piped())
@@ -415,25 +389,32 @@ fn spawn_pty_command(
     }
     let mut child = command.spawn().expect("script must allocate a pty");
     let stdout = child.stdout.take().expect("pty stdout");
+    let stderr = child.stderr.take().expect("script stderr");
     let output = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
     let buffer = std::sync::Arc::clone(&output);
     let reader = std::thread::spawn(move || {
-        let mut stdout = stdout;
-        let mut bytes = [0_u8; 4096];
-        loop {
-            let Ok(read) = stdout.read(&mut bytes) else {
-                return;
-            };
-            if read == 0 {
-                return;
-            }
-            buffer
-                .lock()
-                .expect("pty buffer")
-                .push_str(&String::from_utf8_lossy(&bytes[..read]));
-        }
+        std::thread::scope(|scope| {
+            // Include script's own errors in marker-failure diagnostics, not just
+            // PTY stdout. Drain both concurrently to avoid pipe deadlocks.
+            scope.spawn(|| capture_output(stderr, &buffer));
+            capture_output(stdout, &buffer);
+        });
     });
     (child, output, reader)
+}
+
+fn capture_output(mut stream: impl Read, output: &std::sync::Mutex<String>) {
+    let mut bytes = [0_u8; 4096];
+    loop {
+        let read = stream.read(&mut bytes).expect("script output");
+        if read == 0 {
+            return;
+        }
+        output
+            .lock()
+            .expect("pty buffer")
+            .push_str(&String::from_utf8_lossy(&bytes[..read]));
+    }
 }
 
 fn wait_for_pidfile(path: &Path) -> u32 {

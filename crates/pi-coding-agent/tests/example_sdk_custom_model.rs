@@ -97,3 +97,53 @@ async fn stream_write_failure_retains_message_and_disposes_owned_session() {
     registration.unregister();
     assert_eq!(fixture.requests.lock().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn streaming_stops_after_first_writer_error() {
+    use pi_ai::providers::faux::{
+        FauxAssistantMessageOptions, FauxResponseStep, RegisterFauxProviderOptions, faux_assistant_message,
+        faux_provider, faux_text, faux_tool_call,
+    };
+    use std::sync::{Arc, Mutex};
+    struct FailDeltas(Arc<Mutex<Vec<String>>>);
+    impl std::io::Write for FailDeltas {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            let text = String::from_utf8_lossy(bytes).to_string();
+            if text == "first" || text == "second" {
+                self.0.lock().unwrap().push(text.clone());
+                return Err(std::io::Error::other(format!("{text} failure")));
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut fixture = support::fixture().await;
+    let faux = faux_provider(RegisterFauxProviderOptions::default());
+    fixture.options.model = faux.get_model(None);
+    fixture
+        .options
+        .model_runtime
+        .as_ref()
+        .unwrap()
+        .register_native_provider(Arc::clone(&faux.provider));
+    faux.set_responses(vec![FauxResponseStep::Message(Box::new(faux_assistant_message(
+        vec![
+            faux_text("first"),
+            faux_text("second"),
+            faux_tool_call(
+                "end_turn",
+                serde_json::Map::from_iter([("reason".into(), serde_json::json!("done"))]),
+                Some("done".into()),
+            ),
+        ],
+        FauxAssistantMessageOptions::default(),
+    )))]);
+    let writes = Arc::new(Mutex::new(Vec::new()));
+    let error = example::run(fixture.options, FailDeltas(Arc::clone(&writes)))
+        .await
+        .unwrap_err();
+    assert_eq!(error, "first failure");
+    assert_eq!(*writes.lock().unwrap(), ["first"]);
+}

@@ -1,7 +1,10 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use pi_js_compat::node_fs::{node_errno_name, node_error_code, node_fs_error, node_fs_error_record, node_read_error};
+use pi_js_compat::node_fs::{
+    NodeReadApi, node_errno_name, node_error_code, node_fs_error, node_fs_error_record, node_promises_read_error,
+    node_read_error, node_read_error_record,
+};
 use serde_json::json;
 use std::fs;
 use std::io;
@@ -35,6 +38,10 @@ fn real_filesystem_messages_and_own_metadata_match_node() {
         ("read", root.join("missing/child"), "open"),
         ("write", root.clone(), "open"),
         ("read", root.clone(), "read"),
+        ("readFd", root.clone(), "read"),
+        ("readAsync", root.clone(), "read"),
+        ("readAsync", root.join("missing/child"), "open"),
+        ("readAsync", file.join("child"), "open"),
         ("write", file.join("child"), "open"),
         ("read", file.join("child"), "open"),
         ("mkdir", file.clone(), "mkdir"),
@@ -43,13 +50,17 @@ fn real_filesystem_messages_and_own_metadata_match_node() {
     for (operation, path, syscall) in cases {
         let error = match operation {
             "write" => fs::write(&path, "fixture").unwrap_err(),
-            "read" => fs::read(&path).unwrap_err(),
+            "read" | "readFd" | "readAsync" => fs::read(&path).unwrap_err(),
             "mkdir" => fs::create_dir(&path).unwrap_err(),
             _ => unreachable!(),
         };
         let path = path.to_str().unwrap();
         let expected = node.request(&json!({"operation":operation,"path":path}));
-        let record = node_fs_error_record(&error, syscall, path);
+        let record = if operation == "readAsync" {
+            node_read_error_record(&error, path, NodeReadApi::PromisesReadFile)
+        } else {
+            node_fs_error_record(&error, syscall, path)
+        };
         let mut own =
             json!({"message":record.message,"errno":record.errno,"code":record.code,"syscall":record.syscall});
         if let Some(path) = &record.path {
@@ -60,7 +71,11 @@ fn real_filesystem_messages_and_own_metadata_match_node() {
             expected,
             "{operation}: {path}"
         );
-        assert_eq!(node_fs_error(&error, syscall, path), record.message);
+        if operation == "readAsync" {
+            assert_eq!(node_promises_read_error(&error, path), record.message);
+        } else {
+            assert_eq!(node_fs_error(&error, syscall, path), record.message);
+        }
         if operation == "read" {
             assert_eq!(node_read_error(&error, path), record.message);
         }

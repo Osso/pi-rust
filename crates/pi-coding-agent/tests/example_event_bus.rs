@@ -9,7 +9,7 @@ async fn notifications_follow_session_context_and_real_bus_order() {
     let actual = harness::compare(
         "event-bus",
         harness::factory(example::event_bus_extension),
-        json!({"steps":[
+        json!({"observeBus":true,"steps":[
             {"op":"command","name":"emit","args":"before context"},
             {"op":"bus","channel":"my:notification","data":{"message":"also before","from":"peer"}},
             {"op":"event","event":{"type":"session_start","reason":"startup"}},
@@ -22,6 +22,19 @@ async fn notifications_follow_session_context_and_real_bus_order() {
         ]}),
     )
     .await;
+    assert_eq!(
+        actual["observed"],
+        json!([
+            ["my:notification", {"message":"before context","from":"/emit command"}],
+            ["my:notification", {"message":"also before","from":"peer"}],
+            ["my:notification", {"message":"Session started","from":"event-bus-example"}],
+            ["my:notification", {"message":"Ahoy 🚀","from":"/emit command"}],
+            ["my:notification", {"message":"hello","from":"/emit command"}],
+            ["my:notification", {"message":"\u{85}kept\u{85}","from":"/emit command"}],
+            ["my:notification", {"message":"cross-extension\nλ","from":"peer/𐀀"}],
+            ["my:notification", {"message":"Session started","from":"event-bus-example"}]
+        ])
+    );
     assert_eq!(
         actual["trace"],
         json!([

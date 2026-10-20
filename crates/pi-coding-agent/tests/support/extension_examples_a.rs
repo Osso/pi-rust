@@ -86,10 +86,6 @@ pub async fn compare(name: &str, factory: impl FnOnce(Trace) -> ExtensionFactory
                 .collect::<Vec<_>>()
         );
     }
-    let mut oracle = oracle::TsOracle::spawn(
-        "extension-examples-a-oracle.ts",
-        &format!("packages/coding-agent/examples/extensions/{name}.ts"),
-    );
     if name == "entry-renderer" || name == "message-renderer" {
         request["times"] = json!(
             actual["trace"]
@@ -106,12 +102,20 @@ pub async fn compare(name: &str, factory: impl FnOnce(Trace) -> ExtensionFactory
                 .collect::<Vec<_>>()
         );
     }
-    let expected = oracle.request(&request);
+    let expected = run_oracle(name, &request);
     assert_eq!(actual, expected, "{name}: {request}");
     actual
 }
 
-async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -> Value {
+pub fn run_oracle(name: &str, request: &Value) -> Value {
+    let mut oracle = oracle::TsOracle::spawn(
+        "extension-examples-a-oracle.ts",
+        &format!("packages/coding-agent/examples/extensions/{name}.ts"),
+    );
+    oracle.request(request)
+}
+
+pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -> Value {
     let trace: Trace = Arc::default();
     let factory = factory(trace.clone());
     let runtime = support::runtime();
@@ -166,8 +170,29 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
     })
     .await
     .unwrap();
+    let observed: Trace = Arc::default();
+    let mut extensions = vec![extension.clone()];
+    if request["observeBus"] == true {
+        let log = observed.clone();
+        let observer: ExtensionFactory = Arc::new(move |api| {
+            let log = log.clone();
+            let result = api.events.on(
+                "my:notification",
+                Arc::new(move |data| {
+                    log.lock().unwrap().push(json!(["my:notification", data]));
+                    Ok(())
+                }),
+            );
+            Box::pin(async move { result.map(|_| ()).map_err(HandlerError::new) })
+        });
+        extensions.push(
+            load_extension_from_factory(observer, "/fixture", bus.clone(), runtime.clone(), "<observer:batch-a>")
+                .await
+                .unwrap(),
+        );
+    }
     let mut runner = ExtensionRunner::new(
-        vec![extension.clone()],
+        extensions,
         runtime,
         "/fixture",
         manager.clone(),
@@ -347,10 +372,7 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
                 let result = runner
                     .emit_before_agent_start("task", None, step["value"].as_str().unwrap(), Default::default())
                     .await;
-                trace
-                    .lock()
-                    .unwrap()
-                    .push(json!(["before", result.and_then(|result| result.system_prompt)]));
+                trace.lock().unwrap().push(json!(["before", result]));
             }
             "append" => {
                 manager
@@ -468,7 +490,11 @@ async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Value) -
     if let Some(footer_data) = footer_data {
         footer_data.dispose();
     }
-    json!({"commands":commands, "tools":tools, "trace":trace.lock().unwrap().clone()})
+    let mut result = json!({"commands":commands, "tools":tools, "trace":trace.lock().unwrap().clone()});
+    if request["observeBus"] == true {
+        result["observed"] = json!(observed.lock().unwrap().clone());
+    }
+    result
 }
 
 pub fn factory(register: fn(&ExtensionApi) -> Result<(), HandlerError>) -> impl FnOnce(Trace) -> ExtensionFactory {

@@ -5,7 +5,7 @@
 //! this crate and proven against the pinned TypeScript module through the
 //! differential oracle.
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -340,7 +340,7 @@ async fn drive(
     let response = execute_request(&config, &options, model, body).await?;
     let request_id = response_request_id(&response);
     if let Some(on_response) = &options.stream.request.on_response {
-        let mut headers = BTreeMap::new();
+        let mut headers = IndexMap::new();
         if let Some(request_id) = &request_id {
             headers.insert("x-amzn-requestid".to_owned(), request_id.clone());
         }

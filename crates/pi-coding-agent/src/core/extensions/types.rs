@@ -5,7 +5,6 @@
 //! the extension entry point is a Rust factory receiving [`ExtensionApi`].
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -1702,7 +1701,7 @@ pub struct BeforeProviderHeadersEvent {
 #[serde(rename_all = "camelCase")]
 pub struct AfterProviderResponseEvent {
     pub status: u16,
-    pub headers: BTreeMap<String, String>,
+    pub headers: IndexMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
