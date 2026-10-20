@@ -72,3 +72,7 @@ restored. Compaction start text, auto-commit prefix, and checkpoint restore
 notification mutations likewise fail their comparisons. Native example paths
 above are relative to `crates/pi-coding-agent/`. Only targeted `cargo test -p pi-coding-agent --test example_<name>` and
 formatting are run by this implementer; no clippy/check/workspace acceptance.
+
+## Accepted review proof (2026-10-20)
+
+F5 dynamic-resources uses distinct <module> and <cwd> normalization tokens in native support and pinned oracle. Startup/reload compare every returned path; mutating resources to ctx.cwd paths fails (<cwd> != <module>).

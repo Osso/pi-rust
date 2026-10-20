@@ -2,13 +2,10 @@
 mod example;
 #[path = "support/extension_examples_a.rs"]
 mod harness;
-use pi_coding_agent::core::extensions::ExtensionFactory;
 use serde_json::json;
-use std::sync::Arc;
 
 #[tokio::test]
 async fn private_watch_injects_clears_ignores_blank_and_preserves_failure_match_ts() {
-    let _default = harness::factory(example::file_trigger_extension);
     for (no_ui, send_error, missing) in [
         (false, false, false),
         (true, false, false),
@@ -16,19 +13,13 @@ async fn private_watch_injects_clears_ignores_blank_and_preserves_failure_match_
         (false, false, true),
     ] {
         let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("trigger.txt");
+        pi_js_compat::process_env::set("PI_TEST_FILE_TRIGGER_ROOT", temp.path().to_str().unwrap());
+        let path = temp.path().join("tmp/agent-trigger.txt");
+        std::fs::create_dir(path.parent().unwrap()).unwrap();
         if !missing {
             std::fs::write(&path, "").unwrap();
         }
-        let fixture = path.clone();
-        let factory = move |_trace| {
-            let path = fixture.clone();
-            let factory: ExtensionFactory = Arc::new(move |api| {
-                let result = example::file_trigger_with_path(api, path.clone());
-                Box::pin(async move { result })
-            });
-            factory
-        };
+        let factory = harness::factory(example::file_trigger_extension);
         let mut steps = vec![json!({"op":"event","event":{"type":"session_start","reason":"startup"}})];
         if !missing {
             if !send_error {
@@ -55,4 +46,5 @@ async fn private_watch_injects_clears_ignores_blank_and_preserves_failure_match_
             );
         }
     }
+    pi_js_compat::process_env::clear();
 }

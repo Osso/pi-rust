@@ -9,7 +9,20 @@ use std::{
 const TRIGGER_FILE: &str = "/tmp/agent-trigger.txt";
 
 pub fn file_trigger_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
-    file_trigger_with_path(pi, PathBuf::from(TRIGGER_FILE))
+    file_trigger_with_path(pi, trigger_file_path(TRIGGER_FILE))
+}
+
+fn trigger_file_path(path: &str) -> PathBuf {
+    #[cfg(test)]
+    {
+        let root = pi_js_compat::process_env::get("PI_TEST_FILE_TRIGGER_ROOT")
+            .expect("file-trigger tests must supply a private filesystem root");
+        PathBuf::from(root).join(path.trim_start_matches('/'))
+    }
+    #[cfg(not(test))]
+    {
+        PathBuf::from(path)
+    }
 }
 /// Hosts/tests may relocate the physical file without changing its protocol text.
 pub fn file_trigger_with_path(pi: &ExtensionApi, path: PathBuf) -> Result<(), HandlerError> {

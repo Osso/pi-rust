@@ -53,7 +53,7 @@ async function main() {
    }
    const commands=runner.getRegisteredCommands().map((command:any)=>[command.name,command.description]);
    const output={commands,cases,errors};
-   return JSON.parse(JSON.stringify(output).split(cwd).join('<tmp>').split(dirname(source)).join('<tmp>'));
+   return JSON.parse(JSON.stringify(output).split(dirname(source)).join('<module>').split(cwd).join(source.endsWith('/dynamic-resources/index.ts')?'<cwd>':'<tmp>'));
   }finally{fs.rmSync(cwd,{recursive:true,force:true});}
  }
  let pending='';process.stdin.setEncoding('utf8');for await(const chunk of process.stdin){pending+=chunk;let end;while((end=pending.indexOf('\n'))!==-1){const line=pending.slice(0,end);pending=pending.slice(end+1);console.log(JSON.stringify(await run(JSON.parse(line))));}}
