@@ -2,8 +2,8 @@
 mod oracle;
 
 use std::fs;
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use oracle::TsOracle;
@@ -332,17 +332,21 @@ fn checker_exit_stdout_stderr_match_actual_pinned_script_on_fixtures() {
         MODULE,
         &[("NODE_OPTIONS", "--experimental-vm-modules".into())],
     );
+    let working_dirs = [Fixture::new(), Fixture::new()];
     for valid in [true, false] {
         if !valid {
             fixture.manifest(|m| m["schemaVersion"] = json!(99));
         }
-        let output = Command::new(env!("CARGO_BIN_EXE_check-model-data"))
-            .current_dir(&fixture.root)
-            .output()
-            .unwrap();
-        let actual = json!({"ok":true,"output":{"code":output.status.code(),"stdout":String::from_utf8(output.stdout).unwrap(),"stderr":String::from_utf8(output.stderr).unwrap()}});
-        assert_eq!(actual, oracle.request(&json!({"op":"check","root":fixture.root})));
-        println!("fixture check valid={valid}: {}", actual["output"]);
+        let expected = oracle.request(&json!({"op":"check","root":fixture.root}));
+        for cwd in &working_dirs {
+            let output = sandboxed_native_checker(&fixture, &cwd.root);
+            let actual = json!({"ok":true,"output":{"code":output.status.code(),"stdout":String::from_utf8(output.stdout).unwrap(),"stderr":String::from_utf8(output.stderr).unwrap()}});
+            println!(
+                "fixture check valid={valid}, cwd={:?}: actual={actual}, expected={expected}",
+                cwd.root
+            );
+            assert_eq!(actual, expected);
+        }
     }
 }
 
@@ -566,36 +570,64 @@ fn native_fixture() -> Fixture {
     fixture
 }
 
+// Linux test prerequisite: bwrap with working unprivileged namespaces. Never run
+// unsandboxed: the fixture overlays the compiled source catalog read-only.
+fn sandboxed_native_checker(fixture: &Fixture, cwd: &Path) -> Output {
+    let home = fixture.root.join("private-home");
+    fs::create_dir_all(&home).unwrap();
+    Command::new("bwrap")
+        .args([
+            "--die-with-parent",
+            "--unshare-net",
+            "--ro-bind",
+            "/",
+            "/",
+            "--clearenv",
+            "--setenv",
+            "HOME",
+        ])
+        .arg(&home)
+        .args(["--setenv", "PATH", "/usr/bin:/bin", "--ro-bind"])
+        .arg(&fixture.dir)
+        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data/providers"))
+        .arg("--chdir")
+        .arg(cwd)
+        .args(["--", env!("CARGO_BIN_EXE_check-model-data")])
+        .output()
+        .expect("Linux checker tests require bwrap and working namespaces; no unsandboxed fallback")
+}
+
 #[test]
-fn native_checker_defaults_to_rust_layout_without_source_files_or_arguments() {
+fn native_checker_defaults_to_source_root_from_unrelated_working_directories() {
     let fixture = native_fixture();
     fs::remove_dir_all(fixture.root.join("src")).unwrap();
+    let working_dirs = [Fixture::new(), Fixture::new()];
     for valid in [true, false] {
         if !valid {
             fixture.manifest(|m| m["schemaVersion"] = json!(99));
         }
-        let output = Command::new(env!("CARGO_BIN_EXE_check-model-data"))
-            .current_dir(&fixture.root)
-            .output()
-            .unwrap();
-        assert_eq!(
-            output.status.code(),
-            Some(if valid { 0 } else { 1 }),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert_eq!(
-            String::from_utf8(output.stdout).unwrap(),
-            if valid { "Generated model data is valid.\n" } else { "" }
-        );
-        assert_eq!(
-            String::from_utf8(output.stderr).unwrap(),
-            if valid {
-                ""
-            } else {
-                "Invalid generated model data:\n  - model data schema is 99, expected 3\n\nModel data is missing or stale. Run `npm run hydrate:model-data` from the repository root.\n"
-            }
-        );
+        for cwd in &working_dirs {
+            let output = sandboxed_native_checker(&fixture, &cwd.root);
+            println!("native check valid={valid}, cwd={:?}: {output:?}", cwd.root);
+            assert_eq!(
+                output.status.code(),
+                Some(if valid { 0 } else { 1 }),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(
+                String::from_utf8(output.stdout).unwrap(),
+                if valid { "Generated model data is valid.\n" } else { "" }
+            );
+            assert_eq!(
+                String::from_utf8(output.stderr).unwrap(),
+                if valid {
+                    ""
+                } else {
+                    "Invalid generated model data:\n  - model data schema is 99, expected 3\n\nModel data is missing or stale. Run `npm run hydrate:model-data` from the repository root.\n"
+                }
+            );
+        }
     }
 }
 
