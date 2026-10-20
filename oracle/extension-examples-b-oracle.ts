@@ -66,9 +66,9 @@ async function run(request: any) {
  const allCalls: any[] = [];
  let wrapper: any;
  let provider: any = {
-  getSuggestions: async () => ({items:[{value:"base",label:"Base",description:"delegate"}],prefix:"base-prefix"}),
+  getSuggestions: async (lines:string[],line:number,col:number,options:any) => ({items:[{value:"base",label:"Base",description:"delegate"}],prefix:JSON.stringify({lines,line,col:Buffer.byteLength((lines[line]??'').slice(0,col)),force:options.force,aborted:options.signal.aborted})}),
   applyCompletion(lines: string[], line: number, col: number, item: any, prefix: string) { const updated=[...lines]; updated[line]=lines[line].slice(0,col-prefix.length)+item.value; return {lines:updated,cursorLine:line,cursorCol:col-prefix.length+item.value.length}; },
-  shouldTriggerFileCompletion: () => false,
+  shouldTriggerFileCompletion: (lines:string[],line:number,col:number) => line===1 && col===7 && JSON.stringify(lines)===JSON.stringify(["heading","files: abc","tail"]),
  };
  const cases = [];
  const originalDate = Date;
@@ -128,14 +128,14 @@ async function run(request: any) {
    case "session_start": result = await runner.emit({type: "session_start", reason: "startup"}); break;
    case "autocomplete": {
     if (wrapper) { provider=wrapper(provider); wrapper=undefined; }
-    const text=item.text, lines=[text], abort=new AbortController();
+    const text=item.text, lines=item.lines??[text], line=item.line??0, col=item.col??text.length, prefix=item.prefix??text, abort=new AbortController();
     if (item.aborted) abort.abort();
-    const suggestions=await provider.getSuggestions(lines,0,text.length,{signal:abort.signal,force:false});
+    const suggestions=await provider.getSuggestions(lines,line,col,{signal:abort.signal,force:item.force??false});
     // Compatibility: native String UI boundaries encode lone surrogates as U+FFFD.
     if (suggestions) for (const item of suggestions.items) {
      for (const key of ["value","label","description"]) if (typeof item[key] === "string") item[key]=Buffer.from(item[key],"utf8").toString("utf8");
     }
-    result={suggestions,applied:provider.applyCompletion(lines,0,text.length,{value:"#101",label:"#101"},text),trigger:provider.shouldTriggerFileCompletion(lines,0,text.length)};
+    result={suggestions,applied:provider.applyCompletion(lines,line,col,{value:"#101",label:"#101"},prefix),trigger:provider.shouldTriggerFileCompletion(lines,line,col)};
     break;
    }
    case "append_custom": manager.appendCustomEntry(item.kind,item.data);break;
