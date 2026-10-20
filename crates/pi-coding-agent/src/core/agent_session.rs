@@ -458,7 +458,7 @@ pub enum AgentSessionEvent {
     SteeringMessageQueued(SteeringMessageQueuedEvent),
     AgentSettled(AgentSettledEvent),
     CompactionStart(CompactionStartEvent),
-    CompactionEnd(CompactionEndEvent),
+    CompactionEnd(Box<CompactionEndEvent>),
     EntryAppended(EntryAppendedEvent),
     BashMessagesCommitted(BashMessagesCommittedEvent),
     SessionInfoChanged(SessionInfoChangedEvent),
@@ -542,7 +542,7 @@ pub struct CompactionStartEvent {
     pub event_type: &'static str,
     pub reason: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_hint: Option<Value>,
+    pub source_hint: Option<crate::core::compaction::CompactionSourceInfo>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -552,7 +552,7 @@ pub struct CompactionEndEvent {
     pub event_type: &'static str,
     pub reason: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<Value>,
+    pub result: Option<crate::core::compaction::CompactionResult>,
     pub aborted: bool,
     pub will_retry: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -5613,14 +5613,14 @@ impl AgentSession {
         match result {
             Ok((compaction_result, should_continue)) => {
                 *lock(&self.inner.compaction_abort_controller) = None;
-                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: "manual".to_owned(),
-                    result: Some(serde_json::to_value(&compaction_result).unwrap_or(Value::Null)),
+                    result: Some(compaction_result.clone()),
                     aborted: false,
                     will_retry: should_continue,
                     error_message: None,
-                }));
+                })));
                 self.reconnect_to_agent();
                 if should_continue {
                     self.continue_after_manual_compaction(was_running_agent_turn).await?;
@@ -5630,14 +5630,14 @@ impl AgentSession {
             Err(error) => {
                 let aborted = error.message() == "Compaction cancelled";
                 *lock(&self.inner.compaction_abort_controller) = None;
-                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: "manual".to_owned(),
                     result: None,
                     aborted,
                     will_retry: false,
                     error_message: (!aborted).then(|| format!("Compaction failed: {}", error.message())),
-                }));
+                })));
                 self.reconnect_to_agent();
                 Err(error)
             }
@@ -5812,7 +5812,11 @@ impl AgentSession {
         }
     }
 
-    async fn get_compaction_source_hint(&self, reason: &str, will_retry: bool) -> Option<Value> {
+    async fn get_compaction_source_hint(
+        &self,
+        reason: &str,
+        will_retry: bool,
+    ) -> Option<crate::core::compaction::CompactionSourceInfo> {
         let runner = self.runner();
         if runner.has_handlers("session_compaction_source") {
             let mut event =
@@ -5828,7 +5832,7 @@ impl AgentSession {
             if let Some(source) = emit_result.session_compaction_source()
                 && let Some(source) = &source.source
             {
-                return serde_json::to_value(source).ok();
+                return Some(source.clone());
             }
         }
         if runner.has_handlers("compaction") {
@@ -5838,13 +5842,12 @@ impl AgentSession {
             return None;
         }
         let model = self.inner.agent.model();
-        serde_json::to_value(crate::core::compaction::CompactionSourceInfo {
+        Some(crate::core::compaction::CompactionSourceInfo {
             r#type: crate::core::compaction::CompactionSourceType::Local,
             provider: model.provider,
             model: model.id,
             endpoint: None,
         })
-        .ok()
     }
 
     async fn get_compaction_request_auth(&self, model: &Model) -> CompactionRequestAuth {
@@ -5937,7 +5940,7 @@ impl AgentSession {
                 return self.run_auto_compaction("overflow", false, false).await;
             }
             if self.inner.overflow_recovery_attempted.load(Ordering::SeqCst) {
-                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: "overflow".to_owned(),
                     result: None,
@@ -5946,7 +5949,7 @@ impl AgentSession {
                     error_message: Some(
                         "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.".to_owned(),
                     ),
-                }));
+                })));
                 return false;
             }
             if post_run_check {
@@ -6041,14 +6044,14 @@ impl AgentSession {
         {
             CompactionExtensionDecision::Cancel => {
                 *lock(&self.inner.auto_compaction_abort_controller) = None;
-                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: reason.to_owned(),
                     result: None,
                     aborted: true,
                     will_retry: false,
                     error_message: None,
-                }));
+                })));
                 return false;
             }
             CompactionExtensionDecision::None => {}
@@ -6071,14 +6074,14 @@ impl AgentSession {
             {
                 CompactionExtensionDecision::Cancel => {
                     *lock(&self.inner.auto_compaction_abort_controller) = None;
-                    self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                    self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                         event_type: "compaction_end",
                         reason: reason.to_owned(),
                         result: None,
                         aborted: true,
                         will_retry: false,
                         error_message: None,
-                    }));
+                    })));
                     return false;
                 }
                 CompactionExtensionDecision::None => {}
@@ -6119,14 +6122,14 @@ impl AgentSession {
         *lock(&self.inner.auto_compaction_abort_controller) = None;
         match result {
             Ok((compaction_result, _)) => {
-                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: reason.to_owned(),
-                    result: Some(serde_json::to_value(&compaction_result).unwrap_or(Value::Null)),
+                    result: Some(compaction_result),
                     aborted: false,
                     will_retry,
                     error_message: None,
-                }));
+                })));
                 if continue_after_compaction {
                     let mut messages = self.inner.agent.messages();
                     if let Some(AgentMessage::Assistant(assistant)) = messages.last()
@@ -6141,7 +6144,7 @@ impl AgentSession {
             }
             Err(error) => {
                 let aborted = abort.is_cancelled() || error.message() == "Compaction cancelled";
-                self.emit(AgentSessionEvent::CompactionEnd(CompactionEndEvent {
+                self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: reason.to_owned(),
                     result: None,
@@ -6154,7 +6157,7 @@ impl AgentSession {
                             format!("Auto-compaction failed: {}", error.message())
                         }
                     }),
-                }));
+                })));
                 false
             }
         }

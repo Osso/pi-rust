@@ -113,7 +113,7 @@ pub async fn create_agent_session_with_internal_options(
     create_agent_session_internal(options).await
 }
 
-fn resolve(input: &str) -> String {
+fn resolve(input: &str) -> Result<String, String> {
     resolve_path(
         input,
         &std::env::current_dir()
@@ -121,7 +121,7 @@ fn resolve(input: &str) -> String {
             .unwrap_or_default(),
         &PathInputOptions::default(),
     )
-    .unwrap_or_else(|_| input.to_owned())
+    .map_err(|error| error.to_string())
 }
 
 async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Result<CreateAgentSessionResult, String> {
@@ -140,12 +140,11 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
                     .map(|path| path.display().to_string())
                     .unwrap_or_default()
             }),
-    );
-    let agent_dir = options
-        .agent_dir
-        .as_ref()
-        .map(|dir| resolve(dir))
-        .unwrap_or_else(|| get_agent_dir().display().to_string());
+    )?;
+    let agent_dir = match options.agent_dir.as_ref() {
+        Some(dir) => resolve(dir)?,
+        None => get_agent_dir().display().to_string(),
+    };
 
     let auth_path = options
         .agent_dir
@@ -166,12 +165,13 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         .map_err(|error| error.to_string())?,
     };
 
-    let settings_manager = options.settings_manager.unwrap_or_else(|| {
-        Arc::new(Mutex::new(
+    let settings_manager = match options.settings_manager {
+        Some(manager) => manager,
+        None => Arc::new(Mutex::new(
             SettingsManager::create(&cwd, Some(Path::new(&agent_dir)), Default::default())
-                .expect("settings manager must initialize"),
-        ))
-    });
+                .map_err(|error| error.to_string())?,
+        )),
+    };
     let session_manager = match options.session_manager {
         Some(manager) => manager,
         None => {
@@ -356,13 +356,17 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
                     .timeout_ms
                     .or(provider_retry.timeout_ms)
                     .unwrap_or(effective_timeout_ms as f64);
-                let websocket_connect_timeout_ms = options.stream.websocket_connect_timeout_ms.or_else(|| {
-                    lock(&settings)
-                        .get_websocket_connect_timeout_ms()
-                        .ok()
-                        .flatten()
-                        .map(|timeout| timeout as f64)
-                });
+                let websocket_connect_timeout_ms = match options.stream.websocket_connect_timeout_ms {
+                    Some(timeout) => Some(timeout),
+                    None => match lock(&settings).get_websocket_connect_timeout_ms() {
+                        Ok(timeout) => timeout.map(|timeout| timeout as f64),
+                        Err(error) => {
+                            let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
+                            sender.fail(StreamFailure::new(error.message().to_owned()));
+                            return stream;
+                        }
+                    },
+                };
                 options.stream.request.timeout_ms = Some(timeout_ms);
                 options.stream.websocket_connect_timeout_ms = websocket_connect_timeout_ms;
                 options.stream.request.max_retries = options.stream.request.max_retries.or(provider_retry.max_retries);
