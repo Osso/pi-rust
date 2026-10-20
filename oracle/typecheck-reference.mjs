@@ -93,7 +93,15 @@ function verifyReferenceTree(lock, reference, patch) {
 	)
 		throw new Error("typecheck reference is dirty");
 	const actual = Buffer.from(
-		git(path, ["diff", "--binary", "--full-index", lock.commit, "HEAD", "--"]),
+		git(path, [
+			"diff",
+			"--binary",
+			"--full-index",
+			"--unified=6",
+			lock.commit,
+			"HEAD",
+			"--",
+		]),
 	);
 	if (!actual.equals(patch))
 		throw new Error("typecheck reference patch mismatch");

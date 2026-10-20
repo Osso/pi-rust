@@ -76,7 +76,7 @@ The existing `modelCatalog` metadata remains unchanged.
 `check` and every typeproof use one shared helper,
 `oracle/typecheck-reference.mjs`. It validates original HEAD/clean source,
 reference HEAD/sole parent/tree/clean source, patch SHA-256, byte-exact
-`git diff --binary --full-index <base> HEAD`, dependency link destinations and
+`git diff --binary --full-index --unified=6 <base> HEAD`, dependency link destinations and
 both catalog digests. Git reads disable optional locks. Dependency symlinks are
 checked separately because upstream directory-only ignores do not ignore them.
 Missing references fail with setup instructions; no fallback selects the original.
@@ -102,6 +102,10 @@ both diagnostic streams intact. Negative proofs retain expected-error directives
 and compiler-API assertions on exact diagnostic codes/counts/spans; public-index
 export, declaration-origin, property and API-shape assertions are unchanged.
 Original source diagnostics are not reclassified as expected negatives.
+
+## Protected-runner integration
+
+Pinned patch comparison explicitly selects six context lines, matching the locked patch bytes; it must not inherit host Git `diff.context`. Protected preflight at `de1cc57` exposed that implicit host dependency: 6 Node tests passed, 5 failed before compiler checks (`/tmp/pi-rust-batch-a-guard-verification/REPORT.md`). The patch/reference/catalog hashes and all diagnostic checks remain unchanged. Regression `locked reference verification ignores inherited diff context` checks actual reference acceptance with context 0 and 20; its initial RED is retained in `/tmp/pi-rust-batch-a-oracle-fix/diff-context-red.log`.
 
 ## Development proof ledger
 

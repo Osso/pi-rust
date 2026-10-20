@@ -182,6 +182,23 @@ test("original errors, corrected reference, emitted bytes, and reference rejecti
 	}
 });
 
+test("locked reference verification ignores inherited diff context", () => {
+	for (const context of ["0", "20"]) {
+		const checked = spawnSync(process.execPath, [helper, "check"], {
+			cwd: root,
+			encoding: "utf8",
+			env: {
+				...process.env,
+				GIT_CONFIG_COUNT: "1",
+				GIT_CONFIG_KEY_0: "diff.context",
+				GIT_CONFIG_VALUE_0: context,
+			},
+		});
+		assert.ifError(checked.error);
+		assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+	}
+});
+
 test("truncation exact source pin, negative proofs, and runtime imports retain their boundaries", () => {
 	success(
 		command(process.execPath, [
