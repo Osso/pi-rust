@@ -45,6 +45,11 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
     std::fs::write(agent.join("auth.json"), auth).unwrap();
     std::fs::write(agent.join("models.json"), r#"{"providers":{"fixture-path":{"baseUrl":"https://unused.invalid","api":"openai-completions","models":[{"id":"private-model","name":"Private model"}]}}}"#).unwrap();
     let key = example::read_api_key();
+    assert_eq!(
+        key,
+        std::env::var("MY_ANTHROPIC_KEY").ok(),
+        "entrypoint reads the exact environment value"
+    );
     let mut real = oracle::TsOracle::spawn(
         "sdk-runtime-state-oracle.ts",
         "packages/coding-agent/src/core/model-runtime.ts",
