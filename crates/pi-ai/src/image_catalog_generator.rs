@@ -8,7 +8,7 @@ use std::{fmt, io::Write, path::Path};
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, is_truthy, to_js_string};
 use pi_js_compat::number::parse_float;
 
-use crate::request::{Fetch, HttpRequest, read_body_text};
+use crate::request::{CallbackError, Fetch, HttpRequest, read_body_text};
 
 pub const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 
@@ -16,6 +16,7 @@ pub const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 pub struct GeneratorError {
     pub name: String,
     pub message: String,
+    pub cause: Option<String>,
     filesystem_inspection: Option<String>,
 }
 
@@ -24,6 +25,7 @@ impl GeneratorError {
         Self {
             name: name.into(),
             message: message.into(),
+            cause: None,
             filesystem_inspection: None,
         }
     }
@@ -34,11 +36,25 @@ impl GeneratorError {
         Self::new("TypeError", message)
     }
 }
+impl From<CallbackError> for GeneratorError {
+    fn from(error: CallbackError) -> Self {
+        Self {
+            name: error.name,
+            message: error.message,
+            cause: error.cause,
+            filesystem_inspection: None,
+        }
+    }
+}
+
 impl fmt::Display for GeneratorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.name, self.message)?;
         if let Some(fields) = &self.filesystem_inspection {
             f.write_str(fields)?;
+        }
+        if let Some(cause) = &self.cause {
+            write!(f, "\n  [cause]: {cause}")?;
         }
         Ok(())
     }
@@ -300,16 +316,14 @@ async fn fetch_and_parse(strict: bool, fetch: &dyn Fetch) -> Result<Vec<JsValue>
             None,
         )
         .await
-        .map_err(|error| GeneratorError::error(error.to_string()))?;
+        .map_err(GeneratorError::from)?;
     if !(200..300).contains(&response.status) {
         return Err(GeneratorError::error(format!(
             "OpenRouter API returned {}",
             response.status
         )));
     }
-    let body = read_body_text(response.body)
-        .await
-        .map_err(|error| GeneratorError::error(error.to_string()))?;
+    let body = read_body_text(response.body).await.map_err(GeneratorError::from)?;
     let payload = js_json::parse_lossless(body.strip_prefix('\u{feff}').unwrap_or(&body))
         .map_err(|error| GeneratorError::new("SyntaxError", error.to_string()))?;
     parse_openrouter_image_models(&payload, strict)
@@ -334,6 +348,7 @@ fn filesystem_error(error: std::io::Error, syscall: &str, path: &Path) -> Genera
     GeneratorError {
         name: record.name.into(),
         message: record.message,
+        cause: None,
         filesystem_inspection: Some(fields),
     }
 }

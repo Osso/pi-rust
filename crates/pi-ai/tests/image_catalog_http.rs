@@ -51,11 +51,27 @@ impl Fetch for LoopbackFetch {
 
 #[tokio::test]
 async fn native_closed_loopback_failure_matches_pinned_generator_error_header() {
+    assert_transport_failure(false).await;
+}
+
+#[tokio::test]
+async fn native_truncated_body_matches_pinned_generator_error_header() {
+    assert_transport_failure(true).await;
+}
+
+async fn assert_transport_failure(truncated: bool) {
+    let transport = if truncated { "truncated-body" } else { "closed-loopback" };
+    let message = if truncated { "terminated" } else { "fetch failed" };
     for strict in [false, true] {
         let args: Vec<String> = if strict { vec!["--strict".into()] } else { vec![] };
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
-        drop(listener);
+        let server = if truncated {
+            Some(serve_truncated_responses(listener))
+        } else {
+            drop(listener);
+            None
+        };
         let endpoint = format!("http://{address}/models?output_modalities=image");
         let mut source = oracle::TsOracle::spawn(
             "image-catalog-generator-oracle.ts",
@@ -72,7 +88,7 @@ async fn native_closed_loopback_failure_matches_pinned_generator_error_header() 
             })
             .unwrap(),
         };
-        let root = std::env::temp_dir().join(format!("pi-image-network-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("pi-image-{transport}-{strict}-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let mut stdout = RecordedStream {
@@ -89,11 +105,15 @@ async fn native_closed_loopback_failure_matches_pinned_generator_error_header() 
         };
         let output = root.join("image-models.json");
         let result = pi_ai::image_catalog_generator::run(&args, &fetch, &output, &mut stdout, &mut stderr).await;
+        if let Some(server) = server {
+            server.join().unwrap();
+        }
         assert_eq!(result.is_err(), strict);
         if let Err(error) = &result {
             writeln!(stderr, "{error}").unwrap();
             assert_eq!(error.name, "TypeError");
-            assert_eq!(error.message, "fetch failed");
+            assert_eq!(error.message, message);
+            assert!(error.cause.as_ref().is_some_and(|cause| !cause.is_empty()));
         }
         if strict {
             assert!(!output.exists());
@@ -108,12 +128,12 @@ async fn native_closed_loopback_failure_matches_pinned_generator_error_header() 
         let proof = std::path::Path::new("/tmp/pi-rust-image-generator-proof");
         std::fs::create_dir_all(proof).unwrap();
         std::fs::write(
-            proof.join(format!("closed-loopback-native-cause-{strict}-source.json")),
+            proof.join(format!("{transport}-structured-{strict}-source.json")),
             serde_json::to_string_pretty(&expected).unwrap(),
         )
         .unwrap();
         std::fs::write(
-            proof.join(format!("closed-loopback-native-cause-{strict}-stderr.txt")),
+            proof.join(format!("{transport}-structured-{strict}-stderr.txt")),
             &native_stderr,
         )
         .unwrap();
@@ -138,10 +158,14 @@ async fn native_closed_loopback_failure_matches_pinned_generator_error_header() 
             .unwrap()
             .lines()
             .filter(|line| !line.starts_with(' ') && *line != "}")
+            .map(normalize_node_header)
             .collect();
         assert_eq!(native_headers, source_headers);
         assert_eq!(native_stderr.matches("[cause]:").count(), if strict { 2 } else { 1 });
-        assert!(native_stderr.contains("127.0.0.1"));
+        if !truncated {
+            assert!(native_stderr.contains("Connection refused (os error 111)"));
+        }
+        assert!(native_stderr.contains(&format!("TypeError: {message}")));
         assert_eq!(expected["events"].as_array().unwrap().len(), 3);
         assert_eq!(expected["events"][0]["stream"], "stdout");
         assert_eq!(expected["events"][1]["stream"], "stderr");
@@ -162,7 +186,10 @@ async fn native_closed_loopback_failure_matches_pinned_generator_error_header() 
             .map(|event| {
                 (
                     event["stream"].as_str().unwrap(),
-                    format!("{}\n", event["text"].as_str().unwrap().lines().next().unwrap()),
+                    format!(
+                        "{}\n",
+                        normalize_node_header(event["text"].as_str().unwrap().lines().next().unwrap())
+                    ),
                 )
             })
             .collect();
@@ -176,6 +203,41 @@ async fn native_closed_loopback_failure_matches_pinned_generator_error_header() 
             .collect();
         assert_eq!(native_event_headers, source_event_headers);
     }
+}
+
+// Node's omitted-stack inspection wraps a fetch error in brackets; this is not its name/message.
+fn normalize_node_header(header: &str) -> String {
+    header.replace("[TypeError: fetch failed] {", "TypeError: fetch failed")
+}
+
+fn serve_truncated_responses(listener: std::net::TcpListener) -> std::thread::JoinHandle<()> {
+    listener.set_nonblocking(true).unwrap();
+    std::thread::spawn(move || {
+        for _ in 0..2 {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("truncated HTTP accept: {error}"),
+                }
+            };
+            stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            assert!(request.starts_with(b"GET /models?output_modalities=image HTTP/1.1\r\n"));
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{\"data\":").unwrap();
+            stream.flush().unwrap();
+            // Deliver headers before premature EOF so fetch resolves and body consumption fails.
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    })
 }
 
 #[tokio::test]

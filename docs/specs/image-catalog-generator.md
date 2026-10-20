@@ -10,7 +10,7 @@ Native maintenance counterpart of pinned `packages/ai/scripts/generate-image-mod
 - [x] Emit lossless native JSON with JavaScript canonical integer-key enumeration. Preserve the classified source object-literal `__proto__` disappearance for valid string IDs. Object-valued id/name are rejected, not projected.
 - [x] Compare every generated model value and ordered key against the real pinned script, not a reimplemented oracle, including lone-surrogate string model IDs and 11 raw-ID/name cases.
 - [x] Reject malformed usable IDs independent of V8 sort invocation, retaining concrete source witnesses.
-- [ ] Integrate shared native transport error names/messages/causes; pending helper below.
+- [x] Propagate structured shared `CallbackError` name/message/cause through request and body failures without parsing diagnostic strings.
 - [x] Consume real runtime HTTP transport against a bounded loopback chunked server and write only a temporary artifact in tests.
 
 ### Approved adaptations
@@ -35,7 +35,7 @@ Errors use `TypeError: Invalid OpenRouter image model <field>: expected <type>`.
 
 Question: “For native HTTP failures, may Rust preserve the top-level error name/message but use native cause diagnostics instead of reproducing Node’s nested errno/address/cause objects? Failure ordering and exit behavior would still match.”
 
-Answer: **“Allow native causes (Recommended)”**. Only native cause diagnostics may differ; top-level error name/message, console order and exit status still match Node. JS-frame omission remains separately scoped above. Shared transport integration is pending, not waived.
+Answer: **“Allow native causes (Recommended)”**. Only native cause diagnostics may differ; top-level error name/message, console order and exit status still match Node. JS-frame omission remains separately scoped above. Request and body failures retain shared structured identity; native cause diagnostics are printed beneath the unchanged top-level name/message. Tests retain raw Node inspection and omit only JS frames and the stackless fetch-error inspection brackets when comparing headers.
 
 ## How it works
 
@@ -58,7 +58,7 @@ Answer: **“Allow native causes (Recommended)”**. Only native cause diagnosti
 ## Known gaps (current cycle)
 
 - [x] Concrete malformed-ID source witnesses (lengths 3–128, including V8-success length65) now assert approved TypeError rejection in strict mode, independent of sort invocation.
-- [ ] Actual closed-loopback transport still needs shared `CallbackError` integration: top-level `TypeError: fetch failed`, retained native cause under the narrow approval, exact order/status. Existing behavioral RED remains enabled.
+- [x] Actual isolated closed-loopback and truncated-body transport exercise both strict modes: `TypeError: fetch failed` / `TypeError: terminated`, retained native causes, source-exact event order/status/stdout and catalog/write boundary.
 - [x] Shared ICU4C UTF-16 collation passes 256 Node pairs; shared Node filesystem records pass both generator write-failure cases.
 - [ ] Parent owns integrated verification; no check, clippy, readability, broad suites, final gate, merge, deployment, or live refresh is part of this development slice.
 
