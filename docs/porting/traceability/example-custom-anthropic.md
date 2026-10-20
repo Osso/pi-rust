@@ -14,11 +14,28 @@ Source: `packages/coding-agent/examples/extensions/custom-provider-anthropic/ind
 | valid content scratch fields | shared typed scratch dependency, example literal producer | `pinned_example_valid_text_start_survives_native_event_boundary`; `literal_lifecycle_keeps_unclosed_scratch_and_first_duplicate_index` GREEN after dependency merge (success/failure, duplicate indices, unclosed blocks) |
 | nonobject tool JSON | explicit producer error before typed event serialization | `nonobject_tool_arguments_fail_explicitly_without_losing_scratch`: RED producer panic/stranded stream on null; approved object-only rejection implemented for null/array/number/bool/string; GREEN 5 values |
 
-Oracle evaluates original source bytes with transpilation only; controlled `require` rejects every import except the fake Anthropic SDK and `calculateCost`/event-stream fixtures. Cost function is AST-selected from original `models.ts` with its body unchanged. Every pushed event is cloned immediately; neither scratch fields nor errors are normalized. Random bytes and `Date.now()` are deterministic. Auth-registration probes additionally evaluate unchanged original composer/resolver bodies with process env empty and child-process/shell/API-registry operations replaced by fail-fast traps. No source clone, SDK install, live fetch, default registry or session hooks.
+Oracle evaluates original source bytes with transpilation only; controlled mode `require` rejects every import except the fake Anthropic SDK and `calculateCost`/event-stream fixtures; explicit wire mode substitutes the installed Anthropic SDK. Cost function is AST-selected from original `models.ts` with its body unchanged. Every pushed event is cloned immediately; neither scratch fields nor errors are normalized. Random bytes and `Date.now()` are deterministic. Auth-registration probes additionally evaluate unchanged original composer/resolver bodies with process env empty and child-process/shell/API-registry operations replaced by fail-fast traps. No source clone, SDK install, external fetch, default registry or session hooks. Real HTTP is restricted to loopback inside the committed test sandbox.
 
 Source package metadata pins SDK 0.52.0; installed root SDK is 0.91.1 (example-local SDK absent); no dependency installation. Controlled-source tests prove producer logic independently. `wire::installed_sdk_wire_auth_body_and_events` additionally executes the original source with the actual installed SDK and localhost HTTP, then native reqwest against the same response. It compares method/path, parsed JSON body, every header except explicitly asserted native deltas, and every unnormalized event/result (text/thinking/signature/tool JSON/usage/cost). Both API-key and OAuth paths pass. `wire::installed_sdk_wire_status_error_and_terminated_body` proves HTTP 400 and mid-body disconnect event ordering/messages using shared native HTTP failure identity, not an example parsing shim.
 
-Raw HTTP request bytes, parsed headers/body, SDK version, source/native event snapshots are saved in `/tmp/pi-rust-example-anthropic-proof/wire-*.json`. Runtime `node` versus `rust` and runtime version are approved differences. Four additional exact deltas remain **pending user decision**: Node sends `connection: keep-alive`, `accept-encoding: gzip, deflate`, `accept-language: *`, `sec-fetch-mode: cors`; native reqwest omits them. Tests assert these deltas explicitly rather than dropping unknown headers. No production header changes or acceptance claim while that decision is pending.
+Raw HTTP request bytes, parsed headers/body, SDK version, source/native event snapshots are saved in `/tmp/pi-rust-example-anthropic-proof/wire-*.json`. Runtime `node` versus `rust` and runtime version are approved differences.
+
+## Approved native transport defaults
+
+User decision, 2026-10-20. Exact question:
+
+> Anthropic wire tests found four Node-only HTTP defaults: Connection: keep-alive, Accept-Encoding: gzip, deflate, Accept-Language: *, and Sec-Fetch-Mode: cors. Allow Rust's native defaults, while keeping authentication, compatibility headers, body and events exact?
+
+Exact answer: **Allow native defaults (Recommended)**. Selected description: “Record exact differences; do not advertise unsupported compression or browser behavior.” Alternative: “Match Node defaults”, including support they require.
+
+| Header | Source Node wire | Native Rust wire |
+|---|---|---|
+| `connection` | `keep-alive` | absent |
+| `accept-encoding` | `gzip, deflate` | absent |
+| `accept-language` | `*` | absent |
+| `sec-fetch-mode` | `cors` | absent |
+
+Wire tests assert these four exact deltas before comparing the remaining complete header maps; unknown headers are not discarded. No broader header-normalization waiver. No production header changes, fake compression support or browser behavior.
 
 ## Narrow public reuse API
 
@@ -42,4 +59,4 @@ Full logs: `/tmp/pi-rust-example-anthropic-proof/`.
 
 - Native nonfinite f64 budget fixture RED exposed premature JSON serialization losing NaN/Infinity before `??` selection; selecting typed fields directly preserves source null serialization. `pinned_native_numeric_budgets_preserve_nonfinite_null_serialization` GREEN for NaN/±Infinity; no input-domain exclusion added.
 
-Development proof: `3ec5f65` targeted example suite GREEN 12/12, including previously scratch-blocked content matrix. Added installed-SDK wire tests GREEN 2/2 with the four transport deltas explicitly asserted but not yet approved. Original exact-header comparison RED is retained as `red-installed-sdk-all-headers.log`. Parent owns header decision, integration and independent verification; coverage remains partial until those gates close.
+Development proof: `3ec5f65` targeted example suite GREEN 12/12, including previously scratch-blocked content matrix. Installed-SDK wire tests GREEN 2/2 at `7d9cdc9`, four fixture cases, exact raw captures retained. Four transport deltas explicitly asserted and approved above. Original exact-header comparison RED is retained as `red-installed-sdk-all-headers.log`; GREEN log `green-installed-sdk-wire-7d9cdc9.log`. Parent owns integration and independent verification; coverage remains partial until those gates close.

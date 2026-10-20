@@ -9,7 +9,7 @@ Opt-in Rust-native counterpart of pinned `coding-agent/examples/extensions/custo
 - [x] Match API-key/OAuth headers, identity/system prompts, tool casing, messages/images/tool-result grouping, cache control and reasoning budgets.
 - [x] Preserve literal producer `index` and `partialJson` lifecycle: first matching source index, removal only at block stop, catch removes indices but retains partial JSON, successful unclosed blocks retain scratch; malformed JSON retains last valid object arguments.
 - [x] Reject parsed null, arrays and scalar tool arguments with `Tool arguments must be a JSON object`, emitting an error after start/toolcall_start, preserving the raw buffer and last object arguments. Approved deviation: source accepts arbitrary JSON; native typed arguments are object-only.
-- [ ] Prove installed-SDK actual HTTP auth/compatibility headers, body and events; runtime-identifying headers may describe native Rust.
+- [x] Prove installed-SDK actual HTTP auth/compatibility headers, body and events; native runtime identity and exactly four native transport defaults are approved differences ([decision and wire proof](../porting/traceability/example-custom-anthropic.md#approved-native-transport-defaults)).
 
 ## How it works
 
@@ -28,7 +28,6 @@ Opt-in Rust-native counterpart of pinned `coding-agent/examples/extensions/custo
 
 ## Known gaps (current cycle)
 
-- [ ] Installed SDK wire body/auth/events/status/disconnect proof passes, but four transport-header deltas await user decision: [exact delta and raw evidence](../porting/traceability/example-custom-anthropic.md). No production header change or implicit waiver. Core scratch dependency merged explicitly; producer behavior is covered by targeted source differential tests.
 - [ ] Parent integration and independent verification pending; coverage remains partial.
 
 ## Out of scope

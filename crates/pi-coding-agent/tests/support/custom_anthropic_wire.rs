@@ -135,7 +135,7 @@ async fn compare_wire(key: &str, status: u16, body: String, truncated: bool) {
     assert_eq!(node.remove("x-stainless-runtime").unwrap(), "node");
     rust.remove("x-stainless-runtime-version").unwrap();
     node.remove("x-stainless-runtime-version").unwrap();
-    // Explicit transport deltas; acceptance requires parent approval, not silent normalization.
+    // Four native transport defaults approved 2026-10-20; no broader header projection.
     for (name, value) in [
         ("connection", "keep-alive"),
         ("accept-encoding", "gzip, deflate"),
