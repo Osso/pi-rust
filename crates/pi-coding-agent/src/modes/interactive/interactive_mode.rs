@@ -2529,6 +2529,27 @@ impl Component for ExtensionComponentAdapter {
     }
 }
 
+thread_local! {
+    /// The mode currently driving this thread's UI. `onUserMessagePrepared`
+    /// must be `Send + Sync` because `PromptOptions` is shared with the core
+    /// session, but the callback runs on the UI thread; this lets the
+    /// no-capture callback reach the active mode without changing that API.
+    static ACTIVE_INTERACTIVE_MODE: RefCell<Option<std::rc::Weak<InteractiveMode>>> = const { RefCell::new(None) };
+}
+
+/// `onUserMessagePrepared` callback: renders the submitted user bubble before
+/// the turn starts. The callback captures nothing, so it satisfies the
+/// `Send + Sync` callback type while reaching the thread-local mode.
+fn prepared_user_message_callback() -> crate::core::agent_session::UserMessagePreparedCallback {
+    Arc::new(|message: &AgentMessage| {
+        ACTIVE_INTERACTIVE_MODE.with(|slot| {
+            if let Some(mode) = slot.borrow().as_ref().and_then(std::rc::Weak::upgrade) {
+                mode.render_prepared_user_message(message);
+            }
+        });
+    })
+}
+
 // ============================================================================
 // InteractiveMode
 // ============================================================================
@@ -2715,6 +2736,7 @@ pub struct InteractiveMode {
     active_session_selector: RefCell<Option<Rc<tokio::sync::Mutex<SessionSelectorComponent>>>>,
     active_selector_dispose: RefCell<Option<Rc<dyn Fn()>>>,
     active_bash_components: RefCell<Vec<ComponentRef>>,
+    provisional_user_messages: RefCell<Vec<(AgentMessage, Vec<ComponentRef>)>>,
     auth_ui: RefCell<Option<AuthUiState>>,
     session_selector_loaded: Cell<bool>,
 }
@@ -3029,6 +3051,7 @@ impl InteractiveMode {
             active_session_selector: RefCell::new(None),
             active_selector_dispose: RefCell::new(None),
             active_bash_components: RefCell::new(Vec::new()),
+            provisional_user_messages: RefCell::new(Vec::new()),
             auth_ui: RefCell::new(None),
             session_selector_loaded: Cell::new(false),
         });
@@ -4682,6 +4705,78 @@ impl InteractiveMode {
             AgentMessage::ToolResult(_) => {}
             AgentMessage::Custom(object) => self.add_custom_message_to_chat(object),
         }
+    }
+
+    /// `renderPreparedUserMessage`: render the user bubble at submit time and
+    /// remember its components so `message_start` can reuse them.
+    fn render_prepared_user_message(&self, message: &AgentMessage) {
+        if message.role() != "user" || self.is_viewing_agent_session() {
+            return;
+        }
+        let previous_child_count = self.chat_container.borrow().children().len();
+        self.add_message_to_chat(message, false);
+        let components: Vec<ComponentRef> = self
+            .chat_container
+            .borrow()
+            .children()
+            .iter()
+            .skip(previous_child_count)
+            .cloned()
+            .collect();
+        if components.is_empty() {
+            return;
+        }
+        self.provisional_user_messages
+            .borrow_mut()
+            .push((message.clone(), components));
+        self.ui.request_render();
+    }
+
+    /// `consumePreparedUserMessage`: reuse the provisional components when they
+    /// are still mounted in the chat.
+    fn consume_prepared_user_message(&self, message: &AgentMessage) -> bool {
+        let index = self
+            .provisional_user_messages
+            .borrow()
+            .iter()
+            .position(|(prepared, _)| prepared == message);
+        let Some(index) = index else {
+            return false;
+        };
+        let (_, components) = self.provisional_user_messages.borrow_mut().remove(index);
+        let children = self.chat_container.borrow().children().to_vec();
+        let remain = !components.is_empty()
+            && components
+                .iter()
+                .all(|component| children.iter().any(|child| Rc::ptr_eq(child, component)));
+        if remain {
+            return true;
+        }
+        self.remove_components_from_chat(&components);
+        false
+    }
+
+    /// `removeProvisionalUserMessages`.
+    fn remove_provisional_user_messages(&self) -> bool {
+        let entries = std::mem::take(&mut *self.provisional_user_messages.borrow_mut());
+        let mut removed = false;
+        for (_, components) in entries {
+            removed = self.remove_components_from_chat(&components) || removed;
+        }
+        removed
+    }
+
+    /// `removeComponentsFromChat`.
+    fn remove_components_from_chat(&self, components: &[ComponentRef]) -> bool {
+        let mut chat = self.chat_container.borrow_mut();
+        let mut removed = false;
+        for component in components {
+            while chat.children().iter().any(|child| Rc::ptr_eq(child, component)) {
+                chat.remove_child(component);
+                removed = true;
+            }
+        }
+        removed
     }
 
     fn add_custom_message_to_chat(&self, object: &serde_json::Map<String, Value>) {
@@ -6471,6 +6566,7 @@ impl InteractiveMode {
         if self.is_initialized.get() {
             return Ok(());
         }
+        ACTIVE_INTERACTIVE_MODE.with(|slot| *slot.borrow_mut() = Some(Rc::downgrade(self)));
 
         self.register_signal_handlers();
 
@@ -6936,12 +7032,16 @@ impl InteractiveMode {
                     &text,
                     PromptOptions {
                         streaming_behavior: Some(StreamingBehavior::Steer),
+                        on_user_message_prepared: Some(prepared_user_message_callback()),
                         ..PromptOptions::default()
                     },
                 )
                 .await
             {
                 self.show_error(error.message());
+            }
+            if self.remove_provisional_user_messages() {
+                self.ui.request_render();
             }
             self.update_pending_messages_display();
             self.ui.request_render();
@@ -6957,6 +7057,7 @@ impl InteractiveMode {
                 &submitted_text,
                 PromptOptions {
                     streaming_behavior: Some(StreamingBehavior::Steer),
+                    on_user_message_prepared: Some(prepared_user_message_callback()),
                     ..PromptOptions::default()
                 },
             )
@@ -6965,6 +7066,9 @@ impl InteractiveMode {
             self.show_error(error.message());
         } else {
             self.clipboard_temp_files.borrow_mut().cleanup_referenced_in(&text);
+        }
+        if self.remove_provisional_user_messages() {
+            self.ui.request_render();
         }
     }
 
@@ -10843,7 +10947,9 @@ impl InteractiveMode {
                     self.ui.request_render();
                 }
                 AgentMessage::User(_) => {
-                    self.add_message_to_chat(&message, false);
+                    if !self.consume_prepared_user_message(&message) {
+                        self.add_message_to_chat(&message, false);
+                    }
                     self.update_pending_messages_display();
                     self.ui.request_render();
                 }
@@ -14491,6 +14597,49 @@ mod ui_tests {
         fn dispose(&self) {
             self.0.store(true, std::sync::atomic::Ordering::SeqCst);
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn prepared_user_message_renders_at_submit_and_is_reused() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let message = AgentMessage::User(pi_ai::types::UserMessage {
+                    role: pi_ai::types::UserRole::Tag,
+                    content: pi_ai::types::UserContent::Text("prepared-bubble-marker".to_owned()),
+                    input_source: None,
+                    provider_native: None,
+                    timestamp: 1,
+                });
+
+                prepared_user_message_callback()(&message);
+
+                let prepared: Vec<ComponentRef> = {
+                    let entries = mode.provisional_user_messages.borrow();
+                    assert_eq!(entries.len(), 1, "submit renders one provisional bubble");
+                    entries[0].1.clone()
+                };
+                let chat = mode.chat_container.borrow().children().to_vec();
+                assert!(
+                    prepared
+                        .iter()
+                        .all(|component| chat.iter().any(|child| Rc::ptr_eq(child, component)))
+                );
+
+                assert!(mode.consume_prepared_user_message(&message));
+                assert!(mode.provisional_user_messages.borrow().is_empty());
+                assert!(!mode.consume_prepared_user_message(&message));
+                let chat = mode.chat_container.borrow().children().to_vec();
+                assert!(
+                    prepared
+                        .iter()
+                        .all(|component| chat.iter().any(|child| Rc::ptr_eq(child, component))),
+                    "message_start reuses the submit-time components"
+                );
+            })
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
