@@ -332,13 +332,12 @@ struct SandboxLsOperations {
 }
 
 impl LsOperations for SandboxLsOperations {
-    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, bool> {
+    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<bool>> {
         Box::pin(async move {
-            run_sandbox_operation(&self.params, "exists", path_payload(absolute_path), None)
+            let value = run_sandbox_operation(&self.params, "exists", path_payload(absolute_path), None)
                 .await
-                .ok()
-                .and_then(|value| value.get("exists").and_then(Value::as_bool))
-                .unwrap_or(false)
+                .map_err(std::io::Error::other)?;
+            Ok(value.get("exists").and_then(Value::as_bool).unwrap_or(false))
         })
     }
 
@@ -370,13 +369,12 @@ struct SandboxFindOperations {
 }
 
 impl FindOperations for SandboxFindOperations {
-    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, bool> {
+    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<bool>> {
         Box::pin(async move {
-            run_sandbox_operation(&self.params, "exists", path_payload(absolute_path), None)
+            let value = run_sandbox_operation(&self.params, "exists", path_payload(absolute_path), None)
                 .await
-                .ok()
-                .and_then(|value| value.get("exists").and_then(Value::as_bool))
-                .unwrap_or(false)
+                .map_err(std::io::Error::other)?;
+            Ok(value.get("exists").and_then(Value::as_bool).unwrap_or(false))
         })
     }
 
@@ -390,22 +388,20 @@ impl FindOperations for SandboxFindOperations {
         cwd: &'a str,
         _ignore: &'a [String],
         limit: usize,
-    ) -> BoxFuture<'a, Vec<String>> {
+    ) -> BoxFuture<'a, std::io::Result<Vec<String>>> {
         Box::pin(async move {
             let mut payload = Map::new();
             payload.insert("cwd".to_owned(), Value::String(cwd.to_owned()));
             payload.insert("limit".to_owned(), json!(limit));
             payload.insert("pattern".to_owned(), Value::String(pattern.to_owned()));
-            run_sandbox_operation(&self.params, "find", payload, None)
+            let value = run_sandbox_operation(&self.params, "find", payload, None)
                 .await
-                .ok()
-                .and_then(|value| {
-                    value
-                        .get("results")
-                        .and_then(Value::as_array)
-                        .map(|results| results.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-                })
-                .unwrap_or_default()
+                .map_err(std::io::Error::other)?;
+            Ok(value
+                .get("results")
+                .and_then(Value::as_array)
+                .map(|results| results.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default())
         })
     }
 }

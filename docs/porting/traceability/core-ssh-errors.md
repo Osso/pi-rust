@@ -28,12 +28,24 @@ implementation retains its local formatting.
 plus five grep/find/bash fixtures. All use the actual pinned tool modules through
 `oracle/custom-operation-errors-oracle.ts`, not copied error expectations.
 
-### Existing interface limits (not introduced or widened)
+### Fallible ls/find operations
 
-`LsOperations::exists` and `FindOperations::{exists,glob}` remain infallible Rust
-methods. They cannot express every asynchronous rejection permitted by the TS
-interfaces. This is not the unconditional Node-wrapping defect, and SSH uses
-neither interface. No full interface-parity claim is made for those branches.
+`LsOperations::exists` and `FindOperations::{exists,glob}` return `io::Result`.
+Local exists retains `path_exists` false-on-filesystem-error behavior; the default
+placeholder glob still returns an empty list. Bwrap adapters propagate runner
+failures rather than converting them to false/empty results, matching pinned
+`extensions/bwrap/src/index.ts:226-244`.
+
+| Source branch | Differential behavioral proof (`custom_operation_errors`) |
+| --- | --- |
+| `ls.ts:150-168,225-227`: exists rejects unchanged, before stat/readdir | `ls_exists_rejection_precedes_stat_and_readdir` |
+| `find.ts:171-183,355-361`: exists/glob reject unchanged, no filesystem prefix | `find_exists_rejection_precedes_glob`, `find_glob_rejection_propagates_without_wrapping` |
+| `ls.ts:128-133`, `find.ts:143-165,355-358`: abort wins before execution and during pending/rejecting operations | `operation_abort_wins_before_rejection_or_while_pending` |
+
+Fixtures compare the actual pinned modules, including empty, multiline and Unicode
+error messages. Cancellation races the operation future, then is checked again
+before returning its result so synchronous abort-and-reject cannot win the race.
+Proof commands/results: `/tmp/pi-rust-core-ops-fallible/ledger.md` and `NN-*.log`.
 The existing String boundary excludes direct lone-surrogate inputs; error object
 identity/properties remain within [compatibility exclusions](../../specs/compatibility.md#out-of-scope).
 
@@ -122,5 +134,5 @@ background theme colors, and too-short fixture startup timeout). They are not
 counted as behavioral RED evidence. No clippy/check/workspace suite or independent
 agent gate was run: the task explicitly excludes them and delegation.
 
-No new dependencies. No new semantic deviation. Remaining interface limits are
-listed above; no remaining SSH port blocker is claimed.
+No new dependencies. No new semantic deviation. The ls/find interface limits
+were subsequently removed as described above; no remaining SSH port blocker is claimed.
