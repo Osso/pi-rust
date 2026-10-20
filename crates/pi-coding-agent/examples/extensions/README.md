@@ -133,3 +133,13 @@ Todo parity is **partial**: native session snapshots cannot reproduce the pinned
 example's mutation of stored tool-result details by reference. See
 [batch F traceability](../../../../docs/porting/traceability/extension-examples-f.md)
 for the blocked API and test.
+
+## Tic-tac-toe (batch K)
+
+Embed `tic_tac_toe.rs` via `#[path]`, keep `tic_tac_toe_instructions.txt` beside
+it, and explicitly register `tic_tac_toe_extension(&ExtensionApi)` using the
+registry pattern above. `/tic-tac-toe` opens the human/agent game; the two tools
+play and inspect the agent cursor. It uses the host's custom UI and session
+entries, not live state. Nothing loads by default. Differential test:
+`example_tic_tac_toe`; source reconstruction caveat and proof matrix:
+[batch K traceability](../../../../docs/porting/traceability/extension-examples-k.md).
