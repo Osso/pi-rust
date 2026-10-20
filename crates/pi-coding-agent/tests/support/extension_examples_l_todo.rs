@@ -423,6 +423,14 @@ fn oracle_environment(request: &Value) -> Vec<(&'static str, std::ffi::OsString)
 
 struct FixtureTui;
 impl ExtensionUiTuiBackend for FixtureTui {
+    fn show_overlay(
+        &self,
+        _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
+        _options: Option<pi_coding_agent::core::extensions::ExtensionUiOverlayOptions>,
+    ) -> Arc<dyn pi_coding_agent::core::extensions::ExtensionUiOverlayHandle> {
+        panic!("this fixture does not mount nested overlays")
+    }
+
     fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         panic!("this component fixture must not construct an editor")
     }

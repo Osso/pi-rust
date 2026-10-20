@@ -90,11 +90,79 @@ fn install_theme() -> Arc<Theme> {
     theme
 }
 
-#[derive(Default)]
+enum FixtureRequest {
+    Custom(ExtensionUiCustomFactory, tokio::sync::oneshot::Sender<()>),
+    Render(std::sync::mpsc::Sender<Option<Vec<String>>>),
+    Input(String),
+    Stop,
+}
+
 struct FakeUi {
-    component: Mutex<Option<Box<dyn ExtensionUiComponent>>>,
+    sender: tokio::sync::mpsc::UnboundedSender<FixtureRequest>,
+    worker: Mutex<Option<std::thread::JoinHandle<()>>>,
     notifications: Mutex<Vec<(String, Option<NotifyType>)>>,
-    done: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+}
+
+impl Default for FakeUi {
+    fn default() -> Self {
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let worker = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(tokio::task::LocalSet::new().run_until(async move {
+                let mut component: Option<Box<dyn ExtensionUiComponent>> = None;
+                while let Some(request) = receiver.recv().await {
+                    match request {
+                        FixtureRequest::Custom(factory, sender) => {
+                            let sender = std::cell::RefCell::new(Some(sender));
+                            let done = ExtensionUiDone::new(Arc::new(move |_| {
+                                if let Some(sender) = sender.borrow_mut().take() {
+                                    let _ = sender.send(());
+                                }
+                            }));
+                            component = Some(factory(
+                                ExtensionUiFactoryContext {
+                                    tui: ExtensionUiTui::new(Arc::new(TestBackend {
+                                        renders: AtomicUsize::new(0),
+                                    })),
+                                    theme: install_theme(),
+                                    keybindings: KeybindingsManager::new(Vec::new(), None),
+                                },
+                                done,
+                            ));
+                        }
+                        FixtureRequest::Render(sender) => {
+                            sender.send(component.as_ref().map(|c| c.render(80))).unwrap();
+                        }
+                        FixtureRequest::Input(data) => component.as_ref().expect("component").handle_input(&data),
+                        FixtureRequest::Stop => break,
+                    }
+                }
+            }));
+        });
+        Self {
+            sender,
+            worker: Mutex::new(Some(worker)),
+            notifications: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl Drop for FakeUi {
+    fn drop(&mut self) {
+        self.sender.send(FixtureRequest::Stop).unwrap();
+        self.worker.get_mut().unwrap().take().unwrap().join().unwrap();
+    }
+}
+
+impl FakeUi {
+    fn render(&self) -> Option<Vec<String>> {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.sender.send(FixtureRequest::Render(sender)).unwrap();
+        receiver.recv().unwrap()
+    }
 }
 
 impl ExtensionUiContext for FakeUi {
@@ -104,24 +172,9 @@ impl ExtensionUiContext for FakeUi {
         _options: Option<ExtensionUiCustomOptions>,
     ) -> pi_ai::request::BoxFuture<'a, Result<Option<Value>, String>> {
         let (sender, receiver) = tokio::sync::oneshot::channel();
-        *self.done.lock().unwrap() = Some(sender);
-        let done_sender = Arc::new(Mutex::new(self.done.lock().unwrap().take()));
-        let done = ExtensionUiDone::new(Arc::new(move |_value| {
-            if let Some(sender) = done_sender.lock().unwrap().take() {
-                let _ = sender.send(());
-            }
-        }));
-        let context = ExtensionUiFactoryContext {
-            tui: ExtensionUiTui::new(Arc::new(TestBackend {
-                renders: AtomicUsize::new(0),
-            })),
-            theme: install_theme(),
-            keybindings: KeybindingsManager::new(Vec::new(), None),
-        };
-        let component = factory(context, done);
-        *self.component.lock().unwrap() = Some(component);
+        self.sender.send(FixtureRequest::Custom(factory, sender)).unwrap();
         Box::pin(async move {
-            let _ = receiver.await;
+            receiver.await.unwrap();
             Ok(None)
         })
     }
@@ -140,7 +193,7 @@ fn text(lines: &[String]) -> Vec<String> {
 
 async fn wait_for_component(ui: &Arc<FakeUi>) -> () {
     for _ in 0..200 {
-        if ui.component.lock().unwrap().is_some() {
+        if ui.render().is_some() {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -150,9 +203,8 @@ async fn wait_for_component(ui: &Arc<FakeUi>) -> () {
 
 async fn wait_for_text(ui: &Arc<FakeUi>, needle: &str) {
     for _ in 0..200 {
-        if let Some(component) = ui.component.lock().unwrap().as_ref() {
-            let lines = text(&component.render(80));
-            if lines.iter().any(|line| line.contains(needle)) {
+        if let Some(lines) = ui.render() {
+            if text(&lines).iter().any(|line| line.contains(needle)) {
                 return;
             }
         }
@@ -162,8 +214,7 @@ async fn wait_for_text(ui: &Arc<FakeUi>, needle: &str) {
 }
 
 fn press(ui: &Arc<FakeUi>, data: &str) {
-    let component = ui.component.lock().unwrap();
-    component.as_ref().expect("component").handle_input(data);
+    ui.sender.send(FixtureRequest::Input(data.to_owned())).unwrap();
 }
 
 #[test]

@@ -252,14 +252,13 @@ pub struct TerminalInputResult {
     pub data: Option<String>,
 }
 
-/// Thread-safe component surface returned by extension component factories.
+/// UI-thread component returned by a thread-safe extension factory.
 ///
-/// The TypeScript factories return `pi-tui` components, which are `Rc`-based.
-/// Extensions cross the `Send + Sync` boundary of [`ExtensionUiContext`], so the
-/// interactive mode adapts these handles to `pi-tui` components on the UI thread.
-/// `render` takes `&self`; implementors use interior mutability when rendering
-/// mutates state, matching the source component contract.
-pub trait ExtensionUiComponent: Send + Sync {
+/// Only factories cross [`ExtensionUiContext`]'s thread boundary. Their outputs
+/// stay on the UI thread and may own `Rc`-based `pi-tui` editors, matching
+/// `question.ts:73–89` and `questionnaire.ts:110–130`.
+/// `render` takes `&self`; implementors use interior mutability.
+pub trait ExtensionUiComponent {
     /// Optional source `width` property used by `custom({ overlay: true })`.
     fn width(&self) -> Option<pi_tui::tui::SizeValue> {
         None
@@ -293,6 +292,12 @@ pub trait ExtensionUiTuiBackend: Send + Sync {
     fn terminal_rows(&self) -> usize;
     fn terminal_columns(&self) -> usize;
     fn mode(&self) -> pi_tui::tui::TuiMode;
+    /// UI-thread operation; source `tui.ts:showOverlay`.
+    fn show_overlay(
+        &self,
+        component: Box<dyn ExtensionUiComponent>,
+        options: Option<ExtensionUiOverlayOptions>,
+    ) -> Arc<dyn ExtensionUiOverlayHandle>;
 }
 
 /// Thread-safe `TUI` handle passed to extension factories.
@@ -308,6 +313,15 @@ impl ExtensionUiTui {
 
     pub fn request_render(&self) {
         self.backend.request_render();
+    }
+
+    /// Mount a nested overlay on the owning UI thread (`tui.ts:showOverlay`).
+    pub fn show_overlay(
+        &self,
+        component: Box<dyn ExtensionUiComponent>,
+        options: Option<ExtensionUiOverlayOptions>,
+    ) -> Arc<dyn ExtensionUiOverlayHandle> {
+        self.backend.show_overlay(component, options)
     }
 
     pub fn terminal_rows(&self) -> usize {
@@ -385,10 +399,10 @@ pub type ExtensionEditorFactory = Arc<
 
 /// `done` callback passed to `custom` factories.
 #[derive(Clone)]
-pub struct ExtensionUiDone(Arc<dyn Fn(Option<Value>) + Send + Sync>);
+pub struct ExtensionUiDone(Arc<dyn Fn(Option<Value>)>);
 
 impl ExtensionUiDone {
-    pub fn new(callback: Arc<dyn Fn(Option<Value>) + Send + Sync>) -> Self {
+    pub fn new(callback: Arc<dyn Fn(Option<Value>)>) -> Self {
         Self(callback)
     }
 
@@ -401,13 +415,14 @@ impl ExtensionUiDone {
 pub type ExtensionUiCustomFactory =
     Arc<dyn Fn(ExtensionUiFactoryContext, ExtensionUiDone) -> Box<dyn ExtensionUiComponent> + Send + Sync>;
 
-/// Thread-safe overlay handle passed to `custom`'s `onHandle` callback.
-pub trait ExtensionUiOverlayHandle: Send + Sync {
+/// UI-thread overlay handle passed to `custom`'s `onHandle` callback.
+pub trait ExtensionUiOverlayHandle {
     fn hide(&self);
     fn set_hidden(&self, hidden: bool);
     fn is_hidden(&self) -> bool;
     fn focus(&self);
     fn unfocus(&self);
+    fn is_focused(&self) -> bool;
 }
 
 /// Overlay positioning/sizing options accepted by `custom`.

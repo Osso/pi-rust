@@ -1057,7 +1057,7 @@ pub async fn show_llama_ui_with_context(
             .take()
             .expect("custom factory is called once");
         let notify_context = Arc::clone(&notify_context);
-        tokio::spawn(async move {
+        tokio::task::spawn_local(async move {
             match run(ui).await {
                 Ok(()) => done.call(None),
                 Err(error) => {
