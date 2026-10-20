@@ -8129,6 +8129,8 @@ impl AgentSession {
             id: tool_call_id.clone(),
             name: tool_name.to_owned(),
             arguments,
+            index: None,
+            partial_json: None,
             execution: None,
             thought_signature: None,
             namespace: None,
