@@ -2110,6 +2110,13 @@ async fn await_ui_response<T>(receiver: tokio::sync::oneshot::Receiver<Result<T,
         .map_err(HandlerError::new)
 }
 
+/// Sends a pending UI response once, then drops the shared slot.
+fn respond_once<T>(responder: &RefCell<Option<tokio::sync::oneshot::Sender<T>>>, value: T) {
+    if let Some(respond) = responder.borrow_mut().take() {
+        let _ = respond.send(value);
+    }
+}
+
 /// Cancels a selector, restoring the editor and repainting.
 fn cancel_restores_editor(mode_id: usize) -> Rc<dyn Fn()> {
     Rc::new(move || {
@@ -9059,9 +9066,7 @@ impl InteractiveMode {
                 let cancel_respond = Rc::clone(&respond);
                 let cancel_dialog = Rc::clone(&dialog);
                 let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
-                    if let Some(respond) = cancel_respond.borrow_mut().take() {
-                        let _ = respond.send(Err("Login cancelled".to_owned()));
-                    }
+                    respond_once(&cancel_respond, Err("Login cancelled".to_owned()));
                     with_mode(mode_id, |mode| mode.restore_auth_dialog(&cancel_dialog));
                 });
                 let selector = ExtensionSelectorComponent::new(
@@ -9891,17 +9896,13 @@ impl InteractiveMode {
                 let select_respond = Rc::clone(&respond);
                 let mode = self.ui_id.get();
                 let on_select: Rc<dyn Fn(String)> = Rc::new(move |option| {
-                    if let Some(respond) = select_respond.borrow_mut().take() {
-                        let _ = respond.send(Some(option));
-                    }
+                    respond_once(&select_respond, Some(option));
                     with_mode(mode, |mode| mode.restore_editor());
                 });
                 let cancel_respond = Rc::clone(&respond);
                 let mode = self.ui_id.get();
                 let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
-                    if let Some(respond) = cancel_respond.borrow_mut().take() {
-                        let _ = respond.send(None);
-                    }
+                    respond_once(&cancel_respond, None);
                     with_mode(mode, |mode| mode.restore_editor());
                 });
                 let selector = ExtensionSelectorComponent::new(
@@ -9935,17 +9936,13 @@ impl InteractiveMode {
                 let yes_respond = Rc::clone(&respond);
                 let mode = self.ui_id.get();
                 let on_select: Rc<dyn Fn(String)> = Rc::new(move |option| {
-                    if let Some(respond) = yes_respond.borrow_mut().take() {
-                        let _ = respond.send(option == "Yes");
-                    }
+                    respond_once(&yes_respond, option == "Yes");
                     with_mode(mode, |mode| mode.restore_editor());
                 });
                 let cancel_respond = Rc::clone(&respond);
                 let mode = self.ui_id.get();
                 let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
-                    if let Some(respond) = cancel_respond.borrow_mut().take() {
-                        let _ = respond.send(false);
-                    }
+                    respond_once(&cancel_respond, false);
                     with_mode(mode, |mode| mode.restore_editor());
                 });
                 let selector = ExtensionSelectorComponent::new(
@@ -9975,17 +9972,13 @@ impl InteractiveMode {
                 let submit_respond = Rc::clone(&respond);
                 let mode = self.ui_id.get();
                 let on_submit: Rc<dyn Fn(String)> = Rc::new(move |value| {
-                    if let Some(respond) = submit_respond.borrow_mut().take() {
-                        let _ = respond.send(Some(value));
-                    }
+                    respond_once(&submit_respond, Some(value));
                     with_mode(mode, |mode| mode.restore_editor());
                 });
                 let cancel_respond = Rc::clone(&respond);
                 let mode = self.ui_id.get();
                 let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
-                    if let Some(respond) = cancel_respond.borrow_mut().take() {
-                        let _ = respond.send(None);
-                    }
+                    respond_once(&cancel_respond, None);
                     with_mode(mode, |mode| mode.restore_editor());
                 });
                 let input = ExtensionInputComponent::new(
@@ -10013,17 +10006,13 @@ impl InteractiveMode {
                 let submit_respond = Rc::clone(&respond);
                 let mode = self.ui_id.get();
                 let on_submit: Rc<dyn Fn(String)> = Rc::new(move |value| {
-                    if let Some(respond) = submit_respond.borrow_mut().take() {
-                        let _ = respond.send(Some(value));
-                    }
+                    respond_once(&submit_respond, Some(value));
                     with_mode(mode, |mode| mode.restore_editor());
                 });
                 let cancel_respond = Rc::clone(&respond);
                 let mode = self.ui_id.get();
                 let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
-                    if let Some(respond) = cancel_respond.borrow_mut().take() {
-                        let _ = respond.send(None);
-                    }
+                    respond_once(&cancel_respond, None);
                     with_mode(mode, |mode| mode.restore_editor());
                 });
                 let editor = ExtensionEditorComponent::new(
