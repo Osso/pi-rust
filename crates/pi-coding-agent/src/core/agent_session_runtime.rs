@@ -91,6 +91,7 @@ pub type ReplacedSessionCallback =
     Arc<dyn Fn(crate::core::extensions::types::ReplacedSessionContext) -> BoxFuture<'static, ()> + Send + Sync>;
 
 /// Options for `newSession`.
+#[derive(Default)]
 pub struct NewSessionOptions {
     pub parent_session: Option<String>,
     pub setup: Option<SessionSetupCallback>,

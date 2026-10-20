@@ -19,10 +19,10 @@ notify-based child transcript reloads are implemented and behavior-tested.
 | `createInteractiveTui` | `create_interactive_tui` | exercised by `build_mode` (regular); fullscreen renderer construction covered by `pi-tui` renderer tests |
 | `createInteractiveTuiReference` | `InteractiveTuiHandle` (stable renderer handle) | construction/renderer swap used by components; no direct test |
 | `bindInteractiveModeSessionMutationTargetResolver` | not ported (see Discrepancies) | session-level resolver in `main.rs` |
-| `stop()` | `InteractiveMode::stop` | `PI_STARTUP_BENCHMARK` path in `main_runner` |
+| `stop(fullscreenExitOutput = getFullscreenExitOutput())` / `stopInteractiveTui` | `InteractiveMode::stop` / `stop_with_output` / `stop_interactive_tui` | `ui_tests::stop_renders_the_transcript_when_leaving_fullscreen`, `ui_tests::stop_with_resume_hint_keeps_the_fullscreen_renderer`, `ui_tests::stop_clears_terminal_progress_and_disposes_footer_components`, `PI_STARTUP_BENCHMARK` path in `main_runner` |
 | `processControlMessage` | `process_control_message` | control-message branch of `run`; `IncomingControlMessage` completion/failure |
 | `InteractiveTuiHandle` dispatch | `InteractiveTuiHandle::renderer()` clones the active renderer | pty interactive test (input callbacks request renders) |
-| `formatResumeCommand` | `format_resume_command` | unit tests for quoting; TTY-dependent branch not covered |
+| `formatResumeCommand` | `format_resume_command` | unit tests for quoting; `main_interactive::quit_prints_the_resume_command` covers the TTY branch and the `shutdown` output line |
 | `ExtensionUIContext` implementation | `InteractiveUiContext` | `ui_tests::extension_select_dialog_resolves_and_restores_editor` (select); confirm/input/editor share the same broker |
 | `showSettingsSelector` | `show_settings_selector` | `ui_tests::settings_selector_updates_http_timeout_and_writes_settings_file`, `ui_tests::settings_selector_switches_tui_mode_and_reports_status`, `ui_tests::settings_selector_updates_session_auto_compact_and_thinking_level` |
 | `showModelsSelector` / `persistEnabledModelsForSelector` | `show_models_selector` / `persist_enabled_models_for_selector` | `ui_tests::scoped_models_selector_updates_session_scope_and_persists_selection` |
@@ -34,6 +34,9 @@ notify-based child transcript reloads are implemented and behavior-tested.
 | `showSessionSelector` / `handleResumeSession` / `continueInterruptedResumedSession` | `show_session_selector` / `handle_resume_session` / `continue_interrupted_resumed_session` | `ui_tests::resume_selector_switches_to_the_selected_session` |
 | `handleLoginCommand` / `showLoginAuthTypeSelector` / `showLoginProviderSelector` / `startProviderLogin` / `showLoginDialog` / `showApiKeyLoginDialog` / `completeProviderAuthentication` | `handle_login_command` / `show_login_auth_type_selector` / `show_login_provider_selector` / `start_provider_login` / `show_login_dialog` / `show_api_key_login_dialog` / `complete_provider_authentication` | `ui_tests::login_selector_opens_the_ambient_auth_dialog`, `login_options::tests::api_key_login_availability_follows_the_auth_method` |
 | `maybeWarnAboutAnthropicSubscriptionAuth` | `maybe_warn_about_anthropic_subscription_auth` | `ui_tests::anthropic_subscription_auth_warning_is_shown_once`, `ui_tests::anthropic_subscription_auth_warning_respects_the_settings_opt_out` |
+| `renderPreparedUserMessage` / `consumePreparedUserMessage` / `removeProvisionalUserMessages` / `submitMainLoopInput` (`onUserMessagePrepared`) | `render_prepared_user_message` / `consume_prepared_user_message` / `remove_provisional_user_messages` / `prepared_user_message_callback` (thread-local mode bridge because `PromptOptions` callbacks are `Send + Sync`) | `ui_tests::prepared_user_message_renders_at_submit_and_is_reused` |
+| — provisional matching detail | TS keys `provisionalUserMessages` by object identity; Rust matches the `AgentMessage` value (`PartialEq`) because the core event carries a clone. Same timestamp/content pairs are the only ambiguity. | `ui_tests::prepared_user_message_renders_at_submit_and_is_reused` |
+| `handleFatalRuntimeError` (:2494) | `handle_fatal_runtime_error` (show error, `stopThemeWatcher`, `stop("transcript")`, exit 1); called from `/clear`, extension `newSession`/`fork`, `/resume`, and `/import` non-file-not-found failures | `main_interactive::import_failure_exits_through_the_fatal_runtime_handler` (process exit 1); other call sites share the helper |
 | `handleShareCommand` | `handle_share_command` / `handle_share_command_with_program` | `ui_tests::share_command_creates_a_gist_and_reports_the_viewer_url`, `main_interactive::share_command_reports_a_missing_gh_login` |
 | `getChangelogForDisplay` / `reportInstallTelemetry` / `showStartupNoticesIfNeeded` | `get_changelog_for_display` / `changelog_display_for` / `report_install_telemetry` / `show_startup_notices_if_needed` | `ui_tests::changelog_display_returns_only_entries_newer_than_the_seen_version`, `ui_tests::startup_notices_render_new_changelog_entries`, `ui_tests::install_telemetry_reports_the_version_through_the_configured_fetch` |
 | `setPromptActivity` / `syncWorkingEditorState` | `set_prompt_activity` / `sync_working_editor_state` | `ui_tests::prompt_activity_animates_the_prompt_until_the_source_finishes` |
@@ -183,6 +186,21 @@ not through a deterministic TypeScript oracle.
 claimed control message, then prompts initial message/messages and loops:
 `process_events` -> `flush_pending` -> border color -> UI requests -> queued
 actions, breaking when shutdown is requested, then `shutdown`.
+
+`shutdown` mirrors the source: disable theme auto-sync, drain terminal input,
+`stop()`, dispose the runtime, then print
+`To resume this session: <formatResumeCommand>` when the session is persisted
+and its file exists. `stop()` disposes the active selector, clears terminal
+progress, stops the loader and child-activity timer, clears the child view,
+disables theme auto-sync, unsubscribes extension terminal listeners, disposes
+custom/default footer components plus the footer data provider, unsubscribes
+agent + multi-agent updates, cancels partial-update rendering (the Rust loop
+holds the throttle in `tokio::select!`), drops active bash and pending tool
+components, closes the completion notification, cleans clipboard temp files,
+then for an initialized TUI runs `stopInteractiveTui` and unregisters signal
+handlers. `transcript` exit output leaves fullscreen, switches to the regular
+renderer and re-renders; `resume-hint` keeps the fullscreen renderer with
+`preserveScreen`.
 
 ## Gaps (explicit)
 

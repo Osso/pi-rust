@@ -64,7 +64,7 @@ Tests: `tests/tui_render.rs`, `tests/tui_shrink.rs`, `tests/tui_focus.rs`,
 | render regions: placement, generation, descendant mapping, full-width/viewport guards, line diff writes | `TuiRenderer::place_render_region`, `write_render_region`, `get_writable_render_region_rect`, `write_render_region_lines` | `render_region`, `render_region_safety` |
 | flow render regions: growth/shrink, scrollback splice, fixed-cell/cursor/region shifting | `build_flow_render_frame`, `plan_flow_*`, `shift_flow_row` | `render_region` |
 | line resets and cursor marker extraction | `apply_line_resets`, `extract_cursor_position` | `tui_render`, `render_region` |
-| debug redraw log | `log_redraw` + `set_debug_redraw` | `tui_render` debug-log test |
+| debug redraw log / crash log | `log_redraw`, `write_crash_log`, `log_timestamp` + `set_debug_redraw`; path is `logDirectory` (`PI_CODING_AGENT_DIR ?? ~/.pi/agent`, the TS constructor default) and headers use `new Date().toISOString()` via `pi_js_compat::date::to_iso_string` | `tui_render::writes_redraw_logs_to_the_provided_directory` (ISO header), `tui_render::crash_logs_use_iso_timestamps` |
 | main-screen capture/restore render state | `capture_render_state`, `restore_render_state` | gap: no listed test |
 | RootCompositor flow/bottom layout and callbacks | `RootCompositor::render` | `render_region` |
 

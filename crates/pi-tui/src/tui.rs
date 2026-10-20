@@ -2503,15 +2503,17 @@ pub(crate) struct CommitVariant {
     pub(crate) check_deleted_viewport: bool,
 }
 
+/// `new Date().toISOString()` for the debug/crash log headers.
+fn log_timestamp() -> String {
+    pi_js_compat::date::to_iso_string(pi_js_compat::date::js_now_millis() as i64)
+}
+
 fn log_redraw(base: &TuiBase, reason: &str, previous: usize, new: usize, height: usize) {
     if !base.debug_redraw() {
         return;
     }
-    let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
-    let message = format!("[{seconds}] fullRender: {reason} (prev={previous}, new={new}, height={height})\n");
+    let timestamp = log_timestamp();
+    let message = format!("[{timestamp}] fullRender: {reason} (prev={previous}, new={new}, height={height})\n");
     let path = base.log_directory().join("pi-debug.log");
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -2524,12 +2526,9 @@ fn log_redraw(base: &TuiBase, reason: &str, previous: usize, new: usize, height:
 
 fn write_crash_log(base: &TuiBase, width: usize, line_index: usize, new_lines: &[String]) -> PathBuf {
     let path = base.log_directory().join("pi-crash.log");
-    let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
+    let timestamp = log_timestamp();
     let mut data = format!(
-        "Crash at {seconds}\nTerminal width: {width}\nLine {line_index} visible width: {}\n\n=== All rendered lines ===\n",
+        "Crash at {timestamp}\nTerminal width: {width}\nLine {line_index} visible width: {}\n\n=== All rendered lines ===\n",
         visible_width(&new_lines[line_index])
     );
     for (index, line) in new_lines.iter().enumerate() {

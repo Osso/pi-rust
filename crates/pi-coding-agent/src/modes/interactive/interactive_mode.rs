@@ -2523,6 +2523,31 @@ impl Component for ExtensionComponentAdapter {
     fn wants_input(&self) -> bool {
         self.inner.wants_input()
     }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
+}
+
+thread_local! {
+    /// The mode currently driving this thread's UI. `onUserMessagePrepared`
+    /// must be `Send + Sync` because `PromptOptions` is shared with the core
+    /// session, but the callback runs on the UI thread; this lets the
+    /// no-capture callback reach the active mode without changing that API.
+    static ACTIVE_INTERACTIVE_MODE: RefCell<Option<std::rc::Weak<InteractiveMode>>> = const { RefCell::new(None) };
+}
+
+/// `onUserMessagePrepared` callback: renders the submitted user bubble before
+/// the turn starts. The callback captures nothing, so it satisfies the
+/// `Send + Sync` callback type while reaching the thread-local mode.
+fn prepared_user_message_callback() -> crate::core::agent_session::UserMessagePreparedCallback {
+    Arc::new(|message: &AgentMessage| {
+        ACTIVE_INTERACTIVE_MODE.with(|slot| {
+            if let Some(mode) = slot.borrow().as_ref().and_then(std::rc::Weak::upgrade) {
+                mode.render_prepared_user_message(message);
+            }
+        });
+    })
 }
 
 // ============================================================================
@@ -2709,6 +2734,9 @@ pub struct InteractiveMode {
     clipboard_temp_files: RefCell<crate::utils::clipboard_temp_files::ClipboardTempFileTracker>,
     pending_compaction_summary_edit_id: RefCell<Option<String>>,
     active_session_selector: RefCell<Option<Rc<tokio::sync::Mutex<SessionSelectorComponent>>>>,
+    active_selector_dispose: RefCell<Option<Rc<dyn Fn()>>>,
+    active_bash_components: RefCell<Vec<ComponentRef>>,
+    provisional_user_messages: RefCell<Vec<(AgentMessage, Vec<ComponentRef>)>>,
     auth_ui: RefCell<Option<AuthUiState>>,
     session_selector_loaded: Cell<bool>,
 }
@@ -3021,6 +3049,9 @@ impl InteractiveMode {
             clipboard_temp_files: RefCell::new(crate::utils::clipboard_temp_files::ClipboardTempFileTracker::new()),
             pending_compaction_summary_edit_id: RefCell::new(None),
             active_session_selector: RefCell::new(None),
+            active_selector_dispose: RefCell::new(None),
+            active_bash_components: RefCell::new(Vec::new()),
+            provisional_user_messages: RefCell::new(Vec::new()),
             auth_ui: RefCell::new(None),
             session_selector_loaded: Cell::new(false),
         });
@@ -4676,6 +4707,78 @@ impl InteractiveMode {
         }
     }
 
+    /// `renderPreparedUserMessage`: render the user bubble at submit time and
+    /// remember its components so `message_start` can reuse them.
+    fn render_prepared_user_message(&self, message: &AgentMessage) {
+        if message.role() != "user" || self.is_viewing_agent_session() {
+            return;
+        }
+        let previous_child_count = self.chat_container.borrow().children().len();
+        self.add_message_to_chat(message, false);
+        let components: Vec<ComponentRef> = self
+            .chat_container
+            .borrow()
+            .children()
+            .iter()
+            .skip(previous_child_count)
+            .cloned()
+            .collect();
+        if components.is_empty() {
+            return;
+        }
+        self.provisional_user_messages
+            .borrow_mut()
+            .push((message.clone(), components));
+        self.ui.request_render();
+    }
+
+    /// `consumePreparedUserMessage`: reuse the provisional components when they
+    /// are still mounted in the chat.
+    fn consume_prepared_user_message(&self, message: &AgentMessage) -> bool {
+        let index = self
+            .provisional_user_messages
+            .borrow()
+            .iter()
+            .position(|(prepared, _)| prepared == message);
+        let Some(index) = index else {
+            return false;
+        };
+        let (_, components) = self.provisional_user_messages.borrow_mut().remove(index);
+        let children = self.chat_container.borrow().children().to_vec();
+        let remain = !components.is_empty()
+            && components
+                .iter()
+                .all(|component| children.iter().any(|child| Rc::ptr_eq(child, component)));
+        if remain {
+            return true;
+        }
+        self.remove_components_from_chat(&components);
+        false
+    }
+
+    /// `removeProvisionalUserMessages`.
+    fn remove_provisional_user_messages(&self) -> bool {
+        let entries = std::mem::take(&mut *self.provisional_user_messages.borrow_mut());
+        let mut removed = false;
+        for (_, components) in entries {
+            removed = self.remove_components_from_chat(&components) || removed;
+        }
+        removed
+    }
+
+    /// `removeComponentsFromChat`.
+    fn remove_components_from_chat(&self, components: &[ComponentRef]) -> bool {
+        let mut chat = self.chat_container.borrow_mut();
+        let mut removed = false;
+        for component in components {
+            while chat.children().iter().any(|child| Rc::ptr_eq(child, component)) {
+                chat.remove_child(component);
+                removed = true;
+            }
+        }
+        removed
+    }
+
     fn add_custom_message_to_chat(&self, object: &serde_json::Map<String, Value>) {
         let role = object.get("role").and_then(Value::as_str).unwrap_or_default();
         match role {
@@ -5941,6 +6044,38 @@ impl InteractiveMode {
 
     /// `InteractiveMode.stop`: releases the session subscription and stops the TUI.
     pub fn stop(&self) {
+        self.stop_with_output(self.settings(|settings| settings.get_fullscreen_exit_output()));
+    }
+
+    /// `stop(fullscreenExitOutput)`: the exit output controls whether a
+    /// fullscreen session re-renders its transcript on the regular screen.
+    pub fn stop_with_output(&self, fullscreen_exit_output: crate::core::settings_manager::FullscreenExitOutput) {
+        self.dispose_active_selector();
+        if self.settings(|settings| settings.get_show_terminal_progress()) {
+            self.ui.terminal().borrow_mut().set_progress(false);
+        }
+        if let Some(loader) = self.loading_animation.borrow_mut().take() {
+            if let Some(loader) = loader
+                .borrow_mut()
+                .as_any_mut()
+                .and_then(|any| any.downcast_mut::<Loader>())
+            {
+                loader.stop();
+            }
+            *self.working_loader_view.borrow_mut() = None;
+        }
+        self.stop_child_activity_timer();
+        self.clear_child_agent_view();
+        self.theme_controller.borrow_mut().disable_auto_sync();
+        self.clear_extension_terminal_input_listeners();
+        if let Some(component) = self.custom_footer.borrow_mut().take() {
+            dispose_extension_component(&component);
+        }
+        if let Some(component) = self.default_extension_footer.borrow_mut().take() {
+            dispose_extension_component(&component);
+        }
+        crate::modes::interactive::components::footer::dispose();
+        self.footer_data_provider.dispose();
         if let Some(id) = self.unsubscribe.get() {
             self.session.borrow().unsubscribe(id);
             self.unsubscribe.set(None);
@@ -5949,10 +6084,73 @@ impl InteractiveMode {
             subscription.unsubscribe();
         }
         *self.multi_agent_updates.borrow_mut() = None;
-        self.clear_child_agent_view();
+        self.cancel_partial_update_render();
+        self.dispose_active_bash_components();
+        self.clear_pending_tool_components();
+        self.close_response_complete_notification();
         self.clipboard_temp_files.borrow_mut().cleanup_all();
+        if self.is_initialized.get() {
+            self.stop_interactive_tui(fullscreen_exit_output);
+            self.is_initialized.set(false);
+        }
         self.unregister_signal_handlers();
-        self.ui.stop();
+    }
+
+    /// `stopInteractiveTui`: for `transcript` exit output, leave the fullscreen
+    /// screen, re-render the transcript on the regular screen, then stop the
+    /// TUI without preserving the alternate screen.
+    fn stop_interactive_tui(&self, fullscreen_exit_output: crate::core::settings_manager::FullscreenExitOutput) {
+        if self.ui.mode() == TuiMode::Fullscreen
+            && fullscreen_exit_output == crate::core::settings_manager::FullscreenExitOutput::Transcript
+        {
+            while self.ui.has_overlay_entries() {
+                self.ui.hide_overlay();
+            }
+            self.switch_tui_mode(TuiMode::Regular, false, false);
+            self.ui.render_now();
+        }
+        let preserve_screen = self.ui.mode() == TuiMode::Fullscreen;
+        self.ui.stop_with(pi_tui::tui::TuiStopOptions { preserve_screen });
+    }
+
+    /// `handleFatalRuntimeError`: report, stop the TUI on the transcript, and
+    /// exit 1. The TypeScript signature returns `Promise<never>`.
+    fn handle_fatal_runtime_error(&self, prefix: &str, error: impl std::fmt::Display) -> ! {
+        self.show_error(&format!("{prefix}: {error}"));
+        crate::modes::interactive::theme::stop_theme_watcher();
+        self.stop_with_output(crate::core::settings_manager::FullscreenExitOutput::Transcript);
+        std::process::exit(1);
+    }
+
+    /// `disposeActiveSelector`: runs the active selector's dispose hook.
+    fn dispose_active_selector(&self) {
+        let dispose = self.active_selector_dispose.borrow_mut().take();
+        if let Some(dispose) = dispose {
+            dispose();
+        }
+    }
+
+    /// `clearExtensionTerminalInputListeners`: unsubscribes every listener the
+    /// extension API registered on the terminal.
+    fn clear_extension_terminal_input_listeners(&self) {
+        for (id, _) in self.terminal_input_listeners.borrow().iter() {
+            self.ui.remove_input_listener(*id);
+        }
+        self.terminal_input_listeners.borrow_mut().clear();
+    }
+
+    /// `cancelPartialUpdateRender`: the Rust render loop keeps the throttle in
+    /// `tokio::select!` instead of a stored timeout, so nothing to cancel.
+    fn cancel_partial_update_render(&self) {}
+
+    /// `disposeActiveBashComponents`: drops the active bash execution views.
+    fn dispose_active_bash_components(&self) {
+        self.active_bash_components.borrow_mut().clear();
+    }
+
+    /// `clearPendingToolComponents`: drops components awaiting a tool result.
+    fn clear_pending_tool_components(&self) {
+        self.pending_tools.borrow_mut().clear();
     }
 
     fn close_response_complete_notification(&self) {
@@ -5960,6 +6158,19 @@ impl InteractiveMode {
         if let Some(notification) = notification {
             notification.close();
         }
+    }
+}
+
+/// `customFooter?.dispose?.()`: extension components expose an optional
+/// `dispose`; the adapter forwards it to `ExtensionUiComponent::dispose`.
+fn dispose_extension_component(component_ref: &ComponentRef) {
+    let Ok(mut component) = component_ref.try_borrow_mut() else {
+        return;
+    };
+    if let Some(any) = component.as_any_mut()
+        && let Some(adapter) = any.downcast_mut::<ExtensionComponentAdapter>()
+    {
+        adapter.inner.dispose();
     }
 }
 
@@ -6355,6 +6566,7 @@ impl InteractiveMode {
         if self.is_initialized.get() {
             return Ok(());
         }
+        ACTIVE_INTERACTIVE_MODE.with(|slot| *slot.borrow_mut() = Some(Rc::downgrade(self)));
 
         self.register_signal_handlers();
 
@@ -6820,12 +7032,16 @@ impl InteractiveMode {
                     &text,
                     PromptOptions {
                         streaming_behavior: Some(StreamingBehavior::Steer),
+                        on_user_message_prepared: Some(prepared_user_message_callback()),
                         ..PromptOptions::default()
                     },
                 )
                 .await
             {
                 self.show_error(error.message());
+            }
+            if self.remove_provisional_user_messages() {
+                self.ui.request_render();
             }
             self.update_pending_messages_display();
             self.ui.request_render();
@@ -6841,6 +7057,7 @@ impl InteractiveMode {
                 &submitted_text,
                 PromptOptions {
                     streaming_behavior: Some(StreamingBehavior::Steer),
+                    on_user_message_prepared: Some(prepared_user_message_callback()),
                     ..PromptOptions::default()
                 },
             )
@@ -6849,6 +7066,9 @@ impl InteractiveMode {
             self.show_error(error.message());
         } else {
             self.clipboard_temp_files.borrow_mut().cleanup_referenced_in(&text);
+        }
+        if self.remove_provisional_user_messages() {
+            self.ui.request_render();
         }
     }
 
@@ -7596,6 +7816,15 @@ impl InteractiveMode {
             callbacks,
         )));
         self.show_selector(component(SharedScopedModelsSelector(Rc::clone(&selector))));
+        self.dispose_active_selector();
+        *self.active_selector_dispose.borrow_mut() = Some(Rc::new({
+            let disposed = Rc::clone(&disposed);
+            let abort = abort.clone();
+            move || {
+                disposed.set(true);
+                abort.cancel();
+            }
+        }));
 
         let timeout_task = {
             let abort = abort.clone();
@@ -7883,6 +8112,7 @@ impl InteractiveMode {
             BashExecutionOptions::default(),
         );
         let bash_ref = component(bash);
+        self.active_bash_components.borrow_mut().push(Rc::clone(&bash_ref));
         self.pending_messages_container
             .borrow_mut()
             .add_child(Rc::clone(&bash_ref));
@@ -7928,7 +8158,7 @@ impl InteractiveMode {
                     );
                 }
                 self.pending_messages_container.borrow_mut().clear();
-                self.chat_container.borrow_mut().add_child(bash_ref);
+                self.chat_container.borrow_mut().add_child(Rc::clone(&bash_ref));
                 self.footer.borrow_mut().invalidate();
             }
             Err(error) => {
@@ -7936,6 +8166,9 @@ impl InteractiveMode {
                 self.show_error(error.message());
             }
         }
+        self.active_bash_components
+            .borrow_mut()
+            .retain(|component| !Rc::ptr_eq(component, &bash_ref));
         if let Some(mode) = with_mode(mode, |mode| mode) {
             let _ = mode;
         }
@@ -8006,7 +8239,7 @@ impl InteractiveMode {
                 self.ui.request_render();
             }
             Ok(_) => {}
-            Err(error) => self.show_error(&error),
+            Err(error) => self.handle_fatal_runtime_error("Failed to create session", error),
         }
     }
 
@@ -8065,7 +8298,13 @@ impl InteractiveMode {
                 self.adopt_session(session);
                 self.show_status("Session imported");
             }
-            Err(error) => self.show_error(&error),
+            Err(error) => {
+                if error.starts_with(crate::core::session_errors::SessionImportFileNotFoundError::MESSAGE_PREFIX) {
+                    self.show_error(&format!("Failed to import session: {error}"));
+                } else {
+                    self.handle_fatal_runtime_error("Failed to import session", error);
+                }
+            }
         }
     }
 
@@ -9038,10 +9277,7 @@ impl InteractiveMode {
             Err(error) => {
                 let issue = self.missing_session_cwd_issue(session_path);
                 let Some(issue) = issue else {
-                    self.show_error(&format!("Failed to resume session: {error}"));
-                    self.stop();
-                    self.shutdown_requested.set(true);
-                    return;
+                    self.handle_fatal_runtime_error("Failed to resume session", error);
                 };
                 let confirmed = self
                     .show_extension_confirm(
@@ -9070,11 +9306,7 @@ impl InteractiveMode {
                         self.continue_interrupted_resumed_session().await;
                         self.show_status("Resumed session in current cwd");
                     }
-                    Err(error) => {
-                        self.show_error(&format!("Failed to resume session: {error}"));
-                        self.stop();
-                        self.shutdown_requested.set(true);
-                    }
+                    Err(error) => self.handle_fatal_runtime_error("Failed to resume session", error),
                 }
             }
         }
@@ -9938,12 +10170,20 @@ impl InteractiveMode {
         }
         self.clear_extension_widgets();
         self.close_response_complete_notification();
-        if let Some(id) = self.unsubscribe.get() {
-            self.session.borrow().unsubscribe(id);
-            self.unsubscribe.set(None);
-        }
+        self.theme_controller.borrow_mut().disable_auto_sync();
+        self.ui.terminal().borrow_mut().drain_input(1000, 50);
         self.stop();
         self.runtime.lock().await.dispose().await;
+        let resume_command = {
+            let session = self.session();
+            let manager = session.session_manager();
+            format_resume_command(&manager)
+        };
+        if let Some(resume_command) = resume_command {
+            use std::io::Write;
+            let hint = crate::utils::chalk::Chalk::stdout().dim("To resume this session:");
+            let _ = std::io::stdout().write_all(format!("{hint} {resume_command}\n").as_bytes());
+        }
     }
 
     /// `registerSignalHandlers`: SIGTERM performs the graceful shutdown,
@@ -10384,9 +10624,12 @@ impl InteractiveMode {
                 if let Ok(result) = &result {
                     self.adopt_transitioned_session(&runtime, result.cancelled);
                 }
-                let transition = result.map(|result| SessionTransitionResult {
-                    cancelled: result.cancelled,
-                });
+                let transition = match result {
+                    Ok(result) => Ok(SessionTransitionResult {
+                        cancelled: result.cancelled,
+                    }),
+                    Err(error) => self.handle_fatal_runtime_error("Failed to create session", error),
+                };
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeFork {
@@ -10411,9 +10654,12 @@ impl InteractiveMode {
                 if let Ok(result) = &result {
                     self.adopt_transitioned_session(&runtime, result.cancelled);
                 }
-                let transition = result.map(|result| SessionTransitionResult {
-                    cancelled: result.cancelled,
-                });
+                let transition = match result {
+                    Ok(result) => Ok(SessionTransitionResult {
+                        cancelled: result.cancelled,
+                    }),
+                    Err(error) => self.handle_fatal_runtime_error("Failed to fork session", error),
+                };
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeNavigateTree {
@@ -10701,7 +10947,9 @@ impl InteractiveMode {
                     self.ui.request_render();
                 }
                 AgentMessage::User(_) => {
-                    self.add_message_to_chat(&message, false);
+                    if !self.consume_prepared_user_message(&message) {
+                        self.add_message_to_chat(&message, false);
+                    }
                     self.update_pending_messages_display();
                     self.ui.request_render();
                 }
@@ -14312,6 +14560,162 @@ mod ui_tests {
                 );
                 let calls = calls.lock().unwrap().clone();
                 assert_eq!(calls, vec![(None, session_file)], "restart must use the process path");
+            })
+            .await;
+    }
+    async fn build_mode_for_stop(
+        settings: crate::core::settings_manager::Settings,
+        tui_mode: TuiMode,
+    ) -> (Rc<InteractiveMode>, Rc<RefCell<CaptureTerminal>>, tempfile::TempDir) {
+        let (mode, terminal, _faux, temp) = build_mode_with_extra_providers(
+            StaticResourceLoader::new(),
+            None,
+            SettingsManager::in_memory(settings, SettingsManagerCreateOptions::default()),
+            Vec::new(),
+            serde_json::Map::new(),
+            false,
+            TestModeSetup {
+                multi_agent_store: None,
+                tui_mode,
+            },
+        )
+        .await;
+        (mode, terminal, temp)
+    }
+
+    fn stop_settings(value: Value) -> crate::core::settings_manager::Settings {
+        value.as_object().expect("settings object").clone()
+    }
+
+    struct DisposingFooter(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+    impl crate::core::extensions::types::ExtensionUiComponent for DisposingFooter {
+        fn render(&self, _width: usize) -> Vec<String> {
+            Vec::new()
+        }
+
+        fn dispose(&self) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn prepared_user_message_renders_at_submit_and_is_reused() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let message = AgentMessage::User(pi_ai::types::UserMessage {
+                    role: pi_ai::types::UserRole::Tag,
+                    content: pi_ai::types::UserContent::Text("prepared-bubble-marker".to_owned()),
+                    input_source: None,
+                    provider_native: None,
+                    timestamp: 1,
+                });
+
+                prepared_user_message_callback()(&message);
+
+                let prepared: Vec<ComponentRef> = {
+                    let entries = mode.provisional_user_messages.borrow();
+                    assert_eq!(entries.len(), 1, "submit renders one provisional bubble");
+                    entries[0].1.clone()
+                };
+                let chat = mode.chat_container.borrow().children().to_vec();
+                assert!(
+                    prepared
+                        .iter()
+                        .all(|component| chat.iter().any(|child| Rc::ptr_eq(child, component)))
+                );
+
+                assert!(mode.consume_prepared_user_message(&message));
+                assert!(mode.provisional_user_messages.borrow().is_empty());
+                assert!(!mode.consume_prepared_user_message(&message));
+                let chat = mode.chat_container.borrow().children().to_vec();
+                assert!(
+                    prepared
+                        .iter()
+                        .all(|component| chat.iter().any(|child| Rc::ptr_eq(child, component))),
+                    "message_start reuses the submit-time components"
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stop_renders_the_transcript_when_leaving_fullscreen() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let settings = stop_settings(serde_json::json!({"fullscreenExitOutput": "transcript"}));
+                let (mode, terminal, _temp) = build_mode_for_stop(settings, TuiMode::Fullscreen).await;
+                let _events = start(&mode).await;
+                mode.chat_container
+                    .borrow_mut()
+                    .add_child(component(Text::new("stop-transcript-marker", 0, 0)));
+                terminal.borrow_mut().writes.clear();
+                mode.stop();
+                assert_eq!(mode.ui.mode(), TuiMode::Regular);
+                let output = terminal.borrow().output();
+                assert!(output.contains("stop-transcript-marker"), "{output}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stop_with_resume_hint_keeps_the_fullscreen_renderer() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let settings = stop_settings(serde_json::json!({"fullscreenExitOutput": "resume-hint"}));
+                let (mode, terminal, _temp) = build_mode_for_stop(settings, TuiMode::Fullscreen).await;
+                let _events = start(&mode).await;
+                mode.chat_container
+                    .borrow_mut()
+                    .add_child(component(Text::new("stop-transcript-marker", 0, 0)));
+                terminal.borrow_mut().writes.clear();
+                mode.stop();
+                assert_eq!(mode.ui.mode(), TuiMode::Fullscreen);
+                let output = terminal.borrow().output();
+                assert!(!output.contains("stop-transcript-marker"), "{output}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stop_clears_terminal_progress_and_disposes_footer_components() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let settings = stop_settings(serde_json::json!({
+                    "terminal": {"showTerminalProgress": true},
+                    "fullscreenExitOutput": "transcript"
+                }));
+                let (mode, terminal, _temp) = build_mode_for_stop(settings, TuiMode::Regular).await;
+                let _events = start(&mode).await;
+                let disposed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let footer_flag = std::sync::Arc::clone(&disposed);
+                mode.set_extension_footer(Some(std::sync::Arc::new(move |_context| {
+                    Box::new(DisposingFooter(std::sync::Arc::clone(&footer_flag)))
+                        as Box<dyn crate::core::extensions::types::ExtensionUiComponent>
+                })));
+                mode.pending_tools
+                    .borrow_mut()
+                    .insert("tool-1".to_owned(), component(Text::new("pending", 0, 0)));
+                let listener = mode
+                    .ui
+                    .add_input_listener(Rc::new(|_data: &str| pi_tui::tui::TuiInputListenerResult::default()));
+                mode.terminal_input_listeners
+                    .borrow_mut()
+                    .push((listener, std::sync::Arc::new(|_data: &str| None)));
+                terminal.borrow_mut().progress.clear();
+
+                mode.stop();
+
+                assert!(disposed.load(std::sync::atomic::Ordering::SeqCst));
+                assert_eq!(terminal.borrow().progress.last(), Some(&false));
+                assert!(mode.pending_tools.borrow().is_empty());
+                assert!(mode.terminal_input_listeners.borrow().is_empty());
             })
             .await;
     }

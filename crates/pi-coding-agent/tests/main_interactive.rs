@@ -282,6 +282,56 @@ fn first_time_setup_persists_theme_and_analytics() {
 }
 
 #[test]
+fn import_failure_exits_through_the_fatal_runtime_handler() {
+    let fixture = fixture();
+    std::fs::create_dir(fixture.work.join("bad-session")).expect("unreadable session path");
+    let inputs = vec![
+        input("Ctrl+C twice to exit", "/import bad-session\r"),
+        input("Ctrl+C twice to exit", ""),
+    ];
+    let outcome = run_under_pty(&fixture, &[], &agent_environment(&fixture), &inputs);
+    let text = visible(&outcome.stdout);
+    assert_eq!(outcome.code, 1, "stdout:\n{text}");
+}
+
+#[test]
+fn quit_prints_the_resume_command() {
+    let fixture = fixture();
+    let work = fixture.work.display().to_string();
+    let session_dir = pi_coding_agent::core::session_manager::get_default_session_dir(
+        &work,
+        Some(&fixture.agent_dir.display().to_string()),
+    )
+    .expect("session dir");
+    std::fs::create_dir_all(&session_dir).expect("session dir");
+    let session_file = Path::new(&session_dir).join("quit-hint.jsonl");
+    let entries = [
+        serde_json::json!({"type":"session","version":3,"id":"quit-hint","timestamp":"2026-08-04T00:00:00.000Z","cwd":work}),
+        serde_json::json!({"type":"message","id":"m-1","parentId":null,"timestamp":"2026-08-04T00:00:01.000Z","message":{"role":"user","content":"quit-hint-test","timestamp":1}}),
+    ];
+    let jsonl: String = entries.iter().map(|entry| format!("{entry}\n")).collect();
+    std::fs::write(&session_file, jsonl).expect("session file");
+
+    let inputs = vec![
+        input("quit-hint-test", "\r"),
+        input("Ctrl+C twice to exit", CTRL_C),
+        input("Ctrl+C twice to exit", CTRL_C),
+    ];
+    let outcome = run_under_pty(
+        &fixture,
+        &["--session", &session_file.display().to_string()],
+        &agent_environment(&fixture),
+        &inputs,
+    );
+    let text = visible(&outcome.stdout);
+    assert_eq!(outcome.code, 0, "stdout:\n{text}");
+    assert!(
+        text.contains("To resume this session: pi --session quit-hint"),
+        "stdout:\n{text}"
+    );
+}
+
+#[test]
 fn resume_flag_selects_a_session_and_starts_interactive_mode() {
     let fixture = fixture();
     let work = fixture.work.display().to_string();

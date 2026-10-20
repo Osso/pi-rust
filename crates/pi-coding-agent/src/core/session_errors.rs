@@ -11,6 +11,9 @@ pub struct SessionImportFileNotFoundError {
 impl SessionImportFileNotFoundError {
     /// The source error's `name`.
     pub const NAME: &'static str = "SessionImportFileNotFoundError";
+    /// Display prefix; callers that only receive the message use it to detect
+    /// this error type.
+    pub const MESSAGE_PREFIX: &'static str = "File not found: ";
 
     pub fn new(file_path: impl Into<String>) -> Self {
         Self {
@@ -21,7 +24,7 @@ impl SessionImportFileNotFoundError {
 
 impl fmt::Display for SessionImportFileNotFoundError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "File not found: {}", self.file_path)
+        write!(formatter, "{}{}", Self::MESSAGE_PREFIX, self.file_path)
     }
 }
 

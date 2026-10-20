@@ -744,14 +744,6 @@ fn find_last_user_text(messages: &[AgentMessage]) -> Option<String> {
     None
 }
 
-fn is_record(value: &Value) -> bool {
-    value.is_object()
-}
-
-fn to_record(value: Option<&Value>) -> Option<&Map<String, Value>> {
-    value.and_then(Value::as_object)
-}
-
 fn without_deleted_headers(headers: Option<&ProviderHeaders>) -> Option<ProviderHeaders> {
     headers.map(|headers| {
         headers
@@ -895,10 +887,6 @@ fn normalize_required_request_auth_error(message: String, provider: &str) -> Age
         return error(crate::core::auth_guidance::format_no_api_key_found_message(provider));
     }
     error(message)
-}
-
-fn session_model_message(provider: &str, model_id: &str) -> String {
-    format!("Could not restore model {provider}/{model_id}")
 }
 
 // =============================================================================
@@ -3953,7 +3941,7 @@ impl AgentSession {
         };
         drop(manager);
         if let Err(error) = result {
-            eprintln!("Failed to persist session message: {error}");
+            crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string());
         }
         let _ = original_tool_call_id;
         if let AgentMessage::Assistant(assistant) = message {
@@ -4566,7 +4554,7 @@ impl AgentSession {
         if let AgentMessage::Custom(object) = app_message {
             let mut manager = lock(&self.inner.session_manager);
             if let Err(error) = append_custom_agent_message(&mut manager, object) {
-                eprintln!("Failed to persist custom message: {error}");
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string());
             }
         }
         self.emit(AgentSessionEvent::Message(AgentMessageEvent {
@@ -5553,15 +5541,19 @@ impl AgentSession {
         self.abort_compaction_summary_materialization();
         self.abort_branch_summary();
         self.abort_bash();
+        self.inner.agent.abort();
         self.clear_thinking_phase_deadline();
         *lock(&self.inner.thinking_phase_timeout_error) = None;
+        self.runner().invalidate(None);
         self.stop_runtime_mailbox_polling();
         self.stop_runtime_mailbox_signal_wake();
-        self.inner.agent.abort();
         if let Some(subscription) = lock(&self.inner.agent_subscription).take() {
             self.inner.agent.unsubscribe(subscription);
         }
         lock(&self.inner.event_listeners).clear();
+        if let Err(error) = pi_ai::session_resources::cleanup_session_resources(Some(&self.session_id())) {
+            crate::utils::uncaught::throw_uncaught("AggregateError", error.to_string());
+        }
     }
 
     // =========================================================================
@@ -6256,7 +6248,7 @@ impl AgentSession {
         messages.push(message.clone());
         self.inner.agent.set_messages(messages);
         if let Err(error) = lock(&self.inner.session_manager).append_message(message.clone()) {
-            eprintln!("Failed to persist bash message: {error}");
+            crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string());
         }
         self.emit(AgentSessionEvent::BashMessagesCommitted(BashMessagesCommittedEvent {
             event_type: "bash_messages_committed",
@@ -6309,7 +6301,7 @@ impl AgentSession {
             let message = bash_message_to_agent_message(&bash_message);
             agent_messages.push(message.clone());
             if let Err(error) = lock(&self.inner.session_manager).append_message(message.clone()) {
-                eprintln!("Failed to persist bash message: {error}");
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string());
             }
             committed.push(message);
         }
@@ -6999,23 +6991,6 @@ fn bash_message_to_agent_message(message: &BashExecutionMessage) -> AgentMessage
 pub use crate::core::resource_loader::{
     ExtendedResourcePath, LoadedAgentsFiles, LoadedSkills, ResourceExtensionPaths, StaticResourceLoader,
 };
-
-/// Marker so unused imports in partial ports stay visible during review.
-#[allow(dead_code)]
-fn _unused_import_markers() {
-    let _ = is_record;
-    let _ = to_record;
-    let _ = without_deleted_headers;
-    let _ = normalize_message_content;
-    let _ = find_last_user_text;
-    let _ = session_model_message;
-    let _ = normalize_required_request_auth_error;
-    let _ = should_continue_interrupted_session;
-    let _ = find_exact_model_reference_match;
-    let _ = ApprovalPolicy::OnRequest;
-    let _ = THINKING_PHASE_TIMEOUT_MS;
-    let _ = BUILT_IN_COMPACTION_DISABLED_MESSAGE;
-}
 
 // =============================================================================
 // Extension integration
