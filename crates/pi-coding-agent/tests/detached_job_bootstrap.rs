@@ -166,16 +166,108 @@ async fn rejects_an_existing_output_file() {
 }
 
 #[tokio::test]
-async fn reports_a_missing_command() {
+async fn reports_an_unusable_cwd_as_a_spawn_failure() {
+    let fixture = Fixture::new();
+    let args: Vec<String> = Vec::new();
+    let missing_cwd = fixture.root().join("missing-cwd");
+    let mut input = payload_input(&fixture, &args);
+    input.cwd = missing_cwd.as_path();
+    assert_eq!(
+        spawn_gated_detached_payload(&input)
+            .expect_err("missing cwd must fail")
+            .to_string(),
+        "Could not start detached payload: /bin/sh"
+    );
+}
+
+#[tokio::test]
+async fn a_missing_command_fails_inside_the_shell_after_release() {
     let fixture = Fixture::new();
     let args: Vec<String> = Vec::new();
     let mut input = payload_input(&fixture, &args);
     input.command = "/nonexistent/pi-detached";
+    let mut payload = spawn_gated_detached_payload(&input).expect("the shell always spawns");
+    payload.persist_identity().unwrap();
+    payload.release().unwrap();
+    let exit = payload.wait_for_exit().await.unwrap();
+    assert_eq!(exit.exit_code, Some(127));
+    assert_eq!(exit.signal, None);
+}
+
+fn install_child_executable(directory: &Path) {
+    let child = directory.join("pi-review-child");
+    fs::copy("/usr/bin/true", &child).unwrap();
+    fs::set_permissions(&child, fs::Permissions::from_mode(0o700)).unwrap();
+}
+
+async fn run_to_exit(mut input: GatedDetachedPayloadInput<'_>, label: &str, root: &Path) -> Option<i32> {
+    let output = root.join(format!("{label}.output"));
+    let identity = root.join(format!("{label}.identity"));
+    input.stdout_path = output.as_path();
+    input.stderr_path = output.as_path();
+    input.identity_path = identity.as_path();
+    let mut payload = spawn_gated_detached_payload(&input).expect("payload must spawn");
+    payload.persist_identity().unwrap();
+    payload.release().unwrap();
+    payload.wait_for_exit().await.unwrap().exit_code
+}
+
+#[tokio::test]
+async fn resolves_a_relative_command_against_the_manifest_cwd() {
+    let fixture = Fixture::new();
+    let child_cwd = fixture.root().join("child");
+    fs::create_dir(&child_cwd).unwrap();
+    install_child_executable(&child_cwd);
+    let args: Vec<String> = Vec::new();
+    let mut input = payload_input(&fixture, &args);
+    input.command = "./pi-review-child";
+    input.cwd = child_cwd.as_path();
+    assert_eq!(run_to_exit(input, "child-cwd", fixture.root()).await, Some(0));
+}
+
+#[tokio::test]
+async fn resolves_a_bare_command_against_the_manifest_path() {
+    let fixture = Fixture::new();
+    let child_cwd = fixture.root().join("child");
+    fs::create_dir(&child_cwd).unwrap();
+    install_child_executable(&child_cwd);
+    let args: Vec<String> = Vec::new();
+    let env = vec![("PATH".to_owned(), child_cwd.to_string_lossy().into_owned())];
+    let mut input = payload_input(&fixture, &args);
+    input.command = "pi-review-child";
+    input.cwd = child_cwd.as_path();
+    input.env = Some(&env);
+    assert_eq!(run_to_exit(input, "child-path", fixture.root()).await, Some(0));
+}
+
+#[tokio::test]
+async fn replaces_the_child_environment_with_the_manifest_environment() {
+    const PARENT_ONLY: &str = "PI_AUDIT_PARENT_ONLY";
+    pi_js_compat::process_env::set(PARENT_ONLY, "parent-marker");
+    let fixture = Fixture::new();
+    let script = format!("printf '%s|%s' \"${{{PARENT_ONLY}-unset}}\" \"${{PI_AUDIT_MANIFEST_ONLY-unset}}\"");
+    let args = vec!["-c".to_owned(), script];
+    let env = vec![("PI_AUDIT_MANIFEST_ONLY".to_owned(), "manifest-marker".to_owned())];
+    let mut input = payload_input(&fixture, &args);
+    input.env = Some(&env);
+    assert_eq!(run_to_exit(input, "env", fixture.root()).await, Some(0));
     assert_eq!(
-        spawn_gated_detached_payload(&input)
-            .expect_err("missing command must fail")
-            .to_string(),
-        "Could not start detached payload: /nonexistent/pi-detached"
+        fs::read_to_string(fixture.root().join("env.output")).unwrap(),
+        "unset|manifest-marker"
+    );
+}
+
+#[tokio::test]
+async fn inherits_the_process_environment_when_the_manifest_has_none() {
+    const PARENT_ONLY: &str = "PI_AUDIT_INHERITED";
+    pi_js_compat::process_env::set(PARENT_ONLY, "inherited-marker");
+    let fixture = Fixture::new();
+    let args = vec!["-c".to_owned(), format!("printf '%s' \"${{{PARENT_ONLY}-unset}}\"")];
+    let input = payload_input(&fixture, &args);
+    assert_eq!(run_to_exit(input, "inherit", fixture.root()).await, Some(0));
+    assert_eq!(
+        fs::read_to_string(fixture.root().join("inherit.output")).unwrap(),
+        "inherited-marker"
     );
 }
 

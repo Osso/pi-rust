@@ -4,12 +4,12 @@ Source: `packages/server/src/sessions.ts`. Rust: `crates/pi-server/src/sessions.
 
 | TS item | Rust | Proof |
 |---|---|---|
-| `LiveSessionManager` | `LiveSessionManager` | `tests/sessions.rs` (12 tests) |
+| `LiveSessionManager` | `LiveSessionManager` | `tests/sessions.rs` (15 tests) |
 | `executeCommand` list/create/attach/detach/prompt/steer/abort/set_model/set_thinking | `execute` + command dispatch | `tests/sessions.rs`, `tests/conformance.rs` |
 | `disconnect` | `disconnect` | busy-work/terminal-error tests |
 | `listMetadata` | `list_metadata_inner` | metadata merge/restart tests |
-| `close` | `close` | graceful close conformance test |
-| `acquire`/`create` | `acquire`/`create` | durable id, wrong-id, lock tests |
+| `close` (incl. `Promise.allSettled(openingSessions)`) | `close` + `settle_openings` | graceful close conformance test |
+| `acquire`/`create` + `openingSessions` map | `acquire`/`lookup`/`lead_opening`/`create`; `openings` map of `watch` receivers | durable id, wrong-id, lock tests; `attaches_an_unrelated_live_session_while_another_session_is_still_opening`, `concurrent_opens_of_one_session_share_a_single_service_open`, `concurrent_opens_share_the_failure_of_the_single_service_open` |
 | `runOperation` | `run_operation` | prompt/steer/abort/model/thinking tests |
 | `attach`/`requireAttached`/`forConnection` | `attach`/`require_attached`/`for_connection` | attachment-state and unattached-control tests |
 | `maybeDispose`/`terminate` | `maybe_dispose`/`terminate` | disconnect/terminal-error tests |
@@ -25,5 +25,5 @@ Source: `packages/server/src/sessions.ts`. Rust: `crates/pi-server/src/sessions.
 - Snapshot broadcasts are queued per live session in call order (`broadcast_loop`), reproducing the TS microtask order in which a runtime-event snapshot is enqueued before the operation's own snapshot and response. `tests/differential_stream.rs` compares the resulting raw frame order.
 
 ## Gaps / deviations
-- TS stores an `openingSessions` promise map for per-ID concurrent opens; Rust serializes acquisition through one `acquire_lock`. Observable behavior (single live runtime, waiting for disposal, lock errors) is covered; different IDs acquire sequentially rather than concurrently.
+- Per-id `openingSessions` is mirrored: the first caller leads the service open, later callers for the same id join it and receive the same result; different ids open concurrently. A failed open reaches joiners as `SharedServiceError` (Rust errors are not `Clone`), which `to_protocol_error` unwraps via `unwrap_shared_error` so the protocol code is the original's. If a leader is cancelled before settling, joiners retry with their own open future (TS has no cancellation).
 - Live-session ordering for metadata not present in the service follows insertion order in Rust (TS `Map` order); the earlier `BTreeMap` ordering was replaced after differential testing.

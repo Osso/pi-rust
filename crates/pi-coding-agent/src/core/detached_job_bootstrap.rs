@@ -90,10 +90,8 @@ pub fn spawn_gated_detached_payload(
     input: &GatedDetachedPayloadInput<'_>,
 ) -> Result<GatedDetachedPayload, DetachedPayloadError> {
     let output = open_shared_output_file(input.stdout_path, input.stderr_path)?;
-    if !command_is_executable(input.command) {
-        return Err(DetachedPayloadError::SpawnFailed(input.command.to_owned()));
-    }
-    let mut command = Command::new("setsid");
+    let setsid = find_setsid().ok_or_else(|| DetachedPayloadError::SpawnFailed(input.command.to_owned()))?;
+    let mut command = Command::new(setsid);
     command
         .arg("/bin/sh")
         .arg("-c")
@@ -105,14 +103,11 @@ pub fn spawn_gated_detached_payload(
         .stdin(Stdio::piped())
         .stdout(Stdio::from(output.try_clone()?))
         .stderr(Stdio::from(output));
-    if let Some(environment) = input.env {
-        command
-            .env_clear()
-            .envs(pi_js_compat::process_env::vars())
-            .envs(environment.iter().map(|(name, value)| (name, value)));
-    } else {
-        command.env_clear().envs(pi_js_compat::process_env::vars());
-    }
+    command.env_clear();
+    match input.env {
+        Some(environment) => command.envs(environment.iter().map(|(name, value)| (name, value))),
+        None => command.envs(pi_js_compat::process_env::vars()),
+    };
     let mut child = command
         .spawn()
         .map_err(|_| DetachedPayloadError::SpawnFailed(input.command.to_owned()))?;
@@ -179,22 +174,18 @@ fn exit_of(status: ExitStatus) -> GatedDetachedPayloadExit {
     }
 }
 
-/// `execvp` search rules: a slash runs the path directly, otherwise `PATH` is scanned.
-/// The shell would report the same failure as exit 125/127 after release, so the
-/// launch error is detected up front to match the source's spawn rejection.
-fn command_is_executable(command: &str) -> bool {
+/// `setsid(1)` is a Rust-side launch mechanism, so it is located on this process's `PATH`;
+/// the payload's `PATH` (the manifest env) must not decide whether the launcher exists.
+fn find_setsid() -> Option<PathBuf> {
     use std::os::unix::fs::PermissionsExt;
 
-    let is_executable = |path: &Path| {
-        std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
-    };
-    if command.contains('/') {
-        return is_executable(Path::new(command));
-    }
-    let Some(path) = pi_js_compat::process_env::get("PATH") else {
-        return false;
-    };
-    std::env::split_paths(&path).any(|directory| is_executable(&directory.join(command)))
+    let path = pi_js_compat::process_env::get("PATH")?;
+    std::env::split_paths(&path)
+        .map(|directory| directory.join("setsid"))
+        .find(|candidate| {
+            std::fs::metadata(candidate)
+                .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+        })
 }
 
 fn open_shared_output_file(stdout_path: &Path, stderr_path: &Path) -> Result<File, DetachedPayloadError> {

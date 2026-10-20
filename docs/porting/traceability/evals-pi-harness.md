@@ -16,7 +16,7 @@ Tests: `crates/pi-evals/tests/pi_harness.rs` (faux provider), `crates/pi-evals/t
 | Branch | Rust | Test |
 |---|---|---|
 | `startedAt` / `performance.now()` timings | `Instant` → `TimingSummary.total_ms` | `harness_runs_a_prompt_with_a_faux_provider` |
-| `signal?.throwIfAborted()` | `throw_if_aborted` → `PiEvalError::Abort("This operation was aborted")` | `harness_reports_abort_before_start` (name `AbortError`) |
+| `signal?.throwIfAborted()` | `throw_if_aborted` → `PiEvalError::abort("This operation was aborted")` | `harness_reports_abort_before_start` (name `AbortError`) |
 | `resolveModelSelection` | `resolve_model_selection(options.model, PiModelEnvironment::from_process())` | differential suite |
 | `ModelRuntime.create()` | `ModelRuntime::create(CreateModelRuntimeOptions::default())`; `model_runtime` option is the Rust carrier | faux suite injects a runtime |
 | `getModel` missing → `Eval model not found: p/m` | same message | `harness_reports_a_missing_model` |
@@ -40,7 +40,7 @@ Tests: `crates/pi-evals/tests/pi_harness.rs` (faux provider), `crates/pi-evals/t
 | `setArtifact("runId", sessionId)` | same | success test |
 | session snapshot before removing the root | `PI_SESSION_SNAPSHOT_ARTIFACT` artifact | success test |
 | `session.dispose()` + `rm(root)` cleanup errors | `dispose` + `TempDir::close`, aggregated | ported; cleanup-failure paths have no deterministic trigger |
-| `AggregateError` messages | `PiEvalError::Aggregate` with the same messages | ported; no deterministic trigger |
+| `AggregateError` messages | `PiEvalError::aggregate` with the same messages | ported; no deterministic trigger |
 
 ## Gaps
 
@@ -65,5 +65,5 @@ Tests: `crates/pi-evals/tests/pi_harness.rs` (faux provider), `crates/pi-evals/t
   `end_turn` call makes the harness throw `Agent run ended with unexpected stop reason: toolUse.`.
   Ported faithfully; faux tests use the source's expected terminal shape (text + `end_turn` with
   `stopReason: "stop"`).
-- `signal?.throwIfAborted()` throws a `DOMException` named `AbortError`; `PiEvalError::Abort`
+- `signal?.throwIfAborted()` throws a `DOMException` named `AbortError`; `PiEvalError::abort` (`PiEvalErrorKind::Abort`)
   carries the name so callers can distinguish it.
