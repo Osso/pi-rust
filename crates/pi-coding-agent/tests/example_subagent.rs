@@ -302,6 +302,9 @@ async fn call_and_result_renderers_match_single_chain_parallel_and_tools() {
     renders.push(json!({"result":{"content":[],"details":{"mode":"parallel","results":[error,row]}},"expanded":true}));
     renders.push(json!({"result":{"content":[{"type":"text","text":"no details"}]},"expanded":false}));
     let expected = ts.request(&json!({"cwd":temp.path(),"renders":renders}));
+    // Native-only approved String projection: TS measures the unpaired code unit
+    // before padding, whereas Text receives U+FFFD at the native boundary.
+    renders.push(json!({"args":{"agent":"scout","task":format!("{}🚀", "a".repeat(59))}}));
     let theme = pi_coding_agent::modes::interactive::theme::Theme::new(
         &[
             "toolTitle",
@@ -363,6 +366,10 @@ async fn call_and_result_renderers_match_single_chain_parallel_and_tools() {
             .iter()
             .map(|s| pi_coding_agent::utils::ansi::strip_ansi(s))
             .collect::<Vec<_>>();
-        assert_eq!(json!(actual), expected["renders"][i], "render {i}");
+        if i == renders.len() - 1 {
+            assert!(actual.iter().any(|line| line.contains('\u{fffd}')));
+        } else {
+            assert_eq!(json!(actual), expected["renders"][i], "render {i}");
+        }
     }
 }
