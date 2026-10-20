@@ -18,6 +18,11 @@ async fn filters_discovered_skills_and_appends_virtual_skill() {
         )
         .unwrap();
     }
+    let mut real = oracle::TsOracle::spawn(
+        "sdk-resources-state-oracle.ts",
+        "packages/coding-agent/examples/sdk/04-skills.ts",
+    );
+    let state = real.request(&json!({"cwd":fixture.options.cwd,"agentDir":fixture.options.agent_dir}));
     let output = support::Output::default();
     let _main = example::main;
     let session = example::run(fixture.options, output.clone()).await.unwrap();
@@ -26,6 +31,8 @@ async fn filters_discovered_skills_and_appends_virtual_skill() {
         skills.iter().map(|skill| skill.name.as_str()).collect::<Vec<_>>(),
         ["browser-local", "search-local", "my-skill"]
     );
+    assert_eq!(serde_json::to_value(&skills).unwrap(), state["skills"]);
+    assert!(state["systemPrompt"].as_str().unwrap().contains("my-skill"));
     assert!(session.system_prompt().contains("my-skill"));
     assert!(!session.system_prompt().contains("<name>other</name>"));
     let mut source = oracle::TsOracle::spawn(

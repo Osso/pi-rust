@@ -45,6 +45,11 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
     std::fs::write(agent.join("auth.json"), auth).unwrap();
     std::fs::write(agent.join("models.json"), r#"{"providers":{"fixture-path":{"baseUrl":"https://unused.invalid","api":"openai-completions","models":[{"id":"private-model","name":"Private model"}]}}}"#).unwrap();
     let key = example::read_api_key();
+    let mut real = oracle::TsOracle::spawn(
+        "sdk-runtime-state-oracle.ts",
+        "packages/coding-agent/src/core/model-runtime.ts",
+    );
+    let state = real.request(&json!({"agentDir":agent,"key":key}));
     let options = example::configure_options(fixture.options, key.as_deref())
         .await
         .unwrap();
@@ -54,7 +59,12 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
         (model.provider.as_str(), model.id.as_str()),
         ("anthropic", "claude-sonnet-4-5")
     );
+    assert_eq!(serde_json::to_value(&model).unwrap(), state["sonnet"]);
     let runtime = options.model_runtime.unwrap();
+    assert_eq!(
+        serde_json::to_value(runtime.get_model("fixture-path", "private-model")).unwrap(),
+        state["customModel"]
+    );
     assert_eq!(
         runtime.get_model("fixture-path", "private-model").unwrap().name,
         "Private model"
@@ -62,6 +72,11 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
     assert!(runtime.has_configured_auth("fixture-path"));
     let expected_key = key.filter(|key| !key.is_empty());
     assert_eq!(runtime.has_configured_auth("anthropic"), expected_key.is_some());
+    assert_eq!(
+        runtime.has_configured_auth("anthropic"),
+        state["anthropicAuth"].as_bool().unwrap()
+    );
+    assert_eq!(state["key"], json!(expected_key));
     if let Some(expected_key) = expected_key {
         assert_eq!(
             runtime

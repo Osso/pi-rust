@@ -25,7 +25,20 @@ async fn reuses_default_runtime_for_key_override_without_persisting_key() {
     let sessions = example::run([a.options, b.options, c.options], output.clone())
         .await
         .unwrap();
+    let mut real = oracle::TsOracle::spawn(
+        "sdk-runtime-state-oracle.ts",
+        "packages/coding-agent/src/core/model-runtime.ts",
+    );
+    let state = real.request(&json!({"agentDir":agent}));
     let custom = sessions[1].model_runtime();
+    assert_eq!(
+        serde_json::to_value(custom.get_model("fixture-path", "private-model")).unwrap(),
+        state["customModel"]
+    );
+    assert_eq!(
+        custom.has_configured_auth("fixture-path"),
+        state["customAuth"].as_bool().unwrap()
+    );
     assert!(custom.has_configured_auth("fixture-path"), "custom auth.json was read");
     assert_eq!(
         custom.get_model("fixture-path", "private-model").unwrap().name,
