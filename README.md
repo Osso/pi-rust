@@ -18,6 +18,50 @@ cargo check --workspace --all-targets
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
+## Test-process isolation
+
+Linux tests require `bubblewrap`, `iproute2`, Python 3, and permitted unprivileged
+network/mount namespaces. Missing/unsupported isolation fails closed; no unsandboxed
+fallback. `.cargo/config.toml` routes compiled test binaries through
+`scripts/cargo-runner.sh` and `scripts/test-sandbox.py`, including the Cargo phases
+of `run-tests.sh`. Ordinary `cargo run` is deliberately unchanged.
+
+For a bounded CLI startup proof, use the same boundary explicitly:
+
+```text
+python3 scripts/test-sandbox.py -- /absolute/path/to/pi
+python3 scripts/test-isolation-test.py /absolute/path/to/built/pi
+```
+
+The launcher masks `/home/osso/.cargo/bin/claude-memory` with a child-only,
+read-only controlled helper. `helper.jsonl` records actual argv/PIDs; the normal
+shutdown hook still logs its start and the stub's stdout. Product hook and stats
+semantics are unchanged. Host helper files are never overwritten. Each test gets
+private HOME/XDG/Pi state and an allowlisted environment; homes, runtime sockets,
+and host `/tmp` are hidden. Root, checkout, pinned references/Git metadata and the
+optional installed Pyrun executable/venv/Python runtime are read-only. Only private
+state and an inherited private `TMPDIR` are writable. The latter survives nested
+guards so parent fixture paths and sockets remain valid. Set `PI_TEST_SANDBOX_DIR`
+to a dedicated proof directory to retain state/logs there; otherwise a fresh
+`pi-test-*` directory is retained under TMPDIR. Remove retained directories after
+collecting proof.
+
+Every protected process gets a new network namespace with loopback enabled but
+no external interface/route. Local HTTP/oracle fixtures, PTY descriptors, process
+groups and parent watchdogs remain usable. The bounded regression uses an outer
+namespace with a forbidden fake at the absolute helper path, real default Pi
+startup/double-Ctrl+C shutdown, and real loopback HTTP across nested guards. It
+never uses the installed helper, even against the old runner.
+
+**Boundary:** this is test automation, not a general hostile-code sandbox. Other
+absolute executables are not individually masked; system files outside hidden
+homes/runtime/temp remain readable. Direct test-binary, direct Pi/TS invocation,
+and the standalone Node/typecheck phases of `run-tests.sh` do not enter the Cargo
+runner; explicitly use `test-sandbox.py` when they may start default Pi. No claim
+of whole-host-tool isolation or full-suite compatibility follows from this bounded
+regression. Fixture services must be started inside the protected process, not on
+host loopback. Build/reference preparation stays outside this runtime guard.
+
 Oracle gate boundary, regression commands, and pinned-source blockers:
 [oracle gate](docs/porting/oracle-gate.md).
 

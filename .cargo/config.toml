@@ -7,6 +7,7 @@ incremental = false
 # `cargo pi -- <args>` runs the coding-agent CLI.
 pi = "run -p pi-coding-agent --bin pi --"
 
-# Test binaries get a private Pi state directory (see the script header).
+# Test binaries get private state plus mandatory helper/network isolation.
+# Requires Linux bubblewrap; see README.md#test-process-isolation.
 [target.'cfg(all())']
 runner = "scripts/cargo-runner.sh"
