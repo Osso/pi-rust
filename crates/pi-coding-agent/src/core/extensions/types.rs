@@ -282,6 +282,11 @@ pub trait ExtensionUiComponent {
     }
 
     fn dispose(&self) {}
+
+    /// UI-local `custom` onHandle bridge (`interactive-mode.ts:3518–3520`).
+    /// Called once immediately after mounting an overlay. Unlike the shared
+    /// options callback, this hook may retain the handle in `Rc` state.
+    fn on_overlay_handle(&self, _handle: Arc<dyn ExtensionUiOverlayHandle>) {}
 }
 
 /// Backend behind the [`ExtensionUiTui`] handle passed to factories.

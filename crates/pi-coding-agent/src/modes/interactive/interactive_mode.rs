@@ -10913,11 +10913,16 @@ impl InteractiveMode {
         } else {
             None
         };
-        let component_ref = component(ExtensionComponentAdapter { inner });
+        let component_ref = component(ExtensionComponentAdapter {
+            inner: Rc::clone(&inner),
+        });
         if overlay {
-            let handle = self.ui.show_overlay(component_ref, overlay_options);
+            let handle: Arc<dyn crate::core::extensions::ExtensionUiOverlayHandle> = Arc::new(
+                InteractiveOverlayHandle(self.ui.show_overlay(component_ref, overlay_options)),
+            );
+            inner.on_overlay_handle(Arc::clone(&handle));
             if let Some(on_handle) = options.and_then(|options| options.on_handle) {
-                on_handle(Arc::new(InteractiveOverlayHandle(handle)));
+                on_handle(handle);
             }
         } else {
             self.show_selector(component_ref);
@@ -14361,6 +14366,84 @@ mod ui_tests {
                 self.editor.borrow_mut().handle_input(data);
             }
         }
+    }
+
+    struct RetainedOverlay {
+        handle: Rc<RefCell<Option<Arc<dyn crate::core::extensions::ExtensionUiOverlayHandle>>>>,
+        events: Arc<std::sync::Mutex<Vec<&'static str>>>,
+        done: ExtensionUiDone,
+    }
+    impl ExtensionUiComponent for RetainedOverlay {
+        fn render(&self, _: usize) -> Vec<String> {
+            vec!["toggle".into()]
+        }
+        fn on_overlay_handle(&self, handle: Arc<dyn crate::core::extensions::ExtensionUiOverlayHandle>) {
+            assert!(handle.is_focused());
+            self.events.lock().unwrap().push("hook");
+            *self.handle.borrow_mut() = Some(handle);
+            let retained = self.handle.clone();
+            let events = self.events.clone();
+            let done = self.done.clone();
+            tokio::task::spawn_local(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                let handle = retained.borrow().clone().unwrap();
+                handle.set_hidden(true);
+                assert!(handle.is_hidden());
+                assert!(!handle.is_focused());
+                events.lock().unwrap().push("hidden");
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                handle.set_hidden(false);
+                assert!(!handle.is_hidden());
+                assert!(handle.is_focused());
+                events.lock().unwrap().push("shown");
+                done.call(None);
+            });
+        }
+        fn dispose(&self) {
+            self.events.lock().unwrap().push("disposed");
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_ui_local_on_handle_retains_handle_for_later_timer() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+                let captured = events.clone();
+                let option_events = events.clone();
+                let (send, receive) = tokio::sync::oneshot::channel();
+                mode.show_extension_custom(
+                    Arc::new(move |_, done| {
+                        Box::new(RetainedOverlay {
+                            handle: Rc::new(RefCell::new(None)),
+                            events: captured.clone(),
+                            done,
+                        })
+                    }),
+                    Some(ExtensionUiCustomOptions {
+                        overlay: Some(true),
+                        on_handle: Some(Arc::new(move |_| option_events.lock().unwrap().push("option"))),
+                        ..Default::default()
+                    }),
+                    send,
+                );
+                assert_eq!(*events.lock().unwrap(), vec!["hook", "option"]);
+                assert_eq!(
+                    tokio::time::timeout(std::time::Duration::from_secs(2), receive)
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                    None
+                );
+                assert_eq!(
+                    *events.lock().unwrap(),
+                    vec!["hook", "option", "hidden", "shown", "disposed"]
+                );
+                assert!(!mode.ui.has_overlay_entries());
+            })
+            .await;
     }
 
     struct NestedInput {
