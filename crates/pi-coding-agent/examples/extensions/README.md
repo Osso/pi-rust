@@ -67,3 +67,26 @@ It appends request payloads and response headers to
 exist. Append failures surface through the runner's error listeners. Logs can
 contain credentials and private prompts: enable deliberately, never by default.
 Tests use private temporary directories only.
+
+## Batch E: prompts, trust and resources
+
+Embed `prompt_customizer.rs`, `claude_rules.rs`, or `project_trust.rs` via
+`#[path]` and register the corresponding `<name>_extension` factory explicitly
+using the registry pattern above. Nothing loads by default.
+
+`dynamic-resources/index.rs` exports `dynamic_resources_extension(api, base_dir)`.
+Pass the installed directory containing its companion `SKILL.md`, `dynamic.md`,
+and `dynamic.json`; it returns these paths during resource discovery. This
+explicit native directory replaces TS module-relative `import.meta.url`, not
+the session's cwd. Assets are unchanged pinned copies.
+
+`trigger_compact.rs` exports `trigger_compact_extension`; compaction triggers on
+upward crossings of 100,000 known tokens or `/trigger-compact [instructions]`.
+The host supplies its normal compaction callbacks.
+
+`auto_commit_on_exit.rs` exports `auto_commit_on_exit_extension`; it stages **all**
+changes in the session cwd and commits at shutdown. Enable only deliberately.
+`git_checkpoint.rs` exports `git_checkpoint_extension`; it creates ephemeral git
+stash refs at turns and offers restoration before forks. Both use the host's
+`ExtensionApi::exec`; tests run exclusively in private temporary repos with
+global/system git config disabled. Neither example loads by default.
