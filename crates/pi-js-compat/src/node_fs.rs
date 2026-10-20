@@ -75,10 +75,12 @@ fn escape_inspect_char(ch: char, quote: char) -> String {
 // compact 3 and maxArrayLength 100 in Node's default uncaught-error inspector.
 fn inspect_spawnargs(args: &[String]) -> String {
     let mut entries: Vec<String> = args.iter().take(100).map(|arg| inspect_string(arg)).collect();
-    let grouped = group_inspect_entries(&entries);
+    let grouped = group_inspect_entries(&entries, args.len() > 100);
     let is_grouped = grouped.len() != entries.len();
     if args.len() > 100 {
-        entries.push(format!("... {} more items", args.len() - 100));
+        let remaining = args.len() - 100;
+        let suffix = if remaining == 1 { "item" } else { "items" };
+        entries.push(format!("... {remaining} more {suffix}"));
     }
     let single_line_length =
         entries.iter().map(|entry| entry.encode_utf16().count()).sum::<usize>() + entries.len() * 2 + 13;
@@ -94,7 +96,7 @@ fn inspect_spawnargs(args: &[String]) -> String {
 
 // Port of util.inspect's compact string-array layout, with the fixed defaults
 // used above. Padding is right-aligned only for numbers, never spawn strings.
-fn group_inspect_entries(entries: &[String]) -> Vec<String> {
+fn group_inspect_entries(entries: &[String], has_remaining: bool) -> Vec<String> {
     let widths: Vec<usize> = entries.iter().map(|entry| entry.chars().count()).collect();
     let maximum = widths.iter().copied().max().unwrap_or(0);
     let actual_maximum = maximum + 2;
@@ -105,7 +107,8 @@ fn group_inspect_entries(entries: &[String]) -> Vec<String> {
     if total as f64 / actual_maximum as f64 <= 5.0 && maximum > 6 {
         return entries.to_vec();
     }
-    let average_bias = (actual_maximum as f64 - total as f64 / entries.len() as f64).sqrt();
+    let output_length = entries.len() + usize::from(has_remaining);
+    let average_bias = (actual_maximum as f64 - total as f64 / output_length as f64).sqrt();
     let biased_maximum = (actual_maximum as f64 - 3.0 - average_bias).max(1.0);
     let columns = ((2.5 * biased_maximum * entries.len() as f64).sqrt() / biased_maximum).round() as usize;
     let columns = columns.min(78 / actual_maximum).min(12);
