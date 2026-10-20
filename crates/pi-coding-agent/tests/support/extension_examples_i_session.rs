@@ -72,7 +72,7 @@ impl ExtensionUiContext for Ui {
         let trace = self.trace.clone();
         let theme = self.theme.clone();
         let request = self.request.clone();
-        ui_thread::run(true, move || {
+        ui_thread::run(move || {
             Box::pin(async move {
                 set_theme_instance(theme.clone());
                 let (sender, receiver) = tokio::sync::oneshot::channel();
