@@ -16,7 +16,8 @@ Source: `packages/ai/scripts/generate-models.ts` at original runtime pin. No exp
 | compat/thinking/strict-tools/grammar/tool-search/cache metadata helpers | `metadata.rs`, `apply_model_metadata`; 675 provider/id/API cases with existing compatibility/thinking fields, 4050 original TS calls | partial: full Cartesian/base-URL/default/invalid-type branch proofs pending; deferred models.dev reasoning records not yet wired |
 | hardcoded supplements, overrides, Azure clones | `catalog.rs`; two full actual-source workflows (empty models.dev and mixed provider overrides) | partial: fixture-backed; broader collision/error cases pending |
 | priority/dedup/sorted provider/model catalogs | `generate_catalog`; full JSON-only workflow bytes, duplicate IDs and inherited-property names | partial: grouped API catalogs/native FS pending |
-| native artifacts/manifest/hash/staging/validation/rollback/stats | pending shared model-data integration | gap |
+| native artifacts/manifest/hash/staging/validation/stats | `artifacts.rs`, shared model-data validators/manifests and Node FS messages; source byte comparison for default/public/pretty/json-only/data-only modes | partial: failure/rollback/log/error-metadata proofs pending |
+| native include glue | extracted unchanged `PROVIDER_CATALOGS` into `providers/model_catalogs_generated.rs`; native fixture includes compile and every current embedded model equals committed JSON | implemented valid paths; failure/rollback proof pending |
 
 ## Proof
 
@@ -29,6 +30,8 @@ Focused follow-up logs: `05-http-red.log`/`06-options-red.log` establish missing
 `14-models-dev.log`: all-source-provider fixture GREEN against actual `loadModelsDevData`, comparing every resulting model's bytes and sequence, plus exact models.dev→NVIDIA request order. RED empty pipeline was recorded in `08-targeted-red.log`. This proves the fixture, not exhaustive raw payloads or final generator workflow.
 
 `16-workflow-red.log` establishes missing catalog generation through actual pinned `generateModels` with temp-only FS and three independently mocked HTTP endpoints. `17-workflow.log` identified missing OpenRouter `auto` supplement; `18-workflow.log` GREEN compares complete flattened generated catalog bytes for both empty/mixed models.dev fixtures, including duplicates, inherited-property IDs, all supplements, Azure clones, overrides and deferred reasoning. Native artifact transactions are still unimplemented.
+
+`20-artifacts-red.log`: native had no generated manifest while full source default wrote one. `21-artifacts.log` GREEN for four source/native artifact modes; every emitted grouped/public JSON file and manifest/checksum/timestamp matches source bytes under approved path mapping. `22-artifacts-embed.log` additionally GREEN for all existing embedded catalog values after unchanged constant extraction. Default fixture compiles generated native includes with rustc and executes them to verify provider add/remove; data-only/JSON-only preserve the old include table. Baseline JSON/manifest files are not refreshed. Failure/rollback/log/error metadata tests remain open.
 
 ## Classified source discrepancy
 

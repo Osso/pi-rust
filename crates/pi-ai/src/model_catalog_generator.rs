@@ -6,6 +6,7 @@ use serde_json::json;
 
 use crate::models_dev_reasoning_options::{ModelsDevReasoningOption, get_effort_thinking_level_map};
 
+mod artifacts;
 mod catalog;
 mod metadata;
 mod models_dev;

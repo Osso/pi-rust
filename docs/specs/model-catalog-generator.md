@@ -15,8 +15,9 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - [x] Parse source CLI flags and report unknown/conflicting/missing argument errors in source precedence.
 - [x] Fetch OpenRouter/AI Gateway through an injected transport, preserving tool filters, pricing, defaults and strict HTTP-status errors.
 - [x] Report implemented Baseten/Fireworks/cost malformed raw-input errors instead of silently narrowing them away.
-- [ ] Support source CLI flags, native JSON artifacts, checksums/manifests, staged validation and rollback.
-- [ ] Default generation updates native provider include-table glue with JSON values; data-only preserves the include table. Runtime catalog APIs remain unchanged.
+- [x] Generate grouped private and flat public JSON, source-identical manifests/checksums/timestamps and pretty/compact bytes in default/public/json-only/data-only fixtures.
+- [ ] Prove staged validation failures, rollback, filesystem errors and CLI execution.
+- [x] Default generation updates native provider include-table glue with JSON values; data-only preserves the include table. Runtime catalog APIs and every current embedded value remain unchanged.
 - [ ] Preserve failure names/messages, log order and exit behavior; omit JS-specific stack frames (approved “Omit JS frames (Recommended)”, 2026-10-20), retaining full raw TS diagnostics in oracle logs.
 
 ## How it works
@@ -29,6 +30,8 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - `crates/pi-ai/src/model_catalog_generator/metadata.rs`: native metadata mutations.
 - `crates/pi-ai/src/model_catalog_generator/models_dev.rs`: models.dev/NVIDIA fetching and provider transformations.
 - `crates/pi-ai/src/model_catalog_generator/catalog.rs`: complete fetched-value merge, overrides, supplements, clones and sorted public catalog.
+- `crates/pi-ai/src/model_catalog_generator/artifacts.rs`: native JSON/include staging, manifest validation and public output.
+- `crates/pi-ai/src/providers/model_catalogs_generated.rs`: extracted provider include table consumed by unchanged `models_data` APIs.
 - `oracle/model-catalog-generator-oracle.ts`: instrumented pinned source functions with mocked HTTP.
 
 ## Tests asserting this spec
@@ -40,6 +43,7 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - `crates/pi-ai/tests/model_catalog_generator_metadata.rs`: 675 merged-model cases against original source metadata mutations.
 - `crates/pi-ai/tests/model_catalog_generator_models_dev.rs`: all-provider pipeline with independently mocked models.dev/NVIDIA responses.
 - `crates/pi-ai/tests/model_catalog_generator_workflow.rs`: full source module workflow with fixture HTTP and sandboxed temporary filesystem.
+- `crates/pi-ai/tests/model_catalog_generator_artifacts.rs`: source/native artifact bytes, manifests, include-table preservation, compiled fixture inclusion and current embedded values.
 
 ## Known gaps (current cycle)
 
