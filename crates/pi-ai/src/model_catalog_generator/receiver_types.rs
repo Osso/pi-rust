@@ -49,6 +49,24 @@ pub(super) fn option_kind(value: &JsValue) -> Result<&JsValue, GeneratorError> {
     }
     Ok(kind)
 }
+pub(super) fn gateway_consumed_fields(model: &JsValue, tags: &JsValue) -> Result<(), GeneratorError> {
+    if matches!(tags, JsValue::Array(values) if values.iter().any(|value| !matches!(value, JsValue::String(_)))) {
+        return Err(GeneratorError::type_error("AI Gateway tags entries must be strings"));
+    }
+    let pricing = field(model, "pricing");
+    optional_object(pricing, "AI Gateway pricing")?;
+    for key in ["input", "output", "input_cache_read", "input_cache_write"] {
+        if !matches!(
+            field(pricing, key),
+            JsValue::Null | JsValue::String(_) | JsValue::Number(_)
+        ) {
+            return Err(GeneratorError::type_error(&format!(
+                "AI Gateway pricing.{key} must be a string or number"
+            )));
+        }
+    }
+    Ok(())
+}
 pub(super) fn options(value: &JsValue) -> Result<&[JsValue], GeneratorError> {
     match value {
         JsValue::Null => Ok(&[]),

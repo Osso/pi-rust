@@ -633,6 +633,9 @@ fn transform_http_models(data: &JsValue, gateway: bool) -> Result<JsValue, Gener
         if !includes(tags, if gateway { "tool-use" } else { "tools" }) {
             continue;
         }
+        if gateway {
+            receiver_types::gateway_consumed_fields(model, tags)?;
+        }
         let modality = field(field(model, "architecture"), "modality");
         if !gateway && !matches!(modality, JsValue::Null | JsValue::Array(_) | JsValue::String(_)) {
             return Err(GeneratorError::type_error(

@@ -64,3 +64,7 @@ Format checks pass at coherent commit checkpoints, latest recorded in the proof 
 - Orchestration override/collision combinations, response/metadata consumed-field validation and OS cwd/argv failure boundaries remain open. No implicit claim that converter or happy-path fixture parity proves these.
 - Public output failures do not roll back already committed native catalogs. Five injected boundaries prove this separation; remove injection uses actual read-directory IO failure rather than changing protected host permissions. Arbitrary host FS failures are not exhaustively enumerated.
 - Independent verification owns completion/coverage promotion. No live catalog refresh, deployment, push or canonical merge performed by this slice.
+
+## Final bounded consumed-field correction
+
+`73-http-consumed-red.log` reproduces NVIDIA null root logged as successful empty catalog instead of source TypeError, and gateway accepting wrong declared tag/pricing fields. `74-http-consumed.log` GREEN7: null root uses the original NVIDIA catch; tool-tagged gateway models reject non-string tag entries, non-object pricing and non-string/non-number pricing values. Explicit nonarray data/tags defaults, skipped unused pricing, nullish rates, valid UTF16/unknown strings, outer IDs and emission checks stay in their source regions. Already-rejecting NVIDIA/OpenRouter receivers retain their existing TypeError messages; no message-only cleanup or metadata schema pass.

@@ -135,6 +135,11 @@ impl Generator<'_> {
         let result = self
             .fetch_json("https://integrate.api.nvidia.com/v1/models", "NVIDIA NIM")
             .and_then(|data| {
+                if matches!(data, JsValue::Null) {
+                    return Err(GeneratorError::type_error(
+                        "Cannot read properties of null (reading 'data')",
+                    ));
+                }
                 let items = match field(&data, "data") {
                     JsValue::Null => &[][..],
                     JsValue::Array(items) => items.as_slice(),
