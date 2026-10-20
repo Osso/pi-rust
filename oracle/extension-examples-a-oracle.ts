@@ -29,13 +29,28 @@ async function run(request: any) {
   extensions.push(observer);
  }
  const runner = new ExtensionRunner(extensions, runtime, "/fixture", manager, {});
- let name: string | undefined, prompt = "";
+ let name: string | undefined, prompt = "", idle = true;
+ let activeTools: string[] = [];
+ let footer: any, branch = request.branch, branchCallback: (() => void) | undefined;
+ const fg = (role: string, text: string) => {
+  const rgb: any = {dim:"90;91;92",accent:"80;180;230",success:"34;204;102",toolTitle:"212;212;212",text:"238;238;238",muted:"128;128;128",error:"204;34;34",warning:"204;170;34"};
+  return `\x1b[38;2;${rgb[role]}m${text}\x1b[39m`;
+ };
+ const theme = {fg, bg: (_role: string, text: string) => `\x1b[48;2;16;24;32m${text}\x1b[49m`, bold: (text: string) => text};
  runner.bindCore({
   setSessionName(value: string) {
    if (request.actionError) throw new Error(request.actionError);
    name = value; trace.push(["setSessionName", value]);
   },
   getSessionName: () => name,
+  appendEntry: (type: string, data: any) => { manager.appendCustomEntry(type,data); trace.push(["appendEntry",type,data]); },
+  sendMessage: (message: any, options?: any) => trace.push(["sendMessage",message,options ?? null]),
+  getActiveTools: () => [...activeTools],
+  setActiveTools: (names: string[]) => { activeTools = [...names]; trace.push(["setActiveTools", names]); },
+  sendUserMessage: (content: any, options?: any) => {
+   if (request.sendError) throw new Error(request.sendError);
+   trace.push(["sendUserMessage", content, options ?? null]);
+  },
   setLabel(id: string, label?: string) {
    if (request.actionError) throw new Error(request.actionError);
    const index = manager.getEntries().findIndex((entry: any) => entry.id === id);
@@ -43,19 +58,27 @@ async function run(request: any) {
    if (manager.getLabel(id) !== label) throw new Error("label mutation failed");
    trace.push(["setLabel", index, label ?? null]);
   },
- } as any, {getSystemPrompt: () => prompt} as any);
+ } as any, {getSystemPrompt: () => prompt, isIdle: () => idle,
+  shutdown: () => trace.push(["shutdown"]), getModel: () => request.model} as any);
+ runner.bindCommandContext({reload: async () => { trace.push(["reload"]); }} as any);
  runner.setUIContext({
   notify: (message: string, level: string) => trace.push(["notify", message, level]),
   setStatus: (key: string, text?: string) => trace.push(["status", key, text ?? null]),
-  theme: {fg: (role: string, text: string) => {
-   const rgb: any = {dim:"90;91;92",accent:"80;180;230",success:"34;204;102"};
-   return `\x1b[38;2;${rgb[role]}m${text}\x1b[39m`;
-  }},
+  theme,
+  setFooter: (factory?: any) => {
+   trace.push(["setFooter",!!factory]);
+   footer?.dispose?.();
+   footer = factory?.({requestRender: () => trace.push(["requestRender"])}, theme, {
+    getGitBranch: () => branch,
+    onBranchChange: (callback: () => void) => { branchCallback = callback; return () => { branchCallback = undefined; }; },
+   });
+  },
  } as any, "tui");
  runner.onError((error: any) => trace.push(["handlerError",error.error]));
  const commands = [...extension.commands.values()].map((c: any) => [c.name, c.description, !!c.getArgumentCompletions]);
  const tools = [...extension.tools.values()].map((t: any) => {
-  const d = t.definition; return [d.name, d.label, d.description, d.parameters];
+  const d = t.definition; const row = [d.name, d.label, d.description, d.parameters];
+  return request.metadata ? [...row,d.promptSnippet ?? null,d.promptGuidelines ?? null] : row;
  });
  const originalLog = console.log, originalNow = Date.now;
  const times = [...(request.times ?? [])];
@@ -67,6 +90,7 @@ async function run(request: any) {
  try {
   for (const step of request.steps) {
    switch (step.op) {
+    case "idle": idle = step.value; break;
     case "command":
      try { await runner.getCommand(step.name).handler(step.args ?? "", runner.createCommandContext()); }
      catch (error: any) { trace.push(["error",error.message]); }
@@ -80,10 +104,28 @@ async function run(request: any) {
     }
     case "append": manager.appendMessage(step.message); break;
     case "label": manager.appendLabelChange(manager.getEntries()[step.index].id,step.value ?? undefined); break;
+    case "renderEntry": {
+     const component = extension.entryRenderers.get(step.entry.customType)(step.entry, {expanded:step.expanded}, theme);
+     trace.push(["renderEntry",component.render(step.width)]); break;
+    }
+    case "renderMessage": {
+     const component = extension.messageRenderers.get(step.message.customType)(step.message, {expanded:step.expanded,outputPad:step.pad}, theme);
+     trace.push(["renderMessage",component.render(step.width)]); break;
+    }
+    case "renderTool": {
+     const component = extension.tools.get(step.name).definition.renderResult(step.result, {expanded:true,isPartial:false}, theme);
+     trace.push(["renderTool",component.render(step.width)]); break;
+    }
+    case "footer": footer.invalidate(); trace.push(["footer",footer.render(step.width)]); break;
+    case "branchChange": branch = step.name; branchCallback?.(); break;
     case "tool": {
      const tool = extension.tools.get(step.name).definition;
-     const result = await tool.execute("fixture-call",step.params,undefined,undefined,runner.createContext());
-     trace.push(["tool",result]); break;
+     try {
+      const update = request.updates ? (result: any) => trace.push(["update",result]) : undefined;
+      const result = await tool.execute("fixture-call",step.params,undefined,update,runner.createContext());
+      trace.push(["tool",result]);
+     } catch (error: any) { trace.push(["error",error.message]); }
+     break;
     }
     default: throw new Error(`Unknown step ${step.op}`);
    }
