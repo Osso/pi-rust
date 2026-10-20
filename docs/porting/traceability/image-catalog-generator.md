@@ -31,6 +31,14 @@ Sorting happens before native object construction, whose shared writer applies J
 - Raw malformed records can throw despite source TypeScript declarations. The 2026-10-20 **“Reject wrong field types (Recommended)”** decision explicitly replaces only wrong consumed field types with meaningful native TypeErrors. Parser/workflow fixtures preserve full raw source success/error witnesses and assert the approved rejection. Missing defaults, nullish architecture/pricing/modalities, correct string prices and valid lone-surrogate IDs remain differential contracts. This is not the general invalid-JavaScript-typed-input exclusion.
 - The separate 2026-10-20 **“Allow native causes (Recommended)”** decision permits native HTTP cause diagnostics only; top-level name/message, event order and exit stay exact. See [spec decisions](../../specs/image-catalog-generator.md#native-cause-approval-2026-10-20).
 
+## Exact user decisions (2026-10-20)
+
+Question: “For catalog responses with wrong-typed fields such as `id: null`, should Rust reject invalid records or reproduce V8’s accidental sort/exception behavior exactly? Exact matching now requires porting V8’s sorting algorithm; valid string IDs are unaffected.” Answer: **“Reject wrong field types (Recommended)”**.
+
+Question: “For native HTTP failures, may Rust preserve the top-level error name/message but use native cause diagnostics instead of reproducing Node’s nested errno/address/cause objects? Failure ordering and exit behavior would still match.” Answer: **“Allow native causes (Recommended)”**.
+
+Consumed-field validation stays at source read points: skipped IDs are not validated, missing-field defaults remain intact. These two approvals do not alter valid-string sorting, top-level transport errors, console order, or exit status.
+
 ## Oracle isolation and evidence
 
 `oracle/image-catalog-generator-oracle.ts` imports the actual pinned parser. Workflow tests copy the script's exact bytes to a new temporary package and check byte equality before executing its unchanged main through the pinned tsx/config. Its relative output remains inside that package. Fetch is replaced by a controlled `Response`; console observation records events while forwarding unchanged calls, so raw stdout/stderr and exit remain intact. Generated TypeScript is actually imported, not regex-parsed or reimplemented. Outer oracle process uses existing `TsOracle` source-HEAD verification, watchdog, timeout and process-group cleanup; inner subprocess has a 20-second timeout.

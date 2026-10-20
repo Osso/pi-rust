@@ -5,6 +5,31 @@ use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpRequest, HttpResponse}
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
+struct RecordedStream {
+    stream: &'static str,
+    bytes: Vec<u8>,
+    pending: Vec<u8>,
+    events: std::rc::Rc<std::cell::RefCell<Vec<(&'static str, String)>>>,
+}
+impl Write for RecordedStream {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.bytes.extend_from_slice(bytes);
+        for byte in bytes {
+            self.pending.push(*byte);
+            if *byte == b'\n' {
+                self.events.borrow_mut().push((
+                    self.stream,
+                    String::from_utf8(std::mem::take(&mut self.pending)).unwrap(),
+                ));
+            }
+        }
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 struct LoopbackFetch {
     endpoint: String,
     fetch: std::sync::Arc<dyn Fetch>,
@@ -26,72 +51,131 @@ impl Fetch for LoopbackFetch {
 
 #[tokio::test]
 async fn native_closed_loopback_failure_matches_pinned_generator_error_header() {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    drop(listener);
-    let endpoint = format!("http://{address}/models?output_modalities=image");
-    let mut source = oracle::TsOracle::spawn(
-        "image-catalog-generator-oracle.ts",
-        "packages/ai/scripts/generate-image-models.ts",
-    );
-    let expected = source.request(
-        &serde_json::json!({"operation":"workflow","payload":"{}","args":["--strict"],"closedLoopback":endpoint}),
-    );
-    assert_eq!(expected["status"], 1, "{expected}");
-    let fetch = LoopbackFetch {
-        endpoint,
-        fetch: pi_ai::http::fetch_with_options(pi_ai::http::FetchClientOptions {
-            http1_only: true,
-            idle_timeout: Some(Duration::from_secs(3)),
-        })
-        .unwrap(),
-    };
-    let root = std::env::temp_dir().join(format!("pi-image-network-{}", std::process::id()));
-    std::fs::create_dir_all(&root).unwrap();
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    let result = pi_ai::image_catalog_generator::run(
-        &["--strict".into()],
-        &fetch,
-        &root.join("image-models.json"),
-        &mut stdout,
-        &mut stderr,
-    )
-    .await;
-    let error = result.unwrap_err();
-    writeln!(stderr, "{error}").unwrap();
-    let native_stderr = String::from_utf8(stderr).unwrap();
-    let proof = std::path::Path::new("/tmp/pi-rust-image-generator-proof");
-    std::fs::create_dir_all(proof).unwrap();
-    std::fs::write(
-        proof.join("closed-loopback-native-cause-source.json"),
-        serde_json::to_string_pretty(&expected).unwrap(),
-    )
-    .unwrap();
-    std::fs::write(proof.join("closed-loopback-native-cause-stderr.txt"), &native_stderr).unwrap();
-    std::fs::remove_dir_all(root).unwrap();
-    // Explicit native-cause approval: compare top-level headers exactly, not native cause text
-    // against Node's ECONNREFUSED metadata. Both complete diagnostics remain in separate files.
-    assert_eq!(error.name, "TypeError");
-    assert_eq!(error.message, "fetch failed");
-    assert_eq!(String::from_utf8(stdout).unwrap(), expected["stdout"].as_str().unwrap());
-    let native_headers: Vec<_> = native_stderr
-        .lines()
-        .filter(|line| !line.starts_with(' ') && *line != "}")
-        .collect();
-    let source_headers: Vec<_> = expected["stderr"]
-        .as_str()
-        .unwrap()
-        .lines()
-        .filter(|line| !line.starts_with(' ') && *line != "}")
-        .collect();
-    assert_eq!(native_headers, source_headers);
-    assert_eq!(native_stderr.matches("[cause]:").count(), 2);
-    assert!(native_stderr.contains("127.0.0.1"));
-    assert_eq!(expected["events"].as_array().unwrap().len(), 3);
-    assert_eq!(expected["events"][0]["stream"], "stdout");
-    assert_eq!(expected["events"][1]["stream"], "stderr");
-    assert_eq!(expected["events"][2]["stream"], "stderr");
+    for strict in [false, true] {
+        let args: Vec<String> = if strict { vec!["--strict".into()] } else { vec![] };
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let endpoint = format!("http://{address}/models?output_modalities=image");
+        let mut source = oracle::TsOracle::spawn(
+            "image-catalog-generator-oracle.ts",
+            "packages/ai/scripts/generate-image-models.ts",
+        );
+        let expected = source
+            .request(&serde_json::json!({"operation":"workflow","payload":"{}","args":args,"closedLoopback":endpoint}));
+        assert_eq!(expected["status"], i32::from(strict), "{expected}");
+        let fetch = LoopbackFetch {
+            endpoint,
+            fetch: pi_ai::http::fetch_with_options(pi_ai::http::FetchClientOptions {
+                http1_only: true,
+                idle_timeout: Some(Duration::from_secs(3)),
+            })
+            .unwrap(),
+        };
+        let root = std::env::temp_dir().join(format!("pi-image-network-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut stdout = RecordedStream {
+            stream: "stdout",
+            bytes: vec![],
+            pending: vec![],
+            events: std::rc::Rc::clone(&events),
+        };
+        let mut stderr = RecordedStream {
+            stream: "stderr",
+            bytes: vec![],
+            pending: vec![],
+            events: std::rc::Rc::clone(&events),
+        };
+        let output = root.join("image-models.json");
+        let result = pi_ai::image_catalog_generator::run(&args, &fetch, &output, &mut stdout, &mut stderr).await;
+        assert_eq!(result.is_err(), strict);
+        if let Err(error) = &result {
+            writeln!(stderr, "{error}").unwrap();
+            assert_eq!(error.name, "TypeError");
+            assert_eq!(error.message, "fetch failed");
+        }
+        if strict {
+            assert!(!output.exists());
+        } else {
+            let artifact = std::fs::read_to_string(&output).unwrap();
+            assert_eq!(
+                pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::parse_lossless(&artifact).unwrap()),
+                expected["catalog"].as_str().unwrap()
+            );
+        }
+        let native_stderr = String::from_utf8(stderr.bytes).unwrap();
+        let proof = std::path::Path::new("/tmp/pi-rust-image-generator-proof");
+        std::fs::create_dir_all(proof).unwrap();
+        std::fs::write(
+            proof.join(format!("closed-loopback-native-cause-{strict}-source.json")),
+            serde_json::to_string_pretty(&expected).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            proof.join(format!("closed-loopback-native-cause-{strict}-stderr.txt")),
+            &native_stderr,
+        )
+        .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+        // Explicit native-cause approval: compare top-level headers exactly, not native cause text
+        // against Node's ECONNREFUSED metadata. Both complete diagnostics remain in separate files.
+        assert_eq!(
+            String::from_utf8(stdout.bytes)
+                .unwrap()
+                .replace(output.to_str().unwrap(), "<artifact>"),
+            expected["stdout"]
+                .as_str()
+                .unwrap()
+                .replace(expected["path"].as_str().unwrap(), "<artifact>")
+        );
+        let native_headers: Vec<_> = native_stderr
+            .lines()
+            .filter(|line| !line.starts_with(' ') && *line != "}")
+            .collect();
+        let source_headers: Vec<_> = expected["stderr"]
+            .as_str()
+            .unwrap()
+            .lines()
+            .filter(|line| !line.starts_with(' ') && *line != "}")
+            .collect();
+        assert_eq!(native_headers, source_headers);
+        assert_eq!(native_stderr.matches("[cause]:").count(), if strict { 2 } else { 1 });
+        assert!(native_stderr.contains("127.0.0.1"));
+        assert_eq!(expected["events"].as_array().unwrap().len(), 3);
+        assert_eq!(expected["events"][0]["stream"], "stdout");
+        assert_eq!(expected["events"][1]["stream"], "stderr");
+        assert_eq!(
+            expected["events"][2]["stream"],
+            if strict { "stderr" } else { "stdout" }
+        );
+        let native_event_headers: Vec<_> = events
+            .borrow()
+            .iter()
+            .filter(|(_, line)| !line.starts_with(' ') && line.trim() != "}")
+            .map(|(stream, line)| (*stream, line.clone()))
+            .collect();
+        let source_event_headers: Vec<_> = expected["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| {
+                (
+                    event["stream"].as_str().unwrap(),
+                    format!("{}\n", event["text"].as_str().unwrap().lines().next().unwrap()),
+                )
+            })
+            .collect();
+        let native_event_headers: Vec<_> = native_event_headers
+            .into_iter()
+            .map(|(stream, line)| (stream, line.replace(output.to_str().unwrap(), "<artifact>")))
+            .collect();
+        let source_event_headers: Vec<_> = source_event_headers
+            .into_iter()
+            .map(|(stream, line)| (stream, line.replace(expected["path"].as_str().unwrap(), "<artifact>")))
+            .collect();
+        assert_eq!(native_event_headers, source_event_headers);
+    }
 }
 
 #[tokio::test]
