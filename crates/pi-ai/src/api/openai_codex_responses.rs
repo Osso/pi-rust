@@ -1127,7 +1127,7 @@ async fn fetch_sse_with_retries(
             on_response(
                 crate::types::ProviderResponse {
                     status: f64::from(response.status),
-                    headers: response.headers.iter().cloned().collect(),
+                    headers: crate::utils::headers::headers_to_record(response.headers.iter().cloned()),
                 },
                 model.clone(),
             )

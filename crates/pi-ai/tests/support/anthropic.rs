@@ -8,12 +8,12 @@ pub use recording_fetch::{RecordingFetch, ScriptedResponse};
 
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use pi_ai::request::{Fetch, HttpRequest, ProviderRequestOptions, StreamOptions};
 use pi_ai::types::{
     AssistantMessage, AssistantMessageEvent, CacheRetention, JsonObject, ProviderEnv, ProviderHeaders, Transport,
 };
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
-use std::collections::BTreeMap;
 
 use pi_ai::utils::headers::headers_to_record;
 use serde_json::{Map, Value};
@@ -145,7 +145,7 @@ pub fn requests_json(requests: &[HttpRequest]) -> Vec<Value> {
     requests
         .iter()
         .map(|request| {
-            let headers: BTreeMap<String, String> = headers_to_record(request.headers.iter().cloned());
+            let headers: IndexMap<String, String> = headers_to_record(request.headers.iter().cloned());
             let body = request
                 .body
                 .as_ref()

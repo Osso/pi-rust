@@ -11,6 +11,10 @@ fn lowercases_names_and_joins_duplicate_values_like_headers_entries() {
     let record = headers_to_record(entries);
     assert_eq!(record["x-test"], "one, two");
     assert_eq!(record["accept"], "text/plain");
+    assert_eq!(
+        serde_json::to_string(&record).unwrap(),
+        r#"{"accept":"text/plain","x-test":"one, two"}"#
+    );
 }
 
 #[test]
