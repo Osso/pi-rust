@@ -149,3 +149,7 @@ snapshots, matching approved TS read/write isolation. Pure helpers remain in
 registration. `/snake` owns its restored state, uses a 100ms Tokio timer and OS
 randomness, saves on ESC, clears on Q, and starts restored games paused. No
 default loading.
+
+Space Invaders remains unported: native custom components lack the required
+Kitty key-release opt-in. `example_space_invaders` characterizes that requirement
+through the real pinned TS TUI; it does not claim a native game implementation.

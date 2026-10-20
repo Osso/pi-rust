@@ -41,7 +41,7 @@ filtering (string and blocks), all three choices plus cancellation, refinement
 trim/follow-up messages, extraction, partial/full execution progress, completion,
 status/widget ANSI and persisted snapshots. Unchanged scenarios use pinned TS.
 Execution uses approved append snapshot semantics (parent approval 2026-10-20;
-TS write-isolation follow-up SHA pending from main), because pinned AND bf55d9fd6
+TS write-isolation follow-up `528edd416`, merged at `eb4b82d76`), because pinned AND bf55d9fd6
 still alias caller-owned append data. Oracle snapshots actions at call-time and
 clones append inputs only for fixed scenarios. This is not a claim that the
 read-only helper alone fixes writes.
@@ -91,3 +91,43 @@ classified: entering the current tail counts as self-collision before tail
 removal; paused resume does not invalidate cached render until tick/invalidate;
 very narrow widths throw and narrow headers/footers can exceed the border.
 No core API changes or dependencies.
+
+## space-invaders.ts — blocked; no native implementation
+
+The alias issue is resolved by read/write snapshots, but the component needs
+`wantsKeyRelease = true` (pinned `space-invaders.ts:123`) for held movement/fire
+release handling at lines 306–360. Pinned `tui.ts:1154–1159` filters Kitty release
+events unless the focused component opts in.
+
+Native `core/extensions/types.rs:262–274` exposes render/input/invalidate/
+wants_input/dispose, but no release opt-in. `ExtensionComponentAdapter` in
+`modes/interactive/interactive_mode.rs:2494–2518` forwards those methods only.
+Native `pi-tui::Component::wants_key_release` defaults false (`tui.rs:63`), and
+its TUI filters releases at `tui.rs:1391–1394`. A component-local key parser would
+not fix discarded input; bypassing the host would falsely claim parity.
+Per task instruction and parent confirmation, stop this example until the core
+slice adds and forwards release opt-in. Do not emulate smooth movement without
+release events, or ship a partial native game under a done status.
+
+`example_space_invaders::real_ts_tui_key_release_stops_player_but_held_input_keeps_moving`
+characterizes the exact boundary via unchanged pinned game + real TS TUI +
+VirtualTerminal. At virtual 50ms ticks, pressing A then Kitty A-release stops at
+x=29; omitting release continues to x=28. Captures complete ANSI frames at
+24/64/90 columns and persisted state. Temporary instance mutation disabling
+release opt-in makes this test fail x=28 vs x=29 (22); restored byte-for-byte.
+This is a TS blocker proof, NOT a native differential/implementation claim.
+Aliens, bullets, shields, scoring, levels, victory, restart, and native persistence
+remain unported. No native RED→GREEN claim or native mutation proof exists.
+
+## Proof summary
+
+Logs and revision/scopes: `/tmp/pi-rust-ext-examples-l/ledger.md`.
+Todo: 01 behavioral RED, 04 GREEN 2 tests, 05 native mutation RED.
+Plan: 06 missing-module RED, 12 GREEN 3 tests, 19 native mutation RED.
+Snake: 13 missing-module RED, 18 GREEN 3 tests, 20 native mutation RED.
+Invaders: 21 TS blocker GREEN 1 test; 22 disabled-opt-in mutation RED.
+All mutations restored byte-for-byte; later formatting does not change behavior.
+Only `cargo test -p pi-coding-agent --test example_<name>` and cargo fmt used;
+no broad suites, clippy/check, delegation, model CLI, merge/push or live state.
+
+Fixed-read helper copy SHA256: `31934eeda624c39b33619515d426476468ca6e99cda0da7dcd539206e3042ed1`.
