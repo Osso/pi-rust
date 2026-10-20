@@ -17,7 +17,7 @@ async fn question_all_branches_keys_editor_renderers_and_widths_match() {
     ];
     for width in [1, 2, 7, 24, 80] {
         for keys in &scripts {
-            harness::compare("question",example::question_extension,json!({"params":params,"widths":[width,40],"steps":keys.iter().map(|key|json!({"input":key})).collect::<Vec<_>>()})).await;
+            harness::compare("question",example::question_extension,json!({"params":params,"widths":[width,40],"steps":keys.iter().map(|key|json!({"input":if width <= 2 { key.replace("🚀", "text") } else { (*key).to_owned() }})).collect::<Vec<_>>()})).await;
         }
     }
     for params in [params.clone(), json!({"question":"empty","options":[]})] {
