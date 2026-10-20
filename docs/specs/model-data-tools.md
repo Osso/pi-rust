@@ -31,7 +31,7 @@ Authorized adaptation, 2026-10-20: user answered “Check Rust catalog (Recommen
 
 ## Proof / existing snapshot discrepancy
 
-Targeted module development proof: 15/15 tests pass after native adaptation; parent owns final integration/verification. Shared lossless prerequisite is integrated. See traceability ledger for revisions and exact logs.
+Targeted development proof: 15/15 module tests pass after native adaptation, plus one new typed UTF-16 API test passes separately; parent owns final integration/verification. Shared lossless prerequisite is integrated. See traceability ledger for revisions and exact logs.
 
 Existing checked-in snapshot has 40 provider files while `.manifest.json` lists 39 file hashes (missing `kimi-coding.json`). Native validation must report stale data; this task does not refresh or rewrite the real catalog. Positive tests construct a fresh manifest only inside isolated temporary fixtures.
 

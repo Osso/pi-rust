@@ -1,66 +1,63 @@
 # model-data.ts maintenance parity
 
-Source: pinned `packages/ai/scripts/model-data.ts` (280 lines). Rust: `crates/pi-ai/src/model_data_tools.rs`. Contract: [spec](../../specs/model-data-tools.md). Only this module and its checker are ported. Shared date parsing fixes were separately authorized as direct validator prerequisites; [date proof](js-compat.md#dateparse-srcdaters).
+Source: pinned `packages/ai/scripts/model-data.ts` (280 lines). Rust: `crates/pi-ai/src/model_data_tools.rs`. Contract: [spec](../../specs/model-data-tools.md). This slice ports only this module and its [checker](check-model-data.md). Shared dates retain separately authorized [bounded proof](js-compat.md#dateparse-srcdaters).
+
+## Current capability / proof matrix
 
 | TS export / branches | Rust | Behavioral proof in `tests/model_data_tools.rs` |
 |---|---|---|
-| `MODEL_DATA_SCHEMA_VERSION`, `MODEL_DATA_MANIFEST_FILE`, `ModelDataStructure`, `ModelDataManifest` | same constants; typed insertion-ordered records | `filesystem_structure_and_checker_success_match_pinned_modules`, manifest test |
-| `assertExactModelIds`: dedup, equal, missing, extra, UTF-16 sorting | `assert_exact_model_ids` | `exact_ids_and_manifest_hashes_match_ts_without_reordering_responses` |
-| `modelDataStructureHash`: sorted nested records, JS numeric keys, Unicode, SHA-256 | `model_data_structure_hash` | same test, real pinned API response |
-| `createModelDataManifest`: schema 3, timestamp unchanged, sorted content hashes | `create_model_data_manifest` | same test; exact values, CRLF/Unicode input |
+| Schema/version constants, structure and manifest records | same constants; insertion-ordered UTF-16 records | `filesystem_structure_and_checker_success_match_pinned_modules`, manifest tests |
+| `assertExactModelIds`: dedup, equal, missing, extra, UTF-16 sorting | `assert_exact_model_ids` | `exact_ids_and_manifest_hashes_match_ts_without_reordering_responses`, `typed_utf16_ids_structure_hash_and_manifest_match_complete_ts_bytes` |
+| `modelDataStructureHash`: sorted nested records, JS numeric keys, Unicode, SHA-256 | `model_data_structure_hash` | same tests; exact pinned API responses |
+| `createModelDataManifest`: schema 3, timestamp unchanged, sorted content hashes, Node UTF-8 boundary | `create_model_data_manifest` | same tests; CRLF, Unicode and lone-surrogate keys/content/timestamp |
 | `readModelDataProviderIds`: exact import pattern, none, duplicates, sorted IDs, read error | `read_model_data_provider_ids` | `aggregator_shards_and_provider_structure_failures_match_ts`, filesystem success |
-| `readModelDataStructure`: shard sets, provider JSON object/parse errors, API object, duplicate models, empty data | `read_model_data_structure` | same tests |
+| `readModelDataStructure`: shard sets, provider JSON object/parse errors, API object, duplicate models, empty data | `read_model_data_structure` | same tests; raw surrogate corpus |
 | `validateModelDataDirectory`: directory missing/not directory, provider sets, manifest object/parse/missing, schema, timestamp, structure stamp, hash set/file hash | `validate_model_data_directory` | `manifest_directory_and_json_failures_match_ts` |
-| model identity/provider/API/name/baseUrl/reasoning/modalities/limits/cost fields; nonobject; duplicate group; missing/extra IDs; wrong grouping | internal validation | `model_validation_branches_accumulate_in_source_order` |
-| source-ordered errors; first 30 plus remainder | internal validation | same test, complete error string equality |
-| `validateGeneratedModelData` | `validate_generated_model_data` | filesystem success; checker failure/success |
-| JS line terminators and record enumeration/serialization | import matcher, shared JS object enumeration | `import_line_terminators_match_js`, `manifest_record_order_matches_js`, `numeric_provider_model_and_api_keys_keep_js_diagnostic_order` |
+| Model identity/provider/API/name/baseUrl/reasoning/modalities/limits/cost fields; nonobject; duplicate group; missing/extra IDs; wrong grouping | internal validation | `model_validation_branches_accumulate_in_source_order` |
+| Source-ordered errors; first 30 plus remainder | internal validation | same test; complete error equality |
+| `validateGeneratedModelData` original TS-package contract | `validate_generated_model_data` | filesystem success and failure fixtures |
+| JS line terminators and record enumeration/serialization | import matcher, shared JS enumeration | `import_line_terminators_match_js`, `manifest_record_order_matches_js`, `numeric_provider_model_and_api_keys_keep_js_diagnostic_order` |
 | Early provider IO throw vs accumulated JSON errors; ignored unrelated files | filesystem adapters | `filesystem_io_failures_and_ignored_non_catalog_entries_match_ts` |
-| Caller Node flag plus orphan process-group teardown | existing oracle support with caller flags appended before watchdog | `caller_node_flag_and_parent_death_watchdog_both_work` |
-| Raw JSON unpaired surrogate diagnostic | **blocked** by shared serde string representation | `json_model_identity_with_unpaired_surrogate_matches_ts` remains RED |
-| Raw surrogate model/API keys, distinct surrogate/U+FFFD keys, nested metadata strings | **blocked** by shared serde string representation | `raw_surrogate_keys_and_nested_values_match_full_ts_responses` remains RED; complete response encoded once for lossless transport |
+| Caller Node flag plus orphan process-group teardown | existing oracle support | `caller_node_flag_and_parent_death_watchdog_both_work` |
+| Raw JSON unpaired surrogate diagnostic | shared `parse_lossless` and lossless diagnostic storage | `json_model_identity_with_unpaired_surrogate_matches_ts`, GREEN |
+| Raw surrogate model/API keys, distinct surrogate/U+FFFD/pairs, nested metadata strings | shared `JsString`/`JsValue`/`JsObject` throughout traversal | `raw_surrogate_keys_and_nested_values_match_full_ts_responses`, GREEN; exact whole encoded response bytes |
+| Authorized no-argument native checker | `native_model_data_structure`, `validate_native_model_data` | [checker proof](check-model-data.md) |
 
-RED: focused test compile fails for missing maintenance export and checker binary (2026-10-20). At `2379d79`, all 8 initial filesystem/API/checker differential tests pass. Subsequent expanded corpus retains a real raw-surrogate failure; neither module is claimed complete. No external service or real catalog mutation. Oracle uses existing `tests/support/oracle.rs` process groups, parent watchdog, source-lock verification; no raw tsx command. No response field filtering/sorting.
+Implementation complete for this pair's bounded scope; coverage rows remain partial pending parent-owned final integration/verification. No unresolved surrogate implementation blocker. Existing catalog-state discrepancy is recorded in checker traceability, not silently repaired.
 
-Typed-input exclusions: invalid JS argument types cannot enter typed structure, manifest constructor, paths or allowlist APIs. JSON file values, including invalid runtime model metadata, are still validated. No new dependencies. Shared `pi-js-compat` owns JSON parse/stringify/object enumeration/date semantics. Generated runtime `providers/models_data.rs` is unchanged and does not substitute for these workflows.
+## API and representation boundary
 
-## Blocked representable case
+`ModelDataStructure = IndexMap<JsString, IndexMap<JsString, JsString>>`. Manifest constructor accepts structure, `IndexMap<JsString, JsString>` exact file contents, and `&JsString` generation timestamp. `model_data_structure_json`, manifest `to_json`/`stringify`, and error `message()` expose lossless output. `ModelDataError(pub JsString)` retains exact code units; Display alone is explicitly lossy. Hashing/filesystem UTF-8 encoding uses Node-equivalent replacement at that boundary only.
 
-`json_model_identity_with_unpaired_surrogate_matches_ts`: raw provider JSON contains `"id":"\\ud800"`. TS reports `has id "\\ud800", expected "model-a"`; Rust reports `has id "�", expected "model-a"`. `pi-js-compat/src/js_json.rs::parse_string` uses `String::from_utf16_lossy`, so `serde_json::Value::String` has already lost the code unit before validation. This is not an invalid-JS-input-type exclusion. A lossless shared string/value representation is required; no local diagnostic patch or gap approval. Shared prerequisite implementation is independently authorized; consumer production changes wait for its integration. Regressions and RED logs retained.
+Shared prerequisite `850b6e8` (canonical integration `e31b4c8`) is merged in `cf0e110`. Raw metadata uses shared `parse_lossless`, shared numeric-first enumeration, and shared lossless stringify; no local parser, sentinel, rescanning, or duplicated JSON encoding. Number boundary unchanged. No dependencies added. Runtime `providers/models_data.rs` remains unchanged.
 
-Expanded corpus proves that lone high/low surrogate keys and actual U+FFFD keys collide under the old parser, changing model cardinality and diagnostic order. Lone-surrogate API keys and nested object/array metadata also lose identity. Optional oracle `encodeResponse` serializes the entire response as an opaque JSON string: every field/key/code unit remains intact; no normalization, filtering or sorting.
+Original TS-layout provider discovery/structure/generated-validator exports keep their literal source contract; they are not a native checker fallback. User selected “Check Rust catalog (Recommended)” on 2026-10-20; exact question and decision live in [checker traceability](check-model-data.md#authorized-layout-decision).
 
-No TS source bugs corrected. V8 legacy-date seconds quirk is preserved and classified in shared date traceability.
+Invalid JS argument types cannot enter typed structure, constructor, paths or allowlist APIs. Untrusted JSON files remain dynamically validated, including malformed metadata. No TS source bugs corrected. V8 legacy-date seconds behavior is preserved and classified in shared date traceability.
+
+## Oracle transport
+
+Oracle loads real pinned modules through existing `tests/support/oracle.rs`: process groups, caller flags, parent watchdog, source-lock verification; no direct tsx bypass. `encodeResponse` serializes the complete response as an opaque string. `requestJson` transports a complete encoded request through serde without losing UTF-16 keys/values. Both preserve every field/key/code unit; no filtering, sorting, normalization or response subset comparisons.
 
 ## Proof ledger
 
-All commands run in `/home/osso/.worktrees/pi-rust-model-data-tools`, with `timeout 900`. Logs are local artifacts under `/tmp/`.
+Commands run in `/home/osso/.worktrees/pi-rust-model-data-tools`. Historical runs used `timeout 900`; resumed runs use direct Pyrun argv commands. Logs below live under `/tmp/`; resumed log files retain stdout and command exit results are recorded in `/tmp/model-data-tools-proof-ledger.json`.
 
-| Revision / scope | Command suffix | Result / artifact | Validity |
+| Revision / scope | Command | Result / artifact | Validity |
 |---|---|---|---|
-| `07971b0` + initial fixture tests | `cargo test -p pi-ai --test model_data_tools -- --nocapture` | RED missing API/binary; `model-data-tools-red.log` | Historical RED |
-| `816a8e5` | same focused target | 4 pass / 2 fail; `model-data-tools-green-1.log` | Superseded by fixes |
-| `e9f2e4c` | same target, `checker_exit_stdout_stderr` filter | 1 pass; `model-data-tools-checker-green.log` | Checker branch proof, later expanded |
-| `a75fd1a` | `cargo test -p pi-js-compat --test date --test differential_date_parse -- --nocapture` | 8 unit + 4 differential pass; `model-data-tools-date-green-1.log` | Expanded legacy grammar invalidated this old scope |
-| `2379d79` | initial focused model-data target | 8 pass; `model-data-tools-green-2.log` | Later shared date/test changes require expanded run |
-| `3e63f4f` | model-data target, `caller_node_flag` filter | 1 lifetime/flag proof pass; `model-data-tools-watchdog-green.log` | Expanded to inspect both group leader and oracle |
-| `b9ed3c9` | focused date targets above | 8 unit + 5 differential pass; `model-data-tools-date-green-3.log` | Current date source proof; no later date changes |
-| `b9ed3c9` + raw-surrogate fixture regression | model-data target, `json_model_identity_with_unpaired` filter | RED exact escaped-surrogate diagnostic; `model-data-tools-surrogate-red.log` | Current unresolved failure |
-| `c67b159` | full focused `cargo test -p pi-ai --test model_data_tools -- --nocapture` | 12 pass / 1 fail, no ignores; `model-data-tools-expanded-proof.log` | Model-data production source unchanged; later transport/blocked fixtures require expanded final run after prerequisite |
-| `fa543e5` + full-response transport/key fixtures | same target, `raw_surrogate_keys` filter | RED key collisions/order, API keys, nested strings; `model-data-tools-surrogate-keys-red.log` | Additional blocked corpus; no consumer production change |
+| `07971b0` + initial fixtures | `cargo test -p pi-ai --test model_data_tools -- --nocapture` | RED missing API/binary; `model-data-tools-red.log` | Historical RED |
+| `816a8e5` | same target | 4 pass / 2 fail; `model-data-tools-green-1.log` | Superseded |
+| `e9f2e4c` | same target, `checker_exit_stdout_stderr` filter | 1 pass; `model-data-tools-checker-green.log` | Historical argument-only checker |
+| `a75fd1a` | `cargo test -p pi-js-compat --test date --test differential_date_parse -- --nocapture` | 8 unit + 4 differential pass; `model-data-tools-date-green-1.log` | Superseded date scope |
+| `2379d79` | initial module target | 8 pass; `model-data-tools-green-2.log` | Superseded |
+| `3e63f4f` | module target, `caller_node_flag` filter | 1 pass; `model-data-tools-watchdog-green.log` | Later expanded owner-lifetime proof |
+| `b9ed3c9` | focused date targets above | 8 unit + 5 differential pass; `model-data-tools-date-green-3.log` | Unchanged date proof; no rerun |
+| `b9ed3c9` + raw-surrogate fixture | module target, `json_model_identity_with_unpaired` filter | RED exact surrogate diagnostic; `model-data-tools-surrogate-red.log` | Historical RED resolved by `f139cff` |
+| `c67b159` | full module target | 12 pass / 1 fail; `model-data-tools-expanded-proof.log` | Historical surrogate RED |
+| `908c2ce` corpus (production unchanged from `fa543e5`) | module target, `raw_surrogate_keys` filter | RED collisions/API/nested values; `model-data-tools-surrogate-keys-red.log` | Historical RED resolved by `f139cff` |
+| `f139cff` production/tests (run on `cf0e110` + consumer diff, then formatted) | `cargo test -p pi-ai --test model_data_tools -- --nocapture` | GREEN 14/14, 0 ignored; `model-data-tools-lossless-green-1.log` | Native checker subsequently replaced; consumer proof retained |
+| `f139cff` + native fixture | same target, `native_checker_defaults` filter | RED usage exit 2 vs expected 0; `model-data-tools-native-red.log` | Historical native RED |
+| `cbe93f4` production/tests (run on `f139cff` + native diff, then formatted) | full module target above | GREEN 15/15, 0 ignored; `model-data-tools-native-green-1.log` | Current 15-test scope, production unchanged |
+| `cbe93f4` + typed UTF-16 corpus and opaque request transport | same target, `typed_utf16_ids` filter | GREEN 1/1, 15 filtered; `model-data-tools-typed-utf16-proof.log` | Additive API proof; no production change |
 
-Expanded passing proof includes both caller Node flag and death of oracle plus process-group leader after owner exits without Drop, native checker success/failure output printed from real subprocesses, ordered numeric provider/model/API keys, ignored unrelated files, provider-directory IO throws, and the newly repaired legacy timestamps through the actual validator.
-
-No broad/check/clippy/readability/final-integration/deploy gates run. Shared date changes invalidate relevant integration proof after merge, not the unchanged canonical checkout's earlier proof.
-
-## Lossless consumer completion (2026-10-20)
-
-Shared prerequisite `850b6e8` (canonical integration `e31b4c8`) is merged. Structure keys/API values, file-content constructor input, generated-at constructor input and diagnostic messages now retain `JsString` UTF-16 identity. Raw metadata uses `parse_lossless`/`JsObject` and shared numeric-first enumeration throughout. `model_data_structure_json`, manifest `to_json`/`stringify`, and error `message()` expose lossless output; only error Display and Node-compatible filesystem/hash UTF-8 boundaries replace unpaired surrogates. No local parser or encoding duplicate.
-
-`cf0e110` + lossless consumer working diff: `cargo test -p pi-ai --test model_data_tools -- --nocapture` GREEN 14/14 (0 ignored), `/tmp/model-data-tools-lossless-green-1.log`. Historical surrogate REDs above are resolved; native checker adaptation remains next. Number semantics unchanged. No date command rerun.
-
-## Native checker implementation (2026-10-20)
-
-User selected “Check Rust catalog (Recommended)” in the exact layout decision recorded in [checker traceability](check-model-data.md#authorized-layout-decision). Source-layout helper APIs remain literal source contracts; no default/fallback uses them. `native_model_data_structure` and `validate_native_model_data` implement authorized native adaptation. Native RED/GREEN and pre-existing snapshot discrepancy are recorded in that document.
-
-`f139cff` + native working diff: focused module target GREEN 15/15, `/tmp/model-data-tools-native-green-1.log`; includes unchanged lossless consumer corpus. Formatter-only changes do not invalidate behavioral proof. Parent retains final verification.
+Latest evidence is 15 existing tests plus one newly targeted test, not a claimed single 16-test run. The added transport branch does not change existing requests lacking `requestJson`. Formatter-only edits do not invalidate behavior. No broad/check/clippy/readability/final-integration/deployment gates run; parent owns those gates. No catalog refresh, live HTTP/config/DB or canonical edits.

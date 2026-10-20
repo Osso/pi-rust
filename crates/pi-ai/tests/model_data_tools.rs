@@ -598,3 +598,92 @@ fn native_checker_defaults_to_rust_layout_without_source_files_or_arguments() {
         );
     }
 }
+
+#[test]
+fn typed_utf16_ids_structure_hash_and_manifest_match_complete_ts_bytes() {
+    let mut oracle = TsOracle::spawn("model-data-oracle.ts", MODULE);
+    let high = JsString::from_utf16(vec![0xd800]);
+    let low = JsString::from_utf16(vec![0xdc00]);
+    let pair = JsString::from_utf16(vec![0xd800, 0xdc00]);
+    let replacement = JsString::from("�");
+    let expected = vec![
+        high.clone(),
+        replacement.clone(),
+        pair.clone(),
+        low.clone(),
+        high.clone(),
+    ];
+    let actual = vec![replacement.clone()];
+    let request = JsValue::Object(
+        [
+            ("op".into(), JsValue::String("ids".into())),
+            ("encodeResponse".into(), JsValue::Bool(true)),
+            ("label".into(), JsValue::String(high.clone())),
+            (
+                "expected".into(),
+                JsValue::Array(expected.iter().cloned().map(JsValue::String).collect()),
+            ),
+            (
+                "actual".into(),
+                JsValue::Array(actual.iter().cloned().map(JsValue::String).collect()),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let response = oracle.request(&json!({"requestJson":js_json::stringify_lossless(&request)}));
+    assert_eq!(
+        json!(encoded(
+            assert_exact_model_ids(&high, expected, actual).map(|()| JsValue::Null)
+        )),
+        response
+    );
+    let structure: ModelDataStructure = [(
+        high.clone(),
+        [
+            (high.clone(), low.clone()),
+            (replacement.clone(), pair.clone()),
+            ("10".into(), high.clone()),
+            ("2".into(), low.clone()),
+        ]
+        .into_iter()
+        .collect(),
+    )]
+    .into_iter()
+    .collect();
+    let files: indexmap::IndexMap<JsString, JsString> =
+        [(high.clone(), low.clone()), (replacement.clone(), pair.clone())]
+            .into_iter()
+            .collect();
+    for op in ["hash", "manifest"] {
+        let request = JsValue::Object(
+            [
+                ("op".into(), JsValue::String(op.into())),
+                ("encodeResponse".into(), JsValue::Bool(true)),
+                ("structure".into(), model_data_structure_json(&structure)),
+                (
+                    "files".into(),
+                    JsValue::Object(
+                        files
+                            .iter()
+                            .map(|(k, v): (&JsString, &JsString)| (k.clone(), JsValue::String(v.clone())))
+                            .collect(),
+                    ),
+                ),
+                ("generatedAt".into(), JsValue::String(high.clone())),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let output = if op == "hash" {
+            JsValue::String(model_data_structure_hash(&structure).as_str().into())
+        } else {
+            create_model_data_manifest(&structure, &files, &high).to_json()
+        };
+        assert_eq!(
+            json!(encoded(Ok(output))),
+            oracle.request(&json!({"requestJson":js_json::stringify_lossless(&request)})),
+            "{op}"
+        );
+    }
+}

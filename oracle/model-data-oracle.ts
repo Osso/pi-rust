@@ -64,7 +64,11 @@ async function main() {
 	for await (const line of createInterface({ input: process.stdin })) {
 		let encodeResponse = false;
 		try {
-			const request = JSON.parse(line);
+			const envelope = JSON.parse(line);
+			// Double-encoded transport preserves every UTF-16 key/value through serde.
+			const request = typeof envelope.requestJson === "string"
+				? JSON.parse(envelope.requestJson)
+				: envelope;
 			encodeResponse = request.encodeResponse === true;
 			let output;
 			switch (request.op) {
