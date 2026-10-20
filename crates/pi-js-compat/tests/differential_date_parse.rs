@@ -115,7 +115,7 @@ const VALUES: &[&str] = &[
     "2020-01-01T00",
 ];
 
-fn compare(zone_name: &str, time_zone: &TimeZone) {
+fn compare_values(zone_name: &str, time_zone: &TimeZone, values: &[&str]) {
     let environment = [("TZ", OsString::from(zone_name))];
     let pairs: Vec<(&str, OsString)> = environment.iter().map(|(name, value)| (*name, value.clone())).collect();
     let mut oracle =
@@ -123,7 +123,7 @@ fn compare(zone_name: &str, time_zone: &TimeZone) {
     let response = oracle.request(&json!({
         "id": zone_name,
         "operation": "date_parse",
-        "values": VALUES,
+        "values": values,
     }));
     assert_eq!(response["ok"], true, "oracle failed: {response}");
     let expected: Vec<Option<i64>> = response["output"]["results"]
@@ -132,7 +132,7 @@ fn compare(zone_name: &str, time_zone: &TimeZone) {
         .iter()
         .map(|value| value.as_i64())
         .collect();
-    let actual: Vec<Option<i64>> = VALUES
+    let actual: Vec<Option<i64>> = values
         .iter()
         .map(|value| {
             let parsed = date_parse_with_time_zone(value, time_zone);
@@ -140,19 +140,19 @@ fn compare(zone_name: &str, time_zone: &TimeZone) {
         })
         .collect();
     for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
-        assert_eq!(actual, expected, "TZ={zone_name}: Date.parse({:?})", VALUES[index]);
+        assert_eq!(actual, expected, "TZ={zone_name}: Date.parse({:?})", values[index]);
     }
 }
 
 #[test]
 fn matches_node_date_parse_in_utc() {
-    compare("UTC", &TimeZone::UTC);
+    compare_values("UTC", &TimeZone::UTC, VALUES);
 }
 
 #[test]
 fn matches_node_date_parse_in_america_chicago() {
     let zone = TimeZone::get("America/Chicago").expect("tzdb");
-    compare("America/Chicago", &zone);
+    compare_values("America/Chicago", &zone, VALUES);
 }
 
 #[test]
@@ -181,5 +181,32 @@ fn matches_node_date_parse_in_the_inherited_zone() {
         .collect();
     for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
         assert_eq!(actual, expected, "Date.parse({:?})", VALUES[index]);
+    }
+}
+
+#[test]
+fn numeric_dates_match_node_in_utc_and_chicago() {
+    let mut values: Vec<String> = (0..=100).map(|n| n.to_string()).collect();
+    values.extend(
+        [
+            "000", "001", "009", "012", "013", "049", "050", "099", "999", "1000", "9999", "10000", "99999", "275760",
+            "275761", "999999", "00000", "00001", "00049", "+0", "-0", "+1", "-1", " 0 ", "0Z", "0z", "-000001",
+            "+000001", "1x",
+        ]
+        .map(str::to_owned),
+    );
+    let refs: Vec<&str> = values.iter().map(String::as_str).collect();
+    for (name, zone) in [
+        ("UTC", TimeZone::UTC),
+        ("America/Chicago", TimeZone::get("America/Chicago").unwrap()),
+    ] {
+        let mut oracle = oracle::TsOracle::spawn_with_environment(
+            "js-compat-oracle.ts",
+            "packages/coding-agent/src/index.ts",
+            &[("TZ", name.into())],
+        );
+        let response = oracle.request(&json!({"id":"numeric-probe","operation":"date_parse","values":refs}));
+        println!("numeric oracle {name}: {}", response["output"]);
+        compare_values(name, &zone, &refs);
     }
 }

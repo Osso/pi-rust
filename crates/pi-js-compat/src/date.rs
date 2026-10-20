@@ -71,7 +71,38 @@ fn parse_date(input: &str, zone: &TimeZone) -> Option<i64> {
     if let Some(millis) = parse_http_date(input, zone) {
         return Some(millis);
     }
-    parse_iso8601_millis(input, zone)
+    if let Some(millis) = parse_iso8601_millis(input, zone) {
+        return Some(millis);
+    }
+    parse_numeric_date(input, zone)
+}
+
+// V8's legacy single-number grammar: 0 is Jan 2000, 1..12 are months
+// in 2001, 13..31 are invalid, 32..99 are two-digit years. Strict ISO
+// four-digit/signed-six-digit years have already been handled above.
+fn parse_numeric_date(input: &str, zone: &TimeZone) -> Option<i64> {
+    let input = crate::string::js_trim(input);
+    let (digits, utc) = match input.strip_suffix(['Z', 'z']) {
+        Some(digits) => (crate::string::js_trim(digits), true),
+        None => (input, false),
+    };
+    let digits = digits.strip_prefix(['+', '-']).unwrap_or(digits);
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let number = digits.parse::<i64>().ok()?;
+    let (year, month) = match number {
+        0 => (2000, 1),
+        1..=12 => (2001, number),
+        13..=31 => return None,
+        32..=49 => (2000 + number, 1),
+        50..=99 => (1900 + number, 1),
+        _ => (number, 1),
+    };
+    if year > 275760 {
+        return None;
+    }
+    finish_date(days_from_civil(year, month, 1), 0, 0, 0, 0, utc.then_some(0), zone)
 }
 
 fn parse_http_date(input: &str, zone: &TimeZone) -> Option<i64> {
