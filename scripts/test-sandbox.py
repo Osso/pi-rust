@@ -151,6 +151,8 @@ def launch(command):
         "/tmp",
         "--dev",
         "/dev",
+        "--proc",
+        "/proc",
     ]
     for source in dict.fromkeys([*reference_inputs(), *pyrun_inputs()]):
         bind(arguments, source)

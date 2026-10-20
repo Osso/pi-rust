@@ -248,6 +248,8 @@ def outer(binary):
             "--unshare-net",
             "--dev",
             "/dev",
+            "--proc",
+            "/proc",
             "--ro-bind",
             str(fake),
             HELPER,
