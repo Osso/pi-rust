@@ -77,6 +77,49 @@ impl JsValue {
     }
 }
 
+/// JavaScript Boolean conversion at a lossless JSON boundary.
+pub fn is_truthy(value: &JsValue) -> bool {
+    match value {
+        JsValue::Null => false,
+        JsValue::Bool(flag) => *flag,
+        JsValue::Number(number) => number.as_f64().is_some_and(|number| number != 0.0),
+        JsValue::String(text) => !text.units().is_empty(),
+        JsValue::Array(_) | JsValue::Object(_) => true,
+    }
+}
+
+/// JavaScript String conversion at a lossless JSON boundary.
+/// JSON objects cannot supply callable own methods; a shadowed `toString` therefore throws.
+pub fn to_js_string(value: &JsValue) -> Result<JsString, &'static str> {
+    match value {
+        JsValue::Null => Ok(JsString::from("null")),
+        JsValue::Bool(flag) => Ok(JsString::from(if *flag { "true" } else { "false" })),
+        JsValue::Number(number) => Ok(JsString::from(
+            js_number_to_string(number.as_f64().expect("JSON number")).as_str(),
+        )),
+        JsValue::String(text) => Ok(text.clone()),
+        JsValue::Array(items) => {
+            let mut units = Vec::new();
+            for (index, item) in items.iter().enumerate() {
+                if index != 0 {
+                    units.push(u16::from(b','));
+                }
+                if !matches!(item, JsValue::Null) {
+                    units.extend_from_slice(to_js_string(item)?.units());
+                }
+            }
+            Ok(JsString::from_utf16(units))
+        }
+        JsValue::Object(object) => {
+            if object.contains_key(&JsString::from("toString")) {
+                Err("Cannot convert object to primitive value")
+            } else {
+                Ok(JsString::from("[object Object]"))
+            }
+        }
+    }
+}
+
 impl From<&Value> for JsValue {
     fn from(value: &Value) -> Self {
         match value {
