@@ -289,7 +289,7 @@ async fn ssh_fixture_remote_matches_pinned_example() {
             .map(|key| (key.to_string(), ColorValue::Text("#abcdef".into())))
             .collect::<Vec<_>>();
         set_theme_instance(Arc::new(
-            Theme::new(&colors, &[], ColorMode::Truecolor, None, None).unwrap(),
+            Theme::new(&colors, &colors, ColorMode::Truecolor, None, None).unwrap(),
         ));
         let mut execution = ToolExecutionComponent::new(
             "read",
