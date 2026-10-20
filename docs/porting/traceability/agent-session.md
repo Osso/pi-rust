@@ -17,8 +17,10 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
 | `getAssistantMessageText` | `get_assistant_message_text` | duplicate/stat paths |
 | `shouldContinueInterruptedSession` | `should_continue_interrupted_session` | unit helper |
 | `isPermissionPromptProtocolTool` | `is_permission_prompt_protocol_tool` | discovery tests |
-| `DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE`, `buildDetachedToolCallCompletionEntry` | gap | multi-agent store slice |
-| `bindAgentSessionMutationTargetResolver` | gap | interactive slice |
+| `DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE`, `buildDetachedToolCallCompletionEntry` | `DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE`, `build_detached_tool_call_completion_entry` | `tests/agent_session_runtime_mailbox.rs` (detached completion delivery) |
+| `bindAgentSessionMutationTargetResolver` | `bind_agent_session_mutation_target_resolver` | `tests/agent_session_mutation_target.rs` |
+| `detachRunningTool` / `detachBashTool` / `hasDetachableTool` / `hasDetachableBashTool` | `detach_running_tool` / `detach_bash_tool` / `has_detachable_tool` / `has_detachable_bash_tool` | `tests/agent_session.rs::detach_running_tool_and_detach_bash_tool_delegate_to_the_tool_detach_registry` |
+| `getToolDetachRegistry` context action | `get_tool_detach_registry` in `build_extension_context_actions` | same test reads the registry through `ExtensionContext::tool_detach_registry` |
 
 ## Behavior coverage
 
@@ -49,7 +51,11 @@ Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_se
   context estimate, materialization, abort hooks, compaction extension overrides.
 - Bash: `executeBash` over `bash_executor` (shell prefix, streaming
   `bash_execution_update`, abort tokens), `recordBashResult`, pending flush,
-  `abortBash`.
+  `abortBash`. `detachRunningTool`/`detachBashTool` and
+  `hasDetachableTool`/`hasDetachableBashTool` delegate to the session's
+  `ToolDetachRegistry` (`detach_running`/`has_running`); detaching does not
+  unregister the handle, matching the source where the tool's subscription
+  unregisters when its execution ends.
 - Permissions: tool gates, auto-approve reviewers, approval orchestrator, MCP
   permission-prompt protocol tool (discovery/config, rule-store skip, updated input
   write-back), human UI reviewer (including the `Allow always` background

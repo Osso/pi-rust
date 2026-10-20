@@ -632,7 +632,7 @@ async fn dispatch_builtin_pyrun_request(
         }
         "restart" => {
             let future = ctx.restart(Some(normalize_restart_params(Some(&request.params))?))?;
-            future.await;
+            future.await?;
             Ok(Some(json!({"started": true})))
         }
         "sessions.resume" => {

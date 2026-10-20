@@ -5,7 +5,7 @@ mod image_fixtures;
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use pi_agent_core::agent::AgentOptions;
 use pi_agent_core::agent::types::AgentMessage;
@@ -26,6 +26,7 @@ use pi_coding_agent::core::extensions::types::{ExtensionMode, ExtensionUiContext
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
+use pi_coding_agent::core::tool_detach_registry::ToolDetachHandle;
 use serde_json::json;
 
 struct Fixture {
@@ -2631,4 +2632,58 @@ async fn supervisor_requester_errors_abort_the_tool_call() {
     let (is_error, text) = tool_result_text(&fixture);
     assert!(is_error);
     assert_eq!(text, "supervisor unavailable");
+}
+
+struct RecordingDetachHandle {
+    detached: Arc<AtomicBool>,
+    accepts: bool,
+}
+
+impl ToolDetachHandle for RecordingDetachHandle {
+    fn detach(&self) -> bool {
+        self.detached.store(true, Ordering::SeqCst);
+        self.accepts
+    }
+}
+
+#[tokio::test]
+async fn detach_running_tool_and_detach_bash_tool_delegate_to_the_tool_detach_registry() {
+    let fixture = fixture().await;
+    let context = fixture.session.extension_runner().create_context();
+    let registry = context
+        .tool_detach_registry()
+        .expect("registry getter")
+        .expect("session registry");
+
+    assert!(!fixture.session.has_detachable_tool());
+    assert!(!fixture.session.has_detachable_bash_tool());
+    assert!(!fixture.session.detach_running_tool());
+    assert!(!fixture.session.detach_bash_tool());
+
+    let detached = Arc::new(AtomicBool::new(false));
+    let subscription = registry.register(Arc::new(RecordingDetachHandle {
+        detached: Arc::clone(&detached),
+        accepts: false,
+    }));
+    assert!(fixture.session.has_detachable_tool());
+    assert!(fixture.session.has_detachable_bash_tool());
+    assert!(!fixture.session.detach_running_tool());
+    assert!(detached.load(Ordering::SeqCst));
+
+    let accepted = Arc::new(AtomicBool::new(false));
+    let accepted_subscription = registry.register(Arc::new(RecordingDetachHandle {
+        detached: Arc::clone(&accepted),
+        accepts: true,
+    }));
+    assert!(fixture.session.detach_bash_tool());
+    assert!(accepted.load(Ordering::SeqCst));
+    assert!(
+        fixture.session.has_detachable_tool(),
+        "detach does not unregister the handle; the tool's subscription does"
+    );
+
+    drop(accepted_subscription);
+    drop(subscription);
+    assert!(!fixture.session.has_detachable_tool());
+    assert!(!fixture.session.has_detachable_bash_tool());
 }

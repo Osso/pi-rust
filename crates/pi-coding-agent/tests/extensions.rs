@@ -1382,7 +1382,7 @@ async fn command_context_passes_fork_options_through() {
         navigate_tree: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         switch_session: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         reload: Arc::new(|| Box::pin(async {})),
-        restart: Arc::new(|_| Box::pin(async {})),
+        restart: Arc::new(|_| Box::pin(async { Ok(()) })),
     }));
 
     let context = runner.create_command_context();

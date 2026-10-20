@@ -143,7 +143,7 @@ fn context_actions() -> ExtensionContextActions {
         abort: Arc::new(|| {}),
         has_pending_messages: Arc::new(|| false),
         shutdown: Arc::new(|| {}),
-        restart: Arc::new(|_| Box::pin(async {})),
+        restart: Arc::new(|_| Box::pin(async { Ok(()) })),
         get_control_db_path: None,
         get_context_usage: Arc::new(|| None),
         get_multi_agent_agent_id: None,

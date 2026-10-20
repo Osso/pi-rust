@@ -6278,6 +6278,22 @@ impl AgentSession {
         !lock(&self.inner.bash_abort_controllers).is_empty()
     }
 
+    pub fn detach_running_tool(&self) -> bool {
+        self.inner.tool_detach_registry.detach_running()
+    }
+
+    pub fn detach_bash_tool(&self) -> bool {
+        self.detach_running_tool()
+    }
+
+    pub fn has_detachable_tool(&self) -> bool {
+        self.inner.tool_detach_registry.has_running()
+    }
+
+    pub fn has_detachable_bash_tool(&self) -> bool {
+        self.has_detachable_tool()
+    }
+
     pub fn has_pending_bash_messages(&self) -> bool {
         !lock(&self.inner.pending_bash_messages).is_empty()
     }
@@ -7864,17 +7880,29 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
         }
     });
     let restart_weak = weak.clone();
-    let restart: Arc<
-        dyn Fn(Option<crate::core::extensions::types::RestartOptions>) -> BoxFuture<'static, ()> + Send + Sync,
-    > = Arc::new(move |options| {
+    let restart: crate::core::extensions::types::RestartHandler = Arc::new(move |options| {
         let Some(inner) = restart_weak.upgrade() else {
-            return Box::pin(async {}) as BoxFuture<'static, ()>;
+            return Box::pin(async {
+                Err(crate::core::extensions::types::HandlerError::new(
+                    "Restart is not available in this session mode",
+                ))
+            }) as BoxFuture<'static, Result<(), crate::core::extensions::types::HandlerError>>;
         };
         let session = AgentSession { inner };
+        if session.inner.multi_agent_runtime_role == Some(MultiAgentRuntimeRole::Child) {
+            return Box::pin(async {
+                Err(crate::core::extensions::types::HandlerError::new(
+                    "Child agent runtimes cannot restart Pi",
+                ))
+            });
+        }
         let actions = lock(&session.inner.extension_command_context_actions).clone();
         Box::pin(async move {
-            if let Some(actions) = actions {
-                (actions.restart)(options).await;
+            match actions {
+                Some(actions) => (actions.restart)(options).await,
+                None => Err(crate::core::extensions::types::HandlerError::new(
+                    "Restart is not available in this session mode",
+                )),
             }
         })
     });
@@ -7971,7 +7999,10 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
             move || weak.upgrade().is_some_and(|inner| inner.multi_agent_requires_agent_id)
         })),
         get_multi_agent_store: None,
-        get_tool_detach_registry: None,
+        get_tool_detach_registry: Some(Arc::new({
+            let weak = weak.clone();
+            move || weak.upgrade().map(|inner| Arc::clone(&inner.tool_detach_registry))
+        })),
         compact,
         get_system_prompt,
         get_system_prompt_options,

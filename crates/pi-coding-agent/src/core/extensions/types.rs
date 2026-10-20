@@ -689,6 +689,10 @@ pub struct RestartOptions {
     pub process: Option<bool>,
 }
 
+/// Restart handler stored on live extension contexts.
+pub type RestartHandler =
+    Arc<dyn Fn(Option<RestartOptions>) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
+
 /// Session control methods only safe in user-initiated commands.
 #[derive(Clone, Default)]
 pub struct NewSessionOptions {
@@ -756,7 +760,7 @@ pub struct ExtensionContextState {
     pub(super) abort_fn: Arc<dyn Fn() + Send + Sync>,
     pub(super) has_pending_messages_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) shutdown_handler: Arc<dyn Fn() + Send + Sync>,
-    pub(super) restart_fn: Arc<dyn Fn(Option<RestartOptions>) -> BoxFuture<'static, ()> + Send + Sync>,
+    pub(super) restart_fn: RestartHandler,
     pub(super) get_control_db_path_fn: Arc<dyn Fn() -> Option<String> + Send + Sync>,
     pub(super) get_context_usage_fn: Arc<dyn Fn() -> Option<ContextUsage> + Send + Sync>,
     pub(super) get_multi_agent_agent_id_fn: Arc<dyn Fn() -> Option<String> + Send + Sync>,
@@ -813,7 +817,7 @@ impl ExtensionContextState {
             abort_fn: Arc::new(|| {}),
             has_pending_messages_fn: Arc::new(|| false),
             shutdown_handler: Arc::new(|| {}),
-            restart_fn: Arc::new(|_| Box::pin(async {})),
+            restart_fn: Arc::new(|_| Box::pin(async { Ok(()) })),
             get_control_db_path_fn: Arc::new(|| None),
             get_context_usage_fn: Arc::new(|| None),
             get_multi_agent_agent_id_fn: Arc::new(|| None),
@@ -1095,7 +1099,10 @@ impl ExtensionContext {
         self.callback(|state| Arc::clone(&state.shutdown_handler))
     }
 
-    pub fn restart(&self, options: Option<RestartOptions>) -> Result<BoxFuture<'static, ()>, HandlerError> {
+    pub fn restart(
+        &self,
+        options: Option<RestartOptions>,
+    ) -> Result<BoxFuture<'static, Result<(), HandlerError>>, HandlerError> {
         let restart = self.read(|state| Arc::clone(&state.restart_fn))?;
         Ok(restart(options))
     }
@@ -2724,7 +2731,7 @@ pub struct ExtensionContextActions {
     pub abort: Arc<dyn Fn() + Send + Sync>,
     pub has_pending_messages: Arc<dyn Fn() -> bool + Send + Sync>,
     pub shutdown: Arc<dyn Fn() + Send + Sync>,
-    pub restart: Arc<dyn Fn(Option<RestartOptions>) -> BoxFuture<'static, ()> + Send + Sync>,
+    pub restart: RestartHandler,
     pub get_control_db_path: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
     pub get_context_usage: Arc<dyn Fn() -> Option<ContextUsage> + Send + Sync>,
     pub get_multi_agent_agent_id: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
@@ -2748,7 +2755,7 @@ pub struct ExtensionCommandContextActions {
     pub navigate_tree: NavigateTreeCallback,
     pub switch_session: SwitchSessionCallback,
     pub reload: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
-    pub restart: Arc<dyn Fn(Option<RestartOptions>) -> BoxFuture<'static, ()> + Send + Sync>,
+    pub restart: RestartHandler,
 }
 
 /// Shared provider registration hooks.

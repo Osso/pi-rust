@@ -63,6 +63,9 @@ notify-based child transcript reloads are implemented and behavior-tested.
 | `completedToolTimings` | `completed_tool_timings` | `ui_tests::render_session_entries_replays_tool_calls_and_results` |
 | `maybeShowCacheMissNotice` / `addCacheMissNotice` | `maybe_show_cache_miss_notice` / `add_cache_miss_notice` | `ui_tests::message_end_shows_a_cache_miss_notice` |
 | `handleCtrlZ` / `suspendToBackground` | `handle_ctrl_z` / `suspend_to_background` | no direct test (sends SIGTSTP) |
+| `detachRunningTool` + `app.tool.background` action + startup hint | `detach_running_tool` + `on_action("app.tool.background")` + `key_hint("app.tool.background", ...)` | `ui_tests::background_tool_keybinding_detaches_the_running_tool_and_shows_the_hint` |
+| `registerSignalHandlers` / `unregisterSignalHandlers` / `shutdown({fromSignal})` / `restartProcess({fromSignal})` | `register_signal_handlers` / `unregister_signal_handlers` / `shutdown_from_signal` / `restart_from_signal` | `main_interactive::sigterm_shuts_down_interactive_mode_gracefully`, `main_interactive::sighup_restarts_interactive_mode_in_place` |
+| Command-context `restart` -> `runtimeHost.restart({process: true})` | `UiRequest::RuntimeRestart` always passes `process: true` and returns the runtime error to the extension caller | `ui_tests::command_restart_always_restarts_the_process_and_propagates_errors` |
 
 ## Implemented branches
 
@@ -72,7 +75,9 @@ notify-based child transcript reloads are implemented and behavior-tested.
   package labels), `buildScopeGroups`, `formatScopeGroups`,
   `formatDiagnostics` (collision groups + other diagnostics), `formatCompactList`,
   `ExpandableText`.
-- Startup: theme registration, fullscreen/regular layout, header, loaded
+- Startup: theme registration, fullscreen/regular layout, header (the
+  background-tool hint is rendered through `key_hint`; the remaining header
+  lines are the existing fixed labels), loaded
   resources (context, user rules, tools, skills, prompts, extensions, themes,
   diagnostics), initial messages, extension binding, subscription.
 - Session events: agent/model-request lifecycle, user/assistant/custom message
@@ -147,6 +152,10 @@ has no separate render-region callbacks.
 
 ## Discrepancies
 
+- `restart_from_signal` logs a restart failure to stderr and leaves the TUI
+  running. The source's `void restartProcess(...)` rejection reaches
+  `uncaughtCrash`, which restores the terminal and exits 1; `uncaughtCrash` is
+  not ported in this slice.
 - `SelectAgentView` is async (`BoxFuture<Option<bool>>`) because the TUI lives on
   a `LocalSet` thread; the bridge selector sends a `UiRequest` and awaits the
   UI-thread result instead of calling the mode synchronously.

@@ -146,9 +146,10 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                     (options.notice, options.process.unwrap_or(false))
                 });
                 let mut runtime = runtime.lock().await;
-                if let Err(error) = runtime.restart(notice.as_deref(), process).await {
-                    eprintln!("{error}");
-                }
+                runtime
+                    .restart(notice.as_deref(), process)
+                    .await
+                    .map_err(HandlerError::new)
             })
         }),
     }

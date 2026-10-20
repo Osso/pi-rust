@@ -724,9 +724,17 @@ impl AgentSessionRuntime {
             return Ok(SessionTransitionResult { cancelled: true });
         }
         let previous_session_file = self.session.session_file();
-        if std::fs::canonicalize(&destination_path).ok().as_deref() != std::fs::canonicalize(&resolved).ok().as_deref()
-        {
-            std::fs::copy(&resolved, &destination_path).map_err(|error| error.to_string())?;
+        let resolved_destination = resolve_path(
+            &destination_path,
+            &process_cwd(),
+            &PathInputOptions {
+                expand_tilde: Some(false),
+                ..PathInputOptions::default()
+            },
+        )
+        .map_err(|error| error.to_string())?;
+        if resolved_destination != resolved {
+            copy_imported_session(&resolved, &destination_path)?;
         }
         let session_manager = SessionManager::open(&destination_path, Some(&session_dir), cwd_override)
             .map_err(|error| error.to_string())?;
@@ -747,10 +755,48 @@ impl AgentSessionRuntime {
 
     /// Disposes the runtime and its session.
     pub async fn dispose(&mut self) {
+        let runner = self.session.extension_runner();
+        emit_session_shutdown_event(
+            &runner,
+            SessionShutdownEvent {
+                reason: SessionShutdownReason::Quit,
+                target_session_file: None,
+            },
+        )
+        .await;
         if let Some(handler) = &self.before_session_invalidate {
             handler();
         }
         self.session.dispose();
+    }
+}
+
+/// Copies an imported session file. `copyFileSync` treats source and destination
+/// that name the same file as a no-op, which is reachable once the caller
+/// compares lexical `path.resolve` paths instead of canonical paths.
+fn copy_imported_session(source: &str, destination: &str) -> Result<(), String> {
+    if is_same_file(source, destination) {
+        return Ok(());
+    }
+    std::fs::copy(source, destination)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(unix)]
+fn is_same_file(left: &str, right: &str) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::metadata(left), std::fs::metadata(right)) {
+        (Ok(left), Ok(right)) => left.dev() == right.dev() && left.ino() == right.ino(),
+        _ => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn is_same_file(left: &str, right: &str) -> bool {
+    match (std::fs::canonicalize(left), std::fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
     }
 }
 
