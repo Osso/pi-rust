@@ -152,7 +152,6 @@ def inside(proof, binary):
         "PASS default startup, PTY, shutdown hook argv, private DB, no forbidden helper, no running children",
         flush=True,
     )
-    probe_network_and_nested_inputs(proof)
 
 
 def probe_network_and_nested_inputs(proof):
@@ -161,7 +160,15 @@ def probe_network_and_nested_inputs(proof):
     literal = proof / "tmp/parent fixture.txt"
     literal.write_text("parent fixture")
     probe = proof / "network-probe.py"
-    probe.write_text("""import errno, http.server, os, pathlib, socket, threading, urllib.request
+    probe.write_text("""import errno, http.server, os, pathlib, pty, socket, subprocess, threading, urllib.request
+master, slave = pty.openpty()
+os.close(master)
+os.close(slave)
+for line in pathlib.Path('/proc/self/status').read_text().splitlines():
+    if line.startswith(('CapInh:', 'CapAmb:', 'CapEff:')):
+        assert int(line.split()[1], 16) == 0, line
+helper = subprocess.run(['/home/osso/.cargo/bin/claude-memory', 'runner-probe'], capture_output=True, text=True, check=True)
+assert helper.stdout.strip() == 'test helper: invocation recorded', helper
 assert pathlib.Path(os.environ["LITERAL_FIXTURE"]).read_text() == "parent fixture"
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -188,7 +195,7 @@ with socket.socket() as client:
         raise AssertionError("external network route exists")
 assert "ANTHROPIC_API_KEY" not in os.environ
 assert not pathlib.Path("/home/osso/.ssh").exists()
-print("PASS actual loopback HTTP, denied external route, nested literal fixture, private environment")
+print("PASS private PTY, dropped capabilities, masked helper, actual loopback HTTP, denied external route, nested literal fixture, private environment")
 """)
     # Put the literal path in argv, not an inherited arbitrary environment entry.
     payload = proof / "network-entry.py"
@@ -230,6 +237,10 @@ print("PASS actual loopback HTTP, denied external route, nested literal fixture,
 def outer(binary):
     with tempfile.TemporaryDirectory(prefix="pi-cli-isolation-") as temporary:
         proof = Path(temporary)
+        (proof / "tmp").mkdir()
+        probe_network_and_nested_inputs(proof)
+        # The startup assertion below expects only the shutdown hook invocation.
+        (proof / "helper.jsonl").unlink()
         fake = proof / "forbidden-helper"
         fake.write_text(
             "#!/usr/bin/python3\nimport json, os, sys\n"

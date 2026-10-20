@@ -50,10 +50,14 @@ collecting proof.
 Every protected process gets new user/network namespaces with loopback enabled
 but no external interface/route. NET_ADMIN is retained only within those child
 namespaces to bring up their loopback, then dropped before executing tests;
-host interfaces are unchanged. Local HTTP/oracle fixtures, PTY descriptors, process
+host interfaces are unchanged. After loopback bootstrap and capability dropping,
+a nested user/mount namespace creates private `/dev` and devpts/ptmx; no host
+PTY allocator or device permissions are changed. Local HTTP/oracle fixtures, PTY descriptors, process
 groups and parent watchdogs remain usable. The bounded regression uses an outer
 namespace with a forbidden fake at the absolute helper path, real default Pi
-startup/double-Ctrl+C shutdown, and real loopback HTTP across nested guards. It
+startup/double-Ctrl+C shutdown, and real loopback HTTP across nested guards. A separate nested-runner probe
+allocates a private PTY, checks dropped capabilities, helper masking and denied
+external routes without inheriting the startup probe's private devices. It
 never uses the installed helper, even against the old runner.
 
 For protected integration, run the oracle phase as shown above, then invoke Cargo outside the runtime guard; its compiled tests enter the mandatory Cargo runner. Oracle configs/dynamic fixtures use private `TMPDIR`, not writable checkout paths. `run-tests.sh all` remains an unwrapped composite entrypoint, not a supported way to run Cargo inside this guard.
