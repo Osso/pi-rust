@@ -72,6 +72,10 @@ async function run(request: any) {
     const text=item.text, lines=[text], abort=new AbortController();
     if (item.aborted) abort.abort();
     const suggestions=await provider.getSuggestions(lines,0,text.length,{signal:abort.signal,force:false});
+    // Compatibility: native String UI boundaries encode lone surrogates as U+FFFD.
+    if (suggestions) for (const item of suggestions.items) {
+     for (const key of ["value","label","description"]) if (typeof item[key] === "string") item[key]=Buffer.from(item[key],"utf8").toString("utf8");
+    }
     result={suggestions,applied:provider.applyCompletion(lines,0,text.length,{value:"#101",label:"#101"},text),trigger:provider.shouldTriggerFileCompletion(lines,0,text.length)};
     break;
    }

@@ -47,18 +47,16 @@ async fn fixture_requests_cache_errors_and_completions_match() {
         for response in [
             json!({"code":0,"stdout":serde_json::to_string(&issues).unwrap(),"stderr":""}),
             json!({"code":0,"stdout":"[]","stderr":""}),
+            json!({"code":0,"stdout":r#"[{"number":77,"title":"Lone \ud800 and \udfff","state":"OPEN"}]"#,"stderr":""}),
             json!({"code":0,"stdout":"invalid","stderr":""}),
             json!({"code":7,"stdout":"","stderr":"  fixture failure\n"}),
             json!({"code":9,"stdout":"","stderr":""}),
         ] {
             std::fs::write(temp.path().join("response"), response.to_string()).unwrap();
-            harness::compare("github-issue-autocomplete",Arc::new(|api| {let result=example::github_issue_autocomplete_extension(api);Box::pin(async move {result})}),json!({"cwd":cwd,"path":path,"cases":[{"event":"session_start"},{"event":"autocomplete","text":"#"},{"event":"autocomplete","text":"#1"},{"event":"autocomplete","text":"#café"},{"event":"autocomplete","text":"#9999"},{"event":"autocomplete","text":"not#1"},{"event":"autocomplete","text":"\t#2"},{"event":"autocomplete","text":"#Fix"},{"event":"autocomplete","text":"#","aborted":true},{"event":"autocomplete","text":"#x#"},{"event":"autocomplete","text":"\n#1"},{"event":"session_start"},{"event":"autocomplete","text":"#101"}]})).await;
+            harness::compare("github-issue-autocomplete",Arc::new(|api| {let result=example::github_issue_autocomplete_extension(api);Box::pin(async move {result})}),json!({"cwd":cwd,"path":path,"cases":[{"event":"session_start"},{"event":"autocomplete","text":"#"},{"event":"autocomplete","text":"#1"},{"event":"autocomplete","text":"#café"},{"event":"autocomplete","text":"#9999"},{"event":"autocomplete","text":"not#1"},{"event":"autocomplete","text":"\t#2"},{"event":"autocomplete","text":"#Fix"},{"event":"autocomplete","text":"#","aborted":true},{"event":"autocomplete","text":"#x#"},{"event":"autocomplete","text":"\n#1"},{"event":"autocomplete","text":"#�"},{"event":"session_start"},{"event":"autocomplete","text":"#101"}]})).await;
         }
     }
     // Non-git cwd has the distinct resolution error and installs no wrapper.
-    let nested = temp.path().join("not-a-repo");
-    std::fs::create_dir(&nested).unwrap();
-    // git still finds its ancestor, so use a separate root.
     let nongit = tempfile::tempdir().unwrap();
     harness::compare("github-issue-autocomplete",Arc::new(|api| {let result=example::github_issue_autocomplete_extension(api);Box::pin(async move {result})}),json!({"cwd":nongit.path(),"path":path,"cases":[{"event":"session_start"},{"event":"autocomplete","text":"#1"}]})).await;
     pi_js_compat::process_env::remove("PATH");

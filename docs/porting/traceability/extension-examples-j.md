@@ -6,7 +6,7 @@ Native examples are embeddable `#[path]` modules, registered explicitly through
 
 | Source | Native entrypoint | Proof / blocker |
 | --- | --- | --- |
-| `github-issue-autocomplete.ts` | `github_issue_autocomplete_extension` | `example_github_issue_autocomplete`: real extension loader/runner on both sides, complete metadata/results/UI notifications and recorded gh argv compared through extended shared batch-B harness |
+| `github-issue-autocomplete.ts` | Partial `github_issue_autocomplete_extension` | STOPPED: lossless UTF-16 fuzzy candidate API absent; current targeted test RED (log 14). Ordinary-data differential previously GREEN; not full parity. |
 | `question.ts` | Not shipped | Blocked on extension editor host, below |
 | `questionnaire.ts` | Not shipped | Blocked on extension editor host, below |
 | `rpc-demo.ts` | `rpc_demo_extension` | `example_rpc_demo`: full real-RPC protocol frame comparison |
@@ -26,13 +26,30 @@ Native examples are embeddable `#[path]` modules, registered explicitly through
   responses in the temporary cwd. Real git reads fixture remotes only. All
   descendants execute inside cargo's mandatory test sandbox; no GitHub contact.
 - Typed issue records exclude invalid JavaScript value types per compatibility
-  policy. UI strings are valid Rust strings; lone-surrogate UI conversion uses
-  the established U+FFFD boundary policy, not a new exception.
+  policy. Raw JSON escaped lone surrogates are **not** excluded: see blocker.
+
+### STOPPED: lossless fuzzy candidate API
+
+Fixture gh JSON: `[{"number":77,"title":"Lone \ud800 and \udfff","state":"OPEN"}]`.
+Query `#�` must delegate to the base provider: TS's raw title contains no U+FFFD.
+The partial native port converts raw JSON strings to U+FFFD before matching and
+incorrectly returns issue #77. Log 14 compares the complete mismatching results;
+log 13 first reproduced serde's rejection of these otherwise-valid JSON escapes.
+
+Required API: fuzzy filtering accepting lossless UTF-16 candidate strings, with
+conversion only when formatting `AutocompleteItem` String fields. Existing
+`crates/pi-tui/src/fuzzy.rs:141` requires `get_text: impl Fn(&T) -> Vec<String>`;
+`fuzzy_match` at line 22 also accepts only `&str`. `js_json::JsString` preserves
+the input, but no fuzzy entrypoint accepts it. This batch must not duplicate or
+change core fuzzy logic. Implementation is frozen as partial; no current GREEN
+or full-parity claim. The failing regression remains enabled, not ignored.
+Approved U+FFFD conversion at the final UI boundary is applied to TS item fields
+in the shared oracle; converting before fuzzy matching is not that boundary.
 
 ## Form blockers (not partial implementations)
 
 Both pinned factories instantiate `new Editor(tui, editorTheme)`:
-`question.ts:91`, `questionnaire.ts:155`. Rust `EditorHost` requires
+`question.ts:89`, `questionnaire.ts:130`. Rust `EditorHost` requires
 `create_fixed_cell` (`crates/pi-tui/src/components/editor.rs:122-125`).
 The available `ExtensionUiTuiBackend`/`ExtensionUiTui` expose rendering, dimensions,
 and mode only (`crates/pi-coding-agent/src/core/extensions/types.rs:277-310`),
@@ -74,3 +91,13 @@ Observed adjacent discrepancy: relative extension path `rpc-demo` gives native
 command `sourceInfo.baseDir == ""`, TS `"."` (log 08). This belongs to core source
 metadata, outside the allowed example files; the fixture uses the same absolute
 extension path `/fixture/rpc-demo` on both sides. No core fix or fallback added.
+
+## Mutation checks and final state
+
+- GitHub top-20 → top-19 mutation: targeted test failed (log 11), reverted.
+  Historical proof at 9fb0ead; later surrogate work invalidates GitHub GREEN.
+- RPC prefill notification mutation: targeted test failed (log 12), reverted.
+  RPC source remains the GREEN log-10 implementation (formatting only afterward).
+- Form examples have no implementation/tests/mutations because of missing host API.
+- No merge/push, core API edits, live state, GitHub network calls, agents or model
+  CLIs. No lint/check/workspace suites. `cargo fmt` and `cargo fmt --check` pass.

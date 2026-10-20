@@ -125,9 +125,13 @@ async fn load_issues(
         );
         return Ok(None);
     }
-    match serde_json::from_str(&result.stdout) {
-        Ok(issues) => Ok(Some(issues)),
-        Err(_) => {
+    // Issue fields enter the native String UI surface with the approved U+FFFD conversion.
+    let parsed = pi_js_compat::js_json::parse(&result.stdout)
+        .ok()
+        .and_then(|value| serde_json::from_value(value).ok());
+    match parsed {
+        Some(issues) => Ok(Some(issues)),
+        None => {
             ui.notify(
                 "github-issue-autocomplete: failed to parse gh issue list output",
                 Some(NotifyType::Error),

@@ -117,3 +117,8 @@ await the core extension editor-host bridge; no partial forms are shipped.
 registry pattern. Demonstrates RPC dialogs, status/widgets/title and editor
 prefill. Dangerous bash calls require confirmation; no UI blocks them.
 `example_rpc_demo` exercises the real RPC transport using private sessions.
+
+**Batch J limitation:** GitHub autocomplete remains partial: raw JSON lone
+surrogates need a lossless UTF-16 fuzzy candidate API before conversion to UI
+strings. Its regression is currently RED; do not treat this as a parity-complete
+example. See `docs/porting/traceability/extension-examples-j.md` for blockers.
