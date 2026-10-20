@@ -106,23 +106,11 @@ pub async fn collect(mut stream: AssistantMessageEventStream) -> (Vec<AssistantM
     (events, result)
 }
 
-fn strip_scratch(block: &mut Value) {
-    if let Some(object) = block.as_object_mut() {
-        object.remove("index");
-        object.remove("partialJson");
-    }
-}
-
 pub fn normalize_message(message: &mut Value) {
     let Some(object) = message.as_object_mut() else {
         return;
     };
     object.insert("timestamp".to_owned(), Value::from(0));
-    if let Some(Value::Array(content)) = object.get_mut("content") {
-        for block in content {
-            strip_scratch(block);
-        }
-    }
 }
 
 pub fn normalize_event(event: &mut Value) {
@@ -133,9 +121,6 @@ pub fn normalize_event(event: &mut Value) {
         if let Some(message) = object.get_mut(key) {
             normalize_message(message);
         }
-    }
-    if let Some(tool_call) = object.get_mut("toolCall") {
-        strip_scratch(tool_call);
     }
 }
 

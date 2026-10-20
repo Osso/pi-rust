@@ -1685,6 +1685,7 @@ pub async fn process_completions_stream(
                         thinking: String::new(),
                         thinking_signature: Some(signature.to_owned()),
                         redacted: None,
+                        index: None,
                     }));
                     let index = output.content.len() - 1;
                     thinking_block = Some(index);

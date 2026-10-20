@@ -671,6 +671,42 @@ fn scenarios() -> Vec<Scenario> {
         text_script(),
     ));
 
+    for (block, delta) in [
+        (
+            json!({"type": "text", "text": ""}),
+            json!({"type": "text_delta", "text": "hello"}),
+        ),
+        (
+            json!({"type": "thinking", "thinking": "", "signature": "sig"}),
+            json!({"type": "thinking_delta", "thinking": "plan"}),
+        ),
+        (
+            json!({"type": "tool_use", "id": "call_open", "name": "lookup", "input": {}}),
+            json!({"type": "input_json_delta", "partial_json": "{\"value\":\"x\"}"}),
+        ),
+    ] {
+        let mut events = text_events()[..1].to_vec();
+        events.push(event(
+            "content_block_start",
+            json!({"type": "content_block_start", "index": 3, "content_block": block}),
+        ));
+        events.push(event(
+            "content_block_delta",
+            json!({"type": "content_block_delta", "index": 3, "delta": delta}),
+        ));
+        events.push(event(
+            "error",
+            json!({"type": "error", "error": {"type": "overloaded_error", "message": "busy before block stop"}}),
+        ));
+        scenarios.push(scenario(
+            "stream",
+            model("anthropic", "claude-haiku-4-5", None),
+            context(json!([user(json!("hi"))]), None, None),
+            json!({"apiKey": "test-key", "cacheRetention": "none"}),
+            vec![scripted(sse(&events))],
+        ));
+    }
+
     scenarios
 }
 

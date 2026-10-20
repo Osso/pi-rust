@@ -176,6 +176,8 @@ async fn round_trips_every_entry_type_and_bounded_branch_queries() {
             execution: None,
             thought_signature: None,
             namespace: None,
+            index: None,
+            partial_json: None,
         }),
     ];
     assistant.usage = usage(1.0);

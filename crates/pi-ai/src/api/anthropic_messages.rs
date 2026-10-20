@@ -1099,20 +1099,19 @@ fn insert_tool_choice_param(params: &mut Map<String, Value>, anthropic: &Anthrop
     params.insert("tool_choice".to_owned(), value);
 }
 
-struct StreamingBlock {
-    index: usize,
-    partial_json: String,
+fn find_block(output: &AssistantMessage, index: f64) -> Option<usize> {
+    output.content.iter().position(|block| {
+        let block_index = match block {
+            AssistantContent::Text(block) => block.index,
+            AssistantContent::Thinking(block) => block.index,
+            AssistantContent::ToolCall(block) => block.index,
+        };
+        block_index == Some(index)
+    })
 }
 
-fn find_block(blocks: &[StreamingBlock], index: usize) -> Option<usize> {
-    blocks.iter().position(|block| block.index == index)
-}
-
-fn event_index(event: &Value) -> Option<usize> {
-    event
-        .get("index")
-        .and_then(Value::as_u64)
-        .and_then(|index| usize::try_from(index).ok())
+fn event_index(event: &Value) -> Option<f64> {
+    event.get("index").and_then(Value::as_f64)
 }
 
 fn number_field(value: &Value, key: &str) -> Option<f64> {
@@ -1181,16 +1180,13 @@ async fn drive_stream(
         partial: output.clone(),
     });
 
-    let mut blocks: Vec<StreamingBlock> = Vec::new();
     let mut reader = AnthropicEventReader::new(response.body, options.request.signal.clone());
     while let Some(event) = reader.next_event().await? {
         match event["type"].as_str() {
             Some("message_start") => apply_message_start(model, output, &event),
-            Some("content_block_start") => {
-                apply_content_block_start(sender, context, output, &mut blocks, &event, is_oauth)
-            }
-            Some("content_block_delta") => apply_content_block_delta(sender, output, &mut blocks, &event),
-            Some("content_block_stop") => apply_content_block_stop(sender, output, &blocks, &event),
+            Some("content_block_start") => apply_content_block_start(sender, context, output, &event, is_oauth),
+            Some("content_block_delta") => apply_content_block_delta(sender, output, &event),
+            Some("content_block_stop") => apply_content_block_stop(sender, output, &event),
             Some("message_delta") => apply_message_delta(model, output, &event)?,
             _ => {}
         }
@@ -1275,7 +1271,6 @@ fn apply_content_block_start(
     sender: &AssistantMessageEventSender,
     context: &Context,
     output: &mut AssistantMessage,
-    blocks: &mut Vec<StreamingBlock>,
     event: &Value,
     is_oauth: bool,
 ) {
@@ -1286,12 +1281,10 @@ fn apply_content_block_start(
     match content_block["type"].as_str() {
         Some("text") => {
             let text = content_block["text"].as_str().unwrap_or_default();
-            output.content.push(AssistantContent::Text(TextContent::new(text)));
+            let mut block = TextContent::new(text);
+            block.index = Some(index);
+            output.content.push(AssistantContent::Text(block));
             let content_index = output.content.len() - 1;
-            blocks.push(StreamingBlock {
-                index,
-                partial_json: String::new(),
-            });
             sender.push(AssistantMessageEvent::TextStart {
                 content_index,
                 partial: output.clone(),
@@ -1300,12 +1293,9 @@ fn apply_content_block_start(
         Some("thinking") => {
             let mut thinking = ThinkingContent::new(content_block["thinking"].as_str().unwrap_or_default());
             thinking.thinking_signature = Some(content_block["signature"].as_str().unwrap_or_default().to_owned());
+            thinking.index = Some(index);
             output.content.push(AssistantContent::Thinking(thinking));
             let content_index = output.content.len() - 1;
-            blocks.push(StreamingBlock {
-                index,
-                partial_json: String::new(),
-            });
             sender.push(AssistantMessageEvent::ThinkingStart {
                 content_index,
                 partial: output.clone(),
@@ -1315,12 +1305,9 @@ fn apply_content_block_start(
             let mut thinking = ThinkingContent::new("[Reasoning redacted]");
             thinking.thinking_signature = Some(content_block["data"].as_str().unwrap_or_default().to_owned());
             thinking.redacted = Some(true);
+            thinking.index = Some(index);
             output.content.push(AssistantContent::Thinking(thinking));
             let content_index = output.content.len() - 1;
-            blocks.push(StreamingBlock {
-                index,
-                partial_json: String::new(),
-            });
             sender.push(AssistantMessageEvent::ThinkingStart {
                 content_index,
                 partial: output.clone(),
@@ -1335,14 +1322,11 @@ fn apply_content_block_start(
             };
             let arguments = content_block["input"].as_object().cloned().unwrap_or_default();
             let id = content_block["id"].as_str().unwrap_or_default();
-            output
-                .content
-                .push(AssistantContent::ToolCall(ToolCall::new(id, name, arguments)));
+            let mut block = ToolCall::new(id, name, arguments);
+            block.index = Some(index);
+            block.partial_json = Some(String::new());
+            output.content.push(AssistantContent::ToolCall(block));
             let content_index = output.content.len() - 1;
-            blocks.push(StreamingBlock {
-                index,
-                partial_json: String::new(),
-            });
             sender.push(AssistantMessageEvent::ToolCallStart {
                 content_index,
                 partial: output.clone(),
@@ -1352,16 +1336,11 @@ fn apply_content_block_start(
     }
 }
 
-fn apply_content_block_delta(
-    sender: &AssistantMessageEventSender,
-    output: &mut AssistantMessage,
-    blocks: &mut [StreamingBlock],
-    event: &Value,
-) {
+fn apply_content_block_delta(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, event: &Value) {
     let Some(index) = event_index(event) else {
         return;
     };
-    let Some(position) = find_block(blocks, index) else {
+    let Some(position) = find_block(output, index) else {
         return;
     };
     let delta = &event["delta"];
@@ -1390,14 +1369,12 @@ fn apply_content_block_delta(
         }
         Some("input_json_delta") => {
             let partial_json = delta["partial_json"].as_str().unwrap_or_default();
-            let scratch = &mut blocks[position];
-            scratch.partial_json.push_str(partial_json);
-            let arguments = parse_streaming_json(Some(&scratch.partial_json))
-                .as_object()
-                .cloned()
-                .unwrap_or_default();
             if let Some(AssistantContent::ToolCall(block)) = output.content.get_mut(position) {
-                block.arguments = arguments;
+                block.partial_json.get_or_insert_default().push_str(partial_json);
+                block.arguments = parse_streaming_json(block.partial_json.as_deref())
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default();
                 sender.push(AssistantMessageEvent::ToolCallDelta {
                     content_index: position,
                     delta: partial_json.to_owned(),
@@ -1416,20 +1393,16 @@ fn apply_content_block_delta(
     }
 }
 
-fn apply_content_block_stop(
-    sender: &AssistantMessageEventSender,
-    output: &mut AssistantMessage,
-    blocks: &[StreamingBlock],
-    event: &Value,
-) {
+fn apply_content_block_stop(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, event: &Value) {
     let Some(index) = event_index(event) else {
         return;
     };
-    let Some(position) = find_block(blocks, index) else {
+    let Some(position) = find_block(output, index) else {
         return;
     };
     match output.content.get_mut(position) {
         Some(AssistantContent::Text(block)) => {
+            block.index = None;
             sender.push(AssistantMessageEvent::TextEnd {
                 content_index: position,
                 content: block.text.clone(),
@@ -1437,6 +1410,7 @@ fn apply_content_block_stop(
             });
         }
         Some(AssistantContent::Thinking(block)) => {
+            block.index = None;
             sender.push(AssistantMessageEvent::ThinkingEnd {
                 content_index: position,
                 content: block.thinking.clone(),
@@ -1444,7 +1418,8 @@ fn apply_content_block_stop(
             });
         }
         Some(AssistantContent::ToolCall(block)) => {
-            block.arguments = parse_streaming_json(Some(&blocks[position].partial_json))
+            block.index = None;
+            block.arguments = parse_streaming_json(block.partial_json.take().as_deref())
                 .as_object()
                 .cloned()
                 .unwrap_or_default();
@@ -1723,6 +1698,16 @@ async fn run_stream(sender: AssistantMessageEventSender, model: Model, context: 
     let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis());
     let result = drive_stream(&sender, &model, &context, &options, &mut output).await;
     if let Err(message) = result {
+        for block in &mut output.content {
+            match block {
+                AssistantContent::Text(block) => block.index = None,
+                AssistantContent::Thinking(block) => block.index = None,
+                AssistantContent::ToolCall(block) => {
+                    block.index = None;
+                    block.partial_json = None;
+                }
+            }
+        }
         let aborted = options
             .request
             .signal

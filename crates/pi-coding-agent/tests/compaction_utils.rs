@@ -104,6 +104,7 @@ fn omits_assistant_thinking() {
             thinking: "private chain of thought".to_owned(),
             thinking_signature: None,
             redacted: None,
+            index: None,
         }),
         AssistantContent::Text(TextContent::new("visible answer")),
     ])]);
