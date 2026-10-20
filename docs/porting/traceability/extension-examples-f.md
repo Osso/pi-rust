@@ -108,3 +108,7 @@ regression fails as expected; it is not counted as parity. Logs 43â€“45 and 48â€
 in `/tmp/pi-rust-ext-examples-f/` cover the current relevant code; log 47 proves
 the blocker. `cargo fmt --check` passed before each commit. No clippy, check,
 workspace suite, agent, model CLI, deployment, merge, or push was run.
+
+## Accepted review regression (2026-10-20)
+
+B1: `example_tool_override` compares a `file://` string naming an existing file: literal Node resolution must fail access and log the literal path. Reuses `paths::node_resolve`, without URL/tilde normalization.

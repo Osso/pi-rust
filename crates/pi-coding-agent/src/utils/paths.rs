@@ -261,7 +261,8 @@ pub(crate) fn process_cwd() -> String {
         .unwrap_or_default()
 }
 
-fn node_resolve(base: &str, tail: &str) -> String {
+/// Resolve literal filesystem path segments without URL decoding or tilde expansion.
+pub fn node_resolve(base: &str, tail: &str) -> String {
     let mut resolved = PathBuf::from(base);
     resolved.push(tail);
     lexical_normalize(&resolved)

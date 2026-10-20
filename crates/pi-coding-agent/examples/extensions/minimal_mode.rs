@@ -5,7 +5,7 @@ use pi_coding_agent::core::{
     tools::{self, ToolsOptions},
 };
 use pi_coding_agent::modes::interactive::theme::{Theme, ThemeColor};
-use pi_js_compat::string::js_trim;
+use pi_js_compat::{number::js_number_to_string, string::js_trim};
 use serde_json::Value;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
@@ -80,12 +80,15 @@ fn shorten_path(path: &str) -> String {
     path.strip_prefix(&home)
         .map_or_else(|| path.into(), |tail| format!("~{tail}"))
 }
+fn number_text(value: &Value) -> String {
+    js_number_to_string(value.as_f64().expect("numeric tool parameter"))
+}
 fn render_call(name: &str, args: &Value, theme: &Theme) -> String {
     use ThemeColor::{Accent, Muted, ToolOutput, ToolTitle, Warning};
     if name == "bash" {
         let command = string_arg(args, "command", "...");
         let suffix = if args["timeout"].as_f64().is_some_and(|n| n != 0.0) {
-            theme.fg(Muted, &format!(" (timeout {}s)", args["timeout"]))
+            theme.fg(Muted, &format!(" (timeout {}s)", number_text(&args["timeout"])))
         } else {
             String::new()
         };
@@ -106,14 +109,14 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> String {
     let mut output = format!("{title} {path_display}");
     match name {
         "read" if args.get("offset").is_some() || args.get("limit").is_some() => {
-            let start = args["offset"].as_i64().unwrap_or(1);
+            let start = args["offset"].as_f64().unwrap_or(1.0);
             let end = args["limit"]
-                .as_i64()
-                .map(|limit| start + limit - 1)
-                .filter(|n| *n != 0)
-                .map(|n| format!("-{n}"))
+                .as_f64()
+                .map(|limit| start + limit - 1.0)
+                .filter(|n| *n != 0.0)
+                .map(|n| format!("-{}", js_number_to_string(n)))
                 .unwrap_or_default();
-            output += &theme.fg(Warning, &format!(":{start}{end}"));
+            output += &theme.fg(Warning, &format!(":{}{end}", js_number_to_string(start)));
         }
         "write" => {
             let count = args["content"]
@@ -142,6 +145,7 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> String {
                 output += &theme.fg(ToolOutput, &format!(" ({glob})"));
             }
             if let Some(limit) = args.get("limit") {
+                let limit = number_text(limit);
                 let suffix = if name == "find" {
                     format!(" (limit {limit})")
                 } else {
@@ -152,7 +156,7 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> String {
         }
         "ls" => {
             if let Some(limit) = args.get("limit") {
-                output += &theme.fg(ToolOutput, &format!(" (limit {limit})"));
+                output += &theme.fg(ToolOutput, &format!(" (limit {})", number_text(limit)));
             }
         }
         _ => {}

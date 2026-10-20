@@ -153,7 +153,7 @@ fn render_read(result: &AgentToolResult, expanded: bool, theme: &Theme) -> Strin
     if let Some(truncation) = truncation(result) {
         text.push_str(&theme.fg(
             ThemeColor::Warning,
-            &format!(" (truncated from {})", truncation["totalLines"]),
+            &format!(" (truncated from {})", number_text(&truncation["totalLines"])),
         ));
     }
     if expanded {

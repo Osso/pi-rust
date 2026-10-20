@@ -70,7 +70,7 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
     for name in ["read", "bash", "write", "edit", "find", "grep", "ls"] {
         for args in [
             json!({}),
-            json!({"path":"fixture.txt","pattern":"needle","command":"echo hi","timeout":5,"offset":2,"limit":3,"content":"one\ntwo","glob":"*.txt"}),
+            json!({"path":"fixture.txt","pattern":"needle","command":"echo hi","timeout":2.0,"offset":2.0,"limit":3.0,"content":"one\ntwo","glob":"*.txt"}),
             json!({"path":"","pattern":"","command":"","timeout":0,"offset":0,"limit":0,"content":""}),
             json!({"path":"fixture.txt","offset":2}),
             json!({"path":"fixture.txt","limit":0}),
