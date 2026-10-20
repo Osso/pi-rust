@@ -48,4 +48,8 @@ These exclusions follow the repository's approved native typed API boundary.
 | `timeout 900 cargo test -p pi-ai --test models_dev_reasoning_options --test differential_models_dev_reasoning_options` | Base `c732b1e` + new tests, before production code | RED, exit 101: both public imports missing (E0432); `/tmp/claude/reasoning-option-map-red.out` |
 | `cargo fmt --all`; `cargo fmt --check` | Slice implementation before commit | PASS, exit 0 each |
 | Same focused test command | `86fe076` | RED, exit 101: oracle top-level await rejected by tsx CommonJS output; public tests not reached; `/tmp/claude/reasoning-option-map-green.out` |
-| Same focused test command | Async-main oracle fix | Pending GREEN; no broad/check/clippy/type/readability/final gates authorized |
+| Same focused test command | `56501f8` | GREEN, exit 0: four public tests + one differential test (1,110 exact-output requests); `/tmp/claude/reasoning-option-map-green-async.out` |
+
+`cargo fmt --check` also passed before `56501f8` and the proof-ledger commit.
+Later changes only record this evidence; they do not invalidate the focused test
+proof. No broad/check/clippy/type/readability/final gates were run, per slice scope.
