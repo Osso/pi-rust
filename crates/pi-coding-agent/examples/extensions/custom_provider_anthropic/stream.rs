@@ -136,8 +136,8 @@ async fn drive(
                 update_usage(model, output, &event["usage"]);
             }
             Some("content_block_start") => begin_block(sender, output, &event, context, oauth),
-            Some("content_block_delta") => delta_block(sender, output, &event),
-            Some("content_block_stop") => end_block(sender, output, &event),
+            Some("content_block_delta") => delta_block(sender, output, &event)?,
+            Some("content_block_stop") => end_block(sender, output, &event)?,
             _ => {}
         }
     }
@@ -182,14 +182,18 @@ fn block_index(output: &Value, event: &Value) -> Option<usize> {
         .iter()
         .position(|b| b.get("index") == event.get("index"))
 }
-fn parse_arguments(block: &mut Value) {
+fn parse_arguments(block: &mut Value) -> Result<(), String> {
     if let Ok(value) = pi_js_compat::js_json::parse(block["partialJson"].as_str().expect("JSON buffer")) {
+        if !value.is_object() {
+            return Err("Tool arguments must be a JSON object".into());
+        }
         block["arguments"] = value;
     }
+    Ok(())
 }
-fn delta_block(sender: &AssistantMessageEventSender, output: &mut Value, event: &Value) {
+fn delta_block(sender: &AssistantMessageEventSender, output: &mut Value, event: &Value) -> Result<(), String> {
     let Some(index) = block_index(output, event) else {
-        return;
+        return Ok(());
     };
     let block = &mut output["content"][index];
     let delta = &event["delta"];
@@ -203,9 +207,9 @@ fn delta_block(sender: &AssistantMessageEventSender, output: &mut Value, event: 
                 block["thinkingSignature"].as_str().unwrap_or_default(),
                 delta["signature"].as_str().unwrap_or_default()
             ));
-            return;
+            return Ok(());
         }
-        _ => return,
+        _ => return Ok(()),
     };
     block[field] = json!(format!(
         "{}{}",
@@ -213,16 +217,17 @@ fn delta_block(sender: &AssistantMessageEventSender, output: &mut Value, event: 
         delta[delta_field].as_str().expect("SDK delta string")
     ));
     if field == "partialJson" {
-        parse_arguments(block);
+        parse_arguments(block)?;
     }
     push(
         sender,
         json!({"type":kind,"contentIndex":index,"delta":delta[delta_field],"partial":output}),
     );
+    Ok(())
 }
-fn end_block(sender: &AssistantMessageEventSender, output: &mut Value, event: &Value) {
+fn end_block(sender: &AssistantMessageEventSender, output: &mut Value, event: &Value) -> Result<(), String> {
     let Some(index) = block_index(output, event) else {
-        return;
+        return Ok(());
     };
     let block = &mut output["content"][index];
     block.as_object_mut().expect("block").remove("index");
@@ -230,13 +235,14 @@ fn end_block(sender: &AssistantMessageEventSender, output: &mut Value, event: &V
         Some("text") => json!({"type":"text_end","contentIndex":index,"content":block["text"]}),
         Some("thinking") => json!({"type":"thinking_end","contentIndex":index,"content":block["thinking"]}),
         Some("toolCall") => {
-            parse_arguments(block);
+            parse_arguments(block)?;
             block.as_object_mut().expect("tool").remove("partialJson");
             json!({"type":"toolcall_end","contentIndex":index,"toolCall":block})
         }
-        _ => return,
+        _ => return Ok(()),
     };
     let mut emitted = emitted;
     emitted["partial"] = output.clone();
     push(sender, emitted);
+    Ok(())
 }

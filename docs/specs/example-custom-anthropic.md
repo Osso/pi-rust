@@ -7,7 +7,9 @@ Opt-in Rust-native counterpart of pinned `coding-agent/examples/extensions/custo
 - [x] Register two exact model definitions under `custom-anthropic`, custom API `custom-anthropic-api`, OAuth/provider display name and API-key environment binding without autoloading; preserve source registration adapter's configured-key checks, source labels and missing-env errors.
 - [x] Generate 32-byte PKCE, notify the exact authorization URL, prompt once, split `code#state`, exchange/refresh tokens, return access token and expiry minus five minutes; forward callback/fetch/status failures.
 - [x] Match API-key/OAuth headers, identity/system prompts, tool casing, messages/images/tool-result grouping, cache control and reasoning budgets.
-- [ ] Match complete SDK event sequence, usage/cost replacement, partial JSON behavior, abort/missing-stop/error handling, including temporary content `index` and `partialJson` fields.
+- [x] Preserve literal producer `index` and `partialJson` lifecycle: first matching source index, removal only at block stop, catch removes indices but retains partial JSON, successful unclosed blocks retain scratch; malformed JSON retains last valid object arguments.
+- [x] Reject parsed null, arrays and scalar tool arguments with `Tool arguments must be a JSON object`, emitting an error after start/toolcall_start, preserving the raw buffer and last object arguments. Approved deviation: source accepts arbitrary JSON; native typed arguments are object-only.
+- [ ] Prove installed-SDK actual HTTP auth/compatibility headers, body and events; runtime-identifying headers may describe native Rust.
 
 ## How it works
 
@@ -26,8 +28,7 @@ Opt-in Rust-native counterpart of pinned `coding-agent/examples/extensions/custo
 
 ## Known gaps (current cycle)
 
-- [ ] Content-stream matrix blocked only at typed scratch fields; request and terminal/usage/abort/error differentials pass. Full SDK-generated HTTP header proof remains parent-owned.
-- [ ] Native content types drop valid temporary source event fields; concrete failing fixture retained, parent coordinating bounded core repair.
+- [ ] Installed SDK wire proof pending in this cycle. Core scratch dependency merged explicitly; producer behavior is covered by targeted source differential tests.
 - [ ] Parent integration and independent verification pending; coverage remains partial.
 
 ## Out of scope

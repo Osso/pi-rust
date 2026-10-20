@@ -1,5 +1,7 @@
 #[path = "support/custom_anthropic_cases.rs"]
 mod cases;
+#[path = "support/custom_anthropic_lifecycle.rs"]
+mod lifecycle;
 #[path = "support/oracle.rs"]
 mod oracle;
 
