@@ -1,0 +1,242 @@
+#[path = "support/oracle.rs"]
+mod oracle;
+
+#[path = "../examples/extensions/custom_provider_anthropic.rs"]
+mod custom_provider_anthropic;
+use pi_ai::auth::oauth::support::{OAuthRuntime, RandomSource};
+use pi_ai::auth::types::*;
+use pi_ai::models::Provider;
+use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
+use pi_ai::types::AssistantMessageEvent;
+use pi_coding_agent::core::event_bus::EventBusController;
+use pi_coding_agent::core::extensions::{
+    ExtensionFactory, ExtensionRegistry, create_extension_runtime, load_extension_from_factory,
+};
+use serde_json::{Value, json};
+use std::sync::{Arc, Mutex};
+use tokio_util::sync::CancellationToken;
+
+struct Random;
+impl RandomSource for Random {
+    fn fill(&self, bytes: &mut [u8]) {
+        for (i, b) in bytes.iter_mut().enumerate() {
+            *b = i as u8;
+        }
+    }
+    fn uuid(&self) -> String {
+        panic!("not a UUID flow")
+    }
+}
+struct Body(Option<Vec<u8>>);
+impl HttpBody for Body {
+    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
+        Box::pin(async { self.0.take().map(Ok) })
+    }
+}
+struct Transport {
+    input: Value,
+    calls: Arc<Mutex<Vec<Value>>>,
+}
+impl Fetch for Transport {
+    fn fetch(
+        &self,
+        request: HttpRequest,
+        signal: Option<CancellationToken>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        Box::pin(async move {
+            self.calls.lock().unwrap().push(json!({"type":"fetch", "url":request.url, "method":request.method, "headers":request.headers.into_iter().map(|(k,v)|(k,Value::String(v))).collect::<serde_json::Map<String, Value>>(), "body":serde_json::from_slice::<Value>(&request.body.unwrap()).unwrap(), "signal":signal.is_some()}));
+            if let Some(error) = self.input["fetchError"].as_str() {
+                return Err(CallbackError::new(error));
+            }
+            let body = self
+                .input
+                .get("body")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .unwrap_or_else(|| {
+                    self.input
+                        .get("token")
+                        .cloned()
+                        .unwrap_or(
+                            json!({"access_token":"FAKE-access", "refresh_token":"FAKE-refresh", "expires_in":3600}),
+                        )
+                        .to_string()
+                });
+            Ok(HttpResponse {
+                status: self.input["status"].as_u64().unwrap_or(200) as u16,
+                status_text: "".into(),
+                headers: vec![],
+                body: Box::new(Body(Some(body.into_bytes()))),
+            })
+        })
+    }
+}
+struct Interaction {
+    input: Value,
+    calls: Arc<Mutex<Vec<Value>>>,
+}
+impl AuthInteraction for Interaction {
+    fn signal(&self) -> CancellationToken {
+        CancellationToken::new()
+    }
+    fn notify(&self, event: AuthEvent) {
+        if let AuthEvent::AuthUrl { url, instructions } = event {
+            assert!(instructions.is_none());
+            self.calls.lock().unwrap().push(json!({"type":"auth", "url":url}));
+        } else {
+            panic!("unexpected event {event:?}");
+        }
+    }
+    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<String, CallbackError>> {
+        Box::pin(async move {
+            let AuthPromptKind::Text { message, placeholder } = prompt.kind else {
+                panic!("unexpected prompt");
+            };
+            assert!(placeholder.is_none());
+            assert!(prompt.signal.is_none());
+            self.calls
+                .lock()
+                .unwrap()
+                .push(json!({"type":"prompt", "message":message}));
+            if let Some(error) = self.input["promptError"].as_str() {
+                return Err(CallbackError::new(error));
+            }
+            Ok(self.input["code"]
+                .as_str()
+                .unwrap_or("FAKE-code#FAKE-state#ignored")
+                .into())
+        })
+    }
+}
+async fn provider(input: &Value, calls: Arc<Mutex<Vec<Value>>>) -> Arc<dyn Provider> {
+    let transport = Arc::new(Transport {
+        input: input.clone(),
+        calls,
+    });
+    let runtime = OAuthRuntime::new(transport, Arc::new(|| 1700000000000.0), Arc::new(Random));
+    let factory: ExtensionFactory = Arc::new(move |api| {
+        let result = custom_provider_anthropic::custom_anthropic_extension_with_runtime(api, runtime.clone());
+        Box::pin(async move { result.map_err(Into::into) })
+    });
+    let mut registry = ExtensionRegistry::new();
+    registry.register("<example:custom-anthropic>", factory);
+    let extension_runtime = create_extension_runtime();
+    load_extension_from_factory(
+        registry.get("<example:custom-anthropic>").unwrap().clone(),
+        "/tmp",
+        Arc::new(EventBusController::new()),
+        extension_runtime.clone(),
+        "<example:custom-anthropic>",
+    )
+    .await
+    .unwrap();
+    let pending = extension_runtime.pending_native_provider_registrations();
+    assert_eq!(pending.len(), 1, "factory must register one native provider");
+    pending[0].provider.clone()
+}
+
+#[tokio::test]
+async fn default_factory_registers_exact_catalog_without_network() {
+    let runtime = create_extension_runtime();
+    let factory: ExtensionFactory = Arc::new(|api| {
+        let result = custom_provider_anthropic::custom_anthropic_extension(api);
+        Box::pin(async move { result.map_err(Into::into) })
+    });
+    load_extension_from_factory(
+        factory,
+        "/tmp",
+        Arc::new(EventBusController::new()),
+        runtime.clone(),
+        "<example:custom-anthropic>",
+    )
+    .await
+    .unwrap();
+    let pending = runtime.pending_native_provider_registrations();
+    assert_eq!(pending.len(), 1);
+    let provider = &pending[0].provider;
+    let mut oracle = oracle::TsOracle::spawn(
+        "example-custom-anthropic-oracle.ts",
+        "packages/coding-agent/examples/extensions/custom-provider-anthropic/index.ts",
+    );
+    let expected = oracle.request(&json!({"kind":"metadata"}));
+    let models: Vec<_> = provider
+        .get_models()
+        .iter()
+        .map(|m| {
+            let mut value = serde_json::to_value(m).unwrap();
+            for key in ["api", "provider", "baseUrl"] {
+                value.as_object_mut().unwrap().remove(key);
+            }
+            value
+        })
+        .collect();
+    assert_eq!(
+        json!({"id":provider.id(),"baseUrl":provider.base_url(),"apiKey":"$CUSTOM_ANTHROPIC_API_KEY","api":"custom-anthropic-api","models":models,"oauthName":provider.auth().oauth.as_ref().unwrap().name()}),
+        expected["metadata"]
+    );
+}
+
+#[tokio::test]
+async fn native_factory_oauth_matches_pinned_login_refresh_and_failures() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "example-custom-anthropic-oracle.ts",
+        "packages/coding-agent/examples/extensions/custom-provider-anthropic/index.ts",
+    );
+    for input in [
+        json!({"kind":"login"}),
+        json!({"kind":"login","code":"FAKE-code"}),
+        json!({"kind":"login","code":"#"}),
+        json!({"kind":"login","status":400,"body":"denied"}),
+        json!({"kind":"login","fetchError":"offline"}),
+        json!({"kind":"login","promptError":"cancelled"}),
+        json!({"kind":"refresh","credential":{"access":"FAKE-old","refresh":"FAKE-refresh","expires":0}}),
+        json!({"kind":"refresh","credential":{"access":"FAKE-old","refresh":"FAKE-refresh","expires":0},"status":401,"body":"expired"}),
+    ] {
+        let expected = oracle.request(&input);
+        let calls = Arc::new(Mutex::new(vec![]));
+        let provider = provider(&input, calls.clone()).await;
+        let oauth = provider.auth().oauth.as_ref().unwrap();
+        let result = if input["kind"] == "login" {
+            oauth
+                .login(Arc::new(Interaction {
+                    input: input.clone(),
+                    calls: calls.clone(),
+                }))
+                .await
+        } else {
+            oauth
+                .refresh(
+                    OAuthCredential::new("FAKE-refresh", "FAKE-old", 0.0),
+                    CancellationToken::new(),
+                )
+                .await
+        };
+        let actual = match result {
+            Ok(credential) => {
+                json!({"calls":calls.lock().unwrap().clone(), "credential":{"access":credential.access,"refresh":credential.refresh,"expires":pi_js_compat::number::js_number_value(credential.expires)},"auth":oauth.to_auth(credential).await.unwrap().api_key})
+            }
+            Err(error) => json!({"calls":calls.lock().unwrap().clone(), "error":error.to_string()}),
+        };
+        assert_eq!(actual, expected, "{input}");
+    }
+}
+
+#[test]
+fn pinned_example_valid_text_start_survives_native_event_boundary() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "example-custom-anthropic-oracle.ts",
+        "packages/coding-agent/examples/extensions/custom-provider-anthropic/index.ts",
+    );
+    let expected = oracle.request(&json!({"events":[
+        {"type":"content_block_start","index":3,"content_block":{"type":"text","text":"ignored"}},
+        {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{}}
+    ]}));
+    let event = expected["events"][1].clone();
+    assert_eq!(event["type"], "text_start", "{expected}");
+    let native: AssistantMessageEvent = serde_json::from_value(event.clone()).unwrap();
+    assert_eq!(
+        serde_json::to_value(native).unwrap(),
+        event,
+        "valid source event must survive the Provider trait's typed output boundary unchanged"
+    );
+}
