@@ -142,6 +142,7 @@ pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
     "safe",
     "spec-validation",
     "session-archive",
+    "session-autoname",
     "self-restart",
     "session-id",
 ];

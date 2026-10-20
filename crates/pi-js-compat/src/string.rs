@@ -56,6 +56,26 @@ pub fn utf16_len(value: &str) -> usize {
     value.encode_utf16().count()
 }
 
+/// JavaScript `String.prototype.slice(start, end)` on UTF-16 code units.
+/// Indices always land on a `char` boundary; a split surrogate pair is not
+/// representable in Rust, so the boundary is rounded down.
+pub fn slice_utf16(value: &str, start: usize, end: usize) -> &str {
+    let start = byte_at_utf16(value, start);
+    let end = byte_at_utf16(value, end);
+    &value[start..end.max(start)]
+}
+
+fn byte_at_utf16(value: &str, index: usize) -> usize {
+    let mut units = 0;
+    for (byte, character) in value.char_indices() {
+        if units >= index || units + character.len_utf16() > index {
+            return byte;
+        }
+        units += character.len_utf16();
+    }
+    value.len()
+}
+
 /// JavaScript `String.prototype.replace(searchValue, replaceValue)` for string
 /// arguments: replaces the first occurrence and expands `$$`, `$&`, `` $` ``
 /// and `$'` in the replacement. Capture references stay literal because a
