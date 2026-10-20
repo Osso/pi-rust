@@ -28,10 +28,11 @@ impl ExtensionUiContext for Ui {
         self.theme.clone()
     }
     fn set_status(&self, key: &str, text: Option<&str>) {
-        self.trace
-            .lock()
-            .unwrap()
-            .push(json!(["status", key, text.map(pi_tui::utils::strip_ansi)]));
+        self.trace.lock().unwrap().push(json!([
+            "status",
+            key,
+            text.map(pi_coding_agent::utils::ansi::strip_ansi)
+        ]));
     }
     fn notify(&self, text: &str, level: Option<NotifyType>) {
         self.trace.lock().unwrap().push(json!(["notify", text, level]));
@@ -121,7 +122,10 @@ async fn native(request: &Value) -> Value {
     let f = &flags["ssh"];
     let mut trace = vec![json!(["flag",f.name,{"description":f.description,"type":"string"}])];
     runner
-        .emit(&mut ExtensionEvent::SessionStart(SessionStartEvent {}))
+        .emit(&mut ExtensionEvent::SessionStart(SessionStartEvent {
+            reason: SessionStartReason::Startup,
+            previous_session_file: None,
+        }))
         .await;
     trace.extend(ui.trace.lock().unwrap().clone());
     let prompt = format!("Current working directory: {cwd}\nCurrent working directory: {cwd}");
