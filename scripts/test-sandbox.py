@@ -152,8 +152,17 @@ def launch(command):
         "/run",
         "--tmpfs",
         "/tmp",
-        "--dev",
-        "/dev",
+        # --dev creates another devpts user namespace: NET_ADMIN there cannot
+        # configure the earlier network namespace. Bind only PTY/null devices.
+        "--dev-bind",
+        "/dev/pts",
+        "/dev/pts",
+        "--dev-bind",
+        "/dev/null",
+        "/dev/null",
+        "--dev-bind",
+        "/dev/tty",
+        "/dev/tty",
         "--proc",
         "/proc",
     ]
