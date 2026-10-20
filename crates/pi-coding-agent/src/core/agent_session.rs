@@ -4433,7 +4433,7 @@ impl AgentSession {
     /// Queues a steering message while the agent is running.
     pub async fn steer(&self, text: &str, images: &[ImageContent]) -> Result<(), AgentSessionError> {
         if text.starts_with('/') {
-            self.throw_if_extension_command(text);
+            self.throw_if_extension_command(text)?;
         }
         let mut expanded = self.expand_skill_command(text);
         expanded = expand_prompt_template(&expanded, &self.prompt_templates());
@@ -4454,7 +4454,7 @@ impl AgentSession {
     /// Queues a follow-up message delivered after the agent finishes.
     pub async fn follow_up(&self, text: &str, images: &[ImageContent]) -> Result<(), AgentSessionError> {
         if text.starts_with('/') {
-            self.throw_if_extension_command(text);
+            self.throw_if_extension_command(text)?;
         }
         let mut expanded = self.expand_skill_command(text);
         expanded = expand_prompt_template(&expanded, &self.prompt_templates());
@@ -4462,9 +4462,17 @@ impl AgentSession {
         Ok(())
     }
 
-    fn throw_if_extension_command(&self, _text: &str) {
-        // The source throws for registered extension commands; this port does not
-        // perform the lookup yet.
+    fn throw_if_extension_command(&self, text: &str) -> Result<(), AgentSessionError> {
+        let command_name = match text.find(' ') {
+            Some(space_index) => &text[1..space_index],
+            None => &text[1..],
+        };
+        if self.runner().get_command(command_name).is_some() {
+            return Err(AgentSessionError::new(format!(
+                "Extension command \"/{command_name}\" cannot be queued. Use prompt() or execute the command when not streaming."
+            )));
+        }
+        Ok(())
     }
 
     async fn queue_steer(&self, text: &str, images: &[ImageContent], source: Option<InputSource>) {
@@ -6914,10 +6922,8 @@ impl AgentSession {
     }
 
     /// Whether extensions have handlers for a given event type.
-    ///
-    /// Not wired to the extension runner yet.
-    pub fn has_extension_handlers(&self, _event_type: &str) -> bool {
-        false
+    pub fn has_extension_handlers(&self, event_type: &str) -> bool {
+        self.runner().has_handlers(event_type)
     }
 }
 

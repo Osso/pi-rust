@@ -101,6 +101,7 @@ struct FixtureOverrides {
     thinking_phase_timeout_ms: Option<u64>,
     multi_agent_runtime_role: Option<pi_coding_agent::core::agent_session::MultiAgentRuntimeRole>,
     custom_tool_definitions: Vec<pi_coding_agent::core::extensions::types::ToolDefinition>,
+    extensions: Option<pi_coding_agent::core::extensions::types::LoadExtensionsResult>,
 }
 
 async fn fixture_with_multi_agent(
@@ -117,6 +118,7 @@ async fn fixture_with_multi_agent(
         thinking_phase_timeout_ms,
         multi_agent_runtime_role,
         custom_tool_definitions,
+        extensions,
     } = overrides;
     let temp_dir = tempfile::tempdir().expect("temp dir");
     let faux = faux_provider(RegisterFauxProviderOptions {
@@ -152,7 +154,10 @@ async fn fixture_with_multi_agent(
         settings_manager: Arc::new(std::sync::Mutex::new(settings_manager)),
         cwd: temp_dir.path().display().to_string(),
         scoped_models: Vec::new(),
-        resource_loader: pi_coding_agent::core::resource_loader::StaticResourceLoader::new(),
+        resource_loader: Arc::new(pi_coding_agent::core::resource_loader::StaticResourceLoader {
+            extensions,
+            ..Default::default()
+        }),
         model_runtime: runtime,
         initial_active_tool_names,
         allowed_tool_names,
@@ -2686,4 +2691,86 @@ async fn detach_running_tool_and_detach_bash_tool_delegate_to_the_tool_detach_re
     drop(subscription);
     assert!(!fixture.session.has_detachable_tool());
     assert!(!fixture.session.has_detachable_bash_tool());
+}
+
+async fn fixture_with_test_command() -> Fixture {
+    use pi_coding_agent::core::event_bus::{EventBus, EventBusController};
+    use pi_coding_agent::core::extensions::{
+        ExtensionCommandContext, ExtensionFactory, HandlerError, create_extension_runtime, load_extension_from_factory,
+    };
+    let runtime = create_extension_runtime();
+    let factory: ExtensionFactory = Arc::new(|api| {
+        api.register_command(
+            "testcmd",
+            Some("Test command".to_owned()),
+            None,
+            Arc::new(|_args: String, _ctx: ExtensionCommandContext| {
+                Box::pin(async { Ok(()) })
+                    as pi_coding_agent::core::extensions::BoxFuture<'static, Result<(), HandlerError>>
+            }),
+        )
+        .expect("register testcmd");
+        api.on_turn_start(
+            |_event: pi_coding_agent::core::extensions::TurnStartEvent,
+             _ctx: pi_coding_agent::core::extensions::ExtensionContext| {
+                Box::pin(async { Ok(None) })
+                    as pi_coding_agent::core::extensions::BoxFuture<'static, Result<Option<()>, HandlerError>>
+            },
+        )
+        .expect("register turn_start");
+        Box::pin(async { Ok(()) })
+    });
+    let event_bus: Arc<dyn EventBus> = Arc::new(EventBusController::new());
+    let extension = load_extension_from_factory(factory, "/tmp", event_bus, runtime.clone(), "/tmp/testcmd.ts")
+        .await
+        .expect("extension factory succeeds");
+    fixture_with_multi_agent(
+        Default::default(),
+        Vec::new(),
+        None,
+        Some(Vec::new()),
+        FixtureOverrides {
+            extensions: Some(pi_coding_agent::core::extensions::types::LoadExtensionsResult {
+                extensions: vec![extension],
+                errors: Vec::new(),
+                runtime,
+            }),
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+const QUEUED_EXTENSION_COMMAND_ERROR: &str =
+    "Extension command \"/testcmd\" cannot be queued. Use prompt() or execute the command when not streaming.";
+
+#[tokio::test]
+async fn steer_rejects_a_registered_extension_command() {
+    let fixture = fixture_with_test_command().await;
+    let error = fixture
+        .session
+        .steer("/testcmd queued", &[])
+        .await
+        .expect_err("extension commands cannot be steered");
+    assert_eq!(error.message(), QUEUED_EXTENSION_COMMAND_ERROR);
+    assert!(fixture.session.get_steering_messages().is_empty());
+}
+
+#[tokio::test]
+async fn follow_up_rejects_a_registered_extension_command() {
+    let fixture = fixture_with_test_command().await;
+    let error = fixture
+        .session
+        .follow_up("/testcmd", &[])
+        .await
+        .expect_err("extension commands cannot be queued as follow-ups");
+    assert_eq!(error.message(), QUEUED_EXTENSION_COMMAND_ERROR);
+    assert!(fixture.session.get_follow_up_messages().is_empty());
+}
+
+#[tokio::test]
+async fn has_extension_handlers_reports_registered_event_handlers() {
+    let fixture = fixture_with_test_command().await;
+    assert!(fixture.session.has_extension_handlers("turn_start"));
+    assert!(!fixture.session.has_extension_handlers("turn_end"));
 }
