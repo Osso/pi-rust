@@ -68,6 +68,7 @@ impl pi_tui::terminal::Terminal for GameTerminal {
     fn clear_from_cursor(&mut self) {}
     fn clear_screen(&mut self) {}
     fn set_title(&mut self, _: &str) {}
+    fn set_progress(&mut self, _: bool) {}
     fn poll_events(&mut self) -> Vec<pi_tui::terminal::TerminalEvent> {
         std::mem::take(&mut self.events)
     }
