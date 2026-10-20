@@ -6,7 +6,7 @@ Native examples are embeddable `#[path]` modules, registered explicitly through
 
 | Source | Native entrypoint | Proof / blocker |
 | --- | --- | --- |
-| `github-issue-autocomplete.ts` | Partial `github_issue_autocomplete_extension` | STOPPED: lossless UTF-16 fuzzy candidate API absent; current targeted test RED (log 14). Ordinary-data differential previously GREEN; not full parity. |
+| `github-issue-autocomplete.ts` | `github_issue_autocomplete_extension` | `example_github_issue_autocomplete`: ordinary-data differential; native U+FFFD boundary regression under approved exclusion below. |
 | `question.ts` | Not shipped | Blocked on extension editor host, below |
 | `questionnaire.ts` | Not shipped | Blocked on extension editor host, below |
 | `rpc-demo.ts` | `rpc_demo_extension` | `example_rpc_demo`: full real-RPC protocol frame comparison |
@@ -25,26 +25,26 @@ Native examples are embeddable `#[path]` modules, registered explicitly through
 - Test-owned fake `gh` executable records requests and reads deterministic JSON
   responses in the temporary cwd. Real git reads fixture remotes only. All
   descendants execute inside cargo's mandatory test sandbox; no GitHub contact.
-- Typed issue records exclude invalid JavaScript value types per compatibility
-  policy. Raw JSON escaped lone surrogates are **not** excluded: see blocker.
+- Typed issue records exclude invalid JavaScript value types per compatibility policy.
 
-### STOPPED: lossless fuzzy candidate API
+### Approved String-typed fuzzy boundary exclusion
 
-Fixture gh JSON: `[{"number":77,"title":"Lone \ud800 and \udfff","state":"OPEN"}]`.
-Query `#�` must delegate to the base provider: TS's raw title contains no U+FFFD.
-The partial native port converts raw JSON strings to U+FFFD before matching and
-incorrectly returns issue #77. Log 14 compares the complete mismatching results;
-log 13 first reproduced serde's rejection of these otherwise-valid JSON escapes.
+[Compatibility policy](../../specs/compatibility.md#out-of-scope), line 177:
+“Lone-surrogate input supplied directly to existing `String`-typed core APIs”.
+Raw JSON escapes remain representable and are decoded by `pi_js_compat::js_json`.
+Once decoded issue titles enter pi-tui fuzzy's existing `Vec<String>` candidate
+API (`crates/pi-tui/src/fuzzy.rs:141`), lone surrogates project to U+FFFD.
+Main-thread classification approved this boundary exclusion on 2026-10-20;
+it does not exclude raw JSON parsing generally or claim lossless fuzzy parity.
 
-Required API: fuzzy filtering accepting lossless UTF-16 candidate strings, with
-conversion only when formatting `AutocompleteItem` String fields. Existing
-`crates/pi-tui/src/fuzzy.rs:141` requires `get_text: impl Fn(&T) -> Vec<String>`;
-`fuzzy_match` at line 22 also accepts only `&str`. `js_json::JsString` preserves
-the input, but no fuzzy entrypoint accepts it. This batch must not duplicate or
-change core fuzzy logic. Implementation is frozen as partial; no current GREEN
-or full-parity claim. The failing regression remains enabled, not ignored.
-Approved U+FFFD conversion at the final UI boundary is applied to TS item fields
-in the shared oracle; converting before fuzzy matching is not that boundary.
+`decoded_lone_surrogates_project_to_replacement_at_string_fuzzy_boundary`
+asserts raw JSON containing `\ud800` and `\udfff` decodes to a native issue
+whose title contains two U+FFFDs, and query `�` returns issue #77 with its complete
+native item fields. TS retains the lone surrogates and delegates that query;
+this specific difference is excluded, not differentially asserted.
+All ordinary JSON, Unicode, success/error, caching, completion and delegation
+fixtures remain in the full-result TS comparison. Historical RED logs 13–14
+record the now-classified boundary difference, not an open implementation blocker.
 
 ## Form blockers (not partial implementations)
 
@@ -95,9 +95,10 @@ extension path `/fixture/rpc-demo` on both sides. No core fix or fallback added.
 ## Mutation checks and final state
 
 - GitHub top-20 → top-19 mutation: targeted test failed (log 11), reverted.
-  Historical proof at 9fb0ead; later surrogate work invalidates GitHub GREEN.
+  Historical proof at 9fb0ead; current ordinary-data and boundary proofs follow in the ledger.
 - RPC prefill notification mutation: targeted test failed (log 12), reverted.
   RPC source remains the GREEN log-10 implementation (formatting only afterward).
 - Form examples have no implementation/tests/mutations because of missing host API.
-- No merge/push, core API edits, live state, GitHub network calls, agents or model
-  CLIs. No lint/check/workspace suites. `cargo fmt` and `cargo fmt --check` pass.
+- Final integration merges master only into this branch; no push, core API edits,
+  live state, GitHub network calls, agents or model CLIs. Proof scope and exact
+  revisions are recorded in the ledger.

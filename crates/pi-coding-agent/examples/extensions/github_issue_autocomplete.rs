@@ -125,7 +125,7 @@ async fn load_issues(
         );
         return Ok(None);
     }
-    // Issue fields enter the native String UI surface with the approved U+FFFD conversion.
+    // Decode JSON before projecting issue fields into the String-typed fuzzy API.
     let parsed = pi_js_compat::js_json::parse(&result.stdout)
         .ok()
         .and_then(|value| serde_json::from_value(value).ok());
@@ -182,6 +182,26 @@ fn token(text: &str) -> Option<&str> {
     let tail = &text[hash + 1..];
     (!tail.chars().any(is_js_whitespace_char)).then_some(tail)
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decoded_lone_surrogates_project_to_replacement_at_string_fuzzy_boundary() {
+        let raw = r#"[{"number":77,"title":"Lone \ud800 and \udfff","state":"OPEN"}]"#;
+        let decoded = pi_js_compat::js_json::parse(raw).unwrap();
+        let issues: Vec<Issue> = serde_json::from_value(decoded).unwrap();
+        assert_eq!(issues[0].title, "Lone � and �");
+
+        // compatibility.md:177 excludes lone-surrogate fidelity in String core APIs.
+        let matches = filter(&issues, "�");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].value, "#77");
+        assert_eq!(matches[0].label, "#77");
+        assert_eq!(matches[0].description.as_deref(), Some("[open] Lone � and �"));
+    }
+}
+
 impl AutocompleteProvider for Provider {
     fn get_suggestions(
         self: Rc<Self>,

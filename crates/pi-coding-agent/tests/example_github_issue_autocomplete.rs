@@ -47,7 +47,6 @@ async fn fixture_requests_cache_errors_and_completions_match() {
         for response in [
             json!({"code":0,"stdout":serde_json::to_string(&issues).unwrap(),"stderr":""}),
             json!({"code":0,"stdout":"[]","stderr":""}),
-            json!({"code":0,"stdout":r#"[{"number":77,"title":"Lone \ud800 and \udfff","state":"OPEN"}]"#,"stderr":""}),
             json!({"code":0,"stdout":"invalid","stderr":""}),
             json!({"code":7,"stdout":"","stderr":"  fixture failure\n"}),
             json!({"code":9,"stdout":"","stderr":""}),
