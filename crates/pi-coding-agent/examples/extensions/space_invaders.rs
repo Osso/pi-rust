@@ -448,6 +448,11 @@ impl ExtensionUiComponent for Invaders {
         if width == inner.cached_width && inner.cached_version == Some(inner.version) {
             return inner.cached_lines.clone();
         }
+        if inner.state.player.lives < 0 {
+            let lives = inner.state.player.lives;
+            drop(inner);
+            std::panic::panic_any(format!("RangeError: Invalid count value: {lives}"));
+        }
         let lines = render_frame(&inner, width);
         inner.cached_width = width;
         inner.cached_version = Some(inner.version);
@@ -500,9 +505,7 @@ fn cell(s: &State, x: i32, y: i32) -> String {
 }
 fn render_frame(inner: &Inner, width: usize) -> Vec<String> {
     let s = &inner.state;
-    // JS String.repeat throws for negative lives; preserve that source failure.
-    let lives = usize::try_from(s.player.lives)
-        .unwrap_or_else(|_| std::panic::panic_any("RangeError: Invalid count value: -1"));
+    let lives = s.player.lives as usize;
     let header = format!(
         "{} │ Score: {} │ Hi: {} │ Lv: {} │ {}",
         bold(color(32, "SPACE INVADERS")),
