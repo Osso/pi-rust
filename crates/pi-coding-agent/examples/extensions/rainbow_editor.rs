@@ -49,8 +49,10 @@ impl EditorBehavior for Rainbow {
             let frame = self.frame.clone();
             let tui = self.tui.clone();
             self.timer = Some(tokio::spawn(async move {
+                let period = Duration::from_millis(60);
+                let mut ticks = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
                 loop {
-                    tokio::time::sleep(Duration::from_millis(60)).await;
+                    ticks.tick().await;
                     frame.fetch_add(1, Ordering::SeqCst);
                     tui.request_render();
                 }

@@ -18,13 +18,17 @@ use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-thread_local! { static TUI: Rc<TuiRenderer> = TuiRenderer::new(virtual_terminal::concrete(80, 24).1); }
+thread_local! {
+    static TUI: Rc<TuiRenderer> = TuiRenderer::new(virtual_terminal::concrete(80, 24).1);
+    static RENDER_REQUESTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 struct Backend;
 impl ExtensionUiTuiBackend for Backend {
     fn create_fixed_cell(&self) -> Rc<dyn EditorFixedCell> {
         TUI.with(|tui| Rc::new(tui.create_fixed_cell()))
     }
     fn request_render(&self) {
+        RENDER_REQUESTS.with(|count| count.set(count.get() + 1));
         TUI.with(|tui| pi_tui::tui::TuiExt::request_render(tui.as_ref(), false));
     }
     fn terminal_rows(&self) -> usize {
@@ -228,13 +232,24 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                 previous_session_file: None,
             }))
             .await;
-        // The example's git branch refresh is asynchronous, just like the source.
-        for _ in 0..100 {
-            tokio::task::yield_now().await;
-        }
+        let requests_before_factory = RENDER_REQUESTS.with(|count| count.get());
         let factory = ui.editor.lock().unwrap().clone().expect("registered editor");
         let editor = factory(tui(), EditorTheme::plain(), KeybindingsManager::new(Vec::new(), None));
         editor.borrow_mut().as_focusable_mut().unwrap().set_focused(true);
+        if name == "border-status-editor" {
+            // The real git subprocess completes on wall time, not the paused Tokio clock.
+            for _ in 0..2000 {
+                tokio::task::yield_now().await;
+                if RENDER_REQUESTS.with(|count| count.get()) > requests_before_factory {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert!(
+                RENDER_REQUESTS.with(|count| count.get()) > requests_before_factory,
+                "branch refresh must request rendering"
+            );
+        }
         let widths = request["widths"].as_array().unwrap();
         ui.renders
             .lock()
@@ -273,7 +288,8 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
             }
             tokio::task::yield_now().await;
             if let Some(ms) = step["tick"].as_u64() {
-                for _ in 0..ms {
+                // Tokio's timer wheel services millisecond deadlines on the next tick.
+                for _ in 0..=ms {
                     tokio::time::advance(std::time::Duration::from_millis(1)).await;
                     tokio::task::yield_now().await;
                 }

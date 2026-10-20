@@ -139,8 +139,10 @@ pub fn border_status_editor_extension(pi: &ExtensionApi) -> Result<(), HandlerEr
                 current.stop();
                 let ticks = state.clone();
                 current.timer = Some(tokio::spawn(async move {
+                    let period = Duration::from_millis(80);
+                    let mut interval = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
                     loop {
-                        tokio::time::sleep(Duration::from_millis(80)).await;
+                        interval.tick().await;
                         let mut state = ticks.lock().expect("spinner state");
                         state.index = (state.index + 1) % FRAMES.len();
                         state.render();
