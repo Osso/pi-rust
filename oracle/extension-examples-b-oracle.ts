@@ -1,3 +1,4 @@
+import { readFile, rm } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { resolve, dirname } from "node:path";
 
@@ -7,7 +8,7 @@ async function main() {
 const source = process.argv[2];
 const packages = resolve(source.slice(0, source.indexOf("/packages/") + "/packages/".length));
 const moduleUrl = (path: string) => pathToFileURL(resolve(packages, path)).href;
-const [{ default: factory }, loader, runnerModule, session, auth, utils, events] = await Promise.all([
+const [{ default: factory }, loader, runnerModule, session, auth, utils, events, themeModule] = await Promise.all([
  import(pathToFileURL(source).href),
  import(moduleUrl("coding-agent/src/core/extensions/loader.ts")),
  import(moduleUrl("coding-agent/src/core/extensions/runner.ts")),
@@ -15,6 +16,7 @@ const [{ default: factory }, loader, runnerModule, session, auth, utils, events]
  import(moduleUrl("coding-agent/src/core/auth-storage.ts")),
  import(moduleUrl("coding-agent/test/model-runtime-test-utils.ts")),
  import(moduleUrl("coding-agent/src/core/event-bus.ts")),
+ import(moduleUrl("coding-agent/src/modes/interactive/theme/theme.ts")),
 ]);
 async function run(request: any) {
  const cwd = request.cwd ?? "/fixture";
@@ -24,10 +26,11 @@ async function run(request: any) {
  const registry = await utils.createInMemoryModelRegistry(auth.AuthStorage.inMemory());
  const manager = session.SessionManager.inMemory(cwd);
  const runner = new runnerModule.ExtensionRunner([extension], runtime, cwd, manager, registry);
+ const effects:any[]=[];
  runner.bindCore({
-  sendMessage() {}, sendUserMessage() {}, appendEntry() {}, requestResumeContinuation() {},
-  setSessionName() {}, getSessionName() {}, setLabel() {}, getActiveTools: () => [], getAllTools: () => [],
-  setActiveTools() {}, callTool: async () => ({content: []}), callCommand: async () => undefined,
+  sendMessage() {}, sendUserMessage() {}, appendEntry(kind:string,data:any) {manager.appendCustomEntry(kind,data);effects.push(["appendEntry",kind,data]);}, requestResumeContinuation() {},
+  setSessionName() {}, getSessionName() {}, setLabel() {}, getActiveTools: () => request.activeTools ?? [], getAllTools: () => (request.allTools ?? []).map((name:string)=>({name})),
+  setActiveTools(names:string[]) {effects.push(["setActiveTools",names]);}, callTool: async () => ({content: []}), callCommand: async () => undefined,
   refreshTools() {}, getCommands: () => [], setModel: async () => false,
   getThinkingLevel: () => "off", setThinkingLevel() {},
  }, {
@@ -49,6 +52,7 @@ async function run(request: any) {
   const calls: any[] = [];
   const roles=["accent","dim","muted","text","success","error","warning","toolTitle","borderMuted","border","selectedBg"];
   const theme={fg:(role:string,text:string)=>`\x1b[38;2;${50+roles.indexOf(role)};32;32m${text}\x1b[39m`,bold:(text:string)=>text};
+  themeModule.setThemeInstance(theme as any);
   const ui = {
    theme,
    custom: async (factory:any) => {
@@ -73,6 +77,7 @@ async function run(request: any) {
   let result: unknown;
   switch (item.event) {
    case "session_start": result = await runner.emit({type: "session_start", reason: "startup"}); break;
+   case "append_custom": manager.appendCustomEntry(item.kind,item.data);break;
    case "append": manager.appendMessage(item.message); break;
    case "branch": manager.branch(manager.getEntries()[item.index].id); break;
    case "event": result=await runner.emit(item.value); break;
@@ -97,10 +102,18 @@ async function run(request: any) {
    }
    default: throw new Error(`Unknown fixture event ${item.event}`);
   }
+  if(request.captureOutputFiles && result?.value?.details?.fullOutputPath) {
+   const path=result.value.details.fullOutputPath;
+   if(!/\/pi-rg-[^/]+\/output\.txt$/.test(path)) throw new Error("unexpected output path");
+   result.outputFile=await readFile(path,"utf8");
+   result.value.details.fullOutputPath="<temporary>/pi-rg/output.txt";
+   result.value.content[0].text=result.value.content[0].text.replaceAll(path,"<temporary>/pi-rg/output.txt");
+   await rm(dirname(path),{recursive:true});
+  }
   cases.push(JSON.parse(JSON.stringify({result: result ?? null, ui: calls})));
  }
  globalThis.Date = originalDate;
- return {metadata,cases,errors};
+ return {metadata,cases,errors,...(request.allTools ? {effects}: {})};
 }
 process.stdin.setEncoding("utf8");
 let pending = "";

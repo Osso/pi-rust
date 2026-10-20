@@ -16,6 +16,11 @@ Only private temporary cwd/state. No added dependencies.
 | todo.ts 105–219 | todo.rs::todo_extension, restore, execute_todo, toggle | example_todo: list/add/toggle/clear/unknown, required text/id errors, state reconstruction from actual session tool results |
 | todo.ts 38–103, 221–297 | todo.rs::TodoList, render_result, render_list | example_todo: all result branches, expanded/collapsed lists >5 items, 16/40-column tool output, 24/40-column UI, both close keys and non-TUI refusal |
 
+| tools.ts 21–64, 137–146 | tools.rs::tools_extension, restore | example_tools: active-tool ordering, last valid saved config, absent-tool filtering/dedup, persistence and real branch navigation |
+| tools.ts 66–135 | tools.rs::ToolSelector | example_tools: native SettingsList rendering at 24/40 columns, up/down/wrap/toggle/cancel, immediate setActiveTools and appendEntry effects, empty list and non-TUI refusal |
+| truncated-tool.ts 33–135 | truncated_tool.rs::execute, run_search | example_truncated_tool: real rg match/no-match/invalid regex/missing path, glob, line/byte truncation, complete results, complete saved artifact bytes, >100MiB buffer failure |
+| truncated-tool.ts 137–195 | truncated_tool.rs call/result renderers | example_truncated_tool: call path/glob, partial, empty, truncated, expanded 20-line limit, full-output link, fixed-width lines |
+
 Paths above are relative to crates/pi-coding-agent/examples/extensions.
 
 ## Decisions / discrepancies
@@ -36,3 +41,14 @@ Mutation proof and exact command logs: /tmp/pi-rust-ext-examples-f/ledger.md.
 - Todo returns shallow snapshots in TS. Oracle snapshots results at the observed
   execution boundary, before later mutations; both tool payload and full details
   are compared. Cache omission in native TodoList changes no visible output.
+
+- ToolSelector keeps only the selected index and thread-safe tool state across
+  the extension boundary. Rc-based native SettingsList is reconstructed locally
+  with that selection for each render/input; its rendering and keybindings are
+  reused rather than reimplemented. No extension API additions.
+- Truncated-tool preserves the pinned shell-joined command (including its unsafe
+  quoting behavior); do not enable for untrusted inputs. Its 100MiB combined
+  stdout/stderr limit is enforced while reading and kills/reaps the child group.
+- Artifact differentials validate the actual temporary path shape and read every
+  saved byte before deleting the private directory. Only randomized directory
+  identity is alpha-renamed in both complete payloads; paths are not omitted.

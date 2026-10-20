@@ -72,3 +72,8 @@ string overload without adding dependencies.
 `/read-log`; audit output goes to the configured agent directory. `todo.rs`
 (`todo_extension`) registers `todo` and `/todos`, restoring tool-result state
 from the current session branch. Both require explicit factory registration.
+
+`tools.rs` (`tools_extension`) provides `/tools`, with branch-local persisted
+selection. `truncated_tool.rs` (`truncated_tool_extension`) provides `rg`, storing
+truncated full output in a private temporary directory. Its shell-joined command
+matches the pinned example; enable only for trusted tool inputs.

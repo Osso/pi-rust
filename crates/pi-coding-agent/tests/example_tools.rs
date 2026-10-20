@@ -1,0 +1,36 @@
+#[path = "../examples/extensions/tools.rs"]
+mod example;
+#[path = "support/extension_examples_b.rs"]
+mod support;
+use pi_coding_agent::core::extensions::*;
+use serde_json::json;
+use std::sync::Arc;
+#[tokio::test]
+async fn tool_selection_ui_persists_order_and_restores_current_branch() {
+    let factory: ExtensionFactory = Arc::new(|api| {
+        let result = example::tools_extension(api);
+        Box::pin(async move { result })
+    });
+    let actual = support::compare(
+        "tools",
+        factory,
+        json!({"allTools":["read","bash","write"],"activeTools":["bash","read"],"cases":[
+            {"event":"session_start"},
+            {"event":"command","name":"tools","mode":"rpc"},
+            {"event":"command","name":"tools","keys":[" ","\u{1b}[B","\r","\u{1b}[A"," ","\u{1b}"]},
+            {"event":"append_custom","kind":"tools-config","data":{"enabledTools":["write","unknown","bash","write"]}},
+            {"event":"event","value":{"type":"session_tree","newLeafId":null,"oldLeafId":null}},
+            {"event":"command","name":"tools","keys":["\u{1b}[A","\r","\u{3}"],"width":24},
+            {"event":"branch","index":3},
+            {"event":"session_start"},
+            {"event":"command","name":"tools","keys":["\u{1b}"]}
+        ]}),
+    )
+    .await;
+    assert_eq!(actual["effects"][0], json!(["setActiveTools", ["bash"]]));
+    let factory: ExtensionFactory = Arc::new(|api| {
+        let result = example::tools_extension(api);
+        Box::pin(async move { result })
+    });
+    support::compare("tools",factory,json!({"allTools":[],"activeTools":[],"cases":[{"event":"session_start"},{"event":"command","name":"tools","keys":["\r","\u{1b}[B","\u{1b}"]}]})).await;
+}

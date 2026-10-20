@@ -27,6 +27,7 @@ impl ExtensionUiContext for Ui {
     ) -> BoxFuture<'a, Result<Option<Value>, String>> {
         Box::pin(async move {
             let item = self.item.lock().unwrap().clone();
+            pi_coding_agent::modes::interactive::theme::set_theme_instance(fixture_theme());
             let done_value = Arc::new(Mutex::new(None));
             let value = done_value.clone();
             let done = ExtensionUiDone::new(Arc::new(move |v| {
@@ -142,7 +143,31 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
         runtime,
         Arc::new(ModelRegistry::new(model_runtime)),
     );
-    support::bind(&mut runner);
+    let effects = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let mut actions = support::actions();
+    if let Some(tools) = request["allTools"].as_array() {
+        let infos:Vec<ToolInfo>=tools.iter().map(|name|serde_json::from_value(json!({"name":name,"description":"fixture tool","parameters":{},"sourceInfo":{"path":"/fixture","source":"fixture","scope":"temporary","origin":"top-level"}})).unwrap()).collect();
+        actions.get_all_tools = Arc::new(move || Ok(infos.clone()));
+        let active: Vec<String> = serde_json::from_value(request["activeTools"].clone()).unwrap();
+        actions.get_active_tools = Arc::new(move || Ok(active.clone()));
+        let log = effects.clone();
+        actions.set_active_tools = Arc::new(move |names| {
+            log.lock().unwrap().push(json!(["setActiveTools", names]));
+            Ok(())
+        });
+        let manager = runner.create_context().session_manager().unwrap();
+        let log = effects.clone();
+        actions.append_entry = Arc::new(move |kind, data| {
+            manager
+                .lock()
+                .unwrap()
+                .append_custom_entry(kind, data.clone())
+                .map_err(|e| HandlerError::new(e.to_string()))?;
+            log.lock().unwrap().push(json!(["appendEntry", kind, data]));
+            Ok(())
+        });
+    }
+    runner.bind_core(actions, support::context_actions(), None);
     let errors = Arc::new(Mutex::new(Vec::<Value>::new()));
     let captured_errors = errors.clone();
     let _subscription = runner.on_error(Arc::new(move |error| {
@@ -162,7 +187,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
             },
             serde_json::from_value(case.get("mode").cloned().unwrap_or(json!("tui"))).unwrap(),
         );
-        let result = match case["event"].as_str().unwrap() {
+        let mut result = match case["event"].as_str().unwrap() {
             "session_start" => {
                 runner
                     .emit(&mut ExtensionEvent::SessionStart(SessionStartEvent {
@@ -170,6 +195,17 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
                         previous_session_file: None,
                     }))
                     .await;
+                Value::Null
+            }
+            "append_custom" => {
+                runner
+                    .create_context()
+                    .session_manager()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .append_custom_entry(case["kind"].as_str().unwrap(), case.get("data").cloned())
+                    .unwrap();
                 Value::Null
             }
             "append" => {
@@ -274,9 +310,15 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
             }
             other => panic!("unknown fixture event: {other}"),
         };
+        if request["captureOutputFiles"] == true {
+            capture_artifact(&mut result);
+        }
         cases.push(json!({"result":result,"ui":ui.calls.lock().unwrap().clone()}));
     }
-    let actual = json!({"metadata":metadata,"cases":cases,"errors":errors.lock().unwrap().clone()});
+    let mut actual = json!({"metadata":metadata,"cases":cases,"errors":errors.lock().unwrap().clone()});
+    if request.get("allTools").is_some() {
+        actual["effects"] = json!(effects.lock().unwrap().clone());
+    }
     for (path, bytes) in reset_files {
         match bytes {
             Some(bytes) => std::fs::write(path, bytes).unwrap(),
@@ -356,4 +398,30 @@ fn render_context(case: &Value) -> ToolRenderContext {
         show_images: false,
         is_error: false,
     }
+}
+
+fn capture_artifact(result: &mut Value) {
+    let Some(path) = result["value"]["details"]["fullOutputPath"].as_str().map(str::to_owned) else {
+        return;
+    };
+    let file = std::path::Path::new(&path);
+    assert_eq!(file.file_name().unwrap(), "output.txt");
+    assert!(
+        file.parent()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("pi-rg-")
+    );
+    let output = std::fs::read_to_string(file).unwrap();
+    result["value"]["details"]["fullOutputPath"] = json!("<temporary>/pi-rg/output.txt");
+    let text = result["value"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .replace(&path, "<temporary>/pi-rg/output.txt");
+    result["value"]["content"][0]["text"] = json!(text);
+    result["outputFile"] = json!(output);
+    std::fs::remove_dir_all(file.parent().unwrap()).unwrap();
 }
