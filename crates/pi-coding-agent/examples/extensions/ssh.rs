@@ -246,7 +246,7 @@ fn remote_tools(local: &str, remote: Option<Remote>) -> Vec<Arc<dyn AgentTool>> 
         ),
     ]
 }
-/// TS `ssh.ts:120-238`: flag, four lazy overrides, session/user-bash/prompt hooks.
+/// TS `ssh.ts:114-220`: flag, four lazy overrides, session/user-bash/prompt hooks.
 pub fn ssh_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.register_flag(
         "ssh",

@@ -201,9 +201,14 @@ as follow-ups. Enable deliberately; tests use only private repositories.
 
 `summarize.rs` exports `summarize_extension`; explicitly register its factory to
 add `/summarize`. It completes with the host registry’s `openai/gpt-5.2`, then
-shows a Markdown summary in TUI mode. Nothing loads by default. SSH is blocked
-on preserving arbitrary remote errors through native filesystem operations;
-see batch I traceability.
+shows a Markdown summary in TUI mode. Nothing loads by default.
+
+`ssh.rs` exports `ssh_extension(&ExtensionApi)` for explicit factory registration.
+`--ssh user@host[:/path]` delegates read/write/edit/bash and user `!` commands;
+without the flag, tools stay local. Requires key-based SSH and remote bash.
+Enable only with trusted inputs: pinned JSON quoting is not shell escaping.
+Tests use fake SSH only. Error-boundary, lifecycle, TUI, and differential proof:
+[core SSH traceability](../../../../docs/porting/traceability/core-ssh-errors.md).
 
 `handoff.rs` exports `handoff_extension`; explicitly register its factory to add
 `/handoff <goal>`. It generates a focused draft through the host model registry,
