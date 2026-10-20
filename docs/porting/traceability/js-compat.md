@@ -64,9 +64,9 @@ Exponent spelling outside that range matches JavaScript (`1e+21`).
 Differential: 100 inputs under `TZ=UTC`, `TZ=America/Chicago`, and the inherited
 process zone.
 
-Gaps: V8 legacy formats (`"Jan 1 2020"`, `"1/1/2020"`, RFC 2822 without
-`GMT`) are not parsed. HTTP dates before 1970 are rejected by `httpdate` and
-therefore return `NaN` (the previous port documented the same gap).
+V8 month-name/slash legacy dates, local/zoned times, two-digit year pivots, pre-1970 HTTP and asctime dates now use the shared legacy date grammar. Proof: `legacy_month_slash_and_pre_epoch_http_dates_match_node_across_zones` (RED `"Jan 1 2020"`: NaN vs Node 1577836800000; GREEN pending), UTC and Chicago including DST gap/fold and adjacent invalid dates/times.
+
+The finite corpus does not establish complete V8 legacy grammar parity; untested legacy forms remain unproven, not approved exclusions.
 
 ## Base64 (`src/base64.rs`)
 

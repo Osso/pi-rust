@@ -74,7 +74,132 @@ fn parse_date(input: &str, zone: &TimeZone) -> Option<i64> {
     if let Some(millis) = parse_iso8601_millis(input, zone) {
         return Some(millis);
     }
-    parse_numeric_date(input, zone)
+    if let Some(millis) = parse_numeric_date(input, zone) {
+        return Some(millis);
+    }
+    parse_legacy_date(input, zone)
+}
+
+fn legacy_month(word: &str) -> Option<i64> {
+    match word.get(..3)?.to_ascii_lowercase().as_str() {
+        "jan" => Some(1),
+        "feb" => Some(2),
+        "mar" => Some(3),
+        "apr" => Some(4),
+        "may" => Some(5),
+        "jun" => Some(6),
+        "jul" => Some(7),
+        "aug" => Some(8),
+        "sep" => Some(9),
+        "oct" => Some(10),
+        "nov" => Some(11),
+        "dec" => Some(12),
+        _ => None,
+    }
+}
+
+fn legacy_number(word: &str) -> Option<i64> {
+    if word.is_empty() || !word.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    word.parse().ok()
+}
+
+fn legacy_date_fields(words: &[&str]) -> Option<(i64, i64, i64)> {
+    let (year, month, day) = if let Some(month) = legacy_month(words[0]) {
+        (legacy_number(words[2])?, month, legacy_number(words[1])?)
+    } else if let Some(month) = legacy_month(words[1]) {
+        let first = legacy_number(words[0])?;
+        let last = legacy_number(words[2])?;
+        if first > 31 {
+            (first, month, last)
+        } else {
+            (last, month, first)
+        }
+    } else {
+        let first = legacy_number(words[0])?;
+        let second = legacy_number(words[1])?;
+        let last = legacy_number(words[2])?;
+        if first > 31 {
+            (first, second, last)
+        } else {
+            (last, first, second)
+        }
+    };
+    let year = match year {
+        0..=49 => year + 2000,
+        50..=99 => year + 1900,
+        _ => year,
+    };
+    if year > 275760 || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    normalize_day(year, month, day)
+}
+
+fn legacy_time(words: &[&str]) -> Option<TimeSuffix> {
+    let mut words: Vec<_> = words.iter().map(|word| (*word).to_owned()).collect();
+    if let Some(last) = words.last_mut()
+        && (last.eq_ignore_ascii_case("GMT") || last.eq_ignore_ascii_case("UTC"))
+    {
+        *last = "Z".into();
+    }
+    if words.is_empty() || words == ["Z"] {
+        return Some(TimeSuffix {
+            hour: 0,
+            minute: 0,
+            second: 0,
+            millis: 0,
+            offset_minutes: (!words.is_empty()).then_some(0),
+        });
+    }
+    let suffix = format!(" {}", words.join(" "));
+    let mut index = 0;
+    let time = parse_time_suffix(suffix.as_bytes(), &mut index)?;
+    (index == suffix.len() && time.is_valid()).then_some(time)
+}
+
+fn parse_legacy_date(input: &str, zone: &TimeZone) -> Option<i64> {
+    let mut words: Vec<_> = input
+        .split(|c: char| c.is_ascii_whitespace() || c == ',')
+        .filter(|word| !word.is_empty())
+        .collect();
+    if words.first().and_then(|word| word.get(..3)).is_some_and(|prefix| {
+        matches!(
+            prefix.to_ascii_lowercase().as_str(),
+            "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"
+        )
+    }) {
+        words.remove(0);
+    }
+    let first = *words.first()?;
+    let (date, remaining) = if first.contains(['/', '-']) {
+        let date: Vec<_> = first.split(['/', '-']).collect();
+        (date, words[1..].to_vec())
+    } else if words.get(2).is_some_and(|word| word.contains(':')) && words.len() >= 4 {
+        (
+            vec![words[0], words[1], words[3]],
+            std::iter::once(words[2]).chain(words[4..].iter().copied()).collect(),
+        )
+    } else if words.len() >= 3 {
+        (words[..3].to_vec(), words[3..].to_vec())
+    } else {
+        return None;
+    };
+    if date.len() != 3 {
+        return None;
+    }
+    let (year, month, day) = legacy_date_fields(&date)?;
+    let time = legacy_time(&remaining)?;
+    finish_date(
+        days_from_civil(year, month, day),
+        time.hour,
+        time.minute,
+        time.second,
+        time.millis,
+        time.offset_minutes,
+        zone,
+    )
 }
 
 // V8's legacy single-number grammar: 0 is Jan 2000, 1..12 are months

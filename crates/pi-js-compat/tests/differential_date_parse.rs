@@ -139,9 +139,19 @@ fn compare_values(zone_name: &str, time_zone: &TimeZone, values: &[&str]) {
             (!parsed.is_nan()).then_some(parsed as i64)
         })
         .collect();
-    for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
-        assert_eq!(actual, expected, "TZ={zone_name}: Date.parse({:?})", values[index]);
-    }
+    let mismatches: Vec<_> = actual
+        .iter()
+        .zip(&expected)
+        .enumerate()
+        .filter(|(_, (actual, expected))| actual != expected)
+        .map(|(index, (actual, expected))| {
+            format!(
+                "TZ={zone_name}: Date.parse({:?}): Rust {actual:?}, Node {expected:?}",
+                values[index]
+            )
+        })
+        .collect();
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
 
 #[test]
@@ -200,13 +210,62 @@ fn numeric_dates_match_node_in_utc_and_chicago() {
         ("UTC", TimeZone::UTC),
         ("America/Chicago", TimeZone::get("America/Chicago").unwrap()),
     ] {
-        let mut oracle = oracle::TsOracle::spawn_with_environment(
-            "js-compat-oracle.ts",
-            "packages/coding-agent/src/index.ts",
-            &[("TZ", name.into())],
-        );
-        let response = oracle.request(&json!({"id":"numeric-probe","operation":"date_parse","values":refs}));
-        println!("numeric oracle {name}: {}", response["output"]);
         compare_values(name, &zone, &refs);
     }
+}
+
+#[test]
+fn legacy_month_slash_and_pre_epoch_http_dates_match_node_across_zones() {
+    let values = [
+        "Jan 1 2020",
+        "January 1, 2020",
+        "1 Jan 2020",
+        "2020 Jan 1",
+        "jan 1 20",
+        "1/1/2020",
+        "01/02/2020",
+        "1/2/20",
+        "12/31/49",
+        "12/31/50",
+        "1960/1/1",
+        "99/1/1",
+        "20/1/1",
+        "13/1/2020",
+        "0/1/2020",
+        "1/0/2020",
+        "1/32/2020",
+        "2/30/2020",
+        "2/29/2021",
+        "4/31/2020",
+        "Foo 1 2020",
+        "Jan 0 2020",
+        "Jan 32 2020",
+        "Jan 1 invalid",
+        "Jan 1 2020 extra",
+        "1/1/2020 extra",
+        "Jan 1 2020 00:00:00",
+        "1/1/2020 00:00:00",
+        "Mar 8 2020 02:30:00",
+        "Nov 1 2020 01:30:00",
+        "Jan 1 1960 00:00:00 GMT",
+        "Jan 1 1960 00:00:00 UTC",
+        "Jan 1 1960 00:00:00 +0200",
+        "Jan 1 1960 00:00:00 -0600",
+        "Fri, 01 Jan 1960 00:00:00 GMT",
+        "Friday, 01-Jan-60 00:00:00 GMT",
+        "Fri Jan  1 00:00:00 1960",
+        "Mon, 01 Jan 1900 00:00:00 GMT",
+        "Wed, 31 Dec 1969 23:59:59 GMT",
+        "Thu, 01 Jan 1970 00:00:00 GMT",
+        "Mon, 01 Jan 1960 00:00:00 GMT",
+        "Fri, 00 Jan 1960 00:00:00 GMT",
+        "Fri, 32 Jan 1960 00:00:00 GMT",
+        "Fri, 01 Foo 1960 00:00:00 GMT",
+        "Fri, 01 Jan 1960 24:00:01 GMT",
+        "Fri, 01 Jan 1960 00:60:00 GMT",
+        "Fri, 01 Jan 1960 00:00:60 GMT",
+        "Thu, 01 Jan 0001 00:00:00 GMT",
+    ];
+    compare_values("UTC", &TimeZone::UTC, &values);
+    compare_values("America/Chicago", &TimeZone::get("America/Chicago").unwrap(), &values);
 }
