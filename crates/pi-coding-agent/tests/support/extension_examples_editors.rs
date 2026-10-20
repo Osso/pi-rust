@@ -270,6 +270,22 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
         let requests_before_factory = RENDER_REQUESTS.with(|count| count.get());
         let factory = ui.editor.lock().unwrap().clone().expect("registered editor");
         let editor = factory(tui(), EditorTheme::plain(), KeybindingsManager::new(Vec::new(), None));
+        if request["wireClear"] == true {
+            let weak = Rc::downgrade(&editor);
+            let mut component = editor.borrow_mut();
+            let base = component
+                .as_any_mut()
+                .unwrap()
+                .downcast_mut::<pi_coding_agent::modes::interactive::components::custom_editor::CustomEditor>()
+                .expect("composed editor exposes its base for host callbacks");
+            base.on_action(
+                "app.clear",
+                Rc::new(move || {
+                    weak.upgrade().unwrap().borrow_mut().set_text("");
+                    true
+                }),
+            );
+        }
         editor.borrow_mut().as_focusable_mut().unwrap().set_focused(true);
         if name == "border-status-editor" {
             // The real git subprocess completes on wall time, not the paused Tokio clock.
@@ -297,7 +313,10 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                 }
             }
             if let Some(input) = step["input"].as_str() {
-                editor.borrow_mut().handle_input(input);
+                let callbacks = editor.borrow_mut().handle_input_deferred(input);
+                for callback in callbacks {
+                    callback();
+                }
             }
             if let Some(focused) = step["focus"].as_bool() {
                 editor.borrow_mut().as_focusable_mut().unwrap().set_focused(focused);

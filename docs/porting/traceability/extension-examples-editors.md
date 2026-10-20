@@ -34,3 +34,7 @@ Overlay-test needs the component's numeric width field honored and its done call
 
 Rust Editor computed a negative cursor offset for wrapped chunks that did not contain the cursor. TS only subtracts inside the cursor-containing branch (editor.ts:1285–1293). The narrow-width modal sequence reproduced the Rust overflow; the branch now matches TS.
 
+
+## Deferred callback order
+
+Rainbow inspects text after parent app actions. The native host defers re-entrant app callbacks until its RefCell borrow is released; Rainbow appends its animation update after those callbacks using a weak editor reference. The differential installs the same real `app.clear` action in both editors, dispatches Ctrl+C, advances the clock, and reinserts the word. RED reproduced stale timer advancement before this ordering fix.

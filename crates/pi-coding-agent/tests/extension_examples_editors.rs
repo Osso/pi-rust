@@ -40,8 +40,9 @@ async fn rainbow_editor_matches_pinned_animation_and_stopping() {
     support::compare(
         "rainbow-editor",
         factory,
-        json!({"widths":[8,20,70],"steps":[
+        json!({"widths":[8,20,70],"wireClear":true,"steps":[
             {"input":"UlTrAtHiNk ultrathink"},{"tick":60},{"tick":60},{"tick":480},{"tick":600},
+            {"input":"\u{3}"},{"tick":600},{"input":"ultrathink"},{"tick":60},
             {"input":"\u{15}"},{"tick":600},{"input":"ultrathink"},{"tick":60},{"focus":false},{"focus":true}
         ]}),
     )

@@ -41,7 +41,7 @@ runOracle(async (api, request) => {
   theme,
   setWorkingVisible(value: boolean) { effects.push(["workingVisible", value]); },
   setFooter(factory: Function) { effects.push(["footer", factory(tui, theme).render(80)]); },
-  setEditorComponent(factory: Function) { editor = factory(tui, editorTheme, kb); tui.setFocus(editor); effects.push(["editor"]); },
+  setEditorComponent(factory: Function) { editor = factory(tui, editorTheme, kb); if (request.wireClear) editor.onAction("app.clear", () => { editor.setText(""); }); tui.setFocus(editor); effects.push(["editor"]); },
   notify(message: string, level: string) { effects.push(["notify", message, level]); },
   async custom(factory: Function, options: unknown) {
    effects.push(["custom", options]);

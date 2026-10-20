@@ -23,6 +23,7 @@ const COLORS: [[u8; 3]; 7] = [
     [206, 130, 172],
 ];
 struct Rainbow {
+    owner: std::rc::Weak<RefCell<ComposedEditor<Rainbow>>>,
     tui: ExtensionUiTui,
     frame: Arc<AtomicUsize>,
     timer: Option<tokio::task::JoinHandle<()>>,
@@ -41,10 +42,9 @@ fn colorize(text: &str, shine: Option<usize>) -> String {
     result.push_str("\x1b[0m");
     result
 }
-impl EditorBehavior for Rainbow {
-    fn input(&mut self, editor: &mut CustomEditor, data: &str) -> Vec<Rc<dyn Fn()>> {
-        let callbacks = editor.handle_input_deferred(data);
-        let has_word = editor.get_text().to_ascii_lowercase().contains("ultrathink");
+impl Rainbow {
+    fn update_animation(&mut self, text: &str) {
+        let has_word = text.to_ascii_lowercase().contains("ultrathink");
         if has_word && self.timer.is_none() {
             let frame = self.frame.clone();
             let tui = self.tui.clone();
@@ -59,6 +59,24 @@ impl EditorBehavior for Rainbow {
             }));
         } else if !has_word && let Some(timer) = self.timer.take() {
             timer.abort();
+        }
+    }
+}
+impl EditorBehavior for Rainbow {
+    fn input(&mut self, editor: &mut CustomEditor, data: &str) -> Vec<Rc<dyn Fn()>> {
+        let mut callbacks = editor.handle_input_deferred(data);
+        if callbacks.is_empty() {
+            self.update_animation(&editor.get_text());
+        } else {
+            // App callbacks may re-enter the mounted editor; inspect text after they run.
+            let owner = self.owner.clone();
+            callbacks.push(Rc::new(move || {
+                if let Some(owner) = owner.upgrade() {
+                    let mut owner = owner.borrow_mut();
+                    let text = owner.editor.get_text();
+                    owner.behavior.update_animation(&text);
+                }
+            }));
         }
         callbacks
     }
@@ -91,15 +109,18 @@ pub fn rainbow_editor_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
             Box::pin(async move {
                 ctx.ui()?.set_editor_component(Some(Arc::new(|tui, theme, kb| {
-                    Rc::new(RefCell::new(ComposedEditor {
-                        editor: CustomEditor::new(Rc::new(tui.clone()), theme, kb, Default::default())
-                            .expect("default editor has no history DB"),
-                        behavior: Rainbow {
-                            tui,
-                            frame: Arc::new(AtomicUsize::new(0)),
-                            timer: None,
-                        },
-                    }))
+                    Rc::new_cyclic(|owner| {
+                        RefCell::new(ComposedEditor {
+                            editor: CustomEditor::new(Rc::new(tui.clone()), theme, kb, Default::default())
+                                .expect("default editor has no history DB"),
+                            behavior: Rainbow {
+                                owner: owner.clone(),
+                                tui,
+                                frame: Arc::new(AtomicUsize::new(0)),
+                                timer: None,
+                            },
+                        })
+                    })
                 })));
                 Ok(None)
             })
