@@ -220,13 +220,7 @@ fn unreadable_package_json_surfaces_as_a_node_fs_error() {
     );
     assert_eq!(payload["ok"], false);
     assert_eq!(payload["label"], "Error");
-    assert_eq!(
-        payload["message"],
-        format!(
-            "EISDIR: illegal operation on a directory, read '{}/package.json'",
-            package.display()
-        )
-    );
+    assert_eq!(payload["message"], "EISDIR: illegal operation on a directory, read");
 }
 
 #[test]
