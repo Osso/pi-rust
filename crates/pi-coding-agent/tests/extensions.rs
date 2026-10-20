@@ -2227,6 +2227,24 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
                     live.register_message_renderer("late", Arc::new(|_, _, _| None))?;
                     live.register_entry_renderer("late", Arc::new(|_, _, _| None))?;
                     live.register_markdown_transformer(Arc::new(|text, _| format!("{text}!")))?;
+                    live.register_tool_gate(Arc::new(|mut event: ToolCallEvent, _: ExtensionContext| {
+                        event.input.insert("late_gate".into(), json!(true));
+                        Box::pin(async move {
+                            Ok(Some(ToolCallEventResult {
+                                input: Some(event.input),
+                                ..Default::default()
+                            }))
+                        })
+                            as BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>>
+                    }))?;
+                    live.register_approval_reviewer(Arc::new(|_: ToolCallEvent, _: ExtensionContext| {
+                        Box::pin(async {
+                            Ok(Some(ApprovalReviewerResult::Allow {
+                                updated_input: Some(Map::from_iter([("late_review".into(), json!(true))])),
+                            }))
+                        })
+                            as BoxFuture<'static, Result<Option<ApprovalReviewerResult>, HandlerError>>
+                    }))?;
                     live.on_agent_start(h!(AgentStartEvent, |_event, ctx| {
                         ctx.ui()?.notify("late handler ran", None);
                         Ok(None)
@@ -2260,4 +2278,47 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
     assert_eq!(runner.get_markdown_transformers().len(), 1);
     assert!(runner.has_handlers("agent_start"));
     runner.emit(&mut ExtensionEvent::AgentStart(AgentStartEvent {})).await;
+    assert!(runner.has_tool_gates());
+    assert!(runner.has_approval_reviewers());
+    let mut event = ToolCallEvent {
+        tool_name: ToolName::Bash,
+        tool_call_id: "late".into(),
+        bypass_permissions: false,
+        input: Map::new(),
+    };
+    runner.emit_tool_gates(&mut event).await.unwrap();
+    assert_eq!(event.input["late_gate"], true);
+    runner.emit_approval_reviewers(&mut event).await.unwrap();
+    assert_eq!(event.input["late_review"], true);
+}
+
+#[tokio::test]
+async fn handlers_appended_during_dispatch_run_in_the_same_event() {
+    let runtime = support::runtime();
+    let observed = Arc::new(Mutex::new(Vec::<String>::new()));
+    let output = observed.clone();
+    let extension = support::extension(&runtime, "/tmp", "<append-handler>", move |api| {
+        let live = api.clone();
+        api.on_agent_start(move |_: AgentStartEvent, _: ExtensionContext| {
+            let live = live.clone();
+            let output = output.clone();
+            Box::pin(async move {
+                output.lock().unwrap().push("first".into());
+                live.on_agent_start(move |_: AgentStartEvent, _: ExtensionContext| {
+                    let output = output.clone();
+                    Box::pin(async move {
+                        output.lock().unwrap().push("appended".into());
+                        Ok(None)
+                    }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
+                })?;
+                Ok(None)
+            }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
+        })
+        .unwrap();
+    })
+    .await;
+    let mut runner = support::runner_for(vec![extension], "/tmp", runtime, support::model_registry().await);
+    support::bind(&mut runner);
+    runner.emit(&mut ExtensionEvent::AgentStart(AgentStartEvent {})).await;
+    assert_eq!(*observed.lock().unwrap(), ["first", "appended"]);
 }

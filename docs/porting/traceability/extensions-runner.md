@@ -95,28 +95,15 @@ drives the real TypeScript runner through 13 scripted scenarios (`dispatch`,
 
 ## Live registration identity (2026-10-20)
 
-`Extension` is a cloneable handle to one `Arc<Mutex<ExtensionState>>`.
-`load_extension_from_factory` returns that handle, not a cloned registry record.
-API, loader metadata enrichment, runner, and session resource clones therefore
-observe the same state. Mutex guards must not span callbacks or awaits.
+Runner stores shared extension handles, not load-time registry copies. See
+[registration audit](extensions-loader.md#live-registration-identity-2026-10-20).
+Queries read current tools/commands/flags/shortcuts/renderers; dispatch retrieves
+one callback at a time and releases the registration guard before user code.
+Live array iteration includes handlers appended during the same emission;
+`emitRuntimeMailbox` retains its explicit gather-before-dispatch semantics.
 
-| Registration | TS loader evidence | Live Rust reader / proof |
-| --- | --- | --- |
-| tools | `registerTool` mutates `extension.tools`, calls `runtime.refreshTools()` | runner `get_all_registered_tools` / `get_tool_definition`; `runtime_registration_from_command_is_visible_to_runner` |
-| commands | `registerCommand` mutates `extension.commands` | runner command resolution; runtime registration test executes late command |
-| flags | `registerFlag` mutates flags; default only if absent | runner `get_flags`, runtime flag values; runtime registration test |
-| shortcuts | `registerShortcut` mutates shortcuts | runner `get_shortcuts`; runtime registration test |
-| message / entry renderers | register methods mutate corresponding maps | runner renderer lookups; runtime registration test |
-| markdown transformer | replaces `extension.markdownTransformer` | runner `get_markdown_transformers`; runtime registration test |
-| event handlers | `on` appends to the same event list | all runner dispatch paths read callbacks from shared state without holding a guard during callbacks |
-| approval reviewers / tool gates | registration appends to corresponding arrays | runner presence checks and dispatch read shared lists; existing gate/reviewer behavior tests |
-| providers / native providers / unregister | delegates directly to shared runtime | no extension snapshot involved; queued/immediate provider tests unchanged |
-| event bus subscriptions | delegates to shared event bus/runtime subscription tracking | no extension snapshot involved; existing event-bus tests |
-
-Normal callback arrays use live index iteration (including append during dispatch),
-matching JS `for...of`. `emitRuntimeMailbox` intentionally gathers callbacks before
-dispatch, matching TS `flatMap` at runner.ts:1104–1106.
-Tool activation policy remains in `AgentSession::refresh_tool_registry`: registration
-immediately refreshes definitions; newly seen permitted names become active;
-re-registering an inactive existing name does not reactivate it. Source:
-agent-session.ts:5096–5196. No extra synchronization or notification path added.
+Proof: `runtime_registration_from_command_is_visible_to_runner` covers late tools,
+commands, flags, shortcuts, renderers, transformers, handlers, gates, and reviewers;
+`handlers_appended_during_dispatch_run_in_the_same_event` covers live appends.
+[Dynamic-tools proof](extension-example-dynamic-tools.md) covers the actual pinned
+example and real AgentSession refresh/execution/deactivation timing.

@@ -251,13 +251,15 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                     .to_owned();
                 entries.append_label_change(&id, step["value"].as_str()).unwrap();
             }
+            "tools" => {
+                let tools: Vec<_> = runner.get_all_registered_tools().iter().map(|registered| {
+                    let tool = &registered.definition;
+                    json!({"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"promptSnippet":tool.prompt_snippet,"promptGuidelines":tool.prompt_guidelines})
+                }).collect();
+                trace.lock().unwrap().push(json!(["tools", tools]));
+            }
             "tool" => {
-                let tool = &extension
-                    .read()
-                    .tools
-                    .get(step["name"].as_str().unwrap())
-                    .unwrap()
-                    .definition;
+                let tool = runner.get_tool_definition(step["name"].as_str().unwrap()).unwrap();
                 let result = (tool.execute)(
                     "fixture-call".into(),
                     step["params"].clone(),

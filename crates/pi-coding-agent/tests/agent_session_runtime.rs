@@ -69,6 +69,11 @@ async fn load_extension(
         .expect("extension factory succeeds")
 }
 
+#[path = "../examples/extensions/dynamic_tools.rs"]
+mod dynamic_tools_example;
+#[path = "../examples/extensions/hello.rs"]
+mod hello_example;
+
 struct Harness {
     runtime: AgentSessionRuntime,
     logs: Arc<Mutex<Vec<String>>>,
@@ -77,6 +82,10 @@ struct Harness {
 }
 
 async fn build_harness(cancel_switch: bool, cancel_fork: bool) -> Harness {
+    build_harness_with_dynamic_tools(cancel_switch, cancel_fork, false).await
+}
+
+async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool, dynamic_tools: bool) -> Harness {
     let temp = tempfile::tempdir().expect("temp dir");
     let cwd = temp.path().display().to_string();
     let faux = Arc::new(faux_provider(RegisterFauxProviderOptions {
@@ -118,6 +127,20 @@ async fn build_harness(cancel_switch: bool, cancel_fork: bool) -> Harness {
         &cwd,
         &temp.path().join("runtime-extension.ts").display().to_string(),
         move |api| {
+            if dynamic_tools {
+                dynamic_tools_example::dynamic_tools_extension(api).unwrap();
+                let live = api.clone();
+                api.register_command(
+                    "register-hello",
+                    None,
+                    None,
+                    Arc::new(move |_, _| {
+                        let live = live.clone();
+                        Box::pin(async move { hello_example::hello_extension(&live) })
+                    }),
+                )
+                .unwrap();
+            }
             api.on_session_before_switch(handler!(
                 pi_coding_agent::core::extensions::SessionBeforeSwitchEvent,
                 [switch_logs, switch_context],
@@ -759,4 +782,63 @@ async fn import_through_a_symlinked_session_dir_preserves_the_source_file() {
     assert!(!result.cancelled);
     let content = std::fs::read_to_string(&source_file).expect("source file readable");
     assert!(content.contains("symlinked import"), "content: {content}");
+}
+
+#[tokio::test]
+async fn late_tools_refresh_the_real_session_without_reactivating_disabled_tools() {
+    use pi_coding_agent::core::agent_session::ExtensionBindings;
+    use pi_coding_agent::core::extensions::{SessionStartEvent, SessionStartReason};
+    let harness = build_harness_with_dynamic_tools(false, false, true).await;
+    let session = harness.runtime.session();
+    session.bind_extensions(ExtensionBindings::default()).await;
+    let runner = session.extension_runner();
+    runner
+        .emit(&mut ExtensionEvent::SessionStart(SessionStartEvent {
+            reason: SessionStartReason::Startup,
+            previous_session_file: None,
+        }))
+        .await;
+    assert!(session.get_all_tools().iter().any(|tool| tool.name == "echo_session"));
+    assert!(session.get_active_tool_names().contains(&"echo_session".into()));
+    let add = runner.get_prompt_command("add-echo-tool").unwrap();
+    (add.handler)("NEW_TOOL".into(), runner.create_command_context())
+        .await
+        .unwrap();
+    assert!(session.get_all_tools().iter().any(|tool| tool.name == "new_tool"));
+    let tool = session
+        .agent()
+        .tools()
+        .into_iter()
+        .find(|tool| tool.name() == "new_tool")
+        .unwrap();
+    let result = tool
+        .execute(
+            "call-late".into(),
+            json!({"message":"from session"}),
+            None,
+            Arc::new(|_| {}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(result).unwrap(),
+        json!({"content":[{"type":"text","text":"[new_tool] from session"}],"details":{"tool":"new_tool","prefix":"[new_tool] "}})
+    );
+    let register = runner.get_prompt_command("register-hello").unwrap();
+    (register.handler)(String::new(), runner.create_command_context())
+        .await
+        .unwrap();
+    assert!(session.get_active_tool_names().contains(&"hello".into()));
+    session.set_active_tools_by_name(&[]);
+    (register.handler)(String::new(), runner.create_command_context())
+        .await
+        .unwrap();
+    assert!(session.get_all_tools().iter().any(|tool| tool.name == "hello"));
+    assert!(!session.get_active_tool_names().contains(&"hello".into()));
+    (add.handler)("another_new".into(), runner.create_command_context())
+        .await
+        .unwrap();
+    assert!(session.get_active_tool_names().contains(&"another_new".into()));
+    assert!(!session.get_active_tool_names().contains(&"new_tool".into()));
 }

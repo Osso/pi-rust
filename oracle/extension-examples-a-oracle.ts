@@ -31,6 +31,7 @@ async function run(request: any) {
  const runner = new ExtensionRunner(extensions, runtime, "/fixture", manager, {});
  let name: string | undefined, prompt = "";
  runner.bindCore({
+  refreshTools: () => {}, // No AgentSession in this runner-only fixture.
   setSessionName(value: string) {
    if (request.actionError) throw new Error(request.actionError);
    name = value; trace.push(["setSessionName", value]);
@@ -80,8 +81,11 @@ async function run(request: any) {
     }
     case "append": manager.appendMessage(step.message); break;
     case "label": manager.appendLabelChange(manager.getEntries()[step.index].id,step.value ?? undefined); break;
+    case "tools": {
+     trace.push(["tools", runner.getAllRegisteredTools().map(({definition: d}: any) => ({name:d.name,label:d.label,description:d.description,parameters:d.parameters,promptSnippet:d.promptSnippet ?? null,promptGuidelines:d.promptGuidelines ?? null}))]); break;
+    }
     case "tool": {
-     const tool = extension.tools.get(step.name).definition;
+     const tool = runner.getToolDefinition(step.name);
      const result = await tool.execute("fixture-call",step.params,undefined,undefined,runner.createContext());
      trace.push(["tool",result]); break;
     }
