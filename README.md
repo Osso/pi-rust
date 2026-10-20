@@ -11,8 +11,8 @@ Current coverage: `@earendil-works/pi-protocol` binary framing, incremental deco
 ```text
 ./run-tests.sh focused
 ./run-tests.sh differential
-./run-tests.sh oracle
-./run-tests.sh all
+python3 scripts/test-sandbox.py -- ./run-tests.sh oracle
+cargo test --workspace --all-targets
 cargo fmt --check
 cargo check --workspace --all-targets
 cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -55,6 +55,8 @@ groups and parent watchdogs remain usable. The bounded regression uses an outer
 namespace with a forbidden fake at the absolute helper path, real default Pi
 startup/double-Ctrl+C shutdown, and real loopback HTTP across nested guards. It
 never uses the installed helper, even against the old runner.
+
+For protected integration, run the oracle phase as shown above, then invoke Cargo outside the runtime guard; its compiled tests enter the mandatory Cargo runner. Oracle configs/dynamic fixtures use private `TMPDIR`, not writable checkout paths. `run-tests.sh all` remains an unwrapped composite entrypoint, not a supported way to run Cargo inside this guard.
 
 **Boundary:** this is test automation, not a general hostile-code sandbox. Other
 absolute executables are not individually masked; system files outside hidden

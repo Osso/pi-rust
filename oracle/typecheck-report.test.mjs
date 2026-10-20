@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { selectTypecheckReference } from "./typecheck-reference.mjs";
@@ -20,14 +20,16 @@ function runCompiler(command, args) {
 	});
 }
 
-function checkFixture(t, directoryRoot, source) {
-	const directory = mkdtempSync(join(directoryRoot, ".typecheck-regression-"));
+function compileFixture(t, fixture) {
+	const directory = mkdtempSync(join(tmpdir(), ".typecheck-config-"));
 	t.after(() => rmSync(directory, { recursive: true, force: true }));
-	const fixture = join(directory, "fixture.ts");
-	writeFileSync(fixture, source);
 	const config = spawnSync(
 		process.execPath,
-		[join(repoRoot, "oracle/oracle-tsconfig.mjs"), directory, "fixture.ts"],
+		[
+			join(repoRoot, "oracle/oracle-tsconfig.mjs"),
+			dirname(fixture),
+			basename(fixture),
+		],
 		{ encoding: "utf8" },
 	);
 	assert.equal(config.status, 0, config.stderr);
@@ -36,11 +38,18 @@ function checkFixture(t, directoryRoot, source) {
 	return { fixture, result: runCompiler(compiler, ["-p", configPath]) };
 }
 
+function checkFixture(t, source) {
+	const directory = mkdtempSync(join(tmpdir(), ".typecheck-regression-"));
+	t.after(() => rmSync(directory, { recursive: true, force: true }));
+	const fixture = join(directory, "fixture.ts");
+	writeFileSync(fixture, source);
+	return compileFixture(t, fixture);
+}
+
 test("invalid repository oracle reports its type error and fails", (t) => {
-	const { fixture, result } = checkFixture(
+	const { fixture, result } = compileFixture(
 		t,
-		join(repoRoot, "oracle"),
-		'const value: number = "invalid";',
+		join(repoRoot, "oracle/fixtures/invalid-typecheck.ts"),
 	);
 	assert.notEqual(result.status, 0);
 	assert.match(result.stdout + result.stderr, /TS2322/);
@@ -52,7 +61,6 @@ test("invalid repository oracle reports its type error and fails", (t) => {
 test("invalid temporary fixture reports its type error and fails", (t) => {
 	const { fixture, result } = checkFixture(
 		t,
-		tmpdir(),
 		'const value: number = "invalid";',
 	);
 	assert.notEqual(result.status, 0);
@@ -61,7 +69,7 @@ test("invalid temporary fixture reports its type error and fails", (t) => {
 });
 
 test("valid temporary fixture passes", (t) => {
-	const { result } = checkFixture(t, tmpdir(), "const value: number = 42;");
+	const { result } = checkFixture(t, "const value: number = 42;");
 	assert.equal(result.status, 0, result.stdout + result.stderr);
 	assert.equal(result.stdout + result.stderr, "");
 });
@@ -75,7 +83,7 @@ test("no-emit fixtures accept absolute TypeScript module imports", (t) => {
 const parsed = parseSkillBlock("plain user message");
 const absent: null = parsed === null ? parsed : null;
 void absent;`;
-	const { result } = checkFixture(t, tmpdir(), source);
+	const { result } = checkFixture(t, source);
 	assert.equal(result.status, 0, result.stdout + result.stderr);
 });
 

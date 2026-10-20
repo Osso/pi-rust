@@ -107,6 +107,10 @@ Original source diagnostics are not reclassified as expected negatives.
 
 Pinned patch comparison explicitly selects six context lines, matching the locked patch bytes; it must not inherit host Git `diff.context`. Protected preflight at `de1cc57` exposed that implicit host dependency: 6 Node tests passed, 5 failed before compiler checks (`/tmp/pi-rust-batch-a-guard-verification/REPORT.md`). The patch/reference/catalog hashes and all diagnostic checks remain unchanged. Regression `locked reference verification ignores inherited diff context` checks actual reference acceptance with context 0 and 20; its initial RED is retained in `/tmp/pi-rust-batch-a-oracle-fix/diff-context-red.log`.
 
+Protected oracle configuration and dynamic compiler fixtures are created only in private `TMPDIR`; the repository-relative negative fixture is tracked at `oracle/fixtures/invalid-typecheck.ts`. Its compiler error/path assertion remains intact, without writing into the read-only checkout. Actual protected RED after the context fix: 19/20 Node tests passed; the repository-fixture write failed with EROFS. A separate exact runner `mktemp` operation also failed EROFS. Logs: `/tmp/pi-rust-batch-a-oracle-fix/{protected-oracle-temp-red,config-location-red}.log`.
+
+Run final integration in two phases: `python3 scripts/test-sandbox.py -- ./run-tests.sh oracle`, then Cargo outside the runtime namespace (`cargo test --workspace --all-targets`), whose compiled tests enter the mandatory Cargo runner guard. Do not place Cargo itself inside the runtime guard: checkout/cache are read-only and Cargo is absent from its restricted PATH. No writable-checkout or unsandboxed fallback is introduced.
+
 ## Development proof ledger
 
 | Command | Exact scope | Result |

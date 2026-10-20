@@ -13,7 +13,7 @@ typecheck_oracle() {
 	local source_worktree
 	source_worktree="$(read_source_worktree)"
 	local config
-	config="$(mktemp "$ROOT_DIR/oracle/.tsconfig-oracles.XXXXXX.json")"
+	config="$(mktemp --tmpdir pi-rust-oracles.XXXXXX.json)"
 	node oracle/oracle-tsconfig.mjs "$ROOT_DIR/oracle" \
 		protocol-oracle.ts rpc-jsonl-oracle.ts truncate-oracle.ts \
 		auth-command-oracle.ts config-value-reference-oracle.ts skill-block-oracle.ts \
