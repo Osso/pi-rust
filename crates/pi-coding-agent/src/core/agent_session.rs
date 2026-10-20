@@ -3953,7 +3953,7 @@ impl AgentSession {
         };
         drop(manager);
         if let Err(error) = result {
-            eprintln!("Failed to persist session message: {error}");
+            crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string());
         }
         let _ = original_tool_call_id;
         if let AgentMessage::Assistant(assistant) = message {
@@ -4566,7 +4566,7 @@ impl AgentSession {
         if let AgentMessage::Custom(object) = app_message {
             let mut manager = lock(&self.inner.session_manager);
             if let Err(error) = append_custom_agent_message(&mut manager, object) {
-                eprintln!("Failed to persist custom message: {error}");
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string());
             }
         }
         self.emit(AgentSessionEvent::Message(AgentMessageEvent {
@@ -6260,7 +6260,7 @@ impl AgentSession {
         messages.push(message.clone());
         self.inner.agent.set_messages(messages);
         if let Err(error) = lock(&self.inner.session_manager).append_message(message.clone()) {
-            eprintln!("Failed to persist bash message: {error}");
+            crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string());
         }
         self.emit(AgentSessionEvent::BashMessagesCommitted(BashMessagesCommittedEvent {
             event_type: "bash_messages_committed",
@@ -6313,7 +6313,7 @@ impl AgentSession {
             let message = bash_message_to_agent_message(&bash_message);
             agent_messages.push(message.clone());
             if let Err(error) = lock(&self.inner.session_manager).append_message(message.clone()) {
-                eprintln!("Failed to persist bash message: {error}");
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string());
             }
             committed.push(message);
         }

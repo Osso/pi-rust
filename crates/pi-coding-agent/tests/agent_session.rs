@@ -2774,3 +2774,28 @@ async fn has_extension_handlers_reports_registered_event_handlers() {
     assert!(fixture.session.has_extension_handlers("turn_start"));
     assert!(!fixture.session.has_extension_handlers("turn_end"));
 }
+
+#[tokio::test]
+async fn persist_failures_are_uncaught_like_the_typescript_event_handler() {
+    let fixture = fixture_with_multi_agent(
+        Default::default(),
+        Vec::new(),
+        None,
+        None,
+        FixtureOverrides {
+            persist_session: true,
+            ..Default::default()
+        },
+    )
+    .await;
+    std::fs::remove_dir_all(fixture._temp_dir.path().join("sessions")).expect("remove session dir");
+    let session = fixture.session.clone();
+    let handle = tokio::spawn(async move { session.prompt("persist failure", PromptOptions::default()).await });
+    let join = handle.await.expect_err("persist failure must panic");
+    let payload = join.into_panic();
+    let error = payload
+        .downcast_ref::<pi_coding_agent::utils::uncaught::UncaughtError>()
+        .expect("uncaught payload");
+    assert_eq!(error.label, pi_coding_agent::utils::uncaught::ERROR);
+    assert!(!error.message.is_empty());
+}
