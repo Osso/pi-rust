@@ -22,6 +22,9 @@ const [{ default: factory }, loader, runnerModule, session, auth, utils, events,
 ]);
 async function run(request: any) {
  keysModule.setKeybindings(new keysModule.KeybindingsManager(keysModule.TUI_KEYBINDINGS,request.keybindings ?? {}));
+ let virtualMillis=0;
+ const originalTimeout=globalThis.setTimeout;
+ if(request.virtualTimers) globalThis.setTimeout=((callback:any,ms:number)=>{virtualMillis+=ms;queueMicrotask(callback);return 0;}) as any;
  const cwd = request.cwd ?? "/fixture";
  if (request.home) { process.env.HOME = request.home; process.chdir(cwd); }
  const runtime = loader.createExtensionRuntime();
@@ -45,8 +48,8 @@ async function run(request: any) {
  const runner = new runnerModule.ExtensionRunner([extension], runtime, cwd, manager, registry);
  const effects:any[]=[];
  runner.bindCore({
-  sendMessage() {}, sendUserMessage() {}, appendEntry(kind:string,data:any) {manager.appendCustomEntry(kind,data);effects.push(["appendEntry",kind,data]);}, requestResumeContinuation() {},
-  setSessionName() {}, getSessionName() {}, setLabel() {}, getActiveTools: () => request.activeTools ?? [], getAllTools: () => (request.allTools ?? []).map((name:string)=>({name})),
+  sendMessage(message:any,options:any) {if(request.captureEffects) effects.push(["sendMessage",message,options ?? null]);}, sendUserMessage() {}, appendEntry(kind:string,data:any) {manager.appendCustomEntry(kind,data);effects.push(["appendEntry",kind,data]);}, requestResumeContinuation() {},
+  setSessionName(name:string) {if(request.captureEffects) effects.push(["setSessionName",name]);}, getSessionName() {}, setLabel() {}, getActiveTools: () => request.activeTools ?? [], getAllTools: () => (request.allTools ?? []).map((name:string)=>({name})),
   setActiveTools(names:string[]) {effects.push(["setActiveTools",names]);}, callTool: async () => ({content: []}), callCommand: async () => undefined,
   refreshTools() {}, getCommands: () => [], setModel: async () => false,
   getThinkingLevel: () => "off", setThinkingLevel() {},
@@ -79,6 +82,23 @@ async function run(request: any) {
     const width=item.width ?? 40;
     calls.push(["render",component.render(width)]);
     for (const key of item.keys ?? []) {component.handleInput?.(key);calls.push(["render",component.render(width)]);}
+    for(const step of item.gameScript ?? []) {
+     if(step.before !== undefined) {
+      for(const handler of extension.handlers.get("before_agent_start") ?? []) {
+       const result=await handler({type:"before_agent_start",prompt:"fixture",systemPrompt:step.before,systemPromptOptions:{}},runner.createContext());
+       calls.push(["before",result ?? null]);
+      }
+     }
+     if(step.key !== undefined) component.handleInput?.(step.key);
+     if(step.execute) {
+      const started=virtualMillis;
+      let result:any;
+      try {result={value:await runner.getToolDefinition(step.execute).execute("fixture-call",step.params,undefined,undefined,runner.createContext())};}
+      catch(error:any) {result={error:error.message};}
+      calls.push(["elapsed",virtualMillis-started],["execute",result]);
+     }
+     calls.push(["render",component.render(step.width ?? width)]);
+    }
     component.invalidate();calls.push(["render",component.render(width)]);
     for(let i=0;i<1000 && !completed;i++) await new Promise(r=>setTimeout(r,1));
     component.dispose?.();
@@ -104,11 +124,12 @@ async function run(request: any) {
     result=await runner.emit({...item.value,signal:controller.signal});break;
    }
    case "render_call": result=runner.getToolDefinition(item.toolName).renderCall(item.params,theme,{}).render(item.width ?? 40); break;
-   case "render_result": result=runner.getToolDefinition(item.toolName).renderResult(item.result,{expanded:item.expanded ?? false,isPartial:item.isPartial ?? false},theme,{}).render(item.width ?? 40); break;
+   case "render_result": result=runner.getToolDefinition(item.toolName).renderResult(item.result,{expanded:item.expanded ?? false,isPartial:item.isPartial ?? false},theme,{isError:item.isError ?? false}).render(item.width ?? 40); break;
    case "command":
     try { result = await runner.getCommand(item.name).handler(item.args ?? "",runner.createCommandContext()); }
     catch (error: any) { result = {error:error.message}; }
     break;
+   case "entries": result=manager.getEntries().filter((e:any)=>e.type==="custom").map((e:any)=>[e.customType,e.data ?? null]);break;
    case "tool_call": result = await runner.emitToolCall({type:"tool_call", toolName:item.toolName,toolCallId:"fixture-call",bypassPermissions:false,input:item.input}); break;
    case "input": result = await runner.emitInput(item.text,item.images ?? undefined,item.source,item.streamingBehavior ?? undefined); break;
    case "tool_metadata": {
@@ -135,7 +156,8 @@ async function run(request: any) {
   cases.push(JSON.parse(JSON.stringify({result: result ?? null, ui: calls})));
  }
  globalThis.Date = originalDate;
- return {metadata,cases,errors,...(request.allTools ? {effects}: {}),...(request.modelFixture ? {modelCalls}: {})};
+ globalThis.setTimeout = originalTimeout;
+ return {metadata,cases,errors,...(request.allTools || request.captureEffects ? {effects}: {}),...(request.modelFixture ? {modelCalls}: {})};
 }
 process.stdin.setEncoding("utf8");
 let pending = "";
