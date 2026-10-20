@@ -158,12 +158,13 @@ fn identifies_hosted_models() {
 async fn web_search_registers_tool_and_payload_handler() {
     let runtime = create_extension_runtime();
     let extension = load_web_search(&runtime, WebSearchToolOptions::default()).await;
-    let tool = &extension
+    let tool = extension
         .read()
         .tools
         .get("web_search")
         .expect("web_search tool")
-        .definition;
+        .definition
+        .clone();
     assert_eq!(tool.name, "web_search");
     assert_eq!(tool.label, "Web Search");
     assert_eq!(tool.approval_required, Some(true));
@@ -200,12 +201,13 @@ async fn web_search_registers_tool_and_payload_handler() {
 async fn image_generation_registers_tool_without_payload_handler() {
     let runtime = create_extension_runtime();
     let extension = load_image_gen(&runtime, ImageGenerationToolOptions::default()).await;
-    let tool = &extension
+    let tool = extension
         .read()
         .tools
         .get("image_gen")
         .expect("image_gen tool")
-        .definition;
+        .definition
+        .clone();
     assert_eq!(tool.name, "image_gen");
     assert_eq!(tool.label, "Image Generation");
     assert_eq!(tool.approval_required, Some(true));

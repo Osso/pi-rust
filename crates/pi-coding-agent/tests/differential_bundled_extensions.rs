@@ -80,7 +80,13 @@ async fn load_effort(runtime: &ExtensionRuntime) -> Extension {
 }
 
 fn loop_metadata(extension: &Extension) -> Value {
-    let tool = &extension.read().tools.get("loop").expect("loop tool").definition;
+    let tool = extension
+        .read()
+        .tools
+        .get("loop")
+        .expect("loop tool")
+        .definition
+        .clone();
     json!({
         "toolName": tool.name,
         "toolLabel": tool.label,

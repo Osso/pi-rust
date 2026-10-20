@@ -847,12 +847,13 @@ async fn registration_exposes_the_source_tools_and_commands() {
             "wait_agent",
         ]
     );
-    let spawn = &extension
+    let spawn = extension
         .read()
         .tools
         .get("spawn_agent")
         .expect("spawn tool")
-        .definition;
+        .definition
+        .clone();
     assert_eq!(spawn.label, "Spawn Agent");
     assert_eq!(
         spawn.description,
@@ -877,7 +878,13 @@ async fn registration_exposes_the_source_tools_and_commands() {
             }
         })
     );
-    let wait = &extension.read().tools.get("wait_agent").expect("wait tool").definition;
+    let wait = extension
+        .read()
+        .tools
+        .get("wait_agent")
+        .expect("wait tool")
+        .definition
+        .clone();
     assert_eq!(
         wait.parameters,
         json!({"type": "object", "properties": {}, "additionalProperties": false})
