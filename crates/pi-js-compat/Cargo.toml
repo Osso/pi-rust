@@ -21,6 +21,9 @@ jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-s
 # `String.prototype.localeCompare` / `Intl.Collator`.
 icu_collator = { version = "=2.3.1", features = ["compiled_data"] }
 icu_locale_core = "=2.3.0"
+# ICU4C preserves lone UTF-16 surrogates that ICU4X compare_utf16 replaces.
+rust_icu_ucol = "=5.8.0"
+rust_icu_ustring = "=5.8.0"
 # Executes minimatch's lookaround regular expressions.
 fancy-regex = "=0.16.2"
 
