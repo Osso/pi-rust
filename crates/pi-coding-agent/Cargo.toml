@@ -96,6 +96,10 @@ test = false
 bench = false
 doc = false
 
+[[example]]
+name = "sdk_01_minimal"
+path = "examples/sdk/01_minimal.rs"
+
 [dev-dependencies]
 tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs", "test-util"] }
 # `pty::openpty` for process-boundary crash tests that need a pty without a
