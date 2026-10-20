@@ -10,6 +10,7 @@ pub mod collator;
 pub mod date;
 pub mod js_json;
 pub mod minimatch;
+pub mod node_fs;
 pub mod number;
 pub mod process_env;
 pub mod string;

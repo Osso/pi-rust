@@ -78,6 +78,7 @@ fn text_block(text: &str, signature: Option<&str>) -> AssistantContent {
         r#type: Default::default(),
         text: text.to_owned(),
         text_signature: signature.map(str::to_owned),
+        index: None,
     })
 }
 
@@ -87,6 +88,7 @@ fn thinking_block(thinking: &str, signature: Option<&str>) -> AssistantContent {
         thinking: thinking.to_owned(),
         thinking_signature: signature.map(str::to_owned),
         redacted: None,
+        index: None,
     })
 }
 

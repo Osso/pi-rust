@@ -113,6 +113,8 @@ async fn run_rust(dir: &str) -> Value {
             execution: None,
             thought_signature: None,
             namespace: None,
+            index: None,
+            partial_json: None,
         })
     };
     faux.set_responses(vec![

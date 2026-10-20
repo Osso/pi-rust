@@ -25,6 +25,8 @@ Source: pinned `packages/ai/scripts/model-data.ts` (280 lines). Rust: `crates/pi
 
 Coverage rows remain partial pending parent-owned final integration/verification; bounded source-root correction proof lives in [checker traceability](check-model-data.md). No unresolved surrogate implementation blocker. Existing catalog-state discrepancy is recorded in checker traceability, not silently repaired.
 
+Filesystem errors now use the [shared Node filesystem prerequisite](node-fs-errors.md); the private adapter wraps its message in `JsString` without local errno/message mappings. Model-data source contracts and UTF-16 diagnostics are unchanged.
+
 ## API and representation boundary
 
 `ModelDataStructure = IndexMap<JsString, IndexMap<JsString, JsString>>`. Manifest constructor accepts structure, `IndexMap<JsString, JsString>` exact file contents, and `&JsString` generation timestamp. `model_data_structure_json`, manifest `to_json`/`stringify`, and error `message()` expose lossless output. `ModelDataError(pub JsString)` retains exact code units; Display alone is explicitly lossy. Hashing/filesystem UTF-8 encoding uses Node-equivalent replacement at that boundary only.

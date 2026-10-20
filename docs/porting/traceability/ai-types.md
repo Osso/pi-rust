@@ -14,6 +14,21 @@ Rust: `crates/pi-ai/src/types.rs`, `crates/pi-ai/src/utils/event_stream.rs`, `cr
 - `ThinkingLevelMap` and grammar variants → `BTreeMap` (lookup-only; output order is not observable). `Model.headers`, `ProviderEnv`, `ProviderHeaders`, chat-template kwargs/args, and grammar-tool input properties → `IndexMap`, because TypeScript object insertion order reaches serialized payloads and HTTP request headers. `serde_json` `preserve_order` keeps object order for `arguments`, `details`, `samplingParams`, `value`. `ProviderResponse.headers` stays a `BTreeMap`: fetch `Headers` iteration is sorted.
 - `EventStream` is split into `EventSender` (push/end/fail) and `EventStream` (next/result). `fail(unknown)` → `StreamFailure { message }`.
 
+## Valid stream scratch fields
+
+`TextContent.index`, `ThinkingContent.index`, and `ToolCall.index` are optional
+`f64` fields, serialized with the shared JS-number convention. `ToolCall.partial_json`
+is an optional string serialized as `partialJson`. Constructors set them to `None`;
+absent fields stay absent. These are literal runtime output properties in the pinned
+Anthropic adapter and custom Anthropic example, not invalid typed inputs.
+
+`tests/types.rs::valid_stream_scratch_*` reproduces the lost `index: 3` event
+and tool JSON buffer, then proves complete event round trips (including fractional
+and large numeric indices). Producer lifecycle proof is bounded to
+[Anthropic Messages](anthropic-messages.md); other providers' `customInput`,
+`streamIndex`, and `partialArgs` remain unrepresented and unproved here.
+Contract: [content stream scratch](../../specs/content-stream-scratch.md).
+
 ## Symbols → proof
 | TS | Rust | Test |
 |---|---|---|

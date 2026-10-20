@@ -115,6 +115,7 @@ fn maps_every_assistant_content_variant_and_stop_reason() {
                     thinking: "hmm".into(),
                     thinking_signature: None,
                     redacted: Some(false),
+                    index: None,
                 }),
                 pi_ai::types::AssistantContent::ToolCall(ToolCall::new(
                     "call-1",

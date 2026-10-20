@@ -1,35 +1,3 @@
-//! Node.js filesystem error text for the built-in tools.
-//!
-//! The TypeScript tools surface `fs` errors verbatim (`ENOENT: no such file or
-//! directory, open '/path'`), so every Rust tool maps `io::Error` through this
-//! single formatter. Error codes come from the shared Node errno mapping in
-//! [`crate::utils::child_process::node_error_code`].
+//! Node filesystem messages shared with other native packages.
 
-use std::io;
-
-use crate::utils::child_process::node_error_code;
-
-/// `readFileSync` failure text: `EISDIR` reports the `read` syscall, everything else `open`.
-pub fn node_read_error(error: &io::Error, path: &str) -> String {
-    let syscall = if error.kind() == io::ErrorKind::IsADirectory {
-        "read"
-    } else {
-        "open"
-    };
-    node_fs_error(error, syscall, path)
-}
-
-/// Node filesystem error message: `<CODE>: <description>, <syscall> '<path>'`.
-pub fn node_fs_error(error: &io::Error, syscall: &str, path: &str) -> String {
-    let description = match error.kind() {
-        io::ErrorKind::NotFound => "no such file or directory",
-        io::ErrorKind::PermissionDenied => "permission denied",
-        io::ErrorKind::IsADirectory => "illegal operation on a directory",
-        io::ErrorKind::NotADirectory => "not a directory",
-        io::ErrorKind::AlreadyExists => "file already exists",
-        io::ErrorKind::InvalidInput => "invalid argument",
-        io::ErrorKind::DirectoryNotEmpty => "directory not empty",
-        _ => return format!("{}: {error}, {syscall} '{path}'", node_error_code(error)),
-    };
-    format!("{}: {description}, {syscall} '{path}'", node_error_code(error))
-}
+pub use pi_js_compat::node_fs::{node_fs_error, node_read_error};

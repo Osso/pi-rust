@@ -52,6 +52,37 @@ fn assistant_message_round_trips_exact_wire_shape() {
     assert_eq!(call.arguments["limit"], json!(10));
 }
 
+fn round_trip_stream_block(kind: &str, block: Value) {
+    let mut partial = assistant_wire();
+    partial["content"] = json!([block]);
+    let event = json!({"type": kind, "contentIndex": 0, "partial": partial});
+    round_trip::<AssistantMessageEvent>(&event);
+}
+
+#[test]
+fn valid_stream_scratch_text_index_round_trips() {
+    for index in [json!(3), json!(-1.5), json!(1e100)] {
+        round_trip_stream_block("text_start", json!({"type": "text", "text": "", "index": index}));
+    }
+}
+
+#[test]
+fn valid_stream_scratch_thinking_index_round_trips() {
+    round_trip_stream_block(
+        "thinking_start",
+        json!({"type": "thinking", "thinking": "plan", "thinkingSignature": "sig", "index": 7}),
+    );
+}
+
+#[test]
+fn valid_stream_scratch_tool_buffer_round_trips() {
+    round_trip_stream_block(
+        "toolcall_start",
+        json!({"type": "toolCall", "id": "call_1", "name": "read", "arguments": {},
+                                   "index": 11, "partialJson": "{\"path\":"}),
+    );
+}
+
 #[test]
 fn integral_costs_serialize_like_javascript_numbers() {
     let usage = Usage::default();

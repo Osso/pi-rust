@@ -306,6 +306,7 @@ fn drops_orphaned_tool_results_from_capped_pre_compaction_suffix() {
                 thinking: big_thinking,
                 thinking_signature: Some("sig".to_owned()),
                 redacted: None,
+                index: None,
             }),
             AssistantContent::Text(TextContent::new("")),
             AssistantContent::ToolCall(pi_ai::types::ToolCall::new(

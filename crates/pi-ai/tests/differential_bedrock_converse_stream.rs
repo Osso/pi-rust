@@ -449,6 +449,7 @@ fn scenarios() -> Vec<Scenario> {
                     thinking: "hmm".to_owned(),
                     thinking_signature: Some("sig".to_owned()),
                     redacted: None,
+                    index: None,
                 }),
                 AssistantContent::Text(pi_ai::types::TextContent::new("calling")),
                 AssistantContent::ToolCall(pi_ai::types::ToolCall::new(
