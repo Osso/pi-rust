@@ -16,7 +16,7 @@ async function main() {
   const git=(args:string[])=>execFileSync('git',args,{cwd,encoding:'utf8',env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_SYSTEM:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'},stdio:['ignore','pipe','pipe']});
   const write=(files:any)=>{for(const [name,content] of Object.entries(files??{})){ const file=join(cwd,name); if(content===null) {if(fs.existsSync(file))fs.unlinkSync(file);}else{fs.mkdirSync(dirname(file),{recursive:true});fs.writeFileSync(file,content as string);}}};
   try {
-   if(request.git){git(['init','-q']);git(['config','user.name','Fixture']);git(['config','user.email','fixture@example.invalid']);write({'tracked.txt':'initial\n'});git(['add','-A']);git(['commit','-qm','initial']);if(request.rejectCommit)git(['config','user.email','']);}
+   if(request.git){git(['init','-q']);git(['config','user.name','Fixture']);git(['config','user.email','fixture@example.invalid']);write({'tracked.txt':'initial\n'});git(['add','-A']);git(['commit','-qm','initial']);if(request.rejectCommit)fs.symlinkSync('/usr/bin/false',join(cwd,'.git/hooks/pre-commit'));}
    write(request.files);
    const runtime=loader.createExtensionRuntime(),bus=events.createEventBus();
    const extension=await loader.loadExtensionFromFactory(factory,cwd,bus,runtime,source.split('/examples/extensions/')[1]);
@@ -26,7 +26,7 @@ async function main() {
    let usage:any;
    const uiCalls:any[]=[],actions:any[]=[],errors:any[]=[];
    let selected:string|undefined,note:string|undefined;
-   const ui={notify:(text:string,level:string)=>uiCalls.push(['notify',text,level]),select:async(title:string,items:string[])=>{uiCalls.push(['select',title,items]);return selected;},input:async(title:string,placeholder:string)=>{uiCalls.push(['input',title,placeholder]);return note;}};
+   const ui={notify:(text:string,level:string)=>uiCalls.push(['notify',Buffer.from(text,'utf8').toString('utf8'),level]),select:async(title:string,items:string[])=>{uiCalls.push(['select',title,items]);return selected;},input:async(title:string,placeholder:string)=>{uiCalls.push(['input',title,placeholder]);return note;}};
    runner.bindCore({sendMessage(){},sendUserMessage(){},appendEntry(){},requestResumeContinuation(){},setSessionName(){},getSessionName(){},setLabel(){},getActiveTools:()=>[],getAllTools:()=>[],setActiveTools(){},callTool:async()=>({content:[]}),callCommand:async()=>undefined,refreshTools(){},getCommands:()=>[],setModel:async()=>false,getThinkingLevel:()=>"off",setThinkingLevel(){}},
     {getModel(){},isIdle:()=>true,hasActiveRetry:()=>false,isProjectTrusted:()=>true,getSignal(){},abort(){},hasPendingMessages:()=>false,shutdown(){},restart:async()=>{},getContextUsage:()=>usage,compact:(options:any)=>{actions.push(['compact',options.customInstructions??null]);if(request.compactOutcome==='error')options.onError?.(new Error('fixture compaction failure'));else options.onComplete?.({summary:'fixture summary',firstKeptEntryId:'kept',tokensBefore:120001});},getSystemPrompt:()=>'',getScopedModels:()=>[]});
    runner.onError((error:any)=>errors.push([error.event,error.error]));
@@ -41,13 +41,12 @@ async function main() {
      case 'resources':result=await runner.emitResourcesDiscover(cwd,step.reason);break;
      case 'command':try{await runner.getCommand(step.name).handler(step.args??'',runner.createCommandContext());}catch(error:any){result={error:error.message};}break;
      case 'usage':usage=typeof step.tokens==='number'?{tokens:step.tokens,contextWindow:200000,percent:step.tokens/2000}:undefined;break;
-     case 'tool':result=await runner.getToolDefinition(step.name).execute('fixture-call',step.params,undefined,undefined,runner.createContext());break;
-     case 'tools':result=runner.getAllRegisteredTools().map((registered:any)=>{const t=registered.definition;return {name:t.name,label:t.label,description:t.description,parameters:t.parameters,promptSnippet:t.promptSnippet??null,promptGuidelines:t.promptGuidelines??null};});break;
      case 'append':manager.appendMessage(step.message);break;
      case 'write':write(step.files);break;
      case 'git':result=git(step.args);break;
      case 'snapshot':result={files:Object.fromEntries(step.files.map((name:string)=>[name,fs.existsSync(join(cwd,name))?fs.readFileSync(join(cwd,name),'utf8'):null])),status:git(['status','--porcelain']),messages:git(['log','--format=%B%x00'])};break;
-     case 'event':{const event={...step.event};if(event.entryId==='$leaf')event.entryId=manager.getLeafId();result=await runner.emit(event);break;}
+     case 'tool_result':result=await runner.emitToolResult(step.event);break;
+     case 'event':{const event={...step.event};if(event.entryId==='$leaf')event.entryId=manager.getLeafId();else if(/^\$\d+$/.test(event.entryId??''))event.entryId=manager.getEntries()[Number(event.entryId.slice(1))].id;result=await runner.emit(event);break;}
      default:throw new Error(`Unknown op ${step.op}`);
     }
     cases.push({result:result??null,ui:[...uiCalls],actions:[...actions]});

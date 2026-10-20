@@ -92,7 +92,6 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     context.get_context_usage = Arc::new(move || tokens.lock().unwrap().clone());
     let calls = Arc::new(Mutex::new(Vec::<Value>::new()));
     let compact_calls = calls.clone();
-    let compact_ui = ui.clone();
     let outcome = request["compactOutcome"].as_str().unwrap_or("complete").to_owned();
     context.compact = Arc::new(move |options| {
         let options = options.unwrap_or_default();
@@ -112,8 +111,6 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
                 .unwrap(),
             );
         }
-        // Keep the UI alive for callbacks, as the host does.
-        let _ = &compact_ui;
     });
     runner.bind_core(support::actions(), context, None);
     let errors = Arc::new(Mutex::new(Vec::<Value>::new()));
@@ -130,37 +127,111 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
         let has_ui = step["hasUI"].as_bool().unwrap_or(true);
         let mode = serde_json::from_value(step.get("mode").cloned().unwrap_or(json!("tui"))).unwrap();
         runner.set_ui_context(if has_ui { Some(ui.clone()) } else { None }, mode);
-        let result=match step["op"].as_str().unwrap() {
-            "before" => json!(runner.emit_before_agent_start("task",None,step["prompt"].as_str().unwrap_or("base"),serde_json::from_value(step.get("options").cloned().unwrap_or(json!({}))).unwrap()).await),
+        let result = match step["op"].as_str().unwrap() {
+            "before" => json!(
+                runner
+                    .emit_before_agent_start(
+                        "task",
+                        None,
+                        step["prompt"].as_str().unwrap_or("base"),
+                        serde_json::from_value(step.get("options").cloned().unwrap_or(json!({}))).unwrap()
+                    )
+                    .await
+            ),
             "trust" => {
-                let (result, trust_errors)=emit_project_trust_event(&LoadExtensionsResult{extensions:vec![extension.clone()],errors:vec![],runtime:runtime.clone()},ProjectTrustEvent{cwd:cwd.into()},&ProjectTrustContext{cwd:cwd.into(),mode,has_ui,ui:if has_ui { ui.clone() } else {runner.create_context().ui().unwrap()} }).await;
-                for error in trust_errors { errors.lock().unwrap().push(json!([error.event,error.error])); }
-                json!(result)
-            },
-            "resources" => json!(runner.emit_resources_discover(cwd,serde_json::from_value(step["reason"].clone()).unwrap()).await),
-            "command" => {
-                match (runner.get_command(step["name"].as_str().unwrap()).unwrap().handler)(step["args"].as_str().unwrap_or("").into(),runner.create_command_context()).await {
-                    Ok(())=>Value::Null, Err(error)=>json!({"error":error.message})
+                let (result, trust_errors) = emit_project_trust_event(
+                    &LoadExtensionsResult {
+                        extensions: vec![extension.clone()],
+                        errors: vec![],
+                        runtime: runtime.clone(),
+                    },
+                    ProjectTrustEvent { cwd: cwd.into() },
+                    &ProjectTrustContext {
+                        cwd: cwd.into(),
+                        mode,
+                        has_ui,
+                        ui: if has_ui {
+                            ui.clone()
+                        } else {
+                            runner.create_context().ui().unwrap()
+                        },
+                    },
+                )
+                .await;
+                for error in trust_errors {
+                    errors.lock().unwrap().push(json!([error.event, error.error]));
                 }
-            },
-            "usage" => { *usage.lock().unwrap()=step["tokens"].as_f64().map(|tokens| ContextUsage{tokens:Some(tokens),context_window:200000.0,percent:Some(tokens/2000.0)}); Value::Null },
-            "tool" => {
-                let tool=runner.get_tool_definition(step["name"].as_str().unwrap()).unwrap();
-                json!((tool.execute)("fixture-call".into(),step["params"].clone(),None,None,runner.create_context()).await.unwrap())
-            },
-            "tools" => json!(runner.get_all_registered_tools().iter().map(|registered| { let tool=&registered.definition; json!({"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"promptSnippet":tool.prompt_snippet,"promptGuidelines":tool.prompt_guidelines}) }).collect::<Vec<_>>()),
-            "append" => { manager.lock().unwrap().append_message(serde_json::from_value(step["message"].clone()).unwrap()).unwrap(); Value::Null },
-            "write" => { write_files(cwd,&step["files"]); Value::Null },
-            "git" => json!(git(cwd,step["args"].as_array().unwrap().iter().map(|v|v.as_str().unwrap()).collect::<Vec<_>>().as_slice())),
-            "snapshot" => snapshot(cwd,&step["files"]),
+                json!(result)
+            }
+            "resources" => json!(
+                runner
+                    .emit_resources_discover(cwd, serde_json::from_value(step["reason"].clone()).unwrap())
+                    .await
+            ),
+            "command" => {
+                match (runner.get_command(step["name"].as_str().unwrap()).unwrap().handler)(
+                    step["args"].as_str().unwrap_or("").into(),
+                    runner.create_command_context(),
+                )
+                .await
+                {
+                    Ok(()) => Value::Null,
+                    Err(error) => json!({"error":error.message}),
+                }
+            }
+            "usage" => {
+                *usage.lock().unwrap() = step["tokens"].as_f64().map(|tokens| ContextUsage {
+                    tokens: Some(tokens),
+                    context_window: 200000.0,
+                    percent: Some(tokens / 2000.0),
+                });
+                Value::Null
+            }
+            "append" => {
+                manager
+                    .lock()
+                    .unwrap()
+                    .append_message(serde_json::from_value(step["message"].clone()).unwrap())
+                    .unwrap();
+                Value::Null
+            }
+            "write" => {
+                write_files(cwd, &step["files"]);
+                Value::Null
+            }
+            "git" => json!(git(
+                cwd,
+                step["args"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_str().unwrap())
+                    .collect::<Vec<_>>()
+                    .as_slice()
+            )),
+            "snapshot" => snapshot(cwd, &step["files"]),
+            "tool_result" => json!(
+                runner
+                    .emit_tool_result(serde_json::from_value(step["event"].clone()).unwrap())
+                    .await
+            ),
             "event" => {
-                let mut value=step["event"].clone();
-                if value["entryId"]=="$leaf" { value["entryId"]=json!(manager.lock().unwrap().get_leaf_id()); }
-                let mut event:ExtensionEvent=serde_json::from_value(value).unwrap();
-                let result=runner.emit(&mut event).await;
+                let mut value = step["event"].clone();
+                if value["entryId"] == "$leaf" {
+                    value["entryId"] = json!(manager.lock().unwrap().get_leaf_id());
+                }
+                if let Some(index) = value["entryId"]
+                    .as_str()
+                    .and_then(|s| s.strip_prefix('$'))
+                    .and_then(|s| s.parse::<usize>().ok())
+                {
+                    value["entryId"] = json!(manager.lock().unwrap().get_entries()[index].id());
+                }
+                let mut event: ExtensionEvent = serde_json::from_value(value).unwrap();
+                let result = runner.emit(&mut event).await;
                 json!(result.session_before_fork())
-            },
-            other=>panic!("unknown fixture op {other}")
+            }
+            other => panic!("unknown fixture op {other}"),
         };
         cases.push(
             json!({"result":result,"ui":ui.calls.lock().unwrap().clone(),"actions":calls.lock().unwrap().clone()}),
@@ -231,7 +302,7 @@ fn setup(cwd: &str, request: &Value) {
         git(cwd, &["add", "-A"]);
         git(cwd, &["commit", "-qm", "initial"]);
         if request["rejectCommit"] == true {
-            git(cwd, &["config", "user.email", ""]);
+            std::os::unix::fs::symlink("/usr/bin/false", Path::new(cwd).join(".git/hooks/pre-commit")).unwrap();
         }
     }
     write_files(cwd, &request["files"]);
