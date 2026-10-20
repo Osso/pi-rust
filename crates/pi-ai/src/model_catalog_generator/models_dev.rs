@@ -821,6 +821,21 @@ impl Generator<'_> {
     }
 }
 
+fn implied_cost(cost: &JsValue, implied: [f64; 4]) -> JsValue {
+    object([
+        ("input", fallback(field(cost, "input"), JsValue::Number(implied[0]))),
+        ("output", fallback(field(cost, "output"), JsValue::Number(implied[1]))),
+        (
+            "cacheRead",
+            fallback(field(cost, "cache_read"), JsValue::Number(implied[2])),
+        ),
+        (
+            "cacheWrite",
+            fallback(field(cost, "cache_write"), JsValue::Number(implied[3])),
+        ),
+    ])
+}
+
 #[cfg(test)]
 #[path = "../../tests/support/oracle.rs"]
 mod normalization_oracle;
@@ -871,19 +886,4 @@ mod normalization_tests {
             }
         }
     }
-}
-
-fn implied_cost(cost: &JsValue, implied: [f64; 4]) -> JsValue {
-    object([
-        ("input", fallback(field(cost, "input"), JsValue::Number(implied[0]))),
-        ("output", fallback(field(cost, "output"), JsValue::Number(implied[1]))),
-        (
-            "cacheRead",
-            fallback(field(cost, "cache_read"), JsValue::Number(implied[2])),
-        ),
-        (
-            "cacheWrite",
-            fallback(field(cost, "cache_write"), JsValue::Number(implied[3])),
-        ),
-    ])
 }
