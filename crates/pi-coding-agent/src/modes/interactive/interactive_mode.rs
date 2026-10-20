@@ -3983,7 +3983,7 @@ impl InteractiveMode {
         self.footer.borrow_mut().set_session_override(footer_override.clone());
         self.footer_data_provider.set_session_override(footer_override);
         self.chat_container.borrow_mut().clear();
-        self.render_session_entries_with_cwd(&entries, Some(&source_cwd));
+        self.render_session_entries_with_cwd(&entries, Some(&source_cwd), false);
         true
     }
 
@@ -4610,7 +4610,7 @@ impl InteractiveMode {
         }
     }
 
-    fn add_message_to_chat(&self, message: &AgentMessage) {
+    fn add_message_to_chat(&self, message: &AgentMessage, populate_history: bool) {
         match message {
             AgentMessage::User(user) => {
                 let text = Self::get_user_message_text(message);
@@ -4620,7 +4620,9 @@ impl InteractiveMode {
                 if !self.chat_container.borrow().children().is_empty() {
                     self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
                 }
-                if let Some(skill_block) = crate::parse_skill_block(&text) {
+                let skill_block = crate::parse_skill_block(&text);
+                let is_skill_block = skill_block.is_some();
+                if let Some(skill_block) = skill_block {
                     let user_message = skill_block.user_message.clone();
                     let mut skill = SkillInvocationMessageComponent::new(
                         skill_block,
@@ -4644,13 +4646,18 @@ impl InteractiveMode {
                     self.chat_container
                         .borrow_mut()
                         .add_child(component(UserMessageComponent::new(
-                            text,
+                            text.clone(),
                             Some(self.markdown_theme()),
                             self.output_pad(),
                             self.markdown_transformers(),
                         )));
                 }
-                let _ = user;
+                if populate_history
+                    && user.input_source != Some(pi_ai::types::InputSource::Extension)
+                    && !is_skill_block
+                {
+                    self.add_rendered_message_to_editor_history(&text);
+                }
             }
             AgentMessage::Assistant(assistant) => {
                 self.chat_container
@@ -4773,7 +4780,7 @@ impl InteractiveMode {
         self.footer.borrow_mut().invalidate();
         self.update_editor_border_color();
         let entries = self.session.borrow().session_manager().build_context_entries();
-        self.render_session_entries(&entries);
+        self.render_session_entries_with_cwd(&entries, None, true);
         self.render_project_trust_warning_if_needed();
         let all_entries = self.session.borrow().session_manager().get_entries();
         let compaction_count = all_entries
@@ -4814,10 +4821,17 @@ impl InteractiveMode {
     /// `renderSessionEntries`: custom entries render through their registered
     /// renderer; every other entry yields its context messages.
     pub fn render_session_entries(&self, entries: &[SessionEntry]) {
-        self.render_session_entries_with_cwd(entries, None);
+        self.render_session_entries_with_cwd(entries, None, false);
     }
 
-    fn render_session_entries_with_cwd(&self, entries: &[SessionEntry], source_cwd: Option<&str>) {
+    /// `renderSessionEntries` with `sourceCwd` and `populateHistory` (user
+    /// messages are added to the editor history; only the initial render sets it).
+    fn render_session_entries_with_cwd(
+        &self,
+        entries: &[SessionEntry],
+        source_cwd: Option<&str>,
+        populate_history: bool,
+    ) {
         self.clear_pending_tools();
         let tool_cwd = source_cwd.map(str::to_owned).unwrap_or_else(|| self.cwd());
         let mut rendered_pending_tools: IndexMap<String, ComponentRef> = IndexMap::new();
@@ -4827,7 +4841,7 @@ impl InteractiveMode {
                 continue;
             }
             for message in crate::core::session_manager::session_entry_to_context_messages(entry) {
-                self.render_session_message(message, &mut rendered_pending_tools, &tool_cwd);
+                self.render_session_message(message, &mut rendered_pending_tools, &tool_cwd, populate_history);
             }
         }
         for (tool_call_id, component_ref) in rendered_pending_tools {
@@ -4850,10 +4864,11 @@ impl InteractiveMode {
         message: AgentMessage,
         rendered_pending_tools: &mut IndexMap<String, ComponentRef>,
         tool_cwd: &str,
+        populate_history: bool,
     ) {
         match &message {
             AgentMessage::Assistant(assistant) => {
-                self.add_message_to_chat(&message);
+                self.add_message_to_chat(&message, false);
                 for content in &assistant.content {
                     let pi_ai::types::AssistantContent::ToolCall(call) = content else {
                         continue;
@@ -4941,7 +4956,7 @@ impl InteractiveMode {
                     );
                 }
             }
-            _ => self.add_message_to_chat(&message),
+            _ => self.add_message_to_chat(&message, populate_history),
         }
     }
 
@@ -5716,6 +5731,20 @@ impl InteractiveMode {
                 0,
             )));
         }
+    }
+
+    /// `addRenderedMessageToEditorHistory`: the default editor skips persistence
+    /// (the prompt is already in the control DB); custom editors use `addToHistory`.
+    fn add_rendered_message_to_editor_history(&self, text: &str) {
+        let editor = self.editor();
+        let default_editor: Rc<RefCell<dyn EditorComponent>> = self.default_editor.clone();
+        if Rc::ptr_eq(&editor, &default_editor) {
+            self.default_editor
+                .borrow_mut()
+                .add_to_history_without_persistence(text);
+            return;
+        }
+        editor.borrow_mut().add_to_history(text);
     }
 
     fn add_submitted_text_to_history(&self, text: &str) {
@@ -10668,11 +10697,11 @@ impl InteractiveMode {
                     self.ui.request_render();
                 }
                 AgentMessage::Custom(_) => {
-                    self.add_message_to_chat(&message);
+                    self.add_message_to_chat(&message, false);
                     self.ui.request_render();
                 }
                 AgentMessage::User(_) => {
-                    self.add_message_to_chat(&message);
+                    self.add_message_to_chat(&message, false);
                     self.update_pending_messages_display();
                     self.ui.request_render();
                 }
@@ -13914,6 +13943,45 @@ mod ui_tests {
                 .await;
                 let chat = chat_text(&mode);
                 assert!(chat.contains("appended entry"), "{chat}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn initial_render_adds_interactive_user_messages_to_editor_history() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let user = |text: &str, input_source| {
+                    AgentMessage::User(pi_ai::types::UserMessage {
+                        role: pi_ai::types::UserRole::Tag,
+                        content: pi_ai::types::UserContent::Text(text.to_owned()),
+                        input_source,
+                        provider_native: None,
+                        timestamp: 1,
+                    })
+                };
+                {
+                    let session = mode.session();
+                    let mut manager = session.session_manager();
+                    manager.append_message(user("typed prompt", None)).expect("typed");
+                    manager
+                        .append_message(user("extension prompt", Some(pi_ai::types::InputSource::Extension)))
+                        .expect("extension");
+                    manager
+                        .append_message(user(
+                            "<skill name=\"demo\" location=\"/skills/demo/SKILL.md\">\nbody\n</skill>",
+                            None,
+                        ))
+                        .expect("skill");
+                }
+                mode.render_initial_messages();
+                let history = mode.default_editor.borrow().get_history();
+                assert!(history.iter().any(|entry| entry == "typed prompt"), "{history:?}");
+                assert!(!history.iter().any(|entry| entry == "extension prompt"), "{history:?}");
+                assert!(!history.iter().any(|entry| entry.starts_with("<skill")), "{history:?}");
             })
             .await;
     }
