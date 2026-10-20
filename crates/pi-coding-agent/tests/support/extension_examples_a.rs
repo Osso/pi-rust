@@ -121,8 +121,14 @@ pub async fn run(factory: ExtensionFactory, request: &Value) -> Value {
             return Err(HandlerError::new(error));
         }
         let mut entries = entries.lock().unwrap();
-        let index = entries.get_entries().iter().position(|entry| entry.id() == id).unwrap();
-        entries.append_label_change(id, label).map_err(HandlerError::new)?;
+        let index = entries
+            .get_entries()
+            .iter()
+            .position(|entry| entry.id() == Some(id))
+            .unwrap();
+        entries
+            .append_label_change(id, label)
+            .map_err(|error| HandlerError::new(error.to_string()))?;
         assert_eq!(entries.get_label(id), label);
         log.lock().unwrap().push(json!(["setLabel", index, label]));
         Ok(())
@@ -199,6 +205,7 @@ pub async fn run(factory: ExtensionFactory, request: &Value) -> Value {
                 let mut entries = manager.lock().unwrap();
                 let id = entries.get_entries()[step["index"].as_u64().unwrap() as usize]
                     .id()
+                    .unwrap()
                     .to_owned();
                 entries.append_label_change(&id, step["value"].as_str()).unwrap();
             }
