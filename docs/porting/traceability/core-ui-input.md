@@ -11,7 +11,7 @@ No dependencies, live configuration, providers, merge, push, model CLI, or deleg
 | --- | --- | --- |
 | `packages/tui/src/tui.ts:47,1156-1158`: optional `wantsKeyRelease`, false when absent; focused release filtering | `ExtensionUiComponent::wants_key_release` defaults false; `ExtensionComponentAdapter` forwards dynamically | `interactive_mode::ui_tests::extension_ui_release_opt_in_reaches_real_tui`: default absent/false, press always delivered, release delivered only when opted in, through real interactive mode and TUI |
 | `packages/tui/src/tui.ts:972-987`: synchronous `stop()` | `ExtensionUiTui::stop`, required backend method; owning UI thread releases active renderer before return | `extension_ui_tui_lifecycle_is_synchronous_and_force_redraws`: terminal focus-disable bytes already written immediately after stop |
-| `packages/tui/src/tui.ts:912-932`: synchronous `start()` | `ExtensionUiTui::start -> Result<(), String>`; terminal startup errors remain errors | Same test: focus-enable bytes written before return; existing regular/fullscreen factory tests pass |
+| `packages/tui/src/tui.ts:912-932`: synchronous `start()` | `ExtensionUiTui::start -> Result<(), String>`; terminal startup errors remain errors | Same test: focus-enable bytes written before return and injected raw-mode error returned verbatim; existing regular/fullscreen factory tests pass |
 | `packages/tui/src/tui.ts:998-1027`: `requestRender(true)` | `ExtensionUiTui::request_render_force`; existing `request_render()` retains false behavior | Same test flushes queued request without forcing its own renderer, requiring unchanged concrete header text to repaint |
 
 Only the forced-true entry point is added, matching the existing Rust interactive
@@ -83,11 +83,12 @@ parity. Ordinary oracle scenarios are unnormalized.
 ## RED/GREEN, mutation and compatibility proof
 
 - API RED: four missing methods (01); native example REDs: missing modules (04,07).
-  Negative-life behavioral RED: 18. API GREEN includes both new tests (32);
+  Negative-life behavioral RED: 18. API GREEN includes both new tests and injected startup failure (37);
   acceptance GREEN: Invaders 5/0 (22), shell 4/0 (30).
-- Seven rejected mutations: production release forwarding (10), force dispatch
+- Nine rejected mutations: production release forwarding (10), force dispatch
   (23), stop (24), start (25), game release opt-in (26), held-left release (27),
-  shell force argument (28). All restored byte-for-byte. Initial force mutant
+  shell force argument (28), swallowed start error (38), default opt-in (39).
+  All restored byte-for-byte. Initial force mutant
   survived because the test forced rendering itself (11); test corrected to
   flush a stable concrete frame, then mutant rejected (23).
 - All 51 `example_*` targets constructing either changed trait (including
