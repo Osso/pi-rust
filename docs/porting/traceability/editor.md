@@ -122,3 +122,7 @@ converts TS columns to bytes.
   Rust uses `i64` to preserve the value instead of trapping.
 - `Intl.Segmenter` dictionary word differences are the approved global ICU4X
   deviation (see `word-navigation.md`).
+
+## Wrapped cursor offset
+
+`layout_lines` computes the relative cursor offset only when the chunk contains it, matching TS editor.ts:1285–1293. Narrow-width modal-example input/render differential exposed and now covers the previous Rust subtraction overflow. See [editor example proofs](extension-examples-editors.md).

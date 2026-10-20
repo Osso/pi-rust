@@ -2094,7 +2094,11 @@ impl Editor {
                         )
                     } else {
                         let has = cursor_pos >= chunk.start_index && cursor_pos < chunk.end_index;
-                        let adjusted = (cursor_pos - chunk.start_index).min(chunk.text.len());
+                        let adjusted = if has {
+                            (cursor_pos - chunk.start_index).min(chunk.text.len())
+                        } else {
+                            0
+                        };
                         (has, adjusted)
                     }
                 } else {

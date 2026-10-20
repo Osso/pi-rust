@@ -7,8 +7,8 @@ Native examples are embeddable `#[path]` modules, registered explicitly through
 | Source | Native entrypoint | Proof / blocker |
 | --- | --- | --- |
 | `github-issue-autocomplete.ts` | `github_issue_autocomplete_extension` | `example_github_issue_autocomplete`: ordinary-data differential; native U+FFFD boundary regression under approved exclusion below. |
-| `question.ts` | Not shipped | Blocked on extension editor host, below |
-| `questionnaire.ts` | Not shipped | Blocked on extension editor host, below |
+| `question.ts` | Not shipped | Todo: dedicated form slice; host dependency resolved |
+| `questionnaire.ts` | Not shipped | Todo: dedicated form slice; host dependency resolved |
 | `rpc-demo.ts` | `rpc_demo_extension` | `example_rpc_demo`: full real-RPC protocol frame comparison |
 
 ## GitHub issue autocomplete
@@ -46,18 +46,15 @@ All ordinary JSON, Unicode, success/error, caching, completion and delegation
 fixtures remain in the full-result TS comparison. Historical RED logs 13–14
 record the now-classified boundary difference, not an open implementation blocker.
 
-## Form blockers (not partial implementations)
+## Forms deferred (not partial implementations)
 
 Both pinned factories instantiate `new Editor(tui, editorTheme)`:
-`question.ts:89`, `questionnaire.ts:130`. Rust `EditorHost` requires
-`create_fixed_cell` (`crates/pi-tui/src/components/editor.rs:122-125`).
-The available `ExtensionUiTuiBackend`/`ExtensionUiTui` expose rendering, dimensions,
-and mode only (`crates/pi-coding-agent/src/core/extensions/types.rs:277-310`),
-not fixed-cell construction or an `EditorHost` implementation. The Rust editor
-also owns `Rc` state while `ExtensionUiComponent` requires `Send + Sync`
-(`types.rs:262`). A core slice owns editor-host/focus work; this batch does not
-reimplement an editor or add a competing bridge. Consequently no form renders,
-key-sequence results, renderer branches, RED/GREEN or mutation proofs are claimed.
+`question.ts:89`, `questionnaire.ts:130`. The original blocker was missing
+`ExtensionUiTui` editor-host/fixed-cell and focus support. Master `1e27e41`
+resolves that dependency; see [editor-host traceability](extension-examples-editors.md).
+Per the final integration decision, both forms remain `todo` for their own slice.
+This branch ships no form implementation, failing/ignored stub tests, form renders,
+key-sequence results, renderer proofs, or mutation claims.
 
 ## Proof ledger
 
@@ -98,7 +95,7 @@ extension path `/fixture/rpc-demo` on both sides. No core fix or fallback added.
   Historical proof at 9fb0ead; current ordinary-data and boundary proofs follow in the ledger.
 - RPC prefill notification mutation: targeted test failed (log 12), reverted.
   RPC source remains the GREEN log-10 implementation (formatting only afterward).
-- Form examples have no implementation/tests/mutations because of missing host API.
+- Form examples have no implementation/tests/mutations; their host dependency is resolved, and porting is deferred.
 - Final integration merges master only into this branch; no push, core API edits,
   live state, GitHub network calls, agents or model CLIs. Proof scope and exact
   revisions are recorded in the ledger.

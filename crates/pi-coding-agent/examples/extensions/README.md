@@ -111,7 +111,8 @@ are called by this example. Config loading failures are printed, matching TS.
 Embed via `#[path]` and register its factory explicitly. It runs git/gh and
 preloads up to 100 open issues per session; no default loading. Differential
 tests use a sandbox-local fake gh, never GitHub. Question/questionnaire forms
-await the core extension editor-host bridge; no partial forms are shipped.
+remain todo for a dedicated slice; the editor-host bridge is now available.
+No partial forms or stub tests are shipped.
 
 `rpc_demo.rs` exports `rpc_demo_extension`; register explicitly with the same
 registry pattern. Demonstrates RPC dialogs, status/widgets/title and editor
@@ -162,3 +163,20 @@ play and inspect the agent cursor. It uses the host's custom UI and session
 entries, not live state. Nothing loads by default. Differential test:
 `example_tic_tac_toe`; source reconstruction caveat and proof matrix:
 [batch K traceability](../../../../docs/porting/traceability/extension-examples-k.md).
+
+## Custom editor and overlay examples
+
+Register these factories explicitly using the native pattern above:
+
+| Module | Factory |
+|---|---|
+| `border_status_editor.rs` | `border_status_editor_extension` |
+| `modal_editor.rs` | `modal_editor_extension` |
+| `rainbow_editor.rs` | `rainbow_editor_extension` |
+| `overlay_test.rs` | `overlay_test_extension` |
+
+Copy `editor_composition.rs` alongside the three editor modules. It delegates
+the real CustomEditor surface while the example overrides input/render behavior;
+the host still wires base callbacks and focus. Border-status hides the footer
+and working indicator; overlay-test registers `/overlay-test`. No example loads
+by default. Behavioral/differential proof: `tests/extension_examples_editors.rs`.
