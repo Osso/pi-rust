@@ -41,6 +41,14 @@ Focused follow-up logs: `05-http-red.log`/`06-options-red.log` establish missing
 
 `37-raw-metadata-red.log` exposed cache-write relational coercion, Unicode `\\d` versus JS ASCII digits, and raw fetched-ID method/error-order mismatches. `38-raw-metadata.log` GREEN: 15 cache/Google pattern cases, 14 complete-source raw-ID failures (missing/null/number/bool/array/object), original 675 metadata combinations and three complete catalog workflows. JS error messages retain `candidate.id.startsWith`, `modelId.includes`, null/undefined distinction and array `endsWith` failure boundaries; raw input types are not silently discarded.
 
+`40-normalization.log`/`41-normalization.log` exposed an oracle framing defect, not a generator difference: Node readline split literal U+2028 in valid request JSON (minimal runtime probe retained in `42-readline-probe.log`). Generator oracle now frames by byte LF with StringDecoder. `43-normalization.log`/`44-normalization-scalars.log` GREEN compare actual pinned `normalizeNvidiaModelId` against every UTF-16 code unit, every Unicode scalar and contextual Greek/Turkish/supplementary/lone-surrogate cases. No lowercase-version counterexample observed in that scope.
+
+## Approved validation/native causes update
+
+Alessio, 2026-10-20 (relayed by parent): “Reject wrong field types (Recommended)” for declared catalog response field types, retaining valid string code units; no accidental V8 sort/exception port is required for those invalid inputs. Required-field absence versus source defaults and the TS-any OpenRouter boundary are awaiting clarification; the native validation change is not yet implemented. Earlier malformed-field differential cases document literal pre-decision behavior, not approval to accept malformed catalog responses going forward.
+
+“Allow native causes (Recommended)” permits native HTTP causes, but Node top-level fetch error name/message, status and failure order must remain unchanged. Shared fetch identity support is pending parent integration; no additional prefix shim is introduced.
+
 ## Classified source discrepancy
 
 The source dedup check reads `providers[provider][id]` through `Object.prototype`, treating inherited names (`__proto__`, `constructor`, etc.) as existing truthy models. The full original-source workflow proves those supplied models are omitted. Native JSON grouping preserves this pinned serialized model set, rather than silently fixing it during artifact adaptation (parent relayed approved classification, 2026-10-20). No prototype mutation is performed by Rust.

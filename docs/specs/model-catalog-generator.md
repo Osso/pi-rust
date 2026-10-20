@@ -4,6 +4,9 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 
 ## What it must do
 
+- [ ] Reject wrong declared catalog response field types with stable meaningful errors (approved “Reject wrong field types (Recommended)”, 2026-10-20), retaining valid UTF-16 strings; do not port accidental V8 malformed-input sort behavior.
+- [ ] Permit native HTTP causes while retaining Node top-level fetch error name/message, status and failure order (approved “Allow native causes (Recommended)”, 2026-10-20).
+
 - [x] Preserve models.dev plain costs and context-sized pricing tiers.
 - [x] Transform Baseten entries, including deprecated filtering, toggle/effort compatibility and GLM-5.2 overrides.
 - [x] Transform Fireworks tool models, including GLM-5p2/Kimi-K3 API and compatibility selection.
@@ -17,7 +20,8 @@ Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON
 - [x] Fetch OpenRouter/AI Gateway through an injected transport, preserving tool filters, pricing, defaults, malformed payload/coercion errors, raw overflow and strict HTTP-status errors.
 - [x] Preserve earlier models.dev reasoning records when a later raw provider model throws; discard returned models at the source failure boundary, not partial state.
 - [x] Report implemented Baseten/Fireworks/cost malformed raw-input errors instead of silently narrowing them away.
-- [x] Preserve scalar effort membership, array model maps, Mistral Number/nullish-cache semantics, and distinct NVIDIA normalized lone-surrogate aliases.
+- [x] Preserve internal transform scalar-effort/array-map/pricing semantics and distinct NVIDIA normalized lone-surrogate aliases; malformed response acceptance is superseded by the approved validation boundary.
+- [x] Match pinned NVIDIA normalization for every UTF-16 unit, every Unicode scalar and contextual/lone-surrogate fixtures.
 - [x] Generate grouped private and flat public JSON, source-identical manifests/checksums/timestamps and pretty/compact bytes in default/public/json-only/data-only fixtures.
 - [x] Execute maintenance CLI option handling, immediate log emission and statistics with fixture HTTP; reject invalid CLI mode in a real subprocess before fetching.
 - [ ] Prove staged validation failures, rollback and filesystem/transport error formatting.

@@ -814,6 +814,59 @@ impl Generator<'_> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/support/oracle.rs"]
+mod normalization_oracle;
+
+#[cfg(test)]
+mod normalization_tests {
+    use super::*;
+    use pi_js_compat::js_json::{parse_lossless, stringify_lossless};
+    #[test]
+    fn normalize_matches_pinned_source_for_every_utf16_unit_and_context_case() {
+        let mut source = normalization_oracle::TsOracle::spawn(
+            "model-catalog-generator-oracle.ts",
+            "packages/ai/scripts/generate-models.ts",
+        );
+        for id in [
+            JsString::from_utf16((0..=u16::MAX).collect()),
+            JsString::from_utf16(
+                (0..=0x10ffff)
+                    .filter_map(char::from_u32)
+                    .flat_map(|character| {
+                        let mut units = [0; 2];
+                        character.encode_utf16(&mut units).to_vec()
+                    })
+                    .collect(),
+            ),
+            JsString::from("ΟΣ_Σ_İ_𐐀_𞤀"),
+            JsString::from_utf16(vec![0xd800, 0x41, 0x5f, 0xd801, 0x42, 0xdc00]),
+        ] {
+            let input = stringify_lossless(&JsValue::String(id.clone()));
+            let response =
+                source.request(&json!({"operation":"normalizeNvidiaModelId","argsJson":format!("[{input}]")}));
+            let JsValue::String(expected) = parse_lossless(
+                response["json"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("source normalization failed: {response}")),
+            )
+            .unwrap() else {
+                panic!("source returned a non-string");
+            };
+            let actual = normalized_nvidia(&id);
+            assert_eq!(
+                actual.units().len(),
+                expected.units().len(),
+                "normalization output length differs"
+            );
+            for (index, (actual, expected)) in actual.units().iter().zip(expected.units()).enumerate() {
+                assert_eq!(actual, expected, "normalized UTF-16 output unit {index}");
+            }
+        }
+    }
+}
+
 fn implied_cost(cost: &JsValue, implied: [f64; 4]) -> JsValue {
     object([
         ("input", fallback(field(cost, "input"), JsValue::Number(implied[0]))),

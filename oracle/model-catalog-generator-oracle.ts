@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
-import { createInterface } from "node:readline";
+import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 import vm from "node:vm";
 
@@ -22,6 +22,7 @@ const names = [
 	"fetchOpenRouterModels",
 	"fetchAiGatewayModels",
 	"fetchNvidiaNimModelIds",
+	"normalizeNvidiaModelId",
 	"loadModelsDevData",
 	"generateModels",
 	"detectOpenAICompletionsCompat",
@@ -68,8 +69,22 @@ const output = ts.transpileModule(
 		transformers: { before: [transformer] },
 	},
 ).outputText;
+async function* requestLines(): AsyncGenerator<string> {
+	const decoder = new StringDecoder("utf8");
+	let buffer = "";
+	for await (const chunk of process.stdin) {
+		buffer += decoder.write(chunk);
+		let index: number;
+		while ((index = buffer.indexOf("\n")) !== -1) {
+			yield buffer.slice(0, index);
+			buffer = buffer.slice(index + 1);
+		}
+	}
+	buffer += decoder.end();
+	if (buffer.length) throw new Error("Unterminated generator oracle request");
+}
 async function main(): Promise<void> {
-	const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+	const lines = requestLines();
 	for await (const line of lines) {
 		const logs: unknown[] = [];
 		const requests: string[] = [];
