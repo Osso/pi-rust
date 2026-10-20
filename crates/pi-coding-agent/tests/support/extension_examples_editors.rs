@@ -24,6 +24,16 @@ thread_local! {
 }
 struct Backend;
 impl ExtensionUiTuiBackend for Backend {
+    fn request_render_force(&self) {
+        panic!("fixture does not force redraw")
+    }
+    fn stop(&self) {
+        panic!("fixture does not release terminal")
+    }
+    fn start(&self) -> Result<(), String> {
+        panic!("fixture does not acquire terminal")
+    }
+
     fn create_fixed_cell(&self) -> Rc<dyn EditorFixedCell> {
         TUI.with(|tui| Rc::new(tui.create_fixed_cell()))
     }
