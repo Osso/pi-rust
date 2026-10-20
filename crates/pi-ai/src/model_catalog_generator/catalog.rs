@@ -185,7 +185,7 @@ impl Generator<'_> {
             metadata::apply_completions(model)?;
             let provider =
                 pi_js_compat::js_json::to_js_string(field(model, "provider")).map_err(GeneratorError::type_error)?;
-            let id = pi_js_compat::js_json::to_js_string(field(model, "id")).map_err(GeneratorError::type_error)?;
+            let id = require_model_id(model)?.clone();
             let mut key = provider.units().to_vec();
             key.push(u16::from(b':'));
             key.extend_from_slice(id.units());
@@ -211,7 +211,7 @@ impl Generator<'_> {
         for model in all {
             let provider =
                 pi_js_compat::js_json::to_js_string(field(&model, "provider")).map_err(GeneratorError::type_error)?;
-            let id = pi_js_compat::js_json::to_js_string(field(&model, "id")).map_err(GeneratorError::type_error)?;
+            let id = require_model_id(&model)?.clone();
             let catalog = providers.entry(provider).or_default();
             // Pinned source tests truthiness through Object.prototype during dedup.
             if prototype_property(&id) {
@@ -475,7 +475,7 @@ fn apply_overrides(model: &mut JsValue) -> Result<(), GeneratorError> {
             set(model, "cost", cost);
             set(model, "maxTokens", number(4096));
         }
-        if string_method(model, "id", "candidate.id", "startsWith")?
+        if require_model_id(model)?
             .units()
             .starts_with(JsString::from("moonshotai/kimi-k2.6").units())
         {

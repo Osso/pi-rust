@@ -11,6 +11,9 @@ fn merge(model: &mut JsValue, key: &str, patch: JsValue) {
     set(model, key, value);
 }
 fn id_text(model: &JsValue, key: &str) -> Result<String, GeneratorError> {
+    if key == "id" {
+        return require_model_id(model).map(JsString::to_utf8_lossy);
+    }
     match field(model, key) {
         JsValue::String(value) => Ok(value.to_utf8_lossy()),
         _ => Err(GeneratorError::type_error(&format!(
@@ -172,15 +175,7 @@ pub(super) fn apply_completions(model: &mut JsValue) -> Result<(), GeneratorErro
 fn thinking(model: &mut JsValue) -> Result<(), GeneratorError> {
     let api = id_text(model, "api")?;
     let provider = id_text(model, "provider")?;
-    let (method, variable) =
-        if matches!(api.as_str(), "openai-responses" | "azure-openai-responses") || provider == "github-copilot" {
-            ("startsWith", "model.id")
-        } else if matches!(field(model, "id"), JsValue::Array(_)) {
-            ("endsWith", "model.id")
-        } else {
-            ("includes", "modelId")
-        };
-    let id = string_method(model, "id", variable, method)?.to_utf8_lossy();
+    let id = require_model_id(model)?.to_utf8_lossy();
     let mut apply = |patch: serde_json::Value| merge(model, "thinkingLevelMap", literal(patch));
     if matches!(api.as_str(), "openai-responses" | "azure-openai-responses") && id.starts_with("gpt-5") {
         apply(json!({"off":null}));

@@ -24,7 +24,43 @@ fn dev_fixture() -> Value {
 }
 
 #[test]
-fn source_raw_provider_model_ids_fail_at_the_same_metadata_method() {
+fn valid_utf16_ids_numeric_keys_nonfinite_numbers_and_unused_fields_keep_source_values() {
+    let mut source = oracle::TsOracle::spawn(
+        "model-catalog-generator-oracle.ts",
+        "packages/ai/scripts/generate-models.ts",
+    );
+    let dev=json!({"openai":{"models":{"custom":{"id":{"ignored":true},"name":"Valid","tool_call":true,"status":42,"provider":{"npm":false},"structured_output":{},"unused":{"toString":0}}}}}).to_string();
+    let router = r#"{"data":[{"id":"\ud801","name":"\ud800","supported_parameters":["tools"]},{"id":"\ud800","name":"\ud801","supported_parameters":["tools"]},{"id":"\ufffd","name":"Replacement","supported_parameters":["tools"]},{"id":"10","name":"Ten","supported_parameters":["tools"]},{"id":"2","name":"Two","supported_parameters":["tools"]},{"id":"\u2028","name":"Separator","supported_parameters":["tools"]},{"id":"nonfinite","name":"Nonfinite","supported_parameters":["tools"],"pricing":{"prompt":1e400},"context_length":-1}]}"#;
+    let fixtures = [
+        ("https://models.dev/api.json", dev),
+        ("https://openrouter.ai/api/v1/models", router.to_owned()),
+        ("https://ai-gateway.vercel.sh/v1/models", "{\"data\":[]}".to_owned()),
+    ];
+    let http: serde_json::Map<String, Value> = fixtures
+        .iter()
+        .map(|(url, body)| (url.to_string(), json!({"body":body})))
+        .collect();
+    let expected = source
+        .request(&json!({"operation":"generateModels","argv":["--json-only","--json-output","@OUTPUT@"],"http":http}));
+    let mut fetch = |url: &str| {
+        Ok(HttpResponse {
+            status: 200,
+            body: fixtures.iter().find(|(key, _)| *key == url).unwrap().1.clone(),
+        })
+    };
+    let mut generator = Generator::new(GeneratorOptions::default(), &mut fetch);
+    let actual = generator.generate_catalog().unwrap();
+    let expected = parse_lossless(
+        expected["files"]["catalog/models.json"]
+            .as_str()
+            .unwrap_or_else(|| panic!("source valid fixture failed: {expected}")),
+    )
+    .unwrap();
+    assert_eq!(stringify_lossless(&actual), stringify_lossless(&expected));
+}
+
+#[test]
+fn invalid_model_ids_are_rejected_at_the_original_outer_failure_boundary() {
     let mut source = oracle::TsOracle::spawn(
         "model-catalog-generator-oracle.ts",
         "packages/ai/scripts/generate-models.ts",
@@ -67,7 +103,10 @@ fn source_raw_provider_model_ids_fail_at_the_same_metadata_method() {
             let error = expected
                 .get("error")
                 .unwrap_or_else(|| panic!("source unexpectedly accepted {model}: {expected}"));
+            assert_eq!(error["name"], json!("TypeError"));
+            let mut requested = vec![];
             let mut fetch = |url: &str| {
+                requested.push(url.to_owned());
                 Ok(HttpResponse {
                     status: 200,
                     body: fixtures.iter().find(|(key, _)| *key == url).unwrap().1.clone(),
@@ -75,11 +114,19 @@ fn source_raw_provider_model_ids_fail_at_the_same_metadata_method() {
             };
             let mut generator = Generator::new(GeneratorOptions::default(), &mut fetch);
             let actual = generator.generate_catalog().unwrap_err();
-            if actual.name != error["name"].as_str().unwrap()
-                || actual.message.to_utf8().unwrap() != error["message"].as_str().unwrap()
+            // Approved 2026-10-20: stable native type rejection, not V8 method accidents.
+            if actual.name != "TypeError"
+                || actual.message != pi_js_compat::js_json::JsString::from("Generated model.id must be a string")
             {
-                failures.push(format!("gateway={gateway} {model}: native {actual}; source {error}"));
+                failures.push(format!(
+                    "gateway={gateway} {model}: native {actual}; classified source accident {error}"
+                ));
             }
+            assert_eq!(
+                pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::JsValue::Array(generator.logs)),
+                expected["logs"].to_string()
+            );
+            assert_eq!(json!(requested), expected["requests"]);
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
