@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { format } from "node:util";
 import vm from "node:vm";
 
@@ -24,7 +24,7 @@ async function check(packageRoot: string, api: Record<string, unknown>) {
 		initializeImportMeta(meta) { meta.url = pathToFileURL(join(packageRoot, "scripts", "check-model-data.ts")).href; },
 	});
 	await module.link((specifier) => {
-		const exports = specifier === "./model-data.ts" ? api : specifier === "node:path" ? { dirname, join } : { fileURLToPath: (url: string) => new URL(url).pathname };
+		const exports = specifier === "./model-data.ts" ? api : specifier === "node:path" ? { dirname, join } : { fileURLToPath };
 		return new vm.SyntheticModule(Object.keys(exports), function () {
 			for (const [name, value] of Object.entries(exports)) this.setExport(name, value);
 		}, { context });
