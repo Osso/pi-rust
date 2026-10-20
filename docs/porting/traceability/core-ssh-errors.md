@@ -61,7 +61,8 @@ through the real native factory/runner and executes its actual tool definitions.
 Nine scenarios replay the complete transcript against the pinned TS example:
 no flag, empty flag, host only, explicit path, extra colon, failed pwd, host `$&`,
 path `$&`, and missing SSH executable. Each compares metadata, pre-start result,
-UI effects, start error, modified prompt, 13 tool outcomes, user-bash outcomes,
+UI effects (including exact ANSI status from both real Theme implementations),
+start error, modified prompt, 13 tool outcomes, user-bash outcomes,
 local/remote edited file contents, and ordered SSH argv plus empty stdin.
 
 The test also feeds the propagated read error through the real interactive
@@ -104,9 +105,16 @@ Detailed commands, exact revisions, exit codes, and complete logs:
 | Pre-abort behavioral RED/GREEN | `13-preabort-red.log` / `15-lifecycle-green.log`: lost pre-abort output, then pass |
 | Existing local tests | `04-core-green.log`: 33/0 across custom errors, read, edit/write, ls and real Node filesystem-error targets |
 | Expanded core and existing differentials | `30-core-final.log`: 6/0 across two custom-error tests and existing read/edit-write/ls differential targets |
-| Complete SSH differential + real TUI | `18-sigterm-green.log`: 1/0, nine scenarios; executable example unchanged since this proof |
+| Complete SSH differential + real TUI | `18-sigterm-green.log`: 1/0, nine scenarios; final `33-final-fixtures.log`: 3/0 including both custom-error tests and exact ANSI SSH status; executable example unchanged since `e31407b1` |
 | Core mutation | `17-core-mutation.log`: all 11 independently reached changed propagation sites rejected in one aggregate run; exact originals restored |
 | SSH mutations | `19`–`29`: 11/11 rejected: flag, path, base64, MIME, SSH error, user-bash, timeout, abort, pre-abort, SIGTERM, prompt; exact originals restored |
+
+Across distinct current targets: 39 tests pass (32 existing local tests, four
+existing differential tests, two custom-error tests, one SSH test). Earlier
+custom-error runs overlap; do not sum log totals as distinct tests.
+Readability metrics/manual review are recorded under `32`/`34`; new SSH/test/oracle
+functions stay below cognitive 16 and cyclomatic 21. `execute_edit` retains its
+pre-existing cyclomatic 21; only its two error conversions changed.
 
 Initial infrastructure/fixture failures are retained separately (CJS top-level
 await, wrong Cargo target names, missing native test imports, removed cwd,
