@@ -213,6 +213,7 @@ print("PASS actual loopback HTTP, denied external route, nested literal fixture,
         env={
             "PATH": "/usr/bin:/bin",
             "TMPDIR": str(proof / "tmp"),
+            "PI_TEST_SANDBOX_DIR": str(proof),
             "ANTHROPIC_API_KEY": "forbidden-sentinel",
         },
         cwd=ROOT,

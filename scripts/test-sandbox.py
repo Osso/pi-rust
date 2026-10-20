@@ -135,6 +135,8 @@ def launch(command):
     if state in [Path("/"), Path("/tmp"), Path.home()]:
         raise RuntimeError("PI_TEST_SANDBOX_DIR must be a private test directory")
     environment = private_environment(state)
+    if selected:
+        environment["PI_TEST_SANDBOX_DIR"] = str(state)
     if parent_tmp != Path("/tmp"):
         environment["TMPDIR"] = str(parent_tmp)
     helper = state / "claude-memory-stub"
