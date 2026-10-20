@@ -377,10 +377,10 @@ pub fn read_generator_options(args: &[String]) -> Result<GeneratorOptions, Gener
                             GeneratorError {
                                 name: record.name.to_owned(),
                                 message: JsString::from(record.message.as_str()),
-                                details: Some(GeneratorErrorDetails::FileSystem {
+                                details: Some(Box::new(GeneratorErrorDetails::FileSystem {
                                     record,
                                     destination: None,
-                                }),
+                                })),
                             }
                         })?
                         .join(path)
@@ -414,7 +414,7 @@ pub fn read_generator_options(args: &[String]) -> Result<GeneratorOptions, Gener
 pub struct GeneratorError {
     pub name: String,
     pub message: JsString,
-    pub details: Option<GeneratorErrorDetails>,
+    pub details: Option<Box<GeneratorErrorDetails>>,
 }
 #[derive(Debug, Clone)]
 pub enum GeneratorErrorDetails {
@@ -440,7 +440,7 @@ impl GeneratorError {
     }
     pub fn console_message(&self) -> String {
         let mut output = self.to_string();
-        match &self.details {
+        match self.details.as_deref() {
             Some(GeneratorErrorDetails::Transport(cause)) => output.push_str(&format!("\n  cause: {cause}")),
             Some(GeneratorErrorDetails::FileSystem { record, destination }) => {
                 output.push_str(" {\n");
@@ -501,7 +501,9 @@ fn transport_error(error: crate::request::CallbackError) -> GeneratorError {
     GeneratorError {
         name: error.name,
         message: JsString::from(error.message.as_str()),
-        details: error.cause.map(GeneratorErrorDetails::Transport),
+        details: error
+            .cause
+            .map(|cause| Box::new(GeneratorErrorDetails::Transport(cause))),
     }
 }
 pub struct Generator<'a> {
@@ -676,10 +678,10 @@ fn transform_http_models(data: &JsValue, gateway: bool) -> Result<JsValue, Gener
                 } else if matches!(model,JsValue::Object(model) if model.contains_key(&JsString::from("id"))) {
                     set(&mut result, key, field(model, "id").clone());
                 }
-            } else if let JsValue::Object(object) = model {
-                if object.contains_key(&JsString::from(key)) {
-                    set(&mut result, key, value.clone());
-                }
+            } else if let JsValue::Object(object) = model
+                && object.contains_key(&JsString::from(key))
+            {
+                set(&mut result, key, value.clone());
             }
         }
         set(

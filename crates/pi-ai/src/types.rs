@@ -868,7 +868,7 @@ pub enum AssistantMessageEvent {
         #[serde(rename = "contentIndex")]
         content_index: usize,
         #[serde(rename = "toolCall")]
-        tool_call: ToolCall,
+        tool_call: Box<ToolCall>,
         partial: AssistantMessage,
     },
     Done {

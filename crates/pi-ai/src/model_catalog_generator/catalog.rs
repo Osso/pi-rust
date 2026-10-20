@@ -189,19 +189,19 @@ impl Generator<'_> {
             let mut key = provider.units().to_vec();
             key.push(u16::from(b':'));
             key.extend_from_slice(id.units());
-            if let Some(options) = self.reasoning_options.get(&JsString::from_utf16(key)) {
-                if is_truthy(options) && direct_effort(model)? {
-                    if let Some(map) = reasoning_map(options)? {
-                        let mut existing = field(model, "thinkingLevelMap").clone();
-                        if !matches!(existing, JsValue::Object(_)) {
-                            existing = object([]);
-                        }
-                        if let (JsValue::Object(existing), JsValue::Object(map)) = (&mut existing, map) {
-                            existing.extend(map);
-                        }
-                        set(model, "thinkingLevelMap", existing);
-                    }
+            if let Some(options) = self.reasoning_options.get(&JsString::from_utf16(key))
+                && is_truthy(options)
+                && direct_effort(model)?
+                && let Some(map) = reasoning_map(options)?
+            {
+                let mut existing = field(model, "thinkingLevelMap").clone();
+                if !matches!(existing, JsValue::Object(_)) {
+                    existing = object([]);
                 }
+                if let (JsValue::Object(existing), JsValue::Object(map)) = (&mut existing, map) {
+                    existing.extend(map);
+                }
+                set(model, "thinkingLevelMap", existing);
             }
             metadata::apply_after_reasoning(model)?;
         }
@@ -456,10 +456,10 @@ fn apply_overrides(model: &mut JsValue) -> Result<(), GeneratorError> {
             set(model, "maxTokens", number(128000));
         }
     }
-    if equal(&provider, "cloudflare-ai-gateway") {
-        if let Some(cost) = standard_cost(&id) {
-            set(model, "cost", long_context_cost(&cost)?);
-        }
+    if equal(&provider, "cloudflare-ai-gateway")
+        && let Some(cost) = standard_cost(&id)
+    {
+        set(model, "cost", long_context_cost(&cost)?);
     }
     if (equal(&provider, "openrouter") && (equal(&id, "moonshotai/kimi-k3") || equal(&id, "~moonshotai/kimi-latest")))
         || (equal(&provider, "vercel-ai-gateway") && equal(&id, "moonshotai/kimi-k3"))

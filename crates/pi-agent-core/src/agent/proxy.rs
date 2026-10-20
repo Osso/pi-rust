@@ -435,7 +435,7 @@ fn process_toolcall_end(
     state.sync();
     Ok(Some(AssistantMessageEvent::ToolCallEnd {
         content_index,
-        tool_call,
+        tool_call: Box::new(tool_call),
         partial: state.message.clone(),
     }))
 }

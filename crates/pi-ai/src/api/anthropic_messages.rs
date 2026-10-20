@@ -1426,7 +1426,7 @@ fn apply_content_block_stop(sender: &AssistantMessageEventSender, output: &mut A
             let tool_call = block.clone();
             sender.push(AssistantMessageEvent::ToolCallEnd {
                 content_index: position,
-                tool_call,
+                tool_call: Box::new(tool_call),
                 partial: output.clone(),
             });
         }

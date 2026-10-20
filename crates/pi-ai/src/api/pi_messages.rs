@@ -803,7 +803,7 @@ impl EventConverter {
                 self.tool_json.remove(&content_index);
                 Ok(AssistantMessageEvent::ToolCallEnd {
                     content_index,
-                    tool_call,
+                    tool_call: Box::new(tool_call),
                     partial: self.partial.clone(),
                 })
             }

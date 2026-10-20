@@ -44,10 +44,10 @@ impl CatalogFileSystem for NativeCatalogFileSystem {
 fn io_error(error: io::Error, syscall: &str, path: &Path) -> GeneratorError {
     let record = pi_js_compat::node_fs::node_fs_error_record(&error, syscall, &path.to_string_lossy());
     let mut error = GeneratorError::new(record.name, JsString::from(record.message.as_str()));
-    error.details = Some(GeneratorErrorDetails::FileSystem {
+    error.details = Some(Box::new(GeneratorErrorDetails::FileSystem {
         record,
         destination: None,
-    });
+    }));
     error
 }
 fn read(path: &Path) -> Result<String, GeneratorError> {
@@ -84,7 +84,7 @@ fn rename(from: &Path, to: &Path) -> Result<(), GeneratorError> {
     fs::rename(from, to).map_err(|error| {
         let mut error = io_error(error, "rename", from);
         error.message = JsString::from(format!("{} -> '{}'", error.message.to_utf8_lossy(), to.display()).as_str());
-        if let Some(GeneratorErrorDetails::FileSystem { destination, .. }) = &mut error.details {
+        if let Some(GeneratorErrorDetails::FileSystem { destination, .. }) = error.details.as_deref_mut() {
             *destination = Some(to.to_string_lossy().into_owned());
         }
         error
@@ -165,10 +165,10 @@ fn group_catalog(catalog: &JsValue, ids: &[JsString]) -> Result<(JsValue, ModelD
         .ok_or_else(|| GeneratorError::error("Missing provider during generation"))?;
         let mut apis = vec![];
         for (_, model) in entries(models) {
-            if let JsValue::String(api) = field(model, "api") {
-                if !apis.contains(api) {
-                    apis.push(api.clone());
-                }
+            if let JsValue::String(api) = field(model, "api")
+                && !apis.contains(api)
+            {
+                apis.push(api.clone());
             }
         }
         apis.sort();

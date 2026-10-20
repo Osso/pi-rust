@@ -120,14 +120,14 @@ fn base_openai_compat() -> JsValue {
 
 impl Generator<'_> {
     fn record(&mut self, provider: &str, id: &JsString, model: &JsValue) {
-        if let JsValue::Object(model) = model {
-            if let Some(options) = model.get(&JsString::from("reasoning_options")) {
-                let mut key = provider.encode_utf16().collect::<Vec<_>>();
-                key.push(u16::from(b':'));
-                key.extend_from_slice(id.units());
-                self.reasoning_options
-                    .insert(JsString::from_utf16(key), options.clone());
-            }
+        if let JsValue::Object(model) = model
+            && let Some(options) = model.get(&JsString::from("reasoning_options"))
+        {
+            let mut key = provider.encode_utf16().collect::<Vec<_>>();
+            key.push(u16::from(b':'));
+            key.extend_from_slice(id.units());
+            self.reasoning_options
+                .insert(JsString::from_utf16(key), options.clone());
         }
     }
     pub fn fetch_nvidia_nim_model_ids(&mut self) -> Result<IndexMap<JsString, JsString>, GeneratorError> {
@@ -576,15 +576,14 @@ impl Generator<'_> {
         Ok(())
     }
     fn transform_subscriptions(&mut self, data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), GeneratorError> {
+        let claude_pattern = regex::Regex::new(r"^claude-(haiku|sonnet|opus)-[45]([.\-]|$)").unwrap();
         for entry in tool_models(data, "github-copilot")? {
             let (id, m) = entry?;
             if equal(field(m, "status"), "deprecated") {
                 continue;
             }
             let name = id.to_utf8_lossy();
-            let claude = regex::Regex::new(r"^claude-(haiku|sonnet|opus)-[45]([.\-]|$)")
-                .unwrap()
-                .is_match(&name);
+            let claude = claude_pattern.is_match(&name);
             let responses =
                 name == "grok-4.5" || name.starts_with("gpt-5") || name.starts_with("oswe") || name.starts_with("mai-");
             let api = if claude {

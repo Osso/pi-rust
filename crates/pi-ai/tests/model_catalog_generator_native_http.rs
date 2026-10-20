@@ -26,7 +26,7 @@ async fn assert_native_error(url: &str, message: &str) {
         source["error"]["message"].as_str().unwrap()
     );
     assert_eq!(error.message.to_utf8().unwrap(), message);
-    let Some(GeneratorErrorDetails::Transport(cause)) = &error.details else {
+    let Some(GeneratorErrorDetails::Transport(cause)) = error.details.as_deref() else {
         panic!("missing native cause: {error:?}")
     };
     assert!(!cause.is_empty());

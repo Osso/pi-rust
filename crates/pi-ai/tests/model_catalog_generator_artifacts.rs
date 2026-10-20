@@ -416,7 +416,9 @@ fn source_transaction_failures_restore_values_include_and_cleanup_at_exact_bound
                     ));
                 }
                 if let Some(code) = expected["error"].get("code") {
-                    if let Some(GeneratorErrorDetails::FileSystem { record, destination }) = error.details {
+                    if let Some(GeneratorErrorDetails::FileSystem { record, destination }) =
+                        error.details.map(|details| *details)
+                    {
                         if record.code != code.as_str().unwrap()
                             || record.errno != expected["error"]["errno"].as_i64().map(|v| v as i32)
                             || record.syscall != expected["error"]["syscall"].as_str().unwrap()
@@ -803,7 +805,8 @@ fn public_output_failure_keeps_committed_native_catalog_and_partial_public_files
             ),
             "{fault}"
         );
-        let Some(pi_ai::model_catalog_generator::GeneratorErrorDetails::FileSystem { record, .. }) = error.details
+        let Some(pi_ai::model_catalog_generator::GeneratorErrorDetails::FileSystem { record, .. }) =
+            error.details.as_deref()
         else {
             panic!("missing error metadata")
         };

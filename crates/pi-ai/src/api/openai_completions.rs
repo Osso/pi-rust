@@ -1409,7 +1409,7 @@ fn finish_block(
         }),
         AssistantContent::ToolCall(tool_call) => sender.push(AssistantMessageEvent::ToolCallEnd {
             content_index: block_index,
-            tool_call: tool_call.clone(),
+            tool_call: Box::new(tool_call.clone()),
             partial: output.clone(),
         }),
     }

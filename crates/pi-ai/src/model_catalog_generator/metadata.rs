@@ -128,14 +128,15 @@ pub(super) fn detect_compat(model: &JsValue) -> Result<JsValue, GeneratorError> 
         }),
     );
     // The source places this optional property before the two final defaults.
-    if provider == "openrouter" && (id.starts_with("anthropic/") || id.starts_with("~anthropic/")) {
-        if let JsValue::Object(map) = &mut compat {
-            let affinity = map.shift_remove(&JsString::from("sendSessionAffinityHeaders")).unwrap();
-            let retention = map.shift_remove(&JsString::from("supportsLongCacheRetention")).unwrap();
-            map.insert(JsString::from("cacheControlFormat"), text("anthropic"));
-            map.insert(JsString::from("sendSessionAffinityHeaders"), affinity);
-            map.insert(JsString::from("supportsLongCacheRetention"), retention);
-        }
+    if provider == "openrouter"
+        && (id.starts_with("anthropic/") || id.starts_with("~anthropic/"))
+        && let JsValue::Object(map) = &mut compat
+    {
+        let affinity = map.shift_remove(&JsString::from("sendSessionAffinityHeaders")).unwrap();
+        let retention = map.shift_remove(&JsString::from("supportsLongCacheRetention")).unwrap();
+        map.insert(JsString::from("cacheControlFormat"), text("anthropic"));
+        map.insert(JsString::from("sendSessionAffinityHeaders"), affinity);
+        map.insert(JsString::from("supportsLongCacheRetention"), retention);
     }
     Ok(compat)
 }

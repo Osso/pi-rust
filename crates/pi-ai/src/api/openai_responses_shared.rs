@@ -1569,7 +1569,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                         }
                         sender.push(AssistantMessageEvent::ToolCallEnd {
                             content_index,
-                            tool_call,
+                            tool_call: Box::new(tool_call),
                             partial: output.clone(),
                         });
                         output_slots.remove(&output_index);
@@ -1609,7 +1609,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                         }
                         sender.push(AssistantMessageEvent::ToolCallEnd {
                             content_index,
-                            tool_call,
+                            tool_call: Box::new(tool_call),
                             partial: output.clone(),
                         });
                         output_slots.remove(&output_index);

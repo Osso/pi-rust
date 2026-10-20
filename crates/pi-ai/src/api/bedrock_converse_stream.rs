@@ -1228,7 +1228,7 @@ fn handle_content_block_stop(
             let tool_call = block.clone();
             Some(AssistantMessageEvent::ToolCallEnd {
                 content_index: index,
-                tool_call,
+                tool_call: Box::new(tool_call),
                 partial: output.clone(),
             })
         }

@@ -1185,7 +1185,7 @@ fn emit_tool_call(sender: &AssistantMessageEventSender, output: &mut AssistantMe
     });
     sender.push(AssistantMessageEvent::ToolCallEnd {
         content_index: index,
-        tool_call,
+        tool_call: Box::new(tool_call),
         partial: output.clone(),
     });
 }

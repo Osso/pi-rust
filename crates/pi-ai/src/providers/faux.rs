@@ -74,7 +74,7 @@ pub struct RegisterFauxProviderOptions {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FauxContent {
     Text(String),
-    Block(AssistantContent),
+    Block(Box<AssistantContent>),
     Blocks(Vec<AssistantContent>),
 }
 
@@ -92,7 +92,7 @@ impl From<String> for FauxContent {
 
 impl From<AssistantContent> for FauxContent {
     fn from(block: AssistantContent) -> Self {
-        Self::Block(block)
+        Self::Block(Box::new(block))
     }
 }
 
@@ -130,7 +130,7 @@ pub fn faux_assistant_message(
 ) -> AssistantMessage {
     let content = match content.into() {
         FauxContent::Text(text) => vec![faux_text(text)],
-        FauxContent::Block(block) => vec![block],
+        FauxContent::Block(block) => vec![*block],
         FauxContent::Blocks(blocks) => blocks,
     };
     let mut message = AssistantMessage::empty(DEFAULT_API, DEFAULT_PROVIDER, DEFAULT_MODEL_ID, 0);
@@ -978,7 +978,7 @@ async fn stream_with_deltas(
                 }
                 sender.push(AssistantMessageEvent::ToolCallEnd {
                     content_index: index,
-                    tool_call: block.clone(),
+                    tool_call: Box::new(block.clone()),
                     partial: partial.clone(),
                 });
             }
