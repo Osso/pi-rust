@@ -156,3 +156,11 @@ nix = { version = "=0.30.1", features = ["poll", "process", "term"] }
 
 [lints]
 workspace = true
+
+[[bin]]
+# Isolated real-RPC protocol fixture for the opt-in rpc-demo example.
+name = "example-rpc-demo-harness"
+path = "tests/bin/example_rpc_demo_harness.rs"
+test = false
+bench = false
+doc = false

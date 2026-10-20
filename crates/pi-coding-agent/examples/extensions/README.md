@@ -105,6 +105,26 @@ the pinned example's mutable custom-entry data aliasing; see
 explicitly; it reads global/project `presets.json` on session start. No providers
 are called by this example. Config loading failures are printed, matching TS.
 
+## Forms/RPC/autocomplete (batch J)
+
+`github_issue_autocomplete.rs` exports `github_issue_autocomplete_extension`.
+Embed via `#[path]` and register its factory explicitly. It runs git/gh and
+preloads up to 100 open issues per session; no default loading. Differential
+tests use a sandbox-local fake gh, never GitHub. Question/questionnaire forms
+remain todo for a dedicated slice; the editor-host bridge is now available.
+No partial forms or stub tests are shipped.
+
+`rpc_demo.rs` exports `rpc_demo_extension`; register explicitly with the same
+registry pattern. Demonstrates RPC dialogs, status/widgets/title and editor
+prefill. Dangerous bash calls require confirmation; no UI blocks them.
+`example_rpc_demo` exercises the real RPC transport using private sessions.
+
+GitHub autocomplete uses the approved U+FFFD projection at the existing
+String-typed fuzzy boundary; raw lone-surrogate fuzzy fidelity is excluded.
+Ordinary fixtures retain full-result differential proof; the native boundary
+regression asserts projected matches. See
+`docs/porting/traceability/extension-examples-j.md` for the exclusion and form blockers.
+
 ## Batch F examples
 
 Embed `with_deps.rs` (`with_deps_extension`) for `parse_duration`, and

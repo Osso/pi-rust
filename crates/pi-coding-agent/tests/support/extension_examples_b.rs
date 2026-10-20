@@ -14,12 +14,16 @@ mod support;
 struct Ui {
     calls: Mutex<Vec<Value>>,
     selected: Mutex<Option<String>>,
+    autocomplete: Mutex<Option<ExtensionAutocompleteProviderFactory>>,
     item: Mutex<Value>,
     custom_tools: Mutex<std::collections::BTreeMap<String, ToolDefinition>>,
     custom_context: Mutex<Option<ExtensionContext>>,
     custom_before: Mutex<Vec<HandlerHandle<BeforeAgentStartEvent, BeforeAgentStartEventResult>>>,
 }
 impl ExtensionUiContext for Ui {
+    fn add_autocomplete_provider(&self, factory: ExtensionAutocompleteProviderFactory) {
+        *self.autocomplete.lock().unwrap() = Some(factory);
+    }
     fn theme(&self) -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
         fixture_theme()
     }
@@ -275,12 +279,20 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
         captured_errors.lock().unwrap().push(json!([error.event, error.error]));
     }));
     let ui = Arc::new(Ui::default());
+    let github = name == "github-issue-autocomplete";
+    let receipt = std::path::Path::new(cwd).join("requests");
+    if github && receipt.exists() {
+        std::fs::remove_file(&receipt).unwrap();
+    }
+    let mut provider: std::rc::Rc<dyn pi_tui::autocomplete::AutocompleteProvider> = std::rc::Rc::new(FixtureProvider);
     *ui.custom_tools.lock().unwrap() = custom_tools;
     *ui.custom_context.lock().unwrap() = Some(runner.create_context());
     *ui.custom_before.lock().unwrap() = custom_before;
     let mut cases = Vec::new();
     for case in request["cases"].as_array().unwrap() {
-        ui.calls.lock().unwrap().clear();
+        if !github {
+            ui.calls.lock().unwrap().clear();
+        }
         *ui.item.lock().unwrap() = case.clone();
         *ui.selected.lock().unwrap() = case["selected"].as_str().map(str::to_owned);
         runner.set_ui_context(
@@ -300,6 +312,35 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                     }))
                     .await;
                 Value::Null
+            }
+            "autocomplete" => {
+                if let Some(factory) = ui.autocomplete.lock().unwrap().take() {
+                    provider = factory(provider);
+                }
+                let text = case["text"].as_str().unwrap();
+                let lines = vec![text.to_owned()];
+                let signal = tokio_util::sync::CancellationToken::new();
+                if case["aborted"] == true {
+                    signal.cancel();
+                }
+                let suggestions = provider
+                    .clone()
+                    .get_suggestions(
+                        lines.clone(),
+                        0,
+                        text.len(),
+                        pi_tui::autocomplete::AutocompleteOptions { signal, force: false },
+                    )
+                    .await;
+                let suggestions = suggestions.map(|s| json!({"items":s.items.iter().map(|i| json!({"value":i.value,"label":i.label,"description":i.description})).collect::<Vec<_>>(),"prefix":s.prefix}));
+                let applied = provider.apply_completion(
+                    &lines,
+                    0,
+                    text.len(),
+                    &pi_tui::autocomplete::AutocompleteItem::new("#101", "#101"),
+                    text,
+                );
+                json!({"suggestions":suggestions,"applied":{"lines":applied.lines,"cursorLine":applied.cursor_line,"cursorCol":applied.cursor_col},"trigger":provider.should_trigger_file_completion(&lines,0,text.len()).unwrap_or(true)})
             }
             "append_custom" => {
                 runner
@@ -440,7 +481,9 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
         if request["captureOutputFiles"] == true {
             capture_artifact(&mut result);
         }
-        cases.push(json!({"result":result,"ui":ui.calls.lock().unwrap().clone()}));
+        cases.push(
+            json!({"result":result,"ui":if github {Vec::<Value>::new()} else {ui.calls.lock().unwrap().clone()}}),
+        );
     }
     let mut actual = json!({"metadata":metadata,"cases":cases,"errors":errors.lock().unwrap().clone()});
     if request.get("allTools").is_some() || request["captureEffects"] == true {
@@ -466,6 +509,13 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
             }
         }
     }
+    if github {
+        actual["ui"] = json!(ui.calls.lock().unwrap().clone());
+        actual["requests"] = json!(read_requests(&receipt));
+        if receipt.exists() {
+            std::fs::remove_file(&receipt).unwrap();
+        }
+    }
     let mut oracle = oracle::TsOracle::spawn_with_environment(
         "extension-examples-b-oracle.ts",
         &format!("packages/coding-agent/examples/extensions/{name}.ts"),
@@ -476,8 +526,59 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
     actual
 }
 
+fn read_requests(path: &std::path::Path) -> Vec<Value> {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+struct FixtureProvider;
+impl pi_tui::autocomplete::AutocompleteProvider for FixtureProvider {
+    fn get_suggestions(
+        self: std::rc::Rc<Self>,
+        _: Vec<String>,
+        _: usize,
+        _: usize,
+        _: pi_tui::autocomplete::AutocompleteOptions,
+    ) -> pi_tui::autocomplete::AutocompleteFuture {
+        Box::pin(async {
+            Some(pi_tui::autocomplete::AutocompleteSuggestions {
+                items: vec![pi_tui::autocomplete::AutocompleteItem {
+                    value: "base".into(),
+                    label: "Base".into(),
+                    description: Some("delegate".into()),
+                }],
+                prefix: "base-prefix".into(),
+            })
+        })
+    }
+    fn apply_completion(
+        &self,
+        lines: &[String],
+        line: usize,
+        col: usize,
+        item: &pi_tui::autocomplete::AutocompleteItem,
+        prefix: &str,
+    ) -> pi_tui::autocomplete::CompletionResult {
+        let mut lines = lines.to_vec();
+        lines[line] = format!("{}{}", &lines[line][..col - prefix.len()], item.value);
+        pi_tui::autocomplete::CompletionResult {
+            lines,
+            cursor_line: line,
+            cursor_col: col - prefix.len() + item.value.len(),
+        }
+    }
+    fn should_trigger_file_completion(&self, _: &[String], _: usize, _: usize) -> Option<bool> {
+        Some(false)
+    }
+}
+
 fn oracle_environment(request: &Value) -> Vec<(&'static str, std::ffi::OsString)> {
     let mut env = vec![("LANG", "en_US.UTF-8".into()), ("LC_ALL", "en_US.UTF-8".into())];
+    if let Some(path) = request["path"].as_str() {
+        env.push(("PATH", path.into()));
+    }
     if let Some(agent) = request["agentDir"].as_str() {
         env.push(("PI_CODING_AGENT_DIR", agent.into()));
     }
@@ -486,6 +587,9 @@ fn oracle_environment(request: &Value) -> Vec<(&'static str, std::ffi::OsString)
 
 struct FixtureTui;
 impl ExtensionUiTuiBackend for FixtureTui {
+    fn create_fixed_cell(&self) -> std::rc::Rc<dyn pi_tui::components::editor::EditorFixedCell> {
+        panic!("this component fixture must not construct an editor")
+    }
     fn request_render(&self) {}
     fn terminal_rows(&self) -> usize {
         24
